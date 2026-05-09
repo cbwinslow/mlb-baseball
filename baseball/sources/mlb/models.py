@@ -17,9 +17,7 @@ class MLBScheduleRequest(BaseModel):
     """Request model for schedule downloads."""
 
     season: int = Field(..., ge=1900, le=2100, description="Season year")
-    start_season: int | None = Field(
-        None, ge=1900, description="Start season for range"
-    )
+    start_season: int | None = Field(None, ge=1900, description="Start season for range")
     end_season: int | None = Field(None, ge=1900, description="End season for range")
     team_id: str | None = Field(None, description='Team ID (e.g., "NYY")')
     start_date: date | None = Field(None, description="Start date (ISO format)")

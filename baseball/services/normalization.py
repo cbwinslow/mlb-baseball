@@ -41,9 +41,7 @@ def normalize_mlb_schedule(df: pd.DataFrame) -> pd.DataFrame:
     # Ensure required columns
     required = {"game_id", "game_date", "season", "status"}
     if not required.issubset(set(normalized.columns)):
-        raise ValueError(
-            f"Missing required columns: {required - set(normalized.columns)}"
-        )
+        raise ValueError(f"Missing required columns: {required - set(normalized.columns)}")
 
     logger.info(f"Normalized {len(normalized)} schedule records")
     return normalized

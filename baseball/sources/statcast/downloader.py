@@ -125,9 +125,7 @@ class StatcastDownloader:
 
             if df is not None and not df.empty:
                 season_str = f"_{season}" if season else ""
-                output_file = (
-                    self.output_dir / f"statcast_pitcher_{pitcher_id}{season_str}.csv"
-                )
+                output_file = self.output_dir / f"statcast_pitcher_{pitcher_id}{season_str}.csv"
                 save_csv(df, output_file)
 
                 result.status = ResultStatus.SUCCESS
@@ -180,9 +178,7 @@ class StatcastDownloader:
 
             if df is not None and not df.empty:
                 season_str = f"_{season}" if season else ""
-                output_file = (
-                    self.output_dir / f"statcast_batter_{batter_id}{season_str}.csv"
-                )
+                output_file = self.output_dir / f"statcast_batter_{batter_id}{season_str}.csv"
                 save_csv(df, output_file)
 
                 result.status = ResultStatus.SUCCESS

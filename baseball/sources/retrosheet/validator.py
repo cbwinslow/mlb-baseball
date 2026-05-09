@@ -75,9 +75,7 @@ class RetroEventFileValidator:
             result.records_valid = valid_count
             result.records_invalid = len(lines) - valid_count
             result.issues = issues
-            result.status = (
-                ResultStatus.SUCCESS if len(issues) == 0 else ResultStatus.PARTIAL
-            )
+            result.status = ResultStatus.SUCCESS if len(issues) == 0 else ResultStatus.PARTIAL
 
         except Exception as e:
             result.error = str(e)

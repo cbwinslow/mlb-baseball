@@ -55,15 +55,11 @@ class MLBValidator:
                 result.issues.append(f"Found null values: {nulls.to_dict()}")
 
             result.records_validated = len(df)
-            result.records_valid = len(df) - len(
-                df[list(required_columns)].isnull().any(axis=1)
-            )
+            result.records_valid = len(df) - len(df[list(required_columns)].isnull().any(axis=1))
             result.records_invalid = len(df) - result.records_valid
 
             result.status = (
-                ResultStatus.SUCCESS
-                if len(result.issues) == 0
-                else ResultStatus.PARTIAL
+                ResultStatus.SUCCESS if len(result.issues) == 0 else ResultStatus.PARTIAL
             )
 
         except Exception as e:
@@ -101,9 +97,7 @@ class MLBValidator:
             result.records_invalid = 1 - result.records_valid
 
             result.status = (
-                ResultStatus.SUCCESS
-                if len(result.issues) == 0
-                else ResultStatus.PARTIAL
+                ResultStatus.SUCCESS if len(result.issues) == 0 else ResultStatus.PARTIAL
             )
 
         except Exception as e:

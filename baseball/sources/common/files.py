@@ -86,6 +86,4 @@ def get_temp_file(suffix: str = ".tmp") -> Path:
     Returns:
         Temporary file path
     """
-    return (
-        Path(tempfile.gettempdir()) / f"baseball_{Path(tempfile.mktemp()).name}{suffix}"
-    )
+    return Path(tempfile.gettempdir()) / f"baseball_{Path(tempfile.mktemp()).name}{suffix}"

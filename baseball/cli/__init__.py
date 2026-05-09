@@ -1,0 +1,1 @@
+"""Baseball CLI package."""

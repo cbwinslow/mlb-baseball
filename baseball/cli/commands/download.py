@@ -80,9 +80,7 @@ def retrosheet_events(
 ) -> None:
     """Download Retrosheet event files."""
     console.print(f"[blue]Downloading Retrosheet events for {season}...[/blue]")
-    result = download_retrosheet_events(
-        season=season, teams=teams, output_dir=output_dir
-    )
+    result = download_retrosheet_events(season=season, teams=teams, output_dir=output_dir)
 
     if result.success:
         console.print(
@@ -102,9 +100,7 @@ def retrosheet_game_logs(
 ) -> None:
     """Download Retrosheet game logs."""
     console.print(f"[blue]Downloading {league} game logs for {season}...[/blue]")
-    result = download_retrosheet_game_logs(
-        season=season, league=league, output_dir=output_dir
-    )
+    result = download_retrosheet_game_logs(season=season, league=league, output_dir=output_dir)
 
     if result.success:
         console.print(
@@ -144,9 +140,7 @@ def statcast_pitcher(
 ) -> None:
     """Download StatCast data for pitcher."""
     console.print(f"[blue]Downloading StatCast for pitcher {pitcher_id}...[/blue]")
-    result = download_statcast_pitcher(
-        pitcher_id=pitcher_id, season=season, output_dir=output_dir
-    )
+    result = download_statcast_pitcher(pitcher_id=pitcher_id, season=season, output_dir=output_dir)
 
     if result.success:
         console.print(
@@ -166,9 +160,7 @@ def statcast_batter(
 ) -> None:
     """Download StatCast data for batter."""
     console.print(f"[blue]Downloading StatCast for batter {batter_id}...[/blue]")
-    result = download_statcast_batter(
-        batter_id=batter_id, season=season, output_dir=output_dir
-    )
+    result = download_statcast_batter(batter_id=batter_id, season=season, output_dir=output_dir)
 
     if result.success:
         console.print(
@@ -183,9 +175,7 @@ def statcast_batter(
 # Lahman Command
 @app.command()
 def lahman(
-    tables: list[str] | None = typer.Option(
-        None, "--tables", "-t", help="Tables to download"
-    ),
+    tables: list[str] | None = typer.Option(None, "--tables", "-t", help="Tables to download"),
     output_dir: Path = typer.Option(Path("data/raw/lahman"), "--output", "-o"),
 ) -> None:
     """Download Lahman database."""

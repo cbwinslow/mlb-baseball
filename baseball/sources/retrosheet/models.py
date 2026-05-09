@@ -17,13 +17,9 @@ class RetroEventFileRequest(BaseModel):
     """Request model for Retrosheet event file downloads."""
 
     season: int = Field(..., ge=1871, le=2100, description="Season year")
-    start_season: int | None = Field(
-        None, ge=1871, description="Start season for range"
-    )
+    start_season: int | None = Field(None, ge=1871, description="Start season for range")
     end_season: int | None = Field(None, ge=1871, description="End season for range")
-    teams: list[str] | None = Field(
-        None, description="Team abbreviations (e.g., NYY, BOS)"
-    )
+    teams: list[str] | None = Field(None, description="Team abbreviations (e.g., NYY, BOS)")
     extract_events: bool = Field(True, description="Extract individual events")
 
 

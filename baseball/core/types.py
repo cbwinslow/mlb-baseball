@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Core Type Definitions
@@ -8,7 +7,7 @@ Shared types and type aliases used throughout the platform.
 ================================================================================
 """
 
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 
 class Downloader(Protocol):

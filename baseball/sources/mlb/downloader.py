@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 MLB Downloader
@@ -10,17 +9,14 @@ High-level MLB data download orchestration.
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
 
 import pandas as pd
 
-from baseball.core.enums import DataGranularity, ResultStatus, SourceType
+from baseball.core.enums import ResultStatus, SourceType
 from baseball.core.logging import get_logger
 from baseball.core.results import DownloadResult
 from baseball.sources.common.files import save_csv, save_json
 from baseball.sources.mlb.client import MLBClient
-from baseball.sources.mlb.models import MLBScheduleRequest
-
 
 logger = get_logger(__name__)
 
@@ -30,7 +26,7 @@ class MLBDownloader:
 
     def __init__(
         self,
-        output_dir: Path = Path('data/raw/mlb'),
+        output_dir: Path = Path("data/raw/mlb"),
         rate_limit: float = 0.5,
     ):
         """Initialize downloader.
@@ -44,8 +40,8 @@ class MLBDownloader:
 
     def download_schedule(
         self,
-        season: Optional[int] = None,
-        team_id: Optional[str] = None,
+        season: int | None = None,
+        team_id: str | None = None,
     ) -> DownloadResult:
         """Download MLB schedule.
 
@@ -63,28 +59,30 @@ class MLBDownloader:
         result.start_time = datetime.now()
 
         try:
-            logger.info(f'Downloading MLB schedule: season={season}, team={team_id}')
+            logger.info(f"Downloading MLB schedule: season={season}, team={team_id}")
 
             # Fetch data
             data = self.client.get_schedule(season=season, team_id=team_id)
 
             # Parse into DataFrame
             games = []
-            for date_block in data.get('dates', []):
-                for game in date_block.get('games', []):
-                    games.append({
-                        'game_pk': game['gamePk'],
-                        'game_date': game['gameDateTime'],
-                        'season': game['season'],
-                        'status': game['status']['abstractGameCode'],
-                        'home_team': game['teams']['home']['team']['name'],
-                        'away_team': game['teams']['away']['team']['name'],
-                    })
+            for date_block in data.get("dates", []):
+                for game in date_block.get("games", []):
+                    games.append(
+                        {
+                            "game_pk": game["gamePk"],
+                            "game_date": game["gameDateTime"],
+                            "season": game["season"],
+                            "status": game["status"]["abstractGameCode"],
+                            "home_team": game["teams"]["home"]["team"]["name"],
+                            "away_team": game["teams"]["away"]["team"]["name"],
+                        }
+                    )
 
             df = pd.DataFrame(games)
 
             # Save to CSV
-            filename = f'schedule_{season}_{team_id or "all"}.csv'
+            filename = f"schedule_{season}_{team_id or 'all'}.csv"
             output_path = self.output_dir / filename
             save_csv(df, output_path)
 
@@ -93,12 +91,12 @@ class MLBDownloader:
             result.files_downloaded = [output_path]
             result.bytes_downloaded = output_path.stat().st_size
 
-            logger.info(f'Downloaded {len(df)} games to {output_path}')
+            logger.info(f"Downloaded {len(df)} games to {output_path}")
 
         except Exception as e:
             result.error = str(e)
-            result.error_code = 'DOWNLOAD_ERROR'
-            logger.exception(f'Download failed: {e}')
+            result.error_code = "DOWNLOAD_ERROR"
+            logger.exception(f"Download failed: {e}")
 
         finally:
             result.end_time = datetime.now()
@@ -128,35 +126,35 @@ class MLBDownloader:
         result.start_time = datetime.now()
 
         try:
-            logger.info(f'Downloading game {game_pk}')
+            logger.info(f"Downloading game {game_pk}")
 
             # Fetch live feed
             feed_data = self.client.get_game_feed(game_pk)
-            feed_path = self.output_dir / f'game_{game_pk}_feed.json'
+            feed_path = self.output_dir / f"game_{game_pk}_feed.json"
             save_json(feed_data, feed_path)
             result.files_downloaded.append(feed_path)
 
             if include_boxscore:
                 boxscore_data = self.client.get_boxscore(game_pk)
-                boxscore_path = self.output_dir / f'game_{game_pk}_boxscore.json'
+                boxscore_path = self.output_dir / f"game_{game_pk}_boxscore.json"
                 save_json(boxscore_data, boxscore_path)
                 result.files_downloaded.append(boxscore_path)
 
             if include_pbp:
                 pbp_data = self.client.get_playbyplay(game_pk)
-                pbp_path = self.output_dir / f'game_{game_pk}_pbp.json'
+                pbp_path = self.output_dir / f"game_{game_pk}_pbp.json"
                 save_json(pbp_data, pbp_path)
                 result.files_downloaded.append(pbp_path)
 
             result.status = ResultStatus.SUCCESS
             result.rows_downloaded = 1  # One game
 
-            logger.info(f'Downloaded game {game_pk}')
+            logger.info(f"Downloaded game {game_pk}")
 
         except Exception as e:
             result.error = str(e)
-            result.error_code = 'DOWNLOAD_ERROR'
-            logger.exception(f'Download failed: {e}')
+            result.error_code = "DOWNLOAD_ERROR"
+            logger.exception(f"Download failed: {e}")
 
         finally:
             result.end_time = datetime.now()

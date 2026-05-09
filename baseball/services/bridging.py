@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Bridging Services
@@ -8,10 +7,7 @@ Link entities across data sources (player IDs, team IDs, etc).
 ================================================================================
 """
 
-from typing import Dict, Optional, Tuple
-
 from baseball.core.logging import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -31,7 +27,7 @@ class PlayerBridge:
     def get_player_ids(
         self,
         name: str,
-    ) -> Optional[Dict[str, int]]:
+    ) -> dict[str, int] | None:
         """Get all IDs for a player across sources.
 
         Args:
@@ -41,16 +37,16 @@ class PlayerBridge:
             Dict mapping source to player ID
         """
         # TODO: Query player_ids table
-        logger.debug(f'Looking up IDs for {name}')
+        logger.debug(f"Looking up IDs for {name}")
         return None
 
     def add_player_mapping(
         self,
-        mlb_id: Optional[int] = None,
-        retrosheet_id: Optional[str] = None,
-        statcast_id: Optional[int] = None,
-        fangraphs_id: Optional[int] = None,
-        name: Optional[str] = None,
+        mlb_id: int | None = None,
+        retrosheet_id: str | None = None,
+        statcast_id: int | None = None,
+        fangraphs_id: int | None = None,
+        name: str | None = None,
     ) -> bool:
         """Add player ID mapping across sources.
 
@@ -65,7 +61,7 @@ class PlayerBridge:
             True if successful
         """
         # TODO: Insert into player_ids table
-        logger.info(f'Added mapping for {name}')
+        logger.info(f"Added mapping for {name}")
         return True
 
 
@@ -73,8 +69,8 @@ class TeamBridge:
     """Bridge team identities across sources."""
 
     TEAM_CODES = {
-        'NYY': {'mlb': 147, 'retrosheet': 'NYA', 'espn': 25},
-        'BOS': {'mlb': 111, 'retrosheet': 'BOS', 'espn': 6},
+        "NYY": {"mlb": 147, "retrosheet": "NYA", "espn": 25},
+        "BOS": {"mlb": 111, "retrosheet": "BOS", "espn": 6},
         # ... more teams
     }
 
@@ -89,7 +85,7 @@ class TeamBridge:
     def get_team_ids(
         self,
         code: str,
-    ) -> Optional[Dict[str, int]]:
+    ) -> dict[str, int] | None:
         """Get all IDs for a team across sources.
 
         Args:

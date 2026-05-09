@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Shared Logging Setup
@@ -10,7 +9,6 @@ Centralized logging configuration for the baseball platform.
 
 import logging
 import sys
-from pathlib import Path
 
 from rich.logging import RichHandler
 
@@ -46,7 +44,7 @@ def setup_logging(
     else:
         handler = logging.StreamHandler(sys.stdout)
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
         handler.setFormatter(formatter)
 

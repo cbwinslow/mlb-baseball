@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Live Game Services
@@ -8,12 +7,11 @@ Orchestrate live game polling workflows.
 ================================================================================
 """
 
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
 
 from baseball.core.logging import get_logger
 from baseball.core.results import LiveUpdate
 from baseball.sources.mlb.live import MLBLivePoller
-
 
 logger = get_logger(__name__)
 
@@ -21,8 +19,8 @@ logger = get_logger(__name__)
 async def poll_live_mlb_game(
     game_pk: int,
     poll_interval: int = 10,
-    max_polls: Optional[int] = None,
-    timeout_seconds: Optional[int] = None,
+    max_polls: int | None = None,
+    timeout_seconds: int | None = None,
 ) -> AsyncIterator[LiveUpdate]:
     """Poll a live MLB game.
 
@@ -35,7 +33,7 @@ async def poll_live_mlb_game(
     Yields:
         LiveUpdate objects
     """
-    logger.info(f'Live service: polling game {game_pk}')
+    logger.info(f"Live service: polling game {game_pk}")
 
     poller = MLBLivePoller()
     async for update in poller.poll(

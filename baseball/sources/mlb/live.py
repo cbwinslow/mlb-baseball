@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 MLB Live Game Polling
@@ -11,15 +10,14 @@ Real-time game polling with change detection and deduplication.
 import hashlib
 import json
 import time
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import AsyncIterator, Optional
 
 from baseball.core.enums import SourceType
 from baseball.core.logging import get_logger
 from baseball.core.results import LiveUpdate
 from baseball.sources.mlb.client import MLBClient
 from baseball.sources.mlb.models import MLBGameState
-
 
 logger = get_logger(__name__)
 
@@ -58,29 +56,35 @@ class MLBLivePoller:
         Returns:
             Parsed game state
         """
-        game_data = feed.get('gameData', {})
-        live_data = feed.get('liveData', {})
+        game_data = feed.get("gameData", {})
+        live_data = feed.get("liveData", {})
 
         return MLBGameState(
-            game_pk=feed['gamePk'],
+            game_pk=feed["gamePk"],
             game_date=datetime.fromisoformat(
-                game_data.get('datetime', {}).get('dateTime', '').replace('Z', '+00:00')
+                game_data.get("datetime", {}).get("dateTime", "").replace("Z", "+00:00")
             ),
-            status=live_data.get('gameState', ''),
-            inning=live_data.get('linescore', {}).get('currentInning'),
-            inning_state=live_data.get('linescore', {}).get('inningState'),
-            home_team=game_data.get('teams', {}).get('home', {}).get('teamName', ''),
-            away_team=game_data.get('teams', {}).get('away', {}).get('teamName', ''),
-            home_score=live_data.get('linescore', {}).get('teams', {}).get('home', {}).get('runs', 0),
-            away_score=live_data.get('linescore', {}).get('teams', {}).get('away', {}).get('runs', 0),
+            status=live_data.get("gameState", ""),
+            inning=live_data.get("linescore", {}).get("currentInning"),
+            inning_state=live_data.get("linescore", {}).get("inningState"),
+            home_team=game_data.get("teams", {}).get("home", {}).get("teamName", ""),
+            away_team=game_data.get("teams", {}).get("away", {}).get("teamName", ""),
+            home_score=live_data.get("linescore", {})
+            .get("teams", {})
+            .get("home", {})
+            .get("runs", 0),
+            away_score=live_data.get("linescore", {})
+            .get("teams", {})
+            .get("away", {})
+            .get("runs", 0),
         )
 
     async def poll(
         self,
         game_pk: int,
         poll_interval: int = 10,
-        max_polls: Optional[int] = None,
-        timeout_seconds: Optional[int] = None,
+        max_polls: int | None = None,
+        timeout_seconds: int | None = None,
     ) -> AsyncIterator[LiveUpdate]:
         """Poll live game feed.
 
@@ -100,12 +104,12 @@ class MLBLivePoller:
             while True:
                 # Check timeout
                 if timeout_seconds and (time.time() - start_time) > timeout_seconds:
-                    logger.info(f'Polling timeout reached for game {game_pk}')
+                    logger.info(f"Polling timeout reached for game {game_pk}")
                     break
 
                 # Check poll limit
                 if max_polls and poll_count >= max_polls:
-                    logger.info(f'Max polls reached for game {game_pk}')
+                    logger.info(f"Max polls reached for game {game_pk}")
                     break
 
                 poll_count += 1
@@ -119,7 +123,7 @@ class MLBLivePoller:
 
                     # Detect changes
                     new_plays = []
-                    plays = feed.get('liveData', {}).get('plays', [])
+                    plays = feed.get("liveData", {}).get("plays", [])
 
                     for play in plays:
                         play_hash = self._compute_hash(play)
@@ -139,16 +143,16 @@ class MLBLivePoller:
                     yield update
 
                     # Check if game is finished
-                    if game_state.status in ('F', 'O', 'GF'):
-                        logger.info(f'Game {game_pk} finished')
+                    if game_state.status in ("F", "O", "GF"):
+                        logger.info(f"Game {game_pk} finished")
                         break
 
                 except Exception as e:
-                    logger.warning(f'Poll error for game {game_pk}: {e}')
+                    logger.warning(f"Poll error for game {game_pk}: {e}")
                     # Continue polling on errors
 
                 # Wait before next poll
                 time.sleep(poll_interval)
 
         except KeyboardInterrupt:
-            logger.info(f'Polling interrupted for game {game_pk}')
+            logger.info(f"Polling interrupted for game {game_pk}")

@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Database Bootstrap
@@ -9,10 +8,8 @@ Bootstrap database schema and tables.
 """
 
 from pathlib import Path
-from typing import Optional
 
 from baseball.core.logging import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -20,7 +17,7 @@ logger = get_logger(__name__)
 class DatabaseBootstrap:
     """Bootstrap database schema."""
 
-    def __init__(self, db_connection=None, sql_dir: Path = Path('sql')):
+    def __init__(self, db_connection=None, sql_dir: Path = Path("sql")):
         """Initialize bootstrap.
 
         Args:
@@ -40,19 +37,19 @@ class DatabaseBootstrap:
         Returns:
             True if successful
         """
-        logger.info('Bootstrapping database schema')
+        logger.info("Bootstrapping database schema")
 
         try:
             # Execute SQL files in order
-            sql_files = sorted(self.sql_dir.glob('*.sql'))
+            sql_files = sorted(self.sql_dir.glob("*.sql"))
 
             for sql_file in sql_files:
-                logger.info(f'Executing {sql_file.name}')
+                logger.info(f"Executing {sql_file.name}")
                 # TODO: Execute SQL file
 
-            logger.info('Bootstrap complete')
+            logger.info("Bootstrap complete")
             return True
 
         except Exception as e:
-            logger.exception(f'Bootstrap failed: {e}')
+            logger.exception(f"Bootstrap failed: {e}")
             return False

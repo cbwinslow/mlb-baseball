@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Retrosheet Validator
@@ -13,7 +12,6 @@ from pathlib import Path
 from baseball.core.enums import ResultStatus, SourceType
 from baseball.core.logging import get_logger
 from baseball.core.results import ValidationResult
-
 
 logger = get_logger(__name__)
 
@@ -56,32 +54,34 @@ class RetroEventFileValidator:
                 if not line:
                     continue
 
-                parts = line.split(',')
+                parts = line.split(",")
                 line_type = parts[0]
 
-                if line_type == 'id':
+                if line_type == "id":
                     has_id = True
-                elif line_type == 'play':
+                elif line_type == "play":
                     has_plays = True
                     # Validate play line format
                     if len(parts) < 7:
-                        issues.append(f'Play line {line_num}: insufficient fields')
+                        issues.append(f"Play line {line_num}: insufficient fields")
 
                 valid_count += 1
 
             if not has_id:
-                issues.append('Missing id line')
+                issues.append("Missing id line")
             if not has_plays:
-                issues.append('No play lines found')
+                issues.append("No play lines found")
 
             result.records_valid = valid_count
             result.records_invalid = len(lines) - valid_count
             result.issues = issues
-            result.status = ResultStatus.SUCCESS if len(issues) == 0 else ResultStatus.PARTIAL
+            result.status = (
+                ResultStatus.SUCCESS if len(issues) == 0 else ResultStatus.PARTIAL
+            )
 
         except Exception as e:
             result.error = str(e)
-            result.error_code = 'VALIDATION_ERROR'
-            logger.exception(f'Validation failed: {e}')
+            result.error_code = "VALIDATION_ERROR"
+            logger.exception(f"Validation failed: {e}")
 
         return result

@@ -12,30 +12,30 @@ jobs:
     strategy:
       matrix:
         python-version: [3.12]
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e .[dev]
         pip install pre-commit
-    
+
     - name: Run pre-commit hooks
       run: |
         pre-commit run --all-files
-    
+
     - name: Run tests
       run: |
         python -m pytest tests/ -v --cov=baseball --cov-report=xml
-    
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
@@ -48,21 +48,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install bandit safety
-    
+
     - name: Run Bandit security scan
       run: |
         bandit -r baseball/ -ll
-    
+
     - name: Run Safety dependency check
       run: |
         safety check --full-report
@@ -71,18 +71,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e .[dev]
         pip install mypy
-    
+
     - name: Run MyPy type checking
       run: |
         mypy baseball/
@@ -91,18 +91,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e .[dev]
         pip install mkdocs mkdocstrings[python]
-    
+
     - name: Build documentation
       run: |
         mkdocs build --strict
@@ -111,17 +111,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install black isort ruff
-    
+
     - name: Check formatting
       run: |
         black --check baseball/

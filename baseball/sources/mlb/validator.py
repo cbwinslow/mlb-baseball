@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 MLB Validator
@@ -9,13 +8,11 @@ Validation logic for MLB downloaded data.
 """
 
 from pathlib import Path
-from typing import Optional
 
 from baseball.core.enums import ResultStatus, SourceType
 from baseball.core.logging import get_logger
 from baseball.core.results import ValidationResult
 from baseball.sources.common.files import load_csv, load_json
-
 
 logger = get_logger(__name__)
 
@@ -44,29 +41,35 @@ class MLBValidator:
         try:
             df = load_csv(path)
 
-            required_columns = {'game_pk', 'game_date', 'season', 'status'}
+            required_columns = {"game_pk", "game_date", "season", "status"}
             missing = required_columns - set(df.columns)
 
             if missing:
-                result.issues.append(f'Missing columns: {missing}')
+                result.issues.append(f"Missing columns: {missing}")
                 result.status = ResultStatus.FAILED
                 return result
 
             # Check for null values in required columns
             nulls = df[list(required_columns)].isnull().sum()
             if nulls.sum() > 0:
-                result.issues.append(f'Found null values: {nulls.to_dict()}')
+                result.issues.append(f"Found null values: {nulls.to_dict()}")
 
             result.records_validated = len(df)
-            result.records_valid = len(df) - len(df[list(required_columns)].isnull().any(axis=1))
+            result.records_valid = len(df) - len(
+                df[list(required_columns)].isnull().any(axis=1)
+            )
             result.records_invalid = len(df) - result.records_valid
 
-            result.status = ResultStatus.SUCCESS if len(result.issues) == 0 else ResultStatus.PARTIAL
+            result.status = (
+                ResultStatus.SUCCESS
+                if len(result.issues) == 0
+                else ResultStatus.PARTIAL
+            )
 
         except Exception as e:
             result.error = str(e)
-            result.error_code = 'VALIDATION_ERROR'
-            logger.exception(f'Validation failed: {e}')
+            result.error_code = "VALIDATION_ERROR"
+            logger.exception(f"Validation failed: {e}")
 
         return result
 
@@ -88,20 +91,24 @@ class MLBValidator:
             data = load_json(path)
 
             # Check basic structure
-            if 'gamePk' not in data:
-                result.issues.append('Missing gamePk in game data')
-            if 'gameData' not in data:
-                result.issues.append('Missing gameData in game data')
+            if "gamePk" not in data:
+                result.issues.append("Missing gamePk in game data")
+            if "gameData" not in data:
+                result.issues.append("Missing gameData in game data")
 
             result.records_validated = 1
             result.records_valid = 1 if len(result.issues) == 0 else 0
             result.records_invalid = 1 - result.records_valid
 
-            result.status = ResultStatus.SUCCESS if len(result.issues) == 0 else ResultStatus.PARTIAL
+            result.status = (
+                ResultStatus.SUCCESS
+                if len(result.issues) == 0
+                else ResultStatus.PARTIAL
+            )
 
         except Exception as e:
             result.error = str(e)
-            result.error_code = 'VALIDATION_ERROR'
-            logger.exception(f'Validation failed: {e}')
+            result.error_code = "VALIDATION_ERROR"
+            logger.exception(f"Validation failed: {e}")
 
         return result

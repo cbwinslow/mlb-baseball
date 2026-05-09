@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 File Utilities
@@ -11,7 +10,7 @@ Shared file handling for all sources.
 import json
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -30,7 +29,7 @@ def save_json(
     """
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         json.dump(
             data,
             f,
@@ -78,7 +77,7 @@ def load_csv(path: Path) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
-def get_temp_file(suffix: str = '.tmp') -> Path:
+def get_temp_file(suffix: str = ".tmp") -> Path:
     """Get temporary file path.
 
     Args:
@@ -87,4 +86,6 @@ def get_temp_file(suffix: str = '.tmp') -> Path:
     Returns:
         Temporary file path
     """
-    return Path(tempfile.gettempdir()) / f'baseball_{Path(tempfile.mktemp()).name}{suffix}'
+    return (
+        Path(tempfile.gettempdir()) / f"baseball_{Path(tempfile.mktemp()).name}{suffix}"
+    )

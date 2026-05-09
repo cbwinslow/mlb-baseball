@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Retrosheet Data Models
@@ -8,8 +7,8 @@ Pydantic models for Retrosheet event files and parsed data.
 ================================================================================
 """
 
-from datetime import date, datetime
-from typing import Any, Dict, Optional
+from datetime import date
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -17,11 +16,15 @@ from pydantic import BaseModel, Field
 class RetroEventFileRequest(BaseModel):
     """Request model for Retrosheet event file downloads."""
 
-    season: int = Field(..., ge=1871, le=2100, description='Season year')
-    start_season: Optional[int] = Field(None, ge=1871, description='Start season for range')
-    end_season: Optional[int] = Field(None, ge=1871, description='End season for range')
-    teams: Optional[list[str]] = Field(None, description='Team abbreviations (e.g., NYY, BOS)')
-    extract_events: bool = Field(True, description='Extract individual events')
+    season: int = Field(..., ge=1871, le=2100, description="Season year")
+    start_season: int | None = Field(
+        None, ge=1871, description="Start season for range"
+    )
+    end_season: int | None = Field(None, ge=1871, description="End season for range")
+    teams: list[str] | None = Field(
+        None, description="Team abbreviations (e.g., NYY, BOS)"
+    )
+    extract_events: bool = Field(True, description="Extract individual events")
 
 
 class RetroEventLine(BaseModel):
@@ -30,12 +33,12 @@ class RetroEventLine(BaseModel):
     line_type: str  # id, version, info, start, sub, play, com, data
     season: int
     game_id: str
-    inning: Optional[int] = None
-    home_away: Optional[int] = None  # 0=away, 1=home
-    player_id: Optional[str] = None
-    event_type: Optional[str] = None
-    description: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    inning: int | None = None
+    home_away: int | None = None  # 0=away, 1=home
+    player_id: str | None = None
+    event_type: str | None = None
+    description: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RetroGameEvent(BaseModel):
@@ -48,14 +51,14 @@ class RetroGameEvent(BaseModel):
     away_team: str
     inning: int
     inning_state: str  # top, bottom
-    pitcher_id: Optional[str] = None
-    pitcher_name: Optional[str] = None
-    batter_id: Optional[str] = None
-    batter_name: Optional[str] = None
+    pitcher_id: str | None = None
+    pitcher_name: str | None = None
+    batter_id: str | None = None
+    batter_name: str | None = None
     event_code: str
     event_description: str
     runs_scored: int = 0
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RetroGameLog(BaseModel):
@@ -70,8 +73,8 @@ class RetroGameLog(BaseModel):
     away_team: str
     away_runs: int
     game_duration: int  # minutes
-    attendance: Optional[int] = None
-    weather: Optional[str] = None
-    wind_direction: Optional[str] = None
-    wind_speed: Optional[int] = None
-    temperature: Optional[int] = None
+    attendance: int | None = None
+    weather: str | None = None
+    wind_direction: str | None = None
+    wind_speed: int | None = None
+    temperature: int | None = None

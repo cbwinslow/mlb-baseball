@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Structured Result Objects
@@ -11,9 +10,9 @@ Dataclasses for structured operation results across the platform.
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from baseball.core.enums import ResultStatus, SourceType, OperationType
+from baseball.core.enums import OperationType, ResultStatus, SourceType
 
 
 @dataclass
@@ -30,13 +29,13 @@ class DownloadResult:
     files_downloaded: list[Path] = field(default_factory=list)
 
     # Timing
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
     # Error info
-    error: Optional[str] = None
-    error_code: Optional[str] = None
-    error_details: Optional[dict[str, Any]] = None
+    error: str | None = None
+    error_code: str | None = None
+    error_details: dict[str, Any] | None = None
 
     # Metadata
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -57,16 +56,16 @@ class DownloadResult:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
-            'source': self.source.value,
-            'operation': self.operation.value,
-            'status': self.status.value,
-            'rows_downloaded': self.rows_downloaded,
-            'bytes_downloaded': self.bytes_downloaded,
-            'files_downloaded': [str(f) for f in self.files_downloaded],
-            'duration_seconds': self.duration_seconds,
-            'error': self.error,
-            'error_code': self.error_code,
-            'metadata': self.metadata,
+            "source": self.source.value,
+            "operation": self.operation.value,
+            "status": self.status.value,
+            "rows_downloaded": self.rows_downloaded,
+            "bytes_downloaded": self.bytes_downloaded,
+            "files_downloaded": [str(f) for f in self.files_downloaded],
+            "duration_seconds": self.duration_seconds,
+            "error": self.error,
+            "error_code": self.error_code,
+            "metadata": self.metadata,
         }
 
 
@@ -84,16 +83,16 @@ class IngestResult:
     bytes_processed: int = 0
 
     # Timing
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
     # Staging/raw info
-    staging_table: Optional[str] = None
-    raw_table: Optional[str] = None
+    staging_table: str | None = None
+    raw_table: str | None = None
 
     # Error info
-    error: Optional[str] = None
-    error_code: Optional[str] = None
+    error: str | None = None
+    error_code: str | None = None
 
     # Metadata
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -113,13 +112,13 @@ class IngestResult:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
-            'source': self.source.value,
-            'status': self.status.value,
-            'rows_inserted': self.rows_inserted,
-            'rows_updated': self.rows_updated,
-            'rows_skipped': self.rows_skipped,
-            'duration_seconds': self.duration_seconds,
-            'error': self.error,
+            "source": self.source.value,
+            "status": self.status.value,
+            "rows_inserted": self.rows_inserted,
+            "rows_updated": self.rows_updated,
+            "rows_skipped": self.rows_skipped,
+            "duration_seconds": self.duration_seconds,
+            "error": self.error,
         }
 
 
@@ -137,7 +136,7 @@ class ValidationResult:
 
     # Issues
     issues: list[str] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
 
     # Metadata
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -162,9 +161,9 @@ class LiveUpdate:
     deleted_records: list[dict[str, Any]] = field(default_factory=list)
 
     # Game state
-    game_state: Optional[dict[str, Any]] = None
-    inning: Optional[int] = None
-    inning_state: Optional[str] = None  # top/bottom
+    game_state: dict[str, Any] | None = None
+    inning: int | None = None
+    inning_state: str | None = None  # top/bottom
 
     # Metadata
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -181,8 +180,8 @@ class CommandResult:
 
     command: str
     status: ResultStatus = ResultStatus.SUCCESS
-    message: Optional[str] = None
-    error: Optional[str] = None
+    message: str | None = None
+    error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property

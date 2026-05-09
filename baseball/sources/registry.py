@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Source Registry
@@ -8,8 +7,6 @@ Central registry for all data source implementations.
 ================================================================================
 """
 
-from typing import Dict, Optional, Type
-
 from baseball.core.enums import SourceType
 from baseball.sources.contracts import SourceContract
 
@@ -17,19 +14,19 @@ from baseball.sources.contracts import SourceContract
 class SourceRegistry:
     """Registry for source implementations."""
 
-    _registry: Dict[SourceType, Type[SourceContract]] = {}
+    _registry: dict[SourceType, type[SourceContract]] = {}
 
     @classmethod
     def register(
         cls,
         source_type: SourceType,
-        implementation: Type[SourceContract],
+        implementation: type[SourceContract],
     ) -> None:
         """Register a source implementation."""
         cls._registry[source_type] = implementation
 
     @classmethod
-    def get(cls, source_type: SourceType) -> Optional[Type[SourceContract]]:
+    def get(cls, source_type: SourceType) -> type[SourceContract] | None:
         """Get a source implementation."""
         return cls._registry.get(source_type)
 

@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Time and Date Utilities
@@ -9,7 +8,6 @@ Shared time handling for all sources.
 """
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
 
 
 def now_utc() -> datetime:
@@ -66,6 +64,6 @@ def season_dates(season: int) -> tuple[date, date]:
     """
     # MLB seasons typically start late March, end early November
     opening = date(season, 3, 28)  # Approximate
-    closing = date(season, 11, 5)   # Approximate
+    closing = date(season, 11, 5)  # Approximate
 
     return opening, closing

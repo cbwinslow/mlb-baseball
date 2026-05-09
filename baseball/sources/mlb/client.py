@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 MLB API Client
@@ -9,16 +8,13 @@ Low-level HTTP client for MLB Stats API with retries and rate limiting.
 """
 
 import time
-from typing import Any, Dict, Optional
-
-import httpx
+from typing import Any
 
 from baseball.core.logging import get_logger
 from baseball.sources.common.http import create_http_client
 from baseball.sources.common.retries import retry_on_http_errors
 from baseball.sources.mlb.endpoints import MLBEndpointBuilder
 from baseball.sources.mlb.params import MLBParamTransformer
-
 
 logger = get_logger(__name__)
 
@@ -57,8 +53,8 @@ class MLBClient:
     def _request(
         self,
         url: str,
-        params: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Make HTTP request with retry logic.
 
         Args:
@@ -73,7 +69,7 @@ class MLBClient:
         """
         self._apply_rate_limit()
 
-        logger.debug(f'GET {url} with params {params}')
+        logger.debug(f"GET {url} with params {params}")
 
         response = self.client.get(url, params=params)
         response.raise_for_status()
@@ -82,10 +78,10 @@ class MLBClient:
 
     def get_schedule(
         self,
-        season: Optional[int] = None,
-        team_id: Optional[str] = None,
+        season: int | None = None,
+        team_id: str | None = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get schedule data.
 
         Args:
@@ -104,7 +100,7 @@ class MLBClient:
 
         return self._request(url, params)
 
-    def get_game_feed(self, game_pk: int) -> Dict[str, Any]:
+    def get_game_feed(self, game_pk: int) -> dict[str, Any]:
         """Get live game feed.
 
         Args:
@@ -116,7 +112,7 @@ class MLBClient:
         url = MLBEndpointBuilder.game_feed_url(game_pk)
         return self._request(url)
 
-    def get_boxscore(self, game_pk: int) -> Dict[str, Any]:
+    def get_boxscore(self, game_pk: int) -> dict[str, Any]:
         """Get game boxscore.
 
         Args:
@@ -128,7 +124,7 @@ class MLBClient:
         url = MLBEndpointBuilder.boxscore_url(game_pk)
         return self._request(url)
 
-    def get_playbyplay(self, game_pk: int) -> Dict[str, Any]:
+    def get_playbyplay(self, game_pk: int) -> dict[str, Any]:
         """Get play-by-play data.
 
         Args:
@@ -143,8 +139,8 @@ class MLBClient:
     def get_person_stats(
         self,
         person_id: int,
-        season: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        season: int | None = None,
+    ) -> dict[str, Any]:
         """Get person statistics.
 
         Args:

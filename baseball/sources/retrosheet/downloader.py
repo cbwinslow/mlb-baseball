@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Retrosheet Downloader
@@ -12,15 +11,12 @@ import io
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import httpx
 
 from baseball.core.enums import ResultStatus, SourceType
 from baseball.core.logging import get_logger
 from baseball.core.results import DownloadResult
-from baseball.sources.common.files import save_json
-
 
 logger = get_logger(__name__)
 
@@ -28,21 +24,42 @@ logger = get_logger(__name__)
 class RetroEventFileDownloader:
     """Download Retrosheet event files."""
 
-    BASE_URL = 'https://www.retrosheet.org/events/'
-    
+    BASE_URL = "https://www.retrosheet.org/events/"
+
     # Mapping of team ID to Retrosheet abbreviation
     TEAM_CODES = {
-        'NYY': 'NYA', 'BOS': 'BOS', 'BAL': 'BAL', 'TB': 'TBA',
-        'TOR': 'TOR', 'DET': 'DET', 'KC': 'KCA', 'MIN': 'MIN',
-        'CWS': 'CHA', 'CLE': 'CLE', 'OAK': 'OAK', 'LAA': 'ANA',
-        'SEA': 'SEA', 'TEX': 'TEX', 'PHI': 'PHI', 'ATL': 'ATL',
-        'NYM': 'NYN', 'WSH': 'WAS', 'MIA': 'MIA', 'STL': 'STL',
-        'PIT': 'PIT', 'CHC': 'CHN', 'MIL': 'MIL', 'SD': 'SDN',
-        'SF': 'SFN', 'LAD': 'LAN', 'ARI': 'ARI', 'COL': 'COL',
-        'HOU': 'HOU',
+        "NYY": "NYA",
+        "BOS": "BOS",
+        "BAL": "BAL",
+        "TB": "TBA",
+        "TOR": "TOR",
+        "DET": "DET",
+        "KC": "KCA",
+        "MIN": "MIN",
+        "CWS": "CHA",
+        "CLE": "CLE",
+        "OAK": "OAK",
+        "LAA": "ANA",
+        "SEA": "SEA",
+        "TEX": "TEX",
+        "PHI": "PHI",
+        "ATL": "ATL",
+        "NYM": "NYN",
+        "WSH": "WAS",
+        "MIA": "MIA",
+        "STL": "STL",
+        "PIT": "PIT",
+        "CHC": "CHN",
+        "MIL": "MIL",
+        "SD": "SDN",
+        "SF": "SFN",
+        "LAD": "LAN",
+        "ARI": "ARI",
+        "COL": "COL",
+        "HOU": "HOU",
     }
 
-    def __init__(self, output_dir: Path = Path('data/raw/retrosheet')):
+    def __init__(self, output_dir: Path = Path("data/raw/retrosheet")):
         """Initialize downloader.
 
         Args:
@@ -54,7 +71,7 @@ class RetroEventFileDownloader:
     def download_event_files(
         self,
         season: int,
-        teams: Optional[list[str]] = None,
+        teams: list[str] | None = None,
     ) -> DownloadResult:
         """Download Retrosheet event files for season.
 
@@ -72,13 +89,13 @@ class RetroEventFileDownloader:
         result.start_time = datetime.now()
 
         try:
-            logger.info(f'Downloading Retrosheet event files for {season}')
+            logger.info(f"Downloading Retrosheet event files for {season}")
 
             # Build download URL for season
             # Format: https://www.retrosheet.org/events/YYYY.zip
-            url = f'{self.BASE_URL}{season}.zip'
+            url = f"{self.BASE_URL}{season}.zip"
 
-            logger.debug(f'Downloading from {url}')
+            logger.debug(f"Downloading from {url}")
 
             response = self.client.get(url)
             response.raise_for_status()
@@ -99,7 +116,7 @@ class RetroEventFileDownloader:
                             continue
 
                     # Extract event files (.EVx)
-                    if filename.upper().endswith(('.EVA', '.EVN')):
+                    if filename.upper().endswith((".EVA", ".EVN")):
                         content = zf.read(filename)
                         output_file = season_dir / filename
                         output_file.write_bytes(content)
@@ -109,12 +126,12 @@ class RetroEventFileDownloader:
 
             result.status = ResultStatus.SUCCESS
             result.rows_downloaded = files_extracted
-            logger.info(f'Extracted {files_extracted} event files for {season}')
+            logger.info(f"Extracted {files_extracted} event files for {season}")
 
         except Exception as e:
             result.error = str(e)
-            result.error_code = 'DOWNLOAD_ERROR'
-            logger.exception(f'Download failed: {e}')
+            result.error_code = "DOWNLOAD_ERROR"
+            logger.exception(f"Download failed: {e}")
 
         finally:
             result.end_time = datetime.now()
@@ -124,7 +141,7 @@ class RetroEventFileDownloader:
     def download_game_logs(
         self,
         season: int,
-        league: str = 'AL',
+        league: str = "AL",
     ) -> DownloadResult:
         """Download Retrosheet game logs for season.
 
@@ -142,11 +159,11 @@ class RetroEventFileDownloader:
         result.start_time = datetime.now()
 
         try:
-            logger.info(f'Downloading {league} game logs for {season}')
+            logger.info(f"Downloading {league} game logs for {season}")
 
             # Game logs: GL{year}{league}.TXT
-            filename = f'GL{season}{league}.TXT'
-            url = f'{self.BASE_URL}{filename}'
+            filename = f"GL{season}{league}.TXT"
+            url = f"{self.BASE_URL}{filename}"
 
             response = self.client.get(url)
             response.raise_for_status()
@@ -158,15 +175,15 @@ class RetroEventFileDownloader:
             output_file.write_text(response.text)
             result.files_downloaded.append(output_file)
             result.bytes_downloaded = len(response.content)
-            result.rows_downloaded = len(response.text.split('\n'))
+            result.rows_downloaded = len(response.text.split("\n"))
 
             result.status = ResultStatus.SUCCESS
-            logger.info(f'Downloaded {league} game logs for {season}')
+            logger.info(f"Downloaded {league} game logs for {season}")
 
         except Exception as e:
             result.error = str(e)
-            result.error_code = 'DOWNLOAD_ERROR'
-            logger.exception(f'Download failed: {e}')
+            result.error_code = "DOWNLOAD_ERROR"
+            logger.exception(f"Download failed: {e}")
 
         finally:
             result.end_time = datetime.now()

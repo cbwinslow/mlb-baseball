@@ -1,0 +1,217 @@
+# Pre-commit configuration for baseball project
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+  # Ruff - Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.6
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # Black - Code formatter
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+        language_version: python3
+
+  # isort - Import sorter
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: isort (python)
+
+  # Flake8 - Style guide enforcement
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        additional_dependencies: [flake8-bugbear]
+
+  # Pylint - Python linting
+  - repo: https://github.com/PyCQA/pylint
+    rev: pylint-3.2.7
+    hooks:
+      - id: pylint
+        name: pylint
+        entry: pylint
+        language: python
+        types: [python]
+
+  # MyPy - Static type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+
+  # Bandit - Security linter
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.10
+    hooks:
+      - id: bandit
+        args: [-ll, -x, tests/]
+
+  # Safety - Dependency vulnerability checker
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.10
+    hooks:
+      - id: bandit
+        args: [-ll, -x, tests/]
+
+  # Docformatter - Docstring formatter
+  - repo: https://github.com/myint/docformatter
+    rev: v1.7.5
+    hooks:
+      - id: docformatter
+        name: docformatter
+        args: [--in-place, --make-summary-multi-line, --blank]
+
+  # PyUpgrade - Upgrade Python syntax
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.19.0
+    hooks:
+      - id: pyupgrade
+        args: [--py312-plus]
+
+  # Sort requirements.txt
+  - repo: https://github.com/asottile/requirements-txt-fixer
+    rev: v0.2.0
+    hooks:
+      - id: requirements-txt-fixer
+
+  # Check for added large files
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=5000']
+
+  # Check for merge conflicts
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-merge-conflict
+
+  # Check for broken symlinks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-symlinks
+
+  # Check for executable files
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-executable-files
+
+  # Check YAML
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+
+  # Check TOML
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-toml
+
+  # Check JSON
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-json
+
+  # Check for debug statements (print, ipdb, etc.)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: debug-statements
+
+  # End of file fixer
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: end-of-file-fixer
+
+  # Trim trailing whitespace
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+
+  # SQLFluff - SQL linter and formatter
+  - repo: https://github.com/sqlfluff/sqlfluff-pre-commit
+    rev: v2.4.0
+    hooks:
+      - id: sqlfluff-lint
+        args: [--fix]
+      - id: sqlfluff-format
+        args: [--fix]
+
+  # Darglint - Docstring linter
+  - repo: https://github.com/terrencepreilly/darglint
+    rev: v1.8.1
+    hooks:
+      - id: darglint
+        args: [--verbosity=2]
+
+  # Pydocstyle - Docstring style checker
+  - repo: https://github.com/PyCQA/pydocstyle
+    rev: v6.3.0
+    hooks:
+      - id: pydocstyle
+        add_args: [--match='(?!tests_).*\.py']
+
+  # Vulture - Find dead code
+  - repo: https://github.com/jendrikseipp/vulture
+    rev: v2.9
+    hooks:
+      - id: vulture
+        args: [--min-confidence=80]
+
+  # Dodgy - Find dodgy Python code
+  - repo: https://github.com/nextlab/dodgy
+    rev: v0.2.1
+    hooks:
+      - id: dodgy
+
+  # PyStrich - String literal checker
+  - repo: https://github.com/asottile/pystrich
+    rev: v0.1.1
+    hooks:
+      - id: pystrich-literal-checker
+
+  # PyLint Extensions
+  - repo: https://github.com/PyCQA/pylint-extensions
+    rev: pylint-extensions-3.2.0
+    hooks:
+      - id: pylint-django
+      - id: pylint-plugin-utils
+
+commit_msg_hooks:
+  # Conventional commits
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.2.8
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+        additional_dependencies: [commitizen-tools[toml]]
+
+  # Check commit message length
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-commit-description
+        args: [--max-lines=1, --min-lines=1]
+
+  # Check for WIP commits
+  - repo: https://github.com/mbomgren/pre-commit-wip
+    rev: v0.2.2
+    hooks:
+      - id: wip

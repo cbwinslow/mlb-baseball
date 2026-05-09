@@ -1,0 +1,38 @@
+[project]
+name = "baseball"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pybaseball>=2.2.7",
+    "pylint>=4.0.5",
+    "ruff>=0.15.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=24.8.0",
+    "isort>=5.13.2",
+    "flake8>=7.1.1",
+    "mypy>=1.11.2",
+    "bandit>=1.7.10",
+    "safety>=3.0.0",
+    "docformatter>=1.7.5",
+    "pyupgrade>=3.19.0",
+    "requirements-txt-fixer>=0.2.0",
+    "darglint>=1.8.1",
+    "pydocstyle>=6.3.0",
+    "vulture>=2.9",
+    "dodgy>=0.2.1",
+    "pystrich>=0.1.1",
+    "pylint-extensions>=3.2.0",
+    "sqlfluff>=2.4.0",
+    "mkdocs>=1.5.3",
+    "mkdocstrings[python]>=0.24.0",
+    "pytest>=8.2.2",
+    "pytest-cov>=5.0.0",
+    "codecov>=4.1.4",
+    "commitizen>=3.2.8",
+    "pre-commit>=3.7.0",
+]

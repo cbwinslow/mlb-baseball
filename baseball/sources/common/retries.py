@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Retry Utilities
@@ -36,6 +35,6 @@ def retry_on_http_errors(
     return retry(
         stop=stop_after_attempt(max_attempts),
         wait=wait_exponential(multiplier=1, min=base_wait, max=60),
-        before_sleep=before_sleep_log(logger, 'WARNING'),
+        before_sleep=before_sleep_log(logger, "WARNING"),
         reraise=True,
     )

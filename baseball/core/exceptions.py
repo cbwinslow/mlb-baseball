@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Core Exception Types
@@ -20,7 +19,7 @@ class SourceException(BaseballException):
 
     def __init__(self, source: str, message: str):
         self.source = source
-        super().__init__(f'{source}: {message}')
+        super().__init__(f"{source}: {message}")
 
 
 class DownloadException(SourceException):

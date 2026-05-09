@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Normalization Services
@@ -33,18 +32,20 @@ def normalize_mlb_schedule(df: pd.DataFrame) -> pd.DataFrame:
 
     # Rename columns to canonical names
     rename_map = {
-        'game_pk': 'game_id',
-        'home_team': 'home_team_name',
-        'away_team': 'away_team_name',
+        "game_pk": "game_id",
+        "home_team": "home_team_name",
+        "away_team": "away_team_name",
     }
     normalized = normalized.rename(columns=rename_map)
 
     # Ensure required columns
-    required = {'game_id', 'game_date', 'season', 'status'}
+    required = {"game_id", "game_date", "season", "status"}
     if not required.issubset(set(normalized.columns)):
-        raise ValueError(f'Missing required columns: {required - set(normalized.columns)}')
+        raise ValueError(
+            f"Missing required columns: {required - set(normalized.columns)}"
+        )
 
-    logger.info(f'Normalized {len(normalized)} schedule records')
+    logger.info(f"Normalized {len(normalized)} schedule records")
     return normalized
 
 
@@ -60,7 +61,7 @@ def normalize_retrosheet_events(df: pd.DataFrame) -> pd.DataFrame:
     normalized = df.copy()
 
     # TODO: Map Retrosheet-specific fields to canonical names
-    logger.info(f'Normalized {len(normalized)} event records')
+    logger.info(f"Normalized {len(normalized)} event records")
     return normalized
 
 
@@ -76,5 +77,5 @@ def normalize_statcast_pitches(df: pd.DataFrame) -> pd.DataFrame:
     normalized = df.copy()
 
     # StatCast already uses canonical names mostly
-    logger.info(f'Normalized {len(normalized)} pitch records')
+    logger.info(f"Normalized {len(normalized)} pitch records")
     return normalized

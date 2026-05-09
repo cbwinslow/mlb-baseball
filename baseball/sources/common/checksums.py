@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Checksum and Hashing Utilities
@@ -15,7 +14,7 @@ from typing import Optional
 
 def file_checksum(
     path: Path,
-    algorithm: str = 'sha256',
+    algorithm: str = "sha256",
     chunk_size: int = 8192,
 ) -> str:
     """Calculate file checksum.
@@ -30,7 +29,7 @@ def file_checksum(
     """
     hasher = hashlib.new(algorithm)
 
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         while chunk := f.read(chunk_size):
             hasher.update(chunk)
 
@@ -39,7 +38,7 @@ def file_checksum(
 
 def string_checksum(
     data: str,
-    algorithm: str = 'sha256',
+    algorithm: str = "sha256",
 ) -> str:
     """Calculate string checksum.
 
@@ -56,7 +55,7 @@ def string_checksum(
 def verify_checksum(
     path: Path,
     expected: str,
-    algorithm: str = 'sha256',
+    algorithm: str = "sha256",
 ) -> bool:
     """Verify file checksum.
 

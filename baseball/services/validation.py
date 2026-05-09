@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Validation Services
@@ -27,7 +26,7 @@ def validate_mlb_schedule(path: Path) -> ValidationResult:
     Returns:
         ValidationResult
     """
-    logger.info(f'Validation service: MLB schedule {path}')
+    logger.info(f"Validation service: MLB schedule {path}")
 
     validator = MLBValidator()
     return validator.validate_schedule(path)

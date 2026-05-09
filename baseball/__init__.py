@@ -1,4 +1,3 @@
-
 """
 ================================================================================
 Baseball Analytics Platform
@@ -22,16 +21,16 @@ Main modules:
 Example:
     from baseball.services.downloads import download_mlb_season
     from baseball.services.live_games import poll_live_game
-    
+
     result = download_mlb_season(season=2025)
     async for update in poll_live_game(game_pk=123456):
         print(update)
 ================================================================================
 """
 
-__version__ = '2.0.0'
-__author__ = 'Baseball Analytics Contributors'
-__license__ = 'MIT'
+__version__ = "2.0.0"
+__author__ = "Baseball Analytics Contributors"
+__license__ = "MIT"
 
 # Core exports - make common items available at package level
 from baseball.core.results import (
@@ -50,21 +49,21 @@ from baseball.core.exceptions import (
 )
 
 __all__ = [
-    '__version__',
-    '__author__',
-    '__license__',
+    "__version__",
+    "__author__",
+    "__license__",
     # Results
-    'DownloadResult',
-    'IngestResult',
-    'ValidationResult',
-    'LiveUpdate',
-    'CommandResult',
+    "DownloadResult",
+    "IngestResult",
+    "ValidationResult",
+    "LiveUpdate",
+    "CommandResult",
     # Enums
-    'SourceType',
-    'DataGranularity',
+    "SourceType",
+    "DataGranularity",
     # Exceptions
-    'BaseballException',
-    'SourceException',
-    'IngestException',
-    'ValidationException',
+    "BaseballException",
+    "SourceException",
+    "IngestException",
+    "ValidationException",
 ]

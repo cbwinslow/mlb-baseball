@@ -2,7 +2,7 @@
 
 Name:    ingest.py
 Date:    2026-05-11
-Version: 1.0.0
+Version: 1.1.0
 
 Description:
     Commands to parse and insert downloaded raw data into staging/core tables.
@@ -15,7 +15,9 @@ from rich.console import Console
 from rich.table import Table
 
 from baseball.core.logging import get_logger
+from baseball.sources.mlb.ingestor import MLBIngestor
 from baseball.sources.retrosheet.ingestor import RetroEventFileIngestor
+from baseball.sources.statcast.ingestor import StatcastIngestor
 
 logger = get_logger(__name__)
 console = Console()
@@ -52,20 +54,48 @@ def mlbstatsapi(
         "--data-dir",
         help="Directory containing downloaded MLB raw files",
     ),
+    db_url: str = typer.Option(
+        None,
+        "--db-url",
+        envvar="DATABASE_URL",
+        help="Database connection URL (or set DATABASE_URL env var)",
+    ),
 ) -> None:
     """Ingest MLB StatsAPI data into the database.
 
     Examples:
         baseball ingest mlbstatsapi --season 2024
     """
-    # MLB ingestor is not yet implemented; placeholder until MLB ingestor.py exists.
-    console.print(
-        f"[yellow]MLB StatsAPI ingest not yet implemented (season={season}, "
-        f"data_dir={data_dir})[/yellow]"
-    )
-    console.print(
-        "[dim]Create baseball/sources/mlb/ingestor.py to wire this command.[/dim]"
-    )
+    try:
+        ingestor = MLBIngestor(db_connection=db_url)
+
+        # Ingest schedule CSV
+        schedule_files = sorted(data_dir.glob(f"mlb_schedule_{season}*.csv"))
+        if not schedule_files:
+            # Fallback: any CSV in the dir for that season
+            schedule_files = sorted(data_dir.glob(f"*{season}*.csv"))
+        if not schedule_files:
+            console.print(
+                f"[yellow]No schedule CSV files found in {data_dir} for season {season}.\n"
+                f"Run: baseball download mlbstatsapi --season {season}[/yellow]"
+            )
+        for sf in schedule_files:
+            result = ingestor.ingest_schedule(path=sf, season=season)
+            _print_ingest_result(f"MLB schedule: {sf.name}", result)
+
+        # Ingest game JSON files
+        game_files = sorted(data_dir.glob(f"*{season}*/game_*.json")) or sorted(
+            data_dir.glob(f"game_*.json")
+        )
+        for gf in game_files:
+            game_pk = int(gf.stem.replace("game_", "")) if gf.stem.startswith("game_") else 0
+            result = ingestor.ingest_game(path=gf, game_pk=game_pk, season=season)
+            _print_ingest_result(f"MLB game: {gf.name}", result)
+
+    except Exception as exc:
+        logger.exception("MLB StatsAPI ingest failed: %s", exc)
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()
@@ -133,7 +163,18 @@ def retrosheet(
 def statcast(
     start_date: str = typer.Option(..., help="Start date YYYY-MM-DD"),
     end_date: str = typer.Option(None, help="End date YYYY-MM-DD"),
-    season: int = typer.Option(None, help="Full season shortcut"),
+    season: int = typer.Option(None, help="Full season shortcut (overrides date range)"),
+    data_dir: Path = typer.Option(
+        Path("data/raw/statcast"),
+        "--data-dir",
+        help="Directory containing downloaded StatCast files",
+    ),
+    db_url: str = typer.Option(
+        None,
+        "--db-url",
+        envvar="DATABASE_URL",
+        help="Database connection URL (or set DATABASE_URL env var)",
+    ),
 ) -> None:
     """Ingest StatCast pitch data into the database.
 
@@ -141,9 +182,25 @@ def statcast(
         baseball ingest statcast --season 2024
         baseball ingest statcast --start-date 2024-04-01 --end-date 2024-10-01
     """
-    console.print(
-        "[yellow]StatCast ingest not yet implemented[/yellow]"
-    )
-    console.print(
-        "[dim]Create baseball/sources/statcast/ingestor.py to wire this command.[/dim]"
-    )
+    try:
+        ingestor = StatcastIngestor(db_connection=db_url)
+        target_season = season or int(start_date[:4])
+
+        csv_files = sorted(data_dir.glob(f"statcast_{target_season}*.csv")) or sorted(
+            data_dir.glob(f"*{target_season}*.csv")
+        )
+        if not csv_files:
+            console.print(
+                f"[yellow]No StatCast CSV files found in {data_dir} for season {target_season}.\n"
+                f"Run: baseball download statcast --season {target_season}[/yellow]"
+            )
+            return
+
+        for cf in csv_files:
+            result = ingestor.ingest_season(path=cf, season=target_season)
+            _print_ingest_result(f"StatCast: {cf.name}", result)
+
+    except Exception as exc:
+        logger.exception("StatCast ingest failed: %s", exc)
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1) from exc

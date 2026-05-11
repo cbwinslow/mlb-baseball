@@ -21,6 +21,11 @@ dependencies = [
   "python-dateutil>=2.9.0.post0",
   "pytz>=2024.1",
   "structlog>=24.2.0",
+  # Previously missing — required by sources/common/http.py and retries.py
+  "tenacity>=8.2.0",
+  # Previously missing — required by sources/common/files.py, mlb/downloader.py,
+  # fangraphs/downloader.py, services/normalization.py
+  "pandas>=2.0.0",
 ]
 
 [project.optional-dependencies]

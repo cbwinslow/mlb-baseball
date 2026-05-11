@@ -1,9 +1,25 @@
+"""High-level orchestration and workflow services.
+
+Provides convenience functions that orchestrate across multiple data sources:
+  - downloads    : Download workflows for all sources
+  - normalization: Cross-source data normalization and deduplication
+  - validation   : Data quality and completeness checks
+  - bridging     : Connecting source data to the database layer
+  - live_games   : Live game polling and real-time data feeds
 """
-================================================================================
-Services Package
-Name: __init__.py
-Date: 2026-05-11
-Version: 1.0.0
-Description: High-level orchestration and workflow services
-================================================================================
-"""
+
+from baseball.services import (
+    bridging,
+    downloads,
+    live_games,
+    normalization,
+    validation,
+)
+
+__all__ = [
+    "bridging",
+    "downloads",
+    "live_games",
+    "normalization",
+    "validation",
+]

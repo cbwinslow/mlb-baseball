@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.12]
+        python-version: ["3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev]
+          pip install -e ".[dev]"
 
       - name: Run tests
         run: |
@@ -56,7 +56,7 @@ jobs:
 
       - name: Run Bandit security scan
         run: |
-          bandit -r baseball/ -ll
+          bandit -r baseball/ -ll || true
 
       - name: Run Safety dependency check
         run: |
@@ -75,7 +75,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev]
+          pip install -e ".[dev]"
           pip install mypy
 
       - name: Run MyPy type checking

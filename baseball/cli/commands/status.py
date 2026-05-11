@@ -6,12 +6,11 @@ Version: 1.0.0
 
 Description:
     Commands to report system health, data freshness, and pipeline coverage.
-
-Note:
-    Full implementation is tracked in Phase 2 once DB ingest wiring is complete.
 """
 
 import os
+from datetime import datetime
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -29,6 +28,23 @@ app = typer.Typer(
 )
 
 
+def _check_db_connection(db_url: str) -> tuple[bool, str]:
+    """Attempt a live DB connection and return (ok, message)."""
+    try:
+        import psycopg2  # type: ignore
+
+        conn = psycopg2.connect(db_url, connect_timeout=5)
+        cur = conn.cursor()
+        cur.execute("SELECT version();")
+        version = cur.fetchone()[0]
+        conn.close()
+        return True, version.split(",")[0]
+    except ImportError:
+        return False, "psycopg2 not installed"
+    except Exception as exc:
+        return False, str(exc)
+
+
 @app.command()
 def system() -> None:
     """Show system health: DB connectivity, environment, dependencies.
@@ -38,65 +54,136 @@ def system() -> None:
     """
     console.print("[bold cyan]System Status[/bold cyan]")
 
-    # Check DATABASE_URL
-    db_url = os.getenv("DATABASE_URL")
-    if db_url:
-        # Mask credentials for display
-        try:
-            from urllib.parse import urlparse
+    # --- Environment variables ---
+    env_table = Table(title="Environment", show_header=True)
+    env_table.add_column("Variable", style="cyan")
+    env_table.add_column("Value", style="white")
+    env_table.add_column("Status", style="bold")
 
-            parsed = urlparse(db_url)
-            safe_url = db_url.replace(parsed.password or "", "***") if parsed.password else db_url
-        except Exception:
-            safe_url = "(set)"
-        console.print(f"  DATABASE_URL : [green]{safe_url}[/green]")
+    env_vars = [
+        "DATABASE_URL",
+        "DATA_DIR",
+        "LOG_LEVEL",
+        "MLB_RATE_LIMIT",
+    ]
+    for var in env_vars:
+        val = os.environ.get(var)
+        if val:
+            # Mask password in DATABASE_URL
+            display = val
+            if var == "DATABASE_URL" and "@" in val:
+                parts = val.split("@")
+                creds = parts[0].split("//")[-1]
+                user = creds.split(":")[0]
+                display = val.replace(creds, f"{user}:***")
+            env_table.add_row(var, display, "[green]SET[/green]")
+        else:
+            env_table.add_row(var, "-", "[red]NOT SET[/red]")
+    console.print(env_table)
+
+    # --- DB connectivity ---
+    db_url = os.environ.get("DATABASE_URL")
+    db_table = Table(title="Database", show_header=True)
+    db_table.add_column("Check", style="cyan")
+    db_table.add_column("Result", style="white")
+
+    if db_url:
+        ok, msg = _check_db_connection(db_url)
+        status_str = "[green]CONNECTED[/green]" if ok else "[red]FAILED[/red]"
+        db_table.add_row("Connection", status_str)
+        db_table.add_row("Details", msg)
     else:
-        console.print("  DATABASE_URL : [red]NOT SET[/red]")
+        db_table.add_row("Connection", "[yellow]SKIPPED (DATABASE_URL not set)[/yellow]")
+    console.print(db_table)
 
-    data_dir = os.getenv("DATA_DIR", "(not set)")
-    console.print(f"  DATA_DIR     : [cyan]{data_dir}[/cyan]")
+    # --- Data directories ---
+    data_table = Table(title="Data Directories", show_header=True)
+    data_table.add_column("Path", style="cyan")
+    data_table.add_column("Exists", style="white")
+    data_table.add_column("Files", style="white")
 
-    log_level = os.getenv("LOG_LEVEL", "INFO")
-    console.print(f"  LOG_LEVEL    : [cyan]{log_level}[/cyan]")
-
-    # TODO(phase2): attempt DB connection and report pool status
-    if db_url:
-        console.print(
-            "\n[yellow]⚠ Live DB health check not yet wired. "
-            "Use `baseball db status` for full DB diagnostics.[/yellow]"
+    data_dir = Path(os.environ.get("DATA_DIR", "data"))
+    dirs_to_check = [
+        data_dir / "raw" / "mlb",
+        data_dir / "raw" / "retrosheet",
+        data_dir / "raw" / "statcast",
+    ]
+    for d in dirs_to_check:
+        exists = d.exists()
+        count = len(list(d.iterdir())) if exists else 0
+        data_table.add_row(
+            str(d),
+            "[green]YES[/green]" if exists else "[red]NO[/red]",
+            str(count),
         )
+    console.print(data_table)
 
 
 @app.command()
 def data(
-    season: int = typer.Option(None, help="Specific season to check (default: current)"),
+    season: int = typer.Option(
+        None, help="Specific season to check (default: current year)"
+    ),
 ) -> None:
-    """Show data coverage and freshness by source and season.
+    """Show data coverage and row counts by source and season.
 
     Examples:
         baseball status data
         baseball status data --season 2024
     """
-    season_label = str(season) if season else "all seasons"
-    console.print(f"[bold cyan]Data Coverage — {season_label}[/bold cyan]")
+    target_season = season or datetime.now().year
+    console.print(f"[bold cyan]Data Coverage: {target_season}[/bold cyan]")
 
-    table = Table(title="Source Coverage", show_header=True)
-    table.add_column("Source", style="cyan")
-    table.add_column("Status", style="magenta")
-    table.add_column("Notes")
+    db_url = os.environ.get("DATABASE_URL")
 
     sources = [
-        ("MLB StatsAPI", "[yellow]Pending[/yellow]", "Ingest not yet wired (Phase 2)"),
-        ("Retrosheet", "[yellow]Pending[/yellow]", "Ingest not yet wired (Phase 2)"),
-        ("StatCast", "[yellow]Pending[/yellow]", "Ingest not yet wired (Phase 2)"),
-        ("FanGraphs", "[yellow]Pending[/yellow]", "Ingest not yet wired (Phase 2)"),
-        ("Lahman", "[yellow]Pending[/yellow]", "Ingest not yet wired (Phase 2)"),
-        ("ESPN", "[yellow]Pending[/yellow]", "Ingest not yet wired (Phase 2)"),
-        ("Weather", "[yellow]Pending[/yellow]", "Ingest not yet wired (Phase 2)"),
+        ("MLB StatsAPI", "mlb_schedule", "season"),
+        ("Retrosheet Events", "retro_events", "season"),
+        ("Retrosheet GameLogs", "retro_gamelogs", "season"),
+        ("StatCast", "statcast_pitches", "season"),
+        ("Lahman", "lahman_batting", "year_id"),
     ]
 
-    for source, status, notes in sources:
-        table.add_row(source, status, notes)
+    table = Table(title=f"Row Counts for {target_season}", show_header=True)
+    table.add_column("Source", style="cyan")
+    table.add_column("Table", style="white")
+    table.add_column("Row Count", style="bold")
+    table.add_column("Status", style="bold")
+
+    if not db_url:
+        for name, tbl, _ in sources:
+            table.add_row(name, tbl, "-", "[yellow]NO DB URL[/yellow]")
+        console.print(table)
+        console.print(
+            "[yellow]Set DATABASE_URL to enable live row count checks.[/yellow]"
+        )
+        return
+
+    try:
+        import psycopg2  # type: ignore
+
+        conn = psycopg2.connect(db_url, connect_timeout=5)
+        cur = conn.cursor()
+
+        for name, tbl, season_col in sources:
+            try:
+                cur.execute(
+                    f"SELECT COUNT(*) FROM {tbl} WHERE {season_col} = %s",
+                    (target_season,),
+                )
+                count = cur.fetchone()[0]
+                status = "[green]OK[/green]" if count > 0 else "[yellow]EMPTY[/yellow]"
+                table.add_row(name, tbl, str(count), status)
+            except Exception:
+                table.add_row(name, tbl, "-", "[red]TABLE NOT FOUND[/red]")
+
+        conn.close()
+    except ImportError:
+        for name, tbl, _ in sources:
+            table.add_row(name, tbl, "-", "[red]psycopg2 not installed[/red]")
+    except Exception as exc:
+        for name, tbl, _ in sources:
+            table.add_row(name, tbl, "-", f"[red]DB ERROR[/red]")
+        console.print(f"[red]DB connection failed:[/red] {exc}")
 
     console.print(table)
-    # TODO(phase2): query core tables for actual row counts and freshness timestamps

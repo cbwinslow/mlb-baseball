@@ -14,13 +14,8 @@ Outputs: SQLAlchemy declarative models with relationships
 """
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import (
-    TIMESTAMP,
-    UUID,
-    Boolean,
-    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -31,7 +26,6 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    func,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship

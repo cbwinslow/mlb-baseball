@@ -26,6 +26,7 @@ dependencies = [
   # Previously missing — required by sources/common/files.py, mlb/downloader.py,
   # fangraphs/downloader.py, services/normalization.py
   "pandas>=2.0.0",
+  "pytest-cov>=7.1.0",
 ]
 
 [project.optional-dependencies]

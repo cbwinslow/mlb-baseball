@@ -10,7 +10,6 @@ Load StatCast data into database.
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
 
 from baseball.core.enums import ResultStatus, SourceType
 from baseball.core.logging import get_logger

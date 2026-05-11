@@ -9,7 +9,6 @@ File and data integrity verification.
 
 import hashlib
 from pathlib import Path
-from typing import Optional
 
 
 def file_checksum(

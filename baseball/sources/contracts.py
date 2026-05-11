@@ -8,7 +8,7 @@ Protocol definitions for source implementations.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 from baseball.core.results import DownloadResult, IngestResult, ValidationResult
 

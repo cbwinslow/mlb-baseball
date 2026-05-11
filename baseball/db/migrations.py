@@ -17,7 +17,7 @@ import hashlib
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 
 from sqlalchemy.orm import Session
 

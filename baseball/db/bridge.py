@@ -13,9 +13,8 @@ Outputs: Merged ID relationships, validation reports
 ================================================================================
 """
 
-from typing import Optional, Tuple
+from typing import Optional
 
-from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from baseball.core.logging import get_logger

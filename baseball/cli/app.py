@@ -13,7 +13,6 @@ Outputs: Command execution results, formatted output
 ================================================================================
 """
 
-import sys
 
 import typer
 from rich.console import Console

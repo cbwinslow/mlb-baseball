@@ -13,13 +13,11 @@ Outputs: Schema creation results, validation reports
 ================================================================================
 """
 
-import os
 from pathlib import Path
-from typing import Optional
 
-from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from baseball.core.logging import get_logger
 from baseball.db.models import Base

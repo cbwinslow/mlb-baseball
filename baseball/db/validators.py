@@ -15,21 +15,15 @@ Outputs: Validation reports with issues and statistics
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import List
 
-from sqlalchemy import func, select, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from baseball.core.logging import get_logger
 from baseball.db.models import (
     Game,
-    Park,
-    Pitch,
     Player,
-    PlayerSeason,
-    PitcherSeason,
-    PlayByPlay,
-    Schedule,
     Team,
 )
 

@@ -13,7 +13,6 @@ Outputs: Statcast pitch-by-pitch data in CSV/JSON format
 ================================================================================
 """
 
-from datetime import datetime, timedelta
 from typing import List, Optional
 
 import httpx

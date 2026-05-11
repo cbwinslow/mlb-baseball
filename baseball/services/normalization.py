@@ -7,12 +7,9 @@ Normalize source-specific data into canonical structures.
 ================================================================================
 """
 
-from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
-from baseball.core.enums import SourceType
 from baseball.core.logging import get_logger
 
 

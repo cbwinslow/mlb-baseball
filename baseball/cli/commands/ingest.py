@@ -85,7 +85,7 @@ def mlbstatsapi(
 
         # Ingest game JSON files
         game_files = sorted(data_dir.glob(f"*{season}*/game_*.json")) or sorted(
-            data_dir.glob(f"game_*.json")
+            data_dir.glob("game_*.json")
         )
         for gf in game_files:
             game_pk = int(gf.stem.replace("game_", "")) if gf.stem.startswith("game_") else 0

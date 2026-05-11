@@ -13,9 +13,8 @@ Outputs: Raw Retrosheet files, parsed play-by-play data
 ================================================================================
 """
 
-import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import httpx
 

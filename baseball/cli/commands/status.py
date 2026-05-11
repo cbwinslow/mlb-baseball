@@ -183,7 +183,7 @@ def data(
             table.add_row(name, tbl, "-", "[red]psycopg2 not installed[/red]")
     except Exception as exc:
         for name, tbl, _ in sources:
-            table.add_row(name, tbl, "-", f"[red]DB ERROR[/red]")
+            table.add_row(name, tbl, "-", "[red]DB ERROR[/red]")
         console.print(f"[red]DB connection failed:[/red] {exc}")
 
     console.print(table)

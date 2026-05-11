@@ -13,7 +13,6 @@ Outputs: Advanced statistics (wRC+, FIP, WAR, etc.)
 ================================================================================
 """
 
-from pathlib import Path
 from typing import Dict, List, Optional
 
 import httpx

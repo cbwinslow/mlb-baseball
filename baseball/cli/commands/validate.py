@@ -9,7 +9,6 @@ Description:
     Wired to baseball.services.validation and baseball.sources.mlb.validator.
 """
 
-import os
 from datetime import datetime
 from pathlib import Path
 

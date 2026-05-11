@@ -1,5 +1,9 @@
-"""Baseball services layer.
-
-High-level orchestration of download, ingest, validation, and normalization
-workflows.
+"""
+================================================================================
+Services Package
+Name: __init__.py
+Date: 2026-05-11
+Version: 1.0.0
+Description: High-level orchestration and workflow services
+================================================================================
 """

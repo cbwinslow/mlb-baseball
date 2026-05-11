@@ -1,52 +1,53 @@
 """
 ================================================================================
-Status Commands
-Date: 2026-05-09
-
-CLI commands for checking system status.
-
-Usage:
-    baseball status health
-    baseball status downloads
+Status CLI Commands
+Name: status.py
+Date: 2026-05-11
+Script: status.py
+Version: 1.0.0
+Log Summary: CLI commands for reporting system and data status
+Description: Commands to show freshness, health, and coverage status
+Change Summary: Initial placeholder implementation
+Inputs: Status checks to run
+Outputs: Status reports, health indicators
+================================================================================
 """
 
 import typer
 from rich.console import Console
-from rich.table import Table
 
+from baseball.core.logging import get_logger
 
-app = typer.Typer(help="Check system status")
+logger = get_logger(__name__)
 console = Console()
 
-
-@app.command()
-def health() -> None:
-    """Check system health."""
-    console.print("[bold blue]Baseball Platform Health[/bold blue]\n")
-
-    table = Table(show_header=True)
-    table.add_column("Component")
-    table.add_column("Status")
-
-    table.add_row("Database", "[green]✓ OK[/green]")
-    table.add_row("File Storage", "[green]✓ OK[/green]")
-    table.add_row("API Access", "[green]✓ OK[/green]")
-
-    console.print(table)
+app = typer.Typer(
+    name="status",
+    help="Report system and data status",
+    no_args_is_help=True,
+)
 
 
 @app.command()
-def downloads() -> None:
-    """Show recent downloads."""
-    console.print("[bold blue]Recent Downloads[/bold blue]\n")
+def system() -> None:
+    """Show system health status.
 
-    table = Table(show_header=True)
-    table.add_column("Source")
-    table.add_column("Timestamp")
-    table.add_column("Rows")
-    table.add_column("Status")
+    Example:
+        baseball status system
+    """
+    console.print("[cyan]System Status[/cyan]")
+    console.print("[yellow]⚠ Not yet implemented[/yellow]")
 
-    table.add_row("MLB", "2026-05-09 10:30", "162", "[green]Success[/green]")
-    table.add_row("StatCast", "2026-05-09 09:15", "15234", "[green]Success[/green]")
 
-    console.print(table)
+@app.command()
+def data(
+    season: int = typer.Option(None, help="Specific season to check"),
+) -> None:
+    """Show data coverage and freshness.
+
+    Example:
+        baseball status data
+        baseball status data --season 2024
+    """
+    console.print("[cyan]Data Status[/cyan]")
+    console.print("[yellow]⚠ Not yet implemented[/yellow]")

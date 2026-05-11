@@ -1,119 +1,59 @@
 """
 ================================================================================
-Ingest Commands
-Date: 2026-05-09
-
-CLI commands for ingesting downloaded data.
+Ingest CLI Commands
+Name: ingest.py
+Date: 2026-05-11
+Script: ingest.py
+Version: 1.0.0
+Log Summary: CLI commands for ingesting downloaded data into database
+Description: Commands to parse and insert raw data into staging/core tables
+Change Summary: Initial placeholder implementation
+Inputs: Raw data files, ingestion parameters
+Outputs: Database inserts, ingestion logs
 ================================================================================
 """
-
-from pathlib import Path
 
 import typer
 from rich.console import Console
 
-from baseball.sources.mlb.ingestor import MLBIngestor
-from baseball.sources.retrosheet.ingestor import RetroEventFileIngestor
-from baseball.sources.statcast.ingestor import StatcastIngestor
+from baseball.core.logging import get_logger
 
-app = typer.Typer(help="Ingest downloaded data into database")
+logger = get_logger(__name__)
 console = Console()
 
-
-# MLB Ingest Commands
-@app.command()
-def mlb_schedule(
-    path: Path = typer.Option(..., "--path", "-p", help="Path to schedule CSV"),
-) -> None:
-    """Ingest MLB schedule into database."""
-    console.print(f"[blue]Ingesting {path}...[/blue]")
-    ingestor = MLBIngestor()
-    result = ingestor.ingest_schedule(path)
-
-    if result.success:
-        console.print(
-            f"[green]✓[/green] Ingested {result.rows_inserted} rows "
-            f"in {result.duration_seconds:.2f}s"
-        )
-    else:
-        console.print(f"[red]✗[/red] {result.error}")
-        raise typer.Exit(code=1)
+app = typer.Typer(
+    name="ingest",
+    help="Ingest downloaded data into database",
+    no_args_is_help=True,
+)
 
 
 @app.command()
-def mlb_game(
-    path: Path = typer.Option(..., "--path", "-p", help="Path to game JSON"),
-    game_pk: int = typer.Option(..., "--game-pk", help="Game ID"),
+def retrosheet(
+    season: int = typer.Option(..., help="Season to ingest"),
+    ingest_type: str = typer.Option(
+        "all",
+        "--type",
+        help="Type: all, events, rosters, schedules",
+    ),
 ) -> None:
-    """Ingest MLB game data into database."""
-    console.print(f"[blue]Ingesting game {game_pk}...[/blue]")
-    ingestor = MLBIngestor()
-    result = ingestor.ingest_game(path, game_pk=game_pk)
+    """Ingest Retrosheet data into database.
 
-    if result.success:
-        console.print(f"[green]✓[/green] Ingested in {result.duration_seconds:.2f}s")
-    else:
-        console.print(f"[red]✗[/red] {result.error}")
-        raise typer.Exit(code=1)
-
-
-# Retrosheet Ingest Commands
-@app.command()
-def retrosheet_events(
-    path: Path = typer.Option(..., "--path", "-p", help="Path to event file"),
-    season: int = typer.Option(..., "--season", "-s", help="Season year"),
-) -> None:
-    """Ingest Retrosheet events into database."""
-    console.print(f"[blue]Ingesting {path}...[/blue]")
-    ingestor = RetroEventFileIngestor()
-    result = ingestor.ingest_event_file(path, season=season)
-
-    if result.success:
-        console.print(
-            f"[green]✓[/green] Ingested {result.rows_inserted} events "
-            f"in {result.duration_seconds:.2f}s"
-        )
-    else:
-        console.print(f"[red]✗[/red] {result.error}")
-        raise typer.Exit(code=1)
+    Example:
+        baseball ingest retrosheet --season 2024
+    """
+    console.print(f"[cyan]Ingesting Retrosheet data for {season}[/cyan]")
+    console.print("[yellow]⚠ Not yet implemented[/yellow]")
 
 
 @app.command()
-def retrosheet_game_logs(
-    path: Path = typer.Option(..., "--path", "-p", help="Path to game logs file"),
-    season: int = typer.Option(..., "--season", "-s", help="Season year"),
-    league: str = typer.Option("AL", "--league", "-l", help="AL or NL"),
+def mlbstatsapi(
+    season: int = typer.Option(..., help="Season to ingest"),
 ) -> None:
-    """Ingest Retrosheet game logs into database."""
-    console.print(f"[blue]Ingesting {path}...[/blue]")
-    ingestor = RetroEventFileIngestor()
-    result = ingestor.ingest_game_logs(path, season=season, league=league)
+    """Ingest MLB StatsAPI data into database.
 
-    if result.success:
-        console.print(
-            f"[green]✓[/green] Ingested {result.rows_inserted} records "
-            f"in {result.duration_seconds:.2f}s"
-        )
-    else:
-        console.print(f"[red]✗[/red] {result.error}")
-        raise typer.Exit(code=1)
-
-
-# StatCast Ingest Command
-@app.command()
-def statcast(
-    path: Path = typer.Option(..., "--path", "-p", help="Path to StatCast CSV"),
-) -> None:
-    """Ingest StatCast pitch data into database."""
-    console.print(f"[blue]Ingesting {path}...[/blue]")
-    ingestor = StatcastIngestor()
-    result = ingestor.ingest_pitch_data(path)
-
-    if result.success:
-        console.print(
-            f"[green]✓[/green] Ingested {result.rows_inserted} pitches "
-            f"in {result.duration_seconds:.2f}s"
-        )
-    else:
-        console.print(f"[red]✗[/red] {result.error}")
-        raise typer.Exit(code=1)
+    Example:
+        baseball ingest mlbstatsapi --season 2024
+    """
+    console.print(f"[cyan]Ingesting MLB StatsAPI data for {season}[/cyan]")
+    console.print("[yellow]⚠ Not yet implemented[/yellow]")

@@ -52,7 +52,7 @@ Date: 2026-05-09
 - `baseball/cli/commands/status.py` - Status commands
 
 ### Documentation
-- `docs/architecture/ARCHITECTURE.md` - Architecture guide
+- `docs/architecture/architecture-overview.md` - Architecture overview (renamed from ARCHITECTURE.md)
 - `MIGRATION_MATRIX.md` - This file
 
 ### Updated Root Files

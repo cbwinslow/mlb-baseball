@@ -36,9 +36,19 @@ A canonical baseball data engineering, modeling, simulation, and prediction plat
 
 ---
 
+
+## Documentation
+
+See the documentation index for organized project docs:
+
+- [Documentation index](docs/README.md)
+- [Architecture overview](docs/architecture/architecture-overview.md)
+- [Source adapters](docs/architecture/source-adapters.md)
+- [Migration matrix](docs/migration-matrix.md)
+
 ## Architecture
 
-See [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md) for the full system design.
+See [`docs/architecture/architecture-overview.md`](docs/architecture/architecture-overview.md) for the full system design.
 
 ```
 External Sources

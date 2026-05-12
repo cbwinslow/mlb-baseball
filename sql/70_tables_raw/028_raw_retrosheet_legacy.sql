@@ -1,5 +1,5 @@
 -- =============================================================
--- 02_raw_retrosheet.sql
+-- 028_raw_retrosheet_legacy.sql
 -- RAW Retrosheet data tables - official schema as published by
 -- Retrosheet / py-retrosheet (wellsoliver/py-retrosheet)
 -- Source: https://github.com/wellsoliver/py-retrosheet

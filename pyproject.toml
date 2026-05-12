@@ -1,7 +1,7 @@
 [project]
 name = "baseball"
-version = "0.1.0"
-description = "Canonical baseball data, modelling, simulation, and prediction platform."
+version = "2.0.0"
+description = "MLB baseball analytics platform: multi-source ETL pipeline for Retrosheet, StatCast, MLB API, FanGraphs, Lahman, and ESPN data"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [

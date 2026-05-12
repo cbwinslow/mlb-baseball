@@ -6,7 +6,7 @@ This directory contains periodic code reviews and project audits for the `mlb-ba
 
 | Date | File | Description |
 |------|------|-------------|
-| 2026-05-09 | [2026-05-09-code-review.md](./2026-05-09-code-review.md) | Code review covering downloader architecture, raw ingestion, CLI design, and test coverage |
+| 2026-05-09 | [2026-05-09-code-review.md](./2026-05-09-code-review.md) | Code review covering downloader architecture, raw ingestion, CLI design, and test coverage. **Resolution summary added 2026-05-12** — 9 of 10 issues resolved. |test coverage |
 
 ## Adding a new review
 

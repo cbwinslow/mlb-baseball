@@ -53,3 +53,23 @@ sql/
 ## What to fix in the current project
 
 The current repo appears to have Python ingestion modules but not a finalized, visible tracked raw SQL layer for all source families, which is why the next cleanup step should be to promote these starter DDLs into the repo under `sql/030_raw_schemas/` and make the `baseball` CLI bootstrap command execute only those files.[3][1]
+
+
+---
+
+## Resolution Status (Updated 2026-05-12)
+
+The legacy `0N_` prefix conflict in `sql/70_tables_raw/` has been resolved:
+
+| Old filename | Action | New filename | Reason |
+|---|---|---|---|
+| `03_raw_statcast.sql` | **Deleted** | — | True duplicate of `001_raw_statcast_pitches.sql` (same `raw.statcast_pitches` table, new file is more complete) |
+| `01_raw_mlbstatsapi.sql` | **Renamed** | `027_raw_mlbstatsapi.sql` | Unique content (7 MLB StatsAPI tables). No `NNN_` equivalent existed. |
+| `02_raw_retrosheet.sql` | **Renamed** | `028_raw_retrosheet_legacy.sql` | Different schema from `002–004` (uses `raw.retro_*` not `raw.retrosheet_*`). Kept for lookup tables not in new files. |
+| `04_raw_fangraphs.sql` | **Renamed** | `029_raw_fangraphs_legacy.sql` | Different column names from `020/021` (uses `raw.fg_batting` not `raw.fangraphs_batting`). Kept for reference. |
+
+All files in `sql/70_tables_raw/` now use the `NNN_` (3-digit) prefix scheme and sort correctly. The bootstrap runner (`baseball/db/bootstrap.py`) will process them in the correct order: `001_` → `029_`.
+
+### Remaining note on legacy schemas
+
+`028_raw_retrosheet_legacy.sql` and `029_raw_fangraphs_legacy.sql` use different table names (`raw.retro_*`, `raw.fg_*`) compared to the new files (`raw.retrosheet_*`, `raw.fangraphs_*`). Both schemas are preserved intentionally until the ingestion layer is updated to use a single canonical naming convention. The `_legacy` suffix makes this ambiguity visible.

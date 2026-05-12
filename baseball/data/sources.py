@@ -35,7 +35,7 @@ import httpx
 import pandas as pd
 import pybaseball
 
-from baseball.data.config import SourceType
+from baseball.core.enums import SourceType
 from baseball.data.query import Query
 
 # ============================================================================

@@ -1,5 +1,5 @@
 -- =============================================================
--- 04_raw_fangraphs.sql
+-- 029_raw_fangraphs_legacy.sql
 -- RAW FanGraphs data tables - batting, pitching, fielding stats
 -- Source: https://www.fangraphs.com/leaders.aspx
 --         pybaseball batting_stats() / pitching_stats() functions

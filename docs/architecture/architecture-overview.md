@@ -83,16 +83,12 @@ mlb-baseball/
 │       ├── app.py               # Main app, version command
 │       └── commands/            # download, ingest, validate, status, db
 ├── sql/                         # All SQL DDL files (versioned, layered)
-│   ├── 000_extensions/          # PostgreSQL extensions (uuid-ossp, etc.)
-│   ├── 010_schemas/             # Schema CREATE statements
-│   ├── 020_tables_raw/          # Raw source tables (preserve upstream fields)
-│   ├── 030_tables_staging/      # Staging/normalized tables
-│   ├── 040_tables_core/         # Canonical dimension tables
-│   ├── 050_tables_analytics/    # Aggregate and derived tables
-│   ├── 060_constraints_indexes/ # Indexes and constraints
-│   ├── 070_views/               # Views
-│   ├── 080_functions_triggers/  # Functions and triggers
-│   └── 090_validation/          # Data quality validation queries
+    |   ├── 10_extensions/        # PostgreSQL extensions (uuid-ossp, pg_trgm, btree_gin)
+    |   ├── 20_schemas/            # Schema CREATE statements (raw, staging, core, analytics, monitor)
+    |   ├── 50_tables_core/        # Canonical dimension and fact tables (core schema)
+    |   ├── 60_tables_xwalk/       # Cross-walk / player ID mapping tables
+    |   ├── 70_tables_raw/         # Raw source tables (001–029, verbatim upstream fields)
+    |   └── 80_tables_meta/        # Metadata and monitoring tables (run history, source health)
 ├── docs/                        # Project documentation
 │   ├── README.md                # Documentation index
 │   ├── architecture/            # Architecture guides
@@ -147,17 +143,12 @@ ingestor = entry.ingestor_class(db)
 
 | Layer | Prefix | Purpose |
 |-------|--------|----------|
-| Extensions | `000_` | PostgreSQL extensions |
-| Schemas | `010_` | Namespace creation |
-| Raw tables | `020_` | Preserve upstream fields verbatim |
-| Staging | `030_` | Normalized intermediate tables |
-| Core | `040_` | Canonical dimension tables |
-| Analytics | `050_` | Aggregates and derived metrics |
-| Indexes | `060_` | Performance indexes and constraints |
-| Views | `070_` | Reporting views |
-| Functions | `080_` | Triggers and stored logic |
-| Validation | `090_` | Data quality queries |
-
+| Extensions    | `10_` | PostgreSQL extensions (uuid-ossp, pg_trgm, btree_gin) |
+| Schemas       | `20_` | Schema namespaces (raw, staging, core, analytics, monitor) |
+| Core tables   | `50_` | Canonical dimension and fact tables (core schema) |
+| Cross-walk    | `60_` | Player ID mapping tables |
+| Raw tables    | `70_` | Source tables (001–029, verbatim upstream fields) |
+| Meta/Monitor  | `80_` | Metadata, run history, and source health tables |
 The bootstrap process is handled by `baseball/db/bootstrap.py`, which recursively discovers and executes all `.sql` files in the `sql/` directory in numeric prefix order.
 
 ---

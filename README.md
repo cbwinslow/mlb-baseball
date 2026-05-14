@@ -44,6 +44,7 @@ See the documentation index for organized project docs:
 - [Documentation index](docs/README.md)
 - [Architecture overview](docs/architecture/architecture-overview.md)
 - [Source adapters](docs/architecture/source-adapters.md)
+- [Sources documentation](docs/sources/README.md)
 - [Migration matrix](docs/migration-matrix.md)
 
 ## Architecture

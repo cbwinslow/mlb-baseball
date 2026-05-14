@@ -1,5 +1,5 @@
 -- =============================================================
--- 01_raw_mlbstatsapi.sql
+-- 027_raw_mlbstatsapi.sql
 -- RAW MLB Stats API data tables
 -- Source: https://statsapi.mlb.com/api/v1/
 --         MLB-StatsAPI Python client (toddrob99/MLB-StatsAPI)

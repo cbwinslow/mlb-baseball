@@ -20,8 +20,45 @@ Description:
 from dataclasses import dataclass
 from typing import Any
 
-from baseball.data.config import DataGranularity, SourceType
-from baseball.data.endpoints import Endpoint, endpoint_registry
+from baseball.core.enums import DataGranularity, SourceType
+
+
+@dataclass
+class Endpoint:
+    """Minimal endpoint descriptor (url, http method, timeout, param defaults)."""
+    base_url: str
+    method: str = "GET"
+    timeout: int = 30
+    param_defaults: dict[str, Any] = None
+    required_params: list[str] = None
+
+    def __post_init__(self) -> None:
+        if self.param_defaults is None:
+            self.param_defaults = {}
+        if self.required_params is None:
+            self.required_params = []
+
+    def validate_params(self, **params: Any) -> tuple[bool, str | None]:
+        missing = [p for p in self.required_params if p not in params]
+        if missing:
+            return False, f"Missing required params: {missing}"
+        return True, None
+
+
+class _EndpointRegistry:
+    """Simple registry mapping (source, type, granularity) -> Endpoint."""
+
+    def __init__(self) -> None:
+        self._registry: dict[tuple, Endpoint] = {}
+
+    def register(self, source: SourceType, endpoint_type: str, granularity: DataGranularity, endpoint: Endpoint) -> None:
+        self._registry[(source, endpoint_type, granularity)] = endpoint
+
+    def get_endpoint(self, source: SourceType, endpoint_type: str, granularity: DataGranularity) -> Endpoint | None:
+        return self._registry.get((source, endpoint_type, granularity))
+
+
+endpoint_registry = _EndpointRegistry()
 
 
 @dataclass

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ================================================================================
-Name: baseball/data/sources_v2.py
+Name: baseball/data/sources.py
 Date: 2026-05-09
 Script Name: Data Source Fetchers (Strategy Pattern)
 Version: 2.0.0
@@ -35,7 +35,7 @@ import httpx
 import pandas as pd
 import pybaseball
 
-from baseball.data.config import SourceType
+from baseball.core.enums import SourceType
 from baseball.data.query import Query
 
 # ============================================================================

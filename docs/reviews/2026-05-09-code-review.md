@@ -4,6 +4,9 @@
 **Reviewer:** Claude Code
 
 ---
+**Resolution Status:** Updated 2026-05-12
+
+> **Note:** Several issues from this review have been resolved since 2026-05-09. See the resolution summary at the bottom of this document for the current status of each item.
 
 ## Overview
 
@@ -273,4 +276,23 @@ The project has a solid architectural foundation with clear separation of concer
 4. **Ingest and bridge subsystems are incomplete** with stub implementations
 5. **Documentation is sparse** — the `docs/` directory is underutilized
 
-These gaps represent the difference between a well-designed architecture and a production-ready system. The recommended priorities above provide a clear path forward.
+These gaps represent the difference between a well-designed architecture and a production-ready system. The recommended priorities above provide a 
+
+---
+
+## Resolution Summary (Updated 2026-05-12)
+
+The following tracks which issues from this 2026-05-09 review have been resolved.
+
+| # | Issue | Priority | Status | Resolution |
+|---|-------|----------|--------|------------|
+| 1 | No SQL Schema Files | High | **Resolved** | `sql/` directory created with versioned DDL files across all source families (Retrosheet, StatCast, MLB, FanGraphs, Lahman, ESPN). `bootstrap.py` is fully functional. |
+| 2 | Severe Test Coverage Deficiency | High | **Open** | Test suite has grown but remains a gap area. |
+| 3 | Missing Dependencies in pyproject.toml | High | **Resolved** | `tenacity` and `pandas` added to `pyproject.toml` dependencies. |
+| 4 | Incomplete Ingest Subsystem (MLB) | High | **Resolved** | `baseball/sources/mlb/ingestor.py` now exists with full DB insertion logic. `MLBIngestor` properly exported. |
+| 5 | Incomplete Ingest Subsystem (Retrosheet) | Moderate | **Resolved** | `retrosheet/ingestor.py` has real DB insertion logic. |
+| 6 | SourceRegistry empty | Moderate | **Resolved** | `SourceRegistry` rewritten with `SourceEntry` dataclass; all 7 sources auto-register on import via `baseball/sources/__init__.py`. |
+| 7 | Documentation sparse | Moderate | **Resolved** | `docs/` fully expanded: per-source schema guides, SQL design notes, architecture docs, code review index. `architecture-overview.md` completed. |
+| 8 | Source adapter `__init__.py` files missing exports | Low | **Resolved** | ESPN, FanGraphs, Lahman, Weather `__init__.py` files now export their downloader classes. |
+| 9 | Stale `fix.sh` in repo root | Low | **Resolved** | `fix.sh` removed from repo root. |
+| 10 | `docs/architecture/ARCHITECTURE.md` old path | Low | **Resolved** | Renamed to `architecture-overview.md` and references updated. |clear path forward.

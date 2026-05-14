@@ -5,9 +5,5 @@ Uses URL-based CSV export (not an official API).
 """
 
 from baseball.sources.fangraphs.downloader import FanGraphsDownloader
-from baseball.sources.fangraphs.ingestor import FanGraphsIngestor
 
-__all__ = [
-    "FanGraphsDownloader",
-    "FangraphsIngestor",
-]
+__all__ = ["FanGraphsDownloader"]

@@ -222,3 +222,7 @@ dmypy.json
 .sqlfluff
 
 # Pre-commit
+.pre-commit-config.yaml
+
+# JetBrains AI / Junie agent workspace
+.junie/

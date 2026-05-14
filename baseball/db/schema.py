@@ -14,8 +14,16 @@ Outputs: Schema creation results, validation reports
 """
 
 from pathlib import Path
-
-from sqlalchemy import inspect, text
+from datetime import datetime
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    inspect,
+    text,
+)
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -216,3 +224,30 @@ class SchemaManager:
         except Exception as e:
             logger.error(f"Failed to execute SQL file: {e}")
             return False
+
+
+class SchemaMigration(Base):
+    """Track applied schema migrations."""
+    
+    __tablename__ = "schema_migrations"
+    
+    migration_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(255), nullable=False, unique=True)
+    applied_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    execution_time_ms = Column(Integer, nullable=True)
+    status = Column(String(20), nullable=False)  # success, failed
+    error_message = Column(Text, nullable=True)
+
+
+class SchemaValidation(Base):
+    """Track schema validation results."""
+    
+    __tablename__ = "schema_validation"
+    
+    validation_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    check_type = Column(String(50), nullable=False)  # table_exists, column_exists, etc.
+    object_type = Column(String(50), nullable=False)  # table, column, index, etc.
+    object_name = Column(String(255), nullable=False)
+    is_valid = Column(Integer, nullable=False)  # 0 for false, 1 for true
+    error_message = Column(Text, nullable=True)
+    checked_at = Column(DateTime, nullable=False, default=datetime.utcnow)

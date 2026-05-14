@@ -39,12 +39,12 @@ def schedule_csv(tmp_path) -> Path:
 class TestMLBIngestorInit:
     def test_dry_run_when_no_connection(self):
         ingestor = MLBIngestor(db_connection=None)
-        assert ingestor.dry_run is True
+        assert ingestor._dry_run is True
 
     def test_not_dry_run_when_connection_given(self):
         fake_conn = MagicMock()
         ingestor = MLBIngestor(db_connection=fake_conn)
-        assert ingestor.dry_run is False
+        assert ingestor._dry_run is False
 
 
 class TestIngestSchedule:

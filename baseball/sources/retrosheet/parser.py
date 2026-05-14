@@ -17,6 +17,14 @@ from baseball.sources.retrosheet.models import RetroEventLine
 logger = get_logger(__name__)
 
 
+class RetroEventParser:
+    """Parse Retrosheet event data."""
+    
+    def __init__(self):
+        """Initialize parser."""
+        pass
+
+
 class RetroEventFileParser:
     """Parse Retrosheet event files."""
 

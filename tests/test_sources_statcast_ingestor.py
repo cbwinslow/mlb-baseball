@@ -16,21 +16,10 @@ def ingestor():
 
 
 @pytest.fixture
-def statcast_parquet(tmp_path) -> Path:
-    """Create a minimal fake statcast parquet (as CSV for simplicity in tests)."""
-    import pandas as pd
-    p = tmp_path / "statcast_2024_04_01_2024_04_30.parquet"
-    df = pd.DataFrame(
-        {
-            "pitch_type": ["FF", "SL"],
-            "release_speed": [94.2, 82.3],
-            "batter": [545361, 545361],
-            "pitcher": [543037, 543037],
-            "game_date": ["2024-04-01", "2024-04-01"],
-            "game_pk": [748531, 748531],
-        }
-    )
-    df.to_parquet(p, index=False)
+def statcast_csv(tmp_path) -> Path:
+    """Create a minimal fake statcast CSV file."""
+    p = tmp_path / "statcast_2024.csv"
+    p.write_text("game_pk,game_date,release_speed,batter,pitcher,pitch_type\n748531,2024-04-01,94.2,545361,543037,FF\n748532,2024-04-02,82.3,545361,543037,SL\n")
     return p
 
 
@@ -44,37 +33,33 @@ class TestStatcastIngestorInit:
         assert ingestor is not None
 
 
-class TestIngestRange:
-    def test_returns_ingest_result(self, ingestor, statcast_parquet):
-        result = ingestor.ingest_range(
-            path=statcast_parquet,
-            start_date="2024-04-01",
-            end_date="2024-04-30",
+class TestIngestSeason:
+    def test_returns_ingest_result(self, ingestor, statcast_csv):
+        result = ingestor.ingest_season(
+            path=statcast_csv,
+            season=2024,
         )
         assert hasattr(result, "status")
         assert hasattr(result, "source")
 
-    def test_source_is_statcast(self, ingestor, statcast_parquet):
-        result = ingestor.ingest_range(
-            path=statcast_parquet,
-            start_date="2024-04-01",
-            end_date="2024-04-30",
+    def test_source_is_statcast(self, ingestor, statcast_csv):
+        result = ingestor.ingest_season(
+            path=statcast_csv,
+            season=2024,
         )
         assert result.source == SourceType.STATCAST
 
     def test_missing_file_sets_failed(self, ingestor, tmp_path):
-        missing = tmp_path / "does_not_exist.parquet"
-        result = ingestor.ingest_range(
+        missing = tmp_path / "does_not_exist.csv"
+        result = ingestor.ingest_season(
             path=missing,
-            start_date="2024-04-01",
-            end_date="2024-04-30",
+            season=2024,
         )
         assert result.status == ResultStatus.FAILED
 
-    def test_rows_inserted_equals_row_count(self, ingestor, statcast_parquet):
-        result = ingestor.ingest_range(
-            path=statcast_parquet,
-            start_date="2024-04-01",
-            end_date="2024-04-30",
+    def test_rows_inserted_equals_row_count(self, ingestor, statcast_csv):
+        result = ingestor.ingest_season(
+            path=statcast_csv,
+            season=2024,
         )
         assert result.rows_inserted == 2

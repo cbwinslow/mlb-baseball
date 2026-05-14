@@ -226,3 +226,23 @@ class DatabaseConnectionManager:
             "overflow": pool.overflow(),
             "total_connections": pool.size() + pool.overflow(),
         }
+
+
+def get_db_connection(db_url: Optional[str] = None):
+    """Get a database connection.
+
+    Args:
+        db_url: PostgreSQL connection string. Defaults to DATABASE_URL env var.
+
+    Returns:
+        SQLAlchemy connection object
+    """
+    if db_url is None:
+        db_url = os.getenv("DATABASE_URL")
+        if not db_url:
+            raise ValueError(
+                "DATABASE_URL must be provided or set as environment variable"
+            )
+
+    engine = create_engine(db_url)
+    return engine.connect()

@@ -191,3 +191,57 @@ def lahman(
 ) -> None:
     """Download Lahman database."""
     console.print("[yellow]Lahman download not yet implemented[/yellow]")
+
+
+@app.command()
+def espn(
+    date_str: str = typer.Option(None, help="Date to download (YYYYMMDD format, defaults to today)"),
+    output_dir: Path = typer.Option(
+        Path("data/raw/espn"),
+        "--output-dir",
+        help="Directory for downloaded ESPN raw files",
+    ),
+) -> None:
+    """Download ESPN scoreboard data."""
+    try:
+        downloader = ESPNDownloader(output_dir=output_dir)
+        result = downloader.download_scoreboard(date_str=date_str)
+        _print_result(f"ESPN scoreboard download: {date_str or 'today'}", result)
+        if result.status != ResultStatus.SUCCESS:
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        logger.exception("ESPN download failed: %s", exc)
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def weather(
+    latitude: float = typer.Option(..., help="Latitude of the venue"),
+    longitude: float = typer.Option(..., help="Longitude of the venue"),
+    venue_name: str = typer.Option(..., help="Name of the venue"),
+    output_dir: Path = typer.Option(
+        Path("data/raw/weather"),
+        "--output-dir",
+        help="Directory for downloaded weather raw files",
+    ),
+) -> None:
+    """Download weather forecast data."""
+    try:
+        downloader = WeatherDownloader(output_dir=output_dir)
+        result = downloader.download_forecast(
+            latitude=latitude,
+            longitude=longitude,
+            venue_name=venue_name,
+        )
+        _print_result(f"Weather download: {venue_name}", result)
+        if result.status != ResultStatus.SUCCESS:
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        logger.exception("Weather download failed: %s", exc)
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1) from exc

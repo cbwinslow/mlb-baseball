@@ -145,7 +145,7 @@ class StatcastIngestor:
         rows_inserted = 0
         rows_skipped = 0
         error = None
-        status = ResultStatus.FAILURE
+        status = ResultStatus.FAILED
 
         try:
             if not path.exists():
@@ -153,7 +153,7 @@ class StatcastIngestor:
 
             raw_rows = load_csv(path)
 
-            if not raw_rows:
+            if raw_rows.empty:
                 logger.warning("Statcast CSV is empty: %s", path)
                 return IngestResult(
                     source=SourceType.STATCAST,
@@ -165,7 +165,7 @@ class StatcastIngestor:
                 )
 
             params = [
-                self._map_pitch_row(row, season) for row in raw_rows
+                self._map_pitch_row(row, season) for _, row in raw_rows.iterrows()
             ]
 
             if self._dry_run:

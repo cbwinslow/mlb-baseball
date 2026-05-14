@@ -75,7 +75,7 @@ class RetroEventFileIngestor:
         """
         result = IngestResult(
             source=SourceType.RETROSHEET,
-            status=ResultStatus.FAILURE,
+            status=ResultStatus.FAILED,
         )
         result.start_time = datetime.utcnow()
 
@@ -138,7 +138,7 @@ class RetroEventFileIngestor:
         """
         result = IngestResult(
             source=SourceType.RETROSHEET,
-            status=ResultStatus.FAILURE,
+            status=ResultStatus.FAILED,
         )
         result.start_time = datetime.utcnow()
 

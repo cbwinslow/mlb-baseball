@@ -17,6 +17,10 @@ from baseball.sources.retrosheet import (
     RetroEventFileIngestor,
 )
 from baseball.sources.statcast import StatcastDownloader, StatcastIngestor
+from baseball.sources.espn import ESPNDownloader, ESPNIngestor
+from baseball.sources.fangraphs import FanGraphsDownloader, FanGraphsIngestor
+from baseball.sources.lahman import LahmanDownloader, LahmanIngestor
+from baseball.sources.weather import WeatherDownloader, WeatherIngestor
 
 __all__ = [
     # MLB Stats API
@@ -28,4 +32,16 @@ __all__ = [
     # StatCast
     "StatcastDownloader",
     "StatcastIngestor",
+    # ESPN
+    "ESNDownloader",
+    "ESPIngestor",
+    # FanGraphs
+    "FangraphsDownloader",
+    "FangraphsIngestor",
+    # Lahman
+    "LahmanDownloader",
+    "LahmanIngestor",
+    # Weather
+    "WeatherDownloader",
+    "WeatherIngestor",
 ]

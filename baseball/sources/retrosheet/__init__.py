@@ -14,7 +14,7 @@ Key features:
 from baseball.sources.retrosheet.downloader import RetroEventFileDownloader
 from baseball.sources.retrosheet.ingestor import RetroEventFileIngestor
 from baseball.sources.retrosheet.parser import RetroEventParser
-from baseball.sources.retrosheet.validator import RetroDataValidator
+from baseball.sources.retrosheet.validator import RetroEventFileValidator as RetroDataValidator
 
 __all__ = [
     "RetroEventFileDownloader",

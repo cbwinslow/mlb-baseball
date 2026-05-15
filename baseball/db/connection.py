@@ -17,7 +17,7 @@ import os
 from contextlib import asynccontextmanager, contextmanager
 from typing import AsyncGenerator, Generator, Optional
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
@@ -85,7 +85,6 @@ class DatabaseConnectionManager:
             pool_recycle=self.pool_recycle,
             pool_pre_ping=self.pool_pre_ping,
             echo=self.echo_sql,
-            connect_args={"timeout": 10, "check_same_thread": False},
         )
 
         # Add event listeners for connection pool
@@ -188,7 +187,7 @@ class DatabaseConnectionManager:
 
         try:
             with self.session_context() as session:
-                session.execute("SELECT 1")
+                session.execute(text("SELECT 1"))
                 logger.info("Database health check passed")
                 return True
         except Exception as e:

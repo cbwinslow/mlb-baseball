@@ -118,8 +118,125 @@ class DatabaseBootstrap:
         if not sql_text:
             logger.debug("  Skipping empty file: %s", relative)
             return
-        # Split on semicolons to handle multi-statement files safely
-        statements = [s.strip() for s in sql_text.split(";") if s.strip()]
+        # Split SQL into statements, respecting dollar-quoted strings, strings, and comments
+        statements = self._split_sql_into_statements(sql_text)
         for stmt in statements:
-            conn.execute(text(stmt))
+            if stmt.strip():  # Only execute non-empty statements
+                conn.execute(text(stmt))
         logger.debug("  Done: %s (%d statement(s))", relative, len(statements))
+
+    def _split_sql_into_statements(self, sql_text: str) -> list[str]:
+        """Split SQL text into statements, respecting dollar-quoted strings, strings, and comments.
+        
+        This handles PostgreSQL-specific syntax like DO blocks that contain semicolons.
+        """
+        statements = []
+        current_stmt = []
+        i = 0
+        in_dollar_quote = False
+        dollar_quote_delimiter = None
+        in_single_quote = False
+        in_double_quote = False
+        escape_next = False
+        in_line_comment = False
+        in_block_comment = False
+        
+        while i < len(sql_text):
+            char = sql_text[i]
+            
+            if escape_next:
+                escape_next = False
+                current_stmt.append(char)
+                i += 1
+                continue
+                
+            if char == '\\' and (in_single_quote or in_double_quote) and not in_dollar_quote:
+                escape_next = True
+                current_stmt.append(char)
+                i += 1
+                continue
+            
+            # Handle dollar quotes (PostgreSQL specific)
+            if not in_single_quote and not in_double_quote and not in_line_comment and not in_block_comment and not escape_next:
+                if char == '$':
+                    # Check if this is the start or end of a dollar quote
+                    j = i + 1
+                    # Extract the delimiter (if any)
+                    delimiter_start = j
+                    while j < len(sql_text) and sql_text[j] not in ('$', ';', ' ', '\n', '\t'):
+                        j += 1
+                    delimiter = sql_text[delimiter_start:j]
+                    
+                    if not in_dollar_quote:
+                        # Starting a dollar quote
+                        in_dollar_quote = True
+                        dollar_quote_delimiter = delimiter
+                        current_stmt.append(char)
+                    else:
+                        # Check if this is the ending delimiter
+                        if sql_text[i:i+len(delimiter)+2] == f'${delimiter}$':
+                            # Ending the dollar quote
+                            in_dollar_quote = False
+                            # Add the complete ending delimiter
+                            current_stmt.append(sql_text[i:i+len(delimiter)+2])
+                            i += len(delimiter) + 1  # Skip past the delimiter we just added
+                        else:
+                            current_stmt.append(char)
+                elif char == "'" and not in_dollar_quote and not in_line_comment and not in_block_comment:
+                    in_single_quote = not in_single_quote
+                    current_stmt.append(char)
+                elif char == '"' and not in_dollar_quote and not in_line_comment and not in_block_comment:
+                    in_double_quote = not in_double_quote
+                    current_stmt.append(char)
+                elif char == '-':
+                    # Check for comments
+                    if i + 1 < len(sql_text):
+                        if sql_text[i+1] == '-':
+                            # Line comment
+                            in_line_comment = True
+                            current_stmt.append(char)
+                            current_stmt.append(sql_text[i+1])
+                            i += 2
+                            continue
+                        elif sql_text[i+1] == '*':
+                            # Block comment
+                            in_block_comment = True
+                            current_stmt.append(char)
+                            current_stmt.append(sql_text[i+1])
+                            i += 2
+                            continue
+                elif char == ';' and not in_dollar_quote and not in_single_quote and not in_double_quote and not in_line_comment and not in_block_comment:
+                    # End of statement
+                    current_stmt.append(char)
+                    stmt_text = ''.join(current_stmt).strip()
+                    if stmt_text:
+                        statements.append(stmt_text)
+                    current_stmt = []
+                else:
+                    current_stmt.append(char)
+            else:
+                # Handle comment endings
+                if in_line_comment and char == '\n':
+                    in_line_comment = False
+                    current_stmt.append(char)
+                elif in_block_comment and i + 1 < len(sql_text):
+                    if sql_text[i] == '*' and sql_text[i+1] == '/':
+                        in_block_comment = False
+                        current_stmt.append(char)
+                        current_stmt.append(sql_text[i+1])
+                        i += 2
+                        continue
+                    else:
+                        current_stmt.append(char)
+                else:
+                    current_stmt.append(char)
+            
+            i += 1
+        
+        # Don't forget the last statement
+        if current_stmt:
+            stmt_text = ''.join(current_stmt).strip()
+            if stmt_text:
+                statements.append(stmt_text)
+                
+        return statements

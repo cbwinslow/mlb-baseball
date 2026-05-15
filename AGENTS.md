@@ -276,6 +276,115 @@ Do not merge major architectural work without tests.
 
 ---
 
+## GitHub workflow
+
+All development follows a standardized GitHub workflow to ensure consistency, quality, and traceability.
+
+### Branching strategy
+- **`main`**: Production-ready code only. Always deployable.
+- **`develop`**: Integration branch for features. Contains latest delivered development changes.
+- **`feature/*`**: New features (branch off `develop`, merge back to `develop`)
+- **`bugfix/*`**: Bug fixes (branch off `develop`, merge to `develop` and `main`)
+- **`release/*`**: Release preparation (branch off `develop`, merge to `main` and `develop`)
+- **`hotfix/*`**: Critical production fixes (branch off `main`, merge to `main` and `develop`)
+- **`docs/*`**: Documentation changes
+
+### Tagging strategy
+- **Version Tags**: Semantic versioning (`v<MAJOR>.<MINOR>.<PATCH>`) on `main` branch after releases
+- **Milestone Tags**: Optional tags for significant milestones (e.g., `milestone-raw-ingestion-complete`)
+- **Format**: `v<MAJOR>.<MINOR>.<PATCH>` following SemVer
+
+### Issue management
+- All work starts as a GitHub issue
+- Issues use labels for type (`type: bug`, `type: feature`, etc.), priority (`priority: high/medium/low`), and area (`area: download`, `area: ingest`, etc.)
+- Issues are prioritized and added to milestones
+- Work begins only when issue is assigned and in progress
+- Progress tracked through issue updates, PR links, and checklists
+- Issue closed only when associated PR is merged and acceptance criteria met
+
+### Pull request process
+1. Create branch from `develop` for features, `main` for hotfixes
+2. Naming: `feature/<issue-number>-short-description` or `bugfix/<issue-number>-short-description`
+3. Keep PRs small and focused (ideally <400 lines changed)
+4. Description must include:
+   - Summary of changes
+   - Related issue number (Closes #xxx or Fixes #xxx)
+   - Testing performed
+   - Screenshots if UI changes
+   - Any breaking changes or migration notes
+5. Checks:
+   - All tests must pass
+   - Code coverage thresholds met
+   - Linting/formatting passes
+   - Security scans pass
+6. Review:
+   - Minimum 1 approving review (2 for complex changes)
+   - Address all review comments
+   - Use suggested changes feature when appropriate
+7. Merging:
+   - Use squash and merge for feature branches (keeps history clean)
+   - Use merge commit for releases if desired
+   - Delete branch after merge
+
+### CI/CD pipeline
+- GitHub Actions workflows in `.github/workflows/`
+- `ci.yml`: Runs on push and PR to `main` and `develop` (linting, type checking, testing, coverage)
+- `release.yml`: Triggered on tag push to `main` (build, test, create GitHub release, publish to PyPI)
+- Branch protection rules for `main` and `develop`:
+  - Require pull request reviews before merging
+  - Require status checks to pass before merging
+  - Require linear history
+  - Include administrators
+  - Require conversation resolution before merging
+
+### Documentation standards
+- README.md: Clear project overview, installation, quick start, architecture, API examples, contributing guidelines
+- CONTRIBUTING.md: How to report bugs, suggest features, development setup, coding standards, PR process, license
+- CHANGELOG.md: Keep updated with notable changes using Keep a Changelog format
+- Inline documentation: Follow PEP 257 for docstrings, use type hints where practical, comment complex logic
+
+### Code review guidelines
+Reviewers should examine code for:
+1. Correctness: Does the code work as intended?
+2. Clarity: Is the code easy to understand?
+3. Maintainability: Is the code easy to modify and extend?
+4. Patterns: Does it follow established project patterns?
+5. Tests: Are there adequate tests that pass?
+6. Documentation: Is documentation updated if needed?
+7. Performance: Are there obvious performance issues?
+8. Security: Are there security vulnerabilities?
+
+Review process:
+1. Reviewer examines code against guidelines
+2. Leaves comments and suggestions
+3. Author addresses all feedback
+4. Reviewer approves when satisfied
+5. Maintainer merges after approval and passing checks
+
+### Release process
+Pre-release checklist:
+1. All issues in milestone are closed
+2. Main branch is stable and tested
+3. Documentation is up to date
+4. CHANGELOG.md updated
+5. Version number determined
+
+Release steps:
+1. Create release branch: `git checkout -b release/vX.Y.Z develop`
+2. Update version numbers in code (if applicable)
+3. Update CHANGELOG.md with release notes
+4. Commit changes: `git commit -m "chore: prepare release vX.Y.Z"`
+5. Push branch and create PR to main
+6. Get required approvals
+7. Merge PR to main (creates merge commit)
+8. Tag release: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
+9. Push tag: `git push origin vX.Y.Z`
+10. Merge main back to develop: `git checkout develop && git merge main`
+11. Delete release branch
+12. GitHub Actions automatically creates GitHub release
+
+---
+
 ## Rules for AI coding agents
 
 AI agents working in this repository must:

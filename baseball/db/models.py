@@ -26,6 +26,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Boolean,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -343,6 +344,7 @@ class RawMlbstatsapi(Base):
 
     __table_args__ = (
         Index("ix_raw_mlb_endpoint_id", "endpoint", "resource_id"),
+        {'schema': 'raw'}
     )
 
 
@@ -358,13 +360,14 @@ class RawRetrosheet(Base):
     game_id = Column(String(50), nullable=True, index=True)
     file_name = Column(String(200), nullable=False)
     payload = Column(Text, nullable=False)
-    checksum = Column(String(64), nullable=True, unique=True)
+    checksum = Column(String(64), nullable=True, unique=True)  # SHA256 of payload
     source_url = Column(String(500), nullable=True)
     retrieved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
         Index("ix_raw_retrosheet_season_type", "season", "file_type"),
+        {'schema': 'raw'}
     )
 
 
@@ -385,6 +388,7 @@ class RawStatcast(Base):
 
     __table_args__ = (
         Index("ix_raw_statcast_game", "game_date", "game_id"),
+        {'schema': 'raw'}
     )
 
 
@@ -404,6 +408,249 @@ class RawFangraphs(Base):
 
     __table_args__ = (
         Index("ix_raw_fangraphs_season_type", "season", "data_type"),
+        {'schema': 'raw'}
+    )
+
+
+class RawEspn(Base):
+    """Raw ESPN data payload."""
+
+    __tablename__ = "raw_espn_events"
+
+    raw_id = Column(Integer, primary_key=True)
+    event_id = Column(String(100), nullable=False, unique=True, index=True)
+    competition_id = Column(String(100), nullable=True, index=True)
+    season = Column(Integer, nullable=True, index=True)
+    game_date = Column(Date, nullable=True, index=True)
+    payload = Column(Text, nullable=False)  # JSON
+    checksum = Column(String(64), nullable=True, unique=True)  # SHA256 of payload
+    retrieved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_raw_espn_event_date", "event_id", "game_date"),
+        {'schema': 'raw'}
+    )
+
+
+class RawEspnCompetitions(Base):
+    """Raw ESPN competitions data."""
+
+    __tablename__ = "raw_espn_competitions"
+
+    raw_id = Column(Integer, primary_key=True)
+    competition_id = Column(String(100), nullable=False, unique=True, index=True)
+    event_id = Column(String(100), nullable=False, index=True)
+    name = Column(String(200), nullable=True)
+    date = Column(Date, nullable=True)
+    venue_id = Column(String(100), nullable=True)
+    venue_name = Column(String(200), nullable=True)
+    payload = Column(Text, nullable=False)  # JSON
+    checksum = Column(String(64), nullable=True, unique=True)
+    retrieved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_raw_espn_competition_event", "competition_id", "event_id"),
+        {'schema': 'raw'}
+    )
+
+
+class RawEspnTeams(Base):
+    """Raw ESPN teams data."""
+
+    __tablename__ = "raw_espn_teams"
+
+    raw_id = Column(Integer, primary_key=True)
+    team_id = Column(String(100), nullable=False, index=True)
+    competition_id = Column(String(100), nullable=False, index=True)
+    event_id = Column(String(100), nullable=False, index=True)
+    home_away = Column(String(10), nullable=True)  # home/away
+    winner = Column(Boolean, nullable=True)
+    score = Column(Integer, nullable=True)
+    team_uid = Column(String(100), nullable=True)
+    team_slug = Column(String(100), nullable=True)
+    team_location = Column(String(200), nullable=True)
+    team_name = Column(String(200), nullable=True)
+    team_abbreviation = Column(String(20), nullable=True)
+    team_display_name = Column(String(200), nullable=True)
+    team_short_display_name = Column(String(100), nullable=True)
+    source_url = Column(Text, nullable=True)
+    payload = Column(Text, nullable=False)  # JSON
+    checksum = Column(String(64), nullable=True, unique=True)
+    retrieved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_raw_espn_team_competition", "team_id", "competition_id"),
+        Index("ix_raw_espn_team_event", "team_id", "event_id"),
+        {'schema': 'raw'}
+    )
+
+
+class RawEspnVenues(Base):
+    """Raw ESPN venues data."""
+
+    __tablename__ = "raw_espn_venues"
+
+    raw_id = Column(Integer, primary_key=True)
+    venue_id = Column(String(100), nullable=False, unique=True, index=True)
+    venue_name = Column(String(200), nullable=True)
+    address = Column(Text, nullable=True)
+    city = Column(String(100), nullable=True)
+    state = Column(String(50), nullable=True)
+    country = Column(String(100), nullable=True)
+    capacity = Column(Integer, nullable=True)
+    indoor = Column(Boolean, nullable=True)
+    payload = Column(Text, nullable=False)  # JSON
+    checksum = Column(String(64), nullable=True, unique=True)
+    retrieved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        {'schema': 'raw'}
+    )
+
+
+class RawEspnBroadcasts(Base):
+    """Raw ESPN broadcasts data."""
+
+    __tablename__ = "raw_espn_broadcasts"
+
+    raw_id = Column(Integer, primary_key=True)
+    broadcast_id = Column(String(100), nullable=False, unique=True, index=True)
+    event_id = Column(String(100), nullable=False, index=True)
+    competition_id = Column(String(100), nullable=True, index=True)
+    market = Column(String(100), nullable=True)
+    language = Column(String(50), nullable=True)
+    type = Column(String(50), nullable=True)  # TV, streaming, radio, etc.
+    names = Column(Text, nullable=True)  # JSON array of broadcaster names
+    payload = Column(Text, nullable=False)  # JSON
+    checksum = Column(String(64), nullable=True, unique=True)
+    retrieved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_raw_espn_broadcast_event", "broadcast_id", "event_id"),
+        {'schema': 'raw'}
+    )
+
+
+class RawEspnOdds(Base):
+    """Raw ESPN odds data."""
+
+    __tablename__ = "raw_espn_odds"
+
+    raw_id = Column(Integer, primary_key=True)
+    odds_id = Column(String(100), nullable=False, unique=True, index=True)
+    event_id = Column(String(100), nullable=False, index=True)
+    competition_id = Column(String(100), nullable=True, index=True)
+    provider = Column(String(100), nullable=True)  # e.g., "consensus", "draftkings"
+    home_team_moneyline = Column(Integer, nullable=True)
+    away_team_moneyline = Column(Integer, nullable=True)
+    home_team_spread = Column(Numeric(5, 2), nullable=True)
+    away_team_spread = Column(Numeric(5, 2), nullable=True)
+    spread_points = Column(Numeric(5, 2), nullable=True)
+    over_under = Column(Numeric(5, 2), nullable=True)
+    over_odds = Column(Integer, nullable=True)
+    under_odds = Column(Integer, nullable=True)
+    payload = Column(Text, nullable=False)  # JSON
+    checksum = Column(String(64), nullable=True, unique=True)
+    retrieved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_raw_espn_odds_event", "odds_id", "event_id"),
+        {'schema': 'raw'}
+    )
+
+
+class RawWeatherStations(Base):
+    """Raw weather stations data."""
+
+    __tablename__ = "raw_weather_stations"
+
+    raw_id = Column(Integer, primary_key=True)
+    station_id = Column(String(100), nullable=False, unique=True, index=True)
+    station_name = Column(String(200), nullable=True)
+    elevation = Column(Integer, nullable=True)
+    latitude = Column(Numeric(10, 6), nullable=True)
+    longitude = Column(Numeric(10, 6), nullable=True)
+    timezone = Column(String(100), nullable=True)
+    payload = Column(Text, nullable=False)  # JSON
+    checksum = Column(String(64), nullable=True, unique=True)
+    retrieved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        {'schema': 'raw'}
+    )
+
+
+class RawWeatherForecasts(Base):
+    """Raw weather forecasts data."""
+
+    __tablename__ = "raw_weather_forecasts"
+
+    raw_id = Column(Integer, primary_key=True)
+    forecast_id = Column(String(100), nullable=False, unique=True, index=True)
+    station_id = Column(String(100), nullable=False, index=True)
+    issuance_time = Column(DateTime, nullable=True, index=True)
+    valid_time = Column(DateTime, nullable=True, index=True)
+    payload = Column(Text, nullable=False)  # JSON
+    checksum = Column(String(64), nullable=True, unique=True)
+    retrieved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_raw_weather_forecast_station", "forecast_id", "station_id"),
+        {'schema': 'raw'}
+    )
+
+
+class RawWeatherPeriods(Base):
+    """Raw weather forecast periods data."""
+
+    __tablename__ = "raw_weather_periods"
+
+    raw_id = Column(Integer, primary_key=True)
+    period_id = Column(String(100), nullable=False, unique=True, index=True)
+    forecast_id = Column(String(100), nullable=False, index=True)
+    station_id = Column(String(100), nullable=False, index=True)
+    start_time = Column(DateTime, nullable=True, index=True)
+    end_time = Column(DateTime, nullable=True, index=True)
+    temperature = Column(Integer, nullable=True)
+    temperature_unit = Column(String(20), nullable=True)  # F, C
+    temperature_trend = Column(String(50), nullable=True)  # rising, falling, steady
+    probability_of_precipitation = Column(Integer, nullable=True)  # percentage
+    precipitation_amount = Column(Numeric(5, 2), nullable=True)
+    precipitation_amount_unit = Column(String(20), nullable=True)  # in, mm
+    precipitation_type = Column(String(50), nullable=True)  # rain, snow, mixed
+    wind_speed = Column(Integer, nullable=True)
+    wind_speed_unit = Column(String(20), nullable=True)  # mph, kph
+    wind_direction = Column(String(10), nullable=True)  # N, NE, E, SE, S, SW, W, NW
+    wind_direction_degrees = Column(Integer, nullable=True)
+    relative_humidity = Column(Integer, nullable=True)  # percentage
+    dewpoint = Column(Integer, nullable=True)
+    dewpoint_unit = Column(String(20), nullable=True)  # F, C
+    pressure = Column(Numeric(6, 2), nullable=True)
+    pressure_unit = Column(String(20), nullable=True)  # mb, hPa, inHg
+    visibility = Column(Numeric(6, 2), nullable=True)
+    visibility_unit = Column(String(20), nullable=True)  # mi, km
+    sky_cover = Column(Integer, nullable=True)  # percentage
+    sky_cover_text = Column(String(100), nullable=True)  # clear, few, scattered, broken, overcast
+    ceiling = Column(Integer, nullable=True)
+    ceiling_unit = Column(String(20), nullable=True)  # ft, m
+    ceiling_aggravation = Column(String(100), nullable=True)  # none, obscuration, partial, total
+    payload = Column(Text, nullable=False)  # JSON
+    checksum = Column(String(64), nullable=True, unique=True)
+    retrieved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_raw_weather_period_forecast", "period_id", "forecast_id"),
+        Index("ix_raw_weather_period_station", "period_id", "station_id"),
+        {'schema': 'raw'}
     )
 
 

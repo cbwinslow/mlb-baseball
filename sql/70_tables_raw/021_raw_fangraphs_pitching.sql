@@ -106,7 +106,6 @@ CREATE TABLE IF NOT EXISTS raw.fangraphs_pitching (
     "HardHit%"          NUMERIC(7,4),
     "Events"            SMALLINT,
     "xERA"              NUMERIC(6,2),
-    "xFIP"              NUMERIC(6,2),
 
     -- -------------------------------------------------------------------------
     -- Pitch mix (percentages)

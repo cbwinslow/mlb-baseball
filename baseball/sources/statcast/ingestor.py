@@ -5,13 +5,13 @@ Date: 2026-05-09 (updated 2026-05-11)
 Script: ingestor.py
 Version: 2.0.0
 
-Load StatCast CSV data into baseball.statcast_pitches.
+Load StatCast CSV data into raw.statcast_pitches.
 CSV files are produced by StatcastDownloader (Baseball Savant export format).
 Uses batch upserts with ON CONFLICT (game_pk, at_bat_number, pitch_number)
 for full idempotency.
 
 Inputs:  Statcast CSV files from Baseball Savant
-Outputs: Rows upserted into baseball.statcast_pitches
+Outputs: Rows upserted into raw.statcast_pitches
 ================================================================================
 """
 
@@ -207,7 +207,7 @@ class StatcastIngestor:
     def _bulk_upsert_pitches(
         self, params: list[dict[str, Any]]
     ) -> tuple[int, int]:
-        """Bulk-upsert pitch rows into baseball.statcast_pitches.
+        """Bulk-upsert pitch rows into raw.statcast_pitches.
 
         Uses ON CONFLICT (game_pk, at_bat_number, pitch_number) DO UPDATE.
         Processes in batches of _BATCH_SIZE.
@@ -216,7 +216,7 @@ class StatcastIngestor:
             Tuple of (rows_upserted, rows_skipped).
         """
         upsert_sql = text("""
-            INSERT INTO baseball.statcast_pitches (
+            INSERT INTO raw.statcast_pitches (
                 game_pk, game_date, season, game_type,
                 at_bat_number, pitch_number, inning, inning_topbot,
                 pitcher_id, pitcher_name, p_throws,

@@ -99,7 +99,7 @@ def init(
         sql_path = Path(sql_dir)
         if not sql_path.is_absolute():
             # Resolve relative to the repo root (two levels up from this file)
-            sql_path = Path(__file__).resolve().parents[4] / sql_dir
+            sql_path = Path(__file__).resolve().parents[3] / sql_dir
 
         console.print(f"[cyan]Running SQL bootstrap from {sql_path}...[/cyan]")
         bootstrap = DatabaseBootstrap(

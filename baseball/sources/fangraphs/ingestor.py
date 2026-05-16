@@ -9,7 +9,7 @@ Load FanGraphs downloaded CSV files into the database.
 Supports dry-run mode when no DB connection is provided.
 
 Inputs:  CSV files produced by FanGraphsDownloader
-Outputs: Rows upserted into raw.fg_batting, raw.fg_pitching, raw.fg_fielding
+Outputs: Rows upserted into raw.fangraphs_batting, raw.fangraphs_pitching, raw.fangraphs_fielding
 ================================================================================
 """
 
@@ -242,7 +242,7 @@ class FanGraphsIngestor:
     def _upsert_batting_rows(
         self, rows: list[dict], season: int
     ) -> tuple[int, int]:
-        """Insert or update batting rows in raw.fg_batting.
+        """Insert or update batting rows in raw.fangraphs_batting.
 
         Uses PostgreSQL INSERT ... ON CONFLICT (playerid, season, team) DO UPDATE
         so that re-running an ingest for the same season is always idempotent.
@@ -256,7 +256,7 @@ class FanGraphsIngestor:
             UPDATE always writes, we count all rows as inserted and skip=0.
         """
         upsert_sql = text("""
-            INSERT INTO raw.fg_batting (
+            INSERT INTO raw.fangraphs_batting (
                 playerid, season, name, team, age, g, ab, pa, h, "1b", "2b", "3b",
                 hr, r, rbi, bb, ibb, so, hbp, sf, sh, gdp, sb, cs, avg, obp, slg,
                 ops, bb_pct, k_pct, bb_k, woba, wrc_plus, wrc, wraa, off, def_val,
@@ -374,7 +374,7 @@ class FanGraphsIngestor:
     def _upsert_pitching_rows(
         self, rows: list[dict], season: int
     ) -> tuple[int, int]:
-        """Insert or update pitching rows in raw.fg_pitching.
+        """Insert or update pitching rows in raw.fangraphs_pitching.
 
         Uses PostgreSQL INSERT ... ON CONFLICT (playerid, season, team) DO UPDATE
         so that re-running an ingest for the same season is always idempotent.
@@ -388,7 +388,7 @@ class FanGraphsIngestor:
             UPDATE always writes, we count all rows as inserted and skip=0.
         """
         upsert_sql = text("""
-            INSERT INTO raw.fg_pitching (
+            INSERT INTO raw.fangraphs_pitching (
                 playerid, season, name, team, age, w, l, sv, g, gs, cg, sho, hld,
                 bs, ip, tbf, h, r, er, hr, bb, ibb, hbp, wp, bk, so, era, ra9,
                 fip, xfip, siera, k_9, bb_9, k_bb, h_9, hr_9, avg, whip, babip,
@@ -488,7 +488,7 @@ class FanGraphsIngestor:
     def _upsert_fielding_rows(
         self, rows: list[dict], season: int
     ) -> tuple[int, int]:
-        """Insert or update fielding rows in raw.fg_fielding.
+        """Insert or update fielding rows in raw.fangraphs_fielding.
 
         Uses PostgreSQL INSERT ... ON CONFLICT (playerid, pos, season, team) DO UPDATE
         so that re-running an ingest for the same season is always idempotent.
@@ -502,7 +502,7 @@ class FanGraphsIngestor:
             UPDATE always writes, we count all rows as inserted and skip=0.
         """
         upsert_sql = text("""
-            INSERT INTO raw.fg_fielding (
+            INSERT INTO raw.fangraphs_fielding (
                 playerid, season, name, team, pos, age, g, gs, inn, po, a, e,
                 dp, fpct, drs, biz, plays, rszr, rng, rng_r, err_r, arm_r,
                 dp_r, sbr, ubr, frm_runs, "def", source_url, loaded_at

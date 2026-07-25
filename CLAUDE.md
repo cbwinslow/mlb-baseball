@@ -17,6 +17,12 @@ A task is not complete until:
 4. Errors from upstream sources (rate limits, malformed responses, schema drift) are handled explicitly, not silently swallowed.
 5. Any new data source or schema change is reflected in the docs in the same change, not as a follow-up.
 
+## Naming convention
+
+- Every object we name ourselves — schemas, tables, columns, functions, modules, config keys — gets a short name: **one word, two at most.** Not `bref_pitching_war_raw`; `pitching_war` (schema already says `raw`).
+- Prefixes are allowed but only when actually needed to disambiguate (e.g. two different sources landing conceptually similar data). Don't prefix by default.
+- Exception: raw-layer columns that mirror a source's own field names verbatim (e.g. the Chadwick register's `key_mlbam`, `mlb_played_first`) are exempt — source-faithfulness there is the point (see `docs/ARCHITECTURE.md`), not something to rename for brevity.
+
 ## Code quality
 
 - No dead code, no commented-out blocks, no TODOs left behind as a substitute for finishing the work.

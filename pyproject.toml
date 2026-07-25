@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 mlb-migrate = "mlb_baseball.migrate:main"
+mlb-ingest-chadwick-register = "mlb_baseball.connectors.chadwick_register:main"
 
 [build-system]
 requires = ["hatchling"]

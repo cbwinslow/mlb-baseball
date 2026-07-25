@@ -12,6 +12,7 @@ roster/team files alongside the event files, so nothing extra needs fetching).
 """
 
 import io
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -20,14 +21,33 @@ import pandas as pd
 CWEVENT_FIELDS = "0-96"
 CWEVENT_EXTENDED_FIELDS = "0-66"
 
+REQUIRED_TOOLS = ("cwevent", "cwgame")
+
+INSTALL_HINT = (
+    "build from source: https://github.com/chadwickbureau/chadwick "
+    "(./configure && make && sudo make install) — the pip package `pychadwick` "
+    "does not work here, see docs/DECISIONS.md ADR-004"
+)
+
+
+def missing_tools() -> list[str]:
+    """Which of REQUIRED_TOOLS aren't on PATH, if any — used by
+    retrosheet_event.health_check() so a missing system dependency shows up
+    in `mlb doctor` before a multi-hour bootstrap, not as a cryptic
+    FileNotFoundError partway through one."""
+    return [tool for tool in REQUIRED_TOOLS if shutil.which(tool) is None]
+
 
 def _run(tool: str, args: list[str], event_dir: Path) -> pd.DataFrame:
-    result = subprocess.run(
-        [tool, *args],
-        cwd=event_dir,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [tool, *args],
+            cwd=event_dir,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"{tool} is not installed or not on PATH — {INSTALL_HINT}") from exc
     if result.returncode != 0:
         raise RuntimeError(f"{tool} failed in {event_dir}: {result.stderr.strip()}")
     if not result.stdout.strip():

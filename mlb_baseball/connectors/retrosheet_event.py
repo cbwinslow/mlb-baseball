@@ -238,8 +238,20 @@ def update() -> dict[str, int]:
     return totals
 
 
+def _check_chadwick_tools() -> Check:
+    missing = chadwick_tools.missing_tools()
+    if missing:
+        return Check(
+            "chadwick tools (cwevent/cwgame)",
+            False,
+            f"missing: {', '.join(missing)} — {chadwick_tools.INSTALL_HINT}",
+        )
+    return Check("chadwick tools (cwevent/cwgame)", True, "cwevent and cwgame found on PATH")
+
+
 def health_check() -> list[Check]:
     return [
+        _check_chadwick_tools(),
         check_table_has_rows(EVENT_TABLE),
         check_table_has_rows(GAME_TABLE),
         check_last_run(SOURCE),

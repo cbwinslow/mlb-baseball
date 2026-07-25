@@ -5,6 +5,8 @@ inventory would go stale the moment ingestion runs again. This queries current
 state every time, so it's always right.
 """
 
+import psycopg
+
 from mlb_baseball.db import get_connection
 
 
@@ -32,15 +34,22 @@ def tables() -> list[dict]:
 
 
 def last_runs() -> list[dict]:
+    """Empty (not an error) if meta.ingestion_run doesn't exist yet — a
+    fresh, unmigrated database genuinely has no runs to report. Run
+    `mlb migrate` to create it; that's what `mlb doctor` will say too."""
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT DISTINCT ON (source)
-                    source, mode, status, rows, started_at, finished_at
-                FROM meta.ingestion_run
-                ORDER BY source, started_at DESC, id DESC
-                """
-            )
+            try:
+                cur.execute(
+                    """
+                    SELECT DISTINCT ON (source)
+                        source, mode, status, rows, started_at, finished_at
+                    FROM meta.ingestion_run
+                    ORDER BY source, started_at DESC, id DESC
+                    """
+                )
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return []
             columns = [d.name for d in cur.description]
             return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]

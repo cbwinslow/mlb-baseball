@@ -1,5 +1,7 @@
 import uuid
 
+import psycopg
+
 from mlb_baseball.health import check_last_run, check_table_has_rows
 
 
@@ -47,6 +49,26 @@ def test_check_last_run_false_when_never_run():
     result = check_last_run(f"test_never_{uuid.uuid4().hex}")
     assert not result.ok
     assert "never run" in result.detail
+
+
+def test_check_last_run_reports_actionable_message_when_meta_schema_missing(monkeypatch):
+    # Same class of regression as test_check_table_has_rows_false_when_table_never_created,
+    # but for meta.ingestion_run specifically: a fresh, unmigrated database
+    # must not crash this with UndefinedTable. Needs a genuinely separate
+    # database (not mlb_test, which every other test assumes is migrated).
+    db_name = f"mlb_health_freshtest_{uuid.uuid4().hex[:8]}"
+    with psycopg.connect("postgresql:///postgres", autocommit=True) as admin_conn:
+        with admin_conn.cursor() as cur:
+            cur.execute(f"CREATE DATABASE {db_name}")
+        try:
+            monkeypatch.setenv("DATABASE_URL", f"postgresql:///{db_name}")
+            result = check_last_run("anything")
+        finally:
+            with admin_conn.cursor() as cur:
+                cur.execute(f"DROP DATABASE {db_name}")
+
+    assert not result.ok
+    assert "mlb migrate" in result.detail
 
 
 def test_check_last_run_true_on_success(db_conn):

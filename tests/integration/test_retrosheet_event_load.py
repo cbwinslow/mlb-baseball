@@ -7,10 +7,19 @@ from unittest.mock import patch
 
 import pytest
 
+from mlb_baseball import chadwick_tools
 from mlb_baseball.connectors import retrosheet_event as event
 
 FIXTURE_ZIP = (
     Path(__file__).resolve().parent.parent / "fixtures" / "retrosheet_event" / "decade.zip"
+)
+
+# Every test in this file exercises real cwevent/cwgame subprocess parsing
+# (only the network download is mocked) — skip cleanly, not fail, if these
+# aren't installed. See README.md "Requirements".
+pytestmark = pytest.mark.skipif(
+    bool(chadwick_tools.missing_tools()),
+    reason=f"cwevent/cwgame not installed: {chadwick_tools.missing_tools()}",
 )
 
 

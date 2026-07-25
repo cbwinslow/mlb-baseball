@@ -16,12 +16,38 @@ no overlap.
 
 import hashlib
 import json
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
 from mlb_baseball.net import get_with_retry
 
 DOWNLOADS_ROOT = Path(__file__).resolve().parent.parent / "downloads"
+
+# Below this, warn — Retrosheet's full raw+CSV corpus is a few hundred MB,
+# but a near-empty disk is worth flagging before a multi-hour bootstrap runs
+# into it rather than discovering it from a mid-run write failure.
+LOW_DISK_WARNING_BYTES = 2 * 1024 * 1024 * 1024  # 2GB
+
+
+def check_downloads_directory() -> tuple[bool, str]:
+    """Used by `mlb doctor` — not scoped to one connector, every download-
+    based connector shares this same directory and disk. Returns (ok, detail)
+    rather than a Check directly so it has no dependency on health.py/doctor.py,
+    matching this module's existing "no dependency on connectors" shape."""
+    try:
+        DOWNLOADS_ROOT.mkdir(parents=True, exist_ok=True)
+        probe = DOWNLOADS_ROOT / ".doctor_write_probe"
+        probe.write_text("ok")
+        probe.unlink()
+    except OSError as exc:
+        return False, f"{DOWNLOADS_ROOT} is not writable: {exc}"
+
+    free_bytes = shutil.disk_usage(DOWNLOADS_ROOT).free
+    free_gb = free_bytes / (1024**3)
+    if free_bytes < LOW_DISK_WARNING_BYTES:
+        return False, f"{DOWNLOADS_ROOT} writable, but only {free_gb:.1f}GB free on that disk"
+    return True, f"{DOWNLOADS_ROOT} writable, {free_gb:.1f}GB free"
 
 
 def _manifest_path(source: str) -> Path:

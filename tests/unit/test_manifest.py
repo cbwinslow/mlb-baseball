@@ -93,3 +93,37 @@ def test_load_manifest_returns_empty_dict_when_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
 
     assert manifest.load_manifest("nonexistent_source") == {}
+
+
+def test_check_downloads_directory_ok_when_writable_with_space(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path / "downloads")
+
+    ok, detail = manifest.check_downloads_directory()
+
+    assert ok
+    assert "writable" in detail
+    assert not (tmp_path / "downloads" / ".doctor_write_probe").exists()  # probe cleaned up
+
+
+def test_check_downloads_directory_fails_when_not_writable(tmp_path, monkeypatch):
+    readonly_dir = tmp_path / "readonly"
+    readonly_dir.mkdir(mode=0o500)
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", readonly_dir / "downloads")
+
+    try:
+        ok, detail = manifest.check_downloads_directory()
+    finally:
+        readonly_dir.chmod(0o700)  # restore so tmp_path cleanup can remove it
+
+    assert not ok
+    assert "not writable" in detail
+
+
+def test_check_downloads_directory_warns_below_disk_threshold(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+    monkeypatch.setattr(manifest, "LOW_DISK_WARNING_BYTES", float("inf"))
+
+    ok, detail = manifest.check_downloads_directory()
+
+    assert not ok
+    assert "GB free" in detail

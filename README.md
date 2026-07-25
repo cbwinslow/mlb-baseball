@@ -34,6 +34,7 @@ mlb ingest lahman --mode bootstrap   # see docs/DATA_SOURCES.md for the manual d
 ## Requirements
 
 - Postgres, reachable via a `DATABASE_URL` in `.env` (bare-metal Postgres is the default assumption — see ADR-002 in `docs/DECISIONS.md`).
+- `cwevent` and `cwgame` (Chadwick Baseball Bureau's CLI tools) on `PATH`, required by the `retrosheet_event` connector to parse Retrosheet's raw event files. Build from source: <https://github.com/chadwickbureau/chadwick> (`./configure && make && sudo make install`). The `pychadwick` pip package does **not** work here — its C-extension build fails against modern CMake (see `docs/DECISIONS.md` ADR-004). `mlb doctor` checks for both tools and tells you if either is missing.
 
 ## Testing
 

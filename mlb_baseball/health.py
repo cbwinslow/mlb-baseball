@@ -34,11 +34,19 @@ def check_table_has_rows(table: str) -> Check:
 def check_last_run(source: str) -> Check:
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT status, started_at FROM meta.ingestion_run "
-                "WHERE source = %s ORDER BY id DESC LIMIT 1",
-                (source,),
-            )
+            try:
+                cur.execute(
+                    "SELECT status, started_at FROM meta.ingestion_run "
+                    "WHERE source = %s ORDER BY id DESC LIMIT 1",
+                    (source,),
+                )
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(
+                    f"{source} last run",
+                    False,
+                    "meta.ingestion_run does not exist — run `mlb migrate`",
+                )
             row = cur.fetchone()
     if row is None:
         return Check(f"{source} last run", False, "never run")

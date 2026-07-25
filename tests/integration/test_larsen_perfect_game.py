@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
+from mlb_baseball import chadwick_tools
 from mlb_baseball.connectors import retrosheet
 from mlb_baseball.connectors import retrosheet_event as event
 from mlb_baseball.connectors import retrosheet_gamelog as gamelog
@@ -27,6 +28,14 @@ FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "larsen_gam
 CSV_FIXTURE = FIXTURES_DIR / "1956csvs.zip"
 EVENT_FIXTURE = FIXTURES_DIR / "allpost_1956.zip"
 GAMELOG_FIXTURE = FIXTURES_DIR / "glws.zip"
+
+# Every test here loads the raw event file via real cwevent/cwgame parsing —
+# skip cleanly, not fail, if these aren't installed. See README.md
+# "Requirements".
+pytestmark = pytest.mark.skipif(
+    bool(chadwick_tools.missing_tools()),
+    reason=f"cwevent/cwgame not installed: {chadwick_tools.missing_tools()}",
+)
 
 GID = "NYA195610080"
 

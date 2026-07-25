@@ -2,6 +2,21 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-011: `mlb doctor`/`mlb inventory` must never crash — even on a database that's never been migrated
+
+**Decision:** Every check in `doctor.py`, and `inventory.last_runs()`, catches `UndefinedTable` on its own queries and reports a clean, actionable failed result (naming the fix — usually `mlb migrate`) instead of letting the exception propagate. `doctor.run()`'s core checks (schemas, migrations, downloads directory) are wrapped the same defensive way its per-connector loop already was.
+
+**Context:** Found by deliberately testing `mlb doctor` and `mlb inventory` against a freshly-created, never-migrated database — exactly the state a brand-new clone's database is in before the first `mlb migrate`. Both crashed with a raw `psycopg.errors.UndefinedTable` traceback. That's the worst possible first impression for a tool whose entire purpose is diagnosing what's wrong: the diagnostic tool itself was the thing breaking, on the single most common fresh-start scenario there is.
+
+**Rationale:**
+- `mlb doctor`'s whole job is to be safe to run in *any* state the project might be in, not just the ones a developer happened to test by hand — "adapt to other users' environments" only means something if it includes the very first environment: nothing set up yet.
+- Detail messages name the actual next command (`mlb migrate`, `mlb ingest <source> --mode bootstrap`) wherever there's an unambiguous one, not just "X is missing" — the point of these messages is that a person or an agent reading them can act immediately, not have to go figure out what's wrong first.
+- Extended `mlb_baseball/manifest.py` with `check_downloads_directory()` (writable + free disk space, warned below 2GB) and wired it into `doctor` as a core check — the download-to-disk architecture (ADR-008) means every connector now shares this one dependency, so it's a `doctor` core check, not a per-connector one.
+- Added `chadwick_tools.missing_tools()` (checks `cwevent`/`cwgame` on `PATH` via `shutil.which`) surfaced through `retrosheet_event.health_check()`, so a missing system dependency shows up in `mlb doctor` before a multi-hour bootstrap, not as a bare `FileNotFoundError` partway through one. Documented the actual install requirement in `README.md` and `docs/TOOLS.md`, which had gone stale (still described Retrosheet as needing no parsing tool, true before ADR-009, not after).
+- Tests that exercise real `cwevent`/`cwgame` subprocess calls (not mocked, per this project's "mock the network, not the parsing" testing philosophy) now skip cleanly via `pytest.mark.skipif(chadwick_tools.missing_tools(), ...)` instead of failing outright, so `pytest` still passes end-to-end for a contributor who hasn't installed the Chadwick tools yet.
+
+**Revisit if:** never expected to — like ADR-006 (missing index) and the `mlb doctor`/`health.py` fixes earlier this session, this is a correctness fix for tooling that's supposed to be trustworthy in every state, not a judgment call.
+
 ## ADR-010: `retrosheet_event`'s scoped replace keys on season+group, not season alone
 
 **Decision:** `retrosheet_event.py` tags every row with `_scope` (season and archive group combined, e.g. `"2024_pbp"` vs `"2024_postseason"`) and uses that as `load_dataframe`'s `scope_column`, not `_season` alone.

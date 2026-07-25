@@ -1,0 +1,37 @@
+[project]
+name = "mlb-baseball"
+version = "0.1.0"
+description = "MLB data ingestion pipeline, ML modeling, and an oddstrader-style Astro site."
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.11"
+dependencies = [
+    "psycopg[binary]>=3.1",
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+    "pybaseball>=2.2",
+    "MLB-StatsAPI>=1.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+mlb-migrate = "mlb_baseball.migrate:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

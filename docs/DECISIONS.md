@@ -36,3 +36,20 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 **Context:** This is meant to be a public community resource, but also something the project owner may want to differentiate on (e.g. the modeling/website layer in later phases). Data licenses (Retrosheet's, Lahman's CC BY-SA, etc.) are separate and unaffected — they apply to the data itself regardless of what license the code carries.
 
 **Rationale:** AGPL's network-use clause means anyone who runs a modified version of this as a public service (e.g. a competing site built on this pipeline) has to release their source too — unlike MIT/Apache, which would let someone fork the site commercially with no obligation to contribute back.
+
+## ADR-004: Retrosheet source — official CSV downloads, not the raw event files
+
+**Decision:** The Retrosheet connector fetches retrosheet.org's own pre-parsed "CSV downloads" product (`retrosheet.org/downloads/{year}/{year}csvs.zip`) rather than the raw per-team event files.
+
+**Context:** The connector was originally built against the raw event files, fetched via a full git clone of `chadwickbureau/retrosheet` (a third-party mirror, ~1.4GB) and parsed with the Chadwick `cwevent` CLI tool — verified working end-to-end (real parsing, real data, tests passing) before this decision superseded it. Checking the official retrosheet.org site directly (prompted by the project owner, who asked specifically whether the GitHub mirror was actually the best option or whether the website should be used instead) surfaced a better official product neither of us had looked at yet.
+
+**Rationale:**
+- Official first-party source, not a third-party mirror.
+- No parsing tool dependency — the CSVs are already parsed and properly headered; just `pandas.read_csv()`.
+- Richer: the `plays` file has 177 columns vs. `cwevent`'s default 67.
+- Smaller, incremental downloads (one small zip per year) instead of a 2.5GB full-history git clone.
+- Bonus: bundles six additional per-game/per-player CSVs (`gameinfo`, `teamstats`, `batting`, `pitching`, `fielding`, `allplayers`) in the same zip, at no extra integration cost.
+
+**Cost:** this product's coverage starts at 1898, not 1871 like the raw event files. A real, documented gap — not hidden.
+
+**Revisit if:** never expected to, but if this product is ever discontinued, the raw-event-files + `cwevent` approach is proven to work (see git history) and could be revived.

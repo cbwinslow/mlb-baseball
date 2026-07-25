@@ -21,11 +21,19 @@ This is a ground-up rebuild; see [docs/NORTH_STAR.md](docs/NORTH_STAR.md) for th
 
 AGPL-3.0 for the code (see [LICENSE](LICENSE)). Data retains whatever license its source requires — see [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
 
+## Setup
+
+```bash
+pip install -e .
+cp .env.example .env   # then point DATABASE_URL at your own Postgres (bare-metal by default, see ADR-002)
+mlb migrate
+mlb ingest register --mode bootstrap
+mlb ingest lahman --mode bootstrap   # see docs/DATA_SOURCES.md for the manual download step first
+```
+
 ## Requirements
 
 - Postgres, reachable via a `DATABASE_URL` in `.env` (bare-metal Postgres is the default assumption — see ADR-002 in `docs/DECISIONS.md`).
-
-Setup instructions land once Phase 1 scaffolding exists.
 
 ## Testing
 

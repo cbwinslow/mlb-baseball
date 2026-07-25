@@ -42,6 +42,23 @@ def test_handles_digit_prefixed_and_mixed_case_columns(db_conn, drop_tables_afte
         assert cur.fetchone() == ("abc01", "12", "3")
 
 
+def test_handles_reserved_sql_keywords_as_column_names(db_conn, drop_tables_after):
+    # Regression test: Retrosheet's parkcode.txt has a column literally named
+    # "end", which broke the unquoted CREATE TABLE this function used to
+    # generate — found by actually running the reference connector against
+    # real data, not by inspection. Covers scope_column too, since it's a
+    # separate quoting path in load_dataframe.
+    table = drop_tables_after("raw.test_reserved_words")
+    df = pd.DataFrame({"start": ["2020"], "end": ["2021"], "select": ["x"]})
+
+    load_dataframe(db_conn, table, df, scope_column="end", scope_value="2021")
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f'SELECT "start", "end", "select" FROM {table}')
+        assert cur.fetchone() == ("2020", "2021", "x")
+
+
 def test_scope_column_replaces_only_matching_rows(db_conn, drop_tables_after):
     table = drop_tables_after("raw.test_chunked")
 

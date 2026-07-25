@@ -11,6 +11,7 @@ import re
 
 import pandas as pd
 import psycopg
+from psycopg import sql
 
 _IDENTIFIER_RE = re.compile(r"[^a-z0-9_]")
 
@@ -22,6 +23,10 @@ def _pg_column_name(name: str) -> str:
     (e.g. playerID -> playerid)."""
     cleaned = _IDENTIFIER_RE.sub("_", name.lower())
     return f"n{cleaned}" if cleaned[0].isdigit() else cleaned
+
+
+def _table_identifier(table: str) -> sql.Identifier:
+    return sql.Identifier(*table.split("."))
 
 
 def load_dataframe(
@@ -38,21 +43,38 @@ def load_dataframe(
     (e.g. Retrosheet, one season at a time), pass scope_column/scope_value to replace
     only rows matching that value, leaving every other chunk's data alone — a full
     TRUNCATE on every call would wipe out all previously loaded seasons.
-    scope_column must already be a sanitized column name (e.g. "_season")."""
+    scope_column must already be a sanitized column name (e.g. "_season").
+
+    Column identifiers are always quoted (via psycopg.sql.Identifier) — raw sources
+    sometimes use reserved SQL keywords as column names (e.g. Retrosheet's
+    parkcode.txt has a column literally named "end"; found by actually running
+    this against real data, not by inspection)."""
     columns = [_pg_column_name(c) for c in df.columns]
-    column_defs = ", ".join(f"{c} text" for c in columns)
+    table_ident = _table_identifier(table)
     with conn.cursor() as cur:
+        column_defs = sql.SQL(", ").join(
+            sql.SQL("{} text").format(sql.Identifier(c)) for c in columns
+        )
         cur.execute(
-            f"CREATE TABLE IF NOT EXISTS {table} "
-            f"({column_defs}, _loaded_at timestamptz NOT NULL DEFAULT now())"
+            sql.SQL(
+                "CREATE TABLE IF NOT EXISTS {table} "
+                "({column_defs}, _loaded_at timestamptz NOT NULL DEFAULT now())"
+            ).format(table=table_ident, column_defs=column_defs)
         )
         if scope_column is None:
-            cur.execute(f"TRUNCATE {table}")
+            cur.execute(sql.SQL("TRUNCATE {table}").format(table=table_ident))
         else:
-            cur.execute(f"DELETE FROM {table} WHERE {scope_column} = %s", (scope_value,))
+            cur.execute(
+                sql.SQL("DELETE FROM {table} WHERE {col} = %s").format(
+                    table=table_ident, col=sql.Identifier(scope_column)
+                ),
+                (scope_value,),
+            )
         csv_text = df.to_csv(index=False, header=False)
-        column_list = ", ".join(columns)
-        copy_sql = f"COPY {table} ({column_list}) FROM STDIN WITH (FORMAT csv)"
+        column_list = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
+        copy_sql = sql.SQL("COPY {table} ({columns}) FROM STDIN WITH (FORMAT csv)").format(
+            table=table_ident, columns=column_list
+        )
         with cur.copy(copy_sql) as copy:
             copy.write(csv_text)
         return cur.rowcount

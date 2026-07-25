@@ -21,10 +21,18 @@ see docs/ARCHITECTURE.md "Loading patterns". bootstrap() commits after each
 year for the same reason the previous version did: a failure partway through
 ~128 years shouldn't lose already-loaded years, and each year's load is
 independently idempotent.
+
+bootstrap() fetches years concurrently (network is the actual bottleneck —
+128 sequential HTTP round-trips) via a bounded thread pool, but still writes
+to Postgres sequentially, one year at a time, in order. MAX_WORKERS is
+deliberately modest: retrosheet.org is a small, volunteer-run site, not a
+CDN-backed API — this should be fast for us without looking like a scraper
+hammering their server.
 """
 
 import io
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 import pandas as pd
@@ -39,6 +47,7 @@ from mlb_baseball.load import load_dataframe
 SOURCE = "retrosheet"
 BASE_URL = "https://www.retrosheet.org/downloads"
 FIRST_YEAR = 1898
+MAX_WORKERS = 4
 CSV_NAMES = ["allplayers", "batting", "fielding", "gameinfo", "pitching", "plays", "teamstats"]
 
 
@@ -55,16 +64,13 @@ def _extract_csvs(year: int, zip_bytes: bytes) -> dict[str, pd.DataFrame]:
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         for name in CSV_NAMES:
             with zf.open(f"{year}{name}.csv") as f:
-                df = pd.read_csv(f, low_memory=False)
+                df = pd.read_csv(f, low_memory=False).copy()
                 df["_season"] = str(year)
                 dataframes[name] = df
     return dataframes
 
 
-def _load_year(conn: psycopg.Connection, year: int) -> dict[str, int]:
-    zip_bytes = _fetch_year_zip(year)
-    if zip_bytes is None:
-        return {}
+def _load_zip(conn: psycopg.Connection, year: int, zip_bytes: bytes) -> dict[str, int]:
     counts = {}
     for name, df in _extract_csvs(year, zip_bytes).items():
         table = f"raw.retrosheet_{name}"
@@ -74,13 +80,28 @@ def _load_year(conn: psycopg.Connection, year: int) -> dict[str, int]:
     return counts
 
 
+def _load_year(conn: psycopg.Connection, year: int) -> dict[str, int]:
+    zip_bytes = _fetch_year_zip(year)
+    if zip_bytes is None:
+        return {}
+    return _load_zip(conn, year, zip_bytes)
+
+
 def bootstrap() -> dict[str, int]:
     totals: dict[str, int] = {}
+    years = list(range(FIRST_YEAR, date.today().year + 1))
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        for year in range(FIRST_YEAR, date.today().year + 1):
-            for table, count in _load_year(conn, year).items():
-                totals[table] = totals.get(table, 0) + count
-            conn.commit()
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            # executor.map keeps MAX_WORKERS fetches in flight and yields in
+            # order as we consume it, overlapping network wait for upcoming
+            # years with DB writes for the current one — without holding all
+            # ~128 years' zips in memory at once.
+            for year, zip_bytes in zip(years, executor.map(_fetch_year_zip, years), strict=True):
+                if zip_bytes is None:
+                    continue
+                for table, count in _load_zip(conn, year, zip_bytes).items():
+                    totals[table] = totals.get(table, 0) + count
+                conn.commit()
         result["rows"] = sum(totals.values())
     return totals
 

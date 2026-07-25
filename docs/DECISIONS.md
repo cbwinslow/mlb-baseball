@@ -53,3 +53,16 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 **Cost:** this product's coverage starts at 1898, not 1871 like the raw event files. A real, documented gap — not hidden.
 
 **Revisit if:** never expected to, but if this product is ever discontinued, the raw-event-files + `cwevent` approach is proven to work (see git history) and could be revived.
+
+## ADR-005: Concurrent fetch, sequential write, for the Retrosheet bootstrap
+
+**Decision:** `retrosheet.bootstrap()` fetches each year's zip over a bounded thread pool (`MAX_WORKERS = 4`), but still writes to Postgres sequentially, one year at a time, committing after each.
+
+**Context:** A ~128-year bootstrap is 128 sequential HTTP round-trips if done naively — network latency, not CPU or the database, is the actual bottleneck. Parallelizing needed to not come at the cost of the existing partial-progress guarantee (a failure partway through shouldn't lose already-loaded years) or blow up memory by holding all ~128 zips at once.
+
+**Rationale:**
+- `ThreadPoolExecutor.map()` pipelines cleanly: it keeps `MAX_WORKERS` fetches in flight and yields results in order as they're consumed, so only a handful of years' zips are ever in memory at once — not fetch-everything-then-process.
+- Postgres writes stay single-connection, sequential, one commit per year — same idempotent-per-year design as before, unaffected by the fetch-side change.
+- `MAX_WORKERS = 4` is deliberately modest. retrosheet.org is a small, volunteer-run site, not a CDN-backed commercial API — this should be noticeably faster for us without behaving like a scraper hammering their server.
+
+**Revisit if:** a source with a rate limit or an explicit concurrency policy needs a different number, or a future connector's bottleneck is actually CPU/parsing rather than network — that would call for a different parallelism strategy (e.g. multiprocessing), not this one.

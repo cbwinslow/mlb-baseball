@@ -1,6 +1,7 @@
 """Real DB, real CSV parsing — only the network fetch is mocked, returning the
 small committed fixture zip (trimmed from Atlanta's actual 2025 season data)."""
 
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,7 +9,8 @@ import pytest
 
 from mlb_baseball.connectors import retrosheet
 
-FIXTURE_ZIP = Path(__file__).resolve().parent.parent / "fixtures" / "retrosheet" / "2025csvs.zip"
+FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "retrosheet"
+FIXTURE_ZIP = FIXTURES_DIR / "2025csvs.zip"
 
 
 @pytest.fixture(autouse=True)
@@ -65,3 +67,27 @@ def test_reloading_a_year_replaces_it_without_touching_another(db_conn):
         rows = cur.fetchall()
     assert ("2024", 1) in rows
     assert any(season == "2025" for season, _ in rows)
+
+
+def test_bootstrap_loads_multiple_years_concurrently_and_skips_missing_ones(monkeypatch):
+    # Two real (fixture) years, 2024 and 2025, plus 2026 deliberately "not
+    # published yet" (None) — verifying the concurrent fetch -> sequential
+    # load loop handles both cases and still aggregates totals correctly.
+    class _FixedDate:
+        @staticmethod
+        def today():
+            return date(2026, 1, 1)
+
+    monkeypatch.setattr(retrosheet, "FIRST_YEAR", 2024)
+    monkeypatch.setattr(retrosheet, "date", _FixedDate)
+
+    def fetch(year):
+        if year in (2024, 2025):
+            return (FIXTURES_DIR / f"{year}csvs.zip").read_bytes()
+        return None  # 2026: the current, still-in-progress year
+
+    with patch.object(retrosheet, "_fetch_year_zip", side_effect=fetch):
+        totals = retrosheet.bootstrap()
+
+    assert set(totals) == {f"raw.retrosheet_{name}" for name in retrosheet.CSV_NAMES}
+    assert all(c > 0 for c in totals.values())

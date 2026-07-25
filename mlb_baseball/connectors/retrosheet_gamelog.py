@@ -24,12 +24,12 @@ from datetime import date
 
 import pandas as pd
 import psycopg
-import requests
 
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check, check_last_run, check_table_has_rows
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
+from mlb_baseball.net import get_with_retry
 
 SOURCE = "retrosheet_gamelog"
 BASE_URL = "https://www.retrosheet.org/gamelogs"
@@ -153,7 +153,7 @@ assert len(GAMELOG_FIELDS) == 161, f"expected 161 fields, got {len(GAMELOG_FIELD
 
 
 def _fetch_year_zip(year: int) -> bytes | None:
-    response = requests.get(f"{BASE_URL}/gl{year}.zip", timeout=60)
+    response = get_with_retry(f"{BASE_URL}/gl{year}.zip")
     if response.status_code == 404:
         return None
     response.raise_for_status()

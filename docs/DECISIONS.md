@@ -73,3 +73,13 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 **Rationale:** The fix belongs in `load_dataframe` itself, not in each connector, since every current and future user of the scoped-replace pattern needs it. Creating the index on first call (when the table — and therefore the index — is empty) means it's essentially free and every subsequent scoped `DELETE` benefits from it, not just ones after someone notices the slowdown.
 
 **Revisit if:** never expected to — this is a correctness-adjacent fix (a missing index doesn't produce wrong results, but production behavior that degrades silently as data grows is a real trap), not a judgment call.
+
+## ADR-007: Retry-with-backoff for HTTP fetches (`mlb_baseball/net.py`)
+
+**Decision:** `mlb_baseball.net.get_with_retry()` wraps `requests.get()` with retry-on-`ConnectionError` (default: 4 attempts, backoff growing 5s/10s/15s). Used by both Retrosheet per-year connectors in place of calling `requests.get()` directly.
+
+**Context:** Not speculative — a real bootstrap run against retrosheet.org failed outright with `requests.exceptions.ConnectionError: Remote end closed connection without response`, after sustained repeated requests across several bootstrap attempts in one session (almost certainly the server pushing back under load, possibly rate-limiting). A ~128-request bootstrap has no business dying entirely over one transient failure partway through.
+
+**Rationale:** A shared helper instead of a per-connector try/except, since any connector making many sequential requests to one host over a long-running bootstrap has the same exposure — this crosses the line from "premature abstraction" to "the same real problem, twice, at the point it was found."
+
+**Revisit if:** a source's failures need different handling (e.g. respecting a `Retry-After` header, or backing off on 429/503 responses too, not just connection-level errors) — extend `get_with_retry`, don't hand-roll another one-off retry loop.

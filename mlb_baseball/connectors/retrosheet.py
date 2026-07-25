@@ -37,12 +37,12 @@ from datetime import date
 
 import pandas as pd
 import psycopg
-import requests
 
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check, check_last_run, check_table_has_rows
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
+from mlb_baseball.net import get_with_retry
 
 SOURCE = "retrosheet"
 BASE_URL = "https://www.retrosheet.org/downloads"
@@ -51,7 +51,7 @@ CSV_NAMES = ["allplayers", "batting", "fielding", "gameinfo", "pitching", "plays
 
 
 def _fetch_year_zip(year: int) -> bytes | None:
-    response = requests.get(f"{BASE_URL}/{year}/{year}csvs.zip", timeout=60)
+    response = get_with_retry(f"{BASE_URL}/{year}/{year}csvs.zip")
     if response.status_code == 404:
         return None  # e.g. the current, still-in-progress season
     response.raise_for_status()

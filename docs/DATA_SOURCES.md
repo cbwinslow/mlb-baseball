@@ -6,7 +6,7 @@ All sources below are free or free-tier. No paid feeds without an explicit decis
 
 | Source | Provides | Cost | Access | Notes |
 |---|---|---|---|---|
-| **Retrosheet** | Play-by-play event files, box scores, 1901–present | Free | Bulk download (zip files per season) | License requires attribution; parse with Chadwick tools (`cwevent`, `cwgame`, open source) rather than reinventing a parser. |
+| **Retrosheet** | Play-by-play event files, 1871–present | Free | Full git clone (`chadwickbureau/retrosheet`, ~1.4GB), fully scriptable | License requires attribution; parsed with the Chadwick `cwevent` CLI tool, not a custom parser. Coverage is 1871+ (corrected from an earlier "1901+" note — that undersold what the source actually provides; being source-faithful means using the real range). A handful of `.EBA`/`.EBN`/`.EBE` files per season are excluded — undocumented/non-standard extension, deferred until there's a concrete reason to investigate them. |
 | **Chadwick Bureau Register** | Canonical player ID crosswalk (Retrosheet/MLBAM/Baseball-Reference/FanGraphs IDs) | Free | CSV on GitHub (`chadwickbureau/register`) | Needed to join across every other source — build this early. |
 | **Lahman Database** | Season-level batting/pitching/fielding/team/awards/salary/HOF stats, 1871–present | Free | Manual download (see below), CC BY-SA | Good backfill for pre-Statcast eras. Current release isn't scriptable — see the manual step. |
 | **MLB Stats API** (`statsapi.mlb.com`) | Schedules, live game state, boxscores, rosters, standings | Free, public, unauthenticated | JSON REST | Undocumented-but-stable public API; rate-limit politely, cache responses. |

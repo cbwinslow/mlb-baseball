@@ -12,11 +12,12 @@ import argparse
 import sys
 
 from mlb_baseball import migrate
-from mlb_baseball.connectors import chadwick_register, lahman
+from mlb_baseball.connectors import chadwick_register, lahman, retrosheet
 
 CONNECTORS = {
     "register": chadwick_register,
     "lahman": lahman,
+    "retrosheet": retrosheet,
 }
 
 

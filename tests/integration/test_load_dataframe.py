@@ -40,3 +40,37 @@ def test_handles_digit_prefixed_and_mixed_case_columns(db_conn, drop_tables_afte
     with db_conn.cursor() as cur:
         cur.execute(f"SELECT playerid, n2b, n3b FROM {table}")
         assert cur.fetchone() == ("abc01", "12", "3")
+
+
+def test_scope_column_replaces_only_matching_rows(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_chunked")
+
+    load_dataframe(
+        db_conn,
+        table,
+        pd.DataFrame({"chunk": ["a"], "v": [1]}),
+        scope_column="chunk",
+        scope_value="a",
+    )
+    db_conn.commit()
+    load_dataframe(
+        db_conn,
+        table,
+        pd.DataFrame({"chunk": ["b"], "v": [2]}),
+        scope_column="chunk",
+        scope_value="b",
+    )
+    db_conn.commit()
+    # Reloading chunk "a" must not disturb chunk "b".
+    load_dataframe(
+        db_conn,
+        table,
+        pd.DataFrame({"chunk": ["a"], "v": [99]}),
+        scope_column="chunk",
+        scope_value="a",
+    )
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT chunk, v FROM {table} ORDER BY chunk")
+        assert cur.fetchall() == [("a", "99"), ("b", "2")]

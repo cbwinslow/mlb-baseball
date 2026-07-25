@@ -24,7 +24,21 @@ def _pg_column_name(name: str) -> str:
     return f"n{cleaned}" if cleaned[0].isdigit() else cleaned
 
 
-def load_dataframe(conn: psycopg.Connection, table: str, df: pd.DataFrame) -> int:
+def load_dataframe(
+    conn: psycopg.Connection,
+    table: str,
+    df: pd.DataFrame,
+    *,
+    scope_column: str | None = None,
+    scope_value: str | None = None,
+) -> int:
+    """Creates `table` if needed (schema derived from df's columns) and loads df into
+    it. Default replace strategy is a full TRUNCATE — right for sources small enough
+    to reload whole (the register, Lahman). For sources landed in independent chunks
+    (e.g. Retrosheet, one season at a time), pass scope_column/scope_value to replace
+    only rows matching that value, leaving every other chunk's data alone — a full
+    TRUNCATE on every call would wipe out all previously loaded seasons.
+    scope_column must already be a sanitized column name (e.g. "_season")."""
     columns = [_pg_column_name(c) for c in df.columns]
     column_defs = ", ".join(f"{c} text" for c in columns)
     with conn.cursor() as cur:
@@ -32,7 +46,10 @@ def load_dataframe(conn: psycopg.Connection, table: str, df: pd.DataFrame) -> in
             f"CREATE TABLE IF NOT EXISTS {table} "
             f"({column_defs}, _loaded_at timestamptz NOT NULL DEFAULT now())"
         )
-        cur.execute(f"TRUNCATE {table}")
+        if scope_column is None:
+            cur.execute(f"TRUNCATE {table}")
+        else:
+            cur.execute(f"DELETE FROM {table} WHERE {scope_column} = %s", (scope_value,))
         csv_text = df.to_csv(index=False, header=False)
         column_list = ", ".join(columns)
         copy_sql = f"COPY {table} ({column_list}) FROM STDIN WITH (FORMAT csv)"

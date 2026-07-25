@@ -26,6 +26,14 @@ Every run — from either function — is wrapped in `mlb_baseball.ingest.track_
 
 Connectors are independent of each other; the Chadwick ID crosswalk is what ties their outputs together during conforming, not the connectors themselves. All of them are driven through one CLI (`mlb ingest <source> --mode bootstrap|update`) registered in `mlb_baseball/cli.py` — not separate one-off scripts per source.
 
+## Loading patterns
+
+Three patterns cover every connector so far — pick the one that matches the source's shape, don't invent a fourth without a real need:
+
+1. **CSV text + COPY, hand-written raw table** (`chadwick_register`) — for sources that already hand you well-formed CSV text. Column list for the `COPY` is derived from the CSV's own header row, not hardcoded. Table schema is a real migration, since there are few enough tables to hand-author.
+2. **DataFrame + `load_dataframe()`, full reload** (`lahman`) — for sources you'd rather not hand-write ~20+ table schemas for; `load_dataframe` derives the table's DDL from the DataFrame's own columns (`CREATE TABLE IF NOT EXISTS`), then `TRUNCATE`s and reloads. Right for sources small enough, or snapshot-shaped enough, that reloading the whole table every run is cheap and correct.
+3. **DataFrame + `load_dataframe(..., scope_column=, scope_value=)`, partitioned reload** (`retrosheet`) — for sources landed in independent chunks (one season, one date range) where a full reload on every run would be wasteful and would also wipe out every other already-loaded chunk. Replaces only rows matching `scope_value`, leaving the rest of the table alone. Each chunk's load is independently idempotent — re-running for one season/date range doesn't touch any other.
+
 ## Configuration
 
 All configuration (database connection, any API keys for Kalshi, etc.) goes through environment variables documented in `.env.example`. No credentials or connection strings committed to the repo.

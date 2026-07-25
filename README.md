@@ -26,3 +26,13 @@ AGPL-3.0 for the code (see [LICENSE](LICENSE)). Data retains whatever license it
 - Postgres, reachable via a `DATABASE_URL` in `.env` (bare-metal Postgres is the default assumption — see ADR-002 in `docs/DECISIONS.md`).
 
 Setup instructions land once Phase 1 scaffolding exists.
+
+## Testing
+
+```bash
+pip install -e ".[dev]"
+createdb mlb_test   # one-time: a dedicated test database, separate from the real one
+pytest
+```
+
+Integration tests run against `mlb_test` (override with `TEST_DATABASE_URL`) — real Postgres, not mocks, per `CLAUDE.md`. `tests/unit/` covers pure logic with no I/O; `tests/integration/` covers everything that touches the database (network calls are mocked with fixture data so tests stay fast and offline-capable).

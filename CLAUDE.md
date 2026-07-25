@@ -11,11 +11,18 @@ This project was rebuilt from scratch after the original (Gemini-built) version 
 ## Definition of done
 
 A task is not complete until:
-1. Tests exist and pass for the new/changed code (unit tests for parsing/transform logic; integration test hitting a real or fixtured API response for connectors).
+1. Tests exist and pass for the new/changed code — see "Testing" below for what kind goes where.
 2. The linter/formatter/type-checker configured for the repo passes clean.
-3. Re-running the ingestion step is idempotent — running it twice doesn't duplicate or corrupt data.
+3. Re-running the ingestion step is idempotent — running it twice doesn't duplicate or corrupt data. (This should be a *test*, not just a claim — see `tests/integration/test_load_dataframe.py::test_rerunning_truncates_instead_of_duplicating` for the pattern.)
 4. Errors from upstream sources (rate limits, malformed responses, schema drift) are handled explicitly, not silently swallowed.
 5. Any new data source or schema change is reflected in the docs in the same change, not as a follow-up.
+
+## Testing
+
+- `tests/unit/` — pure logic, no I/O (parsing, column-name sanitizing, dispatch logic with mocked connectors). Fast, no fixtures needed beyond `monkeypatch`.
+- `tests/integration/` — anything that touches Postgres. Runs against a real, dedicated `mlb_test` database (never the real `mlb` one) — see `README.md` "Testing". Mock the network (fixture CSV/JSON content), not the database — real Postgres is cheap to run against locally and mocking it hides real bugs (e.g. transaction/lock behavior, COPY column mismatches).
+- Every connector needs an integration test that actually loads rows and asserts idempotency (run twice, same row count) — not just a unit test on its parsing helpers.
+- If a bug involved a transaction, a lock, or connection state, write the regression test through the real fixtures (`db_conn`, non-autocommit, matching production) — not a mock, or the regression can silently stop being tested. `tests/integration/test_ingest_tracking.py::test_failure_path_logs_error_and_leaves_connection_usable` is the reference example: it caught a real bug (`track_run` not rolling back before logging a failure) that a mocked connection would never have surfaced.
 
 ## Naming convention
 

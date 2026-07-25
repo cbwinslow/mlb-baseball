@@ -31,12 +31,9 @@ Assume **$0/month** ongoing spend unless explicitly approved. Prefer, in order: 
 - Ships actual predictive models, not just a queryable database.
 - Ships a consumer-facing product (the website), not just a data/query layer.
 
-## Explicit non-goals (for now)
+## Keep the end goal in mind
 
-- No live bet placement or trading execution — decision support only.
-- No natural-language/agent query layer until ingestion + models are solid.
-- No paid data feeds or paid infra without an explicit ask.
-- No scope-creep features not covered by one of the three pillars above.
+Every piece of work should be done with the three pillars above in view — not just the immediate task. Before building something, ask whether it's actually in service of ingestion, modeling, or the website, and whether it's the right shape to support the other two pillars later (e.g. ingestion should land data in a form that modeling can actually consume; modeling output should be something the website can actually display).
 
 ## Reference, not blueprint
 

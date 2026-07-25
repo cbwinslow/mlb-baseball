@@ -1,0 +1,28 @@
+# MLB Baseball
+
+A free, self-hosted MLB data ingestion, modeling, and research platform — built to go further than [baseball.computer](https://baseball.computer) on data coverage, ship real predictive models, and present them on a public site in the spirit of oddstrader.com.
+
+This is a ground-up rebuild; see [docs/NORTH_STAR.md](docs/NORTH_STAR.md) for the vision and current phase.
+
+## Status
+
+**Phase 1: data ingestion pipeline.** Nothing else is in scope yet — see [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Docs
+
+- [docs/NORTH_STAR.md](docs/NORTH_STAR.md) — vision, the three build phases, budget constraint
+- [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) — every source the pipeline pulls from, cost and license notes
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — schema layering, connector shape, configuration
+- [docs/DECISIONS.md](docs/DECISIONS.md) — architecture decision log
+- [docs/ROADMAP.md](docs/ROADMAP.md) — build order
+- [CLAUDE.md](CLAUDE.md) — operating rules for making changes to this repo
+
+## License
+
+AGPL-3.0 for the code (see [LICENSE](LICENSE)). Data retains whatever license its source requires — see [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
+
+## Requirements
+
+- Postgres, reachable via a `DATABASE_URL` in `.env` (bare-metal Postgres is the default assumption — see ADR-002 in `docs/DECISIONS.md`).
+
+Setup instructions land once Phase 1 scaffolding exists.

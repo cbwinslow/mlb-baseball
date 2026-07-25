@@ -11,15 +11,26 @@ the same full-reload operation — like the Chadwick register and Lahman.
   headered CSVs (biofile.csv, biofile0.csv — two different schemas Retrosheet
   distributes side by side, both landed as-is since raw stays source-faithful;
   coaches.csv; relatives.csv).
+- retrosheet.org/downloads/biodata.zip — a newer reference bundle Retrosheet
+  also distributes. Compared byte-for-byte against biofile.zip: biofile0.csv
+  and relatives.csv are identical in both (fetched once, from biofile.zip,
+  not duplicated), but biodata.zip additionally has managers0.csv and
+  umpires0.csv (nothing comparable in biofile.zip — genuinely new tables),
+  plus teams0.csv and coaches0.csv, which use different column layouts than
+  the existing team/coach tables (start/end vs first_g/last_g) rather than
+  being strictly richer — landed as their own tables (suffix "0", mirroring
+  Retrosheet's own biofile/biofile0 naming) rather than silently merged.
+
+Downloads land on disk first (downloads/retrosheet_reference/, tracked in a
+JSON manifest — see mlb_baseball/manifest.py) before parsing.
 """
 
-import io
 import zipfile
 
 import pandas as pd
 import psycopg
-import requests
 
+from mlb_baseball import manifest
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check, check_last_run, check_table_has_rows
 from mlb_baseball.ingest import track_run
@@ -35,44 +46,55 @@ BIOFILE_MEMBERS = {
     "relatives.csv": "raw.retrosheet_relative",
 }
 
-
-def _fetch_text(url: str) -> str:
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
-    return response.text
-
-
-def _fetch_bytes(url: str) -> bytes:
-    response = requests.get(url, timeout=60)
-    response.raise_for_status()
-    return response.content
+BIODATA_MEMBERS = {
+    "ballparks0.csv": "raw.retrosheet_ballpark",
+    "coaches0.csv": "raw.retrosheet_coach0",
+    "managers0.csv": "raw.retrosheet_manager",
+    "teams0.csv": "raw.retrosheet_team0",
+    "umpires0.csv": "raw.retrosheet_umpire",
+}
 
 
 def _park_codes() -> pd.DataFrame:
-    text = _fetch_text("https://www.retrosheet.org/parkcode.txt")
-    return pd.read_csv(io.StringIO(text))
+    path = manifest.download(SOURCE, "parkcode.txt", "https://www.retrosheet.org/parkcode.txt")
+    return pd.read_csv(path)
 
 
 def _team_ids() -> pd.DataFrame:
-    text = _fetch_text("https://www.retrosheet.org/TEAMABR.TXT")
-    return pd.read_csv(io.StringIO(text), header=None, names=TEAM_FIELDS)
+    path = manifest.download(SOURCE, "TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT")
+    return pd.read_csv(path, header=None, names=TEAM_FIELDS)
+
+
+def _zip_tables(filename: str, url: str, members: dict[str, str]) -> dict[str, pd.DataFrame]:
+    path = manifest.download(SOURCE, filename, url)
+    tables = {}
+    with zipfile.ZipFile(path) as zf:
+        for member, table in members.items():
+            with zf.open(member) as f:
+                tables[table] = pd.read_csv(f, low_memory=False)
+    manifest.mark_status(SOURCE, path.name, "loaded")
+    return tables
 
 
 def _biofile_tables() -> dict[str, pd.DataFrame]:
-    zip_bytes = _fetch_bytes("https://www.retrosheet.org/biofile.zip")
-    tables = {}
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        for member, table in BIOFILE_MEMBERS.items():
-            with zf.open(member) as f:
-                tables[table] = pd.read_csv(f, low_memory=False)
-    return tables
+    return _zip_tables("biofile.zip", "https://www.retrosheet.org/biofile.zip", BIOFILE_MEMBERS)
+
+
+def _biodata_tables() -> dict[str, pd.DataFrame]:
+    return _zip_tables(
+        "biodata.zip", "https://www.retrosheet.org/downloads/biodata.zip", BIODATA_MEMBERS
+    )
 
 
 def _run(conn: psycopg.Connection) -> dict[str, int]:
     counts: dict[str, int] = {}
     counts["raw.retrosheet_park"] = load_dataframe(conn, "raw.retrosheet_park", _park_codes())
+    manifest.mark_status(SOURCE, "parkcode.txt", "loaded")
     counts["raw.retrosheet_team"] = load_dataframe(conn, "raw.retrosheet_team", _team_ids())
+    manifest.mark_status(SOURCE, "TEAMABR.TXT", "loaded")
     for table, df in _biofile_tables().items():
+        counts[table] = load_dataframe(conn, table, df)
+    for table, df in _biodata_tables().items():
         counts[table] = load_dataframe(conn, table, df)
     return counts
 

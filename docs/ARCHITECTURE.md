@@ -40,6 +40,10 @@ Three patterns cover every connector so far — pick the one that matches the so
 2. **DataFrame + `load_dataframe()`, full reload** (`lahman`) — for sources you'd rather not hand-write ~20+ table schemas for; `load_dataframe` derives the table's DDL from the DataFrame's own columns (`CREATE TABLE IF NOT EXISTS`), then `TRUNCATE`s and reloads. Right for sources small enough, or snapshot-shaped enough, that reloading the whole table every run is cheap and correct.
 3. **DataFrame + `load_dataframe(..., scope_column=, scope_value=)`, partitioned reload** (`retrosheet`) — for sources landed in independent chunks (one season, one date range) where a full reload on every run would be wasteful and would also wipe out every other already-loaded chunk. Replaces only rows matching `scope_value`, leaving the rest of the table alone. Each chunk's load is independently idempotent — re-running for one season/date range doesn't touch any other.
 
+### Download step
+
+Every connector that fetches over HTTP (all of the above except `chadwick_register`, which reads a git-cloned CSV directly) downloads to disk first via `mlb_baseball/manifest.py`'s `download()`, before any parsing happens — see ADR-008. A file already on disk with a matching hash isn't re-fetched; `download(..., force=True)` bypasses that for archives a source updates in place (the current season/decade). Parsing and loading stay fused in one step (no separate on-disk "parsed" artifact) — only the network fetch was the fragile, expensive part worth making independently resumable; re-parsing an already-downloaded file is cheap.
+
 ## Configuration
 
 All configuration (database connection, any API keys for Kalshi, etc.) goes through environment variables documented in `.env.example`. No credentials or connection strings committed to the repo.

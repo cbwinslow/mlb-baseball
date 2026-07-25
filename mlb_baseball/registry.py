@@ -6,14 +6,22 @@ from mlb_baseball.connectors import (
     chadwick_register,
     lahman,
     retrosheet,
+    retrosheet_event,
     retrosheet_gamelog,
     retrosheet_reference,
+    retrosheet_roster,
+    retrosheet_schedule,
+    retrosheet_transaction,
 )
 
 CONNECTORS = {
     "register": chadwick_register,
     "lahman": lahman,
     "retrosheet": retrosheet,
+    "retrosheet_event": retrosheet_event,
     "retrosheet_gamelog": retrosheet_gamelog,
     "retrosheet_reference": retrosheet_reference,
+    "retrosheet_roster": retrosheet_roster,
+    "retrosheet_schedule": retrosheet_schedule,
+    "retrosheet_transaction": retrosheet_transaction,
 }

@@ -1,6 +1,7 @@
-"""Real DB, real CSV parsing — the network is mocked: park/team text fetches
-return small inline fixtures, and the biofile fetch returns a small committed
-zip (trimmed from the real files, headers intact)."""
+"""Real DB, real CSV parsing — the network is mocked: manifest.download() is
+patched to hand back small local fixture files instead of hitting the network
+(park/team text fixtures written inline, the biofile/biodata fetches return
+small committed zips trimmed from the real files, headers intact)."""
 
 from pathlib import Path
 from unittest.mock import patch
@@ -9,7 +10,9 @@ import pytest
 
 from mlb_baseball.connectors import retrosheet_reference as reference
 
-FIXTURE_ZIP = Path(__file__).resolve().parent.parent / "fixtures" / "retrosheet" / "biofile.zip"
+FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "retrosheet"
+BIOFILE_ZIP = FIXTURES_DIR / "biofile.zip"
+BIODATA_ZIP = FIXTURES_DIR / "biodata.zip"
 
 PARK_TEXT = (
     "PARKID,NAME,AKA,CITY,STATE,START,END,LEAGUE,NOTES\nALB01,Riverside Park,,Albany,NY,,,, \n"
@@ -23,6 +26,11 @@ ALL_TABLES = [
     "raw.retrosheet_biofile0",
     "raw.retrosheet_coach",
     "raw.retrosheet_relative",
+    "raw.retrosheet_ballpark",
+    "raw.retrosheet_coach0",
+    "raw.retrosheet_manager",
+    "raw.retrosheet_team0",
+    "raw.retrosheet_umpire",
 ]
 
 
@@ -35,15 +43,27 @@ def _clean_tables(db_conn):
     db_conn.commit()
 
 
-def _fetch_text(url):
-    return TEAM_TEXT if "TEAMABR" in url else PARK_TEXT
+def _mock_download(tmp_path):
+    def _download(source, filename, url):
+        dest = tmp_path / filename
+        if filename == "parkcode.txt":
+            dest.write_text(PARK_TEXT)
+        elif filename == "TEAMABR.TXT":
+            dest.write_text(TEAM_TEXT)
+        elif filename == "biofile.zip":
+            dest.write_bytes(BIOFILE_ZIP.read_bytes())
+        elif filename == "biodata.zip":
+            dest.write_bytes(BIODATA_ZIP.read_bytes())
+        else:
+            raise AssertionError(f"unexpected download: {filename}")
+        return dest
+
+    return _download
 
 
-def test_bootstrap_lands_all_six_tables(db_conn):
-    with (
-        patch.object(reference, "_fetch_text", side_effect=_fetch_text),
-        patch.object(reference, "_fetch_bytes", return_value=FIXTURE_ZIP.read_bytes()),
-    ):
+def test_bootstrap_lands_all_eleven_tables(db_conn, tmp_path):
+    with patch.object(reference, "manifest") as mock_manifest:
+        mock_manifest.download.side_effect = _mock_download(tmp_path)
         counts = reference.bootstrap()
 
     assert set(counts) == set(ALL_TABLES)
@@ -51,13 +71,13 @@ def test_bootstrap_lands_all_six_tables(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM raw.retrosheet_park")
         assert cur.fetchone() == (1,)
+        cur.execute("SELECT count(*) FROM raw.retrosheet_umpire")
+        assert cur.fetchone() == (3,)
 
 
-def test_rerunning_replaces_instead_of_duplicating():
-    with (
-        patch.object(reference, "_fetch_text", side_effect=_fetch_text),
-        patch.object(reference, "_fetch_bytes", return_value=FIXTURE_ZIP.read_bytes()),
-    ):
+def test_rerunning_replaces_instead_of_duplicating(tmp_path):
+    with patch.object(reference, "manifest") as mock_manifest:
+        mock_manifest.download.side_effect = _mock_download(tmp_path)
         reference.bootstrap()
         reference.update()
 

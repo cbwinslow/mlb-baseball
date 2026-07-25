@@ -56,7 +56,13 @@ def run() -> list[Check]:
         health_check = getattr(connector, "health_check", None)
         if health_check is None:
             checks.append(Check(f"{name} connector", False, "no health_check() defined"))
-        else:
+            continue
+        try:
             checks.extend(health_check())
+        except Exception as exc:
+            # One connector's health_check() blowing up (e.g. querying a table
+            # that's never been bootstrapped) shouldn't blind doctor to every
+            # other connector's health — report it as a failed check instead.
+            checks.append(Check(f"{name} connector", False, f"health_check() raised: {exc}"))
 
     return checks

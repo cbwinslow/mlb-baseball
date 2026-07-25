@@ -7,13 +7,18 @@ headered CSVs: play-by-play (`plays`, 177 columns — richer than what the
 cwevent CLI tool produces from the raw event files) plus per-game/per-player
 `gameinfo`, `teamstats`, `batting`, `pitching`, `fielding`, and `allplayers`.
 This replaced an earlier version of this connector that shelled out to
-cwevent against a git clone of the raw event files — abandoned once this
-richer, simpler, more authoritative official source was found (no CLI tool
-or 2.5GB git clone needed, just a small HTTP download and pandas.read_csv).
-See docs/DECISIONS.md.
+cwevent against a git clone of the raw event files. Raw event files are back
+as a separate, additional product — see connectors/retrosheet_event.py — but
+this CSV product stays too: it's the faster, simpler, pre-parsed path for
+bootstrap speed and cross-validation. See docs/DECISIONS.md ADR-004 and the
+ADR that added retrosheet_event.py alongside it.
 
 Coverage is 1898-present for this product (narrower than the raw event
 files' 1871+ — a real, documented gap, not glossed over).
+
+Downloads land on disk first (downloads/retrosheet/, tracked in a JSON
+manifest — see mlb_baseball/manifest.py) before parsing, so a bootstrap that
+dies partway through doesn't force re-fetching years already downloaded.
 
 Like Retrosheet's event files, this is too large to fully reload every run,
 so each year is loaded independently via load_dataframe's scope_column —
@@ -31,18 +36,18 @@ a concurrency bug blind — see docs/DECISIONS.md ADR-005 and CLAUDE.md
 "prefer explicit, boring code over cleverness."
 """
 
-import io
 import zipfile
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import psycopg
 
+from mlb_baseball import manifest
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check, check_last_run, check_table_has_rows
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
-from mlb_baseball.net import get_with_retry
 
 SOURCE = "retrosheet"
 BASE_URL = "https://www.retrosheet.org/downloads"
@@ -50,17 +55,14 @@ FIRST_YEAR = 1898
 CSV_NAMES = ["allplayers", "batting", "fielding", "gameinfo", "pitching", "plays", "teamstats"]
 
 
-def _fetch_year_zip(year: int) -> bytes | None:
-    response = get_with_retry(f"{BASE_URL}/{year}/{year}csvs.zip")
-    if response.status_code == 404:
-        return None  # e.g. the current, still-in-progress season
-    response.raise_for_status()
-    return response.content
+def _download_year(year: int) -> Path | None:
+    filename = f"{year}csvs.zip"
+    return manifest.download(SOURCE, filename, f"{BASE_URL}/{year}/{filename}")
 
 
-def _extract_csvs(year: int, zip_bytes: bytes) -> dict[str, pd.DataFrame]:
+def _extract_csvs(year: int, zip_path: Path) -> dict[str, pd.DataFrame]:
     dataframes = {}
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+    with zipfile.ZipFile(zip_path) as zf:
         for name in CSV_NAMES:
             with zf.open(f"{year}{name}.csv") as f:
                 df = pd.read_csv(f, low_memory=False).copy()
@@ -69,21 +71,22 @@ def _extract_csvs(year: int, zip_bytes: bytes) -> dict[str, pd.DataFrame]:
     return dataframes
 
 
-def _load_zip(conn: psycopg.Connection, year: int, zip_bytes: bytes) -> dict[str, int]:
+def _load_zip(conn: psycopg.Connection, year: int, zip_path: Path) -> dict[str, int]:
     counts = {}
-    for name, df in _extract_csvs(year, zip_bytes).items():
+    for name, df in _extract_csvs(year, zip_path).items():
         table = f"raw.retrosheet_{name}"
         counts[table] = load_dataframe(
             conn, table, df, scope_column="_season", scope_value=str(year)
         )
+    manifest.mark_status(SOURCE, zip_path.name, "loaded")
     return counts
 
 
 def _load_year(conn: psycopg.Connection, year: int) -> dict[str, int]:
-    zip_bytes = _fetch_year_zip(year)
-    if zip_bytes is None:
+    zip_path = _download_year(year)
+    if zip_path is None:
         return {}
-    return _load_zip(conn, year, zip_bytes)
+    return _load_zip(conn, year, zip_path)
 
 
 def bootstrap() -> dict[str, int]:

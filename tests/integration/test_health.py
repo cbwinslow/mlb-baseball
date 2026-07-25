@@ -16,6 +16,22 @@ def test_check_table_has_rows_true_when_populated(db_conn, drop_tables_after):
     assert "1 rows" in result.detail
 
 
+def test_check_table_has_rows_false_when_table_never_created():
+    # A registered connector's health_check() can run before that connector
+    # has ever been bootstrapped (e.g. right after a fresh clone + migrate) —
+    # this must report cleanly instead of crashing with UndefinedTable, which
+    # used to take down the entire `mlb doctor` run (see doctor.py's per-
+    # connector try/except).
+    result = check_table_has_rows("raw.test_health_never_created")
+
+    assert not result.ok
+    assert "never bootstrapped" in result.detail
+
+    # Calling it again must still work cleanly too (no lingering bad state).
+    result_again = check_table_has_rows("raw.test_health_never_created")
+    assert not result_again.ok
+
+
 def test_check_table_has_rows_false_when_empty(db_conn, drop_tables_after):
     table = drop_tables_after("raw.test_health_empty")
     with db_conn.cursor() as cur:

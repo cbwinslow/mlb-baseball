@@ -7,8 +7,10 @@ inside is headerless — field layout is fixed and documented at
 retrosheet.org/gamelogs/glfields.txt (161 fields; verified against real
 downloaded data, not just the doc, before hardcoding GAMELOG_FIELDS below).
 
-Same shape as retrosheet.py otherwise: per-year scoped replace (too much
-history to fully reload every run). bootstrap() fetches sequentially — this
+Same shape as retrosheet.py otherwise: downloads land on disk first
+(downloads/retrosheet_gamelog/, tracked in a JSON manifest — see
+mlb_baseball/manifest.py) before parsing, and per-year scoped replace (too
+much history to fully reload every run). bootstrap() fetches sequentially — this
 module originally used the same bounded-thread-pool approach as retrosheet.py,
 but reverted along with it after a real hang there (44 threads stuck in
 futex_wait_queue, no safe way to root-cause it without a profiler this
@@ -16,25 +18,48 @@ environment doesn't have) — see docs/DECISIONS.md ADR-005. This module's own
 run hadn't shown the same failure, but keeping both connectors on the same,
 simpler, provably-reliable code path was judged safer than leaving one on an
 approach just shown to be capable of hanging.
+
+Also lands raw.retrosheet_gamelog_post: Retrosheet publishes postseason
+game logs (World Series, All-Star, Wild Card, Division Series, LCS) as five
+separate whole-history files (glws.zip, glas.zip, glwc.zip, gldv.zip,
+gllc.zip — NOT bundled into the per-year gl{year}.zip files at all), same
+161-field layout, confirmed against a real downloaded file. Found missing
+by manually tying out a specific game (Don Larsen's 1956 World Series
+perfect game) end-to-end across every Retrosheet product this project
+ingests — it was correctly present via the CSV product and the raw event
+files, but absent from raw.retrosheet_gamelog entirely, which only ever
+covered regular-season games. Landed as a separate table (not merged into
+raw.retrosheet_gamelog) to avoid an ALTER TABLE on an already-existing,
+already-populated table, and because each of the five source files is
+naturally its own independently-replaceable unit (scope_column="_type"),
+unlike the per-year regular-season files.
 """
 
-import io
 import zipfile
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import psycopg
 
+from mlb_baseball import manifest
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check, check_last_run, check_table_has_rows
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
-from mlb_baseball.net import get_with_retry
 
 SOURCE = "retrosheet_gamelog"
 BASE_URL = "https://www.retrosheet.org/gamelogs"
 FIRST_YEAR = 1871
 TABLE = "raw.retrosheet_gamelog"
+POST_TABLE = "raw.retrosheet_gamelog_post"
+POST_ARCHIVES = {
+    "glws.zip": "worldseries",
+    "glas.zip": "allstar",
+    "glwc.zip": "wildcard",
+    "gldv.zip": "divisionseries",
+    "gllc.zip": "lcs",
+}
 
 GAMELOG_FIELDS = [
     "date",
@@ -152,16 +177,13 @@ GAMELOG_FIELDS += ["additional_info", "acquisition_info"]
 assert len(GAMELOG_FIELDS) == 161, f"expected 161 fields, got {len(GAMELOG_FIELDS)}"
 
 
-def _fetch_year_zip(year: int) -> bytes | None:
-    response = get_with_retry(f"{BASE_URL}/gl{year}.zip")
-    if response.status_code == 404:
-        return None
-    response.raise_for_status()
-    return response.content
+def _download_year(year: int) -> Path | None:
+    filename = f"gl{year}.zip"
+    return manifest.download(SOURCE, filename, f"{BASE_URL}/{filename}")
 
 
-def _extract_gamelog(year: int, zip_bytes: bytes) -> pd.DataFrame:
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+def _extract_gamelog(year: int, zip_path: Path) -> pd.DataFrame:
+    with zipfile.ZipFile(zip_path) as zf:
         (member,) = (n for n in zf.namelist() if n.lower() == f"gl{year}.txt")
         with zf.open(member) as f:
             df = pd.read_csv(f, header=None, names=GAMELOG_FIELDS, low_memory=False).copy()
@@ -169,16 +191,32 @@ def _extract_gamelog(year: int, zip_bytes: bytes) -> pd.DataFrame:
     return df
 
 
-def _load_zip(conn: psycopg.Connection, year: int, zip_bytes: bytes) -> dict[str, int]:
-    df = _extract_gamelog(year, zip_bytes)
-    return {TABLE: load_dataframe(conn, TABLE, df, scope_column="_season", scope_value=str(year))}
+def _load_zip(conn: psycopg.Connection, year: int, zip_path: Path) -> dict[str, int]:
+    df = _extract_gamelog(year, zip_path)
+    counts = {TABLE: load_dataframe(conn, TABLE, df, scope_column="_season", scope_value=str(year))}
+    manifest.mark_status(SOURCE, zip_path.name, "loaded")
+    return counts
 
 
 def _load_year(conn: psycopg.Connection, year: int) -> dict[str, int]:
-    zip_bytes = _fetch_year_zip(year)
-    if zip_bytes is None:
+    zip_path = _download_year(year)
+    if zip_path is None:
         return {}
-    return _load_zip(conn, year, zip_bytes)
+    return _load_zip(conn, year, zip_path)
+
+
+def _load_post_archive(conn: psycopg.Connection, filename: str, gtype: str) -> dict[str, int]:
+    path = manifest.download(SOURCE, filename, f"{BASE_URL}/{filename}")
+    with zipfile.ZipFile(path) as zf:
+        (member,) = zf.namelist()
+        with zf.open(member) as f:
+            df = pd.read_csv(f, header=None, names=GAMELOG_FIELDS, low_memory=False).copy()
+    df["_type"] = gtype
+    counts = {
+        POST_TABLE: load_dataframe(conn, POST_TABLE, df, scope_column="_type", scope_value=gtype)
+    }
+    manifest.mark_status(SOURCE, path.name, "loaded")
+    return counts
 
 
 def bootstrap() -> dict[str, int]:
@@ -186,6 +224,10 @@ def bootstrap() -> dict[str, int]:
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
         for year in range(FIRST_YEAR, date.today().year + 1):
             for table, count in _load_year(conn, year).items():
+                totals[table] = totals.get(table, 0) + count
+            conn.commit()
+        for filename, gtype in POST_ARCHIVES.items():
+            for table, count in _load_post_archive(conn, filename, gtype).items():
                 totals[table] = totals.get(table, 0) + count
             conn.commit()
         result["rows"] = sum(totals.values())
@@ -196,9 +238,17 @@ def update() -> dict[str, int]:
     with get_connection() as conn, track_run(conn, SOURCE, "update") as result:
         totals = _load_year(conn, date.today().year)
         conn.commit()
+        for filename, gtype in POST_ARCHIVES.items():
+            for table, count in _load_post_archive(conn, filename, gtype).items():
+                totals[table] = totals.get(table, 0) + count
+            conn.commit()
         result["rows"] = sum(totals.values())
     return totals
 
 
 def health_check() -> list[Check]:
-    return [check_table_has_rows(TABLE), check_last_run(SOURCE)]
+    return [
+        check_table_has_rows(TABLE),
+        check_table_has_rows(POST_TABLE),
+        check_last_run(SOURCE),
+    ]

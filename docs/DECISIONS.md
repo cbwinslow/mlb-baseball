@@ -2,6 +2,49 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-010: `retrosheet_event`'s scoped replace keys on season+group, not season alone
+
+**Decision:** `retrosheet_event.py` tags every row with `_scope` (season and archive group combined, e.g. `"2024_pbp"` vs `"2024_postseason"`) and uses that as `load_dataframe`'s `scope_column`, not `_season` alone.
+
+**Context:** Found in production, the expensive way. `retrosheet_event.bootstrap()` loads the 12 regular-season decade archives first, then the post-season/all-star/Negro League archives — all of which independently cover overlapping seasons (a post-season game and a regular-season game from the same year both get `_season = "2024"`). The original version scoped the replace on `_season` alone, so loading the post-season archive for 2024 issued `DELETE FROM raw.retrosheet_event WHERE _season = '2024'` before inserting only its own (much smaller) post-season rows — silently deleting that year's already-loaded regular-season data. Across a full bootstrap this destroyed essentially all regular-season rows (~16 million), leaving only the last-processed group's data per season. Not caught by tests before the real run because every existing test used a single group per load.
+
+**Rationale:**
+- `_scope` (season+group) is the actual unit of independent, safely-replaceable data for this connector — `_season` alone was the wrong grain from the start, once more than one group could share a season.
+- `_season` and `_group` stay as their own real columns (unaffected) for querying; `_scope` exists purely to drive the replace boundary, same pattern as any other connector's `scope_column`.
+- Regression test added (`test_loading_a_different_group_for_the_same_season_does_not_wipe_the_first`) that loads two different groups for the same season and asserts both survive — this is the test that would have caught it, and does now.
+
+**Cost:** this bug required re-running the full raw-event-file bootstrap (all 12 decades + special archives) a third time in the same session — first for the initial Negro-League-file crash (ADR unrelated to this one), second because an unrelated debugging mistake dropped the tables, third for this fix. Each full run took roughly 50 minutes.
+
+**Revisit if:** never expected to — this is a correctness fix for a real data-loss bug, not a judgment call. Any future connector where multiple independent sources can land rows for the same natural-looking scope key (season, date, etc.) should scope on the actual independent unit, not just the most obvious column.
+
+## ADR-009: Raw event files return as an additional Retrosheet product, parsed via `cwevent`/`cwgame`
+
+**Decision:** `retrosheet_event.py` downloads Retrosheet's raw `.EVA`/`.EVN`/`.EVF`/`.EVR` (+ `.EDA`/`.EDN` deduced) event files and parses them locally with the already-installed `cwevent`/`cwgame` CLI tools into `raw.retrosheet_event` (per-play) and `raw.retrosheet_game` (per-game). This does not replace `retrosheet.py`'s CSV product (ADR-004) — both are kept.
+
+**Context:** ADR-004 chose the CSV product over raw event files + `cwevent`, reasoning the CSV product was richer, simpler, and needed no CLI dependency. That tradeoff stands for *speed and ease of bootstrap*, but retrosheet.org's own site treats raw event files as the authoritative artifact and the CSV downloads as a derived convenience product ("all traditional data" and "CSV downloads" are offered as two separate, complementary top-line options). Re-parsing raw files locally means this platform isn't permanently downstream of retrosheet.org's own CSV-generation choices, and can re-derive structured data if parsing needs change later — the same reasoning ADR-004 itself cited as a reason to keep raw files around "if this product is ever discontinued."
+
+**Rationale:**
+- `pychadwick` (the pip package) still fails to build against modern CMake, same as when ADR-004 was written — but the `cwevent`/`cwgame` CLI binaries are already installed on this machine and were verified working end-to-end against real downloaded event files this session (both single-year and multi-year decade zips).
+- Requests the full field set from `cwevent` (`-f 0-96 -x 0-66`), not a curated subset — this is a raw-layer table and should stay source-faithful and complete.
+- Retrosheet bundles most of its history as decade-spanning zips with every year's files mixed together flat; `cwevent`/`cwgame` process one year at a time (the `-y` flag governs which `TEAM{year}`/`{team}{year}.ROS` files they resolve), so each archive is extracted to a temp directory and split into per-year subdirectories before parsing (`_split_by_year`). The temp extraction is cleaned up after each load; only the downloaded archive itself persists on disk.
+
+**Known gap, not silently dropped:** box-score-only event files (pre-1910, plus the 1871/1872/1874 NA seasons, and Negro League box scores) use a different file format (`.EBA`/`.EBN`) and Retrosheet's `cwbox` tool, which has an incompatible CLI (no CSV/field-list output — only human-readable text or XML box scores). That's a genuinely separate parsing problem, not a quick extension of this connector, and wasn't built in this pass. Tracked here so it isn't forgotten, not hidden inside a "coverage complete" claim.
+
+**Revisit if:** `cwbox`'s XML output (`-X`) is worth building a real parser for, to close the pre-1910/Negro-League-box-score gap.
+
+## ADR-008: Downloads persist to disk with a JSON manifest before parsing
+
+**Decision:** Every Retrosheet connector downloads its source files to `downloads/<source>/` first (via `mlb_baseball/manifest.py`'s `download()`), recording each file's URL, sha256, size, and status (`downloaded`/`loaded`) in a per-source `manifest.json`. Parsing reads from disk, not from an in-memory response body. A file already on disk whose hash matches the manifest is not re-fetched — `download(..., force=True)` bypasses that shortcut for archives Retrosheet updates in place (used by `update()` on the current season/decade).
+
+**Context:** The original Retrosheet-family connectors (`retrosheet.py`, `retrosheet_gamelog.py`, `retrosheet_reference.py`) fetched entirely in memory — bytes in, DataFrame out, nothing written to disk. Real pain this session traced back to this design: repeated bootstrap attempts (bug fixes, a threading revert, a missing-index fix) each re-downloaded the full ~128-year history from scratch, no partial progress survived a crash, and it directly contributed to the `ConnectionError` failures ADR-007's retry logic had to work around. The project owner raised this directly mid-session as a design concern, not a preference.
+
+**Rationale:**
+- File-level state (what's downloaded, what's stale) belongs in a manifest scoped to *files*; run-level state (start/end/rows/error) stays in `meta.ingestion_run` via `mlb_baseball.ingest.track_run` — two different concerns, deliberately not merged into one system.
+- Kept intentionally lightweight — a JSON file per source, not a Postgres control schema (`meta.source_file`, `meta.raw_payload_registry`, etc., as a heavier alternative design would have it). That's real machinery this project's shape (bare-metal, $0 budget, one maintainer, "boring code" per CLAUDE.md) doesn't need; the manifest solves the actual problem (avoid re-fetching what's already on disk and unchanged) without it.
+- `force=True` exists because a same-name file already on disk doesn't guarantee Retrosheet's copy hasn't changed — the current season's CSV/event-file archives and game logs get corrected/appended in place, so `update()` must still hit the network for those even when the manifest looks "current."
+
+**Revisit if:** a source needs finer-grained resumability than "the whole archive" (e.g. resuming a parse that died partway through a huge multi-year zip) — not needed yet; parsing has stayed fast enough that redoing it from an already-downloaded file is cheap.
+
 ## ADR-001: Storage engine — self-hosted Postgres
 
 **Decision:** Use Postgres as the single database for the project. No multi-database abstraction layer.

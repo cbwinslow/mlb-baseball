@@ -5,6 +5,8 @@ modules can import from here without creating an import cycle.
 
 from dataclasses import dataclass
 
+import psycopg
+
 from mlb_baseball.db import get_connection
 
 
@@ -18,7 +20,11 @@ class Check:
 def check_table_has_rows(table: str) -> Check:
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"SELECT count(*) FROM {table}")
+            try:
+                cur.execute(f"SELECT count(*) FROM {table}")
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(table, False, "table does not exist — never bootstrapped?")
             (count,) = cur.fetchone()
     if count == 0:
         return Check(table, False, "0 rows — never ingested?")

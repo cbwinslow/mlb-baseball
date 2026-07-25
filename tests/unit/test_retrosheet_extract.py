@@ -6,7 +6,7 @@ FIXTURE_ZIP = Path(__file__).resolve().parent.parent / "fixtures" / "retrosheet"
 
 
 def test_extracts_all_seven_csvs_with_season_column():
-    dataframes = _extract_csvs(2025, FIXTURE_ZIP.read_bytes())
+    dataframes = _extract_csvs(2025, FIXTURE_ZIP)
 
     assert set(dataframes) == set(CSV_NAMES)
     for name, df in dataframes.items():
@@ -15,7 +15,7 @@ def test_extracts_all_seven_csvs_with_season_column():
 
 
 def test_plays_columns_include_known_retrosheet_fields():
-    dataframes = _extract_csvs(2025, FIXTURE_ZIP.read_bytes())
+    dataframes = _extract_csvs(2025, FIXTURE_ZIP)
 
     plays_columns = set(dataframes["plays"].columns)
     assert {"gid", "batter", "pitcher", "single", "double", "hr"} <= plays_columns

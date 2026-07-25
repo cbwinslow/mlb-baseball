@@ -22,12 +22,21 @@ def _clean_tables(db_conn):
     db_conn.commit()
 
 
-def _mock_fetch(year):
-    return FIXTURE_ZIP.read_bytes() if year == 2025 else None
+@pytest.fixture(autouse=True)
+def _isolated_manifest(tmp_path, monkeypatch):
+    # _download_year is mocked below, but manifest.mark_status() is not —
+    # it would otherwise write real entries (fixture filenames like
+    # "2025csvs.zip") into the actual downloads/retrosheet/manifest.json
+    # that production bootstraps use. Redirect to a fresh tmp_path instead.
+    monkeypatch.setattr(retrosheet.manifest, "DOWNLOADS_ROOT", tmp_path)
+
+
+def _mock_download(year):
+    return FIXTURE_ZIP if year == 2025 else None
 
 
 def test_load_year_lands_all_seven_tables(db_conn):
-    with patch.object(retrosheet, "_fetch_year_zip", side_effect=_mock_fetch):
+    with patch.object(retrosheet, "_download_year", side_effect=_mock_download):
         counts = retrosheet._load_year(db_conn, 2025)
     db_conn.commit()
 
@@ -39,14 +48,14 @@ def test_load_year_lands_all_seven_tables(db_conn):
 
 
 def test_missing_year_returns_empty_without_erroring(db_conn):
-    with patch.object(retrosheet, "_fetch_year_zip", side_effect=_mock_fetch):
+    with patch.object(retrosheet, "_download_year", side_effect=_mock_download):
         counts = retrosheet._load_year(db_conn, 1899)  # not mocked -> None -> "not published yet"
 
     assert counts == {}
 
 
 def test_reloading_a_year_replaces_it_without_touching_another(db_conn):
-    with patch.object(retrosheet, "_fetch_year_zip", side_effect=_mock_fetch):
+    with patch.object(retrosheet, "_download_year", side_effect=_mock_download):
         retrosheet._load_year(db_conn, 2025)
         db_conn.commit()
 
@@ -56,7 +65,7 @@ def test_reloading_a_year_replaces_it_without_touching_another(db_conn):
         )
     db_conn.commit()
 
-    with patch.object(retrosheet, "_fetch_year_zip", side_effect=_mock_fetch):
+    with patch.object(retrosheet, "_download_year", side_effect=_mock_download):
         retrosheet._load_year(db_conn, 2025)
         db_conn.commit()
 
@@ -71,7 +80,7 @@ def test_reloading_a_year_replaces_it_without_touching_another(db_conn):
 
 def test_bootstrap_loads_multiple_years_and_skips_missing_ones(monkeypatch):
     # Two real (fixture) years, 2024 and 2025, plus 2026 deliberately "not
-    # published yet" (None) — verifying the sequential fetch/load loop
+    # published yet" (None) — verifying the sequential download/load loop
     # handles both cases and still aggregates totals correctly.
     class _FixedDate:
         @staticmethod
@@ -81,12 +90,12 @@ def test_bootstrap_loads_multiple_years_and_skips_missing_ones(monkeypatch):
     monkeypatch.setattr(retrosheet, "FIRST_YEAR", 2024)
     monkeypatch.setattr(retrosheet, "date", _FixedDate)
 
-    def fetch(year):
+    def download(year):
         if year in (2024, 2025):
-            return (FIXTURES_DIR / f"{year}csvs.zip").read_bytes()
+            return FIXTURES_DIR / f"{year}csvs.zip"
         return None  # 2026: the current, still-in-progress year
 
-    with patch.object(retrosheet, "_fetch_year_zip", side_effect=fetch):
+    with patch.object(retrosheet, "_download_year", side_effect=download):
         totals = retrosheet.bootstrap()
 
     assert set(totals) == {f"raw.retrosheet_{name}" for name in retrosheet.CSV_NAMES}

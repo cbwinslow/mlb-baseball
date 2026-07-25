@@ -8,13 +8,18 @@ retrosheet.org/gamelogs/glfields.txt (161 fields; verified against real
 downloaded data, not just the doc, before hardcoding GAMELOG_FIELDS below).
 
 Same shape as retrosheet.py otherwise: per-year scoped replace (too much
-history to fully reload every run), concurrent fetch / sequential write for
-bootstrap(), same reasoning as ADR-005.
+history to fully reload every run). bootstrap() fetches sequentially — this
+module originally used the same bounded-thread-pool approach as retrosheet.py,
+but reverted along with it after a real hang there (44 threads stuck in
+futex_wait_queue, no safe way to root-cause it without a profiler this
+environment doesn't have) — see docs/DECISIONS.md ADR-005. This module's own
+run hadn't shown the same failure, but keeping both connectors on the same,
+simpler, provably-reliable code path was judged safer than leaving one on an
+approach just shown to be capable of hanging.
 """
 
 import io
 import zipfile
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 import pandas as pd
@@ -29,7 +34,6 @@ from mlb_baseball.load import load_dataframe
 SOURCE = "retrosheet_gamelog"
 BASE_URL = "https://www.retrosheet.org/gamelogs"
 FIRST_YEAR = 1871
-MAX_WORKERS = 4
 TABLE = "raw.retrosheet_gamelog"
 
 GAMELOG_FIELDS = [
@@ -179,15 +183,11 @@ def _load_year(conn: psycopg.Connection, year: int) -> dict[str, int]:
 
 def bootstrap() -> dict[str, int]:
     totals: dict[str, int] = {}
-    years = list(range(FIRST_YEAR, date.today().year + 1))
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            for year, zip_bytes in zip(years, executor.map(_fetch_year_zip, years), strict=True):
-                if zip_bytes is None:
-                    continue
-                for table, count in _load_zip(conn, year, zip_bytes).items():
-                    totals[table] = totals.get(table, 0) + count
-                conn.commit()
+        for year in range(FIRST_YEAR, date.today().year + 1):
+            for table, count in _load_year(conn, year).items():
+                totals[table] = totals.get(table, 0) + count
+            conn.commit()
         result["rows"] = sum(totals.values())
     return totals
 

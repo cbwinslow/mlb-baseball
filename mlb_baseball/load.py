@@ -48,7 +48,13 @@ def load_dataframe(
     Column identifiers are always quoted (via psycopg.sql.Identifier) — raw sources
     sometimes use reserved SQL keywords as column names (e.g. Retrosheet's
     parkcode.txt has a column literally named "end"; found by actually running
-    this against real data, not by inspection)."""
+    this against real data, not by inspection).
+
+    When scope_column is given, an index on it is created (once, IF NOT EXISTS)
+    right after the table — otherwise every per-chunk DELETE is a full sequential
+    scan, and gets slower as the table grows. Found the hard way: retrosheet's
+    bootstrap looked "stuck" partway through — it wasn't, a DELETE against a
+    9GB, un-indexed raw.retrosheet_plays was just taking longer each year."""
     columns = [_pg_column_name(c) for c in df.columns]
     table_ident = _table_identifier(table)
     with conn.cursor() as cur:
@@ -64,6 +70,14 @@ def load_dataframe(
         if scope_column is None:
             cur.execute(sql.SQL("TRUNCATE {table}").format(table=table_ident))
         else:
+            index_name = f"{table.split('.')[-1]}_{scope_column}_idx"
+            cur.execute(
+                sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {table} ({col})").format(
+                    index=sql.Identifier(index_name),
+                    table=table_ident,
+                    col=sql.Identifier(scope_column),
+                )
+            )
             cur.execute(
                 sql.SQL("DELETE FROM {table} WHERE {col} = %s").format(
                     table=table_ident, col=sql.Identifier(scope_column)

@@ -59,6 +59,35 @@ def test_handles_reserved_sql_keywords_as_column_names(db_conn, drop_tables_afte
         assert cur.fetchone() == ("2020", "2021", "x")
 
 
+def test_scope_column_creates_an_index_so_deletes_stay_cheap_at_scale(db_conn, drop_tables_after):
+    # Regression test: without an index on scope_column, every per-chunk DELETE
+    # is a full sequential scan — fine on a small table, but on Retrosheet's
+    # multi-million-row raw.retrosheet_plays it made bootstrap() look "stuck"
+    # partway through (it wasn't; the DELETE was just getting slower every
+    # year as the table grew). Found by watching a real bootstrap run, not by
+    # inspection.
+    table = drop_tables_after("raw.test_indexed_chunks")
+
+    load_dataframe(
+        db_conn,
+        table,
+        pd.DataFrame({"chunk": ["a"], "v": [1]}),
+        scope_column="chunk",
+        scope_value="a",
+    )
+    db_conn.commit()
+
+    table_name = table.split(".")[-1]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = 'raw' AND tablename = %s",
+            (table_name,),
+        )
+        indexes = [row[0] for row in cur.fetchall()]
+
+    assert any("chunk" in idx for idx in indexes), indexes
+
+
 def test_scope_column_replaces_only_matching_rows(db_conn, drop_tables_after):
     table = drop_tables_after("raw.test_chunked")
 

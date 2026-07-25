@@ -22,17 +22,17 @@ year for the same reason the previous version did: a failure partway through
 ~128 years shouldn't lose already-loaded years, and each year's load is
 independently idempotent.
 
-bootstrap() fetches years concurrently (network is the actual bottleneck —
-128 sequential HTTP round-trips) via a bounded thread pool, but still writes
-to Postgres sequentially, one year at a time, in order. MAX_WORKERS is
-deliberately modest: retrosheet.org is a small, volunteer-run site, not a
-CDN-backed API — this should be fast for us without looking like a scraper
-hammering their server.
+bootstrap() fetches years sequentially, deliberately — an earlier version
+used a bounded thread pool to overlap network I/O, but a real production run
+against this exact code hung partway through (44 threads stuck in
+futex_wait_queue, far more than the ~5 expected, with no proper profiler
+available here to safely root-cause it). Reverted rather than keep debugging
+a concurrency bug blind — see docs/DECISIONS.md ADR-005 and CLAUDE.md
+"prefer explicit, boring code over cleverness."
 """
 
 import io
 import zipfile
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 import pandas as pd
@@ -47,7 +47,6 @@ from mlb_baseball.load import load_dataframe
 SOURCE = "retrosheet"
 BASE_URL = "https://www.retrosheet.org/downloads"
 FIRST_YEAR = 1898
-MAX_WORKERS = 4
 CSV_NAMES = ["allplayers", "batting", "fielding", "gameinfo", "pitching", "plays", "teamstats"]
 
 
@@ -89,19 +88,11 @@ def _load_year(conn: psycopg.Connection, year: int) -> dict[str, int]:
 
 def bootstrap() -> dict[str, int]:
     totals: dict[str, int] = {}
-    years = list(range(FIRST_YEAR, date.today().year + 1))
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            # executor.map keeps MAX_WORKERS fetches in flight and yields in
-            # order as we consume it, overlapping network wait for upcoming
-            # years with DB writes for the current one — without holding all
-            # ~128 years' zips in memory at once.
-            for year, zip_bytes in zip(years, executor.map(_fetch_year_zip, years), strict=True):
-                if zip_bytes is None:
-                    continue
-                for table, count in _load_zip(conn, year, zip_bytes).items():
-                    totals[table] = totals.get(table, 0) + count
-                conn.commit()
+        for year in range(FIRST_YEAR, date.today().year + 1):
+            for table, count in _load_year(conn, year).items():
+                totals[table] = totals.get(table, 0) + count
+            conn.commit()
         result["rows"] = sum(totals.values())
     return totals
 

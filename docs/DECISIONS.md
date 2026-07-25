@@ -54,15 +54,22 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 
 **Revisit if:** never expected to, but if this product is ever discontinued, the raw-event-files + `cwevent` approach is proven to work (see git history) and could be revived.
 
-## ADR-005: Concurrent fetch, sequential write, for the Retrosheet bootstrap
+## ADR-005: Retrosheet bootstrap fetches sequentially — concurrency tried and reverted
 
-**Decision:** `retrosheet.bootstrap()` fetches each year's zip over a bounded thread pool (`MAX_WORKERS = 4`), but still writes to Postgres sequentially, one year at a time, committing after each.
+**Decision:** `retrosheet.bootstrap()` and `retrosheet_gamelog.bootstrap()` fetch years sequentially, one HTTP request at a time.
 
-**Context:** A ~128-year bootstrap is 128 sequential HTTP round-trips if done naively — network latency, not CPU or the database, is the actual bottleneck. Parallelizing needed to not come at the cost of the existing partial-progress guarantee (a failure partway through shouldn't lose already-loaded years) or blow up memory by holding all ~128 zips at once.
+**Context:** Originally implemented with a bounded thread pool (`ThreadPoolExecutor(max_workers=4)`, `executor.map()` pipelining fetches while writes stayed sequential) to avoid ~128 sequential HTTP round-trips. It worked in testing. Against real production data it didn't: a live bootstrap run hung partway through (~year 2015-2017), twice, after progressing normally for over 100 years first. Diagnosis before reverting, not just a guess: `/proc/PID/io` showed both `rchar` and `wchar` completely frozen (no network reads, no DB writes) for sustained multi-minute windows, and every thread (44 of them — far more than the ~5 expected for one main thread + 4 pool workers) was blocked in the kernel's `futex_wait_queue`. That's consistent with a real deadlock or thread-accumulation bug, not "just a big year taking a while" (which was the first, wrong hypothesis — ruled out by watching `rchar` actually move during genuine slow-but-working periods). No profiler (`py-spy` or equivalent) was available in this environment to safely root-cause it further.
 
-**Rationale:**
-- `ThreadPoolExecutor.map()` pipelines cleanly: it keeps `MAX_WORKERS` fetches in flight and yields results in order as they're consumed, so only a handful of years' zips are ever in memory at once — not fetch-everything-then-process.
-- Postgres writes stay single-connection, sequential, one commit per year — same idempotent-per-year design as before, unaffected by the fetch-side change.
-- `MAX_WORKERS = 4` is deliberately modest. retrosheet.org is a small, volunteer-run site, not a CDN-backed commercial API — this should be noticeably faster for us without behaving like a scraper hammering their server.
+**Rationale:** `CLAUDE.md` already says it: "prefer explicit, boring code over cleverness... predictability matters more than elegance." A data pipeline that reliably takes longer beats one that's fast until it silently hangs. `retrosheet_gamelog.py`'s bootstrap (same pattern) hadn't shown the failure in its one completed run, but keeping both connectors on the same simple, now-proven-reliable path was judged safer than leaving one on an approach just shown capable of hanging.
 
-**Revisit if:** a source with a rate limit or an explicit concurrency policy needs a different number, or a future connector's bottleneck is actually CPU/parsing rather than network — that would call for a different parallelism strategy (e.g. multiprocessing), not this one.
+**Revisit if:** concurrency is worth retrying once this environment (or a future one) has proper profiling available to root-cause the original hang with confidence, rather than reverting blind.
+
+## ADR-006: `load_dataframe`'s scoped-replace path always indexes `scope_column`
+
+**Decision:** When `load_dataframe()` is called with `scope_column`, it creates an index on that column (`CREATE INDEX IF NOT EXISTS`, once) immediately after the table, before ever executing a scoped `DELETE`.
+
+**Context:** Found while investigating the hang above (before the real cause turned out to be the threading bug in ADR-005) — `raw.retrosheet_plays` had grown to 9GB with zero indexes. Every per-year `DELETE FROM raw.retrosheet_plays WHERE _season = %s` was a full sequential scan, getting slower as the table grew across the bootstrap run. This is a real, generic bug in the shared loader, not specific to Retrosheet — any connector using `scope_column` at meaningful scale would hit the same problem.
+
+**Rationale:** The fix belongs in `load_dataframe` itself, not in each connector, since every current and future user of the scoped-replace pattern needs it. Creating the index on first call (when the table — and therefore the index — is empty) means it's essentially free and every subsequent scoped `DELETE` benefits from it, not just ones after someone notices the slowdown.
+
+**Revisit if:** never expected to — this is a correctness-adjacent fix (a missing index doesn't produce wrong results, but production behavior that degrades silently as data grows is a real trap), not a judgment call.

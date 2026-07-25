@@ -69,10 +69,10 @@ def test_reloading_a_year_replaces_it_without_touching_another(db_conn):
     assert any(season == "2025" for season, _ in rows)
 
 
-def test_bootstrap_loads_multiple_years_concurrently_and_skips_missing_ones(monkeypatch):
+def test_bootstrap_loads_multiple_years_and_skips_missing_ones(monkeypatch):
     # Two real (fixture) years, 2024 and 2025, plus 2026 deliberately "not
-    # published yet" (None) — verifying the concurrent fetch -> sequential
-    # load loop handles both cases and still aggregates totals correctly.
+    # published yet" (None) — verifying the sequential fetch/load loop
+    # handles both cases and still aggregates totals correctly.
     class _FixedDate:
         @staticmethod
         def today():

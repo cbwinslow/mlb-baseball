@@ -4,22 +4,18 @@
     mlb ingest register --mode bootstrap
     mlb ingest register --mode update
     mlb inventory
+    mlb doctor
 
 Every entry in CONNECTORS must expose bootstrap() and update(), each returning
-a dict of {table: row_count}. See docs/ARCHITECTURE.md "Connector contract".
+a dict of {table: row_count}, plus health_check() -> list[Check] for `mlb doctor`.
+See docs/ARCHITECTURE.md "Connector contract" and CLAUDE.md "Operational health checks".
 """
 
 import argparse
 import sys
 
-from mlb_baseball import inventory, migrate
-from mlb_baseball.connectors import chadwick_register, lahman, retrosheet
-
-CONNECTORS = {
-    "register": chadwick_register,
-    "lahman": lahman,
-    "retrosheet": retrosheet,
-}
+from mlb_baseball import doctor, inventory, migrate
+from mlb_baseball.registry import CONNECTORS
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -33,6 +29,7 @@ def main(argv: list[str] | None = None) -> None:
     ingest_parser.add_argument("--mode", choices=["bootstrap", "update"], default="bootstrap")
 
     subparsers.add_parser("inventory")
+    subparsers.add_parser("doctor")
 
     args = parser.parse_args(argv)
 
@@ -52,6 +49,15 @@ def main(argv: list[str] | None = None) -> None:
                 f"  {row['source']}: {row['status']} ({row['mode']}, "
                 f"{row['rows']} rows, started {row['started_at']})"
             )
+    elif args.command == "doctor":
+        checks = doctor.run()
+        failed = [c for c in checks if not c.ok]
+        for check in checks:
+            status = "OK" if check.ok else "FAIL"
+            print(f"[{status}] {check.name}: {check.detail}")
+        print(f"\n{len(checks) - len(failed)}/{len(checks)} checks passed")
+        if failed:
+            sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,13 @@ For sources distributed as a full snapshot (e.g. the Chadwick register), `bootst
 
 Every run — from either function — is wrapped in `mlb_baseball.ingest.track_run()`, which logs to `meta.ingestion_run` (source, mode, status, row counts, errors, timestamps). This is what makes bootstrapping and maintenance observable instead of a black box: `SELECT * FROM meta.ingestion_run ORDER BY started_at DESC` shows what ran and whether it worked.
 
-Connectors are independent of each other; the Chadwick ID crosswalk is what ties their outputs together during conforming, not the connectors themselves. All of them are driven through one CLI (`mlb ingest <source> --mode bootstrap|update`) registered in `mlb_baseball/cli.py` — not separate one-off scripts per source.
+Every connector also exposes a third function: **`health_check() -> list[Check]`**, using the shared helpers in `mlb_baseball/health.py`. This is what `mlb doctor` calls to answer "is everything actually working?" in one command — see CLAUDE.md "Operational health checks". Not optional: `tests/unit/test_cli_registry.py::test_all_connectors_expose_health_check` enforces it.
+
+Connectors are independent of each other; the Chadwick ID crosswalk is what ties their outputs together during conforming, not the connectors themselves. All of them are driven through one CLI registered in `mlb_baseball/cli.py` — not separate one-off scripts per source:
+
+- `mlb ingest <source> --mode bootstrap|update` — run a connector
+- `mlb inventory` — live table/row-count report plus last run per source, queried fresh every time (a static doc would go stale immediately with this many tables)
+- `mlb doctor` — DB connectivity, schema/migration state, and every connector's `health_check()` in one pass
 
 ## Loading patterns
 

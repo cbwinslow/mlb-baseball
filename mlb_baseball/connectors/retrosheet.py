@@ -32,6 +32,7 @@ import psycopg
 import requests
 
 from mlb_baseball.db import get_connection
+from mlb_baseball.health import Check, check_last_run, check_table_has_rows
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
 
@@ -90,3 +91,26 @@ def update() -> dict[str, int]:
         conn.commit()
         result["rows"] = sum(totals.values())
     return totals
+
+
+def _check_gametype_casing() -> Check:
+    """Retrosheet's own data has a real inconsistency here — one row was found
+    with gametype "Regular" alongside "regular" everywhere else. Raw stays
+    source-faithful (no silent cleanup), but doctor should flag it so it's
+    visible rather than a surprise later in the conformed layer."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT gametype FROM raw.retrosheet_gameinfo")
+            values = {row[0] for row in cur.fetchall() if row[0] is not None}
+    lowered = {v.lower() for v in values}
+    if len(lowered) != len(values):
+        return Check("retrosheet gametype casing", False, f"inconsistent casing: {sorted(values)}")
+    return Check("retrosheet gametype casing", True, f"{len(values)} distinct values, consistent")
+
+
+def health_check() -> list[Check]:
+    return [
+        check_table_has_rows("raw.retrosheet_plays"),
+        check_last_run(SOURCE),
+        _check_gametype_casing(),
+    ]

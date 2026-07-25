@@ -30,6 +30,13 @@ A task is not complete until:
 - Prefixes are allowed but only when actually needed to disambiguate (e.g. two different sources landing conceptually similar data). Don't prefix by default.
 - Exception: raw-layer columns *and table names* that mirror a source's own established naming verbatim (e.g. the Chadwick register's `key_mlbam` column, or Lahman's own table names like `AwardsPlayers`/`HallOfFame` snake_cased to `awards_players`/`hall_of_fame`) are exempt — don't abbreviate a well-known source's own vocabulary to hit the word-count target. Source-faithfulness there is the point (see `docs/ARCHITECTURE.md`), and community-familiar names beat invented shorthand that no one recognizes.
 
+## Operational health checks
+
+`mlb doctor` exists to answer "is everything actually working?" in one command — DB connectivity, schema presence, migration status, and per-connector health. When writing or changing a connector or shared module, think about how `mlb doctor` should be able to check it, in the same change, not bolted on later:
+
+- Every connector module exposes `health_check() -> list[Check]` (see `mlb_baseball/health.py` for the `Check` type and shared helpers like `check_table_has_rows`/`check_last_run`). Use the shared helpers instead of writing ad-hoc queries per connector.
+- If a new shared module has a way to be "unhealthy" (unreachable dependency, stale data, a check worth automating), give it a health check too rather than leaving it invisible until something breaks silently.
+
 ## Code quality
 
 - No dead code, no commented-out blocks, no TODOs left behind as a substitute for finishing the work.

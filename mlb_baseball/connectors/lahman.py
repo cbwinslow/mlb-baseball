@@ -24,6 +24,7 @@ import pandas as pd
 import pybaseball.lahman as network_lahman
 
 from mlb_baseball.db import get_connection
+from mlb_baseball.health import Check, check_last_run, check_table_has_rows
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
 
@@ -115,3 +116,19 @@ def bootstrap() -> dict[str, int]:
 
 def update() -> dict[str, int]:
     return _run("update")
+
+
+def health_check() -> list[Check]:
+    checks = [check_table_has_rows("raw.lahman_batting"), check_last_run(SOURCE)]
+    zip_path = find_local_zip()
+    if zip_path:
+        checks.append(Check("lahman data currency", True, f"local zip present: {zip_path.name}"))
+    else:
+        checks.append(
+            Check(
+                "lahman data currency",
+                False,
+                "no local zip in downloads/ — data may be frozen at the 2021 network fallback",
+            )
+        )
+    return checks

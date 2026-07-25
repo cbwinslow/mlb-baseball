@@ -15,6 +15,7 @@ import psycopg
 import requests
 
 from mlb_baseball.db import get_connection
+from mlb_baseball.health import Check, check_last_run, check_table_has_rows
 from mlb_baseball.ingest import track_run
 
 SOURCE = "register"
@@ -88,3 +89,7 @@ def bootstrap() -> dict[str, int]:
 
 def update() -> dict[str, int]:
     return _run("update")
+
+
+def health_check() -> list[Check]:
+    return [check_table_has_rows("raw.register_people"), check_last_run(SOURCE)]

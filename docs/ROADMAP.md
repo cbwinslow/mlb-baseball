@@ -9,14 +9,15 @@ Rough build order, each step re-runnable and tested before moving to the next:
 1. ✅ **Project scaffolding** — repo layout, `.env.example`, dependency management, DB connection helper, migration tooling for the raw/conformed schemas.
 2. ✅ **Chadwick Bureau Register connector** — the ID crosswalk. Built first because every other source gets joined against it.
 3. ✅ **Lahman connector** — season-level historical stats. Current data requires a manual download (see `docs/DATA_SOURCES.md`); network fallback frozen at 2021.
-4. ✅ **Retrosheet connectors** (three) — play-by-play plus per-game/per-player stats via retrosheet.org's own pre-parsed CSV downloads (`retrosheet`, see `docs/DECISIONS.md` ADR-004); classic game logs extending coverage back to 1871 (`retrosheet_gamelog`); ballpark/team-ID/biographical reference files (`retrosheet_reference`). Pre-1898 raw event data and Negro Leagues data explicitly deferred, not forgotten.
-5. **MLB Stats API connector** — schedules, boxscores, live game state.
-6. **Statcast (Baseball Savant) connector** — pitch-level data. Highest volume, needs chunked/paginated pulls.
-7. **Conformed layer** — dimensions/facts built on top of the raw tables from steps 2–6, joined via the Chadwick crosswalk.
-8. **Polymarket connector** (stretch) — prediction-market probabilities.
-9. **Kalshi connector** (stretch) — prediction-market probabilities.
+4. ✅ **Retrosheet connectors** (eight — see `docs/DATA_SOURCES.md`) — pre-parsed CSV product (`retrosheet`, ADR-004); raw play-by-play event files via `cwevent`/`cwgame`, 1910–2025 plus post-season/all-star/Negro League (`retrosheet_event`, ADR-009/ADR-010); box-score-only games via `cwbox` for everything raw event files don't cover — 1871/1872/1874 NA seasons, 1898–1909, and additional Negro League games (`retrosheet_box`, ADR-012); classic game logs back to 1871 plus postseason logs (`retrosheet_gamelog`); ballpark/team/biographical reference data (`retrosheet_reference`); annual rosters (`retrosheet_roster`); planned schedules (`retrosheet_schedule`); the (frozen) transaction database (`retrosheet_transaction`). Reconciled against the CSV product end to end: 98.3% of all games have raw-file coverage; the remainder is a genuine gap in what Retrosheet has published as a standalone download, not a parsing limitation — see ADR-012.
+5. ✅ **Reusable ingestion infrastructure** — disk-persisted downloads with a per-source JSON manifest so a bootstrap is resumable without re-fetching (`mlb_baseball/manifest.py`, ADR-008); `mlb doctor` hardened to report cleanly (not crash) on a database that's never been migrated, plus checks for the `downloads/` directory and the Chadwick CLI tools (ADR-011); `mlb_baseball/load.py`'s loader now tolerates a later batch having columns an earlier one didn't, rather than failing on COPY.
+6. **MLB Stats API connector** — schedules, boxscores, live game state.
+7. **Statcast (Baseball Savant) connector** — pitch-level data. Highest volume, needs chunked/paginated pulls.
+8. **Conformed layer** — dimensions/facts built on top of the raw tables from steps 2–7, joined via the Chadwick crosswalk. Not started yet — everything so far is raw only.
+9. **Polymarket connector** (stretch) — prediction-market probabilities.
+10. **Kalshi connector** (stretch) — prediction-market probabilities.
 
-Phase 1 is done when: all core connectors (2–6) run cleanly end-to-end, are idempotent, have tests, and land in the conformed layer — not just "the raw pull works."
+Phase 1 is done when: all core connectors (2–7) run cleanly end-to-end, are idempotent, have tests, and land in the conformed layer — not just "the raw pull works." The conformed layer (step 8) is the one piece of Phase 1 not yet started at all.
 
 ## Phase 2 — ML modeling workflows
 

@@ -27,14 +27,25 @@ AGPL-3.0 for the code (see [LICENSE](LICENSE)). Data retains whatever license it
 pip install -e .
 cp .env.example .env   # then point DATABASE_URL at your own Postgres (bare-metal by default, see ADR-002)
 mlb migrate
+mlb doctor              # confirms the database and every dependency (see Requirements) is ready
 mlb ingest register --mode bootstrap
 mlb ingest lahman --mode bootstrap   # see docs/DATA_SOURCES.md for the manual download step first
+mlb ingest retrosheet --mode bootstrap            # pre-parsed CSV product, 1898-present
+mlb ingest retrosheet_gamelog --mode bootstrap    # game logs + postseason logs, 1871-present
+mlb ingest retrosheet_reference --mode bootstrap  # parks, teams, biographical/coach/umpire/manager data
+mlb ingest retrosheet_roster --mode bootstrap     # annual rosters, 1871-present
+mlb ingest retrosheet_schedule --mode bootstrap   # planned schedules, 1877-2026
+mlb ingest retrosheet_transaction --mode bootstrap
+mlb ingest retrosheet_event --mode bootstrap      # raw play-by-play (needs cwevent/cwgame — see Requirements)
+mlb ingest retrosheet_box --mode bootstrap        # box-score-only games (needs cwbox — see Requirements)
 ```
+
+Every registered source is in `mlb_baseball/registry.py`; `mlb doctor` reports on all of them in one pass, and `mlb inventory` shows live row counts and last-run status per source.
 
 ## Requirements
 
 - Postgres, reachable via a `DATABASE_URL` in `.env` (bare-metal Postgres is the default assumption — see ADR-002 in `docs/DECISIONS.md`).
-- `cwevent` and `cwgame` (Chadwick Baseball Bureau's CLI tools) on `PATH`, required by the `retrosheet_event` connector to parse Retrosheet's raw event files. Build from source: <https://github.com/chadwickbureau/chadwick> (`./configure && make && sudo make install`). The `pychadwick` pip package does **not** work here — its C-extension build fails against modern CMake (see `docs/DECISIONS.md` ADR-004). `mlb doctor` checks for both tools and tells you if either is missing.
+- `cwevent`, `cwgame`, and `cwbox` (the Chadwick Baseball Bureau's CLI tools) on `PATH`, required by the `retrosheet_event` and `retrosheet_box` connectors to parse Retrosheet's raw event and box-score files. Build from source: <https://github.com/chadwickbureau/chadwick> (`./configure && make && sudo make install`). The `pychadwick` pip package does **not** work here — its C-extension build fails against modern CMake (see `docs/DECISIONS.md` ADR-004). `mlb doctor` checks for all three tools and tells you if any are missing.
 
 ## Testing
 

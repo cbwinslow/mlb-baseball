@@ -9,3 +9,4 @@ venv/
 .pybaseball_cache/
 dist/
 build/
+logs/

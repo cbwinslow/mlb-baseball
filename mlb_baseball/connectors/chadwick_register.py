@@ -1,8 +1,11 @@
 """Lands the Chadwick Bureau Register (ID crosswalk) into raw.register_*.
 
-The register is a point-in-time snapshot, not an event stream, so each run
-truncates and reloads every table — safe to re-run, never duplicates rows.
-See docs/DATA_SOURCES.md and migrations/0002_chadwick_register_raw.sql.
+The register is a point-in-time snapshot, not an event stream, so bootstrap and
+update are the same operation here — both truncate and reload every table, safe
+to re-run, never duplicates rows. Sources with real incremental behavior (e.g.
+Statcast, MLB Stats API) implement bootstrap()/update() differently; this one
+is the degenerate case. See docs/ARCHITECTURE.md "Connector contract" and
+migrations/0002_chadwick_register_raw.sql.
 """
 
 import csv
@@ -12,6 +15,9 @@ import psycopg
 import requests
 
 from mlb_baseball.db import get_connection
+from mlb_baseball.ingest import track_run
+
+SOURCE = "register"
 
 BASE_URL = "https://raw.githubusercontent.com/chadwickbureau/register/master/data"
 PEOPLE_SHARDS = "0123456789abcdef"
@@ -50,9 +56,9 @@ def load_csv(conn: psycopg.Connection, table: str, csv_text: str) -> int:
         return cur.rowcount
 
 
-def run() -> dict[str, int]:
+def _run(mode: str) -> dict[str, int]:
     counts: dict[str, int] = {}
-    with get_connection() as conn:
+    with get_connection() as conn, track_run(conn, SOURCE, mode) as result:
         with conn.cursor() as cur:
             cur.execute(
                 "TRUNCATE raw.register_people, "
@@ -72,14 +78,13 @@ def run() -> dict[str, int]:
             counts[table] = load_csv(conn, table, csv_text)
 
         conn.commit()
+        result["rows"] = sum(counts.values())
     return counts
 
 
-def main() -> None:
-    counts = run()
-    for table, count in counts.items():
-        print(f"{table}: {count} rows")
+def bootstrap() -> dict[str, int]:
+    return _run("bootstrap")
 
 
-if __name__ == "__main__":
-    main()
+def update() -> dict[str, int]:
+    return _run("update")

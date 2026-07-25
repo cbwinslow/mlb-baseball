@@ -16,25 +16,22 @@ post-season (1903-2025), All-Star games (1933-2025, no 1945/2020), and Negro
 League play-by-play (1935-1949 plus notable pre-1937 games).
 
 NOT covered by this connector: box-score-only event files (pre-1910, plus
-the 1871/1872/1874 NA seasons, and Negro League box scores). Those use a
-different file format (.EBA/.EBN) and Retrosheet's cwbox tool, which has an
-incompatible CLI (no CSV/field-list output, only text/XML box scores) — a
-real, separate parsing problem, not yet built. Tracked as a follow-up rather
-than silently skipped.
+the 1871/1872/1874 NA seasons, and Negro League box scores) — those are
+`retrosheet_box.py`'s job, via the `cwbox` tool, which needs different
+handling (see ADR-012).
 
 Retrosheet bundles most of these as multi-year archives (e.g.
 events/1910seve.zip covers all of 1910-1919 in one flat zip, event/roster/
 team files for every year mixed together). cwevent/cwgame must be run one
 year at a time — the -y flag governs which TEAM{year}/{team}{year}.ROS files
 they look for — so each archive is extracted to a temp directory and split
-into per-year subdirectories before parsing (_split_by_year). The downloaded
-archive itself is what's kept on disk (via manifest.download, small: a few
-hundred MB across the whole corpus); extraction is transient and cleaned up
-after each load so it doesn't multiply that footprint.
+into per-year subdirectories before parsing (chadwick_tools.split_by_year,
+shared with retrosheet_box.py). The downloaded archive itself is what's kept
+on disk (via manifest.download, small: a few hundred MB across the whole
+corpus); extraction is transient and cleaned up after each load so it
+doesn't multiply that footprint.
 """
 
-import re
-import shutil
 import tempfile
 import zipfile
 from datetime import date
@@ -77,50 +74,19 @@ SPECIAL_ARCHIVES = {
 }
 CURRENT_DECADE_ARCHIVE = "2020seve.zip"
 
-# Tried in order. A naive "first 4 digits anywhere" scan is ambiguous for
-# team codes ending in a digit (e.g. "WS1") glued directly to a year, e.g.
-# "WS11910.ROS" contains a run of 5 consecutive digits ("11910").
-_YEAR_PATTERNS = [
-    re.compile(r"^(\d{4})"),  # event/deduced files: 1910BOS.EVA, 1910.EDA
-    re.compile(r"^TEAM(\d{4})$"),  # TEAM1910
-    re.compile(r"(\d{4})\.ROS$"),  # roster files: BOS1910.ROS, WS11910.ROS
-]
-
-
-def _year_of(filename: str) -> int | None:
-    for pattern in _YEAR_PATTERNS:
-        match = pattern.search(filename)
-        if match:
-            return int(match.group(1))
-    return None
-
 
 def _split_by_year(extract_dir: Path) -> dict[int, Path]:
-    """Reorganizes a flat, multi-year archive's extracted contents into
-    per-year subdirectories (each self-contained: that year's event files
-    plus its TEAM{year}/{team}{year}.ROS files), matching the shape
-    chadwick_tools expects.
-
-    Not every archive bundles team/roster files — the Negro League PBP
-    archive (allevr.zip) is just one whole-league {year}.EVR file per year,
-    no TEAM{year}/.ROS files at all (confirmed against the real downloaded
-    archive: 37 files total, all .EVR, zero TEAM/ROS files). cwevent/cwgame
-    both refuse to run without *a* team file present, even though they don't
-    need it to produce correct output for a file with no team-level info to
-    resolve — confirmed empty output is identical either way. So an empty
-    placeholder is created for any year missing one, rather than skipping
-    (and silently dropping) those years."""
-    year_dirs: dict[int, Path] = {}
-    for f in extract_dir.iterdir():
-        if not f.is_file():
-            continue
-        year = _year_of(f.name)
-        if year is None:
-            continue
-        year_dir = extract_dir / "by_year" / str(year)
-        year_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(f, year_dir / f.name)
-        year_dirs[year] = year_dir
+    """chadwick_tools.split_by_year(), plus an empty TEAM{year} placeholder
+    for any year missing one. Not every archive bundles team/roster files —
+    the Negro League PBP archive (allevr.zip) is just one whole-league
+    {year}.EVR file per year, no TEAM{year}/.ROS files at all (confirmed
+    against the real downloaded archive: 37 files total, all .EVR, zero
+    TEAM/ROS files). cwevent/cwgame both refuse to run without *a* team file
+    present, even though they don't need it to produce correct output for a
+    file with no team-level info to resolve — confirmed empty output is
+    identical either way (team codes come from the event file's own info
+    records, not the team file — unlike cwbox, see retrosheet_box.py)."""
+    year_dirs = chadwick_tools.split_by_year(extract_dir)
     for year, year_dir in year_dirs.items():
         team_file = year_dir / f"TEAM{year}"
         if not team_file.exists():

@@ -30,6 +30,31 @@ def test_rerunning_truncates_instead_of_duplicating(db_conn, drop_tables_after):
         assert cur.fetchone() == (3,)
 
 
+def test_later_load_with_extra_columns_alters_the_table_instead_of_failing(
+    db_conn, drop_tables_after
+):
+    # Regression: a real bootstrap crashed on "column ... does not exist"
+    # because a later year's DataFrame (retrosheet_box.py, cwbox XML output)
+    # had a column ("umpire_lf") an earlier year's didn't — some historical
+    # games have extra umpire positions others don't. The table's schema,
+    # fixed from the first call, must grow to accommodate later columns
+    # rather than fail on COPY.
+    table = drop_tables_after("raw.test_evolving_schema")
+    df1 = pd.DataFrame({"game_id": ["G1"], "umpire_hp": ["ump1"], "_scope": ["a"]})
+    load_dataframe(db_conn, table, df1, scope_column="_scope", scope_value="a")
+    db_conn.commit()
+
+    df2 = pd.DataFrame(
+        {"game_id": ["G2"], "umpire_hp": ["ump2"], "umpire_lf": ["ump3"], "_scope": ["b"]}
+    )
+    load_dataframe(db_conn, table, df2, scope_column="_scope", scope_value="b")
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT game_id, umpire_hp, umpire_lf FROM {table} ORDER BY game_id")
+        assert cur.fetchall() == [("G1", "ump1", None), ("G2", "ump2", "ump3")]
+
+
 def test_handles_digit_prefixed_and_mixed_case_columns(db_conn, drop_tables_after):
     table = drop_tables_after("raw.test_stat_columns")
     df = pd.DataFrame({"playerID": ["abc01"], "2B": [12], "3B": [3]})

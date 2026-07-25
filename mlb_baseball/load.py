@@ -54,7 +54,16 @@ def load_dataframe(
     right after the table — otherwise every per-chunk DELETE is a full sequential
     scan, and gets slower as the table grows. Found the hard way: retrosheet's
     bootstrap looked "stuck" partway through — it wasn't, a DELETE against a
-    9GB, un-indexed raw.retrosheet_plays was just taking longer each year."""
+    9GB, un-indexed raw.retrosheet_plays was just taking longer each year.
+
+    A later call's DataFrame can have columns an earlier one didn't — e.g.
+    retrosheet_box.py's game rows come from cwbox's XML output, which only
+    includes attributes actually present for a given game (some historical
+    games have extra umpire positions others don't), so different years'
+    DataFrames can genuinely differ in shape. Missing columns are added via
+    ALTER TABLE rather than failing on COPY; found by a real bootstrap
+    crashing partway through on "column ... does not exist", not designed
+    in advance."""
     columns = [_pg_column_name(c) for c in df.columns]
     table_ident = _table_identifier(table)
     with conn.cursor() as cur:
@@ -67,6 +76,20 @@ def load_dataframe(
                 "({column_defs}, _loaded_at timestamptz NOT NULL DEFAULT now())"
             ).format(table=table_ident, column_defs=column_defs)
         )
+        schema, bare_table = table.split(".")
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = %s AND table_name = %s",
+            (schema, bare_table),
+        )
+        existing_columns = {row[0] for row in cur.fetchall()}
+        for column in columns:
+            if column not in existing_columns:
+                cur.execute(
+                    sql.SQL("ALTER TABLE {table} ADD COLUMN {col} text").format(
+                        table=table_ident, col=sql.Identifier(column)
+                    )
+                )
         if scope_column is None:
             cur.execute(sql.SQL("TRUNCATE {table}").format(table=table_ident))
         else:

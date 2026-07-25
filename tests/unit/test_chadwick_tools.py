@@ -1,3 +1,4 @@
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -6,6 +7,8 @@ import pytest
 from mlb_baseball import chadwick_tools
 
 FIXTURE_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "retrosheet_event"
+DECADE_FIXTURE_ZIP = FIXTURE_DIR / "decade.zip"
+BOX_FIXTURE_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "retrosheet_box"
 
 # Only the two tests below actually invoke the real cwevent/cwgame
 # subprocesses — the "no event files" tests raise before ever reaching
@@ -60,3 +63,105 @@ def test_run_cwevent_raises_on_directory_with_no_event_files(tmp_path):
 def test_run_cwgame_raises_on_directory_with_no_event_files(tmp_path):
     with pytest.raises(RuntimeError, match="no event files"):
         chadwick_tools.run_cwgame(tmp_path, 2024)
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected_year"),
+    [
+        ("1910BOS.EVA", 1910),
+        ("1910.EDA", 1910),
+        ("1900.EBN", 1900),  # box-score files use the same leading-year convention
+        ("BOS1910.ROS", 1910),
+        ("WS11910.ROS", 1910),  # team code ending in a digit, must not confuse the split
+        ("TEAM1910", 1910),
+        ("2024ANA.EVA", 2024),
+        ("no_year_here", None),
+    ],
+)
+def test_year_of_extracts_four_digit_year(filename, expected_year):
+    assert chadwick_tools.year_of(filename) == expected_year
+
+
+def test_split_by_year_separates_a_two_year_archive(tmp_path):
+    with zipfile.ZipFile(DECADE_FIXTURE_ZIP) as zf:
+        zf.extractall(tmp_path)
+
+    year_dirs = chadwick_tools.split_by_year(tmp_path)
+
+    assert set(year_dirs) == {2024, 2025}
+    assert (year_dirs[2024] / "2024ANA.EVA").exists()
+    assert (year_dirs[2024] / "TEAM2024").exists()
+    assert (year_dirs[2024] / "ANA2024.ROS").exists()
+    assert not (year_dirs[2024] / "2025ANA.EVA").exists()
+    assert (year_dirs[2025] / "2025ANA.EVA").exists()
+
+
+def test_write_team_file_matches_retrosheets_documented_format(tmp_path):
+    # retrosheet.org/eventfile.htm: "contains the team codes and team names
+    # in the particular season" — confirmed against a real bundled TEAM
+    # file's exact layout (team_id,league,city,nickname) before relying on it.
+    chadwick_tools.write_team_file(
+        tmp_path, 1900, [("BRO", "NL", "Brooklyn", "Dodgers"), ("NY1", "NL", "New York", "Giants")]
+    )
+
+    content = (tmp_path / "TEAM1900").read_text()
+    assert content == "BRO,NL,Brooklyn,Dodgers\nNY1,NL,New York,Giants\n"
+
+
+@requires_chadwick_tools
+def test_run_cwbox_parses_real_box_score_file_with_real_team_and_roster_files():
+    result = chadwick_tools.run_cwbox(BOX_FIXTURE_DIR, 1900)
+
+    assert set(result) == {"game", "batting", "fielding", "pitching"}
+    game = result["game"]
+    assert len(game) == 2
+    assert set(game["game_id"]) == {"BRO190004210", "BRO190004280"}
+    # Confirms the real (not empty) TEAM file resolved actual team codes/names —
+    # this is exactly the field that comes back blank without one (ADR-012).
+    row = game[game["game_id"] == "BRO190004210"].iloc[0]
+    assert row["visitor"] == "NY1"
+    assert row["visitor_name"] == "Giants"
+    assert row["home"] == "BRO"
+    assert row["home_name"] == "Dodgers"
+
+    batting = result["batting"]
+    assert len(batting) > 0
+    assert {"game_id", "team", "id", "lname", "fname", "ab", "h", "hr"} <= set(batting.columns)
+
+    fielding = result["fielding"]
+    assert len(fielding) > 0
+    assert {"pos", "po", "a", "e"} <= set(fielding.columns)
+
+    pitching = result["pitching"]
+    assert len(pitching) > 0
+    assert {"id", "gs", "outs", "h", "r", "er", "dec"} <= set(pitching.columns)
+
+
+def test_run_cwbox_raises_on_directory_with_no_box_files(tmp_path):
+    with pytest.raises(RuntimeError, match="no box-score files"):
+        chadwick_tools.run_cwbox(tmp_path, 1900)
+
+
+def test_parse_cwbox_xml_handles_multiple_boxscore_elements():
+    xml_text = (
+        '<boxscore game_id="G1" date="1900/01/01">'
+        '<linescore away_runs="1" home_runs="2" away_hits="0" away_errors="0" '
+        'home_hits="0" home_errors="0"></linescore>'
+        '<players team="AAA"><player id="p1" lname="Last" fname="First" slot="1" seq="1" pos="9">'
+        '<batting ab="4" r="1" h="2"/><fielding pos="9" outs="27" po="1" a="0" e="0"/>'
+        "</player></players>"
+        '<pitching team="AAA"><pitcher id="p2" gs="1"/></pitching>'
+        "</boxscore>"
+        '<boxscore game_id="G2" date="1900/01/02">'
+        '<linescore away_runs="3" home_runs="4" away_hits="0" away_errors="0" '
+        'home_hits="0" home_errors="0"></linescore>'
+        "<players></players>"
+        "</boxscore>"
+    )
+
+    result = chadwick_tools._parse_cwbox_xml(xml_text)
+
+    assert list(result["game"]["game_id"]) == ["G1", "G2"]
+    assert result["batting"].iloc[0]["h"] == "2"
+    assert result["fielding"].iloc[0]["po"] == "1"
+    assert result["pitching"].iloc[0]["id"] == "p2"

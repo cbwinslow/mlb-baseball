@@ -27,6 +27,7 @@ def track_run(conn: psycopg.Connection, source: str, mode: str) -> Iterator[dict
     try:
         yield result
     except Exception as exc:
+        conn.rollback()
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE meta.ingestion_run "

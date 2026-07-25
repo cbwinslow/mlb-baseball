@@ -8,9 +8,22 @@ All sources below are free or free-tier. No paid feeds without an explicit decis
 |---|---|---|---|---|
 | **Retrosheet** | Play-by-play event files, box scores, 1901–present | Free | Bulk download (zip files per season) | License requires attribution; parse with Chadwick tools (`cwevent`, `cwgame`, open source) rather than reinventing a parser. |
 | **Chadwick Bureau Register** | Canonical player ID crosswalk (Retrosheet/MLBAM/Baseball-Reference/FanGraphs IDs) | Free | CSV on GitHub (`chadwickbureau/register`) | Needed to join across every other source — build this early. |
-| **Lahman Database** | Season-level batting/pitching/fielding/team stats, 1871–present | Free | CSV/SQLite download, CC BY-SA | Good backfill for pre-Statcast eras. |
+| **Lahman Database** | Season-level batting/pitching/fielding/team/awards/salary/HOF stats, 1871–present | Free | Manual download (see below), CC BY-SA | Good backfill for pre-Statcast eras. Current release isn't scriptable — see the manual step. |
 | **MLB Stats API** (`statsapi.mlb.com`) | Schedules, live game state, boxscores, rosters, standings | Free, public, unauthenticated | JSON REST | Undocumented-but-stable public API; rate-limit politely, cache responses. |
 | **Baseball Savant / Statcast** | Pitch-level tracking data (velo, spin, exit velo, location), 2015–present | Free | CSV export via Savant's search endpoint | High volume — this is the ingestion component most likely to need real engineering care (chunked pulls, retries). |
+
+## Manual step required: Lahman Database
+
+SABR distributes the current Lahman release only through a Box.com folder with no stable, scriptable download URL (confirmed: Box's API returns 401 without an app-registered OAuth token; anonymous downloads only work through the interactive web UI). This is a real constraint, not a shortcut — to bootstrap or refresh current-season Lahman data:
+
+1. Open the current release folder: <https://sabr.box.com/s/y1prhc795jk8zvmelfd3jq7tl389y6cd> (linked from <https://sabr.org/lahman-database/>).
+2. Download the whole folder as a zip (top-right download icon), or download it as directed on the page.
+3. Save the zip into `downloads/` at the repo root, e.g. `downloads/lahman_1871-2025_csv.zip`. The connector globs `downloads/lahman*.zip` and picks the most recently modified match, so the exact filename doesn't matter.
+4. Run `mlb ingest lahman --mode bootstrap` (or `update`) — it loads directly from the zip, no extraction needed.
+
+If no local zip is present, the connector automatically falls back to a network source frozen at the 2021 season (a preserved fork of the since-deleted `chadwickbureau/baseballdatabank`, see `docs/DECISIONS.md`) and prints a clear warning — so a fresh clone still bootstraps with zero setup, just with stale data until someone does the manual step above.
+
+`downloads/` is gitignored — never commit the zip itself, only the instructions for getting it.
 
 ## Phase 1b / stretch — prediction markets (once core pipeline pattern is proven)
 

@@ -29,6 +29,7 @@ A task is not complete until:
 - Every object we name ourselves — schemas, tables, columns, functions, modules, config keys — gets a short name: **one word, two at most.** Not `bref_pitching_war_raw`; `pitching_war` (schema already says `raw`).
 - Prefixes are allowed but only when actually needed to disambiguate (e.g. two different sources landing conceptually similar data). Don't prefix by default.
 - Exception: raw-layer columns *and table names* that mirror a source's own established naming verbatim (e.g. the Chadwick register's `key_mlbam` column, or Lahman's own table names like `AwardsPlayers`/`HallOfFame` snake_cased to `awards_players`/`hall_of_fame`) are exempt — don't abbreviate a well-known source's own vocabulary to hit the word-count target. Source-faithfulness there is the point (see `docs/ARCHITECTURE.md`), and community-familiar names beat invented shorthand that no one recognizes.
+- Schema-layer names are exactly `raw`, `core`, `gold` — no `bronze`/`silver` prefixing on table names within them (the schema itself already says which layer a table is in; see `docs/ARCHITECTURE.md` "Layered schema" and ADR-013).
 
 ## Operational health checks
 

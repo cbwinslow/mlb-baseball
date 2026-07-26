@@ -18,7 +18,7 @@ def test_every_migration_file_is_recorded_as_applied(db_conn):
 def test_expected_schemas_exist(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT nspname FROM pg_namespace WHERE nspname IN ('raw', 'conformed', 'meta')"
+            "SELECT nspname FROM pg_namespace WHERE nspname IN ('raw', 'core', 'gold', 'meta')"
         )
         schemas = {row[0] for row in cur.fetchall()}
-    assert schemas == {"raw", "conformed", "meta"}
+    assert schemas == {"raw", "core", "gold", "meta"}

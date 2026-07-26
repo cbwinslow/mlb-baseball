@@ -43,3 +43,11 @@ def test_migrate_command_calls_migrate_main(monkeypatch):
     cli.main(["migrate"])
 
     assert called["count"] == 1
+
+
+def test_conform_command_calls_conform_run(monkeypatch, capsys):
+    monkeypatch.setattr(cli.conform, "run", lambda: {"core.team": 1})
+
+    cli.main(["conform"])
+
+    assert "core.team: 1 rows" in capsys.readouterr().out

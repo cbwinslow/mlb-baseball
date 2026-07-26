@@ -112,7 +112,7 @@ def _check_gametype_casing() -> Check:
     """Retrosheet's own data has a real inconsistency here — one row was found
     with gametype "Regular" alongside "regular" everywhere else. Raw stays
     source-faithful (no silent cleanup), but doctor should flag it so it's
-    visible rather than a surprise later in the conformed layer."""
+    visible rather than a surprise later in the core layer."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT DISTINCT gametype FROM raw.retrosheet_gameinfo")

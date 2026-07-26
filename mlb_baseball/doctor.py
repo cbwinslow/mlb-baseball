@@ -16,7 +16,7 @@ directly, not just a status light.
 
 import psycopg
 
-from mlb_baseball import manifest, migrate
+from mlb_baseball import conform, manifest, migrate
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.registry import CONNECTORS
@@ -36,21 +36,25 @@ def _database_reachable() -> Check:
         )
 
 
+_REQUIRED_SCHEMAS = {"raw", "core", "gold", "meta"}
+
+
 def _required_schemas_exist() -> Check:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT nspname FROM pg_namespace WHERE nspname IN ('raw', 'conformed', 'meta')"
+                "SELECT nspname FROM pg_namespace WHERE nspname = ANY(%s)",
+                (list(_REQUIRED_SCHEMAS),),
             )
             found = {row[0] for row in cur.fetchall()}
-    missing = {"raw", "conformed", "meta"} - found
+    missing = _REQUIRED_SCHEMAS - found
     if missing:
         return Check(
             "required schemas",
             False,
             f"missing: {', '.join(sorted(missing))} — run `mlb migrate`",
         )
-    return Check("required schemas", True, "raw, conformed, meta all present")
+    return Check("required schemas", True, f"{', '.join(sorted(_REQUIRED_SCHEMAS))} all present")
 
 
 def _migrations_up_to_date() -> Check:
@@ -113,5 +117,14 @@ def run() -> list[Check]:
             # that's never been bootstrapped) shouldn't blind doctor to every
             # other connector's health — report it as a failed check instead.
             checks.append(Check(f"{name} connector", False, f"health_check() raised: {exc}"))
+
+    # conform.py isn't in CONNECTORS — it has no bootstrap()/update() (it
+    # transforms already-ingested raw data rather than fetching from a
+    # source), so it's checked here directly instead of through the
+    # connector loop above.
+    try:
+        checks.extend(conform.health_check())
+    except Exception as exc:
+        checks.append(Check("core connector", False, f"health_check() raised: {exc}"))
 
     return checks

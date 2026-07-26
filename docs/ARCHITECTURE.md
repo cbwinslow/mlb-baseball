@@ -8,10 +8,11 @@ Single Postgres instance, addressed via `DATABASE_URL` in `.env` (see [DECISIONS
 
 ## Layered schema (Medallion-style)
 
-- **Raw / landing** — source-faithful tables, one per upstream source, minimally reshaped. Event-stream sources (Retrosheet, Statcast, MLB Stats API) land append-only; snapshot sources (the Chadwick register) truncate-and-reload each run instead, since there's no meaningful "new rows since last time" for a full-snapshot source (see Connector contract below). Either way, raw data doesn't need to be re-fetched just because a downstream transform has a bug.
-- **Conformed** — cleaned, typed, deduplicated, joined against the Chadwick ID crosswalk so every player/team reference is consistent across sources. This is the layer modeling (Phase 2) and the website (Phase 3) are expected to consume — not raw.
+- **`raw`** — source-faithful tables, one per upstream source, minimally reshaped, deliberately untyped (`text` columns, no PK/FK/constraints — see `mlb_baseball/load.py`). Event-stream sources (Retrosheet, Statcast, MLB Stats API) land append-only; snapshot sources (the Chadwick register) truncate-and-reload each run instead, since there's no meaningful "new rows since last time" for a full-snapshot source (see Connector contract below). Staying untyped is what lets raw tolerate schema drift from a source without breaking (e.g. `load_dataframe`'s `ALTER TABLE ADD COLUMN` for a later batch with columns an earlier one didn't have) — raw data doesn't need to be re-fetched just because a downstream transform has a bug.
+- **`core`** — real relational structure: surrogate primary keys, foreign keys, indices. Built by joining already-landed `raw` tables against the Chadwick ID crosswalk so every player/team/game reference is consistent across sources — Kimball's "conformed dimensions," which is where the schema's original name (`conformed`, renamed to `core` — see ADR-013) came from. `core.player`/`core.team`/`core.game` are the first tables here. This is the layer modeling (Phase 2) and the website (Phase 3) are expected to consume — not raw.
+- **`gold`** — schema exists (`migrations/0004_core_gold_schemas.sql`), deliberately holds no tables yet. Reserved for ML-feature/serving-shaped tables once Phase 2/3 actually need them — see ADR-013. Don't design tables here speculatively.
 
-Nothing beyond these two layers is being designed yet. If a third layer turns out to be needed once modeling starts, add it then.
+`core` is populated by `mlb_baseball/conform.py` (`mlb conform`), not a connector — see "Conform contract" below.
 
 ## Connector contract
 
@@ -29,8 +30,17 @@ Every connector also exposes a third function: **`health_check() -> list[Check]`
 Connectors are independent of each other; the Chadwick ID crosswalk is what ties their outputs together during conforming, not the connectors themselves. All of them are driven through one CLI registered in `mlb_baseball/cli.py` — not separate one-off scripts per source:
 
 - `mlb ingest <source> --mode bootstrap|update` — run a connector
+- `mlb conform` — rebuild `core` from already-ingested `raw` data (see "Conform contract" below)
 - `mlb inventory` — live table/row-count report plus last run per source, queried fresh every time (a static doc would go stale immediately with this many tables)
 - `mlb doctor` — DB connectivity, schema/migration state, and every connector's `health_check()` in one pass
+
+## Conform contract
+
+`mlb_baseball/conform.py` builds `core` from `raw` — a transform, not a connector: it never touches the network, has no `bootstrap()`/`update()` split, and isn't in `mlb_baseball/registry.py`'s `CONNECTORS` (so it doesn't show up under `mlb ingest <source>`; it's its own `mlb conform` subcommand). One `run()` entry point does a full truncate-and-rebuild every time — simplest-correct at `core`'s current row count (~225K games), matching CLAUDE.md's "prefer explicit, boring code" guidance over a more complex incremental-diff approach.
+
+Before rebuilding, `run()` checks that the `raw` tables it depends on actually have data (`_check_prerequisites()`), raising an actionable error (naming the `mlb ingest ... --mode bootstrap` command to fix it) rather than either running silently on empty raw tables or failing mid-join with a confusing error. Like every other fresh-DB-safe check in this project, "table doesn't exist yet" and "table has 0 rows" are both treated as "not bootstrapped yet."
+
+`conform.py` exposes `health_check() -> list[Check]` the same way connectors do, checked directly in `doctor.py` (not through the connector loop, since it isn't a connector) — see ADR-013.
 
 ## Loading patterns
 

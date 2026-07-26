@@ -19,7 +19,8 @@ def test_database_reachable_is_true_against_the_test_db():
 def test_required_schemas_exist_against_the_test_db():
     result = doctor._required_schemas_exist()
     assert result.ok
-    assert "raw, conformed, meta" in result.detail
+    for schema in doctor._REQUIRED_SCHEMAS:
+        assert schema in result.detail
 
 
 def test_migrations_up_to_date_against_the_test_db():

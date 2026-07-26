@@ -3,6 +3,7 @@
     mlb migrate
     mlb ingest register --mode bootstrap
     mlb ingest register --mode update
+    mlb conform
     mlb inventory
     mlb doctor
 
@@ -14,7 +15,7 @@ See docs/ARCHITECTURE.md "Connector contract" and CLAUDE.md "Operational health 
 import argparse
 import sys
 
-from mlb_baseball import doctor, inventory, migrate
+from mlb_baseball import conform, doctor, inventory, migrate
 from mlb_baseball.registry import CONNECTORS
 
 
@@ -28,6 +29,7 @@ def main(argv: list[str] | None = None) -> None:
     ingest_parser.add_argument("source", choices=sorted(CONNECTORS))
     ingest_parser.add_argument("--mode", choices=["bootstrap", "update"], default="bootstrap")
 
+    subparsers.add_parser("conform")
     subparsers.add_parser("inventory")
     subparsers.add_parser("doctor")
 
@@ -39,6 +41,9 @@ def main(argv: list[str] | None = None) -> None:
         connector = CONNECTORS[args.source]
         fn = connector.bootstrap if args.mode == "bootstrap" else connector.update
         for table, count in fn().items():
+            print(f"{table}: {count} rows")
+    elif args.command == "conform":
+        for table, count in conform.run().items():
             print(f"{table}: {count} rows")
     elif args.command == "inventory":
         for row in inventory.tables():

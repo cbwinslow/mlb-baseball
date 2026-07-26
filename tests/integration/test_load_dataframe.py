@@ -1,6 +1,6 @@
 import pandas as pd
 
-from mlb_baseball.load import load_dataframe
+from mlb_baseball.load import append_dataframe, load_dataframe
 
 
 def test_creates_table_and_loads_rows(db_conn, drop_tables_after):
@@ -145,3 +145,57 @@ def test_scope_column_replaces_only_matching_rows(db_conn, drop_tables_after):
     with db_conn.cursor() as cur:
         cur.execute(f"SELECT chunk, v FROM {table} ORDER BY chunk")
         assert cur.fetchall() == [("a", "99"), ("b", "2")]
+
+
+def test_append_dataframe_creates_table_and_inserts_rows(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_append_widgets")
+    df = pd.DataFrame({"widget_id": [1, 2], "name": ["a", "b"]})
+
+    rowcount = append_dataframe(db_conn, table, df)
+    db_conn.commit()
+
+    assert rowcount == 2
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT widget_id, name FROM {table} ORDER BY widget_id")
+        assert cur.fetchall() == [("1", "a"), ("2", "b")]
+
+
+def test_append_dataframe_accumulates_instead_of_replacing(db_conn, drop_tables_after):
+    # The whole point of append_dataframe vs. load_dataframe: every previous
+    # call's rows stay — this is for genuinely event-stream data (e.g. a
+    # live-game snapshot captured repeatedly) where the "chunk replaces
+    # chunk" model of load_dataframe's scope_column doesn't make sense —
+    # every past snapshot is still meaningful, not just the latest.
+    table = drop_tables_after("raw.test_append_snapshots")
+
+    append_dataframe(db_conn, table, pd.DataFrame({"game_id": ["G1"], "inning": [1]}))
+    db_conn.commit()
+    append_dataframe(db_conn, table, pd.DataFrame({"game_id": ["G1"], "inning": [2]}))
+    db_conn.commit()
+    append_dataframe(db_conn, table, pd.DataFrame({"game_id": ["G1"], "inning": [3]}))
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT inning FROM {table} WHERE game_id = 'G1' ORDER BY inning")
+        assert cur.fetchall() == [("1",), ("2",), ("3",)]
+
+
+def test_append_dataframe_alters_table_for_a_later_batch_with_extra_columns(
+    db_conn, drop_tables_after
+):
+    # Same schema-drift tolerance as load_dataframe (see
+    # test_later_load_with_extra_columns_alters_the_table_instead_of_failing)
+    # — append_dataframe shares the underlying _ensure_table_and_columns
+    # helper, so this must work identically.
+    table = drop_tables_after("raw.test_append_evolving_schema")
+
+    append_dataframe(db_conn, table, pd.DataFrame({"game_id": ["G1"], "balls": [1]}))
+    db_conn.commit()
+    append_dataframe(
+        db_conn, table, pd.DataFrame({"game_id": ["G2"], "balls": [2], "strikes": [1]})
+    )
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT game_id, balls, strikes FROM {table} ORDER BY game_id")
+        assert cur.fetchall() == [("G1", "1", None), ("G2", "2", "1")]

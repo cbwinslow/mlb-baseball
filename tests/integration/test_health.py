@@ -2,7 +2,7 @@ import uuid
 
 import psycopg
 
-from mlb_baseball.health import check_last_run, check_table_has_rows
+from mlb_baseball.health import check_last_run, check_table_exists, check_table_has_rows
 
 
 def test_check_table_has_rows_true_when_populated(db_conn, drop_tables_after):
@@ -43,6 +43,29 @@ def test_check_table_has_rows_false_when_empty(db_conn, drop_tables_after):
     result = check_table_has_rows(table)
 
     assert not result.ok
+
+
+def test_check_table_exists_true_when_empty(db_conn, drop_tables_after):
+    # The whole point of check_table_exists vs. check_table_has_rows: 0 rows
+    # is a valid healthy state for a sparse/event-driven table (e.g.
+    # raw.mlb_live_game when nothing is currently live) — must not be
+    # reported as unhealthy just because it happens to be empty right now.
+    table = drop_tables_after("raw.test_health_sparse")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {table} (id int)")
+    db_conn.commit()
+
+    result = check_table_exists(table)
+
+    assert result.ok
+    assert "0 rows" in result.detail
+
+
+def test_check_table_exists_false_when_table_never_created():
+    result = check_table_exists("raw.test_health_sparse_never_created")
+
+    assert not result.ok
+    assert "never bootstrapped" in result.detail
 
 
 def test_check_last_run_false_when_never_run():

@@ -31,6 +31,22 @@ def check_table_has_rows(table: str) -> Check:
     return Check(table, True, f"{count} rows")
 
 
+def check_table_exists(table: str) -> Check:
+    """Like check_table_has_rows, but doesn't require any rows — for genuinely
+    sparse/event-driven tables where 0 rows is a valid healthy state (e.g.
+    raw.mlb_live_game outside of live-game hours: nothing wrong, there's just
+    nothing live to capture right now)."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(f"SELECT count(*) FROM {table}")
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(table, False, "table does not exist — never bootstrapped?")
+            (count,) = cur.fetchone()
+    return Check(table, True, f"{count} rows")
+
+
 def check_last_run(source: str) -> Check:
     with get_connection() as conn:
         with conn.cursor() as cur:

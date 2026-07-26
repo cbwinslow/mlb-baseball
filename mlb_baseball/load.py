@@ -29,6 +29,63 @@ def _table_identifier(table: str) -> sql.Identifier:
     return sql.Identifier(*table.split("."))
 
 
+def _ensure_table_and_columns(
+    cur: psycopg.Cursor, table: str, table_ident: sql.Identifier, columns: list[str]
+) -> None:
+    """Creates `table` if needed (schema derived from the caller's columns) and adds
+    any column present in `columns` but not yet on the table. Shared by
+    load_dataframe (replace semantics) and append_dataframe (pure-insert semantics)
+    since both need the identical "make sure the table can hold this DataFrame"
+    step before deciding what to do about existing rows.
+
+    Column identifiers are always quoted (via psycopg.sql.Identifier) — raw sources
+    sometimes use reserved SQL keywords as column names (e.g. Retrosheet's
+    parkcode.txt has a column literally named "end"; found by actually running
+    this against real data, not by inspection).
+
+    A later call's DataFrame can have columns an earlier one didn't — e.g.
+    retrosheet_box.py's game rows come from cwbox's XML output, which only
+    includes attributes actually present for a given game (some historical
+    games have extra umpire positions others don't), so different years'
+    DataFrames can genuinely differ in shape. Missing columns are added via
+    ALTER TABLE rather than failing on COPY; found by a real bootstrap
+    crashing partway through on "column ... does not exist", not designed
+    in advance."""
+    column_defs = sql.SQL(", ").join(sql.SQL("{} text").format(sql.Identifier(c)) for c in columns)
+    cur.execute(
+        sql.SQL(
+            "CREATE TABLE IF NOT EXISTS {table} "
+            "({column_defs}, _loaded_at timestamptz NOT NULL DEFAULT now())"
+        ).format(table=table_ident, column_defs=column_defs)
+    )
+    schema, bare_table = table.split(".")
+    cur.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = %s AND table_name = %s",
+        (schema, bare_table),
+    )
+    existing_columns = {row[0] for row in cur.fetchall()}
+    for column in columns:
+        if column not in existing_columns:
+            cur.execute(
+                sql.SQL("ALTER TABLE {table} ADD COLUMN {col} text").format(
+                    table=table_ident, col=sql.Identifier(column)
+                )
+            )
+
+
+def _copy_dataframe(cur: psycopg.Cursor, table_ident: sql.Identifier, df: pd.DataFrame) -> int:
+    columns = [_pg_column_name(c) for c in df.columns]
+    csv_text = df.to_csv(index=False, header=False)
+    column_list = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
+    copy_sql = sql.SQL("COPY {table} ({columns}) FROM STDIN WITH (FORMAT csv)").format(
+        table=table_ident, columns=column_list
+    )
+    with cur.copy(copy_sql) as copy:
+        copy.write(csv_text)
+    return cur.rowcount
+
+
 def load_dataframe(
     conn: psycopg.Connection,
     table: str,
@@ -45,51 +102,19 @@ def load_dataframe(
     TRUNCATE on every call would wipe out all previously loaded seasons.
     scope_column must already be a sanitized column name (e.g. "_season").
 
-    Column identifiers are always quoted (via psycopg.sql.Identifier) — raw sources
-    sometimes use reserved SQL keywords as column names (e.g. Retrosheet's
-    parkcode.txt has a column literally named "end"; found by actually running
-    this against real data, not by inspection).
-
     When scope_column is given, an index on it is created (once, IF NOT EXISTS)
     right after the table — otherwise every per-chunk DELETE is a full sequential
     scan, and gets slower as the table grows. Found the hard way: retrosheet's
     bootstrap looked "stuck" partway through — it wasn't, a DELETE against a
     9GB, un-indexed raw.retrosheet_plays was just taking longer each year.
 
-    A later call's DataFrame can have columns an earlier one didn't — e.g.
-    retrosheet_box.py's game rows come from cwbox's XML output, which only
-    includes attributes actually present for a given game (some historical
-    games have extra umpire positions others don't), so different years'
-    DataFrames can genuinely differ in shape. Missing columns are added via
-    ALTER TABLE rather than failing on COPY; found by a real bootstrap
-    crashing partway through on "column ... does not exist", not designed
-    in advance."""
+    For pure event-stream data with no natural "chunk" to replace (e.g. a live-game
+    snapshot, captured repeatedly and meant to accumulate, never overwritten), use
+    append_dataframe instead."""
     columns = [_pg_column_name(c) for c in df.columns]
     table_ident = _table_identifier(table)
     with conn.cursor() as cur:
-        column_defs = sql.SQL(", ").join(
-            sql.SQL("{} text").format(sql.Identifier(c)) for c in columns
-        )
-        cur.execute(
-            sql.SQL(
-                "CREATE TABLE IF NOT EXISTS {table} "
-                "({column_defs}, _loaded_at timestamptz NOT NULL DEFAULT now())"
-            ).format(table=table_ident, column_defs=column_defs)
-        )
-        schema, bare_table = table.split(".")
-        cur.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = %s AND table_name = %s",
-            (schema, bare_table),
-        )
-        existing_columns = {row[0] for row in cur.fetchall()}
-        for column in columns:
-            if column not in existing_columns:
-                cur.execute(
-                    sql.SQL("ALTER TABLE {table} ADD COLUMN {col} text").format(
-                        table=table_ident, col=sql.Identifier(column)
-                    )
-                )
+        _ensure_table_and_columns(cur, table, table_ident, columns)
         if scope_column is None:
             cur.execute(sql.SQL("TRUNCATE {table}").format(table=table_ident))
         else:
@@ -107,11 +132,18 @@ def load_dataframe(
                 ),
                 (scope_value,),
             )
-        csv_text = df.to_csv(index=False, header=False)
-        column_list = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
-        copy_sql = sql.SQL("COPY {table} ({columns}) FROM STDIN WITH (FORMAT csv)").format(
-            table=table_ident, columns=column_list
-        )
-        with cur.copy(copy_sql) as copy:
-            copy.write(csv_text)
-        return cur.rowcount
+        return _copy_dataframe(cur, table_ident, df)
+
+
+def append_dataframe(conn: psycopg.Connection, table: str, df: pd.DataFrame) -> int:
+    """Creates `table` if needed and inserts df's rows — never truncates, never
+    deletes. For genuinely append-only event-stream data where every previously
+    landed row stays meaningful (e.g. raw.mlb_live_game: each call captures one
+    point-in-time snapshot of an in-progress game, and the whole point is keeping
+    every snapshot, not just the latest). If the source instead has a natural
+    "this chunk replaces that chunk" shape, use load_dataframe."""
+    columns = [_pg_column_name(c) for c in df.columns]
+    table_ident = _table_identifier(table)
+    with conn.cursor() as cur:
+        _ensure_table_and_columns(cur, table, table_ident, columns)
+        return _copy_dataframe(cur, table_ident, df)

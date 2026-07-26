@@ -5,10 +5,12 @@ production database (populated by running the actual connectors, which is
 not something the fast test suite should depend on)."""
 
 import uuid
+from unittest.mock import patch
 
 import psycopg
 
 from mlb_baseball import doctor
+from mlb_baseball.connectors import mlb_api
 from mlb_baseball.health import Check
 
 
@@ -97,3 +99,60 @@ def test_run_survives_a_connector_whose_health_check_raises(monkeypatch):
     assert not broken_check.ok
     assert "boom" in broken_check.detail
     assert any(c.name == "fine thing" and c.ok for c in checks)
+
+
+def test_run_diagnoses_mlb_api_cleanly_before_it_has_ever_been_bootstrapped(db_conn, monkeypatch):
+    # End-to-end, against the real (test) database, not a fake connector:
+    # a fresh clone that's run `mlb migrate` but never `mlb ingest mlb_api`
+    # must get clean, actionable failed checks through the real doctor.run()
+    # path — not a crash, and not a false "all clear."
+    monkeypatch.setattr(doctor, "CONNECTORS", {"mlb_api": mlb_api})
+    # Guarantee a genuinely "never run" state regardless of what any earlier
+    # test (in this file or another) already wrote to meta.ingestion_run —
+    # that table is a durable audit log nothing else truncates.
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (mlb_api.SOURCE,))
+    db_conn.commit()
+
+    checks = doctor.run()
+
+    schedule_check = next(c for c in checks if c.name == "raw.mlb_schedule")
+    assert not schedule_check.ok
+    live_check = next(c for c in checks if c.name == "raw.mlb_live_game")
+    assert not live_check.ok  # table doesn't exist yet either — also a clean failure
+    run_check = next(c for c in checks if c.name == "mlb_api last run")
+    assert not run_check.ok
+    assert "never run" in run_check.detail
+
+
+def test_run_diagnoses_mlb_api_as_healthy_after_bootstrap_including_empty_live_table(
+    db_conn, monkeypatch
+):
+    monkeypatch.setattr(doctor, "CONNECTORS", {"mlb_api": mlb_api})
+    monkeypatch.setattr(mlb_api, "FIRST_SCHEDULE_YEAR", 2026)
+    monkeypatch.setattr(mlb_api, "FIRST_STANDINGS_YEAR", 2026)
+    games = [{"game_id": 1, "national_broadcasts": [], "winning_team": "Tie"}]
+    standings = {201: {"div_name": "AL East", "teams": [{"name": "Orioles", "team_id": 110}]}}
+    with (
+        patch.object(mlb_api.statsapi, "schedule", return_value=games),
+        patch.object(mlb_api.statsapi, "standings_data", return_value=standings),
+    ):
+        mlb_api.bootstrap()
+
+    checks = doctor.run()
+
+    assert next(c for c in checks if c.name == "raw.mlb_schedule").ok
+    assert next(c for c in checks if c.name == "raw.mlb_standing").ok
+    # raw.mlb_live_game was never created (no live games during bootstrap) —
+    # check_table_exists must not treat that as unhealthy the way
+    # check_table_has_rows would.
+    live_check = next(c for c in checks if c.name == "raw.mlb_live_game")
+    assert not live_check.ok
+    assert "never bootstrapped" in live_check.detail
+    assert next(c for c in checks if c.name == "mlb_api last run").ok
+
+    with db_conn.cursor() as cur:
+        for table in ["raw.mlb_schedule", "raw.mlb_standing"]:
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
+        cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (mlb_api.SOURCE,))
+    db_conn.commit()

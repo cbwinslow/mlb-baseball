@@ -44,6 +44,15 @@ A task is not complete until:
 - Prefer explicit, boring code over cleverness. This is a data pipeline; predictability matters more than elegance.
 - Don't build abstractions for sources we don't have yet. Three similar connectors is fine; a plugin framework for a hypothetical fourth is not, until there's a fourth.
 
+## GitHub workflow
+
+Use GitHub for what it's actually good at, not for its own sake — this is a solo project, so the goal is a clear, durable record and correct process, not team-review ceremony.
+
+- **Commits**: direct to `main`, only when the user explicitly asks (never proactively — see the Git Safety Protocol). Every message explains *why*, not just what changed; see this repo's own history for the pattern.
+- **Pull requests**: not the default — direct-to-main is normal here. Open one when a change genuinely benefits from being isolated for review before merging (a large or risky architectural change), or when explicitly asked for one.
+- **Issues**: open one for (a) a known, real gap or limitation documented in an ADR (see `docs/DECISIONS.md`) — e.g. a "Revisit if" clause worth tracking as concrete follow-up work, not left as prose only; (b) a real bug found but not fixed in the same change, so it isn't lost; (c) a roadmap/future-work item worth tracking outside `docs/ROADMAP.md`'s prose. Don't open issues for minor style nits, vague hunches, or anything trivial enough to just fix inline.
+- **Pre-authorized**: creating issues and pull requests on `cbwinslow/mlb-baseball` doesn't need a fresh ask each time — this section is that authorization, per the project owner's explicit instruction. Closing issues, merging PRs, or anything destructive (force-push, deleting branches, editing someone else's content) still needs an explicit ask, same as always.
+
 ## Before declaring a task finished
 
 Run the actual test suite and linter — don't assert success without having run them in this session.

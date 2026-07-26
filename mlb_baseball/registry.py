@@ -5,6 +5,7 @@ without importing the CLI module (which itself imports doctor.py)."""
 from mlb_baseball.connectors import (
     chadwick_register,
     lahman,
+    mlb_api,
     retrosheet,
     retrosheet_box,
     retrosheet_event,
@@ -18,6 +19,7 @@ from mlb_baseball.connectors import (
 CONNECTORS = {
     "register": chadwick_register,
     "lahman": lahman,
+    "mlb_api": mlb_api,
     "retrosheet": retrosheet,
     "retrosheet_box": retrosheet_box,
     "retrosheet_event": retrosheet_event,

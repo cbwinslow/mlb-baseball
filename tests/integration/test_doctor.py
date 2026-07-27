@@ -120,7 +120,7 @@ def test_run_diagnoses_mlb_api_cleanly_before_it_has_ever_been_bootstrapped(db_c
     assert not schedule_check.ok
     live_check = next(c for c in checks if c.name == "raw.mlb_live_game")
     assert not live_check.ok  # table doesn't exist yet either — also a clean failure
-    run_check = next(c for c in checks if c.name == "mlb_api last run")
+    run_check = next(c for c in checks if c.name == "mlb_api freshness")
     assert not run_check.ok
     assert "never run" in run_check.detail
 
@@ -149,7 +149,7 @@ def test_run_diagnoses_mlb_api_as_healthy_after_bootstrap_including_empty_live_t
     live_check = next(c for c in checks if c.name == "raw.mlb_live_game")
     assert not live_check.ok
     assert "never bootstrapped" in live_check.detail
-    assert next(c for c in checks if c.name == "mlb_api last run").ok
+    assert next(c for c in checks if c.name == "mlb_api freshness").ok
 
     with db_conn.cursor() as cur:
         for table in ["raw.mlb_schedule", "raw.mlb_standing"]:

@@ -67,7 +67,7 @@ import psycopg
 import statsapi
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_exists, check_table_has_rows
+from mlb_baseball.health import Check, check_recent_run, check_table_exists, check_table_has_rows
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import append_dataframe, load_dataframe
 from mlb_baseball.net import call_with_retry
@@ -75,6 +75,10 @@ from mlb_baseball.net import call_with_retry
 SOURCE = "mlb_api"
 FIRST_SCHEDULE_YEAR = 1901
 FIRST_STANDINGS_YEAR = 1969
+# scripts/mlb_api_update.sh runs `mlb ingest mlb_api --mode update` every 5
+# minutes via cron (see docs/DECISIONS.md ADR-016) — 3x that cadence gives
+# room for one slow/retried run without doctor falsely flagging staleness.
+FRESHNESS_THRESHOLD_MINUTES = 15
 
 
 def _schedule_df(season: int) -> pd.DataFrame:
@@ -235,5 +239,5 @@ def health_check() -> list[Check]:
         check_table_has_rows("raw.mlb_schedule"),
         check_table_has_rows("raw.mlb_standing"),
         check_table_exists("raw.mlb_live_game"),
-        check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

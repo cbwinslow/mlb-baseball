@@ -63,8 +63,14 @@ Some connectors don't just need Python packages — `retrosheet_event`/`retroshe
 
 All configuration (database connection, any API keys for Kalshi, etc.) goes through environment variables documented in `.env.example`. No credentials or connection strings committed to the repo.
 
+## Scheduling
+
+`mlb_api`'s live-game capture is the first (and so far only) real need for a repeating schedule, not a one-off bootstrap — see ADR-016. `scripts/mlb_api_update.sh` runs `mlb ingest mlb_api --mode update` every 5 minutes via cron, guarded with `flock` against overlapping runs, logging to `logs/mlb_api_update.log` (gitignored). `mlb_api.health_check()` uses `check_recent_run` (not just `check_last_run`) so `mlb doctor` catches the scheduler having silently stopped, not just the last run having failed.
+
+Every other connector in this project is still a manual/occasional `mlb ingest <source> --mode bootstrap|update` — this pattern isn't applied project-wide, only where a source genuinely needs to stay fresh on a clock. Extend it to another connector only when that connector has the same real need, not by default.
+
 ## Explicitly not designed yet
 
-- Orchestration/scheduling (cron vs. a workflow tool) — decide once there's more than one connector and a real need for scheduling, not before.
+- A workflow tool (Airflow, Dagster, etc.) for orchestration — cron is sufficient for the one scheduled job that exists; revisit only if genuinely more coordination between scheduled jobs is needed than cron + flock can reasonably express.
 - Any modeling or feature-store layer.
 - Any website/API-serving layer.

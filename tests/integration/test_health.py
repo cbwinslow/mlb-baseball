@@ -2,7 +2,12 @@ import uuid
 
 import psycopg
 
-from mlb_baseball.health import check_last_run, check_table_exists, check_table_has_rows
+from mlb_baseball.health import (
+    check_last_run,
+    check_recent_run,
+    check_table_exists,
+    check_table_has_rows,
+)
 
 
 def test_check_table_has_rows_true_when_populated(db_conn, drop_tables_after):
@@ -107,3 +112,75 @@ def test_check_last_run_true_on_success(db_conn):
     result = check_last_run(source)
 
     assert result.ok
+
+
+def test_check_recent_run_false_when_never_run():
+    result = check_recent_run(f"test_never_{uuid.uuid4().hex}", max_age_minutes=15)
+    assert not result.ok
+    assert "never run" in result.detail
+
+
+def test_check_recent_run_reports_actionable_message_when_meta_schema_missing(monkeypatch):
+    db_name = f"mlb_health_freshtest_{uuid.uuid4().hex[:8]}"
+    with psycopg.connect("postgresql:///postgres", autocommit=True) as admin_conn:
+        with admin_conn.cursor() as cur:
+            cur.execute(f"CREATE DATABASE {db_name}")
+        try:
+            monkeypatch.setenv("DATABASE_URL", f"postgresql:///{db_name}")
+            result = check_recent_run("anything", max_age_minutes=15)
+        finally:
+            with admin_conn.cursor() as cur:
+                cur.execute(f"DROP DATABASE {db_name}")
+
+    assert not result.ok
+    assert "mlb migrate" in result.detail
+
+
+def test_check_recent_run_true_when_recent_and_successful(db_conn):
+    source = f"test_health_fresh_{uuid.uuid4().hex}"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO meta.ingestion_run (source, mode, status, started_at, finished_at) "
+            "VALUES (%s, 'update', 'success', now() - interval '2 minutes', now())",
+            (source,),
+        )
+    db_conn.commit()
+
+    result = check_recent_run(source, max_age_minutes=15)
+
+    assert result.ok
+
+
+def test_check_recent_run_false_when_last_run_is_stale(db_conn):
+    # The whole point of this check over check_last_run: a scheduled job
+    # that silently stopped running (crashed host, disabled crontab entry)
+    # still has an old "success" row forever — that must not read as healthy.
+    source = f"test_health_stale_{uuid.uuid4().hex}"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO meta.ingestion_run (source, mode, status, started_at, finished_at) "
+            "VALUES (%s, 'update', 'success', now() - interval '45 minutes', now())",
+            (source,),
+        )
+    db_conn.commit()
+
+    result = check_recent_run(source, max_age_minutes=15)
+
+    assert not result.ok
+    assert "still running" in result.detail
+
+
+def test_check_recent_run_false_when_last_run_failed_even_if_recent(db_conn):
+    source = f"test_health_failed_{uuid.uuid4().hex}"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO meta.ingestion_run (source, mode, status, started_at, finished_at, error) "
+            "VALUES (%s, 'update', 'failed', now() - interval '1 minute', now(), 'boom')",
+            (source,),
+        )
+    db_conn.commit()
+
+    result = check_recent_run(source, max_age_minutes=15)
+
+    assert not result.ok
+    assert "failed" in result.detail

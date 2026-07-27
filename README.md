@@ -38,9 +38,21 @@ mlb ingest retrosheet_schedule --mode bootstrap   # planned schedules, 1877-2026
 mlb ingest retrosheet_transaction --mode bootstrap
 mlb ingest retrosheet_event --mode bootstrap      # raw play-by-play (needs cwevent/cwgame — see Requirements)
 mlb ingest retrosheet_box --mode bootstrap        # box-score-only games (needs cwbox — see Requirements)
+mlb ingest mlb_api --mode bootstrap               # full-history schedule (1901+) and standings (1969+)
+mlb conform                                       # builds core.player/team/game from the raw tables above
 ```
 
 Every registered source is in `mlb_baseball/registry.py`; `mlb doctor` reports on all of them in one pass, and `mlb inventory` shows live row counts and last-run status per source.
+
+## Scheduling
+
+`mlb_api` is the one source that needs to stay fresh on a clock, not just be bootstrapped once — see `docs/DECISIONS.md` ADR-016. After bootstrapping it, add this to your crontab (`crontab -e`) to keep the current season's schedule/standings and live-game state updated every 5 minutes:
+
+```cron
+*/5 * * * * /path/to/mlb-baseball/scripts/mlb_api_update.sh
+```
+
+Replace `/path/to/mlb-baseball` with this repo's actual path. The script logs to `logs/mlb_api_update.log` (gitignored) and guards against overlapping runs with `flock`. `mlb doctor` will report `mlb_api freshness` as unhealthy if the scheduled job stops running (no successful run in the last 15 minutes), not just if the last run failed.
 
 ## Requirements
 

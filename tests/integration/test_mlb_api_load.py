@@ -1,11 +1,12 @@
 """Real DB, real DataFrame/COPY loading — only the network (the `statsapi`
 package's own HTTP calls) is mocked, returning small fixture payloads shaped
-like real statsapi.schedule()/standings_data()/get() output.
+like real statsapi output.
 
-bootstrap()'s real range is 1901-present (125+ seasons) — far too slow and
-fixture-heavy to actually loop in a test, so FIRST_SCHEDULE_YEAR/
-FIRST_STANDINGS_YEAR are monkeypatched down to a 3-season window here. The
-loop logic being exercised is identical either way."""
+bootstrap()'s real range is 1901-present (125+ seasons) for schedule/
+standings/rosters/transactions, and 2026-present (per-game) for play-by-play
+— far too slow and fixture-heavy to actually loop in a test, so every
+FIRST_*_YEAR constant is monkeypatched down to a tiny window here. The loop
+logic being exercised is identical either way."""
 
 from datetime import date
 from unittest.mock import patch
@@ -14,7 +15,14 @@ import pytest
 
 from mlb_baseball.connectors import mlb_api
 
-TABLES = ["raw.mlb_schedule", "raw.mlb_standing", "raw.mlb_live_game"]
+TABLES = [
+    "raw.mlb_schedule",
+    "raw.mlb_standing",
+    "raw.mlb_roster",
+    "raw.mlb_transaction",
+    "raw.mlb_playbyplay",
+    "raw.mlb_live_game",
+]
 
 
 def _game(game_id, season, status="Final", **overrides):
@@ -51,6 +59,45 @@ FIXTURE_STANDINGS_BY_SEASON = {
     2026: {201: {"div_name": "AL East", "teams": [{"name": "Orioles", "team_id": 110, "w": 3}]}},
 }
 
+FIXTURE_TEAMS = {"teams": [{"id": 110}]}
+FIXTURE_ROSTER = {
+    "roster": [
+        {
+            "person": {"id": 1, "fullName": "Player One"},
+            "jerseyNumber": "10",
+            "position": {"code": "1", "name": "Pitcher", "type": "Pitcher"},
+            "status": {"code": "A", "description": "Active"},
+        }
+    ]
+}
+FIXTURE_TRANSACTIONS = {
+    "transactions": [
+        {
+            "id": 1,
+            "person": {"id": 1, "fullName": "Player One"},
+            "toTeam": {"id": 110, "name": "Orioles"},
+            "date": "2024-01-01",
+            "typeCode": "SC",
+            "typeDesc": "Status Change",
+            "description": "Activated.",
+        }
+    ]
+}
+FIXTURE_PLAYBYPLAY = {
+    "allPlays": [
+        {
+            "atBatIndex": 0,
+            "about": {"inning": 1, "halfInning": "top"},
+            "count": {"balls": 0, "strikes": 0, "outs": 1},
+            "matchup": {
+                "batter": {"id": 1, "fullName": "Player One"},
+                "pitcher": {"id": 2, "fullName": "Player Two"},
+            },
+            "result": {"event": "Groundout", "eventType": "field_out", "description": "Groundout."},
+        }
+    ]
+}
+
 
 class _FixedDate(date):
     @classmethod
@@ -63,6 +110,9 @@ def _fixed_range(monkeypatch):
     monkeypatch.setattr(mlb_api, "date", _FixedDate)
     monkeypatch.setattr(mlb_api, "FIRST_SCHEDULE_YEAR", 2024)
     monkeypatch.setattr(mlb_api, "FIRST_STANDINGS_YEAR", 2024)
+    monkeypatch.setattr(mlb_api, "FIRST_ROSTER_YEAR", 2024)
+    monkeypatch.setattr(mlb_api, "FIRST_TRANSACTION_YEAR", 2024)
+    monkeypatch.setattr(mlb_api, "FIRST_PLAYBYPLAY_YEAR", 2026)
 
 
 @pytest.fixture(autouse=True)
@@ -81,24 +131,47 @@ def _clean_tables(db_conn):
     db_conn.commit()
 
 
-def _mocked_schedule_and_standings():
+def _fake_get(endpoint, params=None, **kwargs):
+    params = params or {}
+    if endpoint == "teams":
+        return FIXTURE_TEAMS
+    if endpoint == "team_roster":
+        return FIXTURE_ROSTER
+    if endpoint == "transactions":
+        return FIXTURE_TRANSACTIONS
+    if endpoint == "game_playByPlay":
+        return FIXTURE_PLAYBYPLAY
+    if endpoint == "game":
+        return FINAL_GAME_FEED
+    raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+
+def _mocked_statsapi():
     return patch.multiple(
         mlb_api.statsapi,
         schedule=lambda **kwargs: FIXTURE_GAMES_BY_SEASON.get(kwargs.get("season"), []),
         standings_data=lambda **kwargs: FIXTURE_STANDINGS_BY_SEASON.get(kwargs.get("season"), {}),
+        get=_fake_get,
     )
 
 
 def test_bootstrap_loads_full_history_across_multiple_seasons(db_conn):
-    with _mocked_schedule_and_standings():
+    with _mocked_statsapi():
         counts = mlb_api.bootstrap()
 
-    assert counts == {"raw.mlb_schedule": 6, "raw.mlb_standing": 3}
+    assert counts["raw.mlb_schedule"] == 6
+    assert counts["raw.mlb_standing"] == 3
+    assert counts["raw.mlb_roster"] == 3  # 1 player x 3 seasons (2024-2026)
+    assert counts["raw.mlb_transaction"] == 3  # 1 transaction x 3 seasons
+    assert counts["raw.mlb_playbyplay"] == 3  # 1 play x 3 completed 2026 games (all "Final")
+
     with db_conn.cursor() as cur:
         cur.execute("SELECT _season, count(*) FROM raw.mlb_schedule GROUP BY _season ORDER BY 1")
         assert cur.fetchall() == [("2024", 2), ("2025", 1), ("2026", 3)]
         cur.execute("SELECT _season, w FROM raw.mlb_standing ORDER BY _season")
         assert cur.fetchall() == [("2024", "1"), ("2025", "2"), ("2026", "3")]
+        cur.execute("SELECT DISTINCT game_pk FROM raw.mlb_playbyplay ORDER BY 1")
+        assert cur.fetchall() == [("2004",), ("2005",), ("2006",)]
 
 
 def test_bootstrap_skips_a_failing_season_and_continues(db_conn):
@@ -110,6 +183,7 @@ def test_bootstrap_skips_a_failing_season_and_continues(db_conn):
     with (
         patch.object(mlb_api.statsapi, "schedule", side_effect=flaky_schedule),
         patch.object(mlb_api.statsapi, "standings_data", side_effect=lambda **k: {}),
+        patch.object(mlb_api.statsapi, "get", side_effect=_fake_get),
     ):
         counts = mlb_api.bootstrap()
 
@@ -120,8 +194,33 @@ def test_bootstrap_skips_a_failing_season_and_continues(db_conn):
         assert cur.fetchall() == [("2024",), ("2026",)]
 
 
+def test_bootstrap_skips_a_failing_game_playbyplay_and_continues(db_conn):
+    def flaky_get(endpoint, params=None, **kwargs):
+        params = params or {}
+        if endpoint == "game_playByPlay" and params.get("gamePk") == 2005:
+            raise RuntimeError("simulated transient API failure")
+        return _fake_get(endpoint, params, **kwargs)
+
+    with (
+        patch.object(
+            mlb_api.statsapi,
+            "schedule",
+            side_effect=lambda **kwargs: FIXTURE_GAMES_BY_SEASON.get(kwargs.get("season"), []),
+        ),
+        patch.object(mlb_api.statsapi, "standings_data", side_effect=lambda **k: {}),
+        patch.object(mlb_api.statsapi, "get", side_effect=flaky_get),
+    ):
+        counts = mlb_api.bootstrap()
+
+    # game 2005's play failed, but 2004's and 2006's still landed.
+    assert counts["raw.mlb_playbyplay"] == 2
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT game_pk FROM raw.mlb_playbyplay ORDER BY 1")
+        assert cur.fetchall() == [("2004",), ("2006",)]
+
+
 def test_update_reloads_current_season_only_and_replaces_not_duplicates(db_conn):
-    with _mocked_schedule_and_standings():
+    with _mocked_statsapi():
         mlb_api.bootstrap()
         mlb_api.update()
 
@@ -129,6 +228,32 @@ def test_update_reloads_current_season_only_and_replaces_not_duplicates(db_conn)
         cur.execute("SELECT _season, count(*) FROM raw.mlb_schedule GROUP BY _season ORDER BY 1")
         # Only 2026 (the "current" season under _FixedDate) gets touched again.
         assert cur.fetchall() == [("2024", 2), ("2025", 1), ("2026", 3)]
+        cur.execute("SELECT _season, count(*) FROM raw.mlb_roster GROUP BY _season ORDER BY 1")
+        assert cur.fetchall() == [("2024", 1), ("2025", 1), ("2026", 1)]
+
+
+def test_update_refreshes_playbyplay_for_todays_started_games_only(db_conn):
+    schedule_today = [
+        _game(5001, 2026, status="Final"),
+        _game(5002, 2026, status="Scheduled"),  # hasn't started — no plays yet
+    ]
+
+    def schedule_dispatch(**kwargs):
+        if "date" in kwargs:
+            return schedule_today
+        return FIXTURE_GAMES_BY_SEASON.get(kwargs.get("season"), [])
+
+    with (
+        patch.object(mlb_api.statsapi, "schedule", side_effect=schedule_dispatch),
+        patch.object(mlb_api.statsapi, "standings_data", side_effect=lambda **k: {}),
+        patch.object(mlb_api.statsapi, "get", side_effect=_fake_get),
+    ):
+        counts = mlb_api.update()
+
+    assert counts["raw.mlb_playbyplay"] > 0
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT game_pk FROM raw.mlb_playbyplay ORDER BY 1")
+        assert cur.fetchall() == [("5001",)]  # 5002 never started, correctly skipped
 
 
 LIVE_GAME_FEED = {
@@ -220,30 +345,37 @@ def test_capture_live_appends_across_calls_instead_of_replacing(db_conn):
         assert cur.fetchone() == (2,)  # both snapshots kept, not overwritten
 
 
-def test_update_includes_live_capture_count(db_conn):
-    with (
-        _mocked_schedule_and_standings(),
-        patch.object(mlb_api.statsapi, "get", return_value=FINAL_GAME_FEED),
-    ):
+def test_update_includes_all_counts(db_conn):
+    with _mocked_statsapi():
         counts = mlb_api.update()
 
-    assert counts == {"raw.mlb_schedule": 3, "raw.mlb_standing": 1, "raw.mlb_live_game": 0}
+    assert set(counts) == {
+        "raw.mlb_schedule",
+        "raw.mlb_standing",
+        "raw.mlb_roster",
+        "raw.mlb_transaction",
+        "raw.mlb_playbyplay",
+        "raw.mlb_live_game",
+    }
+    assert counts["raw.mlb_schedule"] == 3
+    assert counts["raw.mlb_standing"] == 1
+    assert counts["raw.mlb_live_game"] == 0  # FINAL_GAME_FEED — nothing live today
 
 
-def test_health_check_reports_healthy_with_zero_live_rows(db_conn):
+def test_health_check_reports_healthy_with_zero_live_and_playbyplay_rows(db_conn):
     # check_table_exists (not check_table_has_rows) backs raw.mlb_live_game
-    # specifically because 0 rows there is a normal, healthy state — nothing
-    # live right now isn't the same as "never bootstrapped."
-    with (
-        _mocked_schedule_and_standings(),
-        patch.object(mlb_api.statsapi, "get", return_value=FINAL_GAME_FEED),
-    ):
+    # and raw.mlb_playbyplay specifically because 0 rows there is a normal,
+    # healthy state — nothing live/started right now isn't "never bootstrapped."
+    with _mocked_statsapi():
         mlb_api.bootstrap()
-        mlb_api.update()  # creates raw.mlb_live_game via capture_live, 0 rows today
+        mlb_api.update()
     db_conn.commit()
 
     checks = mlb_api.health_check()
 
     live_check = next(c for c in checks if c.name == "raw.mlb_live_game")
     assert live_check.ok
-    assert "0 rows" in live_check.detail
+    roster_check = next(c for c in checks if c.name == "raw.mlb_roster")
+    assert roster_check.ok
+    tx_check = next(c for c in checks if c.name == "raw.mlb_transaction")
+    assert tx_check.ok

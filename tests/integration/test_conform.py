@@ -7,6 +7,8 @@ present); raw.retrosheet_team/raw.retrosheet_gameinfo are dynamically
 created by load_dataframe in production, so this test creates them itself
 and drops them afterward, matching test_retrosheet_load.py's convention."""
 
+from decimal import Decimal
+
 import pytest
 
 from mlb_baseball import conform
@@ -21,7 +23,10 @@ def _clean_tables(db_conn):
         for table in DYNAMIC_RAW_TABLES:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("TRUNCATE raw.register_people")
-        cur.execute("TRUNCATE core.game, core.team, core.player")
+        # play/pitch reference game — must be truncated together with it,
+        # not in a separate statement (Postgres requires this, same as
+        # conform.py's run() — see its comment there).
+        cur.execute("TRUNCATE core.play, core.pitch, core.game, core.team, core.player")
     db_conn.commit()
 
 
@@ -78,7 +83,15 @@ def test_run_populates_team_player_and_game(db_conn):
 
     counts = conform.run()
 
-    assert counts == {"core.team": 1, "core.player": 2, "core.game": 2}
+    # No raw.retrosheet_event/raw.mlb_playbyplay/raw.statcast_pitch seeded
+    # in this test — play/pitch build steps must degrade to 0, not fail.
+    assert counts == {
+        "core.team": 1,
+        "core.player": 2,
+        "core.game": 2,
+        "core.play": 0,
+        "core.pitch": 0,
+    }
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT retro_game_id, away_team_id, home_team_id, "
@@ -111,6 +124,182 @@ def test_rerunning_replaces_instead_of_duplicating(db_conn):
         assert cur.fetchone() == (1,)
         cur.execute("SELECT count(*) FROM core.player")
         assert cur.fetchone() == (2,)
+
+
+def test_build_plays_and_pitches_unify_both_sources(db_conn):
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        # _seed_raw_tables deliberately leaves NYM (the away team) unresolved
+        # to test the nullable-FK path elsewhere — this test needs both teams
+        # resolved so the game_pk backfill's away_team_id/home_team_id IS NOT
+        # NULL condition can actually match.
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('NYM', 'NL', 'New York', 'Mets', '1962', '2025')"
+        )
+
+        # raw.retrosheet_event: one play for the already-seeded, resolved game.
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_event "
+            "(game_id text, _season text, event_id text, inn_ct text, "
+            "bat_home_id text, bat_id text, pit_id text, event_cd text, "
+            "event_tx text, away_score_ct text, home_score_ct text, _scope text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event VALUES "
+            "('ATL202504010', '2025', '1', '1', '0', 'smitj001', 'jonet001', "
+            "'2', '43/G34', '0', '0', '2025_pbp')"
+        )
+        # Real production bug found via a genuine data collision: 1,872
+        # historical games are published byte-identical in both Retrosheet's
+        # general play-by-play archive and its dedicated Negro League
+        # archive (same game_id/event_id, different _scope) — confirmed
+        # directly, not assumed. Uncoalesced, this violates core.play's
+        # UNIQUE(game_id, source, play_index). This second row simulates
+        # that exact collision for the same game/event_id as above.
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event VALUES "
+            "('ATL202504010', '2025', '1', '1', '0', 'smitj001', 'jonet001', "
+            "'2', '43/G34', '0', '0', '2025_negro_league')"
+        )
+
+        # raw.mlb_schedule + raw.mlb_playbyplay: a separate game, sourced
+        # from MLB API instead — proves game_pk backfill + the mlb_api half
+        # of core.play, and feeds core.pitch via the same game_pk.
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, away_score text, home_score text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('999001', '2025-04-02', 'New York Mets', 'Atlanta Braves', "
+            "'2025', 'Final', 'R', '0', 'Truist Park', '1', '2')"
+        )
+        # This _season (2025) already has raw.retrosheet_gameinfo coverage
+        # in this test, so _build_games' NOT EXISTS guard must exclude this
+        # row from becoming a *new* core.game row — it only feeds the
+        # game_pk backfill onto the already-Retrosheet-sourced game below.
+        # core.game's ATL202504020 row is home=ATL/away=NYM on 2025-04-02 —
+        # matches raw.mlb_schedule's away_name/home_name via city||nickname.
+
+        cur.execute(
+            "CREATE TABLE raw.mlb_playbyplay "
+            "(game_pk text, _season text, at_bat_index text, inning text, "
+            "half_inning text, batter_id text, pitcher_id text, "
+            "event_type text, event text, away_score text, home_score text, "
+            "balls text, strikes text, outs text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay VALUES "
+            "('999001', '2025', '0', '1', 'top', '234567', '123456', "
+            "'field_out', 'Groundout', '0', '0', '0', '0', '1')"
+        )
+
+        cur.execute(
+            "CREATE TABLE raw.statcast_pitch "
+            "(game_pk text, game_year text, at_bat_number text, "
+            "pitch_number text, inning text, batter text, pitcher text, "
+            "pitch_type text, pitch_name text, release_speed text, "
+            "release_spin_rate text, launch_speed text, launch_angle text, "
+            "hit_distance_sc text, description text, events text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch VALUES "
+            "('999001', '2025', '0', '1', '1', '234567', '123456', "
+            "'FF', 'Four-Seam Fastball', '95.2', '2200', '', '', '', "
+            "'called_strike', '')"
+        )
+    db_conn.commit()
+
+    counts = conform.run()
+
+    assert counts["core.play"] == 2
+    assert counts["core.pitch"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT source, batter_id, pitcher_id, event_code, event_desc "
+            "FROM core.play ORDER BY source"
+        )
+        rows = {row[0]: row for row in cur.fetchall()}
+    assert rows["mlb_api"][1] is not None  # batter (jonet001's mlbam_id) resolved
+    assert rows["mlb_api"][3] == "field_out"
+    assert rows["retrosheet"][3] == "2"
+    assert rows["retrosheet"][4] == "43/G34"
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT game_pk FROM core.game WHERE retro_game_id = 'ATL202504020'")
+        assert cur.fetchone() == ("999001",)
+        cur.execute("SELECT pitch_type, release_speed FROM core.pitch")
+        assert cur.fetchone() == ("FF", Decimal("95.2"))
+
+    with db_conn.cursor() as cur:
+        for table in [
+            "raw.retrosheet_event",
+            "raw.mlb_schedule",
+            "raw.mlb_playbyplay",
+            "raw.statcast_pitch",
+        ]:
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
+        cur.execute("TRUNCATE core.play, core.pitch")
+    db_conn.commit()
+
+
+def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
+    # Real production gap found this session: raw.retrosheet_gameinfo tops
+    # out at 2025 (Retrosheet's most recently published season) — without
+    # this, core.game has zero rows for 2026, and the MLB-API half of
+    # core.play (joined via game_pk) silently drops every current-season
+    # row instead of erroring. This game (2026, Orioles home vs Yankees
+    # away) has no Retrosheet coverage at all, only raw.mlb_schedule.
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('NYA', 'AL', 'New York', 'Yankees', '1913', '2026'), "
+            # _seed_raw_tables' ATL row only covers through 2025 (deliberately,
+            # for its own tests) — a separate 2026 era row here, same city/
+            # nickname, to let this test's home-team resolution succeed too.
+            "('ATL', 'NL', 'Atlanta', 'Braves', '2026', '2026')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, away_score text, home_score text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('888001', '2026-04-05', 'New York Yankees', 'Atlanta Braves', "
+            "'2026', 'Final', 'R', '0', 'Truist Park', '3', '4')"
+        )
+    db_conn.commit()
+
+    counts = conform.run()
+
+    assert counts["core.game"] == 3  # 2 Retrosheet-sourced + 1 new MLB-API-sourced
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_game_id, game_pk, season, away_score, home_score, "
+            "away_team_id, home_team_id, winning_pitcher_id "
+            "FROM core.game WHERE season = 2026"
+        )
+        row = cur.fetchone()
+    assert row[0] == "MLB888001"  # synthesized ID, never collides with a real Retrosheet one
+    assert row[1] == "888001"
+    assert row[2] == 2026
+    assert row[3] == 3  # away_score
+    assert row[4] == 4  # home_score
+    assert row[5] is not None  # away (Yankees) resolved
+    assert row[6] is not None  # home (Braves) resolved
+    assert row[7] is None  # no pitcher ID resolution attempted for MLB-API-sourced games
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        # play/pitch reference game — must truncate together, see run()'s comment.
+        cur.execute("TRUNCATE core.play, core.pitch, core.game")
+    db_conn.commit()
 
 
 def test_run_raises_actionable_error_when_raw_data_is_missing(db_conn):

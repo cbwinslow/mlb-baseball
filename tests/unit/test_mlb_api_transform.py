@@ -118,6 +118,138 @@ def test_live_snapshot_flattens_linescore_fields_when_live():
     assert snapshot["pitcher_name"] == "Pitcher One"
 
 
+def test_roster_df_pulls_teams_for_the_season_then_flattens_each_players_entry():
+    teams = {"teams": [{"id": 110}, {"id": 147}]}
+    rosters = {
+        110: {
+            "roster": [
+                {
+                    "person": {"id": 1, "fullName": "Player One"},
+                    "jerseyNumber": "10",
+                    "position": {"code": "1", "name": "Pitcher", "type": "Pitcher"},
+                    "status": {"code": "A", "description": "Active"},
+                }
+            ]
+        },
+        147: {"roster": []},
+    }
+
+    def fake_get(endpoint, params, **kwargs):
+        if endpoint == "teams":
+            return teams
+        return rosters[params["teamId"]]
+
+    with patch.object(mlb_api.statsapi, "get", side_effect=fake_get):
+        df = mlb_api._roster_df(2024)
+
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["team_id"] == 110
+    assert row["person_id"] == 1
+    assert row["person_name"] == "Player One"
+    assert row["position_name"] == "Pitcher"
+    assert row["status_code"] == "A"
+    assert row["_season"] == "2024"
+
+
+def test_season_team_ids_returns_empty_list_not_crash_for_season_with_no_teams():
+    with patch.object(mlb_api.statsapi, "get", return_value={"teams": []}):
+        assert mlb_api._season_team_ids(1875) == []
+
+
+def test_transactions_df_flattens_person_and_team_objects():
+    payload = {
+        "transactions": [
+            {
+                "id": 1,
+                "person": {"id": 5, "fullName": "Some Player"},
+                "fromTeam": {"id": 110, "name": "Orioles"},
+                "toTeam": {"id": 147, "name": "Yankees"},
+                "date": "2024-07-01",
+                "typeCode": "TR",
+                "typeDesc": "Trade",
+                "description": "Traded.",
+            }
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload) as mock_get:
+        df = mlb_api._transactions_df(2024)
+
+    # force=True since statsapi's own required-param validation is buggy for
+    # startDate/endDate (see module docstring) — confirm we're passing it.
+    assert mock_get.call_args.kwargs.get("force") is True
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["person_id"] == 5
+    assert row["from_team_name"] == "Orioles"
+    assert row["to_team_name"] == "Yankees"
+    assert row["type_code"] == "TR"
+    assert row["_season"] == "2024"
+
+
+def test_transactions_df_handles_missing_from_team_without_crashing():
+    # Real data: many transactions (free agent signings, waiver claims) have
+    # no fromTeam at all — must degrade to None, not KeyError.
+    payload = {
+        "transactions": [{"id": 1, "person": {"id": 5}, "toTeam": {"id": 147, "name": "Yankees"}}]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        df = mlb_api._transactions_df(2024)
+
+    assert df.iloc[0]["from_team_id"] is None
+    assert df.iloc[0]["from_team_name"] is None
+
+
+PLAYBYPLAY_FEED = {
+    "allPlays": [
+        {
+            "atBatIndex": 0,
+            "about": {"inning": 1, "halfInning": "top"},
+            "count": {"balls": 1, "strikes": 2, "outs": 1},
+            "matchup": {
+                "batter": {"id": 660271, "fullName": "Shohei Ohtani"},
+                "batSide": {"code": "L"},
+                "pitcher": {"id": 684007, "fullName": "Shota Imanaga"},
+                "pitchHand": {"code": "L"},
+            },
+            "result": {
+                "event": "Groundout",
+                "eventType": "field_out",
+                "description": "Ohtani grounds out.",
+                "rbi": 0,
+                "awayScore": 0,
+                "homeScore": 0,
+            },
+        }
+    ]
+}
+
+
+def test_playbyplay_df_flattens_one_row_per_plate_appearance():
+    with patch.object(mlb_api.statsapi, "get", return_value=PLAYBYPLAY_FEED):
+        df = mlb_api._playbyplay_df(778563)
+
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["game_pk"] == 778563
+    assert row["batter_name"] == "Shohei Ohtani"
+    assert row["pitcher_name"] == "Shota Imanaga"
+    assert row["event"] == "Groundout"
+    assert row["inning"] == 1
+    assert row["half_inning"] == "top"
+
+
+def test_started_game_ids_excludes_not_yet_played_statuses():
+    games = [
+        {"game_id": 1, "status": "Final"},
+        {"game_id": 2, "status": "Scheduled"},
+        {"game_id": 3, "status": "In Progress"},
+        {"game_id": 4, "status": "Postponed"},
+        {"game_id": 5, "status": "Completed Early"},
+    ]
+    assert mlb_api._started_game_ids(games) == [1, 3, 5]
+
+
 def test_live_snapshot_handles_missing_offense_defense_without_crashing():
     # A game can be "Live" between half-innings/pitching changes where
     # offense/defense aren't populated yet — must degrade to None, not KeyError.

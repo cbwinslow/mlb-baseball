@@ -131,11 +131,27 @@ def test_run_diagnoses_mlb_api_as_healthy_after_bootstrap_including_empty_live_t
     monkeypatch.setattr(doctor, "CONNECTORS", {"mlb_api": mlb_api})
     monkeypatch.setattr(mlb_api, "FIRST_SCHEDULE_YEAR", 2026)
     monkeypatch.setattr(mlb_api, "FIRST_STANDINGS_YEAR", 2026)
-    games = [{"game_id": 1, "national_broadcasts": [], "winning_team": "Tie"}]
+    monkeypatch.setattr(mlb_api, "FIRST_ROSTER_YEAR", 2026)
+    monkeypatch.setattr(mlb_api, "FIRST_TRANSACTION_YEAR", 2026)
+    monkeypatch.setattr(mlb_api, "FIRST_PLAYBYPLAY_YEAR", 2026)
+    games = [{"game_id": 1, "national_broadcasts": [], "winning_team": "Tie", "status": "Final"}]
     standings = {201: {"div_name": "AL East", "teams": [{"name": "Orioles", "team_id": 110}]}}
+
+    def fake_get(endpoint, params=None, **kwargs):
+        if endpoint == "teams":
+            return {"teams": [{"id": 110}]}
+        if endpoint == "team_roster":
+            return {"roster": []}
+        if endpoint == "transactions":
+            return {"transactions": []}
+        if endpoint == "game_playByPlay":
+            return {"allPlays": []}
+        raise AssertionError(f"unexpected endpoint: {endpoint}")
+
     with (
         patch.object(mlb_api.statsapi, "schedule", return_value=games),
         patch.object(mlb_api.statsapi, "standings_data", return_value=standings),
+        patch.object(mlb_api.statsapi, "get", side_effect=fake_get),
     ):
         mlb_api.bootstrap()
 
@@ -152,7 +168,13 @@ def test_run_diagnoses_mlb_api_as_healthy_after_bootstrap_including_empty_live_t
     assert next(c for c in checks if c.name == "mlb_api freshness").ok
 
     with db_conn.cursor() as cur:
-        for table in ["raw.mlb_schedule", "raw.mlb_standing"]:
+        for table in [
+            "raw.mlb_schedule",
+            "raw.mlb_standing",
+            "raw.mlb_roster",
+            "raw.mlb_transaction",
+            "raw.mlb_playbyplay",
+        ]:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (mlb_api.SOURCE,))
     db_conn.commit()

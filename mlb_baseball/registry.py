@@ -14,6 +14,7 @@ from mlb_baseball.connectors import (
     retrosheet_roster,
     retrosheet_schedule,
     retrosheet_transaction,
+    statcast,
 )
 
 CONNECTORS = {
@@ -28,4 +29,5 @@ CONNECTORS = {
     "retrosheet_roster": retrosheet_roster,
     "retrosheet_schedule": retrosheet_schedule,
     "retrosheet_transaction": retrosheet_transaction,
+    "statcast": statcast,
 }

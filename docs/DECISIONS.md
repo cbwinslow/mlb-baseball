@@ -2,6 +2,20 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-020: Explicit reversal — ingest every MLB API surface except confirmed-broken FanGraphs
+
+**Decision:** Superseding the "redundant, skip it" calls made throughout ADR-017/018 for MLB Stats API endpoints: build every remaining endpoint (reference/personnel/organizational data, official aggregate stats, game-level extras, niche event data, and even cosmetic/operational endpoints), plus the Statcast leaderboard functions previously skipped as "derivable," plus Retrosheet's discrepancy files and `cwbox`'s supplementary lists. The one standing exclusion is FanGraphs, which stays excluded because it's confirmed broken (Cloudflare 403), not because it's redundant.
+
+**Context:** Explicit direction, reversing the scoping decisions this project had been making connector-by-connector. The earlier "skip if redundant/low-value" judgment calls were the right process at the time (each was checked and documented, not just guessed), but the standing instruction now is that completeness itself has value this project wants, even where a case for redundancy could be made.
+
+**New connector added:** `mlb_api_extra.py` — reference/personnel/organizational MLB Stats API data (`sports`, `league`, `divisions`, `season`/`seasons`, `sports_players`, `people_freeAgents`, `team_coaches`, `team_alumni`, `team_personnel`, `teams_affiliates`, `attendance`, `gamePace`), split from `mlb_api.py` because it refreshes far less often (season-level snapshots, not per-game/per-5-minutes) and doesn't belong on the same cron cadence. Real findings from building it:
+- **`attendance` returns a team's FULL franchise history (1903-2026) in one call** — confirmed directly on team 147 — so closing this gap costs ~30 calls total, not 30 × 124 years.
+- **`people_freeAgents` needs `season` even though the library's own metadata says no params are required** — a bare call 400s; confirmed directly, same undocumented-requirement pattern already found for `transactions` in ADR-015.
+- **`team_alumni`'s `group` parameter has no documented enum** — confirmed directly that `"hitting"` and `"pitching"` are both valid and return different rosters, so both are pulled per team per season.
+- **Free agency data is genuinely absent before ~2010** (confirmed: 1990/2000 return 0 rows, 2010+ populated) — a real historical gap in the source, not a bug to chase.
+
+**Revisit if:** never — this is a standing scope expansion, not a temporary one. Individual endpoints already confirmed broken (FanGraphs) or confirmed to return the exact same data as something already retained (e.g. `schedule_postseason*`, re-confirmed this session to already be included in the plain `schedule` pull) stay excluded on those specific, checked grounds — not on a general "seems redundant" judgment.
+
 ## ADR-019: Win probability extended to 1950+; box scores/umpires stay at 2026+
 
 **Decision:** `raw.mlb_win_prob` now bootstraps from `FIRST_WIN_PROB_YEAR = 1950` through present — 76 more seasons than `raw.mlb_playbyplay`/`raw.mlb_boxscore_*`/`raw.mlb_umpire`, which stay at `FIRST_PLAYBYPLAY_YEAR = 2026` as before. A new `_load_win_prob_for_season()` loads win probability independently of the combined play-by-play/box-score/umpire/win-probability loader introduced in ADR-018, so the wider win-probability range doesn't also re-pull the other three.

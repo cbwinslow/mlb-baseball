@@ -7,6 +7,7 @@ from mlb_baseball.connectors import (
     chadwick_register,
     lahman,
     mlb_api,
+    polymarket,
     retrosheet,
     retrosheet_box,
     retrosheet_event,
@@ -34,4 +35,5 @@ CONNECTORS = {
     "statcast": statcast,
     "statcast_leaderboard": statcast_leaderboard,
     "bref": bref,
+    "polymarket": polymarket,
 }

@@ -109,17 +109,28 @@ def update() -> dict[str, int]:
 
 
 def _check_gametype_casing() -> Check:
-    """Retrosheet's own data has a real inconsistency here — one row was found
-    with gametype "Regular" alongside "regular" everywhere else. Raw stays
-    source-faithful (no silent cleanup), but doctor should flag it so it's
-    visible rather than a surprise later in the core layer."""
+    """Retrosheet's own data has a real inconsistency here — one row
+    (HOM193508100, a 1935 Homestead Grays game) has gametype "Regular"
+    alongside "regular" everywhere else. Raw stays source-faithful (no
+    silent cleanup) — this check exists to keep that real quirk visible,
+    not to demand it go away. It's not a live risk: conform.py's
+    _build_games() normalizes casing with lower() when building
+    core.game.game_type, specifically because of what this check found, so
+    a case-sensitive `WHERE game_type = 'regular'` downstream doesn't
+    silently miss this game. Reports ok=True either way — the thing worth
+    knowing is the quirk's existence and count, not treating a single
+    90-year-old data point as an ongoing failure once it's handled."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT DISTINCT gametype FROM raw.retrosheet_gameinfo")
             values = {row[0] for row in cur.fetchall() if row[0] is not None}
     lowered = {v.lower() for v in values}
     if len(lowered) != len(values):
-        return Check("retrosheet gametype casing", False, f"inconsistent casing: {sorted(values)}")
+        return Check(
+            "retrosheet gametype casing",
+            True,
+            f"inconsistent casing in raw (expected, normalized in core.game): {sorted(values)}",
+        )
     return Check("retrosheet gametype casing", True, f"{len(values)} distinct values, consistent")
 
 

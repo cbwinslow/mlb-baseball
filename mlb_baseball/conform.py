@@ -143,7 +143,15 @@ def _build_games(conn: psycopg.Connection) -> int:
                 home_team.id,
                 NULLIF(gi.vruns, '')::integer,
                 NULLIF(gi.hruns, '')::integer,
-                gi.gametype,
+                -- lower(): raw.retrosheet_gameinfo has one real casing
+                -- inconsistency (HOM193508100, a 1935 Homestead Grays game,
+                -- "Regular" vs "regular" everywhere else) -- confirmed via
+                -- doctor's _check_gametype_casing. Raw stays source-faithful
+                -- (uncorrected), but core is exactly where this project's
+                -- own convention says relational correctness belongs, so a
+                -- case-sensitive `WHERE game_type = 'regular'` downstream
+                -- doesn't silently miss this one game.
+                lower(gi.gametype),
                 gi.site,
                 CASE WHEN gi.attendance ~ '^[0-9]+(\.[0-9]+)?$'
                      THEN gi.attendance::numeric::integer END,
@@ -201,7 +209,24 @@ def _build_games(conn: psycopg.Connection) -> int:
                          THEN ms.away_score::numeric::integer END,
                     CASE WHEN ms.home_score ~ '^[0-9]+(\.[0-9]+)?$'
                          THEN ms.home_score::numeric::integer END,
-                    ms.game_type,
+                    -- MLB API's game_type is a single letter, not
+                    -- Retrosheet's full word, in the exact same column —
+                    -- confirmed by cross-checking against real dated games
+                    -- (e.g. F=2025-09-30 Tigers@Guardians was the Wild Card
+                    -- game), not guessed. Left unmapped (lower(), passed
+                    -- through) is the honest fallback for anything not
+                    -- confirmed, rather than a wrong guess.
+                    CASE ms.game_type
+                        WHEN 'R' THEN 'regular'
+                        WHEN 'A' THEN 'allstar'
+                        WHEN 'S' THEN 'spring'
+                        WHEN 'E' THEN 'exhibition'
+                        WHEN 'F' THEN 'wildcard'
+                        WHEN 'D' THEN 'divisionseries'
+                        WHEN 'L' THEN 'lcs'
+                        WHEN 'W' THEN 'worldseries'
+                        ELSE lower(ms.game_type)
+                    END,
                     ms.venue_name
                 FROM (
                     -- 1,199 game_ids (confirmed) appear twice in

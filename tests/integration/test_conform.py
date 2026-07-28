@@ -78,6 +78,27 @@ def _seed_raw_tables(db_conn):
     db_conn.commit()
 
 
+def test_build_games_normalizes_gametype_casing(db_conn):
+    # Real production data: raw.retrosheet_gameinfo has exactly one row
+    # (HOM193508100, a 1935 Homestead Grays game) with gametype "Regular"
+    # instead of "regular" (see mlb doctor's gametype-casing check in
+    # retrosheet.py). core.game.game_type must come out lowercased so a
+    # case-sensitive `WHERE game_type = 'regular'` downstream doesn't
+    # silently miss this game.
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE raw.retrosheet_gameinfo SET gametype = 'Regular' WHERE gid = 'ATL202504010'"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT game_type FROM core.game WHERE retro_game_id = 'ATL202504010'")
+        assert cur.fetchone() == ("regular",)
+
+
 def test_run_populates_team_player_and_game(db_conn):
     _seed_raw_tables(db_conn)
 
@@ -282,7 +303,7 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT retro_game_id, game_pk, season, away_score, home_score, "
-            "away_team_id, home_team_id, winning_pitcher_id "
+            "away_team_id, home_team_id, winning_pitcher_id, game_type "
             "FROM core.game WHERE season = 2026"
         )
         row = cur.fetchone()
@@ -294,6 +315,13 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
     assert row[5] is not None  # away (Yankees) resolved
     assert row[6] is not None  # home (Braves) resolved
     assert row[7] is None  # no pitcher ID resolution attempted for MLB-API-sourced games
+    # MLB API's game_type is a single letter ("R") in the same column
+    # Retrosheet uses a full word ("regular") for — confirmed against real
+    # dated games (e.g. F=2025-09-30 Tigers@Guardians was the Wild Card
+    # game), not guessed. Must map to Retrosheet's vocabulary so a
+    # case-consistent `WHERE game_type = 'regular'` downstream doesn't
+    # silently miss every MLB-API-sourced game.
+    assert row[8] == "regular"
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")

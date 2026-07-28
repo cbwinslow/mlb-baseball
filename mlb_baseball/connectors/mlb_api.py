@@ -907,6 +907,422 @@ def _load_draft_years(conn: psycopg.Connection, current_year: int) -> int:
     return total
 
 
+# --- Reference/personnel/organizational/official-stats data (ADR-020) ---
+#
+# Kept in this same file/connector (not split out) per explicit direction to
+# consolidate rather than multiply connector modules — but NOT folded into
+# update() (see update()'s own docstring below): this is season-level
+# reference/personnel data, not per-game/per-5-minute data, and refreshing
+# ~30 teams' worth of coaches/alumni/personnel/attendance/stat-leaders every
+# 5 minutes on the cron cycle would be pure waste with no freshness benefit.
+# Only bootstrap() touches these — an operator re-runs bootstrap()
+# periodically (or via the once-per-run reference block below) to pick up
+# real-world changes (a new coach hired, a new season's attendance, etc.).
+ALUMNI_GROUPS = ["hitting", "pitching"]
+
+
+def _load_sports(conn: psycopg.Connection) -> int:
+    data = call_with_retry(statsapi.get, "sports", {}, force=True)
+    df = pd.DataFrame(data.get("sports", []))
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_sport", df)
+
+
+def _load_leagues(conn: psycopg.Connection) -> int:
+    data = call_with_retry(statsapi.get, "league", {"sportId": 1}, force=True)
+    rows = []
+    for league in data.get("leagues", []):
+        row = {k: v for k, v in league.items() if not isinstance(v, (dict, list))}
+        season_info = league.get("seasonDateInfo", {})
+        rows.append({**row, **{f"season_{k}": v for k, v in season_info.items()}})
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_league", df)
+
+
+def _load_divisions(conn: psycopg.Connection) -> int:
+    data = call_with_retry(statsapi.get, "divisions", {"sportId": 1}, force=True)
+    rows = []
+    for division in data.get("divisions", []):
+        row = {k: v for k, v in division.items() if not isinstance(v, (dict, list))}
+        row["league_id"] = division.get("league", {}).get("id")
+        rows.append(row)
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_division", df)
+
+
+def _load_seasons(conn: psycopg.Connection) -> int:
+    data = call_with_retry(statsapi.get, "seasons", {"sportId": 1, "all": True}, force=True)
+    df = pd.DataFrame(data.get("seasons", []))
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_season", df)
+
+
+def _load_player_pool(conn: psycopg.Connection, season: int) -> int:
+    data = call_with_retry(statsapi.get, "sports_players", {"sportId": 1, "season": season})
+    rows = []
+    for person in data.get("people", []):
+        team = person.get("currentTeam", {})
+        rows.append(
+            {
+                "person_id": person.get("id"),
+                "full_name": person.get("fullName"),
+                "birth_date": person.get("birthDate"),
+                "current_team_id": team.get("id"),
+                "current_team_name": team.get("name"),
+                "active": person.get("active"),
+            }
+        )
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_player_pool", df, scope_column="_season", scope_value=str(season)
+    )
+
+
+def _load_free_agents(conn: psycopg.Connection, season: int) -> int:
+    data = call_with_retry(statsapi.get, "people_freeAgents", {"season": season}, force=True)
+    rows = []
+    for fa in data.get("freeAgents", []):
+        player = fa.get("player", {})
+        original_team = fa.get("originalTeam", {})
+        new_team = fa.get("newTeam", {})
+        rows.append(
+            {
+                "person_id": player.get("id"),
+                "person_name": player.get("fullName"),
+                "original_team_id": original_team.get("id"),
+                "original_team_name": original_team.get("name"),
+                "new_team_id": new_team.get("id"),
+                "new_team_name": new_team.get("name"),
+                "notes": fa.get("notes"),
+                "date_declared": fa.get("dateDeclared"),
+                "date_signed": fa.get("dateSigned"),
+                "rank": fa.get("rank"),
+            }
+        )
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_free_agent", df, scope_column="_season", scope_value=str(season)
+    )
+
+
+def _load_coaches(conn: psycopg.Connection, season: int) -> int:
+    total = 0
+    for team_id in _season_team_ids(season):
+        data = call_with_retry(statsapi.get, "team_coaches", {"teamId": team_id, "season": season})
+        rows = []
+        for entry in data.get("roster", []):
+            person = entry.get("person", {})
+            rows.append(
+                {
+                    "team_id": team_id,
+                    "person_id": person.get("id"),
+                    "person_name": person.get("fullName"),
+                    "jersey_number": entry.get("jerseyNumber"),
+                    "job": entry.get("job"),
+                    "job_id": entry.get("jobId"),
+                }
+            )
+        df = pd.DataFrame(rows)
+        if df.empty:
+            continue
+        df["_season"] = str(season)
+        total += load_dataframe(
+            conn, "raw.mlb_coach", df, scope_column="_season", scope_value=str(season)
+        )
+    return total
+
+
+def _load_alumni(conn: psycopg.Connection, season: int) -> int:
+    total = 0
+    for team_id in _season_team_ids(season):
+        for group in ALUMNI_GROUPS:
+            data = call_with_retry(
+                statsapi.get, "team_alumni", {"teamId": team_id, "season": season, "group": group}
+            )
+            rows = [
+                {
+                    "team_id": team_id,
+                    "alumni_group": group,
+                    "person_id": p.get("id"),
+                    "person_name": p.get("fullName"),
+                }
+                for p in data.get("people", [])
+            ]
+            df = pd.DataFrame(rows)
+            if df.empty:
+                continue
+            df["_season"] = str(season)
+            total += load_dataframe(
+                conn, "raw.mlb_alumni", df, scope_column="_season", scope_value=str(season)
+            )
+    return total
+
+
+def _load_personnel(conn: psycopg.Connection) -> int:
+    total = 0
+    current_year = date.today().year
+    for team_id in _season_team_ids(current_year):
+        data = call_with_retry(statsapi.get, "team_personnel", {"teamId": team_id})
+        rows = []
+        for entry in data.get("roster", []):
+            person = entry.get("person", {})
+            rows.append(
+                {
+                    "team_id": team_id,
+                    "person_id": person.get("id"),
+                    "person_name": person.get("fullName"),
+                    "job": entry.get("job"),
+                    "job_id": entry.get("jobId"),
+                }
+            )
+        df = pd.DataFrame(rows)
+        if df.empty:
+            continue
+        total += load_dataframe(
+            conn, "raw.mlb_personnel", df, scope_column="team_id", scope_value=str(team_id)
+        )
+    return total
+
+
+def _load_affiliates(conn: psycopg.Connection) -> int:
+    current_year = date.today().year
+    team_ids = _season_team_ids(current_year)
+    data = call_with_retry(
+        statsapi.get, "teams_affiliates", {"teamIds": ",".join(str(t) for t in team_ids)}
+    )
+    rows = []
+    for team in data.get("teams", []):
+        rows.append(
+            {
+                "affiliate_team_id": team.get("id"),
+                "affiliate_name": team.get("name"),
+                "parent_org_id": team.get("parentOrgId"),
+                "parent_org_name": team.get("parentOrgName"),
+                "league_name": team.get("league", {}).get("name"),
+                "level": team.get("sport", {}).get("name"),
+            }
+        )
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_affiliate", df)
+
+
+def _load_attendance(conn: psycopg.Connection) -> int:
+    total = 0
+    current_year = date.today().year
+    for team_id in _season_team_ids(current_year):
+        data = call_with_retry(statsapi.get, "attendance", {"teamId": team_id})
+        rows = [{"team_id": team_id, **record} for record in data.get("records", [])]
+        df = pd.DataFrame(rows)
+        if df.empty:
+            continue
+        total += load_dataframe(
+            conn, "raw.mlb_attendance", df, scope_column="team_id", scope_value=str(team_id)
+        )
+    return total
+
+
+def _load_game_pace(conn: psycopg.Connection, season: int) -> int:
+    data = call_with_retry(statsapi.get, "gamePace", {"season": season, "sportId": 1})
+    sports = data.get("sports", [])
+    if not sports:
+        return 0
+    df = pd.DataFrame(sports)
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_game_pace", df, scope_column="_season", scope_value=str(season)
+    )
+
+
+# MLB's own official per-player/per-team season stat totals — a second,
+# independently-computed copy of what our own core.play/core.pitch
+# aggregates would produce, useful as a cross-validation check once those
+# exist. STAT_GROUPS covers the two stat families the `stats`/`teams_stats`
+# endpoints split on; `playerPool=all` + a large `limit` avoids the default
+# top-50-only truncation (confirmed directly: without these, a 742-player
+# season came back as only 50 rows).
+STAT_GROUPS = ["hitting", "pitching"]
+
+# leaderCategories/leaderGameTypes have no documented enum in the library's
+# own metadata (confirmed: statsapi's endpoint catalog lists the param name
+# but not valid values) — this is a curated, representative set of standard
+# categories, not an exhaustive one, since there's no authoritative list to
+# enumerate against. Documented here rather than silently limited.
+LEADER_CATEGORIES = [
+    "homeRuns",
+    "battingAverage",
+    "runsBattedIn",
+    "onBasePlusSlugging",
+    "stolenBases",
+    "era",
+    "wins",
+    "strikeouts",
+    "saves",
+    "walksAndHitsPerInningPitched",
+]
+
+
+def _load_stats(conn: psycopg.Connection, season: int) -> int:
+    total = 0
+    for group in STAT_GROUPS:
+        data = call_with_retry(
+            statsapi.get,
+            "stats",
+            {
+                "stats": "season",
+                "group": group,
+                "season": season,
+                "sportId": 1,
+                "limit": 2000,
+                "playerPool": "all",
+            },
+        )
+        rows = []
+        for stat_block in data.get("stats", []):
+            for split in stat_block.get("splits", []):
+                stat = split.get("stat", {})
+                rows.append(
+                    {
+                        "person_id": split.get("player", {}).get("id"),
+                        "person_name": split.get("player", {}).get("fullName"),
+                        "team_id": split.get("team", {}).get("id"),
+                        "group": group,
+                        **{_camel_to_snake(k): v for k, v in stat.items()},
+                    }
+                )
+        df = pd.DataFrame(rows)
+        if df.empty:
+            continue
+        df["_season"] = str(season)
+        total += load_dataframe(
+            conn, "raw.mlb_player_stat", df, scope_column="_season", scope_value=str(season)
+        )
+    return total
+
+
+def _load_team_stats(conn: psycopg.Connection, season: int) -> int:
+    total = 0
+    for group in STAT_GROUPS:
+        data = call_with_retry(
+            statsapi.get,
+            "teams_stats",
+            {"stats": "season", "group": group, "season": season, "sportIds": 1},
+        )
+        rows = []
+        for stat_block in data.get("stats", []):
+            for split in stat_block.get("splits", []):
+                stat = split.get("stat", {})
+                rows.append(
+                    {
+                        "team_id": split.get("team", {}).get("id"),
+                        "team_name": split.get("team", {}).get("name"),
+                        "group": group,
+                        **{_camel_to_snake(k): v for k, v in stat.items()},
+                    }
+                )
+        df = pd.DataFrame(rows)
+        if df.empty:
+            continue
+        df["_season"] = str(season)
+        total += load_dataframe(
+            conn, "raw.mlb_team_stat", df, scope_column="_season", scope_value=str(season)
+        )
+    return total
+
+
+def _load_stats_leaders(conn: psycopg.Connection, season: int) -> int:
+    rows = []
+    for category in LEADER_CATEGORIES:
+        data = call_with_retry(
+            statsapi.get,
+            "stats_leaders",
+            {"leaderCategories": category, "season": season, "sportId": 1},
+        )
+        for block in data.get("leagueLeaders", []):
+            for leader in block.get("leaders", []):
+                rows.append(
+                    {
+                        "leader_category": category,
+                        "rank": leader.get("rank"),
+                        "value": leader.get("value"),
+                        "person_id": leader.get("person", {}).get("id"),
+                        "person_name": leader.get("person", {}).get("fullName"),
+                        "team_id": leader.get("team", {}).get("id"),
+                    }
+                )
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_stat_leader", df, scope_column="_season", scope_value=str(season)
+    )
+
+
+def _load_team_leaders(conn: psycopg.Connection, season: int) -> int:
+    total = 0
+    for team_id in _season_team_ids(season):
+        rows = []
+        for category in LEADER_CATEGORIES:
+            data = call_with_retry(
+                statsapi.get,
+                "team_leaders",
+                {
+                    "teamId": team_id,
+                    "leaderCategories": category,
+                    "season": season,
+                    "leaderGameTypes": "R",
+                },
+            )
+            for block in data.get("teamLeaders", []):
+                for leader in block.get("leaders", []):
+                    rows.append(
+                        {
+                            "team_id": team_id,
+                            "leader_category": category,
+                            "rank": leader.get("rank"),
+                            "value": leader.get("value"),
+                            "person_id": leader.get("person", {}).get("id"),
+                            "person_name": leader.get("person", {}).get("fullName"),
+                        }
+                    )
+        df = pd.DataFrame(rows)
+        if df.empty:
+            continue
+        df["_season"] = str(season)
+        total += load_dataframe(
+            conn, "raw.mlb_team_leader", df, scope_column="_season", scope_value=str(season)
+        )
+    return total
+
+
+def _load_awards_catalog(conn: psycopg.Connection) -> int:
+    # Catalog of award TYPES only (~680), not per-award-per-year recipient
+    # history — a documented, deliberate boundary: Lahman's own
+    # awards_players table already carries historical winners, and a full
+    # recipients backfill here would be ~680 award IDs x up to 126 years
+    # each with no batching mechanism, a combinatorial cost out of
+    # proportion to the incremental value over Lahman's existing coverage.
+    data = call_with_retry(statsapi.get, "awards", {}, force=True)
+    df = pd.DataFrame(data.get("awards", []))
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_award", df)
+
+
 def bootstrap() -> dict[str, int]:
     counts: dict[str, int] = {
         "raw.mlb_schedule": 0,
@@ -919,6 +1335,15 @@ def bootstrap() -> dict[str, int]:
         "raw.mlb_boxscore_fielding": 0,
         "raw.mlb_umpire": 0,
         "raw.mlb_win_prob": 0,
+        "raw.mlb_player_pool": 0,
+        "raw.mlb_free_agent": 0,
+        "raw.mlb_coach": 0,
+        "raw.mlb_alumni": 0,
+        "raw.mlb_game_pace": 0,
+        "raw.mlb_player_stat": 0,
+        "raw.mlb_team_stat": 0,
+        "raw.mlb_stat_leader": 0,
+        "raw.mlb_team_leader": 0,
     }
     current_year = date.today().year
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
@@ -947,6 +1372,30 @@ def bootstrap() -> dict[str, int]:
                     conn.rollback()
                     print(
                         f"mlb_api: season {season} failed ({exc}); skipping, continuing bootstrap"
+                    )
+            # Reference/personnel/official-stats data — own try/except so a
+            # failure here (e.g. one team's coaches call) doesn't roll back
+            # the schedule/standings/roster/transaction data already
+            # committed above for this same season.
+            if season < current_year and season_already_loaded(conn, "raw.mlb_player_pool", season):
+                print(f"mlb_api: {season} reference/personnel/stat data loaded, skipping")
+            else:
+                try:
+                    counts["raw.mlb_player_pool"] += _load_player_pool(conn, season)
+                    counts["raw.mlb_free_agent"] += _load_free_agents(conn, season)
+                    counts["raw.mlb_coach"] += _load_coaches(conn, season)
+                    counts["raw.mlb_alumni"] += _load_alumni(conn, season)
+                    counts["raw.mlb_game_pace"] += _load_game_pace(conn, season)
+                    counts["raw.mlb_player_stat"] += _load_stats(conn, season)
+                    counts["raw.mlb_team_stat"] += _load_team_stats(conn, season)
+                    counts["raw.mlb_stat_leader"] += _load_stats_leaders(conn, season)
+                    counts["raw.mlb_team_leader"] += _load_team_leaders(conn, season)
+                    conn.commit()
+                except Exception as exc:
+                    conn.rollback()
+                    print(
+                        f"mlb_api: {season} reference/personnel/stat data failed ({exc}); "
+                        "skipping, continuing bootstrap"
                     )
             if season >= FIRST_PLAYBYPLAY_YEAR:
                 if season < current_year and season_already_loaded(
@@ -995,6 +1444,26 @@ def bootstrap() -> dict[str, int]:
             conn.rollback()
             print(f"mlb_api: person load failed ({exc}); skipping")
             counts["raw.mlb_person"] = 0
+        # Whole-catalog reference tables and per-team-current tables — also
+        # load once, after the season loop, same reasoning as venue/team
+        # history/person above.
+        for label, fn in [
+            ("raw.mlb_sport", _load_sports),
+            ("raw.mlb_league", _load_leagues),
+            ("raw.mlb_division", _load_divisions),
+            ("raw.mlb_season", _load_seasons),
+            ("raw.mlb_personnel", _load_personnel),
+            ("raw.mlb_affiliate", _load_affiliates),
+            ("raw.mlb_attendance", _load_attendance),
+            ("raw.mlb_award", _load_awards_catalog),
+        ]:
+            try:
+                counts[label] = fn(conn)
+                conn.commit()
+            except Exception as exc:
+                conn.rollback()
+                print(f"mlb_api: {label} failed ({exc}); skipping")
+                counts[label] = 0
         result["rows"] = sum(counts.values())
     return counts
 
@@ -1074,6 +1543,16 @@ def capture_live(conn: psycopg.Connection) -> int:
 
 
 def update() -> dict[str, int]:
+    # Deliberately does NOT touch the reference/personnel/official-stats
+    # data added in ADR-020 (sports/leagues/divisions/seasons/player-pool/
+    # free-agents/coaches/alumni/personnel/affiliates/attendance/game-pace/
+    # player+team stats/leaders/awards) — this is called every 5 minutes by
+    # cron (scripts/mlb_api_update.sh), and re-running ~30 teams' worth of
+    # coaches/alumni/personnel/attendance/stat-leader calls every 5 minutes
+    # would be pure API/DB load with no real freshness benefit (none of that
+    # data changes minute-to-minute the way schedule/roster/live-game
+    # state does). That data refreshes via bootstrap() instead — an operator
+    # re-runs it periodically to pick up real-world changes.
     season = date.today().year
     with get_connection() as conn, track_run(conn, SOURCE, "update") as result:
         counts = {
@@ -1109,5 +1588,22 @@ def health_check() -> list[Check]:
         check_table_exists("raw.mlb_umpire"),
         check_table_exists("raw.mlb_win_prob"),
         check_table_exists("raw.mlb_live_game"),
+        check_table_has_rows("raw.mlb_sport"),
+        check_table_has_rows("raw.mlb_league"),
+        check_table_has_rows("raw.mlb_division"),
+        check_table_has_rows("raw.mlb_season"),
+        check_table_has_rows("raw.mlb_player_pool"),
+        check_table_has_rows("raw.mlb_free_agent"),
+        check_table_has_rows("raw.mlb_coach"),
+        check_table_has_rows("raw.mlb_alumni"),
+        check_table_has_rows("raw.mlb_personnel"),
+        check_table_has_rows("raw.mlb_affiliate"),
+        check_table_has_rows("raw.mlb_attendance"),
+        check_table_has_rows("raw.mlb_game_pace"),
+        check_table_has_rows("raw.mlb_player_stat"),
+        check_table_has_rows("raw.mlb_team_stat"),
+        check_table_has_rows("raw.mlb_stat_leader"),
+        check_table_has_rows("raw.mlb_team_leader"),
+        check_table_has_rows("raw.mlb_award"),
         check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

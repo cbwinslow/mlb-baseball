@@ -524,3 +524,179 @@ def test_win_prob_rows_flattens_per_at_bat_probabilities():
             "home_win_probability_added": -3.6,
         }
     ]
+
+
+def test_load_leagues_flattens_season_date_info():
+    payload = {
+        "leagues": [
+            {
+                "id": 103,
+                "name": "American League",
+                "abbreviation": "AL",
+                "seasonDateInfo": {"seasonId": "2026", "seasonStartDate": "2026-02-20"},
+            }
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            mlb_api._load_leagues(object())
+    df = mock_load.call_args.args[2]
+    assert df.iloc[0]["name"] == "American League"
+    assert df.iloc[0]["season_seasonStartDate"] == "2026-02-20"
+
+
+def test_load_divisions_flattens_league_id():
+    payload = {
+        "divisions": [
+            {"id": 200, "name": "AL West", "league": {"id": 103}, "active": True},
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            mlb_api._load_divisions(object())
+    df = mock_load.call_args.args[2]
+    assert df.iloc[0]["league_id"] == 103
+
+
+def test_load_player_pool_flattens_current_team():
+    payload = {
+        "people": [
+            {
+                "id": 1,
+                "fullName": "Player One",
+                "birthDate": "2000-01-01",
+                "currentTeam": {"id": 110, "name": "Orioles"},
+                "active": True,
+            }
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            mlb_api._load_player_pool(object(), 2024)
+    df = mock_load.call_args.args[2]
+    assert df.iloc[0]["current_team_name"] == "Orioles"
+    assert df.iloc[0]["_season"] == "2024"
+
+
+def test_load_player_pool_returns_zero_without_touching_db_when_empty():
+    with patch.object(mlb_api.statsapi, "get", return_value={"people": []}):
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            count = mlb_api._load_player_pool(object(), 2024)
+    assert count == 0
+    mock_load.assert_not_called()
+
+
+def test_load_free_agents_calls_with_force_true_and_flattens_teams():
+    payload = {
+        "freeAgents": [
+            {
+                "player": {"id": 5, "fullName": "Some Player"},
+                "originalTeam": {"id": 110, "name": "Orioles"},
+                "newTeam": {"id": 147, "name": "Yankees"},
+                "notes": "Signed.",
+                "rank": 3,
+            }
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload) as mock_get:
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            mlb_api._load_free_agents(object(), 2024)
+    assert mock_get.call_args.kwargs.get("force") is True
+    df = mock_load.call_args.args[2]
+    assert df.iloc[0]["original_team_name"] == "Orioles"
+    assert df.iloc[0]["new_team_name"] == "Yankees"
+
+
+def test_load_attendance_stamps_team_id_on_every_record():
+    payload = {
+        "records": [{"year": "1903", "gamesTotal": 136}, {"year": "1904", "gamesTotal": 140}]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        with patch.object(mlb_api, "_season_team_ids", return_value=[147]):
+            with patch.object(mlb_api, "load_dataframe") as mock_load:
+                mlb_api._load_attendance(object())
+    df = mock_load.call_args.args[2]
+    assert set(df["team_id"]) == {147}
+    assert len(df) == 2
+
+
+def test_load_alumni_pulls_both_groups_per_team():
+    calls = []
+
+    def fake_get(endpoint, params, **kwargs):
+        calls.append(params.get("group"))
+        return {"people": [{"id": 1, "fullName": "Player One"}]}
+
+    with patch.object(mlb_api.statsapi, "get", side_effect=fake_get):
+        with patch.object(mlb_api, "_season_team_ids", return_value=[147]):
+            with patch.object(mlb_api, "load_dataframe", return_value=1):
+                total = mlb_api._load_alumni(object(), 2024)
+    assert calls == ["hitting", "pitching"]
+    assert total == 2
+
+
+def test_load_stats_flattens_and_snake_cases_camel_stat_fields():
+    payload = {
+        "stats": [
+            {
+                "splits": [
+                    {
+                        "player": {"id": 1, "fullName": "Player One"},
+                        "team": {"id": 110},
+                        "stat": {"homeRuns": 30, "atBatsPerHomeRun": "20.1"},
+                    }
+                ]
+            }
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            mlb_api._load_stats(object(), 2024)
+    # Called once for hitting, once for pitching (STAT_GROUPS) since both
+    # groups return the same fixture payload here.
+    assert mock_load.call_count == 2
+    first_df = mock_load.call_args_list[0].args[2]
+    assert first_df.iloc[0]["home_runs"] == 30
+    assert first_df.iloc[0]["at_bats_per_home_run"] == "20.1"
+    assert first_df.iloc[0]["group"] == "hitting"
+
+
+def test_load_stats_leaders_flattens_rank_and_person():
+    payload = {
+        "leagueLeaders": [
+            {"leaders": [{"rank": 1, "value": "58", "person": {"id": 1, "fullName": "Player One"}}]}
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            mlb_api._load_stats_leaders(object(), 2024)
+    df = mock_load.call_args.args[2]
+    assert set(df["leader_category"]) == set(mlb_api.LEADER_CATEGORIES)
+    assert df.iloc[0]["rank"] == 1
+    assert df.iloc[0]["person_name"] == "Player One"
+
+
+def test_load_team_leaders_stamps_team_id_per_team():
+    payload = {
+        "teamLeaders": [
+            {"leaders": [{"rank": 1, "value": "10", "person": {"id": 1, "fullName": "P"}}]}
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        with patch.object(mlb_api, "_season_team_ids", return_value=[147]):
+            with patch.object(mlb_api, "load_dataframe") as mock_load:
+                mlb_api._load_team_leaders(object(), 2024)
+    df = mock_load.call_args.args[2]
+    assert set(df["team_id"]) == {147}
+
+
+def test_load_awards_catalog_is_a_flat_reload_not_season_scoped():
+    payload = {"awards": [{"id": "NLMVP", "name": "NL MVP"}, {"id": "ALMVP", "name": "AL MVP"}]}
+    with patch.object(mlb_api.statsapi, "get", return_value=payload) as mock_get:
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            mlb_api._load_awards_catalog(object())
+    assert mock_get.call_args.kwargs.get("force") is True
+    df = mock_load.call_args.args[2]
+    assert len(df) == 2
+    # No scope_column/scope_value kwargs — a full reload each run.
+    assert "scope_column" not in mock_load.call_args.kwargs

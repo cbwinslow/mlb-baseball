@@ -5,6 +5,7 @@ without importing the CLI module (which itself imports doctor.py)."""
 from mlb_baseball.connectors import (
     bref,
     chadwick_register,
+    kalshi,
     lahman,
     mlb_api,
     polymarket,
@@ -36,4 +37,5 @@ CONNECTORS = {
     "statcast_leaderboard": statcast_leaderboard,
     "bref": bref,
     "polymarket": polymarket,
+    "kalshi": kalshi,
 }

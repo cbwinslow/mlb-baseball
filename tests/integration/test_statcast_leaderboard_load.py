@@ -23,6 +23,16 @@ TABLES = [
     "raw.statcast_oaa_direction",
     "raw.statcast_running_split",
     "raw.statcast_oaa",
+    "raw.statcast_batter_exitvelo",
+    "raw.statcast_batter_expected",
+    "raw.statcast_batter_percentile",
+    "raw.statcast_batter_arsenal",
+    "raw.statcast_pitcher_exitvelo",
+    "raw.statcast_pitcher_expected",
+    "raw.statcast_pitcher_percentile",
+    "raw.statcast_pitcher_arsenal",
+    "raw.statcast_pitcher_arsenal_stat",
+    "raw.statcast_spin_dir",
 ]
 
 
@@ -181,3 +191,45 @@ def test_fetch_framing_uses_the_corrected_leaderboard_url(monkeypatch):
     assert "/catcher_framing" not in captured["url"]
     assert captured["params"]["year"] == 2024
     assert len(df) == 1
+
+
+def test_simple_leaderboards_includes_the_official_aggregate_functions():
+    # The real (unmocked) module-level list, not the test-only fake one —
+    # confirms the official-aggregate leaderboards (added on top of the
+    # tracking-only ones) are actually wired into the load loop, not just
+    # defined and forgotten.
+    tables = dict(sl.SIMPLE_LEADERBOARDS)
+    assert tables["raw.statcast_batter_exitvelo"] is sl.pybaseball.statcast_batter_exitvelo_barrels
+    assert tables["raw.statcast_batter_expected"] is sl.pybaseball.statcast_batter_expected_stats
+    assert (
+        tables["raw.statcast_batter_percentile"] is sl.pybaseball.statcast_batter_percentile_ranks
+    )
+    assert tables["raw.statcast_batter_arsenal"] is sl.pybaseball.statcast_batter_pitch_arsenal
+    assert (
+        tables["raw.statcast_pitcher_exitvelo"] is sl.pybaseball.statcast_pitcher_exitvelo_barrels
+    )
+    assert tables["raw.statcast_pitcher_expected"] is sl.pybaseball.statcast_pitcher_expected_stats
+    assert (
+        tables["raw.statcast_pitcher_percentile"] is sl.pybaseball.statcast_pitcher_percentile_ranks
+    )
+    assert tables["raw.statcast_pitcher_arsenal"] is sl.pybaseball.statcast_pitcher_pitch_arsenal
+    assert (
+        tables["raw.statcast_pitcher_arsenal_stat"] is sl.pybaseball.statcast_pitcher_arsenal_stats
+    )
+    assert tables["raw.statcast_spin_dir"] is sl.pybaseball.statcast_pitcher_spin_dir_comp
+
+
+def test_bootstrap_loads_official_aggregate_leaderboards_with_real_functions(db_conn, monkeypatch):
+    # One real (unmocked) end-to-end check against the live pybaseball
+    # functions for a single season, unlike the other tests here which all
+    # replace SIMPLE_LEADERBOARDS with fakes.
+    monkeypatch.setattr(sl, "FIRST_YEAR", 2024)
+    with patch.object(sl.pybaseball, "statcast_outs_above_average", return_value=pd.DataFrame()):
+        counts = sl.bootstrap()
+
+    assert counts["raw.statcast_batter_exitvelo"] > 0
+    assert counts["raw.statcast_pitcher_percentile"] > 0
+    assert counts["raw.statcast_spin_dir"] > 0
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.statcast_batter_exitvelo")
+        assert cur.fetchone()[0] > 0

@@ -30,11 +30,31 @@ statcast.py's weekly-chunk batching):
 - raw.statcast_oaa_direction — statcast_outfield_directional_oaa()
 - raw.statcast_running_split — statcast_running_splits()
 
-Not built: `statcast_batter_exitvelo_barrels`/`_expected_stats`/
-`_percentile_ranks`/`_pitch_arsenal` and the pitcher equivalents —
-confirmed these are computable from raw.statcast_pitch/core.pitch once
-conform.py runs (they're aggregates over pitch-level data we already have
-in full), not a new raw input like the leaderboards above.
+Also covers Baseball Savant's official aggregate leaderboards — previously
+skipped as "derivable from raw.statcast_pitch/core.pitch," but built anyway
+per explicit direction to ingest everything: even though these ARE
+computable from pitch-level data we already have, landing MLB's own
+pre-computed version is a genuine cross-validation asset (same reasoning
+already applied throughout mlb_api.py — see ADR-020), and every one of
+these confirmed to work with a single `year` argument, fitting the same
+SIMPLE_LEADERBOARDS pattern as the tracking-only leaderboards above:
+- raw.statcast_batter_exitvelo / raw.statcast_pitcher_exitvelo —
+  statcast_batter_exitvelo_barrels() / statcast_pitcher_exitvelo_barrels()
+- raw.statcast_batter_expected / raw.statcast_pitcher_expected —
+  statcast_batter_expected_stats() / statcast_pitcher_expected_stats()
+- raw.statcast_batter_percentile / raw.statcast_pitcher_percentile —
+  statcast_batter_percentile_ranks() / statcast_pitcher_percentile_ranks()
+- raw.statcast_batter_arsenal — statcast_batter_pitch_arsenal() (a
+  batter's results against each pitch type)
+- raw.statcast_pitcher_arsenal — statcast_pitcher_pitch_arsenal() (a
+  pitcher's own pitch-type usage/velocity mix — distinct data from the one
+  below despite the similar name)
+- raw.statcast_pitcher_arsenal_stat — statcast_pitcher_arsenal_stats()
+  (results allowed per pitch type — distinct from pitch usage/velocity)
+- raw.statcast_spin_dir — statcast_pitcher_spin_dir_comp(), called with
+  the library's own defaults (fastball vs. changeup, `pitcher_pov=True`) —
+  it's a pairwise pitch-type comparison, not a general leaderboard, and
+  there's no "all pairs" mode to expand it into.
 
 bootstrap() loads full history one season at a time per leaderboard;
 update() reloads just the current season. Not on a repeating cron schedule
@@ -88,6 +108,16 @@ SIMPLE_LEADERBOARDS = [
     ("raw.statcast_catch_prob", pybaseball.statcast_outfield_catch_prob),
     ("raw.statcast_oaa_direction", pybaseball.statcast_outfield_directional_oaa),
     ("raw.statcast_running_split", pybaseball.statcast_running_splits),
+    ("raw.statcast_batter_exitvelo", pybaseball.statcast_batter_exitvelo_barrels),
+    ("raw.statcast_batter_expected", pybaseball.statcast_batter_expected_stats),
+    ("raw.statcast_batter_percentile", pybaseball.statcast_batter_percentile_ranks),
+    ("raw.statcast_batter_arsenal", pybaseball.statcast_batter_pitch_arsenal),
+    ("raw.statcast_pitcher_exitvelo", pybaseball.statcast_pitcher_exitvelo_barrels),
+    ("raw.statcast_pitcher_expected", pybaseball.statcast_pitcher_expected_stats),
+    ("raw.statcast_pitcher_percentile", pybaseball.statcast_pitcher_percentile_ranks),
+    ("raw.statcast_pitcher_arsenal", pybaseball.statcast_pitcher_pitch_arsenal),
+    ("raw.statcast_pitcher_arsenal_stat", pybaseball.statcast_pitcher_arsenal_stats),
+    ("raw.statcast_spin_dir", pybaseball.statcast_pitcher_spin_dir_comp),
 ]
 
 
@@ -171,5 +201,15 @@ def health_check() -> list[Check]:
         check_table_has_rows("raw.statcast_catch_prob"),
         check_table_has_rows("raw.statcast_oaa_direction"),
         check_table_has_rows("raw.statcast_running_split"),
+        check_table_has_rows("raw.statcast_batter_exitvelo"),
+        check_table_has_rows("raw.statcast_batter_expected"),
+        check_table_has_rows("raw.statcast_batter_percentile"),
+        check_table_has_rows("raw.statcast_batter_arsenal"),
+        check_table_has_rows("raw.statcast_pitcher_exitvelo"),
+        check_table_has_rows("raw.statcast_pitcher_expected"),
+        check_table_has_rows("raw.statcast_pitcher_percentile"),
+        check_table_has_rows("raw.statcast_pitcher_arsenal"),
+        check_table_has_rows("raw.statcast_pitcher_arsenal_stat"),
+        check_table_has_rows("raw.statcast_spin_dir"),
         check_last_run(SOURCE),
     ]

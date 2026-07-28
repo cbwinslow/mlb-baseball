@@ -112,7 +112,13 @@ def test_write_team_file_matches_retrosheets_documented_format(tmp_path):
 def test_run_cwbox_parses_real_box_score_file_with_real_team_and_roster_files():
     result = chadwick_tools.run_cwbox(BOX_FIXTURE_DIR, 1900)
 
-    assert set(result) == {"game", "batting", "fielding", "pitching"}
+    assert set(result) == {
+        "game",
+        "batting",
+        "fielding",
+        "pitching",
+        *chadwick_tools.SUPPLEMENTARY_LISTS,
+    }
     game = result["game"]
     assert len(game) == 2
     assert set(game["game_id"]) == {"BRO190004210", "BRO190004280"}
@@ -164,4 +170,45 @@ def test_parse_cwbox_xml_handles_multiple_boxscore_elements():
     assert list(result["game"]["game_id"]) == ["G1", "G2"]
     assert result["batting"].iloc[0]["h"] == "2"
     assert result["fielding"].iloc[0]["po"] == "1"
-    assert result["pitching"].iloc[0]["id"] == "p2"
+
+
+def test_parse_cwbox_xml_extracts_supplementary_event_lists():
+    xml_text = (
+        '<boxscore game_id="G1" date="1900/01/01">'
+        '<linescore away_runs="1" home_runs="2" away_hits="0" away_errors="0" '
+        'home_hits="0" home_errors="0"></linescore>'
+        "<players></players>"
+        '<doubles><double batter="p1" pitcher="p2" inning="3" half="0"/></doubles>'
+        '<triples><triple batter="p3" pitcher="p2" inning="5" half="1"/></triples>'
+        '<homeruns><homerun batter="p1" pitcher="p2" inning="7" half="0" runners="1" '
+        'outs="1" location=""/></homeruns>'
+        '<stolenbases><stolenbase runner="p1" pitcher="p2" catcher="p4" inning="2" '
+        'half="0" base="2" pickoff="0"/></stolenbases>'
+        '<doubleplays><doubleplay inning="4" half="1" player1="p5" player2="p6"/>'
+        "</doubleplays>"
+        '<tripleplays><tripleplay inning="6" half="0" player1="p5" player2="p6" '
+        'player3="p7"/></tripleplays>'
+        '<sacbunts><sacbunt batter="p3" pitcher="p2" inning="1" half="1"/></sacbunts>'
+        "</boxscore>"
+        # A second game with none of these — confirms a genuinely-absent
+        # container element doesn't crash the parse (box.find() returns None).
+        '<boxscore game_id="G2" date="1900/01/02">'
+        '<linescore away_runs="0" home_runs="0" away_hits="0" away_errors="0" '
+        'home_hits="0" home_errors="0"></linescore>'
+        "<players></players>"
+        "</boxscore>"
+    )
+
+    result = chadwick_tools._parse_cwbox_xml(xml_text)
+
+    assert list(result["double"]["game_id"]) == ["G1"]
+    assert result["double"].iloc[0]["batter"] == "p1"
+    assert list(result["triple"]["game_id"]) == ["G1"]
+    assert result["homerun"].iloc[0]["runners"] == "1"
+    assert result["stolenbase"].iloc[0]["base"] == "2"
+    assert result["doubleplay"].iloc[0]["player1"] == "p5"
+    assert result["tripleplay"].iloc[0]["player3"] == "p7"
+    assert result["sacbunt"].iloc[0]["inning"] == "1"
+    # G2 contributed no rows to any supplementary list — the DataFrames
+    # exist (created by run_cwbox's caller regardless) but stay G1-only.
+    assert "G2" not in set(result["double"]["game_id"])

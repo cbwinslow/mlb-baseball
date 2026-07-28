@@ -1,8 +1,20 @@
 """Lands Retrosheet's box-score-only files into raw.retrosheet_box_game/
-batting/fielding/pitching, via the Chadwick `cwbox` CLI tool — closes the
-coverage gap retrosheet_event.py documents but doesn't fill: pre-1910
-seasons (1898-1909, plus the 1871/1872/1874 NA seasons), and Negro League
-games that only ever exist as box scores, never full play-by-play.
+batting/fielding/pitching/double/triple/homerun/stolenbase/doubleplay/
+tripleplay/sacbunt, via the Chadwick `cwbox` CLI tool — closes the coverage
+gap retrosheet_event.py documents but doesn't fill: pre-1910 seasons
+(1898-1909, plus the 1871/1872/1874 NA seasons), and Negro League games
+that only ever exist as box scores, never full play-by-play.
+
+The seven supplementary per-event lists (double/triple/homerun/stolenbase/
+doubleplay/tripleplay/sacbunt) were previously excluded entirely — cwbox's
+`-X` output includes them (confirmed by generating real XML and inspecting
+every top-level element it actually produces, not from documentation), but
+`_parse_cwbox_xml` (chadwick_tools.py) only extracted game/batting/
+fielding/pitching. Built now per explicit direction to ingest everything;
+see docs/DECISIONS.md ADR-012 for the original exclusion note this
+supersedes. Each has a real, sometimes-empty-per-year shape (e.g. a season
+with no triple plays), which `load_dataframe`/`_load_archive` handle the
+same way as any other genuinely-sparse table — no special-casing needed.
 
 Source archives:
 - 1871box.zip, 1872box.zip, 1874box.zip: individual pre-1898 NA seasons.
@@ -53,7 +65,29 @@ GAME_TABLE = "raw.retrosheet_box_game"
 BATTING_TABLE = "raw.retrosheet_box_batting"
 FIELDING_TABLE = "raw.retrosheet_box_fielding"
 PITCHING_TABLE = "raw.retrosheet_box_pitching"
-ALL_TABLES = [GAME_TABLE, BATTING_TABLE, FIELDING_TABLE, PITCHING_TABLE]
+# cwbox's seven supplementary per-event lists (doubles/triples/homeruns/
+# stolen bases/double plays/triple plays/sac bunts) — confirmed present in
+# real cwbox -X output and previously excluded entirely (see this module's
+# original ADR-012 note and chadwick_tools.py's SUPPLEMENTARY_LISTS).
+# tables dict key (from chadwick_tools.run_cwbox) -> raw table name.
+SUPPLEMENTARY_TABLES = {
+    "double": "raw.retrosheet_box_double",
+    "triple": "raw.retrosheet_box_triple",
+    "homerun": "raw.retrosheet_box_homerun",
+    "stolenbase": "raw.retrosheet_box_stolenbase",
+    "doubleplay": "raw.retrosheet_box_doubleplay",
+    "tripleplay": "raw.retrosheet_box_tripleplay",
+    "sacbunt": "raw.retrosheet_box_sacbunt",
+}
+# tables dict key -> raw table name, for every table run_cwbox returns.
+TABLE_MAP = {
+    "game": GAME_TABLE,
+    "batting": BATTING_TABLE,
+    "fielding": FIELDING_TABLE,
+    "pitching": PITCHING_TABLE,
+    **SUPPLEMENTARY_TABLES,
+}
+ALL_TABLES = list(TABLE_MAP.values())
 
 # filename -> group. "na" archives already bundle their own team/roster
 # files; "era"/"negro_league" archives need them constructed (see module
@@ -159,34 +193,20 @@ def _load_archive(
         return {}
     counts: dict[str, int] = dict.fromkeys(ALL_TABLES, 0)
     for tables in _parse_archive(archive_path, group).values():
-        counts[GAME_TABLE] += load_dataframe(
-            conn,
-            GAME_TABLE,
-            tables["game"],
-            scope_column="_scope",
-            scope_value=tables["game"]["_scope"].iloc[0],
-        )
-        counts[BATTING_TABLE] += load_dataframe(
-            conn,
-            BATTING_TABLE,
-            tables["batting"],
-            scope_column="_scope",
-            scope_value=tables["batting"]["_scope"].iloc[0],
-        )
-        counts[FIELDING_TABLE] += load_dataframe(
-            conn,
-            FIELDING_TABLE,
-            tables["fielding"],
-            scope_column="_scope",
-            scope_value=tables["fielding"]["_scope"].iloc[0],
-        )
-        counts[PITCHING_TABLE] += load_dataframe(
-            conn,
-            PITCHING_TABLE,
-            tables["pitching"],
-            scope_column="_scope",
-            scope_value=tables["pitching"]["_scope"].iloc[0],
-        )
+        # game's own _scope stands in for the whole batch's scope value —
+        # every table in `tables` was stamped with the same _scope in
+        # _parse_archive. Supplementary tables (doubles/triples/etc.) can be
+        # genuinely empty for a given year/group (e.g. no triple plays that
+        # season) — load_dataframe handles an empty DataFrame fine (creates
+        # the table with 0 rows, doesn't error), so no special-casing needed.
+        scope_value = tables["game"]["_scope"].iloc[0]
+        for key, raw_table in TABLE_MAP.items():
+            df = tables[key]
+            if df.empty:
+                continue
+            counts[raw_table] += load_dataframe(
+                conn, raw_table, df, scope_column="_scope", scope_value=scope_value
+            )
     manifest.mark_status(SOURCE, filename, "loaded")
     return counts
 

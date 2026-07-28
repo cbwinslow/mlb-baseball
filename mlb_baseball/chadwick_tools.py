@@ -165,6 +165,27 @@ def _box_files(event_dir: Path) -> list[str]:
 _UNESCAPED_AMPERSAND_RE = re.compile(r"&(?!amp;|lt;|gt;|apos;|quot;|#\d+;|#x[0-9a-fA-F]+;)")
 
 
+# cwbox -X emits seven supplementary event lists alongside the main
+# boxscore — confirmed by generating real XML output and inspecting every
+# top-level element cwbox actually produces, not by reading documentation:
+# <doubles>/<double>, <triples>/<triple>, <homeruns>/<homerun>,
+# <stolenbases>/<stolenbase>, <doubleplays>/<doubleplay>,
+# <tripleplays>/<tripleplay>, <sacbunts>/<sacbunt>. Previously excluded
+# entirely (see ADR-012's mention of "supplementary doubles, triples,
+# stolen-base, and double-play lists") — the plural container name and
+# singular child element name for each pair, so one generic loop handles
+# all seven instead of one hand-written block per type.
+SUPPLEMENTARY_LISTS = {
+    "double": "doubles",
+    "triple": "triples",
+    "homerun": "homeruns",
+    "stolenbase": "stolenbases",
+    "doubleplay": "doubleplays",
+    "tripleplay": "tripleplays",
+    "sacbunt": "sacbunts",
+}
+
+
 def _parse_cwbox_xml(xml_text: str) -> dict[str, pd.DataFrame]:
     """cwbox's -X output is a bare sequence of <boxscore> elements, not one
     well-formed document (multiple root elements) — wrapped in a throwaway
@@ -174,6 +195,7 @@ def _parse_cwbox_xml(xml_text: str) -> dict[str, pd.DataFrame]:
     xml_text = _UNESCAPED_AMPERSAND_RE.sub("&amp;", xml_text)
     root = ET.fromstring(f"<games>{xml_text}</games>")
     games, batting, fielding, pitching = [], [], [], []
+    supplementary: dict[str, list[dict]] = {child: [] for child in SUPPLEMENTARY_LISTS}
     for box in root.findall("boxscore"):
         game_id = box.attrib["game_id"]
         game_row = dict(box.attrib)
@@ -205,11 +227,19 @@ def _parse_cwbox_xml(xml_text: str) -> dict[str, pd.DataFrame]:
             for pitcher in pitching_block.findall("pitcher"):
                 pitching.append({"game_id": game_id, "team": team, **pitcher.attrib})
 
+        for child_tag, container_tag in SUPPLEMENTARY_LISTS.items():
+            container = box.find(container_tag)
+            if container is None:
+                continue
+            for entry in container.findall(child_tag):
+                supplementary[child_tag].append({"game_id": game_id, **entry.attrib})
+
     return {
         "game": pd.DataFrame(games),
         "batting": pd.DataFrame(batting),
         "fielding": pd.DataFrame(fielding),
         "pitching": pd.DataFrame(pitching),
+        **{name: pd.DataFrame(rows) for name, rows in supplementary.items()},
     }
 
 

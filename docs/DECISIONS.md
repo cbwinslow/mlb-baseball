@@ -2,6 +2,19 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-021: `cwbox`'s seven supplementary event lists built; "Retrosheet discrepancy files" confirmed not to exist
+
+**Decision:** `chadwick_tools._parse_cwbox_xml()` now extracts `cwbox -X`'s seven supplementary per-event lists (doubles, triples, homeruns, stolen bases, double plays, triple plays, sac bunts) into `raw.retrosheet_box_double/triple/homerun/stolenbase/doubleplay/tripleplay/sacbunt`, closing the gap ADR-012 originally documented and left open. "Retrosheet discrepancy files" — referenced as a build target from outside this session — do not exist as an actual Retrosheet product; not built.
+
+**Context:** Continuing ADR-020's "ingest everything" scope into Retrosheet's own product surface, which hadn't been re-audited since ADR-012.
+
+**Rationale:**
+- **The seven lists were confirmed present by generating real `cwbox -X` output and inspecting every top-level XML element it produces**, not by reading documentation: `<doubles>/<double>`, `<triples>/<triple>`, `<homeruns>/<homerun>`, `<stolenbases>/<stolenbase>`, `<doubleplays>/<doubleplay>`, `<tripleplays>/<tripleplay>`, `<sacbunts>/<sacbunt>` — each a plural container with repeated singular children, attributes-only, no nested structure. One generic loop (`SUPPLEMENTARY_LISTS` dict, child-tag → container-tag) parses all seven instead of seven hand-written blocks. Verified against real 1901 production data before writing tests: 2,931 doubles, 1,237 triples, 455 homeruns, 2,851 stolen bases, 1,580 double plays, 8 triple plays, 1,596 sac bunts from that one season alone.
+- **`retrosheet_box.py`'s `_load_archive()` was refactored from four hand-written load blocks into one data-driven loop** (`TABLE_MAP`: tables-dict key → raw table name) to add the seven new tables without four-times-seven repetition — a genuine simplification, not just an addition.
+- **"Retrosheet discrepancy files" were searched for directly and don't exist under that name or any close variant** — checked retrosheet.org's own downloads page, CSV-product notes page, and full site link graph for "discrepanc*" with zero hits. The closest real, findable product is "Official Daily Totals" (`retrosheet.org/officialtotals/`) — Hall-of-Fame microfilm ledgers, transcribed by volunteers, that Retrosheet uses internally "for proofing and processing games." Downloaded one real archive (`1901AL.zip`, ~42MB) to check its actual format before deciding: it's per-team-per-year **PDF scans** of the ledgers, not structured text/CSV data. This is archival document digitization work (would need OCR, transcription QA, etc.), not the structured-download ingestion this pipeline is built for — genuinely out of scope, not a redundancy or low-value judgment call like the earlier exclusions.
+
+**Revisit if:** Retrosheet ever publishes a machine-readable version of the Official Daily Totals (unlikely — they've had the scans for decades without doing so), or a genuine "discrepancy" product surfaces that this search didn't find.
+
 ## ADR-020: Explicit reversal — ingest every MLB API surface except confirmed-broken FanGraphs; kept consolidated in mlb_api.py
 
 **Decision:** Superseding the "redundant, skip it" calls made throughout ADR-017/018 for MLB Stats API endpoints: build every remaining endpoint (reference/personnel/organizational data, official aggregate stats, game-level extras, niche event data, and even cosmetic/operational endpoints), plus the Statcast leaderboard functions previously skipped as "derivable," plus Retrosheet's discrepancy files and `cwbox`'s supplementary lists. The one standing exclusion is FanGraphs, which stays excluded because it's confirmed broken (Cloudflare 403), not because it's redundant.

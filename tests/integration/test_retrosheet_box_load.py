@@ -57,6 +57,27 @@ def test_load_archive_self_contained_lands_all_four_tables(db_conn):
     ]
 
 
+def test_load_archive_lands_supplementary_event_lists(db_conn):
+    # cwbox -X's seven supplementary lists (doubles/triples/homeruns/stolen
+    # bases/double plays/triple plays/sac bunts) — previously not parsed at
+    # all (see ADR-012). Two real games are enough to expect at least some
+    # of these categories to have real rows without hand-picking exact counts
+    # (a genuinely 0-row category for 2 games isn't itself a bug).
+    with patch.object(box.manifest, "download", return_value=SELF_CONTAINED_ZIP):
+        counts = box._load_archive(db_conn, "1900sbox.zip", "https://example.com/x", "na")
+    db_conn.commit()
+
+    for raw_table in box.SUPPLEMENTARY_TABLES.values():
+        assert raw_table in counts, f"{raw_table} missing from counts"
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass(%s)", (box.SUPPLEMENTARY_TABLES["double"],))
+        assert cur.fetchone()[0] is not None
+        cur.execute(f"SELECT game_id, batter FROM {box.SUPPLEMENTARY_TABLES['double']} LIMIT 1")
+        row = cur.fetchone()
+        assert row is not None
+        assert row[0] in ("BRO190004210", "BRO190004280")
+
+
 def test_load_archive_constructs_team_file_when_archive_has_none(db_conn):
     def fake_download(source, filename, url, force=False):
         if filename == "1900sbox_no_team.zip":

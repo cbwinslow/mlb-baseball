@@ -700,3 +700,73 @@ def test_load_awards_catalog_is_a_flat_reload_not_season_scoped():
     assert len(df) == 2
     # No scope_column/scope_value kwargs — a full reload each run.
     assert "scope_column" not in mock_load.call_args.kwargs
+
+
+def test_linescore_rows_flattens_one_row_per_inning_per_side():
+    data = {
+        "innings": [
+            {
+                "num": 1,
+                "home": {"runs": 0, "hits": 0, "errors": 0, "leftOnBase": 0},
+                "away": {"runs": 2, "hits": 1, "errors": 0, "leftOnBase": 1},
+            }
+        ]
+    }
+    rows = mlb_api._linescore_rows(data, 777)
+    assert rows == [
+        {
+            "game_pk": 777,
+            "inning": 1,
+            "side": "home",
+            "runs": 0,
+            "hits": 0,
+            "errors": 0,
+            "left_on_base": 0,
+        },
+        {
+            "game_pk": 777,
+            "inning": 1,
+            "side": "away",
+            "runs": 2,
+            "hits": 1,
+            "errors": 0,
+            "left_on_base": 1,
+        },
+    ]
+
+
+def test_load_context_metrics_flattens_single_game_level_row():
+    payload = {
+        "game": {"gamePk": 777},
+        "awayWinProbability": 53.6,
+        "homeWinProbability": 46.4,
+        "leftFieldSacFlyProbability": 0.5,
+        "centerFieldSacFlyProbability": 0.6,
+        "rightFieldSacFlyProbability": 0.7,
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            mlb_api._load_context_metrics_for_game(object(), 777, 2024)
+    df = mock_load.call_args.args[2]
+    assert len(df) == 1
+    assert df.iloc[0]["away_win_probability"] == 53.6
+    assert df.iloc[0]["home_win_probability"] == 46.4
+    assert df.iloc[0]["left_field_sac_fly_probability"] == 0.5
+    assert df.iloc[0]["_season"] == "2024"
+
+
+def test_load_analytics_for_game_covers_win_prob_linescore_and_context():
+    with (
+        patch.object(mlb_api, "_load_win_prob_for_game", return_value=5) as m1,
+        patch.object(mlb_api, "_load_linescore_for_game", return_value=18) as m2,
+        patch.object(mlb_api, "_load_context_metrics_for_game", return_value=1) as m3,
+    ):
+        counts = mlb_api._load_analytics_for_game(object(), 777, 2024)
+    assert counts == {
+        "raw.mlb_win_prob": 5,
+        "raw.mlb_linescore": 18,
+        "raw.mlb_game_context": 1,
+    }
+    assert m1.call_args.args[1:] == (777, 2024)
+    assert m2.call_args.args[1:] == (777, 2024)
+    assert m3.call_args.args[1:] == (777, 2024)

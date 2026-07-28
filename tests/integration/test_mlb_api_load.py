@@ -31,6 +31,8 @@ TABLES = [
     "raw.mlb_boxscore_fielding",
     "raw.mlb_umpire",
     "raw.mlb_win_prob",
+    "raw.mlb_linescore",
+    "raw.mlb_game_context",
     "raw.mlb_sport",
     "raw.mlb_league",
     "raw.mlb_division",
@@ -202,6 +204,23 @@ FIXTURE_WIN_PROB = [
         "homeTeamWinProbabilityAdded": 0.0,
     }
 ]
+FIXTURE_LINESCORE = {
+    "innings": [
+        {
+            "num": 1,
+            "home": {"runs": 0, "hits": 0, "errors": 0, "leftOnBase": 0},
+            "away": {"runs": 1, "hits": 1, "errors": 0, "leftOnBase": 1},
+        }
+    ]
+}
+FIXTURE_CONTEXT_METRICS = {
+    "game": {"gamePk": 1},
+    "awayWinProbability": 53.6,
+    "homeWinProbability": 46.4,
+    "leftFieldSacFlyProbability": 0.5,
+    "centerFieldSacFlyProbability": 0.6,
+    "rightFieldSacFlyProbability": 0.7,
+}
 
 # ADR-020 reference/personnel/official-stats fixtures.
 FIXTURE_SPORTS = {"sports": [{"id": 1, "code": "mlb", "name": "Major League Baseball"}]}
@@ -290,6 +309,10 @@ def _fake_get(endpoint, params=None, **kwargs):
         return FIXTURE_BOXSCORE
     if endpoint == "game_winProbability":
         return FIXTURE_WIN_PROB
+    if endpoint == "game_linescore":
+        return FIXTURE_LINESCORE
+    if endpoint == "game_contextMetrics":
+        return FIXTURE_CONTEXT_METRICS
     if endpoint == "game":
         return FINAL_GAME_FEED
     if endpoint == "venue":
@@ -361,10 +384,13 @@ def test_bootstrap_loads_full_history_across_multiple_seasons(db_conn):
     assert counts["raw.mlb_boxscore_batting"] == 3  # 1 batting-stat player x 3 games
     assert counts["raw.mlb_boxscore_fielding"] == 3
     assert counts["raw.mlb_umpire"] == 3  # 1 umpire x 3 games, 2026 game-detail only
-    # win_prob covers all 6 games across all 3 seasons (2024/2025 via the
-    # win-prob-only range, 2026 via full game-detail) — unlike playbyplay/
-    # boxscore/umpire, which stay 2026-only (see FIRST_WIN_PROB_YEAR).
+    # win_prob/linescore/game_context cover all 6 games across all 3 seasons
+    # (2024/2025 via the analytics-only range, 2026 via full game-detail) —
+    # unlike playbyplay/boxscore/umpire, which stay 2026-only (see
+    # FIRST_WIN_PROB_YEAR).
     assert counts["raw.mlb_win_prob"] == 6
+    assert counts["raw.mlb_linescore"] == 12  # 1 inning x 2 sides x 6 games
+    assert counts["raw.mlb_game_context"] == 6  # 1 row per game
     assert counts["raw.mlb_venue"] == 1
     assert counts["raw.mlb_team_history"] == 1
     assert counts["raw.mlb_person"] == 1
@@ -622,6 +648,8 @@ def test_update_includes_all_counts(db_conn):
         "raw.mlb_boxscore_fielding",
         "raw.mlb_umpire",
         "raw.mlb_win_prob",
+        "raw.mlb_linescore",
+        "raw.mlb_game_context",
         "raw.mlb_live_game",
     }
     assert counts["raw.mlb_schedule"] == 3

@@ -72,16 +72,24 @@ across both sources — see ADR-017.
   jobs_umpire_games/jobs_officialScorers endpoints — confirmed those are
   per-umpire career directories, not per-game assignment lookups, the wrong
   shape for this). Continues Retrosheet's own umpire data past its freeze.
-- **Win probability** (raw.mlb_win_prob): one row per at-bat (joins to
-  raw.mlb_playbyplay on game_pk + at_bat_index), FIRST_WIN_PROB_YEAR (1950)
+- **Win probability, line score, and game context** (raw.mlb_win_prob,
+  raw.mlb_linescore, raw.mlb_game_context): win_prob is one row per at-bat
+  (joins to raw.mlb_playbyplay on game_pk + at_bat_index); linescore is one
+  row per inning per side; game_context is one row per game (pregame win
+  probability plus positional sacrifice-fly probability — distinct from
+  win_prob's per-at-bat values). All three run FIRST_WIN_PROB_YEAR (1950)
   through present — a much wider range than play-by-play/box-score/umpire,
-  which stay at FIRST_PLAYBYPLAY_YEAR (2026), because win probability has
-  no Retrosheet equivalent at all: it's a derived win-expectancy model, not
-  a raw play/box record, so there's nothing to duplicate. The 1950 boundary
-  itself was confirmed directly (not assumed to extend indefinitely):
-  gamePk-based game_winProbability/game_playByPlay/game_boxscore all return
-  real, populated data for a 1950 game, but 404/empty for 1949 and every
-  year checked back to 1901.
+  which stay at FIRST_PLAYBYPLAY_YEAR (2026), because none of the three has
+  a Retrosheet equivalent at all (win_prob/game_context are derived
+  analytics, not raw play/box records; linescore is a convenience summary).
+  The 1950 boundary itself was confirmed directly (not assumed to extend
+  indefinitely): gamePk-based game_winProbability/game_playByPlay/
+  game_boxscore all return real, populated data for a 1950 game, but
+  404/empty for 1949 and every year checked back to 1901.
+  `jobs_umpire_games` (per-umpire career game log, which would extend
+  umpire coverage into this range using the person_ids we already have from
+  raw.mlb_umpire) was evaluated but confirmed to return 401 Unauthorized
+  regardless of parameters — an MLB-internal endpoint, not built.
 
 Deliberately not built: `person_stats` (redundant with game_boxscore, which
 already returns every player's per-game line in one call instead of one call
@@ -811,16 +819,69 @@ def _load_win_prob_for_game(conn: psycopg.Connection, game_pk: int, season: int)
     )
 
 
+def _linescore_rows(data: dict, game_pk: int) -> list[dict]:
+    rows = []
+    for inning in data.get("innings", []):
+        for side in ("home", "away"):
+            side_data = inning.get(side, {})
+            rows.append(
+                {
+                    "game_pk": game_pk,
+                    "inning": inning.get("num"),
+                    "side": side,
+                    "runs": side_data.get("runs"),
+                    "hits": side_data.get("hits"),
+                    "errors": side_data.get("errors"),
+                    "left_on_base": side_data.get("leftOnBase"),
+                }
+            )
+    return rows
+
+
+def _load_linescore_for_game(conn: psycopg.Connection, game_pk: int, season: int) -> int:
+    data = call_with_retry(statsapi.get, "game_linescore", {"gamePk": game_pk})
+    df = pd.DataFrame(_linescore_rows(data, game_pk))
+    if df.empty:
+        return 0
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_linescore", df, scope_column="game_pk", scope_value=str(game_pk)
+    )
+
+
+def _load_context_metrics_for_game(conn: psycopg.Connection, game_pk: int, season: int) -> int:
+    # One row per game, not per-play: pregame win probability (distinct from
+    # raw.mlb_win_prob's per-at-bat values) plus positional sacrifice-fly
+    # probability — confirmed via a real call this is game-level context,
+    # not a per-play series (its own "game" sub-object is the only nested
+    # structure; the rest are flat scalars).
+    data = call_with_retry(statsapi.get, "game_contextMetrics", {"gamePk": game_pk})
+    row = {
+        "game_pk": game_pk,
+        "away_win_probability": data.get("awayWinProbability"),
+        "home_win_probability": data.get("homeWinProbability"),
+        "left_field_sac_fly_probability": data.get("leftFieldSacFlyProbability"),
+        "center_field_sac_fly_probability": data.get("centerFieldSacFlyProbability"),
+        "right_field_sac_fly_probability": data.get("rightFieldSacFlyProbability"),
+    }
+    df = pd.DataFrame([row])
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_game_context", df, scope_column="game_pk", scope_value=str(game_pk)
+    )
+
+
 def _load_game_detail_for_game(
     conn: psycopg.Connection, game_pk: int, season: int
 ) -> dict[str, int]:
-    """Play-by-play, box score (batting/pitching/fielding + umpires), and win
-    probability all key off the same game_pk — loaded together per game so a
-    bootstrap/update loop only has to fetch each season's/day's game list
-    once, even though each is still its own separate API call."""
+    """Play-by-play, box score (batting/pitching/fielding + umpires), and the
+    analytics trio (win probability/line score/game context) all key off the
+    same game_pk — loaded together per game so a bootstrap/update loop only
+    has to fetch each season's/day's game list once, even though each is
+    still its own separate API call."""
     counts = {"raw.mlb_playbyplay": _load_playbyplay_for_game(conn, game_pk, season)}
     counts.update(_load_boxscore_for_game(conn, game_pk))
-    counts["raw.mlb_win_prob"] = _load_win_prob_for_game(conn, game_pk, season)
+    counts.update(_load_analytics_for_game(conn, game_pk, season))
     return counts
 
 
@@ -829,6 +890,8 @@ _GAME_DETAIL_TABLES = [
     "raw.mlb_boxscore_batting",
     "raw.mlb_boxscore_pitching",
     "raw.mlb_boxscore_fielding",
+    "raw.mlb_linescore",
+    "raw.mlb_game_context",
     "raw.mlb_umpire",
     "raw.mlb_win_prob",
 ]
@@ -852,30 +915,47 @@ def _load_game_detail_for_season(conn: psycopg.Connection, season: int) -> dict[
     return totals
 
 
-def _load_win_prob_for_season(conn: psycopg.Connection, season: int) -> int:
-    """Win probability only, for seasons before FIRST_PLAYBYPLAY_YEAR — unlike
-    play-by-play/box-scores/umpires (which Retrosheet already covers for
-    these years, so re-pulling them would be pure duplication at real
-    per-game API cost), win probability has no Retrosheet equivalent at all.
-    Confirmed the real boundary directly rather than assuming continuity
-    back further: gamePk-based play-by-play/win-probability/box-score all
-    return real, populated data for a 1950 game, but 404/empty for 1949 and
-    earlier (tested 1901, 1920, 1940, 1945, 1946, 1947, 1948, 1949 — all
-    empty; 1950, 1955, 1957, 1960 — all populated)."""
-    total = 0
+_ANALYTICS_TABLES = ["raw.mlb_win_prob", "raw.mlb_linescore", "raw.mlb_game_context"]
+
+
+def _load_analytics_for_game(conn: psycopg.Connection, game_pk: int, season: int) -> dict[str, int]:
+    return {
+        "raw.mlb_win_prob": _load_win_prob_for_game(conn, game_pk, season),
+        "raw.mlb_linescore": _load_linescore_for_game(conn, game_pk, season),
+        "raw.mlb_game_context": _load_context_metrics_for_game(conn, game_pk, season),
+    }
+
+
+def _load_analytics_for_season(conn: psycopg.Connection, season: int) -> dict[str, int]:
+    """Win probability, line score, and game-level context metrics, for
+    seasons before FIRST_PLAYBYPLAY_YEAR — unlike play-by-play/box-scores/
+    umpires (which Retrosheet already covers for these years, so re-pulling
+    them would be pure duplication at real per-game API cost), none of
+    these three has a Retrosheet equivalent. Confirmed the real boundary
+    directly rather than assuming continuity back further: gamePk-based
+    play-by-play/win-probability/box-score all return real, populated data
+    for a 1950 game, but 404/empty for 1949 and earlier (tested 1901, 1920,
+    1940, 1945, 1946, 1947, 1948, 1949 — all empty; 1950, 1955, 1957,
+    1960 — all populated). `jobs_umpire_games` was also evaluated for this
+    range (umpire assignments, per-umpire career game log) but confirmed to
+    return a 401 Unauthorized regardless of parameters — an MLB-internal
+    endpoint we don't have access to, not a shape mismatch like
+    `jobs_officialScorers`; not built."""
+    totals: dict[str, int] = dict.fromkeys(_ANALYTICS_TABLES, 0)
     try:
         games = call_with_retry(statsapi.schedule, season=season, sportId=1)
     except Exception as exc:
-        print(f"mlb_api: win probability for season {season} failed ({exc}); skipping whole season")
-        return total
+        print(f"mlb_api: analytics for season {season} failed ({exc}); skipping whole season")
+        return totals
     for game_pk in _started_game_ids(games):
         try:
-            total += _load_win_prob_for_game(conn, game_pk, season)
+            for table, count in _load_analytics_for_game(conn, game_pk, season).items():
+                totals[table] = totals.get(table, 0) + count
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"mlb_api: win probability for game {game_pk} failed ({exc}); skipping")
-    return total
+            print(f"mlb_api: analytics for game {game_pk} failed ({exc}); skipping")
+    return totals
 
 
 def _load_game_detail_for_today(conn: psycopg.Connection) -> dict[str, int]:
@@ -1335,6 +1415,8 @@ def bootstrap() -> dict[str, int]:
         "raw.mlb_boxscore_fielding": 0,
         "raw.mlb_umpire": 0,
         "raw.mlb_win_prob": 0,
+        "raw.mlb_linescore": 0,
+        "raw.mlb_game_context": 0,
         "raw.mlb_player_pool": 0,
         "raw.mlb_free_agent": 0,
         "raw.mlb_coach": 0,
@@ -1409,15 +1491,17 @@ def bootstrap() -> dict[str, int]:
                 for table, count in _load_game_detail_for_season(conn, season).items():
                     counts[table] = counts.get(table, 0) + count
             elif season >= FIRST_WIN_PROB_YEAR:
-                # Win-probability-only range (1950 through FIRST_PLAYBYPLAY_
-                # YEAR-1) — play-by-play/box-score/umpire stay out of this
-                # range since Retrosheet already covers them there; win
-                # probability has no Retrosheet equivalent, so it's the one
-                # piece worth the per-game API cost this far back.
+                # Analytics-only range (1950 through FIRST_PLAYBYPLAY_YEAR-1)
+                # — play-by-play/box-score/umpire stay out of this range
+                # since Retrosheet already covers them there; win
+                # probability/line score/game context have no Retrosheet
+                # equivalent, so they're the pieces worth the per-game API
+                # cost this far back.
                 if season_already_loaded(conn, "raw.mlb_win_prob", season):
-                    print(f"mlb_api: {season} win probability already loaded, skipping")
+                    print(f"mlb_api: {season} analytics already loaded, skipping")
                     continue
-                counts["raw.mlb_win_prob"] += _load_win_prob_for_season(conn, season)
+                for table, count in _load_analytics_for_season(conn, season).items():
+                    counts[table] = counts.get(table, 0) + count
         # Draft, venue, team history, and person bios each load once, after
         # the season loop — none of them are season-scoped in a way that
         # fits inside it (draft is per-year but a fixed 1965+ range, not tied
@@ -1587,6 +1671,8 @@ def health_check() -> list[Check]:
         check_table_exists("raw.mlb_boxscore_fielding"),
         check_table_exists("raw.mlb_umpire"),
         check_table_exists("raw.mlb_win_prob"),
+        check_table_exists("raw.mlb_linescore"),
+        check_table_exists("raw.mlb_game_context"),
         check_table_exists("raw.mlb_live_game"),
         check_table_has_rows("raw.mlb_sport"),
         check_table_has_rows("raw.mlb_league"),

@@ -2,6 +2,20 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-025: `call_with_retry` no longer retries a confirmed 404
+
+**Decision:** `net.call_with_retry` now checks whether a `requests.exceptions.HTTPError` carries a real `Response` with `status_code == 404` and, if so, raises immediately instead of spending the full retry budget on it. Every other `RequestException` (connection errors, timeouts, 5xx) is unaffected — still retried exactly as before.
+
+**Context:** Found by watching the still-running `mlb_api` historical bootstrap (ADR-020's per-game win-probability/linescore/game-context backfill, 1950–present) make almost no visible progress over 85 minutes. The bootstrap log showed 119 full retry cycles already logged, 80 of them for `game_winProbability` 404s — a game genuinely lacking win-probability data 404s identically on every attempt, so the existing retry logic (added for the real, transient 503s documented in the original `call_with_retry` docstring) was spending the full 5s+10s+15s backoff on a result that could never change. Roughly 40 of the 85 elapsed minutes were pure wasted sleep on deterministic 404s, not actual API work — and pre-modern-era seasons have a lot more games missing this analytics data than modern ones, so this cost was set to compound across the rest of the multi-decade backfill, not stay small.
+
+**Rationale:**
+- **Confirmed `statsapi.get()` (the library backing every `mlb_api.py` call through `call_with_retry`) attaches a real `Response` object to the `HTTPError` it raises** — read directly from the installed library's source: `r.raise_for_status()` is called on the actual `requests.Response`, so `exc.response.status_code` is reliably populated, not something that has to be guessed at or defended against with a fallback.
+- **The check is additive, not a behavior change for anything else** — a bare `HTTPError` with no `.response` attached (as the project's own existing tests construct for the 503 case) still falls through to the normal retry path unchanged, so nothing about the original 503-retry fix this function was built for regressed.
+- **Scoped to `call_with_retry` only, not `get_with_retry`** — `get_with_retry` wraps a raw `requests.get()` call that never calls `raise_for_status()` itself; it returns whatever response it gets (including a 404 one) for the caller to inspect, so there's no equivalent retry-on-404 problem there to fix.
+- **The already-running background bootstrap was killed and restarted with this fix** rather than left to finish on the old code — it was barely 85 minutes into what's realistically a multi-day job, so restarting cost little relative to the time this fix saves across the rest of it. `reap_stale_runs()` (ADR-022) cleaned up the resulting stale `meta.ingestion_run` row automatically on the next `mlb doctor` run, exactly the scenario that check was built for.
+
+**Revisit if:** a source is found where a 404 is genuinely transient (e.g. a resource that appears shortly after being created) — none of this project's current sources behave that way, but if one does, this would need to become per-source configurable rather than a blanket rule.
+
 ## ADR-024: Full re-audit of pybaseball's function surface; Baseball-Reference WAR added, three more functions confirmed broken/impractical
 
 **Decision:** `bref.py` gains `raw.bref_war_batting`/`raw.bref_war_pitching`, loaded via `pybaseball.bwar_bat()`/`bwar_pitch()` — Baseball-Reference's own WAR calculation, full history (1871–2026), not available from any other source this pipeline pulls from. `pybaseball.top_prospects()` confirmed broken (a bug in the installed library itself), and `batting_stats_range()`/`pitching_stats_range()`/`get_splits()` confirmed working but deliberately not built, both with direct evidence — see rationale below.

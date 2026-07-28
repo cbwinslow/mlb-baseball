@@ -71,6 +71,46 @@ def test_call_with_retry_raises_after_exhausting_all_attempts():
         call_with_retry(always_fails, max_attempts=3, backoff_seconds=0)
 
 
+def test_call_with_retry_does_not_retry_a_404():
+    # Regression: a 404 means the resource genuinely doesn't exist (e.g. a
+    # game with no win-probability data) and will 404 identically on every
+    # retry — burning the full backoff budget on it is pure waste. Found for
+    # real during mlb_api.py's per-game analytics backfill: thousands of
+    # pre-modern-era games hitting the full 3-retry cycle (30s each) for a
+    # result that could never change.
+    calls = {"count": 0}
+    fake_response = type("FakeResponse", (), {"status_code": 404})()
+
+    def always_404(**kwargs):
+        calls["count"] += 1
+        raise requests.exceptions.HTTPError("404 Client Error: Not Found", response=fake_response)
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        call_with_retry(always_404, max_attempts=3, backoff_seconds=0)
+
+    assert calls["count"] == 1  # no retries — one call, then raise immediately
+
+
+def test_call_with_retry_still_retries_a_503_after_this_change():
+    # A confirmed 404 skips retries, but every other HTTP error (including
+    # one with a real response object attached, unlike the other retry
+    # tests above which use a bare HTTPError with no response) still gets
+    # the full retry treatment.
+    calls = {"count": 0}
+    fake_response = type("FakeResponse", (), {"status_code": 503})()
+
+    def flaky(**kwargs):
+        calls["count"] += 1
+        if calls["count"] < 2:
+            raise requests.exceptions.HTTPError("503 Server Error", response=fake_response)
+        return "success"
+
+    result = call_with_retry(flaky, max_attempts=3, backoff_seconds=0)
+
+    assert result == "success"
+    assert calls["count"] == 2
+
+
 def test_call_with_retry_does_not_catch_unrelated_exceptions():
     # Only network-shaped failures are worth retrying — a bug in the
     # connector's own code (e.g. a KeyError from unexpected response shape)

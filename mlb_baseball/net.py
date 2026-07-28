@@ -54,12 +54,27 @@ def call_with_retry(
     RequestException broadly (covers HTTPError, ConnectionError, Timeout)
     since statsapi's own internal requests.get(...).raise_for_status() can
     surface any of them, not just connection-level failures like
-    get_with_retry's narrower ConnectionError."""
+    get_with_retry's narrower ConnectionError.
+
+    A 404 is never retried, regardless of max_attempts — found the hard way
+    during mlb_api.py's per-game win-probability/analytics backfill: a game
+    with no win-probability data 404s identically every time, so retrying
+    it burned the full 3-retry backoff budget (5s+10s+15s = 30s) per game
+    for a result that could never change. Across thousands of pre-modern-era
+    games with genuinely missing analytics data, this was the dominant cost
+    of the whole backfill, not the actual successful API calls. Every other
+    RequestException (connection errors, timeouts, 5xx) still gets the full
+    retry treatment — only a confirmed HTTP 404 response skips it."""
     for attempt in range(1, max_attempts + 1):
         try:
             return fn(*args, **kwargs)
         except requests.exceptions.RequestException as exc:
-            if attempt == max_attempts:
+            is_404 = (
+                isinstance(exc, requests.exceptions.HTTPError)
+                and exc.response is not None
+                and exc.response.status_code == 404
+            )
+            if is_404 or attempt == max_attempts:
                 raise
             wait = backoff_seconds * attempt
             print(

@@ -73,7 +73,15 @@ across both sources — see ADR-017.
   per-umpire career directories, not per-game assignment lookups, the wrong
   shape for this). Continues Retrosheet's own umpire data past its freeze.
 - **Win probability** (raw.mlb_win_prob): one row per at-bat (joins to
-  raw.mlb_playbyplay on game_pk + at_bat_index), FIRST_PLAYBYPLAY_YEAR+ only.
+  raw.mlb_playbyplay on game_pk + at_bat_index), FIRST_WIN_PROB_YEAR (1950)
+  through present — a much wider range than play-by-play/box-score/umpire,
+  which stay at FIRST_PLAYBYPLAY_YEAR (2026), because win probability has
+  no Retrosheet equivalent at all: it's a derived win-expectancy model, not
+  a raw play/box record, so there's nothing to duplicate. The 1950 boundary
+  itself was confirmed directly (not assumed to extend indefinitely):
+  gamePk-based game_winProbability/game_playByPlay/game_boxscore all return
+  real, populated data for a 1950 game, but 404/empty for 1949 and every
+  year checked back to 1901.
 
 Deliberately not built: `person_stats` (redundant with game_boxscore, which
 already returns every player's per-game line in one call instead of one call
@@ -138,9 +146,20 @@ FIRST_STANDINGS_YEAR = 1969
 FIRST_ROSTER_YEAR = FIRST_SCHEDULE_YEAR
 FIRST_TRANSACTION_YEAR = 2000
 # Retrosheet's most recently published season (verified: raw.retrosheet_gameinfo
-# tops out at 2025) — MLB API's play-by-play starts exactly where that stops,
-# not earlier, to avoid a per-game-cost duplicate of already-authoritative data.
+# tops out at 2025) — MLB API's play-by-play/box-score/umpire data starts
+# exactly where that stops, not earlier, to avoid a per-game-cost duplicate
+# of already-authoritative data.
 FIRST_PLAYBYPLAY_YEAR = 2026
+# Win probability has no Retrosheet equivalent at all (a derived win-
+# expectancy model, not a raw play/box record) — pulled back much further
+# than play-by-play/box-score/umpire, which stay at FIRST_PLAYBYPLAY_YEAR
+# since Retrosheet already covers those. The real boundary was confirmed
+# directly, not assumed: gamePk-based game_winProbability/game_playByPlay
+# return real, populated data for a 1950 game, but 404/empty for 1949 and
+# every year checked back to 1901 (1940, 1945-1949 all empty; 1950, 1955,
+# 1957, 1960 all populated) — MLB's game feed data simply doesn't exist
+# before the 1950 season.
+FIRST_WIN_PROB_YEAR = 1950
 # Game statuses meaning "hasn't actually started" — anything else is worth a
 # play-by-play fetch (an exclude-list, not an include-list, since the exact
 # in-progress status string wasn't directly observable while building this —
@@ -781,11 +800,12 @@ def _win_prob_rows(data: list[dict], game_pk: int) -> list[dict]:
     return rows
 
 
-def _load_win_prob_for_game(conn: psycopg.Connection, game_pk: int) -> int:
+def _load_win_prob_for_game(conn: psycopg.Connection, game_pk: int, season: int) -> int:
     data = call_with_retry(statsapi.get, "game_winProbability", {"gamePk": game_pk})
     df = pd.DataFrame(_win_prob_rows(data, game_pk))
     if df.empty:
         return 0
+    df["_season"] = str(season)
     return load_dataframe(
         conn, "raw.mlb_win_prob", df, scope_column="game_pk", scope_value=str(game_pk)
     )
@@ -800,7 +820,7 @@ def _load_game_detail_for_game(
     once, even though each is still its own separate API call."""
     counts = {"raw.mlb_playbyplay": _load_playbyplay_for_game(conn, game_pk, season)}
     counts.update(_load_boxscore_for_game(conn, game_pk))
-    counts["raw.mlb_win_prob"] = _load_win_prob_for_game(conn, game_pk)
+    counts["raw.mlb_win_prob"] = _load_win_prob_for_game(conn, game_pk, season)
     return counts
 
 
@@ -815,8 +835,12 @@ _GAME_DETAIL_TABLES = [
 
 
 def _load_game_detail_for_season(conn: psycopg.Connection, season: int) -> dict[str, int]:
-    games = call_with_retry(statsapi.schedule, season=season, sportId=1)
     totals: dict[str, int] = dict.fromkeys(_GAME_DETAIL_TABLES, 0)
+    try:
+        games = call_with_retry(statsapi.schedule, season=season, sportId=1)
+    except Exception as exc:
+        print(f"mlb_api: game detail for season {season} failed ({exc}); skipping whole season")
+        return totals
     for game_pk in _started_game_ids(games):
         try:
             for table, count in _load_game_detail_for_game(conn, game_pk, season).items():
@@ -826,6 +850,32 @@ def _load_game_detail_for_season(conn: psycopg.Connection, season: int) -> dict[
             conn.rollback()
             print(f"mlb_api: game detail for game {game_pk} failed ({exc}); skipping")
     return totals
+
+
+def _load_win_prob_for_season(conn: psycopg.Connection, season: int) -> int:
+    """Win probability only, for seasons before FIRST_PLAYBYPLAY_YEAR — unlike
+    play-by-play/box-scores/umpires (which Retrosheet already covers for
+    these years, so re-pulling them would be pure duplication at real
+    per-game API cost), win probability has no Retrosheet equivalent at all.
+    Confirmed the real boundary directly rather than assuming continuity
+    back further: gamePk-based play-by-play/win-probability/box-score all
+    return real, populated data for a 1950 game, but 404/empty for 1949 and
+    earlier (tested 1901, 1920, 1940, 1945, 1946, 1947, 1948, 1949 — all
+    empty; 1950, 1955, 1957, 1960 — all populated)."""
+    total = 0
+    try:
+        games = call_with_retry(statsapi.schedule, season=season, sportId=1)
+    except Exception as exc:
+        print(f"mlb_api: win probability for season {season} failed ({exc}); skipping whole season")
+        return total
+    for game_pk in _started_game_ids(games):
+        try:
+            total += _load_win_prob_for_game(conn, game_pk, season)
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            print(f"mlb_api: win probability for game {game_pk} failed ({exc}); skipping")
+    return total
 
 
 def _load_game_detail_for_today(conn: psycopg.Connection) -> dict[str, int]:
@@ -909,6 +959,16 @@ def bootstrap() -> dict[str, int]:
                 # than the single per-season try/except above.
                 for table, count in _load_game_detail_for_season(conn, season).items():
                     counts[table] = counts.get(table, 0) + count
+            elif season >= FIRST_WIN_PROB_YEAR:
+                # Win-probability-only range (1950 through FIRST_PLAYBYPLAY_
+                # YEAR-1) — play-by-play/box-score/umpire stay out of this
+                # range since Retrosheet already covers them there; win
+                # probability has no Retrosheet equivalent, so it's the one
+                # piece worth the per-game API cost this far back.
+                if season_already_loaded(conn, "raw.mlb_win_prob", season):
+                    print(f"mlb_api: {season} win probability already loaded, skipping")
+                    continue
+                counts["raw.mlb_win_prob"] += _load_win_prob_for_season(conn, season)
         # Draft, venue, team history, and person bios each load once, after
         # the season loop — none of them are season-scoped in a way that
         # fits inside it (draft is per-year but a fixed 1965+ range, not tied

@@ -270,8 +270,11 @@ def test_bootstrap_loads_full_history_across_multiple_seasons(db_conn):
     assert counts["raw.mlb_playbyplay"] == 3  # 1 play x 3 completed 2026 games (all "Final")
     assert counts["raw.mlb_boxscore_batting"] == 3  # 1 batting-stat player x 3 games
     assert counts["raw.mlb_boxscore_fielding"] == 3
-    assert counts["raw.mlb_umpire"] == 3  # 1 umpire x 3 games
-    assert counts["raw.mlb_win_prob"] == 3  # 1 at-bat x 3 games
+    assert counts["raw.mlb_umpire"] == 3  # 1 umpire x 3 games, 2026 game-detail only
+    # win_prob covers all 6 games across all 3 seasons (2024/2025 via the
+    # win-prob-only range, 2026 via full game-detail) — unlike playbyplay/
+    # boxscore/umpire, which stay 2026-only (see FIRST_WIN_PROB_YEAR).
+    assert counts["raw.mlb_win_prob"] == 6
     assert counts["raw.mlb_venue"] == 1
     assert counts["raw.mlb_team_history"] == 1
     assert counts["raw.mlb_person"] == 1
@@ -283,6 +286,8 @@ def test_bootstrap_loads_full_history_across_multiple_seasons(db_conn):
         assert cur.fetchall() == [("2024", "1"), ("2025", "2"), ("2026", "3")]
         cur.execute("SELECT DISTINCT game_pk FROM raw.mlb_playbyplay ORDER BY 1")
         assert cur.fetchall() == [("2004",), ("2005",), ("2006",)]
+        cur.execute("SELECT _season, count(*) FROM raw.mlb_win_prob GROUP BY _season ORDER BY 1")
+        assert cur.fetchall() == [("2024", 2), ("2025", 1), ("2026", 3)]
         cur.execute("SELECT venue_id, city FROM raw.mlb_venue")
         assert cur.fetchall() == [("100", "Springfield")]
         cur.execute("SELECT person_id, full_name FROM raw.mlb_person")
@@ -531,3 +536,64 @@ def test_health_check_reports_healthy_with_zero_live_and_playbyplay_rows(db_conn
     assert roster_check.ok
     tx_check = next(c for c in checks if c.name == "raw.mlb_transaction")
     assert tx_check.ok
+
+
+def test_win_prob_only_range_is_idempotent_across_bootstrap_reruns(db_conn):
+    # FIRST_WIN_PROB_YEAR (1950, not monkeypatched here since 2024/2025 both
+    # already fall under it in this fixture's 2024-2026 window) covers
+    # 2024/2025 for win_prob only — a second bootstrap() run must not
+    # re-fetch (and re-insert) those already-loaded seasons.
+    with _mocked_statsapi():
+        mlb_api.bootstrap()
+        mlb_api.bootstrap()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT _season, count(*) FROM raw.mlb_win_prob GROUP BY _season ORDER BY 1")
+        assert cur.fetchall() == [("2024", 2), ("2025", 1), ("2026", 3)]
+
+
+def test_win_prob_only_range_skips_playbyplay_boxscore_umpire(db_conn):
+    # The whole point of splitting win_prob out from game-detail: 2024/2025
+    # must NOT get playbyplay/boxscore/umpire rows, only win_prob.
+    with _mocked_statsapi():
+        mlb_api.bootstrap()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT _season FROM raw.mlb_playbyplay")
+        assert cur.fetchall() == [("2026",)]
+        cur.execute(
+            "SELECT count(*) FROM raw.mlb_boxscore_batting "
+            "WHERE game_pk IN ('2001', '2002', '2003')"
+        )
+        assert cur.fetchone() == (0,)
+
+
+def test_win_prob_for_season_skips_whole_season_on_schedule_fetch_failure(db_conn):
+    # Regression: a season's own statsapi.schedule() call failing must not
+    # crash the entire multi-decade bootstrap loop — caught and skipped,
+    # same as every other per-season failure mode in this connector.
+    def flaky_schedule(**kwargs):
+        if kwargs.get("season") == 2024:
+            raise RuntimeError("simulated transient API failure")
+        return FIXTURE_GAMES_BY_SEASON.get(kwargs.get("season"), [])
+
+    with (
+        patch.object(mlb_api.statsapi, "schedule", side_effect=flaky_schedule),
+        patch.object(mlb_api.statsapi, "standings_data", side_effect=lambda **k: {}),
+        patch.object(mlb_api.statsapi, "get", side_effect=_fake_get),
+    ):
+        counts = mlb_api.bootstrap()
+
+    # 2024's win_prob failed (schedule fetch itself raised), but 2025/2026 landed.
+    assert counts["raw.mlb_win_prob"] == 4  # 1 (2025) + 3 (2026)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT _season FROM raw.mlb_win_prob ORDER BY 1")
+        assert cur.fetchall() == [("2025",), ("2026",)]
+
+
+def test_first_win_prob_year_boundary_matches_real_confirmed_coverage():
+    # Confirmed via direct testing against the real API: gamePk-based
+    # game_winProbability/game_playByPlay/game_boxscore return real,
+    # populated data for a 1950 game, but 404/empty for 1949 and every
+    # year checked back to 1901.
+    assert mlb_api.FIRST_WIN_PROB_YEAR == 1950

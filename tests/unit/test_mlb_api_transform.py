@@ -770,3 +770,34 @@ def test_load_analytics_for_game_covers_win_prob_linescore_and_context():
     assert m1.call_args.args[1:] == (777, 2024)
     assert m2.call_args.args[1:] == (777, 2024)
     assert m3.call_args.args[1:] == (777, 2024)
+
+
+def test_job_roster_rows_flattens_person_and_job_fields():
+    data = {
+        "roster": [
+            {
+                "person": {"id": 1, "fullName": "Scorer One"},
+                "jerseyNumber": "",
+                "job": "Official Scorer",
+                "jobId": "SCOR",
+            }
+        ]
+    }
+    assert mlb_api._job_roster_rows(data) == [
+        {
+            "person_id": 1,
+            "person_name": "Scorer One",
+            "jersey_number": "",
+            "job": "Official Scorer",
+            "job_id": "SCOR",
+        }
+    ]
+
+
+def test_load_conferences_full_reload_not_scoped():
+    payload = {"conferences": [{"id": 301, "name": "PCL American Conference"}]}
+    with patch.object(mlb_api.statsapi, "get", return_value=payload) as mock_get:
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            mlb_api._load_conferences(object())
+    assert mock_get.call_args.kwargs.get("force") is True
+    assert "scope_column" not in mock_load.call_args.kwargs

@@ -50,6 +50,9 @@ TABLES = [
     "raw.mlb_stat_leader",
     "raw.mlb_team_leader",
     "raw.mlb_award",
+    "raw.mlb_conference",
+    "raw.mlb_official_scorer",
+    "raw.mlb_umpire_directory",
 ]
 
 
@@ -260,6 +263,10 @@ FIXTURE_TEAM_LEADERS = {
     "teamLeaders": [{"leaders": [{"rank": 1, "value": "58", "person": {"id": 1, "fullName": "P"}}]}]
 }
 FIXTURE_AWARDS = {"awards": [{"id": "NLMVP", "name": "NL MVP"}]}
+FIXTURE_CONFERENCES = {"conferences": [{"id": 301, "name": "PCL American Conference"}]}
+FIXTURE_JOB_ROSTER = {
+    "roster": [{"person": {"id": 5, "fullName": "Job Person"}, "job": "Scorer", "jobId": "SCOR"}]
+}
 
 
 class _FixedDate(date):
@@ -357,6 +364,10 @@ def _fake_get(endpoint, params=None, **kwargs):
         return FIXTURE_TEAM_LEADERS
     if endpoint == "awards":
         return FIXTURE_AWARDS
+    if endpoint == "conferences":
+        return FIXTURE_CONFERENCES
+    if endpoint in ("jobs_officialScorers", "jobs_umpires"):
+        return FIXTURE_JOB_ROSTER
     raise AssertionError(f"unexpected endpoint: {endpoint}")
 
 
@@ -417,6 +428,9 @@ def test_bootstrap_loads_full_history_across_multiple_seasons(db_conn):
     assert counts["raw.mlb_affiliate"] == 1
     assert counts["raw.mlb_attendance"] == 1
     assert counts["raw.mlb_award"] == 1
+    assert counts["raw.mlb_conference"] == 1
+    assert counts["raw.mlb_official_scorer"] == 1
+    assert counts["raw.mlb_umpire_directory"] == 1
 
     with db_conn.cursor() as cur:
         cur.execute("SELECT _season, count(*) FROM raw.mlb_schedule GROUP BY _season ORDER BY 1")

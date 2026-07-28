@@ -93,8 +93,15 @@ across both sources — see ADR-017.
 
 Deliberately not built: `person_stats` (redundant with game_boxscore, which
 already returns every player's per-game line in one call instead of one call
-per player) and `jobs_umpire_games`/`jobs_officialScorers` (wrong shape, see
-above).
+per player), `jobs_umpire_games` (confirmed 401 Unauthorized — MLB-internal,
+not accessible regardless of parameters), `stats_streaks`/`highLow`
+(confirmed broken/inaccessible via the generic statsapi.get() interface —
+same class as FanGraphs), per-award recipient history (Lahman already has
+it), and `homeRunDerby`/All-Star voting endpoints (low-value event ephemera,
+`homeRunDerby` also needs a Derby-specific gamePk not discoverable from
+raw.mlb_schedule). `jobs_officialScorers` IS built (raw.mlb_official_scorer)
+— it's `jobs_umpire_games` specifically that's inaccessible, not the whole
+`jobs_*` family.
 
 bootstrap() loads full history for schedule/standings/rosters/transactions
 (each per-season, scope_column="_season"), committing after each season so
@@ -1403,6 +1410,56 @@ def _load_awards_catalog(conn: psycopg.Connection) -> int:
     return load_dataframe(conn, "raw.mlb_award", df)
 
 
+def _load_conferences(conn: psycopg.Connection) -> int:
+    data = call_with_retry(statsapi.get, "conferences", {"sportId": 1}, force=True)
+    df = pd.DataFrame(data.get("conferences", []))
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_conference", df)
+
+
+def _job_roster_rows(data: dict) -> list[dict]:
+    rows = []
+    for entry in data.get("roster", []):
+        person = entry.get("person", {})
+        rows.append(
+            {
+                "person_id": person.get("id"),
+                "person_name": person.get("fullName"),
+                "jersey_number": entry.get("jerseyNumber"),
+                "job": entry.get("job"),
+                "job_id": entry.get("jobId"),
+            }
+        )
+    return rows
+
+
+def _load_official_scorers(conn: psycopg.Connection) -> int:
+    # A current personnel directory, not historical-per-season data —
+    # confirmed directly: season=1990/2000/2024 all return the identical
+    # 235-person roster, so this isn't scoped by season the way team_coaches
+    # is. One current-snapshot pull, full reload each run.
+    current_year = date.today().year
+    data = call_with_retry(
+        statsapi.get, "jobs_officialScorers", {"sportId": 1, "season": current_year}
+    )
+    df = pd.DataFrame(_job_roster_rows(data))
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_official_scorer", df)
+
+
+def _load_umpires_directory(conn: psycopg.Connection) -> int:
+    # Same "current directory, not per-season history" behavior as
+    # jobs_officialScorers above — confirmed directly.
+    current_year = date.today().year
+    data = call_with_retry(statsapi.get, "jobs_umpires", {"sportId": 1, "season": current_year})
+    df = pd.DataFrame(_job_roster_rows(data))
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_umpire_directory", df)
+
+
 def bootstrap() -> dict[str, int]:
     counts: dict[str, int] = {
         "raw.mlb_schedule": 0,
@@ -1540,6 +1597,9 @@ def bootstrap() -> dict[str, int]:
             ("raw.mlb_affiliate", _load_affiliates),
             ("raw.mlb_attendance", _load_attendance),
             ("raw.mlb_award", _load_awards_catalog),
+            ("raw.mlb_conference", _load_conferences),
+            ("raw.mlb_official_scorer", _load_official_scorers),
+            ("raw.mlb_umpire_directory", _load_umpires_directory),
         ]:
             try:
                 counts[label] = fn(conn)
@@ -1691,5 +1751,8 @@ def health_check() -> list[Check]:
         check_table_has_rows("raw.mlb_stat_leader"),
         check_table_has_rows("raw.mlb_team_leader"),
         check_table_has_rows("raw.mlb_award"),
+        check_table_has_rows("raw.mlb_conference"),
+        check_table_has_rows("raw.mlb_official_scorer"),
+        check_table_has_rows("raw.mlb_umpire_directory"),
         check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

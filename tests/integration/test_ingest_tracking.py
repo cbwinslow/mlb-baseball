@@ -1,8 +1,9 @@
+import os
 import uuid
 
 import pytest
 
-from mlb_baseball.ingest import track_run
+from mlb_baseball.ingest import reap_stale_runs, track_run
 
 
 def _fetch_run(db_conn, source):
@@ -12,6 +13,24 @@ def _fetch_run(db_conn, source):
             "WHERE source = %s ORDER BY id DESC LIMIT 1",
             (source,),
         )
+        return cur.fetchone()
+
+
+def _insert_running(db_conn, source, pid):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO meta.ingestion_run (source, mode, status, pid) "
+            "VALUES (%s, 'bootstrap', 'running', %s) RETURNING id",
+            (source, pid),
+        )
+        run_id = cur.fetchone()[0]
+    db_conn.commit()
+    return run_id
+
+
+def _fetch_status(db_conn, run_id):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT status, error FROM meta.ingestion_run WHERE id = %s", (run_id,))
         return cur.fetchone()
 
 
@@ -47,3 +66,65 @@ def test_failure_path_logs_error_and_leaves_connection_usable(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("SELECT 1")
         assert cur.fetchone() == (1,)
+
+
+def test_track_run_stores_the_running_process_pid(db_conn):
+    source = f"test_pid_{uuid.uuid4().hex}"
+
+    with track_run(db_conn, source, "bootstrap") as result:
+        result["rows"] = 1
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT pid FROM meta.ingestion_run WHERE source = %s", (source,))
+        (pid,) = cur.fetchone()
+    assert pid == os.getpid()
+
+
+def test_reap_stale_runs_marks_dead_pid_as_failed(db_conn):
+    source = f"test_reap_dead_{uuid.uuid4().hex}"
+    # PID 1 is init/systemd on any real Linux host, never this test process —
+    # but a PID guaranteed to be dead needs to not collide with a live one.
+    # Use a PID far outside the kernel's normal allocation range instead.
+    dead_pid = 2**22
+    run_id = _insert_running(db_conn, source, dead_pid)
+
+    reaped = reap_stale_runs(db_conn)
+
+    reaped_ids = {r["id"] for r in reaped}
+    assert run_id in reaped_ids
+    status, error = _fetch_status(db_conn, run_id)
+    assert status == "failed"
+    assert str(dead_pid) in error
+
+
+def test_reap_stale_runs_leaves_live_pid_running(db_conn):
+    source = f"test_reap_live_{uuid.uuid4().hex}"
+    run_id = _insert_running(db_conn, source, os.getpid())
+
+    reaped = reap_stale_runs(db_conn)
+
+    reaped_ids = {r["id"] for r in reaped}
+    assert run_id not in reaped_ids
+    status, error = _fetch_status(db_conn, run_id)
+    assert status == "running"
+    assert error is None
+
+
+def test_reap_stale_runs_leaves_null_pid_rows_alone(db_conn):
+    source = f"test_reap_null_{uuid.uuid4().hex}"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO meta.ingestion_run (source, mode, status, pid) "
+            "VALUES (%s, 'bootstrap', 'running', NULL) RETURNING id",
+            (source,),
+        )
+        run_id = cur.fetchone()[0]
+    db_conn.commit()
+
+    reaped = reap_stale_runs(db_conn)
+
+    reaped_ids = {r["id"] for r in reaped}
+    assert run_id not in reaped_ids
+    status, error = _fetch_status(db_conn, run_id)
+    assert status == "running"
+    assert error is None

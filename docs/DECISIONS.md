@@ -2,6 +2,21 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-022: Stale ingestion-run detection via PID liveness
+
+**Decision:** `meta.ingestion_run` gains a `pid` column (migration `0007_ingestion_run_pid.sql`). `ingest.track_run()` stores `os.getpid()` on every row it inserts. A new `ingest.reap_stale_runs(conn)` finds every row still `status='running'` with a non-null `pid` whose process is no longer alive on this host (`os.kill(pid, 0)`), and marks it `'failed'` with an explanatory error. `mlb doctor` calls this on every run (`doctor._stale_ingestion_runs_reaped()`), so stale rows get cleaned up automatically instead of needing to be found and fixed by hand.
+
+**Context:** A real, repeatedly-hit operational bug, not a speculative one. `track_run()`'s existing try/except only runs when the connector raises a catchable Python exception — it never runs if the OS process itself is killed (SIGTERM/SIGKILL), which happened several times this session restarting background bootstrap runs. Each time left a `meta.ingestion_run` row stuck at `status='running'` forever, since nothing was watching the process from outside. Found and manually cleaned up by hand (`DELETE`/`UPDATE` against production) more than once before building the actual fix.
+
+**Rationale:**
+- **PID liveness (`os.kill(pid, 0)`), not age-based staleness** — this project's own historical backfills now legitimately run for days (see the multi-decade MLB API bootstrap), so "running longer than N hours" would false-flag genuine in-progress work. Checking whether the recorded process still exists is exact where a time threshold would only be a guess.
+- **Rows with `pid IS NULL` are deliberately left alone** — these predate migration `0007` (written before the column existed) and there's nothing to check liveness against; reaping them on any other basis would risk the same false-flagging problem PID-checking exists to avoid. The two genuinely-stale pre-migration rows found in production were reconciled once by hand as a one-time cleanup, not by the new automated path.
+- **`reap_stale_runs()` always reports `ok=True` in doctor, even when it reaps something** — a reap succeeding is the system correcting itself, not a problem to alarm on. The alarming case (a run that's still genuinely alive) is correctly left untouched since its PID passes the liveness check.
+- **Defensive against `meta.ingestion_run` not existing yet** (a fresh clone pre-migration) via catching `psycopg.errors.UndefinedTable`, consistent with every other doctor check's defensiveness against a not-yet-migrated database.
+- Smoke-tested directly against production before writing automated tests: inserted a fake row with an unreachable PID, confirmed `reap_stale_runs()` reaped it correctly, confirmed `mlb doctor` reports cleanly afterward. Automated coverage lives in `tests/integration/test_ingest_tracking.py` (dead/live/null-pid cases) and `tests/integration/test_doctor.py`.
+
+**Revisit if:** this project ever runs connectors on more than one host — PID liveness is only meaningful on the same machine the process ran on (this project's actual deployment shape today: bare-metal Postgres + connectors on one box, ADR-002).
+
 ## ADR-021: `cwbox`'s seven supplementary event lists built; "Retrosheet discrepancy files" confirmed not to exist
 
 **Decision:** `chadwick_tools._parse_cwbox_xml()` now extracts `cwbox -X`'s seven supplementary per-event lists (doubles, triples, homeruns, stolen bases, double plays, triple plays, sac bunts) into `raw.retrosheet_box_double/triple/homerun/stolenbase/doubleplay/tripleplay/sacbunt`, closing the gap ADR-012 originally documented and left open. "Retrosheet discrepancy files" — referenced as a build target from outside this session — do not exist as an actual Retrosheet product; not built.

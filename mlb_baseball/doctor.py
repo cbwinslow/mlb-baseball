@@ -16,7 +16,7 @@ directly, not just a status light.
 
 import psycopg
 
-from mlb_baseball import conform, manifest, migrate
+from mlb_baseball import conform, ingest, manifest, migrate
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.registry import CONNECTORS
@@ -82,6 +82,29 @@ def _downloads_directory_ok() -> Check:
     return Check("downloads directory", ok, detail)
 
 
+def _stale_ingestion_runs_reaped() -> Check:
+    """Actively reaps (not just reports) any meta.ingestion_run row stuck at
+    status='running' whose process is confirmed dead — see ingest.py's
+    reap_stale_runs() and docs/DECISIONS.md ADR-022. Always reports ok=True:
+    a stale run that gets cleaned up here and now is a healthy outcome, not
+    a failure to alarm on — the alarming case (a run that's still genuinely
+    in progress) is correctly left alone since its PID is still alive."""
+    with get_connection() as conn:
+        try:
+            reaped = ingest.reap_stale_runs(conn)
+        except psycopg.errors.UndefinedTable:
+            conn.rollback()
+            return Check(
+                "stale ingestion runs",
+                True,
+                "meta.ingestion_run doesn't exist yet — nothing to check",
+            )
+    if not reaped:
+        return Check("stale ingestion runs", True, "none found")
+    names = ", ".join(f"{r['source']} ({r['mode']}, pid {r['pid']})" for r in reaped)
+    return Check("stale ingestion runs", True, f"reaped {len(reaped)}: {names}")
+
+
 # (name, check_fn) — every entry runs independently and defensively: a bug or
 # an unexpected DB state in any one check must never prevent the rest from
 # reporting, since that's exactly the "doctor itself is broken" failure mode
@@ -90,6 +113,7 @@ _CORE_CHECKS = [
     ("required schemas", _required_schemas_exist),
     ("migrations", _migrations_up_to_date),
     ("downloads directory", _downloads_directory_ok),
+    ("stale ingestion runs", _stale_ingestion_runs_reaped),
 ]
 
 

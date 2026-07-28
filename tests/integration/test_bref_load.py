@@ -12,7 +12,12 @@ import pytest
 
 from mlb_baseball.connectors import bref
 
-TABLES = ["raw.bref_batting", "raw.bref_pitching"]
+TABLES = [
+    "raw.bref_batting",
+    "raw.bref_pitching",
+    "raw.bref_war_batting",
+    "raw.bref_war_pitching",
+]
 
 
 def _stats_df(n, name="Player One"):
@@ -45,6 +50,21 @@ def _fake_tables(monkeypatch, batting_fn=None, pitching_fn=None):
     pitching_fn = pitching_fn or (lambda season: _stats_df(2))
     monkeypatch.setattr(
         bref, "TABLES", [("raw.bref_batting", batting_fn), ("raw.bref_pitching", pitching_fn)]
+    )
+
+
+@pytest.fixture(autouse=True)
+def _fake_war_tables(monkeypatch):
+    # bwar_bat/bwar_pitch take no season argument (real-history-in-one-call —
+    # see module docstring), so the fakes below must accept the same
+    # return_all kwarg _load_war() passes through call_with_retry.
+    monkeypatch.setattr(
+        bref,
+        "WAR_TABLES",
+        [
+            ("raw.bref_war_batting", lambda return_all=False: _stats_df(2)),
+            ("raw.bref_war_pitching", lambda return_all=False: _stats_df(1)),
+        ],
     )
 
 
@@ -83,6 +103,41 @@ def test_load_season_skips_a_failing_stat_type_and_continues(db_conn, monkeypatc
         assert cur.fetchone() == (None,)
 
 
+def test_load_war_loads_batting_and_pitching_war(db_conn):
+    counts = bref._load_war(db_conn)
+
+    assert counts["raw.bref_war_batting"] == 2
+    assert counts["raw.bref_war_pitching"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.bref_war_batting")
+        assert cur.fetchone() == (2,)
+
+
+def test_load_war_rerunning_replaces_instead_of_duplicating(db_conn):
+    bref._load_war(db_conn)
+    bref._load_war(db_conn)
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.bref_war_batting")
+        assert cur.fetchone() == (2,)
+
+
+def test_load_war_skips_a_failing_table_and_continues(db_conn, monkeypatch):
+    def flaky(return_all=False):
+        raise RuntimeError("simulated failure")
+
+    monkeypatch.setattr(
+        bref, "WAR_TABLES", [("raw.bref_war_batting", flaky), ("raw.bref_war_pitching", flaky)]
+    )
+    counts = bref._load_war(db_conn)
+
+    assert counts["raw.bref_war_batting"] == 0
+    assert counts["raw.bref_war_pitching"] == 0
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.bref_war_batting')")
+        assert cur.fetchone() == (None,)
+
+
 def test_bootstrap_loads_multiple_seasons(db_conn, monkeypatch):
     monkeypatch.setattr(bref, "FIRST_YEAR", 2025)
     _fake_tables(
@@ -91,9 +146,13 @@ def test_bootstrap_loads_multiple_seasons(db_conn, monkeypatch):
     counts = bref.bootstrap()
 
     assert counts["raw.bref_batting"] > 0
+    assert counts["raw.bref_war_batting"] == 2
+    assert counts["raw.bref_war_pitching"] == 1
     with db_conn.cursor() as cur:
         cur.execute("SELECT DISTINCT _season FROM raw.bref_batting ORDER BY 1")
         assert cur.fetchall() == [("2025",), ("2026",)]
+        cur.execute("SELECT count(*) FROM raw.bref_war_batting")
+        assert cur.fetchone() == (2,)
 
 
 def test_update_reloads_current_season_only(db_conn, monkeypatch):
@@ -120,4 +179,6 @@ def test_health_check_reports_last_run_not_freshness(db_conn, monkeypatch):
 
     assert any(c.name == f"{bref.SOURCE} last run" for c in checks)
     assert not any(c.name == f"{bref.SOURCE} freshness" for c in checks)
+    assert any(c.name == "raw.bref_war_batting" for c in checks)
+    assert any(c.name == "raw.bref_war_pitching" for c in checks)
     assert all(c.ok for c in checks)

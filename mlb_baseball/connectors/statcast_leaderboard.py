@@ -144,6 +144,21 @@ def _load_oaa(conn: psycopg.Connection, season: int) -> int:
     return total
 
 
+def _season_fully_loaded(conn: psycopg.Connection, season: int) -> bool:
+    """True only if every currently-registered leaderboard table (not just
+    one proxy table) already has this season's data. A single-table proxy
+    check (the original design) went stale the moment new tables were added
+    to SIMPLE_LEADERBOARDS later — raw.statcast_sprint_speed being fully
+    loaded for a past season said nothing about whether a table added
+    afterwards had ever been backfilled for that same season, so bootstrap()
+    would skip the season entirely and silently never populate the new
+    table's history. Found for real: the 10 official-aggregate leaderboards
+    added in ADR-020 had zero historical rows after a bootstrap re-run,
+    because every past season already looked "done" via the old check."""
+    tables = [table for table, _ in SIMPLE_LEADERBOARDS] + ["raw.statcast_oaa"]
+    return all(season_already_loaded(conn, table, season) for table in tables)
+
+
 def _load_season(conn: psycopg.Connection, season: int) -> dict[str, int]:
     counts: dict[str, int] = {}
     for table, fn in SIMPLE_LEADERBOARDS:
@@ -171,11 +186,9 @@ def bootstrap() -> dict[str, int]:
         for season in range(FIRST_YEAR, current_year + 1):
             # Past seasons are published and complete — skip re-fetching on
             # a bootstrap re-run, same reasoning as statcast.py/mlb_api.py.
-            # raw.statcast_sprint_speed is the completeness proxy for the
-            # whole season's leaderboard set (first table in the loop).
-            if season < current_year and season_already_loaded(
-                conn, "raw.statcast_sprint_speed", season
-            ):
+            # See _season_fully_loaded's docstring for why this checks every
+            # table, not one proxy table.
+            if season < current_year and _season_fully_loaded(conn, season):
                 print(f"statcast_leaderboard: {season} already loaded, skipping")
                 continue
             for table, count in _load_season(conn, season).items():

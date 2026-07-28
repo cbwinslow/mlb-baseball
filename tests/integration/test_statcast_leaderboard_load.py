@@ -139,6 +139,44 @@ def test_bootstrap_loads_multiple_seasons(db_conn, monkeypatch):
         assert cur.fetchall() == [("2025",), ("2026",)]
 
 
+def test_bootstrap_backfills_a_leaderboard_added_after_a_season_was_already_completed(
+    db_conn, monkeypatch
+):
+    # Regression: the original completeness check tested only one proxy
+    # table (raw.statcast_sprint_speed) for "is this season done." Once a
+    # season looked done via that one table, adding a brand-new leaderboard
+    # later would never get backfilled for that season — bootstrap() would
+    # skip straight past it forever, since the proxy table already had data.
+    # Found for real: exactly this happened to the 10 official-aggregate
+    # leaderboards added in ADR-020, against a production database that
+    # already had raw.statcast_sprint_speed fully loaded for every past
+    # season.
+    monkeypatch.setattr(sl, "FIRST_YEAR", 2025)
+    with patch.object(sl.pybaseball, "statcast_outs_above_average", return_value=pd.DataFrame()):
+        _fake_leaderboards(monkeypatch)  # only sprint_speed + poptime exist yet
+        sl.bootstrap()
+
+        # Now simulate a new leaderboard being added to the module later.
+        monkeypatch.setattr(
+            sl,
+            "SIMPLE_LEADERBOARDS",
+            [
+                ("raw.statcast_sprint_speed", lambda season: _leaderboard_df(3)),
+                ("raw.statcast_poptime", lambda season: _leaderboard_df(2)),
+                ("raw.statcast_new_thing", lambda season: _leaderboard_df(4)),
+            ],
+        )
+        counts = sl.bootstrap()
+
+    assert counts["raw.statcast_new_thing"] > 0
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT _season FROM raw.statcast_new_thing ORDER BY 1")
+        assert cur.fetchall() == [("2025",), ("2026",)]
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_new_thing")
+    db_conn.commit()
+
+
 def test_update_reloads_current_season_only(db_conn, monkeypatch):
     monkeypatch.setattr(sl, "FIRST_YEAR", 2025)
     _fake_leaderboards(monkeypatch)

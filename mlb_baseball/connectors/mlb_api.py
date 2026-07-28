@@ -1,6 +1,8 @@
 """Lands MLB's own Stats API (statsapi.mlb.com) into raw.mlb_schedule,
 raw.mlb_standing, raw.mlb_roster, raw.mlb_transaction, raw.mlb_playbyplay,
-and raw.mlb_live_game, via the `statsapi` package
+raw.mlb_live_game, raw.mlb_venue, raw.mlb_team_history, raw.mlb_person,
+raw.mlb_draft, raw.mlb_boxscore_batting/pitching/fielding, raw.mlb_umpire,
+and raw.mlb_win_prob, via the `statsapi` package
 (github.com/toddrob99/MLB-StatsAPI — 830+ stars, actively maintained,
 already a pinned dependency in pyproject.toml).
 
@@ -47,24 +49,59 @@ across both sources — see ADR-017.
   for whatever games the API itself reports as currently `Live`
   (gameData.status.abstractGameState). Loaded via append_dataframe (never
   replaced/deleted) since every snapshot stays meaningful.
+- **Venues** (raw.mlb_venue): every ballpark the API knows about (~1,667),
+  full reload each run — reference data, not per-season.
+- **Team history** (raw.mlb_team_history): one row per team per
+  configuration-change (name/venue/franchise), not one row per season —
+  confirmed directly (Yankees/team_id 147 returns 5 rows spanning 1903-2009,
+  not 123). Team IDs sourced from raw.mlb_roster's own distinct team_id
+  column (not just the current season's 30 teams) so long-defunct
+  early-1900s franchises aren't missed.
+- **Person bios** (raw.mlb_person): name/DOB/bats-throws/debut-date for
+  every person_id ever seen in raw.mlb_roster (~20k) — the API has no bulk
+  "every player ever" endpoint, so rosters (1901+, already loaded) stands in
+  as the complete ID list. Full reload each run.
+- **Draft** (raw.mlb_draft): every pick, 1965 (MLB's first amateur draft,
+  confirmed: 1964 returns 0 rounds) through present.
+- **Box scores** (raw.mlb_boxscore_batting/pitching/fielding): one row per
+  player per game per stat category, FIRST_PLAYBYPLAY_YEAR+ only (same
+  duplication-avoidance reasoning as play-by-play below — Retrosheet already
+  covers box scores for its own published years).
+- **Umpires** (raw.mlb_umpire): per-game plate/base assignments, pulled from
+  the same game_boxscore response's `officials` array (not from the
+  jobs_umpire_games/jobs_officialScorers endpoints — confirmed those are
+  per-umpire career directories, not per-game assignment lookups, the wrong
+  shape for this). Continues Retrosheet's own umpire data past its freeze.
+- **Win probability** (raw.mlb_win_prob): one row per at-bat (joins to
+  raw.mlb_playbyplay on game_pk + at_bat_index), FIRST_PLAYBYPLAY_YEAR+ only.
+
+Deliberately not built: `person_stats` (redundant with game_boxscore, which
+already returns every player's per-game line in one call instead of one call
+per player) and `jobs_umpire_games`/`jobs_officialScorers` (wrong shape, see
+above).
 
 bootstrap() loads full history for schedule/standings/rosters/transactions
 (each per-season, scope_column="_season"), committing after each season so
 a failure partway through ~125 years doesn't lose already-loaded ones.
-Play-by-play bootstrap only runs for FIRST_PLAYBYPLAY_YEAR+ and commits per
-game (not per season) given its much higher per-season call volume and
-correspondingly higher chance of a single game failing partway through.
-A single bad season (or game, for play-by-play) doesn't abort the run:
-caught, logged, and skipped, matching retrosheet.py's "missing year returns
-empty without erroring" resilience.
+Venue/team-history/person/draft each load once as their own step. Game
+detail (play-by-play + box score + umpires + win probability) only runs for
+FIRST_PLAYBYPLAY_YEAR+ and commits per game (not per season) given its much
+higher per-season call volume and correspondingly higher chance of a single
+game failing partway through. A single bad season/game/step doesn't abort
+the run: caught, logged, and skipped, matching retrosheet.py's "missing year
+returns empty without erroring" resilience.
 
 update() reloads the current season's schedule/standings/roster/
-transactions (season-scoped replace, idempotent), refreshes play-by-play
-for today's started-or-finished games (game_pk-scoped replace — an
+transactions/draft (season-scoped replace, idempotent), refreshes game
+detail for today's started-or-finished games (game_pk-scoped replace — an
 in-progress game's plays keep growing across update() calls), and calls
-capture_live() to append current live-game snapshots. Getting genuinely
-real-time data requires update() to actually be called repeatedly — see
-scripts/mlb_api_update.sh and ADR-016.
+capture_live() to append current live-game snapshots. Venue/team-history/
+person are NOT refreshed every update() — they're reference/roster-derived
+data that changes rarely relative to a 5-minute cadence, not worth ~1,800
+extra API calls every tick; they're refreshed on the next bootstrap re-run
+instead (a documented, deliberate staleness tradeoff, not an oversight).
+Getting genuinely real-time data requires update() to actually be called
+repeatedly — see scripts/mlb_api_update.sh and ADR-016.
 
 Retry-with-backoff (net.call_with_retry) wraps every statsapi call — added
 after, not before, a real failure: the first full historical bootstrap hit
@@ -82,6 +119,7 @@ force=True. Confirmed by reading the library's source, not guessed.
 """
 
 import json
+import re
 from datetime import date
 
 import pandas as pd
@@ -113,6 +151,14 @@ NOT_YET_PLAYED_STATUSES = {"Scheduled", "Pre-Game", "Warmup", "Postponed", "Canc
 # minutes via cron (see docs/DECISIONS.md ADR-016) — 3x that cadence gives
 # room for one slow/retried run without doctor falsely flagging staleness.
 FRESHNESS_THRESHOLD_MINUTES = 15
+# MLB's first amateur draft (confirmed via direct testing — 1964 returns 0
+# rounds, 1965 returns 72 rounds/824 picks).
+FIRST_DRAFT_YEAR = 1965
+# The venue/people endpoints accept a batched, comma-separated ID list
+# (confirmed via direct testing) — chunking keeps the one-time full-catalog
+# pull to a couple hundred calls instead of one per venue/person.
+VENUE_BATCH_SIZE = 100
+PERSON_BATCH_SIZE = 200
 
 
 def _schedule_df(season: int) -> pd.DataFrame:
@@ -277,6 +323,292 @@ def _load_transactions(conn: psycopg.Connection, season: int) -> int:
     )
 
 
+VENUE_COLUMNS = [
+    "venue_id",
+    "name",
+    "active",
+    "address1",
+    "city",
+    "state",
+    "postal_code",
+    "country",
+    "latitude",
+    "longitude",
+    "timezone_id",
+    "capacity",
+    "turf_type",
+    "roof_type",
+    "left_line",
+    "center",
+    "right_line",
+]
+
+
+def _all_venue_ids() -> list[int]:
+    data = call_with_retry(statsapi.get, "venue", {"venueIds": ""}, force=True)
+    return [v["id"] for v in data.get("venues", [])]
+
+
+def _venue_df() -> pd.DataFrame:
+    ids = _all_venue_ids()
+    rows = []
+    for i in range(0, len(ids), VENUE_BATCH_SIZE):
+        batch = ids[i : i + VENUE_BATCH_SIZE]
+        data = call_with_retry(
+            statsapi.get,
+            "venue",
+            {
+                "venueIds": ",".join(str(v) for v in batch),
+                "hydrate": "location,fieldInfo,timezone",
+            },
+            force=True,
+        )
+        for v in data.get("venues", []):
+            location = v.get("location", {})
+            field_info = v.get("fieldInfo", {})
+            coords = location.get("defaultCoordinates", {})
+            rows.append(
+                {
+                    "venue_id": v.get("id"),
+                    "name": v.get("name"),
+                    "active": v.get("active"),
+                    "address1": location.get("address1"),
+                    "city": location.get("city"),
+                    "state": location.get("state"),
+                    "postal_code": location.get("postalCode"),
+                    "country": location.get("country"),
+                    "latitude": coords.get("latitude"),
+                    "longitude": coords.get("longitude"),
+                    "timezone_id": v.get("timeZone", {}).get("id"),
+                    "capacity": field_info.get("capacity"),
+                    "turf_type": field_info.get("turfType"),
+                    "roof_type": field_info.get("roofType"),
+                    "left_line": field_info.get("leftLine"),
+                    "center": field_info.get("center"),
+                    "right_line": field_info.get("rightLine"),
+                }
+            )
+    return pd.DataFrame(rows, columns=VENUE_COLUMNS)
+
+
+def _load_venue(conn: psycopg.Connection) -> int:
+    # Not season-scoped — a full reference-table reload each run, same
+    # pattern as retrosheet_reference.py (parks/team IDs are also "whole
+    # file, no natural per-year chunk").
+    df = _venue_df()
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_venue", df)
+
+
+TEAM_HISTORY_COLUMNS = [
+    "team_id",
+    "season",
+    "name",
+    "team_code",
+    "abbreviation",
+    "location_name",
+    "franchise_name",
+    "club_name",
+    "first_year_of_play",
+    "venue_id",
+    "venue_name",
+    "league_name",
+    "active",
+]
+
+
+def _team_history_df(team_id: int) -> pd.DataFrame:
+    # One row per configuration change (name/venue/franchise), not one row
+    # per season — confirmed via direct testing on the Yankees (team_id 147):
+    # 5 rows (1903 Highlanders/Hilltop Park, 1913 Polo Grounds, 1923 Yankee
+    # Stadium I, 1974 Shea Stadium during renovation, 2009 new Yankee
+    # Stadium), not 123. Each row's "season" is when that configuration took
+    # effect, running until the next row's season (or present, for the last).
+    data = call_with_retry(statsapi.get, "teams_history", {"teamIds": team_id}, force=True)
+    rows = []
+    for t in data.get("teams", []):
+        venue = t.get("venue", {})
+        league = t.get("league", {})
+        rows.append(
+            {
+                "team_id": t.get("id"),
+                "season": t.get("season"),
+                "name": t.get("name"),
+                "team_code": t.get("teamCode"),
+                "abbreviation": t.get("abbreviation"),
+                "location_name": t.get("locationName"),
+                "franchise_name": t.get("franchiseName"),
+                "club_name": t.get("clubName"),
+                "first_year_of_play": t.get("firstYearOfPlay"),
+                "venue_id": venue.get("id"),
+                "venue_name": venue.get("name"),
+                "league_name": league.get("name"),
+                "active": t.get("active"),
+            }
+        )
+    return pd.DataFrame(rows, columns=TEAM_HISTORY_COLUMNS)
+
+
+def _distinct_roster_team_ids(conn: psycopg.Connection) -> list[int]:
+    # Sourced from raw.mlb_roster (already spans 1901-present, all teams
+    # each season) rather than just the current season's 30 teams — MLB
+    # team_ids persist across renames/relocations (confirmed: team_id 147
+    # covers the Highlanders through the current Yankees, one row per era
+    # in teams_history), but a handful of long-defunct 1901-1902-era teams
+    # wouldn't be in *any* current season's team list at all. Rosters, not
+    # schedule, because it's the smallest table with the same coverage.
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT team_id FROM raw.mlb_roster WHERE team_id IS NOT NULL")
+        return [int(row[0]) for row in cur.fetchall()]
+
+
+def _load_team_history(conn: psycopg.Connection) -> int:
+    total = 0
+    for team_id in _distinct_roster_team_ids(conn):
+        df = _team_history_df(team_id)
+        if df.empty:
+            continue
+        total += load_dataframe(
+            conn, "raw.mlb_team_history", df, scope_column="team_id", scope_value=str(team_id)
+        )
+    return total
+
+
+PERSON_COLUMNS = [
+    "person_id",
+    "full_name",
+    "birth_date",
+    "birth_city",
+    "birth_country",
+    "height",
+    "weight",
+    "active",
+    "primary_position_code",
+    "primary_position_name",
+    "bat_side",
+    "pitch_hand",
+    "mlb_debut_date",
+]
+
+
+def _distinct_roster_person_ids(conn: psycopg.Connection) -> list[int]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT person_id FROM raw.mlb_roster WHERE person_id IS NOT NULL")
+        return [int(row[0]) for row in cur.fetchall()]
+
+
+def _person_df(person_ids: list[int]) -> pd.DataFrame:
+    rows = []
+    for i in range(0, len(person_ids), PERSON_BATCH_SIZE):
+        batch = person_ids[i : i + PERSON_BATCH_SIZE]
+        data = call_with_retry(
+            statsapi.get, "people", {"personIds": ",".join(str(p) for p in batch)}, force=True
+        )
+        for p in data.get("people", []):
+            position = p.get("primaryPosition", {})
+            rows.append(
+                {
+                    "person_id": p.get("id"),
+                    "full_name": p.get("fullName"),
+                    "birth_date": p.get("birthDate"),
+                    "birth_city": p.get("birthCity"),
+                    "birth_country": p.get("birthCountry"),
+                    "height": p.get("height"),
+                    "weight": p.get("weight"),
+                    "active": p.get("active"),
+                    "primary_position_code": position.get("code"),
+                    "primary_position_name": position.get("name"),
+                    "bat_side": p.get("batSide", {}).get("code"),
+                    "pitch_hand": p.get("pitchHand", {}).get("code"),
+                    "mlb_debut_date": p.get("mlbDebutDate"),
+                }
+            )
+    return pd.DataFrame(rows, columns=PERSON_COLUMNS)
+
+
+def _load_person(conn: psycopg.Connection) -> int:
+    # Sourced from raw.mlb_roster's own person_id column rather than a
+    # separate "list every player ever" call — the MLB Stats API has no such
+    # bulk endpoint, and rosters (1901+, already loaded) is a complete proxy
+    # for "everyone who's ever appeared on an MLB roster". Full reload each
+    # run (not scoped) since this is reference/bio data, not per-season data.
+    person_ids = _distinct_roster_person_ids(conn)
+    df = _person_df(person_ids)
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_person", df)
+
+
+DRAFT_COLUMNS = [
+    "draft_year",
+    "pick_round",
+    "pick_number",
+    "round_pick_number",
+    "pick_value",
+    "signing_bonus",
+    "person_id",
+    "person_name",
+    "team_id",
+    "team_name",
+    "home_city",
+    "home_state",
+    "home_country",
+    "school_name",
+    "school_class",
+    "school_city",
+    "school_state",
+    "school_country",
+    "scouting_report",
+    "blurb",
+]
+
+
+def _draft_df(year: int) -> pd.DataFrame:
+    data = call_with_retry(statsapi.get, "draft", {"year": year}, force=True)
+    rows = []
+    for round_ in data.get("drafts", {}).get("rounds", []):
+        for pick in round_.get("picks", []):
+            person = pick.get("person", {})
+            team = pick.get("team", {})
+            home = pick.get("home", {})
+            school = pick.get("school", {})
+            rows.append(
+                {
+                    "draft_year": year,
+                    "pick_round": pick.get("pickRound"),
+                    "pick_number": pick.get("pickNumber"),
+                    "round_pick_number": pick.get("roundPickNumber"),
+                    "pick_value": pick.get("pickValue"),
+                    "signing_bonus": pick.get("signingBonus"),
+                    "person_id": person.get("id"),
+                    "person_name": person.get("fullName"),
+                    "team_id": team.get("id"),
+                    "team_name": team.get("name"),
+                    "home_city": home.get("city"),
+                    "home_state": home.get("state"),
+                    "home_country": home.get("country"),
+                    "school_name": school.get("name"),
+                    "school_class": school.get("schoolClass"),
+                    "school_city": school.get("city"),
+                    "school_state": school.get("state"),
+                    "school_country": school.get("country"),
+                    "scouting_report": pick.get("scoutingReport"),
+                    "blurb": pick.get("blurb"),
+                }
+            )
+    return pd.DataFrame(rows, columns=DRAFT_COLUMNS)
+
+
+def _load_draft(conn: psycopg.Connection, year: int) -> int:
+    df = _draft_df(year)
+    if df.empty:
+        return 0
+    return load_dataframe(
+        conn, "raw.mlb_draft", df, scope_column="draft_year", scope_value=str(year)
+    )
+
+
 PLAYBYPLAY_COLUMNS = [
     "game_pk",
     "at_bat_index",
@@ -348,29 +680,180 @@ def _started_game_ids(games: list[dict]) -> list[int]:
     return [g["game_id"] for g in games if g.get("status") not in NOT_YET_PLAYED_STATUSES]
 
 
-def _load_playbyplay_for_season(conn: psycopg.Connection, season: int) -> int:
+_CAMEL_RE = re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _camel_to_snake(name: str) -> str:
+    """MLB's own boxscore/win-probability JSON keys are camelCase
+    (atBatsPerHomeRun, homeTeamWinProbability); hand-listing every one of
+    the ~85 batting/pitching/fielding stat fields would be pure transcription
+    risk, so convert programmatically instead of squashing them through
+    load.py's case-fold-only sanitizer (which would flatten atBats -> atbats,
+    losing the source's own word boundary)."""
+    return _CAMEL_RE.sub("_", name).lower()
+
+
+def _boxscore_identity(player: dict, game_pk: int, team_id: int) -> dict:
+    person = player.get("person", {})
+    position = player.get("position", {})
+    status = player.get("status", {})
+    return {
+        "game_pk": game_pk,
+        "team_id": team_id,
+        "person_id": person.get("id"),
+        "person_name": person.get("fullName"),
+        "position_code": position.get("code"),
+        "position_name": position.get("name"),
+        "status_code": status.get("code"),
+        "jersey_number": player.get("jerseyNumber"),
+        "batting_order": player.get("battingOrder"),
+    }
+
+
+def _boxscore_rows(data: dict, game_pk: int) -> tuple[list[dict], list[dict], list[dict]]:
+    batting_rows, pitching_rows, fielding_rows = [], [], []
+    for side in ("away", "home"):
+        team = data.get("teams", {}).get(side, {})
+        team_id = team.get("team", {}).get("id")
+        for player in team.get("players", {}).values():
+            identity = _boxscore_identity(player, game_pk, team_id)
+            stats = player.get("stats", {})
+            for category, rows in (
+                ("batting", batting_rows),
+                ("pitching", pitching_rows),
+                ("fielding", fielding_rows),
+            ):
+                values = stats.get(category) or {}
+                if values:
+                    rows.append({**identity, **{_camel_to_snake(k): v for k, v in values.items()}})
+    return batting_rows, pitching_rows, fielding_rows
+
+
+def _officials_rows(data: dict, game_pk: int) -> list[dict]:
+    rows = []
+    for entry in data.get("officials", []):
+        official = entry.get("official", {})
+        rows.append(
+            {
+                "game_pk": game_pk,
+                "person_id": official.get("id"),
+                "person_name": official.get("fullName"),
+                "official_type": entry.get("officialType"),
+            }
+        )
+    return rows
+
+
+def _load_boxscore_for_game(conn: psycopg.Connection, game_pk: int) -> dict[str, int]:
+    data = call_with_retry(statsapi.get, "game_boxscore", {"gamePk": game_pk})
+    batting_rows, pitching_rows, fielding_rows = _boxscore_rows(data, game_pk)
+    counts = {}
+    for table, rows in (
+        ("raw.mlb_boxscore_batting", batting_rows),
+        ("raw.mlb_boxscore_pitching", pitching_rows),
+        ("raw.mlb_boxscore_fielding", fielding_rows),
+        ("raw.mlb_umpire", _officials_rows(data, game_pk)),
+    ):
+        df = pd.DataFrame(rows)
+        counts[table] = (
+            load_dataframe(conn, table, df, scope_column="game_pk", scope_value=str(game_pk))
+            if not df.empty
+            else 0
+        )
+    return counts
+
+
+def _win_prob_rows(data: list[dict], game_pk: int) -> list[dict]:
+    rows = []
+    for play in data:
+        about = play.get("about", {})
+        rows.append(
+            {
+                "game_pk": game_pk,
+                "at_bat_index": play.get("atBatIndex"),
+                "inning": about.get("inning"),
+                "half_inning": about.get("halfInning"),
+                "home_win_probability": play.get("homeTeamWinProbability"),
+                "away_win_probability": play.get("awayTeamWinProbability"),
+                "home_win_probability_added": play.get("homeTeamWinProbabilityAdded"),
+            }
+        )
+    return rows
+
+
+def _load_win_prob_for_game(conn: psycopg.Connection, game_pk: int) -> int:
+    data = call_with_retry(statsapi.get, "game_winProbability", {"gamePk": game_pk})
+    df = pd.DataFrame(_win_prob_rows(data, game_pk))
+    if df.empty:
+        return 0
+    return load_dataframe(
+        conn, "raw.mlb_win_prob", df, scope_column="game_pk", scope_value=str(game_pk)
+    )
+
+
+def _load_game_detail_for_game(
+    conn: psycopg.Connection, game_pk: int, season: int
+) -> dict[str, int]:
+    """Play-by-play, box score (batting/pitching/fielding + umpires), and win
+    probability all key off the same game_pk — loaded together per game so a
+    bootstrap/update loop only has to fetch each season's/day's game list
+    once, even though each is still its own separate API call."""
+    counts = {"raw.mlb_playbyplay": _load_playbyplay_for_game(conn, game_pk, season)}
+    counts.update(_load_boxscore_for_game(conn, game_pk))
+    counts["raw.mlb_win_prob"] = _load_win_prob_for_game(conn, game_pk)
+    return counts
+
+
+_GAME_DETAIL_TABLES = [
+    "raw.mlb_playbyplay",
+    "raw.mlb_boxscore_batting",
+    "raw.mlb_boxscore_pitching",
+    "raw.mlb_boxscore_fielding",
+    "raw.mlb_umpire",
+    "raw.mlb_win_prob",
+]
+
+
+def _load_game_detail_for_season(conn: psycopg.Connection, season: int) -> dict[str, int]:
     games = call_with_retry(statsapi.schedule, season=season, sportId=1)
-    total = 0
+    totals: dict[str, int] = dict.fromkeys(_GAME_DETAIL_TABLES, 0)
     for game_pk in _started_game_ids(games):
         try:
-            total += _load_playbyplay_for_game(conn, game_pk, season)
+            for table, count in _load_game_detail_for_game(conn, game_pk, season).items():
+                totals[table] = totals.get(table, 0) + count
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"mlb_api: play-by-play for game {game_pk} failed ({exc}); skipping")
-    return total
+            print(f"mlb_api: game detail for game {game_pk} failed ({exc}); skipping")
+    return totals
 
 
-def _load_playbyplay_for_today(conn: psycopg.Connection) -> int:
+def _load_game_detail_for_today(conn: psycopg.Connection) -> dict[str, int]:
     today = date.today().strftime("%m/%d/%Y")
     games = call_with_retry(statsapi.schedule, date=today, sportId=1)
     season = date.today().year
-    total = 0
+    totals: dict[str, int] = dict.fromkeys(_GAME_DETAIL_TABLES, 0)
     for game_pk in _started_game_ids(games):
         try:
-            total += _load_playbyplay_for_game(conn, game_pk, season)
+            for table, count in _load_game_detail_for_game(conn, game_pk, season).items():
+                totals[table] = totals.get(table, 0) + count
         except Exception as exc:
-            print(f"mlb_api: play-by-play for game {game_pk} failed ({exc}); skipping")
+            print(f"mlb_api: game detail for game {game_pk} failed ({exc}); skipping")
+    return totals
+
+
+def _load_draft_years(conn: psycopg.Connection, current_year: int) -> int:
+    total = 0
+    for year in range(FIRST_DRAFT_YEAR, current_year + 1):
+        if year < current_year and season_already_loaded(conn, "raw.mlb_draft", year):
+            print(f"mlb_api: {year} draft already loaded, skipping")
+            continue
+        try:
+            total += _load_draft(conn, year)
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            print(f"mlb_api: draft {year} failed ({exc}); skipping")
     return total
 
 
@@ -381,6 +864,11 @@ def bootstrap() -> dict[str, int]:
         "raw.mlb_roster": 0,
         "raw.mlb_transaction": 0,
         "raw.mlb_playbyplay": 0,
+        "raw.mlb_boxscore_batting": 0,
+        "raw.mlb_boxscore_pitching": 0,
+        "raw.mlb_boxscore_fielding": 0,
+        "raw.mlb_umpire": 0,
+        "raw.mlb_win_prob": 0,
     }
     current_year = date.today().year
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
@@ -414,12 +902,39 @@ def bootstrap() -> dict[str, int]:
                 if season < current_year and season_already_loaded(
                     conn, "raw.mlb_playbyplay", season
                 ):
-                    print(f"mlb_api: {season} play-by-play already loaded, skipping")
+                    print(f"mlb_api: {season} game detail already loaded, skipping")
                     continue
                 # Own per-game commits inside — far higher call volume than
                 # the rest of this loop, so it needs finer-grained resilience
                 # than the single per-season try/except above.
-                counts["raw.mlb_playbyplay"] += _load_playbyplay_for_season(conn, season)
+                for table, count in _load_game_detail_for_season(conn, season).items():
+                    counts[table] = counts.get(table, 0) + count
+        # Draft, venue, team history, and person bios each load once, after
+        # the season loop — none of them are season-scoped in a way that
+        # fits inside it (draft is per-year but a fixed 1965+ range, not tied
+        # to schedule/standings; the other three are whole-catalog reloads).
+        counts["raw.mlb_draft"] = _load_draft_years(conn, current_year)
+        try:
+            counts["raw.mlb_venue"] = _load_venue(conn)
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            print(f"mlb_api: venue load failed ({exc}); skipping")
+            counts["raw.mlb_venue"] = 0
+        try:
+            counts["raw.mlb_team_history"] = _load_team_history(conn)
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            print(f"mlb_api: team history load failed ({exc}); skipping")
+            counts["raw.mlb_team_history"] = 0
+        try:
+            counts["raw.mlb_person"] = _load_person(conn)
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            print(f"mlb_api: person load failed ({exc}); skipping")
+            counts["raw.mlb_person"] = 0
         result["rows"] = sum(counts.values())
     return counts
 
@@ -508,8 +1023,9 @@ def update() -> dict[str, int]:
             else 0,
             "raw.mlb_roster": _load_roster(conn, season),
             "raw.mlb_transaction": _load_transactions(conn, season),
-            "raw.mlb_playbyplay": _load_playbyplay_for_today(conn),
+            "raw.mlb_draft": _load_draft(conn, season) if season >= FIRST_DRAFT_YEAR else 0,
         }
+        counts.update(_load_game_detail_for_today(conn))
         counts["raw.mlb_live_game"] = capture_live(conn)
         conn.commit()
         result["rows"] = sum(counts.values())
@@ -522,7 +1038,16 @@ def health_check() -> list[Check]:
         check_table_has_rows("raw.mlb_standing"),
         check_table_has_rows("raw.mlb_roster"),
         check_table_has_rows("raw.mlb_transaction"),
+        check_table_has_rows("raw.mlb_venue"),
+        check_table_has_rows("raw.mlb_team_history"),
+        check_table_has_rows("raw.mlb_person"),
+        check_table_has_rows("raw.mlb_draft"),
         check_table_exists("raw.mlb_playbyplay"),
+        check_table_exists("raw.mlb_boxscore_batting"),
+        check_table_exists("raw.mlb_boxscore_pitching"),
+        check_table_exists("raw.mlb_boxscore_fielding"),
+        check_table_exists("raw.mlb_umpire"),
+        check_table_exists("raw.mlb_win_prob"),
         check_table_exists("raw.mlb_live_game"),
         check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

@@ -134,10 +134,12 @@ def test_run_diagnoses_mlb_api_as_healthy_after_bootstrap_including_empty_live_t
     monkeypatch.setattr(mlb_api, "FIRST_ROSTER_YEAR", 2026)
     monkeypatch.setattr(mlb_api, "FIRST_TRANSACTION_YEAR", 2026)
     monkeypatch.setattr(mlb_api, "FIRST_PLAYBYPLAY_YEAR", 2026)
+    monkeypatch.setattr(mlb_api, "FIRST_DRAFT_YEAR", 2026)
     games = [{"game_id": 1, "national_broadcasts": [], "winning_team": "Tie", "status": "Final"}]
     standings = {201: {"div_name": "AL East", "teams": [{"name": "Orioles", "team_id": 110}]}}
 
     def fake_get(endpoint, params=None, **kwargs):
+        params = params or {}
         if endpoint == "teams":
             return {"teams": [{"id": 110}]}
         if endpoint == "team_roster":
@@ -146,6 +148,20 @@ def test_run_diagnoses_mlb_api_as_healthy_after_bootstrap_including_empty_live_t
             return {"transactions": []}
         if endpoint == "game_playByPlay":
             return {"allPlays": []}
+        if endpoint == "game_boxscore":
+            return {
+                "teams": {"away": {"team": {}, "players": {}}, "home": {"team": {}, "players": {}}}
+            }
+        if endpoint == "game_winProbability":
+            return []
+        if endpoint == "venue":
+            return {"venues": []} if params.get("venueIds") == "" else {"venues": []}
+        if endpoint == "teams_history":
+            return {"teams": []}
+        if endpoint == "people":
+            return {"people": []}
+        if endpoint == "draft":
+            return {"drafts": {"rounds": []}}
         raise AssertionError(f"unexpected endpoint: {endpoint}")
 
     with (
@@ -174,6 +190,15 @@ def test_run_diagnoses_mlb_api_as_healthy_after_bootstrap_including_empty_live_t
             "raw.mlb_roster",
             "raw.mlb_transaction",
             "raw.mlb_playbyplay",
+            "raw.mlb_draft",
+            "raw.mlb_venue",
+            "raw.mlb_team_history",
+            "raw.mlb_person",
+            "raw.mlb_boxscore_batting",
+            "raw.mlb_boxscore_pitching",
+            "raw.mlb_boxscore_fielding",
+            "raw.mlb_umpire",
+            "raw.mlb_win_prob",
         ]:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (mlb_api.SOURCE,))

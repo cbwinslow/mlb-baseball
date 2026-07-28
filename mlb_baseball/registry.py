@@ -3,6 +3,7 @@ and `mlb doctor`. Kept separate from cli.py so doctor.py can depend on it
 without importing the CLI module (which itself imports doctor.py)."""
 
 from mlb_baseball.connectors import (
+    bref,
     chadwick_register,
     lahman,
     mlb_api,
@@ -15,6 +16,7 @@ from mlb_baseball.connectors import (
     retrosheet_schedule,
     retrosheet_transaction,
     statcast,
+    statcast_leaderboard,
 )
 
 CONNECTORS = {
@@ -30,4 +32,6 @@ CONNECTORS = {
     "retrosheet_schedule": retrosheet_schedule,
     "retrosheet_transaction": retrosheet_transaction,
     "statcast": statcast,
+    "statcast_leaderboard": statcast_leaderboard,
+    "bref": bref,
 }

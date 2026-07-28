@@ -266,3 +266,261 @@ def test_live_snapshot_handles_missing_offense_defense_without_crashing():
 
     assert snapshot["batter_id"] is None
     assert snapshot["pitcher_name"] is None
+
+
+def test_camel_to_snake_matches_real_mlb_api_field_names():
+    assert mlb_api._camel_to_snake("atBats") == "at_bats"
+    assert mlb_api._camel_to_snake("atBatsPerHomeRun") == "at_bats_per_home_run"
+    assert mlb_api._camel_to_snake("era") == "era"
+    assert mlb_api._camel_to_snake("homeTeamWinProbability") == "home_team_win_probability"
+
+
+def test_venue_df_flattens_nested_location_fieldinfo_timezone():
+    payload = {
+        "venues": [
+            {
+                "id": 2857,
+                "name": "Test Park",
+                "active": True,
+                "location": {
+                    "address1": "1 Main St",
+                    "city": "Springfield",
+                    "state": "IL",
+                    "postalCode": "62701",
+                    "country": "USA",
+                    "defaultCoordinates": {"latitude": 1.1, "longitude": -2.2},
+                },
+                "timeZone": {"id": "America/Chicago"},
+                "fieldInfo": {
+                    "capacity": 5000,
+                    "turfType": "Grass",
+                    "roofType": "Open",
+                    "leftLine": 330,
+                    "center": 400,
+                    "rightLine": 330,
+                },
+            }
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        df = mlb_api._venue_df()
+
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["venue_id"] == 2857
+    assert row["city"] == "Springfield"
+    assert row["latitude"] == 1.1
+    assert row["capacity"] == 5000
+    assert row["turf_type"] == "Grass"
+
+
+def test_venue_df_batches_ids_across_multiple_calls():
+    # VENUE_BATCH_SIZE is 100 — more ids than that must trigger a second call,
+    # not silently truncate to the first batch.
+    ids = list(range(1, 251))
+
+    def fake_get(endpoint, params, **kwargs):
+        if params.get("venueIds") == "":
+            return {"venues": [{"id": i} for i in ids]}
+        requested = [int(v) for v in params["venueIds"].split(",")]
+        return {"venues": [{"id": v, "name": f"Park {v}"} for v in requested]}
+
+    with patch.object(mlb_api.statsapi, "get", side_effect=fake_get) as mock_get:
+        df = mlb_api._venue_df()
+
+    assert len(df) == 250
+    # 1 call for the id list + 3 batches of 100/100/50
+    assert mock_get.call_count == 4
+
+
+def test_team_history_df_flattens_venue_and_league():
+    payload = {
+        "teams": [
+            {
+                "id": 147,
+                "season": 1903,
+                "name": "New York Highlanders",
+                "teamCode": "nya",
+                "abbreviation": "NYY",
+                "locationName": "Manhattan",
+                "franchiseName": "New York",
+                "clubName": "Highlanders",
+                "firstYearOfPlay": "1903",
+                "venue": {"id": 100, "name": "Hilltop Park"},
+                "league": {"name": "American League"},
+                "active": True,
+            }
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        df = mlb_api._team_history_df(147)
+
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["season"] == 1903
+    assert row["venue_name"] == "Hilltop Park"
+    assert row["league_name"] == "American League"
+
+
+def test_person_df_batches_and_flattens_bio_fields():
+    ids = list(range(1, 5))
+
+    def fake_get(endpoint, params, **kwargs):
+        requested = [int(p) for p in params["personIds"].split(",")]
+        return {
+            "people": [
+                {
+                    "id": p,
+                    "fullName": f"Player {p}",
+                    "birthDate": "2000-01-01",
+                    "primaryPosition": {"code": "1", "name": "Pitcher"},
+                    "batSide": {"code": "R"},
+                    "pitchHand": {"code": "L"},
+                }
+                for p in requested
+            ]
+        }
+
+    with patch.object(mlb_api.statsapi, "get", side_effect=fake_get):
+        df = mlb_api._person_df(ids)
+
+    assert len(df) == 4
+    row = df[df["person_id"] == 2].iloc[0]
+    assert row["full_name"] == "Player 2"
+    assert row["primary_position_name"] == "Pitcher"
+    assert row["bat_side"] == "R"
+    assert row["pitch_hand"] == "L"
+
+
+def test_draft_df_flattens_nested_person_team_school_home():
+    payload = {
+        "drafts": {
+            "rounds": [
+                {
+                    "picks": [
+                        {
+                            "pickRound": "1",
+                            "pickNumber": 1,
+                            "roundPickNumber": 1,
+                            "pickValue": "9721000",
+                            "signingBonus": "9200000",
+                            "person": {"id": 694973, "fullName": "Paul Skenes"},
+                            "team": {"id": 134, "name": "Pittsburgh Pirates"},
+                            "home": {"city": "Lake Forest", "state": "CA", "country": "USA"},
+                            "school": {"name": "LSU", "schoolClass": "4YR JR"},
+                            "scoutingReport": "https://example.com",
+                            "blurb": "A great prospect.",
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        df = mlb_api._draft_df(2023)
+
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["draft_year"] == 2023
+    assert row["person_name"] == "Paul Skenes"
+    assert row["team_name"] == "Pittsburgh Pirates"
+    assert row["school_name"] == "LSU"
+    assert row["home_city"] == "Lake Forest"
+
+
+def test_draft_year_boundary_matches_real_confirmed_coverage():
+    # Confirmed via direct testing: 1964 (statsapi.get('draft', {'year': 1964}))
+    # returns 0 rounds; 1965 (MLB's first amateur draft) returns 72/824 picks.
+    assert mlb_api.FIRST_DRAFT_YEAR == 1965
+
+
+BOXSCORE_FEED = {
+    "teams": {
+        "away": {
+            "team": {"id": 119},
+            "players": {
+                "ID1": {
+                    "person": {"id": 1, "fullName": "Batter One"},
+                    "position": {"code": "2", "name": "Catcher"},
+                    "status": {"code": "A"},
+                    "jerseyNumber": "16",
+                    "battingOrder": "100",
+                    "stats": {
+                        "batting": {"atBats": 4, "hits": 1},
+                        "pitching": {},
+                        "fielding": {"putOuts": 6, "errors": 0},
+                    },
+                },
+                "ID2": {
+                    "person": {"id": 2, "fullName": "Pitcher One"},
+                    "position": {"code": "1", "name": "Pitcher"},
+                    "status": {"code": "A"},
+                    "jerseyNumber": "41",
+                    "battingOrder": None,
+                    "stats": {
+                        "batting": {},
+                        "pitching": {"inningsPitched": "5.0", "strikeOuts": 3},
+                        "fielding": {"putOuts": 1, "errors": 0},
+                    },
+                },
+            },
+        },
+        "home": {"team": {"id": 147}, "players": {}},
+    },
+    "officials": [
+        {"official": {"id": 500, "fullName": "Ump One"}, "officialType": "Home Plate"},
+    ],
+}
+
+
+def test_boxscore_rows_splits_into_batting_pitching_fielding_by_nonempty_stats():
+    batting, pitching, fielding = mlb_api._boxscore_rows(BOXSCORE_FEED, game_pk=777)
+
+    assert len(batting) == 1
+    assert batting[0]["person_name"] == "Batter One"
+    assert batting[0]["at_bats"] == 4
+    assert batting[0]["team_id"] == 119
+
+    assert len(pitching) == 1
+    assert pitching[0]["person_name"] == "Pitcher One"
+    assert pitching[0]["innings_pitched"] == "5.0"
+    assert pitching[0]["strike_outs"] == 3
+
+    # Both players recorded a fielding line.
+    assert len(fielding) == 2
+
+
+def test_officials_rows_flattens_umpire_assignments():
+    rows = mlb_api._officials_rows(BOXSCORE_FEED, game_pk=777)
+    assert rows == [
+        {
+            "game_pk": 777,
+            "person_id": 500,
+            "person_name": "Ump One",
+            "official_type": "Home Plate",
+        }
+    ]
+
+
+def test_win_prob_rows_flattens_per_at_bat_probabilities():
+    data = [
+        {
+            "atBatIndex": 0,
+            "about": {"inning": 1, "halfInning": "top"},
+            "homeTeamWinProbability": 46.4,
+            "awayTeamWinProbability": 53.6,
+            "homeTeamWinProbabilityAdded": -3.6,
+        }
+    ]
+    rows = mlb_api._win_prob_rows(data, game_pk=777)
+    assert rows == [
+        {
+            "game_pk": 777,
+            "at_bat_index": 0,
+            "inning": 1,
+            "half_inning": "top",
+            "home_win_probability": 46.4,
+            "away_win_probability": 53.6,
+            "home_win_probability_added": -3.6,
+        }
+    ]

@@ -22,6 +22,15 @@ TABLES = [
     "raw.mlb_transaction",
     "raw.mlb_playbyplay",
     "raw.mlb_live_game",
+    "raw.mlb_venue",
+    "raw.mlb_team_history",
+    "raw.mlb_person",
+    "raw.mlb_draft",
+    "raw.mlb_boxscore_batting",
+    "raw.mlb_boxscore_pitching",
+    "raw.mlb_boxscore_fielding",
+    "raw.mlb_umpire",
+    "raw.mlb_win_prob",
 ]
 
 
@@ -98,6 +107,85 @@ FIXTURE_PLAYBYPLAY = {
     ]
 }
 
+FIXTURE_VENUE_IDS = {"venues": [{"id": 100}]}
+FIXTURE_VENUE_DETAIL = {
+    "venues": [
+        {
+            "id": 100,
+            "name": "Test Park",
+            "active": True,
+            "location": {"city": "Springfield"},
+            "timeZone": {"id": "America/Chicago"},
+            "fieldInfo": {"capacity": 5000},
+        }
+    ]
+}
+FIXTURE_TEAM_HISTORY = {
+    "teams": [
+        {
+            "id": 110,
+            "season": 1954,
+            "name": "Baltimore Orioles",
+            "venue": {"id": 100, "name": "Test Park"},
+            "league": {"name": "American League"},
+        }
+    ]
+}
+FIXTURE_PEOPLE = {
+    "people": [
+        {
+            "id": 1,
+            "fullName": "Player One",
+            "birthDate": "2000-01-01",
+            "primaryPosition": {"code": "1", "name": "Pitcher"},
+        }
+    ]
+}
+FIXTURE_DRAFT = {
+    "drafts": {
+        "rounds": [
+            {
+                "picks": [
+                    {
+                        "pickRound": "1",
+                        "pickNumber": 1,
+                        "person": {"id": 1, "fullName": "Player One"},
+                        "team": {"id": 110, "name": "Orioles"},
+                        "home": {},
+                        "school": {},
+                    }
+                ]
+            }
+        ]
+    }
+}
+FIXTURE_BOXSCORE = {
+    "teams": {
+        "away": {
+            "team": {"id": 147},
+            "players": {
+                "ID1": {
+                    "person": {"id": 1, "fullName": "Player One"},
+                    "position": {"code": "1", "name": "Pitcher"},
+                    "status": {"code": "A"},
+                    "stats": {"batting": {"atBats": 1}, "pitching": {}, "fielding": {"putOuts": 1}},
+                }
+            },
+        },
+        "home": {"team": {"id": 110}, "players": {}},
+    },
+    "officials": [{"official": {"id": 900, "fullName": "Ump One"}, "officialType": "Home Plate"}],
+}
+FIXTURE_WIN_PROB = [
+    {
+        "atBatIndex": 0,
+        "about": {"inning": 1, "halfInning": "top"},
+        "homeTeamWinProbability": 50.0,
+        "awayTeamWinProbability": 50.0,
+        "homeTeamWinProbabilityAdded": 0.0,
+    }
+]
+
 
 class _FixedDate(date):
     @classmethod
@@ -113,6 +201,7 @@ def _fixed_range(monkeypatch):
     monkeypatch.setattr(mlb_api, "FIRST_ROSTER_YEAR", 2024)
     monkeypatch.setattr(mlb_api, "FIRST_TRANSACTION_YEAR", 2024)
     monkeypatch.setattr(mlb_api, "FIRST_PLAYBYPLAY_YEAR", 2026)
+    monkeypatch.setattr(mlb_api, "FIRST_DRAFT_YEAR", 2024)
 
 
 @pytest.fixture(autouse=True)
@@ -141,8 +230,20 @@ def _fake_get(endpoint, params=None, **kwargs):
         return FIXTURE_TRANSACTIONS
     if endpoint == "game_playByPlay":
         return FIXTURE_PLAYBYPLAY
+    if endpoint == "game_boxscore":
+        return FIXTURE_BOXSCORE
+    if endpoint == "game_winProbability":
+        return FIXTURE_WIN_PROB
     if endpoint == "game":
         return FINAL_GAME_FEED
+    if endpoint == "venue":
+        return FIXTURE_VENUE_IDS if params.get("venueIds") == "" else FIXTURE_VENUE_DETAIL
+    if endpoint == "teams_history":
+        return FIXTURE_TEAM_HISTORY
+    if endpoint == "people":
+        return FIXTURE_PEOPLE
+    if endpoint == "draft":
+        return FIXTURE_DRAFT
     raise AssertionError(f"unexpected endpoint: {endpoint}")
 
 
@@ -163,7 +264,17 @@ def test_bootstrap_loads_full_history_across_multiple_seasons(db_conn):
     assert counts["raw.mlb_standing"] == 3
     assert counts["raw.mlb_roster"] == 3  # 1 player x 3 seasons (2024-2026)
     assert counts["raw.mlb_transaction"] == 3  # 1 transaction x 3 seasons
+    assert (
+        counts["raw.mlb_draft"] == 3
+    )  # 1 pick x 3 seasons (2024-2026, FIRST_DRAFT_YEAR monkeypatched)
     assert counts["raw.mlb_playbyplay"] == 3  # 1 play x 3 completed 2026 games (all "Final")
+    assert counts["raw.mlb_boxscore_batting"] == 3  # 1 batting-stat player x 3 games
+    assert counts["raw.mlb_boxscore_fielding"] == 3
+    assert counts["raw.mlb_umpire"] == 3  # 1 umpire x 3 games
+    assert counts["raw.mlb_win_prob"] == 3  # 1 at-bat x 3 games
+    assert counts["raw.mlb_venue"] == 1
+    assert counts["raw.mlb_team_history"] == 1
+    assert counts["raw.mlb_person"] == 1
 
     with db_conn.cursor() as cur:
         cur.execute("SELECT _season, count(*) FROM raw.mlb_schedule GROUP BY _season ORDER BY 1")
@@ -172,6 +283,38 @@ def test_bootstrap_loads_full_history_across_multiple_seasons(db_conn):
         assert cur.fetchall() == [("2024", "1"), ("2025", "2"), ("2026", "3")]
         cur.execute("SELECT DISTINCT game_pk FROM raw.mlb_playbyplay ORDER BY 1")
         assert cur.fetchall() == [("2004",), ("2005",), ("2006",)]
+        cur.execute("SELECT venue_id, city FROM raw.mlb_venue")
+        assert cur.fetchall() == [("100", "Springfield")]
+        cur.execute("SELECT person_id, full_name FROM raw.mlb_person")
+        assert cur.fetchall() == [("1", "Player One")]
+
+
+def test_bootstrap_is_idempotent_for_venue_team_history_person(db_conn):
+    with _mocked_statsapi():
+        mlb_api.bootstrap()
+        mlb_api.bootstrap()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.mlb_venue")
+        assert cur.fetchone() == (1,)
+        cur.execute("SELECT count(*) FROM raw.mlb_team_history")
+        assert cur.fetchone() == (1,)
+        cur.execute("SELECT count(*) FROM raw.mlb_person")
+        assert cur.fetchone() == (1,)
+
+
+def test_bootstrap_boxscore_and_umpires_replace_not_duplicate_per_game(db_conn):
+    with _mocked_statsapi():
+        mlb_api.bootstrap()
+        mlb_api.bootstrap()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.mlb_boxscore_batting WHERE game_pk = '2004'")
+        assert cur.fetchone() == (1,)
+        cur.execute("SELECT count(*) FROM raw.mlb_umpire WHERE game_pk = '2004'")
+        assert cur.fetchone() == (1,)
+        cur.execute("SELECT count(*) FROM raw.mlb_win_prob WHERE game_pk = '2004'")
+        assert cur.fetchone() == (1,)
 
 
 def test_bootstrap_skips_a_failing_season_and_continues(db_conn):
@@ -354,12 +497,21 @@ def test_update_includes_all_counts(db_conn):
         "raw.mlb_standing",
         "raw.mlb_roster",
         "raw.mlb_transaction",
+        "raw.mlb_draft",
         "raw.mlb_playbyplay",
+        "raw.mlb_boxscore_batting",
+        "raw.mlb_boxscore_pitching",
+        "raw.mlb_boxscore_fielding",
+        "raw.mlb_umpire",
+        "raw.mlb_win_prob",
         "raw.mlb_live_game",
     }
     assert counts["raw.mlb_schedule"] == 3
     assert counts["raw.mlb_standing"] == 1
     assert counts["raw.mlb_live_game"] == 0  # FINAL_GAME_FEED — nothing live today
+    # update()'s schedule(date=...) call doesn't match FIXTURE_GAMES_BY_SEASON
+    # (keyed by season, not date) — no started games today under this fixture.
+    assert counts["raw.mlb_playbyplay"] == 0
 
 
 def test_health_check_reports_healthy_with_zero_live_and_playbyplay_rows(db_conn):

@@ -53,6 +53,7 @@ TABLES = [
     "raw.mlb_conference",
     "raw.mlb_official_scorer",
     "raw.mlb_umpire_directory",
+    "raw.mlb_datacaster",
 ]
 
 
@@ -366,7 +367,7 @@ def _fake_get(endpoint, params=None, **kwargs):
         return FIXTURE_AWARDS
     if endpoint == "conferences":
         return FIXTURE_CONFERENCES
-    if endpoint in ("jobs_officialScorers", "jobs_umpires"):
+    if endpoint in ("jobs_officialScorers", "jobs_umpires", "jobs_datacasters"):
         return FIXTURE_JOB_ROSTER
     raise AssertionError(f"unexpected endpoint: {endpoint}")
 
@@ -431,6 +432,7 @@ def test_bootstrap_loads_full_history_across_multiple_seasons(db_conn):
     assert counts["raw.mlb_conference"] == 1
     assert counts["raw.mlb_official_scorer"] == 1
     assert counts["raw.mlb_umpire_directory"] == 1
+    assert counts["raw.mlb_datacaster"] == 1
 
     with db_conn.cursor() as cur:
         cur.execute("SELECT _season, count(*) FROM raw.mlb_schedule GROUP BY _season ORDER BY 1")

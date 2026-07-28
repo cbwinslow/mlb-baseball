@@ -97,10 +97,19 @@ per player), `jobs_umpire_games` (confirmed 401 Unauthorized — MLB-internal,
 not accessible regardless of parameters), `stats_streaks`/`highLow`
 (confirmed broken/inaccessible via the generic statsapi.get() interface —
 same class as FanGraphs), per-award recipient history (Lahman already has
-it), and `homeRunDerby`/All-Star voting endpoints (low-value event ephemera,
+it), `homeRunDerby`/All-Star voting endpoints (low-value event ephemera,
 `homeRunDerby` also needs a Derby-specific gamePk not discoverable from
-raw.mlb_schedule). `jobs_officialScorers` IS built (raw.mlb_official_scorer)
-— it's `jobs_umpire_games` specifically that's inaccessible, not the whole
+raw.mlb_schedule), and the cosmetic/operational family — `game_color`
+(confirmed dead, 404), `team_uniforms`/`game_uniforms` (checked directly:
+merchandise metadata, not analytical data), `game_content` (checked
+directly: editorial/media CMS content, not stats), `meta` (checked
+directly: returns a bare list — the API's own parameter documentation, not
+baseball data), `game_changes`/`people_changes` (an operational sync feed,
+not a stable fact), and generic `jobs` (confirmed to return the same roster
+as the dedicated jobs_umpires/jobs_officialScorers endpoints — a
+parameterized alias, not new data). `jobs_officialScorers`/`jobs_datacasters`
+ARE built (raw.mlb_official_scorer/raw.mlb_datacaster) — it's
+`jobs_umpire_games` specifically that's inaccessible, not the whole
 `jobs_*` family.
 
 bootstrap() loads full history for schedule/standings/rosters/transactions
@@ -1460,6 +1469,18 @@ def _load_umpires_directory(conn: psycopg.Connection) -> int:
     return load_dataframe(conn, "raw.mlb_umpire_directory", df)
 
 
+def _load_datacasters(conn: psycopg.Connection) -> int:
+    # "Stringers" — MLB's official in-game data-entry personnel (who records
+    # Gameday play-by-play as it happens). Same current-directory shape as
+    # jobs_officialScorers/jobs_umpires, not per-season history.
+    current_year = date.today().year
+    data = call_with_retry(statsapi.get, "jobs_datacasters", {"sportId": 1, "season": current_year})
+    df = pd.DataFrame(_job_roster_rows(data))
+    if df.empty:
+        return 0
+    return load_dataframe(conn, "raw.mlb_datacaster", df)
+
+
 def bootstrap() -> dict[str, int]:
     counts: dict[str, int] = {
         "raw.mlb_schedule": 0,
@@ -1600,6 +1621,7 @@ def bootstrap() -> dict[str, int]:
             ("raw.mlb_conference", _load_conferences),
             ("raw.mlb_official_scorer", _load_official_scorers),
             ("raw.mlb_umpire_directory", _load_umpires_directory),
+            ("raw.mlb_datacaster", _load_datacasters),
         ]:
             try:
                 counts[label] = fn(conn)
@@ -1754,5 +1776,6 @@ def health_check() -> list[Check]:
         check_table_has_rows("raw.mlb_conference"),
         check_table_has_rows("raw.mlb_official_scorer"),
         check_table_has_rows("raw.mlb_umpire_directory"),
+        check_table_has_rows("raw.mlb_datacaster"),
         check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

@@ -801,3 +801,17 @@ def test_load_conferences_full_reload_not_scoped():
             mlb_api._load_conferences(object())
     assert mock_get.call_args.kwargs.get("force") is True
     assert "scope_column" not in mock_load.call_args.kwargs
+
+
+def test_load_datacasters_uses_job_roster_shape():
+    payload = {
+        "roster": [
+            {"person": {"id": 9, "fullName": "Stringer One"}, "job": "Stringer", "jobId": "MSTR"}
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=payload):
+        with patch.object(mlb_api, "load_dataframe") as mock_load:
+            mlb_api._load_datacasters(object())
+    df = mock_load.call_args.args[2]
+    assert df.iloc[0]["person_name"] == "Stringer One"
+    assert df.iloc[0]["job"] == "Stringer"

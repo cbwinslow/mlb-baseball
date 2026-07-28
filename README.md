@@ -28,31 +28,24 @@ pip install -e .
 cp .env.example .env   # then point DATABASE_URL at your own Postgres (bare-metal by default, see ADR-002)
 mlb migrate
 mlb doctor              # confirms the database and every dependency (see Requirements) is ready
-mlb ingest register --mode bootstrap
-mlb ingest lahman --mode bootstrap   # see docs/DATA_SOURCES.md for the manual download step first
-mlb ingest retrosheet --mode bootstrap            # pre-parsed CSV product, 1898-present
-mlb ingest retrosheet_gamelog --mode bootstrap    # game logs + postseason logs, 1871-present
-mlb ingest retrosheet_reference --mode bootstrap  # parks, teams, biographical/coach/umpire/manager data
-mlb ingest retrosheet_roster --mode bootstrap     # annual rosters, 1871-present
-mlb ingest retrosheet_schedule --mode bootstrap   # planned schedules, 1877-2026
-mlb ingest retrosheet_transaction --mode bootstrap
-mlb ingest retrosheet_event --mode bootstrap      # raw play-by-play (needs cwevent/cwgame — see Requirements)
-mlb ingest retrosheet_box --mode bootstrap        # box-score-only games (needs cwbox — see Requirements)
-mlb ingest mlb_api --mode bootstrap               # full-history schedule (1901+) and standings (1969+)
-mlb conform                                       # builds core.player/team/game from the raw tables above
+mlb bootstrap            # runs every registered connector's bootstrap() — see "Bootstrap procedure" below
+mlb conform              # builds core.player/team/game from the raw tables above
 ```
 
-Every registered source is in `mlb_baseball/registry.py`; `mlb doctor` reports on all of them in one pass, and `mlb inventory` shows live row counts and last-run status per source.
+`mlb bootstrap` is slow (realistically days, not minutes) once `mlb_api`'s and Statcast's full historical ranges are involved, and it's resumable — see `docs/ARCHITECTURE.md` "Bootstrap procedure" before running it for real. To bootstrap one source at a time instead (useful while developing, or to retry just the source that failed), use `mlb ingest <source> --mode bootstrap`; every registered source is in `mlb_baseball/registry.py`. `lahman` prefers a manually-downloaded zip (see `docs/DATA_SOURCES.md`) but falls back to a network mirror automatically if you skip that step.
+
+`mlb doctor` reports on every source in one pass, and `mlb inventory` shows live row counts and last-run status per source — both are the way to check on a bootstrap's progress, not by assuming a long-running command has hung.
 
 ## Scheduling
 
-`mlb_api` is the one source that needs to stay fresh on a clock, not just be bootstrapped once — see `docs/DECISIONS.md` ADR-016. After bootstrapping it, add this to your crontab (`crontab -e`) to keep the current season's schedule/standings and live-game state updated every 5 minutes:
+Two cron jobs, two different cadences — see `docs/ARCHITECTURE.md` "Scheduling" and `docs/DECISIONS.md` ADR-016/ADR-023:
 
 ```cron
 */5 * * * * /path/to/mlb-baseball/scripts/mlb_api_update.sh
+0 6 * * *   /path/to/mlb-baseball/scripts/mlb_daily_update.sh
 ```
 
-Replace `/path/to/mlb-baseball` with this repo's actual path. The script logs to `logs/mlb_api_update.log` (gitignored) and guards against overlapping runs with `flock`. `mlb doctor` will report `mlb_api freshness` as unhealthy if the scheduled job stops running (no successful run in the last 15 minutes), not just if the last run failed.
+Replace `/path/to/mlb-baseball` with this repo's actual path. `mlb_api_update.sh` keeps the current season's schedule/standings and live-game state fresh every 5 minutes (`logs/mlb_api_update.log`). `mlb_daily_update.sh` runs `mlb update` — every connector's `update()`, all of them deliberately cheap (current season or a small full-catalog check, never a full historical re-fetch) — once a day to keep Statcast leaderboards, Baseball-Reference season stats, and similar season-in-progress data fresh (`logs/mlb_daily_update.log`). Both guard against overlapping runs with `flock`. `mlb doctor` reports `mlb_api freshness` as unhealthy if the 5-minute job stops running (no successful run in the last 15 minutes), not just if the last run failed.
 
 ## Requirements
 

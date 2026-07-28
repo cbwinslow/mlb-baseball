@@ -65,9 +65,27 @@ All configuration (database connection, any API keys for Kalshi, etc.) goes thro
 
 ## Scheduling
 
-`mlb_api`'s live-game capture is the first (and so far only) real need for a repeating schedule, not a one-off bootstrap — see ADR-016. `scripts/mlb_api_update.sh` runs `mlb ingest mlb_api --mode update` every 5 minutes via cron, guarded with `flock` against overlapping runs, logging to `logs/mlb_api_update.log` (gitignored). `mlb_api.health_check()` uses `check_recent_run` (not just `check_last_run`) so `mlb doctor` catches the scheduler having silently stopped, not just the last run having failed.
+Two cadences, not one — see ADR-016 and ADR-023:
 
-Every other connector in this project is still a manual/occasional `mlb ingest <source> --mode bootstrap|update` — this pattern isn't applied project-wide, only where a source genuinely needs to stay fresh on a clock. Extend it to another connector only when that connector has the same real need, not by default.
+- **Every 5 minutes — `mlb_api` only.** `scripts/mlb_api_update.sh` runs `mlb ingest mlb_api --mode update`, guarded with `flock`, logging to `logs/mlb_api_update.log` (gitignored). This is the one genuinely time-sensitive job: live in-progress game state and the current day's schedule/standings. `mlb_api.health_check()` uses `check_recent_run` (not just `check_last_run`) so `mlb doctor` catches the scheduler having silently stopped, not just the last run having failed.
+- **Once a day — every connector.** `scripts/mlb_daily_update.sh` runs `mlb update` (every registered connector's `update()`, same `flock` + logging shape, logs to `logs/mlb_daily_update.log`). Every connector's `update()` is deliberately scoped to be cheap — current season only, or a small full-catalog re-check, never a full historical re-fetch (see each connector's `bootstrap()`/`update()` split, e.g. `statcast.py`, `bref.py`, `statcast_leaderboard.py`) — so running all of them daily is safe. This is what keeps Statcast leaderboards, Baseball-Reference season stats, and Retrosheet's current-decade archive from going stale as a season progresses, without re-running the connector's `bootstrap()`.
+
+Neither script is installed to crontab automatically — see the "Bootstrap procedure" section below and CLAUDE.md's action-confirmation rules; a person (or agent, with explicit confirmation) adds the crontab line.
+
+`mlb_api`'s reference/personnel/organizational data (ADR-020 — coaches, alumni, personnel, attendance, stat leaders, etc.) is a deliberate third case: it lives in `bootstrap()`, not `update()`, and isn't scheduled at all. Re-running ~30 teams' worth of these lookups on any automated cadence (even daily) would be pure API/DB load for data that doesn't meaningfully change day-to-day. Refresh it by re-running `mlb ingest mlb_api --mode bootstrap` manually, occasionally (e.g. once a season, or when you notice something stale) — an operator decision, not a cron job.
+
+## Bootstrap procedure
+
+`mlb bootstrap` runs every registered connector's `bootstrap()` in one command — see `mlb_baseball/cli.py`'s `_run_all`. It's the actual answer to "how do I stand up this database from nothing": `mlb migrate` to create the schema, then `mlb bootstrap`, then `mlb conform`. See the README's "Setup" section for the exact commands.
+
+A few things worth knowing before running it for real, not after:
+
+- **It's slow — plan for it to take days, not minutes**, once `mlb_api` and `statcast`/`statcast_leaderboard`'s full historical ranges are included. `mlb_api`'s reference/personnel/stat block alone (ADR-020) costs roughly 400+ API calls per season across ~125 seasons of history; the per-game analytics backfill (win probability/linescore/game context, 1950+) is a second, similarly large pass. This is expected, not a hang — check progress via `mlb inventory` (row counts per table) or `mlb doctor` (per-source freshness), not by assuming something's stuck.
+- **It's resumable, not restart-from-zero.** Every connector's `bootstrap()` skips already-loaded seasons (`season_already_loaded`) before doing any network work, so killing a bootstrap run (or it failing partway through) and re-running `mlb bootstrap` picks up roughly where it left off instead of re-downloading everything. This is also why stale-run cleanup matters if you do kill a run mid-flight — see ADR-022.
+- **A failure in one connector doesn't block the rest.** `mlb bootstrap` logs and continues past any connector whose `bootstrap()` raises, then exits non-zero at the end if anything failed — check the output for `FAILED` lines rather than assuming a non-zero exit means nothing loaded.
+- **`lahman` prefers a manually-downloaded zip** (see `docs/DATA_SOURCES.md`) but falls back to a pinned network mirror automatically if none is found in `downloads/` — `mlb bootstrap` will not stop and wait for one.
+- **`retrosheet_event` and `retrosheet_box` need `cwevent`/`cwgame`/`cwbox` on `PATH`** (see README "Requirements") — `mlb doctor` checks for these and tells you if they're missing, but `mlb bootstrap` itself will just fail those two connectors and continue.
+- Run `mlb doctor` after a bootstrap (full or partial) to confirm what actually landed — every connector's `health_check()` reports on its own tables, so a clean `mlb doctor` run is the real "is this database usable yet" signal, not just "did the command exit 0."
 
 ## Explicitly not designed yet
 

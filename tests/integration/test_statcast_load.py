@@ -37,6 +37,15 @@ def _fixed_date(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_chunk_pause(monkeypatch):
+    # CHUNK_PAUSE_SECONDS is a deliberate real-world politeness pause
+    # between weekly chunks — zeroed here so tests exercising multiple
+    # chunks (a full season is ~44) don't spend tens of real seconds
+    # sleeping for no reason.
+    monkeypatch.setattr(statcast, "CHUNK_PAUSE_SECONDS", 0)
+
+
+@pytest.fixture(autouse=True)
 def _clean_table(db_conn):
     yield
     with db_conn.cursor() as cur:
@@ -148,6 +157,29 @@ def test_update_reloads_current_season_only(db_conn, monkeypatch):
         rows = dict(cur.fetchall())
     assert rows["2025"] > 0  # untouched by update()
     assert rows["2026"] > 0  # reloaded by update()
+
+
+def test_load_season_pauses_between_chunks_but_not_after_the_last_one(db_conn, monkeypatch):
+    # Deliberate, proactive politeness toward Baseball Savant — not a
+    # reaction to an observed block (see the module docstring). 3 chunks
+    # means 2 pauses, not 3 — no reason to pause after the last one.
+    monkeypatch.setattr(statcast, "CHUNK_PAUSE_SECONDS", 5)
+    monkeypatch.setattr(
+        statcast,
+        "_season_date_ranges",
+        lambda season: [
+            (date(2026, 2, 1), date(2026, 2, 7)),
+            (date(2026, 2, 8), date(2026, 2, 14)),
+            (date(2026, 2, 15), date(2026, 2, 21)),
+        ],
+    )
+    sleeps = []
+    monkeypatch.setattr(statcast.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    with patch.object(statcast.pybaseball, "statcast", return_value=_pitch_df(1)):
+        statcast._load_season(db_conn, 2026)
+
+    assert sleeps == [5, 5]
 
 
 def test_health_check_reports_last_run_not_freshness(db_conn):

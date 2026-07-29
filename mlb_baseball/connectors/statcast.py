@@ -55,8 +55,18 @@ ADR-007/ADR-015): the sheer call volume here (2008-present in weekly chunks
 is several hundred calls) makes hitting at least one transient failure
 close to certain, the same reasoning that justified mlb_api.py's per-season/
 per-game resilience layer.
+
+A 1-second pause between weekly chunks (_load_season) is deliberate,
+proactive politeness, not a reaction to an observed block — checked
+directly: baseballsavant.mlb.com's robots.txt has no Disallow/Crawl-delay
+directive, and this project's own run history has no 429s from this
+source specifically (only unrelated connection-reset issues from
+retrosheet.org, already handled by ADR-007). No published per-request
+rate limit exists to violate; the pause is cheap insurance regardless,
+adding at most a few minutes to a multi-hour full-history bootstrap.
 """
 
+import time
 from datetime import date, timedelta
 
 import pandas as pd
@@ -72,6 +82,11 @@ from mlb_baseball.net import call_with_retry
 SOURCE = "statcast"
 FIRST_STATCAST_YEAR = 2008
 TABLE = "raw.statcast_pitch"
+# Deliberate pause between weekly chunks — a module-level constant, not a
+# bare literal, so tests can monkeypatch it to 0 (a full season is ~44
+# chunks; at the real value that's 44 real seconds of sleep in a test that
+# otherwise runs in under a second with the network mocked).
+CHUNK_PAUSE_SECONDS = 1.0
 
 
 def _season_date_ranges(season: int) -> list[tuple[date, date]]:
@@ -109,13 +124,23 @@ def _load_week(conn: psycopg.Connection, season: int, start: date, end: date) ->
 
 def _load_season(conn: psycopg.Connection, season: int) -> int:
     total = 0
-    for start, end in _season_date_ranges(season):
+    ranges = _season_date_ranges(season)
+    for i, (start, end) in enumerate(ranges):
         try:
             total += _load_week(conn, season, start, end)
             conn.commit()
         except Exception as exc:
             conn.rollback()
             print(f"statcast: {season} {start}-{end} failed ({exc}); skipping this week")
+        # A deliberate pause between chunks, not a reaction to an observed
+        # block — Baseball Savant publishes no documented rate limit
+        # (confirmed: robots.txt has no Disallow/Crawl-delay, and this
+        # project's own run history has no 429s from this source), but
+        # nothing here was proactively polite either, only reactive
+        # retry-on-failure (net.call_with_retry). Skipped after the last
+        # chunk of a season — no reason to pause before returning.
+        if i < len(ranges) - 1:
+            time.sleep(CHUNK_PAUSE_SECONDS)
     return total
 
 

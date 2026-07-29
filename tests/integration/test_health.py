@@ -3,7 +3,9 @@ import uuid
 import psycopg
 
 from mlb_baseball.health import (
+    check_join_coverage,
     check_last_run,
+    check_no_duplicate_key,
     check_recent_run,
     check_table_exists,
     check_table_has_rows,
@@ -168,6 +170,132 @@ def test_check_recent_run_false_when_last_run_is_stale(db_conn):
 
     assert not result.ok
     assert "still running" in result.detail
+
+
+def test_check_join_coverage_ok_on_exact_match(db_conn, drop_tables_after):
+    core = drop_tables_after("raw.test_health_join_core")
+    src = drop_tables_after("raw.test_health_join_src")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {core} (id int)")
+        cur.execute(f"INSERT INTO {core} VALUES (1), (2)")
+        cur.execute(f"CREATE TABLE {src} (id int)")
+        cur.execute(f"INSERT INTO {src} VALUES (1), (2)")
+    db_conn.commit()
+
+    result = check_join_coverage(
+        "test coverage", f"SELECT count(*) FROM {core}", f"SELECT count(*) FROM {src}"
+    )
+
+    assert result.ok
+    assert "2 of 2 expected" in result.detail
+
+
+def test_check_join_coverage_flags_any_overcount_as_fan_out(db_conn, drop_tables_after):
+    # Real bug this exists to catch: a non-unique join key silently
+    # duplicating rows (e.g. core.game.game_pk's doubleheader collision) —
+    # any amount of over-count is a bug, not just past some tolerance.
+    core = drop_tables_after("raw.test_health_join_core")
+    src = drop_tables_after("raw.test_health_join_src")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {core} (id int)")
+        cur.execute(f"INSERT INTO {core} VALUES (1), (2), (3)")
+        cur.execute(f"CREATE TABLE {src} (id int)")
+        cur.execute(f"INSERT INTO {src} VALUES (1), (2)")
+    db_conn.commit()
+
+    result = check_join_coverage(
+        "test coverage", f"SELECT count(*) FROM {core}", f"SELECT count(*) FROM {src}"
+    )
+
+    assert not result.ok
+    assert "fan-out" in result.detail
+
+
+def test_check_join_coverage_flags_undercount_past_tolerance(db_conn, drop_tables_after):
+    core = drop_tables_after("raw.test_health_join_core")
+    src = drop_tables_after("raw.test_health_join_src")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {core} (id int)")
+        cur.execute(f"INSERT INTO {core} VALUES (1)")
+        cur.execute(f"CREATE TABLE {src} (id int)")
+        cur.execute(f"INSERT INTO {src} VALUES (1), (2), (3)")
+    db_conn.commit()
+
+    result = check_join_coverage(
+        "test coverage",
+        f"SELECT count(*) FROM {core}",
+        f"SELECT count(*) FROM {src}",
+        tolerance=1,
+    )
+
+    assert not result.ok
+    assert "row loss" in result.detail
+
+
+def test_check_join_coverage_allows_undercount_within_tolerance(db_conn, drop_tables_after):
+    core = drop_tables_after("raw.test_health_join_core")
+    src = drop_tables_after("raw.test_health_join_src")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {core} (id int)")
+        cur.execute(f"INSERT INTO {core} VALUES (1), (2)")
+        cur.execute(f"CREATE TABLE {src} (id int)")
+        cur.execute(f"INSERT INTO {src} VALUES (1), (2), (3)")
+    db_conn.commit()
+
+    result = check_join_coverage(
+        "test coverage",
+        f"SELECT count(*) FROM {core}",
+        f"SELECT count(*) FROM {src}",
+        tolerance=1,
+    )
+
+    assert result.ok
+
+
+def test_check_join_coverage_false_when_source_table_missing():
+    result = check_join_coverage(
+        "test coverage",
+        "SELECT count(*) FROM raw.test_health_join_core_never_created",
+        "SELECT count(*) FROM raw.test_health_join_src_never_created",
+    )
+
+    assert not result.ok
+    assert "does not exist" in result.detail
+
+
+def test_check_no_duplicate_key_true_when_all_unique(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_health_dupcheck")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {table} (game_pk text)")
+        cur.execute(f"INSERT INTO {table} VALUES ('100001'), ('100002'), (NULL)")
+    db_conn.commit()
+
+    result = check_no_duplicate_key(table, "game_pk")
+
+    assert result.ok
+
+
+def test_check_no_duplicate_key_false_when_a_value_repeats(db_conn, drop_tables_after):
+    # Real bug this exists to catch: the doubleheader game_pk collision
+    # (two core.game rows sharing one game_pk) — confirmed in production
+    # before the fix, 12,662 distinct game_pk values shared by 2 rows each.
+    table = drop_tables_after("raw.test_health_dupcheck")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {table} (game_pk text)")
+        cur.execute(f"INSERT INTO {table} VALUES ('100001'), ('100001'), ('100002')")
+    db_conn.commit()
+
+    result = check_no_duplicate_key(table, "game_pk")
+
+    assert not result.ok
+    assert "1 duplicate" in result.detail
+
+
+def test_check_no_duplicate_key_false_when_table_never_created():
+    result = check_no_duplicate_key("raw.test_health_dupcheck_never_created", "game_pk")
+
+    assert not result.ok
+    assert "does not exist" in result.detail
 
 
 def test_check_recent_run_false_when_last_run_failed_even_if_recent(db_conn):

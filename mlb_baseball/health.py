@@ -71,6 +71,78 @@ def check_last_run(source: str) -> Check:
     return Check(f"{source} last run", status == "success", f"{status} at {started_at}")
 
 
+def check_join_coverage(
+    label: str, core_sql: str, expected_sql: str, *, tolerance: int = 0
+) -> Check:
+    """Compares a core table's row count against the row count its source
+    join should have produced — the general safeguard for the exact bug
+    class found in a research-database review (see docs/DECISIONS.md
+    ADR-030 follow-up): an inner join silently drops unmatched rows (row
+    loss, no trace), or a non-unique join key silently fans out (row
+    duplication, no trace). Both are caught here, not just documented after
+    the fact.
+
+    Over-count (core_count > expected_count) is flagged regardless of
+    `tolerance` — these joins are keyed on values that should never
+    duplicate a source row, so any amount of fan-out is a bug. Under-count
+    is only flagged past `tolerance`, a real, explicit allowance for a
+    documented, expected gap (e.g. some rows genuinely can't resolve a
+    join key) — not a blank check that hides a real regression.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(core_sql)
+                (core_count,) = cur.fetchone()
+                cur.execute(expected_sql)
+                (expected_count,) = cur.fetchone()
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(label, False, "a required table does not exist — never bootstrapped?")
+    if core_count > expected_count:
+        return Check(
+            label, False, f"{core_count} > expected {expected_count} — possible join fan-out"
+        )
+    if core_count < expected_count - tolerance:
+        return Check(
+            label,
+            False,
+            f"{core_count} < expected {expected_count} (tolerance {tolerance}) — possible row loss",
+        )
+    return Check(label, True, f"{core_count} of {expected_count} expected")
+
+
+def check_no_duplicate_key(table: str, column: str) -> Check:
+    """Flags any non-NULL value in `column` that appears more than once —
+    for columns used as an external join key without a DB-enforced UNIQUE
+    constraint (e.g. core.game.game_pk, which can't be a real unique
+    constraint since not every row resolves one — see migration
+    0006_core_play_pitch.sql). This is exactly the situation that let the
+    doubleheader game_pk collision bug (ADR-030 follow-up) happen
+    invisibly: two core.game rows silently sharing one game_pk, corrupting
+    every downstream join keyed on it."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    f"SELECT count(*) FROM (SELECT {column} FROM {table} "
+                    f"WHERE {column} IS NOT NULL GROUP BY {column} HAVING count(*) > 1) x"
+                )
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(
+                    f"{table}.{column} uniqueness",
+                    False,
+                    "table does not exist — never bootstrapped?",
+                )
+            (dup_count,) = cur.fetchone()
+    if dup_count > 0:
+        return Check(
+            f"{table}.{column} uniqueness", False, f"{dup_count} duplicate {column} values found"
+        )
+    return Check(f"{table}.{column} uniqueness", True, "no duplicates")
+
+
 def check_recent_run(source: str, max_age_minutes: int) -> Check:
     """For sources expected to run on a repeating schedule (e.g. mlb_api's
     cron-driven live-game capture) — check_last_run only tells you whether

@@ -1275,7 +1275,137 @@ def test_build_player_war_leaves_unmatched_bref_row_as_null_instead_of_dropping(
         cur.execute("SELECT player_id, war FROM core.player_war")
         assert cur.fetchone() == (None, Decimal("0.1"))
 
+
+def test_backfill_game_pk_distinguishes_doubleheader_games(db_conn):
+    # Real bug found in this review: matching on (game_date, away team,
+    # home team) alone can't distinguish the two games of a doubleheader —
+    # raw.mlb_schedule correctly has two separate rows (confirmed directly
+    # against real production data: 1925-07-07 Cardinals@Braves is game_id
+    # 100003/game_num 1 and game_id 100004/game_num 2), but without
+    # game_num in the match, both core.game rows collided onto the same
+    # game_pk in production (12,662 distinct game_pk values shared by 2
+    # rows each, 25,347 rows total — every one a doubleheader).
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('ATL', 'NL', 'Atlanta', 'Braves', '1966', '2025'), "
+            "('NYA', 'AL', 'New York', 'Yankees', '1913', '2025')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text, "
+            "temp text, winddir text, windspeed text, sky text, "
+            "precip text, fieldcond text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('ATL202504010', '2025', '20250401', '1', 'NYA', 'ATL', "
+            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '', "
+            "'', '', '', '', '', ''), "
+            "('ATL202504012', '2025', '20250401', '2', 'NYA', 'ATL', "
+            "'1', '2', 'regular', 'ATL03', '30000', '175', 'N', '', '', '', "
+            "'', '', '', '', '', '')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first) VALUES "
+            "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, away_score text, home_score text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('700001', '2025-04-01', 'New York Yankees', 'Atlanta Braves', "
+            "'2025', 'Final', 'R', '1', 'Truist Park', '3', '5'), "
+            "('700002', '2025-04-01', 'New York Yankees', 'Atlanta Braves', "
+            "'2025', 'Final', 'R', '2', 'Truist Park', '1', '2')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_game_id, game_pk FROM core.game "
+            "WHERE retro_game_id IN ('ATL202504010', 'ATL202504012') "
+            "ORDER BY retro_game_id"
+        )
+        rows = dict(cur.fetchall())
+    assert rows["ATL202504010"] == "700001"
+    assert rows["ATL202504012"] == "700002"
+    assert rows["ATL202504010"] != rows["ATL202504012"]
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_build_pitches_leaves_unmatched_statcast_row_as_null_instead_of_dropping(db_conn):
+    # Real bug found in this review: an inner JOIN here silently dropped
+    # every raw.statcast_pitch row whose game_pk didn't resolve to a
+    # core.game row (2,535,802 of 13,396,090 real production rows, 18.9%,
+    # confirmed directly) with no trace at all. A LEFT JOIN brings this in
+    # line with core.game.game_pk's own "leave it NULL, don't guess"
+    # precedent — same fix already applied to core.player_war above.
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.statcast_pitch "
+            "(game_pk text, game_year text, at_bat_number text, "
+            "pitch_number text, inning text, batter text, pitcher text, "
+            "pitch_type text, pitch_name text, release_speed text, "
+            "release_spin_rate text, launch_speed text, launch_angle text, "
+            "hit_distance_sc text, description text, events text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch VALUES "
+            "('999999999', '2025', '0', '1', '1', '123456', '234567', "
+            "'FF', 'Four-Seam Fastball', '95.2', '2200', '', '', '', "
+            "'called_strike', '')"
+        )
+    db_conn.commit()
+
+    counts = conform.run()
+
+    assert counts["core.pitch"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT game_id, pitch_type FROM core.pitch")
+        assert cur.fetchone() == (None, "FF")
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
+        cur.execute("TRUNCATE core.pitch")
+    db_conn.commit()
+
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.bref_war_batting")
         cur.execute("TRUNCATE core.player_war")
     db_conn.commit()
+
+
+def test_health_check_includes_join_integrity_safeguards():
+    # Verifies the wiring, not full realistic data — every check must be
+    # present and callable without crashing, even against a DB with none of
+    # the optional raw tables loaded (the fresh-clone case every other
+    # check here already tolerates).
+    names = {check.name for check in conform.health_check()}
+    assert "core.game.game_pk uniqueness" in names
+    assert "core.play retrosheet coverage" in names
+    assert "core.play mlb_api coverage" in names
+    assert "core.pitch coverage" in names
+    assert "core.player_war batting coverage" in names
+    assert "core.player_war pitching coverage" in names

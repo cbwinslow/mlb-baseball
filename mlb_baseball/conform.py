@@ -66,7 +66,13 @@ from decimal import Decimal, InvalidOperation
 import psycopg
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_table_exists, check_table_has_rows
+from mlb_baseball.health import (
+    Check,
+    check_join_coverage,
+    check_no_duplicate_key,
+    check_table_exists,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 
 SOURCE = "core"
@@ -503,6 +509,21 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
     # scopes the rollback to just this optional step. Found by a real test
     # failure: core.game.game_pk backfill being skipped (raw.mlb_schedule
     # not loaded yet) was silently wiping out core.game entirely.
+    #
+    # Real bug found in a later review, not hypothetical: matching on
+    # (game_date, away team, home team) alone can't distinguish the two
+    # games of a doubleheader — raw.mlb_schedule correctly carries two
+    # separate rows (confirmed directly: 1925-07-07 Cardinals@Braves is
+    # game_id 100003/game_num 1 and game_id 100004/game_num 2), but without
+    # game_num in the match, both core.game rows collided onto the same
+    # game_pk. Confirmed in production: 12,662 distinct game_pk values were
+    # shared by 2 core.game rows each (25,347 rows total) — every one a
+    # doubleheader — corrupting every downstream game_pk-keyed join
+    # (mlb_playbyplay, statcast_pitch) for those games. COALESCE(...,  0)
+    # on both sides: a normal single game is game_num/game_number 0 in both
+    # sources, but either can be genuinely NULL (pre-1901 games have no
+    # game_number at all) — a bare `=` would never match two NULLs, so both
+    # sides normalize NULL to the same "not a doubleheader" default instead.
     try:
         with conn.transaction(), conn.cursor() as cur:
             # FROM-list uses implicit (comma) joins, not explicit JOIN...ON,
@@ -525,6 +546,8 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
                     AND ms.home_name = home.city || ' ' || home.nickname
                     AND away.id = g.away_team_id
                     AND home.id = g.home_team_id
+                    AND COALESCE(NULLIF(ms.game_num, '')::integer, 0)
+                        = COALESCE(g.game_number, 0)
                 """
             )
             return cur.rowcount
@@ -751,6 +774,15 @@ def _build_pitches(conn: psycopg.Connection) -> int:
     # Not self-truncating — see _build_plays. Uses conn.transaction() (a
     # SAVEPOINT) rather than conn.rollback() on failure — see
     # _backfill_game_pk for why plain rollback() is wrong here.
+    #
+    # LEFT JOIN core.game, not an inner JOIN — a real bug found in a later
+    # review: an inner join here silently dropped every raw.statcast_pitch
+    # row whose game_pk didn't resolve to a core.game row (2,535,802 of
+    # 13,396,090 real production rows, 18.9%, confirmed directly), with no
+    # trace and no health-check signal. Same class of bug as
+    # core.player_war's inner join (fixed earlier this session) — land the
+    # row with an honest NULL game_id instead of vanishing it, consistent
+    # with core.game.game_pk's own "leave it NULL, don't guess" precedent.
     try:
         with conn.transaction(), conn.cursor() as cur:
             cur.execute(
@@ -779,7 +811,7 @@ def _build_pitches(conn: psycopg.Connection) -> int:
                     sp.description,
                     sp.events
                 FROM raw.statcast_pitch sp
-                JOIN core.game g ON g.game_pk = sp.game_pk
+                LEFT JOIN core.game g ON g.game_pk = sp.game_pk
                 LEFT JOIN core.player bat ON bat.mlbam_id = sp.batter
                 LEFT JOIN core.player pit ON pit.mlbam_id = sp.pitcher
                 """
@@ -1167,4 +1199,42 @@ def health_check() -> list[Check]:
         # core.standing depends on raw.mlb_standing (optional) — same
         # reasoning.
         check_table_exists("core.standing"),
+        # Join-integrity safeguard added after a research-database review
+        # found two real, silent bugs this way: a non-unique join key
+        # (core.game.game_pk) letting two doubleheader games collide onto
+        # one value, and an inner join silently dropping ~19% of
+        # raw.statcast_pitch. These checks catch that whole bug class
+        # automatically going forward, not just when someone happens to
+        # ask the right question — see docs/DECISIONS.md ADR-030 follow-up.
+        # Reports "table does not exist" (a FAIL) on a fresh clone that
+        # hasn't run the relevant optional connector yet — consistent with
+        # how every other check above already treats "never bootstrapped."
+        check_no_duplicate_key("core.game", "game_pk"),
+        check_join_coverage(
+            "core.play retrosheet coverage",
+            "SELECT count(*) FROM core.play WHERE source = 'retrosheet'",
+            "SELECT count(*) FROM "
+            "(SELECT DISTINCT ON (game_id, event_id) 1 FROM raw.retrosheet_event "
+            "ORDER BY game_id, event_id, _scope) x",
+        ),
+        check_join_coverage(
+            "core.play mlb_api coverage",
+            "SELECT count(*) FROM core.play WHERE source = 'mlb_api'",
+            "SELECT count(*) FROM raw.mlb_playbyplay",
+        ),
+        check_join_coverage(
+            "core.pitch coverage",
+            "SELECT count(*) FROM core.pitch",
+            "SELECT count(*) FROM raw.statcast_pitch",
+        ),
+        check_join_coverage(
+            "core.player_war batting coverage",
+            "SELECT count(*) FROM core.player_war WHERE is_pitcher = false",
+            "SELECT count(*) FROM raw.bref_war_batting",
+        ),
+        check_join_coverage(
+            "core.player_war pitching coverage",
+            "SELECT count(*) FROM core.player_war WHERE is_pitcher = true",
+            "SELECT count(*) FROM raw.bref_war_pitching",
+        ),
     ]

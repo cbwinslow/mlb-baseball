@@ -23,10 +23,13 @@ def _clean_tables(db_conn):
         for table in DYNAMIC_RAW_TABLES:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("TRUNCATE raw.register_people")
-        # play/pitch reference game — must be truncated together with it,
-        # not in a separate statement (Postgres requires this, same as
-        # conform.py's run() — see its comment there).
-        cur.execute("TRUNCATE core.play, core.pitch, core.game, core.team, core.player")
+        # play/pitch/market reference game — must be truncated together
+        # with it, not in a separate statement (Postgres requires this,
+        # same as conform.py's run() — see its comment there).
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, core.game, "
+            "core.team, core.player, core.player_war"
+        )
     db_conn.commit()
 
 
@@ -104,14 +107,17 @@ def test_run_populates_team_player_and_game(db_conn):
 
     counts = conform.run()
 
-    # No raw.retrosheet_event/raw.mlb_playbyplay/raw.statcast_pitch seeded
-    # in this test — play/pitch build steps must degrade to 0, not fail.
+    # No raw.retrosheet_event/raw.mlb_playbyplay/raw.statcast_pitch/
+    # raw.polymarket_*/raw.kalshi_*/raw.bref_war_* seeded in this test —
+    # every optional build step must degrade to 0, not fail.
     assert counts == {
         "core.team": 1,
         "core.player": 2,
         "core.game": 2,
         "core.play": 0,
         "core.pitch": 0,
+        "core.market": 0,
+        "core.player_war": 0,
     }
     with db_conn.cursor() as cur:
         cur.execute(
@@ -325,8 +331,8 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        # play/pitch reference game — must truncate together, see run()'s comment.
-        cur.execute("TRUNCATE core.play, core.pitch, core.game")
+        # play/pitch/market reference game — must truncate together, see run()'s comment.
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
     db_conn.commit()
 
 
@@ -339,3 +345,330 @@ def test_run_raises_actionable_error_when_raw_data_is_missing(db_conn):
 
     assert "raw.retrosheet_team does not exist" in str(exc_info.value)
     assert "mlb ingest retrosheet_reference" in str(exc_info.value)
+
+
+def test_build_teams_treats_the_files_shared_max_last_year_as_open_ended(db_conn):
+    # Real bug found extending conform.py, not hypothetical: Retrosheet's
+    # own TEAMABR.TXT caps every currently-active team's last_year at the
+    # same value (confirmed in production: exactly 30 rows -- the real
+    # current MLB team count -- share it), silently NULLing every team
+    # match for any season past that value. Two teams sharing the file's
+    # own max get treated as still active (9999); a team with a genuinely
+    # earlier, distinct last_year (a real relocation/rename, like MON's
+    # 2004) keeps its real value.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('ATL', 'NL', 'Atlanta', 'Braves', '1966', '2021'), "
+            "('NYA', 'AL', 'New York', 'Yankees', '1913', '2021'), "
+            "('MON', 'NL', 'Montreal', 'Expos', '1969', '2004')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('ATL202104010', '2021', '20210401', '0', 'NYA', 'ATL', "
+            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first) VALUES "
+            "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT retro_team_id, last_year FROM core.team ORDER BY retro_team_id")
+        rows = dict(cur.fetchall())
+    assert rows["ATL"] == 9999
+    assert rows["NYA"] == 9999
+    assert rows["MON"] == 2004
+
+
+def test_build_plays_includes_win_probability_for_mlb_api_rows(db_conn):
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('NYM', 'NL', 'New York', 'Mets', '1962', '2025')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, away_score text, home_score text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('999001', '2025-04-02', 'New York Mets', 'Atlanta Braves', "
+            "'2025', 'Final', 'R', '0', 'Truist Park', '1', '2')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_playbyplay "
+            "(game_pk text, _season text, at_bat_index text, inning text, "
+            "half_inning text, batter_id text, pitcher_id text, "
+            "event_type text, event text, away_score text, home_score text, "
+            "balls text, strikes text, outs text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay VALUES "
+            "('999001', '2025', '0', '1', 'top', '234567', '123456', "
+            "'field_out', 'Groundout', '0', '0', '0', '0', '1')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_win_prob "
+            "(game_pk text, at_bat_index text, inning text, half_inning text, "
+            "home_win_probability text, away_win_probability text, "
+            "home_win_probability_added text, _season text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_win_prob VALUES "
+            "('999001', '0', '1', 'top', '52.2', '47.8', '2.2', NULL)"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_win_probability, away_win_probability "
+            "FROM core.play WHERE source = 'mlb_api'"
+        )
+        assert cur.fetchone() == (Decimal("52.2"), Decimal("47.8"))
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.mlb_playbyplay, raw.mlb_win_prob")
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def _seed_market_game(db_conn):
+    """One resolvable core.game row (Yankees @ Braves, 2026-05-23) plus a
+    Polymarket event and a Kalshi market both referring to it — the shared
+    fixture for every core.market test below."""
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('ATL', 'NL', 'Atlanta', 'Braves', '1966', '2021'), "
+            "('NYA', 'AL', 'New York', 'Yankees', '1913', '2021')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('ATL202605230', '2026', '20260523', '0', 'NYA', 'ATL', "
+            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first) VALUES "
+            "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+
+        cur.execute(
+            "CREATE TABLE raw.polymarket_event "
+            "(id text, slug text, sport text, teams text, closed text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_event VALUES ("
+            "'1', 'mlb-nyy-atl-2026-05-23', "
+            "'{''id'': 8, ''sport'': ''mlb''}', "
+            "'[{''name'': ''New York Yankees'', ''ordering'': ''away''}, "
+            "{''name'': ''Atlanta Braves'', ''ordering'': ''home''}]', "
+            "'False')"
+        )
+        cur.execute("CREATE TABLE raw.polymarket_market (id text, event_id text, volume text)")
+        cur.execute("INSERT INTO raw.polymarket_market VALUES ('10', '1', '5000')")
+        cur.execute(
+            "CREATE TABLE raw.polymarket_outcome (market_id text, outcome text, price text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_outcome VALUES "
+            "('10', 'New York Yankees', '0.4'), "
+            "('10', 'Atlanta Braves', '0.6')"
+        )
+
+        cur.execute(
+            "CREATE TABLE raw.kalshi_market "
+            "(ticker text, event_ticker text, status text, volume_fp text, "
+            "yes_bid_dollars text, yes_ask_dollars text, last_price_dollars text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.kalshi_market VALUES "
+            "('KXMLBGAME-26MAY231905NYAATL-ATL', 'KXMLBGAME-26MAY231905NYAATL', "
+            "'finalized', '1000', '0.58', '0.62', '0.60')"
+        )
+    db_conn.commit()
+
+
+def _drop_market_fixtures(db_conn):
+    with db_conn.cursor() as cur:
+        for table in [
+            "raw.polymarket_event",
+            "raw.polymarket_market",
+            "raw.polymarket_outcome",
+            "raw.kalshi_market",
+        ]:
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
+    db_conn.commit()
+
+
+def test_build_market_matches_polymarket_and_kalshi_to_a_core_game(db_conn):
+    _seed_market_game(db_conn)
+
+    counts = conform.run()
+
+    # 2 Polymarket outcome rows (away + home) + 1 Kalshi market row.
+    assert counts["core.market"] == 3
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT m.source, m.market_ref, m.implied_probability, m.status, t.retro_team_id "
+            "FROM core.market m JOIN core.team t ON t.id = m.team_id "
+            "WHERE m.game_id IS NOT NULL "
+            "ORDER BY m.source, t.retro_team_id"
+        )
+        rows = cur.fetchall()
+    by_team = {(source, team): (ref, price, status) for source, ref, price, status, team in rows}
+
+    assert by_team[("kalshi", "ATL")] == (
+        "KXMLBGAME-26MAY231905NYAATL-ATL",
+        Decimal("0.60"),
+        "finalized",
+    )
+    assert by_team[("polymarket", "ATL")][1] == Decimal("0.6")
+    assert by_team[("polymarket", "NYA")][1] == Decimal("0.4")
+
+    _drop_market_fixtures(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_build_market_leaves_market_ref_unique_across_both_outcome_rows(db_conn):
+    # Regression: Polymarket's away/home outcome rows share the same
+    # underlying market id — core.market's UNIQUE(source, market_ref)
+    # would reject the second row if market_ref were just that id.
+    _seed_market_game(db_conn)
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(DISTINCT market_ref) FROM core.market WHERE source = 'polymarket'"
+        )
+        assert cur.fetchone() == (2,)
+
+    _drop_market_fixtures(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_build_market_leaves_kalshi_price_as_bid_ask_midpoint_when_untraded(db_conn):
+    # Real production case: a newly-listed Kalshi market has real bid/ask
+    # quotes but last_price_dollars is still its zero-value placeholder
+    # (never traded yet) -- the midpoint is the honest fallback, not 0.
+    _seed_market_game(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE raw.kalshi_market SET last_price_dollars = '0.0000'")
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT implied_probability FROM core.market WHERE source = 'kalshi'")
+        assert cur.fetchone() == (Decimal("0.60"),)  # (0.58 + 0.62) / 2
+
+    _drop_market_fixtures(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_build_market_rerunning_replaces_instead_of_duplicating(db_conn):
+    _seed_market_game(db_conn)
+
+    conform.run()
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.market")
+        assert cur.fetchone() == (3,)
+
+    _drop_market_fixtures(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_build_player_war_lands_batting_and_pitching_rows(db_conn):
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.bref_war_batting "
+            "(name_common text, mlb_id text, player_id text, year_id text, "
+            "team_id text, stint_id text, lg_id text, pitcher text, g text, "
+            "pa text, salary text, runs_above_avg text, runs_above_avg_off text, "
+            "runs_above_avg_def text, war_rep text, waa text, war text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.bref_war_batting VALUES "
+            "('John Smith', '123456', 'smitj01', '2025', 'ATL', '1', 'NL', "
+            "'N', '150', '600', '1000000', '10.5', '6.0', '4.5', '0.5', '3.2', '3.7')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.bref_war_pitching "
+            "(name_common text, mlb_id text, player_id text, year_id text, "
+            "team_id text, stint_id text, lg_id text, g text, gs text, "
+            "ra text, xra text, bip text, bip_perc text, salary text, "
+            "era_plus text, war_rep text, waa text, waa_adj text, war text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.bref_war_pitching VALUES "
+            "('Tim Jones', '234567', 'jonet01', '2025', 'ATL', '1', 'NL', "
+            "'30', '30', '80', '85', '500', '0.15', '2000000', "
+            "'120', '0.3', '1.1', '1.0', '1.4')"
+        )
+    db_conn.commit()
+
+    counts = conform.run()
+
+    assert counts["core.player_war"] == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT p.retro_id, w.is_pitcher, w.war, w.runs_above_avg "
+            "FROM core.player_war w JOIN core.player p ON p.id = w.player_id "
+            "ORDER BY w.is_pitcher"
+        )
+        rows = cur.fetchall()
+    assert rows[0] == ("smitj001", False, Decimal("3.7"), Decimal("10.5"))
+    assert rows[1] == ("jonet001", True, Decimal("1.4"), None)  # pitching has no runs_above_avg
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.bref_war_batting, raw.bref_war_pitching")
+        cur.execute("TRUNCATE core.player_war")
+    db_conn.commit()

@@ -29,7 +29,8 @@ def _clean_tables(db_conn):
         # same as conform.py's run() — see its comment there).
         cur.execute(
             "TRUNCATE core.play, core.pitch, core.market, core.game, "
-            "core.team, core.team_alias, core.player, core.player_war"
+            "core.team, core.team_alias, core.player, core.player_war, "
+            "core.venue, core.standing"
         )
     db_conn.commit()
 
@@ -51,13 +52,16 @@ def _seed_raw_tables(db_conn):
             "(gid text, _season text, date text, number text, "
             "visteam text, hometeam text, vruns text, hruns text, "
             "gametype text, site text, attendance text, timeofgame text, "
-            "daynight text, wp text, lp text, save text)"
+            "daynight text, wp text, lp text, save text, "
+            "temp text, winddir text, windspeed text, sky text, "
+            "precip text, fieldcond text)"
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo VALUES "
             "('ATL202504010', '2025', '20250401', '0', 'NYM', 'ATL', "
             "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', "
-            "'smitj001', 'jonet001', '')"
+            "'smitj001', 'jonet001', '', "
+            "'72', 'fromlf', '10', 'sunny', 'none', 'dry')"
         )
         # No team seeded for NYM, and no player seeded for "unresolvable" —
         # both are real gaps found in production (see migration 0005's
@@ -66,7 +70,8 @@ def _seed_raw_tables(db_conn):
             "INSERT INTO raw.retrosheet_gameinfo VALUES "
             "('ATL202504020', '2025', '20250402', '0', 'NYM', 'ATL', "
             "'1', '2', 'regular', 'ATL03', '34000', '175', 'D', "
-            "'unresolvable', 'jonet001', '')"
+            "'unresolvable', 'jonet001', '', "
+            "'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown')"
         )
 
         cur.execute(
@@ -109,13 +114,16 @@ def test_run_populates_team_player_and_game(db_conn):
     counts = conform.run()
 
     # No raw.retrosheet_event/raw.mlb_playbyplay/raw.statcast_pitch/
-    # raw.polymarket_*/raw.kalshi_*/raw.bref_war_* seeded in this test —
-    # every optional build step must degrade to 0, not fail.
+    # raw.polymarket_*/raw.kalshi_*/raw.bref_war_*/raw.retrosheet_park/
+    # raw.mlb_standing seeded in this test — every optional build step
+    # must degrade to 0, not fail.
     assert counts == {
         "core.team": 1,
+        "core.venue": 0,
         "core.team_alias": 1,  # ATL's own Kalshi ticker alias ("ATL" -> "ATL")
         "core.player": 2,
         "core.game": 2,
+        "core.standing": 0,
         "core.play": 0,
         "core.pitch": 0,
         "core.market": 0,
@@ -375,12 +383,15 @@ def test_build_teams_treats_the_files_shared_max_last_year_as_open_ended(db_conn
             "(gid text, _season text, date text, number text, "
             "visteam text, hometeam text, vruns text, hruns text, "
             "gametype text, site text, attendance text, timeofgame text, "
-            "daynight text, wp text, lp text, save text)"
+            "daynight text, wp text, lp text, save text, "
+            "temp text, winddir text, windspeed text, sky text, "
+            "precip text, fieldcond text)"
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo VALUES "
             "('ATL202104010', '2021', '20210401', '0', 'NYA', 'ATL', "
-            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '')"
+            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '', "
+            "'', '', '', '', '', '')"
         )
         cur.execute(
             "INSERT INTO raw.register_people "
@@ -477,12 +488,15 @@ def _seed_market_game(db_conn):
             "(gid text, _season text, date text, number text, "
             "visteam text, hometeam text, vruns text, hruns text, "
             "gametype text, site text, attendance text, timeofgame text, "
-            "daynight text, wp text, lp text, save text)"
+            "daynight text, wp text, lp text, save text, "
+            "temp text, winddir text, windspeed text, sky text, "
+            "precip text, fieldcond text)"
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo VALUES "
             "('ATL202605230', '2026', '20260523', '0', 'NYA', 'ATL', "
-            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '')"
+            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '', "
+            "'', '', '', '', '', '')"
         )
         cur.execute(
             "INSERT INTO raw.register_people "
@@ -699,12 +713,15 @@ def test_build_team_aliases_seeds_only_the_current_team_era(db_conn):
             "(gid text, _season text, date text, number text, "
             "visteam text, hometeam text, vruns text, hruns text, "
             "gametype text, site text, attendance text, timeofgame text, "
-            "daynight text, wp text, lp text, save text)"
+            "daynight text, wp text, lp text, save text, "
+            "temp text, winddir text, windspeed text, sky text, "
+            "precip text, fieldcond text)"
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo VALUES "
             "('ATL202504010', '2025', '20250401', '0', 'ATL', 'ATL', "
-            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '')"
+            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '', "
+            "'', '', '', '', '', '')"
         )
         cur.execute(
             "INSERT INTO raw.register_people "
@@ -764,16 +781,21 @@ def _seed_mlb_team_id_scenario(db_conn):
             "(gid text, _season text, date text, number text, "
             "visteam text, hometeam text, vruns text, hruns text, "
             "gametype text, site text, attendance text, timeofgame text, "
-            "daynight text, wp text, lp text, save text)"
+            "daynight text, wp text, lp text, save text, "
+            "temp text, winddir text, windspeed text, sky text, "
+            "precip text, fieldcond text)"
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo VALUES "
             "('OAK202404010', '2024', '20240401', '0', 'TEX', 'OAK', "
-            "'3', '5', 'regular', 'OAK01', '10000', '180', 'N', '', '', ''), "
+            "'3', '5', 'regular', 'OAK01', '10000', '180', 'N', '', '', '', "
+            "'', '', '', '', '', ''), "
             "('OAK202404020', '2024', '20240402', '0', 'TEX', 'OAK', "
-            "'1', '2', 'regular', 'OAK01', '11000', '175', 'N', '', '', ''), "
+            "'1', '2', 'regular', 'OAK01', '11000', '175', 'N', '', '', '', "
+            "'', '', '', '', '', ''), "
             "('OAK202404030', '2024', '20240403', '0', 'TEX', 'OAK', "
-            "'4', '6', 'regular', 'OAK01', '12000', '190', 'N', '', '', '')"
+            "'4', '6', 'regular', 'OAK01', '12000', '190', 'N', '', '', '', "
+            "'', '', '', '', '', '')"
         )
 
         cur.execute(
@@ -896,12 +918,15 @@ def test_build_market_matches_polymarket_rebrand_alias(db_conn):
             "(gid text, _season text, date text, number text, "
             "visteam text, hometeam text, vruns text, hruns text, "
             "gametype text, site text, attendance text, timeofgame text, "
-            "daynight text, wp text, lp text, save text)"
+            "daynight text, wp text, lp text, save text, "
+            "temp text, winddir text, windspeed text, sky text, "
+            "precip text, fieldcond text)"
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo VALUES "
             "('ANA202605230', '2026', '20260523', '0', 'NYA', 'ANA', "
-            "'3', '5', 'regular', 'ANA01', '35000', '185', 'N', '', '', '')"
+            "'3', '5', 'regular', 'ANA01', '35000', '185', 'N', '', '', '', "
+            "'', '', '', '', '', '')"
         )
         cur.execute(
             "INSERT INTO raw.register_people "
@@ -968,12 +993,15 @@ def test_build_market_matches_kalshi_athletics_ticker_via_alias(db_conn):
             "(gid text, _season text, date text, number text, "
             "visteam text, hometeam text, vruns text, hruns text, "
             "gametype text, site text, attendance text, timeofgame text, "
-            "daynight text, wp text, lp text, save text)"
+            "daynight text, wp text, lp text, save text, "
+            "temp text, winddir text, windspeed text, sky text, "
+            "precip text, fieldcond text)"
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo VALUES "
             "('OAK202605230', '2026', '20260523', '0', 'NYA', 'OAK', "
-            "'3', '5', 'regular', 'OAK01', '10000', '180', 'N', '', '', '')"
+            "'3', '5', 'regular', 'OAK01', '10000', '180', 'N', '', '', '', "
+            "'', '', '', '', '', '')"
         )
         cur.execute(
             "INSERT INTO raw.register_people "
@@ -1005,4 +1033,249 @@ def test_build_market_matches_kalshi_athletics_ticker_via_alias(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.kalshi_market")
         cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def _seed_retrosheet_park(db_conn, parkid="ATL03", name="Truist Park"):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_park "
+            "(parkid text, name text, city text, state text, league text, "
+            'start text, "end" text)'
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_park VALUES (%s, %s, "
+            "'Atlanta', 'GA', 'NL', '04/14/2017', NULL)",
+            (parkid, name),
+        )
+    db_conn.commit()
+
+
+def test_build_venues_links_to_game_and_lands_retrosheet_weather(db_conn):
+    # raw.retrosheet_gameinfo's own weather columns (temp/wind/sky/precip/
+    # field condition) were confirmed landed in production, 97%+ filled for
+    # wind/sky/precip, 71% for temp (1900-2025), but sat entirely unused
+    # until this change — see migration 0010. Real venue-name join test:
+    # ATL03 in raw.retrosheet_gameinfo.site must resolve to the same-code
+    # row in raw.retrosheet_park via an exact match, no fuzzy string
+    # matching involved.
+    _seed_raw_tables(db_conn)
+    _seed_retrosheet_park(db_conn)
+
+    counts = conform.run()
+
+    assert counts["core.venue"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT v.retro_park_id, g.temp_f, g.wind_dir, g.wind_speed_mph, "
+            "g.sky, g.precip, g.field_cond "
+            "FROM core.game g JOIN core.venue v ON v.id = g.venue_id "
+            "WHERE g.retro_game_id = 'ATL202504010'"
+        )
+        assert cur.fetchone() == ("ATL03", 72, "fromlf", 10, "sunny", "none", "dry")
+
+    with db_conn.cursor() as cur:
+        # The second seeded game has 'unknown' in every weather column —
+        # must come out honestly NULL, not the literal string "unknown".
+        cur.execute(
+            "SELECT temp_f, wind_dir, sky, precip, field_cond FROM core.game "
+            "WHERE retro_game_id = 'ATL202504020'"
+        )
+        assert cur.fetchone() == (None, None, None, None, None)
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_park")
+    db_conn.commit()
+
+
+def test_build_venues_enriches_from_mlb_venue_by_exact_name_match_only(db_conn):
+    _seed_raw_tables(db_conn)
+    _seed_retrosheet_park(db_conn, name="Truist Park")
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.mlb_venue "
+            "(venue_id text, name text, latitude text, longitude text, "
+            "capacity text, turf_type text, roof_type text, "
+            "left_line text, center text, right_line text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_venue VALUES "
+            "('4705', 'Truist Park', '33.8908', '-84.4678', '41084', "
+            "'Grass', 'Open', '335', '400', '325')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT mlb_venue_id, latitude, longitude, capacity, turf_type, "
+            "roof_type, left_line, center, right_line "
+            "FROM core.venue WHERE retro_park_id = 'ATL03'"
+        )
+        row = cur.fetchone()
+    assert row == (
+        4705,
+        Decimal("33.8908"),
+        Decimal("-84.4678"),
+        41084,
+        "Grass",
+        "Open",
+        335,
+        400,
+        325,
+    )
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_park, raw.mlb_venue")
+    db_conn.commit()
+
+
+def test_build_venues_leaves_enrichment_null_when_no_exact_name_match(db_conn):
+    # "leave it NULL, don't guess" — same precedent as core.game.game_pk's
+    # own backfill. A near-but-not-exact name (e.g. a rebrand/typo) must
+    # not get guessed at.
+    _seed_raw_tables(db_conn)
+    _seed_retrosheet_park(db_conn, name="Truist Park")
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.mlb_venue "
+            "(venue_id text, name text, latitude text, longitude text, "
+            "capacity text, turf_type text, roof_type text, "
+            "left_line text, center text, right_line text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_venue VALUES "
+            "('4705', 'SunTrust Park', '33.8908', '-84.4678', '41084', "
+            "'Grass', 'Open', '335', '400', '325')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT mlb_venue_id FROM core.venue WHERE retro_park_id = 'ATL03'")
+        assert cur.fetchone() == (None,)
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_park, raw.mlb_venue")
+    db_conn.commit()
+
+
+def test_build_venues_rerunning_replaces_instead_of_duplicating(db_conn):
+    _seed_raw_tables(db_conn)
+    _seed_retrosheet_park(db_conn)
+
+    conform.run()
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.venue")
+        assert cur.fetchone() == (1,)
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_park")
+    db_conn.commit()
+
+
+def _seed_mlb_standing_rows(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.mlb_standing "
+            "(division_id text, div_name text, team_id text, div_rank text, "
+            "w text, l text, gb text, wc_rank text, wc_gb text, "
+            "league_rank text, sport_rank text, _season text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_standing VALUES "
+            "('200', 'AL West', '133', '1', '95', '67', '-', '1', '-', "
+            "'1', '2', '2024'), "
+            "('200', 'AL West', '140', '2', '85', '77', '10.0', '4', '5.5', "
+            "'8', '15', '2024')"
+        )
+    db_conn.commit()
+
+
+def test_build_standings_resolves_team_via_mlb_team_id(db_conn):
+    # core.standing resolves team_id via core.team.mlb_team_id (the same
+    # numeric anchor ADR-029 built for exactly this kind of join), not a
+    # second round of name matching — reuses the OAK=133/TEX=140
+    # mlb_team_id scenario already exercised by the ADR-029 tests above.
+    _seed_mlb_team_id_scenario(db_conn)
+    _seed_mlb_standing_rows(db_conn)
+
+    counts = conform.run()
+
+    assert counts["core.standing"] == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT t.retro_team_id, s.div_rank, s.wins, s.losses, "
+            "s.games_back, s.wildcard_games_back "
+            "FROM core.standing s JOIN core.team t ON t.id = s.team_id "
+            "ORDER BY s.div_rank"
+        )
+        rows = cur.fetchall()
+    # '-' (the division/wildcard leader's own "0 games back" marker) must
+    # resolve to 0, not NULL — a plain unsigned-digits regex would
+    # silently drop exactly the leader rows.
+    assert rows[0] == ("OAK", 1, 95, 67, Decimal("0"), Decimal("0"))
+    assert rows[1] == ("TEX", 2, 85, 77, Decimal("10.0"), Decimal("5.5"))
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.mlb_standing")
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_build_standings_rerunning_replaces_instead_of_duplicating(db_conn):
+    _seed_mlb_team_id_scenario(db_conn)
+    _seed_mlb_standing_rows(db_conn)
+
+    conform.run()
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.standing")
+        assert cur.fetchone() == (2,)
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.mlb_standing")
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_build_player_war_leaves_unmatched_bref_row_as_null_instead_of_dropping(db_conn):
+    # Real bug found in this review: an inner JOIN here silently dropped
+    # any bref row whose bbref_id didn't resolve to a core.player row (517
+    # of 126,418 real production batting rows, confirmed directly) with no
+    # trace at all. A LEFT JOIN brings this in line with every other
+    # optional resolution in this file (core.game.game_pk, etc.) — land
+    # the row with an honest NULL player_id instead of vanishing it.
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.bref_war_batting "
+            "(name_common text, mlb_id text, player_id text, year_id text, "
+            "team_id text, stint_id text, lg_id text, pitcher text, g text, "
+            "pa text, salary text, runs_above_avg text, runs_above_avg_off text, "
+            "runs_above_avg_def text, war_rep text, waa text, war text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.bref_war_batting VALUES "
+            "('Nobody Resolvable', '999999', 'nobod01', '2025', 'ATL', '1', "
+            "'NL', 'N', '10', '20', '100000', '0.1', '0.1', '0.0', "
+            "'0.0', '0.1', '0.1')"
+        )
+    db_conn.commit()
+
+    counts = conform.run()
+
+    assert counts["core.player_war"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT player_id, war FROM core.player_war")
+        assert cur.fetchone() == (None, Decimal("0.1"))
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.bref_war_batting")
+        cur.execute("TRUNCATE core.player_war")
     db_conn.commit()

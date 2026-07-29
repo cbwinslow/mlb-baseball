@@ -43,6 +43,19 @@ inside columns raw.polymarket_event/raw.kalshi_market store as Python-repr
 text (load_dataframe has no JSON-aware serialization — see ADR-026/027) —
 ast.literal_eval in Python is far more robust here than fragile string
 matching against repr'd dicts in SQL.
+
+core.venue/core.standing (migration 0010) close the same class of gap for
+raw.retrosheet_park, raw.mlb_venue, and raw.mlb_standing — all fully
+ingested, none previously bridged to core. core.venue is keyed on
+Retrosheet's own parkid (an exact match already stored, unused, in
+raw.retrosheet_gameinfo.site/core.game.site — no fuzzy matching needed,
+unlike team/game_pk resolution); MLB's richer venue catalog (lat/long,
+capacity, turf/roof type, dimensions) is a best-effort enrichment by exact
+name match, left NULL otherwise. core.game also gains Retrosheet's own
+per-game weather columns (temp/wind/sky/precip/field condition) — landed
+in raw.retrosheet_gameinfo the whole time, never used until this change.
+core.standing resolves team_id via core.team.mlb_team_id, so
+_build_standings must run after _backfill_mlb_team_id, not before.
 """
 
 import re
@@ -205,6 +218,67 @@ def _build_teams(conn: psycopg.Connection) -> int:
         return cur.rowcount
 
 
+def _build_venues(conn: psycopg.Connection) -> int:
+    # Retrosheet's own parkid is the primary key here, not MLB's numeric
+    # venue_id -- it's the one with an exact, already-stored join key back
+    # to core.game (raw.retrosheet_gameinfo.site), where MLB's venue
+    # catalog has no shared ID with Retrosheet at all. mlb_venue_id and the
+    # richer lat/long/capacity/turf/roof/dimension columns are a
+    # best-effort enrichment: an exact case-insensitive name match against
+    # raw.mlb_venue, left NULL where nothing matches exactly rather than
+    # guessed -- same "leave it NULL, don't guess" precedent as
+    # core.game.game_pk's own backfill. raw.mlb_venue is optional (a fresh
+    # clone may not have bootstrapped mlb_api yet), so the enrichment is a
+    # separate best-effort UPDATE after the base INSERT, not a JOIN inside
+    # it -- same reasoning as _backfill_win_probability.
+    # raw.retrosheet_park is optional, same as every other non-hard-
+    # prerequisite raw table here — a fresh clone that's only bootstrapped
+    # register/lahman/retrosheet's CSV product so far (the three hard
+    # PREREQUISITES) won't have it yet.
+    with conn.cursor() as cur:
+        cur.execute("TRUNCATE core.venue CASCADE")
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(
+                r"""
+                INSERT INTO core.venue
+                    (retro_park_id, name, city, state, league, first_year, last_year)
+                SELECT
+                    parkid, name, city, state, league,
+                    CASE WHEN start ~ '^\d{2}/\d{2}/\d{4}$'
+                         THEN extract(year FROM to_date(start, 'MM/DD/YYYY'))::integer END,
+                    CASE WHEN "end" ~ '^\d{2}/\d{2}/\d{4}$'
+                         THEN extract(year FROM to_date("end", 'MM/DD/YYYY'))::integer END
+                FROM raw.retrosheet_park
+                """
+            )
+            count = cur.rowcount
+    except psycopg.errors.UndefinedTable:
+        print("conform: raw.retrosheet_park not present yet — core.venue left empty")
+        return 0
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE core.venue v
+                SET mlb_venue_id = mv.venue_id::integer,
+                    latitude = NULLIF(mv.latitude, '')::numeric,
+                    longitude = NULLIF(mv.longitude, '')::numeric,
+                    capacity = NULLIF(mv.capacity, '')::numeric::integer,
+                    turf_type = mv.turf_type,
+                    roof_type = mv.roof_type,
+                    left_line = NULLIF(mv.left_line, '')::numeric::integer,
+                    center = NULLIF(mv.center, '')::numeric::integer,
+                    right_line = NULLIF(mv.right_line, '')::numeric::integer
+                FROM raw.mlb_venue mv
+                WHERE lower(trim(v.name)) = lower(trim(mv.name))
+                """
+            )
+    except psycopg.errors.UndefinedTable:
+        print("conform: raw.mlb_venue not present yet — core.venue enrichment columns left NULL")
+    return count
+
+
 def _build_team_aliases(conn: psycopg.Connection) -> int:
     # core.team_alias has no CASCADE truncate of its own upstream — it's
     # keyed off core.team's *current* rows (TRUNCATE CASCADE in
@@ -274,7 +348,8 @@ def _build_games(conn: psycopg.Connection) -> int:
                 retro_game_id, season, game_date, game_number,
                 away_team_id, home_team_id, away_score, home_score,
                 game_type, site, attendance, duration_minutes, day_night,
-                winning_pitcher_id, losing_pitcher_id, save_pitcher_id
+                winning_pitcher_id, losing_pitcher_id, save_pitcher_id,
+                venue_id, temp_f, wind_dir, wind_speed_mph, sky, precip, field_cond
             )
             SELECT
                 gi.gid,
@@ -302,7 +377,24 @@ def _build_games(conn: psycopg.Connection) -> int:
                 gi.daynight,
                 wp.id,
                 lp.id,
-                sv.id
+                sv.id,
+                venue.id,
+                -- Retrosheet's own per-game weather columns -- confirmed
+                -- present and well-filled (97%+ for wind/sky/precip, 71%
+                -- for temp, 1900-2025) but sat entirely unused in raw
+                -- until this change. "unknown" and the -1/-1.0 sentinel
+                -- (windspeed's own unknown-value marker, same pattern as
+                -- duration_minutes above) both fall through to NULL via
+                -- the same digits-only regex guard used for attendance/
+                -- timeofgame -- confirmed directly against real data, not
+                -- assumed clean.
+                CASE WHEN gi.temp ~ '^[0-9]+(\.[0-9]+)?$' THEN gi.temp::numeric::integer END,
+                NULLIF(gi.winddir, 'unknown'),
+                CASE WHEN gi.windspeed ~ '^[0-9]+(\.[0-9]+)?$'
+                     THEN gi.windspeed::numeric::integer END,
+                NULLIF(gi.sky, 'unknown'),
+                NULLIF(gi.precip, 'unknown'),
+                NULLIF(gi.fieldcond, 'unknown')
             FROM raw.retrosheet_gameinfo gi
             LEFT JOIN core.team away_team
                 ON away_team.retro_team_id = gi.visteam
@@ -313,6 +405,7 @@ def _build_games(conn: psycopg.Connection) -> int:
             LEFT JOIN core.player wp ON wp.retro_id = gi.wp
             LEFT JOIN core.player lp ON lp.retro_id = gi.lp
             LEFT JOIN core.player sv ON sv.retro_id = gi.save
+            LEFT JOIN core.venue venue ON venue.retro_park_id = gi.site
             """
         )
         retro_count = cur.rowcount
@@ -887,6 +980,15 @@ def _build_player_war(conn: psycopg.Connection) -> int:
     # directly before writing this): batting has runs_above_avg/_off/_def,
     # pitching doesn't (its own WAR components are era_plus/ra/xra/bip
     # instead, a different stat vocabulary for pitchers, not an omission).
+    #
+    # LEFT JOIN core.player, not an inner JOIN — a real bug found in this
+    # review: an inner join here silently drops any bref row whose
+    # bbref_id doesn't resolve to a core.player row (517 of 126,418
+    # batting rows, 368 distinct players, confirmed directly), with no
+    # trace and no health-check signal. Every other optional resolution in
+    # this file leaves an honest NULL instead of vanishing the row
+    # (core.game.game_pk, core.market.game_id, etc.) — this brings
+    # core.player_war in line with that same convention.
     try:
         with conn.transaction(), conn.cursor() as cur:
             cur.execute(
@@ -908,7 +1010,7 @@ def _build_player_war(conn: psycopg.Connection) -> int:
                     NULLIF(w.runs_above_avg_off, '')::numeric,
                     NULLIF(w.runs_above_avg_def, '')::numeric
                 FROM raw.bref_war_batting w
-                JOIN core.player p ON p.bbref_id = w.player_id
+                LEFT JOIN core.player p ON p.bbref_id = w.player_id
                 """
             )
             total += cur.rowcount
@@ -931,13 +1033,70 @@ def _build_player_war(conn: psycopg.Connection) -> int:
                     NULLIF(w.waa, '')::numeric,
                     NULLIF(w.war_rep, '')::numeric
                 FROM raw.bref_war_pitching w
-                JOIN core.player p ON p.bbref_id = w.player_id
+                LEFT JOIN core.player p ON p.bbref_id = w.player_id
                 """
             )
             total += cur.rowcount
     except psycopg.errors.UndefinedTable:
         print("conform: raw.bref_war_pitching not present yet — skipping")
     return total
+
+
+def _build_standings(conn: psycopg.Connection) -> int:
+    # team_id resolves via core.team.mlb_team_id, not a second round of
+    # string matching -- raw.mlb_standing.team_id is already MLB's own
+    # numeric scheme, the same anchor ADR-029 built. Must run after
+    # _backfill_mlb_team_id (see run()'s call order) or every row's
+    # team_id would be NULL. 1969+ only -- MLB Stats API's own
+    # standings_data() has no earlier coverage (confirmed in ADR-015);
+    # pre-1969 win-loss is already available via raw.lahman_teams and
+    # raw.retrosheet_gamelog, so this isn't a real coverage loss.
+    # Unconditional, outside the try/except below — a SAVEPOINT rollback
+    # (raw.mlb_standing not present) would otherwise undo the TRUNCATE too,
+    # leaving a previous run's stale rows in place instead of an honest
+    # empty table. Same fix already applied to core.venue above.
+    with conn.cursor() as cur:
+        cur.execute("TRUNCATE core.standing")
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO core.standing (
+                    team_id, season, division, div_rank, wins, losses,
+                    games_back, wildcard_rank, wildcard_games_back,
+                    league_rank, sport_rank
+                )
+                SELECT
+                    t.id,
+                    s._season::integer,
+                    s.div_name,
+                    NULLIF(s.div_rank, '')::integer,
+                    NULLIF(s.w, '')::integer,
+                    NULLIF(s.l, '')::integer,
+                    -- '-' is the division leader's own "0 games back"
+                    -- marker (confirmed directly against real data,
+                    -- alongside signed values like '-3.0'/'+16.0' for a
+                    -- team ahead of its division/wildcard cutoff) --
+                    -- a plain unsigned-digits regex would silently NULL
+                    -- out exactly the leader rows, the ones most likely
+                    -- to matter.
+                    CASE WHEN s.gb = '-' THEN 0
+                         WHEN s.gb ~ '^[+-]?[0-9]+(\\.[0-9]+)?$' THEN s.gb::numeric END,
+                    NULLIF(s.wc_rank, '')::integer,
+                    CASE WHEN s.wc_gb = '-' THEN 0
+                         WHEN s.wc_gb ~ '^[+-]?[0-9]+(\\.[0-9]+)?$' THEN s.wc_gb::numeric END,
+                    NULLIF(s.league_rank, '')::integer,
+                    NULLIF(s.sport_rank, '')::integer
+                FROM raw.mlb_standing s
+                LEFT JOIN core.team t
+                    ON t.mlb_team_id = s.team_id::integer
+                    AND s._season::integer BETWEEN t.first_year AND t.last_year
+                """
+            )
+            return cur.rowcount
+    except psycopg.errors.UndefinedTable:
+        print("conform: raw.mlb_standing not present yet — skipping core.standing")
+        return 0
 
 
 def run() -> dict[str, int]:
@@ -959,6 +1118,13 @@ def run() -> dict[str, int]:
             "core.team": _build_teams(conn),
             "core.player": _build_players(conn),
         }
+        # Must run before _build_games — its LEFT JOIN needs core.venue
+        # already populated to resolve venue_id. Safe to TRUNCATE CASCADE
+        # here even though core.venue is referenced by core.game: the
+        # initial TRUNCATE above already emptied core.game (and everything
+        # cascading from it), so the cascade from core.venue's own
+        # TRUNCATE has nothing left to wipe.
+        counts["core.venue"] = _build_venues(conn)
         counts["core.team_alias"] = _build_team_aliases(conn)
         counts["core.game"] = _build_games(conn)
         _backfill_game_pk(conn)
@@ -970,6 +1136,9 @@ def run() -> dict[str, int]:
         # corrected team_id on those games too.
         _backfill_mlb_team_id(conn)
         _backfill_team_ids_via_mlb_id(conn)
+        # core.standing resolves team_id via mlb_team_id, so it must run
+        # after both backfills above, not before.
+        counts["core.standing"] = _build_standings(conn)
         counts["core.play"] = _build_plays(conn)
         _backfill_win_probability(conn)
         counts["core.pitch"] = _build_pitches(conn)
@@ -990,4 +1159,12 @@ def health_check() -> list[Check]:
         check_table_exists("core.pitch"),
         check_table_exists("core.market"),
         check_table_exists("core.player_war"),
+        # core.venue depends only on raw.retrosheet_park (optional, not a
+        # hard PREREQUISITE) — check_table_exists, not _has_rows, since a
+        # fresh clone that hasn't run retrosheet_reference yet leaves this
+        # legitimately empty.
+        check_table_exists("core.venue"),
+        # core.standing depends on raw.mlb_standing (optional) — same
+        # reasoning.
+        check_table_exists("core.standing"),
     ]

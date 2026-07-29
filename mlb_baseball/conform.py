@@ -59,43 +59,65 @@ from mlb_baseball.ingest import track_run
 SOURCE = "core"
 
 # Kalshi's own KXMLBGAME market-ticker team-code suffixes -> Retrosheet's
-# retro_team_id. Every code here was confirmed present in real production
-# data (`SELECT DISTINCT` against raw.kalshi_market's tickers), not
-# guessed — including two, "AL"/"NL", seen in the same query and
-# deliberately excluded: those are a different (non-team) market type
-# sharing the KXMLBGAME series, not team codes.
-_KALSHI_TEAM_CODES = {
-    "ATH": "OAK",
-    "ATL": "ATL",
-    "AZ": "ARI",
-    "BAL": "BAL",
-    "BOS": "BOS",
-    "CHC": "CHN",
-    "CIN": "CIN",
-    "CLE": "CLE",
-    "COL": "COL",
-    "CWS": "CHA",
-    "DET": "DET",
-    "HOU": "HOU",
-    "KC": "KCA",
-    "LAA": "ANA",
-    "LAD": "LAN",
-    "MIA": "MIA",
-    "MIL": "MIL",
-    "MIN": "MIN",
-    "NYM": "NYN",
-    "NYY": "NYA",
-    "PHI": "PHI",
-    "PIT": "PIT",
-    "SD": "SDN",
-    "SEA": "SEA",
-    "SF": "SFN",
-    "STL": "SLN",
-    "TB": "TBA",
-    "TEX": "TEX",
-    "TOR": "TOR",
-    "WSH": "WAS",
-}
+# Seed data for core.team_alias (migration 0009) — only needed for
+# external sources with no shared ID scheme with MLB at all (Polymarket's
+# team-name strings, Kalshi's ticker codes). Anything MLB-API-sourced uses
+# core.team.mlb_team_id instead — a stable numeric anchor, not a name to
+# string-match (see _backfill_mlb_team_id) — so this list stays small and
+# only covers the handful of names/codes these two market platforms
+# actually use, not an attempt to reconstruct every source's naming.
+#
+# (retro_team_id, alias, source) — every alias here was confirmed present
+# in real production data before being added, not guessed:
+# - Kalshi ticker codes: `SELECT DISTINCT` against raw.kalshi_market's
+#   tickers ("AL"/"NL", also seen in that query, are a different
+#   non-team market type sharing the KXMLBGAME series, deliberately
+#   excluded).
+# - "rebrand" aliases: confirmed by reading raw.mlb_team_history directly
+#   — Retrosheet's own TEAMABR.TXT still lists these 3 teams under their
+#   OLDER recorded nickname (Tampa Bay "Devil Rays", Anaheim "Angels",
+#   Cleveland "Indians") even for the current (last_year=9999) era row,
+#   and the Athletics' 2025 relocation means MLB's own schedule data now
+#   lists them as bare "Athletics" with no city at all — confirmed both
+#   Polymarket and Kalshi use these current/bare forms, not core.team's
+#   stored (stale) name.
+_TEAM_ALIAS_SEED: list[tuple[str, str, str]] = [
+    ("OAK", "ATH", "kalshi_ticker"),
+    ("ATL", "ATL", "kalshi_ticker"),
+    ("ARI", "AZ", "kalshi_ticker"),
+    ("BAL", "BAL", "kalshi_ticker"),
+    ("BOS", "BOS", "kalshi_ticker"),
+    ("CHN", "CHC", "kalshi_ticker"),
+    ("CIN", "CIN", "kalshi_ticker"),
+    ("CLE", "CLE", "kalshi_ticker"),
+    ("COL", "COL", "kalshi_ticker"),
+    ("CHA", "CWS", "kalshi_ticker"),
+    ("DET", "DET", "kalshi_ticker"),
+    ("HOU", "HOU", "kalshi_ticker"),
+    ("KCA", "KC", "kalshi_ticker"),
+    ("ANA", "LAA", "kalshi_ticker"),
+    ("LAN", "LAD", "kalshi_ticker"),
+    ("MIA", "MIA", "kalshi_ticker"),
+    ("MIL", "MIL", "kalshi_ticker"),
+    ("MIN", "MIN", "kalshi_ticker"),
+    ("NYN", "NYM", "kalshi_ticker"),
+    ("NYA", "NYY", "kalshi_ticker"),
+    ("PHI", "PHI", "kalshi_ticker"),
+    ("PIT", "PIT", "kalshi_ticker"),
+    ("SDN", "SD", "kalshi_ticker"),
+    ("SEA", "SEA", "kalshi_ticker"),
+    ("SFN", "SF", "kalshi_ticker"),
+    ("SLN", "STL", "kalshi_ticker"),
+    ("TBA", "TB", "kalshi_ticker"),
+    ("TEX", "TEX", "kalshi_ticker"),
+    ("TOR", "TOR", "kalshi_ticker"),
+    ("WAS", "WSH", "kalshi_ticker"),
+    ("TBA", "Rays", "rebrand"),
+    ("TBA", "Tampa Bay Rays", "rebrand"),
+    ("ANA", "Los Angeles Angels", "rebrand"),
+    ("CLE", "Cleveland Guardians", "rebrand"),
+    ("OAK", "Athletics", "rebrand"),
+]
 
 _MONTH_ABBR = {
     "JAN": 1,
@@ -181,6 +203,26 @@ def _build_teams(conn: psycopg.Connection) -> int:
             """
         )
         return cur.rowcount
+
+
+def _build_team_aliases(conn: psycopg.Connection) -> int:
+    # core.team_alias has no CASCADE truncate of its own upstream — it's
+    # keyed off core.team's *current* rows (TRUNCATE CASCADE in
+    # _build_teams already clears any stale rows from a prior run before
+    # this one re-seeds), so an explicit TRUNCATE here would be redundant
+    # after _build_teams but is kept anyway so this function stays
+    # correct if ever called on its own.
+    with conn.cursor() as cur:
+        cur.execute("TRUNCATE core.team_alias")
+        cur.executemany(
+            """
+            INSERT INTO core.team_alias (team_id, alias, source)
+            SELECT id, %s, %s FROM core.team WHERE retro_team_id = %s AND last_year = 9999
+            """,
+            [(alias, source, retro_id) for retro_id, alias, source in _TEAM_ALIAS_SEED],
+        )
+        cur.execute("SELECT count(*) FROM core.team_alias")
+        return cur.fetchone()[0]
 
 
 def _build_players(conn: psycopg.Connection) -> int:
@@ -398,6 +440,96 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
         return 0
 
 
+def _backfill_mlb_team_id(conn: psycopg.Connection) -> int:
+    # Derives core.team.mlb_team_id — the team equivalent of
+    # core.player.mlbam_id, a stable external numeric anchor rather than a
+    # name to string-match — without any NEW string matching. For every
+    # core.game row that already has a resolved game_pk (_backfill_game_pk
+    # above) and a resolved away/home_team_id (_build_games' own string
+    # match, which works fine for the many years a team's display name did
+    # match), cross-reference raw.mlb_schedule's away_id/home_id for that
+    # exact game_pk and take the majority vote per team. Confirmed directly
+    # against production this is robust: of the top 15 teams by linked game
+    # count, all but one showed a single distinct mlb_id across thousands
+    # of games; the one exception (Cubs: 17,824 votes for 112 vs. 2 votes
+    # for 146) traced to a real 2004 Hurricane Frances relocation (Marlins
+    # "home" games moved to Wrigley, Marlins kept home-record credit in
+    # raw.mlb_schedule while Retrosheet's retro_game_id reflects the actual
+    # venue) — a genuine historical anomaly the majority vote correctly
+    # treats as noise, not a bug to fix.
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH votes AS (
+                    SELECT
+                        t.id AS team_id,
+                        CASE WHEN g.away_team_id = t.id
+                             THEN ms.away_id ELSE ms.home_id END AS mlb_id,
+                        count(*) AS n
+                    FROM core.team t
+                    JOIN core.game g ON g.away_team_id = t.id OR g.home_team_id = t.id
+                    JOIN raw.mlb_schedule ms ON ms.game_id = g.game_pk
+                    WHERE g.game_pk IS NOT NULL
+                    GROUP BY t.id, mlb_id
+                ),
+                ranked AS (
+                    SELECT
+                        team_id, mlb_id,
+                        row_number() OVER (PARTITION BY team_id ORDER BY n DESC) AS rnk
+                    FROM votes
+                )
+                UPDATE core.team t
+                SET mlb_team_id = r.mlb_id::integer
+                FROM ranked r
+                WHERE r.team_id = t.id AND r.rnk = 1
+                """
+            )
+            return cur.rowcount
+    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+        # UndefinedColumn as well as UndefinedTable: away_id/home_id are a
+        # real part of raw.mlb_schedule's production schema, but not every
+        # raw.mlb_schedule row source guarantees them (e.g. an older
+        # snapshot) — same "optional dependency not ready yet" case as the
+        # table not existing at all, not a real error.
+        print("conform: raw.mlb_schedule not present yet — skipping core.team.mlb_team_id backfill")
+        return 0
+
+
+def _backfill_team_ids_via_mlb_id(conn: psycopg.Connection) -> int:
+    # Uses the mlb_team_id crosswalk _backfill_mlb_team_id just built to
+    # fix core.game rows _build_games' string match missed — e.g. the
+    # Athletics' 2025 relocation: MLB's own schedule now lists them as
+    # bare "Athletics" (no city), which no longer string-matches
+    # core.team's "Oakland Athletics", leaving away/home_team_id NULL for
+    # 42 real 2025+ rows confirmed directly against production.
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE core.game g
+                SET away_team_id = t.id
+                FROM raw.mlb_schedule ms, core.team t
+                WHERE g.game_pk = ms.game_id AND g.away_team_id IS NULL
+                    AND t.mlb_team_id = ms.away_id::integer
+                """
+            )
+            n = cur.rowcount
+            cur.execute(
+                """
+                UPDATE core.game g
+                SET home_team_id = t.id
+                FROM raw.mlb_schedule ms, core.team t
+                WHERE g.game_pk = ms.game_id AND g.home_team_id IS NULL
+                    AND t.mlb_team_id = ms.home_id::integer
+                """
+            )
+            return n + cur.rowcount
+    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+        print("conform: raw.mlb_schedule not present yet — skipping core.game team_id backfill")
+        return 0
+
+
 def _build_plays(conn: psycopg.Connection) -> int:
     # Not self-truncating: run() truncates core.play before core.game (FK
     # ordering — core.play references core.game), same reason _build_games
@@ -565,13 +697,21 @@ def _build_pitches(conn: psycopg.Connection) -> int:
         return 0
 
 
-def _team_lookup(conn: psycopg.Connection) -> tuple[dict[str, int], dict[str, int]]:
+def _team_lookup(conn: psycopg.Connection) -> dict[str, int]:
+    # One unified alias -> team_id dict, not the old by_name/by_retro_id
+    # pair: core.team's own "city nickname" string plus every seeded
+    # core.team_alias row (Kalshi ticker codes, rebrand names) all resolve
+    # the same way now, since aliases are just more strings that mean the
+    # same team. Doesn't need core.team.mlb_team_id at all — that's for
+    # resolving core.game.away/home_team_id from MLB-sourced data, a
+    # different join (see _backfill_team_ids_via_mlb_id); Polymarket/Kalshi
+    # have no MLB numeric ID to key off of, hence this table.
     with conn.cursor() as cur:
-        cur.execute("SELECT id, retro_team_id, city, nickname FROM core.team")
-        rows = cur.fetchall()
-    by_name = {f"{city} {nickname}": team_id for team_id, _, city, nickname in rows}
-    by_retro_id = {retro_id: team_id for team_id, retro_id, _, _ in rows}
-    return by_name, by_retro_id
+        cur.execute("SELECT id, city, nickname FROM core.team")
+        by_alias = {f"{city} {nickname}": team_id for team_id, city, nickname in cur.fetchall()}
+        cur.execute("SELECT team_id, alias FROM core.team_alias")
+        by_alias.update({alias: team_id for team_id, alias in cur.fetchall()})
+    return by_alias
 
 
 def _game_lookup(
@@ -602,7 +742,7 @@ def _game_lookup(
 
 
 def _polymarket_market_rows(
-    conn: psycopg.Connection, team_by_name: dict[str, int], game_exact: dict[tuple, int]
+    conn: psycopg.Connection, by_alias: dict[str, int], game_exact: dict[tuple, int]
 ) -> list[tuple]:
     rows: list[tuple] = []
     with conn.cursor() as cur:
@@ -629,8 +769,8 @@ def _polymarket_market_rows(
             home = next((t for t in teams if t.get("ordering") == "home"), None)
             if away is None or home is None:
                 continue
-            away_id = team_by_name.get(away.get("name"))
-            home_id = team_by_name.get(home.get("name"))
+            away_id = by_alias.get(away.get("name"))
+            home_id = by_alias.get(home.get("name"))
             if away_id is None or home_id is None:
                 continue
             game_date = date.fromisoformat(date_match.group(1))
@@ -670,7 +810,7 @@ def _kalshi_implied_probability(
 
 
 def _kalshi_market_rows(
-    conn: psycopg.Connection, team_by_retro_id: dict[str, int], game_fuzzy: dict[tuple, tuple]
+    conn: psycopg.Connection, by_alias: dict[str, int], game_fuzzy: dict[tuple, tuple]
 ) -> list[tuple]:
     rows: list[tuple] = []
     with conn.cursor() as cur:
@@ -692,8 +832,7 @@ def _kalshi_market_rows(
             if month is None:
                 continue
             game_date = date(2000 + int(yy), month, int(dd))
-            retro_id = _KALSHI_TEAM_CODES.get(team_match.group(1))
-            team_id = team_by_retro_id.get(retro_id) if retro_id else None
+            team_id = by_alias.get(team_match.group(1))
             if team_id is None:
                 continue
             match = game_fuzzy.get((game_date, team_id))
@@ -704,7 +843,7 @@ def _kalshi_market_rows(
 
 
 def _build_market(conn: psycopg.Connection) -> int:
-    team_by_name, team_by_retro_id = _team_lookup(conn)
+    by_alias = _team_lookup(conn)
     game_exact, game_fuzzy = _game_lookup(conn)
 
     # conn.transaction() (a SAVEPOINT), not a plain conn.rollback() on
@@ -718,12 +857,12 @@ def _build_market(conn: psycopg.Connection) -> int:
     rows: list[tuple] = []
     try:
         with conn.transaction():
-            rows.extend(_polymarket_market_rows(conn, team_by_name, game_exact))
+            rows.extend(_polymarket_market_rows(conn, by_alias, game_exact))
     except psycopg.errors.UndefinedTable:
         print("conform: raw.polymarket_event not present yet — skipping its core.market rows")
     try:
         with conn.transaction():
-            rows.extend(_kalshi_market_rows(conn, team_by_retro_id, game_fuzzy))
+            rows.extend(_kalshi_market_rows(conn, by_alias, game_fuzzy))
     except psycopg.errors.UndefinedTable:
         print("conform: raw.kalshi_market not present yet — skipping its core.market rows")
 
@@ -820,8 +959,17 @@ def run() -> dict[str, int]:
             "core.team": _build_teams(conn),
             "core.player": _build_players(conn),
         }
+        counts["core.team_alias"] = _build_team_aliases(conn)
         counts["core.game"] = _build_games(conn)
         _backfill_game_pk(conn)
+        # Order matters: mlb_team_id is derived from already-resolved
+        # game_pk + away/home_team_id (majority vote), then immediately
+        # used to fix the away/home_team_id rows the original string match
+        # missed (e.g. the Athletics' bare "Athletics" name) — before
+        # _build_market runs, so Polymarket/Kalshi matching sees the
+        # corrected team_id on those games too.
+        _backfill_mlb_team_id(conn)
+        _backfill_team_ids_via_mlb_id(conn)
         counts["core.play"] = _build_plays(conn)
         _backfill_win_probability(conn)
         counts["core.pitch"] = _build_pitches(conn)
@@ -836,6 +984,7 @@ def health_check() -> list[Check]:
     return [
         check_table_has_rows("core.player"),
         check_table_has_rows("core.team"),
+        check_table_has_rows("core.team_alias"),
         check_table_has_rows("core.game"),
         check_table_exists("core.play"),
         check_table_exists("core.pitch"),

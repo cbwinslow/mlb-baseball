@@ -23,12 +23,13 @@ def _clean_tables(db_conn):
         for table in DYNAMIC_RAW_TABLES:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("TRUNCATE raw.register_people")
-        # play/pitch/market reference game — must be truncated together
-        # with it, not in a separate statement (Postgres requires this,
+        # play/pitch/market reference game, team_alias/player_war reference
+        # team/player — all must be truncated together with what they
+        # reference, not in a separate statement (Postgres requires this,
         # same as conform.py's run() — see its comment there).
         cur.execute(
             "TRUNCATE core.play, core.pitch, core.market, core.game, "
-            "core.team, core.player, core.player_war"
+            "core.team, core.team_alias, core.player, core.player_war"
         )
     db_conn.commit()
 
@@ -112,6 +113,7 @@ def test_run_populates_team_player_and_game(db_conn):
     # every optional build step must degrade to 0, not fail.
     assert counts == {
         "core.team": 1,
+        "core.team_alias": 1,  # ATL's own Kalshi ticker alias ("ATL" -> "ATL")
         "core.player": 2,
         "core.game": 2,
         "core.play": 0,
@@ -671,4 +673,336 @@ def test_build_player_war_lands_batting_and_pitching_rows(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.bref_war_batting, raw.bref_war_pitching")
         cur.execute("TRUNCATE core.player_war")
+    db_conn.commit()
+
+
+def test_build_team_aliases_seeds_only_the_current_team_era(db_conn):
+    # _TEAM_ALIAS_SEED's WHERE clause requires last_year = 9999 (the "still
+    # active" sentinel _build_teams assigns) -- a retro_team_id that only
+    # exists as a past, ended era (Montreal's 'MON', which never became the
+    # Nationals in Retrosheet's own vocabulary -- 'WAS' is a separate
+    # retro_team_id) must not get an alias row: core.team_alias.alias is
+    # UNIQUE, and an ended era isn't the team Polymarket/Kalshi mean today.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('ATL', 'NL', 'Atlanta', 'Braves', '1966', '2025'), "
+            "('MON', 'NL', 'Montreal', 'Expos', '1969', '2004')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('ATL202504010', '2025', '20250401', '0', 'ATL', 'ATL', "
+            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first) VALUES "
+            "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+    db_conn.commit()
+
+    counts = conform.run()
+
+    assert counts["core.team_alias"] == 1  # only ATL (last_year=9999), not MON
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT a.alias FROM core.team_alias a "
+            "JOIN core.team t ON t.id = a.team_id WHERE t.retro_team_id = 'MON'"
+        )
+        assert cur.fetchall() == []
+        cur.execute(
+            "SELECT a.alias FROM core.team_alias a "
+            "JOIN core.team t ON t.id = a.team_id WHERE t.retro_team_id = 'ATL'"
+        )
+        assert cur.fetchone() == ("ATL",)
+
+
+def test_build_team_aliases_rerunning_replaces_instead_of_duplicating(db_conn):
+    _seed_raw_tables(db_conn)
+
+    conform.run()
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.team_alias")
+        assert cur.fetchone() == (1,)
+
+
+def _seed_mlb_team_id_scenario(db_conn):
+    """OAK/TEX, 3 Retrosheet-sourced 2024 games (one with a deliberately
+    noisy/wrong MLB id, matching the shape of the real 2004 Hurricane
+    Frances Cubs/Marlins anomaly confirmed in production) plus one 2025
+    MLB-API-sourced game where the Athletics are listed under their bare,
+    mid-relocation name "Athletics" (no city) -- the real 42-row production
+    gap this design exists to fix."""
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('OAK', 'AL', 'Oakland', 'Athletics', '1968', '2025'), "
+            "('TEX', 'AL', 'Texas', 'Rangers', '1972', '2025')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('OAK202404010', '2024', '20240401', '0', 'TEX', 'OAK', "
+            "'3', '5', 'regular', 'OAK01', '10000', '180', 'N', '', '', ''), "
+            "('OAK202404020', '2024', '20240402', '0', 'TEX', 'OAK', "
+            "'1', '2', 'regular', 'OAK01', '11000', '175', 'N', '', '', ''), "
+            "('OAK202404030', '2024', '20240403', '0', 'TEX', 'OAK', "
+            "'4', '6', 'regular', 'OAK01', '12000', '190', 'N', '', '', '')"
+        )
+
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, away_score text, home_score text, "
+            "away_id text, home_id text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('500001', '2024-04-01', 'Texas Rangers', 'Oakland Athletics', "
+            "'2024', 'Final', 'R', '0', 'Oakland Coliseum', '3', '5', '140', '133'), "
+            "('500002', '2024-04-02', 'Texas Rangers', 'Oakland Athletics', "
+            "'2024', 'Final', 'R', '0', 'Oakland Coliseum', '1', '2', '140', '133'), "
+            # Deliberately wrong home_id for this one game -- the noisy
+            # outlier vote the majority-vote logic must not be swayed by.
+            "('500003', '2024-04-03', 'Texas Rangers', 'Oakland Athletics', "
+            "'2024', 'Final', 'R', '0', 'Oakland Coliseum', '4', '6', '140', '999'), "
+            # 2025: no Retrosheet coverage for this season at all (nothing
+            # inserted into raw.retrosheet_gameinfo above for it), and
+            # away_name is the bare 'Athletics' MLB's schedule really uses
+            # mid-relocation -- can't string-match 'Oakland Athletics'.
+            "('500004', '2025-04-01', 'Athletics', 'Texas Rangers', "
+            "'2025', 'Final', 'R', '0', 'Globe Life Field', '2', '1', '133', '140')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first) VALUES "
+            "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+    db_conn.commit()
+
+
+def test_backfill_mlb_team_id_uses_majority_vote_despite_a_noisy_outlier(db_conn):
+    _seed_mlb_team_id_scenario(db_conn)
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT retro_team_id, mlb_team_id FROM core.team ORDER BY retro_team_id")
+        team_ids = dict(cur.fetchall())
+    assert team_ids["OAK"] == 133  # majority (2 votes) beats the noisy 999 (1 vote)
+    assert team_ids["TEX"] == 140
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_backfill_team_ids_via_mlb_id_fixes_bare_name_mismatch(db_conn):
+    _seed_mlb_team_id_scenario(db_conn)
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT t.retro_team_id FROM core.game g "
+            "JOIN core.team t ON t.id = g.away_team_id WHERE g.game_pk = '500004'"
+        )
+        assert cur.fetchone() == ("OAK",)  # resolved despite the bare "Athletics" name
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_backfill_mlb_team_id_degrades_gracefully_without_away_id_column(db_conn):
+    # A raw.mlb_schedule present but missing away_id/home_id (an older
+    # snapshot, or a partially-migrated deployment) must not crash the
+    # whole conform run -- same "optional dependency not ready yet"
+    # tolerance as the table not existing at all.
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, away_score text, home_score text)"
+        )
+    db_conn.commit()
+
+    conform.run()  # must not raise
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT mlb_team_id FROM core.team")
+        assert cur.fetchone() == (None,)
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_build_market_matches_polymarket_rebrand_alias(db_conn):
+    # Regression for a real production gap: Retrosheet's own TEAMABR.TXT
+    # still lists Tampa Bay under 'Rays' as its nickname but Polymarket's
+    # own event data uses 'Tampa Bay Rays' consistently with no
+    # abbreviation issue -- the actual real mismatches are Devil
+    # Rays/Anaheim Angels/Cleveland Indians vs. today's names. This test
+    # uses the Angels (core.team nickname stays "Angels" going back to
+    # Retrosheet's 'ANA' era while Polymarket's event data says "Los
+    # Angeles Angels") to exercise the "rebrand" alias path end to end.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('ANA', 'AL', 'Anaheim', 'Angels', '1997', '2025'), "
+            "('NYA', 'AL', 'New York', 'Yankees', '1913', '2025')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('ANA202605230', '2026', '20260523', '0', 'NYA', 'ANA', "
+            "'3', '5', 'regular', 'ANA01', '35000', '185', 'N', '', '', '')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first) VALUES "
+            "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.polymarket_event "
+            "(id text, slug text, sport text, teams text, closed text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_event VALUES ("
+            "'1', 'mlb-nyy-laa-2026-05-23', "
+            "'{''id'': 8, ''sport'': ''mlb''}', "
+            "'[{''name'': ''New York Yankees'', ''ordering'': ''away''}, "
+            "{''name'': ''Los Angeles Angels'', ''ordering'': ''home''}]', "
+            "'False')"
+        )
+        cur.execute("CREATE TABLE raw.polymarket_market (id text, event_id text, volume text)")
+        cur.execute("INSERT INTO raw.polymarket_market VALUES ('10', '1', '5000')")
+        cur.execute(
+            "CREATE TABLE raw.polymarket_outcome (market_id text, outcome text, price text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_outcome VALUES ('10', 'Los Angeles Angels', '0.55')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT m.implied_probability FROM core.market m "
+            "JOIN core.team t ON t.id = m.team_id WHERE t.retro_team_id = 'ANA'"
+        )
+        assert cur.fetchone() == (Decimal("0.55"),)
+
+    _drop_market_fixtures(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
+def test_build_market_matches_kalshi_athletics_ticker_via_alias(db_conn):
+    # Regression for the exact bug this test suite caught before it ever
+    # reached production: _TEAM_ALIAS_SEED's first entry originally had
+    # its (retro_team_id, alias) tuple order backwards ("ATH" mapped to
+    # itself instead of to "OAK"), which would have silently made every
+    # Kalshi "ATH" ticker fail to match any team.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('OAK', 'AL', 'Oakland', 'Athletics', '1968', '2025'), "
+            "('NYA', 'AL', 'New York', 'Yankees', '1913', '2025')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('OAK202605230', '2026', '20260523', '0', 'NYA', 'OAK', "
+            "'3', '5', 'regular', 'OAK01', '10000', '180', 'N', '', '', '')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first) VALUES "
+            "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.kalshi_market "
+            "(ticker text, event_ticker text, status text, volume_fp text, "
+            "yes_bid_dollars text, yes_ask_dollars text, last_price_dollars text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.kalshi_market VALUES "
+            "('KXMLBGAME-26MAY231905NYAOAK-ATH', 'KXMLBGAME-26MAY231905NYAOAK', "
+            "'finalized', '1000', '0.30', '0.34', '0.32')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT m.implied_probability FROM core.market m "
+            "JOIN core.team t ON t.id = m.team_id WHERE t.retro_team_id = 'OAK'"
+        )
+        assert cur.fetchone() == (Decimal("0.32"),)
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.kalshi_market")
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
     db_conn.commit()

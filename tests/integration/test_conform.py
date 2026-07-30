@@ -16,10 +16,21 @@ from mlb_baseball import conform
 DYNAMIC_RAW_TABLES = ["raw.retrosheet_team", "raw.retrosheet_gameinfo"]
 
 
-@pytest.fixture(autouse=True)
-def _clean_tables(db_conn):
-    yield
-    with db_conn.cursor() as cur:
+def _reset_dynamic_tables(conn):
+    """The actual cleanup logic, extracted so it's directly testable —
+    see test_reset_dynamic_tables_survives_an_aborted_transaction below.
+
+    Real bug found in this review: without the rollback() first, a test
+    whose own setup failed mid-transaction leaves the connection in
+    InFailedSqlTransaction state, and every statement below fails too
+    (Postgres refuses any command until the aborted transaction is rolled
+    back) — silently skipping cleanup entirely and leaving a dynamic table
+    behind permanently, which then poisons every later, unrelated test run
+    with a spurious "already exists" error. Matches drop_tables_after's own
+    existing "drop any lingering read-only transaction first" precedent in
+    conftest.py."""
+    conn.rollback()
+    with conn.cursor() as cur:
         for table in DYNAMIC_RAW_TABLES:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("TRUNCATE raw.register_people")
@@ -32,7 +43,42 @@ def _clean_tables(db_conn):
             "core.team, core.team_alias, core.player, core.player_war, "
             "core.venue, core.standing"
         )
+    conn.commit()
+
+
+@pytest.fixture(autouse=True)
+def _clean_tables(db_conn):
+    yield
+    _reset_dynamic_tables(db_conn)
+
+
+def test_reset_dynamic_tables_survives_an_aborted_transaction(db_conn):
+    # Regression: found the hard way while verifying an unrelated schema
+    # change — a stray raw.retrosheet_team left behind by one broken test
+    # run silently poisoned every subsequent, otherwise-unrelated test run
+    # in this file with a spurious "already exists" error, since cleanup
+    # itself was failing (and being ignored) every time.
+    with db_conn.cursor() as cur:
+        # Defensive, not redundant: this test's whole premise is "cleanup
+        # must work even from a dirty state" — starting from a guaranteed-
+        # clean slate here (rather than assuming one) keeps the test itself
+        # deterministic regardless of what a prior, unrelated run left
+        # behind.
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_team")
+        cur.execute("CREATE TABLE raw.retrosheet_team (team_id text)")
     db_conn.commit()
+    with db_conn.cursor() as cur, pytest.raises(Exception, match="does not exist"):
+        cur.execute("SELECT * FROM raw.a_table_that_does_not_exist")
+    # db_conn is now in InFailedSqlTransaction state — exactly the state a
+    # test whose own setup raised mid-transaction would leave behind.
+
+    _reset_dynamic_tables(db_conn)  # must not raise
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.retrosheet_team')")
+        assert cur.fetchone() == (None,)
+        cur.execute("SELECT 1")  # connection is usable again, not still aborted
+        assert cur.fetchone() == (1,)
 
 
 def _seed_raw_tables(db_conn):

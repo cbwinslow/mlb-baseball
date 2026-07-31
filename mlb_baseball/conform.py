@@ -1317,6 +1317,27 @@ def health_check() -> list[Check]:
             HAVING count(*) > 1
             """,
         ),
+        # core.play's own natural key (game_id, source, play_index) can no
+        # longer be a real UNIQUE constraint on its own — migration 0011
+        # partitioned core.play by season, and Postgres requires the
+        # partition key in every unique constraint on a partitioned table,
+        # so the constraint became UNIQUE (season, game_id, source,
+        # play_index). That's required for partitioning to work at all,
+        # but it means the DB no longer rejects two rows with the same
+        # (game_id, source, play_index) if a future bug ever landed them
+        # in different season partitions. This check catches that
+        # scenario directly, independent of the partition key.
+        check_grouped_no_duplicates(
+            "core.play natural-key uniqueness (partition-key-independent)",
+            """
+            SELECT game_id::text || '-' || source || '-' || play_index::text,
+                1,
+                count(*)
+            FROM core.play
+            GROUP BY game_id, source, play_index
+            HAVING count(*) > 1
+            """,
+        ),
         # Second half of the same reconciliation the win-totals check
         # above covers: does core.game agree with Lahman on how *many*
         # teams played a given season, not just how many games each one

@@ -1670,6 +1670,41 @@ def test_health_check_doubleheader_identity_flags_a_collision(db_conn):
     db_conn.commit()
 
 
+def test_health_check_play_natural_key_flags_a_partition_split_duplicate(db_conn):
+    # Migration 0011 partitioned core.play by season, which forced its
+    # UNIQUE (game_id, source, play_index) constraint to become UNIQUE
+    # (season, game_id, source, play_index) -- required by Postgres for
+    # partitioning, but it means the DB itself no longer rejects two rows
+    # sharing (game_id, source, play_index) if they land in different
+    # season partitions. Seeds exactly that scenario directly (bypassing
+    # conform.run() -- no realistic play-level fixture needed to prove the
+    # check catches a same-natural-key-different-season collision).
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, season, game_date) "
+            "VALUES ('ATL202504011', 2025, '2025-04-01') RETURNING id"
+        )
+        game_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO core.play (game_id, season, source, play_index) "
+            "VALUES (%s, 2025, 'retrosheet', 1), (%s, 2024, 'retrosheet', 1)",
+            (game_id, game_id),
+        )
+    db_conn.commit()
+
+    check = next(
+        c for c in conform.health_check()
+        if c.name == "core.play natural-key uniqueness (partition-key-independent)"
+    )
+
+    assert not check.ok
+    assert "colliding identity" in check.detail
+
+    with db_conn.cursor() as cur:
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
 def test_health_check_includes_join_integrity_safeguards():
     # Verifies the wiring, not full realistic data — every check must be
     # present and callable without crashing, even against a DB with none of

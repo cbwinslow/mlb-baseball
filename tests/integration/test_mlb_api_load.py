@@ -731,6 +731,40 @@ def test_health_check_reports_healthy_with_zero_live_and_playbyplay_rows(db_conn
     assert tx_check.ok
 
 
+def test_health_check_flags_a_season_with_incomplete_win_prob_coverage(db_conn):
+    # Real gap found in a later review: season_already_loaded only checks
+    # "does at least one row exist," not "is this season actually
+    # complete" — confirmed directly against production, four consecutive
+    # seasons (2022-2025) sat at literal 0/thousands of games covered,
+    # invisible until someone happened to check by hand. This wires the
+    # generic check_partition_coverage helper (see test_health.py) to
+    # mlb_api's own raw.mlb_schedule/raw.mlb_win_prob tables.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, _season text, status text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('1', '2023', 'Final'), ('2', '2023', 'Final'), "
+            "('3', '2023', 'Final'), ('4', '2023', 'Final')"
+        )
+        cur.execute("CREATE TABLE raw.mlb_win_prob (game_pk text, _season text)")
+        # Only 1 of 4 games covered — well below the 50% threshold.
+        cur.execute("INSERT INTO raw.mlb_win_prob VALUES ('1', '2023')")
+    db_conn.commit()
+
+    checks = mlb_api.health_check()
+
+    check = next(c for c in checks if c.name == "mlb_win_prob season coverage")
+    assert not check.ok
+    assert "2023" in check.detail
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE raw.mlb_schedule, raw.mlb_win_prob")
+    db_conn.commit()
+
+
 def test_win_prob_only_range_is_idempotent_across_bootstrap_reruns(db_conn):
     # FIRST_WIN_PROB_YEAR (1950, not monkeypatched here since 2024/2025 both
     # already fall under it in this fixture's 2024-2026 window) covers

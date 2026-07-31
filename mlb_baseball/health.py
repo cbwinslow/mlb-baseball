@@ -143,6 +143,54 @@ def check_no_duplicate_key(table: str, column: str) -> Check:
     return Check(f"{table}.{column} uniqueness", True, "no duplicates")
 
 
+def check_partition_coverage(label: str, sql: str, *, min_ratio: float = 0.5) -> Check:
+    """`sql` must return rows of (partition_key, actual_count, expected_count)
+    — e.g. one row per season, comparing how many games actually landed in
+    some per-game table against how many games raw.mlb_schedule says
+    happened that season. Flags any single partition whose coverage ratio
+    falls below `min_ratio`.
+
+    This is deliberately per-partition, not an aggregate total: an
+    aggregate check (like check_join_coverage) can pass even when one
+    specific partition is silently, permanently stuck incomplete, as long
+    as other partitions compensate in the sum. Found worth building after
+    a real review turned up four consecutive seasons (2022-2025) with zero
+    raw.mlb_win_prob coverage despite raw.mlb_schedule showing thousands of
+    completed games each — season_already_loaded only checks "does at
+    least one row exist," not "is this season actually complete," so an
+    interrupted load can look permanently done.
+
+    min_ratio=0.5, not 1.0: real, complete seasons calibrated directly
+    against production (2015-2018) land at 100%+ coverage (a few games
+    counted via doubleheaders/makeup dates push it slightly over), but a
+    small number of games can have no analytics available at all (a
+    confirmed, real gap — see ADR-025), so a strict 100% threshold would
+    produce false positives on genuinely complete seasons. 50% cleanly
+    separates "complete, minor gaps" from "barely started/never touched"
+    without needing to model every edge case.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(sql)
+                rows = cur.fetchall()
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(label, False, "a required table does not exist — never bootstrapped?")
+    incomplete = [
+        (key, actual, expected)
+        for key, actual, expected in rows
+        if expected > 0 and actual < min_ratio * expected
+    ]
+    if incomplete:
+        shown = ", ".join(
+            f"{key}: {actual}/{expected}" for key, actual, expected in incomplete[:10]
+        )
+        more = f" (+{len(incomplete) - 10} more)" if len(incomplete) > 10 else ""
+        return Check(label, False, f"{len(incomplete)} incomplete: {shown}{more}")
+    return Check(label, True, f"{len(rows)} partitions checked, all >= {min_ratio:.0%} coverage")
+
+
 def check_recent_run(source: str, max_age_minutes: int) -> Check:
     """For sources expected to run on a repeating schedule (e.g. mlb_api's
     cron-driven live-game capture) — check_last_run only tells you whether

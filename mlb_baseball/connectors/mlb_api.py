@@ -159,7 +159,13 @@ import psycopg
 import statsapi
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_recent_run, check_table_exists, check_table_has_rows
+from mlb_baseball.health import (
+    Check,
+    check_partition_coverage,
+    check_recent_run,
+    check_table_exists,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import append_dataframe, load_dataframe, season_already_loaded
 from mlb_baseball.net import call_with_retry
@@ -1777,5 +1783,26 @@ def health_check() -> list[Check]:
         check_table_has_rows("raw.mlb_official_scorer"),
         check_table_has_rows("raw.mlb_umpire_directory"),
         check_table_has_rows("raw.mlb_datacaster"),
+        # Per-season completeness, not just "does the table have any rows
+        # at all" — found worth building after a real review turned up
+        # four consecutive seasons (2022-2025) silently sitting at zero
+        # raw.mlb_win_prob coverage despite thousands of completed games
+        # each. Excludes the current season (still in progress by
+        # definition, not a real gap) and anything before FIRST_WIN_PROB_YEAR
+        # (no data expected there at all, a documented boundary, not a gap).
+        check_partition_coverage(
+            "mlb_win_prob season coverage",
+            f"""
+            SELECT ms._season,
+                (SELECT count(DISTINCT wp.game_pk) FROM raw.mlb_win_prob wp
+                 WHERE wp._season = ms._season),
+                count(DISTINCT ms.game_id) FILTER (WHERE ms.status = 'Final')
+            FROM raw.mlb_schedule ms
+            WHERE ms._season ~ '^[0-9]+$'
+                AND ms._season::integer >= {FIRST_WIN_PROB_YEAR}
+                AND ms._season::integer < {date.today().year}
+            GROUP BY ms._season
+            """,
+        ),
         check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

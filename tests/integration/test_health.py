@@ -6,6 +6,7 @@ from mlb_baseball.health import (
     check_join_coverage,
     check_last_run,
     check_no_duplicate_key,
+    check_partition_coverage,
     check_recent_run,
     check_table_exists,
     check_table_has_rows,
@@ -257,6 +258,59 @@ def test_check_join_coverage_false_when_source_table_missing():
         "test coverage",
         "SELECT count(*) FROM raw.test_health_join_core_never_created",
         "SELECT count(*) FROM raw.test_health_join_src_never_created",
+    )
+
+    assert not result.ok
+    assert "does not exist" in result.detail
+
+
+def test_check_partition_coverage_ok_when_all_partitions_meet_ratio():
+    # No fixture tables needed — the sql param can be any query returning
+    # (partition_key, actual, expected) rows, so a plain VALUES list is
+    # enough to exercise the comparison logic directly.
+    result = check_partition_coverage(
+        "test coverage",
+        "SELECT * FROM (VALUES ('2020', 100, 100), ('2021', 95, 100)) "
+        "AS t(season, actual, expected)",
+    )
+
+    assert result.ok
+    assert "2 partitions checked" in result.detail
+
+
+def test_check_partition_coverage_flags_partitions_below_ratio():
+    # Real bug this exists to catch: season_already_loaded only checks
+    # "does at least one row exist," not "is this season actually
+    # complete" — a season stuck at 10% coverage looks the same as one
+    # that was never touched at all to that check, but not to this one.
+    # Confirmed in production: 2022-2025 sat at literal 0/thousands.
+    result = check_partition_coverage(
+        "test coverage",
+        "SELECT * FROM (VALUES ('2020', 100, 100), ('2021', 10, 100)) "
+        "AS t(season, actual, expected)",
+        min_ratio=0.5,
+    )
+
+    assert not result.ok
+    assert "1 incomplete" in result.detail
+    assert "2021: 10/100" in result.detail
+
+
+def test_check_partition_coverage_ignores_partitions_with_zero_expected():
+    # A season with 0 expected games (e.g. before the source's own
+    # coverage starts) must not be flagged as "incomplete" — there was
+    # never anything to load, that's not a gap.
+    result = check_partition_coverage(
+        "test coverage",
+        "SELECT * FROM (VALUES ('1900', 0, 0), ('2021', 100, 100)) AS t(season, actual, expected)",
+    )
+
+    assert result.ok
+
+
+def test_check_partition_coverage_false_when_source_table_missing():
+    result = check_partition_coverage(
+        "test coverage", "SELECT season, actual, expected FROM raw.test_health_never_created"
     )
 
     assert not result.ok

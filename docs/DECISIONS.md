@@ -2,6 +2,20 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-036: Team wOBA — FanGraphs' published formula recreated from raw.retrosheet_event, not scraped
+
+**Decision:** `mlb_baseball/model/offense.py` computes point-in-time, no-leakage, within-season rolling team wOBA using FanGraphs' own published formula (`0.690×uBB + 0.722×HBP + 0.878×1B + 1.242×2B + 1.569×3B + 2.015×HR`, over `AB+uBB+SF+HBP`) — confirmed directly that FanGraphs does not support scraping or API access at all (their contact page states this explicitly, not just the Cloudflare block ADR-024 already found), so the only legitimate path is recreating the calculation from data already ingested, not fetching theirs. Supersedes the "season-lagged Statcast xwOBA" approach originally sketched in `docs/RESEARCH.md`'s backlog: reconstructing from `raw.retrosheet_event` gives a genuine within-season rolling number instead, the same quality upgrade already applied to starting-pitcher quality (ADR-034), for the identical reason (season aggregates leak future games mid-season).
+
+**The weights are fixed across every season, not year-specific** — same tradeoff, for the same reason, as ADR-034's FIP constant: FanGraphs' own linear weights actually shift year to year (published on their "Guts!" page), and reliably sourcing the exact per-season table failed the same way the FIP constant lookup did. Flagged explicitly in the module docstring so the fixed weights are never mistaken for a year-precise reproduction.
+
+**Verified two ways before trusting it**: computed real 2023 MLB league-average wOBA directly from `raw.retrosheet_event` with these weights and got .317 — matching the real, independently-known 2023 league value almost exactly. Then spot-checked real 2024 team-level values against production: every value landed in the .295-.333 range, tightly clustered around the known league average, exactly where real team wOBA should sit.
+
+**wRC+ (park- and league-adjusted) is a deliberate follow-up, not built here** — it needs FanGraphs' "wOBA Scale" constant, which has the same year-varying, hard-to-source problem as the weights above, and deserves its own verification pass (now that park factor, ADR-035, exists to build it on top of) rather than being bolted on to this change.
+
+**Same coverage gap as starter quality (ADR-034)**: `raw.retrosheet_event` covers 1910-2025 only, so team wOBA is `NULL` for the live 2026 season until the `raw.mlb_playbyplay` equivalent is built.
+
+**Also researched in the same pass**: FanGraphs' UZR/DRS (defensive value) depend on proprietary Baseball Info Solutions zone-based data with no free, public path to replicate — a genuine, permanent wall under the $0-budget rule, not a "not yet." Statcast's Outs Above Average (`raw.statcast_oaa.fielding_runs_prevented`, already ingested, 2016-2026) is a real, public, modern substitute worth building as its own backlog item later — season-aggregate like WAR, so it needs the same prior-season-lag treatment, not the within-season-rolling treatment this ADR and ADR-034 use.
+
 ## ADR-035: Park factor — trailing 3-year window, purely derived from our own historical scores, zero external dependency
 
 **Decision:** `mlb_baseball/model/park.py` computes park factor using the standard sabermetric methodology (FanGraphs, Baseball Prospectus — confirmed via research, `docs/RESEARCH.md`): a venue's home run-scoring rate (both teams' combined runs) divided by the same team's road run-scoring rate that season, scaled to 100 = league average, averaged over a trailing 3-year window of *prior* seasons (a commonly-cited middle ground — some sources use 1 year, some 5). Entirely self-sufficient: no external park-factor table or API, purely derived from `core.game`'s own historical scores — the one feature in this backlog with no leakage risk by construction, since it never reaches into a season's own still-accumulating games at all (unlike starter quality/prior WAR, which need a lagged or within-season-rolling treatment to avoid it).

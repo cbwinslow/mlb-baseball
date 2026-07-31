@@ -548,6 +548,20 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
                     AND home.id = g.home_team_id
                     AND COALESCE(NULLIF(ms.game_num, '')::integer, 0)
                         = COALESCE(g.game_number, 0)
+                    -- g.game_pk IS NULL: without this, a row that already
+                    -- got its correct game_pk from _build_games' second
+                    -- INSERT (the MLB-API-sourced path) could get silently
+                    -- overwritten here by a coincidental date/team/
+                    -- game_num match against a *different* schedule
+                    -- game_id. Found in production: MLB's real suspended-
+                    -- and-resumed-game quirk (the same game_pk listed
+                    -- under two dates, documented in _build_games above)
+                    -- means two distinct schedule rows can share the same
+                    -- matchup/date/game_num — one already-correct row got
+                    -- clobbered with the other's game_pk, producing a
+                    -- duplicate this file's own check_no_duplicate_key
+                    -- health check caught.
+                    AND g.game_pk IS NULL
                 """
             )
             return cur.rowcount

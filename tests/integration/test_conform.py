@@ -1331,6 +1331,62 @@ def test_build_player_war_leaves_unmatched_bref_row_as_null_instead_of_dropping(
         assert cur.fetchone() == (None, Decimal("0.1"))
 
 
+def test_backfill_game_pk_does_not_overwrite_an_already_correct_value(db_conn):
+    # Real bug found in production, one step past the doubleheader fix
+    # above: the UPDATE had no guard against touching a row that already
+    # got its correct game_pk from _build_games' second INSERT (the
+    # MLB-API-only path, for seasons Retrosheet hasn't published). MLB's
+    # own suspended-and-resumed-game quirk (documented in _build_games'
+    # own comment, confirmed directly: game 824912 listed under both
+    # 2026-06-16 and 2026-06-17) means two genuinely distinct schedule
+    # game_ids can share the same date/teams/game_num — before this fix,
+    # the ambiguous match let one already-correct row get clobbered with
+    # the other's game_pk, producing a duplicate (confirmed in production:
+    # game_pk 824912 ended up on both retro_game_id MLB824912 *and*
+    # MLB824913).
+    _seed_raw_tables(db_conn)  # retrosheet_gameinfo only covers 2025
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('NYA', 'AL', 'New York', 'Yankees', '1913', '2026'), "
+            "('ATL', 'NL', 'Atlanta', 'Braves', '2026', '2026')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, away_score text, home_score text)"
+        )
+        # Two distinct game_ids, same date/teams/game_num — each creates
+        # its own core.game row via the second INSERT, each with its own
+        # correct game_pk from the start.
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('900001', '2026-04-01', 'New York Yankees', 'Atlanta Braves', "
+            "'2026', 'Final', 'R', '1', 'Truist Park', '3', '5'), "
+            "('900002', '2026-04-01', 'New York Yankees', 'Atlanta Braves', "
+            "'2026', 'Final', 'R', '1', 'Truist Park', '3', '5')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_game_id, game_pk FROM core.game "
+            "WHERE retro_game_id IN ('MLB900001', 'MLB900002') "
+            "ORDER BY retro_game_id"
+        )
+        rows = dict(cur.fetchall())
+    assert rows["MLB900001"] == "900001"
+    assert rows["MLB900002"] == "900002"
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
 def test_backfill_game_pk_distinguishes_doubleheader_games(db_conn):
     # Real bug found in this review: matching on (game_date, away team,
     # home team) alone can't distinguish the two games of a doubleheader —

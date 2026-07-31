@@ -2,6 +2,18 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-035: Park factor — trailing 3-year window, purely derived from our own historical scores, zero external dependency
+
+**Decision:** `mlb_baseball/model/park.py` computes park factor using the standard sabermetric methodology (FanGraphs, Baseball Prospectus — confirmed via research, `docs/RESEARCH.md`): a venue's home run-scoring rate (both teams' combined runs) divided by the same team's road run-scoring rate that season, scaled to 100 = league average, averaged over a trailing 3-year window of *prior* seasons (a commonly-cited middle ground — some sources use 1 year, some 5). Entirely self-sufficient: no external park-factor table or API, purely derived from `core.game`'s own historical scores — the one feature in this backlog with no leakage risk by construction, since it never reaches into a season's own still-accumulating games at all (unlike starter quality/prior WAR, which need a lagged or within-season-rolling treatment to avoid it).
+
+**`venue_id` also populated in `gold.game_feature`** (a reserved column since ADR-032, never populated until now) — passthrough from `core.game.venue_id` for completed games, resolved via `core.venue.mlb_venue_id` for upcoming games sourced from `raw.mlb_schedule` (same `mlb_venue_id` anchor the team-resolution join already uses).
+
+**Driven by what `gold.game_feature` actually needs, not by which seasons already have data** — the target `(venue, season)` pairs come from `gold.game_feature` itself, not from which seasons happen to already have completed home games at that venue. Missing this the first time through: an upcoming season's very first game at a park has no home data of its own yet, but still needs a park factor computed from the trailing window of prior seasons — caught before writing the formal test, not after.
+
+**Verified against real production data, not just a synthetic fixture**: 2024's park factors correctly rank Coors Field highest (135.4) — the single most extreme hitter's park in MLB by wide sabermetric consensus (thin Denver air, large outfield) — with Fenway Park (116.1, Green Monster effects) also plausibly elevated. Confirms the ratio isn't inverted or otherwise wrong, the kind of sanity check a synthetic fixture alone can't provide.
+
+**`health_check()` sanity-bounds the actual computed values** (real MLB park factors have never been observed outside roughly 80-130) rather than duplicating `features.py`'s own table-has-rows check — a bug that inverted the home/road ratio would produce values near 0 or in the thousands, which a mere presence check would never catch.
+
 ## ADR-034: Starting-pitcher quality — true FIP + K%/BB%/HR%, reconstructed from raw.retrosheet_event, verified at full scale against raw.bref_pitching
 
 **Decision:** `mlb_baseball/model/starter.py` computes point-in-time, no-leakage, within-season starting-pitcher quality (true FIP on the familiar ERA-like scale, plus the raw K%/BB%/HR% per-batter-faced rates underneath it — both, per explicit direction, not a forced choice between them) directly from `raw.retrosheet_event`'s per-play data, the same rolling-window shape already used for team win%. `raw.bref_pitching`/`raw.statcast_pitcher_expected` have real ERA/xERA but are season aggregates — the exact leakage trap ADR-032 already flagged for `core.player_war`. Chadwick's own field documentation (verified via its official docs, not assumed from column names) confirmed `event_outs_ct` is outs recorded *on* a specific play and `resp_pit_id` is the pitcher actually charged for that play (correctly handling mid-at-bat substitutions) — the two fields that make this reconstruction possible at all.

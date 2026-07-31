@@ -37,7 +37,8 @@ def _ensure_mlb_schedule_table(db_conn):
             cur.execute(
                 "CREATE TABLE raw.mlb_schedule ("
                 "game_id text, _season text, game_date text, game_type text, "
-                "status text, home_id text, away_id text, game_num text)"
+                "status text, home_id text, away_id text, game_num text, "
+                "venue_id text)"
             )
     db_conn.commit()
 
@@ -144,6 +145,44 @@ def test_pythagenpat_home_and_away_sum_to_one(db_conn):
 
     assert home_pyth + away_pyth == Decimal("1.00000000000000000000")
     assert Decimal("0.71") < home_pyth < Decimal("0.72")
+
+    _reset(db_conn)
+
+
+def test_build_resolves_venue_id_for_completed_and_upcoming_games(db_conn):
+    _reset(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.venue (retro_park_id, name, mlb_venue_id) "
+            "VALUES ('ATL03', 'Truist Park', 4705) RETURNING id"
+        )
+        (venue_id,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type, venue_id) "
+            "VALUES ('G1', 2024, '2024-04-01', %s, %s, 5, 3, 'regular', %s)",
+            (atl, nya, venue_id),
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id, "
+            "game_num, venue_id) "
+            "VALUES ('999005', '2024', '2024-04-02', 'R', 'Scheduled', '144', '147', '1', '4705')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT venue_id FROM gold.game_feature WHERE game_id IS NOT NULL")
+        assert cur.fetchone() == (venue_id,)
+        cur.execute("SELECT venue_id FROM gold.game_feature WHERE mlb_game_pk = '999005'")
+        assert cur.fetchone() == (venue_id,)
 
     _reset(db_conn)
 

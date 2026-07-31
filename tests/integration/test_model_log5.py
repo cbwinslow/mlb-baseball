@@ -34,7 +34,8 @@ def _ensure_mlb_schedule_table(db_conn):
             cur.execute(
                 "CREATE TABLE raw.mlb_schedule ("
                 "game_id text, _season text, game_date text, game_type text, "
-                "status text, home_id text, away_id text, game_num text)"
+                "status text, home_id text, away_id text, game_num text, "
+                "venue_id text)"
             )
     db_conn.commit()
 

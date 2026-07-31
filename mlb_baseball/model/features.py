@@ -42,7 +42,7 @@ from mlb_baseball.health import Check, check_table_has_rows
 _COMPLETED_GAMES_SQL = """
     SELECT 'g' || id::text AS key, id AS game_id, game_pk AS mlb_game_pk,
         season, game_date, game_number, home_team_id, away_team_id,
-        home_score, away_score
+        home_score, away_score, venue_id
     FROM core.game WHERE game_type = 'regular'
 """
 
@@ -51,17 +51,20 @@ _COMPLETED_GAMES_SQL = """
 # letting a missing table crash the whole gold.game_feature rebuild,
 # including the completed-games half that doesn't depend on it at all.
 # Same "degrade, don't crash" precedent as conform.py's _build_games.
+# venue: LEFT JOIN, not required -- an unresolved venue shouldn't drop an
+# otherwise-valid upcoming game, it just leaves park_factor NULL for it.
 _UPCOMING_GAMES_SQL = """
     UNION ALL
     SELECT 's' || ms.game_id, NULL, ms.game_id,
         ms._season::integer, ms.game_date::date,
         CASE WHEN ms.game_num ~ '^[0-9]+$' THEN ms.game_num::integer END,
-        home.id, away.id, NULL, NULL
+        home.id, away.id, NULL, NULL, venue.id
     FROM raw.mlb_schedule ms
     JOIN core.team home ON home.mlb_team_id = ms.home_id::integer
         AND ms._season::integer BETWEEN home.first_year AND home.last_year
     JOIN core.team away ON away.mlb_team_id = ms.away_id::integer
         AND ms._season::integer BETWEEN away.first_year AND away.last_year
+    LEFT JOIN core.venue venue ON venue.mlb_venue_id = NULLIF(ms.venue_id, '')::integer
     WHERE ms.status = 'Scheduled' AND ms.game_type = 'R'
 """
 
@@ -141,13 +144,13 @@ INSERT INTO gold.game_feature (
     game_id, mlb_game_pk, season, game_date, home_team_id, away_team_id,
     home_win_pct, away_win_pct, home_win_pct_10, away_win_pct_10,
     home_run_diff, away_run_diff, home_pyth_wpct, away_pyth_wpct,
-    home_rest, away_rest, home_win
+    home_rest, away_rest, venue_id, home_win
 )
 SELECT
     g.game_id, g.mlb_game_pk, g.season, g.game_date, g.home_team_id, g.away_team_id,
     ph.win_pct, pa.win_pct, ph.win_pct_10, pa.win_pct_10,
     ph.run_diff, pa.run_diff, ph.pyth_wpct, pa.pyth_wpct,
-    ph.rest, pa.rest,
+    ph.rest, pa.rest, g.venue_id,
     CASE WHEN g.home_score IS NOT NULL AND g.away_score IS NOT NULL
          THEN g.home_score > g.away_score END
 FROM games g

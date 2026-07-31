@@ -16,12 +16,30 @@ from mlb_baseball.model import features
 def _seed_teams(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO core.team (retro_team_id, city, nickname, first_year, last_year) "
-            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025), "
-            "('NYA', 'New York', 'Yankees', 1913, 2025) "
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
             "RETURNING id, retro_team_id"
         )
         return {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+
+
+def _ensure_mlb_schedule_table(db_conn):
+    # raw.mlb_schedule only exists once some connector run has created it
+    # (load_dataframe creates raw tables from whatever a real load
+    # contains) -- not a given in a fresh mlb_test. Created here with just
+    # the columns features.py's upcoming-games query actually reads.
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        (exists,) = cur.fetchone()
+        if not exists:
+            cur.execute(
+                "CREATE TABLE raw.mlb_schedule ("
+                "game_id text, _season text, game_date text, game_type text, "
+                "status text, home_id text, away_id text, game_num text)"
+            )
+    db_conn.commit()
 
 
 def _reset(db_conn):
@@ -33,6 +51,10 @@ def _reset(db_conn):
     # _reset_dynamic_tables().
     db_conn.rollback()
     with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        (schedule_exists,) = cur.fetchone()
+        if schedule_exists:
+            cur.execute("DELETE FROM raw.mlb_schedule")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
@@ -161,3 +183,88 @@ def test_health_check_flags_empty_table():
     # raise -- the real assertion is that health_check() returns cleanly
     # and names the right table.
     assert check.name == "gold.game_feature"
+
+
+def test_build_includes_upcoming_game_from_raw_mlb_schedule(db_conn):
+    # The real reason this branch exists: core.game only ever holds
+    # completed games (conform.py's _build_games excludes status =
+    # 'Scheduled'), so an upcoming game has to come from raw.mlb_schedule
+    # directly or mlb predict has nothing to ever predict (see migration
+    # 0014). Uses the exact same fixture shape as
+    # test_build_computes_point_in_time_win_pct_and_pythagenpat (ATL 2-0
+    # entering) so the win_pct/run_diff/pyth_wpct values are already
+    # hand-verified by that test -- this one is about game_id/mlb_game_pk
+    # identity and sourcing, not re-deriving the math.
+    _reset(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2024, '2024-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2024, '2024-04-02', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id, game_num) "
+            "VALUES ('999001', '2024', '2024-04-03', 'R', 'Scheduled', '144', '147', '1')"
+        )
+    db_conn.commit()
+
+    count = features.build(db_conn)
+    db_conn.commit()
+    assert count == 3
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT game_id, mlb_game_pk, home_win_pct, away_win_pct, home_win "
+            "FROM gold.game_feature WHERE mlb_game_pk = '999001'"
+        )
+        row = cur.fetchone()
+
+    assert row is not None
+    game_id, mlb_game_pk, home_win_pct, away_win_pct, home_win = row
+    assert game_id is None  # not in core.game -- never played
+    assert mlb_game_pk == "999001"
+    assert home_win_pct == Decimal("1.00000000000000000000")  # ATL entered 2-0
+    assert away_win_pct == Decimal("0E-20")
+    assert home_win is None  # undecided
+
+    _reset(db_conn)
+
+
+def test_build_degrades_gracefully_without_raw_mlb_schedule(db_conn):
+    # A fresh clone that's run mlb migrate + mlb conform but never mlb
+    # ingest mlb_api has no raw.mlb_schedule table at all yet -- must still
+    # build features for whatever completed games exist in core.game, not
+    # crash the entire rebuild over a table it doesn't strictly need.
+    # Explicitly dropped here (not just asserted absent) so this test's
+    # precondition doesn't depend on running before any other test in this
+    # file that creates the table via _ensure_mlb_schedule_table.
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+    db_conn.commit()
+
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('G1', 2024, '2024-04-01', %s, %s, 5, 3, 'regular')",
+            (atl, nya),
+        )
+    db_conn.commit()
+
+    count = features.build(db_conn)
+    db_conn.commit()
+
+    assert count == 1
+
+    _reset(db_conn)

@@ -25,7 +25,7 @@ Phase 1's core ingestion pipeline (steps 2–10) is done: every connector runs c
 
 ## Phase 2 — ML modeling workflows
 
-Kicked off (ADR-032). First target: game win/loss probability. Build order: `gold.game_feature` (point-in-time-correct pre-game features, schema landed — migration 0012, population logic not yet written) → classical baselines with no training step (Elo, log5, Pythagorean expectation) → gradient-boosted model, time-based split, forward-tested live against 2026 → market-implied probability as a comparison line once `core.market`'s pre-game-snapshot gap (issue #1) is addressed.
+Kicked off (ADR-032). First target: game win/loss probability. Build order: `gold.game_feature` (point-in-time-correct pre-game features, schema landed — migration 0012, population logic not yet written) → classical baselines with no training step (log5, Elo, Pythagenpat) → gradient-boosted model, time-based split, forward-tested live against 2026 → market-implied probability as a comparison line once `core.market`'s pre-game-snapshot gap (issue #1) is addressed. Techniques and sources: [docs/RESEARCH.md](RESEARCH.md).
 
 ## Phase 3 — Astro website (oddstrader-style)
 

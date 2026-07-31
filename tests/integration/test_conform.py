@@ -1236,7 +1236,14 @@ def _seed_mlb_standing_rows(db_conn):
             "INSERT INTO raw.mlb_standing VALUES "
             "('200', 'AL West', '133', '1', '95', '67', '-', '1', '-', "
             "'1', '2', '2024'), "
-            "('200', 'AL West', '140', '2', '85', '77', '10.0', '4', '5.5', "
+            # TEX's wc_rank is '-' here -- "not ranked" (out of wildcard
+            # contention entirely), a real production value distinct from
+            # gb/wc_gb's own '-' meaning "0 games back". Confirmed
+            # directly: crashed conform.py the first time this ran against
+            # real production data (InvalidTextRepresentation casting '-'
+            # to integer) before wc_rank got the same digits-only guard
+            # div_rank/league_rank/sport_rank already had.
+            "('200', 'AL West', '140', '2', '85', '77', '10.0', '-', '5.5', "
             "'8', '15', '2024')"
         )
     db_conn.commit()
@@ -1256,7 +1263,7 @@ def test_build_standings_resolves_team_via_mlb_team_id(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT t.retro_team_id, s.div_rank, s.wins, s.losses, "
-            "s.games_back, s.wildcard_games_back "
+            "s.games_back, s.wildcard_rank, s.wildcard_games_back "
             "FROM core.standing s JOIN core.team t ON t.id = s.team_id "
             "ORDER BY s.div_rank"
         )
@@ -1264,8 +1271,10 @@ def test_build_standings_resolves_team_via_mlb_team_id(db_conn):
     # '-' (the division/wildcard leader's own "0 games back" marker) must
     # resolve to 0, not NULL — a plain unsigned-digits regex would
     # silently drop exactly the leader rows.
-    assert rows[0] == ("OAK", 1, 95, 67, Decimal("0"), Decimal("0"))
-    assert rows[1] == ("TEX", 2, 85, 77, Decimal("10.0"), Decimal("5.5"))
+    assert rows[0] == ("OAK", 1, 95, 67, Decimal("0"), 1, Decimal("0"))
+    # TEX's wc_rank of '-' means "not ranked" (out of contention) here —
+    # an honest NULL, not a guessed 0 (that's gb/wc_gb's own '-' meaning).
+    assert rows[1] == ("TEX", 2, 85, 77, Decimal("10.0"), None, Decimal("5.5"))
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.mlb_standing")

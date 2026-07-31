@@ -1102,7 +1102,7 @@ def _build_standings(conn: psycopg.Connection) -> int:
                     t.id,
                     s._season::integer,
                     s.div_name,
-                    NULLIF(s.div_rank, '')::integer,
+                    CASE WHEN s.div_rank ~ '^[0-9]+$' THEN s.div_rank::integer END,
                     NULLIF(s.w, '')::integer,
                     NULLIF(s.l, '')::integer,
                     -- '-' is the division leader's own "0 games back"
@@ -1114,11 +1114,23 @@ def _build_standings(conn: psycopg.Connection) -> int:
                     -- to matter.
                     CASE WHEN s.gb = '-' THEN 0
                          WHEN s.gb ~ '^[+-]?[0-9]+(\\.[0-9]+)?$' THEN s.gb::numeric END,
-                    NULLIF(s.wc_rank, '')::integer,
+                    -- Real bug found running this against production, not
+                    -- hypothetical: wc_rank uses '-' too, but as "not
+                    -- ranked" (a team completely out of wildcard
+                    -- contention), not "rank 0" the way gb's '-' means
+                    -- "0 games back" -- an honest NULL is the correct
+                    -- reading here, not a guessed 0. div_rank/league_rank/
+                    -- sport_rank confirmed clean (no '-' or other
+                    -- non-digit values in production) but given the same
+                    -- digits-only guard anyway rather than a bare NULLIF,
+                    -- so a future source quirk fails safe (NULL) instead
+                    -- of crashing the whole conform run the way this one
+                    -- did.
+                    CASE WHEN s.wc_rank ~ '^[0-9]+$' THEN s.wc_rank::integer END,
                     CASE WHEN s.wc_gb = '-' THEN 0
                          WHEN s.wc_gb ~ '^[+-]?[0-9]+(\\.[0-9]+)?$' THEN s.wc_gb::numeric END,
-                    NULLIF(s.league_rank, '')::integer,
-                    NULLIF(s.sport_rank, '')::integer
+                    CASE WHEN s.league_rank ~ '^[0-9]+$' THEN s.league_rank::integer END,
+                    CASE WHEN s.sport_rank ~ '^[0-9]+$' THEN s.sport_rank::integer END
                 FROM raw.mlb_standing s
                 LEFT JOIN core.team t
                     ON t.mlb_team_id = s.team_id::integer

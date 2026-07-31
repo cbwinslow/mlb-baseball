@@ -87,11 +87,12 @@ gbm-v1 (ADR-033) barely beat Elo despite having 10 features to Elo's 2 — the c
 
 ### Recommended build order
 
-1. **Rest days** — trivial, zero ambiguity, closes an already-reserved schema gap.
-2. **Starting pitcher rolling K%/BB%/HR%** — highest research-weighted value, data already available, no leakage risk once scoped to that pitcher's own prior starts this season.
+1. ✅ **Rest days** — built (`mlb_baseball/model/features.py`).
+2. ✅ **Starting pitcher true FIP + K%/BB%/HR%** — built (`mlb_baseball/model/starter.py`, ADR-034). Both approaches, not a forced choice — true FIP on the reserved `home_starter_era` column plus the raw rates in new `home_starter_k_pct`/`bb_pct`/`hr_pct` columns (migration 0016). Verified against real deGrom 2018 data, then at full scale (13,613 pitcher-seasons) against `raw.bref_pitching`, wired as a permanent `mlb doctor` reconciliation. **Known gap**: `raw.retrosheet_event` covers 1910-2025 only — 2026 (the live season) needs the equivalent from `raw.mlb_playbyplay`, a separate parsing task, not yet built.
 3. **Park factors** — purely derived from data we already have, no leakage risk (multi-year rolling, always using seasons strictly before or a trailing window, not the current in-progress season's still-accumulating data).
 4. **Bullpen quality/fatigue** — real value per research, but a distinct, second body of core.play engineering work from starter quality, not a quick add-on.
 5. **Team offensive true talent (xwOBA/barrel%)** — season-lagged like WAR, same shape as the already-reserved-but-unbuilt `home_war_prior`/`away_war_prior` columns; 2015+ only (Statcast era), so pre-2015 games would carry this as NULL.
+6. **2026 (current-season) starter quality from raw.mlb_playbyplay** — closes starter.py's biggest practical gap (no signal for the live season `mlb predict` actually serves), separate parsing work against a different schema than Retrosheet's.
 
 ## Further reading — found, not yet fully read
 

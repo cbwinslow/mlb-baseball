@@ -1,10 +1,10 @@
-"""Phase 2 modeling (ADR-032/033, docs/RESEARCH.md). Deliberately not a
-plugin framework -- four pieces exist so far (features is a shared build
-step, log5/elo/gbm are models); this just calls each directly, in order,
-inside one transaction. Extract real structure once a model actually
-needs something the others don't fit into this same shape, not before --
-same reasoning as this project's connector registry, which came after
-multiple real connectors, not in anticipation of one.
+"""Phase 2 modeling (ADR-032/033/034, docs/RESEARCH.md). Deliberately not
+a plugin framework -- features/elo/starter build up gold.game_feature's
+columns, log5/elo/gbm are the models that consume them; this just calls
+each directly, in order, inside one transaction. Extract real structure
+once a piece actually needs something the others don't fit into this same
+shape, not before -- same reasoning as this project's connector registry,
+which came after multiple real connectors, not in anticipation of one.
 
 backfill_outcomes lives here, not inside any one model, because it isn't
 model-specific -- it fills in the actual result for *every* model's
@@ -13,7 +13,9 @@ predictions once a game is decided, regardless of which model made them.
 gbm.train() is deliberately NOT called from run() -- training is a
 distinct, occasional operation (see gbm.py's own docstring and ADR-033),
 triggered separately via `mlb train`. run() (mlb predict) only ever loads
-whatever model train() last saved.
+whatever model train() last saved -- which means gbm-v1 won't use the new
+starter-quality columns until it's retrained against them (a real,
+separate follow-up, not automatic just because the columns now exist).
 """
 
 import psycopg
@@ -21,7 +23,7 @@ import psycopg
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.ingest import track_run
-from mlb_baseball.model import elo, features, gbm, log5
+from mlb_baseball.model import elo, features, gbm, log5, starter
 
 SOURCE = "model"
 
@@ -48,6 +50,7 @@ def run() -> dict[str, int]:
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
         feature_count = features.build(conn)
         elo.compute_ratings(conn)
+        starter_count = starter.compute(conn)
         backfilled = backfill_outcomes(conn)
         log5_count = log5.predict(conn)
         elo_count = elo.predict(conn)
@@ -56,6 +59,7 @@ def run() -> dict[str, int]:
         result["rows"] = feature_count + log5_count + elo_count + gbm_count
     return {
         "gold.game_feature": feature_count,
+        "gold.game_feature (starters updated)": starter_count,
         "gold.prediction (log5)": log5_count,
         "gold.prediction (elo)": elo_count,
         "gold.prediction (gbm)": gbm_count,
@@ -69,4 +73,9 @@ def train() -> dict:
 
 
 def health_check() -> list[Check]:
-    return features.health_check() + log5.health_check() + gbm.health_check()
+    return (
+        features.health_check()
+        + log5.health_check()
+        + gbm.health_check()
+        + starter.health_check()
+    )

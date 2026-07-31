@@ -171,6 +171,23 @@ from mlb_baseball.load import append_dataframe, load_dataframe, season_already_l
 from mlb_baseball.net import call_with_retry
 
 SOURCE = "mlb_api"
+# statsapi.get()'s underlying requests.get() call has no timeout unless
+# passed one explicitly via request_kwargs -- found the hard way: a single
+# unresponsive response from statsapi.mlb.com hung the whole bootstrap
+# indefinitely, since call_with_retry's retry-on-exception logic never
+# even engages until something actually raises. _get() below is a thin
+# wrapper used everywhere in place of statsapi.get so every call site gets
+# this for free; a hang now surfaces as requests.exceptions.Timeout, which
+# call_with_retry already retries correctly.
+REQUEST_TIMEOUT_SECONDS = 30
+
+
+def _get(endpoint: str, params: dict | None = None, force: bool = False):
+    return statsapi.get(
+        endpoint, params or {}, force=force, request_kwargs={"timeout": REQUEST_TIMEOUT_SECONDS}
+    )
+
+
 FIRST_SCHEDULE_YEAR = 1901
 FIRST_STANDINGS_YEAR = 1969
 FIRST_ROSTER_YEAR = FIRST_SCHEDULE_YEAR
@@ -273,14 +290,14 @@ ROSTER_COLUMNS = [
 
 
 def _season_team_ids(season: int) -> list[int]:
-    teams = call_with_retry(statsapi.get, "teams", {"sportId": 1, "season": season}, force=True)
+    teams = call_with_retry(_get, "teams", {"sportId": 1, "season": season}, force=True)
     return [t["id"] for t in teams.get("teams", [])]
 
 
 def _roster_df(season: int) -> pd.DataFrame:
     rows = []
     for team_id in _season_team_ids(season):
-        data = call_with_retry(statsapi.get, "team_roster", {"teamId": team_id, "season": season})
+        data = call_with_retry(_get, "team_roster", {"teamId": team_id, "season": season})
         for entry in data.get("roster", []):
             person = entry.get("person", {})
             position = entry.get("position", {})
@@ -331,7 +348,7 @@ TRANSACTION_COLUMNS = [
 
 def _transactions_df(season: int) -> pd.DataFrame:
     data = call_with_retry(
-        statsapi.get,
+        _get,
         "transactions",
         {"startDate": f"01/01/{season}", "endDate": f"12/31/{season}"},
         force=True,  # see module docstring — statsapi's own param validation has a bug
@@ -394,7 +411,7 @@ VENUE_COLUMNS = [
 
 
 def _all_venue_ids() -> list[int]:
-    data = call_with_retry(statsapi.get, "venue", {"venueIds": ""}, force=True)
+    data = call_with_retry(_get, "venue", {"venueIds": ""}, force=True)
     return [v["id"] for v in data.get("venues", [])]
 
 
@@ -404,7 +421,7 @@ def _venue_df() -> pd.DataFrame:
     for i in range(0, len(ids), VENUE_BATCH_SIZE):
         batch = ids[i : i + VENUE_BATCH_SIZE]
         data = call_with_retry(
-            statsapi.get,
+            _get,
             "venue",
             {
                 "venueIds": ",".join(str(v) for v in batch),
@@ -474,7 +491,7 @@ def _team_history_df(team_id: int) -> pd.DataFrame:
     # Stadium I, 1974 Shea Stadium during renovation, 2009 new Yankee
     # Stadium), not 123. Each row's "season" is when that configuration took
     # effect, running until the next row's season (or present, for the last).
-    data = call_with_retry(statsapi.get, "teams_history", {"teamIds": team_id}, force=True)
+    data = call_with_retry(_get, "teams_history", {"teamIds": team_id}, force=True)
     rows = []
     for t in data.get("teams", []):
         venue = t.get("venue", {})
@@ -552,7 +569,7 @@ def _person_df(person_ids: list[int]) -> pd.DataFrame:
     for i in range(0, len(person_ids), PERSON_BATCH_SIZE):
         batch = person_ids[i : i + PERSON_BATCH_SIZE]
         data = call_with_retry(
-            statsapi.get, "people", {"personIds": ",".join(str(p) for p in batch)}, force=True
+            _get, "people", {"personIds": ",".join(str(p) for p in batch)}, force=True
         )
         for p in data.get("people", []):
             position = p.get("primaryPosition", {})
@@ -614,7 +631,7 @@ DRAFT_COLUMNS = [
 
 
 def _draft_df(year: int) -> pd.DataFrame:
-    data = call_with_retry(statsapi.get, "draft", {"year": year}, force=True)
+    data = call_with_retry(_get, "draft", {"year": year}, force=True)
     rows = []
     for round_ in data.get("drafts", {}).get("rounds", []):
         for pick in round_.get("picks", []):
@@ -682,7 +699,7 @@ PLAYBYPLAY_COLUMNS = [
 
 
 def _playbyplay_df(game_pk: int) -> pd.DataFrame:
-    data = call_with_retry(statsapi.get, "game_playByPlay", {"gamePk": game_pk})
+    data = call_with_retry(_get, "game_playByPlay", {"gamePk": game_pk})
     rows = []
     for play in data.get("allPlays", []):
         matchup = play.get("matchup", {})
@@ -794,7 +811,7 @@ def _officials_rows(data: dict, game_pk: int) -> list[dict]:
 
 
 def _load_boxscore_for_game(conn: psycopg.Connection, game_pk: int) -> dict[str, int]:
-    data = call_with_retry(statsapi.get, "game_boxscore", {"gamePk": game_pk})
+    data = call_with_retry(_get, "game_boxscore", {"gamePk": game_pk})
     batting_rows, pitching_rows, fielding_rows = _boxscore_rows(data, game_pk)
     counts = {}
     for table, rows in (
@@ -831,7 +848,7 @@ def _win_prob_rows(data: list[dict], game_pk: int) -> list[dict]:
 
 
 def _load_win_prob_for_game(conn: psycopg.Connection, game_pk: int, season: int) -> int:
-    data = call_with_retry(statsapi.get, "game_winProbability", {"gamePk": game_pk})
+    data = call_with_retry(_get, "game_winProbability", {"gamePk": game_pk})
     df = pd.DataFrame(_win_prob_rows(data, game_pk))
     if df.empty:
         return 0
@@ -861,7 +878,7 @@ def _linescore_rows(data: dict, game_pk: int) -> list[dict]:
 
 
 def _load_linescore_for_game(conn: psycopg.Connection, game_pk: int, season: int) -> int:
-    data = call_with_retry(statsapi.get, "game_linescore", {"gamePk": game_pk})
+    data = call_with_retry(_get, "game_linescore", {"gamePk": game_pk})
     df = pd.DataFrame(_linescore_rows(data, game_pk))
     if df.empty:
         return 0
@@ -877,7 +894,7 @@ def _load_context_metrics_for_game(conn: psycopg.Connection, game_pk: int, seaso
     # probability — confirmed via a real call this is game-level context,
     # not a per-play series (its own "game" sub-object is the only nested
     # structure; the rest are flat scalars).
-    data = call_with_retry(statsapi.get, "game_contextMetrics", {"gamePk": game_pk})
+    data = call_with_retry(_get, "game_contextMetrics", {"gamePk": game_pk})
     row = {
         "game_pk": game_pk,
         "away_win_probability": data.get("awayWinProbability"),
@@ -1024,7 +1041,7 @@ ALUMNI_GROUPS = ["hitting", "pitching"]
 
 
 def _load_sports(conn: psycopg.Connection) -> int:
-    data = call_with_retry(statsapi.get, "sports", {}, force=True)
+    data = call_with_retry(_get, "sports", {}, force=True)
     df = pd.DataFrame(data.get("sports", []))
     if df.empty:
         return 0
@@ -1032,7 +1049,7 @@ def _load_sports(conn: psycopg.Connection) -> int:
 
 
 def _load_leagues(conn: psycopg.Connection) -> int:
-    data = call_with_retry(statsapi.get, "league", {"sportId": 1}, force=True)
+    data = call_with_retry(_get, "league", {"sportId": 1}, force=True)
     rows = []
     for league in data.get("leagues", []):
         row = {k: v for k, v in league.items() if not isinstance(v, (dict, list))}
@@ -1045,7 +1062,7 @@ def _load_leagues(conn: psycopg.Connection) -> int:
 
 
 def _load_divisions(conn: psycopg.Connection) -> int:
-    data = call_with_retry(statsapi.get, "divisions", {"sportId": 1}, force=True)
+    data = call_with_retry(_get, "divisions", {"sportId": 1}, force=True)
     rows = []
     for division in data.get("divisions", []):
         row = {k: v for k, v in division.items() if not isinstance(v, (dict, list))}
@@ -1058,7 +1075,7 @@ def _load_divisions(conn: psycopg.Connection) -> int:
 
 
 def _load_seasons(conn: psycopg.Connection) -> int:
-    data = call_with_retry(statsapi.get, "seasons", {"sportId": 1, "all": True}, force=True)
+    data = call_with_retry(_get, "seasons", {"sportId": 1, "all": True}, force=True)
     df = pd.DataFrame(data.get("seasons", []))
     if df.empty:
         return 0
@@ -1066,7 +1083,7 @@ def _load_seasons(conn: psycopg.Connection) -> int:
 
 
 def _load_player_pool(conn: psycopg.Connection, season: int) -> int:
-    data = call_with_retry(statsapi.get, "sports_players", {"sportId": 1, "season": season})
+    data = call_with_retry(_get, "sports_players", {"sportId": 1, "season": season})
     rows = []
     for person in data.get("people", []):
         team = person.get("currentTeam", {})
@@ -1090,7 +1107,7 @@ def _load_player_pool(conn: psycopg.Connection, season: int) -> int:
 
 
 def _load_free_agents(conn: psycopg.Connection, season: int) -> int:
-    data = call_with_retry(statsapi.get, "people_freeAgents", {"season": season}, force=True)
+    data = call_with_retry(_get, "people_freeAgents", {"season": season}, force=True)
     rows = []
     for fa in data.get("freeAgents", []):
         player = fa.get("player", {})
@@ -1122,7 +1139,7 @@ def _load_free_agents(conn: psycopg.Connection, season: int) -> int:
 def _load_coaches(conn: psycopg.Connection, season: int) -> int:
     total = 0
     for team_id in _season_team_ids(season):
-        data = call_with_retry(statsapi.get, "team_coaches", {"teamId": team_id, "season": season})
+        data = call_with_retry(_get, "team_coaches", {"teamId": team_id, "season": season})
         rows = []
         for entry in data.get("roster", []):
             person = entry.get("person", {})
@@ -1151,7 +1168,7 @@ def _load_alumni(conn: psycopg.Connection, season: int) -> int:
     for team_id in _season_team_ids(season):
         for group in ALUMNI_GROUPS:
             data = call_with_retry(
-                statsapi.get, "team_alumni", {"teamId": team_id, "season": season, "group": group}
+                _get, "team_alumni", {"teamId": team_id, "season": season, "group": group}
             )
             rows = [
                 {
@@ -1176,7 +1193,7 @@ def _load_personnel(conn: psycopg.Connection) -> int:
     total = 0
     current_year = date.today().year
     for team_id in _season_team_ids(current_year):
-        data = call_with_retry(statsapi.get, "team_personnel", {"teamId": team_id})
+        data = call_with_retry(_get, "team_personnel", {"teamId": team_id})
         rows = []
         for entry in data.get("roster", []):
             person = entry.get("person", {})
@@ -1202,7 +1219,7 @@ def _load_affiliates(conn: psycopg.Connection) -> int:
     current_year = date.today().year
     team_ids = _season_team_ids(current_year)
     data = call_with_retry(
-        statsapi.get, "teams_affiliates", {"teamIds": ",".join(str(t) for t in team_ids)}
+        _get, "teams_affiliates", {"teamIds": ",".join(str(t) for t in team_ids)}
     )
     rows = []
     for team in data.get("teams", []):
@@ -1226,7 +1243,7 @@ def _load_attendance(conn: psycopg.Connection) -> int:
     total = 0
     current_year = date.today().year
     for team_id in _season_team_ids(current_year):
-        data = call_with_retry(statsapi.get, "attendance", {"teamId": team_id})
+        data = call_with_retry(_get, "attendance", {"teamId": team_id})
         rows = [{"team_id": team_id, **record} for record in data.get("records", [])]
         df = pd.DataFrame(rows)
         if df.empty:
@@ -1238,7 +1255,7 @@ def _load_attendance(conn: psycopg.Connection) -> int:
 
 
 def _load_game_pace(conn: psycopg.Connection, season: int) -> int:
-    data = call_with_retry(statsapi.get, "gamePace", {"season": season, "sportId": 1})
+    data = call_with_retry(_get, "gamePace", {"season": season, "sportId": 1})
     sports = data.get("sports", [])
     if not sports:
         return 0
@@ -1281,7 +1298,7 @@ def _load_stats(conn: psycopg.Connection, season: int) -> int:
     total = 0
     for group in STAT_GROUPS:
         data = call_with_retry(
-            statsapi.get,
+            _get,
             "stats",
             {
                 "stats": "season",
@@ -1319,7 +1336,7 @@ def _load_team_stats(conn: psycopg.Connection, season: int) -> int:
     total = 0
     for group in STAT_GROUPS:
         data = call_with_retry(
-            statsapi.get,
+            _get,
             "teams_stats",
             {"stats": "season", "group": group, "season": season, "sportIds": 1},
         )
@@ -1349,7 +1366,7 @@ def _load_stats_leaders(conn: psycopg.Connection, season: int) -> int:
     rows = []
     for category in LEADER_CATEGORIES:
         data = call_with_retry(
-            statsapi.get,
+            _get,
             "stats_leaders",
             {"leaderCategories": category, "season": season, "sportId": 1},
         )
@@ -1380,7 +1397,7 @@ def _load_team_leaders(conn: psycopg.Connection, season: int) -> int:
         rows = []
         for category in LEADER_CATEGORIES:
             data = call_with_retry(
-                statsapi.get,
+                _get,
                 "team_leaders",
                 {
                     "teamId": team_id,
@@ -1418,7 +1435,7 @@ def _load_awards_catalog(conn: psycopg.Connection) -> int:
     # recipients backfill here would be ~680 award IDs x up to 126 years
     # each with no batching mechanism, a combinatorial cost out of
     # proportion to the incremental value over Lahman's existing coverage.
-    data = call_with_retry(statsapi.get, "awards", {}, force=True)
+    data = call_with_retry(_get, "awards", {}, force=True)
     df = pd.DataFrame(data.get("awards", []))
     if df.empty:
         return 0
@@ -1426,7 +1443,7 @@ def _load_awards_catalog(conn: psycopg.Connection) -> int:
 
 
 def _load_conferences(conn: psycopg.Connection) -> int:
-    data = call_with_retry(statsapi.get, "conferences", {"sportId": 1}, force=True)
+    data = call_with_retry(_get, "conferences", {"sportId": 1}, force=True)
     df = pd.DataFrame(data.get("conferences", []))
     if df.empty:
         return 0
@@ -1456,7 +1473,7 @@ def _load_official_scorers(conn: psycopg.Connection) -> int:
     # is. One current-snapshot pull, full reload each run.
     current_year = date.today().year
     data = call_with_retry(
-        statsapi.get, "jobs_officialScorers", {"sportId": 1, "season": current_year}
+        _get, "jobs_officialScorers", {"sportId": 1, "season": current_year}
     )
     df = pd.DataFrame(_job_roster_rows(data))
     if df.empty:
@@ -1468,7 +1485,7 @@ def _load_umpires_directory(conn: psycopg.Connection) -> int:
     # Same "current directory, not per-season history" behavior as
     # jobs_officialScorers above — confirmed directly.
     current_year = date.today().year
-    data = call_with_retry(statsapi.get, "jobs_umpires", {"sportId": 1, "season": current_year})
+    data = call_with_retry(_get, "jobs_umpires", {"sportId": 1, "season": current_year})
     df = pd.DataFrame(_job_roster_rows(data))
     if df.empty:
         return 0
@@ -1480,7 +1497,7 @@ def _load_datacasters(conn: psycopg.Connection) -> int:
     # Gameday play-by-play as it happens). Same current-directory shape as
     # jobs_officialScorers/jobs_umpires, not per-season history.
     current_year = date.today().year
-    data = call_with_retry(statsapi.get, "jobs_datacasters", {"sportId": 1, "season": current_year})
+    data = call_with_retry(_get, "jobs_datacasters", {"sportId": 1, "season": current_year})
     df = pd.DataFrame(_job_roster_rows(data))
     if df.empty:
         return 0
@@ -1682,7 +1699,7 @@ LIVE_GAME_COLUMNS = [
 
 
 def _live_snapshot(game_pk: int) -> dict | None:
-    data = call_with_retry(statsapi.get, "game", {"gamePk": game_pk})
+    data = call_with_retry(_get, "game", {"gamePk": game_pk})
     status = data["gameData"]["status"]
     if status.get("abstractGameState") != "Live":
         return None

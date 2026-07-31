@@ -226,16 +226,23 @@ def compute_wrc_plus(conn: psycopg.Connection) -> int:
 
 
 def health_check() -> list[Check]:
-    """Real team wOBA has never been observed outside roughly .250-.400
-    across MLB history, and real wRC+ almost never outside roughly
-    20-250 (league average is always exactly 100 by construction) --
-    catches an inverted or mis-weighted formula the same way park.py's
-    own range check does, not a duplicate table-has-rows check."""
+    """Bounds calibrated against gold.game_feature's actual real values,
+    not guessed -- home_woba holds a per-game ENTERING value, which for
+    an early-season game can reflect just 1-3 real games (legitimate
+    small-sample noise, the same reason home_win_pct can be exactly 1.0
+    early in a season), not a full-season average. Confirmed directly:
+    the real range across all of MLB history is 0.0606-0.5870 -- a
+    tighter bound calibrated for full-season averages (like the .317
+    league-average figure verified in this module's own docstring) would
+    false-positive on real early-season games, not catch an actual bug.
+    wRC+ is centered on 100 by construction and has much less small-
+    sample sensitivity since it's already relative to the same-sized
+    league-wide sample."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT "
             "count(*) FILTER ("
-            "  WHERE home_woba IS NOT NULL AND (home_woba < 0.15 OR home_woba > 0.5)"
+            "  WHERE home_woba IS NOT NULL AND (home_woba < 0.05 OR home_woba > 0.65)"
             "), "
             "count(*) FILTER ("
             "  WHERE home_wrc_plus IS NOT NULL AND (home_wrc_plus < 20 OR home_wrc_plus > 250)"
@@ -250,6 +257,6 @@ def health_check() -> list[Check]:
         return Check(name, True, f"all computed values within {bounds}")
 
     return [
-        _check("home_woba plausible range", bad_woba, "0.15-0.5"),
+        _check("home_woba plausible range", bad_woba, "0.05-0.65"),
         _check("home_wrc_plus plausible range", bad_wrc, "20-250"),
     ]

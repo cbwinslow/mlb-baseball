@@ -191,6 +191,80 @@ def check_partition_coverage(label: str, sql: str, *, min_ratio: float = 0.5) ->
     return Check(label, True, f"{len(rows)} partitions checked, all >= {min_ratio:.0%} coverage")
 
 
+def check_totals_reconcile(label: str, sql: str, *, tolerance: int = 0) -> Check:
+    """`sql` must return rows of (key, computed, reference) — e.g. one row
+    per team-season, comparing a value derived from `core` against an
+    independently-sourced reference (e.g. Lahman's own compiled win total
+    for the same team-season, sourced from a completely separate raw
+    table). Unlike check_join_coverage (which flags any over-count as a
+    fan-out bug), this is a symmetric absolute-difference check — both
+    computed > reference and computed < reference are treated the same
+    way, because two independently-compiled historical sources can
+    legitimately differ by a small, real, explainable amount without
+    either one being wrong.
+
+    Calibrated directly against real production data, not guessed:
+    comparing core.game-derived win/loss/games totals against
+    raw.lahman_teams across all of MLB history turned up ~25 team-seasons
+    with a genuine mismatch, the largest being exactly 3 (1951/1962's
+    famous NL pennant-tiebreaker playoffs — Retrosheet classifies those
+    games game_type='playoff', matching its own convention, while
+    Lahman's official standings total counts them as part of the season
+    record). tolerance=3 catches a real new gap without permanently
+    false-positiving on this well-understood historical pattern.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(sql)
+                rows = cur.fetchall()
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(label, False, "a required table does not exist — never bootstrapped?")
+    mismatched = [
+        (key, computed, reference)
+        for key, computed, reference in rows
+        if abs(computed - reference) > tolerance
+    ]
+    if mismatched:
+        shown = ", ".join(
+            f"{key}: {computed} vs {reference}" for key, computed, reference in mismatched[:10]
+        )
+        more = f" (+{len(mismatched) - 10} more)" if len(mismatched) > 10 else ""
+        return Check(label, False, f"{len(mismatched)} mismatched: {shown}{more}")
+    return Check(label, True, f"{len(rows)} checked, all within tolerance {tolerance}")
+
+
+def check_grouped_no_duplicates(label: str, sql: str) -> Check:
+    """`sql` must return rows of (group_key, distinct_count, total_count)
+    for groups where distinct_count < total_count is a real problem — e.g.
+    one row per (season, home team, away team, date) with more than one
+    core.game row, comparing how many distinct game_pk values that group
+    has against how many of its rows actually have one set. Built
+    specifically for doubleheader integrity: a real bug this session (see
+    ADR-030's follow-up, migration 0011's own game_pk-overwrite-guard fix)
+    let two different games of the same doubleheader collide onto one
+    game_pk, invisible unless checked at exactly this grouping level —
+    the global check_no_duplicate_key catches the same symptom, but this
+    names the actual scenario (two games sharing an identity) explicitly,
+    not just "some column has a repeated value somewhere."
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(sql)
+                rows = cur.fetchall()
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(label, False, "a required table does not exist — never bootstrapped?")
+    bad = [(key, distinct, total) for key, distinct, total in rows if distinct < total]
+    if bad:
+        shown = ", ".join(f"{key}: {distinct}/{total}" for key, distinct, total in bad[:10])
+        more = f" (+{len(bad) - 10} more)" if len(bad) > 10 else ""
+        return Check(label, False, f"{len(bad)} groups with colliding identity: {shown}{more}")
+    return Check(label, True, f"{len(rows)} multi-game groups checked, no collisions")
+
+
 def check_recent_run(source: str, max_age_minutes: int) -> Check:
     """For sources expected to run on a repeating schedule (e.g. mlb_api's
     cron-driven live-game capture) — check_last_run only tells you whether

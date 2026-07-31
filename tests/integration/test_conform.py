@@ -1508,6 +1508,168 @@ def test_build_pitches_leaves_unmatched_statcast_row_as_null_instead_of_dropping
     db_conn.commit()
 
 
+def test_health_check_lahman_reconciliation_matches_real_win_totals(db_conn):
+    # Exercises the actual SQL wired into conform.py's health_check(), not
+    # just the generic check logic (already covered in test_health.py).
+    # _seed_raw_tables' two games both have ATL as the (resolved) home
+    # team and ATL winning both (5>3, then 2>1) — a real raw.lahman_teams
+    # row claiming exactly 2 wins should reconcile cleanly.
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.lahman_teams "
+            "(teamidretro text, yearid text, w text, l text, g text, lgid text)"
+        )
+        cur.execute("INSERT INTO raw.lahman_teams VALUES ('ATL', '2025', '2', '0', '2', 'NL')")
+    db_conn.commit()
+
+    conform.run()
+
+    check = next(
+        c for c in conform.health_check() if c.name == "core.game team-season wins vs Lahman"
+    )
+    assert check.ok, check.detail
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.lahman_teams")
+    db_conn.commit()
+
+
+def test_health_check_lahman_reconciliation_flags_a_real_mismatch(db_conn):
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.lahman_teams "
+            "(teamidretro text, yearid text, w text, l text, g text, lgid text)"
+        )
+        # Claims 20 wins where core.game only has 2 -- well beyond the
+        # tolerance=3 allowance for legitimate historical discrepancies.
+        cur.execute("INSERT INTO raw.lahman_teams VALUES ('ATL', '2025', '20', '0', '20', 'NL')")
+    db_conn.commit()
+
+    conform.run()
+
+    check = next(
+        c for c in conform.health_check() if c.name == "core.game team-season wins vs Lahman"
+    )
+    assert not check.ok
+    assert "ATL-2025" in check.detail
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.lahman_teams")
+    db_conn.commit()
+
+
+def test_health_check_lahman_team_count_matches_and_flags_mismatch(db_conn):
+    # _seed_raw_tables only resolves one team (ATL) for 2025 -- NYM is
+    # deliberately left unresolved, so core.game's team-count for that
+    # season is exactly 1. Filtered to lgid IN ('AL','NL') because
+    # raw.lahman_teams also carries Negro League team-seasons that
+    # core.game's game_type='regular' scope was never meant to include
+    # (confirmed directly against production: 1932 alone has 22
+    # Negro-League teamidretro values mixed in).
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.lahman_teams "
+            "(teamidretro text, yearid text, w text, l text, g text, lgid text)"
+        )
+        cur.execute("INSERT INTO raw.lahman_teams VALUES ('ATL', '2025', '2', '0', '2', 'NL')")
+    db_conn.commit()
+    conform.run()
+
+    check = next(
+        c for c in conform.health_check() if c.name == "core.game team count vs Lahman"
+    )
+    assert check.ok, check.detail
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.lahman_teams VALUES "
+            "('NYA', '2025', '90', '72', '162', 'AL'), "
+            "('BOS', '2025', '85', '77', '162', 'AL')"
+        )
+    db_conn.commit()
+
+    check = next(
+        c for c in conform.health_check() if c.name == "core.game team count vs Lahman"
+    )
+    assert not check.ok
+    assert "2025" in check.detail
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.lahman_teams")
+    db_conn.commit()
+
+
+def test_health_check_doubleheader_identity_flags_a_collision(db_conn):
+    # Regression, end to end: before migration 0011's game_pk-overwrite
+    # guard, this exact scenario (two games, same date/teams, distinct
+    # game_number, both landing on the same game_pk) produced a real
+    # duplicate in production. conform.run() itself should no longer
+    # produce one (see test_backfill_game_pk_distinguishes_doubleheader_games
+    # above) -- this seeds the collision directly into core.game (same
+    # date, same teams, distinct game_number -- a real doubleheader shape)
+    # to prove the health check would actually catch it if the fix ever
+    # regressed.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('ATL', 'NL', 'Atlanta', 'Braves', '1966', '2025'), "
+            "('NYA', 'AL', 'New York', 'Yankees', '1913', '2025')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text, "
+            "temp text, winddir text, windspeed text, sky text, "
+            "precip text, fieldcond text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('ATL202504011', '2025', '20250401', '1', 'NYA', 'ATL', "
+            "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '', "
+            "'', '', '', '', '', ''), "
+            "('ATL202504012', '2025', '20250401', '2', 'NYA', 'ATL', "
+            "'1', '2', 'regular', 'ATL03', '30000', '175', 'N', '', '', '', "
+            "'', '', '', '', '', '')"
+        )
+        # A conform.run() hard prerequisite -- forgetting this makes
+        # _check_prerequisites reject the whole run before it ever builds
+        # core.game, regardless of how correct the rest of this fixture is.
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first) VALUES "
+            "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+    db_conn.commit()
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE core.game SET game_pk = '999999' "
+            "WHERE retro_game_id IN ('ATL202504011', 'ATL202504012')"
+        )
+    db_conn.commit()
+
+    check = next(c for c in conform.health_check() if c.name == "core.game doubleheader identity")
+
+    assert not check.ok
+    assert "colliding identity" in check.detail
+
+    with db_conn.cursor() as cur:
+        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+    db_conn.commit()
+
+
 def test_health_check_includes_join_integrity_safeguards():
     # Verifies the wiring, not full realistic data — every check must be
     # present and callable without crashing, even against a DB with none of
@@ -1520,3 +1682,6 @@ def test_health_check_includes_join_integrity_safeguards():
     assert "core.pitch coverage" in names
     assert "core.player_war batting coverage" in names
     assert "core.player_war pitching coverage" in names
+    assert "core.game team-season wins vs Lahman" in names
+    assert "core.game doubleheader identity" in names
+    assert "core.game team count vs Lahman" in names

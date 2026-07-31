@@ -68,10 +68,12 @@ import psycopg
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     Check,
+    check_grouped_no_duplicates,
     check_join_coverage,
     check_no_duplicate_key,
     check_table_exists,
     check_table_has_rows,
+    check_totals_reconcile,
 )
 from mlb_baseball.ingest import track_run
 
@@ -1262,5 +1264,98 @@ def health_check() -> list[Check]:
             "core.player_war pitching coverage",
             "SELECT count(*) FROM core.player_war WHERE is_pitcher = true",
             "SELECT count(*) FROM raw.bref_war_pitching",
+        ),
+        # Cross-source reconciliation: core.game-derived team-season win
+        # totals against Lahman's own, independently-compiled totals
+        # (raw.lahman_teams, joined via retro_team_id — a completely
+        # separate raw table from anything conform.py otherwise builds
+        # from). tolerance=3 calibrated directly against real production
+        # data: ~2,753 team-seasons checked, the largest genuine mismatch
+        # found was exactly 3 (1951/1962's famous NL pennant-tiebreaker
+        # playoffs — Lahman's official standings count those games,
+        # Retrosheet classifies them game_type='playoff', both correct in
+        # their own convention, not a bug).
+        check_totals_reconcile(
+            "core.game team-season wins vs Lahman",
+            """
+            WITH core_totals AS (
+                SELECT t.retro_team_id, cg.season,
+                    count(*) FILTER (
+                        WHERE cg.home_team_id = t.id AND cg.home_score > cg.away_score
+                    ) + count(*) FILTER (
+                        WHERE cg.away_team_id = t.id AND cg.away_score > cg.home_score
+                    ) AS core_w
+                FROM core.game cg
+                JOIN core.team t ON cg.home_team_id = t.id OR cg.away_team_id = t.id
+                WHERE cg.game_type = 'regular'
+                    AND cg.home_score IS NOT NULL AND cg.away_score IS NOT NULL
+                GROUP BY t.retro_team_id, cg.season
+            )
+            SELECT lt.teamidretro || '-' || lt.yearid, ct.core_w, lt.w::integer
+            FROM raw.lahman_teams lt
+            JOIN core_totals ct
+                ON ct.retro_team_id = lt.teamidretro AND ct.season = lt.yearid::integer
+            """,
+            tolerance=3,
+        ),
+        # Doubleheader integrity, checked explicitly at the grouping level
+        # the real bug (ADR-030's follow-up, migration 0011's game_pk-
+        # overwrite guard) happened at: any (season, home team, away team,
+        # date) with more than one core.game row must not have fewer
+        # distinct game_pk values than rows that actually have one set —
+        # that would mean two different games sharing one identity.
+        check_grouped_no_duplicates(
+            "core.game doubleheader identity",
+            """
+            SELECT season::text || '-' || home_team_id::text || '-'
+                    || away_team_id::text || '-' || game_date::text,
+                count(DISTINCT game_pk) FILTER (WHERE game_pk IS NOT NULL),
+                count(*) FILTER (WHERE game_pk IS NOT NULL)
+            FROM core.game
+            WHERE home_team_id IS NOT NULL AND away_team_id IS NOT NULL
+            GROUP BY season, home_team_id, away_team_id, game_date
+            HAVING count(*) > 1
+            """,
+        ),
+        # Second half of the same reconciliation the win-totals check
+        # above covers: does core.game agree with Lahman on how *many*
+        # teams played a given season, not just how many games each one
+        # won. Filtered to Lahman's own lgid IN ('AL','NL') because
+        # raw.lahman_teams also carries Negro League team-seasons
+        # (confirmed directly: 1932 alone has 38 distinct teamidretro
+        # values, 22 of them Negro League clubs like the Homestead Grays
+        # and Kansas City Monarchs) which core.game's game_type='regular'
+        # scope was never meant to include. Two real, understood
+        # exceptions found checking every season in the dataset, not
+        # guessed: 1914-1915 (the Federal League, a genuine third major
+        # league those two seasons only — Retrosheet correctly counts it
+        # as game_type='regular', Lahman's AL/NL filter naturally excludes
+        # it, an 8-team gap both ways agree is real) is excluded outright;
+        # tolerance=1 absorbs the one remaining case (2025's Athletics —
+        # Lahman's own crosswalk already uses their new bare "ATH" code,
+        # core.team keeps "OAK" as the primary retro_team_id, matching
+        # Retrosheet's own historical continuity — see ADR-029).
+        check_totals_reconcile(
+            "core.game team count vs Lahman",
+            """
+            WITH core_teams AS (
+                SELECT cg.season, count(DISTINCT t.retro_team_id) AS core_team_count
+                FROM core.game cg
+                JOIN core.team t ON cg.home_team_id = t.id OR cg.away_team_id = t.id
+                WHERE cg.game_type = 'regular'
+                GROUP BY cg.season
+            ),
+            lahman_teams AS (
+                SELECT yearid::integer AS season, count(DISTINCT teamidretro) AS lahman_team_count
+                FROM raw.lahman_teams
+                WHERE lgid IN ('AL', 'NL')
+                GROUP BY yearid
+            )
+            SELECT lt.season::text, ct.core_team_count, lt.lahman_team_count
+            FROM lahman_teams lt
+            JOIN core_teams ct ON ct.season = lt.season
+            WHERE lt.season NOT IN (1914, 1915)
+            """,
+            tolerance=1,
         ),
     ]

@@ -3,6 +3,7 @@ import uuid
 import psycopg
 
 from mlb_baseball.health import (
+    check_grouped_no_duplicates,
     check_join_coverage,
     check_last_run,
     check_no_duplicate_key,
@@ -10,6 +11,7 @@ from mlb_baseball.health import (
     check_recent_run,
     check_table_exists,
     check_table_has_rows,
+    check_totals_reconcile,
 )
 
 
@@ -347,6 +349,96 @@ def test_check_no_duplicate_key_false_when_a_value_repeats(db_conn, drop_tables_
 
 def test_check_no_duplicate_key_false_when_table_never_created():
     result = check_no_duplicate_key("raw.test_health_dupcheck_never_created", "game_pk")
+
+    assert not result.ok
+    assert "does not exist" in result.detail
+
+
+def test_check_totals_reconcile_ok_within_tolerance():
+    result = check_totals_reconcile(
+        "test reconcile",
+        "SELECT * FROM (VALUES ('ATL-2023', 100, 100), ('NYA-2023', 98, 101)) "
+        "AS t(key, computed, reference)",
+        tolerance=3,
+    )
+
+    assert result.ok
+    assert "2 checked" in result.detail
+
+
+def test_check_totals_reconcile_flags_mismatch_beyond_tolerance():
+    # Real check built after finding this in production: core.game-derived
+    # win totals compared against raw.lahman_teams turned up ~25 genuine
+    # team-season mismatches, the largest being exactly 3 (1951/1962's
+    # pennant-tiebreaker playoffs, a known, explained pattern — not a bug).
+    result = check_totals_reconcile(
+        "test reconcile",
+        "SELECT * FROM (VALUES ('ATL-2023', 100, 100), ('NYA-2023', 90, 101)) "
+        "AS t(key, computed, reference)",
+        tolerance=3,
+    )
+
+    assert not result.ok
+    assert "1 mismatched" in result.detail
+    assert "NYA-2023: 90 vs 101" in result.detail
+
+
+def test_check_totals_reconcile_symmetric_over_or_under():
+    # Unlike check_join_coverage, an over-count here is just as legitimate
+    # a mismatch as an under-count — two independent sources can diverge
+    # in either direction (e.g. Lahman including tiebreaker games
+    # core.game classifies as playoffs, not regular season).
+    result = check_totals_reconcile(
+        "test reconcile",
+        "SELECT * FROM (VALUES ('ATL-2023', 110, 100)) AS t(key, computed, reference)",
+        tolerance=3,
+    )
+
+    assert not result.ok
+    assert "ATL-2023: 110 vs 100" in result.detail
+
+
+def test_check_totals_reconcile_false_when_source_table_missing():
+    result = check_totals_reconcile(
+        "test reconcile", "SELECT key, computed, reference FROM raw.test_health_never_created"
+    )
+
+    assert not result.ok
+    assert "does not exist" in result.detail
+
+
+def test_check_grouped_no_duplicates_ok_when_every_group_is_distinct():
+    result = check_grouped_no_duplicates(
+        "test doubleheader",
+        "SELECT * FROM (VALUES ('2024-ATL-NYA', 2, 2), ('2024-BOS-TBA', 2, 2)) "
+        "AS t(key, distinct_count, total_count)",
+    )
+
+    assert result.ok
+    assert "2 multi-game groups checked" in result.detail
+
+
+def test_check_grouped_no_duplicates_flags_a_collision():
+    # Real bug this exists to catch: two different games of the same
+    # doubleheader sharing one game_pk (confirmed in production before
+    # migration 0011's overwrite-guard fix — game_pk 824912 ended up on
+    # both MLB824912 and MLB824913's core.game rows).
+    result = check_grouped_no_duplicates(
+        "test doubleheader",
+        "SELECT * FROM (VALUES ('2024-ATL-NYA', 1, 2)) "
+        "AS t(key, distinct_count, total_count)",
+    )
+
+    assert not result.ok
+    assert "1 groups with colliding identity" in result.detail
+    assert "2024-ATL-NYA: 1/2" in result.detail
+
+
+def test_check_grouped_no_duplicates_false_when_source_table_missing():
+    result = check_grouped_no_duplicates(
+        "test doubleheader",
+        "SELECT key, distinct_count, total_count FROM raw.test_health_never_created",
+    )
 
     assert not result.ok
     assert "does not exist" in result.detail

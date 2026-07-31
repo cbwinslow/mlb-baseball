@@ -2,6 +2,18 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-037: wRC+ — park- and league-adjusted team wOBA, built on top of ADR-035/036
+
+**Decision:** `mlb_baseball/model/offense.py`'s `compute_wrc_plus()` extends team wOBA (ADR-036) with FanGraphs' published wRC+ formula: `(((team_wOBA − league_wOBA) / WOBA_SCALE) + 1) / (park_factor/100) × 100`. Runs after `compute()` (needs `home_woba`/`away_woba` already set) and after `park.compute()` (needs `park_factor` already set), reading both directly off `gold.game_feature` rather than recomputing them — a genuinely small addition once ADR-035 and ADR-036 already exist, which is why it was deferred rather than built alongside either.
+
+**League wOBA is itself a rolling, no-leakage, season-to-date value** — every team's batting combined, entering each game, computed via the identical window-function shape as team wOBA (same `team_game_stats`-equivalent aggregation, just summed across both sides of each game instead of partitioned by team) rather than a season-end aggregate, which would leak the same way a team's own current-season number would.
+
+**Sanity-checked algebraically before touching real data**: a league-average hitter (`team_wOBA = league_wOBA`) in a neutral park (`park_factor = 100`) must reduce to exactly 100 — required by wRC+'s own definition (100 = league average, by construction), not just a property of one fixture. Verified as a real, permanent regression test (`test_league_average_hitter_in_a_neutral_park_is_exactly_100`), not just a one-off manual check.
+
+**`WOBA_SCALE` is a single fixed value (1.20)**, not year-specific — identical tradeoff, for the identical reason, as ADR-036's wOBA weights and ADR-034's FIP constant: FanGraphs' own scale constant varies by season and the exact per-season value could not be reliably sourced via automated lookup in this environment.
+
+**Verified against real production data**: every 2024 team value landed in the 86.9-103.6 range, tightly clustered around 100 exactly as it must be by construction.
+
 ## ADR-036: Team wOBA — FanGraphs' published formula recreated from raw.retrosheet_event, not scraped
 
 **Decision:** `mlb_baseball/model/offense.py` computes point-in-time, no-leakage, within-season rolling team wOBA using FanGraphs' own published formula (`0.690×uBB + 0.722×HBP + 0.878×1B + 1.242×2B + 1.569×3B + 2.015×HR`, over `AB+uBB+SF+HBP`) — confirmed directly that FanGraphs does not support scraping or API access at all (their contact page states this explicitly, not just the Cloudflare block ADR-024 already found), so the only legitimate path is recreating the calculation from data already ingested, not fetching theirs. Supersedes the "season-lagged Statcast xwOBA" approach originally sketched in `docs/RESEARCH.md`'s backlog: reconstructing from `raw.retrosheet_event` gives a genuine within-season rolling number instead, the same quality upgrade already applied to starting-pitcher quality (ADR-034), for the identical reason (season aggregates leak future games mid-season).

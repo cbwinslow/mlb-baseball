@@ -53,6 +53,7 @@ def run() -> dict[str, int]:
         starter_count = starter.compute(conn)
         park.compute(conn)
         offense.compute(conn)
+        offense.compute_wrc_plus(conn)
         backfilled = backfill_outcomes(conn)
         log5_count = log5.predict(conn)
         elo_count = elo.predict(conn)

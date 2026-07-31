@@ -21,12 +21,14 @@ games, and postseason is a small, structurally different context (short
 series, no meaningful "season-to-date" window) not worth folding into
 the same rolling-stat computation.
 
-Only the columns computable directly from game-level results are built
-here: season-to-date win%, last-10 win%, run differential, and
-Pythagenpat expectation. Starter stats (needs core.play), rest days,
+Columns computable directly from game-level results are built here:
+season-to-date win%, last-10 win%, run differential, Pythagenpat
+expectation, and rest days (days since each team's immediately preceding
+game -- not season-partitioned, unlike everything else, since rest
+genuinely carries across the offseason boundary). Starter stats (needs
+raw.retrosheet_event/raw.mlb_playbyplay, see mlb_baseball/model/starter.py),
 prior-season WAR (needs core.player_war), and weather passthrough are
-deliberately not built yet -- each needs a different source query, and
-this is the first complete, testable slice, not a stub of the rest.
+deliberately not built here -- each needs a different source query.
 
 Self-truncating and TRUNCATE + full rebuild, same as conform.py's core
 tables -- idempotent by construction, and cheap enough (227K+ games)
@@ -93,7 +95,15 @@ running AS (
         AVG(win) OVER w_last10 AS win_pct_10,
         SUM(runs_for) OVER w_season AS runs_for_sum,
         SUM(runs_against) OVER w_season AS runs_against_sum,
-        COUNT(win) OVER w_season AS games_played
+        COUNT(win) OVER w_season AS games_played,
+        -- Rest: days since this team's immediately preceding game -- NOT
+        -- partitioned by season, unlike everything else here. Rest
+        -- genuinely carries across the season boundary (a team's rest
+        -- entering Opening Day is real, if huge); the win%/run-diff
+        -- stats above are deliberately season-scoped instead because
+        -- carrying THOSE across an offseason would mix two different
+        -- team-strength eras together.
+        game_date - LAG(game_date) OVER w_career AS rest
     FROM team_games
     WINDOW
         w_season AS (
@@ -103,13 +113,14 @@ running AS (
         w_last10 AS (
             PARTITION BY team_id, season ORDER BY game_date, game_number, key
             ROWS BETWEEN 10 PRECEDING AND 1 PRECEDING
-        )
+        ),
+        w_career AS (PARTITION BY team_id ORDER BY game_date, game_number, key)
 ),
 -- Pythagenpat (David Smyth): exponent adapts to scoring environment instead
 -- of a fixed 2 -- see docs/RESEARCH.md. NULLIF(games_played, 0) leaves a
 -- team's first game of the season NULL rather than dividing by zero.
 exponent AS (
-    SELECT key, team_id, win_pct, win_pct_10, runs_for_sum, runs_against_sum,
+    SELECT key, team_id, win_pct, win_pct_10, rest, runs_for_sum, runs_against_sum,
         power(
             (runs_for_sum + runs_against_sum)::numeric / NULLIF(games_played, 0),
             0.287
@@ -117,7 +128,7 @@ exponent AS (
     FROM running
 ),
 pyth AS (
-    SELECT key, team_id, win_pct, win_pct_10,
+    SELECT key, team_id, win_pct, win_pct_10, rest,
         runs_for_sum - runs_against_sum AS run_diff,
         CASE WHEN pyt_exp IS NOT NULL AND (runs_for_sum + runs_against_sum) > 0 THEN
             power(runs_for_sum::numeric, pyt_exp) / NULLIF(
@@ -129,12 +140,14 @@ pyth AS (
 INSERT INTO gold.game_feature (
     game_id, mlb_game_pk, season, game_date, home_team_id, away_team_id,
     home_win_pct, away_win_pct, home_win_pct_10, away_win_pct_10,
-    home_run_diff, away_run_diff, home_pyth_wpct, away_pyth_wpct, home_win
+    home_run_diff, away_run_diff, home_pyth_wpct, away_pyth_wpct,
+    home_rest, away_rest, home_win
 )
 SELECT
     g.game_id, g.mlb_game_pk, g.season, g.game_date, g.home_team_id, g.away_team_id,
     ph.win_pct, pa.win_pct, ph.win_pct_10, pa.win_pct_10,
     ph.run_diff, pa.run_diff, ph.pyth_wpct, pa.pyth_wpct,
+    ph.rest, pa.rest,
     CASE WHEN g.home_score IS NOT NULL AND g.away_score IS NOT NULL
          THEN g.home_score > g.away_score END
 FROM games g

@@ -148,6 +148,45 @@ def test_pythagenpat_home_and_away_sum_to_one(db_conn):
     _reset(db_conn)
 
 
+def test_build_computes_rest_days_across_the_season_boundary(db_conn):
+    # Rest is NOT season-partitioned, unlike win_pct/pyth_wpct -- a team's
+    # rest entering next season's opener is real and should reflect the
+    # actual offseason gap, not reset to NULL at the season boundary.
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2024, '2024-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2024, '2024-04-02', %(atl)s, %(nya)s, 2, 1, 'regular'), "
+            "('G3', 2024, '2024-04-06', %(atl)s, %(nya)s, 4, 2, 'regular'), "
+            "('G4', 2025, '2025-03-28', %(atl)s, %(nya)s, 1, 0, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.retro_game_id, f.home_rest, f.away_rest "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "ORDER BY g.retro_game_id"
+        )
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+    assert rows["G1"] == (None, None)  # first game ever for both -- no prior game to measure from
+    assert rows["G2"] == (1, 1)  # 2024-04-02 minus 2024-04-01
+    assert rows["G3"] == (4, 4)  # 2024-04-06 minus 2024-04-02
+    assert rows["G4"] == (356, 356)  # 2025-03-28 minus 2024-04-06 -- real offseason gap, not NULL
+
+    _reset(db_conn)
+
+
 def test_rerunning_build_truncates_instead_of_duplicating(db_conn):
     _reset(db_conn)
     teams = _seed_teams(db_conn)

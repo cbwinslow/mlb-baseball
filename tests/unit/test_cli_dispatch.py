@@ -63,6 +63,29 @@ def test_predict_command_calls_model_run(monkeypatch, capsys):
     assert "gold.game_feature: 1 rows" in capsys.readouterr().out
 
 
+def test_train_command_calls_model_train_and_reports_metrics(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli.model,
+        "train",
+        lambda: {
+            "train_rows": 100,
+            "validation_rows": 20,
+            "gbm": {"log_loss": 0.6, "brier": 0.2},
+            "log5": {"log_loss": 0.9, "brier": 0.25},
+            "elo": {"log_loss": 0.65, "brier": 0.21},
+            "saved": True,
+        },
+    )
+
+    cli.main(["train"])
+
+    out = capsys.readouterr().out
+    assert "train rows: 100" in out
+    assert "validation rows: 20" in out
+    assert "gbm: log_loss=0.6000" in out
+    assert "saved: new model beat both baselines" in out
+
+
 def test_bootstrap_command_calls_every_connectors_bootstrap(monkeypatch, capsys):
     one, two = _fake_connector(), _fake_connector()
     monkeypatch.setattr(cli, "CONNECTORS", {"one": one, "two": two})

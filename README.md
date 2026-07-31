@@ -30,6 +30,8 @@ mlb migrate
 mlb doctor              # confirms the database and every dependency (see Requirements) is ready
 mlb bootstrap            # runs every registered connector's bootstrap() — see "Bootstrap procedure" below
 mlb conform              # builds core.player/team/game from the raw tables above
+mlb predict              # builds gold.game_feature and generates win-probability predictions (Phase 2, ADR-032)
+mlb train                # (optional) retrains the gradient-boosted model; only overwrites the saved model if it beats the log5/Elo baselines (ADR-033)
 ```
 
 `mlb bootstrap` is slow (realistically days, not minutes) once `mlb_api`'s and Statcast's full historical ranges are involved, and it's resumable — see `docs/ARCHITECTURE.md` "Bootstrap procedure" before running it for real. To bootstrap one source at a time instead (useful while developing, or to retry just the source that failed), use `mlb ingest <source> --mode bootstrap`; every registered source is in `mlb_baseball/registry.py`. `lahman` prefers a manually-downloaded zip (see `docs/DATA_SOURCES.md`) but falls back to a network mirror automatically if you skip that step.

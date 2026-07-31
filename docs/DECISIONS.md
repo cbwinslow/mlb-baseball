@@ -2,6 +2,26 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-033: Gradient-boosted model — XGBoost, disk-stored, train/serve split, only saves if it beats both baselines
+
+**Decision:** `mlb_baseball/model/gbm.py` adds the third piece of ADR-032's build order. XGBoost (`XGBClassifier`), not LightGBM — no strong reason to prefer one over the other for this data size, XGBoost is the more commonly cited choice across the research gathered in `docs/RESEARCH.md`. Trained model stored as a local file (`models/<version>.json`, XGBoost's native format), gitignored — same pattern this project already uses for `downloads/`, and matches the $0-budget/self-hosted constraint (no model registry service). Training (`mlb train`) is a separate, deliberately-triggered CLI command, not part of `mlb predict`'s daily run — retraining a full model every day would be wasteful and could make day-to-day predictions unstable for no benefit; `mlb predict` just loads whatever `mlb train` last saved. `train()` only overwrites the saved model file if the new one actually beats **both** log5 and Elo on held-out validation data (by log-loss) — never silently replaces a working model with a worse one.
+
+**Feature set is deliberately incomplete, on purpose:** exactly `gold.game_feature`'s currently-populated columns (win%, last-10 win%, run differential, Pythagenpat, Elo — 10 features). Starter stats, rest days, prior-season WAR, and weather are real, known gaps in `gold.game_feature` (see ADR-032's column list) — not built yet, not this change's job to build. Retraining against a richer feature set later is ordinary iteration; `gold.prediction.model_version` exists specifically so multiple model versions can coexist without needing to migrate anything when that happens.
+
+**Evaluation, and the real numbers, run against actual production data (209K training rows, season ≤ 2023; 4,666 validation rows, seasons 2024-2025), not projected:**
+
+| Model | Log-loss | Brier |
+|---|---|---|
+| gbm-v1 | 0.6795 | 0.2433 |
+| Elo | 0.6797 | 0.2434 |
+| log5 | 0.9295 | 0.2569 |
+
+**Honest reading of these numbers, not a spin:** gbm-v1 barely edges out Elo (a ~0.0002 log-loss improvement — essentially a statistical tie) despite having 10 features against Elo's 2 inputs (ratings alone). That's a real, useful signal, not a disappointment to bury: the win%/run-diff/Pythagenpat features don't currently give XGBoost meaningfully more to work with than Elo's own rating already captures. The next high-value work is **new signal** (starter pitcher quality, rest days, weather), not further GBM hyperparameter tuning against the same feature set — tuning a model against features that don't carry more information than a two-number baseline is a waste of effort.
+
+**Why log5 does so much worse than both (0.93 vs 0.68 log-loss) is itself a real, separate finding:** log5 uses only season-to-date win%, which is extremely noisy early in a season (a team 1-0 or 2-0 gives log5 a win probability of exactly 1.0, as unit-tested in `test_log5_formula.py`) — and log-loss punishes confident-wrong predictions harshly. Elo's cross-season persistence and gradual per-game updates make it inherently more robust to small-sample noise than a bare win% ratio. Not a bug in log5 (it's implemented exactly as validated in `docs/RESEARCH.md`'s SABR source), just a real limitation of the simplest possible baseline — worth knowing before leaning on it for anything beyond "prove the pipeline works."
+
+**Revisit if:** `gold.game_feature` gains starter stats/rest/weather/prior WAR — retrain and re-run this same log5/Elo/gbm comparison; if gbm still barely beats Elo even with a richer feature set, that's worth a harder look at whether gradient boosting is even the right model class for this signal-to-noise ratio, not just a hyperparameter problem.
+
 ## ADR-032: Phase 2 kickoff — game win/loss probability, point-in-time gold layer, classical baselines before ML
 
 **Decision:** Phase 2's first target is game win/loss probability. Build order: (1) `gold.game_feature` — a point-in-time-correct, one-row-per-game feature table; (2) classical baselines with no training step (Elo, log5, Pythagorean expectation) to get a working `gold.prediction` pipeline end to end and a floor to beat; (3) a gradient-boosted model (XGBoost/LightGBM — good fit for tabular sports data) trained on `gold.game_feature`, time-based split (train through 2023, validate 2024-2025, forward-test live against 2026 as true out-of-sample data); (4) only after that, revisit `core.market`'s pre-game-snapshot gap (issue #1) to add market-implied probability as a comparison line, not a model input. `gold.prediction` stores one row per (game, model_version, generated_at, predicted_probability, actual_outcome) from day one — without a prediction history there's no calibration record to show on the eventual website (`docs/NORTH_STAR.md`'s Phase 3) and no way to prove a model is actually good.

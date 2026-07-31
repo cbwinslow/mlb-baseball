@@ -7,6 +7,7 @@
     mlb update
     mlb conform
     mlb predict
+    mlb train
     mlb inventory
     mlb doctor
 
@@ -139,6 +140,7 @@ def main(argv: list[str] | None = None) -> None:
     subparsers.add_parser("update")
     subparsers.add_parser("conform")
     subparsers.add_parser("predict")
+    subparsers.add_parser("train")
     subparsers.add_parser("inventory")
     subparsers.add_parser("doctor")
 
@@ -161,6 +163,16 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "predict":
         for table, count in model.run().items():
             print(f"{table}: {count} rows")
+    elif args.command == "train":
+        metrics = model.train()
+        print(f"train rows: {metrics['train_rows']}, validation rows: {metrics['validation_rows']}")
+        for name in ("gbm", "log5", "elo"):
+            m = metrics[name]
+            print(f"  {name}: log_loss={m['log_loss']:.4f} brier={m['brier']:.4f}")
+        if metrics["saved"]:
+            print("saved: new model beat both baselines")
+        else:
+            print("not saved: did not beat both baselines")
     elif args.command == "inventory":
         for row in inventory.tables():
             print(f"{row['schema']}.{row['table']}: {row['rows']} rows")

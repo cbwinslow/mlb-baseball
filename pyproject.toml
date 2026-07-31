@@ -12,6 +12,8 @@ dependencies = [
     "pandas>=2.0",
     "pybaseball>=2.2",
     "MLB-StatsAPI>=1.7",
+    "xgboost>=2.0",
+    "scikit-learn>=1.4",
 ]
 
 [project.optional-dependencies]

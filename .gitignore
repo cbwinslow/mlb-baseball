@@ -11,4 +11,5 @@ dist/
 build/
 logs/
 downloads/
+models/
 .claude/

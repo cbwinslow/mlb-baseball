@@ -23,7 +23,7 @@ import psycopg
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.ingest import track_run
-from mlb_baseball.model import elo, features, gbm, log5, offense, park, starter
+from mlb_baseball.model import elo, features, gbm, log5, offense, park, starter, war
 
 SOURCE = "model"
 
@@ -54,6 +54,7 @@ def run() -> dict[str, int]:
         park.compute(conn)
         offense.compute(conn)
         offense.compute_wrc_plus(conn)
+        war.compute(conn)
         backfilled = backfill_outcomes(conn)
         log5_count = log5.predict(conn)
         elo_count = elo.predict(conn)
@@ -83,4 +84,5 @@ def health_check() -> list[Check]:
         + starter.health_check()
         + park.health_check()
         + offense.health_check()
+        + war.health_check()
     )

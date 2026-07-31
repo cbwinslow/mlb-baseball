@@ -2,6 +2,16 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-038: Prior-season team WAR — closes an ADR-032-reserved column, surfaces a real bref/Retrosheet team-code mismatch
+
+**Decision:** `mlb_baseball/model/war.py` populates `home_war_prior`/`away_war_prior` (reserved since ADR-032, unbuilt until now) — a team's aggregate `core.player_war` from the season strictly before the game's own season. Lagged, not current-season, by construction: `core.player_war` is a season aggregate Baseball-Reference only ever publishes once per season, so a team's *current*-season WAR used mid-season would leak every game played after the one being predicted — the exact reason this column was named "prior" from the start (ADR-032).
+
+**Found and fixed a real team-identity crosswalk gap along the way**: `core.player_war.team_code` uses Baseball-Reference's own team abbreviations (`NYY`, `CHC`, `SFG`, `LAA`), which genuinely differ from Retrosheet's (`NYA`, `CHN`, `SFN`, `ANA`) that `core.team.retro_team_id` uses — confirmed directly by comparing the two full code sets side by side, not assumed to line up. `_BREF_TO_RETRO` is a fixed mapping for the current 30 teams (where this feature has the most real value — recent seasons, not deep historical backtesting); older teams whose codes diverge differently across relocations/renames aren't covered and correctly get `NULL` rather than a guessed number, consistent with this project's "leave it NULL, don't guess" precedent (`core.game.game_pk`, ADR-006).
+
+**No table-existence guard needed, unlike starter.py/offense.py/park.py** — `core.player_war` is created by a core migration (always present on any migrated database), not a connector-created raw table that might not exist pre-bootstrap. Caught and fixed a real bug in this module's own first test draft before it landed: a "table doesn't exist" test that `DROP`ped `core.player_war` directly — a real, permanent, migration-created table other code depends on always existing, not a safely-droppable test fixture the way `raw.retrosheet_event` is in `mlb_test` (that table only ever exists there if a test created it). Replaced with a test of the actually-relevant case: the table existing but being empty.
+
+**Verified against real production data**: 2023's Atlanta Braves (104-win historic offensive season) and Texas Rangers (2023 World Series champions) both correctly rank among the highest prior-season WAR entering 2024 — the kind of real-world sanity check no synthetic fixture alone provides.
+
 ## ADR-037: wRC+ — park- and league-adjusted team wOBA, built on top of ADR-035/036
 
 **Decision:** `mlb_baseball/model/offense.py`'s `compute_wrc_plus()` extends team wOBA (ADR-036) with FanGraphs' published wRC+ formula: `(((team_wOBA − league_wOBA) / WOBA_SCALE) + 1) / (park_factor/100) × 100`. Runs after `compute()` (needs `home_woba`/`away_woba` already set) and after `park.compute()` (needs `park_factor` already set), reading both directly off `gold.game_feature` rather than recomputing them — a genuinely small addition once ADR-035 and ADR-036 already exist, which is why it was deferred rather than built alongside either.

@@ -35,11 +35,7 @@ that there's no reason to chase incremental rebuilds yet.
 
 import psycopg
 
-from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check, check_table_has_rows
-from mlb_baseball.ingest import track_run
-
-SOURCE = "model_features"
 
 _COMPLETED_GAMES_SQL = """
     SELECT 'g' || id::text AS key, id AS game_id, game_pk AS mlb_game_pk,
@@ -155,14 +151,6 @@ def build(conn: psycopg.Connection) -> int:
         cur.execute("TRUNCATE gold.game_feature")
         cur.execute(_BUILD_SQL_TEMPLATE.format(games_sql=games_sql))
         return cur.rowcount
-
-
-def run() -> dict[str, int]:
-    with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        count = build(conn)
-        conn.commit()
-        result["rows"] = count
-    return {"gold.game_feature": count}
 
 
 def health_check() -> list[Check]:

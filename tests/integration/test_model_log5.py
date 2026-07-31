@@ -10,6 +10,7 @@ path an undecided game can realistically take in production.
 
 from decimal import Decimal
 
+from mlb_baseball import model
 from mlb_baseball.model import features, log5
 
 
@@ -146,7 +147,7 @@ def test_backfill_outcomes_fills_in_actual_result_once_game_is_final(db_conn):
         )
     db_conn.commit()
 
-    updated = log5.backfill_outcomes(db_conn)
+    updated = model.backfill_outcomes(db_conn)
     db_conn.commit()
 
     assert updated == 1

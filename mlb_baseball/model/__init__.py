@@ -1,19 +1,59 @@
 """Phase 2 modeling (ADR-032, docs/RESEARCH.md). Deliberately not a plugin
-framework -- two models exist so far (features is a shared build step, log5
-is the first model); this just calls each directly. Extract real structure
-once a third model actually needs it, not before -- same reasoning as this
-project's connector registry, which came after multiple real connectors,
-not in anticipation of one.
+framework -- three pieces exist so far (features is a shared build step,
+log5 and elo are models); this just calls each directly, in order, inside
+one transaction. Extract real structure once a model actually needs
+something the others don't fit into this same shape, not before -- same
+reasoning as this project's connector registry, which came after multiple
+real connectors, not in anticipation of one.
+
+backfill_outcomes lives here, not inside any one model, because it isn't
+model-specific -- it fills in the actual result for *every* model's
+predictions once a game is decided, regardless of which model made them.
 """
 
+import psycopg
+
+from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check
-from mlb_baseball.model import features, log5
+from mlb_baseball.ingest import track_run
+from mlb_baseball.model import elo, features, log5
+
+SOURCE = "model"
+
+
+def backfill_outcomes(conn: psycopg.Connection) -> int:
+    """Fills in actual_home_win for any gold.prediction row whose game is
+    now final -- without this, prediction history never accumulates a
+    calibration record (the whole reason gold.prediction exists, see
+    ADR-032). Joined via game_pk, not game_id -- a prediction made while a
+    game was still upcoming has no core.game row to key on until conform
+    picks it up after the game finishes."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.prediction p "
+            "SET actual_home_win = (g.home_score > g.away_score) "
+            "FROM core.game g "
+            "WHERE g.game_pk = p.mlb_game_pk AND p.actual_home_win IS NULL "
+            "  AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL"
+        )
+        return cur.rowcount
 
 
 def run() -> dict[str, int]:
-    counts = features.run()
-    counts.update(log5.run())
-    return counts
+    with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
+        feature_count = features.build(conn)
+        elo.compute_ratings(conn)
+        backfilled = backfill_outcomes(conn)
+        log5_count = log5.predict(conn)
+        elo_count = elo.predict(conn)
+        conn.commit()
+        result["rows"] = feature_count + log5_count + elo_count
+    return {
+        "gold.game_feature": feature_count,
+        "gold.prediction (log5)": log5_count,
+        "gold.prediction (elo)": elo_count,
+        "gold.prediction (outcomes backfilled)": backfilled,
+    }
 
 
 def health_check() -> list[Check]:

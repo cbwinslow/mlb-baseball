@@ -9,11 +9,8 @@ from decimal import Decimal
 
 import psycopg
 
-from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check, check_table_has_rows
-from mlb_baseball.ingest import track_run
 
-SOURCE = "model_log5"
 MODEL_VERSION = "log5-v1"
 
 
@@ -60,33 +57,6 @@ def predict(conn: psycopg.Connection) -> int:
             (MODEL_VERSION,),
         )
         return cur.rowcount
-
-
-def backfill_outcomes(conn: psycopg.Connection) -> int:
-    """Fills in actual_home_win for any gold.prediction row whose game is
-    now final -- without this, prediction history never accumulates a
-    calibration record (the whole reason gold.prediction exists, see
-    ADR-032). Joined via game_pk, not game_id -- a prediction made while a
-    game was still upcoming has no core.game row to key on until conform
-    picks it up after the game finishes."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE gold.prediction p "
-            "SET actual_home_win = (g.home_score > g.away_score) "
-            "FROM core.game g "
-            "WHERE g.game_pk = p.mlb_game_pk AND p.actual_home_win IS NULL "
-            "  AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL"
-        )
-        return cur.rowcount
-
-
-def run() -> dict[str, int]:
-    with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        backfilled = backfill_outcomes(conn)
-        predicted = predict(conn)
-        conn.commit()
-        result["rows"] = predicted
-    return {"gold.prediction (new)": predicted, "gold.prediction (outcomes backfilled)": backfilled}
 
 
 def health_check() -> list[Check]:

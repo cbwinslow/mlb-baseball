@@ -23,6 +23,8 @@ FiveThirtyEight's MLB Elo model (the standard public reference):
 
 **Relevance:** `gold.game_feature.home_elo`/`away_elo`, computed incrementally game-by-game from `core.game` in date order. Second baseline to stand up, after log5.
 
+**Implemented** (`mlb_baseball/model/elo.py`): starting-pitcher adjustment not built (would need per-pitcher rating tracking, a real follow-up piece, not a gap in this pass); home advantage (+24) and the MOV multiplier used exactly as published above. K-factor (4.0) and season-reversion weight (0.25, blended toward 1500 the first time a team is seen in a new season) are **chosen, not sourced** — no MLB-specific values are published anywhere found — flagged explicitly in the module docstring as open, revisit-with-backtesting-evidence parameters, not facts. Computed as a sequential Python walk over `gold.game_feature` ordered by date, not SQL window functions — a rating genuinely depends on every prior game's *outcome* and updates two teams at once, which doesn't fit the same-row-independent shape window functions need (unlike log5/Pythagenpat, which are pure rolling aggregates). Verified against production: 793 real predictions generated, hand-checked against manually computed Elo math before formal tests were written.
+
 Sources: [How Our MLB Predictions Work](https://fivethirtyeight.com/methodology/how-our-mlb-predictions-work/) (page has moved since 538's site restructuring — treat as historical reference, methodology confirmed via secondary citation), [mlb-elo dataset README](https://github.com/fivethirtyeight/data/blob/master/mlb-elo/README.md)
 
 ## Pythagorean expectation — use Pythagenpat, not the textbook version

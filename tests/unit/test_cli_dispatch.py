@@ -1,5 +1,7 @@
 """Pure dispatch-logic tests — connectors are faked out, no network/DB involved."""
 
+import threading
+import time
 from unittest.mock import MagicMock
 
 from mlb_baseball import cli
@@ -92,4 +94,93 @@ def test_bootstrap_command_continues_past_a_failing_connector(monkeypatch, capsy
         raise AssertionError("expected SystemExit(1) — a connector failed")
 
     fine.bootstrap.assert_called_once()
-    assert "broken: FAILED" in capsys.readouterr().out
+    assert "[broken] FAILED" in capsys.readouterr().out
+
+
+def test_concurrency_groups_keeps_same_server_connectors_together():
+    # retrosheet_event/retrosheet_box hit the same external server
+    # (retrosheet.org) as the rest of the retrosheet_* family — must land
+    # in one group, not split across concurrent ones (ADR-005/ADR-031).
+    names = ["mlb_api", "retrosheet_event", "statcast", "retrosheet_box", "kalshi"]
+
+    groups = cli._concurrency_groups(names)
+
+    retrosheet_group = next(g for g in groups if "retrosheet_event" in g)
+    assert set(retrosheet_group) == {"retrosheet_event", "retrosheet_box"}
+    # Everything else not in a known same-server group gets its own
+    # singleton group — mlb_api/statcast/kalshi hit different servers.
+    assert ["mlb_api"] in groups
+    assert ["statcast"] in groups
+    assert ["kalshi"] in groups
+
+
+def test_concurrency_groups_defaults_unknown_names_to_singleton_groups():
+    # A name this list doesn't know about (a new connector, or — as in
+    # every other test in this file — a test double) must still work,
+    # not crash or get silently dropped.
+    groups = cli._concurrency_groups(["one", "two"])
+
+    assert sorted(groups) == [["one"], ["two"]]
+
+
+def test_bootstrap_runs_different_groups_concurrently(monkeypatch, capsys):
+    # Real concurrency check, not just a grouping-logic check: two
+    # connectors with no known same-server relationship must actually
+    # overlap in wall-clock time, not run one-after-another. Each records
+    # its own (start, end) into a shared, thread-safe list (list.append is
+    # atomic under the GIL) so this asserts real overlap, not just that
+    # both got called.
+    monkeypatch.setattr(cli, "_SAME_SERVER_GROUPS", [])
+    spans: list[tuple[float, float]] = []
+    lock = threading.Lock()
+
+    def _slow_bootstrap():
+        start = time.monotonic()
+        time.sleep(0.2)
+        end = time.monotonic()
+        with lock:
+            spans.append((start, end))
+        return {"raw.fake": 1}
+
+    one, two = MagicMock(), MagicMock()
+    one.bootstrap.side_effect = _slow_bootstrap
+    two.bootstrap.side_effect = _slow_bootstrap
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one, "two": two})
+
+    started = time.monotonic()
+    cli.main(["bootstrap"])
+    total = time.monotonic() - started
+
+    # Sequential would take >= 0.4s (two 0.2s sleeps back to back);
+    # concurrent finishes in roughly one sleep's worth of time. A generous
+    # 0.35s bound comfortably distinguishes the two without being flaky.
+    assert total < 0.35
+    (s1, e1), (s2, e2) = spans
+    assert s1 < e2 and s2 < e1  # the two [start, end] intervals overlap
+
+
+def test_bootstrap_runs_same_server_connectors_sequentially(monkeypatch):
+    # The other half of the same check: connectors sharing a known server
+    # must NOT overlap, even though they're grouped with something that
+    # otherwise would run concurrently.
+    monkeypatch.setattr(cli, "_SAME_SERVER_GROUPS", [frozenset({"one", "two"})])
+    spans: list[tuple[float, float]] = []
+    lock = threading.Lock()
+
+    def _slow_bootstrap():
+        start = time.monotonic()
+        time.sleep(0.1)
+        end = time.monotonic()
+        with lock:
+            spans.append((start, end))
+        return {"raw.fake": 1}
+
+    one, two = MagicMock(), MagicMock()
+    one.bootstrap.side_effect = _slow_bootstrap
+    two.bootstrap.side_effect = _slow_bootstrap
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one, "two": two})
+
+    cli.main(["bootstrap"])
+
+    (s1, e1), (s2, e2) = spans
+    assert e1 <= s2 or e2 <= s1  # no overlap — ran one after the other

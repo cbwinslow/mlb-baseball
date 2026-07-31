@@ -1581,7 +1581,24 @@ def bootstrap() -> dict[str, int]:
                 # probability/line score/game context have no Retrosheet
                 # equivalent, so they're the pieces worth the per-game API
                 # cost this far back.
-                if season_already_loaded(conn, "raw.mlb_win_prob", season):
+                #
+                # Real gap found in a later review, not hypothetical: each
+                # game loads all three of raw.mlb_win_prob/_linescore/
+                # _game_context independently (see _load_analytics_for_game
+                # below), but this skip check only ever looked at
+                # raw.mlb_win_prob. A season where win_prob succeeded but
+                # linescore/game_context failed for some games (a real
+                # possibility — three separate per-game API calls, only
+                # wrapped in one shared try/except at the season level, see
+                # _load_analytics_for_season) would look "loaded" forever
+                # after, silently skipped on every future bootstrap re-run
+                # with no way to self-heal. All three must have data before
+                # a season is considered done.
+                if (
+                    season_already_loaded(conn, "raw.mlb_win_prob", season)
+                    and season_already_loaded(conn, "raw.mlb_linescore", season)
+                    and season_already_loaded(conn, "raw.mlb_game_context", season)
+                ):
                     print(f"mlb_api: {season} analytics already loaded, skipping")
                     continue
                 for table, count in _load_analytics_for_season(conn, season).items():
@@ -1790,19 +1807,34 @@ def health_check() -> list[Check]:
         # each. Excludes the current season (still in progress by
         # definition, not a real gap) and anything before FIRST_WIN_PROB_YEAR
         # (no data expected there at all, a documented boundary, not a gap).
-        check_partition_coverage(
-            "mlb_win_prob season coverage",
-            f"""
-            SELECT ms._season,
-                (SELECT count(DISTINCT wp.game_pk) FROM raw.mlb_win_prob wp
-                 WHERE wp._season = ms._season),
-                count(DISTINCT ms.game_id) FILTER (WHERE ms.status = 'Final')
-            FROM raw.mlb_schedule ms
-            WHERE ms._season ~ '^[0-9]+$'
-                AND ms._season::integer >= {FIRST_WIN_PROB_YEAR}
-                AND ms._season::integer < {date.today().year}
-            GROUP BY ms._season
-            """,
-        ),
+        #
+        # All three analytics tables checked, not just win_prob — a real
+        # gap found in a later review: each game loads win_prob/linescore/
+        # game_context via three independent per-game API calls (see
+        # _load_analytics_for_game), so a season where win_prob succeeded
+        # but the other two failed for some games would have looked
+        # "complete" here forever, with the doctor check for it passing
+        # while linescore/game_context silently stayed incomplete. All
+        # three get the identical query shape deliberately (a generated
+        # list, not three hand-copied blocks) so they can't drift out of
+        # sync with each other again the way this gap happened in the
+        # first place.
+        *[
+            check_partition_coverage(
+                f"{table.removeprefix('raw.')} season coverage",
+                f"""
+                SELECT ms._season,
+                    (SELECT count(DISTINCT t.game_pk) FROM {table} t
+                     WHERE t._season = ms._season),
+                    count(DISTINCT ms.game_id) FILTER (WHERE ms.status = 'Final')
+                FROM raw.mlb_schedule ms
+                WHERE ms._season ~ '^[0-9]+$'
+                    AND ms._season::integer >= {FIRST_WIN_PROB_YEAR}
+                    AND ms._season::integer < {date.today().year}
+                GROUP BY ms._season
+                """,
+            )
+            for table in ("raw.mlb_win_prob", "raw.mlb_linescore", "raw.mlb_game_context")
+        ],
         check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

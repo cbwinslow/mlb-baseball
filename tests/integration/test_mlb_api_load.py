@@ -290,6 +290,13 @@ def _fixed_range(monkeypatch):
 @pytest.fixture(autouse=True)
 def _clean_tables(db_conn):
     yield
+    # Same fix already applied to test_conform.py's own _clean_tables and
+    # conftest.py's drop_tables_after: without this rollback, a test whose
+    # own setup failed mid-transaction leaves db_conn in
+    # InFailedSqlTransaction state, silently skipping every statement
+    # below (including the DROP TABLEs) and leaving debris that poisons a
+    # later, unrelated test run with a spurious "already exists" error.
+    db_conn.rollback()
     with db_conn.cursor() as cur:
         for table in TABLES:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
@@ -765,6 +772,51 @@ def test_health_check_flags_a_season_with_incomplete_win_prob_coverage(db_conn):
     db_conn.commit()
 
 
+def test_health_check_covers_linescore_and_game_context_independently(db_conn):
+    # Same gap, the other two tables: win_prob having full coverage must
+    # not mask linescore/game_context being incomplete — each of the three
+    # analytics tables gets its own independent check (see health_check()'s
+    # generated list), so a partial per-game failure in just one of them is
+    # still visible.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule (game_id text, _season text, status text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('1', '2023', 'Final'), ('2', '2023', 'Final'), "
+            "('3', '2023', 'Final'), ('4', '2023', 'Final')"
+        )
+        cur.execute("CREATE TABLE raw.mlb_win_prob (game_pk text, _season text)")
+        cur.execute("CREATE TABLE raw.mlb_linescore (game_pk text, _season text)")
+        cur.execute("CREATE TABLE raw.mlb_game_context (game_pk text, _season text)")
+        # win_prob: full coverage, all 4 games.
+        cur.execute(
+            "INSERT INTO raw.mlb_win_prob VALUES "
+            "('1', '2023'), ('2', '2023'), ('3', '2023'), ('4', '2023')"
+        )
+        # linescore/game_context: only 1 of 4 — the exact partial-failure
+        # shape a season stuck mid-load would produce.
+        cur.execute("INSERT INTO raw.mlb_linescore VALUES ('1', '2023')")
+        cur.execute("INSERT INTO raw.mlb_game_context VALUES ('1', '2023')")
+    db_conn.commit()
+
+    checks = {c.name: c for c in mlb_api.health_check()}
+
+    assert checks["mlb_win_prob season coverage"].ok
+    assert not checks["mlb_linescore season coverage"].ok
+    assert not checks["mlb_game_context season coverage"].ok
+    assert "2023" in checks["mlb_linescore season coverage"].detail
+    assert "2023" in checks["mlb_game_context season coverage"].detail
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "DROP TABLE raw.mlb_schedule, raw.mlb_win_prob, "
+            "raw.mlb_linescore, raw.mlb_game_context"
+        )
+    db_conn.commit()
+
+
 def test_win_prob_only_range_is_idempotent_across_bootstrap_reruns(db_conn):
     # FIRST_WIN_PROB_YEAR (1950, not monkeypatched here since 2024/2025 both
     # already fall under it in this fixture's 2024-2026 window) covers
@@ -777,6 +829,34 @@ def test_win_prob_only_range_is_idempotent_across_bootstrap_reruns(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("SELECT _season, count(*) FROM raw.mlb_win_prob GROUP BY _season ORDER BY 1")
         assert cur.fetchall() == [("2024", 2), ("2025", 1), ("2026", 3)]
+
+
+def test_win_prob_only_range_retries_a_season_left_partially_loaded(db_conn):
+    # Real gap found in a later review: the skip check only ever looked at
+    # raw.mlb_win_prob, even though each game independently loads win_prob/
+    # linescore/game_context via three separate API calls (see
+    # _load_analytics_for_game). A season where win_prob succeeded but
+    # linescore/game_context failed for some reason would have looked
+    # "already loaded" forever after, silently skipped on every future
+    # bootstrap re-run with no way to self-heal. Simulates exactly that:
+    # a first bootstrap lands all three tables normally, then
+    # raw.mlb_linescore for 2024 is wiped out (standing in for "that half
+    # of a real run failed") — a second bootstrap must notice and refill
+    # it, not skip 2024 just because raw.mlb_win_prob still has rows.
+    with _mocked_statsapi():
+        mlb_api.bootstrap()
+
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM raw.mlb_linescore WHERE _season = '2024'")
+    db_conn.commit()
+
+    with _mocked_statsapi():
+        mlb_api.bootstrap()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.mlb_linescore WHERE _season = '2024'")
+        (count,) = cur.fetchone()
+    assert count > 0, "2024 should have been retried, not skipped, once linescore went missing"
 
 
 def test_win_prob_only_range_skips_playbyplay_boxscore_umpire(db_conn):

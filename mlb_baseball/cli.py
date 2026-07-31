@@ -6,6 +6,7 @@
     mlb bootstrap
     mlb update
     mlb conform
+    mlb predict
     mlb inventory
     mlb doctor
 
@@ -34,7 +35,7 @@ import argparse
 import concurrent.futures
 import sys
 
-from mlb_baseball import conform, doctor, inventory, migrate
+from mlb_baseball import conform, doctor, inventory, migrate, model
 from mlb_baseball.registry import CONNECTORS
 
 # Connector names confirmed (by reading each connector's own network calls,
@@ -137,6 +138,7 @@ def main(argv: list[str] | None = None) -> None:
     subparsers.add_parser("bootstrap")
     subparsers.add_parser("update")
     subparsers.add_parser("conform")
+    subparsers.add_parser("predict")
     subparsers.add_parser("inventory")
     subparsers.add_parser("doctor")
 
@@ -155,6 +157,9 @@ def main(argv: list[str] | None = None) -> None:
         _run_all("update")
     elif args.command == "conform":
         for table, count in conform.run().items():
+            print(f"{table}: {count} rows")
+    elif args.command == "predict":
+        for table, count in model.run().items():
             print(f"{table}: {count} rows")
     elif args.command == "inventory":
         for row in inventory.tables():

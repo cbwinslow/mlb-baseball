@@ -55,6 +55,14 @@ def test_conform_command_calls_conform_run(monkeypatch, capsys):
     assert "core.team: 1 rows" in capsys.readouterr().out
 
 
+def test_predict_command_calls_model_run(monkeypatch, capsys):
+    monkeypatch.setattr(cli.model, "run", lambda: {"gold.game_feature": 1})
+
+    cli.main(["predict"])
+
+    assert "gold.game_feature: 1 rows" in capsys.readouterr().out
+
+
 def test_bootstrap_command_calls_every_connectors_bootstrap(monkeypatch, capsys):
     one, two = _fake_connector(), _fake_connector()
     monkeypatch.setattr(cli, "CONNECTORS", {"one": one, "two": two})

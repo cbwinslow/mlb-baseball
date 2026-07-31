@@ -16,7 +16,7 @@ directly, not just a status light.
 
 import psycopg
 
-from mlb_baseball import conform, ingest, manifest, migrate
+from mlb_baseball import conform, ingest, manifest, migrate, model
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.registry import CONNECTORS
@@ -150,5 +150,12 @@ def run() -> list[Check]:
         checks.extend(conform.health_check())
     except Exception as exc:
         checks.append(Check("core connector", False, f"health_check() raised: {exc}"))
+
+    # Same reasoning as conform.py above -- model has no bootstrap()/
+    # update(), it's not in CONNECTORS.
+    try:
+        checks.extend(model.health_check())
+    except Exception as exc:
+        checks.append(Check("model", False, f"health_check() raised: {exc}"))
 
     return checks

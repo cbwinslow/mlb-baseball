@@ -54,6 +54,7 @@ TABLES = [
     "raw.mlb_official_scorer",
     "raw.mlb_umpire_directory",
     "raw.mlb_datacaster",
+    "raw.mlb_probable",
 ]
 
 
@@ -269,6 +270,35 @@ FIXTURE_JOB_ROSTER = {
     "roster": [{"person": {"id": 5, "fullName": "Job Person"}, "job": "Scorer", "jobId": "SCOR"}]
 }
 
+# _load_probable's own schedule(hydrate=probablePitcher) call — a real,
+# separate shape from FIXTURE_GAMES_BY_SEASON (which backs statsapi.schedule()
+# itself, not statsapi.get("schedule", ...)). 5001's home side has an
+# announced probable, away doesn't yet; 5002's away side has one, home
+# doesn't — covers both directions of "not every side has one yet."
+FIXTURE_PROBABLE_SCHEDULE = {
+    "dates": [
+        {
+            "date": "2026-06-01",
+            "games": [
+                {
+                    "gamePk": 5001,
+                    "teams": {
+                        "home": {"probablePitcher": {"id": 601, "fullName": "Home Probable"}},
+                        "away": {},
+                    },
+                },
+                {
+                    "gamePk": 5002,
+                    "teams": {
+                        "home": {},
+                        "away": {"probablePitcher": {"id": 602, "fullName": "Away Probable"}},
+                    },
+                },
+            ],
+        }
+    ]
+}
+
 
 class _FixedDate(date):
     @classmethod
@@ -376,6 +406,8 @@ def _fake_get(endpoint, params=None, **kwargs):
         return FIXTURE_CONFERENCES
     if endpoint in ("jobs_officialScorers", "jobs_umpires", "jobs_datacasters"):
         return FIXTURE_JOB_ROSTER
+    if endpoint == "schedule":
+        return FIXTURE_PROBABLE_SCHEDULE
     raise AssertionError(f"unexpected endpoint: {endpoint}")
 
 
@@ -655,6 +687,74 @@ def test_capture_live_appends_across_calls_instead_of_replacing(db_conn):
         assert cur.fetchone() == (2,)  # both snapshots kept, not overwritten
 
 
+def test_load_probable_lands_person_ids_not_just_names(db_conn):
+    with patch.object(mlb_api.statsapi, "get", return_value=FIXTURE_PROBABLE_SCHEDULE):
+        count = mlb_api._load_probable(db_conn)
+    db_conn.commit()
+
+    assert count == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT game_pk, side, pitcher_id, pitcher_name FROM raw.mlb_probable ORDER BY game_pk"
+        )
+        rows = cur.fetchall()
+    assert rows == [
+        ("5001", "home", "601", "Home Probable"),
+        ("5002", "away", "602", "Away Probable"),
+    ]
+
+
+def test_load_probable_is_idempotent_when_nothing_changed(db_conn):
+    # update() re-fetches the identical days-ahead window every 5 minutes --
+    # re-running against an unchanged announcement must not duplicate it
+    # (see _new_probable_rows).
+    with patch.object(mlb_api.statsapi, "get", return_value=FIXTURE_PROBABLE_SCHEDULE):
+        mlb_api._load_probable(db_conn)
+        second_count = mlb_api._load_probable(db_conn)
+    db_conn.commit()
+
+    assert second_count == 0
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.mlb_probable")
+        assert cur.fetchone() == (2,)
+
+
+def test_load_probable_appends_a_new_snapshot_on_a_scratch(db_conn):
+    # A real scratch: the same (game_pk, side) gets a different pitcher_id
+    # on a later poll. History must be kept (both snapshots present), and
+    # the newer one must be resolvable as "the latest" via _loaded_at.
+    scratched_schedule = {
+        "dates": [
+            {
+                "games": [
+                    {
+                        "gamePk": 5001,
+                        "teams": {
+                            "home": {
+                                "probablePitcher": {"id": 999, "fullName": "Replacement Guy"}
+                            },
+                            "away": {},
+                        },
+                    }
+                ]
+            }
+        ]
+    }
+    with patch.object(mlb_api.statsapi, "get", return_value=FIXTURE_PROBABLE_SCHEDULE):
+        mlb_api._load_probable(db_conn)
+    with patch.object(mlb_api.statsapi, "get", return_value=scratched_schedule):
+        second_count = mlb_api._load_probable(db_conn)
+    db_conn.commit()
+
+    assert second_count == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT pitcher_id FROM raw.mlb_probable WHERE game_pk = '5001' AND side = 'home' "
+            "ORDER BY _loaded_at"
+        )
+        assert cur.fetchall() == [("601",), ("999",)]  # both kept -- original, then the scratch
+
+
 def test_update_includes_all_counts(db_conn):
     with _mocked_statsapi():
         counts = mlb_api.update()
@@ -674,6 +774,7 @@ def test_update_includes_all_counts(db_conn):
         "raw.mlb_linescore",
         "raw.mlb_game_context",
         "raw.mlb_live_game",
+        "raw.mlb_probable",
     }
     assert counts["raw.mlb_schedule"] == 3
     assert counts["raw.mlb_standing"] == 1
@@ -681,6 +782,8 @@ def test_update_includes_all_counts(db_conn):
     # update()'s schedule(date=...) call doesn't match FIXTURE_GAMES_BY_SEASON
     # (keyed by season, not date) — no started games today under this fixture.
     assert counts["raw.mlb_playbyplay"] == 0
+    # FIXTURE_PROBABLE_SCHEDULE: one announced side per game, 2 games.
+    assert counts["raw.mlb_probable"] == 2
 
 
 def test_update_does_not_touch_reference_personnel_stat_data(db_conn):
@@ -736,6 +839,8 @@ def test_health_check_reports_healthy_with_zero_live_and_playbyplay_rows(db_conn
     assert roster_check.ok
     tx_check = next(c for c in checks if c.name == "raw.mlb_transaction")
     assert tx_check.ok
+    probable_check = next(c for c in checks if c.name == "raw.mlb_probable")
+    assert probable_check.ok
 
 
 def test_health_check_flags_a_season_with_incomplete_win_prob_coverage(db_conn):

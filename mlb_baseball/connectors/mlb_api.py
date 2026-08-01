@@ -2,7 +2,7 @@
 raw.mlb_standing, raw.mlb_roster, raw.mlb_transaction, raw.mlb_playbyplay,
 raw.mlb_live_game, raw.mlb_venue, raw.mlb_team_history, raw.mlb_person,
 raw.mlb_draft, raw.mlb_boxscore_batting/pitching/fielding, raw.mlb_umpire,
-and raw.mlb_win_prob, via the `statsapi` package
+raw.mlb_win_prob, and raw.mlb_probable, via the `statsapi` package
 (github.com/toddrob99/MLB-StatsAPI — 830+ stars, actively maintained,
 already a pinned dependency in pyproject.toml).
 
@@ -90,6 +90,24 @@ across both sources — see ADR-017.
   umpire coverage into this range using the person_ids we already have from
   raw.mlb_umpire) was evaluated but confirmed to return 401 Unauthorized
   regardless of parameters — an MLB-internal endpoint, not built.
+- **Probable pitchers** (raw.mlb_probable): one append-only snapshot row
+  per (game_pk, side) every time `update()` observes a *change* from the
+  last known snapshot (a new announcement or a scratch) — not one row
+  per poll. Fetched via `schedule`'s own `hydrate=probablePitcher` param
+  (verified directly against real 2026 data, not assumed: the schedule
+  endpoint's `teams.<side>.probablePitcher` object carries `id`/`fullName`,
+  unlike `statsapi.schedule()`'s own convenience wrapper, which already
+  hydrates probables into raw.mlb_schedule's `home_probable_pitcher`/
+  `away_probable_pitcher` columns but only as a bare name string — no
+  person_id, and season-scoped replace loses any scratch history). Closes
+  ADR-034/046's biggest remaining gap: without a person_id to resolve
+  against `core.player.mlbam_id`, `mlb_baseball/model/starter.py` had no
+  way to look ahead to a game that hasn't been played yet. Confirmed
+  directly that real announcements are almost always only 1-2 days out
+  (15/15 real games covered for today and tomorrow in a direct check,
+  dropping to near-zero three-plus days out) — `PROBABLE_WINDOW_DAYS`
+  is wider than that observed pattern anyway, since the whole window is
+  one `schedule` call regardless of span, not one call per day.
 
 Deliberately not built: `person_stats` (redundant with game_boxscore, which
 already returns every player's per-game line in one call instead of one call
@@ -152,13 +170,13 @@ force=True. Confirmed by reading the library's source, not guessed.
 
 import json
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import psycopg
 import statsapi
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
     Check,
     check_partition_coverage,
@@ -220,6 +238,13 @@ FRESHNESS_THRESHOLD_MINUTES = 15
 # MLB's first amateur draft (confirmed via direct testing — 1964 returns 0
 # rounds, 1965 returns 72 rounds/824 picks).
 FIRST_DRAFT_YEAR = 1965
+# Days ahead of today to pull probable-pitcher announcements for. Confirmed
+# via direct testing against real 2026 data that real announcements are
+# almost always only 1-2 days out (15/15 real games covered for today and
+# tomorrow, dropping to near-zero three-plus days out) — this window is
+# generous relative to that, not a guess, and costs nothing extra either
+# way since `schedule` takes the whole range in one call regardless of span.
+PROBABLE_WINDOW_DAYS = 5
 # The venue/people endpoints accept a batched, comma-separated ID list
 # (confirmed via direct testing) — chunking keeps the one-time full-catalog
 # pull to a couple hundred calls instead of one per venue/person.
@@ -1750,6 +1775,98 @@ def capture_live(conn: psycopg.Connection) -> int:
     return append_dataframe(conn, "raw.mlb_live_game", df)
 
 
+PROBABLE_COLUMNS = ["game_pk", "side", "pitcher_id", "pitcher_name"]
+
+
+def _probable_rows(data: dict) -> list[dict]:
+    """One row per (game_pk, side) that actually has a probable pitcher
+    announced yet — a game several days out with no rotation decision made
+    has no `probablePitcher` key at all on one or both sides (confirmed
+    directly against real data, not assumed), so this only ever emits rows
+    for sides that genuinely have an announcement, never a placeholder.
+    Not filtered by game type here — the raw layer stays a faithful mirror
+    of whatever the API returns (see docs/ARCHITECTURE.md); scoping to
+    regular-season games happens downstream, in
+    mlb_baseball/model/starter.py, via its join through gold.game_feature
+    (already regular-season-only)."""
+    rows = []
+    for date_block in data.get("dates", []):
+        for game in date_block.get("games", []):
+            game_pk = game.get("gamePk")
+            teams = game.get("teams", {})
+            for side in ("home", "away"):
+                pp = teams.get(side, {}).get("probablePitcher")
+                if not pp:
+                    continue
+                rows.append(
+                    {
+                        "game_pk": game_pk,
+                        "side": side,
+                        "pitcher_id": pp.get("id"),
+                        "pitcher_name": pp.get("fullName"),
+                    }
+                )
+    return rows
+
+
+def _latest_probables(conn: psycopg.Connection) -> dict[tuple[str, str], str]:
+    """The most recently captured pitcher_id for every (game_pk, side)
+    raw.mlb_probable has ever seen — used to detect a real change (a new
+    announcement or a scratch) before appending another snapshot. Returns
+    {} on a fresh database where the table doesn't exist yet, same
+    "not bootstrapped yet, not an error" treatment as season_already_loaded."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_probable')")
+        (exists,) = fetch_one(cur)
+        if not exists:
+            return {}
+        cur.execute(
+            "SELECT DISTINCT ON (game_pk, side) game_pk, side, pitcher_id "
+            "FROM raw.mlb_probable ORDER BY game_pk, side, _loaded_at DESC"
+        )
+        return {(game_pk, side): pitcher_id for game_pk, side, pitcher_id in cur.fetchall()}
+
+
+def _new_probable_rows(rows: list[dict], known: dict[tuple[str, str], str]) -> list[dict]:
+    """Only rows that are new or actually changed since the last known
+    snapshot for that (game_pk, side). update() runs every 5 minutes and
+    re-fetches the identical days-ahead window every single time, so
+    appending unconditionally would write a duplicate, unchanged row for
+    essentially every (game, side) currently in the window on every call
+    (a full season's worth of in-window game-sides x 288 calls/day, almost
+    entirely repeats of the same announcement) — the append-only history
+    stays valuable for tracking real scratches specifically because it only
+    grows when something actually changes, not on every poll."""
+    return [r for r in rows if known.get((str(r["game_pk"]), r["side"])) != str(r["pitcher_id"])]
+
+
+def _load_probable(conn: psycopg.Connection) -> int:
+    # `schedule`'s own hydrate=probablePitcher param (verified directly
+    # against real 2026 data before writing this, not assumed) puts
+    # {"id": ..., "fullName": ...} at teams.<side>.probablePitcher — a
+    # real person_id, unlike statsapi.schedule()'s own convenience wrapper
+    # (already used for raw.mlb_schedule), which hydrates probables as a
+    # bare name string with no id and no history (season-scoped replace
+    # silently loses a scratch the moment the season reloads).
+    today = date.today()
+    end = today + timedelta(days=PROBABLE_WINDOW_DAYS)
+    data = call_with_retry(
+        _get,
+        "schedule",
+        {
+            "sportId": 1,
+            "startDate": today.strftime("%m/%d/%Y"),
+            "endDate": end.strftime("%m/%d/%Y"),
+            "hydrate": "probablePitcher",
+        },
+    )
+    rows = _new_probable_rows(_probable_rows(data), _latest_probables(conn))
+    df = pd.DataFrame(rows, columns=PROBABLE_COLUMNS)
+    if df.empty:
+        return 0
+    return append_dataframe(conn, "raw.mlb_probable", df)
+
+
 def update() -> dict[str, int]:
     # Deliberately does NOT touch the reference/personnel/official-stats
     # data added in ADR-020 (sports/leagues/divisions/seasons/player-pool/
@@ -1774,6 +1891,7 @@ def update() -> dict[str, int]:
         }
         counts.update(_load_game_detail_for_today(conn))
         counts["raw.mlb_live_game"] = capture_live(conn)
+        counts["raw.mlb_probable"] = _load_probable(conn)
         conn.commit()
         result["rows"] = sum(counts.values())
     return counts
@@ -1798,6 +1916,11 @@ def health_check() -> list[Check]:
         check_table_exists("raw.mlb_linescore"),
         check_table_exists("raw.mlb_game_context"),
         check_table_exists("raw.mlb_live_game"),
+        # check_table_exists, not check_table_has_rows: between seasons (or
+        # simply on a day nothing's changed since the last snapshot — see
+        # _new_probable_rows) 0 rows is a normal, healthy state, not a sign
+        # nothing was ever ingested.
+        check_table_exists("raw.mlb_probable"),
         check_table_has_rows("raw.mlb_sport"),
         check_table_has_rows("raw.mlb_league"),
         check_table_has_rows("raw.mlb_division"),

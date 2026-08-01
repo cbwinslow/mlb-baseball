@@ -65,6 +65,7 @@ def run() -> dict[str, int]:
         elo.compute_ratings(conn)
         starter_count = starter.compute(conn)
         starter.compute_live(conn)
+        starter.compute_probable(conn)
         park.compute(conn)
         offense.compute(conn)
         offense.compute_wrc_plus(conn)

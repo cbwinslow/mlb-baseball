@@ -815,3 +815,49 @@ def test_load_datacasters_uses_job_roster_shape():
     df = mock_load.call_args.args[2]
     assert df.iloc[0]["person_name"] == "Stringer One"
     assert df.iloc[0]["job"] == "Stringer"
+
+
+def test_probable_rows_only_includes_sides_with_an_announced_pitcher():
+    # A game several days out often has no probablePitcher key at all on
+    # one or both sides yet (confirmed directly against real 2026 data) --
+    # this must skip those sides entirely, not emit a placeholder row.
+    data = {
+        "dates": [
+            {
+                "games": [
+                    {
+                        "gamePk": 1,
+                        "teams": {
+                            "home": {"probablePitcher": {"id": 100, "fullName": "Home Guy"}},
+                            "away": {},
+                        },
+                    },
+                    {
+                        "gamePk": 2,
+                        "teams": {"home": {}, "away": {}},
+                    },
+                ]
+            }
+        ]
+    }
+    assert mlb_api._probable_rows(data) == [
+        {"game_pk": 1, "side": "home", "pitcher_id": 100, "pitcher_name": "Home Guy"}
+    ]
+
+
+def test_new_probable_rows_filters_out_unchanged_announcements():
+    # update() re-fetches the identical days-ahead window every 5 minutes --
+    # only a genuinely new (game_pk, side) or a changed pitcher_id (a
+    # scratch, a rotation swap) should ever reach append_dataframe.
+    rows = [
+        {"game_pk": 1, "side": "home", "pitcher_id": 100, "pitcher_name": "Same"},
+        {"game_pk": 1, "side": "away", "pitcher_id": 200, "pitcher_name": "Scratched In"},
+        {"game_pk": 2, "side": "home", "pitcher_id": 300, "pitcher_name": "Brand New"},
+    ]
+    known = {("1", "home"): "100", ("1", "away"): "999"}  # away side changed: 999 -> 200
+    assert mlb_api._new_probable_rows(rows, known) == [rows[1], rows[2]]
+
+
+def test_new_probable_rows_returns_everything_when_nothing_known_yet():
+    rows = [{"game_pk": 1, "side": "home", "pitcher_id": 100, "pitcher_name": "First Ever"}]
+    assert mlb_api._new_probable_rows(rows, {}) == rows

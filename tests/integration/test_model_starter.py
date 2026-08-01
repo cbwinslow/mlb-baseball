@@ -52,12 +52,16 @@ def _seed_teams_and_players(db_conn):
 def _reset(db_conn):
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.retrosheet_event")
-        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.retrosheet_gameinfo")
+        for table in (
+            "raw.retrosheet_event",
+            "raw.retrosheet_gameinfo",
+            "raw.mlb_schedule",
+            "raw.mlb_probable",
+            "raw.mlb_playbyplay",
+        ):
+            cur.execute("SELECT to_regclass(%s)", (table,))
+            if cur.fetchone()[0]:
+                cur.execute(f"DELETE FROM {table}")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
@@ -165,7 +169,7 @@ def test_health_check_runs_cleanly_against_an_empty_database():
     # real, at-scale reconciliation only means against
     # production data, see this module's own docstring).
     checks = starter.health_check()
-    assert len(checks) == 2
+    assert len(checks) == 3
     assert all(c.name for c in checks)
 
 
@@ -177,6 +181,31 @@ def _ensure_playbyplay_table(db_conn):
                 "CREATE TABLE raw.mlb_playbyplay ("
                 "game_pk text, at_bat_index text, inning text, half_inning text, "
                 "pitcher_id text, event_type text, outs text, _season text)"
+            )
+    db_conn.commit()
+
+
+def _ensure_mlb_schedule_table(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_schedule ("
+                "game_id text, _season text, game_date text, game_type text, "
+                "status text, home_id text, away_id text, game_num text, "
+                "venue_id text)"
+            )
+    db_conn.commit()
+
+
+def _ensure_probable_table(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_probable')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_probable "
+                "(game_pk text, side text, pitcher_id text, pitcher_name text, "
+                "_loaded_at timestamptz NOT NULL DEFAULT now())"
             )
     db_conn.commit()
 
@@ -292,5 +321,249 @@ def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
         cur.execute("SELECT home_starter_era FROM gold.game_feature WHERE mlb_game_pk = '900003'")
         (era,) = cur.fetchone()
     assert era == Decimal("3.33")
+
+    _reset(db_conn)
+
+
+def _extend_team_range_to_2026(db_conn, *team_ids):
+    # _seed_teams_and_players's teams run through 2025 (matching the
+    # Retrosheet-scoped tests that share that helper) -- features.py's
+    # upcoming-games union additionally requires
+    # `ms._season::integer BETWEEN home.first_year AND home.last_year`
+    # (see its own docstring), so a 2026 raw.mlb_schedule row needs the
+    # team's range extended, or it's silently excluded from
+    # gold.game_feature entirely -- found the hard way, not assumed.
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE core.team SET last_year = 2026 WHERE id = ANY(%s)", (list(team_ids),))
+    db_conn.commit()
+
+
+def _seed_probable_pitchers(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.player (retro_id, mlbam_id, first_name, last_name) "
+            "VALUES ('probp1', '7001', 'Probable', 'Home'), "
+            "('probp2', '7002', 'Probable', 'Away') "
+            "RETURNING id, mlbam_id"
+        )
+        return {mlbam_id: player_id for player_id, mlbam_id in cur.fetchall()}
+
+
+def test_compute_probable_populates_upcoming_game_from_latest_announced_probable(db_conn):
+    # ADR-047: home's probable (mlbam_id 7001) has exactly the same real
+    # prior 2026 line as the compute_live test above (BF=2, K=1, outs=2 --
+    # k_pct=0.5, fip=0.10) entering its next (not yet played) start on
+    # 2026-04-15. away's probable (7002) has zero prior 2026 history (a
+    # rookie/debut probable) -- identity must still resolve, but every rate
+    # stays honestly NULL, not guessed. A stale, scratched announcement for
+    # home (pitcher_id 555555, captured a day earlier) must lose to the
+    # current one, not win by being inserted first.
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    _ensure_probable_table(db_conn)
+    teams, _players = _seed_teams_and_players(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    _extend_team_range_to_2026(db_conn, atl, nya)
+    probables = _seed_probable_pitchers(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id) VALUES "
+            "('900030', '2026', '2026-04-01', 'R', 'Final', '144', '147'), "
+            "('900031', '2026', '2026-04-15', 'R', 'Scheduled', '144', '147')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('900030', '0', '1', 'top', '7001', 'strikeout', '1', '2026'), "
+            "('900030', '1', '1', 'top', '7001', 'field_out', '2', '2026')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_probable (game_pk, side, pitcher_id, pitcher_name, _loaded_at) "
+            "VALUES "
+            "('900031', 'home', '555555', 'Scratched', now() - interval '1 day'), "
+            "('900031', 'home', '7001', 'Real Starter', now()), "
+            "('900031', 'away', '7002', 'Rookie Debut', now())"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = starter.compute_probable(db_conn)
+    db_conn.commit()
+
+    assert updated == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_id, home_starter_era, home_starter_k_pct, "
+            "home_starter_bb_pct, home_starter_hr_pct, "
+            "away_starter_id, away_starter_era, away_starter_k_pct "
+            "FROM gold.game_feature WHERE mlb_game_pk = '900031'"
+        )
+        row = cur.fetchone()
+
+    (home_id, home_era, home_k, home_bb, home_hr, away_id, away_era, away_k) = row
+    # The stale scratched announcement (555555, not in core.player at all)
+    # must NOT have won -- if it had, home_id would be NULL instead.
+    assert home_id == probables["7001"]
+    assert home_era == Decimal("0.1")
+    assert home_k == Decimal("0.5")
+    assert home_bb == Decimal("0")
+    assert home_hr == Decimal("0")
+    # away's probable resolves identity but has no prior history to derive
+    # a rate from -- NULL, not guessed.
+    assert away_id == probables["7002"]
+    assert away_era is None
+    assert away_k is None
+
+    # Idempotent: re-running against unchanged raw data must not change
+    # anything or blow up.
+    updated_again = starter.compute_probable(db_conn)
+    db_conn.commit()
+    assert updated_again == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_id, home_starter_era FROM gold.game_feature "
+            "WHERE mlb_game_pk = '900031'"
+        )
+        assert cur.fetchone() == (probables["7001"], Decimal("0.1"))
+
+    _reset(db_conn)
+
+
+def test_compute_probable_only_uses_history_strictly_before_target_game_date(db_conn):
+    # Point-in-time discipline: a pitcher's OWN appearance dated on/after
+    # the target game's date must never leak into that game's rolling
+    # stat, even though it's technically already sitting in
+    # raw.mlb_playbyplay (e.g. a same-day earlier game, or -- as tested
+    # here -- a later game that for whatever reason already has data).
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    _ensure_probable_table(db_conn)
+    teams, _players = _seed_teams_and_players(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    _extend_team_range_to_2026(db_conn, atl, nya)
+    probables = _seed_probable_pitchers(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id) VALUES "
+            "('900040', '2026', '2026-04-01', 'R', 'Final', '144', '147'), "
+            "('900041', '2026', '2026-04-15', 'R', 'Scheduled', '144', '147'), "
+            "('900042', '2026', '2026-04-20', 'R', 'Final', '144', '147')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            # Prior (before the target's 2026-04-15 date): BF=2, K=1, outs=2.
+            "('900040', '0', '1', 'top', '7001', 'strikeout', '1', '2026'), "
+            "('900040', '1', '1', 'top', '7001', 'field_out', '2', '2026'), "
+            # After the target's date -- must NOT count toward it. If it did,
+            # the k_pct below would shift down (2 K out of 4 BF instead of
+            # 1 out of 2), a real, detectable difference.
+            "('900042', '0', '1', 'top', '7001', 'strikeout', '1', '2026'), "
+            "('900042', '1', '1', 'top', '7001', 'field_out', '2', '2026')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_probable (game_pk, side, pitcher_id, pitcher_name) "
+            "VALUES ('900041', 'home', '7001', 'Real Starter')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    starter.compute_probable(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_id, home_starter_k_pct FROM gold.game_feature "
+            "WHERE mlb_game_pk = '900041'"
+        )
+        home_id, k_pct = cur.fetchone()
+    assert home_id == probables["7001"]
+    assert k_pct == Decimal("0.5")  # 1 K / 2 BF from the prior game only
+
+    _reset(db_conn)
+
+
+def test_compute_probable_returns_zero_without_probable_or_playbyplay_table(db_conn):
+    _reset(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_probable")
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_playbyplay")
+    db_conn.commit()
+
+    assert starter.compute_probable(db_conn) == 0
+
+    _ensure_probable_table(db_conn)
+    assert starter.compute_probable(db_conn) == 0  # playbyplay still missing
+
+    _reset(db_conn)
+
+
+def test_health_check_flags_missing_probable_coverage(db_conn):
+    # A probable is announced (and its pitcher has real, qualifying prior
+    # 2026 history to compute a rate from), but home_starter_era never got
+    # filled in -- exactly what a broken compute_probable() run, or a
+    # broken core.player.mlbam_id crosswalk, would look like. Six upcoming
+    # games, not one: check_join_coverage's tolerance (5, see starter.py's
+    # own health_check docstring) absorbs a handful of mismatches as a
+    # known, accepted edge case (a pitcher whose only prior appearance
+    # recorded zero outs) -- a single missed row must not trip a doctor
+    # alert on that basis alone, but six genuinely should.
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    _ensure_probable_table(db_conn)
+    teams, _players = _seed_teams_and_players(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    _extend_team_range_to_2026(db_conn, atl, nya)
+    _seed_probable_pitchers(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id) VALUES "
+            "('900050', '2026', '2026-04-01', 'R', 'Final', '144', '147')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('900050', '0', '1', 'top', '7001', 'strikeout', '1', '2026'), "
+            "('900050', '1', '1', 'top', '7001', 'field_out', '2', '2026')"
+        )
+        for i in range(6):
+            game_id = f"90006{i}"
+            cur.execute(
+                "INSERT INTO raw.mlb_schedule "
+                "(game_id, _season, game_date, game_type, status, home_id, away_id) "
+                "VALUES (%s, '2026', '2026-04-15', 'R', 'Scheduled', '144', '147')",
+                (game_id,),
+            )
+            cur.execute(
+                "INSERT INTO raw.mlb_probable (game_pk, side, pitcher_id, pitcher_name) "
+                "VALUES (%s, 'home', '7001', 'Real Starter')",
+                (game_id,),
+            )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    # Deliberately NOT calling starter.compute_probable() -- home_starter_era
+    # stays NULL for all six despite a real, resolvable probable/history
+    # existing for every one of them.
+
+    checks = starter.health_check()
+    check = next(
+        c
+        for c in checks
+        if c.name == "upcoming games with an announced probable get a resolved starter feature"
+    )
+    assert not check.ok
 
     _reset(db_conn)

@@ -22,10 +22,11 @@ def get_with_retry(
     timeout: int = 60,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+    headers: dict[str, str] | None = None,
 ) -> requests.Response:
     for attempt in range(1, max_attempts + 1):
         try:
-            return requests.get(url, timeout=timeout)
+            return requests.get(url, timeout=timeout, headers=headers)
         except requests.exceptions.ConnectionError as exc:
             if attempt == max_attempts:
                 raise

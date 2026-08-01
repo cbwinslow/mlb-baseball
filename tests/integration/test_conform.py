@@ -293,12 +293,12 @@ def test_build_plays_and_pitches_unify_both_sources(db_conn):
             "CREATE TABLE raw.mlb_schedule "
             "(game_id text, game_date text, away_name text, home_name text, "
             "_season text, status text, game_type text, game_num text, "
-            "venue_name text, away_score text, home_score text)"
+            "venue_name text, venue_id text, away_score text, home_score text)"
         )
         cur.execute(
             "INSERT INTO raw.mlb_schedule VALUES "
             "('999001', '2025-04-02', 'New York Mets', 'Atlanta Braves', "
-            "'2025', 'Final', 'R', '0', 'Truist Park', '1', '2')"
+            "'2025', 'Final', 'R', '0', 'Truist Park', '', '1', '2')"
         )
         # This _season (2025) already has raw.retrosheet_gameinfo coverage
         # in this test, so _build_games' NOT EXISTS guard must exclude this
@@ -386,16 +386,45 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
             # nickname, to let this test's home-team resolution succeed too.
             "('ATL', 'NL', 'Atlanta', 'Braves', '2026', '2026')"
         )
+        # A real venue, resolvable via mlb_venue_id -- proves the MLB-API
+        # game path resolves venue_id, not just stores the venue name as
+        # text. Seeded via the actual raw tables _build_venues reads
+        # (not inserted into core.venue directly -- run()'s own
+        # consolidated TRUNCATE would just wipe that out before
+        # _build_venues gets a chance to run). See conform.py's own
+        # comment on the venue JOIN for the separate, narrower gap this
+        # doesn't solve (recently-renamed venues whose name no longer
+        # matches Retrosheet's own park file).
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_park "
+            "(parkid text, name text, city text, state text, league text, "
+            "start text, \"end\" text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_park VALUES "
+            "('ATL03', 'Truist Park', 'Atlanta', 'GA', 'NL', '04/14/2017', '')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_venue "
+            "(venue_id text, name text, active text, address1 text, city text, "
+            "state text, postal_code text, latitude text, longitude text, "
+            "capacity text, turf_type text, roof_type text, "
+            "left_line text, center text, right_line text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_venue "
+            "(venue_id, name) VALUES ('4705', 'Truist Park')"
+        )
         cur.execute(
             "CREATE TABLE raw.mlb_schedule "
             "(game_id text, game_date text, away_name text, home_name text, "
             "_season text, status text, game_type text, game_num text, "
-            "venue_name text, away_score text, home_score text)"
+            "venue_name text, venue_id text, away_score text, home_score text)"
         )
         cur.execute(
             "INSERT INTO raw.mlb_schedule VALUES "
             "('888001', '2026-04-05', 'New York Yankees', 'Atlanta Braves', "
-            "'2026', 'Final', 'R', '0', 'Truist Park', '3', '4')"
+            "'2026', 'Final', 'R', '0', 'Truist Park', '4705', '3', '4')"
         )
     db_conn.commit()
 
@@ -405,7 +434,7 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT retro_game_id, game_pk, season, away_score, home_score, "
-            "away_team_id, home_team_id, winning_pitcher_id, game_type "
+            "away_team_id, home_team_id, winning_pitcher_id, game_type, venue_id "
             "FROM core.game WHERE season = 2026"
         )
         row = cur.fetchone()
@@ -424,11 +453,30 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
     # case-consistent `WHERE game_type = 'regular'` downstream doesn't
     # silently miss every MLB-API-sourced game.
     assert row[8] == "regular"
+    # Real gap found and fixed this session: the MLB-API game path never
+    # resolved venue_id at all (only stored the venue name as free text),
+    # silently starving park_factor/wRC+'s 2026 coverage. Resolved via
+    # raw.mlb_schedule's own numeric venue_id matched against
+    # core.venue.mlb_venue_id (populated here by _build_venues itself,
+    # from raw.retrosheet_park + the raw.mlb_venue enrichment), not
+    # name-matching.
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id FROM core.venue WHERE retro_park_id = 'ATL03'")
+        (expected_venue_id,) = cur.fetchone()
+    assert row[9] == expected_venue_id
 
     with db_conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        # play/pitch/market reference game — must truncate together, see run()'s comment.
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "DROP TABLE IF EXISTS raw.mlb_schedule, raw.retrosheet_park, raw.mlb_venue"
+        )
+        # play/pitch/market/game_feature reference game — must truncate
+        # together, see run()'s comment. core.venue too, since this test
+        # seeds its own row and the shared cleanup fixture doesn't know
+        # about it (it's not one of DYNAMIC_RAW_TABLES).
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, "
+            "core.game, core.venue"
+        )
     db_conn.commit()
 
 
@@ -508,12 +556,12 @@ def test_build_plays_includes_win_probability_for_mlb_api_rows(db_conn):
             "CREATE TABLE raw.mlb_schedule "
             "(game_id text, game_date text, away_name text, home_name text, "
             "_season text, status text, game_type text, game_num text, "
-            "venue_name text, away_score text, home_score text)"
+            "venue_name text, venue_id text, away_score text, home_score text)"
         )
         cur.execute(
             "INSERT INTO raw.mlb_schedule VALUES "
             "('999001', '2025-04-02', 'New York Mets', 'Atlanta Braves', "
-            "'2025', 'Final', 'R', '0', 'Truist Park', '1', '2')"
+            "'2025', 'Final', 'R', '0', 'Truist Park', '', '1', '2')"
         )
         cur.execute(
             "CREATE TABLE raw.mlb_playbyplay "
@@ -550,7 +598,9 @@ def test_build_plays_includes_win_probability_for_mlb_api_rows(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.mlb_playbyplay, raw.mlb_win_prob")
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -666,7 +716,9 @@ def test_build_market_matches_polymarket_and_kalshi_to_a_core_game(db_conn):
 
     _drop_market_fixtures(db_conn)
     with db_conn.cursor() as cur:
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -686,7 +738,9 @@ def test_build_market_leaves_market_ref_unique_across_both_outcome_rows(db_conn)
 
     _drop_market_fixtures(db_conn)
     with db_conn.cursor() as cur:
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -707,7 +761,9 @@ def test_build_market_leaves_kalshi_price_as_bid_ask_midpoint_when_untraded(db_c
 
     _drop_market_fixtures(db_conn)
     with db_conn.cursor() as cur:
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -723,7 +779,9 @@ def test_build_market_rerunning_replaces_instead_of_duplicating(db_conn):
 
     _drop_market_fixtures(db_conn)
     with db_conn.cursor() as cur:
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -888,25 +946,25 @@ def _seed_mlb_team_id_scenario(db_conn):
             "CREATE TABLE raw.mlb_schedule "
             "(game_id text, game_date text, away_name text, home_name text, "
             "_season text, status text, game_type text, game_num text, "
-            "venue_name text, away_score text, home_score text, "
+            "venue_name text, venue_id text, away_score text, home_score text, "
             "away_id text, home_id text)"
         )
         cur.execute(
             "INSERT INTO raw.mlb_schedule VALUES "
             "('500001', '2024-04-01', 'Texas Rangers', 'Oakland Athletics', "
-            "'2024', 'Final', 'R', '0', 'Oakland Coliseum', '3', '5', '140', '133'), "
+            "'2024', 'Final', 'R', '0', 'Oakland Coliseum', '', '3', '5', '140', '133'), "
             "('500002', '2024-04-02', 'Texas Rangers', 'Oakland Athletics', "
-            "'2024', 'Final', 'R', '0', 'Oakland Coliseum', '1', '2', '140', '133'), "
+            "'2024', 'Final', 'R', '0', 'Oakland Coliseum', '', '1', '2', '140', '133'), "
             # Deliberately wrong home_id for this one game -- the noisy
             # outlier vote the majority-vote logic must not be swayed by.
             "('500003', '2024-04-03', 'Texas Rangers', 'Oakland Athletics', "
-            "'2024', 'Final', 'R', '0', 'Oakland Coliseum', '4', '6', '140', '999'), "
+            "'2024', 'Final', 'R', '0', 'Oakland Coliseum', '', '4', '6', '140', '999'), "
             # 2025: no Retrosheet coverage for this season at all (nothing
             # inserted into raw.retrosheet_gameinfo above for it), and
             # away_name is the bare 'Athletics' MLB's schedule really uses
             # mid-relocation -- can't string-match 'Oakland Athletics'.
             "('500004', '2025-04-01', 'Athletics', 'Texas Rangers', "
-            "'2025', 'Final', 'R', '0', 'Globe Life Field', '2', '1', '133', '140')"
+            "'2025', 'Final', 'R', '0', 'Globe Life Field', '', '2', '1', '133', '140')"
         )
         cur.execute(
             "INSERT INTO raw.register_people "
@@ -930,7 +988,9 @@ def test_backfill_mlb_team_id_uses_majority_vote_despite_a_noisy_outlier(db_conn
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -948,7 +1008,9 @@ def test_backfill_team_ids_via_mlb_id_fixes_bare_name_mismatch(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -963,7 +1025,7 @@ def test_backfill_mlb_team_id_degrades_gracefully_without_away_id_column(db_conn
             "CREATE TABLE raw.mlb_schedule "
             "(game_id text, game_date text, away_name text, home_name text, "
             "_season text, status text, game_type text, game_num text, "
-            "venue_name text, away_score text, home_score text)"
+            "venue_name text, venue_id text, away_score text, home_score text)"
         )
     db_conn.commit()
 
@@ -975,7 +1037,9 @@ def test_backfill_mlb_team_id_degrades_gracefully_without_away_id_column(db_conn
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -1053,7 +1117,9 @@ def test_build_market_matches_polymarket_rebrand_alias(db_conn):
 
     _drop_market_fixtures(db_conn)
     with db_conn.cursor() as cur:
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -1118,7 +1184,9 @@ def test_build_market_matches_kalshi_athletics_ticker_via_alias(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.kalshi_market")
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -1318,7 +1386,9 @@ def test_build_standings_resolves_team_via_mlb_team_id(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.mlb_standing")
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -1335,7 +1405,9 @@ def test_build_standings_rerunning_replaces_instead_of_duplicating(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.mlb_standing")
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -1395,7 +1467,7 @@ def test_backfill_game_pk_does_not_overwrite_an_already_correct_value(db_conn):
             "CREATE TABLE raw.mlb_schedule "
             "(game_id text, game_date text, away_name text, home_name text, "
             "_season text, status text, game_type text, game_num text, "
-            "venue_name text, away_score text, home_score text)"
+            "venue_name text, venue_id text, away_score text, home_score text)"
         )
         # Two distinct game_ids, same date/teams/game_num — each creates
         # its own core.game row via the second INSERT, each with its own
@@ -1403,9 +1475,9 @@ def test_backfill_game_pk_does_not_overwrite_an_already_correct_value(db_conn):
         cur.execute(
             "INSERT INTO raw.mlb_schedule VALUES "
             "('900001', '2026-04-01', 'New York Yankees', 'Atlanta Braves', "
-            "'2026', 'Final', 'R', '1', 'Truist Park', '3', '5'), "
+            "'2026', 'Final', 'R', '1', 'Truist Park', '', '3', '5'), "
             "('900002', '2026-04-01', 'New York Yankees', 'Atlanta Braves', "
-            "'2026', 'Final', 'R', '1', 'Truist Park', '3', '5')"
+            "'2026', 'Final', 'R', '1', 'Truist Park', '', '3', '5')"
         )
     db_conn.commit()
 
@@ -1423,7 +1495,9 @@ def test_backfill_game_pk_does_not_overwrite_an_already_correct_value(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -1475,14 +1549,14 @@ def test_backfill_game_pk_distinguishes_doubleheader_games(db_conn):
             "CREATE TABLE raw.mlb_schedule "
             "(game_id text, game_date text, away_name text, home_name text, "
             "_season text, status text, game_type text, game_num text, "
-            "venue_name text, away_score text, home_score text)"
+            "venue_name text, venue_id text, away_score text, home_score text)"
         )
         cur.execute(
             "INSERT INTO raw.mlb_schedule VALUES "
             "('700001', '2025-04-01', 'New York Yankees', 'Atlanta Braves', "
-            "'2025', 'Final', 'R', '1', 'Truist Park', '3', '5'), "
+            "'2025', 'Final', 'R', '1', 'Truist Park', '', '3', '5'), "
             "('700002', '2025-04-01', 'New York Yankees', 'Atlanta Braves', "
-            "'2025', 'Final', 'R', '2', 'Truist Park', '1', '2')"
+            "'2025', 'Final', 'R', '2', 'Truist Park', '', '1', '2')"
         )
     db_conn.commit()
 
@@ -1501,7 +1575,9 @@ def test_backfill_game_pk_distinguishes_doubleheader_games(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -1706,7 +1782,9 @@ def test_health_check_doubleheader_identity_flags_a_collision(db_conn):
     assert "colliding identity" in check.detail
 
     with db_conn.cursor() as cur:
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 
@@ -1741,7 +1819,9 @@ def test_health_check_play_natural_key_flags_a_partition_split_duplicate(db_conn
     assert "colliding identity" in check.detail
 
     with db_conn.cursor() as cur:
-        cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+        cur.execute(
+            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
+        )
     db_conn.commit()
 
 

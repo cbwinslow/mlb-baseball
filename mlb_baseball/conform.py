@@ -436,7 +436,7 @@ def _build_games(conn: psycopg.Connection) -> int:
                 INSERT INTO core.game (
                     retro_game_id, game_pk, season, game_date, game_number,
                     away_team_id, home_team_id, away_score, home_score,
-                    game_type, site
+                    game_type, site, venue_id
                 )
                 SELECT
                     'MLB' || ms.game_id,
@@ -468,7 +468,8 @@ def _build_games(conn: psycopg.Connection) -> int:
                         WHEN 'W' THEN 'worldseries'
                         ELSE lower(ms.game_type)
                     END,
-                    ms.venue_name
+                    ms.venue_name,
+                    venue.id
                 FROM (
                     -- 1,199 game_ids (confirmed) appear twice in
                     -- raw.mlb_schedule under two different dates, e.g.
@@ -488,6 +489,18 @@ def _build_games(conn: psycopg.Connection) -> int:
                 LEFT JOIN core.team home
                     ON home.city || ' ' || home.nickname = ms.home_name
                     AND ms._season::integer BETWEEN home.first_year AND home.last_year
+                -- core.venue.mlb_venue_id is an exact-name-match
+                -- enrichment against raw.mlb_venue (see _build_venues) --
+                -- confirmed directly this misses any venue renamed since
+                -- Retrosheet's own park file was last updated (e.g. Daikin
+                -- Park/ex-Minute Maid, Rate Field/ex-Guaranteed Rate
+                -- Field, American Family Field/ex-Miller Park all fail to
+                -- resolve this way even though raw.mlb_schedule's own
+                -- numeric venue_id is correct) -- a real, separate,
+                -- narrower gap than "no venue resolution at all", left as
+                -- NULL rather than guessed via fuzzy name matching.
+                LEFT JOIN core.venue venue
+                    ON venue.mlb_venue_id = NULLIF(ms.venue_id, '')::integer
                 WHERE ms.status NOT IN
                     ('Scheduled', 'Postponed', 'Cancelled', 'Pre-Game', 'Warmup')
                     AND NOT EXISTS (

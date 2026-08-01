@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import psycopg
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import fetch_one, get_connection
 
 
 @dataclass
@@ -26,7 +26,7 @@ def check_table_has_rows(table: str) -> Check:
             except psycopg.errors.UndefinedTable:
                 conn.rollback()
                 return Check(table, False, "table does not exist — never bootstrapped?")
-            (count,) = cur.fetchone()
+            (count,) = fetch_one(cur)
     if count == 0:
         return Check(table, False, "0 rows — never ingested?")
     return Check(table, True, f"{count} rows")
@@ -44,7 +44,7 @@ def check_table_exists(table: str) -> Check:
             except psycopg.errors.UndefinedTable:
                 conn.rollback()
                 return Check(table, False, "table does not exist — never bootstrapped?")
-            (count,) = cur.fetchone()
+            (count,) = fetch_one(cur)
     return Check(table, True, f"{count} rows")
 
 
@@ -93,9 +93,9 @@ def check_join_coverage(
         with conn.cursor() as cur:
             try:
                 cur.execute(core_sql)
-                (core_count,) = cur.fetchone()
+                (core_count,) = fetch_one(cur)
                 cur.execute(expected_sql)
-                (expected_count,) = cur.fetchone()
+                (expected_count,) = fetch_one(cur)
             except psycopg.errors.UndefinedTable:
                 conn.rollback()
                 return Check(label, False, "a required table does not exist — never bootstrapped?")
@@ -135,7 +135,7 @@ def check_no_duplicate_key(table: str, column: str) -> Check:
                     False,
                     "table does not exist — never bootstrapped?",
                 )
-            (dup_count,) = cur.fetchone()
+            (dup_count,) = fetch_one(cur)
     if dup_count > 0:
         return Check(
             f"{table}.{column} uniqueness", False, f"{dup_count} duplicate {column} values found"

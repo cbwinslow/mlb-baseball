@@ -17,7 +17,7 @@ directly, not just a status light.
 import psycopg
 
 from mlb_baseball import conform, ingest, manifest, migrate, model
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.registry import CONNECTORS
 
@@ -103,7 +103,7 @@ def _pg_stat_statements_enabled() -> Check:
                     "(requires it in shared_preload_libraries first, server restart needed)",
                 )
             cur.execute("SELECT count(*) FROM pg_stat_statements")
-            (count,) = cur.fetchone()
+            (count,) = fetch_one(cur)
     return Check("pg_stat_statements", True, f"tracking {count} distinct statements")
 
 

@@ -7,7 +7,7 @@ queries current state every time, so it's always right.
 
 import psycopg
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import fetch_one, get_connection
 
 
 def tables() -> list[dict]:
@@ -28,7 +28,7 @@ def tables() -> list[dict]:
         with conn.cursor() as cur:
             for schema, table in schema_tables:
                 cur.execute(f"SELECT count(*) FROM {schema}.{table}")
-                (row_count,) = cur.fetchone()
+                (row_count,) = fetch_one(cur)
                 result.append({"schema": schema, "table": table, "rows": row_count})
         return result
 
@@ -51,5 +51,6 @@ def last_runs() -> list[dict]:
             except psycopg.errors.UndefinedTable:
                 conn.rollback()
                 return []
+            assert cur.description is not None  # always set after a SELECT
             columns = [d.name for d in cur.description]
             return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]

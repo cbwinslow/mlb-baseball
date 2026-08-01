@@ -55,7 +55,7 @@ docstring for the full schema-difference writeup.
 
 import psycopg
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
 
 # FanGraphs' current-era published wOBA weights (see module docstring for
@@ -128,7 +128,7 @@ WHERE f.game_id = rg.game_id
 def compute(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        (exists,) = cur.fetchone()
+        (exists,) = fetch_one(cur)
         if not exists:
             return 0
         cur.execute(
@@ -211,7 +211,7 @@ def compute_wrc_plus(conn: psycopg.Connection) -> int:
     both directly off gold.game_feature rather than recomputing them."""
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        (exists,) = cur.fetchone()
+        (exists,) = fetch_one(cur)
         if not exists:
             return 0
         cur.execute(
@@ -310,7 +310,7 @@ def compute_live(conn: psycopg.Connection) -> int:
     overlap in practice."""
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
-        (exists,) = cur.fetchone()
+        (exists,) = fetch_one(cur)
         if not exists:
             return 0
         cur.execute(
@@ -384,7 +384,7 @@ def compute_wrc_plus_live(conn: psycopg.Connection) -> int:
     dependency as compute_wrc_plus(). Gated on home_wrc_plus IS NULL."""
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
-        (exists,) = cur.fetchone()
+        (exists,) = fetch_one(cur)
         if not exists:
             return 0
         cur.execute(
@@ -422,7 +422,7 @@ def health_check() -> list[Check]:
             ") "
             "FROM gold.game_feature"
         )
-        bad_woba, bad_wrc = cur.fetchone()
+        bad_woba, bad_wrc = fetch_one(cur)
 
     def _check(name: str, bad: int, bounds: str) -> Check:
         if bad:

@@ -31,6 +31,7 @@ this module's logic" pattern as starter.py's ~1.7% Retrosheet gap.
 
 import psycopg
 
+from mlb_baseball.db import fetch_one
 from mlb_baseball.health import Check, check_table_has_rows
 from mlb_baseball.model.war import _BREF_TO_RETRO
 
@@ -67,7 +68,7 @@ WHERE f.game_id = g.id
 def compute(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.statcast_framing')")
-        (exists,) = cur.fetchone()
+        (exists,) = fetch_one(cur)
         if not exists:
             return 0
         values_clause = ", ".join(

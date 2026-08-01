@@ -65,7 +65,7 @@ from decimal import Decimal, InvalidOperation
 
 import psycopg
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
     Check,
     check_grouped_no_duplicates,
@@ -185,7 +185,7 @@ def _check_prerequisites(conn: psycopg.Connection) -> None:
                 conn.rollback()
                 missing.append(f"{table} does not exist — run `{fix_command}` first")
                 continue
-            (count,) = cur.fetchone()
+            (count,) = fetch_one(cur)
             if count == 0:
                 missing.append(f"{table} is empty — run `{fix_command}` first")
     if missing:
@@ -301,7 +301,7 @@ def _build_team_aliases(conn: psycopg.Connection) -> int:
             [(alias, source, retro_id) for retro_id, alias, source in _TEAM_ALIAS_SEED],
         )
         cur.execute("SELECT count(*) FROM core.team_alias")
-        return cur.fetchone()[0]
+        return fetch_one(cur)[0]
 
 
 def _build_players(conn: psycopg.Connection) -> int:

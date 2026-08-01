@@ -92,7 +92,9 @@ FRAMING_URL = "https://baseballsavant.mlb.com/leaderboard/catcher-framing"
 
 
 def _fetch_framing(year: int) -> pd.DataFrame:
-    res = requests.get(FRAMING_URL, params={"year": year, "team": "", "min": "q", "csv": "true"})
+    res = requests.get(
+        FRAMING_URL, params={"year": str(year), "team": "", "min": "q", "csv": "true"}
+    )
     res.raise_for_status()
     return pd.read_csv(io.StringIO(res.content.decode("utf-8")))
 

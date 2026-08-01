@@ -6,6 +6,8 @@ from contextlib import contextmanager
 
 import psycopg
 
+from mlb_baseball.db import fetch_one
+
 
 @contextmanager
 def track_run(conn: psycopg.Connection, source: str, mode: str) -> Iterator[dict]:
@@ -28,7 +30,7 @@ def track_run(conn: psycopg.Connection, source: str, mode: str) -> Iterator[dict
             "VALUES (%s, %s, 'running', %s) RETURNING id",
             (source, mode, os.getpid()),
         )
-        run_id = cur.fetchone()[0]
+        run_id = fetch_one(cur)[0]
     conn.commit()
 
     result: dict = {"rows": None}

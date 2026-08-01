@@ -72,6 +72,7 @@ flagged here so nobody mistakes 3.10 for a researched-per-year number.
 
 import psycopg
 
+from mlb_baseball.db import fetch_one
 from mlb_baseball.health import Check, check_totals_reconcile
 
 FIP_CONSTANT = 3.10
@@ -165,7 +166,7 @@ WHERE f.game_id = s.game_id
 def compute(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        (exists,) = cur.fetchone()
+        (exists,) = fetch_one(cur)
         if not exists:
             return 0
         cur.execute(_BUILD_SQL, {"fip_constant": FIP_CONSTANT})
@@ -291,7 +292,7 @@ WHERE f.game_id = s.game_id AND f.home_starter_era IS NULL
 def compute_live(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
-        (exists,) = cur.fetchone()
+        (exists,) = fetch_one(cur)
         if not exists:
             return 0
         cur.execute(_LIVE_BUILD_SQL, {"fip_constant": FIP_CONSTANT})

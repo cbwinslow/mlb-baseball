@@ -20,7 +20,7 @@ has no home data there yet.
 
 import psycopg
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
 
 TRAILING_SEASONS = 3
@@ -86,7 +86,7 @@ def health_check() -> list[Check]:
             "SELECT count(*) FROM gold.game_feature "
             "WHERE park_factor IS NOT NULL AND (park_factor < 50 OR park_factor > 200)"
         )
-        (bad,) = cur.fetchone()
+        (bad,) = fetch_one(cur)
     if bad:
         return [Check("park_factor plausible range", False, f"{bad} rows outside 50-200")]
     return [Check("park_factor plausible range", True, "all computed values within 50-200")]

@@ -44,6 +44,7 @@ not an accident two modules should be forced to share.
 
 import psycopg
 
+from mlb_baseball.db import fetch_one
 from mlb_baseball.health import Check, check_totals_reconcile
 
 FIP_CONSTANT = 3.10
@@ -187,7 +188,7 @@ WHERE f.game_id = rg.game_id
 def compute(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        (exists,) = cur.fetchone()
+        (exists,) = fetch_one(cur)
         if not exists:
             return 0
         cur.execute(

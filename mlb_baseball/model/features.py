@@ -37,6 +37,7 @@ that there's no reason to chase incremental rebuilds yet.
 
 import psycopg
 
+from mlb_baseball.db import fetch_one
 from mlb_baseball.health import Check, check_table_has_rows
 
 _COMPLETED_GAMES_SQL = """
@@ -162,7 +163,7 @@ JOIN pyth pa ON pa.key = g.key AND pa.team_id = g.away_team_id
 def build(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        (schedule_exists,) = cur.fetchone()
+        (schedule_exists,) = fetch_one(cur)
         games_sql = _COMPLETED_GAMES_SQL + (_UPCOMING_GAMES_SQL if schedule_exists else "")
         cur.execute("TRUNCATE gold.game_feature")
         cur.execute(_BUILD_SQL_TEMPLATE.format(games_sql=games_sql))

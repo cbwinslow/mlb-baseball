@@ -87,6 +87,8 @@ gbm-v1 (ADR-033) barely beat Elo despite having 10 features to Elo's 2 — the c
 
 **Rest days** — `gold.game_feature.home_rest`/`away_rest` are already reserved columns in the schema (ADR-032), never populated. Straightforward: days since each team's prior game, computable directly from `core.game`'s date history. No research needed, just not built yet.
 
+**Catcher framing (Statcast, `raw.statcast_framing.rv_tot`)** — a real, distinct pitching-staff-adjacent value signal not captured by anything built so far (starter/bullpen FIP measure results a pitcher controls directly; framing measures a catcher's effect on called-strike rate, a separate mechanism). Checked feasibility directly, not assumed: `raw.statcast_framing` is player-only (no team column, same shape as the already-rejected xwOBA/exitvelo tables), but unlike those, team identity is resolvable here via `core.player.mlbam_id` → `core.player_war` (`player_id`, `season`, `team_code`, reusing war.py's existing `_BREF_TO_RETRO` crosswalk) — confirmed against real 2024 data: Dingler→DET, Smith→LAD, Langeliers→OAK, Jeffers→MIN, all correct. Real coverage gap found and understood, not glossed over: only 367/708 (52%) rows resolve to a team — the unresolved half are consistently rookies/prospects with too little playing time for `core.player_war`'s min-PA threshold to include them (Basallo, Rushing, Jensen, Baldwin — all real 2024 rookie catchers, confirmed by name, not a join bug). Same lagged-season treatment as WAR/OAA required (season aggregate). Ready to build — ADR + migration + module + tests, same shape as oaa.py — not yet started.
+
 ### Recommended build order
 
 1. ✅ **Rest days** — built (`mlb_baseball/model/features.py`).

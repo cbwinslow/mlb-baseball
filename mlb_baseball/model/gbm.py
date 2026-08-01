@@ -101,9 +101,16 @@ OPTIONAL_COLUMNS = [
     "away_oaa_prior",
     "home_speed_prior",
     "away_speed_prior",
-    "home_framing_prior",
-    "away_framing_prior",
 ]
+
+# home_framing_prior/away_framing_prior (ADR-045) are deliberately NOT
+# in OPTIONAL_COLUMNS yet: the retrain that added them didn't beat both
+# baselines, so the saved model on disk still expects the 37-column
+# shape above it -- adding two more here without a successful save
+# broke predict() outright (ValueError: Feature shape mismatch,
+# confirmed directly in production before this fix). Re-add once a
+# future `mlb train` run with framing included actually beats both
+# baselines and saves a new model with the wider shape.
 
 FEATURE_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 

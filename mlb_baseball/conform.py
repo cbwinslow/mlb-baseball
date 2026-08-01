@@ -1164,16 +1164,25 @@ def run() -> dict[str, int]:
         _check_prerequisites(conn)
         # game references team/player, so it must be cleared first — CASCADE
         # on team/player's TRUNCATE would otherwise also wipe game silently.
-        # play/pitch/market reference game in turn — Postgres requires
-        # truncating a table together with everything that references it in
-        # the same statement (a separate TRUNCATE core.game afterward raises
-        # FeatureNotSupported even if play/pitch/market are already empty),
-        # so all four go in one TRUNCATE, not four sequential ones.
+        # play/pitch/market/gold.game_feature all reference game in turn --
+        # Postgres requires truncating a table together with everything
+        # that references it in the same statement (a separate TRUNCATE
+        # core.game afterward raises FeatureNotSupported regardless of
+        # whether the referencing table has any rows -- it's the FK's mere
+        # existence that blocks it, not row counts), so all five go in one
+        # TRUNCATE, not five sequential ones. gold.game_feature.game_id
+        # REFERENCES core.game(id) since migration 0014 (Phase 2's gold
+        # layer, ADR-032) -- this run() wasn't updated for it at the time,
+        # a real gap caught while adding a later Phase 2 feature, not a
+        # hypothetical.
         # core.player_war isn't listed here — it references core.player,
         # not core.game, so _build_players' own `TRUNCATE core.player
         # CASCADE` (below) already clears it.
         with conn.cursor() as cur:
-            cur.execute("TRUNCATE core.play, core.pitch, core.market, core.game")
+            cur.execute(
+                "TRUNCATE core.play, core.pitch, core.market, "
+                "gold.game_feature, core.game"
+            )
         counts = {
             "core.team": _build_teams(conn),
             "core.player": _build_players(conn),

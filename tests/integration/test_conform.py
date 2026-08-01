@@ -28,21 +28,33 @@ def _reset_dynamic_tables(conn):
     behind permanently, which then poisons every later, unrelated test run
     with a spurious "already exists" error. Matches drop_tables_after's own
     existing "drop any lingering read-only transaction first" precedent in
-    conftest.py."""
+    conftest.py.
+
+    DELETE, not TRUNCATE (GitHub issue #2): core.play/core.pitch are
+    season-partitioned (~150+ partitions each, migration 0011) --
+    TRUNCATE-ing them (even just listed explicitly, no CASCADE needed)
+    still has to fsync every individual partition file, observed directly
+    taking 3+ hours across this file's ~40 tests where it used to take a
+    few minutes. Fixture rows are always a handful per test, so a plain
+    DELETE (ordinary WAL-logged DML, no per-partition-file operation) is
+    correct and fast regardless of partition count. Order matters here in
+    a way TRUNCATE's single combined statement didn't need to worry about:
+    each DELETE must run after every table that references it is already
+    cleared, or it fails on a live FK -- play/pitch/market/game_feature
+    all reference game, so game can't be cleared first; venue is
+    referenced by game, so venue must be last, not first."""
     conn.rollback()
     with conn.cursor() as cur:
         for table in DYNAMIC_RAW_TABLES:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("TRUNCATE raw.register_people")
-        # play/pitch/market reference game, team_alias/player_war reference
-        # team/player — all must be truncated together with what they
-        # reference, not in a separate statement (Postgres requires this,
-        # same as conform.py's run() — see its comment there).
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, core.game, "
-            "core.team, core.team_alias, core.player, core.player_war, "
-            "core.venue, core.standing"
-        )
+        for table in (
+            "core.play", "core.pitch", "core.market", "gold.game_feature",
+            "gold.prediction", "core.game", "core.team_alias",
+            "core.player_war", "core.standing", "core.player", "core.team",
+            "core.venue",
+        ):
+            cur.execute(f"DELETE FROM {table}")
     conn.commit()
 
 
@@ -206,6 +218,34 @@ def test_rerunning_replaces_instead_of_duplicating(db_conn):
         cur.execute("SELECT count(*) FROM core.team")
         assert cur.fetchone() == (1,)
         cur.execute("SELECT count(*) FROM core.player")
+        assert cur.fetchone() == (2,)
+
+
+def test_rerunning_does_not_crash_when_gold_game_feature_references_a_game(db_conn):
+    # Regression: gold.game_feature.game_id REFERENCES core.game(id)
+    # (migration 0014, Phase 2's gold layer) -- Postgres refuses to
+    # TRUNCATE core.game at all while that FK exists, purely because the
+    # FK exists, regardless of how many rows gold.game_feature actually
+    # has. run()'s own TRUNCATE statement had never been updated to
+    # include gold.game_feature, found while adding a later Phase 2
+    # feature and confirmed directly against a real FeatureNotSupported
+    # error before being fixed here.
+    _seed_raw_tables(db_conn)
+    conform.run()
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id, season FROM core.game LIMIT 1")
+        game_id, season = cur.fetchone()
+        cur.execute(
+            "INSERT INTO gold.game_feature (game_id, season, game_date) "
+            "VALUES (%s, %s, '2025-04-01')",
+            (game_id, season),
+        )
+    db_conn.commit()
+
+    conform.run()  # must not raise psycopg.errors.FeatureNotSupported
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.game")
         assert cur.fetchone() == (2,)
 
 

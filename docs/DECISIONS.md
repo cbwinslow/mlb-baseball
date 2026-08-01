@@ -2,6 +2,16 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-045: Prior-season team catcher-framing value via Statcast, resolved through core.player_war's existing bref/Retrosheet crosswalk
+
+**Decision:** `mlb_baseball/model/framing.py` adds `home_framing_prior`/`away_framing_prior` (migration 0025) — a team's summed `raw.statcast_framing.rv_tot` (Statcast's own catcher-framing runs value) from the season strictly before the game's own season. Lagged one season, same construction as WAR/OAA (season aggregate, no genuine within-season log to derive a rolling window from).
+
+**A real, distinct signal, not a duplicate of anything already built**: starter.py/bullpen.py's FIP measures results a pitcher directly controls (DIPS theory — strikeouts, walks, home runs). Framing measures a catcher's effect on called-strike rate, a separate mechanism entirely that FIP doesn't price in.
+
+**Team identity solved by reusing war.py's existing crosswalk, not duplicating it**: `raw.statcast_framing` has no team column at all (same shape as the already-rejected xwOBA/exitvelo tables, ADR-041), so this module resolves team via `core.player.mlbam_id` → `core.player_war` (`player_id`, `season`, `team_code`) → `core.team`. `core.player_war.team_code` is bref's own abbreviation, the identical problem war.py already solved — `framing.py` imports war.py's `_BREF_TO_RETRO` directly rather than maintaining a second, independently-drifting copy of the same 30-team mapping.
+
+**Verified against real 2024 data before writing the module, not assumed**: Dillon Dingler→DET, Will Smith→LAD, Shea Langeliers→OAK, Ryan Jeffers→MIN — all correct. Found and understood a real coverage gap, not glossed over: only ~52% of rows (367/708 checked) resolve to a team. The unresolved half are consistently rookies/prospects below `core.player_war`'s own minimum-playing-time threshold (2024's Samuel Basallo, Dalton Rushing, Carter Jensen, Drake Baldwin — confirmed by name, not a join bug), the same "gap traces to the reference source's own known limit" pattern as starter.py's ~1.7% Retrosheet gap.
+
 ## ADR-044: gbm-v1 retrained against every feature built since ADR-033, via XGBoost's native missing-value handling
 
 **Decision:** `mlb_baseball/model/gbm.py`'s `FEATURE_COLUMNS` grows from 10 to 37 — every column built across ADR-034 through ADR-042 (starter quality, park factor, team wOBA/wRC+, prior-season WAR/OAA/speed, bullpen quality/fatigue). Split into `REQUIRED_COLUMNS` (the original 10, populated for every row, still hard-filtered `IS NOT NULL`) and `OPTIONAL_COLUMNS` (everything new, allowed to be `NULL` per row).

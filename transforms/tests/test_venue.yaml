@@ -1,0 +1,63 @@
+test_venue:
+  model: '"mlb_spike"."core"."venue"'
+  inputs:
+    '"mlb_spike"."raw"."retrosheet_park"':
+    - parkid: BOS07
+      name: Fenway Park
+      city: Boston
+      state: MA
+      league: AL
+      start: 04/20/1912
+      end: ''
+    - parkid: XXX01
+      name: No Match Park
+      city: Nowhere
+      state: ZZ
+      league: NL
+      start: 01/01/1900
+      end: ''
+    '"mlb_spike"."raw"."mlb_venue"':
+    - venue_id: '3'
+      name: Fenway Park
+      latitude: ''
+      longitude: ''
+      capacity: '37731'
+      turf_type: Grass
+      roof_type: Open
+      left_line: ''
+      center: ''
+      right_line: ''
+  outputs:
+    query:
+    - retro_park_id: BOS07
+      name: Fenway Park
+      city: Boston
+      state: MA
+      league: AL
+      first_year: 1912
+      last_year:
+      mlb_venue_id: 3.0
+      latitude:
+      longitude:
+      capacity: 37731.0
+      turf_type: Grass
+      roof_type: Open
+      left_line:
+      center:
+      right_line:
+    - retro_park_id: XXX01
+      name: No Match Park
+      city: Nowhere
+      state: ZZ
+      league: NL
+      first_year: 1900
+      last_year:
+      mlb_venue_id:
+      latitude:
+      longitude:
+      capacity:
+      turf_type:
+      roof_type:
+      left_line:
+      center:
+      right_line:

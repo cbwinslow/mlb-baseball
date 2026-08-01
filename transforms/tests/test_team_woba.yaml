@@ -1,0 +1,49 @@
+test_team_woba:
+  model: '"mlb_spike"."gold"."team_woba"'
+  inputs:
+    '"mlb_spike"."core"."game"':
+    - id: 1
+      retro_game_id: BOS202104010
+      season: 2021
+      game_date: 2021-04-01
+      home_team_id: 1
+      away_team_id: 2
+      game_type: regular
+    - id: 2
+      retro_game_id: BOS202104020
+      season: 2021
+      game_date: 2021-04-02
+      home_team_id: 1
+      away_team_id: 2
+      game_type: regular
+    '"mlb_spike"."raw"."retrosheet_gameinfo"':
+    - gid: BOS202104010
+      gametype: regular
+    - gid: BOS202104020
+      gametype: regular
+    '"mlb_spike"."raw"."retrosheet_event"':
+    - game_id: BOS202104010
+      bat_home_id: '1'
+      event_cd: '20'
+      ab_fl: T
+      sf_fl: F
+    - game_id: BOS202104020
+      bat_home_id: '1'
+      event_cd: '23'
+      ab_fl: T
+      sf_fl: F
+  outputs:
+    query:
+    - game_id: 1
+      team_id: 1
+      season: 2021
+      game_date: 2021-04-01
+      woba:
+    - game_id: 2
+      team_id: 1
+      season: 2021
+      game_date: 2021-04-02
+      woba: 0.878
+  vars:
+    start_ds: '2021-01-01'
+    end_ds: '2021-12-31'

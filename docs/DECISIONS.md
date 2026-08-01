@@ -2,6 +2,190 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-050 (DRAFT — spike output, not adopted, not decided): SQLMesh migration spike — conditional go, scoped to `model/`, not `conform.py`
+
+**Status: DRAFT.** This entry documents a time-boxed spike's findings for the
+project owner to decide on — it is not a decision yet, and nothing in
+`mlb_baseball/` was changed to act on it. Spike artifacts live in
+`transforms/` (see `transforms/README.md` for full detail: exact seed data,
+tie-out queries, and what was exercised). The spike ran against a disposable
+`mlb_spike` database seeded read-only from production; nothing in `mlb` or
+`mlb_test*` was touched.
+
+**What was ported and tied out:** three transforms as SQLMesh models against
+Postgres — `core.venue` (raw→core dimension, ADR-030), `gold.park_factor`
+(ADR-035), `gold.team_woba` (ADR-036). All three tie out to production
+exactly: 2024 Coors Field park factor 135.4 (rank #1) and Fenway Park 116.1,
+both matching ADR-035's text AND a live query against `mlb.gold.game_feature`
+exactly; 2023 league-average wOBA .317, matching ADR-036's text exactly;
+2024 per-team wOBA byte-identical to a same-formula query run directly
+against production for all 30 teams; a specific team's (CHA) last 5
+2024 home games' entering-value wOBA byte-identical (4 decimal places) to
+`mlb.gold.game_feature.home_woba` for the same `game_id`s. `core.venue`
+matched production on 248/260 rows exactly (`sqlmesh table_diff`); the 12
+mismatches are a real, understood, already-documented-before-the-diff-was-run
+tie-break difference on historical parks with duplicate names in
+`raw.mlb_venue` (e.g. "Municipal Stadium" — 15 distinct rows), irrelevant to
+any modern-era query.
+
+**Real capabilities exercised, not just claimed:**
+- **Incremental models**: restating a single month recomputed only that
+  interval (`sqlmesh plan --restate-model gold.team_woba --start
+  2024-01-01 --end 2024-01-31` touched nothing outside that range) — real
+  contrast with `conform.py`/`park.py`/`offense.py`'s full truncate-rebuild
+  every run. Caveat: the within-season rolling-sum window still has to scan
+  that season's full game log every run (no cheaper correct way to compute
+  a cumulative sum without a persisted running total) — the real win is
+  "don't recompute seasons that didn't change," not "process only new rows."
+- **Audits**: direct ports of `park.py`/`offense.py`'s `health_check()`
+  bounds run automatically inside `sqlmesh plan`, not a separate `mlb
+  doctor` pass.
+- **Unit tests**: `sqlmesh create_test` generates a fixture-driven test from
+  a hand-written mock of upstream tables, runs against an in-process DuckDB
+  engine. A `FILTER (WHERE ...)` aggregate, a `WINDOW ... ROWS BETWEEN
+  UNBOUNDED PRECEDING AND 1 PRECEDING` clause, and a regex/`TO_DATE`/
+  `EXTRACT` date-parsing case all transpiled and ran correctly on the first
+  try — fast (both tests run in under a second), but tests the DuckDB
+  transpilation, not the real Postgres execution path.
+- **`table_diff`**: used directly for the `core.venue` tie-out — reproduced
+  a hand-written `FULL JOIN` comparison exactly, plus a schema diff and
+  per-column match-rate breakdown for free. Genuinely better tooling than
+  the hand-rolled verification SQL every ADR in this file already does.
+- **Column-level lineage**: no CLI subcommand in this version (0.236.1) —
+  only the browser-based `sqlmesh ui` (not usable headless here) or the
+  Python API (`sqlmesh.core.lineage.column_dependencies`, used directly in
+  this spike). Correctly traced `park_factor` back through 4 CTEs to
+  `core.game.home_score`/`away_score`. Real capability, awkward ergonomics
+  in this version.
+- **Plan/apply**: exercised end to end, including a real bug caught by the
+  plan step's audit-failure output (`unique_values` checks each column
+  independently, not the combination — `unique_combination_of_columns` is
+  the audit for a composite grain).
+
+**What does NOT port, or doesn't port cleanly, and why this matters more
+than the wins above:**
+- `conform.py`'s `_build_market`/`_polymarket_market_rows`/
+  `_kalshi_market_rows` do `ast.literal_eval` on Python-repr'd text
+  `raw.polymarket_event`/`raw.kalshi_market` store their nested team/date
+  info in (see `conform.py`'s own module docstring, ADR-026/027) — this is
+  a data-representation problem, not a compute-shape problem. No version of
+  SQLMesh fixes it without first changing how `load_dataframe` serializes
+  nested structures into `raw`, which is out of this spike's scope and a
+  real, separate piece of work. (SQLMesh does support Python-function
+  models alongside SQL models in the same DAG/plan/audit framework, which
+  is a real middle path worth a future look — not spiked here due to the
+  time-box — but the underlying repr-text problem remains either way.)
+- `gbm.py` (XGBoost training) and Elo's per-game sequential rating walk are
+  categorically not set-based SQL transforms — training a model file and a
+  strictly-sequential fold (each game's update depends on the immediately
+  prior rating for that team) don't fit a declarative "one query produces
+  one table" model at all, SQLMesh or otherwise. These stay Python
+  permanently, full stop.
+- `conform.py`'s `_backfill_game_pk` → `_backfill_mlb_team_id` →
+  `_backfill_team_ids_via_mlb_id` is a genuine multi-pass, order-dependent
+  chain of `UPDATE ... FROM` statements against `core.game`/`core.team`,
+  each refining rows the previous pass already wrote (see `conform.py`'s
+  own extensive comments on why: majority-vote resolution needs
+  `game_pk` resolved first, which needs `core.team` to already exist,
+  which then needs a SECOND pass over `core.game` once `mlb_team_id` is
+  known). SQLMesh's model-per-table DAG is fundamentally "one query
+  produces one table" — porting this chain faithfully means a real
+  redesign into 2-3 separate intermediate models (not a verbatim
+  copy-paste, the way `core.venue`'s single INSERT+UPDATE collapsed
+  cleanly into one `LEFT JOIN`), with its own risk of subtly changing
+  behavior this project has already found and fixed real bugs in (the
+  Cubs/Marlins 2004 Hurricane Frances anomaly, the doubleheader
+  `game_num` collision — both documented in `conform.py` itself).
+
+**Effort estimate for a full migration** (rough, spike-informed, not a
+committed plan):
+- `model/` (gold feature layer — `park.py`/`offense.py` done here,
+  `starter.py`/`bullpen.py`/`oaa_defense.py`/`team_speed.py`/
+  `catcher_framing.py`/`war.py`'s prior-season lag/`wrc_plus`, ~10 modules
+  total): **1-2 weeks.** Same proven shape as this spike's two ports —
+  pure SQL already, each module's own `health_check()` ports to an audit
+  almost verbatim.
+- `conform.py`'s SQL-representable raw→core builders (teams, players,
+  venues, plays, pitches, player_war, standings, team_alias-as-a-SQLMesh-
+  seed): **1-2 weeks** for the straightforward ones, **plus a genuine,
+  separately-estimated 1-2 weeks** for redesigning the game_pk/mlb_team_id/
+  team_id multi-pass chain into a correct multi-model DAG and re-verifying
+  it against the same real-data checks (Hurricane Frances anomaly,
+  doubleheader collision) that caught the original bugs.
+- Market matching and `gbm.py`/Elo: **0 weeks of SQLMesh work** — they stay
+  Python either way; if the Python-model-in-SQLMesh middle path is wanted
+  for a unified DAG, that's separately-scoped exploratory work, not
+  included here.
+- **Total: roughly 4-6 weeks of focused work** for everything that
+  meaningfully can move, plus the CI/coexistence wiring below. This is a
+  rough estimate from one spike, not a committed schedule.
+
+**Coexistence with `mlb conform` during a gradual migration**: table-by-
+table cutover, never two writers of the same table at once — the Python
+builder for a given table is deleted from `conform.py` in the same change
+that adds its SQLMesh model, following `conform.py`'s existing dependency
+order (leaf dimensions — team/venue/player — before `core.game`, before
+anything that depends on `core.game`). Running both engines against the
+same live table simultaneously was never evaluated and isn't recommended.
+
+**CI fit**: the existing CI (ruff + mypy + pytest against real Postgres,
+per this repo's recent history) would gain a second, distinct step —
+`sqlmesh plan`/`test`/`audit` against a fixture-seeded ephemeral Postgres —
+not a unification of the existing pytest suite. This is a real, ongoing
+maintenance cost for a solo-maintained project: two test frameworks
+(pytest for Python, SQLMesh's own for SQL models) instead of one.
+
+**Testing story vs. current pytest+real-Postgres**: this project's own
+`CLAUDE.md` mandate is real Postgres for anything DB-touching, deliberately
+avoiding mocks that "hide real bugs (transaction/lock behavior, COPY
+column mismatches)." SQLMesh's fast unit-test layer runs against DuckDB, a
+different engine than production — not a mock in the CLAUDE.md sense (no
+transactions/locks exist to get wrong in a single SELECT), but a second
+engine's SQL dialect nonetheless. The meaningful correctness checks in this
+spike (do the numbers match real production data) went through `sqlmesh
+plan`/`audit`/`table_diff` against real Postgres, not the DuckDB test layer
+— that part of the testing story is not weakened, just supplemented.
+
+**Go/no-go recommendation: conditional go, scoped to `model/` only — no-go,
+for now, on migrating `conform.py`.** Three strongest reasons:
+
+1. **The `model/` gold-feature layer is pure SQL already, growing fast (10+
+   ADRs' worth of near-identical modules), and ported here with zero
+   numeric discrepancy** — SQLMesh's incremental compute, audits-as-code,
+   and `table_diff`/lineage tooling are close to a free win on logic that
+   already exists in this exact shape, and the win compounds as more
+   history accumulates (this is where `mlb conform`'s TRUNCATE cost
+   actually became a real, measured problem — ADR-043).
+2. **A meaningful share of `conform.py` either doesn't fit SQLMesh's
+   one-query-per-table model without a genuine redesign (the game_pk/
+   mlb_team_id/team_id multi-pass UPDATE chain) or can never move
+   regardless of tooling (market matching's `ast.literal_eval`, `gbm.py`,
+   Elo's sequential walk)** — "migrate `conform.py` to SQLMesh" is the
+   wrong framing; `conform.py` shrinks, it does not disappear, and the
+   hardest-to-port piece is concentrated in exactly the part of the
+   codebase most likely to introduce a subtle regression if rushed (this
+   project has already found and fixed two real correctness bugs in that
+   exact chain).
+3. **Real, ongoing operational cost for a solo-maintained, deliberately
+   lean project** — a second toolchain (SQLMesh itself pulls in ~40
+   additional packages including DuckDB, pandas, Jinja), a second config
+   surface (`transforms/config.yaml` duplicating `DATABASE_URL` semantics
+   already in `.env`/`config.py`), and a second CI job/testing paradigm.
+   `conform.py`'s one real, measured performance problem (587s → 53s
+   TRUNCATE cost) was already fixed directly, without a new framework
+   (ADR-043) — the raw→core layer hasn't yet demonstrated a problem that
+   actually needs solving this way, consistent with this project's own
+   standing bias (`CLAUDE.md`: "don't build abstractions for sources we
+   don't have yet").
+
+**Revisit if**: the `model/` layer's growth continues at its current pace
+(another 5+ ADR-sized feature modules) and the copy-paste
+`compute()`/`health_check()` boilerplate across them becomes a real
+maintenance drag on its own — that's the point at which this spike's
+"conditional go" should turn into an actual migration, starting with
+`park.py`/`offense.py` (already proven here) and the newest, least
+production-load-bearing modules first, not `conform.py`.
+
 ## ADR-047: News/RSS connector — raw.news gets a hand-authored table with a real UNIQUE constraint, the one exception to raw's untyped-no-constraints rule
 
 **Decision:** New `news` connector (`mlb_baseball/connectors/news.py`) polls per-team and league-wide RSS/Atom feeds from MLB.com, MLB Trade Rumors, and ESPN, landing headlines/links/summaries in `raw.news` (migration 0027) for later NLP feature encoding (injury/trade/rumor signal extraction — not built yet, out of scope here).
@@ -63,7 +247,6 @@ Both backfills are exposed through a new third connector mode, `mlb ingest <sour
 - **Candlestick chunking, not a coarser default interval** — the owner's stated goal is *maximum* granularity; giving up 1-minute resolution to dodge the 5,000-candle ceiling would work against that. Chunking the time range instead keeps full resolution at the cost of more (still infrequent, one-off) requests.
 
 **Revisit if:** season-futures/postseason-prop/draft-prop price history is specifically needed later (their tokens were confirmed to exist and are fetchable the same way — this is a real, scoped-out follow-up, not a technical gap); or Kalshi's non-`KXMLBGAME` MLB series (spreads, totals, props, awards, etc.) are wanted at candlestick granularity too, not just game moneylines.
-
 ## ADR-046: Current-season (2026) starter quality from raw.mlb_playbyplay, closing starter.py's biggest known gap
 
 **Decision:** `mlb_baseball/model/starter.py` gains `compute_live()`, filling the same `home_starter_id`/`era`/`k_pct`/`bb_pct`/`hr_pct` columns `compute()` does, but sourced from `raw.mlb_playbyplay` (MLB's own play log, 2026+ only) instead of `raw.retrosheet_event` (1910-2025). This closes the biggest practical gap flagged since ADR-034: without it, starter quality — and by extension team wOBA/wRC+/bullpen, which build on the same source — was `NULL` for every game in the live 2026 season `mlb predict` actually serves.

@@ -9,7 +9,11 @@ venv/
 .pybaseball_cache/
 dist/
 build/
-logs/
+/logs/
 downloads/
-models/
+/models/
 .claude/
+
+# SQLMesh spike (transforms/) -- local cache/run artifacts, not project state.
+transforms/.cache/
+transforms/logs/

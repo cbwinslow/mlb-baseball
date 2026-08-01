@@ -1,0 +1,35 @@
+# SQLMesh spike (see docs/DECISIONS.md draft ADR — "SQLMesh migration spike").
+#
+# Gateway points ONLY at mlb_spike, a dedicated local database seeded from
+# production `mlb` for this spike (see README.md in this directory for
+# exactly which tables/rows were copied and how). SQLMesh must never be
+# pointed at `mlb` or `mlb_test*` — see the spike's safety rules.
+#
+# Connects over the local Unix socket with peer auth (same OS user as the
+# rest of this environment), not a password in a config file committed to
+# git — consistent with this project's "no credentials committed" rule
+# (docs/ARCHITECTURE.md "Configuration").
+gateways:
+  postgres:
+    connection:
+      type: postgres
+      host: /var/run/postgresql
+      user: cbwinslow
+      password: ""
+      port: 5432
+      database: mlb_spike
+
+default_gateway: postgres
+
+# --- Model Defaults ---
+model_defaults:
+  dialect: postgres
+  start: 2021-01-01 # earliest season actually seeded into mlb_spike (see README.md)
+
+# --- Linting Rules ---
+linter:
+  enabled: true
+  rules:
+    - ambiguousorinvalidcolumn
+    - invalidselectstarexpansion
+    - noambiguousprojections

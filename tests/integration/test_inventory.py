@@ -40,18 +40,18 @@ def test_last_runs_reports_most_recent_per_source(db_conn):
     assert match["rows"] == 2
 
 
-def test_last_runs_empty_not_crashing_on_unmigrated_db(monkeypatch):
+def test_last_runs_empty_not_crashing_on_unmigrated_db(monkeypatch, db_url_for):
     # Regression: `mlb inventory` used to crash with a raw UndefinedTable
     # traceback on a fresh, unmigrated database (meta.ingestion_run doesn't
     # exist yet) instead of reporting "nothing to show" — same class of bug
     # as doctor.py's, fixed the same way. Needs a genuinely separate
     # database, not mlb_test (every other test here assumes it's migrated).
     db_name = f"mlb_inventory_freshtest_{uuid.uuid4().hex[:8]}"
-    with psycopg.connect("postgresql:///postgres", autocommit=True) as admin_conn:
+    with psycopg.connect(db_url_for("postgres"), autocommit=True) as admin_conn:
         with admin_conn.cursor() as cur:
             cur.execute(f"CREATE DATABASE {db_name}")
         try:
-            monkeypatch.setenv("DATABASE_URL", f"postgresql:///{db_name}")
+            monkeypatch.setenv("DATABASE_URL", db_url_for(db_name))
             runs = inventory.last_runs()
         finally:
             with admin_conn.cursor() as cur:

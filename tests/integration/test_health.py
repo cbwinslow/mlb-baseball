@@ -84,17 +84,19 @@ def test_check_last_run_false_when_never_run():
     assert "never run" in result.detail
 
 
-def test_check_last_run_reports_actionable_message_when_meta_schema_missing(monkeypatch):
+def test_check_last_run_reports_actionable_message_when_meta_schema_missing(
+    monkeypatch, db_url_for
+):
     # Same class of regression as test_check_table_has_rows_false_when_table_never_created,
     # but for meta.ingestion_run specifically: a fresh, unmigrated database
     # must not crash this with UndefinedTable. Needs a genuinely separate
     # database (not mlb_test, which every other test assumes is migrated).
     db_name = f"mlb_health_freshtest_{uuid.uuid4().hex[:8]}"
-    with psycopg.connect("postgresql:///postgres", autocommit=True) as admin_conn:
+    with psycopg.connect(db_url_for("postgres"), autocommit=True) as admin_conn:
         with admin_conn.cursor() as cur:
             cur.execute(f"CREATE DATABASE {db_name}")
         try:
-            monkeypatch.setenv("DATABASE_URL", f"postgresql:///{db_name}")
+            monkeypatch.setenv("DATABASE_URL", db_url_for(db_name))
             result = check_last_run("anything")
         finally:
             with admin_conn.cursor() as cur:
@@ -125,13 +127,15 @@ def test_check_recent_run_false_when_never_run():
     assert "never run" in result.detail
 
 
-def test_check_recent_run_reports_actionable_message_when_meta_schema_missing(monkeypatch):
+def test_check_recent_run_reports_actionable_message_when_meta_schema_missing(
+    monkeypatch, db_url_for
+):
     db_name = f"mlb_health_freshtest_{uuid.uuid4().hex[:8]}"
-    with psycopg.connect("postgresql:///postgres", autocommit=True) as admin_conn:
+    with psycopg.connect(db_url_for("postgres"), autocommit=True) as admin_conn:
         with admin_conn.cursor() as cur:
             cur.execute(f"CREATE DATABASE {db_name}")
         try:
-            monkeypatch.setenv("DATABASE_URL", f"postgresql:///{db_name}")
+            monkeypatch.setenv("DATABASE_URL", db_url_for(db_name))
             result = check_recent_run("anything", max_age_minutes=15)
         finally:
             with admin_conn.cursor() as cur:
@@ -463,8 +467,7 @@ def test_check_grouped_no_duplicates_flags_a_collision():
     # both MLB824912 and MLB824913's core.game rows).
     result = check_grouped_no_duplicates(
         "test doubleheader",
-        "SELECT * FROM (VALUES ('2024-ATL-NYA', 1, 2)) "
-        "AS t(key, distinct_count, total_count)",
+        "SELECT * FROM (VALUES ('2024-ATL-NYA', 1, 2)) AS t(key, distinct_count, total_count)",
     )
 
     assert not result.ok

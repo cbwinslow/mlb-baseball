@@ -38,7 +38,7 @@ def test_pg_stat_statements_enabled_against_the_test_db():
     assert "tracking" in result.detail
 
 
-def test_migrations_up_to_date_reports_actionable_message_on_unmigrated_db(monkeypatch):
+def test_migrations_up_to_date_reports_actionable_message_on_unmigrated_db(monkeypatch, db_url_for):
     # Regression: a genuinely fresh clone's database is reachable but has
     # never had `mlb migrate` run — public.schema_migrations doesn't exist
     # yet. This used to crash doctor with a raw UndefinedTable traceback
@@ -47,11 +47,11 @@ def test_migrations_up_to_date_reports_actionable_message_on_unmigrated_db(monke
     # test in this suite assumes it's already migrated), so this spins up a
     # genuinely separate, disposable database instead.
     db_name = f"mlb_doctor_freshtest_{uuid.uuid4().hex[:8]}"
-    with psycopg.connect("postgresql:///postgres", autocommit=True) as admin_conn:
+    with psycopg.connect(db_url_for("postgres"), autocommit=True) as admin_conn:
         with admin_conn.cursor() as cur:
             cur.execute(f"CREATE DATABASE {db_name}")
         try:
-            monkeypatch.setenv("DATABASE_URL", f"postgresql:///{db_name}")
+            monkeypatch.setenv("DATABASE_URL", db_url_for(db_name))
             result = doctor._migrations_up_to_date()
         finally:
             with admin_conn.cursor() as cur:

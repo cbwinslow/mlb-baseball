@@ -11,6 +11,24 @@ import pytest
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test")
 
 
+@pytest.fixture
+def db_url_for():
+    """Returns a function mapping a database name to TEST_DATABASE_URL with
+    only the dbname swapped — so tests that need a second, disposable
+    database (the "fresh unmigrated clone" tests) inherit whatever host/
+    port/credentials the environment actually uses. Hardcoding
+    postgresql:///<name> worked locally (unix socket, peer auth) but broke
+    in CI, where Postgres is a TCP service container with password auth.
+    A fixture, not an importable helper, because tests/ is not a package."""
+
+    def _url(dbname: str) -> str:
+        params = psycopg.conninfo.conninfo_to_dict(TEST_DATABASE_URL)
+        params["dbname"] = dbname
+        return psycopg.conninfo.make_conninfo(**params)
+
+    return _url
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _test_database():
     """Points DATABASE_URL at the test database and applies migrations once

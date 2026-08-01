@@ -227,7 +227,8 @@ def test_fetch_framing_uses_the_corrected_leaderboard_url(monkeypatch):
 
     assert captured["url"] == sl.FRAMING_URL
     assert "/catcher_framing" not in captured["url"]
-    assert captured["params"]["year"] == 2024
+    # str since the mypy typing pass — requests stringified the int anyway
+    assert captured["params"]["year"] == "2024"
     assert len(df) == 1
 
 

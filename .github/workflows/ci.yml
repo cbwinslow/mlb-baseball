@@ -14,8 +14,12 @@ on:
   pull_request:
     branches: [main]
 
+# Chadwick is pinned to a git commit, not the v0.10.0 release tarball: the
+# release's cwevent rejects the full field spec chadwick_tools.py requests
+# ("Invalid field spec") — the extended field range grew after the release,
+# and local installs are built from git. Bump the SHA deliberately.
 env:
-  CHADWICK_VERSION: v0.10.0
+  CHADWICK_REF: baa7c4b3e89cf2c9871a9f7f853f6980b4226af7
 
 jobs:
   test:
@@ -52,19 +56,28 @@ jobs:
       - name: Type-check (mypy)
         run: mypy
 
+      - name: Enable pg_stat_statements in the Postgres service
+        run: |
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -c \
+            "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements'"
+          docker restart ${{ job.services.postgres.id }}
+          until docker exec ${{ job.services.postgres.id }} pg_isready -U postgres; do sleep 1; done
+
       - name: Cache Chadwick tools build
         id: chadwick-cache
         uses: actions/cache@v4
         with:
           path: ~/chadwick-install
-          key: chadwick-${{ env.CHADWICK_VERSION }}
+          key: chadwick-${{ env.CHADWICK_REF }}
 
       - name: Build Chadwick tools (cwevent/cwgame/cwbox)
         if: steps.chadwick-cache.outputs.cache-hit != 'true'
         run: |
-          curl -sL "https://github.com/chadwickbureau/chadwick/releases/download/${CHADWICK_VERSION}/chadwick-${CHADWICK_VERSION#v}.tar.gz" -o chadwick.tar.gz
-          tar xzf chadwick.tar.gz
-          cd "chadwick-${CHADWICK_VERSION#v}"
+          sudo apt-get install -y -q autoconf automake libtool
+          git clone https://github.com/chadwickbureau/chadwick.git
+          cd chadwick
+          git checkout "$CHADWICK_REF"
+          autoreconf -i
           ./configure --prefix="$HOME/chadwick-install"
           make -j2
           make install

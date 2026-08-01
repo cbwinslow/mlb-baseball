@@ -30,6 +30,14 @@ def test_migrations_up_to_date_against_the_test_db():
     assert doctor._migrations_up_to_date().ok
 
 
+def test_pg_stat_statements_enabled_against_the_test_db():
+    # migration 0024 creates the extension in every database this project
+    # migrates, mlb_test included — see docs/DECISIONS.md ADR-043.
+    result = doctor._pg_stat_statements_enabled()
+    assert result.ok
+    assert "tracking" in result.detail
+
+
 def test_migrations_up_to_date_reports_actionable_message_on_unmigrated_db(monkeypatch):
     # Regression: a genuinely fresh clone's database is reachable but has
     # never had `mlb migrate` run — public.schema_migrations doesn't exist

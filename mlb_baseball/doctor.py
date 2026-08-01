@@ -82,6 +82,31 @@ def _downloads_directory_ok() -> Check:
     return Check("downloads directory", ok, detail)
 
 
+def _pg_stat_statements_enabled() -> Check:
+    """Confirms pg_stat_statements is actually installed and tracking, not
+    just present in pg_available_extensions — it requires being loaded via
+    shared_preload_libraries (a server restart, not a plain CREATE
+    EXTENSION), so a `CREATE EXTENSION IF NOT EXISTS` here could silently
+    "succeed" while the extension still isn't actually recording anything.
+    This is what makes real query-timing investigations possible at all
+    (see docs/DECISIONS.md ADR-043) — flagging it here means a missing
+    monitoring precondition shows up in `mlb doctor`, not only when someone
+    goes looking for it mid-investigation."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements'")
+            if cur.fetchone() is None:
+                return Check(
+                    "pg_stat_statements",
+                    False,
+                    "not installed — run `CREATE EXTENSION pg_stat_statements` "
+                    "(requires it in shared_preload_libraries first, server restart needed)",
+                )
+            cur.execute("SELECT count(*) FROM pg_stat_statements")
+            (count,) = cur.fetchone()
+    return Check("pg_stat_statements", True, f"tracking {count} distinct statements")
+
+
 def _stale_ingestion_runs_reaped() -> Check:
     """Actively reaps (not just reports) any meta.ingestion_run row stuck at
     status='running' whose process is confirmed dead — see ingest.py's
@@ -113,6 +138,7 @@ _CORE_CHECKS = [
     ("required schemas", _required_schemas_exist),
     ("migrations", _migrations_up_to_date),
     ("downloads directory", _downloads_directory_ok),
+    ("pg_stat_statements", _pg_stat_statements_enabled),
     ("stale ingestion runs", _stale_ingestion_runs_reaped),
 ]
 

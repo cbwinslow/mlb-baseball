@@ -193,8 +193,10 @@ def _check_prerequisites(conn: psycopg.Connection) -> None:
 
 
 def _build_teams(conn: psycopg.Connection) -> int:
+    # core.team itself is truncated centrally by run()'s single consolidated
+    # TRUNCATE, not here — see run()'s comment for why (avoids redundant
+    # per-relation fsync passes over the same ~330 pitch/play partitions).
     with conn.cursor() as cur:
-        cur.execute("TRUNCATE core.team CASCADE")
         cur.execute(
             """
             INSERT INTO core.team (retro_team_id, league, city, nickname, first_year, last_year)
@@ -243,8 +245,8 @@ def _build_venues(conn: psycopg.Connection) -> int:
     # prerequisite raw table here — a fresh clone that's only bootstrapped
     # register/lahman/retrosheet's CSV product so far (the three hard
     # PREREQUISITES) won't have it yet.
-    with conn.cursor() as cur:
-        cur.execute("TRUNCATE core.venue CASCADE")
+    # core.venue itself is truncated centrally by run()'s single consolidated
+    # TRUNCATE, not here — see run()'s comment for why.
     try:
         with conn.transaction(), conn.cursor() as cur:
             cur.execute(
@@ -288,14 +290,9 @@ def _build_venues(conn: psycopg.Connection) -> int:
 
 
 def _build_team_aliases(conn: psycopg.Connection) -> int:
-    # core.team_alias has no CASCADE truncate of its own upstream — it's
-    # keyed off core.team's *current* rows (TRUNCATE CASCADE in
-    # _build_teams already clears any stale rows from a prior run before
-    # this one re-seeds), so an explicit TRUNCATE here would be redundant
-    # after _build_teams but is kept anyway so this function stays
-    # correct if ever called on its own.
+    # core.team_alias itself is truncated centrally by run()'s single
+    # consolidated TRUNCATE, not here — see run()'s comment for why.
     with conn.cursor() as cur:
-        cur.execute("TRUNCATE core.team_alias")
         cur.executemany(
             """
             INSERT INTO core.team_alias (team_id, alias, source)
@@ -308,8 +305,9 @@ def _build_team_aliases(conn: psycopg.Connection) -> int:
 
 
 def _build_players(conn: psycopg.Connection) -> int:
+    # core.player itself is truncated centrally by run()'s single
+    # consolidated TRUNCATE, not here — see run()'s comment for why.
     with conn.cursor() as cur:
-        cur.execute("TRUNCATE core.player CASCADE")
         cur.execute(
             """
             INSERT INTO core.player (
@@ -1099,12 +1097,11 @@ def _build_standings(conn: psycopg.Connection) -> int:
     # standings_data() has no earlier coverage (confirmed in ADR-015);
     # pre-1969 win-loss is already available via raw.lahman_teams and
     # raw.retrosheet_gamelog, so this isn't a real coverage loss.
-    # Unconditional, outside the try/except below — a SAVEPOINT rollback
-    # (raw.mlb_standing not present) would otherwise undo the TRUNCATE too,
-    # leaving a previous run's stale rows in place instead of an honest
-    # empty table. Same fix already applied to core.venue above.
-    with conn.cursor() as cur:
-        cur.execute("TRUNCATE core.standing")
+    # core.standing itself is truncated centrally by run()'s single
+    # consolidated TRUNCATE, not here — see run()'s comment for why. That
+    # also sidesteps what used to need a workaround: a per-source SAVEPOINT
+    # rollback below (raw.mlb_standing not present) can no longer undo the
+    # truncate, since it now happens before any per-source try/except runs.
     try:
         with conn.transaction(), conn.cursor() as cur:
             cur.execute(
@@ -1162,37 +1159,54 @@ def _build_standings(conn: psycopg.Connection) -> int:
 def run() -> dict[str, int]:
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
         _check_prerequisites(conn)
-        # game references team/player, so it must be cleared first — CASCADE
-        # on team/player's TRUNCATE would otherwise also wipe game silently.
-        # play/pitch/market/gold.game_feature all reference game in turn --
-        # Postgres requires truncating a table together with everything
-        # that references it in the same statement (a separate TRUNCATE
-        # core.game afterward raises FeatureNotSupported regardless of
-        # whether the referencing table has any rows -- it's the FK's mere
-        # existence that blocks it, not row counts), so all five go in one
-        # TRUNCATE, not five sequential ones. gold.game_feature.game_id
-        # REFERENCES core.game(id) since migration 0014 (Phase 2's gold
-        # layer, ADR-032) -- this run() wasn't updated for it at the time,
-        # a real gap caught while adding a later Phase 2 feature, not a
-        # hypothetical.
-        # core.player_war isn't listed here — it references core.player,
-        # not core.game, so _build_players' own `TRUNCATE core.player
-        # CASCADE` (below) already clears it.
+        # Every table in core/gold that anything else FKs into gets
+        # truncated together, here, in one statement — not per-table via
+        # separate `TRUNCATE ... CASCADE` calls in each _build_* function
+        # (the shape this used to have). Two real reasons, not just
+        # tidiness:
+        #   1. Postgres requires truncating a table together with
+        #      everything that references it in the same statement (a
+        #      separate `TRUNCATE core.game` afterward raises
+        #      FeatureNotSupported regardless of whether the referencing
+        #      table has any rows — it's the FK's mere existence that
+        #      blocks it, not row counts). CASCADE sidesteps that check by
+        #      finding the referencing tables itself instead of them being
+        #      named explicitly.
+        #   2. CASCADE finding them itself is exactly the problem: TRUNCATE
+        #      does a synchronous fsync per relation (confirmed via
+        #      pg_stat_activity showing `DataFileImmediateSync` waits, not
+        #      lock waits, while this was still three separate CASCADE
+        #      statements). core.team/core.player/core.venue's old
+        #      `TRUNCATE ... CASCADE` calls each walk the FK graph out to
+        #      every one of core.play/core.pitch's ~330 season partitions
+        #      (confirmed via pg_constraint — both batter_id and
+        #      pitcher_id FK straight to core.player, not through
+        #      core.game), and did so *in addition to* this statement
+        #      already having emptied them moments earlier — three
+        #      redundant full fsync passes over the same partitions,
+        #      confirmed directly responsible for `mlb conform` spending
+        #      tens of seconds to minutes in TRUNCATE alone. Naming every
+        #      table once, here, means Postgres only fsyncs each relation
+        #      once per run, not up to four times.
+        # The full table list is exactly the transitive FK closure of
+        # core.team/core.player/core.venue/core.game (confirmed via
+        # pg_constraint, not guessed): core.game, core.market, core.play,
+        # core.pitch, gold.game_feature reference core.game/team/player/
+        # venue; core.standing/core.team_alias reference core.team;
+        # core.player_war references core.player.
         with conn.cursor() as cur:
             cur.execute(
                 "TRUNCATE core.play, core.pitch, core.market, "
-                "gold.game_feature, core.game"
+                "gold.game_feature, core.game, core.team, core.player, "
+                "core.venue, core.standing, core.team_alias, "
+                "core.player_war"
             )
         counts = {
             "core.team": _build_teams(conn),
             "core.player": _build_players(conn),
         }
         # Must run before _build_games — its LEFT JOIN needs core.venue
-        # already populated to resolve venue_id. Safe to TRUNCATE CASCADE
-        # here even though core.venue is referenced by core.game: the
-        # initial TRUNCATE above already emptied core.game (and everything
-        # cascading from it), so the cascade from core.venue's own
-        # TRUNCATE has nothing left to wipe.
+        # already populated to resolve venue_id.
         counts["core.venue"] = _build_venues(conn)
         counts["core.team_alias"] = _build_team_aliases(conn)
         counts["core.game"] = _build_games(conn)

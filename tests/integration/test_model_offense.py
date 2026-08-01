@@ -113,6 +113,130 @@ def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
     assert offense.compute(db_conn) == 0
 
 
+def _ensure_playbyplay_table(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_playbyplay ("
+                "game_pk text, at_bat_index text, inning text, half_inning text, "
+                "pitcher_id text, event_type text, outs text, _season text)"
+            )
+    db_conn.commit()
+
+
+def test_compute_live_rolling_woba_matches_hand_calculation(db_conn):
+    # ATL (home, batting when half_inning='bottom') in G1: 1 single, 1
+    # walk, 1 hit_by_pitch, 1 field_out (AB=2: the single + the out).
+    # Same numbers as the Retrosheet-based test above, same hand-computed
+    # result: wOBA = 2.290 / 4 = 0.5725.
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 9999, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 9999, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('MLB910001', '910001', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('MLB910002', '910002', 2026, '2026-04-08', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('910001', '0', '1', 'bottom', '1', 'single', '0', '2026'), "
+            "('910001', '1', '1', 'bottom', '1', 'walk', '0', '2026'), "
+            "('910001', '2', '1', 'bottom', '1', 'hit_by_pitch', '0', '2026'), "
+            "('910001', '3', '1', 'bottom', '1', 'field_out', '1', '2026'), "
+            "('910001', '4', '1', 'top', '2', 'field_out', '1', '2026'), "
+            "('910002', '0', '1', 'bottom', '1', 'field_out', '1', '2026'), "
+            "('910002', '1', '1', 'top', '2', 'field_out', '1', '2026')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = offense.compute_live(db_conn)
+    db_conn.commit()
+
+    assert updated == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.retro_game_id, f.home_woba, f.away_woba "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "ORDER BY g.retro_game_id"
+        )
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+    assert rows["MLB910001"] == (None, None)  # nothing prior
+    g2 = rows["MLB910002"]
+    assert abs(g2[0] - Decimal("0.5725")) < Decimal("0.0001")
+    # NYA's only G1 plate appearance was a field_out (AB=1, no hits/BB/
+    # HBP) -- a real, valid (if tiny-sample) wOBA of exactly 0, not NULL.
+    assert g2[1] == Decimal("0")
+
+    _reset(db_conn)
+
+
+def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 9999, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 9999, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('MLB910003', '910003', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET home_woba = 0.333 WHERE mlb_game_pk = '910003'"
+        )
+    db_conn.commit()
+
+    offense.compute_live(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT home_woba FROM gold.game_feature WHERE mlb_game_pk = '910003'")
+        (woba,) = cur.fetchone()
+    assert woba == Decimal("0.333")
+
+    _reset(db_conn)
+
+
+def test_compute_live_returns_zero_without_playbyplay_table(db_conn):
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_playbyplay")
+    db_conn.commit()
+
+    assert offense.compute_live(db_conn) == 0
+
+
 def test_health_check_flags_an_implausible_value(db_conn):
     _reset(db_conn)
     with db_conn.cursor() as cur:

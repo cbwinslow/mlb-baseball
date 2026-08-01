@@ -68,6 +68,8 @@ def run() -> dict[str, int]:
         park.compute(conn)
         offense.compute(conn)
         offense.compute_wrc_plus(conn)
+        offense.compute_live(conn)
+        offense.compute_wrc_plus_live(conn)
         war.compute(conn)
         bullpen.compute(conn)
         oaa.compute(conn)

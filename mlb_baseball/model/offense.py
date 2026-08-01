@@ -45,8 +45,12 @@ ADR-034's FIP constant, for the identical reason (the exact per-season
 value could not be reliably sourced via automated lookup in this
 environment).
 
-Same 1910-2025 coverage gap as starter.py: raw.retrosheet_event doesn't
-cover the current (2026+) season.
+Same 1910-2025 coverage gap as starter.py, now half-closed the same way
+(ADR-046): compute_live()/compute_wrc_plus_live() are the
+raw.mlb_playbyplay equivalents for the 2026+ season, gated on
+home_woba/home_wrc_plus IS NULL so they only ever fill the gap the
+Retrosheet-based versions leave -- see starter.py::compute_live's
+docstring for the full schema-difference writeup.
 """
 
 import psycopg
@@ -220,6 +224,175 @@ def compute_wrc_plus(conn: psycopg.Connection) -> int:
                 "w_3b": W_3B,
                 "w_hr": W_HR,
                 "woba_scale": WOBA_SCALE,
+            },
+        )
+        return cur.rowcount
+
+
+# raw.mlb_playbyplay covers 2026+ only -- see starter.py::compute_live's
+# docstring (ADR-046) for the full schema differences (descriptive
+# event_type text, no bat_home_id-equivalent -- team side derived from
+# half_inning: 'bottom' = home team batting, matching bat_home_id='1').
+# AB is an explicit allowlist, not a denylist, since it's the narrower
+# category: every event_type that counts as an official at-bat (a
+# batted-ball out, a hit, a strikeout) -- excludes walks/HBP/sac
+# plays/catcher interference (the standard AB definition) and the
+# baserunning-only event types (caught_stealing*/pickoff*/wild_pitch/
+# game_advisory), which aren't a batter's own plate appearance at all.
+_AB_EVENT_TYPES = (
+    "single", "double", "triple", "home_run",
+    "strikeout", "strikeout_double_play",
+    "field_out", "force_out", "double_play", "grounded_into_double_play",
+    "fielders_choice", "fielders_choice_out", "field_error",
+    "triple_play", "other_out",
+)
+
+_LIVE_COMPUTE_SQL = """
+WITH regular_games AS (
+    SELECT g.id AS game_id, g.season, g.game_date, g.game_pk,
+        g.home_team_id, g.away_team_id
+    FROM core.game g
+    WHERE g.game_type = 'regular' AND g.game_pk IS NOT NULL
+),
+team_game_stats AS (
+    SELECT
+        rg.game_id, rg.season, rg.game_date,
+        CASE WHEN pbp.half_inning = 'bottom'
+            THEN rg.home_team_id ELSE rg.away_team_id END AS team_id,
+        count(*) FILTER (WHERE pbp.event_type = 'walk') AS ubb,
+        count(*) FILTER (WHERE pbp.event_type = 'hit_by_pitch') AS hbp,
+        count(*) FILTER (WHERE pbp.event_type = 'single') AS b1,
+        count(*) FILTER (WHERE pbp.event_type = 'double') AS b2,
+        count(*) FILTER (WHERE pbp.event_type = 'triple') AS b3,
+        count(*) FILTER (WHERE pbp.event_type = 'home_run') AS hr,
+        count(*) FILTER (WHERE pbp.event_type = ANY(%(ab_types)s)) AS ab,
+        count(*) FILTER (WHERE pbp.event_type IN ('sac_fly', 'sac_fly_double_play')) AS sf
+    FROM regular_games rg
+    JOIN raw.mlb_playbyplay pbp ON pbp.game_pk = rg.game_pk
+    GROUP BY rg.game_id, rg.season, rg.game_date,
+        CASE WHEN pbp.half_inning = 'bottom'
+            THEN rg.home_team_id ELSE rg.away_team_id END
+),
+rolling AS (
+    SELECT game_id, team_id,
+        SUM(ubb) OVER w AS ubb_sum, SUM(hbp) OVER w AS hbp_sum,
+        SUM(b1) OVER w AS b1_sum, SUM(b2) OVER w AS b2_sum,
+        SUM(b3) OVER w AS b3_sum, SUM(hr) OVER w AS hr_sum,
+        SUM(ab) OVER w AS ab_sum, SUM(sf) OVER w AS sf_sum
+    FROM team_game_stats
+    WINDOW w AS (
+        PARTITION BY team_id, season ORDER BY game_date, game_id
+        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    )
+),
+woba AS (
+    SELECT game_id, team_id,
+        CASE WHEN (ab_sum + ubb_sum + sf_sum + hbp_sum) > 0 THEN
+            (%(w_ubb)s * ubb_sum + %(w_hbp)s * hbp_sum + %(w_1b)s * b1_sum
+                + %(w_2b)s * b2_sum + %(w_3b)s * b3_sum + %(w_hr)s * hr_sum)
+            / (ab_sum + ubb_sum + sf_sum + hbp_sum)
+        END AS value
+    FROM rolling
+)
+UPDATE gold.game_feature f
+SET home_woba = hw.value, away_woba = aw.value
+FROM regular_games rg
+LEFT JOIN woba hw ON hw.game_id = rg.game_id AND hw.team_id = rg.home_team_id
+LEFT JOIN woba aw ON aw.game_id = rg.game_id AND aw.team_id = rg.away_team_id
+WHERE f.game_id = rg.game_id AND f.home_woba IS NULL
+"""
+
+
+def compute_live(conn: psycopg.Connection) -> int:
+    """raw.mlb_playbyplay equivalent of compute() (ADR-046 for
+    starter.py's sibling version) -- gated on home_woba IS NULL so it
+    only ever fills the gap compute() leaves; the two sources don't
+    overlap in practice."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
+        (exists,) = cur.fetchone()
+        if not exists:
+            return 0
+        cur.execute(
+            _LIVE_COMPUTE_SQL,
+            {
+                "w_ubb": W_UBB, "w_hbp": W_HBP, "w_1b": W_1B,
+                "w_2b": W_2B, "w_3b": W_3B, "w_hr": W_HR,
+                "ab_types": list(_AB_EVENT_TYPES),
+            },
+        )
+        return cur.rowcount
+
+
+_LIVE_WRC_PLUS_SQL = """
+WITH regular_games AS (
+    SELECT g.id AS game_id, g.season, g.game_date, g.game_pk
+    FROM core.game g WHERE g.game_type = 'regular' AND g.game_pk IS NOT NULL
+),
+game_stats AS (
+    SELECT rg.game_id, rg.season, rg.game_date,
+        count(*) FILTER (WHERE pbp.event_type = 'walk') AS ubb,
+        count(*) FILTER (WHERE pbp.event_type = 'hit_by_pitch') AS hbp,
+        count(*) FILTER (WHERE pbp.event_type = 'single') AS b1,
+        count(*) FILTER (WHERE pbp.event_type = 'double') AS b2,
+        count(*) FILTER (WHERE pbp.event_type = 'triple') AS b3,
+        count(*) FILTER (WHERE pbp.event_type = 'home_run') AS hr,
+        count(*) FILTER (WHERE pbp.event_type = ANY(%(ab_types)s)) AS ab,
+        count(*) FILTER (WHERE pbp.event_type IN ('sac_fly', 'sac_fly_double_play')) AS sf
+    FROM regular_games rg
+    JOIN raw.mlb_playbyplay pbp ON pbp.game_pk = rg.game_pk
+    GROUP BY rg.game_id, rg.season, rg.game_date
+),
+league_rolling AS (
+    SELECT game_id,
+        SUM(ubb) OVER w AS ubb_sum, SUM(hbp) OVER w AS hbp_sum,
+        SUM(b1) OVER w AS b1_sum, SUM(b2) OVER w AS b2_sum,
+        SUM(b3) OVER w AS b3_sum, SUM(hr) OVER w AS hr_sum,
+        SUM(ab) OVER w AS ab_sum, SUM(sf) OVER w AS sf_sum
+    FROM game_stats
+    WINDOW w AS (
+        PARTITION BY season ORDER BY game_date, game_id
+        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    )
+),
+league_woba AS (
+    SELECT game_id,
+        CASE WHEN (ab_sum + ubb_sum + sf_sum + hbp_sum) > 0 THEN
+            (%(w_ubb)s * ubb_sum + %(w_hbp)s * hbp_sum + %(w_1b)s * b1_sum
+                + %(w_2b)s * b2_sum + %(w_3b)s * b3_sum + %(w_hr)s * hr_sum)
+            / (ab_sum + ubb_sum + sf_sum + hbp_sum)
+        END AS value
+    FROM league_rolling
+)
+UPDATE gold.game_feature f
+SET
+    home_wrc_plus = CASE
+        WHEN f.home_woba IS NOT NULL AND lw.value IS NOT NULL AND f.park_factor IS NOT NULL
+        THEN (((f.home_woba - lw.value) / %(woba_scale)s) + 1) / (f.park_factor / 100.0) * 100
+    END,
+    away_wrc_plus = CASE
+        WHEN f.away_woba IS NOT NULL AND lw.value IS NOT NULL AND f.park_factor IS NOT NULL
+        THEN (((f.away_woba - lw.value) / %(woba_scale)s) + 1) / (f.park_factor / 100.0) * 100
+    END
+FROM league_woba lw
+WHERE f.game_id = lw.game_id AND f.home_wrc_plus IS NULL
+"""
+
+
+def compute_wrc_plus_live(conn: psycopg.Connection) -> int:
+    """Must run after compute_live() and park.compute() -- same
+    dependency as compute_wrc_plus(). Gated on home_wrc_plus IS NULL."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
+        (exists,) = cur.fetchone()
+        if not exists:
+            return 0
+        cur.execute(
+            _LIVE_WRC_PLUS_SQL,
+            {
+                "w_ubb": W_UBB, "w_hbp": W_HBP, "w_1b": W_1B,
+                "w_2b": W_2B, "w_3b": W_3B, "w_hr": W_HR,
+                "woba_scale": WOBA_SCALE, "ab_types": list(_AB_EVENT_TYPES),
             },
         )
         return cur.rowcount

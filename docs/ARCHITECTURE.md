@@ -39,9 +39,11 @@ Every run — from either function — is wrapped in `mlb_baseball.ingest.track_
 
 Every connector also exposes a third function: **`health_check() -> list[Check]`**, using the shared helpers in `mlb_baseball/health.py`. This is what `mlb doctor` calls to answer "is everything actually working?" in one command — see CLAUDE.md "Operational health checks". Not optional: `tests/unit/test_cli_registry.py::test_all_connectors_expose_health_check` enforces it.
 
+A fourth, genuinely optional function — **`backfill_history() -> dict[str, int]`** — exists for sources with a one-off historical operation too expensive to run as part of `bootstrap()`/`update()` (`polymarket.py`/`kalshi.py`'s intraday price-history/candlestick backfills, ADR-049). Unlike the three functions above, this isn't required of every connector: `mlb ingest <source> --mode backfill` dispatches to it via `getattr(connector, "backfill_history", None)` and fails clearly if the connector doesn't implement one, rather than every connector needing a no-op stub. `meta.ingestion_run.mode` has a `'backfill'` value alongside `'bootstrap'`/`'update'` for this (migration `0028_ingestion_run_backfill_mode.sql`).
+
 Connectors are independent of each other; the Chadwick ID crosswalk is what ties their outputs together during conforming, not the connectors themselves. All of them are driven through one CLI registered in `mlb_baseball/cli.py` — not separate one-off scripts per source:
 
-- `mlb ingest <source> --mode bootstrap|update` — run a connector
+- `mlb ingest <source> --mode bootstrap|update|backfill` — run a connector (`backfill` only where implemented, see above)
 - `mlb conform` — rebuild `core` from already-ingested `raw` data (see "Conform contract" below)
 - `mlb inventory` — live table/row-count report plus last run per source, queried fresh every time (a static doc would go stale immediately with this many tables)
 - `mlb doctor` — DB connectivity, schema/migration state, and every connector's `health_check()` in one pass

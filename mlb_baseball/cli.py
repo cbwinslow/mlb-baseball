@@ -3,6 +3,8 @@
     mlb migrate
     mlb ingest register --mode bootstrap
     mlb ingest register --mode update
+    mlb ingest polymarket --mode backfill
+    mlb ingest kalshi --mode backfill
     mlb bootstrap
     mlb update
     mlb conform
@@ -14,6 +16,12 @@
 Every entry in CONNECTORS must expose bootstrap() and update(), each returning
 a dict of {table: row_count}, plus health_check() -> list[Check] for `mlb doctor`.
 See docs/ARCHITECTURE.md "Connector contract" and CLAUDE.md "Operational health checks".
+
+`--mode backfill` is a third, optional mode not every connector implements
+(only polymarket.py/kalshi.py, so far — see ADR-049): a one-off historical
+price/candlestick backfill, deliberately kept out of bootstrap()/update()
+since it's much more expensive and isn't something a routine bootstrap or
+scheduled update should ever trigger.
 
 `mlb bootstrap`/`mlb update` run every registered connector's bootstrap()/
 update() in one command — the single routine that stands up (or refreshes)
@@ -134,7 +142,9 @@ def main(argv: list[str] | None = None) -> None:
 
     ingest_parser = subparsers.add_parser("ingest")
     ingest_parser.add_argument("source", choices=sorted(CONNECTORS))
-    ingest_parser.add_argument("--mode", choices=["bootstrap", "update"], default="bootstrap")
+    ingest_parser.add_argument(
+        "--mode", choices=["bootstrap", "update", "backfill"], default="bootstrap"
+    )
 
     subparsers.add_parser("bootstrap")
     subparsers.add_parser("update")
@@ -150,7 +160,19 @@ def main(argv: list[str] | None = None) -> None:
         migrate.main()
     elif args.command == "ingest":
         connector = CONNECTORS[args.source]
-        fn = connector.bootstrap if args.mode == "bootstrap" else connector.update
+        if args.mode == "bootstrap":
+            fn = connector.bootstrap
+        elif args.mode == "update":
+            fn = connector.update
+        else:
+            # 'backfill' is an owner-triggered one-off historical load, not
+            # part of the bootstrap()/update() contract every connector
+            # exposes — only polymarket.py/kalshi.py implement it so far
+            # (see ADR-049).
+            fn = getattr(connector, "backfill_history", None)
+            if fn is None:
+                print(f"{args.source} has no backfill_history() to run")
+                sys.exit(1)
         for table, count in fn().items():
             print(f"{table}: {count} rows")
     elif args.command == "bootstrap":

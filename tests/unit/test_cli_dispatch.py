@@ -36,6 +36,37 @@ def test_ingest_mode_update_calls_update_not_bootstrap(monkeypatch, capsys):
     assert "raw.fake: 2 rows" in capsys.readouterr().out
 
 
+def test_ingest_mode_backfill_calls_backfill_history(monkeypatch, capsys):
+    connector = _fake_connector()
+    connector.backfill_history.return_value = {"raw.fake_price": 3}
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
+
+    cli.main(["ingest", "fake", "--mode", "backfill"])
+
+    connector.backfill_history.assert_called_once()
+    connector.bootstrap.assert_not_called()
+    connector.update.assert_not_called()
+    assert "raw.fake_price: 3 rows" in capsys.readouterr().out
+
+
+def test_ingest_mode_backfill_on_a_connector_without_it_exits_cleanly(monkeypatch, capsys):
+    # Not every connector implements backfill_history() (only polymarket.py/
+    # kalshi.py so far, see ADR-047) — must fail clearly, not with an
+    # AttributeError.
+    connector = _fake_connector()
+    del connector.backfill_history  # MagicMock would otherwise auto-create one
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
+
+    try:
+        cli.main(["ingest", "fake", "--mode", "backfill"])
+    except SystemExit as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("expected SystemExit(1) — no backfill_history() to run")
+
+    assert "has no backfill_history()" in capsys.readouterr().out
+
+
 def test_migrate_command_calls_migrate_main(monkeypatch):
     called = {"count": 0}
     monkeypatch.setattr(

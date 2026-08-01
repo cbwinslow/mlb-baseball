@@ -32,6 +32,7 @@ from mlb_baseball.model import (
     oaa,
     offense,
     park,
+    speed,
     starter,
     war,
 )
@@ -68,6 +69,7 @@ def run() -> dict[str, int]:
         war.compute(conn)
         bullpen.compute(conn)
         oaa.compute(conn)
+        speed.compute(conn)
         backfilled = backfill_outcomes(conn)
         log5_count = log5.predict(conn)
         elo_count = elo.predict(conn)
@@ -100,4 +102,5 @@ def health_check() -> list[Check]:
         + war.health_check()
         + bullpen.health_check()
         + oaa.health_check()
+        + speed.health_check()
     )

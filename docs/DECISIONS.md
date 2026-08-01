@@ -2,6 +2,16 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-041: Prior-season team baserunning speed via Statcast Sprint Speed
+
+**Decision:** `mlb_baseball/model/speed.py` adds `home_speed_prior`/`away_speed_prior` (migration 0022) — a `competitive_runs`-weighted average of `raw.statcast_sprint_speed.sprint_speed` per team, lagged one season. Not redundant with any existing feature: WAR/OAA/bullpen/starter/wOBA/wRC+ all price in hitting, pitching, or fielding value, but none of them capture raw team speed, which sabermetric research treats as a real, separable input (baserunning value, extra-base-on-hit rate, double-play avoidance all trace back to it, not something wOBA already absorbs).
+
+**Explicitly considered and rejected first**: team-level Statcast xwOBA/barrel%/hard-hit% (`raw.statcast_batter_expected`/`raw.statcast_batter_exitvelo`), the other "team offensive true talent" idea `docs/RESEARCH.md` had flagged before ADR-036. Checked the actual schemas before building anything: both tables are player-only with **no team column at all**, and the closest fallback (`raw.bref_batting.tm`) turned out to hold ambiguous city names ("New York", "Chicago" — doesn't disambiguate Mets/Yankees or Cubs/White Sox), confirmed directly, not assumed. Building a team join on top of that would mean guessing team identity for exactly the ambiguous cases. More importantly this would have been redundant anyway: `offense.py`'s team wOBA (ADR-036) already covers the same "team offensive true talent" ground with a genuine within-season, no-leakage rolling number — strictly better than a season-lagged Statcast aggregate of overlapping signal (xwOBA/wOBA measure closely related things). Not worth building a second, weaker version of the same idea; moved to sprint speed instead, a genuinely uncovered signal.
+
+**Team identity here is the easy case**, unlike WAR's bref/Retrosheet crosswalk or OAA's three-name remap: `raw.statcast_sprint_speed.team_id` is MLB's own numeric team id, confirmed directly to match `core.team.mlb_team_id` verbatim across all 30 current teams — no crosswalk needed.
+
+**Weighted by `competitive_runs`, not a plain roster average**: a bench player's 5-competitive-run sample shouldn't count equally against an everyday player's 150-run sample when representing a team's actual on-field speed. Rows with 0 competitive runs are excluded (division safety, and a 0-sample row carries no real signal).
+
 ## ADR-040: Prior-season team defensive value via Statcast OAA — the free substitute for FanGraphs' UZR/DRS
 
 **Decision:** `mlb_baseball/model/oaa.py` adds `home_oaa_prior`/`away_oaa_prior` (migration 0021) — a team's summed `raw.statcast_oaa.fielding_runs_prevented` from the season strictly before the game's own season. FanGraphs' own defensive metrics (UZR/DRS) depend on proprietary positioning data with no free path to replicate — confirmed as a permanent wall, not a "not yet," directly: `docs/DATA_SOURCES.md` already documents every FanGraphs scrape attempt returning HTTP 403 (Cloudflare-blocked, not occasional). Statcast's own Outs Above Average, translated into a runs value via `fielding_runs_prevented` and already sitting ingested (2016-2026, `statcast_leaderboard.py`) but unused until now, is the real, free substitute this project's own research backlog had already identified.

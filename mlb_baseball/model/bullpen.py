@@ -23,12 +23,14 @@ how taxed the pen is entering today's game. 3 days chosen to match the
 window the research above describes, narrowed to what's cheaply and
 unambiguously derivable at team grain from event data (a precise
 per-pitcher pitch-count/back-to-back signal would need roster-level
-appearance tracking this project doesn't have yet). Computed via a
-lateral join against each team's own prior relief-outs rows within the
-date window, not a window function -- RANGE frames over date-typed
-columns handle doubleheader same-date peer rows ambiguously for a
-"trailing N calendar days" definition, a plain date-range join is more
-direct and auditable here.
+appearance tracking this project doesn't have yet). Computed as a
+window RANGE frame over one row per (team, calendar day) -- ADR-042
+replaced an earlier lateral-join version (correct, but O(n^2): a fresh
+scan of a team's whole history per team-game, 20+ minutes against full
+production data) with this collapse-to-day-grain-first version, which
+sidesteps the "RANGE frames treat doubleheaders' same-date peer rows
+ambiguously" problem by construction -- collapsing to one row per
+team-day first means there are no peer rows left to be ambiguous about.
 
 Scope: same as starter.py -- raw.retrosheet_event covers 1910-2025 only,
 so both quality and fatigue are NULL for the live 2026 season until the
@@ -135,18 +137,33 @@ quality AS (
     FROM rolling_quality
 ),
 -- Fatigue: trailing FATIGUE_WINDOW_DAYS calendar-day sum of relief outs,
--- strictly before today's game_date -- a plain date-range lateral join,
--- not a window RANGE frame (see module docstring for why).
+-- strictly before today's game_date. Collapsed to one row per
+-- (team_id, game_date) first -- doubleheaders would otherwise appear as
+-- two peer rows on the same date, and a window RANGE frame's "same
+-- date" peer-row semantics don't cleanly express "strictly before
+-- today" once two games share a date. With a unique date per row, a
+-- plain integer RANGE frame (date arithmetic, no interval casting
+-- needed) does the whole trailing sum in one sorted pass per team --
+-- see ADR-042 for why this replaced an O(n^2) lateral join that took
+-- 20+ minutes against full production data (434K team-game rows).
+team_day_outs AS (
+    SELECT team_id, game_date, sum(outs) AS outs
+    FROM team_relief_game
+    GROUP BY team_id, game_date
+),
+team_day_fatigue AS (
+    SELECT team_id, game_date,
+        SUM(outs) OVER (
+            PARTITION BY team_id ORDER BY game_date
+            RANGE BETWEEN (%(fatigue_days)s * INTERVAL '1 day') PRECEDING
+                AND INTERVAL '1 day' PRECEDING
+        ) AS fatigue_outs
+    FROM team_day_outs
+),
 fatigue AS (
-    SELECT trg.game_id, trg.team_id, prior.fatigue_outs
+    SELECT trg.game_id, trg.team_id, tdf.fatigue_outs
     FROM team_relief_game trg
-    CROSS JOIN LATERAL (
-        SELECT sum(p.outs) AS fatigue_outs
-        FROM team_relief_game p
-        WHERE p.team_id = trg.team_id
-            AND p.game_date >= trg.game_date - %(fatigue_days)s
-            AND p.game_date < trg.game_date
-    ) prior
+    JOIN team_day_fatigue tdf ON tdf.team_id = trg.team_id AND tdf.game_date = trg.game_date
 )
 UPDATE gold.game_feature f
 SET

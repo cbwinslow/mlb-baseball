@@ -2,6 +2,18 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-042: Fixed a real O(n²) performance bug in bullpen.py's fatigue calculation
+
+**What happened:** the first production run of `bullpen.compute()` (ADR-039) against full real data — 434K team-game rows spanning 1901-2026 — ran for 25+ minutes and climbed past that with no sign of finishing, confirmed genuinely CPU-bound (98%+ CPU, steadily climbing) rather than stuck. The original fatigue calculation used a `LATERAL` join: for every one of those 434K rows, a fresh correlated subquery re-scanned that team's *entire* history for the trailing-3-day window. Quadratic in the number of team-games, not linear — the exact class of bug the "verified against real data" discipline this project follows is meant to catch, just caught at full production scale rather than in a small test fixture (small fixtures can't surface an O(n²) cost; only real data volume does).
+
+**Fix:** collapse to one row per (team, calendar day) first — `team_day_outs` — then compute the trailing sum with a window `RANGE` frame over that day-grain series (`RANGE BETWEEN (days * INTERVAL '1 day') PRECEDING AND INTERVAL '1 day' PRECEDING`), a single sorted pass per team instead of a fresh scan per row. Then join the resulting per-team-day fatigue value back onto every individual game.
+
+**Why a RANGE frame is now safe, when the original design deliberately avoided one**: the original module docstring reasoned that RANGE frames handle doubleheader same-date peer rows ambiguously for a "strictly before today" definition — true, but only *before* collapsing to day grain. Once each row is uniquely one (team, date) pair, there are no peer rows left to be ambiguous about, so the RANGE frame is both correct and fast. Verified this specifically with a new doubleheader regression test (`test_compute_gives_both_doubleheader_games_the_same_fatigue_value`) — both games of a same-date doubleheader must see the identical, correctly-combined fatigue value entering the next game, not double-count or pick one arbitrarily.
+
+**A real Postgres syntax gotcha hit along the way**: `RANGE BETWEEN n PRECEDING` with a `date`-typed `ORDER BY` column requires the offset to be an `interval`, not a plain integer — Postgres raises `FeatureNotSupported` otherwise (`n * INTERVAL '1 day'` fixes it). Confirmed directly against a real error, not assumed from documentation.
+
+**Broader takeaway, acted on immediately rather than filed for later**: every rolling/lagged feature built this session (starter.py, offense.py, war.py, oaa.py, speed.py) uses `ROWS BETWEEN UNBOUNDED PRECEDING`-style window functions already, which are linear by construction — bullpen.py's fatigue calculation was the one place a lateral join was used instead, and it's exactly where the quadratic cost showed up. No other module in this pass needs the same fix; confirmed by rereading each one's window-function shape, not assumed safe.
+
 ## ADR-041: Prior-season team baserunning speed via Statcast Sprint Speed
 
 **Decision:** `mlb_baseball/model/speed.py` adds `home_speed_prior`/`away_speed_prior` (migration 0022) — a `competitive_runs`-weighted average of `raw.statcast_sprint_speed.sprint_speed` per team, lagged one season. Not redundant with any existing feature: WAR/OAA/bullpen/starter/wOBA/wRC+ all price in hitting, pitching, or fielding value, but none of them capture raw team speed, which sabermetric research treats as a real, separable input (baserunning value, extra-base-on-hit rate, double-play avoidance all trace back to it, not something wOBA already absorbs).

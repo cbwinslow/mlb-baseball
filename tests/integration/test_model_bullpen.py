@@ -152,6 +152,64 @@ def test_compute_rolls_up_relief_only_with_zero_leakage_and_correct_fatigue_wind
     _reset(db_conn)
 
 
+def test_compute_gives_both_doubleheader_games_the_same_fatigue_value(db_conn):
+    # ADR-042: fatigue is computed by collapsing to one row per
+    # (team, calendar day) before the window RANGE frame, specifically
+    # so two games sharing a date (a doubleheader) don't create peer-row
+    # ambiguity. G1a/G1b are both on 2020-04-01 (ATL uses a reliever in
+    # each); G2 (2020-04-03, within the 3-day window) must see the
+    # SAME combined fatigue from both, not double-count or pick one
+    # arbitrarily depending on row order.
+    #   G1a relief outs = 1, G1b relief outs = 2 -> combined day total = 3
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type, game_number) VALUES "
+            "('G1A', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular', 1), "
+            "('G1B', 2020, '2020-04-01', %(atl)s, %(nya)s, 4, 2, 'regular', 2), "
+            "('G2', 2020, '2020-04-03', %(atl)s, %(nya)s, 2, 1, 'regular', 0)",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1A', 'regular'), ('G1B', 'regular'), ('G2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "bat_event_fl, event_cd, event_outs_ct, _season) VALUES "
+            "('G1A', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('G1A', '0', 'relp1', 'F', 'T', '2', '1', '2020'), "
+            "('G1B', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('G1B', '0', 'relp1', 'F', 'T', '2', '2', '2020'), "
+            "('G1A', '1', 'startp2', 'T', 'T', '2', '1', '2020'), "
+            "('G1B', '1', 'startp2', 'T', 'T', '2', '1', '2020'), "
+            "('G2', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('G2', '1', 'startp2', 'T', 'T', '2', '1', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    bullpen.compute(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_bullpen_fatigue FROM gold.game_feature f "
+            "JOIN core.game g ON g.id = f.game_id WHERE g.retro_game_id = 'G2'"
+        )
+        (fatigue,) = cur.fetchone()
+    assert fatigue == Decimal("3")
+
+    _reset(db_conn)
+
+
 def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
     _reset(db_conn)
     with db_conn.cursor() as cur:

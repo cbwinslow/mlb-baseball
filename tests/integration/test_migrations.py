@@ -35,27 +35,15 @@ def test_play_and_pitch_constraints_use_final_names():
     assert ("core.pitch", "pitch_pkey") in constraints
 
 
-def test_old_tables_kept_but_have_no_live_foreign_keys():
-    dropped_fk_names = {
-        "play_game_id_fkey",
-        "play_batter_id_fkey",
-        "play_pitcher_id_fkey",
-        "pitch_game_id_fkey",
-        "pitch_batter_id_fkey",
-        "pitch_pitcher_id_fkey",
-    }
+def test_dead_play_pitch_tables_are_dropped():
+    # Migration 0011 kept core.play_old/core.pitch_old as a safety net;
+    # migration 0023 dropped them for good (6.2GB of dead tables). This
+    # replaces the pre-0023 version of the test, which asserted the tables
+    # still existed — stale from the moment 0023 landed, and unnoticed
+    # because nothing ran the suite automatically.
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT tablename FROM pg_tables "
             "WHERE schemaname = 'core' AND tablename IN ('play_old', 'pitch_old')"
         )
-        old_tables = {row[0] for row in cur.fetchall()}
-        assert old_tables == {"play_old", "pitch_old"}
-
-        cur.execute(
-            "SELECT conname FROM pg_constraint "
-            "WHERE conrelid IN ('core.play_old'::regclass, 'core.pitch_old'::regclass) "
-            "AND contype = 'f'"
-        )
-        live_fk_names = {row[0] for row in cur.fetchall()}
-    assert not (live_fk_names & dropped_fk_names)
+        assert cur.fetchall() == []

@@ -20,6 +20,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    "mypy>=1.10",
 ]
 
 [project.scripts]
@@ -38,3 +39,9 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+files = ["mlb_baseball"]
+# Third-party baseball/data libraries (pybaseball, statsapi, xgboost, ...)
+# ship no type stubs — don't fail on their absence, check our own code.
+ignore_missing_imports = true

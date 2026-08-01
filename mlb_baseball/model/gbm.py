@@ -19,9 +19,9 @@ richer feature set later is expected, ordinary iteration, not something
 this version is "half-finished" without -- gold.prediction.model_version
 exists specifically so multiple model versions can coexist.
 
-ADR-043: FEATURE_COLUMNS now also includes every feature built since
+ADR-044: FEATURE_COLUMNS now also includes every feature built since
 ADR-033 (starter quality, park factor, team wOBA/wRC+, prior-season
-WAR/OAA/speed, bullpen quality/fatigue). Split into REQUIRED_COLUMNS
+WAR/OAA/speed/framing, bullpen quality/fatigue). Split into REQUIRED_COLUMNS
 (the original 10 -- win%/run-diff/Pythagenpat/Elo, populated for every
 row) and the rest, which are allowed to be NULL/NaN per row rather than
 filtered out with a blanket "every column must be non-null" -- that
@@ -71,7 +71,7 @@ REQUIRED_COLUMNS = [
 ]
 
 # Everything built since ADR-033 -- always allowed to be NULL/NaN per
-# row, see this module's docstring (ADR-043) for why a strict non-null
+# row, see this module's docstring (ADR-044) for why a strict non-null
 # filter can't be used here.
 OPTIONAL_COLUMNS = [
     "home_starter_era",  # true FIP, not ERA -- see starter.py (ADR-034)
@@ -101,6 +101,8 @@ OPTIONAL_COLUMNS = [
     "away_oaa_prior",
     "home_speed_prior",
     "away_speed_prior",
+    "home_framing_prior",
+    "away_framing_prior",
 ]
 
 FEATURE_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
@@ -122,7 +124,7 @@ def _fetch_rows(conn: psycopg.Connection, season_filter: str) -> tuple[np.ndarra
         )
         rows = cur.fetchall()
     # None (NULL for an OPTIONAL_COLUMNS feature) becomes NaN, not a
-    # crash or a dropped row -- see this module's docstring (ADR-043).
+    # crash or a dropped row -- see this module's docstring (ADR-044).
     data = np.array(
         [[np.nan if v is None else float(v) for v in row[:-1]] for row in rows], dtype=np.float64
     )

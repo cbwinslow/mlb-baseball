@@ -162,8 +162,135 @@ def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
 def test_health_check_runs_cleanly_against_an_empty_database():
     # Not asserting on the result -- just that it returns cleanly even
     # when raw.bref_pitching/raw.retrosheet_event don't exist yet (the
-    # real, at-scale reconciliation only means something against
+    # real, at-scale reconciliation only means against
     # production data, see this module's own docstring).
     checks = starter.health_check()
     assert len(checks) == 2
     assert all(c.name for c in checks)
+
+
+def _ensure_playbyplay_table(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_playbyplay ("
+                "game_pk text, at_bat_index text, inning text, half_inning text, "
+                "pitcher_id text, event_type text, outs text, _season text)"
+            )
+    db_conn.commit()
+
+
+def test_compute_live_rolling_fip_and_rates_match_hand_calculation(db_conn):
+    # G1 (2026-04-01, game_pk=900001): home starter startp1 (top half)
+    # faces 2 batters -- 1 K (outs 0->1), 1 field_out (outs 1->2) --
+    # BF=2, K=1, BB=0, HR=0, outs=2. Away starter startp2 (bottom half)
+    # gets one minimal field_out, just enough to be identifiable.
+    #
+    # Entering G2, startp1's rolling line is exactly G1's:
+    #   k_pct = 1/2 = 0.5, bb_pct = 0, hr_pct = 0
+    #   fip = (13*0 + 3*0 - 2*1) / (2/3) + 3.10 = -3.0 + 3.10 = 0.10
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    teams, _players = _seed_teams_and_players(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.player (retro_id, mlbam_id, first_name, last_name) "
+            "VALUES ('livep001', '5001', 'Live', 'PitcherOne'), "
+            "('livep002', '5002', 'Live', 'PitcherTwo')"
+        )
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('MLB900001', '900001', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('MLB900002', '900002', 2026, '2026-04-08', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('900001', '0', '1', 'top', '5001', 'strikeout', '1', '2026'), "
+            "('900001', '1', '1', 'top', '5001', 'field_out', '2', '2026'), "
+            "('900001', '2', '1', 'bottom', '5002', 'field_out', '1', '2026'), "
+            "('900002', '0', '1', 'top', '5001', 'field_out', '1', '2026'), "
+            "('900002', '1', '1', 'bottom', '5002', 'field_out', '1', '2026')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = starter.compute_live(db_conn)
+    db_conn.commit()
+
+    assert updated == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.retro_game_id, f.home_starter_id, f.home_starter_era, "
+            "f.home_starter_k_pct, f.home_starter_bb_pct, f.home_starter_hr_pct "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "ORDER BY g.retro_game_id"
+        )
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+    # G1: startp1's first appearance -- nothing prior, everything NULL
+    # except the identity itself.
+    g1 = rows["MLB900001"]
+    assert g1[1:4] == (None, None, None)
+
+    # G2: entering it, startp1's rolling line from G1 alone.
+    g2 = rows["MLB900002"]
+    assert g2[1] == Decimal("0.1")
+    assert g2[2] == Decimal("0.5")
+    assert g2[3] == Decimal("0")
+
+    _reset(db_conn)
+
+
+def test_compute_live_returns_zero_without_playbyplay_table(db_conn):
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_playbyplay")
+    db_conn.commit()
+
+    assert starter.compute_live(db_conn) == 0
+
+
+def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
+    # compute_live() must only fill the NULL gap compute() leaves --
+    # a game already resolved via raw.retrosheet_event (any season
+    # through 2025) must never be touched by the playbyplay path, even
+    # if a raw.mlb_playbyplay row happens to exist for it too.
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    teams, _players = _seed_teams_and_players(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('MLB900003', '900003', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET home_starter_era = 3.33 "
+            "WHERE mlb_game_pk = '900003'"
+        )
+    db_conn.commit()
+
+    starter.compute_live(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT home_starter_era FROM gold.game_feature WHERE mlb_game_pk = '900003'")
+        (era,) = cur.fetchone()
+    assert era == Decimal("3.33")
+
+    _reset(db_conn)

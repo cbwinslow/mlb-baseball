@@ -64,6 +64,7 @@ def run() -> dict[str, int]:
         feature_count = features.build(conn)
         elo.compute_ratings(conn)
         starter_count = starter.compute(conn)
+        starter.compute_live(conn)
         park.compute(conn)
         offense.compute(conn)
         offense.compute_wrc_plus(conn)

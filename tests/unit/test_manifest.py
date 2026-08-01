@@ -1,5 +1,7 @@
 from unittest.mock import Mock, patch
 
+import pytest
+
 from mlb_baseball import manifest
 
 
@@ -52,6 +54,31 @@ def test_download_returns_none_on_404(tmp_path, monkeypatch):
 
     assert result is None
     assert manifest.load_manifest("retrosheet") == {}
+
+
+def test_download_required_raises_clearly_on_404(tmp_path, monkeypatch):
+    # A must-exist file (rosters.zip, tranDB.zip, ...) 404ing means the
+    # source moved or broke — the failure must name the source and URL, not
+    # surface later as a TypeError from ZipFile(None).
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+    fake_response = Mock(status_code=404)
+    with patch.object(manifest, "get_with_retry", return_value=fake_response):
+        with pytest.raises(RuntimeError, match=r"rosters\.zip.*404.*example\.com"):
+            manifest.download_required(
+                "retrosheet_roster", "rosters.zip", "https://example.com/rosters.zip"
+            )
+
+
+def test_download_required_returns_path_on_success(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+    fake_response = Mock(status_code=200, content=b"zip bytes")
+    with patch.object(manifest, "get_with_retry", return_value=fake_response):
+        dest = manifest.download_required(
+            "retrosheet_roster", "rosters.zip", "https://example.com/rosters.zip"
+        )
+
+    assert dest == tmp_path / "retrosheet_roster" / "rosters.zip"
+    assert dest.read_bytes() == b"zip bytes"
 
 
 def test_download_force_refetches_even_when_hash_matches_disk(tmp_path, monkeypatch):

@@ -23,7 +23,7 @@ def _clean_table(db_conn):
 
 def test_bootstrap_lands_rows_with_team_and_season_from_filename(db_conn):
     with patch.object(roster, "manifest") as mock_manifest:
-        mock_manifest.download.return_value = FIXTURE_ZIP
+        mock_manifest.download_required.return_value = FIXTURE_ZIP
         counts = roster.bootstrap()
 
     assert counts[roster.TABLE] > 0
@@ -36,7 +36,7 @@ def test_bootstrap_lands_rows_with_team_and_season_from_filename(db_conn):
 
 def test_rerunning_replaces_instead_of_duplicating(db_conn):
     with patch.object(roster, "manifest") as mock_manifest:
-        mock_manifest.download.return_value = FIXTURE_ZIP
+        mock_manifest.download_required.return_value = FIXTURE_ZIP
         first_counts = roster.bootstrap()
         second_counts = roster.update()
 

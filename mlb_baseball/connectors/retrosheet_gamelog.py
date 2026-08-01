@@ -206,7 +206,7 @@ def _load_year(conn: psycopg.Connection, year: int) -> dict[str, int]:
 
 
 def _load_post_archive(conn: psycopg.Connection, filename: str, gtype: str) -> dict[str, int]:
-    path = manifest.download(SOURCE, filename, f"{BASE_URL}/{filename}")
+    path = manifest.download_required(SOURCE, filename, f"{BASE_URL}/{filename}")
     with zipfile.ZipFile(path) as zf:
         (member,) = zf.namelist()
         with zf.open(member) as f:

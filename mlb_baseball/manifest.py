@@ -82,6 +82,21 @@ def mark_status(source: str, filename: str, status: str) -> None:
     save_manifest(source, manifest)
 
 
+def download_required(source: str, filename: str, url: str, *, force: bool = False) -> Path:
+    """download(), for files that must exist — whole-file products like
+    rosters.zip or tranDB.zip where a 404 means the source moved or broke,
+    never "not published yet". Raises with the URL in the message instead of
+    returning None, so the failure reads as "retrosheet.org 404" rather than
+    the TypeError a None path would produce inside ZipFile()/read_csv()
+    several frames later. Per-year fetches where a missing year is a normal
+    outcome (a future season's gamelog) should keep calling download() and
+    handling None."""
+    path = download(source, filename, url, force=force)
+    if path is None:
+        raise RuntimeError(f"{source}: required file {filename} returned 404 from {url}")
+    return path
+
+
 def download(source: str, filename: str, url: str, *, force: bool = False) -> Path | None:
     """Downloads `url` to downloads/<source>/<filename> unless a manifest entry
     already matches the file on disk (same content, skip the network entirely).

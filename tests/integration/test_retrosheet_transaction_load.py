@@ -23,7 +23,7 @@ def _clean_table(db_conn):
 
 def test_bootstrap_lands_all_sixteen_fields(db_conn):
     with patch.object(transaction, "manifest") as mock_manifest:
-        mock_manifest.download.return_value = FIXTURE_ZIP
+        mock_manifest.download_required.return_value = FIXTURE_ZIP
         counts = transaction.bootstrap()
 
     assert counts[transaction.TABLE] == 2
@@ -45,7 +45,7 @@ def test_bootstrap_lands_all_sixteen_fields(db_conn):
 
 def test_rerunning_replaces_instead_of_duplicating(db_conn):
     with patch.object(transaction, "manifest") as mock_manifest:
-        mock_manifest.download.return_value = FIXTURE_ZIP
+        mock_manifest.download_required.return_value = FIXTURE_ZIP
         first_counts = transaction.bootstrap()
         second_counts = transaction.update()
 

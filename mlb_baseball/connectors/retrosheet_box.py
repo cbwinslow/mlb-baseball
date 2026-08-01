@@ -107,12 +107,12 @@ TEAM_FIELDS = ["team_id", "league", "city", "nickname", "first_year", "last_year
 
 
 def _mlb_team_registry() -> pd.DataFrame:
-    path = manifest.download(SOURCE, "TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT")
+    path = manifest.download_required(SOURCE, "TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT")
     return pd.read_csv(path, header=None, names=TEAM_FIELDS)
 
 
 def _negro_league_team_registry() -> pd.DataFrame:
-    path = manifest.download(
+    path = manifest.download_required(
         SOURCE, "biodata.zip", "https://www.retrosheet.org/downloads/biodata.zip"
     )
     with zipfile.ZipFile(path) as zf:
@@ -130,7 +130,7 @@ def _team_registry(group: str) -> pd.DataFrame:
 
 
 def _rosters_zip() -> Path:
-    return manifest.download(SOURCE, "rosters.zip", "https://www.retrosheet.org/rosters.zip")
+    return manifest.download_required(SOURCE, "rosters.zip", "https://www.retrosheet.org/rosters.zip")
 
 
 def _copy_matching_rosters(rosters_zip: Path, year: int, dest_dir: Path) -> None:
@@ -172,6 +172,7 @@ def _parse_archive(archive_path: Path, group: str) -> dict[int, dict[str, pd.Dat
             zf.extractall(extract_dir)
         for year, year_dir in chadwick_tools.split_by_year(extract_dir).items():
             if needs_team_file:
+                assert registry is not None and rosters_zip is not None
                 _prepare_team_file(year_dir, year, registry, rosters_zip)
             tables = chadwick_tools.run_cwbox(year_dir, year)
             scope = _load_scope(year, group)

@@ -63,7 +63,7 @@ def _mock_download(tmp_path):
 
 def test_bootstrap_lands_all_eleven_tables(db_conn, tmp_path):
     with patch.object(reference, "manifest") as mock_manifest:
-        mock_manifest.download.side_effect = _mock_download(tmp_path)
+        mock_manifest.download_required.side_effect = _mock_download(tmp_path)
         counts = reference.bootstrap()
 
     assert set(counts) == set(ALL_TABLES)
@@ -77,7 +77,7 @@ def test_bootstrap_lands_all_eleven_tables(db_conn, tmp_path):
 
 def test_rerunning_replaces_instead_of_duplicating(tmp_path):
     with patch.object(reference, "manifest") as mock_manifest:
-        mock_manifest.download.side_effect = _mock_download(tmp_path)
+        mock_manifest.download_required.side_effect = _mock_download(tmp_path)
         reference.bootstrap()
         reference.update()
 

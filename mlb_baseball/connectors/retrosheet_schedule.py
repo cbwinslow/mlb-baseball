@@ -35,7 +35,7 @@ COLUMN_RENAMES = {
 
 
 def _schedules() -> pd.DataFrame:
-    path = manifest.download(
+    path = manifest.download_required(
         SOURCE, "schedule.zip", "https://www.retrosheet.org/schedule/schedule.zip"
     )
     frames = []

@@ -47,7 +47,7 @@ TRANSACTION_FIELDS = [
 
 
 def _transactions() -> pd.DataFrame:
-    path = manifest.download(
+    path = manifest.download_required(
         SOURCE, "tranDB.zip", "https://www.retrosheet.org/transactions/tranDB.zip"
     )
     with zipfile.ZipFile(path) as zf:

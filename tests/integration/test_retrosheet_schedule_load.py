@@ -24,7 +24,7 @@ def _clean_table(db_conn):
 
 def test_bootstrap_lands_rows_with_disambiguated_league_game_columns(db_conn):
     with patch.object(schedule, "manifest") as mock_manifest:
-        mock_manifest.download.return_value = FIXTURE_ZIP
+        mock_manifest.download_required.return_value = FIXTURE_ZIP
         counts = schedule.bootstrap()
 
     assert counts[schedule.TABLE] == 2
@@ -39,7 +39,7 @@ def test_bootstrap_lands_rows_with_disambiguated_league_game_columns(db_conn):
 
 def test_rerunning_replaces_instead_of_duplicating(db_conn):
     with patch.object(schedule, "manifest") as mock_manifest:
-        mock_manifest.download.return_value = FIXTURE_ZIP
+        mock_manifest.download_required.return_value = FIXTURE_ZIP
         first_counts = schedule.bootstrap()
         second_counts = schedule.update()
 

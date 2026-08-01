@@ -56,17 +56,17 @@ BIODATA_MEMBERS = {
 
 
 def _park_codes() -> pd.DataFrame:
-    path = manifest.download(SOURCE, "parkcode.txt", "https://www.retrosheet.org/parkcode.txt")
+    path = manifest.download_required(SOURCE, "parkcode.txt", "https://www.retrosheet.org/parkcode.txt")
     return pd.read_csv(path)
 
 
 def _team_ids() -> pd.DataFrame:
-    path = manifest.download(SOURCE, "TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT")
+    path = manifest.download_required(SOURCE, "TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT")
     return pd.read_csv(path, header=None, names=TEAM_FIELDS)
 
 
 def _zip_tables(filename: str, url: str, members: dict[str, str]) -> dict[str, pd.DataFrame]:
-    path = manifest.download(SOURCE, filename, url)
+    path = manifest.download_required(SOURCE, filename, url)
     tables = {}
     with zipfile.ZipFile(path) as zf:
         for member, table in members.items():

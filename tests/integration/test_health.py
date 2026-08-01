@@ -398,6 +398,44 @@ def test_check_totals_reconcile_symmetric_over_or_under():
     assert "ATL-2023: 110 vs 100" in result.detail
 
 
+def test_check_totals_reconcile_max_mismatch_rate_allows_proportional_gap():
+    # starter.py's real motivating case: ~1.7% of pitcher-seasons
+    # genuinely diverge (Retrosheet's own documented missing-event-file
+    # rate), a gap that scales with dataset size, not a fixed small
+    # count -- tolerance alone can never pass this. 1 mismatch out of 4
+    # rows is 25%, which must fail at max_mismatch_rate=0.02 but pass at
+    # max_mismatch_rate=0.30.
+    sql = (
+        "SELECT * FROM (VALUES ('A', 100, 100), ('B', 100, 100), "
+        "('C', 100, 100), ('D', 50, 100)) AS t(key, computed, reference)"
+    )
+
+    too_strict = check_totals_reconcile("test reconcile", sql, tolerance=3, max_mismatch_rate=0.02)
+    assert not too_strict.ok
+
+    lenient_enough = check_totals_reconcile(
+        "test reconcile", sql, tolerance=3, max_mismatch_rate=0.30
+    )
+    assert lenient_enough.ok
+    assert "1 mismatched" in lenient_enough.detail
+    assert "25.0%" in lenient_enough.detail
+
+
+def test_check_totals_reconcile_max_mismatch_rate_unset_preserves_old_strict_behavior():
+    # Default (no max_mismatch_rate) must be unchanged from before this
+    # parameter existed -- any mismatch beyond tolerance fails, full
+    # stop, correct for checks like the Lahman one where the expected
+    # mismatch count doesn't grow with the dataset.
+    result = check_totals_reconcile(
+        "test reconcile",
+        "SELECT * FROM (VALUES ('ATL-2023', 100, 100), ('NYA-2023', 90, 101)) "
+        "AS t(key, computed, reference)",
+        tolerance=3,
+    )
+
+    assert not result.ok
+
+
 def test_check_totals_reconcile_false_when_source_table_missing():
     result = check_totals_reconcile(
         "test reconcile", "SELECT key, computed, reference FROM raw.test_health_never_created"

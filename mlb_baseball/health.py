@@ -191,7 +191,9 @@ def check_partition_coverage(label: str, sql: str, *, min_ratio: float = 0.5) ->
     return Check(label, True, f"{len(rows)} partitions checked, all >= {min_ratio:.0%} coverage")
 
 
-def check_totals_reconcile(label: str, sql: str, *, tolerance: int = 0) -> Check:
+def check_totals_reconcile(
+    label: str, sql: str, *, tolerance: int = 0, max_mismatch_rate: float | None = None
+) -> Check:
     """`sql` must return rows of (key, computed, reference) — e.g. one row
     per team-season, comparing a value derived from `core` against an
     independently-sourced reference (e.g. Lahman's own compiled win total
@@ -212,6 +214,24 @@ def check_totals_reconcile(label: str, sql: str, *, tolerance: int = 0) -> Check
     Lahman's official standings total counts them as part of the season
     record). tolerance=3 catches a real new gap without permanently
     false-positiving on this well-understood historical pattern.
+
+    max_mismatch_rate is for a different shape of known gap than
+    tolerance: some sources have a genuine, *proportional* divergence
+    baked into their own coverage (e.g. Retrosheet's own documented
+    ~1.7% missing-raw-event-file rate, ADR-012/ADR-034) rather than a
+    fixed small number of historical exceptions. Left unset (default),
+    behavior is unchanged from before this parameter existed — any
+    mismatch beyond `tolerance` fails, full stop, which is correct for
+    checks like the Lahman one above where the expected mismatch count
+    doesn't grow with the dataset. Set it when the expected mismatch
+    *count* legitimately scales with total rows checked instead — the
+    check then passes as long as the mismatch *rate* stays within it,
+    not just the raw count. Without this, a per-row-tolerance-only check
+    against a source with a real, fixed proportional gap can never
+    return healthy once the dataset grows past a handful of rows —
+    exactly what happened to starter.py's own reconciliation, found via
+    `mlb doctor` reporting it failed despite matching its own documented,
+    already-accepted 98.3%-clean rate.
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -227,6 +247,14 @@ def check_totals_reconcile(label: str, sql: str, *, tolerance: int = 0) -> Check
         if abs(computed - reference) > tolerance
     ]
     if mismatched:
+        rate = len(mismatched) / len(rows) if rows else 0.0
+        if max_mismatch_rate is not None and rate <= max_mismatch_rate:
+            return Check(
+                label,
+                True,
+                f"{len(rows)} checked, {len(mismatched)} mismatched "
+                f"({rate:.1%}, within accepted rate {max_mismatch_rate:.1%})",
+            )
         shown = ", ".join(
             f"{key}: {computed} vs {reference}" for key, computed, reference in mismatched[:10]
         )

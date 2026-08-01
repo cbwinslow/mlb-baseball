@@ -129,6 +129,43 @@ def _reset_predictions_only(db_conn):
     db_conn.commit()
 
 
+def test_train_and_predict_tolerate_optional_columns_being_null(db_conn, tmp_path, monkeypatch):
+    # ADR-043: OPTIONAL_COLUMNS (starter quality, wOBA, wRC+, WAR, OAA,
+    # speed, bullpen) must not be required non-null -- real production
+    # data has heterogeneous coverage (e.g. raw.retrosheet_event stops
+    # at 2025, so the live season predict() serves always has them
+    # NULL). _seed_synthetic_games only ever populates the original 10
+    # required columns, leaving every OPTIONAL_COLUMNS value NULL --
+    # this proves neither train() nor predict() drops those rows or
+    # crashes converting NULL to a float.
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "test-gbm.json")
+    monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
+    monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
+    _reset(db_conn)
+    _seed_synthetic_games(db_conn, 2020, 300, start_pk=500000)
+    _seed_synthetic_games(db_conn, 2021, 100, start_pk=600000)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT bool_and(home_starter_era IS NULL AND home_oaa_prior IS NULL "
+            "AND home_bullpen_fip IS NULL) FROM gold.game_feature"
+        )
+        (all_optional_null,) = cur.fetchone()
+    assert all_optional_null
+
+    metrics = gbm.train(db_conn)
+
+    assert metrics["train_rows"] == 300  # no rows dropped for NULL optional columns
+    assert metrics["validation_rows"] == 100
+
+    _reset_predictions_only(db_conn)
+    _seed_synthetic_games(db_conn, 2022, 5, start_pk=700000, decided=False)
+    inserted = gbm.predict(db_conn)
+    assert inserted == 5  # predict() didn't zero out despite NULL optional columns
+
+    _reset(db_conn)
+
+
 def test_predict_returns_zero_when_no_model_saved_yet(db_conn, tmp_path, monkeypatch):
     monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "never-trained.json")
     _reset(db_conn)

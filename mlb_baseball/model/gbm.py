@@ -18,6 +18,29 @@ gold.game_feature column list), not built yet. Retraining against a
 richer feature set later is expected, ordinary iteration, not something
 this version is "half-finished" without -- gold.prediction.model_version
 exists specifically so multiple model versions can coexist.
+
+ADR-043: FEATURE_COLUMNS now also includes every feature built since
+ADR-033 (starter quality, park factor, team wOBA/wRC+, prior-season
+WAR/OAA/speed, bullpen quality/fatigue). Split into REQUIRED_COLUMNS
+(the original 10 -- win%/run-diff/Pythagenpat/Elo, populated for every
+row) and the rest, which are allowed to be NULL/NaN per row rather than
+filtered out with a blanket "every column must be non-null" -- that
+blanket filter would otherwise gut the training set from 215K to under
+19K rows (confirmed directly: home_oaa_prior/home_speed_prior only
+cover 2016+, and requiring them non-null intersected against every
+other new column leaves only ~9% of rows). More importantly, several
+of these columns (starter quality, wOBA, wRC+, bullpen -- everything
+sourced from raw.retrosheet_event, which stops at 2025) are *always*
+NULL for the live 2026 season predict() actually serves -- a strict
+non-null filter there wouldn't just shrink predict()'s row count, it
+would zero it out entirely, breaking live predictions outright.
+
+XGBoost handles this natively and correctly, not a workaround: its
+split-finding algorithm learns a default branch direction for missing
+values at each tree split (the sklearn wrapper's default `missing=nan`
+already matches what _fetch_rows/predict() now pass through), so a row
+missing some optional features still trains/predicts on whatever it
+does have, instead of being dropped or needing manual imputation.
 """
 
 from pathlib import Path
@@ -34,7 +57,7 @@ MODEL_VERSION = "gbm-v1"
 MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "models"
 MODEL_PATH = MODEL_DIR / f"{MODEL_VERSION}.json"
 
-FEATURE_COLUMNS = [
+REQUIRED_COLUMNS = [
     "home_win_pct",
     "away_win_pct",
     "home_win_pct_10",
@@ -46,6 +69,41 @@ FEATURE_COLUMNS = [
     "home_elo",
     "away_elo",
 ]
+
+# Everything built since ADR-033 -- always allowed to be NULL/NaN per
+# row, see this module's docstring (ADR-043) for why a strict non-null
+# filter can't be used here.
+OPTIONAL_COLUMNS = [
+    "home_starter_era",  # true FIP, not ERA -- see starter.py (ADR-034)
+    "away_starter_era",
+    "home_starter_k_pct",
+    "away_starter_k_pct",
+    "home_starter_bb_pct",
+    "away_starter_bb_pct",
+    "home_starter_hr_pct",
+    "away_starter_hr_pct",
+    "park_factor",
+    "home_woba",
+    "away_woba",
+    "home_wrc_plus",
+    "away_wrc_plus",
+    "home_war_prior",
+    "away_war_prior",
+    "home_bullpen_fip",
+    "away_bullpen_fip",
+    "home_bullpen_k_pct",
+    "away_bullpen_k_pct",
+    "home_bullpen_bb_pct",
+    "away_bullpen_bb_pct",
+    "home_bullpen_fatigue",
+    "away_bullpen_fatigue",
+    "home_oaa_prior",
+    "away_oaa_prior",
+    "home_speed_prior",
+    "away_speed_prior",
+]
+
+FEATURE_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 
 # ADR-032: train through 2023, validate 2024-2025, forward-test live
 # against 2026 via the normal mlb predict path -- not a fourth split here.
@@ -59,11 +117,15 @@ def _fetch_rows(conn: psycopg.Connection, season_filter: str) -> tuple[np.ndarra
         cur.execute(
             f"SELECT {columns}, home_win FROM gold.game_feature "
             f"WHERE home_win IS NOT NULL "
-            f"AND {' AND '.join(c + ' IS NOT NULL' for c in FEATURE_COLUMNS)} "
+            f"AND {' AND '.join(c + ' IS NOT NULL' for c in REQUIRED_COLUMNS)} "
             f"AND {season_filter}"
         )
         rows = cur.fetchall()
-    data = np.array([[float(v) for v in row[:-1]] for row in rows], dtype=np.float64)
+    # None (NULL for an OPTIONAL_COLUMNS feature) becomes NaN, not a
+    # crash or a dropped row -- see this module's docstring (ADR-043).
+    data = np.array(
+        [[np.nan if v is None else float(v) for v in row[:-1]] for row in rows], dtype=np.float64
+    )
     labels = np.array([1.0 if row[-1] else 0.0 for row in rows], dtype=np.float64)
     return data, labels
 
@@ -138,14 +200,17 @@ def predict(conn: psycopg.Connection) -> int:
         cur.execute(
             f"SELECT mlb_game_pk, {columns} FROM gold.game_feature "
             f"WHERE home_win IS NULL AND mlb_game_pk IS NOT NULL "
-            f"AND {' AND '.join(c + ' IS NOT NULL' for c in FEATURE_COLUMNS)}"
+            f"AND {' AND '.join(c + ' IS NOT NULL' for c in REQUIRED_COLUMNS)}"
         )
         rows = cur.fetchall()
         if not rows:
             return 0
 
         game_pks = [row[0] for row in rows]
-        X = np.array([[float(v) for v in row[1:]] for row in rows], dtype=np.float64)
+        X = np.array(
+            [[np.nan if v is None else float(v) for v in row[1:]] for row in rows],
+            dtype=np.float64,
+        )
         probs = model.predict_proba(X)[:, 1]
 
         predictions = [

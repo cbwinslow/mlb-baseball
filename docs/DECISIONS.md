@@ -2,6 +2,16 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-044: gbm-v1 retrained against every feature built since ADR-033, via XGBoost's native missing-value handling
+
+**Decision:** `mlb_baseball/model/gbm.py`'s `FEATURE_COLUMNS` grows from 10 to 37 — every column built across ADR-034 through ADR-042 (starter quality, park factor, team wOBA/wRC+, prior-season WAR/OAA/speed, bullpen quality/fatigue). Split into `REQUIRED_COLUMNS` (the original 10, populated for every row, still hard-filtered `IS NOT NULL`) and `OPTIONAL_COLUMNS` (everything new, allowed to be `NULL` per row).
+
+**Why optional, not required — checked against real data before deciding, not assumed:** a blanket "every column must be non-null" filter (the pre-existing pattern, harmless when there were only 10 always-populated columns) would gut the training set from 215,288 to under 19,000 rows — confirmed directly: `home_oaa_prior`/`home_speed_prior` only cover 2016+, and requiring every new column simultaneously intersects down to ~9% of rows. Worse than the training-set cost: several new columns (everything sourced from `raw.retrosheet_event`, which stops at 2025 — starter quality, wOBA, wRC+, bullpen) are **always** `NULL` for the live 2026 season `predict()` actually serves. A strict non-null filter there wouldn't just shrink `predict()`'s row count, it would zero it out entirely and silently stop producing any live predictions at all.
+
+**Not a workaround — XGBoost handles this natively and correctly:** its split-finding algorithm learns a default branch direction for missing values at every tree split, and the sklearn wrapper's default `missing=nan` already matches what `_fetch_rows()`/`predict()` now pass through (`None` → `np.nan`, not a crash or a dropped row). A row missing some optional features still trains/predicts on whatever real signal it does have, rather than being excluded or needing manual imputation.
+
+**Verified before landing:** existing gbm tests already implicitly exercised NULL optional columns (the synthetic fixture never populated them) and continued passing unchanged; added one more explicit test asserting `train_rows`/`predict()`'s row count aren't reduced by NULL optional columns, proving this isn't accidental.
+
 ## ADR-042: Fixed a real O(n²) performance bug in bullpen.py's fatigue calculation
 
 **What happened:** the first production run of `bullpen.compute()` (ADR-039) against full real data — 434K team-game rows spanning 1901-2026 — ran for 25+ minutes and climbed past that with no sign of finishing, confirmed genuinely CPU-bound (98%+ CPU, steadily climbing) rather than stuck. The original fatigue calculation used a `LATERAL` join: for every one of those 434K rows, a fresh correlated subquery re-scanned that team's *entire* history for the trailing-3-day window. Quadratic in the number of team-games, not linear — the exact class of bug the "verified against real data" discipline this project follows is meant to catch, just caught at full production scale rather than in a small test fixture (small fixtures can't surface an O(n²) cost; only real data volume does).

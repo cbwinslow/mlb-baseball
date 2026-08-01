@@ -7,6 +7,7 @@ import os
 
 import psycopg
 import pytest
+from psycopg import sql
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test")
 
@@ -29,14 +30,68 @@ def db_url_for():
     return _url
 
 
+def _speed_up_test_database(url: str) -> None:
+    """Test-only durability relaxations for the disposable database at
+    `url` — never called against production (this only ever runs from the
+    session fixture below, which always targets TEST_DATABASE_URL, never
+    the DATABASE_URL production code paths use). See GitHub issue #2 and
+    README "Testing" for the full measurement.
+
+    Two independent changes, both needed:
+
+    1. `synchronous_commit = off` — every test's commit otherwise waits on
+       a WAL flush it doesn't need for disposable data. Free win for the
+       suite's many small per-test transactions.
+
+    2. UNLOGGED on every core.play/core.pitch season partition (migration
+       0011; ~316 partitions combined). Confirmed directly (psql \\timing
+       + pg_stat_activity) that TRUNCATE on these is dominated by a
+       synchronous per-relation fsync (`DataFileImmediateSync` wait), and
+       that this is *independent* of synchronous_commit — a bare TRUNCATE
+       took ~79s with synchronous_commit on and ~84s with it off, no
+       improvement. Unlogged relations skip that fsync (they're wiped on
+       crash recovery anyway, which is fine — test data is always
+       rebuilt), dropping the same TRUNCATE to ~20s. Idempotent and cheap
+       (~0.2s total) once already set, so this runs unconditionally on
+       every session start rather than only on a fresh database.
+    """
+    with psycopg.connect(url, autocommit=True) as conn:
+        dbname = conn.info.dbname
+        alter_db = sql.SQL("ALTER DATABASE {} SET synchronous_commit = off")
+        conn.execute(alter_db.format(sql.Identifier(dbname)))
+        conn.execute("SET synchronous_commit = off")
+        partitions = conn.execute(
+            """
+            SELECT n.nspname, c.relname
+            FROM pg_inherits i
+            JOIN pg_class c ON c.oid = i.inhrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_class p ON p.oid = i.inhparent
+            JOIN pg_namespace pn ON pn.oid = p.relnamespace
+            WHERE pn.nspname = 'core'
+              AND p.relname IN ('play', 'pitch')
+              AND c.relpersistence <> 'u'
+            """
+        ).fetchall()
+        for schema_name, table_name in partitions:
+            conn.execute(
+                sql.SQL("ALTER TABLE {}.{} SET UNLOGGED").format(
+                    sql.Identifier(schema_name), sql.Identifier(table_name)
+                )
+            )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _test_database():
-    """Points DATABASE_URL at the test database and applies migrations once
-    per test session, before any test runs."""
+    """Points DATABASE_URL at the test database, applies migrations once
+    per test session before any test runs, then applies test-only
+    durability relaxations (never done against production — see
+    _speed_up_test_database's docstring)."""
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
     from mlb_baseball import migrate
 
     migrate.run()
+    _speed_up_test_database(TEST_DATABASE_URL)
     yield
 
 

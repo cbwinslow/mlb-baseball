@@ -63,3 +63,18 @@ pytest
 ```
 
 Integration tests run against `mlb_test` (override with `TEST_DATABASE_URL`) — real Postgres, not mocks, per `CLAUDE.md`. `tests/unit/` covers pure logic with no I/O; `tests/integration/` covers everything that touches the database (network calls are mocked with fixture data so tests stay fast and offline-capable).
+
+### Test speed
+
+See GitHub issue #2 for the original diagnosis. `core.play`/`core.pitch` are season-partitioned (migration 0011, ~158 partitions each) and every `TRUNCATE` that touches them — including `conform.run()`'s own consolidated one, called from most of `test_conform.py` — pays a synchronous per-relation fsync (`DataFileImmediateSync` in `pg_stat_activity`), independent of `synchronous_commit`: confirmed directly (`psql`, `\timing`) that a bare `TRUNCATE core.play, core.pitch` took ~79s with `synchronous_commit` on and ~84s with it off, no improvement.
+
+`tests/conftest.py`'s session fixture now applies two test-only, automatic relaxations to whatever `TEST_DATABASE_URL` points at (never production — this code path only ever runs from the pytest fixture):
+
+1. `ALTER DATABASE ... SET synchronous_commit = off` — a real, free win for the suite's many small per-test commits, even though it didn't fix the TRUNCATE cost above.
+2. Every `core.play`/`core.pitch` partition is set `UNLOGGED`. Unlogged relations skip the fsync that made TRUNCATE slow (they're wiped on crash recovery instead, which is fine — test data is always rebuilt from fixtures). Measured: the same `TRUNCATE` above dropped from ~79s to ~20s. One-time cost (~55s to flip ~316 partitions the first time; ~0.2s on every run after, since it's idempotent) paid once per test session.
+
+On top of that, `tests/integration/test_conform.py` had ~18 leftover per-test `TRUNCATE core.play, core.pitch, ...` cleanup calls that were fully redundant with its own autouse `_clean_tables` fixture (which already `DELETE`s the same tables after every test) — removed outright rather than sped up, since they did nothing but repeat work already done.
+
+For a dedicated, disposable test Postgres *instance* (never one that also hosts a real database), the instance-level `fsync = off` setting eliminates this cost entirely rather than just reducing it — but it disables crash safety for every database on that instance, so only set it in `postgresql.conf` on a cluster you'd happily wipe and never on a shared instance that also runs production data.
+
+Measured full-suite wall time on this machine (shared with other concurrent work at the time of both runs — expect better numbers on a quiet box): **before**, a full run against the unfixed code was deliberately stopped after 25 minutes having completed only 26 of ~400 tests (not a projection — an actual run, killed once the pace made a multi-hour completion time obvious); **after** these changes, the full suite (402 tests) completed in **18m05s**.

@@ -5,7 +5,16 @@ cross-referencing IDs) and asserts the join logic and idempotency on the
 real test database. raw.register_people comes from a migration (always
 present); raw.retrosheet_team/raw.retrosheet_gameinfo are dynamically
 created by load_dataframe in production, so this test creates them itself
-and drops them afterward, matching test_retrosheet_load.py's convention."""
+and drops them afterward, matching test_retrosheet_load.py's convention.
+
+Every test only needs to clean up tables *it* created directly (dynamic raw
+tables, mostly, via DROP TABLE IF EXISTS) — core.play/pitch/market/
+gold.game_feature/core.game/team/player/venue/standing/team_alias/
+player_war are already reset after every test by the autouse
+_clean_tables fixture below (see _reset_dynamic_tables). Do not add a
+per-test TRUNCATE/DELETE for any of those; a prior version of this file did
+that redundantly (a second, unnecessary pass truncating core.play/pitch's
+~150+ partitions per test, see GitHub issue #2) before it was removed."""
 
 from decimal import Decimal
 
@@ -365,7 +374,6 @@ def test_build_plays_and_pitches_unify_both_sources(db_conn):
             "raw.statcast_pitch",
         ]:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
-        cur.execute("TRUNCATE core.play, core.pitch")
     db_conn.commit()
 
 
@@ -469,14 +477,9 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
         cur.execute(
             "DROP TABLE IF EXISTS raw.mlb_schedule, raw.retrosheet_park, raw.mlb_venue"
         )
-        # play/pitch/market/game_feature reference game — must truncate
-        # together, see run()'s comment. core.venue too, since this test
-        # seeds its own row and the shared cleanup fixture doesn't know
-        # about it (it's not one of DYNAMIC_RAW_TABLES).
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, "
-            "core.game, core.venue"
-        )
+        # core.play/pitch/market/game_feature/game/venue are all reset by
+        # the autouse _clean_tables fixture right after this test returns
+        # (see _reset_dynamic_tables) — no need to also do it here.
     db_conn.commit()
 
 
@@ -598,9 +601,8 @@ def test_build_plays_includes_win_probability_for_mlb_api_rows(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.mlb_playbyplay, raw.mlb_win_prob")
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
+        # core.play/pitch/market/game_feature/game are reset by the autouse
+        # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
 
 
@@ -714,12 +716,9 @@ def test_build_market_matches_polymarket_and_kalshi_to_a_core_game(db_conn):
     assert by_team[("polymarket", "ATL")][1] == Decimal("0.6")
     assert by_team[("polymarket", "NYA")][1] == Decimal("0.4")
 
+    # core.play/pitch/market/game_feature/game are reset by the autouse
+    # _clean_tables fixture right after this test — no need here too.
     _drop_market_fixtures(db_conn)
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
-    db_conn.commit()
 
 
 def test_build_market_leaves_market_ref_unique_across_both_outcome_rows(db_conn):
@@ -736,12 +735,9 @@ def test_build_market_leaves_market_ref_unique_across_both_outcome_rows(db_conn)
         )
         assert cur.fetchone() == (2,)
 
+    # core.play/pitch/market/game_feature/game are reset by the autouse
+    # _clean_tables fixture right after this test — no need here too.
     _drop_market_fixtures(db_conn)
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
-    db_conn.commit()
 
 
 def test_build_market_leaves_kalshi_price_as_bid_ask_midpoint_when_untraded(db_conn):
@@ -759,12 +755,9 @@ def test_build_market_leaves_kalshi_price_as_bid_ask_midpoint_when_untraded(db_c
         cur.execute("SELECT implied_probability FROM core.market WHERE source = 'kalshi'")
         assert cur.fetchone() == (Decimal("0.60"),)  # (0.58 + 0.62) / 2
 
+    # core.play/pitch/market/game_feature/game are reset by the autouse
+    # _clean_tables fixture right after this test — no need here too.
     _drop_market_fixtures(db_conn)
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
-    db_conn.commit()
 
 
 def test_build_market_rerunning_replaces_instead_of_duplicating(db_conn):
@@ -777,12 +770,9 @@ def test_build_market_rerunning_replaces_instead_of_duplicating(db_conn):
         cur.execute("SELECT count(*) FROM core.market")
         assert cur.fetchone() == (3,)
 
+    # core.play/pitch/market/game_feature/game are reset by the autouse
+    # _clean_tables fixture right after this test — no need here too.
     _drop_market_fixtures(db_conn)
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
-    db_conn.commit()
 
 
 def test_build_player_war_lands_batting_and_pitching_rows(db_conn):
@@ -988,9 +978,8 @@ def test_backfill_mlb_team_id_uses_majority_vote_despite_a_noisy_outlier(db_conn
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
+        # core.play/pitch/market/game_feature/game are reset by the autouse
+        # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
 
 
@@ -1008,9 +997,8 @@ def test_backfill_team_ids_via_mlb_id_fixes_bare_name_mismatch(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
+        # core.play/pitch/market/game_feature/game are reset by the autouse
+        # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
 
 
@@ -1037,9 +1025,8 @@ def test_backfill_mlb_team_id_degrades_gracefully_without_away_id_column(db_conn
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
+        # core.play/pitch/market/game_feature/game are reset by the autouse
+        # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
 
 
@@ -1115,12 +1102,9 @@ def test_build_market_matches_polymarket_rebrand_alias(db_conn):
         )
         assert cur.fetchone() == (Decimal("0.55"),)
 
+    # core.play/pitch/market/game_feature/game are reset by the autouse
+    # _clean_tables fixture right after this test — no need here too.
     _drop_market_fixtures(db_conn)
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
-    db_conn.commit()
 
 
 def test_build_market_matches_kalshi_athletics_ticker_via_alias(db_conn):
@@ -1184,9 +1168,8 @@ def test_build_market_matches_kalshi_athletics_ticker_via_alias(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.kalshi_market")
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
+        # core.play/pitch/market/game_feature/game are reset by the autouse
+        # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
 
 
@@ -1386,9 +1369,8 @@ def test_build_standings_resolves_team_via_mlb_team_id(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.mlb_standing")
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
+        # core.play/pitch/market/game_feature/game are reset by the autouse
+        # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
 
 
@@ -1405,9 +1387,8 @@ def test_build_standings_rerunning_replaces_instead_of_duplicating(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.mlb_standing")
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
+        # core.play/pitch/market/game_feature/game are reset by the autouse
+        # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
 
 
@@ -1495,9 +1476,8 @@ def test_backfill_game_pk_does_not_overwrite_an_already_correct_value(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
+        # core.play/pitch/market/game_feature/game are reset by the autouse
+        # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
 
 
@@ -1575,9 +1555,8 @@ def test_backfill_game_pk_distinguishes_doubleheader_games(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
+        # core.play/pitch/market/game_feature/game are reset by the autouse
+        # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
 
 
@@ -1615,7 +1594,8 @@ def test_build_pitches_leaves_unmatched_statcast_row_as_null_instead_of_dropping
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
-        cur.execute("TRUNCATE core.pitch")
+        # core.pitch is reset by the autouse _clean_tables fixture right
+        # after this test — no need here too.
     db_conn.commit()
 
     with db_conn.cursor() as cur:
@@ -1781,11 +1761,8 @@ def test_health_check_doubleheader_identity_flags_a_collision(db_conn):
     assert not check.ok
     assert "colliding identity" in check.detail
 
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
-    db_conn.commit()
+    # core.play/pitch/market/game_feature/game are reset by the autouse
+    # _clean_tables fixture right after this test — no need here too.
 
 
 def test_health_check_play_natural_key_flags_a_partition_split_duplicate(db_conn):
@@ -1818,11 +1795,8 @@ def test_health_check_play_natural_key_flags_a_partition_split_duplicate(db_conn
     assert not check.ok
     assert "colliding identity" in check.detail
 
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "TRUNCATE core.play, core.pitch, core.market, gold.game_feature, core.game"
-        )
-    db_conn.commit()
+    # core.play/pitch/market/game_feature/game are reset by the autouse
+    # _clean_tables fixture right after this test — no need here too.
 
 
 def test_health_check_includes_join_integrity_safeguards():

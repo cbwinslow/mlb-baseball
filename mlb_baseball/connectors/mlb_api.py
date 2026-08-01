@@ -777,7 +777,9 @@ def _boxscore_identity(player: dict, game_pk: int, team_id: int) -> dict:
 
 
 def _boxscore_rows(data: dict, game_pk: int) -> tuple[list[dict], list[dict], list[dict]]:
-    batting_rows, pitching_rows, fielding_rows = [], [], []
+    batting_rows: list[dict] = []
+    pitching_rows: list[dict] = []
+    fielding_rows: list[dict] = []
     for side in ("away", "home"):
         team = data.get("teams", {}).get(side, {})
         team_id = team.get("team", {}).get("id")

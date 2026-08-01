@@ -177,17 +177,20 @@ def train(conn: psycopg.Connection) -> dict:
     def _score(probs: np.ndarray) -> dict:
         return {"log_loss": log_loss(y_val, probs), "brier": brier_score_loss(y_val, probs)}
 
-    metrics = {
+    gbm_score = _score(gbm_probs)
+    log5_score = _score(log5_probs)
+    elo_score = _score(elo_probs)
+    metrics: dict = {
         "train_rows": len(y_train),
         "validation_rows": len(y_val),
-        "gbm": _score(gbm_probs),
-        "log5": _score(log5_probs),
-        "elo": _score(elo_probs),
+        "gbm": gbm_score,
+        "log5": log5_score,
+        "elo": elo_score,
     }
 
     beats_both = (
-        metrics["gbm"]["log_loss"] < metrics["log5"]["log_loss"]
-        and metrics["gbm"]["log_loss"] < metrics["elo"]["log_loss"]
+        gbm_score["log_loss"] < log5_score["log_loss"]
+        and gbm_score["log_loss"] < elo_score["log_loss"]
     )
     metrics["saved"] = beats_both
     if beats_both:

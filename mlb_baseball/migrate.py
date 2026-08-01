@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 
 import psycopg
@@ -59,4 +58,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

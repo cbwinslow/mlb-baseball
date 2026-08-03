@@ -537,8 +537,43 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
     # sources, but either can be genuinely NULL (pre-1901 games have no
     # game_number at all) — a bare `=` would never match two NULLs, so both
     # sides normalize NULL to the same "not a doubleheader" default instead.
+    #
+    # A second, distinct source-data quirk found later (mlb doctor's
+    # check_no_duplicate_key flagged game_pk 123347 shared by two real,
+    # distinct 1944 games a month apart — not a doubleheader, not the
+    # suspended-and-resumed case below): raw.mlb_schedule itself sometimes
+    # lists the *same* game_id under two different game_dates with *both*
+    # rows marked status='Final' (confirmed directly: 216 distinct game_id
+    # values in production have 2+ 'Final' rows — a genuine MLB Stats API
+    # data quirk, likely a postponement/makeup-game bookkeeping artifact
+    # from decades before the API existed, not something this pipeline can
+    # correct at the source). Each date's row matches its own real core.game
+    # row correctly (date is already part of the join condition below), but
+    # both happen to carry the identical game_id, so both core.game rows
+    # would get set to the same, now-ambiguous, game_pk. Excluded from the
+    # backfill entirely — same "leave it NULL, don't guess" precedent as
+    # core.play's statcast join above — rather than guessing which of the
+    # two real games the id "really" belongs to.
+    _AMBIGUOUS_FINAL_IDS = """
+        SELECT game_id FROM raw.mlb_schedule
+        WHERE status = 'Final'
+        GROUP BY game_id
+        HAVING count(*) > 1
+    """
     try:
         with conn.transaction(), conn.cursor() as cur:
+            # Self-healing: a game_pk assigned by an earlier conform() run,
+            # before this ambiguity check existed, stays wrong forever
+            # otherwise — the UPDATE below only ever touches rows where
+            # game_pk IS NULL, so a previously-corrupted value would never
+            # get revisited on subsequent runs without this.
+            cur.execute(
+                f"""
+                UPDATE core.game
+                SET game_pk = NULL
+                WHERE game_pk IN ({_AMBIGUOUS_FINAL_IDS})
+                """
+            )
             # FROM-list uses implicit (comma) joins, not explicit JOIN...ON,
             # because Postgres's UPDATE...FROM doesn't allow the UPDATE
             # target (g) to be referenced inside a JOIN...ON clause within
@@ -550,7 +585,7 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
             # actually reading the exception's message during debugging
             # rather than trusting the except clause's assumption.
             cur.execute(
-                """
+                f"""
                 UPDATE core.game g
                 SET game_pk = ms.game_id
                 FROM raw.mlb_schedule ms, core.team away, core.team home
@@ -575,6 +610,7 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
                     -- duplicate this file's own check_no_duplicate_key
                     -- health check caught.
                     AND g.game_pk IS NULL
+                    AND ms.game_id NOT IN ({_AMBIGUOUS_FINAL_IDS})
                 """
             )
             return cur.rowcount

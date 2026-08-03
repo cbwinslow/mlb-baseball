@@ -1560,6 +1560,100 @@ def test_backfill_game_pk_distinguishes_doubleheader_games(db_conn):
     db_conn.commit()
 
 
+def test_backfill_game_pk_leaves_ambiguous_final_id_null(db_conn):
+    # Real bug found via mlb doctor's check_no_duplicate_key in production:
+    # game_pk 123347 was shared by two genuinely distinct, real 1944 PIT
+    # games a month apart (1944-07-02 and 1944-08-13) -- not a doubleheader
+    # (test_backfill_game_pk_distinguishes_doubleheader_games above) and not
+    # the suspended-and-resumed-game case
+    # (test_backfill_game_pk_does_not_overwrite_an_already_correct_value
+    # above). raw.mlb_schedule itself lists the same game_id under both
+    # dates with both rows marked status='Final' -- confirmed against real
+    # production data as a genuine, if rare, MLB Stats API quirk (216
+    # distinct game_id values found with 2+ 'Final' rows). Each date
+    # correctly matches its own real core.game row (date is part of the
+    # join), but both would get set to the same now-ambiguous game_pk.
+    # Expected fix: leave game_pk NULL for both rather than guess.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('PIT', 'NL', 'Pittsburgh', 'Pirates', '1887', '2025'), "
+            "('BSN', 'NL', 'Boston', 'Braves', '1876', '1952')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text, "
+            "temp text, winddir text, windspeed text, sky text, "
+            "precip text, fieldcond text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('PIT194407022', '1944', '19440702', '2', 'BSN', 'PIT', "
+            "'3', '5', 'regular', 'PIT07', '5000', '150', 'D', '', '', '', "
+            "'', '', '', '', '', ''), "
+            "('PIT194408132', '1944', '19440813', '2', 'BSN', 'PIT', "
+            "'1', '2', 'regular', 'PIT07', '4000', '145', 'D', '', '', '', "
+            "'', '', '', '', '', '')"
+        )
+        # conform.run()'s own prerequisite check requires this non-empty --
+        # content irrelevant here, just needs a row to exist.
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first) VALUES "
+            "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, venue_id text, away_score text, home_score text)"
+        )
+        # Same game_id (123347) under both real dates, both 'Final' -- the
+        # actual production shape, not a fabricated edge case.
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('123347', '1944-07-02', 'Boston Braves', 'Pittsburgh Pirates', "
+            "'1944', 'Final', 'R', '2', 'Forbes Field', '', '3', '5'), "
+            "('123347', '1944-08-13', 'Boston Braves', 'Pittsburgh Pirates', "
+            "'1944', 'Final', 'R', '2', 'Forbes Field', '', '1', '2')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_game_id, game_pk FROM core.game "
+            "WHERE retro_game_id IN ('PIT194407022', 'PIT194408132') "
+            "ORDER BY retro_game_id"
+        )
+        rows = dict(cur.fetchall())
+    assert rows["PIT194407022"] is None
+    assert rows["PIT194408132"] is None
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM core.game GROUP BY game_pk "
+            "HAVING game_pk IS NOT NULL AND count(*) > 1"
+        )
+        assert cur.fetchone() is None
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        # core.play/pitch/market/game_feature/game are reset by the autouse
+        # _clean_tables fixture right after this test — no need here too.
+    db_conn.commit()
+
+
 def test_build_pitches_leaves_unmatched_statcast_row_as_null_instead_of_dropping(db_conn):
     # Real bug found in this review: an inner JOIN here silently dropped
     # every raw.statcast_pitch row whose game_pk didn't resolve to a

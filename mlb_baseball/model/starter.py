@@ -466,15 +466,33 @@ _PROBABLE_ACTUAL_SQL = (
 # raw.mlb_playbyplay history correctly stays NULL (see home_quality/
 # away_quality above), so counting every announced probable as "should
 # resolve" regardless would make this check permanently, falsely red.
+#
+# Real bug found via mlb doctor (issue #5): this used to additionally
+# require a core.player row (JOIN core.player p ON pbp.pitcher_id =
+# p.mlbam_id) before counting a pitcher as "has qualifying history" -- but
+# home_quality/away_quality above never go through core.player at all to
+# compute fip/k_pct/etc., they match raw.mlb_probable.pitcher_id straight
+# to raw.mlb_playbyplay.pitcher_id (both already mlbam-style numeric ids,
+# no crosswalk needed). That extra join meant a pitcher new enough to have
+# prior 2026 starts but not yet in core.player (e.g. the register/Chadwick
+# crosswalk hasn't caught up to a very recent debut) resolved a real,
+# correct fip that this check then couldn't explain -- confirmed directly
+# in production: 5 rows had resolved_era set with no matching core.player
+# row at all (5/5 confirmed absent), producing "62 > expected 57" (doctor's
+# check_join_coverage flags any over-count as a bug, matching this exactly).
+# Also added ms.game_type = 'R' to mirror play_outs' own filter above --
+# without it, a pitcher whose only prior appearance was spring
+# training/exhibition would count as "expected" here despite play_outs
+# never having a qualifying row for them either.
 _PROBABLE_EXPECTED_SQL = (
     _PROBABLE_COVERAGE_CTE
     + """
     SELECT count(*) FROM sided s
     WHERE EXISTS (
-        SELECT 1 FROM core.player p
-        JOIN raw.mlb_playbyplay pbp ON pbp.pitcher_id = p.mlbam_id
-        JOIN raw.mlb_schedule ms ON ms.game_id = pbp.game_pk AND ms.game_date::date < s.game_date
-        WHERE p.mlbam_id = s.pitcher_id
+        SELECT 1 FROM raw.mlb_playbyplay pbp
+        JOIN raw.mlb_schedule ms ON ms.game_id = pbp.game_pk
+            AND ms.game_date::date < s.game_date AND ms.game_type = 'R'
+        WHERE pbp.pitcher_id = s.pitcher_id
     )
     """
 )

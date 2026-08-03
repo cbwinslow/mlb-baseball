@@ -567,3 +567,71 @@ def test_health_check_flags_missing_probable_coverage(db_conn):
     assert not check.ok
 
     _reset(db_conn)
+
+
+def test_health_check_probable_coverage_not_confused_by_missing_core_player(db_conn):
+    # Real bug found via mlb doctor (issue #5): a probable pitcher not yet
+    # in core.player (e.g. too recent a debut for the register/Chadwick
+    # crosswalk to have caught up) can still get a real, correct
+    # home_starter_era resolved -- home_quality/away_quality in
+    # _PROBABLE_BUILD_SQL never go through core.player at all, matching
+    # raw.mlb_probable.pitcher_id straight to raw.mlb_playbyplay.pitcher_id.
+    # _PROBABLE_EXPECTED_SQL used to additionally require a core.player row
+    # before counting a pitcher as "has qualifying history," which made
+    # every one of these resolve as an unexplained over-count
+    # (check_join_coverage flags any over-count regardless of tolerance).
+    # Confirmed directly in production: 5 such rows, none with a matching
+    # core.player row at all.
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    _ensure_probable_table(db_conn)
+    teams, _players = _seed_teams_and_players(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    _extend_team_range_to_2026(db_conn, atl, nya)
+    # Deliberately NOT calling _seed_probable_pitchers -- pitcher_id 9999
+    # below has no core.player row at all, the exact shape of the bug.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id) VALUES "
+            "('900070', '2026', '2026-04-01', 'R', 'Final', '144', '147'), "
+            "('900071', '2026', '2026-04-15', 'R', 'Scheduled', '144', '147')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('900070', '0', '1', 'top', '9999', 'strikeout', '1', '2026'), "
+            "('900070', '1', '1', 'top', '9999', 'field_out', '2', '2026')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_probable (game_pk, side, pitcher_id, pitcher_name) "
+            "VALUES ('900071', 'home', '9999', 'Rookie Not Yet In core.player')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    starter.compute_probable(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_id, home_starter_era FROM gold.game_feature "
+            "WHERE mlb_game_pk = '900071'"
+        )
+        home_id, home_era = cur.fetchone()
+    # Identity can't resolve (no core.player row), but the rate itself did.
+    assert home_id is None
+    assert home_era is not None
+
+    checks = starter.health_check()
+    check = next(
+        c
+        for c in checks
+        if c.name == "upcoming games with an announced probable get a resolved starter feature"
+    )
+    assert check.ok, check.detail
+
+    _reset(db_conn)

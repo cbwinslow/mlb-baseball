@@ -73,6 +73,8 @@ def run() -> dict[str, int]:
         offense.compute_wrc_plus_live(conn)
         war.compute(conn)
         bullpen.compute(conn)
+        bullpen.compute_live(conn)
+        bullpen.compute_upcoming(conn)
         oaa.compute(conn)
         speed.compute(conn)
         framing.compute(conn)

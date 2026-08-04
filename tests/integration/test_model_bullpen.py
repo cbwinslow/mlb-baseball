@@ -42,18 +42,62 @@ def _seed_teams(db_conn):
 def _reset(db_conn):
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.retrosheet_event")
-        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.retrosheet_gameinfo")
+        for table in (
+            "raw.retrosheet_event",
+            "raw.retrosheet_gameinfo",
+            "raw.mlb_schedule",
+            "raw.mlb_playbyplay",
+        ):
+            cur.execute("SELECT to_regclass(%s)", (table,))
+            if cur.fetchone()[0]:
+                cur.execute(f"DELETE FROM {table}")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.player")
         cur.execute("DELETE FROM core.team")
     db_conn.commit()
+
+
+def _ensure_playbyplay_table(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_playbyplay ("
+                "game_pk text, at_bat_index text, inning text, half_inning text, "
+                "pitcher_id text, event_type text, outs text, _season text)"
+            )
+    db_conn.commit()
+
+
+def _ensure_mlb_schedule_table(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_schedule ("
+                "game_id text, _season text, game_date text, game_type text, "
+                "status text, home_id text, away_id text, game_num text, "
+                "venue_id text)"
+            )
+    db_conn.commit()
+
+
+def _seed_teams_2026(db_conn):
+    # Same shape as _seed_teams, but with last_year extended to 2026 --
+    # features.py's own upcoming-games union requires
+    # `season BETWEEN first_year AND last_year` (see its own docstring),
+    # so a 2026 raw.mlb_schedule row needs the team's range to cover it.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2026, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2026, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        return {retro_id: team_id for team_id, retro_id in cur.fetchall()}
 
 
 def test_compute_rolls_up_relief_only_with_zero_leakage_and_correct_fatigue_window(db_conn):
@@ -219,7 +263,349 @@ def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
     assert bullpen.compute(db_conn) == 0
 
 
+def test_compute_live_rolling_fip_and_rates_match_hand_calculation(db_conn):
+    # ADR-051: raw.mlb_playbyplay equivalent of the retrosheet-sourced test
+    # above, same fixture shape re-dated into 2026. G1 (2026-04-01,
+    # game_pk=900001): ATL (home, top half) starter startp1 faces 2 BF
+    # (1 K, 1 field_out); ATL reliever relp1 then faces 3 BF (1 BB, 1 HR,
+    # 1 field_out -- 1 out total, 0 K). NYA (away, bottom half) starter
+    # startp2 pitches the whole game alone -- no NYA reliever appears.
+    #
+    # G2 (2026-04-03, 2 days later -- inside the 3-day fatigue window):
+    # both teams use only their starters again.
+    #
+    # Entering G2, ATL's rolling bullpen line is exactly relp1's G1 line:
+    #   BF=3, K=0, BB=1, HR=1, outs=1
+    #   k_pct = 0, bb_pct = 1/3 = 0.33333
+    #   fip = (13*1 + 3*1 - 2*0) / (1/3) + 3.10 = 48 + 3.10 = 51.1
+    #   fatigue (trailing 3 days before 2026-04-03): G1 (04-01) qualifies -> 1
+    # NYA never used a reliever -- quality NULL, fatigue a real 0 (the
+    # team_game backbone this shares with compute()'s own _BUILD_SQL).
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    teams = _seed_teams_2026(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('MLB900001', '900001', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('MLB900002', '900002', 2026, '2026-04-03', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('900001', '0', '1', 'top', '5001', 'strikeout', '1', '2026'), "
+            "('900001', '1', '1', 'top', '5001', 'field_out', '2', '2026'), "
+            "('900001', '2', '1', 'top', '5099', 'walk', '2', '2026'), "
+            "('900001', '3', '1', 'top', '5099', 'home_run', '2', '2026'), "
+            "('900001', '4', '1', 'top', '5099', 'field_out', '3', '2026'), "
+            "('900001', '5', '1', 'bottom', '5002', 'field_out', '1', '2026'), "
+            "('900002', '0', '1', 'top', '5001', 'field_out', '1', '2026'), "
+            "('900002', '1', '1', 'bottom', '5002', 'field_out', '1', '2026')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = bullpen.compute_live(db_conn)
+    db_conn.commit()
+
+    assert updated == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.retro_game_id, f.home_bullpen_fip, f.home_bullpen_k_pct, "
+            "f.home_bullpen_bb_pct, f.home_bullpen_fatigue, "
+            "f.away_bullpen_fip, f.away_bullpen_k_pct, f.away_bullpen_bb_pct, "
+            "f.away_bullpen_fatigue "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "ORDER BY g.retro_game_id"
+        )
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+    g1 = rows["MLB900001"]
+    assert g1 == (None, None, None, None, None, None, None, None)
+
+    g2 = rows["MLB900002"]
+    assert g2[0] == Decimal("51.1")
+    assert g2[1] == Decimal("0")
+    assert abs(g2[2] - Decimal("1") / Decimal("3")) < Decimal("0.0001")
+    assert g2[3] == Decimal("1")
+    assert g2[4] is None
+    assert g2[5] is None
+    assert g2[6] is None
+    assert g2[7] == Decimal("0")
+
+    _reset(db_conn)
+
+
+def test_compute_live_returns_zero_without_playbyplay_table(db_conn):
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_playbyplay")
+    db_conn.commit()
+
+    assert bullpen.compute_live(db_conn) == 0
+
+
+def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
+    # compute_live() must only fill the NULL gap compute() leaves -- a game
+    # already resolved via raw.retrosheet_event must never be touched by
+    # the playbyplay path, even if a raw.mlb_playbyplay row happens to
+    # exist for it too (same discipline as starter.py's own analogous test).
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams_2026(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', '900001', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) VALUES ('G1', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "bat_event_fl, event_cd, event_outs_ct, _season) VALUES "
+            "('G1', '0', 'startp1', 'T', 'T', '2', '1', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    bullpen.compute(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_bullpen_fip FROM gold.game_feature f "
+            "JOIN core.game g ON g.id = f.game_id WHERE g.retro_game_id = 'G1'"
+        )
+        before = cur.fetchone()
+
+    bullpen.compute_live(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_bullpen_fip FROM gold.game_feature f "
+            "JOIN core.game g ON g.id = f.game_id WHERE g.retro_game_id = 'G1'"
+        )
+        after = cur.fetchone()
+
+    assert before == after
+
+    _reset(db_conn)
+    # This is the last test in this file to (re-)create raw.retrosheet_event
+    # via _ensure_retrosheet_tables -- drop it rather than leave it sitting
+    # around with this file's own minimal schema. Every other test_model_*.py
+    # file that touches raw.retrosheet_event only ever DELETEs rows, never
+    # drops the table, so whichever file's minimal schema happens to exist
+    # first "wins" for the rest of the session -- found the hard way:
+    # without this, test_model_offense.py's own richer schema (needs ab_fl/
+    # sf_fl, which this file's schema doesn't have) failed with a real
+    # UndefinedColumn error, purely from file collection order.
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
+    db_conn.commit()
+
+
+def test_compute_upcoming_rolls_up_team_history_with_zero_leakage(db_conn):
+    # ADR-051: unlike starter.py's compute_probable(), no raw.mlb_probable
+    # dependency at all -- bullpen quality/fatigue is team-level, resolved
+    # straight from gold.game_feature's own home_team_id/away_team_id
+    # (already set by features.py for every upcoming row). Same fixture
+    # shape as compute_live's test above: G1 (2026-04-01, completed, in
+    # core.game) gives ATL a real relief line; the upcoming game
+    # (2026-04-03, raw.mlb_schedule status='Scheduled', not yet in
+    # core.game at all) should resolve the exact same rolling values.
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    teams = _seed_teams_2026(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('MLB900001', '900001', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('900001', '0', '1', 'top', '5001', 'strikeout', '1', '2026'), "
+            "('900001', '1', '1', 'top', '5001', 'field_out', '2', '2026'), "
+            "('900001', '2', '1', 'top', '5099', 'walk', '2', '2026'), "
+            "('900001', '3', '1', 'top', '5099', 'home_run', '2', '2026'), "
+            "('900001', '4', '1', 'top', '5099', 'field_out', '3', '2026'), "
+            "('900001', '5', '1', 'bottom', '5002', 'field_out', '1', '2026')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id) VALUES "
+            "('900002', '2026', '2026-04-03', 'R', 'Scheduled', '144', '147')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = bullpen.compute_upcoming(db_conn)
+    db_conn.commit()
+
+    assert updated == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_bullpen_fip, home_bullpen_k_pct, home_bullpen_bb_pct, "
+            "home_bullpen_fatigue, away_bullpen_fip, away_bullpen_k_pct, "
+            "away_bullpen_bb_pct, away_bullpen_fatigue "
+            "FROM gold.game_feature WHERE mlb_game_pk = '900002'"
+        )
+        row = cur.fetchone()
+
+    assert row[0] == Decimal("51.1")
+    assert row[1] == Decimal("0")
+    assert abs(row[2] - Decimal("1") / Decimal("3")) < Decimal("0.0001")
+    assert row[3] == Decimal("1")
+    # NYA never used a reliever in any qualifying prior game -- unlike
+    # compute_live/compute()'s team_game backbone, compute_upcoming() has
+    # no backbone (see its own docstring), so a team with zero qualifying
+    # relief appearances resolves fatigue NULL here, not a real 0.
+    assert row[4] is None
+    assert row[5] is None
+    assert row[6] is None
+    assert row[7] is None
+
+    _reset(db_conn)
+
+
+def test_compute_upcoming_only_uses_history_strictly_before_target_game_date(db_conn):
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    teams = _seed_teams_2026(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('MLB900001', '900001', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('MLB900003', '900003', 2026, '2026-04-20', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            # Prior (before the target's 2026-04-15 date): ATL relief
+            # BF=2 (1 BB, 1 field_out), outs=1.
+            "('900001', '0', '1', 'top', '5001', 'field_out', '1', '2026'), "
+            "('900001', '1', '1', 'top', '5099', 'walk', '1', '2026'), "
+            "('900001', '2', '1', 'top', '5099', 'field_out', '2', '2026'), "
+            "('900001', '3', '1', 'bottom', '5002', 'field_out', '1', '2026'), "
+            # After the target's date -- must NOT count toward it. If it
+            # did, the reliever's HR here would shift fip from 12.1 up to
+            # (13*1 + 3*1 - 2*0)/(2/3) + 3.10 = 27 + 3.10 = 30.1.
+            "('900003', '0', '1', 'top', '5001', 'field_out', '1', '2026'), "
+            "('900003', '1', '1', 'top', '5099', 'home_run', '1', '2026'), "
+            "('900003', '2', '1', 'bottom', '5002', 'field_out', '1', '2026')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id) VALUES "
+            "('900002', '2026', '2026-04-15', 'R', 'Scheduled', '144', '147')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    bullpen.compute_upcoming(db_conn)
+    db_conn.commit()
+
+    # ATL relief prior-only: BF=2, K=0, BB=1, HR=0, outs=1.
+    # fip = (13*0 + 3*1 - 2*0)/(1/3) + 3.10 = 9 + 3.10 = 12.1 -- if the
+    # later game's HR leaked in, this would be 30.1 instead (see above).
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_bullpen_fip FROM gold.game_feature WHERE mlb_game_pk = '900002'"
+        )
+        (fip,) = cur.fetchone()
+    assert fip == Decimal("12.1")
+
+    _reset(db_conn)
+
+
+def test_compute_upcoming_returns_zero_without_playbyplay_table(db_conn):
+    _reset(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_playbyplay")
+    db_conn.commit()
+
+    assert bullpen.compute_upcoming(db_conn) == 0
+
+
+def test_health_check_flags_missing_upcoming_coverage(db_conn):
+    # A team has real, qualifying prior 2026 relief history, but
+    # home_bullpen_fip never got filled in for an upcoming game against
+    # them -- exactly what a broken compute_upcoming() run would look
+    # like. Six upcoming games, not one: check_join_coverage's tolerance
+    # (5) absorbs a handful of mismatches as a known, accepted edge case,
+    # a single missed row must not trip a doctor alert on that basis
+    # alone, but six genuinely should.
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    teams = _seed_teams_2026(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('MLB900001', '900001', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('900001', '0', '1', 'top', '5001', 'field_out', '1', '2026'), "
+            "('900001', '1', '1', 'top', '5099', 'walk', '1', '2026'), "
+            "('900001', '2', '1', 'bottom', '5002', 'field_out', '1', '2026')"
+        )
+        for i in range(6):
+            cur.execute(
+                "INSERT INTO raw.mlb_schedule "
+                "(game_id, _season, game_date, game_type, status, home_id, away_id) "
+                "VALUES (%s, '2026', '2026-04-15', 'R', 'Scheduled', '144', '147')",
+                (f"90006{i}",),
+            )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    # Deliberately NOT calling bullpen.compute_upcoming() -- home_bullpen_fip
+    # stays NULL for all six despite a real, resolvable history existing.
+
+    checks = bullpen.health_check()
+    check = next(c for c in checks if c.name == "upcoming games get a resolved bullpen feature")
+    assert not check.ok
+
+    _reset(db_conn)
+
+
 def test_health_check_runs_cleanly_against_an_empty_database():
     checks = bullpen.health_check()
-    assert len(checks) == 1
+    assert len(checks) == 2
     assert all(c.name for c in checks)

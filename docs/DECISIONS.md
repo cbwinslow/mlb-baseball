@@ -212,6 +212,29 @@ maintenance drag on its own — that's the point at which this spike's
 `park.py`/`offense.py` (already proven here) and the newest, least
 production-load-bearing modules first, not `conform.py`.
 
+**2026-08-04 status check (owner asked to start the migration; checked the
+trigger above before proceeding, decided to defer):** net new `model/`
+modules since this spike shipped: **0**. Only two ADRs have landed since
+(ADR-051, ADR-052) — ADR-051 extended the *existing* `bullpen.py` rather
+than adding a new module, and ADR-052 was a `conform.py` fix, the side of
+this spike already scoped no-go. `docs/ROADMAP.md`'s entire
+originally-planned Phase 2 feature list is now built with nothing new queued, and
+Phase 3 (the website) is still "not planned yet" — no roadmap pressure
+coming either. Also researched the one real gap this spike left open
+(every `model/*.py` module writes into the *shared* `gold.game_feature`
+table via `UPDATE`, but this spike's two ports built standalone tables
+instead — `gold.game_feature` itself was explicitly out of scope here):
+confirmed SQLMesh has no first-class way for a model to own a subset of
+columns on an externally-managed table (`EXTERNAL` models are read-only;
+the only escape hatch is a bespoke "custom materialization," real added
+complexity fighting the framework's normal one-model-owns-one-table
+shape). So a future migration's right design is now confirmed, not just
+guessed: a standalone SQLMesh-managed dimension table (`gold.park_factor`,
+`gold.team_woba`, etc., matching what this spike already built) plus a
+thin Python `UPDATE ... FROM` bridge into `gold.game_feature` — not a
+column-level SQLMesh trick. Deferred again with both open questions
+(trigger status, bridging design) now grounded instead of open.
+
 ## ADR-047: News/RSS connector — raw.news gets a hand-authored table with a real UNIQUE constraint, the one exception to raw's untyped-no-constraints rule
 
 **Decision:** New `news` connector (`mlb_baseball/connectors/news.py`) polls per-team and league-wide RSS/Atom feeds from MLB.com, MLB Trade Rumors, and ESPN, landing headlines/links/summaries in `raw.news` (migration 0027) for later NLP feature encoding (injury/trade/rumor signal extraction — not built yet, out of scope here).

@@ -42,7 +42,14 @@ is done in Python, not SQL, because both sources' team/date info is nested
 inside columns raw.polymarket_event/raw.kalshi_market store as Python-repr
 text (load_dataframe has no JSON-aware serialization — see ADR-026/027) —
 ast.literal_eval in Python is far more robust here than fragile string
-matching against repr'd dicts in SQL.
+matching against repr'd dicts in SQL. core.market.implied_probability
+(ADR-052, issue #1) resolves to the latest raw.polymarket_snapshot/
+raw.kalshi_snapshot row captured strictly before that specific game's real
+start time (raw.mlb_schedule.game_datetime, via core.game.game_pk) — never
+the current/settled price _polymarket_market_rows/_kalshi_market_rows used
+to read directly, which for a decided game already reflects the outcome
+and would leak straight into a Phase 2 model. NULL, not a guess, for any
+market with no qualifying pre-game snapshot.
 
 core.venue/core.standing (migration 0010) close the same class of gap for
 raw.retrosheet_park, raw.mlb_venue, and raw.mlb_standing — all fully
@@ -60,7 +67,8 @@ _build_standings must run after _backfill_mlb_team_id, not before.
 
 import re
 from ast import literal_eval
-from datetime import date
+from bisect import bisect_left
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 import psycopg
@@ -929,21 +937,115 @@ def _game_lookup(
     return exact, fuzzy
 
 
+# ADR-052 (issue #1): core.market.implied_probability used to be whatever
+# the most recently ingested raw.polymarket_outcome/raw.kalshi_market row
+# said -- for a closed market, that's the *settled* price, which already
+# reflects the actual outcome. Using it as a Phase 2 model feature would be
+# straightforward leakage, not just missing data (confirmed directly with a
+# real example while building this fix: market 3155100, the 2026-08-02
+# PHI@BAL moneyline, moved from 0.555/0.445 on the morning of the game to
+# 0.9995/0.0005 the very next day -- unmistakably a settled/near-settled
+# price, not anything usable pre-game).
+#
+# raw.polymarket_snapshot/raw.kalshi_snapshot (ADR-049) capture a
+# timestamped price for every open/active MLB market on each bootstrap()/
+# update() run -- real pre-game data points, unlike the single current-state
+# row _polymarket_market_rows/_kalshi_market_rows used to read from. This
+# resolves each market's implied_probability to the latest snapshot
+# strictly before that specific game's real start time (raw.mlb_schedule.
+# game_datetime, joined via core.game.game_pk) instead -- honestly NULL,
+# not the settled price, for any market with no qualifying snapshot (a game
+# from before ADR-049 started capturing snapshots, a market that never
+# matched a game at all, or a market whose only price history predates this
+# codebase entirely -- raw.polymarket_price/raw.kalshi_candle, the *full*
+# historical intraday backfill ADR-049 also built, haven't been
+# owner-triggered yet; see issue #1's own "Revisit if"). Same "leave it
+# NULL, don't guess" precedent as core.game.game_pk's own backfill.
+def _market_game_start_times(conn: psycopg.Connection) -> dict[int, datetime]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT g.id, ms.game_datetime
+            FROM core.game g
+            JOIN raw.mlb_schedule ms ON ms.game_id = g.game_pk
+            WHERE g.game_pk IS NOT NULL AND ms.game_datetime IS NOT NULL
+            """
+        )
+        starts: dict[int, datetime] = {}
+        for game_id, game_datetime in cur.fetchall():
+            try:
+                starts[game_id] = datetime.fromisoformat(game_datetime)
+            except ValueError:
+                continue
+        return starts
+
+
+def _latest_before(entries: list[tuple[datetime, Decimal]], cutoff: datetime) -> Decimal | None:
+    """entries must be sorted ascending by timestamp (both snapshot lookups
+    below build them via ORDER BY captured_at). bisect_left finds the first
+    entry NOT strictly before cutoff; the qualifying value, if any, is
+    immediately before that index."""
+    idx = bisect_left(entries, (cutoff, Decimal(0))) if entries else 0
+    if idx == 0:
+        return None
+    return entries[idx - 1][1]
+
+
+def _polymarket_snapshot_lookup(conn: psycopg.Connection) -> dict[tuple[str, str], list]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT market_id, outcome, price, captured_at FROM raw.polymarket_snapshot "
+            "WHERE price IS NOT NULL AND captured_at IS NOT NULL ORDER BY captured_at"
+        )
+        by_market_outcome: dict[tuple[str, str], list] = {}
+        for market_id, outcome, price, captured_at in cur.fetchall():
+            try:
+                ts = datetime.fromisoformat(captured_at)
+                value = Decimal(price)
+            except (ValueError, InvalidOperation):
+                continue
+            by_market_outcome.setdefault((market_id, outcome), []).append((ts, value))
+        return by_market_outcome
+
+
+def _kalshi_snapshot_lookup(conn: psycopg.Connection) -> dict[str, list]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker, yes_bid_dollars, yes_ask_dollars, last_price_dollars, captured_at "
+            "FROM raw.kalshi_snapshot WHERE captured_at IS NOT NULL ORDER BY captured_at"
+        )
+        by_ticker: dict[str, list] = {}
+        for ticker, yes_bid, yes_ask, last_price, captured_at in cur.fetchall():
+            price = _kalshi_implied_probability(last_price, yes_bid, yes_ask)
+            if price is None:
+                continue
+            try:
+                ts = datetime.fromisoformat(captured_at)
+            except ValueError:
+                continue
+            by_ticker.setdefault(ticker, []).append((ts, price))
+        return by_ticker
+
+
 def _polymarket_market_rows(
-    conn: psycopg.Connection, by_alias: dict[str, int], game_exact: dict[tuple, int]
+    conn: psycopg.Connection,
+    by_alias: dict[str, int],
+    game_exact: dict[tuple, int],
+    game_starts: dict[int, datetime],
+    snapshots: dict[tuple[str, str], list],
 ) -> list[tuple]:
     rows: list[tuple] = []
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT e.slug, e.teams, e.closed, m.id, m.volume, o.outcome, o.price
+            SELECT e.slug, e.teams, e.closed, m.id, m.volume, o.outcome
             FROM raw.polymarket_event e
             JOIN raw.polymarket_market m ON m.event_id = e.id
             JOIN raw.polymarket_outcome o ON o.market_id = m.id
             WHERE e.sport IS NOT NULL
             """
         )
-        for slug, teams_text, closed, market_id, volume, outcome, price in cur.fetchall():
+        for slug, teams_text, closed, market_id, volume, outcome in cur.fetchall():
             date_match = _POLYMARKET_SLUG_DATE_RE.search(slug or "")
             if not date_match:
                 continue
@@ -976,7 +1078,15 @@ def _polymarket_market_rows(
             # (source, market_ref) constraint. Kalshi doesn't need this:
             # it already issues a separate ticker per side.
             market_ref = f"{market_id}:{team_id}"
-            rows.append((game_id, "polymarket", market_ref, team_id, price, volume, status))
+            start_time = game_starts.get(game_id) if game_id is not None else None
+            implied_probability = (
+                _latest_before(snapshots.get((market_id, outcome), []), start_time)
+                if start_time is not None
+                else None
+            )
+            rows.append(
+                (game_id, "polymarket", market_ref, team_id, implied_probability, volume, status)
+            )
     return rows
 
 
@@ -998,19 +1108,22 @@ def _kalshi_implied_probability(
 
 
 def _kalshi_market_rows(
-    conn: psycopg.Connection, by_alias: dict[str, int], game_fuzzy: dict[tuple, tuple]
+    conn: psycopg.Connection,
+    by_alias: dict[str, int],
+    game_fuzzy: dict[tuple, tuple],
+    game_starts: dict[int, datetime],
+    snapshots: dict[str, list],
 ) -> list[tuple]:
     rows: list[tuple] = []
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT ticker, event_ticker, status, volume_fp,
-                   yes_bid_dollars, yes_ask_dollars, last_price_dollars
+            SELECT ticker, event_ticker, status, volume_fp
             FROM raw.kalshi_market
             WHERE event_ticker LIKE 'KXMLBGAME%'
             """
         )
-        for ticker, event_ticker, status, volume, yes_bid, yes_ask, last_price in cur.fetchall():
+        for ticker, event_ticker, status, volume in cur.fetchall():
             date_match = _KALSHI_TICKER_DATE_RE.match(event_ticker or "")
             team_match = _KALSHI_TICKER_TEAM_RE.search(ticker or "")
             if not date_match or not team_match:
@@ -1025,14 +1138,31 @@ def _kalshi_market_rows(
                 continue
             match = game_fuzzy.get((game_date, team_id))
             game_id = match[0] if match else None
-            price = _kalshi_implied_probability(last_price, yes_bid, yes_ask)
-            rows.append((game_id, "kalshi", ticker, team_id, price, volume, status))
+            start_time = game_starts.get(game_id) if game_id is not None else None
+            implied_probability = (
+                _latest_before(snapshots.get(ticker, []), start_time)
+                if start_time is not None
+                else None
+            )
+            rows.append((game_id, "kalshi", ticker, team_id, implied_probability, volume, status))
     return rows
 
 
 def _build_market(conn: psycopg.Connection) -> int:
     by_alias = _team_lookup(conn)
     game_exact, game_fuzzy = _game_lookup(conn)
+    try:
+        with conn.transaction():
+            game_starts = _market_game_start_times(conn)
+    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+        # UndefinedColumn as well as UndefinedTable: raw.mlb_schedule can
+        # exist without game_datetime (an older snapshot, or a test/partial
+        # deployment -- same degrade-gracefully tolerance
+        # _backfill_mlb_team_id already established for that table's
+        # away_id/home_id columns). Either way, every implied_probability
+        # below resolves NULL (no start time to compare a snapshot
+        # against), same precedent as the snapshot lookups below.
+        game_starts = {}
 
     # conn.transaction() (a SAVEPOINT), not a plain conn.rollback() on
     # failure — see _backfill_game_pk's comment for why: run() already has
@@ -1045,12 +1175,31 @@ def _build_market(conn: psycopg.Connection) -> int:
     rows: list[tuple] = []
     try:
         with conn.transaction():
-            rows.extend(_polymarket_market_rows(conn, by_alias, game_exact))
+            polymarket_snapshots = _polymarket_snapshot_lookup(conn)
+    except psycopg.errors.UndefinedTable:
+        # raw.polymarket_snapshot didn't exist before ADR-049 -- every
+        # Polymarket implied_probability below just resolves NULL instead
+        # of a leaky settled price, not a crash.
+        polymarket_snapshots = {}
+    try:
+        with conn.transaction():
+            rows.extend(
+                _polymarket_market_rows(
+                    conn, by_alias, game_exact, game_starts, polymarket_snapshots
+                )
+            )
     except psycopg.errors.UndefinedTable:
         print("conform: raw.polymarket_event not present yet — skipping its core.market rows")
     try:
         with conn.transaction():
-            rows.extend(_kalshi_market_rows(conn, by_alias, game_fuzzy))
+            kalshi_snapshots = _kalshi_snapshot_lookup(conn)
+    except psycopg.errors.UndefinedTable:
+        kalshi_snapshots = {}
+    try:
+        with conn.transaction():
+            rows.extend(
+                _kalshi_market_rows(conn, by_alias, game_fuzzy, game_starts, kalshi_snapshots)
+            )
     except psycopg.errors.UndefinedTable:
         print("conform: raw.kalshi_market not present yet — skipping its core.market rows")
 

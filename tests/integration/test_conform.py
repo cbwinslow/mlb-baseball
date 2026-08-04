@@ -607,9 +607,19 @@ def test_build_plays_includes_win_probability_for_mlb_api_rows(db_conn):
 
 
 def _seed_market_game(db_conn):
-    """One resolvable core.game row (Yankees @ Braves, 2026-05-23) plus a
-    Polymarket event and a Kalshi market both referring to it — the shared
-    fixture for every core.market test below."""
+    """One resolvable core.game row (Yankees @ Braves, 2026-05-23, first
+    pitch 23:05 UTC) plus a Polymarket event and a Kalshi market both
+    referring to it — the shared fixture for every core.market test below.
+
+    ADR-052 (issue #1): raw.polymarket_outcome.price/raw.kalshi_market's own
+    bid/ask/last-price columns are deliberately seeded with an unrealistic
+    "settled" value (0.99/0.98) that core.market.implied_probability must
+    NOT end up with — the whole point of this fixture is to prove a real
+    pre-game snapshot value is picked instead. raw.mlb_schedule supplies the
+    game's real start time; raw.polymarket_snapshot/raw.kalshi_snapshot
+    supply one snapshot captured well before it (the value tests assert on)
+    and one captured after it (must be excluded, not just the settled
+    columns)."""
     with db_conn.cursor() as cur:
         cur.execute(
             "CREATE TABLE raw.retrosheet_team "
@@ -642,6 +652,20 @@ def _seed_market_game(db_conn):
             "name_last, name_first) VALUES "
             "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
         )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, venue_id text, away_score text, home_score text, "
+            "game_datetime text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, game_date, away_name, home_name, _season, status, "
+            "game_type, game_num, game_datetime) VALUES "
+            "('900001', '2026-05-23', 'New York Yankees', 'Atlanta Braves', "
+            "'2026', 'Final', 'R', '0', '2026-05-23T23:05:00Z')"
+        )
 
         cur.execute(
             "CREATE TABLE raw.polymarket_event "
@@ -660,10 +684,26 @@ def _seed_market_game(db_conn):
         cur.execute(
             "CREATE TABLE raw.polymarket_outcome (market_id text, outcome text, price text)"
         )
+        # Deliberately a "settled" shape (near-certain, one-sided) -- must
+        # NOT be what implied_probability ends up with.
         cur.execute(
             "INSERT INTO raw.polymarket_outcome VALUES "
-            "('10', 'New York Yankees', '0.4'), "
-            "('10', 'Atlanta Braves', '0.6')"
+            "('10', 'New York Yankees', '0.01'), "
+            "('10', 'Atlanta Braves', '0.99')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.polymarket_snapshot "
+            "(market_id text, outcome text, price text, captured_at text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_snapshot VALUES "
+            # Pre-game (2026-05-23 12:00Z, well before the 23:05Z first
+            # pitch) -- the value tests below assert on.
+            "('10', 'New York Yankees', '0.45', '2026-05-23T12:00:00+00:00'), "
+            "('10', 'Atlanta Braves', '0.55', '2026-05-23T12:00:00+00:00'), "
+            # Post-game (2026-05-24, after first pitch) -- must be excluded.
+            "('10', 'New York Yankees', '0.02', '2026-05-24T06:00:00+00:00'), "
+            "('10', 'Atlanta Braves', '0.98', '2026-05-24T06:00:00+00:00')"
         )
 
         cur.execute(
@@ -674,7 +714,19 @@ def _seed_market_game(db_conn):
         cur.execute(
             "INSERT INTO raw.kalshi_market VALUES "
             "('KXMLBGAME-26MAY231905NYAATL-ATL', 'KXMLBGAME-26MAY231905NYAATL', "
-            "'finalized', '1000', '0.58', '0.62', '0.60')"
+            "'finalized', '1000', '0.97', '0.99', '0.98')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.kalshi_snapshot "
+            "(ticker text, yes_bid_dollars text, yes_ask_dollars text, "
+            "last_price_dollars text, captured_at text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.kalshi_snapshot VALUES "
+            "('KXMLBGAME-26MAY231905NYAATL-ATL', '0.60', '0.64', '0.52', "
+            "'2026-05-23T12:00:00+00:00'), "
+            "('KXMLBGAME-26MAY231905NYAATL-ATL', '0.96', '0.99', '0.97', "
+            "'2026-05-24T06:00:00+00:00')"
         )
     db_conn.commit()
 
@@ -685,7 +737,10 @@ def _drop_market_fixtures(db_conn):
             "raw.polymarket_event",
             "raw.polymarket_market",
             "raw.polymarket_outcome",
+            "raw.polymarket_snapshot",
             "raw.kalshi_market",
+            "raw.kalshi_snapshot",
+            "raw.mlb_schedule",
         ]:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
     db_conn.commit()
@@ -708,13 +763,16 @@ def test_build_market_matches_polymarket_and_kalshi_to_a_core_game(db_conn):
         rows = cur.fetchall()
     by_team = {(source, team): (ref, price, status) for source, ref, price, status, team in rows}
 
+    # These are the pre-game snapshot values, not raw.kalshi_market's own
+    # 0.98 / raw.polymarket_outcome's own 0.99/0.01 "settled" prices --
+    # see _seed_market_game's own docstring for why both are seeded.
     assert by_team[("kalshi", "ATL")] == (
         "KXMLBGAME-26MAY231905NYAATL-ATL",
-        Decimal("0.60"),
+        Decimal("0.52"),
         "finalized",
     )
-    assert by_team[("polymarket", "ATL")][1] == Decimal("0.6")
-    assert by_team[("polymarket", "NYA")][1] == Decimal("0.4")
+    assert by_team[("polymarket", "ATL")][1] == Decimal("0.55")
+    assert by_team[("polymarket", "NYA")][1] == Decimal("0.45")
 
     # core.play/pitch/market/game_feature/game are reset by the autouse
     # _clean_tables fixture right after this test — no need here too.
@@ -744,16 +802,21 @@ def test_build_market_leaves_kalshi_price_as_bid_ask_midpoint_when_untraded(db_c
     # Real production case: a newly-listed Kalshi market has real bid/ask
     # quotes but last_price_dollars is still its zero-value placeholder
     # (never traded yet) -- the midpoint is the honest fallback, not 0.
+    # ADR-052: this now applies to raw.kalshi_snapshot's own last_price
+    # column (the pre-game source), not raw.kalshi_market's.
     _seed_market_game(db_conn)
     with db_conn.cursor() as cur:
-        cur.execute("UPDATE raw.kalshi_market SET last_price_dollars = '0.0000'")
+        cur.execute(
+            "UPDATE raw.kalshi_snapshot SET last_price_dollars = '0.0000' "
+            "WHERE captured_at = '2026-05-23T12:00:00+00:00'"
+        )
     db_conn.commit()
 
     conform.run()
 
     with db_conn.cursor() as cur:
         cur.execute("SELECT implied_probability FROM core.market WHERE source = 'kalshi'")
-        assert cur.fetchone() == (Decimal("0.60"),)  # (0.58 + 0.62) / 2
+        assert cur.fetchone() == (Decimal("0.62"),)  # (0.60 + 0.64) / 2
 
     # core.play/pitch/market/game_feature/game are reset by the autouse
     # _clean_tables fixture right after this test — no need here too.
@@ -772,6 +835,93 @@ def test_build_market_rerunning_replaces_instead_of_duplicating(db_conn):
 
     # core.play/pitch/market/game_feature/game are reset by the autouse
     # _clean_tables fixture right after this test — no need here too.
+    _drop_market_fixtures(db_conn)
+
+
+def test_build_market_leaves_implied_probability_null_without_a_pregame_snapshot(db_conn):
+    # ADR-052: a market with real snapshot history, but none of it captured
+    # before the game's own start time (only the post-game rows this
+    # module's docstring warns about), must resolve NULL -- not silently
+    # fall back to the leaky settled price, and not the post-game snapshot
+    # either.
+    _seed_market_game(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM raw.polymarket_snapshot WHERE captured_at = '2026-05-23T12:00:00+00:00'"
+        )
+        cur.execute(
+            "DELETE FROM raw.kalshi_snapshot WHERE captured_at = '2026-05-23T12:00:00+00:00'"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT implied_probability FROM core.market ORDER BY source")
+        assert cur.fetchall() == [(None,), (None,), (None,)]
+
+    _drop_market_fixtures(db_conn)
+
+
+def test_build_market_leaves_implied_probability_null_without_mlb_schedule(db_conn):
+    # No raw.mlb_schedule at all -- no known game start time for ANY
+    # market, so every implied_probability must resolve NULL, and the run
+    # must not crash (same "optional dependency not ready yet" tolerance
+    # every other degrade-gracefully path in this file has).
+    _seed_market_game(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE raw.mlb_schedule")
+    db_conn.commit()
+
+    conform.run()  # must not raise
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.market")
+        assert cur.fetchone() == (3,)
+        cur.execute("SELECT count(*) FROM core.market WHERE implied_probability IS NOT NULL")
+        assert cur.fetchone() == (0,)
+
+    _drop_market_fixtures(db_conn)
+
+
+def test_build_market_degrades_gracefully_without_game_datetime_column(db_conn):
+    # Real bug found running this against the full suite: raw.mlb_schedule
+    # can exist (many fixtures throughout this file create one) without a
+    # game_datetime column at all (an older snapshot, or a test/partial
+    # deployment) -- _market_game_start_times's query must not crash the
+    # whole conform() run over an UndefinedColumn, same tolerance
+    # _backfill_mlb_team_id already has for that table's away_id/home_id.
+    _seed_market_game(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("ALTER TABLE raw.mlb_schedule DROP COLUMN game_datetime")
+    db_conn.commit()
+
+    conform.run()  # must not raise
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.market WHERE implied_probability IS NOT NULL")
+        assert cur.fetchone() == (0,)
+
+    _drop_market_fixtures(db_conn)
+
+
+def test_build_market_leaves_implied_probability_null_without_snapshot_tables(db_conn):
+    # A fresh clone that's never run polymarket.py/kalshi.py's ADR-049
+    # snapshot capture at all -- raw.polymarket_snapshot/raw.kalshi_snapshot
+    # don't exist yet. Must not crash; every implied_probability resolves
+    # NULL, same as the no-schedule case above.
+    _seed_market_game(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE raw.polymarket_snapshot")
+        cur.execute("DROP TABLE raw.kalshi_snapshot")
+    db_conn.commit()
+
+    conform.run()  # must not raise
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.market WHERE implied_probability IS NOT NULL")
+        assert cur.fetchone() == (0,)
+
     _drop_market_fixtures(db_conn)
 
 
@@ -1095,12 +1245,18 @@ def test_build_market_matches_polymarket_rebrand_alias(db_conn):
 
     conform.run()
 
+    # This test is about alias resolution, not price mechanics (see
+    # ADR-052/test_build_market_matches_polymarket_and_kalshi_to_a_core_game
+    # for that) -- no raw.mlb_schedule/raw.polymarket_snapshot seeded here,
+    # so implied_probability correctly resolves NULL; a resolved
+    # core.market row under the ANA team is what actually proves the
+    # rebrand alias worked.
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT m.implied_probability FROM core.market m "
+            "SELECT count(*) FROM core.market m "
             "JOIN core.team t ON t.id = m.team_id WHERE t.retro_team_id = 'ANA'"
         )
-        assert cur.fetchone() == (Decimal("0.55"),)
+        assert cur.fetchone() == (1,)
 
     # core.play/pitch/market/game_feature/game are reset by the autouse
     # _clean_tables fixture right after this test — no need here too.
@@ -1159,12 +1315,18 @@ def test_build_market_matches_kalshi_athletics_ticker_via_alias(db_conn):
 
     conform.run()
 
+    # This test is about ticker-alias resolution, not price mechanics (see
+    # ADR-052/test_build_market_matches_polymarket_and_kalshi_to_a_core_game
+    # for that) -- no raw.mlb_schedule/raw.kalshi_snapshot seeded here, so
+    # implied_probability correctly resolves NULL; a resolved core.market
+    # row under the OAK team is what actually proves the "ATH" ticker
+    # resolved to the right team.
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT m.implied_probability FROM core.market m "
+            "SELECT count(*) FROM core.market m "
             "JOIN core.team t ON t.id = m.team_id WHERE t.retro_team_id = 'OAK'"
         )
-        assert cur.fetchone() == (Decimal("0.32"),)
+        assert cur.fetchone() == (1,)
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.kalshi_market")

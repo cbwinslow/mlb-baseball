@@ -30,6 +30,7 @@ from mlb_baseball.model import (
     framing,
     gbm,
     log5,
+    market,
     oaa,
     offense,
     park,
@@ -78,18 +79,28 @@ def run() -> dict[str, int]:
         oaa.compute(conn)
         speed.compute(conn)
         framing.compute(conn)
+        # market.record() runs before backfill_outcomes(), not after --
+        # unlike log5/elo/gbm's own predictions (made for still-upcoming
+        # games, where actual_home_win is legitimately unknown yet), every
+        # market prediction is for a game that's already decided by
+        # construction (see market.py's own docstring). Recording it after
+        # backfill_outcomes() would leave a real, already-known outcome
+        # sitting NULL for a full extra cron cycle for no reason -- found
+        # running this against production, not hypothetical.
+        market_count = market.record(conn)
         backfilled = backfill_outcomes(conn)
         log5_count = log5.predict(conn)
         elo_count = elo.predict(conn)
         gbm_count = gbm.predict(conn)
         conn.commit()
-        result["rows"] = feature_count + log5_count + elo_count + gbm_count
+        result["rows"] = feature_count + log5_count + elo_count + gbm_count + market_count
     return {
         "gold.game_feature": feature_count,
         "gold.game_feature (starters updated)": starter_count,
         "gold.prediction (log5)": log5_count,
         "gold.prediction (elo)": elo_count,
         "gold.prediction (gbm)": gbm_count,
+        "gold.prediction (market)": market_count,
         "gold.prediction (outcomes backfilled)": backfilled,
     }
 
@@ -112,4 +123,5 @@ def health_check() -> list[Check]:
         + oaa.health_check()
         + speed.health_check()
         + framing.health_check()
+        + market.health_check()
     )

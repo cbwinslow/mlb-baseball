@@ -84,6 +84,7 @@ from mlb_baseball.health import (
     check_totals_reconcile,
 )
 from mlb_baseball.ingest import track_run
+from mlb_baseball.sql import read_sql
 
 SOURCE = "core"
 
@@ -212,34 +213,7 @@ def _build_teams(conn: psycopg.Connection) -> int:
     # TRUNCATE, not here — see run()'s comment for why (avoids redundant
     # per-relation fsync passes over the same ~330 pitch/play partitions).
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO core.team (retro_team_id, league, city, nickname, first_year, last_year)
-            SELECT
-                team_id, league, city, nickname, first_year::integer,
-                -- Real bug found while extending conform.py, not
-                -- hypothetical: Retrosheet's own TEAMABR.TXT caps every
-                -- currently-active team's last_year at the same value
-                -- (confirmed: exactly 30 rows share it -- the real current
-                -- MLB team count -- while 122 other team-eras have a
-                -- strictly earlier, genuine end year like MON's 2004 or
-                -- FLO's 2011). That's the file being stale, not those 30
-                -- teams having stopped existing, so every downstream
-                -- season-range join (core.game, core.market,
-                -- core.player_war) was silently failing to resolve any
-                -- team for 2022+ -- confirmed directly: away_team_id/
-                -- home_team_id were NULL for 100% of core.game rows from
-                -- 2022 on before this fix. 9999 is a clear, documented
-                -- sentinel for "still active as of this file's last
-                -- update," not a real year.
-                CASE
-                    WHEN last_year::integer = max(last_year::integer) OVER ()
-                    THEN 9999
-                    ELSE last_year::integer
-                END
-            FROM raw.retrosheet_team
-            """
-        )
+        cur.execute(read_sql("conform_team_insert.sql"))
         return cur.rowcount
 
 
@@ -264,47 +238,14 @@ def _build_venues(conn: psycopg.Connection) -> int:
     # TRUNCATE, not here — see run()'s comment for why.
     try:
         with conn.transaction(), conn.cursor() as cur:
-            cur.execute(
-                r"""
-                INSERT INTO core.venue
-                    (retro_park_id, name, city, state, league, first_year, last_year)
-                SELECT
-                    parkid, name, city, state, league,
-                    CASE WHEN start ~ '^\d{2}/\d{2}/\d{4}$'
-                         THEN extract(year FROM to_date(start, 'MM/DD/YYYY'))::integer END,
-                    CASE WHEN "end" ~ '^\d{2}/\d{2}/\d{4}$'
-                         THEN extract(year FROM to_date("end", 'MM/DD/YYYY'))::integer END
-                FROM raw.retrosheet_park
-                """
-            )
+            cur.execute(read_sql("conform_venue_insert.sql"))
             count = cur.rowcount
     except psycopg.errors.UndefinedTable:
         print("conform: raw.retrosheet_park not present yet — core.venue left empty")
         return 0
     try:
         with conn.transaction(), conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE core.venue v
-                SET mlb_venue_id = mv.venue_id::integer,
-                    latitude = NULLIF(mv.latitude, '')::numeric,
-                    longitude = NULLIF(mv.longitude, '')::numeric,
-                    capacity = NULLIF(mv.capacity, '')::numeric::integer,
-                    turf_type = mv.turf_type,
-                    roof_type = mv.roof_type,
-                    left_line = NULLIF(mv.left_line, '')::numeric::integer,
-                    center = NULLIF(mv.center, '')::numeric::integer,
-                    right_line = NULLIF(mv.right_line, '')::numeric::integer
-                FROM (
-                    SELECT DISTINCT ON (lower(trim(name)))
-                        name, venue_id, latitude, longitude, capacity, turf_type,
-                        roof_type, left_line, center, right_line
-                    FROM raw.mlb_venue
-                    ORDER BY lower(trim(name)), venue_id::integer
-                ) mv
-                WHERE lower(trim(v.name)) = lower(trim(mv.name))
-                """
-            )
+            cur.execute(read_sql("conform_venue_enrich.sql"))
     except psycopg.errors.UndefinedTable:
         print("conform: raw.mlb_venue not present yet — core.venue enrichment columns left NULL")
     return count
@@ -329,32 +270,7 @@ def _build_players(conn: psycopg.Connection) -> int:
     # core.player itself is truncated centrally by run()'s single
     # consolidated TRUNCATE, not here — see run()'s comment for why.
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO core.player (
-                retro_id, mlbam_id, bbref_id, fangraphs_id, chadwick_uuid,
-                last_name, first_name, birth_date, death_date
-            )
-            SELECT
-                key_retro,
-                key_mlbam,
-                key_bbref,
-                key_fangraphs,
-                key_uuid,
-                name_last,
-                name_first,
-                CASE WHEN birth_year IS NOT NULL AND birth_month IS NOT NULL
-                          AND birth_day IS NOT NULL
-                     THEN make_date(birth_year::integer, birth_month::integer, birth_day::integer)
-                END,
-                CASE WHEN death_year IS NOT NULL AND death_month IS NOT NULL
-                          AND death_day IS NOT NULL
-                     THEN make_date(death_year::integer, death_month::integer, death_day::integer)
-                END
-            FROM raw.register_people
-            WHERE key_retro IS NOT NULL
-            """
-        )
+        cur.execute(read_sql("conform_player_insert.sql"))
         return cur.rowcount
 
 

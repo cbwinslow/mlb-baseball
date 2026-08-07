@@ -28,20 +28,11 @@ enough to run and tie out the three ported models — not a full clone.
 | `raw.mlb_venue` | full | 1,667 | small; enrichment source for the venue dimension |
 | `raw.retrosheet_event` | **seasons 2021–2024 only** | 766,690 (of 16,465,273 in prod) | full table is 10GB/115 seasons of history; team wOBA is a *within-season* rolling calc with no cross-season dependency, so 4 seasons is enough to tie out 2023's league average and 2024's team-level range, plus demonstrate an incremental add-a-season backfill |
 
-Reproduction steps (also see git history of this directory for the exact
-commands run):
-
-```bash
-createdb mlb_spike
-pg_dump -d mlb --schema-only --no-owner --no-privileges \
-  -t core.game -t core.team -t core.venue \
-  -t raw.retrosheet_gameinfo -t raw.retrosheet_park -t raw.mlb_venue -t raw.retrosheet_event \
-  -f schema_seed.sql
-# then: manually drop the 3 FK constraints referencing core.player (out of
-# scope for this seed -- see schema_seed.sql's own comment), create the
-# raw/core/gold schemas, apply schema_seed.sql, then \copy each table's data
-# (retrosheet_event filtered to `WHERE _season IN ('2021','2022','2023','2024')`).
-```
+This is historical spike evidence, not a reproduction recipe. Reuse the
+already-existing `mlb_spike` only for the read-only/default SQLMesh checks, and
+reuse `mlb_test_codex` with the isolated candidate namespace for future
+integration verification. Do not create, seed from production, or drop a
+database as part of this workflow.
 
 **`core.venue` was deliberately NOT seeded as a table** — one of the three
 ported models rebuilds it from `raw.retrosheet_park`/`raw.mlb_venue`, so
@@ -224,6 +215,6 @@ tie-out (Coors/Fenway are both unique matches in `raw.mlb_venue`).
 
 ## Cleanup
 
-`mlb_spike` and everything in it can be dropped at any time with `dropdb
-mlb_spike` — it is entirely disposable, reproducible from the steps above,
-and was never written to from anywhere but this spike.
+Do not drop `mlb_spike` or any test database from project workflows. The
+existing disposable databases are managed outside this repository; tests clean
+only the relations they create.

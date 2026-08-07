@@ -48,6 +48,7 @@ SOURCE = "retrosheet_event"
 BASE_URL = "https://www.retrosheet.org/events"
 EVENT_TABLE = "raw.retrosheet_event"
 GAME_TABLE = "raw.retrosheet_game"
+PARSER_VERSION = "retrosheet-event-cwevent-cwgame-v1"
 
 # Multi-year archives to bootstrap. Each covers the listed year range; the
 # current decade also gets re-fetched (force=True) on update() since
@@ -144,7 +145,11 @@ def _load_archive(
     if archive_path is None:
         return {}
     counts: dict[str, int] = {EVENT_TABLE: 0, GAME_TABLE: 0}
-    for event_df, game_df in _parse_archive(archive_path, group).values():
+    parsed_archives = _parse_archive(archive_path, group)
+    schema_columns: list[str] = []
+    for event_df, game_df in parsed_archives.values():
+        schema_columns.extend(f"{EVENT_TABLE}.{column}" for column in event_df.columns)
+        schema_columns.extend(f"{GAME_TABLE}.{column}" for column in game_df.columns)
         counts[EVENT_TABLE] += load_dataframe(
             conn,
             EVENT_TABLE,
@@ -159,7 +164,13 @@ def _load_archive(
             scope_column="_scope",
             scope_value=game_df["_scope"].iloc[0],
         )
-    manifest.mark_status(SOURCE, filename, "loaded")
+    manifest.mark_status(
+        SOURCE,
+        filename,
+        "loaded",
+        parser_version=PARSER_VERSION,
+        schema_columns=list(dict.fromkeys(schema_columns)),
+    )
     return counts
 
 

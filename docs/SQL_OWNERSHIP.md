@@ -7,12 +7,14 @@ new SQL; it prevents a second embedded-SQL monolith from growing in Python.
 
 | Relation / family | Current Python owner | Grain | Initial disposition |
 |---|---|---|---|
-| `core.venue` | `conform._build_venues` | one row per Retrosheet park | already ported; deterministic duplicate-name tie-break aligned; promote only after writer/environment parity gate |
-| `gold.park_factor` | `model.park.compute` | venue-season | already ported; promote after parity gate |
+| `core.venue` | `conform._build_venues` | one row per Retrosheet park | production SQL is named `sql/conform_venue_*.sql`; deterministic duplicate-name tie-break aligned; promote only after writer/environment parity gate |
+| `gold.park_factor` | `model.park.compute` | venue-season | production SQL is a named `sql/park_factor_update.sql` resource; SQLMesh port promotes only after demand-shape parity gate |
 | `gold.team_woba` | `model.offense.compute` | game-team | already ported; promote after parity gate |
-| `gold.game_feature` base | `model.features.build` | game / scheduled game | next assembly model |
-| wOBA/wRC+, starters, bullpen, WAR, framing, OAA, speed | feature-family update modules | game-team or game-player inputs | split into narrow upstream models before replacing wide assembly |
-| `core.team`, `core.player`, `core.game`, `core.play`, `core.pitch`, `core.player_war`, `core.standing` | `conform.py` | canonical documented grain | migrate individually only after deterministic parity tests |
+| `gold.game_feature` base | `model.features.build` | game / scheduled game | named `sql/game_feature_rebuild.sql`; Python retains optional-source selection and rebuild sequencing pending candidate-model parity |
+| `gold.prediction` market baseline | `model.market.record` | decided game-model version | named `sql/market_*_prediction_insert.sql`; Python retains source/model-version orchestration |
+| wOBA/wRC+, starters, bullpen, WAR, framing, OAA, speed | feature-family update modules | game-team or game-player inputs | historical/live wOBA/wRC+; historical/live/upcoming starter and bullpen; plus park/venue/speed/OAA/framing/WAR use named SQL resources; feature writes retain Python orchestration only |
+| `core.team` | `conform._build_teams` | one Retrosheet team-era | stable insert is named `sql/conform_team_insert.sql`; Python retains the surrounding identity/sequencing flow |
+| `core.player`, `core.game`, `core.play`, `core.pitch`, `core.player_war`, `core.standing` | `conform.py` | canonical documented grain | migrate individually only after deterministic parity tests |
 
 ## Retain in Python
 
@@ -22,6 +24,16 @@ new SQL; it prevents a second embedded-SQL monolith from growing in Python.
 - Sequential Elo, GBM training/inference, simulations, and evaluation control
   flow.
 - Parameterized operational statements and doctor/inventory diagnostics.
+- Small source-selection fragments whose composition is procedural (for
+  example `features.py` choosing whether the optional schedule branch is
+  present) remain inline. The complete business mutation they feed is still
+  owned by a named SQL resource.
+
+## Remaining extraction queue
+
+1. `conform.py`: only stable set-based writes after identity and dependent
+   surrogate-ID contracts have dedicated parity gates. The ambiguous-game
+   diagnostic remains an inline operational query.
 
 ## Migrations only
 

@@ -1,7 +1,5 @@
 import uuid
 
-import psycopg
-
 from mlb_baseball.health import (
     check_grouped_no_duplicates,
     check_join_coverage,
@@ -85,25 +83,18 @@ def test_check_last_run_false_when_never_run():
 
 
 def test_check_last_run_reports_actionable_message_when_meta_schema_missing(
-    monkeypatch, db_url_for
+    monkeypatch, unmigrated_db_connection
 ):
     # Same class of regression as test_check_table_has_rows_false_when_table_never_created,
     # but for meta.ingestion_run specifically: a fresh, unmigrated database
-    # must not crash this with UndefinedTable. Needs a genuinely separate
-    # database (not mlb_test, which every other test assumes is migrated).
-    db_name = f"mlb_health_freshtest_{uuid.uuid4().hex[:8]}"
-    with psycopg.connect(db_url_for("postgres"), autocommit=True) as admin_conn:
-        with admin_conn.cursor() as cur:
-            cur.execute(f"CREATE DATABASE {db_name}")
-        try:
-            monkeypatch.setenv("DATABASE_URL", db_url_for(db_name))
-            result = check_last_run("anything")
-        finally:
-            with admin_conn.cursor() as cur:
-                cur.execute(f"DROP DATABASE {db_name}")
+    # must not crash this with UndefinedTable. Simulate that PostgreSQL error
+    # in-process rather than creating another database.
+    monkeypatch.setattr("mlb_baseball.health.get_connection", lambda: unmigrated_db_connection)
+    result = check_last_run("anything")
 
     assert not result.ok
     assert "mlb migrate" in result.detail
+    assert unmigrated_db_connection.rolled_back
 
 
 def test_check_last_run_true_on_success(db_conn):
@@ -128,21 +119,14 @@ def test_check_recent_run_false_when_never_run():
 
 
 def test_check_recent_run_reports_actionable_message_when_meta_schema_missing(
-    monkeypatch, db_url_for
+    monkeypatch, unmigrated_db_connection
 ):
-    db_name = f"mlb_health_freshtest_{uuid.uuid4().hex[:8]}"
-    with psycopg.connect(db_url_for("postgres"), autocommit=True) as admin_conn:
-        with admin_conn.cursor() as cur:
-            cur.execute(f"CREATE DATABASE {db_name}")
-        try:
-            monkeypatch.setenv("DATABASE_URL", db_url_for(db_name))
-            result = check_recent_run("anything", max_age_minutes=15)
-        finally:
-            with admin_conn.cursor() as cur:
-                cur.execute(f"DROP DATABASE {db_name}")
+    monkeypatch.setattr("mlb_baseball.health.get_connection", lambda: unmigrated_db_connection)
+    result = check_recent_run("anything", max_age_minutes=15)
 
     assert not result.ok
     assert "mlb migrate" in result.detail
+    assert unmigrated_db_connection.rolled_back
 
 
 def test_check_recent_run_true_when_recent_and_successful(db_conn):

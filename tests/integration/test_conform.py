@@ -22,7 +22,35 @@ import pytest
 
 from mlb_baseball import conform
 
-DYNAMIC_RAW_TABLES = ["raw.retrosheet_team", "raw.retrosheet_gameinfo"]
+# Every raw relation read by conform that is not created by a migration.  The
+# suite seeds these selectively, so cleanup must remove all of them; leaving
+# even one from an interrupted or prior run makes an "optional source absent"
+# assertion depend on test execution history.
+DYNAMIC_RAW_TABLES = [
+    "raw.bref_war_batting",
+    "raw.bref_war_pitching",
+    "raw.kalshi_candle",
+    "raw.kalshi_market",
+    "raw.kalshi_snapshot",
+    "raw.lahman_teams",
+    "raw.mlb_playbyplay",
+    "raw.mlb_schedule",
+    "raw.mlb_standing",
+    "raw.mlb_team_history",
+    "raw.mlb_venue",
+    "raw.mlb_win_prob",
+    "raw.polymarket_event",
+    "raw.polymarket_market",
+    "raw.polymarket_outcome",
+    "raw.polymarket_price",
+    "raw.polymarket_snapshot",
+    "raw.retrosheet_event",
+    "raw.retrosheet_gameinfo",
+    "raw.retrosheet_gamelog",
+    "raw.retrosheet_park",
+    "raw.retrosheet_team",
+    "raw.statcast_pitch",
+]
 
 
 def _reset_dynamic_tables(conn):

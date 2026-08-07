@@ -1,4 +1,4 @@
-- name: '"mlb_spike"."core"."game"'
+- name: 'core.game'
   columns:
     id: BIGINT
     retro_game_id: TEXT
@@ -27,7 +27,7 @@
     precip: TEXT
     field_cond: TEXT
   gateway: postgres
-- name: '"mlb_spike"."raw"."mlb_venue"'
+- name: 'raw.mlb_venue'
   columns:
     venue_id: TEXT
     name: TEXT
@@ -48,7 +48,7 @@
     right_line: TEXT
     _loaded_at: TIMESTAMPTZ
   gateway: postgres
-- name: '"mlb_spike"."raw"."retrosheet_event"'
+- name: 'raw.retrosheet_event'
   columns:
     game_id: TEXT
     away_team_id: TEXT
@@ -219,7 +219,7 @@
     _scope: TEXT
     _loaded_at: TIMESTAMPTZ
   gateway: postgres
-- name: '"mlb_spike"."raw"."retrosheet_gameinfo"'
+- name: 'raw.retrosheet_gameinfo'
   columns:
     gid: TEXT
     visteam: TEXT
@@ -267,7 +267,7 @@
     _season: TEXT
     _loaded_at: TIMESTAMPTZ
   gateway: postgres
-- name: '"mlb_spike"."raw"."retrosheet_park"'
+- name: 'raw.retrosheet_park'
   columns:
     parkid: TEXT
     name: TEXT

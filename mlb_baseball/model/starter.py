@@ -74,94 +74,9 @@ import psycopg
 
 from mlb_baseball.db import fetch_one
 from mlb_baseball.health import Check, check_join_coverage, check_totals_reconcile
+from mlb_baseball.sql import read_sql
 
 FIP_CONSTANT = 3.10
-
-_BUILD_SQL = """
-WITH regular_games AS (
-    SELECT g.id AS game_id, g.season, g.game_date, g.retro_game_id
-    FROM core.game g
-    WHERE g.game_type = 'regular'
-),
-pitcher_game_stats AS (
-    SELECT
-        rg.game_id, rg.season, rg.game_date, re.resp_pit_id AS pitcher_retro_id,
-        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '3') AS k,
-        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd IN ('14', '15')) AS bb,
-        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '16') AS hbp,
-        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '23') AS hr,
-        count(*) FILTER (WHERE re.bat_event_fl = 'T') AS bf,
-        sum(re.event_outs_ct::numeric) AS outs
-    FROM regular_games rg
-    JOIN raw.retrosheet_gameinfo gi ON gi.gid = rg.retro_game_id AND lower(gi.gametype) = 'regular'
-    JOIN raw.retrosheet_event re ON re.game_id = rg.retro_game_id
-    GROUP BY rg.game_id, rg.season, rg.game_date, re.resp_pit_id
-),
-starters AS (
-    SELECT rg.game_id,
-        max(re.resp_pit_id) FILTER (WHERE re.bat_home_id = '0') AS home_starter_retro_id,
-        max(re.resp_pit_id) FILTER (WHERE re.bat_home_id = '1') AS away_starter_retro_id
-    FROM regular_games rg
-    JOIN raw.retrosheet_gameinfo gi ON gi.gid = rg.retro_game_id AND lower(gi.gametype) = 'regular'
-    JOIN raw.retrosheet_event re ON re.game_id = rg.retro_game_id
-    WHERE re.resp_pit_start_fl = 'T'
-    GROUP BY rg.game_id
-),
--- Rolling entering-this-appearance totals: unlike team win_pct's window,
--- this is over each pitcher's OWN appearances (whatever role), not scoped
--- to starts only -- a pitcher's true form reflects everything they've
--- thrown, and virtually every regular starter's appearances are all starts
--- anyway.
-rolling AS (
-    SELECT game_id, pitcher_retro_id, game_date,
-        SUM(k) OVER w_season AS k_sum,
-        SUM(bb) OVER w_season AS bb_sum,
-        SUM(hbp) OVER w_season AS hbp_sum,
-        SUM(hr) OVER w_season AS hr_sum,
-        SUM(bf) OVER w_season AS bf_sum,
-        SUM(outs) OVER w_season AS outs_sum,
-        (game_date - LAG(game_date) OVER w_career) AS rest
-    FROM pitcher_game_stats
-    WINDOW
-        w_season AS (
-            PARTITION BY pitcher_retro_id, season ORDER BY game_date, game_id
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-        ),
-        w_career AS (PARTITION BY pitcher_retro_id ORDER BY game_date, game_id)
-),
-quality AS (
-    SELECT game_id, pitcher_retro_id, rest,
-        CASE WHEN bf_sum > 0 THEN k_sum::numeric / bf_sum END AS k_pct,
-        CASE WHEN bf_sum > 0 THEN bb_sum::numeric / bf_sum END AS bb_pct,
-        CASE WHEN bf_sum > 0 THEN hr_sum::numeric / bf_sum END AS hr_pct,
-        CASE WHEN outs_sum > 0 THEN
-            (13 * hr_sum + 3 * (bb_sum + hbp_sum) - 2 * k_sum)::numeric
-                / (outs_sum / 3.0) + %(fip_constant)s
-        END AS fip
-    FROM rolling
-)
-UPDATE gold.game_feature f
-SET
-    home_starter_id = hp.id,
-    home_starter_era = hq.fip,
-    home_starter_k_pct = hq.k_pct,
-    home_starter_bb_pct = hq.bb_pct,
-    home_starter_hr_pct = hq.hr_pct,
-    home_starter_rest = hq.rest,
-    away_starter_id = ap.id,
-    away_starter_era = aq.fip,
-    away_starter_k_pct = aq.k_pct,
-    away_starter_bb_pct = aq.bb_pct,
-    away_starter_hr_pct = aq.hr_pct,
-    away_starter_rest = aq.rest
-FROM starters s
-LEFT JOIN quality hq ON hq.game_id = s.game_id AND hq.pitcher_retro_id = s.home_starter_retro_id
-LEFT JOIN quality aq ON aq.game_id = s.game_id AND aq.pitcher_retro_id = s.away_starter_retro_id
-LEFT JOIN core.player hp ON hp.retro_id = s.home_starter_retro_id
-LEFT JOIN core.player ap ON ap.retro_id = s.away_starter_retro_id
-WHERE f.game_id = s.game_id
-"""
-
 
 def compute(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
@@ -169,7 +84,7 @@ def compute(conn: psycopg.Connection) -> int:
         (exists,) = fetch_one(cur)
         if not exists:
             return 0
-        cur.execute(_BUILD_SQL, {"fip_constant": FIP_CONSTANT})
+        cur.execute(read_sql("team_starter_retrosheet_update.sql"), {"fip_constant": FIP_CONSTANT})
         return cur.rowcount
 
 
@@ -206,96 +121,13 @@ def compute(conn: psycopg.Connection) -> int:
 # does not solve forward-looking prediction for a game that hasn't been
 # played yet (no probable-pitcher data source wired up), a real,
 # separate, harder problem left for later, not glossed over here.
-_LIVE_BUILD_SQL = """
-WITH regular_games AS (
-    SELECT g.id AS game_id, g.season, g.game_date, g.game_pk
-    FROM core.game g
-    WHERE g.game_type = 'regular' AND g.game_pk IS NOT NULL
-),
-first_pitcher AS (
-    SELECT DISTINCT ON (game_pk, half_inning) game_pk, half_inning, pitcher_id
-    FROM raw.mlb_playbyplay
-    ORDER BY game_pk, half_inning, at_bat_index::int
-),
-starters AS (
-    SELECT rg.game_id,
-        h.pitcher_id AS home_starter_id,
-        a.pitcher_id AS away_starter_id
-    FROM regular_games rg
-    JOIN first_pitcher h ON h.game_pk = rg.game_pk AND h.half_inning = 'top'
-    JOIN first_pitcher a ON a.game_pk = rg.game_pk AND a.half_inning = 'bottom'
-),
-play_outs AS (
-    SELECT game_pk, pitcher_id, event_type,
-        outs::int - LAG(outs::int, 1, 0) OVER (
-            PARTITION BY game_pk, inning, half_inning ORDER BY at_bat_index::int
-        ) AS outs_this_play
-    FROM raw.mlb_playbyplay
-),
-pitcher_game_stats AS (
-    SELECT rg.game_id, rg.season, rg.game_date, po.pitcher_id,
-        count(*) FILTER (WHERE po.event_type IN ('strikeout', 'strikeout_double_play')) AS k,
-        count(*) FILTER (WHERE po.event_type IN ('walk', 'intent_walk')) AS bb,
-        count(*) FILTER (WHERE po.event_type = 'home_run') AS hr,
-        count(*) FILTER (WHERE po.event_type NOT IN (
-            'caught_stealing_2b', 'caught_stealing_3b', 'caught_stealing_home',
-            'pickoff_1b', 'pickoff_2b', 'pickoff_3b',
-            'pickoff_caught_stealing_2b', 'pickoff_caught_stealing_3b',
-            'wild_pitch', 'game_advisory'
-        )) AS bf,
-        sum(po.outs_this_play) AS outs
-    FROM regular_games rg
-    JOIN play_outs po ON po.game_pk = rg.game_pk
-    GROUP BY rg.game_id, rg.season, rg.game_date, po.pitcher_id
-),
-rolling AS (
-    SELECT game_id, pitcher_id,
-        SUM(k) OVER w AS k_sum, SUM(bb) OVER w AS bb_sum,
-        SUM(hr) OVER w AS hr_sum, SUM(bf) OVER w AS bf_sum, SUM(outs) OVER w AS outs_sum
-    FROM pitcher_game_stats
-    WINDOW w AS (
-        PARTITION BY pitcher_id, season ORDER BY game_date, game_id
-        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-    )
-),
-quality AS (
-    SELECT game_id, pitcher_id,
-        CASE WHEN bf_sum > 0 THEN k_sum::numeric / bf_sum END AS k_pct,
-        CASE WHEN bf_sum > 0 THEN bb_sum::numeric / bf_sum END AS bb_pct,
-        CASE WHEN bf_sum > 0 THEN hr_sum::numeric / bf_sum END AS hr_pct,
-        CASE WHEN outs_sum > 0 THEN
-            (13 * hr_sum + 3 * bb_sum - 2 * k_sum)::numeric / (outs_sum / 3.0) + %(fip_constant)s
-        END AS fip
-    FROM rolling
-)
-UPDATE gold.game_feature f
-SET
-    home_starter_id = hp.id,
-    home_starter_era = hq.fip,
-    home_starter_k_pct = hq.k_pct,
-    home_starter_bb_pct = hq.bb_pct,
-    home_starter_hr_pct = hq.hr_pct,
-    away_starter_id = ap.id,
-    away_starter_era = aq.fip,
-    away_starter_k_pct = aq.k_pct,
-    away_starter_bb_pct = aq.bb_pct,
-    away_starter_hr_pct = aq.hr_pct
-FROM starters s
-LEFT JOIN quality hq ON hq.game_id = s.game_id AND hq.pitcher_id = s.home_starter_id
-LEFT JOIN quality aq ON aq.game_id = s.game_id AND aq.pitcher_id = s.away_starter_id
-LEFT JOIN core.player hp ON hp.mlbam_id = s.home_starter_id
-LEFT JOIN core.player ap ON ap.mlbam_id = s.away_starter_id
-WHERE f.game_id = s.game_id AND f.home_starter_era IS NULL
-"""
-
-
 def compute_live(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
         (exists,) = fetch_one(cur)
         if not exists:
             return 0
-        cur.execute(_LIVE_BUILD_SQL, {"fip_constant": FIP_CONSTANT})
+        cur.execute(read_sql("team_starter_live_update.sql"), {"fip_constant": FIP_CONSTANT})
         return cur.rowcount
 
 
@@ -318,113 +150,6 @@ def compute_live(conn: psycopg.Connection) -> int:
 # would be a real, avoidable operational dependency this feature doesn't
 # need -- raw.mlb_schedule is kept fresh by the same 5-minute update() that
 # lands raw.mlb_playbyplay itself.
-_PROBABLE_BUILD_SQL = """
-WITH latest_probable AS (
-    -- One row per (game_pk, side): the most recently captured probable --
-    -- raw.mlb_probable is append-only specifically so a later snapshot (a
-    -- scratch, a rotation swap) always wins over an earlier one instead of
-    -- the first announcement staying authoritative forever.
-    SELECT DISTINCT ON (game_pk, side) game_pk, side, pitcher_id
-    FROM raw.mlb_probable
-    WHERE pitcher_id IS NOT NULL
-    ORDER BY game_pk, side, _loaded_at DESC
-),
-targets AS (
-    -- Every still-upcoming game_feature row with an announced probable on
-    -- at least one side. mlb_game_pk / raw.mlb_probable.game_pk are both
-    -- MLB's own numeric game id (text, per the raw layer's own
-    -- convention) -- no crosswalk needed for the game itself, only for
-    -- the pitcher (below).
-    SELECT f.id AS feature_id, f.game_date,
-        hp.pitcher_id AS home_pitcher_id, ap.pitcher_id AS away_pitcher_id
-    FROM gold.game_feature f
-    LEFT JOIN latest_probable hp ON hp.game_pk = f.mlb_game_pk AND hp.side = 'home'
-    LEFT JOIN latest_probable ap ON ap.game_pk = f.mlb_game_pk AND ap.side = 'away'
-    WHERE f.home_win IS NULL AND (hp.pitcher_id IS NOT NULL OR ap.pitcher_id IS NOT NULL)
-),
--- Every pitcher's own 2026 appearance, at (pitcher, calendar day) grain --
--- identical event-type mapping and per-play outs-diff logic as
--- compute_live()'s own play_outs/pitcher_game_stats (see that function's
--- docstring for why outs needs a LAG diff, not a direct column), just
--- dated via raw.mlb_schedule instead of core.game.
-play_outs AS (
-    SELECT pbp.game_pk, pbp.pitcher_id, pbp.event_type, ms.game_date::date AS game_date,
-        pbp.outs::int - LAG(pbp.outs::int, 1, 0) OVER (
-            PARTITION BY pbp.game_pk, pbp.inning, pbp.half_inning ORDER BY pbp.at_bat_index::int
-        ) AS outs_this_play
-    FROM raw.mlb_playbyplay pbp
-    JOIN raw.mlb_schedule ms ON ms.game_id = pbp.game_pk AND ms.game_type = 'R'
-),
-pitcher_game_stats AS (
-    SELECT pitcher_id, game_date,
-        count(*) FILTER (WHERE event_type IN ('strikeout', 'strikeout_double_play')) AS k,
-        count(*) FILTER (WHERE event_type IN ('walk', 'intent_walk')) AS bb,
-        count(*) FILTER (WHERE event_type = 'home_run') AS hr,
-        count(*) FILTER (WHERE event_type NOT IN (
-            'caught_stealing_2b', 'caught_stealing_3b', 'caught_stealing_home',
-            'pickoff_1b', 'pickoff_2b', 'pickoff_3b',
-            'pickoff_caught_stealing_2b', 'pickoff_caught_stealing_3b',
-            'wild_pitch', 'game_advisory'
-        )) AS bf,
-        sum(outs_this_play) AS outs
-    FROM play_outs
-    GROUP BY pitcher_id, game_date
-),
--- Entering-this-(not-yet-played)-start totals: every one of the probable
--- pitcher's OWN appearances strictly before the target game's own date --
--- "through yesterday," not "as of right now," matters when a probable is
--- announced several days out and the pitcher makes another start in
--- between (a real, if rare, timing gap -- not glossed over). A pitcher
--- with zero qualifying prior appearances (a call-up making their MLB
--- debut) correctly leaves every rate NULL below -- identity (the id
--- itself) still resolves in the final UPDATE, just not a computed rate.
-home_quality AS (
-    SELECT t.feature_id,
-        CASE WHEN sum(s.bf) > 0 THEN sum(s.k)::numeric / sum(s.bf) END AS k_pct,
-        CASE WHEN sum(s.bf) > 0 THEN sum(s.bb)::numeric / sum(s.bf) END AS bb_pct,
-        CASE WHEN sum(s.bf) > 0 THEN sum(s.hr)::numeric / sum(s.bf) END AS hr_pct,
-        CASE WHEN sum(s.outs) > 0 THEN
-            (13 * sum(s.hr) + 3 * sum(s.bb) - 2 * sum(s.k))::numeric / (sum(s.outs) / 3.0)
-                + %(fip_constant)s
-        END AS fip
-    FROM targets t
-    JOIN pitcher_game_stats s ON s.pitcher_id = t.home_pitcher_id AND s.game_date < t.game_date
-    GROUP BY t.feature_id
-),
-away_quality AS (
-    SELECT t.feature_id,
-        CASE WHEN sum(s.bf) > 0 THEN sum(s.k)::numeric / sum(s.bf) END AS k_pct,
-        CASE WHEN sum(s.bf) > 0 THEN sum(s.bb)::numeric / sum(s.bf) END AS bb_pct,
-        CASE WHEN sum(s.bf) > 0 THEN sum(s.hr)::numeric / sum(s.bf) END AS hr_pct,
-        CASE WHEN sum(s.outs) > 0 THEN
-            (13 * sum(s.hr) + 3 * sum(s.bb) - 2 * sum(s.k))::numeric / (sum(s.outs) / 3.0)
-                + %(fip_constant)s
-        END AS fip
-    FROM targets t
-    JOIN pitcher_game_stats s ON s.pitcher_id = t.away_pitcher_id AND s.game_date < t.game_date
-    GROUP BY t.feature_id
-)
-UPDATE gold.game_feature f
-SET
-    home_starter_id = hp.id,
-    home_starter_era = hq.fip,
-    home_starter_k_pct = hq.k_pct,
-    home_starter_bb_pct = hq.bb_pct,
-    home_starter_hr_pct = hq.hr_pct,
-    away_starter_id = ap.id,
-    away_starter_era = aq.fip,
-    away_starter_k_pct = aq.k_pct,
-    away_starter_bb_pct = aq.bb_pct,
-    away_starter_hr_pct = aq.hr_pct
-FROM targets t
-LEFT JOIN core.player hp ON hp.mlbam_id = t.home_pitcher_id
-LEFT JOIN core.player ap ON ap.mlbam_id = t.away_pitcher_id
-LEFT JOIN home_quality hq ON hq.feature_id = t.feature_id
-LEFT JOIN away_quality aq ON aq.feature_id = t.feature_id
-WHERE f.id = t.feature_id
-"""
-
-
 def compute_probable(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_probable')")
@@ -433,7 +158,7 @@ def compute_probable(conn: psycopg.Connection) -> int:
         (playbyplay_exists,) = fetch_one(cur)
         if not probable_exists or not playbyplay_exists:
             return 0
-        cur.execute(_PROBABLE_BUILD_SQL, {"fip_constant": FIP_CONSTANT})
+        cur.execute(read_sql("team_starter_probable_update.sql"), {"fip_constant": FIP_CONSTANT})
         return cur.rowcount
 
 

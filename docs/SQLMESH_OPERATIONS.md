@@ -16,6 +16,12 @@ following experimental candidates:
 - `gold.team_woba` — correct long game-team calculation; not yet the wide
   `gold.game_feature` projection written by Python.
 
+External-model declarations are catalog-neutral logical names (for example
+`core.game` and `raw.retrosheet_event`); the selected gateway supplies the
+database/catalog. This is required for the same reviewed model project to be
+testable against the existing `mlb_test_codex` database later, without copying
+or recreating a second database.
+
 The original `mlb` database is never a SQLMesh target without a separately
 reviewed configuration, owner approval, and a migration-specific cutover plan.
 No new test database is permitted: any future integration run must reuse the
@@ -43,8 +49,8 @@ DuckDB test and SQLMesh parse/plan review commands; it never auto-applies.
 An adoption configuration must be introduced in the same reviewed change as
 its first eligible model. It must specify all of the following explicitly:
 
-1. A gateway using the existing `mlb_test_codex` database for integration
-   verification, never a newly created database.
+1. The checked-in `candidate` gateway using the existing `mlb_test_codex`
+   database for integration verification, never a newly created database.
 2. A dedicated SQLMesh state schema and candidate output namespace; it must
    not overwrite `core`, `gold`, or `meta` relations during parity testing.
 3. External-model declarations generated from the actual tested relation
@@ -73,6 +79,35 @@ Before Python stops writing any relation:
    explicitly versioned compatibility object), retain the prior writer for a
    rollback window, and use a restatement/rebuild plan rather than an
    unreviewed manual table change.
+
+## Candidate namespace and executable parity gate
+
+`candidate` is deliberately non-default. A reviewed, explicitly authorized
+candidate apply must use `--gateway candidate ... plan02_candidate`.
+SQLMesh therefore keeps state in `sqlmesh_plan02_candidate` and materializes
+candidate relations under `core__plan02_candidate` / `gold__plan02_candidate`,
+never `core`, `gold`, or `meta`. Do not use `--auto-apply` until a reviewed
+`plan --no-prompts` identifies only those namespaces.
+
+Before a candidate writer can be considered, run this read-only gate after its
+candidate relations exist:
+
+```bash
+TEST_DATABASE_URL=postgresql:///mlb_test_codex \
+uv run python scripts/verify_sqlmesh_candidate.py \
+  --venue core__plan02_candidate.venue \
+  --feature gold__plan02_candidate.game_feature
+```
+
+It fails unless every candidate venue retains the exact existing `core.venue.id`
+for its `retro_park_id`, and every candidate feature row has the same completed
+game identity or scheduled-game `mlb_game_pk` anchor plus completed/scheduled
+classification as `gold.game_feature`.
+This is intentionally stricter than a natural-key/value tie-out: it blocks the
+current `core.venue` spike model, which has no surrogate `id`, and it blocks
+the current narrow gold candidates, which do not yet produce the required wide
+game-feature relation. Python remains the writer until this gate and the
+per-model promotion requirements pass.
 
 ## Backfill, restatement, and rollback
 

@@ -151,6 +151,10 @@ The retained files passed scoped Ruff format/check and 28 focused unit tests.
   environment separation, state/naming requirements, promotion gates, and
   bounded restatement/rollback procedure. It explicitly prohibits creating a
   new test database or targeting `mlb` without a separately approved config.
+- SQLMesh external-model declarations now use catalog-neutral logical names,
+  so a future explicitly configured `mlb_test_codex` candidate gateway can use
+  the same project without a copied test database. DuckDB tests (`2 passed`)
+  and the existing spike connection check passed; no plan/apply ran.
 
 ## Plan 02C — parity gate (2026-08-06)
 
@@ -175,6 +179,35 @@ The retained files passed scoped Ruff format/check and 28 focused unit tests.
   PostgreSQL surrogate `core.venue.id`. `docs/SQL_OWNERSHIP.md` now makes
   identity preservation a hard promotion gate; no database was applied or
   changed by the draft.
+- Park factor's production transformation SQL is now the named resource
+  `mlb_baseball/sql/park_factor_update.sql`; `model.park` retains only its
+  parameter/connection orchestration. Resource, park, and dependent wRC+
+  coverage passed against existing `mlb_test_codex` (`8 passed`). A shared wRC+
+  fixture now adds its required raw columns when another test created a narrower
+  table first; no database was created.
+- `core.venue`'s base insert and deterministic optional enrichment are now
+  named `mlb_baseball/sql/conform_venue_*.sql` resources, while Python retains
+  only optional-source/error and transaction orchestration. Named-resource and
+  focused venue parity coverage passed against existing `mlb_test_codex` (`7
+  passed`); no database was created.
+- Prior-season team-speed's stable update is now the named resource
+  `mlb_baseball/sql/team_speed_update.sql`; Python keeps only source existence
+  detection and orchestration. Resource and feature coverage passed against
+  existing `mlb_test_codex` (`9 passed`); no database was created.
+- Prior-season OAA's stable update is now the named resource
+  `mlb_baseball/sql/team_oaa_update.sql`; Python keeps only optional-source
+  detection and orchestration. Resource and feature coverage passed against
+  existing `mlb_test_codex` (`11 passed`); no database was created.
+- Prior-season catcher framing's stable update is now the named resource
+  `mlb_baseball/sql/team_framing_update.sql`; Python retains the source check
+  and the small, reviewed team-map parameterization. Resource and feature
+  coverage passed against existing `mlb_test_codex` (`11 passed`); no database
+  was created.
+- Prior-season team WAR's stable update is now the named resource
+  `mlb_baseball/sql/team_war_update.sql`; Python retains only the reviewed
+  current-era team-map parameterization and orchestration. Resource and feature
+  coverage passed against existing `mlb_test_codex` (`11 passed`); no database
+  was created.
 
 ## Plan 02D — atomic artifact landing (2026-08-06)
 
@@ -186,6 +219,16 @@ The retained files passed scoped Ruff format/check and 28 focused unit tests.
 - Manifest status transitions now optionally record parser version and a stable,
   order-sensitive source-schema fingerprint. The backwards-compatible manifest
   suite passed (`15 passed`).
+- Retrosheet CSV loads now actually record parser version and a table-qualified
+  source-schema fingerprint after every successful archive load. Manifest and
+  connector coverage passed against existing `mlb_test_codex` (`19 passed`);
+  no database was created.
+- Retrosheet event archives now record their cwevent/cwgame parser version and
+  deduplicated table-qualified output-schema fingerprint after successful loads.
+  Its fixture now clears only its two disposable raw tables before/after each
+  test, preventing unrelated stale-table drift warnings. Focused integration
+  coverage passed against existing `mlb_test_codex` (`7 passed`); no database
+  was created.
 - `track_run()` now takes a per-source PostgreSQL advisory lock before recording
   an active run and always releases it on exit. Two independent connections to
   the existing `mlb_test_codex` database proved that an overlapping same-source
@@ -219,6 +262,47 @@ The retained files passed scoped Ruff format/check and 28 focused unit tests.
 - The same two-connection advisory-lock test now proves the rejected connector
   connection remains usable after the active run releases the source lock
   (`7 passed` against existing `mlb_test_codex`); no database was created.
+
+## Plan 02C continuation — deterministic verification and candidate gate (2026-08-06)
+
+- Removed every test-time `CREATE DATABASE`/`DROP DATABASE` path. The
+  unmigrated-database regressions now simulate PostgreSQL's real
+  `UndefinedTable` error, and tests target only the existing
+  `mlb_test_codex` database. Doctor's optional MLB API raw tables and
+  conformance's complete dynamic raw-input inventory are reset on teardown,
+  preventing stale optional sources from changing later test outcomes.
+  Focused verification: `49 passed in 14.65s` for doctor/inventory/health;
+  `2 passed in 13.87s` for conformance cleanup plus baseline run.
+- Extracted `conform._build_teams`' stable set insert to
+  `mlb_baseball/sql/conform_team_insert.sql`; its shared-max active-team
+  sentinel behavior is covered through the existing real-Postgres regression
+  (`1 passed in 13.20s`) and named-resource tests (`23 passed in 0.18s`).
+- Added a non-default SQLMesh `candidate` gateway for only the existing
+  `mlb_test_codex` database with `sqlmesh_plan02_candidate` state. The
+  review-only `plan02_candidate` plan proposed only environment-suffixed
+  candidate schemas and was declined before apply. The read-only
+  `scripts/verify_sqlmesh_candidate.py` blocks promotion unless candidate
+  venue surrogate IDs and completed/scheduled feature rows exactly match the
+  existing Python-owned relations. Current models do not meet those contracts,
+  so no writer was changed.
+- The full repaired conformance suite was run alone against the existing test
+  database: `TEST_DATABASE_URL=postgresql:///mlb_test_codex uv run pytest -q
+  tests/integration/test_conform.py` → `46 passed in 643.44s (0:10:43)`.
+  No test database was created and no concurrent pytest process was used.
+- The read-only candidate parity checker now has an actual existing-database
+  integration fixture (`1 passed in 0.91s`). It materialized only temporary
+  `core__plan02_candidate` / `gold__plan02_candidate` relations, proved exact
+  venue-ID, completed-game, and scheduled-game identities, then dropped those
+  schemas. This validates the gate mechanics only; the current SQLMesh models
+  remain ineligible to replace Python writers.
+- Final Plan 02 acceptance audit passed: `uv run ruff check`; SQLMesh DuckDB
+  tests (`2 passed`); safety/lock/doctor/inventory/health/candidate-gate tests
+  (`57 passed in 15.73s`); named-resource tests (`23 passed in 0.12s`); and
+  the isolated full conformance run (`46 passed in 644.44s (0:10:44)`). The
+  review-only candidate plan proposed only suffixed schemas and was declined.
+  Final database inspection found no candidate schemas or advisory locks.
+  Plan 02 is accepted; Python writers remain active and SQLMesh cutover is a
+  separate, owner-approved future milestone.
 
 ## Plan 02E — table contract baseline (2026-08-06)
 

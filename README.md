@@ -58,11 +58,14 @@ Replace `/path/to/mlb-baseball` with this repo's actual path. `mlb_api_update.sh
 
 ```bash
 pip install -e ".[dev]"
-createdb mlb_test   # one-time: a dedicated test database, separate from the real one
-pytest
+TEST_DATABASE_URL=postgresql:///mlb_test_codex pytest
 ```
 
-Integration tests run against `mlb_test` (override with `TEST_DATABASE_URL`) — real Postgres, not mocks, per `CLAUDE.md`. `tests/unit/` covers pure logic with no I/O; `tests/integration/` covers everything that touches the database (network calls are mocked with fixture data so tests stay fast and offline-capable).
+Integration tests run against the existing disposable database selected by
+`TEST_DATABASE_URL` (normally `mlb_test_codex`) — never `mlb`, and tests never
+create a database. `tests/unit/` covers pure logic with no I/O;
+`tests/integration/` covers everything that touches the database (network calls
+are mocked with fixture data so tests stay fast and offline-capable).
 
 ### Test speed
 

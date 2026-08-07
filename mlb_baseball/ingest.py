@@ -65,7 +65,7 @@ def track_run(conn: psycopg.Connection, source: str, mode: str) -> Iterator[dict
                     "UPDATE meta.ingestion_run "
                     "SET status = 'success', rows = %s, finished_at = now() WHERE id = %s",
                     (result.get("rows"), run_id),
-                )
+            )
             conn.commit()
     finally:
         _release_source_lock(conn, source)

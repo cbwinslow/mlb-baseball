@@ -60,6 +60,7 @@ from mlb_baseball.load import load_dataframe
 
 SOURCE = "retrosheet_box"
 EVENTS_BASE_URL = "https://www.retrosheet.org/events"
+PARSER_VERSION = "retrosheet-box-cwbox-v1"
 
 GAME_TABLE = "raw.retrosheet_box_game"
 BATTING_TABLE = "raw.retrosheet_box_batting"
@@ -198,7 +199,9 @@ def _load_archive(
     if archive_path is None:
         return {}
     counts: dict[str, int] = dict.fromkeys(ALL_TABLES, 0)
-    for tables in _parse_archive(archive_path, group).values():
+    parsed_archives = _parse_archive(archive_path, group)
+    schema_columns: list[str] = []
+    for tables in parsed_archives.values():
         # game's own _scope stands in for the whole batch's scope value —
         # every table in `tables` was stamped with the same _scope in
         # _parse_archive. Supplementary tables (doubles/triples/etc.) can be
@@ -208,12 +211,19 @@ def _load_archive(
         scope_value = tables["game"]["_scope"].iloc[0]
         for key, raw_table in TABLE_MAP.items():
             df = tables[key]
+            schema_columns.extend(f"{raw_table}.{column}" for column in df.columns)
             if df.empty:
                 continue
             counts[raw_table] += load_dataframe(
                 conn, raw_table, df, scope_column="_scope", scope_value=scope_value
             )
-    manifest.mark_status(SOURCE, filename, "loaded")
+    manifest.mark_status(
+        SOURCE,
+        filename,
+        "loaded",
+        parser_version=PARSER_VERSION,
+        schema_columns=list(dict.fromkeys(schema_columns)),
+    )
     return counts
 
 

@@ -25,11 +25,16 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(autouse=True)
 def _clean_tables(db_conn):
+    def _drop() -> None:
+        db_conn.rollback()
+        with db_conn.cursor() as cur:
+            cur.execute(f"DROP TABLE IF EXISTS {event.EVENT_TABLE}")
+            cur.execute(f"DROP TABLE IF EXISTS {event.GAME_TABLE}")
+        db_conn.commit()
+
+    _drop()
     yield
-    with db_conn.cursor() as cur:
-        cur.execute(f"DROP TABLE IF EXISTS {event.EVENT_TABLE}")
-        cur.execute(f"DROP TABLE IF EXISTS {event.GAME_TABLE}")
-    db_conn.commit()
+    _drop()
 
 
 @pytest.fixture(autouse=True)
@@ -57,6 +62,10 @@ def test_load_archive_lands_both_tables_for_every_year_present(db_conn):
         assert cur.fetchone() is not None
         cur.execute(f"SELECT game_id, home_team_id, away_team_id FROM {event.GAME_TABLE} LIMIT 1")
         assert cur.fetchone() is not None
+
+    entry = event.manifest.load_manifest(event.SOURCE)["decade.zip"]
+    assert entry["parser_version"] == event.PARSER_VERSION
+    assert entry["schema_fingerprint"]
 
 
 def test_reloading_an_archive_replaces_its_years_without_touching_others(db_conn):

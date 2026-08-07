@@ -46,6 +46,16 @@ def test_load_year_lands_all_seven_tables(db_conn):
         cur.execute("SELECT gid, batter FROM raw.retrosheet_plays LIMIT 1")
         assert cur.fetchone() is not None
 
+    entry = retrosheet.manifest.load_manifest(retrosheet.SOURCE)["2025csvs.zip"]
+    assert entry["parser_version"] == retrosheet.PARSER_VERSION
+    assert entry["schema_fingerprint"] == retrosheet.manifest.schema_fingerprint(
+        [
+            f"{name}.{column}"
+            for name, df in retrosheet._extract_csvs(2025, FIXTURE_ZIP).items()
+            for column in df.columns
+        ]
+    )
+
 
 def test_missing_year_returns_empty_without_erroring(db_conn):
     with patch.object(retrosheet, "_download_year", side_effect=_mock_download):

@@ -18,6 +18,19 @@ gateways:
       password: ""
       port: 5432
       database: mlb_spike
+  candidate:
+    # Integration-only gateway. It is intentionally not the default gateway
+    # and never points at production. SQLMesh environments add their suffix to
+    # physical schemas, so `--environment plan02_candidate` writes candidate
+    # relations such as core__plan02_candidate / gold__plan02_candidate.
+    connection:
+      type: postgres
+      host: /var/run/postgresql
+      user: cbwinslow
+      password: ""
+      port: 5432
+      database: mlb_test_codex
+    state_schema: sqlmesh_plan02_candidate
 
 default_gateway: postgres
 

@@ -7,11 +7,46 @@ not something the fast test suite should depend on)."""
 import uuid
 from unittest.mock import patch
 
-import psycopg
+import pytest
 
 from mlb_baseball import doctor
 from mlb_baseball.connectors import mlb_api
 from mlb_baseball.health import Check
+
+_MLB_API_RAW_TABLES = [
+    "raw.mlb_schedule",
+    "raw.mlb_standing",
+    "raw.mlb_roster",
+    "raw.mlb_transaction",
+    "raw.mlb_playbyplay",
+    "raw.mlb_draft",
+    "raw.mlb_venue",
+    "raw.mlb_team_history",
+    "raw.mlb_person",
+    "raw.mlb_boxscore_batting",
+    "raw.mlb_boxscore_pitching",
+    "raw.mlb_boxscore_fielding",
+    "raw.mlb_umpire",
+    "raw.mlb_win_prob",
+    "raw.mlb_live_game",
+]
+
+
+@pytest.fixture
+def reset_mlb_api_state(db_conn):
+    """Keep doctor tests independent of raw tables left by another test."""
+
+    def reset():
+        db_conn.rollback()
+        with db_conn.cursor() as cur:
+            for table in _MLB_API_RAW_TABLES:
+                cur.execute(f"DROP TABLE IF EXISTS {table}")
+            cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (mlb_api.SOURCE,))
+        db_conn.commit()
+
+    reset()
+    yield
+    reset()
 
 
 def test_database_reachable_is_true_against_the_test_db():
@@ -38,27 +73,20 @@ def test_pg_stat_statements_enabled_against_the_test_db():
     assert "tracking" in result.detail
 
 
-def test_migrations_up_to_date_reports_actionable_message_on_unmigrated_db(monkeypatch, db_url_for):
+def test_migrations_up_to_date_reports_actionable_message_on_unmigrated_db(
+    monkeypatch, unmigrated_db_connection
+):
     # Regression: a genuinely fresh clone's database is reachable but has
     # never had `mlb migrate` run — public.schema_migrations doesn't exist
     # yet. This used to crash doctor with a raw UndefinedTable traceback
-    # instead of reporting it as a clean, actionable failed check. Can't
-    # safely test this against the shared mlb_test database (every other
-    # test in this suite assumes it's already migrated), so this spins up a
-    # genuinely separate, disposable database instead.
-    db_name = f"mlb_doctor_freshtest_{uuid.uuid4().hex[:8]}"
-    with psycopg.connect(db_url_for("postgres"), autocommit=True) as admin_conn:
-        with admin_conn.cursor() as cur:
-            cur.execute(f"CREATE DATABASE {db_name}")
-        try:
-            monkeypatch.setenv("DATABASE_URL", db_url_for(db_name))
-            result = doctor._migrations_up_to_date()
-        finally:
-            with admin_conn.cursor() as cur:
-                cur.execute(f"DROP DATABASE {db_name}")
+    # instead of reporting it as a clean, actionable failed check. Simulate
+    # the real PostgreSQL exception rather than creating another database.
+    monkeypatch.setattr(doctor, "get_connection", lambda: unmigrated_db_connection)
+    result = doctor._migrations_up_to_date()
 
     assert not result.ok
     assert "mlb migrate" in result.detail
+    assert unmigrated_db_connection.rolled_back
 
 
 def test_stale_ingestion_runs_reaped_reports_ok_when_nothing_stale(db_conn):
@@ -141,19 +169,14 @@ def test_run_survives_a_connector_whose_health_check_raises(monkeypatch):
     assert any(c.name == "fine thing" and c.ok for c in checks)
 
 
-def test_run_diagnoses_mlb_api_cleanly_before_it_has_ever_been_bootstrapped(db_conn, monkeypatch):
+def test_run_diagnoses_mlb_api_cleanly_before_it_has_ever_been_bootstrapped(
+    monkeypatch, reset_mlb_api_state
+):
     # End-to-end, against the real (test) database, not a fake connector:
     # a fresh clone that's run `mlb migrate` but never `mlb ingest mlb_api`
     # must get clean, actionable failed checks through the real doctor.run()
     # path — not a crash, and not a false "all clear."
     monkeypatch.setattr(doctor, "CONNECTORS", {"mlb_api": mlb_api})
-    # Guarantee a genuinely "never run" state regardless of what any earlier
-    # test (in this file or another) already wrote to meta.ingestion_run —
-    # that table is a durable audit log nothing else truncates.
-    with db_conn.cursor() as cur:
-        cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (mlb_api.SOURCE,))
-    db_conn.commit()
-
     checks = doctor.run()
 
     schedule_check = next(c for c in checks if c.name == "raw.mlb_schedule")
@@ -166,7 +189,7 @@ def test_run_diagnoses_mlb_api_cleanly_before_it_has_ever_been_bootstrapped(db_c
 
 
 def test_run_diagnoses_mlb_api_as_healthy_after_bootstrap_including_empty_live_table(
-    db_conn, monkeypatch
+    db_conn, monkeypatch, reset_mlb_api_state
 ):
     monkeypatch.setattr(doctor, "CONNECTORS", {"mlb_api": mlb_api})
     monkeypatch.setattr(mlb_api, "FIRST_SCHEDULE_YEAR", 2026)
@@ -222,24 +245,3 @@ def test_run_diagnoses_mlb_api_as_healthy_after_bootstrap_including_empty_live_t
     assert not live_check.ok
     assert "never bootstrapped" in live_check.detail
     assert next(c for c in checks if c.name == "mlb_api freshness").ok
-
-    with db_conn.cursor() as cur:
-        for table in [
-            "raw.mlb_schedule",
-            "raw.mlb_standing",
-            "raw.mlb_roster",
-            "raw.mlb_transaction",
-            "raw.mlb_playbyplay",
-            "raw.mlb_draft",
-            "raw.mlb_venue",
-            "raw.mlb_team_history",
-            "raw.mlb_person",
-            "raw.mlb_boxscore_batting",
-            "raw.mlb_boxscore_pitching",
-            "raw.mlb_boxscore_fielding",
-            "raw.mlb_umpire",
-            "raw.mlb_win_prob",
-        ]:
-            cur.execute(f"DROP TABLE IF EXISTS {table}")
-        cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (mlb_api.SOURCE,))
-    db_conn.commit()

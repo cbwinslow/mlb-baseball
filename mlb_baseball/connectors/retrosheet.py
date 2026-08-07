@@ -53,6 +53,7 @@ SOURCE = "retrosheet"
 BASE_URL = "https://www.retrosheet.org/downloads"
 FIRST_YEAR = 1898
 CSV_NAMES = ["allplayers", "batting", "fielding", "gameinfo", "pitching", "plays", "teamstats"]
+PARSER_VERSION = "retrosheet-csv-v1"
 
 
 def _download_year(year: int) -> Path | None:
@@ -73,7 +74,8 @@ def _extract_csvs(year: int, zip_path: Path) -> dict[str, pd.DataFrame]:
 
 def _load_zip(conn: psycopg.Connection, year: int, zip_path: Path) -> dict[str, int]:
     counts = {}
-    for name, df in _extract_csvs(year, zip_path).items():
+    dataframes = _extract_csvs(year, zip_path)
+    for name, df in dataframes.items():
         table = f"raw.retrosheet_{name}"
         counts[table] = load_dataframe(
             conn,
@@ -83,7 +85,16 @@ def _load_zip(conn: psycopg.Connection, year: int, zip_path: Path) -> dict[str, 
             scope_value=str(year),
             schema_drift_policy="error",
         )
-    manifest.mark_status(SOURCE, zip_path.name, "loaded")
+    schema_columns = [
+        f"{name}.{column}" for name, df in dataframes.items() for column in df.columns
+    ]
+    manifest.mark_status(
+        SOURCE,
+        zip_path.name,
+        "loaded",
+        parser_version=PARSER_VERSION,
+        schema_columns=schema_columns,
+    )
     return counts
 
 

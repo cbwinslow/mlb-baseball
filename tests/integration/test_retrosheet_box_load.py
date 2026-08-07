@@ -55,6 +55,9 @@ def test_load_archive_self_contained_lands_all_four_tables(db_conn):
         ("BRO190004210", "NY1", "BRO"),
         ("BRO190004280", "BSN", "BRO"),
     ]
+    entry = box.manifest.load_manifest(box.SOURCE)["1900sbox.zip"]
+    assert entry["parser_version"] == box.PARSER_VERSION
+    assert entry["schema_fingerprint"]
 
 
 def test_load_archive_lands_supplementary_event_lists(db_conn):

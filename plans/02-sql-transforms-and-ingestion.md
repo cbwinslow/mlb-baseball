@@ -60,4 +60,3 @@ operational cost; never replace PostgreSQL by enthusiasm alone.
 - Refactored outputs tie out exactly or have reviewed, explained differences.
 - Connector reruns, failures, overlap, and schema drift have real Postgres tests.
 - A recorded ClickHouse decision contains benchmarks, even if the decision is no.
-

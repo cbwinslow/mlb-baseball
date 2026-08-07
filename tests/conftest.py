@@ -1,6 +1,8 @@
-"""Shared fixtures. Integration tests run against a real, dedicated test
-database (mlb_test) — never the real mlb database — consistent with this
-project's "test against real Postgres, not mocks" approach (see CLAUDE.md).
+"""Shared fixtures for tests that use the existing disposable test database.
+
+Tests never create additional databases.  Most integration coverage uses the
+database selected by ``TEST_DATABASE_URL``; the small number of tests for an
+unmigrated database simulate PostgreSQL's missing-table error in-process.
 """
 
 import os
@@ -12,22 +14,41 @@ from psycopg import sql
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test")
 
 
+class _UndefinedTableCursor:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def execute(self, *args, **kwargs):
+        raise psycopg.errors.UndefinedTable("relation does not exist")
+
+
+class _UnmigratedConnection:
+    """Minimal DB-API context manager for unmigrated-DB error-path tests."""
+
+    def __init__(self):
+        self.rolled_back = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def cursor(self):
+        return _UndefinedTableCursor()
+
+    def rollback(self):
+        self.rolled_back = True
+
+
 @pytest.fixture
-def db_url_for():
-    """Returns a function mapping a database name to TEST_DATABASE_URL with
-    only the dbname swapped — so tests that need a second, disposable
-    database (the "fresh unmigrated clone" tests) inherit whatever host/
-    port/credentials the environment actually uses. Hardcoding
-    postgresql:///<name> worked locally (unix socket, peer auth) but broke
-    in CI, where Postgres is a TCP service container with password auth.
-    A fixture, not an importable helper, because tests/ is not a package."""
+def unmigrated_db_connection():
+    """A connection that raises the real missing-table exception on query."""
 
-    def _url(dbname: str) -> str:
-        params = psycopg.conninfo.conninfo_to_dict(TEST_DATABASE_URL)
-        params["dbname"] = dbname
-        return psycopg.conninfo.make_conninfo(**params)
-
-    return _url
+    return _UnmigratedConnection()
 
 
 def _speed_up_test_database(url: str) -> None:

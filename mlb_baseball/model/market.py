@@ -61,49 +61,23 @@ extra join/filter, not a shared parameterized shape forced onto both.
 import psycopg
 
 from mlb_baseball.health import Check, check_join_coverage
+from mlb_baseball.sql import read_sql
 
 MODEL_VERSIONS = {"polymarket": "polymarket-v1", "kalshi": "kalshi-v1"}
-
-# market_ref for a Polymarket row is "{market_id}:{team_id}" (see conform.py's
-# _polymarket_market_rows) -- split_part reverses that back to the market_id
-# needed to join raw.polymarket_market and resolve the moneyline-only row.
-_POLYMARKET_RECORD_SQL = """
-    INSERT INTO gold.prediction (mlb_game_pk, model_version, home_win_prob)
-    SELECT g.game_pk, %(model_version)s, m.implied_probability
-    FROM core.market m
-    JOIN core.game g ON g.id = m.game_id AND g.home_team_id = m.team_id
-    JOIN raw.polymarket_market pm ON pm.id = split_part(m.market_ref, ':', 1)
-    WHERE m.source = 'polymarket'
-        AND pm.sportsmarkettype = 'moneyline'
-        AND m.implied_probability IS NOT NULL
-        AND g.game_pk IS NOT NULL
-        AND NOT EXISTS (
-            SELECT 1 FROM gold.prediction p
-            WHERE p.mlb_game_pk = g.game_pk AND p.model_version = %(model_version)s
-        )
-"""
-
-_KALSHI_RECORD_SQL = """
-    INSERT INTO gold.prediction (mlb_game_pk, model_version, home_win_prob)
-    SELECT g.game_pk, %(model_version)s, m.implied_probability
-    FROM core.market m
-    JOIN core.game g ON g.id = m.game_id AND g.home_team_id = m.team_id
-    WHERE m.source = 'kalshi'
-        AND m.implied_probability IS NOT NULL
-        AND g.game_pk IS NOT NULL
-        AND NOT EXISTS (
-            SELECT 1 FROM gold.prediction p
-            WHERE p.mlb_game_pk = g.game_pk AND p.model_version = %(model_version)s
-        )
-"""
 
 
 def record(conn: psycopg.Connection) -> int:
     total = 0
     with conn.cursor() as cur:
-        cur.execute(_POLYMARKET_RECORD_SQL, {"model_version": MODEL_VERSIONS["polymarket"]})
+        cur.execute(
+            read_sql("market_polymarket_prediction_insert.sql"),
+            {"model_version": MODEL_VERSIONS["polymarket"]},
+        )
         total += cur.rowcount
-        cur.execute(_KALSHI_RECORD_SQL, {"model_version": MODEL_VERSIONS["kalshi"]})
+        cur.execute(
+            read_sql("market_kalshi_prediction_insert.sql"),
+            {"model_version": MODEL_VERSIONS["kalshi"]},
+        )
         total += cur.rowcount
     return total
 

@@ -82,7 +82,6 @@ def test_track_run_stores_the_running_process_pid(db_conn):
 
 
 def test_track_run_rejects_overlapping_runs_for_the_same_source(db_conn):
-    """The lock is session-scoped, so a second connector cannot overlap it."""
     source = f"test_overlap_{uuid.uuid4().hex}"
 
     with psycopg.connect(os.environ["DATABASE_URL"]) as second_conn:
@@ -91,10 +90,9 @@ def test_track_run_rejects_overlapping_runs_for_the_same_source(db_conn):
                 with track_run(second_conn, source, "bootstrap"):
                     pass
 
-        # A rejected acquisition leaves no bad transaction state behind; once
-        # the first run exits, the same connector connection can proceed.
         with track_run(second_conn, source, "bootstrap") as result:
             result["rows"] = 1
+
 
 
 def test_reap_stale_runs_marks_dead_pid_as_failed(db_conn):

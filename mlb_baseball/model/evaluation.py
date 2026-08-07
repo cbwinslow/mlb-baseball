@@ -21,7 +21,7 @@ from mlb_baseball.model import provenance
 
 @dataclass(frozen=True)
 class Prediction:
-    game_pk: str
+    game_instance_key: str
     model_version: str
     probability: float
     actual: bool
@@ -59,39 +59,69 @@ def _selected_predictions(
             f"""
             WITH schedule AS (
                 SELECT game_id,
+                       format('mlb:%%s:%%s:%%s:%%s:%%s:%%s',
+                           _season, game_date, COALESCE(NULLIF(game_num, ''), '1'),
+                           home_id, away_id, game_id
+                       ) AS game_instance_key,
                        min(NULLIF(game_datetime, '')::timestamptz) AS game_start
                 FROM raw.mlb_schedule
                 WHERE game_id IS NOT NULL AND NULLIF(game_datetime, '') IS NOT NULL
-                GROUP BY game_id
+                GROUP BY game_id, _season, game_date, game_num, home_id, away_id
                 HAVING count(DISTINCT NULLIF(game_datetime, '')) = 1
+            ), instance_rows AS (
+                SELECT game_instance_key, season, game_date
+                FROM meta.game_instance
+                UNION ALL
+                SELECT f.game_instance_key, f.season, f.game_date
+                FROM gold.game_feature f
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM meta.game_instance i
+                    WHERE i.game_instance_key = f.game_instance_key
+                )
+            ), instances AS (
+                SELECT i.game_instance_key,
+                       i.season,
+                       -- Retrosheet's completed-game feed has no reliable
+                       -- start timestamp.  Its game-date midnight boundary
+                       -- is intentionally not used: a conservative next-day
+                       -- cutoff excludes only impossible future snapshots,
+                       -- while the report records that fallback in the
+                       -- registry contract.
+                       COALESCE(
+                           s.game_start,
+                           (i.game_date::timestamp AT TIME ZONE 'UTC') + interval '1 day'
+                       ) AS game_start
+                FROM instance_rows i
+                LEFT JOIN schedule s ON s.game_instance_key = i.game_instance_key
+                WHERE i.game_date IS NOT NULL
             ), eligible AS (
-                SELECT p.mlb_game_pk,
+                SELECT p.game_instance_key,
                        p.model_version,
                        p.home_win_prob,
                        p.actual_home_win,
                        row_number() OVER (
-                           PARTITION BY p.mlb_game_pk, p.model_version
+                           PARTITION BY p.game_instance_key, p.model_version
                            {cutoff_order}
                        ) AS snapshot_rank
                 FROM gold.prediction p
-                JOIN schedule s ON s.game_id = p.mlb_game_pk
-                JOIN gold.game_feature f ON f.mlb_game_pk = p.mlb_game_pk
+                JOIN instances s ON s.game_instance_key = p.game_instance_key
                 WHERE p.model_version = ANY(%s)
-                  AND f.season = %s
+                  AND s.season = %s
                   AND p.actual_home_win IS NOT NULL
                   AND p.generated_at < s.game_start
                   {cutoff_predicate}
             )
-            SELECT mlb_game_pk, model_version, home_win_prob, actual_home_win
+            SELECT game_instance_key, model_version, home_win_prob, actual_home_win
             FROM eligible
             WHERE snapshot_rank = 1
-            ORDER BY mlb_game_pk, model_version
+            ORDER BY game_instance_key, model_version
             """,
             (list(model_versions), season),
         )
         return [
-            Prediction(str(game_pk), str(version), float(probability), bool(actual))
-            for game_pk, version, probability, actual in cur.fetchall()
+            Prediction(str(game_instance_key), str(version), float(probability), bool(actual))
+            for game_instance_key, version, probability, actual in cur.fetchall()
         ]
 
 
@@ -100,7 +130,7 @@ def _common_sample(
 ) -> dict[str, list[Prediction]]:
     by_game: dict[str, dict[str, Prediction]] = {}
     for row in rows:
-        by_game.setdefault(row.game_pk, {})[row.model_version] = row
+        by_game.setdefault(row.game_instance_key, {})[row.model_version] = row
     required = set(model_versions)
     common_games = sorted(game_pk for game_pk, values in by_game.items() if set(values) == required)
     return {

@@ -91,7 +91,8 @@ def _polymarket_coverage_check() -> Check:
         "decided games with a resolved polymarket moneyline price get a recorded prediction",
         f"""
         SELECT count(*) FROM gold.prediction p
-        JOIN core.game g ON g.game_pk = p.mlb_game_pk
+        JOIN gold.game_feature f ON f.game_instance_key = p.game_instance_key
+        JOIN core.game g ON g.id = f.game_id
         WHERE p.model_version = '{model_version}'
         """,
         """
@@ -114,7 +115,8 @@ def _kalshi_coverage_check() -> Check:
         "decided games with a resolved kalshi price get a recorded prediction",
         f"""
         SELECT count(*) FROM gold.prediction p
-        JOIN core.game g ON g.game_pk = p.mlb_game_pk
+        JOIN gold.game_feature f ON f.game_instance_key = p.game_instance_key
+        JOIN core.game g ON g.id = f.game_id
         WHERE p.model_version = '{model_version}'
         """,
         """

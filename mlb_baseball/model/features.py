@@ -39,13 +39,48 @@ import psycopg
 
 from mlb_baseball.db import fetch_one
 from mlb_baseball.health import Check, check_table_has_rows
+from mlb_baseball.model.identity import sync_feature_instances
 from mlb_baseball.sql import read_sql
 
 _COMPLETED_GAMES_SQL = """
-    SELECT 'g' || id::text AS key, id AS game_id, game_pk AS mlb_game_pk,
-        season, game_date, game_number, home_team_id, away_team_id,
-        home_score, away_score, venue_id
-    FROM core.game WHERE game_type = 'regular'
+    SELECT 'g' || g.id::text AS key, g.id AS game_id, g.game_pk AS mlb_game_pk,
+        g.season, g.game_date, g.game_number, g.home_team_id, g.away_team_id,
+        g.home_score, g.away_score, g.venue_id,
+        COALESCE(
+            'retro:' || g.retro_game_id
+        ) AS game_instance_key
+    FROM core.game g
+    JOIN core.team home ON home.id = g.home_team_id
+    JOIN core.team away ON away.id = g.away_team_id
+    WHERE g.game_type = 'regular'
+"""
+
+_COMPLETED_GAMES_WITH_SCHEDULE_SQL = """
+    SELECT 'g' || g.id::text AS key, g.id AS game_id, g.game_pk AS mlb_game_pk,
+        g.season, g.game_date, g.game_number, g.home_team_id, g.away_team_id,
+        g.home_score, g.away_score, g.venue_id,
+        COALESCE(
+            CASE WHEN ms.game_id IS NOT NULL THEN
+                format('mlb:%s:%s:%s:%s:%s:%s',
+                    ms._season, ms.game_date, COALESCE(NULLIF(ms.game_num, ''), '1'),
+                    ms.home_id, ms.away_id, ms.game_id)
+            END,
+            'retro:' || g.retro_game_id
+        ) AS game_instance_key
+    FROM core.game g
+    JOIN core.team home ON home.id = g.home_team_id
+    JOIN core.team away ON away.id = g.away_team_id
+    LEFT JOIN LATERAL (
+        SELECT ms.*
+        FROM raw.mlb_schedule ms
+        WHERE ms.game_id = g.game_pk
+          AND ms.game_date::date = g.game_date
+          AND (home.mlb_team_id IS NULL OR ms.home_id = home.mlb_team_id::text)
+          AND (away.mlb_team_id IS NULL OR ms.away_id = away.mlb_team_id::text)
+        ORDER BY ms.game_num
+        LIMIT 1
+    ) ms ON TRUE
+    WHERE g.game_type = 'regular'
 """
 
 # raw.mlb_schedule might not exist yet (mlb_api never bootstrapped) --
@@ -57,10 +92,15 @@ _COMPLETED_GAMES_SQL = """
 # otherwise-valid upcoming game, it just leaves park_factor NULL for it.
 _UPCOMING_GAMES_SQL = """
     UNION ALL
-    SELECT 's' || ms.game_id, NULL, ms.game_id,
+    SELECT 's' || ms.game_id || ':' || ms.game_date || ':' ||
+        COALESCE(NULLIF(ms.game_num, ''), '1'),
+        NULL, ms.game_id,
         ms._season::integer, ms.game_date::date,
         CASE WHEN ms.game_num ~ '^[0-9]+$' THEN ms.game_num::integer END,
-        home.id, away.id, NULL, NULL, venue.id
+        home.id, away.id, NULL, NULL, venue.id,
+        format('mlb:%s:%s:%s:%s:%s:%s',
+            ms._season, ms.game_date, COALESCE(NULLIF(ms.game_num, ''), '1'),
+            ms.home_id, ms.away_id, ms.game_id)
     FROM raw.mlb_schedule ms
     JOIN core.team home ON home.mlb_team_id = ms.home_id::integer
         AND ms._season::integer BETWEEN home.first_year AND home.last_year
@@ -83,10 +123,15 @@ def build(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
         (schedule_exists,) = fetch_one(cur)
-        games_sql = _COMPLETED_GAMES_SQL + (_UPCOMING_GAMES_SQL if schedule_exists else "")
+        completed_sql = (
+            _COMPLETED_GAMES_WITH_SCHEDULE_SQL if schedule_exists else _COMPLETED_GAMES_SQL
+        )
+        games_sql = completed_sql + (_UPCOMING_GAMES_SQL if schedule_exists else "")
         cur.execute("TRUNCATE gold.game_feature")
         cur.execute(read_sql("game_feature_rebuild.sql").format(games_sql=games_sql))
-        return cur.rowcount
+        count = cur.rowcount
+    sync_feature_instances(conn)
+    return count
 
 
 def health_check() -> list[Check]:

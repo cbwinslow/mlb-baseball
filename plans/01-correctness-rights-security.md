@@ -56,6 +56,38 @@ cannot overlap in an inconsistent order; retain per-source locks for connector
 serialization. Make migration execution serializable too. Clearly separate
 read-only diagnostics from owner-authorized stale-run repair.
 
+**Status:** Implementation exists but production cutover is BLOCKED pending remediation. Production `mlb` has not been touched and no production cutover is authorized.
+
+**Cutover Blockers:**
+- Registry `meta.game_instance` is created in 0036 after 0035 fails, while backfill requires it.
+- Prediction `game_instance_key` lacks explicit NOT NULL cutover gate.
+- Interrupted `CREATE INDEX CONCURRENTLY` can leave invalid index and `IF NOT EXISTS` is not a safe retry.
+- Legacy prediction mapping through current feature rows is not historically unambiguous.
+- Deterministic batch ordering must use full old primary key.
+- `mlb doctor`, runbook, contracts, and public API need alignment and explicit read-only validation checks.
+
+#### 01F remediation sequence
+
+Production `mlb` remains out of scope. Any later database verification uses only
+the existing `mlb_test_codex` database.
+
+1. **01F-R1 — schema availability:** create nullable identity columns and the
+   registry before the blocking cutover migration. Gate: repeatable schema-prep
+   test with no backfill or key replacement.
+2. **01F-R2 — deterministic historical backfill:** use the registry as authority;
+   canonicalize only defensible one-to-one matches and otherwise preserve
+   deterministic legacy keys. Gate: resume, ambiguity, rebuild, and payload-preservation coverage.
+3. **01F-R3 — read-only validation:** add NULL, duplicate, registry-coverage,
+   orphan, invalid-index, and incomplete-state diagnostics. Gate: no mutation and
+   actionable premature-cutover failure.
+4. **01F-R4 — concurrent cutover/retry state machine:** require NOT NULL on both
+   identities and recover every partial concurrent-index/ledger state. Gate: real-Postgres
+   interruption/retry and competing-migration-lock coverage.
+5. **01F-R5 — consumer/workflow integrity:** reverify all prediction-boundary
+   consumers and incompatible workflow overlap rejection. Gate: prediction-boundary consumer validation and workflow overlap rejection coverage.
+6. **01F-R6 — documentation/final verification:** align contracts/runbooks/API and run
+   proportional sequential verification before a Sol review. Gate: contract/runbook/API alignment, clean test pass, and Sol review signoff; no production cutover is authorized by completion of this plan.
+
 ## Acceptance gate
 
 - Modern-season linkage meets recorded targets and ambiguous identities remain

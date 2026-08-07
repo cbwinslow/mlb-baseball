@@ -143,17 +143,19 @@ def predict(conn: psycopg.Connection) -> int:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, mlb_game_pk, home_elo, away_elo FROM gold.game_feature "
+                "SELECT id, mlb_game_pk, game_instance_key, home_elo, away_elo "
+                "FROM gold.game_feature "
                 "WHERE home_win IS NULL AND mlb_game_pk IS NOT NULL "
                 "AND home_elo IS NOT NULL AND away_elo IS NOT NULL"
             )
             rows = cur.fetchall()
         predictions = []
-        for _, mlb_game_pk, home_elo, away_elo in rows:
+        for _, mlb_game_pk, game_instance_key, home_elo, away_elo in rows:
             prob = expected_win_prob(float(home_elo), float(away_elo))
             predictions.append(
                 (
                     mlb_game_pk,
+                    game_instance_key,
                     MODEL_VERSION,
                     Decimal(str(prob)),
                     model_id,
@@ -165,8 +167,9 @@ def predict(conn: psycopg.Connection) -> int:
         with conn.cursor() as cur:
             cur.executemany(
                 "INSERT INTO gold.prediction "
-                "(mlb_game_pk, model_version, home_win_prob, model_id, model_run_id, "
-                "data_cutoff, feature_snapshot_id) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                "(mlb_game_pk, game_instance_key, model_version, home_win_prob, model_id, "
+                "model_run_id, "
+                "data_cutoff, feature_snapshot_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                 predictions,
             )
         provenance.finish_run(conn, run_id)

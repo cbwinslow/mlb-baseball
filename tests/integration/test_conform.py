@@ -283,8 +283,8 @@ def test_rerunning_does_not_crash_when_gold_game_feature_references_a_game(db_co
         cur.execute("SELECT id, season FROM core.game LIMIT 1")
         game_id, season = cur.fetchone()
         cur.execute(
-            "INSERT INTO gold.game_feature (game_id, season, game_date) "
-            "VALUES (%s, %s, '2025-04-01')",
+            "INSERT INTO gold.game_feature (game_id, game_instance_key, season, game_date) "
+            "VALUES (%s, 'test:conform-fk', %s, '2025-04-01')",
             (game_id, season),
         )
     db_conn.commit()

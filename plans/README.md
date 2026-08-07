@@ -16,6 +16,16 @@ earlier.
 | [04](04-modeling-simulation-and-experiments.md) | reproducible multi-target modeling program | 03 |
 | [05](05-serving-astro-and-launch.md) | original public research/forecast product | 04 |
 
+## Current status
+
+| Plan | Status |
+|---|---|
+| 00 | Accepted / archived baseline |
+| 01 | Active; 01F production cutover blocked pending R1–R6 remediation |
+| 02 | SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F |
+| 03 | Blocked by 01F and remaining Plan 02 contracts |
+| 04–05 | Queued |
+
 ## Delegation protocol
 
 For each numbered work package, give Antigravity a self-contained prompt quoting

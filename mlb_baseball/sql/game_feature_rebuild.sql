@@ -57,13 +57,13 @@ pyth AS (
     FROM exponent
 )
 INSERT INTO gold.game_feature (
-    game_id, mlb_game_pk, season, game_date, home_team_id, away_team_id,
+    game_id, mlb_game_pk, game_instance_key, season, game_date, home_team_id, away_team_id,
     home_win_pct, away_win_pct, home_win_pct_10, away_win_pct_10,
     home_run_diff, away_run_diff, home_pyth_wpct, away_pyth_wpct,
     home_rest, away_rest, venue_id, home_win
 )
 SELECT
-    g.game_id, g.mlb_game_pk, g.season, g.game_date, g.home_team_id, g.away_team_id,
+    g.game_id, g.mlb_game_pk, g.game_instance_key, g.season, g.game_date, g.home_team_id, g.away_team_id,
     ph.win_pct, pa.win_pct, ph.win_pct_10, pa.win_pct_10,
     ph.run_diff, pa.run_diff, ph.pyth_wpct, pa.pyth_wpct,
     ph.rest, pa.rest, g.venue_id,

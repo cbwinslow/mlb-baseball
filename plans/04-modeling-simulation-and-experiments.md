@@ -5,6 +5,8 @@
 Create a reproducible breadth-and-depth modeling laboratory that can discover
 useful signals while resisting leakage, overfitting, and false discovery.
 
+**Status:** Queued (depends on Plan 03).
+
 ## Work packages
 
 ### 04A — Experiment platform

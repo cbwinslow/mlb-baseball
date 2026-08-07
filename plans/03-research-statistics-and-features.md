@@ -6,6 +6,8 @@ Build a governed, reusable catalog of baseball knowledge and point-in-time SQL
 statistics that supports broad experimentation without uncontrolled leakage or
 feature duplication.
 
+**Status:** Blocked by Plan 01F remediation and remaining Plan 02 contracts.
+
 ## Work packages
 
 ### 03A — Research registry

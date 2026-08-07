@@ -2,6 +2,7 @@
 
 from mlb_baseball.public import (
     SourceProfileError,
+    build_features,
     configure,
     conform_database,
     get_connection,
@@ -10,10 +11,12 @@ from mlb_baseball.public import (
     inventory_runs,
     inventory_tables,
     migrate_database,
+    run_predictions,
 )
 
 __all__ = [
     "SourceProfileError",
+    "build_features",
     "configure",
     "conform_database",
     "get_connection",
@@ -22,4 +25,5 @@ __all__ = [
     "inventory_runs",
     "inventory_tables",
     "migrate_database",
+    "run_predictions",
 ]

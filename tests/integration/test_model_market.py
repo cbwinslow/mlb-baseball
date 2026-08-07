@@ -37,6 +37,13 @@ def _seed_decided_game(db_conn, atl, nya, game_pk="999001", retro_game_id="G1"):
             (retro_game_id, game_pk, atl, nya),
         )
         (game_id,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO gold.game_feature "
+            "(game_id, mlb_game_pk, game_instance_key, season, game_date, home_team_id, "
+            "away_team_id, home_win) "
+            "VALUES (%s, %s, %s, 2024, '2024-04-01', %s, %s, true)",
+            (game_id, game_pk, f"test:market:{retro_game_id}", atl, nya),
+        )
     return game_id
 
 
@@ -55,9 +62,7 @@ def _ensure_polymarket_market_table(db_conn):
         cur.execute("SELECT to_regclass('raw.polymarket_market')")
         (exists,) = cur.fetchone()
         if not exists:
-            cur.execute(
-                "CREATE TABLE raw.polymarket_market (id text, sportsmarkettype text)"
-            )
+            cur.execute("CREATE TABLE raw.polymarket_market (id text, sportsmarkettype text)")
     db_conn.commit()
 
 
@@ -100,8 +105,7 @@ def test_record_inserts_home_teams_moneyline_price_as_prediction(db_conn):
     assert inserted == 1
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT mlb_game_pk, model_version, home_win_prob, actual_home_win "
-            "FROM gold.prediction"
+            "SELECT mlb_game_pk, model_version, home_win_prob, actual_home_win FROM gold.prediction"
         )
         rows = cur.fetchall()
     assert len(rows) == 1

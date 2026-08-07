@@ -5,6 +5,8 @@
 Replace unreadable embedded transformation SQL with tested, lineage-aware named
 objects while preserving the working connector and identity-resolution strengths.
 
+**Status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind Plan 01F remediation.
+
 ## Work packages
 
 ### 02A — SQL ownership inventory

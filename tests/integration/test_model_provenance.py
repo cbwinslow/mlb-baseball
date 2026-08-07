@@ -92,7 +92,10 @@ def test_feature_snapshot_records_the_actual_feature_build_state(db_conn):
     db_conn.rollback()
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM gold.game_feature")
-        cur.execute("INSERT INTO gold.game_feature (season, game_date) VALUES (2025, '2025-10-01')")
+        cur.execute(
+            "INSERT INTO gold.game_feature (game_instance_key, season, game_date) "
+            "VALUES ('test:feature-snapshot', 2025, '2025-10-01')"
+        )
     db_conn.commit()
 
     data_cutoff, snapshot_id = provenance.feature_snapshot(conn=db_conn)

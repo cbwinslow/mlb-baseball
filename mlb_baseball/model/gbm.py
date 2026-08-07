@@ -280,7 +280,7 @@ def predict(conn: psycopg.Connection) -> int:
     columns = ", ".join(FEATURE_COLUMNS)
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT mlb_game_pk, {columns} FROM gold.game_feature "
+            f"SELECT mlb_game_pk, game_instance_key, {columns} FROM gold.game_feature "
             f"WHERE home_win IS NULL AND mlb_game_pk IS NOT NULL "
             f"AND {' AND '.join(c + ' IS NOT NULL' for c in REQUIRED_COLUMNS)}"
         )
@@ -303,22 +303,26 @@ def predict(conn: psycopg.Connection) -> int:
             return 0
 
         game_pks = [row[0] for row in rows]
+        game_instance_keys = [row[1] for row in rows]
         X = np.array(
-            [[np.nan if v is None else float(v) for v in row[1:]] for row in rows],
+            [[np.nan if v is None else float(v) for v in row[2:]] for row in rows],
             dtype=np.float64,
         )
         probs = model.predict_proba(X)[:, 1]
 
         predictions = [
-            (game_pk, MODEL_VERSION, float(prob), model_id, run_id)
-            for game_pk, prob in zip(game_pks, probs, strict=True)
+            (game_pk, game_instance_key, MODEL_VERSION, float(prob), model_id, run_id)
+            for game_pk, game_instance_key, prob in zip(
+                game_pks, game_instance_keys, probs, strict=True
+            )
         ]
         with conn.cursor() as cur:
             cur.executemany(
                 "INSERT INTO gold.prediction "
-                "(mlb_game_pk, model_version, home_win_prob, model_id, model_run_id, "
+                "(mlb_game_pk, game_instance_key, model_version, home_win_prob, model_id, "
+                "model_run_id, "
                 "data_cutoff, feature_snapshot_id) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                 [(*prediction, data_cutoff, feature_snapshot_id) for prediction in predictions],
             )
         provenance.finish_run(conn, run_id)

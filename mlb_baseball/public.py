@@ -11,7 +11,7 @@ import os
 from collections.abc import Mapping
 from typing import Literal
 
-from mlb_baseball import conform, doctor, inventory, migrate
+from mlb_baseball import conform, doctor, inventory, migrate, model
 from mlb_baseball.db import get_connection
 from mlb_baseball.registry import CONNECTORS
 from mlb_baseball.source_profiles import (
@@ -71,11 +71,21 @@ def conform_database() -> Mapping[str, int]:
     return conform.run()
 
 
+def build_features() -> Mapping[str, int]:
+    """Rebuild point-in-time game features in the configured database."""
+    return model.run_features()
+
+
+def run_predictions() -> Mapping[str, int]:
+    """Build features and append predictions in the configured database."""
+    return model.run()
+
+
 def health_checks():
     """Return operational checks for the configured database.
 
-    ``doctor`` may reap a stale ingestion-run record whose PID is confirmed
-    dead; it is therefore an operational action, not a read-only query.
+    This is read-only. Use the CLI command ``mlb repair-runs`` for the
+    explicit state-changing repair of dead-process ingestion records.
     """
     return doctor.run()
 
@@ -94,6 +104,7 @@ __all__ = [
     "IngestMode",
     "SourceProfileError",
     "configure",
+    "build_features",
     "conform_database",
     "get_connection",
     "health_checks",
@@ -101,4 +112,5 @@ __all__ = [
     "inventory_runs",
     "inventory_tables",
     "migrate_database",
+    "run_predictions",
 ]

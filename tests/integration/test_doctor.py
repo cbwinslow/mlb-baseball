@@ -89,18 +89,18 @@ def test_migrations_up_to_date_reports_actionable_message_on_unmigrated_db(
     assert unmigrated_db_connection.rolled_back
 
 
-def test_stale_ingestion_runs_reaped_reports_ok_when_nothing_stale(db_conn):
+def test_stale_ingestion_runs_reports_ok_when_nothing_stale(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM meta.ingestion_run WHERE status = 'running' AND pid IS NOT NULL")
     db_conn.commit()
 
-    result = doctor._stale_ingestion_runs_reaped()
+    result = doctor._stale_ingestion_runs()
 
     assert result.ok
     assert "none found" in result.detail
 
 
-def test_stale_ingestion_runs_reaped_reaps_and_reports_a_dead_pid_row(db_conn):
+def test_stale_ingestion_runs_reports_dead_pid_without_reaping(db_conn):
     source = f"test_doctor_reap_{uuid.uuid4().hex}"
     dead_pid = 2**30
     with db_conn.cursor() as cur:
@@ -112,13 +112,13 @@ def test_stale_ingestion_runs_reaped_reaps_and_reports_a_dead_pid_row(db_conn):
         run_id = cur.fetchone()[0]
     db_conn.commit()
 
-    result = doctor._stale_ingestion_runs_reaped()
+    result = doctor._stale_ingestion_runs()
 
-    assert result.ok  # a successful reap is a healthy outcome, not an alarm
+    assert not result.ok
     assert source in result.detail
     with db_conn.cursor() as cur:
         cur.execute("SELECT status FROM meta.ingestion_run WHERE id = %s", (run_id,))
-        assert cur.fetchone() == ("failed",)
+        assert cur.fetchone() == ("running",)
 
 
 def test_run_includes_a_fake_connectors_health_checks(monkeypatch):

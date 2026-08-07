@@ -141,7 +141,7 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     conn.__enter__.return_value = conn
 
     @contextmanager
-    def tracked_run(_conn, _source, _mode):
+    def tracked_run(_conn, _source, _mode, **_kwargs):
         result = {}
         yield result
 

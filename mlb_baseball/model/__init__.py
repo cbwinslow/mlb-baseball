@@ -54,8 +54,10 @@ def backfill_outcomes(conn: psycopg.Connection) -> int:
         cur.execute(
             "UPDATE gold.prediction p "
             "SET actual_home_win = (g.home_score > g.away_score) "
-            "FROM core.game g "
-            "WHERE g.game_pk = p.mlb_game_pk AND p.actual_home_win IS NULL "
+            "FROM gold.game_feature f "
+            "JOIN core.game g ON g.id = f.game_id "
+            "WHERE f.game_instance_key = p.game_instance_key "
+            "  AND p.actual_home_win IS NULL "
             "  AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL"
         )
         return cur.rowcount
@@ -93,7 +95,10 @@ def build_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
 
 def run_features() -> dict[str, int]:
     """Run only the reusable feature stage, in one tracked transaction."""
-    with get_connection() as conn, track_run(conn, SOURCE, "features") as result:
+    with (
+        get_connection() as conn,
+        track_run(conn, SOURCE, "features", workflow="exclusive") as result,
+    ):
         counts = build_feature_stage(conn)
         conn.commit()
         result["rows"] = counts["gold.game_feature"]
@@ -102,7 +107,10 @@ def run_features() -> dict[str, int]:
 
 def run() -> dict[str, int]:
     """Build features then write predictions (legacy ``mlb predict`` behavior)."""
-    with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
+    with (
+        get_connection() as conn,
+        track_run(conn, SOURCE, "bootstrap", workflow="exclusive") as result,
+    ):
         feature_counts = build_feature_stage(conn)
         # market.record() runs before backfill_outcomes(), not after --
         # unlike log5/elo/gbm's own predictions (made for still-upcoming
@@ -132,15 +140,27 @@ def run() -> dict[str, int]:
 
 
 def train() -> dict:
-    with get_connection() as conn:
-        return gbm.train(conn)
+    # Training reads the rebuilt feature relation.  It must not observe a
+    # concurrent TRUNCATE/rebuild half-way through a feature or predict run.
+    with (
+        get_connection() as conn,
+        track_run(conn, SOURCE, "train", workflow="exclusive") as result,
+    ):
+        metrics = gbm.train(conn)
+        result["rows"] = metrics["train_rows"]
+    return metrics
 
 
-def evaluate(
-    model_versions: list[str], season: int, cutoff: str, bootstrap_samples: int
-) -> dict:
-    with get_connection() as conn:
-        return evaluation.evaluate(conn, model_versions, season, cutoff, bootstrap_samples)
+def evaluate(model_versions: list[str], season: int, cutoff: str, bootstrap_samples: int) -> dict:
+    # Evaluation joins predictions to feature/provenance state and has the
+    # same consistency requirement as training.
+    with (
+        get_connection() as conn,
+        track_run(conn, SOURCE, "evaluate", workflow="exclusive") as result,
+    ):
+        report = evaluation.evaluate(conn, model_versions, season, cutoff, bootstrap_samples)
+        result["rows"] = report["common_games"]
+    return report
 
 
 def health_check() -> list[Check]:

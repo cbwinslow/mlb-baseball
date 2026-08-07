@@ -5,6 +5,8 @@
 Turn verified research and forecasts into an original, fast, transparent public
 product that is useful to fans and impressive to technical reviewers.
 
+**Status:** Queued (depends on Plan 04).
+
 ## Work packages
 
 ### 05A — Product benchmark and contracts

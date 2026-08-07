@@ -94,6 +94,19 @@ def test_track_run_rejects_overlapping_runs_for_the_same_source(db_conn):
             result["rows"] = 1
 
 
+def test_workflow_lock_serializes_connectors_and_derived_stages(db_conn):
+    source = f"test_workflow_{uuid.uuid4().hex}"
+    with psycopg.connect(os.environ["DATABASE_URL"]) as second_conn:
+        with track_run(db_conn, source, "bootstrap"):
+            with pytest.raises(RuntimeError, match="another ingestion or derived-data stage"):
+                with track_run(second_conn, "model", "features", workflow="exclusive"):
+                    pass
+
+        with track_run(db_conn, "model", "features", workflow="exclusive"):
+            with pytest.raises(RuntimeError, match="another ingestion or derived-data stage"):
+                with track_run(second_conn, source, "bootstrap"):
+                    pass
+
 
 def test_reap_stale_runs_marks_dead_pid_as_failed(db_conn):
     source = f"test_reap_dead_{uuid.uuid4().hex}"

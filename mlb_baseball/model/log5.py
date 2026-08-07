@@ -77,9 +77,10 @@ def predict(conn: psycopg.Connection) -> int:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO gold.prediction "
-                "(mlb_game_pk, model_version, home_win_prob, model_id, model_run_id, "
+                "(mlb_game_pk, game_instance_key, model_version, home_win_prob, model_id, "
+                "model_run_id, "
                 "data_cutoff, feature_snapshot_id) "
-                "SELECT mlb_game_pk, %s, "
+                "SELECT mlb_game_pk, game_instance_key, %s, "
                 "  (home_win_pct * (1 - away_win_pct)) "
                 "  / (home_win_pct * (1 - away_win_pct) + away_win_pct * (1 - home_win_pct)) "
                 ", %s, %s, %s, %s "

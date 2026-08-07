@@ -1343,7 +1343,10 @@ def _build_standings(conn: psycopg.Connection) -> int:
 
 
 def run() -> dict[str, int]:
-    with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
+    with (
+        get_connection() as conn,
+        track_run(conn, SOURCE, "bootstrap", workflow="exclusive") as result,
+    ):
         _check_prerequisites(conn)
         # Every table in core/gold that anything else FKs into gets
         # truncated together, here, in one statement — not per-table via

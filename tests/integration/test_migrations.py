@@ -47,3 +47,25 @@ def test_dead_play_pitch_tables_are_dropped():
             "WHERE schemaname = 'core' AND tablename IN ('play_old', 'pitch_old')"
         )
         assert cur.fetchall() == []
+
+
+def test_prediction_primary_key_uses_durable_game_instance_identity():
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT a.attname FROM pg_constraint c "
+            "JOIN unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord) ON TRUE "
+            "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum "
+            "WHERE c.conrelid = 'gold.prediction'::regclass AND c.contype = 'p' "
+            "ORDER BY k.ord"
+        )
+        assert [row[0] for row in cur.fetchall()] == [
+            "game_instance_key",
+            "model_version",
+            "generated_at",
+        ]
+
+
+def test_game_instance_registry_exists_outside_rebuilt_feature_table():
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('meta.game_instance')")
+        assert cur.fetchone() == ("meta.game_instance",)

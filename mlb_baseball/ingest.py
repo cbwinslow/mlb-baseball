@@ -3,6 +3,7 @@
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Literal
 
 import psycopg
 
@@ -21,8 +22,39 @@ def _release_source_lock(conn: psycopg.Connection, source: str) -> None:
         cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (f"mlb-ingest:{source}",))
 
 
+def _acquire_workflow_lock(
+    conn: psycopg.Connection, workflow: Literal["shared", "exclusive"]
+) -> None:
+    """Coordinate raw ingestion with stages that replace derived tables.
+
+    Connectors take a shared lock and may run together.  Conformance and
+    feature/prediction workflows take the exclusive form, so they cannot read
+    a changing raw layer or overlap each other.  Locks are session-scoped and
+    therefore survive the commits used for ingestion-run bookkeeping.
+    """
+    function = "pg_try_advisory_lock_shared" if workflow == "shared" else "pg_try_advisory_lock"
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT {function}(hashtext(%s))", ("mlb-workflow:raw-core-model",))
+        if not fetch_one(cur)[0]:
+            raise RuntimeError("workflow: another ingestion or derived-data stage is active")
+
+
+def _release_workflow_lock(
+    conn: psycopg.Connection, workflow: Literal["shared", "exclusive"]
+) -> None:
+    function = "pg_advisory_unlock_shared" if workflow == "shared" else "pg_advisory_unlock"
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT {function}(hashtext(%s))", ("mlb-workflow:raw-core-model",))
+
+
 @contextmanager
-def track_run(conn: psycopg.Connection, source: str, mode: str) -> Iterator[dict]:
+def track_run(
+    conn: psycopg.Connection,
+    source: str,
+    mode: str,
+    *,
+    workflow: Literal["shared", "exclusive"] = "shared",
+) -> Iterator[dict]:
     """Records a meta.ingestion_run row for the duration of a connector run.
 
     Yields a dict the caller should set result["rows"] on before the block exits.
@@ -38,6 +70,7 @@ def track_run(conn: psycopg.Connection, source: str, mode: str) -> Iterator[dict
     """
     _acquire_source_lock(conn, source)
     try:
+        _acquire_workflow_lock(conn, workflow)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO meta.ingestion_run (source, mode, status, pid) "
@@ -65,10 +98,13 @@ def track_run(conn: psycopg.Connection, source: str, mode: str) -> Iterator[dict
                     "UPDATE meta.ingestion_run "
                     "SET status = 'success', rows = %s, finished_at = now() WHERE id = %s",
                     (result.get("rows"), run_id),
-            )
+                )
             conn.commit()
     finally:
-        _release_source_lock(conn, source)
+        try:
+            _release_workflow_lock(conn, workflow)
+        finally:
+            _release_source_lock(conn, source)
 
 
 def _pid_is_alive(pid: int) -> bool:
@@ -88,6 +124,21 @@ def _pid_is_alive(pid: int) -> bool:
     return True
 
 
+def stale_runs(conn: psycopg.Connection) -> list[dict]:
+    """Return dead-process running rows without changing the database."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, source, mode, pid, started_at FROM meta.ingestion_run "
+            "WHERE status = 'running' AND pid IS NOT NULL"
+        )
+        running = cur.fetchall()
+    return [
+        {"id": run_id, "source": source, "mode": mode, "pid": pid, "started_at": started_at}
+        for run_id, source, mode, pid, started_at in running
+        if not _pid_is_alive(pid)
+    ]
+
+
 def reap_stale_runs(conn: psycopg.Connection) -> list[dict]:
     """Finds every meta.ingestion_run row still marked 'running' whose
     recorded PID is no longer alive on this host, and marks each 'failed'
@@ -103,17 +154,15 @@ def reap_stale_runs(conn: psycopg.Connection) -> list[dict]:
 
     Returns the list of rows reaped (as dicts) for the caller to log/report.
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, source, mode, pid, started_at FROM meta.ingestion_run "
-            "WHERE status = 'running' AND pid IS NOT NULL"
-        )
-        running = cur.fetchall()
-
     reaped = []
-    for run_id, source, mode, pid, started_at in running:
-        if _pid_is_alive(pid):
-            continue
+    for run in stale_runs(conn):
+        run_id, source, mode, pid, started_at = (
+            run["id"],
+            run["source"],
+            run["mode"],
+            run["pid"],
+            run["started_at"],
+        )
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE meta.ingestion_run "

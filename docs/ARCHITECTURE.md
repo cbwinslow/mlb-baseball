@@ -1,6 +1,6 @@
 # Architecture
 
-Scope: Phase 1 (data ingestion) only. Modeling and website architecture will get their own sections here once those phases start — don't design them prematurely (see [NORTH_STAR.md](NORTH_STAR.md)).
+Scope: System architecture overview across ingestion, relational core, derived gold models, and serving layers. Implementation is governed by the active plans under `plans/` and durable doctrine in `AGENTS.md` (see also [NORTH_STAR.md](NORTH_STAR.md)).
 
 ## Database
 
@@ -22,7 +22,7 @@ The Postgres cluster this project's database lives on also hosts unrelated work 
 
 - **`raw`** — source-faithful tables, one per upstream source, minimally reshaped, deliberately untyped (`text` columns, no PK/FK/constraints — see `mlb_baseball/load.py`). Event-stream sources (Retrosheet, Statcast, MLB Stats API) land append-only; snapshot sources (the Chadwick register) truncate-and-reload each run instead, since there's no meaningful "new rows since last time" for a full-snapshot source (see Connector contract below). Staying untyped is what lets raw tolerate schema drift from a source without breaking (e.g. `load_dataframe`'s `ALTER TABLE ADD COLUMN` for a later batch with columns an earlier one didn't have) — raw data doesn't need to be re-fetched just because a downstream transform has a bug.
 - **`core`** — real relational structure: surrogate primary keys, foreign keys, indices. Built by joining already-landed `raw` tables against the Chadwick ID crosswalk so every player/team/game reference is consistent across sources — Kimball's "conformed dimensions," which is where the schema's original name (`conformed`, renamed to `core` — see ADR-013) came from. `core.player`/`core.team`/`core.game` are the dimensions; `core.play`/`core.pitch` are the facts (one row per plate appearance/tracked pitch, unifying Retrosheet+MLB API and Statcast respectively — ADR-017/018); `core.market` (one row per Polymarket/Kalshi market, matched to a game — ADR-028) and `core.player_war` (Baseball-Reference's own WAR, one row per player-season-stint — ADR-028) are the newest additions, closing the gap where this project's stated differentiator (market-implied probabilities, see `NORTH_STAR.md`) sat in `raw` with no bridge to `core` at all. `core.team` also carries `mlb_team_id` (MLB Stats API's own stable numeric team ID, the team equivalent of `core.player.mlbam_id`), with a small `core.team_alias` table covering the one case with no shared numeric ID at all — Polymarket/Kalshi (ADR-029). `core.venue` (one row per historical ballpark, keyed on Retrosheet's own `parkid`, enriched from MLB's venue catalog by exact name match) and `core.standing` (one row per team-season, 1969+) are the newest additions (ADR-030), closing the same "landed in raw, never bridged to core" gap for `raw.retrosheet_park`/`raw.mlb_venue`/`raw.mlb_standing`; `core.game` also gained Retrosheet's own per-game weather columns in the same change. This is the layer modeling (Phase 2) and the website (Phase 3) are expected to consume — not raw.
-- **`gold`** — schema exists (`migrations/0004_core_gold_schemas.sql`), deliberately holds no tables yet. Reserved for ML-feature/serving-shaped tables once Phase 2/3 actually need them — see ADR-013. Don't design tables here speculatively.
+- **`gold`** — derived baseball statistics, feature families, immutable feature snapshots, baseline/model tables, and evaluation outputs (see `AGENTS.md` and `docs/TABLE_CONTRACTS.md`). `gold.game_feature` serves as the primary completed-and-scheduled consumer-demand relation. Narrow domain feature families and named SQLMesh models are preferred over wide, sparse tables.
 
 `core` is populated by `mlb_baseball/conform.py` (`mlb conform`), not a connector — see "Conform contract" below.
 
@@ -60,7 +60,7 @@ Team identity is resolved the same way player identity is — by ID, not by name
 
 ## Loading patterns
 
-Three patterns cover every connector so far — pick the one that matches the source's shape, don't invent a fourth without a real need:
+Four loading patterns cover every connector so far — pick the one that matches the source's shape, don't invent a fifth without a real need:
 
 1. **CSV text + COPY, hand-written raw table** (`chadwick_register`) — for sources that already hand you well-formed CSV text. Column list for the `COPY` is derived from the CSV's own header row, not hardcoded. Table schema is a real migration, since there are few enough tables to hand-author.
 2. **DataFrame + `load_dataframe()`, full reload** (`lahman`) — for sources you'd rather not hand-write ~20+ table schemas for; `load_dataframe` derives the table's DDL from the DataFrame's own columns (`CREATE TABLE IF NOT EXISTS`), then `TRUNCATE`s and reloads. Right for sources small enough, or snapshot-shaped enough, that reloading the whole table every run is cheap and correct.
@@ -103,8 +103,8 @@ A few things worth knowing before running it for real, not after:
 - **`retrosheet_event` and `retrosheet_box` need `cwevent`/`cwgame`/`cwbox` on `PATH`** (see README "Requirements") — `mlb doctor` checks for these and tells you if they're missing, but `mlb bootstrap` itself will just fail those two connectors and continue.
 - Run `mlb doctor` after a bootstrap (full or partial) to confirm what actually landed — every connector's `health_check()` reports on its own tables, so a clean `mlb doctor` run is the real "is this database usable yet" signal, not just "did the command exit 0."
 
-## Explicitly not designed yet
+## Orchestration and future boundary decisions
 
-- A workflow tool (Airflow, Dagster, etc.) for orchestration — cron is sufficient for the one scheduled job that exists; revisit only if genuinely more coordination between scheduled jobs is needed than cron + flock can reasonably express.
-- Any modeling or feature-store layer.
-- Any website/API-serving layer.
+- Workflow orchestration: Cron plus `flock` and source advisory locks remain sufficient for current scheduled jobs; complex workflow engines (Airflow/Dagster) remain unnecessary unless coordination demands exceed script capabilities.
+- Feature store and modeling platform: Governed by `AGENTS.md`, `plans/03-research-statistics-and-features.md`, and `plans/04-modeling-simulation-and-experiments.md`.
+- Public serving layer: `serve` schema and Astro site contracts are deferred to `plans/05-serving-astro-and-launch.md`; public serving remains read-only and rights-gated.

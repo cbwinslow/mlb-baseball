@@ -163,6 +163,13 @@ def test_backfill_outcomes_fills_in_actual_result_once_game_is_final(db_conn):
             "VALUES ('G2', 2024, '2024-04-02', %s, %s, 2, 4, 'regular', '999002')",
             (atl, nya),
         )
+        cur.execute("UPDATE raw.mlb_schedule SET status = 'Final' WHERE game_id = '999002'")
+    db_conn.commit()
+
+    # The normal production ordering is conform → features → outcome backfill.
+    # Rebuilding replaces the scheduled row with the matching completed-game
+    # instance key before outcome resolution runs.
+    features.build(db_conn)
     db_conn.commit()
 
     updated = model.backfill_outcomes(db_conn)

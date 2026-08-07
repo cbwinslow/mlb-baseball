@@ -107,16 +107,15 @@ def _pg_stat_statements_enabled() -> Check:
     return Check("pg_stat_statements", True, f"tracking {count} distinct statements")
 
 
-def _stale_ingestion_runs_reaped() -> Check:
-    """Actively reaps (not just reports) any meta.ingestion_run row stuck at
-    status='running' whose process is confirmed dead — see ingest.py's
-    reap_stale_runs() and docs/DECISIONS.md ADR-022. Always reports ok=True:
-    a stale run that gets cleaned up here and now is a healthy outcome, not
-    a failure to alarm on — the alarming case (a run that's still genuinely
-    in progress) is correctly left alone since its PID is still alive."""
+def _stale_ingestion_runs() -> Check:
+    """Report stale runs without changing operational state.
+
+    ``mlb doctor`` is deliberately safe to run in monitoring and CI.  An
+    owner can explicitly repair these rows with ``mlb repair-runs``.
+    """
     with get_connection() as conn:
         try:
-            reaped = ingest.reap_stale_runs(conn)
+            stale = ingest.stale_runs(conn)
         except psycopg.errors.UndefinedTable:
             conn.rollback()
             return Check(
@@ -124,10 +123,12 @@ def _stale_ingestion_runs_reaped() -> Check:
                 True,
                 "meta.ingestion_run doesn't exist yet — nothing to check",
             )
-    if not reaped:
+    if not stale:
         return Check("stale ingestion runs", True, "none found")
-    names = ", ".join(f"{r['source']} ({r['mode']}, pid {r['pid']})" for r in reaped)
-    return Check("stale ingestion runs", True, f"reaped {len(reaped)}: {names}")
+    names = ", ".join(f"{r['source']} ({r['mode']}, pid {r['pid']})" for r in stale)
+    return Check(
+        "stale ingestion runs", False, f"{len(stale)} found: {names} — run `mlb repair-runs`"
+    )
 
 
 # (name, check_fn) — every entry runs independently and defensively: a bug or
@@ -139,7 +140,7 @@ _CORE_CHECKS = [
     ("migrations", _migrations_up_to_date),
     ("downloads directory", _downloads_directory_ok),
     ("pg_stat_statements", _pg_stat_statements_enabled),
-    ("stale ingestion runs", _stale_ingestion_runs_reaped),
+    ("stale ingestion runs", _stale_ingestion_runs),
 ]
 
 

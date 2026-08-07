@@ -48,14 +48,14 @@ def candidate_gate_data(db_conn):
         (game_id,) = cur.fetchone()
         cur.execute(
             "INSERT INTO gold.game_feature "
-            "(game_id, season, game_date, home_team_id, away_team_id, home_win) "
-            "VALUES (%s, 2024, '2024-04-01', %s, %s, true)",
+            "(game_id, game_instance_key, season, game_date, home_team_id, away_team_id, home_win) "
+            "VALUES (%s, 'test:candidate-completed', 2024, '2024-04-01', %s, %s, true)",
             (game_id, atl, nya),
         )
         cur.execute(
             "INSERT INTO gold.game_feature "
-            "(mlb_game_pk, season, game_date, home_team_id, away_team_id) "
-            "VALUES ('999001', 2024, '2024-04-02', %s, %s)",
+            "(mlb_game_pk, game_instance_key, season, game_date, home_team_id, away_team_id) "
+            "VALUES ('999001', 'test:candidate-scheduled', 2024, '2024-04-02', %s, %s)",
             (atl, nya),
         )
         cur.execute("DROP SCHEMA IF EXISTS core__plan02_candidate CASCADE")

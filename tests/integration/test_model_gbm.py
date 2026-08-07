@@ -31,6 +31,7 @@ def _seed_synthetic_games(db_conn, season: int, count: int, start_pk: int, decid
         rows.append(
             (
                 f"{start_pk + i}",
+                f"test:{start_pk + i}",
                 season,
                 f"{season}-04-{(i % 28) + 1:02d}",
                 round(rng.uniform(0.3, 0.7), 3),
@@ -49,10 +50,10 @@ def _seed_synthetic_games(db_conn, season: int, count: int, start_pk: int, decid
     with db_conn.cursor() as cur:
         cur.executemany(
             "INSERT INTO gold.game_feature "
-            "(mlb_game_pk, season, game_date, home_win_pct, away_win_pct, "
+            "(mlb_game_pk, game_instance_key, season, game_date, home_win_pct, away_win_pct, "
             "home_win_pct_10, away_win_pct_10, home_run_diff, away_run_diff, "
             "home_pyth_wpct, away_pyth_wpct, home_elo, away_elo, home_win) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             rows,
         )
     db_conn.commit()

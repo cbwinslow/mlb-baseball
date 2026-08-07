@@ -45,7 +45,7 @@ time, not a later-updated freshness field.
 | `core.player` | One resolved person (`id`); provider IDs are alternate anchors | Biography/current identity, not a player-season fact | Multi-pass source reconciliation in `conform.py`; never treat display name as an identity key |
 | `core.team` | Franchise/team identity interval (`id`, `first_year`, `last_year`) | Team names/locations are valid only over their interval | Conformance resolves provider IDs and aliases; historical moves are not overwritten as one current row |
 | `core.venue` | Retrosheet park identity (`id` / `retro_park_id`) | Venue lifecycle fields are descriptive | Raw park plus best-effort MLB enrichment; SQLMesh candidate after deterministic duplicate-match parity gate |
-| `core.game` | One completed canonical game (`id`, source game keys) | `game_date`, game number, season, final score; excludes scheduled games | Conformance-owned resolution from raw products; completed historical fact, not the upcoming slate |
+| `core.game` | One completed canonical game (`id`, source game keys); `game_pk` is a non-unique MLB lookup | `game_date`, game number, season, final score; excludes scheduled games | Conformance-owned resolution from raw products; completed historical fact, not the upcoming slate |
 | `core.play` | One canonical play within a game | Ordered game event; win-probability fields are play-time values | Conformance merges source events; partitioned fact, never a wide feature table |
 | `core.pitch` | One canonical pitch within a play/game | Pitch sequence/event time where supplied | Conformance maps Statcast and play context; append/rebuild behavior follows its source partition |
 | `core.market` | One matched market/game/side observation or derived pregame selection | A selected value must be from before game start | Python-owned multi-pass market matching; no settled/current value may masquerade as pregame |
@@ -55,11 +55,11 @@ time, not a later-updated freshness field.
 
 | Relation / family | Grain / key | Cutoff semantics | Lineage and update contract |
 |---|---|---|---|
-| `gold.game_feature` | One regular-season completed or scheduled game (`game_id` when completed, `mlb_game_pk` as durable schedule anchor) | Every feature must use information strictly before the game being predicted | Current Python assembly is a full rebuild. It is the consumer-demand relation for park/starter/bullpen families; SQLMesh decomposition must tie out its completed and scheduled rows before replacement |
+| `gold.game_feature` | One regular-season completed or scheduled game; `game_instance_key` is the durable identity, while `game_id` and `mlb_game_pk` are nullable lookup attributes | Every feature must use information strictly before the game being predicted | Current Python assembly is a full rebuild. It is the consumer-demand relation for park/starter/bullpen families; SQLMesh decomposition must tie out its completed and scheduled rows before replacement |
 | `gold.park_factor` (target narrow family) | Venue-season needed by a `gold.game_feature` row | Trailing seasons only, never target-season games | SQLMesh candidate; its demand relation must include scheduled games before it replaces `model.park.compute` |
 | `gold.team_woba` (target narrow family) | Game-team entering value | Prior events only within the applicable game/season window | SQLMesh candidate; a wide `gold.game_feature` projection is derived only after parity |
 | Starter, bullpen, framing, OAA, speed, WAR families | Game-team or game-player feature family | Must be point-in-time/no-leakage as documented by the individual feature | Remain Python-owned until a narrow named SQL model has exact full/sampled tie-out |
-| `gold.prediction` | Model/run/game/side/cutoff prediction record | `generated_at` and `data_cutoff` precede outcome; outcome is filled later | Append immutable prediction; never overwrite a historical forecast with a current rerun |
+| `gold.prediction` | Immutable `(game_instance_key, model_version, generated_at)` snapshot; `mlb_game_pk` is retained only for MLB lookups | `generated_at` and `data_cutoff` precede outcome; outcome is filled later | Append immutable prediction; never overwrite a historical forecast with a current rerun |
 
 ## Meta contracts
 

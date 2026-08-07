@@ -8,6 +8,7 @@ from mlb_baseball.source_profiles import SourceProfileError
 def test_top_level_exports_are_the_supported_public_api():
     assert set(mlb.__all__) == {
         "SourceProfileError",
+        "build_features",
         "configure",
         "conform_database",
         "get_connection",
@@ -16,6 +17,7 @@ def test_top_level_exports_are_the_supported_public_api():
         "inventory_runs",
         "inventory_tables",
         "migrate_database",
+        "run_predictions",
     }
     assert not hasattr(mlb, "_acquire_source_lock")
     assert not hasattr(mlb, "load_dataframe")

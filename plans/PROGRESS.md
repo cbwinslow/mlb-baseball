@@ -3,6 +3,14 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+## Current state summary
+
+- **Production state:** Production `mlb` database remains untouched; no production cutover is authorized.
+- **Plan 01 status:** Active; Plan 01F durable game-identity cutover is BLOCKED pending R1–R6 remediation.
+- **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
+- **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
+- **Next package:** `01F-R1` (schema availability and registry setup).
+
 ## Plan 00A/00B — 2026-08-05
 
 ### Workspace inventory
@@ -335,3 +343,17 @@ The retained files passed scoped Ruff format/check and 28 focused unit tests.
 - Focused verification passed: Ruff format/check and `1 passed in 0.41s`.
   Fixture teardown dropped the temporary schema and role. No production
   roles/network/TLS/credentials/data were changed.
+
+## Plan 01F — Staged durable game-identity cutover static audit (2026-08-07)
+
+- Read-only static audit of staged durable game-identity cutover completed.
+- Status: Implementation exists but production cutover is BLOCKED pending remediation.
+- Production `mlb` has not been touched and no production cutover is authorized.
+- Tests were not run during this static audit; no test pass claimed.
+- Remediation blockers:
+  - Registry `meta.game_instance` is created in 0036 after 0035 fails, while backfill requires it.
+  - Prediction `game_instance_key` lacks explicit NOT NULL cutover gate.
+  - Interrupted `CREATE INDEX CONCURRENTLY` can leave invalid index and `IF NOT EXISTS` is not a safe retry.
+  - Legacy prediction mapping through current feature rows is not historically unambiguous.
+  - Deterministic batch ordering must use full old primary key.
+  - `mlb doctor`, runbook, contracts, and public API need alignment and explicit read-only validation checks.

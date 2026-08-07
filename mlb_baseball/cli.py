@@ -45,7 +45,7 @@ import argparse
 import concurrent.futures
 import sys
 
-from mlb_baseball import conform, doctor, inventory, migrate, model
+from mlb_baseball import conform, doctor, ingest, inventory, migrate, model
 from mlb_baseball.registry import CONNECTORS
 from mlb_baseball.source_profiles import (
     PROFILES,
@@ -179,6 +179,9 @@ def main(argv: list[str] | None = None) -> None:
     evaluate_parser.add_argument("--bootstrap-samples", type=int, default=1000)
     subparsers.add_parser("inventory")
     subparsers.add_parser("doctor")
+    subparsers.add_parser("repair-runs")
+    backfill_identity = subparsers.add_parser("backfill-game-identities")
+    backfill_identity.add_argument("--batch-size", type=int, default=1000)
 
     args = parser.parse_args(argv)
 
@@ -264,6 +267,22 @@ def main(argv: list[str] | None = None) -> None:
         print(f"\n{len(checks) - len(failed)}/{len(checks)} checks passed")
         if failed:
             sys.exit(1)
+    elif args.command == "repair-runs":
+        from mlb_baseball.db import get_connection
+
+        with get_connection() as conn:
+            reaped = ingest.reap_stale_runs(conn)
+        if not reaped:
+            print("no stale ingestion runs found")
+        else:
+            print(f"repaired {len(reaped)} stale ingestion run(s)")
+    elif args.command == "backfill-game-identities":
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.model.identity import backfill_game_instance_keys
+
+        with get_connection() as conn:
+            counts = backfill_game_instance_keys(conn, args.batch_size)
+        print(" ".join(f"{name}={count}" for name, count in counts.items()))
 
 
 if __name__ == "__main__":

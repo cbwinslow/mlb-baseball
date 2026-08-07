@@ -1,10 +1,10 @@
 # CLAUDE.md — Operating rules for this repo
 
-This project was rebuilt from scratch after the original (Gemini-built) version accumulated bugs and inconsistent code quality. The rules below exist to prevent a repeat. Read [docs/NORTH_STAR.md](docs/NORTH_STAR.md) and [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) before making changes.
+This project was rebuilt from scratch after the original (Gemini-built) version accumulated bugs and inconsistent code quality. The rules below exist to prevent a repeat. Read [AGENTS.md](AGENTS.md), [docs/NORTH_STAR.md](docs/NORTH_STAR.md), and [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) before making changes.
 
 ## Scope discipline
 
-- We are in **Phase 1: data ingestion pipeline**. Do not start on ML modeling or the Astro website unless explicitly asked, even if it seems convenient to do "just a little" of it now.
+- Work is governed by the active plan sequence in `plans/` and durable doctrine in `AGENTS.md`. Do not pull work forward from later plans without explicit authorization and Sol gate review.
 - Don't add a data source that isn't listed in `docs/DATA_SOURCES.md`. If a new source is genuinely needed, add it to that doc (cost, access method, license note) in the same change.
 - Assume $0/month budget. No paid API, database, or hosting dependency without asking first.
 
@@ -20,7 +20,7 @@ A task is not complete until:
 ## Testing
 
 - `tests/unit/` — pure logic, no I/O (parsing, column-name sanitizing, dispatch logic with mocked connectors). Fast, no fixtures needed beyond `monkeypatch`.
-- `tests/integration/` — anything that touches Postgres. Runs against a real, dedicated `mlb_test` database (never the real `mlb` one) — see `README.md` "Testing". Mock the network (fixture CSV/JSON content), not the database — real Postgres is cheap to run against locally and mocking it hides real bugs (e.g. transaction/lock behavior, COPY column mismatches).
+- `tests/integration/` — anything that touches Postgres. Runs against a real, dedicated `mlb_test_codex` database (never the real `mlb` one) — see `README.md` "Testing". Mock the network (fixture CSV/JSON content), not the database — real Postgres is cheap to run against locally and mocking it hides real bugs (e.g. transaction/lock behavior, COPY column mismatches).
 - Every connector needs an integration test that actually loads rows and asserts idempotency (run twice, same row count) — not just a unit test on its parsing helpers.
 - If a bug involved a transaction, a lock, or connection state, write the regression test through the real fixtures (`db_conn`, non-autocommit, matching production) — not a mock, or the regression can silently stop being tested. `tests/integration/test_ingest_tracking.py::test_failure_path_logs_error_and_leaves_connection_usable` is the reference example: it caught a real bug (`track_run` not rolling back before logging a failure) that a mocked connection would never have surfaced.
 

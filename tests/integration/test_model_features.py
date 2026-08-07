@@ -41,6 +41,9 @@ def _ensure_mlb_schedule_table(db_conn):
                 "status text, home_id text, away_id text, game_num text, "
                 "venue_id text)"
             )
+        else:
+            for column in ("game_type", "status", "venue_id"):
+                cur.execute(f"ALTER TABLE raw.mlb_schedule ADD COLUMN IF NOT EXISTS {column} text")
     db_conn.commit()
 
 
@@ -83,6 +86,12 @@ def test_build_computes_point_in_time_win_pct_and_pythagenpat(db_conn):
     count = features.build(db_conn)
     db_conn.commit()
     assert count == 3
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT identity_kind, core_game_id FROM meta.game_instance "
+            "WHERE game_instance_key = 'retro:G1'"
+        )
+        assert cur.fetchone()[0] == "retrosheet"
 
     with db_conn.cursor() as cur:
         cur.execute(

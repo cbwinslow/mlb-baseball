@@ -5,6 +5,7 @@ import time
 from unittest.mock import MagicMock
 
 from mlb_baseball import cli
+from mlb_baseball.source_profiles import SourceProfileError, require_sources
 
 
 def _fake_connector():
@@ -34,6 +35,37 @@ def test_ingest_mode_update_calls_update_not_bootstrap(monkeypatch, capsys):
     connector.update.assert_called_once()
     connector.bootstrap.assert_not_called()
     assert "raw.fake: 2 rows" in capsys.readouterr().out
+
+
+def test_public_safe_profile_rejects_a_restricted_connector(monkeypatch):
+    connector = _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"mlb_api": connector})
+
+    try:
+        cli.main(["ingest", "mlb_api", "--profile", "public_safe"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected public_safe to reject mlb_api")
+
+    connector.bootstrap.assert_not_called()
+
+
+def test_public_safe_profile_permits_retrosheet():
+    require_sources("public_safe", ["retrosheet"], purpose="test")
+
+
+def test_local_research_permits_a_restricted_connector():
+    require_sources("local_research", ["mlb_api"], purpose="test")
+
+
+def test_source_profile_failure_names_the_forbidden_source():
+    try:
+        require_sources("public_safe", ["bref"], purpose="test")
+    except SourceProfileError as exc:
+        assert "bref" in str(exc)
+    else:
+        raise AssertionError("expected public_safe to reject bref")
 
 
 def test_ingest_mode_backfill_calls_backfill_history(monkeypatch, capsys):
@@ -115,6 +147,47 @@ def test_train_command_calls_model_train_and_reports_metrics(monkeypatch, capsys
     assert "validation rows: 20" in out
     assert "gbm: log_loss=0.6000" in out
     assert "saved: new model beat both baselines" in out
+
+
+def test_evaluate_command_reports_common_game_metrics(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli.model,
+        "evaluate",
+        lambda models, season, cutoff, bootstrap_samples: {
+            "season": season,
+            "cutoff": cutoff,
+            "common_games": 12,
+            "coverage": {version: 15 for version in models},
+            "models": {
+                version: {
+                    "games": 12,
+                    "log_loss": 0.6,
+                    "log_loss_95ci": (0.5, 0.7),
+                    "brier": 0.2,
+                    "brier_95ci": (0.15, 0.25),
+                    "accuracy": 0.58,
+                }
+                for version in models
+            },
+        },
+    )
+
+    cli.main(
+        [
+            "evaluate",
+            "--season",
+            "2026",
+            "--models",
+            "gbm-v1",
+            "elo-v1",
+            "--bootstrap-samples",
+            "10",
+        ]
+    )
+
+    out = capsys.readouterr().out
+    assert "12 common games" in out
+    assert "gbm-v1: coverage=15" in out
 
 
 def test_bootstrap_command_calls_every_connectors_bootstrap(monkeypatch, capsys):

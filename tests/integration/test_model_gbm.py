@@ -1,37 +1,27 @@
-"""Regression coverage for mlb_baseball.model.gbm.
+"""Regression and provenance integration coverage for mlb_baseball.model.gbm.
 
-MODEL_PATH is always monkeypatched to a tmp_path location in every test
-here -- gbm.MODEL_PATH points at the real models/gbm-v1.json used by
-production `mlb predict`, and a test training on tiny synthetic data must
-never overwrite it with a throwaway model.
-
-gold.game_feature is seeded directly, not built via features.build()/
-elo.compute_ratings() -- train()/predict() only ever read gold.game_feature
-itself (no join to core.game/core.team needed), and game_id/home_team_id/
-away_team_id are nullable, so a real core.game/core.team fixture isn't
-needed to exercise this module's actual logic.
+MODEL_DIR is monkeypatched to a tmp_path location in tests here so test
+training never pollutes real models/ or real database tables.
 """
 
 import random
 from decimal import Decimal
 
-from mlb_baseball.model import gbm
+from mlb_baseball.model import gbm, provenance
 
 
 def _reset(db_conn):
     db_conn.rollback()
     with db_conn.cursor() as cur:
+        cur.execute("UPDATE gold.prediction SET model_id = NULL, model_run_id = NULL")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
+        cur.execute("DELETE FROM meta.model_run")
+        cur.execute("DELETE FROM meta.model")
     db_conn.commit()
 
 
 def _seed_synthetic_games(db_conn, season: int, count: int, start_pk: int, decided: bool = True):
-    # Deliberately learnable pattern: home wins whenever home_elo >
-    # away_elo, so a real model has something real to pick up on --
-    # not asserting a specific model wins the comparison (too small/
-    # synthetic a dataset for that to be a stable assertion), just that
-    # training/prediction run correctly end to end.
     rng = random.Random(season)
     rows = []
     for i in range(count):
@@ -69,8 +59,8 @@ def _seed_synthetic_games(db_conn, season: int, count: int, start_pk: int, decid
 
 
 def test_train_produces_metrics_and_saves_when_it_beats_baselines(db_conn, tmp_path, monkeypatch):
-    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "test-gbm.json")
     monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
     monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
     monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
     _reset(db_conn)
@@ -84,10 +74,17 @@ def test_train_produces_metrics_and_saves_when_it_beats_baselines(db_conn, tmp_p
     for name in ("gbm", "log5", "elo"):
         assert metrics[name]["log_loss"] > 0
         assert 0 <= metrics[name]["brier"] <= 1
-    # Whether it happens to beat both baselines on this particular random
-    # synthetic draw isn't the point of this test -- but "saved" must
-    # accurately reflect whether the file was actually written.
-    assert (tmp_path / "test-gbm.json").exists() == metrics["saved"]
+
+    artifacts = list((tmp_path / "artifacts").glob("*.json"))
+    assert len(artifacts) == 1
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT run_type, status FROM meta.model_run WHERE model_id = %s",
+            (metrics["model_id"],),
+        )
+        run = cur.fetchone()
+    assert run == ("train", "success")
 
     _reset(db_conn)
 
@@ -95,78 +92,57 @@ def test_train_produces_metrics_and_saves_when_it_beats_baselines(db_conn, tmp_p
 def test_predict_writes_predictions_for_upcoming_games_using_saved_model(
     db_conn, tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "test-gbm.json")
     monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
     monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
     monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
     _reset(db_conn)
     _seed_synthetic_games(db_conn, 2020, 300, start_pk=500000)
     _seed_synthetic_games(db_conn, 2021, 100, start_pk=600000)
     gbm.train(db_conn)
-    assert (tmp_path / "test-gbm.json").exists()  # this synthetic pattern is learnable -- must save
 
-    _reset_predictions_only(db_conn)
     _seed_synthetic_games(db_conn, 2022, 5, start_pk=700000, decided=False)
 
     inserted = gbm.predict(db_conn)
 
     assert inserted == 5
     with db_conn.cursor() as cur:
-        cur.execute("SELECT home_win_prob, model_version FROM gold.prediction")
+        cur.execute(
+            "SELECT home_win_prob, model_version, model_id, model_run_id FROM gold.prediction"
+        )
         rows = cur.fetchall()
     assert len(rows) == 5
-    for prob, model_version in rows:
+    for prob, model_version, model_id, model_run_id in rows:
         assert model_version == "gbm-v1"
         assert Decimal("0") <= prob <= Decimal("1")
+        assert model_id is not None
+        assert model_run_id is not None
 
     _reset(db_conn)
 
 
-def _reset_predictions_only(db_conn):
-    with db_conn.cursor() as cur:
-        cur.execute("DELETE FROM gold.prediction")
-        cur.execute("DELETE FROM gold.game_feature")
-    db_conn.commit()
-
-
 def test_train_and_predict_tolerate_optional_columns_being_null(db_conn, tmp_path, monkeypatch):
-    # ADR-043: OPTIONAL_COLUMNS (starter quality, wOBA, wRC+, WAR, OAA,
-    # speed, bullpen) must not be required non-null -- real production
-    # data has heterogeneous coverage (e.g. raw.retrosheet_event stops
-    # at 2025, so the live season predict() serves always has them
-    # NULL). _seed_synthetic_games only ever populates the original 10
-    # required columns, leaving every OPTIONAL_COLUMNS value NULL --
-    # this proves neither train() nor predict() drops those rows or
-    # crashes converting NULL to a float.
-    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "test-gbm.json")
     monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
     monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
     monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
     _reset(db_conn)
     _seed_synthetic_games(db_conn, 2020, 300, start_pk=500000)
     _seed_synthetic_games(db_conn, 2021, 100, start_pk=600000)
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT bool_and(home_starter_era IS NULL AND home_oaa_prior IS NULL "
-            "AND home_bullpen_fip IS NULL) FROM gold.game_feature"
-        )
-        (all_optional_null,) = cur.fetchone()
-    assert all_optional_null
 
     metrics = gbm.train(db_conn)
-
-    assert metrics["train_rows"] == 300  # no rows dropped for NULL optional columns
+    assert metrics["train_rows"] == 300
     assert metrics["validation_rows"] == 100
 
-    _reset_predictions_only(db_conn)
     _seed_synthetic_games(db_conn, 2022, 5, start_pk=700000, decided=False)
     inserted = gbm.predict(db_conn)
-    assert inserted == 5  # predict() didn't zero out despite NULL optional columns
+    assert inserted == 5
 
     _reset(db_conn)
 
 
-def test_predict_returns_zero_when_no_model_saved_yet(db_conn, tmp_path, monkeypatch):
+def test_predict_returns_zero_when_no_champion_exists(db_conn, tmp_path, monkeypatch):
+    monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
     monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "never-trained.json")
     _reset(db_conn)
 
@@ -174,9 +150,135 @@ def test_predict_returns_zero_when_no_model_saved_yet(db_conn, tmp_path, monkeyp
 
 
 def test_health_check_reports_missing_model_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path / "nonexistent")
     monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "never-trained.json")
 
     check = gbm.health_check()[0]
 
     assert not check.ok
     assert "mlb train" in check.detail
+
+
+def test_artifact_immutability(db_conn, tmp_path, monkeypatch):
+    monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
+    monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
+    monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
+    _reset(db_conn)
+    _seed_synthetic_games(db_conn, 2020, 300, start_pk=500000)
+    _seed_synthetic_games(db_conn, 2021, 100, start_pk=600000)
+
+    gbm.train(db_conn)
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts = list(artifacts_dir.glob("*.json"))
+    assert len(artifacts) == 1
+
+    artifact_file = artifacts[0]
+    expected_sha = provenance.artifact_sha256(artifact_file)
+    assert artifact_file.name == f"{expected_sha}.json"
+    assert not (tmp_path / "gbm-v1.json").exists()
+
+    _reset(db_conn)
+
+
+def test_champion_replacement(db_conn, tmp_path, monkeypatch):
+    monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
+    _reset(db_conn)
+
+    dummy1 = tmp_path / "dummy1.json"
+    dummy2 = tmp_path / "dummy2.json"
+    dummy1.write_text("model1_content")
+    dummy2.write_text("model2_content")
+
+    id1 = provenance.register_model(
+        db_conn,
+        name="gbm",
+        target="home_win",
+        model_version="gbm-v1",
+        feature_set_version="game-feature-v1",
+        status="champion",
+        artifact_path=dummy1,
+    )
+
+    id2 = provenance.register_model(
+        db_conn,
+        name="gbm",
+        target="home_win",
+        model_version="gbm-v1",
+        feature_set_version="game-feature-v1",
+        status="champion",
+        artifact_path=dummy2,
+    )
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT model_id, status FROM meta.model WHERE name = 'gbm'")
+        rows = dict(cur.fetchall())
+
+    assert id1 != id2
+    assert rows[id1] == "retired"
+    assert rows[id2] == "champion"
+
+    champions = [k for k, v in rows.items() if v == "champion"]
+    assert len(champions) == 1
+    assert champions[0] == id2
+
+    _reset(db_conn)
+
+
+def test_prediction_foreign_key_linkage(db_conn, tmp_path, monkeypatch):
+    monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
+    monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
+    monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
+    _reset(db_conn)
+    _seed_synthetic_games(db_conn, 2020, 300, start_pk=500000)
+    _seed_synthetic_games(db_conn, 2021, 100, start_pk=600000)
+    gbm.train(db_conn)
+
+    _seed_synthetic_games(db_conn, 2022, 3, start_pk=700000, decided=False)
+    inserted = gbm.predict(db_conn)
+    assert inserted == 3
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT p.mlb_game_pk, p.model_id, p.model_run_id, m.status, r.run_type, r.status
+            FROM gold.prediction p
+            JOIN meta.model m ON p.model_id = m.model_id
+            JOIN meta.model_run r ON p.model_run_id = r.run_id
+            """
+        )
+        rows = cur.fetchall()
+
+    assert len(rows) == 3
+    for _pk, model_id, model_run_id, m_status, r_type, r_status in rows:
+        assert model_id is not None
+        assert model_run_id is not None
+        assert m_status == "champion"
+        assert r_type == "predict"
+        assert r_status == "success"
+
+    _reset(db_conn)
+
+
+def test_no_champion_behavior(db_conn, tmp_path, monkeypatch):
+    monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "never-trained.json")
+    _reset(db_conn)
+
+    _seed_synthetic_games(db_conn, 2022, 5, start_pk=700000, decided=False)
+
+    inserted = gbm.predict(db_conn)
+    assert inserted == 0
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM gold.prediction")
+        (pred_count,) = cur.fetchone()
+        cur.execute("SELECT COUNT(*) FROM meta.model_run")
+        (run_count,) = cur.fetchone()
+
+    assert pred_count == 0
+    assert run_count == 0
+
+    _reset(db_conn)

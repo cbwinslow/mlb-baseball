@@ -280,7 +280,12 @@ def _run(mode: str) -> dict[str, int]:
         snapshot_df = pd.DataFrame(
             _snapshot_rows(all_markets, captured_at), columns=SNAPSHOT_COLUMNS
         )
-        counts[SNAPSHOT_TABLE] = append_dataframe(conn, SNAPSHOT_TABLE, snapshot_df)
+        counts[SNAPSHOT_TABLE] = append_dataframe(
+            conn,
+            SNAPSHOT_TABLE,
+            snapshot_df,
+            identity_columns=("ticker", "captured_at"),
+        )
         conn.commit()
 
         result["rows"] = sum(counts.values())

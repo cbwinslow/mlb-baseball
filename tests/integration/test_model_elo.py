@@ -126,6 +126,14 @@ def test_predict_uses_computed_ratings_for_upcoming_game(db_conn):
         home_win_prob, model_version = cur.fetchone()
     assert model_version == "elo-v1"
     assert home_win_prob > Decimal("0.53")  # bare home-field-advantage floor from a 1500/1500 game
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT p.model_id, r.run_type, r.status FROM gold.prediction p "
+            "JOIN meta.model_run r ON r.run_id = p.model_run_id "
+            "WHERE p.mlb_game_pk = '999004'"
+        )
+        _model_id, run_type, status = cur.fetchone()
+    assert (run_type, status) == ("predict", "success")
 
     _reset(db_conn)
 

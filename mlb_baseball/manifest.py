@@ -68,17 +68,35 @@ def load_manifest(source: str) -> dict:
 def save_manifest(source: str, manifest: dict) -> None:
     path = _manifest_path(source)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    temporary.replace(path)
 
 
-def mark_status(source: str, filename: str, status: str) -> None:
+def schema_fingerprint(columns: list[str]) -> str:
+    return _sha256("\x1f".join(columns).encode())
+
+
+def mark_status(
+    source: str,
+    filename: str,
+    status: str,
+    *,
+    parser_version: str | None = None,
+    schema_columns: list[str] | None = None,
+) -> None:
     """Always sets the file's status, creating a manifest entry if one
     doesn't exist yet (rather than silently doing nothing — the previous
     guard-on-existing-entry version made this a silent no-op whenever
     called without a prior download() call for that exact filename, e.g.
     whenever a connector's test mocks download() directly)."""
     manifest = load_manifest(source)
-    manifest.setdefault(filename, {})["status"] = status
+    entry = manifest.setdefault(filename, {})
+    entry["status"] = status
+    if parser_version is not None:
+        entry["parser_version"] = parser_version
+    if schema_columns is not None:
+        entry["schema_fingerprint"] = schema_fingerprint(schema_columns)
     save_manifest(source, manifest)
 
 
@@ -124,7 +142,9 @@ def download(source: str, filename: str, url: str, *, force: bool = False) -> Pa
     response.raise_for_status()
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(response.content)
+    temporary = dest.with_name(f".{dest.name}.tmp")
+    temporary.write_bytes(response.content)
+    temporary.replace(dest)
 
     manifest[filename] = {
         "url": url,

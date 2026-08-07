@@ -170,7 +170,7 @@ force=True. Confirmed by reading the library's source, not guessed.
 
 import json
 import re
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
 import psycopg
@@ -710,6 +710,7 @@ PLAYBYPLAY_COLUMNS = [
     "bat_side",
     "pitcher_id",
     "pitcher_name",
+    "captured_at",
     "pitch_hand",
     "event",
     "event_type",
@@ -1499,9 +1500,7 @@ def _load_official_scorers(conn: psycopg.Connection) -> int:
     # 235-person roster, so this isn't scoped by season the way team_coaches
     # is. One current-snapshot pull, full reload each run.
     current_year = date.today().year
-    data = call_with_retry(
-        _get, "jobs_officialScorers", {"sportId": 1, "season": current_year}
-    )
+    data = call_with_retry(_get, "jobs_officialScorers", {"sportId": 1, "season": current_year})
     df = pd.DataFrame(_job_roster_rows(data))
     if df.empty:
         return 0
@@ -1770,12 +1769,20 @@ def capture_live(conn: psycopg.Connection) -> int:
     today = date.today().strftime("%m/%d/%Y")
     games = call_with_retry(statsapi.schedule, date=today, sportId=1)
     snapshots = [_live_snapshot(game["game_id"]) for game in games]
-    rows = [s for s in snapshots if s is not None]
+    captured_at = datetime.now(UTC).isoformat()
+    rows = [
+        {**snapshot, "captured_at": captured_at} for snapshot in snapshots if snapshot is not None
+    ]
     df = pd.DataFrame(rows, columns=LIVE_GAME_COLUMNS)
-    return append_dataframe(conn, "raw.mlb_live_game", df)
+    return append_dataframe(
+        conn,
+        "raw.mlb_live_game",
+        df,
+        identity_columns=("game_pk", "captured_at"),
+    )
 
 
-PROBABLE_COLUMNS = ["game_pk", "side", "pitcher_id", "pitcher_name"]
+PROBABLE_COLUMNS = ["game_pk", "side", "pitcher_id", "pitcher_name", "captured_at"]
 
 
 def _probable_rows(data: dict) -> list[dict]:
@@ -1861,10 +1868,18 @@ def _load_probable(conn: psycopg.Connection) -> int:
         },
     )
     rows = _new_probable_rows(_probable_rows(data), _latest_probables(conn))
-    df = pd.DataFrame(rows, columns=PROBABLE_COLUMNS)
+    captured_at = datetime.now(UTC).isoformat()
+    df = pd.DataFrame(
+        [{**row, "captured_at": captured_at} for row in rows], columns=PROBABLE_COLUMNS
+    )
     if df.empty:
         return 0
-    return append_dataframe(conn, "raw.mlb_probable", df)
+    return append_dataframe(
+        conn,
+        "raw.mlb_probable",
+        df,
+        identity_columns=("game_pk", "side", "captured_at"),
+    )
 
 
 def update() -> dict[str, int]:

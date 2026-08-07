@@ -215,7 +215,12 @@ def _run(mode: str) -> dict[str, int]:
         # mlb_api.capture_live() already needed for raw.mlb_live_game.
         captured_at = datetime.now(UTC).isoformat()
         snapshot_df = pd.DataFrame(_snapshot_rows(events, captured_at), columns=SNAPSHOT_COLUMNS)
-        counts[SNAPSHOT_TABLE] = append_dataframe(conn, SNAPSHOT_TABLE, snapshot_df)
+        counts[SNAPSHOT_TABLE] = append_dataframe(
+            conn,
+            SNAPSHOT_TABLE,
+            snapshot_df,
+            identity_columns=("market_id", "outcome", "captured_at"),
+        )
 
         conn.commit()
         result["rows"] = sum(counts.values())

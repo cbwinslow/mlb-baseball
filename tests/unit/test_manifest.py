@@ -19,6 +19,16 @@ def test_download_writes_file_and_records_manifest(tmp_path, monkeypatch):
     assert entry["status"] == "downloaded"
     assert entry["bytes"] == 11
     assert entry["url"] == "https://example.com/2025csvs.zip"
+    assert not list((tmp_path / "retrosheet").glob("*.tmp"))
+
+
+def test_save_manifest_replaces_atomically(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+
+    manifest.save_manifest("retrosheet", {"one": {"status": "downloaded"}})
+
+    assert manifest.load_manifest("retrosheet") == {"one": {"status": "downloaded"}}
+    assert not (tmp_path / "retrosheet" / "manifest.json.tmp").exists()
 
 
 def test_download_skips_network_when_hash_matches_disk(tmp_path, monkeypatch):
@@ -114,6 +124,16 @@ def test_mark_status_creates_entry_when_none_exists(tmp_path, monkeypatch):
     manifest.mark_status("retrosheet", "never_downloaded.zip", "loaded")
 
     assert manifest.load_manifest("retrosheet")["never_downloaded.zip"]["status"] == "loaded"
+
+
+def test_mark_status_records_optional_parser_and_schema_provenance(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+    manifest.mark_status(
+        "retrosheet", "f.zip", "parsed", parser_version="v2", schema_columns=["a", "b"]
+    )
+    entry = manifest.load_manifest("retrosheet")["f.zip"]
+    assert entry["parser_version"] == "v2"
+    assert entry["schema_fingerprint"] == manifest.schema_fingerprint(["a", "b"])
 
 
 def test_load_manifest_returns_empty_dict_when_missing(tmp_path, monkeypatch):

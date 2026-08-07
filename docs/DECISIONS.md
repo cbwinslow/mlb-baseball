@@ -2,6 +2,26 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-055: Forward evaluation is one pre-game snapshot per game on exact matched samples
+
+**Decision:** Added `mlb evaluate --season <year> --models <versions...> --cutoff <open|24h|6h|close>`. `gold.prediction` remains an append-only snapshot history, but evaluation first selects one eligible prediction per `(game, model, cutoff)`, excludes anything generated at or after first pitch, and then restricts every requested model to the exact same games. Reports include per-model coverage, common-game count, log-loss, Brier score, secondary accuracy, and deterministic game-grain bootstrap intervals.
+
+**Context:** The 2026 forward-test table in `docs/ROADMAP.md` reported `n=352/453/430`, but those were prediction rows, not games. The same outcome was counted repeatedly whenever `mlb predict` ran more than once for a game. The corrected production tie-out reproduces the independent audit exactly: 47 common close-cutoff games, with `gbm-v1` 0.6764 log-loss/0.2417 Brier, `elo-v1` 0.6974/0.2521, and known-invalid historical `log5-v1` 0.6928/0.2500. This is an early directional result, not evidence of a proven edge.
+
+**Consequence:** Every future leaderboard must name its cutoff and models, show coverage, and use matched games. `lineup` is intentionally not offered yet because the current prediction schema does not record a confirmed-lineup event; inventing that cutoff from timestamps would be false precision. Calibration decomposition/plots and persistent `gold.evaluation` rows remain follow-up work after immutable model-run and feature-snapshot provenance exists.
+
+**Revisit if:** a lawful lineup source and prediction event metadata are added; then add `lineup` as a first-class event cutoff rather than approximating it with a clock time.
+
+## ADR-054: Corrected the log5 formula — `log5-v1` was never the cited formula, `log5-v2` fixes it
+
+**Decision:** `mlb_baseball/model/log5.py::probability()` now computes `home(1-away) / [home(1-away) + away(1-home)]` instead of `home² / (home² + away²)`. `MODEL_VERSION` bumped to `log5-v2`. Existing `log5-v1` rows in `gold.prediction` are left untouched as known-invalid historical output, not relabeled — a new `mlb predict` run starts writing `log5-v2` rows going forward.
+
+**Context:** An independent audit (Codex, `docs/PROJECT_REVIEW.md`) flagged that the shipped formula doesn't match the SABR article `docs/RESEARCH.md` cites for it, and that the existing unit tests encoded the wrong formula and so never caught it. Verified directly rather than taking either side's word for it: the SABR article states `P(x, .500) == x` as a required defining property of the function (a team with winning percentage `x` must get win probability `x` against a .500 team). The squared form fails this — `.6²/(.6²+.5²) = .5902`, not `.600` — so it cannot be the cited formula regardless of exactly how the source's embedded formula image reads. Cross-checked against Wikipedia's log5 page, which states the odds-ratio form now implemented, matching what the property requires exactly (`probability(.600, .500) == .600`).
+
+**Consequence:** `mlb_baseball/model/gbm.py` calls `log5.probability()` directly (not a hardcoded string) for its training-time comparison baseline and save-gate decision, so the fix takes effect automatically the next time `mlb train` runs — no code change needed there. This does mean the GBM save-gate comparison changes; `docs/PROJECT_REVIEW.md`'s recommendation to also fix the evaluation grain (one prediction per game, not per snapshot) and require a minimum practical improvement over the champion before retraining stands as separate, not-yet-done follow-up work — this ADR is the formula fix only, not a retrain.
+
+**Revisit if:** never expected to — this is a correctness fix against a cited, verifiable source, not a judgment call. If `log5-v1`'s historical rows are ever purged or backfilled, do it as an explicit, separate, documented migration — not silently.
+
 ## ADR-053: Market-implied win probability recorded as a comparison line (`mlb_baseball/model/market.py`)
 
 **Decision:** New `market.py` module, `record(conn)`, inserts `gold.prediction` rows from `core.market`'s (now leakage-safe, ADR-052) `implied_probability` — one `model_version` per source, `'polymarket-v1'`/`'kalshi-v1'`, never blended into one line (same "keep distinct signals distinct" precedent `core.market.source` already establishes, and it's a free byproduct: the two markets can now be compared to *each other*, not just to our own models). Only the home team's own `core.market` row becomes `home_win_prob` — the away side is the complementary side of the same market, not always exactly `1 - home`'s price once a real spread/vig is involved.

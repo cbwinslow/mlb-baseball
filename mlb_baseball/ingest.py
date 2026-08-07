@@ -9,6 +9,18 @@ import psycopg
 from mlb_baseball.db import fetch_one
 
 
+def _acquire_source_lock(conn: psycopg.Connection, source: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (f"mlb-ingest:{source}",))
+        if not fetch_one(cur)[0]:
+            raise RuntimeError(f"{source}: another ingestion run is already active")
+
+
+def _release_source_lock(conn: psycopg.Connection, source: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (f"mlb-ingest:{source}",))
+
+
 @contextmanager
 def track_run(conn: psycopg.Connection, source: str, mode: str) -> Iterator[dict]:
     """Records a meta.ingestion_run row for the duration of a connector run.
@@ -24,36 +36,39 @@ def track_run(conn: psycopg.Connection, source: str, mode: str) -> Iterator[dict
     several times in this project's own development before this fix — see
     docs/DECISIONS.md ADR-022.
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO meta.ingestion_run (source, mode, status, pid) "
-            "VALUES (%s, %s, 'running', %s) RETURNING id",
-            (source, mode, os.getpid()),
-        )
-        run_id = fetch_one(cur)[0]
-    conn.commit()
-
-    result: dict = {"rows": None}
+    _acquire_source_lock(conn, source)
     try:
-        yield result
-    except Exception as exc:
-        conn.rollback()
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE meta.ingestion_run "
-                "SET status = 'failed', error = %s, finished_at = now() WHERE id = %s",
-                (str(exc), run_id),
+                "INSERT INTO meta.ingestion_run (source, mode, status, pid) "
+                "VALUES (%s, %s, 'running', %s) RETURNING id",
+                (source, mode, os.getpid()),
             )
+            run_id = fetch_one(cur)[0]
         conn.commit()
-        raise
-    else:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE meta.ingestion_run "
-                "SET status = 'success', rows = %s, finished_at = now() WHERE id = %s",
-                (result.get("rows"), run_id),
-            )
-        conn.commit()
+        result: dict = {"rows": None}
+        try:
+            yield result
+        except Exception as exc:
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE meta.ingestion_run "
+                    "SET status = 'failed', error = %s, finished_at = now() WHERE id = %s",
+                    (str(exc), run_id),
+                )
+            conn.commit()
+            raise
+        else:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE meta.ingestion_run "
+                    "SET status = 'success', rows = %s, finished_at = now() WHERE id = %s",
+                    (result.get("rows"), run_id),
+                )
+            conn.commit()
+    finally:
+        _release_source_lock(conn, source)
 
 
 def _pid_is_alive(pid: int) -> bool:

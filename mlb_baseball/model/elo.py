@@ -28,6 +28,8 @@ from decimal import Decimal
 
 import psycopg
 
+from mlb_baseball.model import provenance
+
 MODEL_VERSION = "elo-v1"
 STARTING_ELO = 1500.0
 HOME_ADVANTAGE = 24.0
@@ -118,21 +120,57 @@ def predict(conn: psycopg.Connection) -> int:
     Ratings are floats in Python but numeric in Postgres; the WHERE
     clause below only needs home_elo/away_elo to be present, the actual
     probability computation happens in Python via expected_win_prob()."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, mlb_game_pk, home_elo, away_elo FROM gold.game_feature "
-            "WHERE home_win IS NULL AND mlb_game_pk IS NOT NULL "
-            "AND home_elo IS NOT NULL AND away_elo IS NOT NULL"
-        )
-        rows = cur.fetchall()
-
+    model_id = provenance.register_model(
+        conn,
+        name="elo",
+        target="home_win",
+        model_version=MODEL_VERSION,
+        feature_set_version="game-feature-v1",
+        status="baseline",
+        parameters={"k_factor": K_FACTOR, "home_advantage": HOME_ADVANTAGE},
+    )
+    data_cutoff, feature_snapshot_id = provenance.feature_snapshot(
+        conn, where="home_win IS NULL AND mlb_game_pk IS NOT NULL"
+    )
+    run_id = provenance.start_run(
+        conn,
+        run_type="predict",
+        model_id=model_id,
+        data_cutoff=data_cutoff,
+        source_snapshot=feature_snapshot_id,
+        feature_snapshot_id=feature_snapshot_id,
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, mlb_game_pk, home_elo, away_elo FROM gold.game_feature "
+                "WHERE home_win IS NULL AND mlb_game_pk IS NOT NULL "
+                "AND home_elo IS NOT NULL AND away_elo IS NOT NULL"
+            )
+            rows = cur.fetchall()
         predictions = []
         for _, mlb_game_pk, home_elo, away_elo in rows:
             prob = expected_win_prob(float(home_elo), float(away_elo))
-            predictions.append((mlb_game_pk, MODEL_VERSION, Decimal(str(prob))))
-        cur.executemany(
-            "INSERT INTO gold.prediction (mlb_game_pk, model_version, home_win_prob) "
-            "VALUES (%s, %s, %s)",
-            predictions,
-        )
+            predictions.append(
+                (
+                    mlb_game_pk,
+                    MODEL_VERSION,
+                    Decimal(str(prob)),
+                    model_id,
+                    run_id,
+                    data_cutoff,
+                    feature_snapshot_id,
+                )
+            )
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO gold.prediction "
+                "(mlb_game_pk, model_version, home_win_prob, model_id, model_run_id, "
+                "data_cutoff, feature_snapshot_id) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                predictions,
+            )
+        provenance.finish_run(conn, run_id)
         return len(predictions)
+    except Exception as error:
+        provenance.finish_run(conn, run_id, error=error)
+        raise

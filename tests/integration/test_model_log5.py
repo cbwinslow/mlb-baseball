@@ -28,15 +28,24 @@ def _seed_teams(db_conn):
 
 def _ensure_mlb_schedule_table(db_conn):
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        (exists,) = cur.fetchone()
-        if not exists:
-            cur.execute(
-                "CREATE TABLE raw.mlb_schedule ("
-                "game_id text, _season text, game_date text, game_type text, "
-                "status text, home_id text, away_id text, game_num text, "
-                "venue_id text)"
-            )
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS raw.mlb_schedule ("
+            "game_id text, _season text, game_date text, game_type text, "
+            "status text, home_id text, away_id text, game_num text, "
+            "venue_id text)"
+        )
+        for column in (
+            "game_id",
+            "_season",
+            "game_date",
+            "game_type",
+            "status",
+            "home_id",
+            "away_id",
+            "game_num",
+            "venue_id",
+        ):
+            cur.execute(f"ALTER TABLE raw.mlb_schedule ADD COLUMN IF NOT EXISTS {column} text")
     db_conn.commit()
 
 
@@ -100,11 +109,19 @@ def test_predict_skips_decided_games_and_season_openers(db_conn):
     assert len(rows) == 1
     mlb_game_pk, home_win_prob, model_version, actual = rows[0]
     assert mlb_game_pk == "999001"
-    assert model_version == "log5-v1"
+    assert model_version == "log5-v2"
     assert actual is None
     # ATL entered 2-0, NYA 0-2 -- log5(1.0, 0.0) is exactly 1, not merely
     # "greater than 0.5" (verified separately in tests/unit/test_log5_formula.py).
     assert home_win_prob == Decimal("1")
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT p.model_id, r.run_type, r.status FROM gold.prediction p "
+            "JOIN meta.model_run r ON r.run_id = p.model_run_id "
+            "WHERE p.mlb_game_pk = '999001'"
+        )
+        _model_id, run_type, status = cur.fetchone()
+    assert (run_type, status) == ("predict", "success")
 
     _reset(db_conn)
 
@@ -153,9 +170,7 @@ def test_backfill_outcomes_fills_in_actual_result_once_game_is_final(db_conn):
 
     assert updated == 1
     with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT actual_home_win FROM gold.prediction WHERE mlb_game_pk = '999002'"
-        )
+        cur.execute("SELECT actual_home_win FROM gold.prediction WHERE mlb_game_pk = '999002'")
         (actual,) = cur.fetchone()
     assert actual is False  # home team (ATL) lost, 2-4
 

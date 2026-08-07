@@ -33,13 +33,12 @@ doesn't multiply that footprint.
 """
 
 import tempfile
-import zipfile
 from datetime import date
 from pathlib import Path
 
 import psycopg
 
-from mlb_baseball import chadwick_tools, manifest
+from mlb_baseball import archive, chadwick_tools, manifest
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check, check_last_run, check_table_has_rows
 from mlb_baseball.ingest import track_run
@@ -117,8 +116,7 @@ def _parse_archive(archive_path: Path, group: str) -> dict[int, tuple]:
     results: dict[int, tuple] = {}
     with tempfile.TemporaryDirectory(prefix=f"retrosheet_event_{group}_") as tmp:
         extract_dir = Path(tmp)
-        with zipfile.ZipFile(archive_path) as zf:
-            zf.extractall(extract_dir)
+        archive.extract_zip(archive_path, extract_dir)
         for year, year_dir in _split_by_year(extract_dir).items():
             scope = _load_scope(year, group)
             event_df = chadwick_tools.run_cwevent(year_dir, year)

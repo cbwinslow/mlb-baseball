@@ -10,20 +10,29 @@ from decimal import Decimal
 import psycopg
 
 from mlb_baseball.health import Check, check_table_has_rows
+from mlb_baseball.model import provenance
 
-MODEL_VERSION = "log5-v1"
+MODEL_VERSION = "log5-v2"
 
 
 def probability(home_win_pct: Decimal, away_win_pct: Decimal) -> Decimal:
-    """P(home wins) = home^2 / (home^2 + away^2) -- Bill James's log5,
-    independently re-derived and validated at 97.9% efficiency across
-    204,858 MLB games, 1871-2013 (see docs/RESEARCH.md). Undefined when
+    """P(home wins) = home(1-away) / [home(1-away) + away(1-home)] --
+    Bill James's log5, independently re-derived by a SABR paper and
+    validated at 97.9% efficiency across 204,858 MLB games, 1871-2013
+    (see docs/RESEARCH.md). The defining property the SABR article
+    requires of this function is P(x, .500) == x -- a team with winning
+    percentage x must get win probability x against a .500 team. This
+    odds-ratio form satisfies that identically; the previously shipped
+    home^2/(home^2+away^2) form does not (e.g. it returns .5902, not
+    .600, for a .600 team against a .500 team) and was never actually
+    the cited formula -- log5-v1's predictions are known-invalid, kept
+    as historical record rather than silently relabeled. Undefined when
     both inputs are 0 (can't happen for a team with at least one prior
     game -- win_pct of exactly 0.0 is a real, distinct value from "no
     games played yet", which is NULL, not 0)."""
-    home_sq = home_win_pct * home_win_pct
-    away_sq = away_win_pct * away_win_pct
-    return home_sq / (home_sq + away_sq)
+    home_term = home_win_pct * (1 - away_win_pct)
+    away_term = away_win_pct * (1 - home_win_pct)
+    return home_term / (home_term + away_term)
 
 
 def predict(conn: psycopg.Connection) -> int:
@@ -44,19 +53,48 @@ def predict(conn: psycopg.Connection) -> int:
     # Also requires both teams to have at least one prior game this season
     # (home_win_pct/away_win_pct both non-NULL) -- log5 has no sensible
     # answer for a team's own season opener, see probability()'s docstring.
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO gold.prediction (mlb_game_pk, model_version, home_win_prob) "
-            "SELECT mlb_game_pk, %s, "
-            "  (home_win_pct * home_win_pct) "
-            "  / (home_win_pct * home_win_pct + away_win_pct * away_win_pct) "
-            "FROM gold.game_feature "
-            "WHERE home_win IS NULL AND mlb_game_pk IS NOT NULL "
-            "  AND home_win_pct IS NOT NULL AND away_win_pct IS NOT NULL "
-            "  AND NOT (home_win_pct = 0 AND away_win_pct = 0)",
-            (MODEL_VERSION,),
-        )
-        return cur.rowcount
+    model_id = provenance.register_model(
+        conn,
+        name="log5",
+        target="home_win",
+        model_version=MODEL_VERSION,
+        feature_set_version="game-feature-v1",
+        status="baseline",
+        parameters={"formula": "home*(1-away)/(home*(1-away)+away*(1-home))"},
+    )
+    data_cutoff, feature_snapshot_id = provenance.feature_snapshot(
+        conn, where="home_win IS NULL AND mlb_game_pk IS NOT NULL"
+    )
+    run_id = provenance.start_run(
+        conn,
+        run_type="predict",
+        model_id=model_id,
+        data_cutoff=data_cutoff,
+        source_snapshot=feature_snapshot_id,
+        feature_snapshot_id=feature_snapshot_id,
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO gold.prediction "
+                "(mlb_game_pk, model_version, home_win_prob, model_id, model_run_id, "
+                "data_cutoff, feature_snapshot_id) "
+                "SELECT mlb_game_pk, %s, "
+                "  (home_win_pct * (1 - away_win_pct)) "
+                "  / (home_win_pct * (1 - away_win_pct) + away_win_pct * (1 - home_win_pct)) "
+                ", %s, %s, %s, %s "
+                "FROM gold.game_feature "
+                "WHERE home_win IS NULL AND mlb_game_pk IS NOT NULL "
+                "  AND home_win_pct IS NOT NULL AND away_win_pct IS NOT NULL "
+                "  AND NOT (home_win_pct = 0 AND away_win_pct = 0)",
+                (MODEL_VERSION, model_id, run_id, data_cutoff, feature_snapshot_id),
+            )
+            inserted = cur.rowcount
+        provenance.finish_run(conn, run_id)
+        return inserted
+    except Exception as error:
+        provenance.finish_run(conn, run_id, error=error)
+        raise
 
 
 def health_check() -> list[Check]:

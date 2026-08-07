@@ -43,6 +43,7 @@ missing some optional features still trains/predicts on whatever it
 does have, instead of being dropped or needing manual imputation.
 """
 
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -51,11 +52,12 @@ import xgboost as xgb
 from sklearn.metrics import brier_score_loss, log_loss
 
 from mlb_baseball.health import Check
-from mlb_baseball.model import elo, log5
+from mlb_baseball.model import elo, log5, provenance
 
 MODEL_VERSION = "gbm-v1"
 MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "models"
 MODEL_PATH = MODEL_DIR / f"{MODEL_VERSION}.json"
+ARTIFACTS_DIR = MODEL_DIR / "artifacts"
 
 REQUIRED_COLUMNS = [
     "home_win_pct",
@@ -118,6 +120,11 @@ FEATURE_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 # against 2026 via the normal mlb predict path -- not a fourth split here.
 TRAIN_SEASON_CUTOFF = 2023
 VALIDATION_SEASONS = (2024, 2025)
+# A challenger must clear this absolute held-out log-loss margin over *each*
+# baseline before it can become champion.  It prevents a one-ten-thousandth
+# point fluctuation from replacing a working model; it is a promotion policy,
+# not evidence that the margin is statistically significant.
+MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT = 0.002
 
 
 def _fetch_rows(conn: psycopg.Connection, season_filter: str) -> tuple[np.ndarray, np.ndarray]:
@@ -146,17 +153,19 @@ def train(conn: psycopg.Connection) -> dict:
     still-undecided games -- see log5.py/elo.py), and only saves the
     model to disk if it actually beats both. Never overwrites a working
     model with a worse one silently."""
-    X_train, y_train = _fetch_rows(conn, f"season <= {TRAIN_SEASON_CUTOFF}")
-    X_val, y_val = _fetch_rows(
-        conn, f"season IN ({', '.join(str(s) for s in VALIDATION_SEASONS)})"
-    )
+    artifacts_dir = MODEL_DIR / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    model = xgb.XGBClassifier(
-        n_estimators=200,
-        max_depth=3,
-        learning_rate=0.05,
-        eval_metric="logloss",
-    )
+    X_train, y_train = _fetch_rows(conn, f"season <= {TRAIN_SEASON_CUTOFF}")
+    X_val, y_val = _fetch_rows(conn, f"season IN ({', '.join(str(s) for s in VALIDATION_SEASONS)})")
+
+    parameters = {
+        "n_estimators": 200,
+        "max_depth": 3,
+        "learning_rate": 0.05,
+        "eval_metric": "logloss",
+    }
+    model = xgb.XGBClassifier(**parameters)
     model.fit(X_train, y_train)
 
     gbm_probs = model.predict_proba(X_val)[:, 1]
@@ -165,10 +174,7 @@ def train(conn: psycopg.Connection) -> dict:
     home_elo_idx = FEATURE_COLUMNS.index("home_elo")
     away_elo_idx = FEATURE_COLUMNS.index("away_elo")
     log5_probs = np.array(
-        [
-            float(log5.probability(row[home_win_pct_idx], row[away_win_pct_idx]))
-            for row in X_val
-        ]
+        [float(log5.probability(row[home_win_pct_idx], row[away_win_pct_idx])) for row in X_val]
     )
     elo_probs = np.array(
         [elo.expected_win_prob(row[home_elo_idx], row[away_elo_idx]) for row in X_val]
@@ -188,24 +194,88 @@ def train(conn: psycopg.Connection) -> dict:
         "elo": elo_score,
     }
 
-    beats_both = (
-        gbm_score["log_loss"] < log5_score["log_loss"]
-        and gbm_score["log_loss"] < elo_score["log_loss"]
-    )
+    improvements = {
+        "vs_log5": log5_score["log_loss"] - gbm_score["log_loss"],
+        "vs_elo": elo_score["log_loss"] - gbm_score["log_loss"],
+    }
+    beats_both = all(value >= MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT for value in improvements.values())
+    metrics["promotion"] = {
+        "min_log_loss_improvement": MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT,
+        "actual_improvement": improvements,
+        "eligible": beats_both,
+    }
     metrics["saved"] = beats_both
-    if beats_both:
-        MODEL_DIR.mkdir(exist_ok=True)
-        model.save_model(str(MODEL_PATH))
 
+    tmp_path = artifacts_dir / f"_tmp_{uuid.uuid4().hex}.json"
+    model.save_model(str(tmp_path))
+    sha256 = provenance.artifact_sha256(tmp_path)
+    artifact_path = artifacts_dir / f"{sha256}.json"
+    if not artifact_path.exists():
+        tmp_path.rename(artifact_path)
+    else:
+        tmp_path.unlink()
+
+    status = "champion" if beats_both else "candidate"
+    model_id = provenance.register_model(
+        conn,
+        name="gbm",
+        target="home_win",
+        model_version=MODEL_VERSION,
+        feature_set_version="game-feature-v1",
+        status=status,
+        artifact_path=artifact_path,
+        parameters=parameters,
+        metrics=metrics,
+    )
+
+    data_cutoff, feature_snapshot_id = provenance.feature_snapshot(
+        conn, where=f"season <= {TRAIN_SEASON_CUTOFF}"
+    )
+    run_id = provenance.start_run(
+        conn,
+        run_type="train",
+        model_id=model_id,
+        data_cutoff=data_cutoff,
+        source_snapshot=feature_snapshot_id,
+        feature_snapshot_id=feature_snapshot_id,
+    )
+    try:
+        provenance.finish_run(conn, run_id)
+    except Exception as error:
+        provenance.finish_run(conn, run_id, error=error)
+        raise
+
+    metrics["model_id"] = model_id
     return metrics
 
 
+def _get_champion(conn: psycopg.Connection) -> tuple[str, Path] | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT model_id, artifact_uri "
+            "FROM meta.model "
+            "WHERE name = %s AND status = 'champion' "
+            "ORDER BY created_at DESC LIMIT 1",
+            ("gbm",),
+        )
+        row = cur.fetchone()
+        if not row or not row[1]:
+            return None
+        model_id, artifact_uri = row
+        artifact_path = Path(artifact_uri)
+        if not artifact_path.exists():
+            return None
+        return model_id, artifact_path
+
+
 def predict(conn: psycopg.Connection) -> int:
-    if not MODEL_PATH.exists():
+    champion = _get_champion(conn)
+    if champion is None:
         return 0
 
+    model_id, artifact_path = champion
     model = xgb.XGBClassifier()
-    model.load_model(str(MODEL_PATH))
+    model.load_model(str(artifact_path))
 
     columns = ", ".join(FEATURE_COLUMNS)
     with conn.cursor() as cur:
@@ -215,7 +285,21 @@ def predict(conn: psycopg.Connection) -> int:
             f"AND {' AND '.join(c + ' IS NOT NULL' for c in REQUIRED_COLUMNS)}"
         )
         rows = cur.fetchall()
+
+    data_cutoff, feature_snapshot_id = provenance.feature_snapshot(
+        conn, where="home_win IS NULL AND mlb_game_pk IS NOT NULL"
+    )
+    run_id = provenance.start_run(
+        conn,
+        run_type="predict",
+        model_id=model_id,
+        data_cutoff=data_cutoff,
+        source_snapshot=feature_snapshot_id,
+        feature_snapshot_id=feature_snapshot_id,
+    )
+    try:
         if not rows:
+            provenance.finish_run(conn, run_id)
             return 0
 
         game_pks = [row[0] for row in rows]
@@ -226,19 +310,27 @@ def predict(conn: psycopg.Connection) -> int:
         probs = model.predict_proba(X)[:, 1]
 
         predictions = [
-            (game_pk, MODEL_VERSION, float(prob))
+            (game_pk, MODEL_VERSION, float(prob), model_id, run_id)
             for game_pk, prob in zip(game_pks, probs, strict=True)
         ]
-        cur.executemany(
-            "INSERT INTO gold.prediction (mlb_game_pk, model_version, home_win_prob) "
-            "VALUES (%s, %s, %s)",
-            predictions,
-        )
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO gold.prediction "
+                "(mlb_game_pk, model_version, home_win_prob, model_id, model_run_id, "
+                "data_cutoff, feature_snapshot_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                [(*prediction, data_cutoff, feature_snapshot_id) for prediction in predictions],
+            )
+        provenance.finish_run(conn, run_id)
         return len(predictions)
+    except Exception as error:
+        provenance.finish_run(conn, run_id, error=error)
+        raise
 
 
 def health_check() -> list[Check]:
-    if not MODEL_PATH.exists():
-        detail = f"not found at {MODEL_PATH} — run mlb train"
-        return [Check(f"{MODEL_VERSION} model file", False, detail)]
-    return [Check(f"{MODEL_VERSION} model file", True, str(MODEL_PATH))]
+    artifacts_dir = MODEL_DIR / "artifacts"
+    if (artifacts_dir.exists() and any(artifacts_dir.glob("*.json"))) or MODEL_PATH.exists():
+        return [Check(f"{MODEL_VERSION} model file", True, str(MODEL_DIR))]
+    detail = f"not found in {artifacts_dir} — run mlb train"
+    return [Check(f"{MODEL_VERSION} model file", False, detail)]

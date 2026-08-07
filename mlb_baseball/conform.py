@@ -173,6 +173,13 @@ _POLYMARKET_SLUG_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})$")
 _KALSHI_TICKER_DATE_RE = re.compile(r"^KXMLBGAME-(\d{2})([A-Z]{3})(\d{2})")
 _KALSHI_TICKER_TEAM_RE = re.compile(r"-([A-Z]{2,4})$")
 
+_AMBIGUOUS_FINAL_GAME_IDS_SQL = """
+    SELECT game_id FROM raw.mlb_schedule
+    WHERE status = 'Final'
+    GROUP BY game_id
+    HAVING count(*) > 1
+"""
+
 # (raw table, connector that populates it) — checked before conform runs so
 # a missing prerequisite fails with an actionable message, not a silent
 # empty core rebuild or a confusing mid-query error.
@@ -288,7 +295,13 @@ def _build_venues(conn: psycopg.Connection) -> int:
                     left_line = NULLIF(mv.left_line, '')::numeric::integer,
                     center = NULLIF(mv.center, '')::numeric::integer,
                     right_line = NULLIF(mv.right_line, '')::numeric::integer
-                FROM raw.mlb_venue mv
+                FROM (
+                    SELECT DISTINCT ON (lower(trim(name)))
+                        name, venue_id, latitude, longitude, capacity, turf_type,
+                        roof_type, left_line, center, right_line
+                    FROM raw.mlb_venue
+                    ORDER BY lower(trim(name)), venue_id::integer
+                ) mv
                 WHERE lower(trim(v.name)) = lower(trim(mv.name))
                 """
             )
@@ -540,11 +553,14 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
     # game_pk. Confirmed in production: 12,662 distinct game_pk values were
     # shared by 2 core.game rows each (25,347 rows total) — every one a
     # doubleheader — corrupting every downstream game_pk-keyed join
-    # (mlb_playbyplay, statcast_pitch) for those games. COALESCE(...,  0)
-    # on both sides: a normal single game is game_num/game_number 0 in both
-    # sources, but either can be genuinely NULL (pre-1901 games have no
-    # game_number at all) — a bare `=` would never match two NULLs, so both
-    # sides normalize NULL to the same "not a doubleheader" default instead.
+    # (mlb_playbyplay, statcast_pitch) for those games.
+    #
+    # A later production audit found that the two sources do NOT encode an
+    # ordinary single game the same way: Retrosheet uses 0 while MLB's
+    # schedule uses 1. The old COALESCE(..., 0) equality therefore matched
+    # only a few dozen games per modern season and left roughly 98% of
+    # 2008-2025 Statcast pitches without a core.game. Normalize 0/NULL to 1
+    # on both sides; true doubleheaders retain their explicit 1/2 numbering.
     #
     # A second, distinct source-data quirk found later (mlb doctor's
     # check_no_duplicate_key flagged game_pk 123347 shared by two real,
@@ -562,12 +578,6 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
     # backfill entirely — same "leave it NULL, don't guess" precedent as
     # core.play's statcast join above — rather than guessing which of the
     # two real games the id "really" belongs to.
-    _AMBIGUOUS_FINAL_IDS = """
-        SELECT game_id FROM raw.mlb_schedule
-        WHERE status = 'Final'
-        GROUP BY game_id
-        HAVING count(*) > 1
-    """
     try:
         with conn.transaction(), conn.cursor() as cur:
             # Self-healing: a game_pk assigned by an earlier conform() run,
@@ -579,7 +589,7 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
                 f"""
                 UPDATE core.game
                 SET game_pk = NULL
-                WHERE game_pk IN ({_AMBIGUOUS_FINAL_IDS})
+                WHERE game_pk IN ({_AMBIGUOUS_FINAL_GAME_IDS_SQL})
                 """
             )
             # FROM-list uses implicit (comma) joins, not explicit JOIN...ON,
@@ -602,8 +612,14 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
                     AND ms.home_name = home.city || ' ' || home.nickname
                     AND away.id = g.away_team_id
                     AND home.id = g.home_team_id
-                    AND COALESCE(NULLIF(ms.game_num, '')::integer, 0)
-                        = COALESCE(g.game_number, 0)
+                    AND CASE
+                            WHEN COALESCE(NULLIF(ms.game_num, '')::integer, 0) = 0 THEN 1
+                            ELSE NULLIF(ms.game_num, '')::integer
+                        END
+                        = CASE
+                            WHEN COALESCE(g.game_number, 0) = 0 THEN 1
+                            ELSE g.game_number
+                        END
                     -- g.game_pk IS NULL: without this, a row that already
                     -- got its correct game_pk from _build_games' second
                     -- INSERT (the MLB-API-sourced path) could get silently
@@ -618,7 +634,7 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
                     -- duplicate this file's own check_no_duplicate_key
                     -- health check caught.
                     AND g.game_pk IS NULL
-                    AND ms.game_id NOT IN ({_AMBIGUOUS_FINAL_IDS})
+                    AND ms.game_id NOT IN ({_AMBIGUOUS_FINAL_GAME_IDS_SQL})
                 """
             )
             return cur.rowcount
@@ -680,6 +696,48 @@ def _backfill_mlb_team_id(conn: psycopg.Connection) -> int:
         # snapshot) — same "optional dependency not ready yet" case as the
         # table not existing at all, not a real error.
         print("conform: raw.mlb_schedule not present yet — skipping core.team.mlb_team_id backfill")
+        return 0
+
+
+def _backfill_game_pk_via_mlb_team_id(conn: psycopg.Connection) -> int:
+    """Resolve games left unmatched by historical/display team-name drift.
+
+    The first name-based game matches provide enough evidence for
+    `_backfill_mlb_team_id` to build a stable numeric team crosswalk. This
+    second pass then uses that crosswalk to resolve games MLB labels with a
+    different franchise name, such as Guardians, Rays, or Angels in
+    historical schedule rows. Ambiguous source IDs remain NULL.
+    """
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE core.game g
+                SET game_pk = ms.game_id
+                FROM raw.mlb_schedule ms, core.team away, core.team home
+                WHERE ms.game_date::date = g.game_date
+                    AND away.id = g.away_team_id
+                    AND home.id = g.home_team_id
+                    AND away.mlb_team_id = NULLIF(ms.away_id, '')::integer
+                    AND home.mlb_team_id = NULLIF(ms.home_id, '')::integer
+                    AND CASE
+                            WHEN COALESCE(NULLIF(ms.game_num, '')::integer, 0) = 0 THEN 1
+                            ELSE NULLIF(ms.game_num, '')::integer
+                        END
+                        = CASE
+                            WHEN COALESCE(g.game_number, 0) = 0 THEN 1
+                            ELSE g.game_number
+                        END
+                    AND g.game_pk IS NULL
+                    AND ms.game_id NOT IN ({_AMBIGUOUS_FINAL_GAME_IDS_SQL})
+                """
+            )
+            return cur.rowcount
+    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+        print(
+            "conform: MLB schedule team IDs not present yet — "
+            "skipping second core.game.game_pk backfill"
+        )
         return 0
 
 
@@ -1414,8 +1472,12 @@ def run() -> dict[str, int]:
         # used to fix the away/home_team_id rows the original string match
         # missed (e.g. the Athletics' bare "Athletics" name) — before
         # _build_market runs, so Polymarket/Kalshi matching sees the
-        # corrected team_id on those games too.
+        # corrected team_id on those games too. The game_pk resolution is
+        # intentionally two-pass: exact historical names first establish
+        # the numeric MLB team crosswalk, then that crosswalk resolves
+        # display-name drift and the remaining team IDs.
         _backfill_mlb_team_id(conn)
+        _backfill_game_pk_via_mlb_team_id(conn)
         _backfill_team_ids_via_mlb_id(conn)
         # core.standing resolves team_id via mlb_team_id, so it must run
         # after both backfills above, not before.

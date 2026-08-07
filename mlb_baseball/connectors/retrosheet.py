@@ -76,7 +76,12 @@ def _load_zip(conn: psycopg.Connection, year: int, zip_path: Path) -> dict[str, 
     for name, df in _extract_csvs(year, zip_path).items():
         table = f"raw.retrosheet_{name}"
         counts[table] = load_dataframe(
-            conn, table, df, scope_column="_season", scope_value=str(year)
+            conn,
+            table,
+            df,
+            scope_column="_season",
+            scope_value=str(year),
+            schema_drift_policy="error",
         )
     manifest.mark_status(SOURCE, zip_path.name, "loaded")
     return counts

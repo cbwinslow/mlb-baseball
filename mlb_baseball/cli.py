@@ -46,6 +46,12 @@ import sys
 
 from mlb_baseball import conform, doctor, inventory, migrate, model
 from mlb_baseball.registry import CONNECTORS
+from mlb_baseball.source_profiles import (
+    PROFILES,
+    SourceProfileError,
+    active_profile,
+    require_sources,
+)
 
 # Connector names confirmed (by reading each connector's own network calls,
 # not guessed) to hit the same external server. Running several connectors
@@ -93,7 +99,7 @@ def _concurrency_groups(names: list[str]) -> list[list[str]]:
     return groups
 
 
-def _run_group(names: list[str], mode: str) -> bool:
+def _run_group(names: list[str], mode: str, profile: str) -> bool:
     """Runs one group's connectors sequentially — either because they share
     an external server (see _SAME_SERVER_GROUPS) or because a singleton
     group only has the one anyway. Returns True if anything in the group
@@ -103,6 +109,12 @@ def _run_group(names: list[str], mode: str) -> bool:
     groups over an unexpected error escaping this function."""
     any_failed = False
     for name in names:
+        try:
+            require_sources(profile, [name], purpose=f"ingest {name}")
+        except SourceProfileError as exc:
+            any_failed = True
+            print(f"[{name}] SKIPPED ({exc})")
+            continue
         connector = CONNECTORS[name]
         fn = connector.bootstrap if mode == "bootstrap" else connector.update
         print(f"=== {name} ({mode}) ===")
@@ -115,7 +127,7 @@ def _run_group(names: list[str], mode: str) -> bool:
     return any_failed
 
 
-def _run_all(mode: str) -> None:
+def _run_all(mode: str, profile: str) -> None:
     # Groups run concurrently (different external servers per group,
     # confirmed no shared-server overlap between groups — see
     # _SAME_SERVER_GROUPS above); connectors within one group stay
@@ -126,7 +138,7 @@ def _run_all(mode: str) -> None:
     groups = _concurrency_groups(list(CONNECTORS))
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(groups)) as pool:
         try:
-            results = list(pool.map(lambda names: _run_group(names, mode), groups))
+            results = list(pool.map(lambda names: _run_group(names, mode, profile), groups))
         except Exception as exc:
             print(f"mlb {mode}: an entire connector group failed unexpectedly ({exc})")
             sys.exit(1)
@@ -146,19 +158,37 @@ def main(argv: list[str] | None = None) -> None:
         "--mode", choices=["bootstrap", "update", "backfill"], default="bootstrap"
     )
 
-    subparsers.add_parser("bootstrap")
-    subparsers.add_parser("update")
+    for profile_parser in (
+        ingest_parser,
+        subparsers.add_parser("bootstrap"),
+        subparsers.add_parser("update"),
+    ):
+        profile_parser.add_argument("--profile", choices=sorted(PROFILES))
+
     subparsers.add_parser("conform")
     subparsers.add_parser("predict")
     subparsers.add_parser("train")
+    evaluate_parser = subparsers.add_parser("evaluate")
+    evaluate_parser.add_argument("--season", type=int, required=True)
+    evaluate_parser.add_argument("--models", nargs="+", required=True)
+    evaluate_parser.add_argument(
+        "--cutoff", choices=["open", "24h", "6h", "close"], default="close"
+    )
+    evaluate_parser.add_argument("--bootstrap-samples", type=int, default=1000)
     subparsers.add_parser("inventory")
     subparsers.add_parser("doctor")
 
     args = parser.parse_args(argv)
 
+    profile = getattr(args, "profile", None) or active_profile()
+
     if args.command == "migrate":
         migrate.main()
     elif args.command == "ingest":
+        try:
+            require_sources(profile, [args.source], purpose=f"ingest {args.source}")
+        except SourceProfileError as exc:
+            parser.error(str(exc))
         connector = CONNECTORS[args.source]
         if args.mode == "bootstrap":
             fn = connector.bootstrap
@@ -176,9 +206,9 @@ def main(argv: list[str] | None = None) -> None:
         for table, count in fn().items():
             print(f"{table}: {count} rows")
     elif args.command == "bootstrap":
-        _run_all("bootstrap")
+        _run_all("bootstrap", profile)
     elif args.command == "update":
-        _run_all("update")
+        _run_all("update", profile)
     elif args.command == "conform":
         for table, count in conform.run().items():
             print(f"{table}: {count} rows")
@@ -195,6 +225,22 @@ def main(argv: list[str] | None = None) -> None:
             print("saved: new model beat both baselines")
         else:
             print("not saved: did not beat both baselines")
+    elif args.command == "evaluate":
+        report = model.evaluate(args.models, args.season, args.cutoff, args.bootstrap_samples)
+        print(
+            f"season {report['season']} / {report['cutoff']} cutoff / "
+            f"{report['common_games']} common games"
+        )
+        for version in args.models:
+            metrics = report["models"][version]
+            log_low, log_high = metrics["log_loss_95ci"]
+            brier_low, brier_high = metrics["brier_95ci"]
+            print(
+                f"  {version}: coverage={report['coverage'][version]} "
+                f"log_loss={metrics['log_loss']:.4f} [{log_low:.4f}, {log_high:.4f}] "
+                f"brier={metrics['brier']:.4f} [{brier_low:.4f}, {brier_high:.4f}] "
+                f"accuracy={metrics['accuracy']:.4f}"
+            )
     elif args.command == "inventory":
         for row in inventory.tables():
             print(f"{row['schema']}.{row['table']}: {row['rows']} rows")

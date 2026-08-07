@@ -26,6 +26,7 @@ from mlb_baseball.ingest import track_run
 from mlb_baseball.model import (
     bullpen,
     elo,
+    evaluation,
     features,
     framing,
     gbm,
@@ -108,6 +109,13 @@ def run() -> dict[str, int]:
 def train() -> dict:
     with get_connection() as conn:
         return gbm.train(conn)
+
+
+def evaluate(
+    model_versions: list[str], season: int, cutoff: str, bootstrap_samples: int
+) -> dict:
+    with get_connection() as conn:
+        return evaluation.evaluate(conn, model_versions, season, cutoff, bootstrap_samples)
 
 
 def health_check() -> list[Check]:

@@ -47,12 +47,12 @@ workaround around it.
 
 import tempfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pandas as pd
 import psycopg
 
-from mlb_baseball import chadwick_tools, manifest
+from mlb_baseball import archive, chadwick_tools, manifest
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check, check_last_run, check_table_has_rows
 from mlb_baseball.ingest import track_run
@@ -107,7 +107,9 @@ TEAM_FIELDS = ["team_id", "league", "city", "nickname", "first_year", "last_year
 
 
 def _mlb_team_registry() -> pd.DataFrame:
-    path = manifest.download_required(SOURCE, "TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT")
+    path = manifest.download_required(
+        SOURCE, "TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT"
+    )
     return pd.read_csv(path, header=None, names=TEAM_FIELDS)
 
 
@@ -130,14 +132,18 @@ def _team_registry(group: str) -> pd.DataFrame:
 
 
 def _rosters_zip() -> Path:
-    return manifest.download_required(SOURCE, "rosters.zip", "https://www.retrosheet.org/rosters.zip")
+    return manifest.download_required(
+        SOURCE, "rosters.zip", "https://www.retrosheet.org/rosters.zip"
+    )
 
 
 def _copy_matching_rosters(rosters_zip: Path, year: int, dest_dir: Path) -> None:
     with zipfile.ZipFile(rosters_zip) as zf:
-        for name in zf.namelist():
-            if name.endswith(".ROS") and chadwick_tools.year_of(name) == year:
-                dest_dir.joinpath(name).write_bytes(zf.read(name))
+        for info in zf.infolist():
+            if info.filename.endswith(".ROS") and chadwick_tools.year_of(info.filename) == year:
+                dest_dir.joinpath(PurePosixPath(info.filename).name).write_bytes(
+                    archive.read_zip_member(zf, info)
+                )
 
 
 def _prepare_team_file(
@@ -168,8 +174,7 @@ def _parse_archive(archive_path: Path, group: str) -> dict[int, dict[str, pd.Dat
     results: dict[int, dict[str, pd.DataFrame]] = {}
     with tempfile.TemporaryDirectory(prefix=f"retrosheet_box_{group}_") as tmp:
         extract_dir = Path(tmp)
-        with zipfile.ZipFile(archive_path) as zf:
-            zf.extractall(extract_dir)
+        archive.extract_zip(archive_path, extract_dir)
         for year, year_dir in chadwick_tools.split_by_year(extract_dir).items():
             if needs_team_file:
                 assert registry is not None and rosters_zip is not None

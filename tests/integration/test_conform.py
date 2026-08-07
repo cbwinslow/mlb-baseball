@@ -58,9 +58,17 @@ def _reset_dynamic_tables(conn):
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("TRUNCATE raw.register_people")
         for table in (
-            "core.play", "core.pitch", "core.market", "gold.game_feature",
-            "gold.prediction", "core.game", "core.team_alias",
-            "core.player_war", "core.standing", "core.player", "core.team",
+            "core.play",
+            "core.pitch",
+            "core.market",
+            "gold.game_feature",
+            "gold.prediction",
+            "core.game",
+            "core.team_alias",
+            "core.player_war",
+            "core.standing",
+            "core.player",
+            "core.team",
             "core.venue",
         ):
             cur.execute(f"DELETE FROM {table}")
@@ -104,6 +112,7 @@ def test_reset_dynamic_tables_survives_an_aborted_transaction(db_conn):
 
 def _seed_raw_tables(db_conn):
     with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_team, raw.retrosheet_gameinfo")
         cur.execute(
             "CREATE TABLE raw.retrosheet_team "
             "(team_id text, league text, city text, nickname text, "
@@ -141,6 +150,7 @@ def _seed_raw_tables(db_conn):
             "'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown')"
         )
 
+        cur.execute("DELETE FROM raw.register_people WHERE key_retro IN ('smitj001', 'jonet001')")
         cur.execute(
             "INSERT INTO raw.register_people "
             "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
@@ -406,7 +416,7 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
         cur.execute(
             "CREATE TABLE raw.retrosheet_park "
             "(parkid text, name text, city text, state text, league text, "
-            "start text, \"end\" text)"
+            'start text, "end" text)'
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_park VALUES "
@@ -419,10 +429,7 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
             "capacity text, turf_type text, roof_type text, "
             "left_line text, center text, right_line text)"
         )
-        cur.execute(
-            "INSERT INTO raw.mlb_venue "
-            "(venue_id, name) VALUES ('4705', 'Truist Park')"
-        )
+        cur.execute("INSERT INTO raw.mlb_venue (venue_id, name) VALUES ('4705', 'Truist Park')")
         cur.execute(
             "CREATE TABLE raw.mlb_schedule "
             "(game_id text, game_date text, away_name text, home_name text, "
@@ -474,9 +481,7 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
     assert row[9] == expected_venue_id
 
     with db_conn.cursor() as cur:
-        cur.execute(
-            "DROP TABLE IF EXISTS raw.mlb_schedule, raw.retrosheet_park, raw.mlb_venue"
-        )
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.retrosheet_park, raw.mlb_venue")
         # core.play/pitch/market/game_feature/game/venue are all reset by
         # the autouse _clean_tables fixture right after this test returns
         # (see _reset_dynamic_tables) — no need to also do it here.
@@ -1051,6 +1056,9 @@ def _seed_mlb_team_id_scenario(db_conn):
     gap this design exists to fix."""
     with db_conn.cursor() as cur:
         cur.execute(
+            "DROP TABLE IF EXISTS raw.mlb_schedule, raw.retrosheet_team, raw.retrosheet_gameinfo"
+        )
+        cur.execute(
             "CREATE TABLE raw.retrosheet_team "
             "(team_id text, league text, city text, nickname text, "
             "first_year text, last_year text)"
@@ -1079,6 +1087,9 @@ def _seed_mlb_team_id_scenario(db_conn):
             "'', '', '', '', '', ''), "
             "('OAK202404030', '2024', '20240403', '0', 'TEX', 'OAK', "
             "'4', '6', 'regular', 'OAK01', '12000', '190', 'N', '', '', '', "
+            "'', '', '', '', '', ''), "
+            "('OAK202404040', '2024', '20240404', '0', 'TEX', 'OAK', "
+            "'2', '3', 'regular', 'OAK01', '13000', '180', 'N', '', '', '', "
             "'', '', '', '', '', '')"
         )
 
@@ -1099,6 +1110,14 @@ def _seed_mlb_team_id_scenario(db_conn):
             # outlier vote the majority-vote logic must not be swayed by.
             "('500003', '2024-04-03', 'Texas Rangers', 'Oakland Athletics', "
             "'2024', 'Final', 'R', '0', 'Oakland Coliseum', '', '4', '6', '140', '999'), "
+            # Production-shape regression: Retrosheet represents an
+            # ordinary game as number=0, MLB represents it as game_num=1,
+            # and MLB's display name no longer matches the historical
+            # Retrosheet city+nickname. The second numeric-ID pass must
+            # resolve this after the first three games establish the team
+            # crosswalk.
+            "('500005', '2024-04-04', 'Texas Rangers', 'Athletics', "
+            "'2024', 'Final', 'R', '1', 'Oakland Coliseum', '', '2', '3', '140', '133'), "
             # 2025: no Retrosheet coverage for this season at all (nothing
             # inserted into raw.retrosheet_gameinfo above for it), and
             # away_name is the bare 'Athletics' MLB's schedule really uses
@@ -1106,12 +1125,30 @@ def _seed_mlb_team_id_scenario(db_conn):
             "('500004', '2025-04-01', 'Athletics', 'Texas Rangers', "
             "'2025', 'Final', 'R', '0', 'Globe Life Field', '', '2', '1', '133', '140')"
         )
+        cur.execute("DELETE FROM raw.register_people WHERE key_retro = 'smitj001'")
         cur.execute(
             "INSERT INTO raw.register_people "
             "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
             "name_last, name_first) VALUES "
             "('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
         )
+    db_conn.commit()
+
+
+def test_seed_mlb_team_id_scenario_survives_preexisting_mlb_schedule(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        cur.execute("CREATE TABLE raw.mlb_schedule (game_id text)")
+    db_conn.commit()
+
+    _seed_mlb_team_id_scenario(db_conn)
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.mlb_schedule")
+        assert cur.fetchone()[0] == 5
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
     db_conn.commit()
 
 
@@ -1149,6 +1186,20 @@ def test_backfill_team_ids_via_mlb_id_fixes_bare_name_mismatch(db_conn):
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
         # core.play/pitch/market/game_feature/game are reset by the autouse
         # _clean_tables fixture right after this test — no need here too.
+    db_conn.commit()
+
+
+def test_backfill_game_pk_via_mlb_id_handles_name_and_single_game_number_drift(db_conn):
+    _seed_mlb_team_id_scenario(db_conn)
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT game_pk FROM core.game WHERE retro_game_id = 'OAK202404040'")
+        assert cur.fetchone() == ("500005",)
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
     db_conn.commit()
 
 
@@ -1426,6 +1477,31 @@ def test_build_venues_enriches_from_mlb_venue_by_exact_name_match_only(db_conn):
     )
 
     with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_park, raw.mlb_venue")
+    db_conn.commit()
+
+
+def test_build_venues_uses_lowest_mlb_id_for_duplicate_exact_names(db_conn):
+    _seed_raw_tables(db_conn)
+    _seed_retrosheet_park(db_conn, name="Municipal Stadium")
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.mlb_venue "
+            "(venue_id text, name text, latitude text, longitude text, "
+            "capacity text, turf_type text, roof_type text, "
+            "left_line text, center text, right_line text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_venue (venue_id, name) VALUES "
+            "('900', 'Municipal Stadium'), ('100', 'Municipal Stadium')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT mlb_venue_id FROM core.venue WHERE retro_park_id = 'ATL03'")
+        assert cur.fetchone() == (100,)
         cur.execute("DROP TABLE IF EXISTS raw.retrosheet_park, raw.mlb_venue")
     db_conn.commit()
 
@@ -1930,9 +2006,7 @@ def test_health_check_lahman_team_count_matches_and_flags_mismatch(db_conn):
     db_conn.commit()
     conform.run()
 
-    check = next(
-        c for c in conform.health_check() if c.name == "core.game team count vs Lahman"
-    )
+    check = next(c for c in conform.health_check() if c.name == "core.game team count vs Lahman")
     assert check.ok, check.detail
 
     with db_conn.cursor() as cur:
@@ -1943,9 +2017,7 @@ def test_health_check_lahman_team_count_matches_and_flags_mismatch(db_conn):
         )
     db_conn.commit()
 
-    check = next(
-        c for c in conform.health_check() if c.name == "core.game team count vs Lahman"
-    )
+    check = next(c for c in conform.health_check() if c.name == "core.game team count vs Lahman")
     assert not check.ok
     assert "2025" in check.detail
 
@@ -2044,7 +2116,8 @@ def test_health_check_play_natural_key_flags_a_partition_split_duplicate(db_conn
     db_conn.commit()
 
     check = next(
-        c for c in conform.health_check()
+        c
+        for c in conform.health_check()
         if c.name == "core.play natural-key uniqueness (partition-key-independent)"
     )
 

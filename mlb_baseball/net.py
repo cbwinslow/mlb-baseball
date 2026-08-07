@@ -14,6 +14,30 @@ import requests
 
 DEFAULT_MAX_ATTEMPTS = 4
 DEFAULT_BACKOFF_SECONDS = 5.0
+RETRYABLE_STATUS_CODES = {408, 425, 429}
+
+
+def _is_retryable_status(status_code: int | None) -> bool:
+    return status_code in RETRYABLE_STATUS_CODES or (status_code is not None and status_code >= 500)
+
+
+def _retry_delay(response: object | None, attempt: int, backoff_seconds: float) -> float:
+    """Honor a server's numeric Retry-After response when it is bounded."""
+    headers = getattr(response, "headers", {}) or {}
+    retry_after = headers.get("Retry-After")
+    try:
+        if retry_after is not None:
+            return min(float(retry_after), 300.0)
+    except (TypeError, ValueError):
+        pass
+    return backoff_seconds * attempt
+
+
+def _retry_message(
+    target: str, exc: Exception | None, wait: float, attempt: int, max_attempts: int
+) -> None:
+    detail = str(exc) if exc is not None else "retryable HTTP response"
+    print(f"net: {target} failed ({detail}); retrying in {wait:.0f}s ({attempt}/{max_attempts})")
 
 
 def get_with_retry(
@@ -26,13 +50,20 @@ def get_with_retry(
 ) -> requests.Response:
     for attempt in range(1, max_attempts + 1):
         try:
-            return requests.get(url, timeout=timeout, headers=headers)
-        except requests.exceptions.ConnectionError as exc:
+            response = requests.get(url, timeout=timeout, headers=headers)
+        except requests.exceptions.RequestException as exc:
             if attempt == max_attempts:
                 raise
-            wait = backoff_seconds * attempt
-            print(f"net: {url} failed ({exc}); retrying in {wait:.0f}s ({attempt}/{max_attempts})")
+            wait = _retry_delay(getattr(exc, "response", None), attempt, backoff_seconds)
+            _retry_message(url, exc, wait, attempt, max_attempts)
             time.sleep(wait)
+            continue
+        status_code = getattr(response, "status_code", None)
+        if not _is_retryable_status(status_code) or attempt == max_attempts:
+            return response
+        wait = _retry_delay(response, attempt, backoff_seconds)
+        _retry_message(url, None, wait, attempt, max_attempts)
+        time.sleep(wait)
     raise AssertionError("unreachable")  # loop always returns or raises
 
 
@@ -57,7 +88,8 @@ def call_with_retry(
     surface any of them, not just connection-level failures like
     get_with_retry's narrower ConnectionError.
 
-    A 404 is never retried, regardless of max_attempts — found the hard way
+    Confirmed non-transient 4xx responses are never retried, regardless of
+    max_attempts — found the hard way
     during mlb_api.py's per-game win-probability/analytics backfill: a game
     with no win-probability data 404s identically every time, so retrying
     it burned the full 3-retry backoff budget (5s+10s+15s = 30s) per game
@@ -65,22 +97,19 @@ def call_with_retry(
     games with genuinely missing analytics data, this was the dominant cost
     of the whole backfill, not the actual successful API calls. Every other
     RequestException (connection errors, timeouts, 5xx) still gets the full
-    retry treatment — only a confirmed HTTP 404 response skips it."""
+    retry treatment — only confirmed transient HTTP statuses (408, 425, 429,
+    and 5xx) get another attempt."""
     for attempt in range(1, max_attempts + 1):
         try:
             return fn(*args, **kwargs)
         except requests.exceptions.RequestException as exc:
-            is_404 = (
-                isinstance(exc, requests.exceptions.HTTPError)
-                and exc.response is not None
-                and exc.response.status_code == 404
-            )
-            if is_404 or attempt == max_attempts:
+            response = exc.response if isinstance(exc, requests.exceptions.HTTPError) else None
+            status_code = getattr(response, "status_code", None)
+            if (
+                status_code is not None and not _is_retryable_status(status_code)
+            ) or attempt == max_attempts:
                 raise
-            wait = backoff_seconds * attempt
-            print(
-                f"net: {fn.__name__} failed ({exc}); retrying in {wait:.0f}s "
-                f"({attempt}/{max_attempts})"
-            )
+            wait = _retry_delay(response, attempt, backoff_seconds)
+            _retry_message(fn.__name__, exc, wait, attempt, max_attempts)
             time.sleep(wait)
     raise AssertionError("unreachable")  # loop always returns or raises

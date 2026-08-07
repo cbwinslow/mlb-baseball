@@ -1,6 +1,7 @@
 import os
 import uuid
 
+import psycopg
 import pytest
 
 from mlb_baseball.ingest import reap_stale_runs, track_run
@@ -78,6 +79,22 @@ def test_track_run_stores_the_running_process_pid(db_conn):
         cur.execute("SELECT pid FROM meta.ingestion_run WHERE source = %s", (source,))
         (pid,) = cur.fetchone()
     assert pid == os.getpid()
+
+
+def test_track_run_rejects_overlapping_runs_for_the_same_source(db_conn):
+    """The lock is session-scoped, so a second connector cannot overlap it."""
+    source = f"test_overlap_{uuid.uuid4().hex}"
+
+    with psycopg.connect(os.environ["DATABASE_URL"]) as second_conn:
+        with track_run(db_conn, source, "bootstrap"):
+            with pytest.raises(RuntimeError, match="another ingestion run is already active"):
+                with track_run(second_conn, source, "bootstrap"):
+                    pass
+
+        # A rejected acquisition leaves no bad transaction state behind; once
+        # the first run exits, the same connector connection can proceed.
+        with track_run(second_conn, source, "bootstrap") as result:
+            result["rows"] = 1
 
 
 def test_reap_stale_runs_marks_dead_pid_as_failed(db_conn):

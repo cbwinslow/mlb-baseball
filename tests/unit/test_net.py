@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 import requests
@@ -36,6 +36,29 @@ def test_raises_after_exhausting_all_attempts():
             get_with_retry("https://example.com/x", max_attempts=3, backoff_seconds=0)
 
     assert mock_get.call_count == 3
+
+
+def test_retries_retryable_http_response_and_honors_retry_after():
+    rate_limited = Mock(status_code=429, headers={"Retry-After": "2"})
+    success = Mock(status_code=200)
+    with (
+        patch("mlb_baseball.net.requests.get", side_effect=[rate_limited, success]) as mock_get,
+        patch("mlb_baseball.net.time.sleep") as sleep,
+    ):
+        result = get_with_retry("https://example.com/x", max_attempts=3, backoff_seconds=0)
+
+    assert result is success
+    assert mock_get.call_count == 2
+    sleep.assert_called_once_with(2.0)
+
+
+def test_returns_non_retryable_http_response_without_retrying():
+    missing = Mock(status_code=404)
+    with patch("mlb_baseball.net.requests.get", return_value=missing) as mock_get:
+        result = get_with_retry("https://example.com/x", max_attempts=3, backoff_seconds=0)
+
+    assert result is missing
+    mock_get.assert_called_once()
 
 
 def test_call_with_retry_returns_result_on_first_success():
@@ -89,6 +112,20 @@ def test_call_with_retry_does_not_retry_a_404():
         call_with_retry(always_404, max_attempts=3, backoff_seconds=0)
 
     assert calls["count"] == 1  # no retries — one call, then raise immediately
+
+
+def test_call_with_retry_does_not_retry_other_non_transient_4xx_errors():
+    calls = {"count": 0}
+    fake_response = type("FakeResponse", (), {"status_code": 400})()
+
+    def always_bad_request(**kwargs):
+        calls["count"] += 1
+        raise requests.exceptions.HTTPError("400 Client Error", response=fake_response)
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        call_with_retry(always_bad_request, max_attempts=3, backoff_seconds=0)
+
+    assert calls["count"] == 1
 
 
 def test_call_with_retry_still_retries_a_503_after_this_change():

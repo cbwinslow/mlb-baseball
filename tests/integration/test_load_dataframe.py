@@ -1,6 +1,7 @@
 import pandas as pd
+import pytest
 
-from mlb_baseball.load import append_dataframe, load_dataframe
+from mlb_baseball.load import SchemaDriftError, SchemaDriftWarning, append_dataframe, load_dataframe
 
 
 def test_creates_table_and_loads_rows(db_conn, drop_tables_after):
@@ -47,12 +48,31 @@ def test_later_load_with_extra_columns_alters_the_table_instead_of_failing(
     df2 = pd.DataFrame(
         {"game_id": ["G2"], "umpire_hp": ["ump2"], "umpire_lf": ["ump3"], "_scope": ["b"]}
     )
-    load_dataframe(db_conn, table, df2, scope_column="_scope", scope_value="b")
+    with pytest.warns(SchemaDriftWarning, match="added=.*umpire_lf"):
+        load_dataframe(db_conn, table, df2, scope_column="_scope", scope_value="b")
     db_conn.commit()
 
     with db_conn.cursor() as cur:
         cur.execute(f"SELECT game_id, umpire_hp, umpire_lf FROM {table} ORDER BY game_id")
         assert cur.fetchall() == [("G1", "ump1", None), ("G2", "ump2", "ump3")]
+
+
+def test_schema_drift_error_preserves_existing_raw_contract(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_schema_drift")
+    load_dataframe(db_conn, table, pd.DataFrame({"stable": ["one"]}))
+    db_conn.commit()
+
+    with pytest.raises(SchemaDriftError, match=r"added=\['unexpected'\]"):
+        load_dataframe(
+            db_conn,
+            table,
+            pd.DataFrame({"stable": ["two"], "unexpected": ["new"]}),
+            schema_drift_policy="error",
+        )
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT stable FROM {table}")
+        assert cur.fetchall() == [("one",)]
 
 
 def test_handles_digit_prefixed_and_mixed_case_columns(db_conn, drop_tables_after):
@@ -151,7 +171,7 @@ def test_append_dataframe_creates_table_and_inserts_rows(db_conn, drop_tables_af
     table = drop_tables_after("raw.test_append_widgets")
     df = pd.DataFrame({"widget_id": [1, 2], "name": ["a", "b"]})
 
-    rowcount = append_dataframe(db_conn, table, df)
+    rowcount = append_dataframe(db_conn, table, df, identity_columns=("widget_id",))
     db_conn.commit()
 
     assert rowcount == 2
@@ -168,11 +188,26 @@ def test_append_dataframe_accumulates_instead_of_replacing(db_conn, drop_tables_
     # every past snapshot is still meaningful, not just the latest.
     table = drop_tables_after("raw.test_append_snapshots")
 
-    append_dataframe(db_conn, table, pd.DataFrame({"game_id": ["G1"], "inning": [1]}))
+    append_dataframe(
+        db_conn,
+        table,
+        pd.DataFrame({"game_id": ["G1"], "inning": [1]}),
+        identity_columns=("game_id", "inning"),
+    )
     db_conn.commit()
-    append_dataframe(db_conn, table, pd.DataFrame({"game_id": ["G1"], "inning": [2]}))
+    append_dataframe(
+        db_conn,
+        table,
+        pd.DataFrame({"game_id": ["G1"], "inning": [2]}),
+        identity_columns=("game_id", "inning"),
+    )
     db_conn.commit()
-    append_dataframe(db_conn, table, pd.DataFrame({"game_id": ["G1"], "inning": [3]}))
+    append_dataframe(
+        db_conn,
+        table,
+        pd.DataFrame({"game_id": ["G1"], "inning": [3]}),
+        identity_columns=("game_id", "inning"),
+    )
     db_conn.commit()
 
     with db_conn.cursor() as cur:
@@ -189,13 +224,40 @@ def test_append_dataframe_alters_table_for_a_later_batch_with_extra_columns(
     # helper, so this must work identically.
     table = drop_tables_after("raw.test_append_evolving_schema")
 
-    append_dataframe(db_conn, table, pd.DataFrame({"game_id": ["G1"], "balls": [1]}))
-    db_conn.commit()
     append_dataframe(
-        db_conn, table, pd.DataFrame({"game_id": ["G2"], "balls": [2], "strikes": [1]})
+        db_conn,
+        table,
+        pd.DataFrame({"game_id": ["G1"], "balls": [1]}),
+        identity_columns=("game_id",),
     )
+    db_conn.commit()
+    with pytest.warns(SchemaDriftWarning, match="added=.*strikes"):
+        append_dataframe(
+            db_conn,
+            table,
+            pd.DataFrame({"game_id": ["G2"], "balls": [2], "strikes": [1]}),
+            identity_columns=("game_id",),
+        )
     db_conn.commit()
 
     with db_conn.cursor() as cur:
         cur.execute(f"SELECT game_id, balls, strikes FROM {table} ORDER BY game_id")
         assert cur.fetchall() == [("G1", "1", None), ("G2", "2", "1")]
+
+
+def test_append_dataframe_rejects_duplicate_or_undeclared_observation_identity(
+    db_conn, drop_tables_after
+):
+    table = drop_tables_after("raw.test_append_identity")
+    df = pd.DataFrame({"event_id": ["same", "same"], "value": [1, 2]})
+
+    with pytest.raises(ValueError, match="duplicate append identity"):
+        append_dataframe(db_conn, table, df, identity_columns=("event_id",))
+
+    with pytest.raises(ValueError, match="missing from batch"):
+        append_dataframe(
+            db_conn,
+            table,
+            pd.DataFrame({"event_id": ["one"]}),
+            identity_columns=("captured_at",),
+        )

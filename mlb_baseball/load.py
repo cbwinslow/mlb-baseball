@@ -8,6 +8,8 @@ shape. See docs/ARCHITECTURE.md "Loading patterns".
 """
 
 import re
+import warnings
+from typing import Literal
 
 import pandas as pd
 import psycopg
@@ -16,13 +18,33 @@ from psycopg import sql
 _IDENTIFIER_RE = re.compile(r"[^a-z0-9_]")
 
 
+class SchemaDriftWarning(UserWarning):
+    """A source batch's column set differs from its landed raw table."""
+
+
+class SchemaDriftError(ValueError):
+    """A connector policy requires explicit review before accepting drift."""
+
+
 def _pg_column_name(name: str) -> str:
     """Postgres-idiomatic column name: lowercased, non-alphanumeric stripped, and
     prefixed if it would otherwise start with a digit (e.g. Lahman's "2B"/"3B"
     columns). Case-folding only — no semantic change from the source
     (e.g. playerID -> playerid)."""
+    if not isinstance(name, str):
+        raise ValueError(f"source column name must be text, got {name!r}")
     cleaned = _IDENTIFIER_RE.sub("_", name.lower())
+    if not cleaned.strip("_"):
+        raise ValueError(f"source column name sanitizes to empty: {name!r}")
     return f"n{cleaned}" if cleaned[0].isdigit() else cleaned
+
+
+def _pg_column_names(df: pd.DataFrame) -> list[str]:
+    columns = [_pg_column_name(name) for name in df.columns]
+    duplicates = sorted({column for column in columns if columns.count(column) > 1})
+    if duplicates:
+        raise ValueError(f"source columns collide after Postgres sanitization: {duplicates}")
+    return columns
 
 
 def _table_identifier(table: str) -> sql.Identifier:
@@ -74,8 +96,35 @@ def _ensure_table_and_columns(
             )
 
 
+def _check_schema_drift(
+    cur: psycopg.Cursor,
+    table: str,
+    columns: list[str],
+    policy: Literal["ignore", "warn", "error"],
+) -> None:
+    if policy == "ignore":
+        return
+    schema, bare_table = table.split(".")
+    cur.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = %s AND table_name = %s",
+        (schema, bare_table),
+    )
+    existing = {row[0] for row in cur.fetchall()} - {"_loaded_at"}
+    if not existing:
+        return
+    incoming = set(columns)
+    added, removed = sorted(incoming - existing), sorted(existing - incoming)
+    if not added and not removed:
+        return
+    message = f"{table}: source schema drift (added={added}, removed={removed})"
+    if policy == "error":
+        raise SchemaDriftError(message)
+    warnings.warn(message, SchemaDriftWarning, stacklevel=3)
+
+
 def _copy_dataframe(cur: psycopg.Cursor, table_ident: sql.Identifier, df: pd.DataFrame) -> int:
-    columns = [_pg_column_name(c) for c in df.columns]
+    columns = _pg_column_names(df)
     csv_text = df.to_csv(index=False, header=False)
     column_list = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
     copy_sql = sql.SQL("COPY {table} ({columns}) FROM STDIN WITH (FORMAT csv)").format(
@@ -93,6 +142,7 @@ def load_dataframe(
     *,
     scope_column: str | None = None,
     scope_value: str | None = None,
+    schema_drift_policy: Literal["ignore", "warn", "error"] = "warn",
 ) -> int:
     """Creates `table` if needed (schema derived from df's columns) and loads df into
     it. Default replace strategy is a full TRUNCATE — right for sources small enough
@@ -111,9 +161,10 @@ def load_dataframe(
     For pure event-stream data with no natural "chunk" to replace (e.g. a live-game
     snapshot, captured repeatedly and meant to accumulate, never overwritten), use
     append_dataframe instead."""
-    columns = [_pg_column_name(c) for c in df.columns]
+    columns = _pg_column_names(df)
     table_ident = _table_identifier(table)
     with conn.cursor() as cur:
+        _check_schema_drift(cur, table, columns, schema_drift_policy)
         _ensure_table_and_columns(cur, table, table_ident, columns)
         if scope_column is None:
             cur.execute(sql.SQL("TRUNCATE {table}").format(table=table_ident))
@@ -135,16 +186,35 @@ def load_dataframe(
         return _copy_dataframe(cur, table_ident, df)
 
 
-def append_dataframe(conn: psycopg.Connection, table: str, df: pd.DataFrame) -> int:
+def append_dataframe(
+    conn: psycopg.Connection,
+    table: str,
+    df: pd.DataFrame,
+    *,
+    identity_columns: tuple[str, ...],
+    schema_drift_policy: Literal["ignore", "warn", "error"] = "warn",
+) -> int:
     """Creates `table` if needed and inserts df's rows — never truncates, never
     deletes. For genuinely append-only event-stream data where every previously
     landed row stays meaningful (e.g. raw.mlb_live_game: each call captures one
     point-in-time snapshot of an in-progress game, and the whole point is keeping
     every snapshot, not just the latest). If the source instead has a natural
-    "this chunk replaces that chunk" shape, use load_dataframe."""
-    columns = [_pg_column_name(c) for c in df.columns]
+    "this chunk replaces that chunk" shape, use load_dataframe. Every append
+    declares an immutable observation identity so unexplained duplicate rows
+    cannot be mistaken for meaningful history."""
+    columns = _pg_column_names(df)
+    missing_identity = set(identity_columns) - set(columns)
+    if not identity_columns or missing_identity:
+        raise ValueError(
+            f"{table}: append identity columns missing from batch: {sorted(missing_identity)}"
+        )
+    if df[list(identity_columns)].isnull().any().any():
+        raise ValueError(f"{table}: append identity columns cannot be null")
+    if df.duplicated(subset=list(identity_columns)).any():
+        raise ValueError(f"{table}: duplicate append identity in one batch")
     table_ident = _table_identifier(table)
     with conn.cursor() as cur:
+        _check_schema_drift(cur, table, columns, schema_drift_policy)
         _ensure_table_and_columns(cur, table, table_ident, columns)
         return _copy_dataframe(cur, table_ident, df)
 

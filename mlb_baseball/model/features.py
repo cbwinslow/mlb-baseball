@@ -66,7 +66,15 @@ _UPCOMING_GAMES_SQL = """
         AND ms._season::integer BETWEEN home.first_year AND home.last_year
     JOIN core.team away ON away.mlb_team_id = ms.away_id::integer
         AND ms._season::integer BETWEEN away.first_year AND away.last_year
-    LEFT JOIN core.venue venue ON venue.mlb_venue_id = NULLIF(ms.venue_id, '')::integer
+    LEFT JOIN LATERAL (
+        SELECT id
+        FROM core.venue
+        WHERE mlb_venue_id = NULLIF(ms.venue_id, '')::integer
+          AND (first_year IS NULL OR first_year <= ms._season::integer)
+          AND (last_year IS NULL OR last_year >= ms._season::integer)
+        ORDER BY first_year DESC NULLS LAST, id
+        LIMIT 1
+    ) venue ON TRUE
     WHERE ms.status = 'Scheduled' AND ms.game_type = 'R'
 """
 

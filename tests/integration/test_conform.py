@@ -427,6 +427,8 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
         cur.execute(
             "INSERT INTO raw.retrosheet_team VALUES "
             "('NYA', 'AL', 'New York', 'Yankees', '1913', '2026'), "
+            "('NYN', 'NL', 'New York', 'Mets', '1962', '2026'), "
+            "('CHN', 'NL', 'Chicago', 'Cubs', '1876', '2026'), "
             # _seed_raw_tables' ATL row only covers through 2025 (deliberately,
             # for its own tests) — a separate 2026 era row here, same city/
             # nickname, to let this test's home-team resolution succeed too.
@@ -448,7 +450,9 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_park VALUES "
-            "('ATL03', 'Truist Park', 'Atlanta', 'GA', 'NL', '04/14/2017', '')"
+            "('ATL03', 'Truist Park', 'Atlanta', 'GA', 'NL', '04/14/2017', ''), "
+            "('CHI11', 'Wrigley Field', 'Chicago', 'IL', 'NL', '04/20/1916', ''), "
+            "('LOS02', 'Wrigley Field', 'Los Angeles', 'CA', 'NL', '09/29/1925', '09/30/1965')"
         )
         cur.execute(
             "CREATE TABLE raw.mlb_venue "
@@ -457,7 +461,10 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
             "capacity text, turf_type text, roof_type text, "
             "left_line text, center text, right_line text)"
         )
-        cur.execute("INSERT INTO raw.mlb_venue (venue_id, name) VALUES ('4705', 'Truist Park')")
+        cur.execute(
+            "INSERT INTO raw.mlb_venue (venue_id, name) VALUES "
+            "('4705', 'Truist Park'), ('17', 'Wrigley Field')"
+        )
         cur.execute(
             "CREATE TABLE raw.mlb_schedule "
             "(game_id text, game_date text, away_name text, home_name text, "
@@ -467,18 +474,20 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
         cur.execute(
             "INSERT INTO raw.mlb_schedule VALUES "
             "('888001', '2026-04-05', 'New York Yankees', 'Atlanta Braves', "
-            "'2026', 'Final', 'R', '0', 'Truist Park', '4705', '3', '4')"
+            "'2026', 'Final', 'R', '0', 'Truist Park', '4705', '3', '4'), "
+            "('888002', '2026-04-06', 'New York Mets', 'Chicago Cubs', "
+            "'2026', 'Final', 'R', '0', 'Wrigley Field', '17', '1', '2')"
         )
     db_conn.commit()
 
     counts = conform.run()
 
-    assert counts["core.game"] == 3  # 2 Retrosheet-sourced + 1 new MLB-API-sourced
+    assert counts["core.game"] == 4  # 2 Retrosheet-sourced + 2 MLB-API-sourced
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT retro_game_id, game_pk, season, away_score, home_score, "
             "away_team_id, home_team_id, winning_pitcher_id, game_type, venue_id "
-            "FROM core.game WHERE season = 2026"
+            "FROM core.game WHERE retro_game_id = 'MLB888001'"
         )
         row = cur.fetchone()
     assert row[0] == "MLB888001"  # synthesized ID, never collides with a real Retrosheet one
@@ -507,6 +516,17 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
         cur.execute("SELECT id FROM core.venue WHERE retro_park_id = 'ATL03'")
         (expected_venue_id,) = cur.fetchone()
     assert row[9] == expected_venue_id
+
+    # Regression: MLB venue id 17 maps to both historical Los Angeles and
+    # active Chicago Wrigley Field rows. The schedule row must remain one
+    # synthetic game and resolve the season-valid Chicago venue, not fan out.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*), min(v.retro_park_id) "
+            "FROM core.game g JOIN core.venue v ON v.id = g.venue_id "
+            "WHERE g.retro_game_id = 'MLB888002'"
+        )
+        assert cur.fetchone() == (1, "CHI11")
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule, raw.retrosheet_park, raw.mlb_venue")

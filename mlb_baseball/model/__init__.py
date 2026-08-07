@@ -61,25 +61,49 @@ def backfill_outcomes(conn: psycopg.Connection) -> int:
         return cur.rowcount
 
 
+def build_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
+    """Rebuild and enrich ``gold.game_feature`` without writing predictions.
+
+    This is deliberately connection-scoped and does not commit.  It lets
+    :func:`run_features` expose a separately auditable CLI stage while
+    preserving ``mlb predict``'s historic all-in-one transaction.
+    """
+    feature_count = features.build(conn)
+    elo.compute_ratings(conn)
+    starter_count = starter.compute(conn)
+    starter.compute_live(conn)
+    starter.compute_probable(conn)
+    park.compute(conn)
+    offense.compute(conn)
+    offense.compute_wrc_plus(conn)
+    offense.compute_live(conn)
+    offense.compute_wrc_plus_live(conn)
+    war.compute(conn)
+    bullpen.compute(conn)
+    bullpen.compute_live(conn)
+    bullpen.compute_upcoming(conn)
+    oaa.compute(conn)
+    speed.compute(conn)
+    framing.compute(conn)
+    return {
+        "gold.game_feature": feature_count,
+        "gold.game_feature (starters updated)": starter_count,
+    }
+
+
+def run_features() -> dict[str, int]:
+    """Run only the reusable feature stage, in one tracked transaction."""
+    with get_connection() as conn, track_run(conn, SOURCE, "features") as result:
+        counts = build_feature_stage(conn)
+        conn.commit()
+        result["rows"] = counts["gold.game_feature"]
+    return counts
+
+
 def run() -> dict[str, int]:
+    """Build features then write predictions (legacy ``mlb predict`` behavior)."""
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        feature_count = features.build(conn)
-        elo.compute_ratings(conn)
-        starter_count = starter.compute(conn)
-        starter.compute_live(conn)
-        starter.compute_probable(conn)
-        park.compute(conn)
-        offense.compute(conn)
-        offense.compute_wrc_plus(conn)
-        offense.compute_live(conn)
-        offense.compute_wrc_plus_live(conn)
-        war.compute(conn)
-        bullpen.compute(conn)
-        bullpen.compute_live(conn)
-        bullpen.compute_upcoming(conn)
-        oaa.compute(conn)
-        speed.compute(conn)
-        framing.compute(conn)
+        feature_counts = build_feature_stage(conn)
         # market.record() runs before backfill_outcomes(), not after --
         # unlike log5/elo/gbm's own predictions (made for still-upcoming
         # games, where actual_home_win is legitimately unknown yet), every
@@ -94,10 +118,11 @@ def run() -> dict[str, int]:
         elo_count = elo.predict(conn)
         gbm_count = gbm.predict(conn)
         conn.commit()
-        result["rows"] = feature_count + log5_count + elo_count + gbm_count + market_count
+        result["rows"] = (
+            feature_counts["gold.game_feature"] + log5_count + elo_count + gbm_count + market_count
+        )
     return {
-        "gold.game_feature": feature_count,
-        "gold.game_feature (starters updated)": starter_count,
+        **feature_counts,
         "gold.prediction (log5)": log5_count,
         "gold.prediction (elo)": elo_count,
         "gold.prediction (gbm)": gbm_count,

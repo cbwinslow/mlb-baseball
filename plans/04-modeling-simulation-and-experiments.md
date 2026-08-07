@@ -20,6 +20,9 @@ Define labels/cutoffs/metrics for pitch, plate appearance, base/out transition,
 inning/team runs, full-game distribution/winner/totals/run line, player-game
 props, and season projections. Establish empirical, league-rate, log5/Elo,
 regularized GLM, GAM, and shrinkage/hierarchical baselines before complex models.
+Every target declares its game-instance identity, observation time, feature
+availability cutoff, and outcome-resolution rule; no evaluation may join only
+on an ambiguously reused external game ID.
 
 ### 04C — Model families
 
@@ -49,6 +52,14 @@ Compare averaging, weighted blends, and meta-learners to the best single champio
 Reject stacks whose gains are unstable, operationally expensive, or caused by
 leakage. Publish disagreement and uncertainty as useful product signals.
 
+### 04G — Research-to-product scorecards
+
+Publish internal model cards before public forecasts: matched-sample log loss,
+Brier, calibration, coverage, era/segment stability, market comparison, feature
+schema, artifact/data cutoff, and known missing-input behavior. A model that
+cannot beat transparent baselines or explain its coverage remains a research
+result, not a promoted forecast.
+
 ## Acceptance gate
 
 - Every result is reproducible from IDs/configuration and a clean environment.
@@ -57,6 +68,7 @@ leakage. Publish disagreement and uncertainty as useful product signals.
 - Models report calibration, proper scores, uncertainty, coverage, and segment/
   era stability—not cherry-picked accuracy.
 - Stacking tests prove base predictions are out-of-fold.
+- Prediction history preserves one declared pregame snapshot per game instance
+  and cannot be rewritten or conflated by duplicate external IDs.
 - At least one trustworthy champion exists per promoted target; unsuccessful
   targets remain research outputs rather than fabricated products.
-

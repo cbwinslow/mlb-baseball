@@ -10,6 +10,7 @@ these tests never touch core.play/core.pitch at all.
 
 from decimal import Decimal
 
+from mlb_baseball import model
 from mlb_baseball.model import features
 
 
@@ -155,6 +156,7 @@ def test_build_resolves_venue_id_for_completed_and_upcoming_games(db_conn):
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
     with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.venue WHERE retro_park_id = 'ATL03'")
         cur.execute(
             "INSERT INTO core.venue (retro_park_id, name, mlb_venue_id) "
             "VALUES ('ATL03', 'Truist Park', 4705) RETURNING id"
@@ -170,20 +172,80 @@ def test_build_resolves_venue_id_for_completed_and_upcoming_games(db_conn):
         cur.execute(
             "INSERT INTO raw.mlb_schedule "
             "(game_id, _season, game_date, game_type, status, home_id, away_id, "
-            "game_num, venue_id) "
-            "VALUES ('999005', '2024', '2024-04-02', 'R', 'Scheduled', '144', '147', '1', '4705')"
+            "game_num, venue_id) VALUES "
+            "('999005', '2024', '2024-04-02', 'R', 'Scheduled', '144', '147', '1', '4705')"
         )
     db_conn.commit()
-
     features.build(db_conn)
     db_conn.commit()
-
     with db_conn.cursor() as cur:
         cur.execute("SELECT venue_id FROM gold.game_feature WHERE game_id IS NOT NULL")
         assert cur.fetchone() == (venue_id,)
         cur.execute("SELECT venue_id FROM gold.game_feature WHERE mlb_game_pk = '999005'")
         assert cur.fetchone() == (venue_id,)
+    _reset(db_conn)
 
+
+def test_build_selects_one_era_valid_venue_for_upcoming_games(db_conn):
+    """A reused MLB venue ID must not fan one scheduled game into two rows."""
+    _reset(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('T26', 'Test', 'Home', 2026, 2026, 901), "
+            "('V26', 'Test', 'Away', 2026, 2026, 902)"
+        )
+        cur.execute(
+            "INSERT INTO core.venue "
+            "(retro_park_id, name, mlb_venue_id, first_year, last_year) VALUES "
+            "('TSTCUR', 'Test Current Park', 987654, 2000, NULL), "
+            "('TSTOLD', 'Test Historical Park', 987654, 1900, 1965)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id, "
+            "game_num, venue_id) VALUES "
+            "('999026', '2026', '2026-04-18', 'R', 'Scheduled', '901', '902', '1', '987654')"
+        )
+    db_conn.commit()
+    assert features.build(db_conn) == 1
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*), min(v.retro_park_id) "
+            "FROM gold.game_feature f JOIN core.venue v ON v.id = f.venue_id "
+            "WHERE f.mlb_game_pk = '999026'"
+        )
+        assert cur.fetchone() == (1, "TSTCUR")
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.venue WHERE retro_park_id IN ('TSTCUR', 'TSTOLD')")
+    db_conn.commit()
+
+
+def test_feature_stage_builds_features_without_writing_predictions(db_conn):
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('FEATURE1', 2024, '2024-04-01', %s, %s, 5, 3, 'regular')",
+            (teams["ATL"], teams["NYA"]),
+        )
+        cur.execute("SELECT count(*) FROM gold.prediction")
+        (predictions_before,) = cur.fetchone()
+    db_conn.commit()
+    counts = model.run_features()
+    assert counts["gold.game_feature"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*), count(DISTINCT game_id) FROM gold.game_feature")
+        assert cur.fetchone() == (1, 1)
+        cur.execute("SELECT count(*) FROM gold.prediction")
+        assert cur.fetchone() == (predictions_before,)
     _reset(db_conn)
 
 

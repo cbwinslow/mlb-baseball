@@ -67,6 +67,15 @@ create a database. `tests/unit/` covers pure logic with no I/O;
 `tests/integration/` covers everything that touches the database (network calls
 are mocked with fixture data so tests stay fast and offline-capable).
 
+## Python library usage
+
+This project can bootstrap a researcher-owned local PostgreSQL database; it
+does not provide a hosted database or public API. The supported programmatic
+surface covers configuration, migrations, profile-checked source ingestion,
+conformance, diagnostics, and a normal psycopg connection for SQL research.
+See [Public Python API](docs/PUBLIC_API.md) for the local-bootstrap workflow
+and data-rights guardrails.
+
 ### Test speed
 
 See GitHub issue #2 for the original diagnosis. `core.play`/`core.pitch` are season-partitioned (migration 0011, ~158 partitions each) and every `TRUNCATE` that touches them — including `conform.run()`'s own consolidated one, called from most of `test_conform.py` — pays a synchronous per-relation fsync (`DataFileImmediateSync` in `pg_stat_activity`), independent of `synchronous_commit`: confirmed directly (`psql`, `\timing`) that a bare `TRUNCATE core.play, core.pitch` took ~79s with `synchronous_commit` on and ~84s with it off, no improvement.

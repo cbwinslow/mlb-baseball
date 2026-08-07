@@ -22,6 +22,11 @@ research, player/team/park, forecast-history, and content-fact marts. Make them
 narrow, cached, documented, and accessible only through the serving role. Publish
 generated/data cutoff and input-state fields everywhere.
 
+Serving objects must carry game-instance identity and source/rights lineage;
+they may expose only `public_safe` inputs until a separately documented license
+permits more. PostgreSQL remains the first serving store; no public database or
+paid hosting is required for the static Astro MVP.
+
 ### 05C — Astro MVP
 
 Create an original visual system and ship daily forecast board, game forecast
@@ -46,6 +51,11 @@ calibration, latency, and errors. Add CI, backup/restore rehearsal, security and
 accessibility checks, privacy/terms, responsible-gambling resources, attribution,
 and a launch runbook. Ads/affiliates remain disabled adapters until separate
 rights/compliance approval.
+
+Add a daily-board truth contract: distinguish model probability, fair price,
+market comparison, uncertainty, missing inputs, and stale data. Never present a
+likely winner as positive expected value without a permitted price input and a
+verified calculation.
 
 ### 05F — ClickHouse revisit
 

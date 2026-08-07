@@ -20,8 +20,8 @@ earlier.
 
 For each numbered work package, give Antigravity a self-contained prompt quoting
 the relevant plan section and `AGENTS.md`. Use `accept-edits` only after the owner
-authorizes implementation. Require it to preserve unrelated changes, use a
-dedicated `mlb_test_<task>` database, avoid production writes, and return changed
+authorizes implementation. Require it to preserve unrelated changes, use only the
+existing `mlb_test_codex` test database, avoid production writes, and return changed
 files, commands/results, limitations, and the next gate. It must not commit,
 merge, delete worktrees, or begin the next package unless explicitly authorized.
 
@@ -40,3 +40,21 @@ next package. Failed ideas and rejected designs are documented rather than erase
   about uncertainty and missing coverage.
 - The site works at $0/month with optional monetization disabled.
 
+## Immediate contract gates
+
+Before broadening models or public serving, resolve these cross-plan contracts:
+
+1. **Prediction identity:** `mlb_game_pk` is not globally unique for real
+   suspended/resumed games. Define a durable game-instance/feature identity and
+   carry it through features, predictions, outcomes, evaluation, and serving.
+2. **Workflow serialization:** enforce—not merely document—the dependency chain
+   `ingest → conform → features → predict`; per-source locks alone do not prevent
+   conflicting cross-stage runs.
+3. **Feature reuse:** retain backward-compatible `mlb predict` behavior, but add
+   a verified reuse path so an independently health-checked feature build is not
+   silently rebuilt immediately before prediction.
+4. **Reproducibility honesty:** current feature snapshots are fingerprints of an
+   in-place table, not immutable row storage. Do not claim full replayability
+   until Plan 03 supplies immutable target/cutoff-specific snapshots.
+5. **Public safety:** no Astro/public result may use a source merely because it
+   was locally ingested; serving must enforce lineage and `public_safe` rights.

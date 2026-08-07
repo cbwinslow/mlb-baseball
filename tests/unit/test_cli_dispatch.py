@@ -2,9 +2,10 @@
 
 import threading
 import time
+from contextlib import contextmanager
 from unittest.mock import MagicMock
 
-from mlb_baseball import cli
+from mlb_baseball import cli, model
 from mlb_baseball.source_profiles import SourceProfileError, require_sources
 
 
@@ -124,6 +125,49 @@ def test_predict_command_calls_model_run(monkeypatch, capsys):
     cli.main(["predict"])
 
     assert "gold.game_feature: 1 rows" in capsys.readouterr().out
+
+
+def test_features_command_calls_model_feature_stage(monkeypatch, capsys):
+    monkeypatch.setattr(cli.model, "run_features", lambda: {"gold.game_feature": 1})
+
+    cli.main(["features"])
+
+    assert "gold.game_feature: 1 rows" in capsys.readouterr().out
+
+
+def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch):
+    """The compatibility command still reports feature and prediction results."""
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+
+    @contextmanager
+    def tracked_run(_conn, _source, _mode):
+        result = {}
+        yield result
+
+    monkeypatch.setattr(model, "get_connection", lambda: conn)
+    monkeypatch.setattr(model, "track_run", tracked_run)
+    monkeypatch.setattr(
+        model,
+        "build_feature_stage",
+        lambda _conn: {"gold.game_feature": 10, "gold.game_feature (starters updated)": 4},
+    )
+    monkeypatch.setattr(model.market, "record", lambda _conn: 1)
+    monkeypatch.setattr(model, "backfill_outcomes", lambda _conn: 2)
+    monkeypatch.setattr(model.log5, "predict", lambda _conn: 3)
+    monkeypatch.setattr(model.elo, "predict", lambda _conn: 4)
+    monkeypatch.setattr(model.gbm, "predict", lambda _conn: 5)
+
+    assert model.run() == {
+        "gold.game_feature": 10,
+        "gold.game_feature (starters updated)": 4,
+        "gold.prediction (log5)": 3,
+        "gold.prediction (elo)": 4,
+        "gold.prediction (gbm)": 5,
+        "gold.prediction (market)": 1,
+        "gold.prediction (outcomes backfilled)": 2,
+    }
+    conn.commit.assert_called_once()
 
 
 def test_train_command_calls_model_train_and_reports_metrics(monkeypatch, capsys):

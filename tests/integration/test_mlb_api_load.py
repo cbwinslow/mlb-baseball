@@ -644,11 +644,13 @@ def test_capture_live_appends_snapshot_only_for_live_games(db_conn):
     assert count == 1
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT game_pk, current_inning, balls, strikes, outs, batter_name, pitcher_name "
+            "SELECT game_pk, current_inning, balls, strikes, outs, batter_name, pitcher_name, "
+            "captured_at "
             "FROM raw.mlb_live_game"
         )
         row = cur.fetchone()
-    assert row == ("3001", "5", "1", "2", "1", "Batter One", "Pitcher One")
+    assert row[:-1] == ("3001", "5", "1", "2", "1", "Batter One", "Pitcher One")
+    assert row[-1] is not None
 
 
 def test_capture_live_still_creates_the_table_when_nothing_is_live(db_conn):

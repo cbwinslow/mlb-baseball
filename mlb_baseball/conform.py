@@ -436,8 +436,22 @@ def _build_games(conn: psycopg.Connection) -> int:
                 -- numeric venue_id is correct) -- a real, separate,
                 -- narrower gap than "no venue resolution at all", left as
                 -- NULL rather than guessed via fuzzy name matching.
-                LEFT JOIN core.venue venue
-                    ON venue.mlb_venue_id = NULLIF(ms.venue_id, '')::integer
+                -- MLB venue IDs are not a unique historical-park key: the
+                -- API's "Wrigley Field" id 17 matches both Chicago's active
+                -- park and Los Angeles' former park in raw.retrosheet_park.
+                -- Restrict to the game season and pick a deterministic
+                -- candidate so that one schedule game can never fan out into
+                -- duplicate synthetic retro_game_id rows. No era-valid match
+                -- stays NULL rather than attaching a game to the wrong park.
+                LEFT JOIN LATERAL (
+                    SELECT id
+                    FROM core.venue
+                    WHERE mlb_venue_id = NULLIF(ms.venue_id, '')::integer
+                      AND (first_year IS NULL OR first_year <= ms._season::integer)
+                      AND (last_year IS NULL OR last_year >= ms._season::integer)
+                    ORDER BY first_year DESC NULLS LAST, id
+                    LIMIT 1
+                ) venue ON TRUE
                 WHERE ms.status NOT IN
                     ('Scheduled', 'Postponed', 'Cancelled', 'Pre-Game', 'Warmup')
                     AND NOT EXISTS (

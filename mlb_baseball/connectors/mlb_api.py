@@ -1721,6 +1721,7 @@ LIVE_GAME_COLUMNS = [
     "batter_name",
     "pitcher_id",
     "pitcher_name",
+    "captured_at",
 ]
 
 

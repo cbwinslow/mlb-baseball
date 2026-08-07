@@ -14,11 +14,22 @@ Audience: **both** the open baseball-research community *and* personal use, from
 
 | Phase | Pillar | Status |
 |---|---|---|
-| 1 | **Data ingestion pipeline** | Current focus — must be solid before moving on |
-| 2 | **ML modeling workflows** | Not started |
-| 3 | **Astro website (oddstrader-style)** | Not started |
+| 1 | **Data ingestion pipeline** | Foundation established; reliability and operating contracts remain active work |
+| 2 | **ML modeling workflows** | Foundation in place; current priority is reproducible feature/prediction contracts before model breadth |
+| 3 | **Astro website (oddstrader-style)** | Planned; public output remains rights-gated and may begin as static research/methodology content |
 
 Do not pull work forward from a later phase without an explicit decision to do so. Phase 1 is not "done" until ingestion is reliable, tested, documented, and re-runnable — not just "it worked once."
+
+## Non-negotiable research contracts
+
+- A forecast is identified by a durable game instance, not an external game ID
+  assumed unique.
+- Every result carries its feature/data/model cutoff and source-rights lineage.
+- Feature builds are independently health-checked before reproducible prediction
+  runs consume them; a fingerprint is not an immutable feature snapshot.
+- Broad model search is welcome, but promotion is strict: chronological
+  validation, calibration, matched samples, uncertainty, and stable gains over
+  transparent baselines are required.
 
 ## Budget constraint
 

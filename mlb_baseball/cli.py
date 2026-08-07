@@ -8,6 +8,7 @@
     mlb bootstrap
     mlb update
     mlb conform
+    mlb features
     mlb predict
     mlb train
     mlb inventory
@@ -166,6 +167,7 @@ def main(argv: list[str] | None = None) -> None:
         profile_parser.add_argument("--profile", choices=sorted(PROFILES))
 
     subparsers.add_parser("conform")
+    subparsers.add_parser("features")
     subparsers.add_parser("predict")
     subparsers.add_parser("train")
     evaluate_parser = subparsers.add_parser("evaluate")
@@ -211,6 +213,9 @@ def main(argv: list[str] | None = None) -> None:
         _run_all("update", profile)
     elif args.command == "conform":
         for table, count in conform.run().items():
+            print(f"{table}: {count} rows")
+    elif args.command == "features":
+        for table, count in model.run_features().items():
             print(f"{table}: {count} rows")
     elif args.command == "predict":
         for table, count in model.run().items():

@@ -45,12 +45,26 @@ owner-only, rotate exposed credentials if necessary, and prevent Astro from ever
 querying `raw`. Supply reversible DBA instructions; do not mutate host security
 or production roles without explicit owner approval.
 
+### 01F — Operational identity and serialization
+
+Replace the overloaded `mlb_game_pk` prediction identity with a durable
+game-instance/feature identity that handles scheduled, completed, and
+suspended/resumed games without fanout. Carry that identity through outcome
+backfill, evaluation, market matching, and eventual serving objects. Add a
+workflow-level lock/dependency gate so `ingest → conform → features → predict`
+cannot overlap in an inconsistent order; retain per-source locks for connector
+serialization. Make migration execution serializable too. Clearly separate
+read-only diagnostics from owner-authorized stale-run repair.
+
 ## Acceptance gate
 
 - Modern-season linkage meets recorded targets and ambiguous identities remain
   NULL rather than guessed.
 - Evaluation cannot count snapshots as games or include post-start predictions.
 - A prediction can be traced end-to-end and artifacts are immutable.
+- One prediction/evaluation row maps to exactly one declared game instance,
+  including documented suspended/resumed-game handling.
+- Cross-stage overlap tests prove an incompatible run is rejected before it can
+  truncate or consume an unstable upstream relation.
 - Automated tests prove forbidden sources cannot enter `public_safe` outputs.
 - Role tests prove the serving principal can read only approved serving objects.
-

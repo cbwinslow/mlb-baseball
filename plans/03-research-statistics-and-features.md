@@ -44,6 +44,16 @@ Assemble narrow families into immutable target/cutoff-specific snapshots. Measur
 coverage, stability, leakage, redundancy, compute/storage, and incremental value.
 Retain candidate history and negative results; promote only reproducible features.
 
+### 03F — Feature-stage operating contract
+
+Treat `mlb features` as a first-class reusable research build: record input
+watermarks, feature-schema/version identity, row-level game-instance identity,
+coverage, null rates, availability cutoffs, and a health result. Add a
+`predict --reuse-features` path that consumes only a verified successful build;
+the legacy combined prediction path remains compatibility behavior, not the
+recommended reproducible workflow. Design immutable snapshot storage before
+claiming that a build fingerprint alone can reproduce historical rows.
+
 ## Acceptance gate
 
 - Every feature is traceable to a registry record and canonical SQL/model.
@@ -52,4 +62,5 @@ Retain candidate history and negative results; promote only reproducible feature
 - Statistics span all required grains with explicit keys and no accidental fanout.
 - A reproducible candidate-generation report distinguishes explored, promoted,
   rejected, and unavailable-under-public-profile features.
-
+- Feature health detects duplicate game instances, missing/late availability,
+  unexpected coverage changes, and stale builds before any model consumes them.

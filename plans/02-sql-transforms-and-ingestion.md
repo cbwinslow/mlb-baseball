@@ -52,6 +52,15 @@ latency, cost, replication complexity, and correctness. Adopt a ClickHouse
 analytical replica only if a stated SLO materially fails and the benefit exceeds
 operational cost; never replace PostgreSQL by enthusiasm alone.
 
+### 02G — Release and package integrity
+
+Make the reusable library work from an installed wheel, not only a source
+checkout: package migrations and named SQL resources, verify clean-install
+migration/CLI behavior, and split heavyweight modeling dependencies into
+explicit extras where feasible. Keep command modes semantically accurate
+(`features`, `predict`, migration) so the run ledger is an operational record,
+not a legacy naming artifact.
+
 ## Acceptance gate
 
 - No large new business SQL is embedded in Python; extracted formulas have one

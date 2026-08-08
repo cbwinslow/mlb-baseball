@@ -53,11 +53,11 @@ def _insert_feature(
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO gold.game_feature "
-            "(game_id, mlb_game_pk, season, game_date, park_factor, home_win, "
-            "home_woba, away_woba) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (game_id, mlb_game_pk, season, game_date, park_factor, home_win,
-             home_woba, away_woba),
+            "(game_id, mlb_game_pk, game_instance_key, season, game_date, park_factor, "
+            "home_win, home_woba, away_woba) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (game_id, mlb_game_pk, f"test:{mlb_game_pk}", season, game_date, park_factor,
+             home_win, home_woba, away_woba),
         )
 
 

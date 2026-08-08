@@ -169,12 +169,12 @@ _TRAINING_ROWS_SQL = f"""
 # practice every time -- see module docstring's "live-serving asymmetry."
 _PREDICT_ROWS_SQL = f"""
     WITH candidates AS (
-        SELECT mlb_game_pk FROM gold.game_feature
+        SELECT mlb_game_pk, game_instance_key FROM gold.game_feature
         WHERE home_win IS NULL AND mlb_game_pk IS NOT NULL
     ),
     {_LATEST_CTE}
-    SELECT c.mlb_game_pk, l1.home_win_prob, l2.home_win_prob, l3.home_win_prob,
-           p.home_win_prob, k.home_win_prob
+    SELECT c.mlb_game_pk, c.game_instance_key, l1.home_win_prob, l2.home_win_prob,
+           l3.home_win_prob, p.home_win_prob, k.home_win_prob
     FROM candidates c
     JOIN latest l1 ON l1.mlb_game_pk = c.mlb_game_pk AND l1.model_version = %(log5)s
     JOIN latest l2 ON l2.mlb_game_pk = c.mlb_game_pk AND l2.model_version = %(elo)s
@@ -329,15 +329,16 @@ def predict(conn: psycopg.Connection) -> int:
         return 0
 
     predictions = []
-    for game_pk, log5_prob, elo_prob, gbm_prob, poly_prob, kalshi_prob in rows:
+    for game_pk, game_instance_key, log5_prob, elo_prob, gbm_prob, poly_prob, kalshi_prob in rows:
         features = feature_row(log5_prob, elo_prob, gbm_prob, poly_prob, kalshi_prob)
         z = sum(c * f for c, f in zip(coef, features, strict=True)) + intercept
-        predictions.append((game_pk, MODEL_VERSION, _sigmoid(z)))
+        predictions.append((game_pk, game_instance_key, MODEL_VERSION, _sigmoid(z)))
 
     with conn.cursor() as cur:
         cur.executemany(
-            "INSERT INTO gold.prediction (mlb_game_pk, model_version, home_win_prob) "
-            "VALUES (%s, %s, %s)",
+            "INSERT INTO gold.prediction "
+            "(mlb_game_pk, game_instance_key, model_version, home_win_prob) "
+            "VALUES (%s, %s, %s, %s)",
             predictions,
         )
     return len(predictions)

@@ -59,9 +59,17 @@ def _seed_prediction(db_conn, game_pk, model_version, home_win_prob, actual_home
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO gold.prediction "
-            "(mlb_game_pk, model_version, home_win_prob, actual_home_win, generated_at) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (game_pk, model_version, home_win_prob, actual_home_win, generated_at),
+            "(mlb_game_pk, game_instance_key, model_version, home_win_prob, actual_home_win, "
+            "generated_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (
+                game_pk,
+                f"test:{game_pk}",
+                model_version,
+                home_win_prob,
+                actual_home_win,
+                generated_at,
+            ),
         )
 
 
@@ -275,8 +283,9 @@ def test_predict_writes_predictions_for_undecided_games_with_all_three_base_mode
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute(
-            "INSERT INTO gold.game_feature (mlb_game_pk, season, game_date, home_win) "
-            "VALUES ('900001', 2024, '2024-08-01', NULL)"
+            "INSERT INTO gold.game_feature "
+            "(mlb_game_pk, game_instance_key, season, game_date, home_win) "
+            "VALUES ('900001', 'test:900001', 2024, '2024-08-01', NULL)"
         )
     now = datetime(2024, 8, 1, 12, 0)
     _seed_prediction(db_conn, "900001", "log5-v1", Decimal("0.55"), None, now)
@@ -314,8 +323,9 @@ def test_predict_skips_games_missing_one_base_model(db_conn, tmp_path, monkeypat
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute(
-            "INSERT INTO gold.game_feature (mlb_game_pk, season, game_date, home_win) "
-            "VALUES ('900002', 2024, '2024-08-01', NULL)"
+            "INSERT INTO gold.game_feature "
+            "(mlb_game_pk, game_instance_key, season, game_date, home_win) "
+            "VALUES ('900002', 'test:900002', 2024, '2024-08-01', NULL)"
         )
     now = datetime(2024, 8, 1, 12, 0)
     _seed_prediction(db_conn, "900002", "log5-v1", Decimal("0.55"), None, now)
@@ -345,8 +355,9 @@ def test_predict_uses_the_latest_base_model_predictions_not_a_stale_one(
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute(
-            "INSERT INTO gold.game_feature (mlb_game_pk, season, game_date, home_win) "
-            "VALUES ('900003', 2024, '2024-08-01', NULL)"
+            "INSERT INTO gold.game_feature "
+            "(mlb_game_pk, game_instance_key, season, game_date, home_win) "
+            "VALUES ('900003', 'test:900003', 2024, '2024-08-01', NULL)"
         )
     early = datetime(2024, 8, 1, 6, 0)
     late = datetime(2024, 8, 1, 18, 0)
@@ -363,7 +374,7 @@ def test_predict_uses_the_latest_base_model_predictions_not_a_stale_one(
     rows = stack._fetch_predict_rows(db_conn)
 
     assert len(rows) == 1
-    _game_pk, log5_prob, elo_prob, gbm_prob, poly_prob, kalshi_prob = rows[0]
+    _game_pk, _game_instance_key, log5_prob, elo_prob, gbm_prob, poly_prob, kalshi_prob = rows[0]
     assert float(log5_prob) == 0.95
     assert float(elo_prob) == 0.95
     assert float(gbm_prob) == 0.95
@@ -391,8 +402,9 @@ def test_rerunning_predict_before_game_day_preserves_prediction_history(
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute(
-            "INSERT INTO gold.game_feature (mlb_game_pk, season, game_date, home_win) "
-            "VALUES ('900004', 2024, '2024-08-01', NULL)"
+            "INSERT INTO gold.game_feature "
+            "(mlb_game_pk, game_instance_key, season, game_date, home_win) "
+            "VALUES ('900004', 'test:900004', 2024, '2024-08-01', NULL)"
         )
     now = datetime(2024, 8, 1, 12, 0)
     _seed_prediction(db_conn, "900004", "log5-v1", Decimal("0.55"), None, now)

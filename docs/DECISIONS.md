@@ -2,7 +2,7 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
-## ADR-054: Stacking meta-learner (`stack-v1`) — logistic regression over log5-v1/elo-v1/gbm-v1's own probabilities, built but not saved (honest negative result on real data)
+## ADR-058: Stacking meta-learner (`stack-v1`) — logistic regression over log5-v1/elo-v1/gbm-v1's own probabilities, built but not saved (honest negative result on real data)
 
 **Decision:** `mlb_baseball/model/stack.py` implements the "(b) formal meta-learner" half of `docs/RESEARCH.md`'s "Model stacking / ensembling" section — a second-layer model that learns how to weight `log5-v1`/`elo-v1`/`gbm-v1`'s own `gold.prediction` probabilities against each other (plus `polymarket-v1`/`kalshi-v1`'s, optionally), predicting the same `actual_home_win` target. Not a new base signal: `train()`/`predict()` never touch `gold.game_feature` at all, only `gold.prediction`'s own already-generated probabilities. New `model_version`, `stack-v1`, writes to the existing `gold.prediction` table — same shape as every other win/loss model, no new table.
 

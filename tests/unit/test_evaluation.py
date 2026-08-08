@@ -12,8 +12,8 @@ def test_common_sample_keeps_exactly_one_shared_game_per_model():
 
     common = _common_sample(rows, ["a", "b"])
 
-    assert [row.game_pk for row in common["a"]] == ["1"]
-    assert [row.game_pk for row in common["b"]] == ["1"]
+    assert [row.game_instance_key for row in common["a"]] == ["1"]
+    assert [row.game_instance_key for row in common["b"]] == ["1"]
 
 
 def test_scores_count_games_not_snapshots():

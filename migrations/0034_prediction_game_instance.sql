@@ -4,7 +4,8 @@
 --
 -- This is schema preparation only. The owner-invoked, resumable
 -- `mlb backfill-game-identities` command performs the data backfill before
--- 0035 may cut over the prediction primary key.
+-- 0036 may cut over the prediction primary key (0035 creates the identity
+-- registry that backfill uses as its authority).
 
 ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS game_instance_key text;
 ALTER TABLE gold.prediction ADD COLUMN IF NOT EXISTS game_instance_key text;

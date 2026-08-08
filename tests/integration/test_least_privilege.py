@@ -13,7 +13,7 @@ import psycopg
 import pytest
 from psycopg import sql
 
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test_codex")
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test")
 
 
 def _assert_is_test_db(url: str) -> None:

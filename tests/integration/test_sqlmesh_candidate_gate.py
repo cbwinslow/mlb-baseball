@@ -87,7 +87,7 @@ def candidate_gate_data(db_conn):
 def test_candidate_gate_proves_surrogate_and_completed_scheduled_parity(
     candidate_gate_data, monkeypatch
 ):
-    monkeypatch.setenv("TEST_DATABASE_URL", "postgresql:///mlb_test_codex")
+    monkeypatch.setenv("TEST_DATABASE_URL", "postgresql:///mlb_test")
 
     result = subprocess.run(
         [

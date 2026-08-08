@@ -29,7 +29,7 @@ gateways:
       user: cbwinslow
       password: ""
       port: 5432
-      database: mlb_test_codex
+      database: mlb_test
     state_schema: sqlmesh_plan02_candidate
 
 default_gateway: postgres

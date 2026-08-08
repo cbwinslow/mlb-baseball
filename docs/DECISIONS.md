@@ -2,7 +2,7 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
-## ADR-054: Run-total (over/under) regression — a genuinely new target, not another win/loss model (`mlb_baseball/model/total.py`)
+## ADR-056: Run-total (over/under) regression — a genuinely new target, not another win/loss model (`mlb_baseball/model/total.py`)
 
 **Decision:** New `gold.total_prediction` table (migration `0029_gold_total_prediction.sql`) and `mlb_baseball/model/total.py` predict expected *combined* runs scored (`core.game.home_score + core.game.away_score`) via `XGBRegressor` — regression, not classification against a specific betting line. `train()`/`predict()`/`health_check()` mirror `gbm.py`'s discipline (only save a model that beats a baseline; `health_check()` covers both the model file and a plausible-value bound), but the schema and feature set are both genuinely different, not a reskin of the win/loss shape — see below.
 

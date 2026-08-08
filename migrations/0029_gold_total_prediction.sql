@@ -1,4 +1,4 @@
--- Run-total (over/under) prediction, ADR-054. Deliberately NOT gold.prediction's
+-- Run-total (over/under) prediction, ADR-056. Deliberately NOT gold.prediction's
 -- shape reused: gold.prediction stores a probability (a classification target,
 -- win/loss); this is a regression target (expected combined runs), so it stores
 -- a point estimate plus the naive baseline used to judge it, not a probability.

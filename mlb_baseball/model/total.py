@@ -1,4 +1,4 @@
-"""Run-total (over/under) prediction (ADR-054) -- a genuinely different
+"""Run-total (over/under) prediction (ADR-056) -- a genuinely different
 target from log5.py/elo.py/gbm.py: expected *combined* runs scored, not
 which team wins. Regression, not classification against a specific betting
 line -- checked directly against production before deciding, not assumed

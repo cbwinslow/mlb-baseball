@@ -1,7 +1,7 @@
--- Gold-layer reporting surface (ADR-054): three materialized tables so a
+-- Gold-layer reporting surface (ADR-057): three materialized tables so a
 -- future API/website can query one clean table per grain -- player-season,
 -- team-season, division-standing -- instead of assembling from raw/core at
--- request time. See ADR-054 for the full materialized-vs-view reasoning and
+-- request time. See ADR-057 for the full materialized-vs-view reasoning and
 -- mlb_baseball/report.py for the build logic (mlb report, not yet wired into
 -- any CLI command -- see that module's own docstring).
 --
@@ -36,7 +36,7 @@
 -- only -- a hard limit in pybaseball itself (see mlb_baseball/connectors/
 -- bref.py's own docstring), not a scoping choice made here; extending
 -- further back via raw.lahman_batting/raw.lahman_pitching's stint-level
--- data is real, separate follow-up work (see ADR-054's "Revisit if").
+-- data is real, separate follow-up work (see ADR-057's "Revisit if").
 --
 -- h/r/bb/so/hr are genuinely dual-purpose depending on is_pitcher (hits/
 -- runs/walks/strikeouts/homers a BATTER recorded vs. hits/runs/walks/

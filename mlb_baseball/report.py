@@ -1,4 +1,4 @@
-"""Builds the gold-layer reporting surface (ADR-054) -- gold.player_season,
+"""Builds the gold-layer reporting surface (ADR-057) -- gold.player_season,
 gold.team_season, gold.division_standing -- from already-conformed `core`
 tables plus a handful of `raw` tables `core` never bridged (raw.bref_batting/
 pitching, raw.lahman_teams, raw.mlb_standing). Not a connector (no network
@@ -6,7 +6,7 @@ calls, no bootstrap()/update() split) and not part of conform.py or
 model/__init__.py's own run() sequencing -- this is a separate, later stage:
 "take what conform.py and model/ have already built and shape it for direct
 per-entity lookup," the same relationship conform.py itself has to the
-connectors underneath it. See ADR-054 for the full reasoning (materialized
+connectors underneath it. See ADR-057 for the full reasoning (materialized
 vs. view, grain choices, why nothing here gets a real FK to core.player/
 core.team).
 
@@ -243,7 +243,7 @@ def _compute_park_factor(conn: psycopg.Connection) -> int:
 # offense.py itself; no live 2026 equivalent built here (offense.py's own
 # compute_live() exists for the predictive feature, but wiring an
 # analogous version for this reporting table is real, separate follow-up
-# work -- see ADR-054's "Revisit if").
+# work -- see ADR-057's "Revisit if").
 _COMPUTE_WOBA_SQL = """
 WITH regular_games AS (
     SELECT g.id AS game_id, g.season, g.retro_game_id, g.home_team_id, g.away_team_id
@@ -435,7 +435,7 @@ def health_check() -> list[Check]:
         # tolerance=0: every raw.bref_batting/pitching row with a resolvable
         # mlbid should produce exactly one gold.player_season row -- the
         # inner JOIN in _build_player_season already excludes the ~0.5%
-        # unresolved rows (confirmed against production, see ADR-054), so
+        # unresolved rows (confirmed against production, see ADR-057), so
         # this check's own "expected" side excludes them the same way, not
         # a stricter bar than the build logic itself can actually clear.
         check_join_coverage(

@@ -2,7 +2,7 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
-## ADR-054: Gold-layer reporting surface — `gold.player_season`/`gold.team_season`/`gold.division_standing` (`mlb_baseball/report.py`)
+## ADR-057: Gold-layer reporting surface — `gold.player_season`/`gold.team_season`/`gold.division_standing` (`mlb_baseball/report.py`)
 
 **Decision:** Three new materialized `gold` tables, built by a new `mlb_baseball/report.py` module (`report.run()`, full truncate-and-rebuild, own `health_check()` — the exact same shape as `conform.py`, but for a different job: turning already-conformed `core`/already-computed `model` output into one flat table per reporting grain, so a future Phase 3 API/website never has to assemble a player/team/division page from a dozen tables at request time. This closes the gap `NORTH_STAR.md`'s "Presents" pillar and this session's own brief named directly: every stat this project already computes is real but scattered (`core.player_war`, `raw.bref_batting`/`pitching`, `core.standing`, `gold.game_feature`'s leakage-free per-game features, several `model/*.py` season aggregates never surfaced anywhere outside a game-level UPDATE).
 

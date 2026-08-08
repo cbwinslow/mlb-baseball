@@ -1,5 +1,5 @@
 """Regression coverage for mlb_baseball.report -- the gold-layer reporting
-surface (ADR-054): gold.player_season, gold.team_season,
+surface (ADR-057): gold.player_season, gold.team_season,
 gold.division_standing.
 
 raw.bref_batting/raw.bref_pitching/raw.lahman_teams/raw.mlb_standing are
@@ -186,7 +186,7 @@ def test_build_player_season_resolves_batting_and_pitching_and_sums_war(db_conn)
 
 
 def test_build_player_season_excludes_rows_with_no_resolvable_player(db_conn):
-    # A real, documented gap (~0.5% of production rows, see ADR-054) --
+    # A real, documented gap (~0.5% of production rows, see ADR-057) --
     # confirmed excluded, not silently turned into a NULL-player_id row
     # (player_id is NOT NULL on gold.player_season -- see migration 0030).
     _reset(db_conn)

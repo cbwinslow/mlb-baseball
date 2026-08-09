@@ -2553,15 +2553,24 @@ def health_check() -> list[Check]:
             check_partition_coverage(
                 f"{table.removeprefix('raw.')} season coverage",
                 f"""
-                SELECT ms._season,
-                    (SELECT count(DISTINCT t.game_pk) FROM {table} t
-                     WHERE t._season = ms._season),
-                    count(DISTINCT ms.game_id) FILTER (WHERE ms.status = 'Final')
-                FROM raw.mlb_schedule ms
-                WHERE ms._season ~ '^[0-9]+$'
-                    AND ms._season::integer >= {FIRST_WIN_PROB_YEAR}
-                    AND ms._season::integer < {date.today().year}
-                GROUP BY ms._season
+                WITH expected AS (
+                    SELECT _season, count(DISTINCT game_id) FILTER (WHERE status = 'Final')
+                    AS expected_count
+                    FROM raw.mlb_schedule
+                    WHERE _season ~ '^[0-9]+$'
+                      AND _season::integer >= {FIRST_WIN_PROB_YEAR}
+                      AND _season::integer < {date.today().year}
+                    GROUP BY _season
+                ), actual AS (
+                    SELECT _season, count(DISTINCT game_pk) AS actual_count
+                    FROM {table}
+                    WHERE _season ~ '^[0-9]+$'
+                      AND _season::integer >= {FIRST_WIN_PROB_YEAR}
+                      AND _season::integer < {date.today().year}
+                    GROUP BY _season
+                )
+                SELECT expected._season, COALESCE(actual.actual_count, 0), expected.expected_count
+                FROM expected LEFT JOIN actual USING (_season)
                 """,
             )
             for table in ("raw.mlb_win_prob", "raw.mlb_linescore", "raw.mlb_game_context")

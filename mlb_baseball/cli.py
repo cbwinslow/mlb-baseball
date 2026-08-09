@@ -12,6 +12,7 @@
     mlb predict
     mlb train
     mlb inventory
+    mlb status
     mlb doctor
 
 Every entry in CONNECTORS must expose bootstrap() and update(), each returning
@@ -45,7 +46,7 @@ import argparse
 import concurrent.futures
 import sys
 
-from mlb_baseball import conform, doctor, ingest, inventory, migrate, model
+from mlb_baseball import conform, doctor, ingest, inventory, migrate, model, progress_table
 from mlb_baseball.registry import CONNECTORS
 from mlb_baseball.source_profiles import (
     PROFILES,
@@ -178,6 +179,18 @@ def main(argv: list[str] | None = None) -> None:
     )
     evaluate_parser.add_argument("--bootstrap-samples", type=int, default=1000)
     subparsers.add_parser("inventory")
+    status_parser = subparsers.add_parser("status")
+    status_parser.add_argument(
+        "--all", action="store_true", help="show every table, not just populated ones"
+    )
+    status_parser.add_argument(
+        "--watch", type=int, metavar="SECONDS", help="refresh live every SECONDS until Ctrl-C"
+    )
+    status_parser.add_argument(
+        "--run-status",
+        action="store_true",
+        help="use each table's last ingestion-run status instead of just row count",
+    )
     subparsers.add_parser("doctor")
     subparsers.add_parser("repair-runs")
     backfill_identity = subparsers.add_parser("backfill-game-identities")
@@ -258,6 +271,11 @@ def main(argv: list[str] | None = None) -> None:
                 f"  {row['source']}: {row['status']} ({row['mode']}, "
                 f"{row['rows']} rows, started {row['started_at']})"
             )
+    elif args.command == "status":
+        strategy = progress_table.RunStatusStrategy() if args.run_status else None
+        progress_table.print_status_table(
+            strategy=strategy, populated_only=not args.all, watch=args.watch
+        )
     elif args.command == "doctor":
         checks = doctor.run()
         failed = [c for c in checks if not c.ok]

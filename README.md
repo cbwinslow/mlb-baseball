@@ -36,7 +36,7 @@ mlb train                # (optional) retrains the gradient-boosted model; only 
 
 `mlb bootstrap` is slow (realistically days, not minutes) once `mlb_api`'s and Statcast's full historical ranges are involved, and it's resumable — see `docs/ARCHITECTURE.md` "Bootstrap procedure" before running it for real. To bootstrap one source at a time instead (useful while developing, or to retry just the source that failed), use `mlb ingest <source> --mode bootstrap`; every registered source is in `mlb_baseball/registry.py`. `lahman` prefers a manually-downloaded zip (see `docs/DATA_SOURCES.md`) but falls back to a network mirror automatically if you skip that step.
 
-`mlb doctor` reports on every source in one pass, and `mlb inventory` shows live row counts and last-run status per source — both are the way to check on a bootstrap's progress, not by assuming a long-running command has hung.
+`mlb doctor` reports on every source in one pass, and `mlb inventory` shows live row counts and last-run status per source — both are the way to check on a bootstrap's progress, not by assuming a long-running command has hung. `mlb status` gives the same live table-by-table state as a scannable progress-bar table (`--all` to include empty tables, `--run-status` to weight progress by each source's last ingestion-run outcome instead of just row count, `--watch SECONDS` to auto-refresh).
 
 ## Scheduling
 

@@ -5,7 +5,7 @@ import time
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
-from mlb_baseball import cli, model
+from mlb_baseball import cli, model, progress_table
 from mlb_baseball.source_profiles import SourceProfileError, require_sources
 
 
@@ -363,3 +363,45 @@ def test_bootstrap_runs_same_server_connectors_sequentially(monkeypatch):
 
     (s1, e1), (s2, e2) = spans
     assert e1 <= s2 or e2 <= s1  # no overlap — ran one after the other
+
+
+def test_status_defaults_to_populated_only_and_has_data_strategy(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        progress_table,
+        "print_status_table",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    cli.main(["status"])
+
+    assert captured["populated_only"] is True
+    assert captured["strategy"] is None  # print_status_table's own default (HasDataStrategy)
+    assert captured["watch"] is None
+
+
+def test_status_all_flag_disables_populated_only(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        progress_table,
+        "print_status_table",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    cli.main(["status", "--all", "--watch", "5"])
+
+    assert captured["populated_only"] is False
+    assert captured["watch"] == 5
+
+
+def test_status_run_status_flag_selects_run_status_strategy(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        progress_table,
+        "print_status_table",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    cli.main(["status", "--run-status"])
+
+    assert isinstance(captured["strategy"], progress_table.RunStatusStrategy)

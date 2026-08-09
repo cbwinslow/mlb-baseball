@@ -2654,6 +2654,84 @@ def update() -> dict[str, int]:
     return counts
 
 
+def _analytics_durable_coverage_check() -> Check:
+    """Verify every final scheduled game has durable, still-present analytics.
+
+    Raw row counts alone cannot distinguish a legitimate source 404 from a
+    dropped response.  This joins the schedule, item ledger, and typed raw
+    row counts in one set-based check, including the season-wide linescore
+    artifact.  Unlike the lighter table-coverage checks below, it requires
+    complete terminal coverage (100%), not a heuristic threshold.
+    """
+    return check_partition_coverage(
+        "mlb_api analytics durable coverage",
+        f"""
+        WITH expected_games AS (
+            SELECT DISTINCT _season, game_id AS game_pk
+            FROM raw.mlb_schedule
+            WHERE _season ~ '^[0-9]+$'
+              AND _season::integer >= {FIRST_WIN_PROB_YEAR}
+              AND _season::integer < {date.today().year}
+              AND status = 'Final'
+        ), expected AS (
+            SELECT _season, count(*) AS expected_count FROM expected_games GROUP BY _season
+        ), win_rows AS (
+            SELECT _season, game_pk, count(*) AS row_count
+            FROM raw.mlb_win_prob GROUP BY _season, game_pk
+        ), context_rows AS (
+            SELECT _season, game_pk, count(*) AS row_count
+            FROM raw.mlb_game_context GROUP BY _season, game_pk
+        ), terminal_games AS (
+            SELECT split_part(item_key, ':', 1) AS _season,
+                   split_part(item_key, ':', 2) AS game_pk
+            FROM meta.ingestion_item item
+            LEFT JOIN win_rows win
+              ON win._season = split_part(item.item_key, ':', 1)
+             AND win.game_pk = split_part(item.item_key, ':', 2)
+            LEFT JOIN context_rows context
+              ON context._season = split_part(item.item_key, ':', 1)
+             AND context.game_pk = split_part(item.item_key, ':', 2)
+            WHERE item.source = '{SOURCE}'
+              AND item.dataset IN ('win_probability', 'context_metrics')
+              AND item.status IN ('loaded', 'unavailable')
+            GROUP BY item.item_key
+            HAVING count(*) FILTER (WHERE item.dataset = 'win_probability') = 1
+               AND count(*) FILTER (WHERE item.dataset = 'context_metrics') = 1
+               AND bool_and(
+                    CASE item.dataset
+                        WHEN 'win_probability' THEN item.status = 'unavailable'
+                            OR COALESCE(win.row_count, 0) = COALESCE(item.rows, 0)
+                        ELSE item.status = 'unavailable'
+                            OR COALESCE(context.row_count, 0) = COALESCE(item.rows, 0)
+                    END
+               )
+        ), linescore_rows AS (
+            SELECT _season, count(*) AS row_count FROM raw.mlb_linescore GROUP BY _season
+        ), valid_linescores AS (
+            SELECT item.item_key AS _season
+            FROM meta.ingestion_item item
+            LEFT JOIN linescore_rows line ON line._season = item.item_key
+            WHERE item.source = '{SOURCE}' AND item.dataset = 'linescore_schedule'
+              AND item.status = 'loaded'
+              AND COALESCE(line.row_count, 0) = COALESCE(item.rows, 0)
+        )
+        SELECT expected._season,
+               count(DISTINCT terminal_games.game_pk)
+                   FILTER (WHERE valid_linescores._season IS NOT NULL),
+               expected.expected_count
+        FROM expected_games
+        JOIN expected USING (_season)
+        LEFT JOIN terminal_games
+          ON terminal_games._season = expected_games._season
+         AND terminal_games.game_pk = expected_games.game_pk
+        LEFT JOIN valid_linescores
+          ON valid_linescores._season = expected._season
+        GROUP BY expected._season, expected.expected_count
+        """,
+        min_ratio=1.0,
+    )
+
+
 def health_check() -> list[Check]:
     return [
         check_table_has_rows("raw.mlb_schedule"),
@@ -2673,6 +2751,7 @@ def health_check() -> list[Check]:
         check_table_exists("raw.mlb_linescore"),
         check_table_exists("raw.mlb_game_context"),
         check_table_exists("raw.mlb_live_game"),
+        _analytics_durable_coverage_check(),
         # check_table_exists, not check_table_has_rows: between seasons (or
         # simply on a day nothing's changed since the last snapshot — see
         # _new_probable_rows) 0 rows is a normal, healthy state, not a sign

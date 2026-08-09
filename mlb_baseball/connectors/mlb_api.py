@@ -277,6 +277,7 @@ ANALYTICS_WORKERS = 8
 ANALYTICS_BATCH_SIZE = 200
 ANALYTICS_PARSER_VERSION = "mlb-api-analytics-v2"
 _ANALYTICS_LOCAL = threading.local()
+REFERENCE_WORKERS = 8
 
 
 def _schedule_df(season: int) -> pd.DataFrame:
@@ -301,7 +302,7 @@ def _schedule_df(season: int) -> pd.DataFrame:
 
 def _standings_df(season: int) -> pd.DataFrame:
     divisions = call_with_retry(statsapi.standings_data, season=season)
-    rows = []
+    rows: list[dict] = []
     for division_id, division in divisions.items():
         for team in division["teams"]:
             rows.append({"division_id": division_id, "div_name": division["div_name"], **team})
@@ -1618,56 +1619,67 @@ def _load_free_agents(conn: psycopg.Connection, season: int) -> int:
 
 
 def _load_coaches(conn: psycopg.Connection, season: int) -> int:
-    total = 0
-    for team_id in _season_team_ids(season):
-        data = call_with_retry(_get, "team_coaches", {"teamId": team_id, "season": season})
-        rows = []
-        for entry in data.get("roster", []):
-            person = entry.get("person", {})
-            rows.append(
-                {
-                    "team_id": team_id,
-                    "person_id": person.get("id"),
-                    "person_name": person.get("fullName"),
-                    "jersey_number": entry.get("jerseyNumber"),
-                    "job": entry.get("job"),
-                    "job_id": entry.get("jobId"),
-                }
-            )
-        df = pd.DataFrame(rows)
-        if df.empty:
-            continue
-        df["_season"] = str(season)
-        total += load_dataframe(
-            conn, "raw.mlb_coach", df, scope_column="_season", scope_value=str(season)
-        )
-    return total
+    tasks = [
+        (team_id, "team_coaches", {"teamId": team_id, "season": season})
+        for team_id in _season_team_ids(season)
+    ]
+    rows = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=REFERENCE_WORKERS) as pool:
+        for team_id, data in pool.map(_fetch_reference_task, tasks):
+            for entry in data.get("roster", []):
+                person = entry.get("person", {})
+                rows.append(
+                    {
+                        "team_id": team_id,
+                        "person_id": person.get("id"),
+                        "person_name": person.get("fullName"),
+                        "jersey_number": entry.get("jerseyNumber"),
+                        "job": entry.get("job"),
+                        "job_id": entry.get("jobId"),
+                    }
+                )
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_coach", df, scope_column="_season", scope_value=str(season)
+    )
+
+
+def _fetch_reference_task(task: tuple[int, str, dict]) -> tuple[int, dict]:
+    team_id, endpoint, params = task
+    return team_id, call_with_retry(_get, endpoint, params)
 
 
 def _load_alumni(conn: psycopg.Connection, season: int) -> int:
-    total = 0
-    for team_id in _season_team_ids(season):
-        for group in ALUMNI_GROUPS:
-            data = call_with_retry(
-                _get, "team_alumni", {"teamId": team_id, "season": season, "group": group}
-            )
-            rows = [
+    tasks = [
+        (team_id, "team_alumni", {"teamId": team_id, "season": season, "group": group})
+        for team_id in _season_team_ids(season)
+        for group in ALUMNI_GROUPS
+    ]
+    rows: list[dict] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=REFERENCE_WORKERS) as pool:
+        for (team_id, _, params), (_, data) in zip(
+            tasks, pool.map(_fetch_reference_task, tasks), strict=True
+        ):
+            group = params["group"]
+            rows.extend(
                 {
                     "team_id": team_id,
                     "alumni_group": group,
-                    "person_id": p.get("id"),
-                    "person_name": p.get("fullName"),
+                    "person_id": person.get("id"),
+                    "person_name": person.get("fullName"),
                 }
-                for p in data.get("people", [])
-            ]
-            df = pd.DataFrame(rows)
-            if df.empty:
-                continue
-            df["_season"] = str(season)
-            total += load_dataframe(
-                conn, "raw.mlb_alumni", df, scope_column="_season", scope_value=str(season)
+                for person in data.get("people", [])
             )
-    return total
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_alumni", df, scope_column="_season", scope_value=str(season)
+    )
 
 
 def _load_personnel(conn: psycopg.Connection) -> int:
@@ -1776,7 +1788,7 @@ LEADER_CATEGORIES = [
 
 
 def _load_stats(conn: psycopg.Connection, season: int) -> int:
-    total = 0
+    rows = []
     for group in STAT_GROUPS:
         data = call_with_retry(
             _get,
@@ -1790,7 +1802,6 @@ def _load_stats(conn: psycopg.Connection, season: int) -> int:
                 "playerPool": "all",
             },
         )
-        rows = []
         for stat_block in data.get("stats", []):
             for split in stat_block.get("splits", []):
                 stat = split.get("stat", {})
@@ -1803,25 +1814,23 @@ def _load_stats(conn: psycopg.Connection, season: int) -> int:
                         **{_camel_to_snake(k): v for k, v in stat.items()},
                     }
                 )
-        df = pd.DataFrame(rows)
-        if df.empty:
-            continue
-        df["_season"] = str(season)
-        total += load_dataframe(
-            conn, "raw.mlb_player_stat", df, scope_column="_season", scope_value=str(season)
-        )
-    return total
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_player_stat", df, scope_column="_season", scope_value=str(season)
+    )
 
 
 def _load_team_stats(conn: psycopg.Connection, season: int) -> int:
-    total = 0
+    rows = []
     for group in STAT_GROUPS:
         data = call_with_retry(
             _get,
             "teams_stats",
             {"stats": "season", "group": group, "season": season, "sportIds": 1},
         )
-        rows = []
         for stat_block in data.get("stats", []):
             for split in stat_block.get("splits", []):
                 stat = split.get("stat", {})
@@ -1833,14 +1842,13 @@ def _load_team_stats(conn: psycopg.Connection, season: int) -> int:
                         **{_camel_to_snake(k): v for k, v in stat.items()},
                     }
                 )
-        df = pd.DataFrame(rows)
-        if df.empty:
-            continue
-        df["_season"] = str(season)
-        total += load_dataframe(
-            conn, "raw.mlb_team_stat", df, scope_column="_season", scope_value=str(season)
-        )
-    return total
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_team_stat", df, scope_column="_season", scope_value=str(season)
+    )
 
 
 def _load_stats_leaders(conn: psycopg.Connection, season: int) -> int:
@@ -1873,20 +1881,26 @@ def _load_stats_leaders(conn: psycopg.Connection, season: int) -> int:
 
 
 def _load_team_leaders(conn: psycopg.Connection, season: int) -> int:
-    total = 0
-    for team_id in _season_team_ids(season):
-        rows = []
-        for category in LEADER_CATEGORIES:
-            data = call_with_retry(
-                _get,
-                "team_leaders",
-                {
-                    "teamId": team_id,
-                    "leaderCategories": category,
-                    "season": season,
-                    "leaderGameTypes": "R",
-                },
-            )
+    tasks = [
+        (
+            team_id,
+            "team_leaders",
+            {
+                "teamId": team_id,
+                "leaderCategories": category,
+                "season": season,
+                "leaderGameTypes": "R",
+            },
+        )
+        for team_id in _season_team_ids(season)
+        for category in LEADER_CATEGORIES
+    ]
+    rows = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=REFERENCE_WORKERS) as pool:
+        for (team_id, _, params), (_, data) in zip(
+            tasks, pool.map(_fetch_reference_task, tasks), strict=True
+        ):
+            category = params["leaderCategories"]
             for block in data.get("teamLeaders", []):
                 for leader in block.get("leaders", []):
                     rows.append(
@@ -1899,14 +1913,13 @@ def _load_team_leaders(conn: psycopg.Connection, season: int) -> int:
                             "person_name": leader.get("person", {}).get("fullName"),
                         }
                     )
-        df = pd.DataFrame(rows)
-        if df.empty:
-            continue
-        df["_season"] = str(season)
-        total += load_dataframe(
-            conn, "raw.mlb_team_leader", df, scope_column="_season", scope_value=str(season)
-        )
-    return total
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return 0
+    df["_season"] = str(season)
+    return load_dataframe(
+        conn, "raw.mlb_team_leader", df, scope_column="_season", scope_value=str(season)
+    )
 
 
 def _load_awards_catalog(conn: psycopg.Connection) -> int:

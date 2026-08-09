@@ -326,6 +326,16 @@ def _fixed_range(monkeypatch, tmp_path):
 
 @pytest.fixture(autouse=True)
 def _clean_tables(db_conn):
+    def clear():
+        db_conn.rollback()
+        with db_conn.cursor() as cur:
+            for table in TABLES:
+                cur.execute(f"DROP TABLE IF EXISTS {table}")
+            cur.execute("DELETE FROM meta.ingestion_item WHERE source = %s", (mlb_api.SOURCE,))
+            cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (mlb_api.SOURCE,))
+        db_conn.commit()
+
+    clear()
     yield
     # Same fix already applied to test_conform.py's own _clean_tables and
     # conftest.py's drop_tables_after: without this rollback, a test whose
@@ -333,19 +343,7 @@ def _clean_tables(db_conn):
     # InFailedSqlTransaction state, silently skipping every statement
     # below (including the DROP TABLEs) and leaving debris that poisons a
     # later, unrelated test run with a spurious "already exists" error.
-    db_conn.rollback()
-    with db_conn.cursor() as cur:
-        for table in TABLES:
-            cur.execute(f"DROP TABLE IF EXISTS {table}")
-        # track_run() writes meta.ingestion_run rows that nothing else here
-        # truncates — left alone, they'd accumulate across every test run in
-        # the shared mlb_test database and make check_last_run("mlb_api")
-        # unreliable for any test (this file's or another's) that asserts on
-        # "never run" vs. "last run succeeded" (found via a real failure —
-        # see test_doctor.py's mlb_api tests).
-        cur.execute("DELETE FROM meta.ingestion_item WHERE source = %s", (mlb_api.SOURCE,))
-        cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (mlb_api.SOURCE,))
-    db_conn.commit()
+    clear()
 
 
 def _fake_get(endpoint, params=None, **kwargs):
@@ -839,6 +837,35 @@ def test_bootstrap_is_idempotent_for_reference_personnel_stat_data(db_conn):
         assert cur.fetchone() == (1,)
         cur.execute("SELECT _season, count(*) FROM raw.mlb_player_pool GROUP BY _season ORDER BY 1")
         assert cur.fetchall() == [("2024", 1), ("2025", 1), ("2026", 1)]
+
+
+def test_reference_season_loads_keep_every_team_and_stat_group(db_conn, monkeypatch):
+    # These loaders replace one season at a time.  They must aggregate all
+    # teams/groups first: loading each sub-request with the same season scope
+    # would silently leave only the final sub-request's rows behind.
+    monkeypatch.setattr(mlb_api, "_season_team_ids", lambda season: [110, 111])
+    with patch.object(mlb_api.statsapi, "get", side_effect=_fake_get):
+        coach_count = mlb_api._load_coaches(db_conn, 2024)
+        alumni_count = mlb_api._load_alumni(db_conn, 2024)
+        player_count = mlb_api._load_stats(db_conn, 2024)
+        team_count = mlb_api._load_team_stats(db_conn, 2024)
+        leader_count = mlb_api._load_team_leaders(db_conn, 2024)
+    db_conn.commit()
+
+    assert (coach_count, alumni_count, player_count, team_count, leader_count) == (2, 4, 2, 2, 20)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(DISTINCT team_id) FROM raw.mlb_coach WHERE _season = '2024'")
+        assert cur.fetchone() == (2,)
+        cur.execute("SELECT count(DISTINCT team_id) FROM raw.mlb_alumni WHERE _season = '2024'")
+        assert cur.fetchone() == (2,)
+        cur.execute('SELECT array_agg(DISTINCT "group" ORDER BY "group") FROM raw.mlb_player_stat')
+        assert cur.fetchone() == (["hitting", "pitching"],)
+        cur.execute('SELECT array_agg(DISTINCT "group" ORDER BY "group") FROM raw.mlb_team_stat')
+        assert cur.fetchone() == (["hitting", "pitching"],)
+        cur.execute(
+            "SELECT count(DISTINCT team_id) FROM raw.mlb_team_leader WHERE _season = '2024'"
+        )
+        assert cur.fetchone() == (2,)
 
 
 def test_health_check_reports_healthy_with_zero_live_and_playbyplay_rows(db_conn):

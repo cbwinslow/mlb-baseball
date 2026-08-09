@@ -37,7 +37,7 @@ mlb train                # (optional) retrains the gradient-boosted model; only 
 `mlb bootstrap` is slow once `mlb_api`'s and Statcast's full historical ranges are involved, and it is resumable — see `docs/ARCHITECTURE.md` "Bootstrap procedure" before running it for real. To bootstrap one source at a time instead (useful while developing, or to retry just the source that failed), use `mlb ingest <source> --mode bootstrap`; every registered source is in `mlb_baseball/registry.py`. The largest MLB API backfill can also run on its own, without waiting through unrelated endpoint families:
 
 ```bash
-mlb ingest mlb_api --stage analytics --start-year 1950 --end-year 2026 --workers 8
+mlb ingest mlb_api --stage analytics --start-year 1950 --end-year 2026 --workers 16
 ```
 
 That command downloads bounded parallel batches, writes compressed replayable JSON under `downloads/mlb_api/`, bulk-loads only those games, and safely resumes after an interruption. `lahman` prefers a manually-downloaded zip (see `docs/DATA_SOURCES.md`) but falls back to a network mirror automatically if you skip that step.

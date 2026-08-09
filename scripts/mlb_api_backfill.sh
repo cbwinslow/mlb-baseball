@@ -33,6 +33,21 @@ cd "$REPO_DIR"
     "$REPO_DIR/.venv/bin/mlb" ingest mlb_api --stage analytics \
         --start-year "$START_YEAR" --end-year "$END_YEAR" --workers "$WORKERS"
     "$REPO_DIR/.venv/bin/mlb" ingest mlb_api --mode bootstrap
+    "$REPO_DIR/.venv/bin/python" - <<'PY'
+from mlb_baseball.db import get_connection
+
+with get_connection() as conn:
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        for table in (
+            "raw.mlb_win_prob",
+            "raw.mlb_game_context",
+            "raw.mlb_linescore",
+            "raw.mlb_schedule",
+        ):
+            cur.execute(f"VACUUM (ANALYZE) {table}")
+            print(f"vacuumed {table}")
+PY
     "$REPO_DIR/.venv/bin/mlb" metrics --source mlb_api --window-minutes 60
     echo "$(date -u +%FT%TZ) finished MLB API backfill; run 'mlb doctor' before conformance"
 } >> "$LOG_FILE" 2>&1

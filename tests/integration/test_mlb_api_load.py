@@ -1274,3 +1274,29 @@ def test_linescore_schedule_artifact_is_resumable_and_repairs_lost_rows(db_conn)
         repaired = mlb_api._load_analytics_for_season(db_conn, 2024)
     assert repaired["raw.mlb_linescore"] == 4
     assert hydrated_calls["count"] == 2
+
+
+def test_analytics_artifact_paths_do_not_overwrite_a_resumed_batch():
+    def result(game_pk: int) -> dict:
+        return {
+            "game_pk": game_pk,
+            "documents": {
+                "win_probability": {
+                    "http_status": 200,
+                    "url": f"https://example.test/game/{game_pk}/winProbability",
+                    "payload": [],
+                },
+                "context_metrics": {
+                    "http_status": 200,
+                    "url": f"https://example.test/game/{game_pk}/contextMetrics",
+                    "payload": {},
+                },
+            },
+        }
+
+    first_path, _ = mlb_api._artifact_for_analytics_batch(2024, 1, [result(2001)])
+    second_path, _ = mlb_api._artifact_for_analytics_batch(2024, 1, [result(2002)])
+
+    assert first_path != second_path
+    assert (manifest.DOWNLOADS_ROOT / mlb_api.SOURCE / first_path).exists()
+    assert (manifest.DOWNLOADS_ROOT / mlb_api.SOURCE / second_path).exists()

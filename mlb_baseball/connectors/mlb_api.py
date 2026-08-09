@@ -170,6 +170,7 @@ force=True. Confirmed by reading the library's source, not guessed.
 
 import concurrent.futures
 import gzip
+import hashlib
 import json
 import re
 import threading
@@ -1015,9 +1016,10 @@ def _load_linescores_for_season(
     df = _season_linescore_df(data, season)
     encoded = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
     content = gzip.compress(encoded, mtime=0)
+    artifact_id = hashlib.sha256(content).hexdigest()[:16]
     path, entry = manifest.persist_artifact(
         SOURCE,
-        f"analytics/{season}/linescore-schedule.json.gz",
+        f"analytics/{season}/linescore-schedule-{artifact_id}.json.gz",
         content,
         url=_linescore_schedule_url(season),
         metadata={
@@ -1382,7 +1384,8 @@ def _artifact_for_analytics_batch(
         json.dumps(record, sort_keys=True, separators=(",", ":")) for record in records
     )
     content = gzip.compress(f"{ndjson}\n".encode(), mtime=0)
-    filename = f"analytics/{season}/batch-{batch_number:05d}.ndjson.gz"
+    artifact_id = hashlib.sha256(content).hexdigest()[:16]
+    filename = f"analytics/{season}/batch-{batch_number:05d}-{artifact_id}.ndjson.gz"
     path, entry = manifest.persist_artifact(
         SOURCE,
         filename,

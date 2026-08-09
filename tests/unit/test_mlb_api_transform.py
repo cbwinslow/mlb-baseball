@@ -632,7 +632,10 @@ def test_load_alumni_pulls_both_groups_per_team():
             with patch.object(mlb_api, "load_dataframe", return_value=1):
                 total = mlb_api._load_alumni(object(), 2024)
     assert calls == ["hitting", "pitching"]
-    assert total == 2
+    # Both groups are collected before one season-scoped COPY.  That keeps a
+    # rerun atomic across the two endpoint calls instead of replacing the
+    # same scope twice.
+    assert total == 1
 
 
 def test_load_stats_flattens_and_snake_cases_camel_stat_fields():
@@ -652,13 +655,14 @@ def test_load_stats_flattens_and_snake_cases_camel_stat_fields():
     with patch.object(mlb_api.statsapi, "get", return_value=payload):
         with patch.object(mlb_api, "load_dataframe") as mock_load:
             mlb_api._load_stats(object(), 2024)
-    # Called once for hitting, once for pitching (STAT_GROUPS) since both
-    # groups return the same fixture payload here.
-    assert mock_load.call_count == 2
-    first_df = mock_load.call_args_list[0].args[2]
+    # The two endpoint responses are combined into one season-scoped COPY.
+    # This makes the replacement idempotent and prevents the second group
+    # from deleting rows written by the first group.
+    assert mock_load.call_count == 1
+    first_df = mock_load.call_args.args[2]
     assert first_df.iloc[0]["home_runs"] == 30
     assert first_df.iloc[0]["at_bats_per_home_run"] == "20.1"
-    assert first_df.iloc[0]["group"] == "hitting"
+    assert set(first_df["group"]) == {"hitting", "pitching"}
 
 
 def test_load_stats_leaders_flattens_rank_and_person():

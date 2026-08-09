@@ -20,6 +20,14 @@ The largest raw relations at the time of this assessment were:
 All of these large tables showed zero estimated dead rows during the review.
 That rules out table churn as the immediate reason to redesign them.
 
+The live Stats API benchmark for a 48-game 1985 sample confirmed the same
+separation: a single worker took 85.3 seconds after one slow upstream
+response, while 4/8/12/16 workers took 1.17/0.405/0.380/0.370 seconds. The
+test-database write comparison was 0.017 seconds for individual commits and
+0.013 seconds for one COPY on that small payload. The production backfill
+therefore uses the bounded maximum of 16 workers; its bottleneck is MLB API
+latency, not PostgreSQL row insertion.
+
 ## Priority order
 
 1. **Complete and verify MLB Stats API first.** It had the demonstrated

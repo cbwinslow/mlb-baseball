@@ -13,6 +13,7 @@
     mlb train
     mlb inventory
     mlb status
+    mlb metrics
     mlb doctor
 
 Every entry in CONNECTORS must expose bootstrap() and update(), each returning
@@ -48,7 +49,18 @@ import sys
 from collections.abc import Callable
 from typing import cast
 
-from mlb_baseball import conform, doctor, ingest, inventory, migrate, model, progress_table
+from mlb_baseball import (
+    conform,
+    doctor,
+    ingest,
+    inventory,
+    migrate,
+    model,
+    progress_table,
+)
+from mlb_baseball import (
+    metrics as operational_metrics,
+)
 from mlb_baseball.registry import CONNECTORS
 from mlb_baseball.source_profiles import (
     PROFILES,
@@ -193,6 +205,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     evaluate_parser.add_argument("--bootstrap-samples", type=int, default=1000)
     subparsers.add_parser("inventory")
+    metrics_parser = subparsers.add_parser("metrics")
+    metrics_parser.add_argument("--source", default="mlb_api")
+    metrics_parser.add_argument("--window-minutes", type=int, default=5)
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument(
         "--all", action="store_true", help="show every table, not just populated ones"
@@ -307,6 +322,11 @@ def main(argv: list[str] | None = None) -> None:
                 f"  {row['source']}: {row['status']} ({row['mode']}, "
                 f"{row['rows']} rows, started {row['started_at']})"
             )
+    elif args.command == "metrics":
+        try:
+            operational_metrics.print_report(args.source, args.window_minutes)
+        except ValueError as exc:
+            parser.error(str(exc))
     elif args.command == "status":
         if args.season_coverage and args.watch is not None:
             parser.error("status --season-coverage cannot be combined with --watch")

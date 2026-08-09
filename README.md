@@ -42,7 +42,7 @@ mlb ingest mlb_api --stage analytics --start-year 1950 --end-year 2026 --workers
 
 That command downloads bounded parallel batches, writes compressed replayable JSON under `downloads/mlb_api/`, bulk-loads only those games, and safely resumes after an interruption. `lahman` prefers a manually-downloaded zip (see `docs/DATA_SOURCES.md`) but falls back to a network mirror automatically if you skip that step.
 
-`mlb doctor` reports on every source in one pass, and `mlb inventory` shows live row counts and last-run status per source — both are the way to check on a bootstrap's progress, not by assuming a long-running command has hung. `mlb status` gives the same live table-by-table state as a scannable progress-bar table (`--all` to include empty tables, `--run-status` to weight progress by each source's last ingestion-run outcome instead of just row count, `--watch SECONDS` to auto-refresh).
+`mlb doctor` reports on every source in one pass, and `mlb inventory` shows live row counts and last-run status per source — both are the way to check on a bootstrap's progress, not by assuming a long-running command has hung. `mlb status` gives the same live table-by-table state as a scannable progress-bar table (`--all` to include empty tables, `--run-status` to weight progress by each source's last ingestion-run outcome instead of just row count, `--watch SECONDS` to auto-refresh). Run `mlb metrics --source mlb_api --window-minutes 5` during a large load to see recent item throughput, database cache use, table size, dead-row estimates, and scan mix before changing performance settings.
 
 ## Scheduling
 

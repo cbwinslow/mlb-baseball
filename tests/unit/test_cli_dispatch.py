@@ -127,6 +127,19 @@ def test_predict_command_calls_model_run(monkeypatch, capsys):
     assert "gold.game_feature: 1 rows" in capsys.readouterr().out
 
 
+def test_metrics_command_passes_source_and_window(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        cli.operational_metrics,
+        "print_report",
+        lambda source, window: captured.update(source=source, window=window),
+    )
+
+    cli.main(["metrics", "--source", "mlb_api", "--window-minutes", "10"])
+
+    assert captured == {"source": "mlb_api", "window": 10}
+
+
 def test_features_command_calls_model_feature_stage(monkeypatch, capsys):
     monkeypatch.setattr(cli.model, "run_features", lambda: {"gold.game_feature": 1})
 

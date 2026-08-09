@@ -6,6 +6,10 @@ This project was rebuilt from scratch after the original (Gemini-built) version 
 
 Explain things in plain, simple language — no heavy technical jargon, no dense paragraphs. Short sentences. If something needs a technical detail, give the plain-English version first and only add the technical term if it's actually needed. Give a direct bottom line before the supporting detail, not after it.
 
+## Suggesting next steps
+
+After finishing a piece of work — writing code, or digging through data/docs — if there's a genuinely useful next step or improvement worth flagging, say so briefly at the end, in plain language. Only offer it once there's actually enough evidence to be confident it's right and that it fits this project's existing rules and direction; spending a few extra minutes checking first is worth it if it turns a guess into a real recommendation. Don't pad every response with a suggestion just to have one — only when there's a real one worth making.
+
 ## Scope discipline
 
 - Work is governed by the active plan sequence in `plans/` and durable doctrine in `AGENTS.md`. Do not pull work forward from later plans without explicit authorization and Sol gate review.
@@ -48,6 +52,8 @@ A task is not complete until:
 - No silent `except: pass` — failures in ingestion must be visible (logged with enough context to debug, and surfaced as a non-zero exit / failed run).
 - Prefer explicit, boring code over cleverness. This is a data pipeline; predictability matters more than elegance.
 - Don't build abstractions for sources we don't have yet. Three similar connectors is fine; a plugin framework for a hypothetical fourth is not, until there's a fourth.
+- Before writing or changing code, read the module/class it belongs to and its near neighbors first — reuse the patterns and helpers already there instead of duplicating them, and if the change leaves nearby code inconsistent, stale, or duplicated, fix that in the same change rather than filing it away for later.
+- When something you're building really will be reused or extended — a real, current need, not a hypothetical one — give it proper structure: small composable pieces, clear interfaces, no hidden coupling. That's still "do today's job well," not the speculative abstraction the rule above warns against; the difference is whether the reuse is real right now, not imagined for later.
 
 ## GitHub workflow
 

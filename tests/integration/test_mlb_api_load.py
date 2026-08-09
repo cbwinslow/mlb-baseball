@@ -342,6 +342,17 @@ def _clean_tables(db_conn):
 
 def _fake_get(endpoint, params=None, **kwargs):
     params = params or {}
+    if endpoint == "schedule" and params.get("hydrate") == "linescore":
+        return {
+            "dates": [
+                {
+                    "games": [
+                        {"gamePk": game["game_id"], "linescore": FIXTURE_LINESCORE}
+                        for game in FIXTURE_GAMES_BY_SEASON.get(params["season"], [])
+                    ]
+                }
+            ]
+        }
     if endpoint == "teams":
         return FIXTURE_TEAMS
     if endpoint == "team_roster":
@@ -1046,3 +1057,36 @@ def test_analytics_rerun_skips_already_loaded_games(db_conn):
 
     assert second["raw.mlb_win_prob"] == 0  # nothing new -- both games already loaded
     assert call_count["n"] == calls_after_first_run  # zero additional API calls
+
+
+def test_analytics_loads_a_seasons_linescores_with_one_hydrated_schedule_request(db_conn):
+    calls: list[tuple[str, dict]] = []
+
+    def recording_get(endpoint, params=None, **kwargs):
+        calls.append((endpoint, params or {}))
+        return _fake_get(endpoint, params=params, **kwargs)
+
+    with (
+        patch.object(
+            mlb_api.statsapi,
+            "schedule",
+            side_effect=lambda **kwargs: FIXTURE_GAMES_BY_SEASON.get(kwargs["season"], []),
+        ),
+        patch.object(mlb_api.statsapi, "get", side_effect=recording_get),
+    ):
+        counts = mlb_api._load_analytics_for_season(db_conn, 2024)
+
+    assert counts["raw.mlb_linescore"] == 4  # 2 games x home/away in one inning
+    assert sum(endpoint == "game_linescore" for endpoint, _ in calls) == 0
+    assert (
+        sum(
+            endpoint == "schedule" and params.get("hydrate") == "linescore"
+            for endpoint, params in calls
+        )
+        == 1
+    )
+    assert all(
+        params.get("fields") == mlb_api.WIN_PROB_FIELDS
+        for endpoint, params in calls
+        if endpoint == "game_winProbability"
+    )

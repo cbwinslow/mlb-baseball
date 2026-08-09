@@ -214,7 +214,10 @@ REQUEST_TIMEOUT_SECONDS = 30
 # under a second.  Giving one wedged response the generic 30-second timeout
 # stalls an entire bounded batch, so this hot path fails fast and retries
 # independently.  The broader connector retains its more conservative limit.
-ANALYTICS_REQUEST_TIMEOUT_SECONDS = 10
+# The live benchmark's slowest successful response was under four seconds.
+# Five seconds leaves ordinary tail latency room while keeping one wedged
+# socket from stalling an otherwise complete 200-game batch for ten seconds.
+ANALYTICS_REQUEST_TIMEOUT_SECONDS = 5
 ANALYTICS_RETRY_ATTEMPTS = 3
 ANALYTICS_BACKOFF_SECONDS = 1.0
 

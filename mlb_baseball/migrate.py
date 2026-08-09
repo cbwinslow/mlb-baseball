@@ -2,7 +2,7 @@ from pathlib import Path
 
 import psycopg
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import fetch_one, get_connection
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 _NONTRANSACTIONAL_MARKER = "-- mlb:nontransactional"
@@ -31,7 +31,7 @@ def _acquire_migration_lock(conn: psycopg.Connection) -> None:
     """Prevent concurrent DDL/migration-ledger writers on one database."""
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock(hashtext('mlb-migrate'))")
-        if not cur.fetchone()[0]:
+        if not fetch_one(cur)[0]:
             raise RuntimeError("migration: another migration run is already active")
 
 

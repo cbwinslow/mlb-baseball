@@ -2,6 +2,25 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-059: `retrosheet.py`'s `schema_drift_policy="error"` and missing per-year isolation aborted a real full-history bootstrap at year 2 of 128
+
+**Decision:** `_load_zip` no longer passes `schema_drift_policy="error"` to `load_dataframe` — it now uses the function's own default (`"warn"`), same as every other Retrosheet-family connector already does. `bootstrap()` also gained a per-year `try`/`except`/`rollback`/continue around each year's load, mirroring `statcast.py`'s already-proven per-week pattern (`_load_season`).
+
+**Context:** A real full-history bootstrap (`mlb bootstrap`, 2026-08-09) failed on `retrosheet` after loading only 1898 — `raw.retrosheet_plays: source schema drift (added=[], removed=['balls', 'fc', 'fle', 'lob_id1', 'lob_id2', 'lob_id3', 'pr1_post', 'pr1_pre', 'pr2_post', 'pr2_pre', 'pr3_post', 'pr3_pre', 'roe', 'score_h', 'score_v', 'strikes'])`. Confirmed directly, not assumed: downloaded and diffed the real `1898csvs.zip`, `1899csvs.zip`, and (for comparison) `2024csvs.zip` from retrosheet.org. Real findings:
+- 1898's `plays.csv` has 177 columns.
+- 1899's has only 161 — missing exactly the 16 columns the error listed.
+- 2024's has 177 again, an exact match to 1898, including every one of those 16 columns.
+
+So 177 is the standard, full-fidelity shape (matching the *current* era too, not a fluke of the very first year) — 1899 is a genuinely thinner year, almost certainly because that early a season had less-detailed source material available for Retrosheet's own reconstruction (pitch-by-pitch ball/strike counts, pinch-runner base state, left-on-base player IDs, and reached-on-error detail aren't things a bare newspaper box score from 1899 would carry). A real historical gap in the underlying data, not a parsing bug, not a one-time formatting fluke to route around by picking a different baseline year.
+
+**Two compounding bugs, not one:**
+1. `schema_drift_policy="error"` — this connector's own deliberate override of `load_dataframe`'s default `"warn"` — treated 1899's genuinely thinner shape as fatal. `"error"` exists for a real reason (see the existing `test_schema_drift_error_preserves_existing_raw_contract` test in `test_load_dataframe.py`, kept as-is) — it's just the wrong choice for a source whose real column count varies by how well-documented a given era is, exactly the case `retrosheet_box.py` already handles gracefully via the default `"warn"` policy (its `umpire_lf` case, some historical games having extra/fewer umpire positions than others).
+2. `bootstrap()` had no per-year exception isolation at all — unlike `statcast.py`'s `_load_season`, which already catches, rolls back, logs, and continues to the next chunk. That meant year 2's failure (1899) didn't just skip 1899 — it silently aborted every remaining year, 1900 through 2026, ~127 years never even attempted, with the CLI-level error handler in `cli.py`'s `_run_group` only reporting one bare "`[retrosheet] FAILED`" line with no indication of how much history was actually missed.
+
+**Fix:** removed the `"error"` override (falls back to `"warn"` — a thinner year now loads with `NULL` for whatever columns it genuinely lacks, logged visibly, not silently); added the same per-year `try`/`except` shape `statcast.py` already uses. Two new regression tests in `tests/integration/test_retrosheet_load.py`: `test_year_with_fewer_columns_loads_with_nulls_instead_of_erroring` (a narrower year loads without raising, missing columns land as `NULL`) and `test_bootstrap_continues_past_a_failing_year` (one year raising doesn't prevent a later year from loading). Both pass; full existing suite for this connector still passes unchanged (6/6).
+
+**Revisit if:** a future year's drift looks like something other than "genuinely less source detail available" — e.g. an actual Retrosheet publishing error, or a real format break going forward from some future date. `"warn"` still logs every drift event visibly (`SchemaDriftWarning`), so this stays discoverable in bootstrap logs; it just no longer halts everything else while someone investigates.
+
 ## ADR-058: Stacking meta-learner (`stack-v1`) — logistic regression over log5-v1/elo-v1/gbm-v1's own probabilities, built but not saved (honest negative result on real data)
 
 **Decision:** `mlb_baseball/model/stack.py` implements the "(b) formal meta-learner" half of `docs/RESEARCH.md`'s "Model stacking / ensembling" section — a second-layer model that learns how to weight `log5-v1`/`elo-v1`/`gbm-v1`'s own `gold.prediction` probabilities against each other (plus `polymarket-v1`/`kalshi-v1`'s, optionally), predicting the same `actual_home_win` target. Not a new base signal: `train()`/`predict()` never touch `gold.game_feature` at all, only `gold.prediction`'s own already-generated probabilities. New `model_version`, `stack-v1`, writes to the existing `gold.prediction` table — same shape as every other win/loss model, no new table.

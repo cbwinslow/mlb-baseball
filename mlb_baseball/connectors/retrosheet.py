@@ -34,6 +34,27 @@ futex_wait_queue, far more than the ~5 expected, with no proper profiler
 available here to safely root-cause it). Reverted rather than keep debugging
 a concurrency bug blind — see docs/DECISIONS.md ADR-005 and CLAUDE.md
 "prefer explicit, boring code over cleverness."
+
+Per-year loads use load_dataframe's default schema_drift_policy ("warn"),
+not "error" — a real full-history bootstrap hit `plays`' column count
+genuinely varying by year (1898 and 2024 both have the full 177 columns;
+1899 has only 161, missing ball/strike-count, left-on-base-ID, pinch-runner
+base-state, reached-on-error, and home/away-score-at-play columns).
+Confirmed directly by downloading and diffing the real CSVs, not assumed:
+this reflects genuinely less-detailed source material for some
+less-thoroughly-reconstructed early seasons, not a parsing bug or a
+one-time formatting fluke to "fix" by picking a different baseline year.
+"error" (this connector's original choice) treated every such year as
+fatal — with no per-year exception handling either, the very first
+divergent year (1899, essentially the start of history) silently aborted
+the entire remaining ~127-year bootstrap with no automatic recovery path.
+"warn" lets a thinner year load with NULLs for whatever columns it
+genuinely lacks (exactly how load_dataframe already handles this for
+every other Retrosheet-family connector, e.g. retrosheet_box.py's
+umpire_lf case) while still logging visibly, and bootstrap()'s per-year
+try/except (matching statcast.py's per-week pattern) means any other
+single year's failure — drift-related or not — no longer takes down every
+other year with it. See docs/DECISIONS.md for the ADR.
 """
 
 import zipfile
@@ -83,7 +104,6 @@ def _load_zip(conn: psycopg.Connection, year: int, zip_path: Path) -> dict[str, 
             df,
             scope_column="_season",
             scope_value=str(year),
-            schema_drift_policy="error",
         )
     schema_columns = [
         f"{name}.{column}" for name, df in dataframes.items() for column in df.columns
@@ -109,9 +129,13 @@ def bootstrap() -> dict[str, int]:
     totals: dict[str, int] = {}
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
         for year in range(FIRST_YEAR, date.today().year + 1):
-            for table, count in _load_year(conn, year).items():
-                totals[table] = totals.get(table, 0) + count
-            conn.commit()
+            try:
+                for table, count in _load_year(conn, year).items():
+                    totals[table] = totals.get(table, 0) + count
+                conn.commit()
+            except Exception as exc:
+                conn.rollback()
+                print(f"retrosheet: {year} failed ({exc}); skipping this year")
         result["rows"] = sum(totals.values())
     return totals
 

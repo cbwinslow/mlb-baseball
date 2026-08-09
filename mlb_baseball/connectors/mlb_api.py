@@ -1077,7 +1077,7 @@ def _linescores_already_landed(conn: psycopg.Connection, season: int) -> bool:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT rows
+                SELECT rows, artifact_path, artifact_sha256
                 FROM meta.ingestion_item
                 WHERE source = %s AND dataset = 'linescore_schedule'
                   AND item_key = %s AND status = 'loaded'
@@ -1088,7 +1088,10 @@ def _linescores_already_landed(conn: psycopg.Connection, season: int) -> bool:
             if item is None:
                 return False
             cur.execute("SELECT count(*) FROM raw.mlb_linescore WHERE _season = %s", (str(season),))
-            return int(fetch_one(cur)[0]) == int(item[0] or 0)
+            return (
+                int(fetch_one(cur)[0]) == int(item[0] or 0)
+                and _analytics_artifact_is_valid(item[1], item[2])
+            )
     except psycopg.errors.UndefinedTable:
         conn.rollback()
         return False
@@ -1269,7 +1272,8 @@ def _terminal_analytics_games(conn: psycopg.Connection, season: int) -> set[int]
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT dataset, split_part(item_key, ':', 2)::integer, status, rows
+                SELECT dataset, split_part(item_key, ':', 2)::integer, status, rows,
+                       artifact_path, artifact_sha256
                 FROM meta.ingestion_item
                 WHERE source = %s
                   AND dataset IN ('win_probability', 'context_metrics')
@@ -1279,8 +1283,13 @@ def _terminal_analytics_games(conn: psycopg.Connection, season: int) -> set[int]
                 (SOURCE, f"{season}:%"),
             )
             items = {
-                (str(dataset), int(game_pk)): (str(status), int(rows or 0))
-                for dataset, game_pk, status, rows in cur.fetchall()
+                (str(dataset), int(game_pk)): (
+                    str(status),
+                    int(rows or 0),
+                    str(artifact_path) if artifact_path else None,
+                    str(artifact_sha256) if artifact_sha256 else None,
+                )
+                for dataset, game_pk, status, rows, artifact_path, artifact_sha256 in cur.fetchall()
             }
             cur.execute(
                 "SELECT game_pk::integer, count(*) FROM raw.mlb_win_prob "
@@ -1299,13 +1308,27 @@ def _terminal_analytics_games(conn: psycopg.Connection, season: int) -> set[int]
         return set()
 
     terminal = set()
+    artifact_valid: dict[tuple[str | None, str | None], bool] = {}
+
+    def has_valid_artifact(path: str | None, checksum: str | None) -> bool:
+        key = (path, checksum)
+        if key not in artifact_valid:
+            artifact_valid[key] = _analytics_artifact_is_valid(path, checksum)
+        return artifact_valid[key]
+
     for game_pk in {game for _, game in items}:
         win = items.get(("win_probability", game_pk))
         context = items.get(("context_metrics", game_pk))
         if win is None or context is None:
             continue
-        win_ok = win[0] == "unavailable" or win_rows.get(game_pk, 0) == win[1]
-        context_ok = context[0] == "unavailable" or context_rows.get(game_pk, 0) == context[1]
+        win_ok = (
+            (win[0] == "unavailable" or win_rows.get(game_pk, 0) == win[1])
+            and has_valid_artifact(win[2], win[3])
+        )
+        context_ok = (
+            (context[0] == "unavailable" or context_rows.get(game_pk, 0) == context[1])
+            and has_valid_artifact(context[2], context[3])
+        )
         if win_ok and context_ok:
             terminal.add(game_pk)
     return terminal
@@ -1653,6 +1676,19 @@ def _read_analytics_artifact(relative_path: str, expected_sha256: str) -> bytes:
             f"expected {expected_sha256}, got {actual_sha256}"
         )
     return content
+
+
+def _analytics_artifact_is_valid(
+    relative_path: str | None, expected_sha256: str | None
+) -> bool:
+    """Whether a ledger reference still resolves to its immutable bytes."""
+    if not relative_path or not expected_sha256:
+        return False
+    try:
+        _read_analytics_artifact(relative_path, expected_sha256)
+    except (OSError, RuntimeError):
+        return False
+    return True
 
 
 def _analytics_results_from_ndjson(content: bytes) -> list[dict[str, Any]]:

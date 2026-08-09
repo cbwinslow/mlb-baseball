@@ -1024,6 +1024,26 @@ def test_analytics_ledger_never_hides_lost_raw_rows(db_conn):
         assert cur.fetchone() == (1,)
 
 
+def test_analytics_ledger_never_hides_a_tampered_artifact(db_conn):
+    with _mocked_statsapi():
+        mlb_api._load_analytics_for_season(db_conn, 2024)
+    db_conn.commit()
+    assert mlb_api._terminal_analytics_games(db_conn, 2024) == {2001, 2002}
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT artifact_path FROM meta.ingestion_item
+            WHERE source = %s AND dataset = 'win_probability' AND item_key = '2024:2001'
+            """,
+            (mlb_api.SOURCE,),
+        )
+        (artifact_path,) = cur.fetchone()
+    (manifest.DOWNLOADS_ROOT / mlb_api.SOURCE / artifact_path).write_bytes(b"tampered")
+
+    assert mlb_api._terminal_analytics_games(db_conn, 2024) == set()
+
+
 def test_analytics_season_complete_requires_every_terminal_game_and_linescore_proof(db_conn):
     with _mocked_statsapi():
         mlb_api._load_schedule(db_conn, 2024)

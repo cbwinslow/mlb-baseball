@@ -732,9 +732,7 @@ def test_load_probable_appends_a_new_snapshot_on_a_scratch(db_conn):
                     {
                         "gamePk": 5001,
                         "teams": {
-                            "home": {
-                                "probablePitcher": {"id": 999, "fullName": "Replacement Guy"}
-                            },
+                            "home": {"probablePitcher": {"id": 999, "fullName": "Replacement Guy"}},
                             "away": {},
                         },
                     }
@@ -854,10 +852,7 @@ def test_health_check_flags_a_season_with_incomplete_win_prob_coverage(db_conn):
     # generic check_partition_coverage helper (see test_health.py) to
     # mlb_api's own raw.mlb_schedule/raw.mlb_win_prob tables.
     with db_conn.cursor() as cur:
-        cur.execute(
-            "CREATE TABLE raw.mlb_schedule "
-            "(game_id text, _season text, status text)"
-        )
+        cur.execute("CREATE TABLE raw.mlb_schedule (game_id text, _season text, status text)")
         cur.execute(
             "INSERT INTO raw.mlb_schedule VALUES "
             "('1', '2023', 'Final'), ('2', '2023', 'Final'), "
@@ -886,9 +881,7 @@ def test_health_check_covers_linescore_and_game_context_independently(db_conn):
     # generated list), so a partial per-game failure in just one of them is
     # still visible.
     with db_conn.cursor() as cur:
-        cur.execute(
-            "CREATE TABLE raw.mlb_schedule (game_id text, _season text, status text)"
-        )
+        cur.execute("CREATE TABLE raw.mlb_schedule (game_id text, _season text, status text)")
         cur.execute(
             "INSERT INTO raw.mlb_schedule VALUES "
             "('1', '2023', 'Final'), ('2', '2023', 'Final'), "
@@ -918,8 +911,7 @@ def test_health_check_covers_linescore_and_game_context_independently(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute(
-            "DROP TABLE raw.mlb_schedule, raw.mlb_win_prob, "
-            "raw.mlb_linescore, raw.mlb_game_context"
+            "DROP TABLE raw.mlb_schedule, raw.mlb_win_prob, raw.mlb_linescore, raw.mlb_game_context"
         )
     db_conn.commit()
 
@@ -1011,3 +1003,46 @@ def test_first_win_prob_year_boundary_matches_real_confirmed_coverage():
     # populated data for a 1950 game, but 404/empty for 1949 and every
     # year checked back to 1901.
     assert mlb_api.FIRST_WIN_PROB_YEAR == 1950
+
+
+def test_already_loaded_analytics_games_empty_before_any_data(db_conn):
+    # A fresh database has no raw.mlb_game_context table at all yet --
+    # must return an empty set, not raise.
+    assert mlb_api._already_loaded_analytics_games(db_conn, 2024) == set()
+
+
+def test_analytics_rerun_skips_already_loaded_games(db_conn):
+    # Regression: a real full-history bootstrap (1950-2026, ~24,600
+    # candidate games) had no skip check here at all -- every re-run,
+    # including a plain retry after an interruption, redid the *entire*
+    # per-game analytics sweep from scratch. Confirmed the fix directly:
+    # after one real load, a second call for the same season must not
+    # re-fetch any game already present.
+    call_count = {"n": 0}
+
+    def counting_get(endpoint, params=None, **kwargs):
+        if endpoint == "game_winProbability":
+            call_count["n"] += 1
+        return _fake_get(endpoint, params=params, **kwargs)
+
+    def fake_schedule(**kwargs):
+        return FIXTURE_GAMES_BY_SEASON.get(kwargs.get("season"), [])
+
+    with (
+        patch.object(mlb_api.statsapi, "schedule", side_effect=fake_schedule),
+        patch.object(mlb_api.statsapi, "get", side_effect=counting_get),
+    ):
+        first = mlb_api._load_analytics_for_season(db_conn, 2024)
+    db_conn.commit()
+    assert first["raw.mlb_win_prob"] == 2  # both 2024 fixture games (2001, 2002)
+    calls_after_first_run = call_count["n"]
+    assert calls_after_first_run == 2
+
+    with (
+        patch.object(mlb_api.statsapi, "schedule", side_effect=fake_schedule),
+        patch.object(mlb_api.statsapi, "get", side_effect=counting_get),
+    ):
+        second = mlb_api._load_analytics_for_season(db_conn, 2024)
+
+    assert second["raw.mlb_win_prob"] == 0  # nothing new -- both games already loaded
+    assert call_count["n"] == calls_after_first_run  # zero additional API calls

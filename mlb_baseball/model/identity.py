@@ -2,6 +2,8 @@
 
 import psycopg
 
+from mlb_baseball.db import fetch_one
+
 
 def backfill_game_instance_keys(
     conn: psycopg.Connection, batch_size: int = 1_000
@@ -56,9 +58,9 @@ def backfill_game_instance_keys(
     conn.commit()
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM gold.game_feature WHERE game_instance_key IS NULL")
-        feature_remaining = cur.fetchone()[0]
+        feature_remaining = fetch_one(cur)[0]
         cur.execute("SELECT count(*) FROM gold.prediction WHERE game_instance_key IS NULL")
-        prediction_remaining = cur.fetchone()[0]
+        prediction_remaining = fetch_one(cur)[0]
     return {
         "features": features,
         "predictions": predictions,

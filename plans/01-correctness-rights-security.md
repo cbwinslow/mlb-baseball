@@ -69,7 +69,7 @@ read-only diagnostics from owner-authorized stale-run repair.
 #### 01F remediation sequence
 
 Production `mlb` remains out of scope. Any later database verification uses only
-the existing `mlb_test_codex` database.
+the existing `mlb_test` database.
 
 1. **01F-R1 — schema availability:** create nullable identity columns and the
    registry before the blocking cutover migration. Gate: repeatable schema-prep

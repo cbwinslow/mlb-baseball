@@ -6,6 +6,9 @@ each completed plan gate.
 ## Current state summary
 
 - **Production state:** Production `mlb` database remains untouched; no production cutover is authorized.
+- **Test database:** The current reusable local test database is `mlb_test`.
+  Older evidence below may refer to `mlb_test_codex`, which is not present on
+  the current host and must not be recreated without owner authorization.
 - **Plan 01 status:** Active; Plan 01F durable game-identity cutover is BLOCKED pending R1–R6 remediation.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.

@@ -3,6 +3,11 @@
 Last audited: 2026-08-06. This is an evidence record, not a production
 SQLMesh cutover approval.
 
+> Current-environment note (2026-08-09): the evidence below names the former
+> `mlb_test_codex` database. The reusable local test database is `mlb_test`;
+> follow the current operating docs rather than creating an additional test
+> database.
+
 ## Passed gates
 
 - Named, packaged SQL now owns the stable venue, park factor, game-feature

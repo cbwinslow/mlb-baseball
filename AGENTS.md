@@ -38,7 +38,7 @@ remain removable and must never influence model output or research conclusions.
   before the next package begins.
 - Preserve user and parallel-agent changes. Never assume a dirty worktree is
   disposable.
-- Reuse the existing `mlb_test_codex` test database for database verification;
+- Reuse the existing `mlb_test` test database for database verification;
   do not create additional test databases unless the owner explicitly asks.
 
 ## Architecture decisions

@@ -59,7 +59,7 @@ run under anything other than `mlb_owner`.
 
 `tests/integration/test_least_privilege.py` creates a uniquely named,
 NOLOGIN serving role plus a disposable serve schema/table/view in
-`mlb_test_codex`. It proves via `SET ROLE` that the serving role can select its
+`mlb_test`. It proves via `SET ROLE` that the serving role can select its
 approved object but cannot read or create objects in `raw`, `core`, `gold`, or
 `meta`, create schemas, or write/drop its serve object. The fixture drops the
 temporary schema and role in teardown. This is an executable contract for the

@@ -87,7 +87,12 @@ def candidate_gate_data(db_conn):
 def test_candidate_gate_proves_surrogate_and_completed_scheduled_parity(
     candidate_gate_data, monkeypatch
 ):
-    monkeypatch.setenv("TEST_DATABASE_URL", "postgresql:///mlb_test")
+    # The subprocess must use the same configured disposable database as the
+    # fixture, including its authentication details.  A hard-coded peer-auth
+    # URL works only for one local role and breaks a normal `.env` setup.
+    monkeypatch.setenv(
+        "TEST_DATABASE_URL", os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test")
+    )
 
     result = subprocess.run(
         [

@@ -19,13 +19,13 @@ following experimental candidates:
 External-model declarations are catalog-neutral logical names (for example
 `core.game` and `raw.retrosheet_event`); the selected gateway supplies the
 database/catalog. This is required for the same reviewed model project to be
-testable against the existing `mlb_test_codex` database later, without copying
+testable against the existing `mlb_test` database later, without copying
 or recreating a second database.
 
 The original `mlb` database is never a SQLMesh target without a separately
 reviewed configuration, owner approval, and a migration-specific cutover plan.
 No new test database is permitted: any future integration run must reuse the
-existing `mlb_test_codex` database and an isolated, explicitly named schema or
+existing `mlb_test` database and an isolated, explicitly named schema or
 candidate relation.
 
 ## Reproducible checks
@@ -39,6 +39,13 @@ uv run sqlmesh -p transforms plan --no-prompts
 uv run sqlmesh -p transforms audit --model core.venue --model gold.park_factor --model gold.team_woba
 ```
 
+The current SQLMesh Postgres extra imports `psycopg2`, which requires the
+host shared library `libpq.so.5` (for example, the OS `libpq`/`libpq5`
+package). The application's `psycopg[binary]` dependency does not satisfy
+that native dependency for SQLMesh. Verify `uv run --extra dev sqlmesh
+--version` succeeds before relying on the SQLMesh commands; do not paper over
+a missing library by changing the project database driver.
+
 `test` runs DuckDB fixtures only. `plan --no-prompts` is review-only and must
 be captured before an apply. `audit` points at the spike gateway and is only a
 valid verification after a reviewed spike plan has been applied. CI runs the
@@ -49,7 +56,7 @@ DuckDB test and SQLMesh parse/plan review commands; it never auto-applies.
 An adoption configuration must be introduced in the same reviewed change as
 its first eligible model. It must specify all of the following explicitly:
 
-1. The checked-in `candidate` gateway using the existing `mlb_test_codex`
+1. The checked-in `candidate` gateway using the existing `mlb_test`
    database for integration verification, never a newly created database.
 2. A dedicated SQLMesh state schema and candidate output namespace; it must
    not overwrite `core`, `gold`, or `meta` relations during parity testing.
@@ -68,7 +75,7 @@ Before Python stops writing any relation:
 1. Record its grain, identity, cutoff time, dependencies, mutation owner, and
    rollback owner in `TABLE_CONTRACTS.md`.
 2. Run DuckDB unit tests, then a full-table and sampled point-in-time tie-out
-   against the existing Python output in `mlb_test_codex`.
+against the existing Python output in `mlb_test`.
 3. Explain every difference; zero unexplained differences are allowed for a
    replacement writer.
 4. Measure query/runtime behavior and verify all SQLMesh audits after a
@@ -93,7 +100,7 @@ Before a candidate writer can be considered, run this read-only gate after its
 candidate relations exist:
 
 ```bash
-TEST_DATABASE_URL=postgresql:///mlb_test_codex \
+TEST_DATABASE_URL=postgresql://mlb:password@localhost:5432/mlb_test \
 uv run python scripts/verify_sqlmesh_candidate.py \
   --venue core__plan02_candidate.venue \
   --feature gold__plan02_candidate.game_feature

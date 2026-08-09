@@ -27,6 +27,9 @@ class Prediction:
     actual: bool
 
 
+MetricValue = float | int | tuple[float, float]
+
+
 _CUTOFF_SQL = {
     "open": ("", "ORDER BY p.generated_at ASC"),
     "24h": (
@@ -195,9 +198,11 @@ def evaluate(
             version: sum(row.model_version == version for row in rows) for version in model_versions
         }
         common = _common_sample(rows, model_versions)
-        metrics = {}
+        metrics: dict[str, dict[str, MetricValue]] = {}
         for index, version in enumerate(model_versions):
-            model_scores = _scores(common[version])
+            model_scores: dict[str, MetricValue] = {
+                metric: value for metric, value in _scores(common[version]).items()
+            }
             model_scores["log_loss_95ci"] = _bootstrap_interval(
                 common[version], "log_loss", bootstrap_samples, seed=index
             )
@@ -205,11 +210,12 @@ def evaluate(
                 common[version], "brier", bootstrap_samples, seed=10_000 + index
             )
             metrics[version] = model_scores
+        common_games = len(next(iter(common.values()), []))
         report = {
             "season": season,
             "cutoff": cutoff,
             "coverage": coverage,
-            "common_games": len(next(iter(common.values()), [])),
+            "common_games": common_games,
             "models": metrics,
         }
         report["evaluation_id"] = provenance.record_evaluation(
@@ -218,7 +224,7 @@ def evaluate(
             model_versions=list(model_versions),
             season=season,
             prediction_cutoff=cutoff,
-            common_games=report["common_games"],
+            common_games=common_games,
             coverage=coverage,
             metrics=metrics,
         )

@@ -9,9 +9,22 @@ import os
 
 import psycopg
 import pytest
+from dotenv import load_dotenv
 from psycopg import sql
 
+load_dotenv()
+
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test")
+
+
+def _assert_test_database_url(url: str) -> None:
+    """Refuse the suite before it can mutate a non-disposable database."""
+    dbname = psycopg.conninfo.conninfo_to_dict(url).get("dbname", "")
+    if "test" not in dbname.lower():
+        raise RuntimeError(
+            "TEST_DATABASE_URL must name a disposable test database; "
+            f"refusing to run against {dbname or '<unspecified>'!r}"
+        )
 
 
 class _UndefinedTableCursor:
@@ -108,6 +121,7 @@ def _test_database():
     per test session before any test runs, then applies test-only
     durability relaxations (never done against production — see
     _speed_up_test_database's docstring)."""
+    _assert_test_database_url(TEST_DATABASE_URL)
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
     from mlb_baseball import migrate
 

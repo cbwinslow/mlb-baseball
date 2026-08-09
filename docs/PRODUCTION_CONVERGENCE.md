@@ -4,6 +4,11 @@ Audited: 2026-08-06. This record is based on read-only queries against the
 existing `mlb` database. No migration, ingestion, conformance, truncate, or
 other production write was performed during this audit.
 
+> Current-environment note (2026-08-09): this historical audit mentions
+> `mlb_test_codex`, but the reusable local test database is now `mlb_test`.
+> Use the current commands in `README.md` and `AGENTS.md`; do not create a new
+> test database merely to reproduce this record.
+
 ## Readiness evidence
 
 The audit connection explicitly reported `current_database = mlb` and

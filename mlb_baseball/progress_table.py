@@ -18,12 +18,13 @@ more ways to define "progress," more display styles) as the project does:
       the table's owning source (matched against `registry.CONNECTORS`,
       reused rather than re-hardcoded) -- success/running/failed map to
       100/50/0%.
-    - `SeasonCoverageStrategy`: a real, honest percentage for the tables
+    - `SeasonCoverageStrategy`: an exact, honest percentage for the tables
       this project already knows a true start year for (imported directly
       from each connector's own `FIRST_*_YEAR` constant, e.g.
       `statcast.FIRST_STATCAST_YEAR` -- never re-typed as a second,
-      driftable copy) -- `(latest season loaded - first year + 1) /
-      (current year - first year + 1)`. Falls back to `HasDataStrategy`
+      driftable copy) -- `(distinct seasons loaded) / (expected seasons)`.
+      A latest-season proxy would incorrectly call a table with holes (or
+      only the current season) complete. Falls back to `HasDataStrategy`
       for every table it doesn't have a real registered start year for,
       rather than guessing one.
   Adding a fourth strategy (e.g. a real expected-row-count check for a
@@ -133,6 +134,7 @@ class TableStatus:
     percent: float = 0.0
     max_season: int | None = None
     first_year: int | None = None
+    seasons_loaded: int | None = None
 
     @property
     def full_name(self) -> str:
@@ -144,7 +146,7 @@ class TableStatus:
 
     @property
     def has_season_coverage(self) -> bool:
-        return self.max_season is not None and self.first_year is not None
+        return self.seasons_loaded is not None and self.first_year is not None
 
     def estimated_total_rows(self, current_year: int) -> int | None:
         """Rows-per-covered-year so far, projected across every year this
@@ -153,12 +155,11 @@ class TableStatus:
         (table not in SEASON_COVERAGE_REGISTRY, or genuinely no rows)."""
         if not self.has_season_coverage or self.rows == 0:
             return None
-        assert self.max_season is not None and self.first_year is not None
-        years_covered = self.max_season - self.first_year + 1
-        if years_covered <= 0:
+        assert self.seasons_loaded is not None and self.first_year is not None
+        if self.seasons_loaded <= 0:
             return None
         total_years = current_year - self.first_year + 1
-        return round(self.rows / years_covered * total_years)
+        return round(self.rows / self.seasons_loaded * total_years)
 
 
 class ProgressStrategy(Protocol):
@@ -201,11 +202,14 @@ class RunStatusStrategy:
 
 
 class SeasonCoverageStrategy:
-    """The real one: `(latest season loaded - first year + 1) / (current
-    year - first year + 1)`, for the tables in SEASON_COVERAGE_REGISTRY
-    (TableStatusCollector is what actually fetches `max_season` -- this
-    class only does arithmetic on it). Falls back to HasDataStrategy for
-    every table not in that registry, rather than fabricating a number."""
+    """Exact distinct-season coverage for registered seasonal raw tables.
+
+    ``MAX(_season)`` is deliberately not used as a completeness proxy: a
+    current-season refresh can make a historically sparse table look 100%
+    complete. The collector requests ``COUNT(DISTINCT _season)`` only when
+    this explicit strategy is selected, keeping ordinary status fast for
+    large pitch/event tables.
+    """
 
     def __init__(self, current_year: int | None = None) -> None:
         import datetime
@@ -216,12 +220,11 @@ class SeasonCoverageStrategy:
     def compute(self, status: TableStatus) -> float:
         if not status.has_season_coverage:
             return self._fallback.compute(status)
-        assert status.max_season is not None and status.first_year is not None
+        assert status.seasons_loaded is not None and status.first_year is not None
         total_years = self._current_year - status.first_year + 1
         if total_years <= 0:
             return self._fallback.compute(status)
-        covered_years = status.max_season - status.first_year + 1
-        return max(0.0, min(100.0, covered_years / total_years * 100))
+        return max(0.0, min(100.0, status.seasons_loaded / total_years * 100))
 
 
 class ProgressBarStyle(Protocol):
@@ -309,11 +312,14 @@ def _ensure_season_indexes(table_names: set[str]) -> None:
             conn.autocommit = old_autocommit
 
 
-def _fetch_season_coverage(table_names: set[str]) -> dict[str, int]:
+def _fetch_season_coverage(
+    table_names: set[str], *, exact: bool = False
+) -> dict[str, tuple[int, int | None]]:
     """One batched query for every table in `table_names` that's also in
     SEASON_COVERAGE_REGISTRY -- not one round-trip per table. Returns
-    {table_name: max_season}; a table with no rows yet (or not present in
-    the database at all) is simply absent from the result.
+    ``{table_name: (max_season, seasons_loaded)}``. ``seasons_loaded`` is
+    populated only when ``exact`` is requested. A table with no rows yet (or
+    not present in the database at all) is simply absent from the result.
 
     Deliberately MAX(season_column) with no ::int cast, even though the
     result is converted to int in Python right after -- found the hard
@@ -329,15 +335,22 @@ def _fetch_season_coverage(table_names: set[str]) -> dict[str, int]:
     registered = [name for name in table_names if name in SEASON_COVERAGE_REGISTRY]
     if not registered:
         return {}
-    selects = [
-        f"SELECT '{name}' AS table_name, MAX({SEASON_COVERAGE_REGISTRY[name][1]}) "
-        f"AS max_season FROM raw.{name}"
-        for name in registered
-    ]
+    selects = []
+    for name in registered:
+        column = SEASON_COVERAGE_REGISTRY[name][1]
+        count_expression = f"COUNT(DISTINCT {column})" if exact else "NULL::bigint"
+        selects.append(
+            f"SELECT '{name}' AS table_name, MAX({column}) AS max_season, "
+            f"{count_expression} AS seasons_loaded FROM raw.{name}"
+        )
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(" UNION ALL ".join(selects))
-            return {row[0]: int(row[1]) for row in cur.fetchall() if row[1] is not None}
+            return {
+                row[0]: (int(row[1]), int(row[2]) if row[2] is not None else None)
+                for row in cur.fetchall()
+                if row[1] is not None
+            }
 
 
 class TableStatusCollector:
@@ -352,7 +365,10 @@ class TableStatusCollector:
     def collect(self) -> list[TableStatus]:
         runs_by_source = {row["source"]: row for row in inventory.last_runs()}
         table_rows = inventory.tables()
-        season_by_table = _fetch_season_coverage({row["table"] for row in table_rows})
+        season_by_table = _fetch_season_coverage(
+            {row["table"] for row in table_rows},
+            exact=isinstance(self.strategy, SeasonCoverageStrategy),
+        )
         statuses = []
         for row in table_rows:
             source = _matching_source_for(row["table"])
@@ -362,8 +378,9 @@ class TableStatusCollector:
                 table=row["table"],
                 rows=row["rows"],
                 last_run=runs_by_source.get(source) if source else None,
-                max_season=season_by_table.get(row["table"]),
+                max_season=(season_by_table.get(row["table"]) or (None, None))[0],
                 first_year=first_year,
+                seasons_loaded=(season_by_table.get(row["table"]) or (None, None))[1],
             )
             status.percent = self.strategy.compute(status)
             statuses.append(status)

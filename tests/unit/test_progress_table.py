@@ -142,7 +142,12 @@ def test_collector_attaches_matching_last_run_by_source(monkeypatch):
 def test_season_coverage_strategy_computes_a_real_fraction():
     # 10 of 20 possible years covered -- a genuine 50%, not a guess.
     status = TableStatus(
-        schema="raw", table="statcast_pitch", rows=1, max_season=2017, first_year=2008
+        schema="raw",
+        table="statcast_pitch",
+        rows=1,
+        max_season=2026,
+        first_year=2008,
+        seasons_loaded=10,
     )
     assert SeasonCoverageStrategy(current_year=2027).compute(status) == 50.0
 
@@ -154,21 +159,26 @@ def test_season_coverage_strategy_falls_back_when_table_not_registered():
 
 def test_season_coverage_strategy_clamps_to_100_when_fully_current():
     status = TableStatus(
-        schema="raw", table="statcast_pitch", rows=1, max_season=2026, first_year=2008
+        schema="raw",
+        table="statcast_pitch",
+        rows=1,
+        max_season=2026,
+        first_year=2008,
+        seasons_loaded=19,
     )
     assert SeasonCoverageStrategy(current_year=2026).compute(status) == 100.0
 
 
-def test_has_season_coverage_requires_both_fields():
+def test_has_season_coverage_requires_first_year_and_exact_count():
     assert (
-        TableStatus(schema="raw", table="x", rows=1, max_season=2020).has_season_coverage is False
+        TableStatus(schema="raw", table="x", rows=1, seasons_loaded=1).has_season_coverage is False
     )
     assert (
         TableStatus(schema="raw", table="x", rows=1, first_year=2008).has_season_coverage is False
     )
     assert (
         TableStatus(
-            schema="raw", table="x", rows=1, max_season=2020, first_year=2008
+            schema="raw", table="x", rows=1, first_year=2008, seasons_loaded=1
         ).has_season_coverage
         is True
     )
@@ -178,7 +188,12 @@ def test_estimated_total_rows_projects_from_observed_density():
     # 100 rows across 5 covered years (2008-2012) -> 20 rows/year, times
     # 19 total expected years (2008-2026) -> 380.
     status = TableStatus(
-        schema="raw", table="statcast_pitch", rows=100, max_season=2012, first_year=2008
+        schema="raw",
+        table="statcast_pitch",
+        rows=100,
+        max_season=2012,
+        first_year=2008,
+        seasons_loaded=5,
     )
     assert status.estimated_total_rows(current_year=2026) == 380
 
@@ -190,6 +205,11 @@ def test_estimated_total_rows_none_without_season_coverage():
 
 def test_estimated_total_rows_none_when_genuinely_empty():
     status = TableStatus(
-        schema="raw", table="statcast_pitch", rows=0, max_season=2012, first_year=2008
+        schema="raw",
+        table="statcast_pitch",
+        rows=0,
+        max_season=2012,
+        first_year=2008,
+        seasons_loaded=5,
     )
     assert status.estimated_total_rows(current_year=2026) is None

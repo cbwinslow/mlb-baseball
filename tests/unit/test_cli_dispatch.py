@@ -405,3 +405,16 @@ def test_status_run_status_flag_selects_run_status_strategy(monkeypatch):
     cli.main(["status", "--run-status"])
 
     assert isinstance(captured["strategy"], progress_table.RunStatusStrategy)
+
+
+def test_status_season_coverage_flag_selects_exact_coverage_strategy(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        progress_table,
+        "print_status_table",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    cli.main(["status", "--season-coverage"])
+
+    assert isinstance(captured["strategy"], progress_table.SeasonCoverageStrategy)

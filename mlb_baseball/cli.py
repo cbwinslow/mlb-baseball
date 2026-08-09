@@ -186,10 +186,16 @@ def main(argv: list[str] | None = None) -> None:
     status_parser.add_argument(
         "--watch", type=int, metavar="SECONDS", help="refresh live every SECONDS until Ctrl-C"
     )
-    status_parser.add_argument(
+    status_strategy = status_parser.add_mutually_exclusive_group()
+    status_strategy.add_argument(
         "--run-status",
         action="store_true",
         help="use each table's last ingestion-run status instead of just row count",
+    )
+    status_strategy.add_argument(
+        "--season-coverage",
+        action="store_true",
+        help="use exact distinct-season coverage for registered historical tables",
     )
     subparsers.add_parser("doctor")
     subparsers.add_parser("repair-runs")
@@ -272,7 +278,15 @@ def main(argv: list[str] | None = None) -> None:
                 f"{row['rows']} rows, started {row['started_at']})"
             )
     elif args.command == "status":
-        strategy = progress_table.RunStatusStrategy() if args.run_status else None
+        if args.season_coverage and args.watch is not None:
+            parser.error("status --season-coverage cannot be combined with --watch")
+        strategy = (
+            progress_table.RunStatusStrategy()
+            if args.run_status
+            else progress_table.SeasonCoverageStrategy()
+            if args.season_coverage
+            else None
+        )
         progress_table.print_status_table(
             strategy=strategy, populated_only=not args.all, watch=args.watch
         )

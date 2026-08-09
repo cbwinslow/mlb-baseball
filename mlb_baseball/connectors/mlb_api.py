@@ -992,6 +992,26 @@ def _load_linescores_for_season(conn: psycopg.Connection, season: int) -> int:
     )
 
 
+def _linescores_already_landed(conn: psycopg.Connection, season: int) -> bool:
+    """Avoid re-hydrating a complete historical season on every resume.
+
+    Linescores are received in one season-wide response and committed before
+    any per-game analytics work begins.  Once that response has landed, a
+    later interrupted analytics batch must not make the resume wait through
+    the same multi-megabyte hydration again.  The regular health coverage
+    check remains responsible for detecting a later data-loss condition.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM raw.mlb_linescore WHERE _season = %s LIMIT 1", (str(season),)
+            )
+            return cur.fetchone() is not None
+    except psycopg.errors.UndefinedTable:
+        conn.rollback()
+        return False
+
+
 def _load_context_metrics_for_game(conn: psycopg.Connection, game_pk: int, season: int) -> int:
     # One row per game, not per-play: pregame win probability (distinct from
     # raw.mlb_win_prob's per-at-bat values) plus positional sacrifice-fly
@@ -1426,13 +1446,15 @@ def _load_analytics_for_season(
     except Exception as exc:
         print(f"mlb_api: analytics for season {season} failed ({exc}); skipping whole season")
         return totals
-    try:
-        totals["raw.mlb_linescore"] = _load_linescores_for_season(conn, season)
-        conn.commit()
-    except Exception as exc:
-        conn.rollback()
-        print(f"mlb_api: linescores for season {season} failed ({exc}); falling back per game")
-        pass
+    if _linescores_already_landed(conn, season):
+        print(f"mlb_api: linescores for season {season} already landed, skipping hydration")
+    else:
+        try:
+            totals["raw.mlb_linescore"] = _load_linescores_for_season(conn, season)
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            print(f"mlb_api: linescores for season {season} failed ({exc}); falling back per game")
     terminal = _terminal_analytics_games(conn, season)
     # The schedule endpoint can expose the same game more than once in a
     # reschedule/doubleheader-shaped response.  An API item is keyed by game,

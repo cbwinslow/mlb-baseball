@@ -10,6 +10,64 @@ import psycopg
 from mlb_baseball.db import fetch_one
 
 
+def record_items(conn: psycopg.Connection, items: list[dict]) -> None:
+    """Atomically upsert completed source items after their raw rows land.
+
+    The caller supplies one immutable source item (for example,
+    ``analytics_win_probability`` / ``1967:153395``) per dict. ``loaded``
+    may be retried safely; ``unavailable`` records a permanent source 404 so
+    a resume does not waste another request on it.
+    """
+    if not items:
+        return
+    required = {"source", "dataset", "item_key", "status"}
+    if any(required - item.keys() for item in items):
+        raise ValueError(f"ingestion item missing required keys: {sorted(required)}")
+    columns = [
+        "source",
+        "dataset",
+        "item_key",
+        "status",
+        "source_url",
+        "artifact_path",
+        "artifact_sha256",
+        "bytes",
+        "http_status",
+        "rows",
+        "parser_version",
+        "schema_fingerprint",
+        "error",
+        "run_id",
+    ]
+    values = [tuple(item.get(column) for column in columns) for item in items]
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO meta.ingestion_item (
+                source, dataset, item_key, status, source_url, artifact_path,
+                artifact_sha256, bytes, http_status, rows, parser_version,
+                schema_fingerprint, error, run_id
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (source, dataset, item_key) DO UPDATE SET
+                status = EXCLUDED.status,
+                attempts = meta.ingestion_item.attempts + 1,
+                source_url = EXCLUDED.source_url,
+                artifact_path = EXCLUDED.artifact_path,
+                artifact_sha256 = EXCLUDED.artifact_sha256,
+                bytes = EXCLUDED.bytes,
+                http_status = EXCLUDED.http_status,
+                rows = EXCLUDED.rows,
+                parser_version = EXCLUDED.parser_version,
+                schema_fingerprint = EXCLUDED.schema_fingerprint,
+                error = EXCLUDED.error,
+                run_id = EXCLUDED.run_id,
+                retrieved_at = now(),
+                updated_at = now()
+            """,
+            values,
+        )
+
+
 def _acquire_source_lock(conn: psycopg.Connection, source: str) -> None:
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (f"mlb-ingest:{source}",))

@@ -4,7 +4,7 @@ import uuid
 import psycopg
 import pytest
 
-from mlb_baseball.ingest import reap_stale_runs, track_run
+from mlb_baseball.ingest import reap_stale_runs, record_items, track_run
 
 
 def _fetch_run(db_conn, source):
@@ -46,6 +46,30 @@ def test_success_path_logs_row_count(db_conn):
     assert rows == 42
     assert error is None
     assert finished_at is not None
+
+
+def test_item_ledger_is_idempotent_and_retains_terminal_source_status(db_conn):
+    source = f"test_item_{uuid.uuid4().hex}"
+    first = {
+        "source": source,
+        "dataset": "win_probability",
+        "item_key": "1967:153395",
+        "status": "unavailable",
+        "source_url": "https://example.invalid/game/153395/winProbability",
+        "http_status": 404,
+        "rows": 0,
+    }
+    record_items(db_conn, [first])
+    record_items(db_conn, [{**first, "status": "loaded", "http_status": 200, "rows": 70}])
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT status, attempts, http_status, rows FROM meta.ingestion_item "
+            "WHERE source = %s AND dataset = %s AND item_key = %s",
+            (source, "win_probability", "1967:153395"),
+        )
+        assert cur.fetchone() == ("loaded", 2, 200, 70)
 
 
 def test_failure_path_logs_error_and_leaves_connection_usable(db_conn):

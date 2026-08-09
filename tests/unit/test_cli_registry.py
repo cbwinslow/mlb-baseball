@@ -46,3 +46,28 @@ def test_mlb_api_analytics_stage_passes_bounded_operator_options(monkeypatch):
     )
 
     assert received == {"start_year": 1967, "end_year": 1968, "workers": 8}
+
+
+def test_mlb_api_analytics_replay_stage_uses_no_worker_option(monkeypatch):
+    received = {}
+
+    def replay(**kwargs):
+        received.update(kwargs)
+        return {"raw.mlb_win_prob": 1}
+
+    monkeypatch.setattr(CONNECTORS["mlb_api"], "replay_analytics", replay)
+
+    main(
+        [
+            "ingest",
+            "mlb_api",
+            "--stage",
+            "analytics-replay",
+            "--start-year",
+            "1967",
+            "--end-year",
+            "1968",
+        ]
+    )
+
+    assert received == {"start_year": 1967, "end_year": 1968}

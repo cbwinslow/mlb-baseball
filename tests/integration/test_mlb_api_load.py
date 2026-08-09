@@ -1300,3 +1300,24 @@ def test_analytics_artifact_paths_do_not_overwrite_a_resumed_batch():
     assert first_path != second_path
     assert (manifest.DOWNLOADS_ROOT / mlb_api.SOURCE / first_path).exists()
     assert (manifest.DOWNLOADS_ROOT / mlb_api.SOURCE / second_path).exists()
+
+
+def test_analytics_replay_rebuilds_raw_tables_without_network(db_conn):
+    with _mocked_statsapi():
+        mlb_api._load_schedule(db_conn, 2024)
+        mlb_api._load_analytics_for_season(db_conn, 2024)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM raw.mlb_win_prob")
+        cur.execute("DELETE FROM raw.mlb_game_context")
+        cur.execute("DELETE FROM raw.mlb_linescore")
+    db_conn.commit()
+
+    with patch.object(mlb_api.statsapi, "get", side_effect=AssertionError("network must not run")):
+        counts = mlb_api.replay_analytics(start_year=2024, end_year=2024)
+
+    assert counts == {
+        "raw.mlb_win_prob": 2,
+        "raw.mlb_linescore": 4,
+        "raw.mlb_game_context": 2,
+    }

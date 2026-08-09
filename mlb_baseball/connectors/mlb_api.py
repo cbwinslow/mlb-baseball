@@ -997,7 +997,13 @@ def _season_linescore_df(data: dict, season: int) -> pd.DataFrame:
 
 
 def _load_linescores_for_season(
-    conn: psycopg.Connection, season: int, *, run_id: int | None = None
+    conn: psycopg.Connection,
+    season: int,
+    *,
+    run_id: int | None = None,
+    data: dict | None = None,
+    artifact: tuple[str, str] | None = None,
+    record_ledger: bool = True,
 ) -> int:
     """Land one hydrated schedule as a replayable, idempotent source item.
 
@@ -1007,27 +1013,33 @@ def _load_linescores_for_season(
     then write its ledger marker.  That gives line scores the same recovery
     guarantees as win probability and context metrics.
     """
-    data = call_with_retry(
-        _get,
-        "schedule",
-        {"sportId": 1, "season": season, "hydrate": "linescore"},
-        force=True,
-    )
+    if data is None:
+        data = call_with_retry(
+            _get,
+            "schedule",
+            {"sportId": 1, "season": season, "hydrate": "linescore"},
+            force=True,
+        )
     df = _season_linescore_df(data, season)
     encoded = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
-    content = gzip.compress(encoded, mtime=0)
-    artifact_id = hashlib.sha256(content).hexdigest()[:16]
-    path, entry = manifest.persist_artifact(
-        SOURCE,
-        f"analytics/{season}/linescore-schedule-{artifact_id}.json.gz",
-        content,
-        url=_linescore_schedule_url(season),
-        metadata={
-            "parser_version": ANALYTICS_PARSER_VERSION,
-            "schema_fingerprint": manifest.schema_fingerprint(_LINESCORE_COLUMNS),
-            "records": len(df),
-        },
-    )
+    if artifact is None:
+        content = gzip.compress(encoded, mtime=0)
+        artifact_id = hashlib.sha256(content).hexdigest()[:16]
+        path, entry = manifest.persist_artifact(
+            SOURCE,
+            f"analytics/{season}/linescore-schedule-{artifact_id}.json.gz",
+            content,
+            url=_linescore_schedule_url(season),
+            metadata={
+                "parser_version": ANALYTICS_PARSER_VERSION,
+                "schema_fingerprint": manifest.schema_fingerprint(_LINESCORE_COLUMNS),
+                "records": len(df),
+            },
+        )
+        artifact_path = str(path.relative_to(path.parents[2]))
+        artifact_sha256 = str(entry["sha256"])
+    else:
+        artifact_path, artifact_sha256 = artifact
     count = replace_dataframe_scopes(
         conn,
         "raw.mlb_linescore",
@@ -1035,26 +1047,27 @@ def _load_linescores_for_season(
         scope_column="_season",
         scope_values=[str(season)],
     )
-    record_items(
-        conn,
-        [
-            {
-                "source": SOURCE,
-                "dataset": "linescore_schedule",
-                "item_key": str(season),
-                "status": "loaded",
-                "source_url": _linescore_schedule_url(season),
-                "artifact_path": str(path.relative_to(path.parents[2])),
-                "artifact_sha256": str(entry["sha256"]),
-                "bytes": len(encoded),
-                "http_status": 200,
-                "rows": count,
-                "parser_version": ANALYTICS_PARSER_VERSION,
-                "schema_fingerprint": manifest.schema_fingerprint(_LINESCORE_COLUMNS),
-                "run_id": run_id,
-            }
-        ],
-    )
+    if record_ledger:
+        record_items(
+            conn,
+            [
+                {
+                    "source": SOURCE,
+                    "dataset": "linescore_schedule",
+                    "item_key": str(season),
+                    "status": "loaded",
+                    "source_url": _linescore_schedule_url(season),
+                    "artifact_path": artifact_path,
+                    "artifact_sha256": artifact_sha256,
+                    "bytes": len(encoded),
+                    "http_status": 200,
+                    "rows": count,
+                    "parser_version": ANALYTICS_PARSER_VERSION,
+                    "schema_fingerprint": manifest.schema_fingerprint(_LINESCORE_COLUMNS),
+                    "run_id": run_id,
+                }
+            ],
+        )
     return count
 
 
@@ -1409,9 +1422,16 @@ def _load_analytics_batch(
     results: list[dict[str, Any]],
     *,
     run_id: int | None,
+    artifact: tuple[str, str] | None = None,
+    record_ledger: bool = True,
 ) -> dict[str, int]:
     """Archive, replace, and ledger a fetched batch as one durable unit."""
-    artifact_path, artifact_sha256 = _artifact_for_analytics_batch(season, batch_number, results)
+    if artifact is None:
+        artifact_path, artifact_sha256 = _artifact_for_analytics_batch(
+            season, batch_number, results
+        )
+    else:
+        artifact_path, artifact_sha256 = artifact
     win_rows: list[dict] = []
     context_rows: list[dict] = []
     loaded_scopes: dict[str, list[str]] = {"win_probability": [], "context_metrics": []}
@@ -1514,7 +1534,8 @@ def _load_analytics_batch(
         scope_column="game_pk",
         scope_values=loaded_scopes["context_metrics"],
     )
-    record_items(conn, items)
+    if record_ledger:
+        record_items(conn, items)
     conn.commit()
     return {"raw.mlb_win_prob": win_count, "raw.mlb_game_context": context_count}
 
@@ -1612,6 +1633,125 @@ def backfill_analytics(
                 conn, season, run_id=result["run_id"], workers=workers
             ).items():
                 totals[table] = totals.get(table, 0) + count
+        result["rows"] = sum(totals.values())
+    return totals
+
+
+def _read_analytics_artifact(relative_path: str, expected_sha256: str) -> bytes:
+    """Read one ledger-referenced artifact and reject a wrong or unsafe file."""
+    root = (manifest.DOWNLOADS_ROOT / SOURCE).resolve()
+    path = (root / relative_path).resolve()
+    if root not in path.parents or not path.is_file():
+        raise RuntimeError(
+            f"analytics artifact is missing or outside downloads root: {relative_path}"
+        )
+    content = path.read_bytes()
+    actual_sha256 = hashlib.sha256(content).hexdigest()
+    if actual_sha256 != expected_sha256:
+        raise RuntimeError(
+            f"analytics artifact checksum mismatch for {relative_path}: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
+    return content
+
+
+def _analytics_results_from_ndjson(content: bytes) -> list[dict[str, Any]]:
+    games: dict[int, dict[str, Any]] = {}
+    for line in gzip.decompress(content).decode().splitlines():
+        record = json.loads(line)
+        game_pk = int(record["game_pk"])
+        http_status = int(record["http_status"])
+        dataset = str(record["dataset"])
+        games.setdefault(game_pk, {"game_pk": game_pk, "documents": {}})["documents"][dataset] = {
+            "status": "unavailable" if http_status == 404 else "loaded",
+            "http_status": http_status,
+            "payload": record.get("payload"),
+            "url": record["url"],
+        }
+    incomplete = [game_pk for game_pk, result in games.items() if len(result["documents"]) != 2]
+    if incomplete:
+        raise RuntimeError(
+            f"analytics artifact is missing endpoint documents for games: {incomplete[:5]}"
+        )
+    return [games[game_pk] for game_pk in sorted(games)]
+
+
+def replay_analytics(
+    *, start_year: int = FIRST_WIN_PROB_YEAR, end_year: int | None = None
+) -> dict[str, int]:
+    """Rebuild analytics raw tables from verified local artifacts, without HTTP.
+
+    The ledger is the replay manifest: it identifies exactly which immutable
+    artifact each successful source item came from.  We deliberately reject
+    missing or checksum-mismatched files rather than silently making a
+    partial rebuild look successful.
+    """
+    final_year = end_year or date.today().year
+    if start_year < FIRST_WIN_PROB_YEAR or final_year < start_year:
+        raise ValueError(
+            f"analytics years must be within {FIRST_WIN_PROB_YEAR}-{date.today().year}"
+        )
+    totals: dict[str, int] = dict.fromkeys(_ANALYTICS_TABLES, 0)
+    with get_connection() as conn, track_run(conn, SOURCE, "backfill") as result:
+        for season in range(start_year, final_year + 1):
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT artifact_path, artifact_sha256
+                    FROM meta.ingestion_item
+                    WHERE source = %s AND dataset = 'linescore_schedule'
+                      AND item_key = %s AND status = 'loaded'
+                    """,
+                    (SOURCE, str(season)),
+                )
+                linescore_artifacts = cur.fetchall()
+                cur.execute(
+                    """
+                    SELECT DISTINCT artifact_path, artifact_sha256
+                    FROM meta.ingestion_item
+                    WHERE source = %s
+                      AND dataset IN ('win_probability', 'context_metrics')
+                      AND item_key LIKE %s
+                      AND status IN ('loaded', 'unavailable')
+                    ORDER BY artifact_path
+                    """,
+                    (SOURCE, f"{season}:%"),
+                )
+                batch_artifacts = cur.fetchall()
+            if len(linescore_artifacts) != 1:
+                raise RuntimeError(
+                    f"season {season}: expected one durable linescore artifact, found "
+                    f"{len(linescore_artifacts)}"
+                )
+            linescore_path, linescore_sha256 = linescore_artifacts[0]
+            linescore_data = json.loads(
+                gzip.decompress(_read_analytics_artifact(linescore_path, linescore_sha256))
+            )
+            totals["raw.mlb_linescore"] += _load_linescores_for_season(
+                conn,
+                season,
+                run_id=result["run_id"],
+                data=linescore_data,
+                artifact=(str(linescore_path), str(linescore_sha256)),
+                record_ledger=False,
+            )
+            for batch_number, (artifact_path, artifact_sha256) in enumerate(
+                batch_artifacts, start=1
+            ):
+                results = _analytics_results_from_ndjson(
+                    _read_analytics_artifact(str(artifact_path), str(artifact_sha256))
+                )
+                for table, count in _load_analytics_batch(
+                    conn,
+                    season,
+                    batch_number,
+                    results,
+                    run_id=result["run_id"],
+                    artifact=(str(artifact_path), str(artifact_sha256)),
+                    record_ledger=False,
+                ).items():
+                    totals[table] = totals.get(table, 0) + count
+            conn.commit()
         result["rows"] = sum(totals.values())
     return totals
 

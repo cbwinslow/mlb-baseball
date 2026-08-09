@@ -175,8 +175,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     ingest_parser.add_argument(
         "--stage",
-        choices=["analytics"],
-        help="run one resumable MLB API historical stage instead of the full connector",
+        choices=["analytics", "analytics-replay"],
+        help="run or replay one resumable MLB API historical stage instead of the full connector",
     )
     ingest_parser.add_argument(
         "--start-year", type=int, help="first season for a staged MLB API run"
@@ -245,17 +245,28 @@ def main(argv: list[str] | None = None) -> None:
         connector = CONNECTORS[args.source]
         fn: Callable[[], dict[str, int]]
         if args.stage:
-            if args.source != "mlb_api" or args.stage != "analytics":
-                parser.error("staged ingestion is currently available only for mlb_api analytics")
+            if args.source != "mlb_api":
+                parser.error("staged ingestion is currently available only for mlb_api")
             if args.mode != "bootstrap":
-                parser.error("--stage analytics uses bootstrap mode; omit --mode")
+                parser.error("staged ingestion uses bootstrap mode; omit --mode")
+            if args.stage == "analytics":
 
-            def fn():
-                return connector.backfill_analytics(
-                    start_year=args.start_year or connector.FIRST_WIN_PROB_YEAR,
-                    end_year=args.end_year,
-                    workers=args.workers or connector.ANALYTICS_WORKERS,
-                )
+                def fn():
+                    return connector.backfill_analytics(
+                        start_year=args.start_year or connector.FIRST_WIN_PROB_YEAR,
+                        end_year=args.end_year,
+                        workers=args.workers or connector.ANALYTICS_WORKERS,
+                    )
+
+            elif args.workers:
+                parser.error("--workers is only valid with --stage analytics")
+            else:
+
+                def fn():
+                    return connector.replay_analytics(
+                        start_year=args.start_year or connector.FIRST_WIN_PROB_YEAR,
+                        end_year=args.end_year,
+                    )
         elif args.start_year or args.end_year or args.workers:
             parser.error("--start-year, --end-year, and --workers require --stage analytics")
         elif args.mode == "bootstrap":

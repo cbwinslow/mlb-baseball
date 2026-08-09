@@ -44,6 +44,8 @@ That command downloads bounded parallel batches, writes compressed replayable JS
 
 To rebuild that analytics range from verified local artifacts without calling MLB again, use `mlb ingest mlb_api --stage analytics-replay --start-year 1950 --end-year 2026`.
 
+For a complete MLB Stats API source rebuild (analytics plus every reference/catalog endpoint), run `scripts/mlb_api_backfill.sh`. It uses one lock, writes a log under `logs/`, resumes safely, and ends with a database metrics snapshot. Run `mlb doctor` afterward, then `mlb conform` only once the raw-layer checks you need are healthy.
+
 `mlb doctor` reports on every source in one pass, and `mlb inventory` shows live row counts and last-run status per source — both are the way to check on a bootstrap's progress, not by assuming a long-running command has hung. `mlb status` gives the same live table-by-table state as a scannable progress-bar table (`--all` to include empty tables, `--run-status` to weight progress by each source's last ingestion-run outcome instead of just row count, `--watch SECONDS` to auto-refresh). Run `mlb metrics --source mlb_api --window-minutes 5` during a large load to see recent item throughput, database cache use, table size, dead-row estimates, and scan mix before changing performance settings.
 
 ## Scheduling

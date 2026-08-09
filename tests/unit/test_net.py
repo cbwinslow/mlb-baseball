@@ -148,6 +148,30 @@ def test_call_with_retry_still_retries_a_503_after_this_change():
     assert calls["count"] == 2
 
 
+def test_call_with_retry_can_cap_retry_after_for_bounded_parallel_work():
+    calls = {"count": 0}
+    fake_response = type(
+        "FakeResponse", (), {"status_code": 503, "headers": {"Retry-After": "300"}}
+    )()
+
+    def flaky(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise requests.exceptions.HTTPError("503 Server Error", response=fake_response)
+        return "success"
+
+    with patch("mlb_baseball.net.time.sleep") as sleep:
+        result = call_with_retry(
+            flaky,
+            max_attempts=3,
+            backoff_seconds=0,
+            max_retry_after_seconds=15,
+        )
+
+    assert result == "success"
+    sleep.assert_called_once_with(15)
+
+
 def test_call_with_retry_does_not_catch_unrelated_exceptions():
     # Only network-shaped failures are worth retrying — a bug in the
     # connector's own code (e.g. a KeyError from unexpected response shape)

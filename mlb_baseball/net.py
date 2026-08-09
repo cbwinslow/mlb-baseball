@@ -21,13 +21,19 @@ def _is_retryable_status(status_code: int | None) -> bool:
     return status_code in RETRYABLE_STATUS_CODES or (status_code is not None and status_code >= 500)
 
 
-def _retry_delay(response: object | None, attempt: int, backoff_seconds: float) -> float:
+def _retry_delay(
+    response: object | None,
+    attempt: int,
+    backoff_seconds: float,
+    *,
+    max_retry_after_seconds: float = 300.0,
+) -> float:
     """Honor a server's numeric Retry-After response when it is bounded."""
     headers = getattr(response, "headers", {}) or {}
     retry_after = headers.get("Retry-After")
     try:
         if retry_after is not None:
-            return min(float(retry_after), 300.0)
+            return min(float(retry_after), max_retry_after_seconds)
     except (TypeError, ValueError):
         pass
     return backoff_seconds * attempt
@@ -72,6 +78,7 @@ def call_with_retry(
     *args,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+    max_retry_after_seconds: float = 300.0,
     **kwargs,
 ):
     """Like get_with_retry, but for library calls that make their own internal
@@ -109,7 +116,12 @@ def call_with_retry(
                 status_code is not None and not _is_retryable_status(status_code)
             ) or attempt == max_attempts:
                 raise
-            wait = _retry_delay(response, attempt, backoff_seconds)
+            wait = _retry_delay(
+                response,
+                attempt,
+                backoff_seconds,
+                max_retry_after_seconds=max_retry_after_seconds,
+            )
             _retry_message(fn.__name__, exc, wait, attempt, max_attempts)
             time.sleep(wait)
     raise AssertionError("unreachable")  # loop always returns or raises

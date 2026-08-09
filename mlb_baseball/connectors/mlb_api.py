@@ -220,6 +220,10 @@ REQUEST_TIMEOUT_SECONDS = 30
 ANALYTICS_REQUEST_TIMEOUT_SECONDS = 5
 ANALYTICS_RETRY_ATTEMPTS = 3
 ANALYTICS_BACKOFF_SECONDS = 1.0
+# The ordinary connector honors a server's Retry-After value for as long as
+# five minutes.  A per-game analytics batch has 24 independent workers; one
+# transient response must not freeze that whole batch for five minutes.
+ANALYTICS_MAX_RETRY_AFTER_SECONDS = 15.0
 
 
 def _get(endpoint: str, params: dict | None = None, force: bool = False):
@@ -1286,6 +1290,7 @@ def _fetch_analytics_document(endpoint: str, game_pk: int, params: dict) -> obje
         request,
         max_attempts=ANALYTICS_RETRY_ATTEMPTS,
         backoff_seconds=ANALYTICS_BACKOFF_SECONDS,
+        max_retry_after_seconds=ANALYTICS_MAX_RETRY_AFTER_SECONDS,
     )
 
 

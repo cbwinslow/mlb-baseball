@@ -28,6 +28,11 @@ second live 48-game test under sustained load measured 16/24/32 workers at
 0.017 seconds for individual commits and 0.013 seconds for one COPY on that
 small payload. The production backfill therefore uses the bounded maximum of
 24 workers; its bottleneck is MLB API latency, not PostgreSQL row insertion.
+The analytics path also recreates a worker session after a failed request and
+caps an individual API retry delay at 15 seconds.  This does not remove
+retries or 404 tracking; it prevents one unhealthy keep-alive connection or
+overlong transient response from parking an entire parallel batch for the
+generic five-minute retry ceiling.
 
 ## Priority order
 

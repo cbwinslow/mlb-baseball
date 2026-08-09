@@ -30,6 +30,18 @@ shared with retrosheet_box.py). The downloaded archive itself is what's kept
 on disk (via manifest.download, small: a few hundred MB across the whole
 corpus); extraction is transient and cleaned up after each load so it
 doesn't multiply that footprint.
+
+Per-year (_parse_archive) and per-archive (bootstrap()) isolation, both
+try/except-log-and-continue: a real full-history bootstrap hit a genuine
+cwevent bug (chadwick_tools.py's CWEVENT_EXTENDED_FIELDS was "0-66" against
+an installed Chadwick build whose real max extended field is 63 — fixed,
+see docs/DECISIONS.md ADR-060) on the very first archive's last year
+(1919). With no isolation at either level, that single failure lost every
+other year already parsed in that same decade archive (results was only
+ever loaded after the whole archive finished parsing) and then aborted
+every remaining archive too — the entire source produced zero rows.
+Matches retrosheet.py's per-year fix (ADR-059) and statcast.py's per-week
+pattern, applied at both levels this connector actually needs it.
 """
 
 import tempfile
@@ -113,21 +125,34 @@ def _parse_archive(archive_path: Path, group: str) -> dict[int, tuple]:
     inserting its own — which is exactly what happened in a real run before
     this was caught (post-season/all-star/Negro League archives, processed
     after the regular-season decades, silently wiped ~16M regular-season
-    rows down to just their own much smaller row counts)."""
+    rows down to just their own much smaller row counts).
+
+    Each year's cwevent/cwgame parse is wrapped in its own try/except —
+    regression: a real full-history bootstrap hit a genuine cwevent bug on
+    a single year (1919, within the 1910s decade archive) and, with no
+    per-year isolation, lost every other year already sitting in this same
+    archive too, since results was only built (never loaded) up to that
+    point. One bad year now gets logged and skipped; every other year in
+    the archive still loads — same shape as retrosheet.py's per-year
+    isolation (ADR-059) and statcast.py's per-week isolation."""
     results: dict[int, tuple] = {}
     with tempfile.TemporaryDirectory(prefix=f"retrosheet_event_{group}_") as tmp:
         extract_dir = Path(tmp)
         archive.extract_zip(archive_path, extract_dir)
         for year, year_dir in _split_by_year(extract_dir).items():
             scope = _load_scope(year, group)
-            event_df = chadwick_tools.run_cwevent(year_dir, year)
-            event_df["_season"] = str(year)
-            event_df["_group"] = group
-            event_df["_scope"] = scope
-            game_df = chadwick_tools.run_cwgame(year_dir, year)
-            game_df["_season"] = str(year)
-            game_df["_group"] = group
-            game_df["_scope"] = scope
+            try:
+                event_df = chadwick_tools.run_cwevent(year_dir, year)
+                event_df["_season"] = str(year)
+                event_df["_group"] = group
+                event_df["_scope"] = scope
+                game_df = chadwick_tools.run_cwgame(year_dir, year)
+                game_df["_season"] = str(year)
+                game_df["_group"] = group
+                game_df["_scope"] = scope
+            except Exception as exc:
+                print(f"retrosheet_event: {group} {year} failed ({exc}); skipping this year")
+                continue
             results[year] = (event_df, game_df)
     return results
 
@@ -175,20 +200,33 @@ def _load_archive(
 
 
 def bootstrap() -> dict[str, int]:
+    # Per-archive isolation, same reasoning as _parse_archive's per-year
+    # isolation above: an archive that fails outright (a genuine parser
+    # bug, a bad download, anything) must not prevent every other archive
+    # from loading -- with 12 decade archives plus several special ones,
+    # losing the whole bootstrap over one is exactly what a real run hit.
     totals: dict[str, int] = {}
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
         for filename in PBP_DECADE_ARCHIVES:
-            for table, count in _load_archive(
-                conn, filename, f"{BASE_URL}/{filename}", "pbp"
-            ).items():
-                totals[table] = totals.get(table, 0) + count
-            conn.commit()
+            try:
+                for table, count in _load_archive(
+                    conn, filename, f"{BASE_URL}/{filename}", "pbp"
+                ).items():
+                    totals[table] = totals.get(table, 0) + count
+                conn.commit()
+            except Exception as exc:
+                conn.rollback()
+                print(f"retrosheet_event: {filename} failed ({exc}); skipping this archive")
         for filename, group in SPECIAL_ARCHIVES.items():
-            for table, count in _load_archive(
-                conn, filename, f"{BASE_URL}/{filename}", group
-            ).items():
-                totals[table] = totals.get(table, 0) + count
-            conn.commit()
+            try:
+                for table, count in _load_archive(
+                    conn, filename, f"{BASE_URL}/{filename}", group
+                ).items():
+                    totals[table] = totals.get(table, 0) + count
+                conn.commit()
+            except Exception as exc:
+                conn.rollback()
+                print(f"retrosheet_event: {filename} failed ({exc}); skipping this archive")
         result["rows"] = sum(totals.values())
     return totals
 

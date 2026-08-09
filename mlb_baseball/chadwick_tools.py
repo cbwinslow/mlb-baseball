@@ -26,7 +26,16 @@ from pathlib import Path
 import pandas as pd
 
 CWEVENT_FIELDS = "0-96"
-CWEVENT_EXTENDED_FIELDS = "0-66"
+# Confirmed against the installed Chadwick 0.10.0 binary (`cwevent -d`):
+# the real max extended-field number is 63, not 66. The old value of 66
+# made every cwevent call requesting extended fields fail outright
+# ("Invalid field spec ... max field number, 63") -- found when a real
+# full-history retrosheet_event bootstrap died on the very first archive
+# for exactly this reason (see docs/DECISIONS.md ADR-060). Chadwick's own
+# field counts have changed across releases -- if this is ever run against
+# a different installed version, re-verify with `cwevent -d` rather than
+# trusting this value blindly.
+CWEVENT_EXTENDED_FIELDS = "0-63"
 
 REQUIRED_TOOLS = ("cwevent", "cwgame", "cwbox")
 

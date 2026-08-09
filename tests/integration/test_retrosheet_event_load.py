@@ -179,3 +179,56 @@ def test_bootstrap_loads_configured_archives(monkeypatch, db_conn):
 
     assert totals[event.EVENT_TABLE] > 0
     assert totals[event.GAME_TABLE] > 0
+
+
+def test_one_years_cwevent_failure_does_not_lose_other_years_in_same_archive(db_conn):
+    # Regression: a real full-history bootstrap hit a genuine cwevent bug on
+    # a single year (1919, the last year of the 1910s decade archive) with
+    # no per-year isolation in _parse_archive -- results was only ever
+    # loaded into the database after the *whole* archive finished parsing,
+    # so that one failure lost every other year already sitting in the same
+    # archive too (2024's decade.zip fixture here stands in for that: 2024
+    # and 2025 share one archive, same as any real decade zip's years do).
+    real_run_cwevent = chadwick_tools.run_cwevent
+
+    def flaky_run_cwevent(event_dir, year):
+        if year == 2024:
+            raise RuntimeError("simulated cwevent bug, e.g. an invalid field spec")
+        return real_run_cwevent(event_dir, year)
+
+    with (
+        patch.object(event.manifest, "download", return_value=FIXTURE_ZIP),
+        patch.object(event.chadwick_tools, "run_cwevent", side_effect=flaky_run_cwevent),
+    ):
+        counts = event._load_archive(db_conn, "decade.zip", "https://example.com/decade.zip", "pbp")
+    db_conn.commit()
+
+    assert counts[event.EVENT_TABLE] > 0
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT DISTINCT _season FROM {event.EVENT_TABLE}")
+        assert cur.fetchall() == [("2025",)]
+
+
+def test_bootstrap_continues_past_a_failing_archive(monkeypatch, db_conn):
+    # Regression: bootstrap() had no per-archive exception handling either,
+    # so with 12 decade archives plus several special ones, one archive
+    # failing outright (as above) aborted every remaining archive too --
+    # confirmed the hard way: a real bootstrap produced zero rows for this
+    # entire source. Mirrors retrosheet.py's per-year fix (ADR-059).
+    monkeypatch.setattr(event, "PBP_DECADE_ARCHIVES", {"bad-decade.zip": None, "decade.zip": None})
+    monkeypatch.setattr(event, "SPECIAL_ARCHIVES", {})
+    real_load_archive = event._load_archive
+
+    def flaky_load_archive(conn, filename, url, group, *, force=False):
+        if filename == "bad-decade.zip":
+            raise RuntimeError("simulated archive-level failure")
+        return real_load_archive(conn, filename, url, group, force=force)
+
+    with (
+        patch.object(event.manifest, "download", return_value=FIXTURE_ZIP),
+        patch.object(event, "_load_archive", side_effect=flaky_load_archive),
+    ):
+        totals = event.bootstrap()
+
+    assert totals[event.EVENT_TABLE] > 0
+    assert totals[event.GAME_TABLE] > 0

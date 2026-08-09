@@ -2,6 +2,23 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-060: `chadwick_tools.CWEVENT_EXTENDED_FIELDS` was wrong for the installed Chadwick build, and killed `retrosheet_event`'s entire bootstrap with zero rows loaded
+
+**Decision:** `CWEVENT_EXTENDED_FIELDS` changed from `"0-66"` to `"0-63"`. `retrosheet_event.py` gained per-year isolation inside `_parse_archive` and per-archive isolation inside `bootstrap()`, both `try`/`except`/log/continue, matching `retrosheet.py`'s ADR-059 fix and `statcast.py`'s existing per-week pattern.
+
+**Context:** The same real full-history bootstrap that surfaced ADR-059 also hit `retrosheet_event: FAILED (cwevent failed in .../by_year/1919: *** Invalid field spec ... The spec is invalid if any value is larger than the max field number, 63.)`. Confirmed directly against the real installed Chadwick 0.10.0 binary (`cwevent -d`): the true max extended-field number is 63, not 66 — `CWEVENT_EXTENDED_FIELDS = "0-66"` made *every* `cwevent` call in this connector fail outright, not just a rare edge case. (This exact discrepancy was independently found and flagged earlier the same day while building a portable Chadwick-install skill, before it was known to be live-breaking production — see that skill's own notes for the initial discovery.)
+
+**Blast radius was total, not partial, because of two more compounding gaps — same root shape as ADR-059:**
+- `_parse_archive` parses every year in a decade archive into an in-memory `results` dict *before* any of them get loaded — so 1919's failure (the last year of the first decade archive, `1910seve.zip`) meant 1910-1918's already-successfully-parsed years never got loaded either, not just 1919 itself.
+- `bootstrap()` had no per-archive exception handling, so that one archive's total failure aborted every remaining decade archive (1920s through 2020s) and every special archive (post-season, all-star, Negro League) too.
+- Net effect, confirmed directly: `raw.retrosheet_event`/`raw.retrosheet_game` didn't even exist as tables after the real bootstrap run — zero rows from this entire source, silently, with the CLI only reporting one bare `[retrosheet_event] FAILED` line.
+
+**A pre-existing test would have caught this, but was silently skip-gated.** `tests/unit/test_chadwick_tools.py::test_run_cwevent_parses_plays_with_full_field_set` calls `run_cwevent` for real against a real fixture event file — exactly the code path that broke. It's marked `pytest.mark.skipif(chadwick_tools.missing_tools())`, and `cwevent`/`cwgame`/`cwbox` were not installed in this environment until the same session that found this bug (built from source, see the Chadwick-install skill). The test was never actually exercised here before now; confirmed it now passes with the fix (and would have failed without it — verified directly by temporarily reverting the constant).
+
+**Fix, tests, verification:** `CWEVENT_EXTENDED_FIELDS` corrected to `"0-63"` with a comment warning it's version-specific and to re-verify via `cwevent -d` against any different installed Chadwick build. Two new regression tests in `tests/integration/test_retrosheet_event_load.py`: `test_one_years_cwevent_failure_does_not_lose_other_years_in_same_archive` and `test_bootstrap_continues_past_a_failing_archive`. Full existing suite for this connector and `chadwick_tools.py` still passes (30/30 combined); ruff clean.
+
+**Revisit if:** `mlb ingest retrosheet_event --mode bootstrap` hasn't yet been re-run against production since this fix landed — the original run left `raw.retrosheet_event`/`raw.retrosheet_game` empty, and that gap isn't closed until a real bootstrap completes.
+
 ## ADR-059: `retrosheet.py`'s `schema_drift_policy="error"` and missing per-year isolation aborted a real full-history bootstrap at year 2 of 128
 
 **Decision:** `_load_zip` no longer passes `schema_drift_policy="error"` to `load_dataframe` — it now uses the function's own default (`"warn"`), same as every other Retrosheet-family connector already does. `bootstrap()` also gained a per-year `try`/`except`/`rollback`/continue around each year's load, mirroring `statcast.py`'s already-proven per-week pattern (`_load_season`).

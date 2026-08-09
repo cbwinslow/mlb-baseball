@@ -2,6 +2,10 @@
 
 This project was rebuilt from scratch after the original (Gemini-built) version accumulated bugs and inconsistent code quality. The rules below exist to prevent a repeat. Read [AGENTS.md](AGENTS.md), [docs/NORTH_STAR.md](docs/NORTH_STAR.md), and [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) before making changes.
 
+## Talking to the owner
+
+Explain things in plain, simple language — no heavy technical jargon, no dense paragraphs. Short sentences. If something needs a technical detail, give the plain-English version first and only add the technical term if it's actually needed. Give a direct bottom line before the supporting detail, not after it.
+
 ## Scope discipline
 
 - Work is governed by the active plan sequence in `plans/` and durable doctrine in `AGENTS.md`. Do not pull work forward from later plans without explicit authorization and Sol gate review.

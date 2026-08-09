@@ -1238,19 +1238,46 @@ def _fetch_analytics_document(endpoint: str, game_pk: int, params: dict) -> obje
     game documents.  Sessions are thread-local: no unsafe cross-thread state,
     and no connection setup for every request.
     """
-    session = getattr(_ANALYTICS_LOCAL, "session", None)
-    if session is None:
-        session = requests.Session()
-        _ANALYTICS_LOCAL.session = session
+    def reset_session(session: requests.Session) -> None:
+        """Do not retry a failed request over a potentially stale socket.
+
+        The historical backfill keeps one session per worker for normal
+        keep-alive reuse.  In long runs a CDN connection can instead become
+        unhealthy: a fresh request succeeds immediately while that worker
+        repeatedly waits for its old socket.  Retrying with a fresh session
+        preserves connection reuse in the common case and bounds that rare
+        failure mode without adding another global client or unbounded retry.
+        """
+        session.close()
+        if getattr(_ANALYTICS_LOCAL, "session", None) is session:
+            delattr(_ANALYTICS_LOCAL, "session")
 
     def request():
-        response = session.get(
-            _analytics_url(endpoint, game_pk),
-            params=params,
-            timeout=ANALYTICS_REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        return response.json()
+        session = getattr(_ANALYTICS_LOCAL, "session", None)
+        if session is None:
+            session = requests.Session()
+            _ANALYTICS_LOCAL.session = session
+        try:
+            response = session.get(
+                _analytics_url(endpoint, game_pk),
+                params=params,
+                timeout=ANALYTICS_REQUEST_TIMEOUT_SECONDS,
+            )
+        except requests.exceptions.RequestException:
+            reset_session(session)
+            raise
+        if response.status_code >= 400:
+            # A confirmed 404 is an expected terminal result for some old
+            # games and is handled by the caller.  Other failures should not
+            # leave the retry loop attached to a bad keep-alive connection.
+            if response.status_code != 404:
+                reset_session(session)
+            response.raise_for_status()
+        try:
+            return response.json()
+        except requests.exceptions.RequestException:
+            reset_session(session)
+            raise
 
     return call_with_retry(
         request,

@@ -2,7 +2,46 @@
 
 from unittest.mock import patch
 
+import requests
+
 from mlb_baseball.connectors import mlb_api
+
+
+def test_analytics_retry_replaces_a_timed_out_worker_session(monkeypatch):
+    class TimedOutSession:
+        closed = False
+
+        def get(self, *args, **kwargs):
+            raise requests.exceptions.ReadTimeout("stale connection")
+
+        def close(self):
+            self.closed = True
+
+    class HealthySession:
+        closed = False
+
+        def get(self, *args, **kwargs):
+            return type("Response", (), {"status_code": 200, "json": lambda self: {"ok": True}})()
+
+        def close(self):
+            self.closed = True
+
+    stale, healthy = TimedOutSession(), HealthySession()
+    sessions = iter([stale, healthy])
+    monkeypatch.delattr(mlb_api._ANALYTICS_LOCAL, "session", raising=False)
+    monkeypatch.setattr(mlb_api.requests, "Session", lambda: next(sessions))
+
+    def retry_once(request, **kwargs):
+        try:
+            return request()
+        except requests.exceptions.RequestException:
+            return request()
+
+    monkeypatch.setattr(mlb_api, "call_with_retry", retry_once)
+
+    assert mlb_api._fetch_analytics_document("game_contextMetrics", 123, {}) == {"ok": True}
+    assert stale.closed
+    assert not healthy.closed
 
 
 def test_schedule_df_serializes_national_broadcasts_as_json_not_python_repr():

@@ -1192,3 +1192,66 @@ def test_analytics_loads_a_seasons_linescores_with_one_hydrated_schedule_request
         for endpoint, params in calls
         if endpoint == "game_winProbability"
     )
+
+
+def test_linescore_schedule_artifact_is_resumable_and_repairs_lost_rows(db_conn):
+    hydrated_calls = {"count": 0}
+
+    def recording_get(endpoint, params=None, **kwargs):
+        if endpoint == "schedule" and (params or {}).get("hydrate") == "linescore":
+            hydrated_calls["count"] += 1
+        return _fake_get(endpoint, params=params, **kwargs)
+
+    with (
+        patch.object(
+            mlb_api.statsapi,
+            "schedule",
+            side_effect=lambda **kwargs: FIXTURE_GAMES_BY_SEASON.get(kwargs["season"], []),
+        ),
+        patch.object(mlb_api.statsapi, "get", side_effect=recording_get),
+    ):
+        first = mlb_api._load_analytics_for_season(db_conn, 2024)
+
+    assert first["raw.mlb_linescore"] == 4
+    assert hydrated_calls["count"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT artifact_path, artifact_sha256, rows
+            FROM meta.ingestion_item
+            WHERE source = %s AND dataset = 'linescore_schedule' AND item_key = '2024'
+            """,
+            (mlb_api.SOURCE,),
+        )
+        artifact_path, checksum, rows = cur.fetchone()
+    assert rows == 4
+    assert checksum
+    assert (manifest.DOWNLOADS_ROOT / mlb_api.SOURCE / artifact_path).exists()
+
+    with (
+        patch.object(
+            mlb_api.statsapi,
+            "schedule",
+            side_effect=lambda **kwargs: FIXTURE_GAMES_BY_SEASON.get(kwargs["season"], []),
+        ),
+        patch.object(mlb_api.statsapi, "get", side_effect=recording_get),
+    ):
+        second = mlb_api._load_analytics_for_season(db_conn, 2024)
+    assert second["raw.mlb_linescore"] == 0
+    assert hydrated_calls["count"] == 1
+
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM raw.mlb_linescore WHERE game_pk = '2001'")
+    db_conn.commit()
+
+    with (
+        patch.object(
+            mlb_api.statsapi,
+            "schedule",
+            side_effect=lambda **kwargs: FIXTURE_GAMES_BY_SEASON.get(kwargs["season"], []),
+        ),
+        patch.object(mlb_api.statsapi, "get", side_effect=recording_get),
+    ):
+        repaired = mlb_api._load_analytics_for_season(db_conn, 2024)
+    assert repaired["raw.mlb_linescore"] == 4
+    assert hydrated_calls["count"] == 2

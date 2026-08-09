@@ -282,7 +282,7 @@ PERSON_BATCH_SIZE = 200
 # retry, and turns hundreds of per-game commits into one COPY transaction.
 ANALYTICS_WORKERS = 8
 ANALYTICS_BATCH_SIZE = 200
-ANALYTICS_PARSER_VERSION = "mlb-api-analytics-v2"
+ANALYTICS_PARSER_VERSION = "mlb-api-analytics-v3"
 _ANALYTICS_LOCAL = threading.local()
 REFERENCE_WORKERS = 8
 
@@ -955,7 +955,26 @@ def _load_linescore_for_game(conn: psycopg.Connection, game_pk: int, season: int
     )
 
 
-def _season_linescore_df(season: int) -> pd.DataFrame:
+_LINESCORE_COLUMNS = [
+    "game_pk",
+    "inning",
+    "side",
+    "runs",
+    "hits",
+    "errors",
+    "left_on_base",
+    "_season",
+]
+
+
+def _linescore_schedule_url(season: int) -> str:
+    return (
+        "https://statsapi.mlb.com/api/v1/schedule?"
+        f"sportId=1&season={season}&hydrate=linescore"
+    )
+
+
+def _season_linescore_df(data: dict, season: int) -> pd.DataFrame:
     """Return every available game linescore for a season in one API call.
 
     The old loader made a separate ``game_linescore`` request for every game.
@@ -964,12 +983,6 @@ def _season_linescore_df(season: int) -> pd.DataFrame:
     preserves the same source data while removing thousands of network
     round-trips from a historical backfill.
     """
-    data = call_with_retry(
-        _get,
-        "schedule",
-        {"sportId": 1, "season": season, "hydrate": "linescore"},
-        force=True,
-    )
     rows = []
     for game_date in data.get("dates", []):
         for game in game_date.get("games", []):
@@ -977,36 +990,90 @@ def _season_linescore_df(season: int) -> pd.DataFrame:
             game_pk = game.get("gamePk")
             if linescore and game_pk is not None:
                 rows.extend(_linescore_rows(linescore, int(game_pk)))
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df["_season"] = str(season)
-    return df
-
-
-def _load_linescores_for_season(conn: psycopg.Connection, season: int) -> int:
-    df = _season_linescore_df(season)
-    if df.empty:
-        return 0
-    return load_dataframe(
-        conn, "raw.mlb_linescore", df, scope_column="_season", scope_value=str(season)
+    return pd.DataFrame(
+        [{**row, "_season": str(season)} for row in rows], columns=_LINESCORE_COLUMNS
     )
 
 
-def _linescores_already_landed(conn: psycopg.Connection, season: int) -> bool:
-    """Avoid re-hydrating a complete historical season on every resume.
+def _load_linescores_for_season(
+    conn: psycopg.Connection, season: int, *, run_id: int | None = None
+) -> int:
+    """Land one hydrated schedule as a replayable, idempotent source item.
 
-    Linescores are received in one season-wide response and committed before
-    any per-game analytics work begins.  Once that response has landed, a
-    later interrupted analytics batch must not make the resume wait through
-    the same multi-megabyte hydration again.  The regular health coverage
-    check remains responsible for detecting a later data-loss condition.
+    A season-wide schedule response is dramatically quicker than one
+    ``game_linescore`` request per game.  It remains a real source item,
+    though: archive it, replace exactly its season scope with COPY, and only
+    then write its ledger marker.  That gives line scores the same recovery
+    guarantees as win probability and context metrics.
     """
+    data = call_with_retry(
+        _get,
+        "schedule",
+        {"sportId": 1, "season": season, "hydrate": "linescore"},
+        force=True,
+    )
+    df = _season_linescore_df(data, season)
+    encoded = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+    content = gzip.compress(encoded, mtime=0)
+    path, entry = manifest.persist_artifact(
+        SOURCE,
+        f"analytics/{season}/linescore-schedule.json.gz",
+        content,
+        url=_linescore_schedule_url(season),
+        metadata={
+            "parser_version": ANALYTICS_PARSER_VERSION,
+            "schema_fingerprint": manifest.schema_fingerprint(_LINESCORE_COLUMNS),
+            "records": len(df),
+        },
+    )
+    count = replace_dataframe_scopes(
+        conn,
+        "raw.mlb_linescore",
+        df,
+        scope_column="_season",
+        scope_values=[str(season)],
+    )
+    record_items(
+        conn,
+        [
+            {
+                "source": SOURCE,
+                "dataset": "linescore_schedule",
+                "item_key": str(season),
+                "status": "loaded",
+                "source_url": _linescore_schedule_url(season),
+                "artifact_path": str(path.relative_to(path.parents[2])),
+                "artifact_sha256": str(entry["sha256"]),
+                "bytes": len(encoded),
+                "http_status": 200,
+                "rows": count,
+                "parser_version": ANALYTICS_PARSER_VERSION,
+                "schema_fingerprint": manifest.schema_fingerprint(_LINESCORE_COLUMNS),
+                "run_id": run_id,
+            }
+        ],
+    )
+    return count
+
+
+def _linescores_already_landed(conn: psycopg.Connection, season: int) -> bool:
+    """Return true only when the durable schedule item still matches raw rows."""
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM raw.mlb_linescore WHERE _season = %s LIMIT 1", (str(season),)
+                """
+                SELECT rows
+                FROM meta.ingestion_item
+                WHERE source = %s AND dataset = 'linescore_schedule'
+                  AND item_key = %s AND status = 'loaded'
+                """,
+                (SOURCE, str(season)),
             )
-            return cur.fetchone() is not None
+            item = cur.fetchone()
+            if item is None:
+                return False
+            cur.execute("SELECT count(*) FROM raw.mlb_linescore WHERE _season = %s", (str(season),))
+            return int(fetch_one(cur)[0]) == int(item[0] or 0)
     except psycopg.errors.UndefinedTable:
         conn.rollback()
         return False
@@ -1284,7 +1351,7 @@ def _artifact_for_analytics_batch(
     ndjson = "\n".join(
         json.dumps(record, sort_keys=True, separators=(",", ":")) for record in records
     )
-    content = gzip.compress(f"{ndjson}\n".encode())
+    content = gzip.compress(f"{ndjson}\n".encode(), mtime=0)
     filename = f"analytics/{season}/batch-{batch_number:05d}.ndjson.gz"
     path, entry = manifest.persist_artifact(
         SOURCE,
@@ -1450,7 +1517,9 @@ def _load_analytics_for_season(
         print(f"mlb_api: linescores for season {season} already landed, skipping hydration")
     else:
         try:
-            totals["raw.mlb_linescore"] = _load_linescores_for_season(conn, season)
+            totals["raw.mlb_linescore"] = _load_linescores_for_season(
+                conn, season, run_id=run_id
+            )
             conn.commit()
         except Exception as exc:
             conn.rollback()

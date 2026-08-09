@@ -209,6 +209,13 @@ SOURCE = "mlb_api"
 # this for free; a hang now surfaces as requests.exceptions.Timeout, which
 # call_with_retry already retries correctly.
 REQUEST_TIMEOUT_SECONDS = 30
+# Historical analytics responses are compact and normally return in well
+# under a second.  Giving one wedged response the generic 30-second timeout
+# stalls an entire bounded batch, so this hot path fails fast and retries
+# independently.  The broader connector retains its more conservative limit.
+ANALYTICS_REQUEST_TIMEOUT_SECONDS = 10
+ANALYTICS_RETRY_ATTEMPTS = 3
+ANALYTICS_BACKOFF_SECONDS = 1.0
 
 
 def _get(endpoint: str, params: dict | None = None, force: bool = False):
@@ -1131,12 +1138,18 @@ def _fetch_analytics_document(endpoint: str, game_pk: int, params: dict) -> obje
 
     def request():
         response = session.get(
-            _analytics_url(endpoint, game_pk), params=params, timeout=REQUEST_TIMEOUT_SECONDS
+            _analytics_url(endpoint, game_pk),
+            params=params,
+            timeout=ANALYTICS_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         return response.json()
 
-    return call_with_retry(request)
+    return call_with_retry(
+        request,
+        max_attempts=ANALYTICS_RETRY_ATTEMPTS,
+        backoff_seconds=ANALYTICS_BACKOFF_SECONDS,
+    )
 
 
 def _analytics_item_key(season: int, game_pk: int) -> str:

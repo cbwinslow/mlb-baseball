@@ -1024,6 +1024,25 @@ def test_analytics_ledger_never_hides_lost_raw_rows(db_conn):
         assert cur.fetchone() == (1,)
 
 
+def test_analytics_season_complete_requires_every_terminal_game_and_linescore_proof(db_conn):
+    with _mocked_statsapi():
+        mlb_api._load_schedule(db_conn, 2024)
+        mlb_api._load_analytics_for_season(db_conn, 2024)
+    db_conn.commit()
+
+    assert mlb_api._analytics_season_complete(db_conn, 2024)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM meta.ingestion_item "
+            "WHERE source = %s AND dataset = 'context_metrics' AND item_key = '2024:2001'",
+            (mlb_api.SOURCE,),
+        )
+    db_conn.commit()
+
+    assert not mlb_api._analytics_season_complete(db_conn, 2024)
+
+
 def test_win_prob_only_range_skips_playbyplay_boxscore_umpire(db_conn):
     # The whole point of splitting win_prob out from game-detail: 2024/2025
     # must NOT get playbyplay/boxscore/umpire rows, only win_prob.

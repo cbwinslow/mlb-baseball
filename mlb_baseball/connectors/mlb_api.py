@@ -1296,6 +1296,36 @@ def _terminal_analytics_games(conn: psycopg.Connection, season: int) -> set[int]
     return terminal
 
 
+def _analytics_season_complete(conn: psycopg.Connection, season: int) -> bool:
+    """Require source-item proof for every finished scheduled game.
+
+    This intentionally does not use ``season_already_loaded``.  That helper
+    answers only "does this table have any rows for the season?", which is
+    not enough for a three-endpoint, per-game historical backfill.  A legacy
+    raw-only load is therefore replayed once into the durable ledger rather
+    than being silently treated as complete forever.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT game_id::integer
+                FROM raw.mlb_schedule
+                WHERE _season = %s AND status = 'Final'
+                """,
+                (str(season),),
+            )
+            expected = {int(row[0]) for row in cur.fetchall()}
+    except psycopg.errors.UndefinedTable:
+        conn.rollback()
+        return False
+    return (
+        bool(expected)
+        and expected.issubset(_terminal_analytics_games(conn, season))
+        and _linescores_already_landed(conn, season)
+    )
+
+
 def _fetch_analytics_game(game_pk: int) -> dict[str, Any]:
     """Fetch both independent analytics documents for one game.
 
@@ -2207,11 +2237,7 @@ def bootstrap() -> dict[str, int]:
                 # after, silently skipped on every future bootstrap re-run
                 # with no way to self-heal. All three must have data before
                 # a season is considered done.
-                if (
-                    season_already_loaded(conn, "raw.mlb_win_prob", season)
-                    and season_already_loaded(conn, "raw.mlb_linescore", season)
-                    and season_already_loaded(conn, "raw.mlb_game_context", season)
-                ):
+                if _analytics_season_complete(conn, season):
                     print(f"mlb_api: {season} analytics already loaded, skipping")
                     continue
                 for table, count in _load_analytics_for_season(

@@ -34,7 +34,13 @@ mlb predict              # builds gold.game_feature and generates win-probabilit
 mlb train                # (optional) retrains the gradient-boosted model; only overwrites the saved model if it beats the log5/Elo baselines (ADR-033)
 ```
 
-`mlb bootstrap` is slow (realistically days, not minutes) once `mlb_api`'s and Statcast's full historical ranges are involved, and it's resumable — see `docs/ARCHITECTURE.md` "Bootstrap procedure" before running it for real. To bootstrap one source at a time instead (useful while developing, or to retry just the source that failed), use `mlb ingest <source> --mode bootstrap`; every registered source is in `mlb_baseball/registry.py`. `lahman` prefers a manually-downloaded zip (see `docs/DATA_SOURCES.md`) but falls back to a network mirror automatically if you skip that step.
+`mlb bootstrap` is slow once `mlb_api`'s and Statcast's full historical ranges are involved, and it is resumable — see `docs/ARCHITECTURE.md` "Bootstrap procedure" before running it for real. To bootstrap one source at a time instead (useful while developing, or to retry just the source that failed), use `mlb ingest <source> --mode bootstrap`; every registered source is in `mlb_baseball/registry.py`. The largest MLB API backfill can also run on its own, without waiting through unrelated endpoint families:
+
+```bash
+mlb ingest mlb_api --stage analytics --start-year 1950 --end-year 2026 --workers 8
+```
+
+That command downloads bounded parallel batches, writes compressed replayable JSON under `downloads/mlb_api/`, bulk-loads only those games, and safely resumes after an interruption. `lahman` prefers a manually-downloaded zip (see `docs/DATA_SOURCES.md`) but falls back to a network mirror automatically if you skip that step.
 
 `mlb doctor` reports on every source in one pass, and `mlb inventory` shows live row counts and last-run status per source — both are the way to check on a bootstrap's progress, not by assuming a long-running command has hung. `mlb status` gives the same live table-by-table state as a scannable progress-bar table (`--all` to include empty tables, `--run-status` to weight progress by each source's last ingestion-run outcome instead of just row count, `--watch SECONDS` to auto-refresh).
 

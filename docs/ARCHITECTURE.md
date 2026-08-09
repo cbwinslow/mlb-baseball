@@ -44,6 +44,7 @@ A fourth, genuinely optional function — **`backfill_history() -> dict[str, int
 Connectors are independent of each other; the Chadwick ID crosswalk is what ties their outputs together during conforming, not the connectors themselves. All of them are driven through one CLI registered in `mlb_baseball/cli.py` — not separate one-off scripts per source:
 
 - `mlb ingest <source> --mode bootstrap|update|backfill` — run a connector (`backfill` only where implemented, see above)
+- `mlb ingest mlb_api --stage analytics --start-year YEAR --end-year YEAR --workers 1..16` — run the high-volume win-probability/context stage independently. Each batch archives compressed JSON, replaces only its successful game keys with COPY, and records terminal per-game endpoint status in `meta.ingestion_item`; a rerun skips durable loaded and confirmed-unavailable items.
 - `mlb conform` — rebuild `core` from already-ingested `raw` data (see "Conform contract" below)
 - `mlb inventory` — live table/row-count report plus last run per source, queried fresh every time (a static doc would go stale immediately with this many tables)
 - `mlb doctor` — DB connectivity, schema/migration state, and every connector's `health_check()` in one pass
@@ -96,7 +97,7 @@ Neither script is installed to crontab automatically — see the "Bootstrap proc
 
 A few things worth knowing before running it for real, not after:
 
-- **It's slow — plan for it to take days, not minutes**, once `mlb_api` and `statcast`/`statcast_leaderboard`'s full historical ranges are included. `mlb_api`'s reference/personnel/stat block alone (ADR-020) costs roughly 400+ API calls per season across ~125 seasons of history; the per-game analytics backfill (win probability/linescore/game context, 1950+) is a second, similarly large pass. This is expected, not a hang — check progress via `mlb inventory` (row counts per table) or `mlb doctor` (per-source freshness), not by assuming something's stuck.
+- **Run expensive MLB API work in its explicit stage, not as one opaque serial loop.** `mlb ingest mlb_api --stage analytics --start-year 1950 --end-year <year> --workers 8` archives and loads bounded parallel game batches with per-item resume state. The rest of a full database bootstrap can still take substantial time because of Statcast and historical reference calls, but an analytics retry is no longer expected to repeat completed games or wait on unrelated endpoint families.
 - **It's resumable, not restart-from-zero.** Every connector's `bootstrap()` skips already-loaded seasons (`season_already_loaded`) before doing any network work, so killing a bootstrap run (or it failing partway through) and re-running `mlb bootstrap` picks up roughly where it left off instead of re-downloading everything. This is also why stale-run cleanup matters if you do kill a run mid-flight — see ADR-022.
 - **A failure in one connector doesn't block the rest.** `mlb bootstrap` logs and continues past any connector whose `bootstrap()` raises, then exits non-zero at the end if anything failed — check the output for `FAILED` lines rather than assuming a non-zero exit means nothing loaded.
 - **`lahman` prefers a manually-downloaded zip** (see `docs/DATA_SOURCES.md`) but falls back to a pinned network mirror automatically if none is found in `downloads/` — `mlb bootstrap` will not stop and wait for one.

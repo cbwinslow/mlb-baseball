@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
+from mlb_baseball import manifest
 from mlb_baseball.connectors import mlb_api
 
 TABLES = [
@@ -307,7 +308,7 @@ class _FixedDate(date):
 
 
 @pytest.fixture(autouse=True)
-def _fixed_range(monkeypatch):
+def _fixed_range(monkeypatch, tmp_path):
     monkeypatch.setattr(mlb_api, "date", _FixedDate)
     monkeypatch.setattr(mlb_api, "FIRST_SCHEDULE_YEAR", 2024)
     monkeypatch.setattr(mlb_api, "FIRST_STANDINGS_YEAR", 2024)
@@ -315,6 +316,12 @@ def _fixed_range(monkeypatch):
     monkeypatch.setattr(mlb_api, "FIRST_TRANSACTION_YEAR", 2024)
     monkeypatch.setattr(mlb_api, "FIRST_PLAYBYPLAY_YEAR", 2026)
     monkeypatch.setattr(mlb_api, "FIRST_DRAFT_YEAR", 2024)
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path / "downloads")
+    monkeypatch.setattr(
+        mlb_api,
+        "_fetch_analytics_document",
+        lambda endpoint, _game_pk, params: _fake_get(endpoint, params=params),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -336,6 +343,7 @@ def _clean_tables(db_conn):
         # unreliable for any test (this file's or another's) that asserts on
         # "never run" vs. "last run succeeded" (found via a real failure —
         # see test_doctor.py's mlb_api tests).
+        cur.execute("DELETE FROM meta.ingestion_item WHERE source = %s", (mlb_api.SOURCE,))
         cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (mlb_api.SOURCE,))
     db_conn.commit()
 
@@ -969,6 +977,26 @@ def test_win_prob_only_range_retries_a_season_left_partially_loaded(db_conn):
     assert count > 0, "2024 should have been retried, not skipped, once linescore went missing"
 
 
+def test_analytics_ledger_never_hides_lost_raw_rows(db_conn):
+    # Item status is evidence of a successful prior load, not permission to
+    # ignore later data loss.  Deleting a typed raw row must make that game
+    # non-terminal on the next staged pass and rebuild it from its source.
+    with _mocked_statsapi():
+        mlb_api._load_analytics_for_season(db_conn, 2024)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM raw.mlb_game_context WHERE game_pk = '2001'")
+    db_conn.commit()
+
+    with _mocked_statsapi():
+        counts = mlb_api._load_analytics_for_season(db_conn, 2024)
+
+    assert counts["raw.mlb_game_context"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.mlb_game_context WHERE game_pk = '2001'")
+        assert cur.fetchone() == (1,)
+
+
 def test_win_prob_only_range_skips_playbyplay_boxscore_umpire(db_conn):
     # The whole point of splitting win_prob out from game-detail: 2024/2025
     # must NOT get playbyplay/boxscore/umpire rows, only win_prob.
@@ -1036,12 +1064,16 @@ def test_analytics_rerun_skips_already_loaded_games(db_conn):
             call_count["n"] += 1
         return _fake_get(endpoint, params=params, **kwargs)
 
+    def counting_analytics_document(endpoint, game_pk, params):
+        return counting_get(endpoint, params=params)
+
     def fake_schedule(**kwargs):
         return FIXTURE_GAMES_BY_SEASON.get(kwargs.get("season"), [])
 
     with (
         patch.object(mlb_api.statsapi, "schedule", side_effect=fake_schedule),
         patch.object(mlb_api.statsapi, "get", side_effect=counting_get),
+        patch.object(mlb_api, "_fetch_analytics_document", side_effect=counting_analytics_document),
     ):
         first = mlb_api._load_analytics_for_season(db_conn, 2024)
     db_conn.commit()
@@ -1052,11 +1084,48 @@ def test_analytics_rerun_skips_already_loaded_games(db_conn):
     with (
         patch.object(mlb_api.statsapi, "schedule", side_effect=fake_schedule),
         patch.object(mlb_api.statsapi, "get", side_effect=counting_get),
+        patch.object(mlb_api, "_fetch_analytics_document", side_effect=counting_analytics_document),
     ):
         second = mlb_api._load_analytics_for_season(db_conn, 2024)
 
     assert second["raw.mlb_win_prob"] == 0  # nothing new -- both games already loaded
     assert call_count["n"] == calls_after_first_run  # zero additional API calls
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT dataset, status, artifact_path, artifact_sha256, rows
+            FROM meta.ingestion_item
+            WHERE source = %s AND item_key IN ('2024:2001', '2024:2002')
+            ORDER BY item_key, dataset
+            """,
+            (mlb_api.SOURCE,),
+        )
+        ledger = cur.fetchall()
+    assert len(ledger) == 4
+    assert all(
+        status == "loaded" and path and checksum and rows >= 0
+        for _, status, path, checksum, rows in ledger
+    )
+    artifact = manifest.DOWNLOADS_ROOT / "mlb_api" / ledger[0][2]
+    assert artifact.exists()
+
+
+def test_analytics_deduplicates_repeated_schedule_game_ids(db_conn):
+    repeated_schedule = [*FIXTURE_GAMES_BY_SEASON[2024], FIXTURE_GAMES_BY_SEASON[2024][0]]
+    calls = {"win_probability": 0}
+
+    def counting_document(endpoint, game_pk, params):
+        if endpoint == "game_winProbability":
+            calls["win_probability"] += 1
+        return _fake_get(endpoint, params=params)
+
+    with (
+        patch.object(mlb_api.statsapi, "schedule", return_value=repeated_schedule),
+        patch.object(mlb_api, "_fetch_analytics_document", side_effect=counting_document),
+    ):
+        mlb_api._load_analytics_for_season(db_conn, 2024)
+
+    assert calls["win_probability"] == 2
 
 
 def test_analytics_loads_a_seasons_linescores_with_one_hydrated_schedule_request(db_conn):
@@ -1066,6 +1135,9 @@ def test_analytics_loads_a_seasons_linescores_with_one_hydrated_schedule_request
         calls.append((endpoint, params or {}))
         return _fake_get(endpoint, params=params, **kwargs)
 
+    def recording_analytics_document(endpoint, game_pk, params):
+        return recording_get(endpoint, params=params)
+
     with (
         patch.object(
             mlb_api.statsapi,
@@ -1073,6 +1145,9 @@ def test_analytics_loads_a_seasons_linescores_with_one_hydrated_schedule_request
             side_effect=lambda **kwargs: FIXTURE_GAMES_BY_SEASON.get(kwargs["season"], []),
         ),
         patch.object(mlb_api.statsapi, "get", side_effect=recording_get),
+        patch.object(
+            mlb_api, "_fetch_analytics_document", side_effect=recording_analytics_document
+        ),
     ):
         counts = mlb_api._load_analytics_for_season(db_conn, 2024)
 

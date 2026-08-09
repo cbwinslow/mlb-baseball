@@ -186,6 +186,49 @@ def load_dataframe(
         return _copy_dataframe(cur, table_ident, df)
 
 
+def replace_dataframe_scopes(
+    conn: psycopg.Connection,
+    table: str,
+    df: pd.DataFrame,
+    *,
+    scope_column: str,
+    scope_values: list[str],
+    schema_drift_policy: Literal["ignore", "warn", "error"] = "warn",
+) -> int:
+    """Replace several independent source items in one DELETE + COPY.
+
+    This is the bulk counterpart to ``load_dataframe(..., scope_value=...)``.
+    It is deliberately replace-by-item, rather than append, so a retry cannot
+    duplicate a game and an empty successful response can still remove stale
+    rows for that game.  The caller must provide every successfully fetched
+    scope, including scopes whose parsed dataframe has zero rows.
+    """
+    if not scope_values:
+        return 0
+    columns = _pg_column_names(df)
+    if df.empty and not columns:
+        raise ValueError(f"{table}: an empty bulk replace still needs its source columns")
+    table_ident = _table_identifier(table)
+    with conn.cursor() as cur:
+        _check_schema_drift(cur, table, columns, schema_drift_policy)
+        _ensure_table_and_columns(cur, table, table_ident, columns)
+        index_name = f"{table.split('.')[-1]}_{scope_column}_idx"
+        cur.execute(
+            sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {table} ({col})").format(
+                index=sql.Identifier(index_name),
+                table=table_ident,
+                col=sql.Identifier(scope_column),
+            )
+        )
+        cur.execute(
+            sql.SQL("DELETE FROM {table} WHERE {col} = ANY(%s)").format(
+                table=table_ident, col=sql.Identifier(scope_column)
+            ),
+            (scope_values,),
+        )
+        return _copy_dataframe(cur, table_ident, df) if not df.empty else 0
+
+
 def append_dataframe(
     conn: psycopg.Connection,
     table: str,

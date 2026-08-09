@@ -31,6 +31,23 @@ def test_save_manifest_replaces_atomically(tmp_path, monkeypatch):
     assert not (tmp_path / "retrosheet" / "manifest.json.tmp").exists()
 
 
+def test_persist_artifact_atomically_records_generated_json_provenance(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+
+    path, entry = manifest.persist_artifact(
+        "mlb_api",
+        "analytics/1967/batch-00001.ndjson.gz",
+        b"compressed-json",
+        url="https://statsapi.mlb.com/api/v1/game/{gamePk}/winProbability",
+        metadata={"parser_version": "test-v1", "records": 2},
+    )
+
+    assert path.read_bytes() == b"compressed-json"
+    assert entry["parser_version"] == "test-v1"
+    assert manifest.load_manifest("mlb_api")["analytics/1967/batch-00001.ndjson.gz"]["records"] == 2
+    assert not list(path.parent.glob("*.tmp"))
+
+
 def test_download_skips_network_when_hash_matches_disk(tmp_path, monkeypatch):
     monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
     fake_response = Mock(status_code=200, content=b"same bytes")

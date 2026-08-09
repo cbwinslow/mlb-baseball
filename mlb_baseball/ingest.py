@@ -137,7 +137,9 @@ def track_run(
             )
             run_id = fetch_one(cur)[0]
         conn.commit()
-        result: dict = {"rows": None}
+        # Exposing the durable run ID lets item-level provenance point to the
+        # exact connector invocation that landed it.
+        result: dict = {"rows": None, "run_id": run_id}
         try:
             yield result
         except Exception as exc:

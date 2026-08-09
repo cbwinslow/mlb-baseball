@@ -100,6 +100,43 @@ def mark_status(
     save_manifest(source, manifest)
 
 
+def persist_artifact(
+    source: str,
+    filename: str,
+    content: bytes,
+    *,
+    url: str,
+    metadata: dict[str, object] | None = None,
+) -> tuple[Path, dict[str, object]]:
+    """Atomically store a generated source artifact and record its provenance.
+
+    Some APIs return thousands of small JSON documents rather than one
+    downloadable archive.  The caller may bundle those documents (normally as
+    compressed NDJSON) before landing their typed raw rows.  This keeps the
+    same restart/replay guarantee as :func:`download` without pretending the
+    bundle was fetched from one URL.
+    """
+    dest = DOWNLOADS_ROOT / source / filename
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    temporary = dest.with_name(f".{dest.name}.tmp")
+    temporary.write_bytes(content)
+    temporary.replace(dest)
+
+    entry: dict[str, object] = {
+        "url": url,
+        "sha256": _sha256(content),
+        "bytes": len(content),
+        "downloaded_at": datetime.now(UTC).isoformat(),
+        "status": "downloaded",
+    }
+    if metadata:
+        entry.update(metadata)
+    manifest = load_manifest(source)
+    manifest[filename] = entry
+    save_manifest(source, manifest)
+    return dest, entry
+
+
 def download_required(source: str, filename: str, url: str, *, force: bool = False) -> Path:
     """download(), for files that must exist — whole-file products like
     rosters.zip or tranDB.zip where a 404 means the source moved or broke,

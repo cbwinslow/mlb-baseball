@@ -45,6 +45,8 @@ connections to the *same* server, retrosheet.org).
 import argparse
 import concurrent.futures
 import sys
+from collections.abc import Callable
+from typing import cast
 
 from mlb_baseball import conform, doctor, ingest, inventory, migrate, model, progress_table
 from mlb_baseball.registry import CONNECTORS
@@ -159,6 +161,18 @@ def main(argv: list[str] | None = None) -> None:
     ingest_parser.add_argument(
         "--mode", choices=["bootstrap", "update", "backfill"], default="bootstrap"
     )
+    ingest_parser.add_argument(
+        "--stage",
+        choices=["analytics"],
+        help="run one resumable MLB API historical stage instead of the full connector",
+    )
+    ingest_parser.add_argument(
+        "--start-year", type=int, help="first season for a staged MLB API run"
+    )
+    ingest_parser.add_argument("--end-year", type=int, help="last season for a staged MLB API run")
+    ingest_parser.add_argument(
+        "--workers", type=int, help="bounded parallel API workers for a staged MLB API run"
+    )
 
     for profile_parser in (
         ingest_parser,
@@ -214,7 +228,22 @@ def main(argv: list[str] | None = None) -> None:
         except SourceProfileError as exc:
             parser.error(str(exc))
         connector = CONNECTORS[args.source]
-        if args.mode == "bootstrap":
+        fn: Callable[[], dict[str, int]]
+        if args.stage:
+            if args.source != "mlb_api" or args.stage != "analytics":
+                parser.error("staged ingestion is currently available only for mlb_api analytics")
+            if args.mode != "bootstrap":
+                parser.error("--stage analytics uses bootstrap mode; omit --mode")
+
+            def fn():
+                return connector.backfill_analytics(
+                    start_year=args.start_year or connector.FIRST_WIN_PROB_YEAR,
+                    end_year=args.end_year,
+                    workers=args.workers or connector.ANALYTICS_WORKERS,
+                )
+        elif args.start_year or args.end_year or args.workers:
+            parser.error("--start-year, --end-year, and --workers require --stage analytics")
+        elif args.mode == "bootstrap":
             fn = connector.bootstrap
         elif args.mode == "update":
             fn = connector.update
@@ -223,10 +252,11 @@ def main(argv: list[str] | None = None) -> None:
             # part of the bootstrap()/update() contract every connector
             # exposes — only polymarket.py/kalshi.py implement it so far
             # (see ADR-049).
-            fn = getattr(connector, "backfill_history", None)
-            if fn is None:
+            backfill = getattr(connector, "backfill_history", None)
+            if backfill is None:
                 print(f"{args.source} has no backfill_history() to run")
                 sys.exit(1)
+            fn = cast(Callable[[], dict[str, int]], backfill)
         for table, count in fn().items():
             print(f"{table}: {count} rows")
     elif args.command == "bootstrap":

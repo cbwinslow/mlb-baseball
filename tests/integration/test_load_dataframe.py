@@ -1,7 +1,13 @@
 import pandas as pd
 import pytest
 
-from mlb_baseball.load import SchemaDriftError, SchemaDriftWarning, append_dataframe, load_dataframe
+from mlb_baseball.load import (
+    SchemaDriftError,
+    SchemaDriftWarning,
+    append_dataframe,
+    load_dataframe,
+    replace_dataframe_scopes,
+)
 
 
 def test_creates_table_and_loads_rows(db_conn, drop_tables_after):
@@ -165,6 +171,38 @@ def test_scope_column_replaces_only_matching_rows(db_conn, drop_tables_after):
     with db_conn.cursor() as cur:
         cur.execute(f"SELECT chunk, v FROM {table} ORDER BY chunk")
         assert cur.fetchall() == [("a", "99"), ("b", "2")]
+
+
+def test_bulk_scope_replace_is_idempotent_and_clears_empty_successes(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_bulk_chunks")
+    load_dataframe(
+        db_conn,
+        table,
+        pd.DataFrame({"game_pk": ["one", "two"], "value": ["old", "old"]}),
+        scope_column="game_pk",
+        scope_value="one",
+    )
+    load_dataframe(
+        db_conn,
+        table,
+        pd.DataFrame({"game_pk": ["two"], "value": ["old"]}),
+        scope_column="game_pk",
+        scope_value="two",
+    )
+    db_conn.commit()
+
+    replace_dataframe_scopes(
+        db_conn,
+        table,
+        pd.DataFrame({"game_pk": ["one"], "value": ["new"]}),
+        scope_column="game_pk",
+        scope_values=["one", "two"],
+    )
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT game_pk, value FROM {table} ORDER BY game_pk")
+        assert cur.fetchall() == [("one", "new")]
 
 
 def test_append_dataframe_creates_table_and_inserts_rows(db_conn, drop_tables_after):

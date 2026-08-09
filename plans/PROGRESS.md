@@ -5,7 +5,7 @@ each completed plan gate.
 
 ## Current state summary
 
-- **Production state:** Production `mlb` database remains untouched; no production cutover is authorized.
+- **Production state:** Migration `0038_ingestion_item_ledger.sql` has been applied to production `mlb` with owner authorization. No production data reload/cutover has yet occurred; the staged MLB API loader remains under `mlb_test` verification.
 - **Test database:** The current reusable local test database is `mlb_test`.
   Older evidence below may refer to `mlb_test_codex`, which is not present on
   the current host and must not be recreated without owner authorization.

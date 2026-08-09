@@ -168,14 +168,20 @@ the endpoint's own required_params — is incorrectly rejected without
 force=True. Confirmed by reading the library's source, not guessed.
 """
 
+import concurrent.futures
+import gzip
 import json
 import re
+import threading
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 import pandas as pd
 import psycopg
+import requests
 import statsapi
 
+from mlb_baseball import manifest
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
     Check,
@@ -184,8 +190,13 @@ from mlb_baseball.health import (
     check_table_exists,
     check_table_has_rows,
 )
-from mlb_baseball.ingest import track_run
-from mlb_baseball.load import append_dataframe, load_dataframe, season_already_loaded
+from mlb_baseball.ingest import record_items, track_run
+from mlb_baseball.load import (
+    append_dataframe,
+    load_dataframe,
+    replace_dataframe_scopes,
+    season_already_loaded,
+)
 from mlb_baseball.net import call_with_retry
 
 SOURCE = "mlb_api"
@@ -258,6 +269,14 @@ PROBABLE_WINDOW_DAYS = 5
 # pull to a couple hundred calls instead of one per venue/person.
 VENUE_BATCH_SIZE = 100
 PERSON_BATCH_SIZE = 200
+# These bounds came from the repository benchmark: eight workers was the
+# fastest tested setting, while adding more workers regressed.
+# A batch is deliberately modest: it bounds memory, makes failures cheap to
+# retry, and turns hundreds of per-game commits into one COPY transaction.
+ANALYTICS_WORKERS = 8
+ANALYTICS_BATCH_SIZE = 200
+ANALYTICS_PARSER_VERSION = "mlb-api-analytics-v2"
+_ANALYTICS_LOCAL = threading.local()
 
 
 def _schedule_df(season: int) -> pd.DataFrame:
@@ -1086,7 +1105,293 @@ def _load_analytics_for_game(
     return counts
 
 
-def _load_analytics_for_season(conn: psycopg.Connection, season: int) -> dict[str, int]:
+def _analytics_url(endpoint: str, game_pk: int) -> str:
+    """Canonical source URL recorded beside each replayable API item."""
+    endpoint_path = {
+        "game_winProbability": "winProbability",
+        "game_contextMetrics": "contextMetrics",
+    }[endpoint]
+    return f"https://statsapi.mlb.com/api/v1/game/{game_pk}/{endpoint_path}"
+
+
+def _fetch_analytics_document(endpoint: str, game_pk: int, params: dict) -> object:
+    """Fetch one analytics document with a connection reused by its worker.
+
+    The general connector keeps ``statsapi`` as its friendly endpoint adapter.
+    This hot path uses the documented HTTP URL directly because the package's
+    one-shot requests prevent connection reuse across tens of thousands of
+    game documents.  Sessions are thread-local: no unsafe cross-thread state,
+    and no connection setup for every request.
+    """
+    session = getattr(_ANALYTICS_LOCAL, "session", None)
+    if session is None:
+        session = requests.Session()
+        _ANALYTICS_LOCAL.session = session
+
+    def request():
+        response = session.get(
+            _analytics_url(endpoint, game_pk), params=params, timeout=REQUEST_TIMEOUT_SECONDS
+        )
+        response.raise_for_status()
+        return response.json()
+
+    return call_with_retry(request)
+
+
+def _analytics_item_key(season: int, game_pk: int) -> str:
+    return f"{season}:{game_pk}"
+
+
+def _terminal_analytics_games(conn: psycopg.Connection, season: int) -> set[int]:
+    """Return games whose two per-game API responses are already durable.
+
+    Raw tables alone cannot prove a zero-row response was intentionally
+    received.  The ledger does: a 404 is terminal, and a 200 with no rows is
+    terminal once its JSON artifact and database replace are committed.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT dataset, split_part(item_key, ':', 2)::integer, status, rows
+                FROM meta.ingestion_item
+                WHERE source = %s
+                  AND dataset IN ('win_probability', 'context_metrics')
+                  AND item_key LIKE %s
+                  AND status IN ('loaded', 'unavailable')
+                """,
+                (SOURCE, f"{season}:%"),
+            )
+            items = {
+                (str(dataset), int(game_pk)): (str(status), int(rows or 0))
+                for dataset, game_pk, status, rows in cur.fetchall()
+            }
+            cur.execute(
+                "SELECT game_pk::integer, count(*) FROM raw.mlb_win_prob "
+                "WHERE _season = %s GROUP BY game_pk",
+                (str(season),),
+            )
+            win_rows = {int(game_pk): int(count) for game_pk, count in cur.fetchall()}
+            cur.execute(
+                "SELECT game_pk::integer, count(*) FROM raw.mlb_game_context "
+                "WHERE _season = %s GROUP BY game_pk",
+                (str(season),),
+            )
+            context_rows = {int(game_pk): int(count) for game_pk, count in cur.fetchall()}
+    except psycopg.errors.UndefinedTable:
+        conn.rollback()
+        return set()
+
+    terminal = set()
+    for game_pk in {game for _, game in items}:
+        win = items.get(("win_probability", game_pk))
+        context = items.get(("context_metrics", game_pk))
+        if win is None or context is None:
+            continue
+        win_ok = win[0] == "unavailable" or win_rows.get(game_pk, 0) == win[1]
+        context_ok = context[0] == "unavailable" or context_rows.get(game_pk, 0) == context[1]
+        if win_ok and context_ok:
+            terminal.add(game_pk)
+    return terminal
+
+
+def _fetch_analytics_game(game_pk: int) -> dict[str, Any]:
+    """Fetch both independent analytics documents for one game.
+
+    ``statsapi`` remains the endpoint adapter.  Parallelism happens above this
+    function, so workers never share a database connection or manifest file.
+    A confirmed 404 becomes an explicit terminal result; transient failures
+    still use the repository-wide bounded retry policy and surface visibly.
+    """
+    documents: dict[str, dict[str, Any]] = {}
+    for dataset, endpoint, params in (
+        ("win_probability", "game_winProbability", {"gamePk": game_pk, "fields": WIN_PROB_FIELDS}),
+        ("context_metrics", "game_contextMetrics", {"gamePk": game_pk}),
+    ):
+        try:
+            payload = _fetch_analytics_document(endpoint, game_pk, params)
+        except requests.exceptions.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            if status != 404:
+                raise
+            documents[dataset] = {
+                "status": "unavailable",
+                "http_status": 404,
+                "payload": None,
+                "url": _analytics_url(endpoint, game_pk),
+            }
+        else:
+            documents[dataset] = {
+                "status": "loaded",
+                "http_status": 200,
+                "payload": payload,
+                "url": _analytics_url(endpoint, game_pk),
+            }
+    return {"game_pk": game_pk, "documents": documents}
+
+
+def _artifact_for_analytics_batch(
+    season: int, batch_number: int, results: list[dict[str, Any]]
+) -> tuple[str, str]:
+    """Persist source-faithful JSON payloads before their typed COPY load."""
+    records = []
+    for result in results:
+        game_pk = int(result["game_pk"])
+        for dataset, document in dict(result["documents"]).items():
+            records.append(
+                {
+                    "dataset": dataset,
+                    "game_pk": game_pk,
+                    "http_status": document["http_status"],
+                    "url": document["url"],
+                    "payload": document["payload"],
+                }
+            )
+    ndjson = "\n".join(
+        json.dumps(record, sort_keys=True, separators=(",", ":")) for record in records
+    )
+    content = gzip.compress(f"{ndjson}\n".encode())
+    filename = f"analytics/{season}/batch-{batch_number:05d}.ndjson.gz"
+    path, entry = manifest.persist_artifact(
+        SOURCE,
+        filename,
+        content,
+        url="https://statsapi.mlb.com/api/v1/game/{gamePk}/[winProbability|contextMetrics]",
+        metadata={
+            "parser_version": ANALYTICS_PARSER_VERSION,
+            "schema_fingerprint": manifest.schema_fingerprint(
+                ["dataset", "game_pk", "http_status", "url", "payload"]
+            ),
+            "records": len(records),
+        },
+    )
+    return str(path.relative_to(path.parents[2])), str(entry["sha256"])
+
+
+def _load_analytics_batch(
+    conn: psycopg.Connection,
+    season: int,
+    batch_number: int,
+    results: list[dict[str, Any]],
+    *,
+    run_id: int | None,
+) -> dict[str, int]:
+    """Archive, replace, and ledger a fetched batch as one durable unit."""
+    artifact_path, artifact_sha256 = _artifact_for_analytics_batch(season, batch_number, results)
+    win_rows: list[dict] = []
+    context_rows: list[dict] = []
+    loaded_scopes: dict[str, list[str]] = {"win_probability": [], "context_metrics": []}
+    items: list[dict] = []
+    for result in results:
+        game_pk = int(result["game_pk"])
+        for dataset, document in dict(result["documents"]).items():
+            payload = document["payload"]
+            status = str(document["status"])
+            rows: list[dict]
+            if dataset == "win_probability":
+                rows = _win_prob_rows(payload or [], game_pk)
+                win_rows.extend({**row, "_season": str(season)} for row in rows)
+            else:
+                data = payload or {}
+                rows = (
+                    [
+                        {
+                            "game_pk": game_pk,
+                            "away_win_probability": data.get("awayWinProbability"),
+                            "home_win_probability": data.get("homeWinProbability"),
+                            "left_field_sac_fly_probability": data.get(
+                                "leftFieldSacFlyProbability"
+                            ),
+                            "center_field_sac_fly_probability": data.get(
+                                "centerFieldSacFlyProbability"
+                            ),
+                            "right_field_sac_fly_probability": data.get(
+                                "rightFieldSacFlyProbability"
+                            ),
+                            "_season": str(season),
+                        }
+                    ]
+                    if status == "loaded"
+                    else []
+                )
+                context_rows.extend(rows)
+            if status == "loaded":
+                loaded_scopes[dataset].append(str(game_pk))
+            encoded = (
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+                if payload is not None
+                else b""
+            )
+            items.append(
+                {
+                    "source": SOURCE,
+                    "dataset": dataset,
+                    "item_key": _analytics_item_key(season, game_pk),
+                    "status": status,
+                    "source_url": document["url"],
+                    "artifact_path": artifact_path,
+                    "artifact_sha256": artifact_sha256,
+                    "bytes": len(encoded),
+                    "http_status": document["http_status"],
+                    "rows": len(rows),
+                    "parser_version": ANALYTICS_PARSER_VERSION,
+                    "schema_fingerprint": manifest.schema_fingerprint(
+                        list(rows[0]) if rows else ["game_pk"]
+                    ),
+                    "run_id": run_id,
+                }
+            )
+    win_df = pd.DataFrame(
+        win_rows,
+        columns=[
+            "game_pk",
+            "at_bat_index",
+            "inning",
+            "half_inning",
+            "home_win_probability",
+            "away_win_probability",
+            "home_win_probability_added",
+            "_season",
+        ],
+    )
+    context_df = pd.DataFrame(
+        context_rows,
+        columns=[
+            "game_pk",
+            "away_win_probability",
+            "home_win_probability",
+            "left_field_sac_fly_probability",
+            "center_field_sac_fly_probability",
+            "right_field_sac_fly_probability",
+            "_season",
+        ],
+    )
+    win_count = replace_dataframe_scopes(
+        conn,
+        "raw.mlb_win_prob",
+        win_df,
+        scope_column="game_pk",
+        scope_values=loaded_scopes["win_probability"],
+    )
+    context_count = replace_dataframe_scopes(
+        conn,
+        "raw.mlb_game_context",
+        context_df,
+        scope_column="game_pk",
+        scope_values=loaded_scopes["context_metrics"],
+    )
+    record_items(conn, items)
+    conn.commit()
+    return {"raw.mlb_win_prob": win_count, "raw.mlb_game_context": context_count}
+
+
+def _load_analytics_for_season(
+    conn: psycopg.Connection,
+    season: int,
+    *,
+    run_id: int | None = None,
+    workers: int = ANALYTICS_WORKERS,
+) -> dict[str, int]:
     """Win probability, line score, and game-level context metrics, for
     seasons before FIRST_PLAYBYPLAY_YEAR — unlike play-by-play/box-scores/
     umpires (which Retrosheet already covers for these years, so re-pulling
@@ -1113,29 +1418,63 @@ def _load_analytics_for_season(conn: psycopg.Connection, season: int) -> dict[st
     except Exception as exc:
         conn.rollback()
         print(f"mlb_api: linescores for season {season} failed ({exc}); falling back per game")
-        linescore_bulk_loaded = False
-    else:
-        linescore_bulk_loaded = True
-    already_done = _already_loaded_analytics_games(conn, season)
-    skipped = 0
-    for game_pk in _started_game_ids(games):
-        if game_pk in already_done:
-            skipped += 1
-            continue
+        pass
+    terminal = _terminal_analytics_games(conn, season)
+    # The schedule endpoint can expose the same game more than once in a
+    # reschedule/doubleheader-shaped response.  An API item is keyed by game,
+    # not by schedule appearance: de-duplicate before both the network pool
+    # and the bulk replace so an otherwise durable game cannot be fetched
+    # twice in one retry.
+    pending = sorted(set(_started_game_ids(games)) - terminal)
+    if terminal:
+        print(f"mlb_api: analytics for season {season}: skipped {len(terminal)} durable items")
+    for offset in range(0, len(pending), ANALYTICS_BATCH_SIZE):
+        game_batch = pending[offset : offset + ANALYTICS_BATCH_SIZE]
+        batch_number = offset // ANALYTICS_BATCH_SIZE + 1
         try:
-            for table, count in _load_analytics_for_game(
-                conn,
-                game_pk,
-                season,
-                include_linescore=not linescore_bulk_loaded,
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+                results = list(pool.map(_fetch_analytics_game, game_batch))
+            for table, count in _load_analytics_batch(
+                conn, season, batch_number, results, run_id=run_id
             ).items():
                 totals[table] = totals.get(table, 0) + count
-            conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"mlb_api: analytics for game {game_pk} failed ({exc}); skipping")
-    if skipped:
-        print(f"mlb_api: analytics for season {season}: skipped {skipped} already-loaded games")
+            print(
+                f"mlb_api: analytics batch {batch_number} for season {season} failed ({exc}); "
+                "leaving it for a safe retry"
+            )
+    return totals
+
+
+def backfill_analytics(
+    *,
+    start_year: int = FIRST_WIN_PROB_YEAR,
+    end_year: int | None = None,
+    workers: int = ANALYTICS_WORKERS,
+) -> dict[str, int]:
+    """Run only the costly analytics stage, safely resumable by game.
+
+    This is the operator-facing replacement for waiting through unrelated
+    reference endpoints before the largest historical gap can make progress.
+    It never deletes a whole season: completed source items are skipped, and
+    each successful batch replaces only its own game keys.
+    """
+    final_year = end_year or date.today().year
+    if start_year < FIRST_WIN_PROB_YEAR or end_year is not None and final_year < start_year:
+        raise ValueError(
+            f"analytics years must be within {FIRST_WIN_PROB_YEAR}-{date.today().year}"
+        )
+    if not 1 <= workers <= 16:
+        raise ValueError("analytics workers must be between 1 and 16")
+    totals: dict[str, int] = dict.fromkeys(_ANALYTICS_TABLES, 0)
+    with get_connection() as conn, track_run(conn, SOURCE, "backfill") as result:
+        for season in range(start_year, final_year + 1):
+            for table, count in _load_analytics_for_season(
+                conn, season, run_id=result["run_id"], workers=workers
+            ).items():
+                totals[table] = totals.get(table, 0) + count
+        result["rows"] = sum(totals.values())
     return totals
 
 
@@ -1758,7 +2097,9 @@ def bootstrap() -> dict[str, int]:
                 ):
                     print(f"mlb_api: {season} analytics already loaded, skipping")
                     continue
-                for table, count in _load_analytics_for_season(conn, season).items():
+                for table, count in _load_analytics_for_season(
+                    conn, season, run_id=result["run_id"]
+                ).items():
                     counts[table] = counts.get(table, 0) + count
         # Draft, venue, team history, and person bios each load once, after
         # the season loop — none of them are season-scoped in a way that

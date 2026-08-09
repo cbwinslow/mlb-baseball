@@ -40,6 +40,23 @@ def _release_migration_lock(conn: psycopg.Connection) -> None:
         cur.execute("SELECT pg_advisory_unlock(hashtext('mlb-migrate'))")
 
 
+def _strip_sql_comments(sql: str) -> str:
+    """Removes `-- ...` comments (to end of line) before splitting on `;` --
+    a semicolon inside a comment must not be treated as a statement
+    delimiter. Found the hard way: migration 0038's own explanatory
+    comments contained a semicolon in a plain English sentence, which the
+    old naive `sql.split(";")` treated as a statement boundary, producing
+    a confusing "syntax error near <fragment of comment prose>" with no
+    hint that the real cause was comment-unaware splitting. Deliberately
+    simple (no string-literal awareness) since this project's migrations
+    are plain DDL that never puts `--` inside a string value."""
+    lines = []
+    for line in sql.splitlines():
+        comment_start = line.find("--")
+        lines.append(line[:comment_start] if comment_start != -1 else line)
+    return "\n".join(lines)
+
+
 def _apply_nontransactional_migration(conn: psycopg.Connection, sql: str) -> None:
     """Run an explicitly marked operational migration one statement at a time.
 
@@ -48,14 +65,13 @@ def _apply_nontransactional_migration(conn: psycopg.Connection, sql: str) -> Non
     files, and leaves the ledger row absent until every idempotent statement
     succeeds, making a retry the recovery path after interruption.
     """
-    statements = [statement.strip() for statement in sql.split(";") if statement.strip()]
+    stripped = _strip_sql_comments(sql)
+    statements = [statement.strip() for statement in stripped.split(";") if statement.strip()]
     old_autocommit = conn.autocommit
     conn.autocommit = True
     try:
         with conn.cursor() as cur:
             for statement in statements:
-                if statement == _NONTRANSACTIONAL_MARKER:
-                    continue
                 cur.execute(statement)
     finally:
         conn.autocommit = old_autocommit

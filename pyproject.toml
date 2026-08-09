@@ -15,6 +15,7 @@ dependencies = [
     "xgboost>=2.0",
     "scikit-learn>=1.4",
     "feedparser>=6.0.14",
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]

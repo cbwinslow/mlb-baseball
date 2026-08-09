@@ -44,6 +44,43 @@ def test_analytics_retry_replaces_a_timed_out_worker_session(monkeypatch):
     assert not healthy.closed
 
 
+def test_analytics_schedule_uses_a_minimal_timed_api_response(monkeypatch):
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "dates": [
+                    {
+                        "games": [
+                            {"gamePk": 7, "status": {"detailedState": "Final"}},
+                            {"gamePk": 8, "status": {"detailedState": "Scheduled"}},
+                        ]
+                    }
+                ]
+            }
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(mlb_api.requests, "get", fake_get)
+
+    assert mlb_api._analytics_schedule(2024) == [
+        {"game_id": 7, "status": "Final"},
+        {"game_id": 8, "status": "Scheduled"},
+    ]
+    assert calls == [
+        (
+            "https://statsapi.mlb.com/api/v1/schedule",
+            {"params": {"sportId": 1, "season": 2024}, "timeout": 5},
+        )
+    ]
+
+
 def test_schedule_df_serializes_national_broadcasts_as_json_not_python_repr():
     games = [
         {"game_id": 1, "national_broadcasts": ["FOX", "MLBN"]},

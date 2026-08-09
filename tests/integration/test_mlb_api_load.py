@@ -319,6 +319,11 @@ def _fixed_range(monkeypatch, tmp_path):
     monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path / "downloads")
     monkeypatch.setattr(
         mlb_api,
+        "_analytics_schedule",
+        lambda season: FIXTURE_GAMES_BY_SEASON.get(season, []),
+    )
+    monkeypatch.setattr(
+        mlb_api,
         "_fetch_analytics_document",
         lambda endpoint, _game_pk, params: _fake_get(endpoint, params=params),
     )
@@ -1080,16 +1085,21 @@ def test_win_prob_only_range_skips_playbyplay_boxscore_umpire(db_conn):
 
 
 def test_win_prob_for_season_skips_whole_season_on_schedule_fetch_failure(db_conn):
-    # Regression: a season's own statsapi.schedule() call failing must not
+    # Regression: a season's own analytics schedule call failing must not
     # crash the entire multi-decade bootstrap loop — caught and skipped,
     # same as every other per-season failure mode in this connector.
-    def flaky_schedule(**kwargs):
-        if kwargs.get("season") == 2024:
+    def flaky_schedule(season):
+        if season == 2024:
             raise RuntimeError("simulated transient API failure")
-        return FIXTURE_GAMES_BY_SEASON.get(kwargs.get("season"), [])
+        return FIXTURE_GAMES_BY_SEASON.get(season, [])
 
     with (
-        patch.object(mlb_api.statsapi, "schedule", side_effect=flaky_schedule),
+        patch.object(mlb_api, "_analytics_schedule", side_effect=flaky_schedule),
+        patch.object(
+            mlb_api.statsapi,
+            "schedule",
+            side_effect=lambda **kwargs: FIXTURE_GAMES_BY_SEASON.get(kwargs.get("season"), []),
+        ),
         patch.object(mlb_api.statsapi, "standings_data", side_effect=lambda **k: {}),
         patch.object(mlb_api.statsapi, "get", side_effect=_fake_get),
     ):

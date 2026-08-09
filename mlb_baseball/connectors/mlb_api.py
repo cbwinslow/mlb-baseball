@@ -1227,6 +1227,41 @@ def _load_analytics_for_game(
     return counts
 
 
+def _analytics_schedule(season: int) -> list[dict[str, Any]]:
+    """Fetch the minimal per-season game list with a bounded HTTP timeout.
+
+    ``statsapi.schedule`` is convenient but does not accept request kwargs,
+    so its underlying network call can wait forever.  The analytics stage
+    needs only a game identifier and detailed status, not the hydrated
+    schedule presentation fields, which makes this smaller direct request a
+    safer and cheaper control-plane lookup.
+    """
+
+    def request() -> dict[str, Any]:
+        response = requests.get(
+            "https://statsapi.mlb.com/api/v1/schedule",
+            params={"sportId": 1, "season": season},
+            timeout=ANALYTICS_REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    payload = call_with_retry(
+        request,
+        max_attempts=ANALYTICS_RETRY_ATTEMPTS,
+        backoff_seconds=ANALYTICS_BACKOFF_SECONDS,
+        max_retry_after_seconds=ANALYTICS_MAX_RETRY_AFTER_SECONDS,
+    )
+    return [
+        {
+            "game_id": game["gamePk"],
+            "status": game.get("status", {}).get("detailedState", ""),
+        }
+        for day in payload.get("dates", [])
+        for game in day.get("games", [])
+    ]
+
+
 def _analytics_url(endpoint: str, game_pk: int) -> str:
     """Canonical source URL recorded beside each replayable API item."""
     endpoint_path = {
@@ -1623,7 +1658,7 @@ def _load_analytics_for_season(
     `jobs_officialScorers`; not built."""
     totals: dict[str, int] = dict.fromkeys(_ANALYTICS_TABLES, 0)
     try:
-        games = call_with_retry(statsapi.schedule, season=season, sportId=1)
+        games = _analytics_schedule(season)
     except Exception as exc:
         print(f"mlb_api: analytics for season {season} failed ({exc}); skipping whole season")
         return totals

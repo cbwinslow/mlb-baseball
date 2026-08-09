@@ -22,11 +22,12 @@ That rules out table churn as the immediate reason to redesign them.
 
 The live Stats API benchmark for a 48-game 1985 sample confirmed the same
 separation: a single worker took 85.3 seconds after one slow upstream
-response, while 4/8/12/16 workers took 1.17/0.405/0.380/0.370 seconds. The
-test-database write comparison was 0.017 seconds for individual commits and
-0.013 seconds for one COPY on that small payload. The production backfill
-therefore uses the bounded maximum of 16 workers; its bottleneck is MLB API
-latency, not PostgreSQL row insertion.
+response, while 4/8/12/16 workers took 1.17/0.405/0.380/0.370 seconds. A
+second live 48-game test under sustained load measured 16/24/32 workers at
+55.8/106.0/95.1 games per second. The test-database write comparison was
+0.017 seconds for individual commits and 0.013 seconds for one COPY on that
+small payload. The production backfill therefore uses the bounded maximum of
+24 workers; its bottleneck is MLB API latency, not PostgreSQL row insertion.
 
 ## Priority order
 

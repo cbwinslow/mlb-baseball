@@ -17,3 +17,4 @@ downloads/
 # SQLMesh spike (transforms/) -- local cache/run artifacts, not project state.
 transforms/.cache/
 transforms/logs/
+.mcp.json

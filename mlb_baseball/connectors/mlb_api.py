@@ -315,12 +315,13 @@ VENUE_BATCH_SIZE = 100
 PERSON_BATCH_SIZE = 200
 # A 48-game burst benchmark measured 24 workers at 106.0 games/sec and a
 # 500-game run measured 12 at 82.5.  Real production recovery also exposed
-# intermittent DNS loss, for which four workers kept making forward progress
-# without amplifying the outage.  Four is the unattended backfill default;
+# intermittent DNS loss.  After failures became item-level rather than
+# batch-level, an eight-worker production recovery advanced cleanly while
+# retaining four as a conservative fallback.  Eight is the unattended default;
 # twenty-four remains the explicit upper bound for a separately measured run.
 # A batch is deliberately modest: it bounds memory, makes failures cheap to
 # retry, and turns hundreds of per-game commits into one COPY transaction.
-ANALYTICS_WORKERS = 4
+ANALYTICS_WORKERS = 8
 ANALYTICS_BATCH_SIZE = 200
 ANALYTICS_PARSER_VERSION = "mlb-api-analytics-v3"
 _ANALYTICS_LOCAL = threading.local()

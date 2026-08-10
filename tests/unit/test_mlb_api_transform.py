@@ -44,6 +44,39 @@ def test_analytics_retry_replaces_a_timed_out_worker_session(monkeypatch):
     assert not healthy.closed
 
 
+def test_analytics_dns_retry_keeps_an_existing_worker_session(monkeypatch):
+    class Session:
+        closed = False
+        calls = 0
+
+        def get(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise requests.exceptions.ConnectionError(
+                    "NameResolutionError: Failed to resolve statsapi.mlb.com"
+                )
+            return type("Response", (), {"status_code": 200, "json": lambda self: {"ok": True}})()
+
+        def close(self):
+            self.closed = True
+
+    session = Session()
+    monkeypatch.delattr(mlb_api._ANALYTICS_LOCAL, "session", raising=False)
+    monkeypatch.setattr(mlb_api.requests, "Session", lambda: session)
+
+    def retry_once(request, **kwargs):
+        try:
+            return request()
+        except requests.exceptions.RequestException:
+            return request()
+
+    monkeypatch.setattr(mlb_api, "call_with_retry", retry_once)
+
+    assert mlb_api._fetch_analytics_document("game_contextMetrics", 123, {}) == {"ok": True}
+    assert session.calls == 2
+    assert not session.closed
+
+
 def test_analytics_schedule_uses_a_minimal_timed_api_response(monkeypatch):
     calls = []
 

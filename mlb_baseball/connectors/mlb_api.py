@@ -1325,6 +1325,11 @@ def _fetch_analytics_document(endpoint: str, game_pk: int, params: dict) -> obje
         if getattr(_ANALYTICS_LOCAL, "session", None) is session:
             delattr(_ANALYTICS_LOCAL, "session")
 
+    def is_dns_error(exc: requests.exceptions.RequestException) -> bool:
+        """DNS retries should retain an otherwise healthy keep-alive pool."""
+        detail = str(exc)
+        return "NameResolutionError" in detail or "Failed to resolve" in detail
+
     def request():
         session = getattr(_ANALYTICS_LOCAL, "session", None)
         if session is None:
@@ -1336,8 +1341,9 @@ def _fetch_analytics_document(endpoint: str, game_pk: int, params: dict) -> obje
                 params=params,
                 timeout=ANALYTICS_REQUEST_TIMEOUT_SECONDS,
             )
-        except requests.exceptions.RequestException:
-            reset_session(session)
+        except requests.exceptions.RequestException as exc:
+            if not is_dns_error(exc):
+                reset_session(session)
             raise
         if response.status_code >= 400:
             # A confirmed 404 is an expected terminal result for some old

@@ -34,6 +34,10 @@ small payload. The unattended production backfill therefore defaults to eight
 workers (four remains the conservative fallback), while retaining an explicit
 upper bound of 24 for a separately measured short run; its bottleneck is MLB
 API latency, not PostgreSQL row insertion.
+Each game has two independent analytics documents.  The loader fetches those
+documents concurrently and reassembles them before writing the game-level
+artifact and COPY batch, so the default eight game workers use at most sixteen
+simultaneous API requests without changing the durable game boundary.
 The analytics path also recreates a worker session after a failed request and
 caps an individual API retry delay at 15 seconds.  This does not remove
 retries or 404 tracking; it prevents one unhealthy keep-alive connection or

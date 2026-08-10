@@ -81,6 +81,28 @@ def test_analytics_schedule_uses_a_minimal_timed_api_response(monkeypatch):
     ]
 
 
+def test_timed_schedule_injects_a_timeout_and_restores_statsapi_get(monkeypatch):
+    original_get = mlb_api.statsapi.get
+    calls = []
+
+    def fake_get(endpoint, params, **kwargs):
+        calls.append((endpoint, params, kwargs))
+        return [{"game_id": 1}]
+
+    def fake_schedule(**kwargs):
+        return mlb_api.statsapi.get("schedule", {"season": kwargs["season"]})
+
+    monkeypatch.setattr(mlb_api.statsapi, "get", fake_get)
+    monkeypatch.setattr(mlb_api.statsapi, "schedule", fake_schedule)
+
+    assert mlb_api._timed_schedule(season=2024, sportId=1) == [{"game_id": 1}]
+    assert calls == [
+        ("schedule", {"season": 2024}, {"force": False, "request_kwargs": {"timeout": 30}})
+    ]
+    assert mlb_api.statsapi.get is fake_get
+    assert original_get is not fake_get
+
+
 def test_schedule_df_serializes_national_broadcasts_as_json_not_python_repr():
     games = [
         {"game_id": 1, "national_broadcasts": ["FOX", "MLBN"]},

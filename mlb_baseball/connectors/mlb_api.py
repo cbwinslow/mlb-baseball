@@ -232,6 +232,35 @@ def _get(endpoint: str, params: dict | None = None, force: bool = False):
     )
 
 
+_SCHEDULE_REQUEST_LOCK = threading.RLock()
+
+
+def _timed_schedule(**kwargs: Any) -> list[dict[str, Any]]:
+    """Use statsapi's mature schedule parser without its unbounded request.
+
+    The third-party ``schedule`` helper does not expose request kwargs even
+    though its underlying ``get`` function does.  Temporarily substitute a
+    timed adapter while the helper builds its rich schedule rows, under a
+    process-local lock so another thread cannot observe a half-swapped global.
+    """
+    with _SCHEDULE_REQUEST_LOCK:
+        original_get = statsapi.get
+
+        def timed_get(endpoint: str, params: dict | None = None, force: bool = False):
+            return original_get(
+                endpoint,
+                params or {},
+                force=force,
+                request_kwargs={"timeout": REQUEST_TIMEOUT_SECONDS},
+            )
+
+        statsapi.get = timed_get
+        try:
+            return statsapi.schedule(**kwargs)
+        finally:
+            statsapi.get = original_get
+
+
 FIRST_SCHEDULE_YEAR = 1901
 FIRST_STANDINGS_YEAR = 1969
 FIRST_ROSTER_YEAR = FIRST_SCHEDULE_YEAR
@@ -299,7 +328,7 @@ REFERENCE_WORKERS = 8
 
 
 def _schedule_df(season: int) -> pd.DataFrame:
-    games = call_with_retry(statsapi.schedule, season=season, sportId=1)
+    games = call_with_retry(_timed_schedule, season=season, sportId=1)
     for game in games:
         # statsapi's own schedule() emits "losing_Team" (capital T) instead of
         # "losing_team" specifically for tied Spring Training/Exhibition games
@@ -1158,7 +1187,7 @@ _GAME_DETAIL_TABLES = [
 def _load_game_detail_for_season(conn: psycopg.Connection, season: int) -> dict[str, int]:
     totals: dict[str, int] = dict.fromkeys(_GAME_DETAIL_TABLES, 0)
     try:
-        games = call_with_retry(statsapi.schedule, season=season, sportId=1)
+        games = call_with_retry(_timed_schedule, season=season, sportId=1)
     except Exception as exc:
         print(f"mlb_api: game detail for season {season} failed ({exc}); skipping whole season")
         return totals
@@ -1937,7 +1966,7 @@ def replay_analytics(
 
 def _load_game_detail_for_today(conn: psycopg.Connection) -> dict[str, int]:
     today = date.today().strftime("%m/%d/%Y")
-    games = call_with_retry(statsapi.schedule, date=today, sportId=1)
+    games = call_with_retry(_timed_schedule, date=today, sportId=1)
     season = date.today().year
     totals: dict[str, int] = dict.fromkeys(_GAME_DETAIL_TABLES, 0)
     for game_pk in _started_game_ids(games):
@@ -2688,7 +2717,7 @@ def capture_live(conn: psycopg.Connection) -> int:
     # day. Found via a real doctor run: exactly this happened after the
     # first production update() call landed on a day with no live games.
     today = date.today().strftime("%m/%d/%Y")
-    games = call_with_retry(statsapi.schedule, date=today, sportId=1)
+    games = call_with_retry(_timed_schedule, date=today, sportId=1)
     snapshots = [_live_snapshot(game["game_id"]) for game in games]
     captured_at = datetime.now(UTC).isoformat()
     rows = [

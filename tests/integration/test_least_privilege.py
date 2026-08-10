@@ -42,6 +42,14 @@ def disposable_least_privilege_env():
 
     with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                "SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user"
+            )
+            if not cur.fetchone()[0]:
+                pytest.skip(
+                    "least-privilege isolation fixture requires a test-only CREATEROLE account; "
+                    "the normal mlb_test application account correctly lacks it"
+                )
             # Create disposable NOLOGIN serving role
             cur.execute(sql.SQL("CREATE ROLE {} NOLOGIN;").format(sql.Identifier(serve_role)))
             # Grant role to current session user so SET ROLE can be executed

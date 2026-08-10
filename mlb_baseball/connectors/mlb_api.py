@@ -1481,46 +1481,87 @@ def _fetch_analytics_game(game_pk: int) -> dict[str, Any]:
     A confirmed 404 becomes an explicit terminal result; transient failures
     still use the repository-wide bounded retry policy and surface visibly.
     """
-    documents: dict[str, dict[str, Any]] = {}
-    for dataset, endpoint, params in (
-        ("win_probability", "game_winProbability", {"gamePk": game_pk, "fields": WIN_PROB_FIELDS}),
+    documents = {
+        dataset: _fetch_analytics_game_document(game_pk, dataset, endpoint, params)
+        for dataset, endpoint, params in _analytics_document_specs(game_pk)
+    }
+    return {"game_pk": game_pk, "documents": documents}
+
+
+def _analytics_document_specs(game_pk: int) -> tuple[tuple[str, str, dict[str, Any]], ...]:
+    return (
+        (
+            "win_probability",
+            "game_winProbability",
+            {"gamePk": game_pk, "fields": WIN_PROB_FIELDS},
+        ),
         ("context_metrics", "game_contextMetrics", {"gamePk": game_pk}),
-    ):
-        try:
-            payload = _fetch_analytics_document(endpoint, game_pk, params)
-        except requests.exceptions.HTTPError as exc:
-            status = getattr(exc.response, "status_code", None)
-            if status != 404:
-                documents[dataset] = {
-                    "status": "failed",
-                    "http_status": status,
-                    "payload": None,
-                    "url": _analytics_url(endpoint, game_pk),
-                    "error": str(exc),
-                }
-                continue
-            documents[dataset] = {
+    )
+
+
+def _fetch_analytics_game_document(
+    game_pk: int, dataset: str, endpoint: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Fetch one independently retryable analytics document for a game."""
+    try:
+        payload = _fetch_analytics_document(endpoint, game_pk, params)
+    except requests.exceptions.HTTPError as exc:
+        status = getattr(exc.response, "status_code", None)
+        if status == 404:
+            return {
                 "status": "unavailable",
                 "http_status": 404,
                 "payload": None,
                 "url": _analytics_url(endpoint, game_pk),
             }
-        except requests.exceptions.RequestException as exc:
-            documents[dataset] = {
-                "status": "failed",
-                "http_status": None,
-                "payload": None,
-                "url": _analytics_url(endpoint, game_pk),
-                "error": str(exc),
-            }
-        else:
-            documents[dataset] = {
-                "status": "loaded",
-                "http_status": 200,
-                "payload": payload,
-                "url": _analytics_url(endpoint, game_pk),
-            }
-    return {"game_pk": game_pk, "documents": documents}
+        return {
+            "status": "failed",
+            "http_status": status,
+            "payload": None,
+            "url": _analytics_url(endpoint, game_pk),
+            "error": str(exc),
+        }
+    except requests.exceptions.RequestException as exc:
+        return {
+            "status": "failed",
+            "http_status": None,
+            "payload": None,
+            "url": _analytics_url(endpoint, game_pk),
+            "error": str(exc),
+        }
+    return {
+        "status": "loaded",
+        "http_status": 200,
+        "payload": payload,
+        "url": _analytics_url(endpoint, game_pk),
+    }
+
+
+def _fetch_analytics_batch(game_pks: list[int], workers: int) -> list[dict[str, Any]]:
+    """Fetch both independent endpoints concurrently without changing game grain.
+
+    One game worker used to fetch win probability and context metrics in
+    sequence, leaving half the available request capacity idle.  Flattening
+    those independent documents doubles request concurrency while results are
+    reassembled at the same durable game boundary before any artifact or COPY.
+    """
+    tasks = [
+        (game_pk, dataset, endpoint, params)
+        for game_pk in game_pks
+        for dataset, endpoint, params in _analytics_document_specs(game_pk)
+    ]
+    documents: dict[int, dict[str, dict[str, Any]]] = {game_pk: {} for game_pk in game_pks}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers * 2) as pool:
+        for game_pk, dataset, document in pool.map(
+            lambda task: (
+                task[0],
+                task[1],
+                _fetch_analytics_game_document(task[0], task[1], task[2], task[3]),
+            ),
+            tasks,
+        ):
+            documents[game_pk][dataset] = document
+    return [{"game_pk": game_pk, "documents": documents[game_pk]} for game_pk in game_pks]
 
 
 def _record_failed_analytics_items(
@@ -1776,8 +1817,7 @@ def _load_analytics_for_season(
         game_batch = pending[offset : offset + ANALYTICS_BATCH_SIZE]
         batch_number = offset // ANALYTICS_BATCH_SIZE + 1
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-                results = list(pool.map(_fetch_analytics_game, game_batch))
+            results = _fetch_analytics_batch(game_batch, workers)
             complete_results = [
                 result
                 for result in results

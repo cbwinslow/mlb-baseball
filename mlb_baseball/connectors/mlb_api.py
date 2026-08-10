@@ -1454,12 +1454,27 @@ def _fetch_analytics_game(game_pk: int) -> dict[str, Any]:
         except requests.exceptions.HTTPError as exc:
             status = getattr(exc.response, "status_code", None)
             if status != 404:
-                raise
+                documents[dataset] = {
+                    "status": "failed",
+                    "http_status": status,
+                    "payload": None,
+                    "url": _analytics_url(endpoint, game_pk),
+                    "error": str(exc),
+                }
+                continue
             documents[dataset] = {
                 "status": "unavailable",
                 "http_status": 404,
                 "payload": None,
                 "url": _analytics_url(endpoint, game_pk),
+            }
+        except requests.exceptions.RequestException as exc:
+            documents[dataset] = {
+                "status": "failed",
+                "http_status": None,
+                "payload": None,
+                "url": _analytics_url(endpoint, game_pk),
+                "error": str(exc),
             }
         else:
             documents[dataset] = {
@@ -1469,6 +1484,44 @@ def _fetch_analytics_game(game_pk: int) -> dict[str, Any]:
                 "url": _analytics_url(endpoint, game_pk),
             }
     return {"game_pk": game_pk, "documents": documents}
+
+
+def _record_failed_analytics_items(
+    conn: psycopg.Connection,
+    season: int,
+    results: list[dict[str, Any]],
+    *,
+    run_id: int | None,
+) -> None:
+    """Persist per-document failures without marking a game terminal.
+
+    A DNS or timeout failure for one game must not discard the other 199
+    successful responses in its batch.  Failed ledger rows remain nonterminal
+    and therefore become the exact retry set on the next run.
+    """
+    items = []
+    for result in results:
+        game_pk = int(result["game_pk"])
+        for dataset, document in dict(result["documents"]).items():
+            if document["status"] != "failed":
+                continue
+            items.append(
+                {
+                    "source": SOURCE,
+                    "dataset": dataset,
+                    "item_key": _analytics_item_key(season, game_pk),
+                    "status": "failed",
+                    "source_url": document["url"],
+                    "http_status": document.get("http_status"),
+                    "rows": 0,
+                    "parser_version": ANALYTICS_PARSER_VERSION,
+                    "schema_fingerprint": manifest.schema_fingerprint(["game_pk"]),
+                    "error": document.get("error"),
+                    "run_id": run_id,
+                }
+            )
+    record_items(conn, items)
+    conn.commit()
 
 
 def _artifact_for_analytics_batch(
@@ -1688,10 +1741,27 @@ def _load_analytics_for_season(
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
                 results = list(pool.map(_fetch_analytics_game, game_batch))
-            for table, count in _load_analytics_batch(
-                conn, season, batch_number, results, run_id=run_id
-            ).items():
-                totals[table] = totals.get(table, 0) + count
+            complete_results = [
+                result
+                for result in results
+                if all(
+                    document["status"] in {"loaded", "unavailable"}
+                    for document in dict(result["documents"]).values()
+                )
+            ]
+            failed_results = [result for result in results if result not in complete_results]
+            if complete_results:
+                for table, count in _load_analytics_batch(
+                    conn, season, batch_number, complete_results, run_id=run_id
+                ).items():
+                    totals[table] = totals.get(table, 0) + count
+            if failed_results:
+                _record_failed_analytics_items(conn, season, failed_results, run_id=run_id)
+                print(
+                    f"mlb_api: analytics batch {batch_number} for season {season}: "
+                    f"committed {len(complete_results)} games; "
+                    f"{len(failed_results)} will retry"
+                )
         except Exception as exc:
             conn.rollback()
             print(

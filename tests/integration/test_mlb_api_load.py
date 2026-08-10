@@ -12,6 +12,7 @@ from datetime import date
 from unittest.mock import patch
 
 import pytest
+import requests
 
 from mlb_baseball import manifest
 from mlb_baseball.connectors import mlb_api
@@ -1184,6 +1185,47 @@ def test_analytics_rerun_skips_already_loaded_games(db_conn):
     )
     artifact = manifest.DOWNLOADS_ROOT / "mlb_api" / ledger[0][2]
     assert artifact.exists()
+
+
+def test_analytics_commits_healthy_games_when_one_game_has_a_transient_failure(db_conn):
+    def flaky_document(endpoint, game_pk, params):
+        if game_pk == 2001 and endpoint == "game_winProbability":
+            raise requests.exceptions.ConnectionError("temporary DNS failure")
+        return _fake_get(endpoint, params=params)
+
+    with patch.object(mlb_api, "_fetch_analytics_document", side_effect=flaky_document):
+        first = mlb_api._load_analytics_for_season(db_conn, 2024)
+
+    # Game 2002 is durable immediately; only 2001's failed document remains
+    # pending instead of throwing away the whole two-game fixture batch.
+    assert first["raw.mlb_win_prob"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT status FROM meta.ingestion_item
+            WHERE source = %s AND dataset = 'win_probability' AND item_key = '2024:2001'
+            """,
+            (mlb_api.SOURCE,),
+        )
+        assert cur.fetchone() == ("failed",)
+        cur.execute("SELECT count(*) FROM raw.mlb_win_prob WHERE game_pk = '2002'")
+        assert cur.fetchone() == (1,)
+
+    with patch.object(
+        mlb_api,
+        "_fetch_analytics_document",
+        side_effect=lambda endpoint, _game_pk, params: _fake_get(endpoint, params=params),
+    ):
+        second = mlb_api._load_analytics_for_season(db_conn, 2024)
+
+    assert second["raw.mlb_win_prob"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM meta.ingestion_item "
+            "WHERE source = %s AND dataset = 'win_probability' AND item_key = '2024:2001'",
+            (mlb_api.SOURCE,),
+        )
+        assert cur.fetchone() == ("loaded",)
 
 
 def test_analytics_deduplicates_repeated_schedule_game_ids(db_conn):

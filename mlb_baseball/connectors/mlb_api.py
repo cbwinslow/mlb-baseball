@@ -284,13 +284,14 @@ PROBABLE_WINDOW_DAYS = 5
 # pull to a couple hundred calls instead of one per venue/person.
 VENUE_BATCH_SIZE = 100
 PERSON_BATCH_SIZE = 200
-# A 48-game burst benchmark measured 24 workers at 106.0 games/sec, but a
-# longer 500-game run measured 12 workers at 82.5 games/sec with no failures.
-# Twelve is therefore the conservative default for a multi-hour backfill;
-# twenty-four remains the explicit upper bound for a measured short run.
+# A 48-game burst benchmark measured 24 workers at 106.0 games/sec and a
+# 500-game run measured 12 at 82.5.  Real production recovery also exposed
+# intermittent DNS loss, for which four workers kept making forward progress
+# without amplifying the outage.  Four is the unattended backfill default;
+# twenty-four remains the explicit upper bound for a separately measured run.
 # A batch is deliberately modest: it bounds memory, makes failures cheap to
 # retry, and turns hundreds of per-game commits into one COPY transaction.
-ANALYTICS_WORKERS = 12
+ANALYTICS_WORKERS = 4
 ANALYTICS_BATCH_SIZE = 200
 ANALYTICS_PARSER_VERSION = "mlb-api-analytics-v3"
 _ANALYTICS_LOCAL = threading.local()

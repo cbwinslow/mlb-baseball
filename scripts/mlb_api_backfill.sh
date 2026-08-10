@@ -8,7 +8,7 @@
 # so a person or agent never overlaps this with a second full API backfill.
 #
 # Optional environment settings:
-#   MLB_API_START_YEAR=1950 MLB_API_END_YEAR=2026 MLB_API_WORKERS=12
+#   MLB_API_START_YEAR=1950 MLB_API_END_YEAR=2026 MLB_API_WORKERS=4
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,7 +16,7 @@ LOCK_FILE="/tmp/mlb_api_backfill.lock"
 LOG_FILE="$REPO_DIR/logs/mlb_api_backfill.log"
 START_YEAR="${MLB_API_START_YEAR:-1950}"
 END_YEAR="${MLB_API_END_YEAR:-$(date +%Y)}"
-WORKERS="${MLB_API_WORKERS:-12}"
+WORKERS="${MLB_API_WORKERS:-4}"
 
 mkdir -p "$REPO_DIR/logs"
 exec 200>"$LOCK_FILE"
@@ -27,6 +27,7 @@ if ! flock -n 200; then
 fi
 
 cd "$REPO_DIR"
+export PYTHONUNBUFFERED=1
 {
     echo "$(date -u +%FT%TZ) starting MLB API backfill years=$START_YEAR-$END_YEAR workers=$WORKERS"
     "$REPO_DIR/.venv/bin/mlb" migrate

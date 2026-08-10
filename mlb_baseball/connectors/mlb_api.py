@@ -247,12 +247,46 @@ def _timed_schedule(**kwargs: Any) -> list[dict[str, Any]]:
         original_get = statsapi.get
 
         def timed_get(endpoint: str, params: dict | None = None, force: bool = False):
-            return original_get(
+            response = original_get(
                 endpoint,
                 params or {},
                 force=force,
                 request_kwargs={"timeout": REQUEST_TIMEOUT_SECONDS},
             )
+            # Some Negro League-era schedule games contain a team ``id`` but
+            # omit the embedded team ``name``.  ``statsapi.schedule`` formats
+            # a human-readable summary and assumes that name is present,
+            # raising KeyError before it can return the otherwise valid game.
+            # The season-scoped MLB teams catalog is authoritative for that
+            # missing display value, so fill it only when absent.  This keeps
+            # the source game record intact and lets the normal raw schedule
+            # loader cover every advertised historical season.
+            if endpoint == "schedule" and isinstance(response, dict):
+                season = (params or {}).get("season")
+                if season and any(
+                    "name" not in game.get("teams", {}).get(side, {}).get("team", {})
+                    for date_block in response.get("dates", [])
+                    for game in date_block.get("games", [])
+                    for side in ("away", "home")
+                ):
+                    teams = original_get(
+                        "teams",
+                        {"sportId": 1, "season": season},
+                        force=True,
+                        request_kwargs={"timeout": REQUEST_TIMEOUT_SECONDS},
+                    )
+                    names = {
+                        team["id"]: team["name"]
+                        for team in teams.get("teams", [])
+                        if team.get("id") is not None and team.get("name")
+                    }
+                    for date_block in response.get("dates", []):
+                        for game in date_block.get("games", []):
+                            for side in ("away", "home"):
+                                team = game.get("teams", {}).get(side, {}).get("team", {})
+                                if "name" not in team and team.get("id") in names:
+                                    team["name"] = names[team["id"]]
+            return response
 
         statsapi.get = timed_get
         try:

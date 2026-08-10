@@ -115,7 +115,6 @@ def test_analytics_schedule_uses_a_minimal_timed_api_response(monkeypatch):
 
 
 def test_timed_schedule_injects_a_timeout_and_restores_statsapi_get(monkeypatch):
-    original_get = mlb_api.statsapi.get
     calls = []
 
     def fake_get(endpoint, params, **kwargs):
@@ -133,7 +132,39 @@ def test_timed_schedule_injects_a_timeout_and_restores_statsapi_get(monkeypatch)
         ("schedule", {"season": 2024}, {"force": False, "request_kwargs": {"timeout": 30}})
     ]
     assert mlb_api.statsapi.get is fake_get
-    assert original_get is not fake_get
+
+
+def test_timed_schedule_fills_a_legacy_missing_team_name(monkeypatch):
+    """Negro League schedule rows can omit an embedded team display name."""
+
+    def fake_get(endpoint, params, **kwargs):
+        if endpoint == "schedule":
+            return {
+                "dates": [
+                    {
+                        "games": [
+                            {
+                                "teams": {
+                                    "away": {"team": {"id": 1541}},
+                                    "home": {"team": {"id": 147}},
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        assert endpoint == "teams"
+        assert params == {"sportId": 1, "season": 1924}
+        return {"teams": [{"id": 1541, "name": "St. Louis Stars"}]}
+
+    def fake_schedule(**kwargs):
+        response = mlb_api.statsapi.get("schedule", {"season": kwargs["season"]})
+        return response["dates"][0]["games"][0]["teams"]["away"]["team"]["name"]
+
+    monkeypatch.setattr(mlb_api.statsapi, "get", fake_get)
+    monkeypatch.setattr(mlb_api.statsapi, "schedule", fake_schedule)
+
+    assert mlb_api._timed_schedule(season=1924, sportId=1) == "St. Louis Stars"
 
 
 def test_schedule_df_serializes_national_broadcasts_as_json_not_python_repr():

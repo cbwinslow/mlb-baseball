@@ -552,6 +552,28 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
                             WHEN COALESCE(g.game_number, 0) = 0 THEN 1
                             ELSE g.game_number
                         END
+                    -- A provider key may appear in schedule history in a
+                    -- way that satisfies more than one canonical-game
+                    -- candidate. The old fixed exception list only knew
+                    -- about examples already observed; make the rule
+                    -- data-driven instead. An ambiguous key remains NULL
+                    -- for audit/reconciliation, never a uniqueness error.
+                    AND 1 = (
+                        SELECT count(*)
+                        FROM core.game candidate
+                        JOIN core.team candidate_away ON candidate_away.id = candidate.away_team_id
+                        JOIN core.team candidate_home ON candidate_home.id = candidate.home_team_id
+                        WHERE candidate.game_date = ms.game_date::date
+                          AND candidate_away.city || ' ' || candidate_away.nickname = ms.away_name
+                          AND candidate_home.city || ' ' || candidate_home.nickname = ms.home_name
+                          AND CASE
+                                WHEN COALESCE(candidate.game_number, 0) = 0 THEN 1
+                                ELSE candidate.game_number
+                              END = CASE
+                                WHEN COALESCE(NULLIF(ms.game_num, '')::integer, 0) = 0 THEN 1
+                                ELSE NULLIF(ms.game_num, '')::integer
+                              END
+                    )
                     -- g.game_pk IS NULL: without this, a row that already
                     -- got its correct game_pk from _build_games' second
                     -- INSERT (the MLB-API-sourced path) could get silently
@@ -660,6 +682,22 @@ def _backfill_game_pk_via_mlb_team_id(conn: psycopg.Connection) -> int:
                             WHEN COALESCE(g.game_number, 0) = 0 THEN 1
                             ELSE g.game_number
                         END
+                    AND 1 = (
+                        SELECT count(*)
+                        FROM core.game candidate
+                        JOIN core.team candidate_away ON candidate_away.id = candidate.away_team_id
+                        JOIN core.team candidate_home ON candidate_home.id = candidate.home_team_id
+                        WHERE candidate.game_date = ms.game_date::date
+                          AND candidate_away.mlb_team_id = NULLIF(ms.away_id, '')::integer
+                          AND candidate_home.mlb_team_id = NULLIF(ms.home_id, '')::integer
+                          AND CASE
+                                WHEN COALESCE(candidate.game_number, 0) = 0 THEN 1
+                                ELSE candidate.game_number
+                              END = CASE
+                                WHEN COALESCE(NULLIF(ms.game_num, '')::integer, 0) = 0 THEN 1
+                                ELSE NULLIF(ms.game_num, '')::integer
+                              END
+                    )
                     AND g.game_pk IS NULL
                     AND ms.game_id NOT IN ({_AMBIGUOUS_FINAL_GAME_IDS_SQL})
                 """

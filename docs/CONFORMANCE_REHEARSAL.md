@@ -36,6 +36,58 @@ twice, runs `mlb audit`, and removes all fixture data afterward. It covers:
 - `mlb audit` has no failures. The deliberately unresolved Statcast fixture is
   a warning because its repairable source key remains present.
 
+## Production-shaped raw sample (read-only source, `mlb_test` target)
+
+The fixture test above is the fast regression gate. Use this second gate when
+you need evidence from data already landed in a local production database. It
+opens the source in a read-only transaction and refuses a target whose database
+name does not contain `test`.
+
+```bash
+SOURCE_DATABASE_URL="$DATABASE_URL" \
+TEST_DATABASE_URL=postgresql://mlb@localhost/mlb_test \
+  uv run python scripts/rehearse_sample.py
+
+DATABASE_URL=postgresql://mlb@localhost/mlb_test uv run mlb conform
+DATABASE_URL=postgresql://mlb@localhost/mlb_test uv run mlb audit --scope statcast
+```
+
+The bounded sample includes ten safely matched Retrosheet games per available
+selected historical season, all schedule observations for 2008, 2015, 2024,
+2025, and 2026, plus ten completed current-season MLB games with play-by-play.
+It keeps the corresponding Retrosheet events, people, MLB play-by-play, and
+Statcast pitches. Raw tables are recreated only in `mlb_test`; conformance is
+then run explicitly, so the source remains untouched.
+
+To return the test database to its raw/core clean boundary without changing
+migrations or metadata:
+
+```bash
+SOURCE_DATABASE_URL=unused \
+TEST_DATABASE_URL=postgresql://mlb@localhost/mlb_test \
+CLEAR_REHEARSAL_SAMPLE=1 uv run python scripts/rehearse_sample.py
+```
+
+### Latest local evidence (2026-08-10)
+
+The bounded run produced 20 matched Retrosheet games (10 each from 2008 and
+2015), 1,547 Retrosheet plays, 753 current MLB plays, and 8,022 Statcast
+pitches. All sampled pitches resolved to a canonical game and all sampled
+plays had a valid game reference. The full schedule history intentionally
+retained 180 repeated official game IDs; `core.game` had no duplicate populated
+MLB keys.
+
+Eight MLB-schedule-only canonical games remained without an MLB key. They are
+known source-history ambiguity cases, including the suspended/resumed 2026
+record, and correctly remain unresolved rather than being force-matched.
+
+This run also found a production-data coverage limitation: `raw.retrosheet_team`
+has team effective-date rows ending in 2021 although the landed Retrosheet game
+and event feeds extend through 2024–25. This prevents safe current-era
+Retrosheet team/game linking. It is an ingestion/reference-data repair task
+before a production conformance recommendation—not an acceptable reason to
+relax effective-date checks or guess a crosswalk.
+
 ## Optional baseballr comparison
 
 This repository does not install or require R. If an investigator already has

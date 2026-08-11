@@ -114,6 +114,18 @@ sources, and resolved/unresolved Statcast pitches. See
 [`CONFORMANCE_REHEARSAL.md`](../docs/CONFORMANCE_REHEARSAL.md). This is a
 test-database gate, not authorization to modify production.
 
+**Production-shaped rehearsal evidence (2026-08-10):** A bounded copy from
+production opened the source transaction read-only and wrote only `mlb_test`.
+It tied out 20 matched Retrosheet games (2008/2015), 1,547 Retrosheet plays,
+753 MLB plays, and 8,022 Statcast pitches with zero unresolved sampled pitch or
+play game links. `core.game` retained 180 repeated raw schedule-history keys,
+had zero duplicate populated MLB keys, and left eight documented ambiguous
+schedule-only records unresolved. The gate also found that
+`raw.retrosheet_team` ends in 2021 while landed game/event data extends to
+2024–25; repairing that reference-data coverage is a remaining blocker before
+any production conformance recommendation. See
+[`CONFORMANCE_REHEARSAL.md`](../docs/CONFORMANCE_REHEARSAL.md).
+
 ## Acceptance gate
 
 - Modern-season linkage meets recorded targets and ambiguous identities remain

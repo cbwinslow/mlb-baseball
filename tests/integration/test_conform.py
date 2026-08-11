@@ -1877,6 +1877,66 @@ def test_backfill_game_pk_distinguishes_doubleheader_games(db_conn):
     db_conn.commit()
 
 
+def test_backfill_game_pk_leaves_same_matchup_candidates_unresolved(db_conn):
+    """Do not choose between two canonical rows matched by one schedule key."""
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('ATL', 'NL', 'Atlanta', 'Braves', '1966', '2025'), "
+            "('NYA', 'AL', 'New York', 'Yankees', '1913', '2025')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text, temp text, winddir text, "
+            "windspeed text, sky text, precip text, fieldcond text)"
+        )
+        # A malformed/duplicated source history can yield two canonical
+        # candidates at the same declared natural key.  A unique provider
+        # game_pk must not be assigned to both just because the schedule
+        # side has one plausible row.
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('ATL202504010', '2025', '20250401', '1', 'NYA', 'ATL', "
+            "'3', '5', 'regular', 'ATL03', '', '', '', '', '', '', '', '', '', '', '', ''), "
+            "('ATL202504011', '2025', '20250401', '1', 'NYA', 'ATL', "
+            "'3', '5', 'regular', 'ATL03', '', '', '', '', '', '', '', '', '', '', '', '')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, name_last, name_first) "
+            "VALUES ('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, venue_id text, away_score text, home_score text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('900003', '2025-04-01', 'New York Yankees', 'Atlanta Braves', "
+            "'2025', 'Final', 'R', '1', 'Truist Park', '', '3', '5')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT game_pk FROM core.game WHERE retro_game_id IN "
+            "('ATL202504010', 'ATL202504011') ORDER BY retro_game_id"
+        )
+        assert cur.fetchall() == [(None,), (None,)]
+
+
 def test_backfill_game_pk_leaves_ambiguous_final_id_null(db_conn):
     # Real bug found via mlb doctor's check_no_duplicate_key in production:
     # game_pk 123347 was shared by two genuinely distinct, real 1944 PIT

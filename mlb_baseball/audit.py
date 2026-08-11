@@ -539,6 +539,43 @@ def _database_health_audit(cur: psycopg.Cursor) -> list[Finding]:
                 f"last analyzed={analyzed or 'never'}",
             )
         )
+    cur.execute(
+        """
+        WITH index_definition AS (
+            SELECT n.nspname || '.' || t.relname AS relation,
+                   i.relname AS index_name,
+                   x.indisunique, x.indisprimary, x.indkey::text,
+                   x.indclass::text, x.indcollation::text, x.indoption::text,
+                   coalesce(pg_get_expr(x.indexprs, x.indrelid), '') AS expressions,
+                   coalesce(pg_get_expr(x.indpred, x.indrelid), '') AS predicate
+            FROM pg_index x
+            JOIN pg_class t ON t.oid = x.indrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            JOIN pg_class i ON i.oid = x.indexrelid
+            WHERE n.nspname IN ('raw', 'core', 'gold') AND x.indisvalid
+        ), duplicate_group AS (
+            SELECT relation, string_agg(index_name, ', ' ORDER BY index_name) AS names
+            FROM index_definition
+            GROUP BY relation, indisunique, indisprimary, indkey, indclass,
+                     indcollation, indoption, expressions, predicate
+            HAVING count(*) > 1
+        )
+        SELECT relation, names FROM duplicate_group ORDER BY relation
+        """
+    )
+    duplicates = _all(cur)
+    if duplicates:
+        details = "; ".join(f"{relation}: {names}" for relation, names in duplicates[:5])
+        more = f" (+{len(duplicates) - 5} more)" if len(duplicates) > 5 else ""
+        findings.append(
+            Finding(
+                "database duplicate indexes",
+                "WARN",
+                f"{len(duplicates)} exact duplicate index definition group(s): {details}{more}",
+            )
+        )
+    else:
+        findings.append(Finding("database duplicate indexes", "PASS", "none found"))
     for relation in ("raw.mlb_schedule", "raw.statcast_pitch"):
         if not _relation_exists(cur, relation) or not _column_exists(cur, relation, "_loaded_at"):
             continue

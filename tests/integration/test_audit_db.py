@@ -134,6 +134,23 @@ def test_audit_is_read_only(db_conn):
     assert after == before == 3
 
 
+def test_database_audit_flags_exact_duplicate_indexes(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("CREATE TABLE raw.audit_duplicate_index (value text)")
+        cur.execute("CREATE INDEX audit_duplicate_one ON raw.audit_duplicate_index (value)")
+        cur.execute("CREATE INDEX audit_duplicate_two ON raw.audit_duplicate_index (value)")
+    db_conn.commit()
+    try:
+        duplicate = _find(audit.run("database"), "database duplicate indexes")
+    finally:
+        with db_conn.cursor() as cur:
+            cur.execute("DROP TABLE raw.audit_duplicate_index")
+        db_conn.commit()
+
+    assert duplicate.status == "WARN"
+    assert "raw.audit_duplicate_index" in duplicate.detail
+
+
 def test_game_audit_flags_invalid_values_and_missing_mlb_feature_key(db_conn):
     _cleanup_game_audit_data(db_conn)
     _seed_game_audit_data(db_conn)

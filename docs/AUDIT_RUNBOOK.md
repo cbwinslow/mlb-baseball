@@ -20,8 +20,9 @@ uv run mlb audit --scope statcast
   separately from a missing identity or a missing MLB key on an MLB game.
 - `database` adds PostgreSQL planner-statistics context: estimated live/dead
   rows, last-analyzed time, cumulative index scans, and landing freshness where
-  the raw table exposes `_loaded_at`. These estimates guide maintenance; they
-  do not prove data correctness.
+  the raw table exposes `_loaded_at`. It also flags physically duplicate index
+  definitions, which add write and maintenance cost without helping queries.
+  These estimates guide maintenance; they do not prove data correctness.
 - `statcast` adds the intentionally heavier exact scan of every raw Statcast
   pitch against distinct raw schedule keys, grouped by season. Use it after a
   Statcast load and before changing conformance logic.

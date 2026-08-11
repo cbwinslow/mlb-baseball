@@ -12,14 +12,14 @@ from pathlib import Path
 from mlb_baseball.db import get_connection
 
 
-def test_schedule_season_index_migration_removes_only_an_exact_duplicate(db_conn):
+def test_raw_index_migration_removes_only_an_exact_duplicate(db_conn):
     try:
         with db_conn.cursor() as cur:
             cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
             cur.execute("CREATE TABLE raw.mlb_schedule (_season text, game_id text)")
             cur.execute("CREATE INDEX mlb_schedule__season_idx ON raw.mlb_schedule (_season)")
             cur.execute("CREATE INDEX mlb_schedule_season_idx ON raw.mlb_schedule (_season)")
-            cur.execute(Path("migrations/0042_drop_duplicate_schedule_season_index.sql").read_text())
+            cur.execute(Path("migrations/0043_drop_duplicate_raw_indexes.sql").read_text())
             cur.execute(
                 "SELECT indexname FROM pg_indexes WHERE schemaname = 'raw' "
                 "AND tablename = 'mlb_schedule' ORDER BY indexname"

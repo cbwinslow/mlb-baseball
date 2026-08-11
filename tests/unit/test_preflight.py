@@ -27,9 +27,11 @@ def test_preflight_plans_without_running_connectors(tmp_path, monkeypatch):
     assert commands == [
         "mlb migrate",
         "mlb ingest mlb_api --mode bootstrap",
-        "mlb conform  # only after raw-layer doctor checks are healthy",
         "mlb doctor",
         "mlb inventory",
+        "mlb conform  # only after raw-layer doctor checks are healthy",
+        "mlb audit",
+        "mlb audit --scope statcast  # exact, heavier pitch-link check",
     ]
     assert settings.download_dir.exists()
     assert settings.log_dir.exists()

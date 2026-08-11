@@ -114,13 +114,14 @@ sources, and resolved/unresolved Statcast pitches. See
 [`CONFORMANCE_REHEARSAL.md`](../docs/CONFORMANCE_REHEARSAL.md). This is a
 test-database gate, not authorization to modify production.
 
-**Production-shaped rehearsal evidence (2026-08-10):** A bounded copy from
+**Production-shaped rehearsal evidence (2026-08-11):** A bounded copy from
 production opened the source transaction read-only and wrote only `mlb_test`.
 It tied out 40 matched Retrosheet games (2008/2015/2024/2025), 3,167 Retrosheet plays,
 753 MLB plays, and 14,154 Statcast pitches with zero unresolved sampled pitch or
-play game links. `core.game` retained 180 repeated raw schedule-history keys,
-had zero duplicate populated MLB keys, and left eight documented ambiguous
-schedule-only records unresolved. The initially reported `raw.retrosheet_team`
+play game links. It produced 2,303 canonical games, 3,920 plays, and 14,154
+pitches; a second conformance run had identical raw/core snapshots. `core.game`
+had zero duplicate populated MLB keys and left only `MLB824912` (2026-06-17,
+retained suspended/resumed schedule history) without a key. The initially reported `raw.retrosheet_team`
 2021 horizon is an official Retrosheet source limit, not a failed download:
 `core` treats the file's shared active-team maximum as open-ended. The rehearsal
 now mirrors that rule and includes 2024–25 Retrosheet games; `raw.mlb_team_history`
@@ -128,6 +129,16 @@ supplies authoritative numeric IDs for modern name changes. This removes the
 reference-horizon blocker for the test gate, but does not authorize production
 conformance. See
 [`CONFORMANCE_REHEARSAL.md`](../docs/CONFORMANCE_REHEARSAL.md).
+
+**R6 handoff evidence (2026-08-11):** `mlb preflight --with-conform` now
+prints the safe operational order: migration, raw landing, doctor/inventory,
+conform, then game and exact Statcast audits. `docs/BOOTSTRAP_RUNBOOK.md`
+documents the clean-clone path, simple `.env`/optional `mlb.toml` configuration,
+retry/diagnostic commands, and an AI-agent checklist. `mlb inventory` defaults
+to a readable parent-only estimate view; `--exact` and `--partitions` retain
+the full-detail inspection path. The database audit detects exact duplicate
+physical indexes. Migration 0043 removes only duplicate non-unique raw indexes
+in a future owner-authorized migration run; production remains unchanged.
 
 ## Acceptance gate
 

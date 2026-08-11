@@ -68,18 +68,21 @@ TEST_DATABASE_URL=postgresql://mlb@localhost/mlb_test \
 CLEAR_REHEARSAL_SAMPLE=1 uv run python scripts/rehearse_sample.py
 ```
 
-### Latest local evidence (2026-08-10)
+### Latest local evidence (2026-08-11)
 
 The bounded run produced 40 matched Retrosheet games (10 each from 2008, 2015,
 2024, and 2025), 3,167 Retrosheet plays, 753 current MLB plays, and 14,154
-Statcast pitches. All sampled pitches resolved to a canonical game and all
+Statcast pitches. Conformance produced 2,303 canonical games, 3,920 plays, and
+14,154 pitches. All sampled pitches resolved to a canonical game and all
 sampled plays had a valid game reference. The full schedule history intentionally
-retained 180 repeated official game IDs; `core.game` had no duplicate populated
-MLB keys.
+retained repeated official game IDs; `core.game` had no duplicate populated MLB
+keys.
 
-Eight MLB-schedule-only canonical games remained without an MLB key. They are
-known source-history ambiguity cases, including the suspended/resumed 2026
-record, and correctly remain unresolved rather than being force-matched.
+Exactly one canonical game remained without an MLB key: `MLB824912` on
+2026-06-17, a retained suspended/resumed schedule-history case. It correctly
+remains unresolved rather than being force-matched. A second conformance run
+had identical raw and core row-count/key snapshots, proving this sample's
+rebuild idempotency.
 
 This run confirmed an upstream reference-data limitation: the official
 `TEAMABR.TXT` file has not been updated since 2020 and lists the shared latest

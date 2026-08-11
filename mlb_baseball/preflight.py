@@ -81,7 +81,17 @@ def run(
         )
     else:
         commands.append("mlb bootstrap")
-    if with_conform:
-        commands.append("mlb conform  # only after raw-layer doctor checks are healthy")
+    # Raw-layer health must be inspected before conformance can rebuild core.
+    # The final audit is intentionally after conformance, where it can verify
+    # canonical game/play/pitch links rather than only reporting empty core
+    # tables on a new installation.
     commands.extend(["mlb doctor", "mlb inventory"])
+    if with_conform:
+        commands.extend(
+            [
+                "mlb conform  # only after raw-layer doctor checks are healthy",
+                "mlb audit",
+                "mlb audit --scope statcast  # exact, heavier pitch-link check",
+            ]
+        )
     return checks, commands

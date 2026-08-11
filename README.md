@@ -79,6 +79,9 @@ For a complete MLB Stats API source rebuild (analytics plus every reference/cata
 
 `mlb doctor` reports on every source in one pass, and `mlb inventory` shows live row-count estimates and last-run status per source — both are the way to check on a bootstrap's progress, not by assuming a long-running command has hung. Its default groups yearly play/pitch partitions under their parent; use `mlb inventory --exact` for exact counts and `--partitions` for every child table. `mlb audit` is the separate, read-only data-correctness gate: use it after raw ingestion and after `mlb conform`; `mlb audit --scope statcast` deliberately performs the heavier exact pitch-to-schedule coverage scan. `mlb status` gives the same live table-by-table state as a scannable progress-bar table (`--all` to include empty tables, `--run-status` to weight progress by each source's last ingestion-run outcome instead of just row count, `--watch SECONDS` to auto-refresh). Run `mlb metrics --source mlb_api --window-minutes 5` during a large load to see recent item throughput, database cache use, table size, dead-row estimates, and scan mix before changing performance settings.
 
+For the complete clean-clone sequence, including how to interpret a failure or
+resume a source, see [Bootstrap runbook](docs/BOOTSTRAP_RUNBOOK.md).
+
 ## Scheduling
 
 Two cron jobs, two different cadences — see `docs/ARCHITECTURE.md` "Scheduling" and `docs/DECISIONS.md` ADR-016/ADR-023:

@@ -104,6 +104,16 @@ the existing `mlb_test` database.
    API, and audit output; run proportional sequential verification before a Sol
    review. No production cutover is authorized by completion of this plan.
 
+**R2/R3 rehearsal evidence (2026-08-10):**
+`test_multi_source_conformance_rehearsal_ties_out_across_grains` builds a
+small multi-era raw fixture in `mlb_test`, runs conformance twice, verifies
+exact game/play/pitch and raw-count snapshots, and runs the bounded audit. It
+covers Retrosheet-only history, a doubleheader, postponed/final schedule
+history, a current MLB-only final, excluded scheduled/live rows, both play
+sources, and resolved/unresolved Statcast pitches. See
+[`CONFORMANCE_REHEARSAL.md`](../docs/CONFORMANCE_REHEARSAL.md). This is a
+test-database gate, not authorization to modify production.
+
 ## Acceptance gate
 
 - Modern-season linkage meets recorded targets and ambiguous identities remain

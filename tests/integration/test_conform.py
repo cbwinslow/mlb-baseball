@@ -16,12 +16,13 @@ per-test TRUNCATE/DELETE for any of those; a prior version of this file did
 that redundantly (a second, unnecessary pass truncating core.play/pitch's
 ~150+ partitions per test, see GitHub issue #2) before it was removed."""
 
+from datetime import date
 from decimal import Decimal
 
 import psycopg
 import pytest
 
-from mlb_baseball import conform
+from mlb_baseball import audit, conform
 
 # Every raw relation read by conform that is not created by a migration.  The
 # suite seeds these selectively, so cleanup must remove all of them; leaving
@@ -2216,3 +2217,193 @@ def test_health_check_includes_join_integrity_safeguards():
     assert "core.game team-season wins vs Lahman" in names
     assert "core.game doubleheader identity" in names
     assert "core.game team count vs Lahman" in names
+
+
+def _seed_conformance_rehearsal(db_conn):
+    """Land a small, multi-era raw population for the Plan 01 tie-out gate.
+
+    This fixture is intentionally source-shaped rather than inserting core
+    rows. It covers the minimum set of identity decisions a production
+    conformance request must preserve: Retrosheet-only history, an MLB-keyed
+    doubleheader, schedule history, a current completed game, excluded live
+    data, and both resolved and unresolved pitch links.
+    """
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('PIT', 'NL', 'Pittsburgh', 'Pirates', '1887', '2025'), "
+            "('BSN', 'NL', 'Boston', 'Braves', '1876', '1952'), "
+            "('ATL', 'NL', 'Atlanta', 'Braves', '1966', '2026'), "
+            "('NYA', 'AL', 'New York', 'Yankees', '1913', '2026')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, visteam text, hometeam text, "
+            "vruns text, hruns text, gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text, temp text, winddir text, windspeed text, "
+            "sky text, precip text, fieldcond text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('PIT194407020', '1944', '19440702', '0', 'BSN', 'PIT', '3', '5', "
+            "'regular', 'PIT07', '5000', '150', 'D', '', '', '', "
+            "'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown'), "
+            "('ATL202504011', '2025', '20250401', '1', 'NYA', 'ATL', '3', '5', "
+            "'regular', 'ATL03', '35000', '185', 'N', 'smitj001', 'jonet001', '', "
+            "'72', 'fromlf', '10', 'sunny', 'none', 'dry'), "
+            "('ATL202504012', '2025', '20250401', '2', 'NYA', 'ATL', '1', '2', "
+            "'regular', 'ATL03', '30000', '175', 'N', 'smitj001', 'jonet001', '', "
+            "'70', 'fromcf', '8', 'cloudy', 'none', 'dry')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first) VALUES "
+            "('smitj001', '123456', 'smitj01', '1001', 'rehearsal-1', 'Smith', 'John'), "
+            "('jonet001', '234567', 'jonet01', '1002', 'rehearsal-2', 'Jones', 'Tim')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, _season text, "
+            "status text, game_type text, game_num text, venue_name text, venue_id text, "
+            "away_score text, home_score text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('700001', '2025-04-01', 'New York Yankees', 'Atlanta Braves', '2025', "
+            "'Final', 'R', '1', 'Truist Park', '', '3', '5'), "
+            "('700002', '2025-04-01', 'New York Yankees', 'Atlanta Braves', '2025', "
+            "'Final', 'R', '2', 'Truist Park', '', '1', '2'), "
+            "('800001', '2026-04-10', 'New York Yankees', 'Atlanta Braves', '2026', "
+            "'Postponed', 'R', '1', 'Truist Park', '', '', ''), "
+            "('800001', '2026-04-12', 'New York Yankees', 'Atlanta Braves', '2026', "
+            "'Final', 'R', '1', 'Truist Park', '', '2', '4'), "
+            "('800002', '2026-04-13', 'New York Yankees', 'Atlanta Braves', '2026', "
+            "'Scheduled', 'R', '1', 'Truist Park', '', '', ''), "
+            "('800003', '2026-04-14', 'New York Yankees', 'Atlanta Braves', '2026', "
+            "'In Progress', 'R', '1', 'Truist Park', '', '1', '0')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_event "
+            "(game_id text, _season text, event_id text, inn_ct text, bat_home_id text, "
+            "bat_id text, pit_id text, event_cd text, event_tx text, away_score_ct text, "
+            "home_score_ct text, _scope text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event VALUES "
+            "('ATL202504011', '2025', '1', '1', '0', 'smitj001', 'jonet001', "
+            "'2', '43/G34', '0', '0', '2025_pbp'), "
+            "('ATL202504012', '2025', '1', '1', '0', 'smitj001', 'jonet001', "
+            "'2', '43/G34', '0', '0', '2025_pbp')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_playbyplay "
+            "(game_pk text, _season text, at_bat_index text, inning text, half_inning text, "
+            "batter_id text, pitcher_id text, event_type text, event text, away_score text, "
+            "home_score text, balls text, strikes text, outs text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay VALUES "
+            "('800001', '2026', '0', '1', 'top', '234567', '123456', "
+            "'field_out', 'Groundout', '0', '0', '0', '0', '1')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.statcast_pitch "
+            "(game_pk text, game_year text, at_bat_number text, pitch_number text, inning text, "
+            "batter text, pitcher text, pitch_type text, pitch_name text, release_speed text, "
+            "release_spin_rate text, launch_speed text, launch_angle text, hit_distance_sc text, "
+            "description text, events text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch VALUES "
+            "('700001', '2025', '1', '1', '1', '234567', '123456', 'FF', "
+            "'Four-Seam Fastball', '95.2', '2200', '', '', '', 'called_strike', ''), "
+            "('999999999', '2025', '1', '1', '1', '234567', '123456', 'FF', "
+            "'Four-Seam Fastball', '95.2', '2200', '', '', '', 'called_strike', '')"
+        )
+    db_conn.commit()
+
+
+def _rehearsal_snapshot(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_game_id, game_pk, season, game_date, game_number, "
+            "away_score, home_score, "
+            "away_team_id IS NOT NULL, home_team_id IS NOT NULL, temp_f "
+            "FROM core.game ORDER BY retro_game_id"
+        )
+        games = cur.fetchall()
+        cur.execute(
+            "SELECT g.game_pk, p.source, p.play_index, p.inning, p.half_inning, "
+            "p.away_score, p.home_score "
+            "FROM core.play p JOIN core.game g ON g.id = p.game_id "
+            "ORDER BY g.game_pk NULLS FIRST, p.source, p.play_index"
+        )
+        plays = cur.fetchall()
+        cur.execute(
+            "SELECT source_game_pk, game_id IS NOT NULL, season, at_bat_number, pitch_number, "
+            "batter_id IS NOT NULL, pitcher_id IS NOT NULL "
+            "FROM core.pitch ORDER BY source_game_pk"
+        )
+        pitches = cur.fetchall()
+        cur.execute(
+            "SELECT (SELECT count(*) FROM raw.mlb_schedule), "
+            "(SELECT count(*) FROM raw.retrosheet_gameinfo), "
+            "(SELECT count(*) FROM raw.retrosheet_event), "
+            "(SELECT count(*) FROM raw.mlb_playbyplay), "
+            "(SELECT count(*) FROM raw.statcast_pitch)"
+        )
+        raw_counts = cur.fetchone()
+    # The next conformance pass uses another connection and begins with a
+    # TRUNCATE. Release this read transaction so the rehearsal proves writer
+    # behavior rather than deadlocking itself on its own evidence query.
+    db_conn.commit()
+    return games, plays, pitches, raw_counts
+
+
+def test_multi_source_conformance_rehearsal_ties_out_across_grains(db_conn):
+    """Plan 01 R2/R3 gate: one repeatable fixture proves the whole core path."""
+    _reset_dynamic_tables(db_conn)
+    _seed_conformance_rehearsal(db_conn)
+
+    first_counts = conform.run()
+    first = _rehearsal_snapshot(db_conn)
+    second_counts = conform.run()
+    second = _rehearsal_snapshot(db_conn)
+
+    assert first_counts == second_counts
+    assert first == second  # rerun is idempotent and never mutates raw data
+    games, plays, pitches, raw_counts = first
+    assert raw_counts == (6, 3, 2, 1, 2)  # schedule history stays source-faithful
+    assert games == [
+        ("ATL202504011", "700001", 2025, date(2025, 4, 1), 1, 3, 5, True, True, 72),
+        ("ATL202504012", "700002", 2025, date(2025, 4, 1), 2, 1, 2, True, True, 70),
+        ("MLB800001", "800001", 2026, date(2026, 4, 12), 1, 2, 4, True, True, None),
+        ("PIT194407020", None, 1944, date(1944, 7, 2), 0, 3, 5, True, True, None),
+    ]
+    assert plays == [
+        ("700001", "retrosheet", 1, 1, "top", 0, 0),
+        ("700002", "retrosheet", 1, 1, "top", 0, 0),
+        ("800001", "mlb_api", 0, 1, "top", 0, 0),
+    ]
+    assert pitches == [
+        ("700001", True, 2025, 1, 1, True, True),
+        ("999999999", False, 2025, 1, 1, True, True),
+    ]
+
+    findings = audit.run("game")
+    failures = [finding for finding in findings if finding.status == "FAIL"]
+    assert failures == []
+    assert next(
+        finding for finding in findings if finding.name == "core.game doubleheader identity"
+    ).status == "PASS"
+    assert next(
+        finding for finding in findings if finding.name == "core.pitch unresolved-key coverage"
+    ).status == "WARN"
+    assert next(
+        finding for finding in findings if finding.name == "core.play controlled values"
+    ).status == "PASS"

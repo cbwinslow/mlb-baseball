@@ -111,6 +111,12 @@ def run() -> list[str]:
                         )
                     conn.commit()
                 applied.append(version)
+        except Exception:
+            # A failed migration leaves psycopg's transaction aborted. Roll
+            # back before releasing the session advisory lock so a useful
+            # original error is returned and a retry can acquire the lock.
+            conn.rollback()
+            raise
         finally:
             _release_migration_lock(conn)
     return applied

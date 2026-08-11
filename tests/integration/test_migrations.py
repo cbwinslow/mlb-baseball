@@ -9,6 +9,10 @@ the real, already-migrated schema rather than re-running the migration.
 
 from pathlib import Path
 
+import psycopg
+import pytest
+
+from mlb_baseball import migrate
 from mlb_baseball.db import get_connection
 
 
@@ -31,6 +35,19 @@ def test_raw_index_migration_removes_only_an_exact_duplicate(db_conn):
         with db_conn.cursor() as cur:
             cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
         db_conn.commit()
+
+
+def test_failed_migration_releases_the_advisory_lock(monkeypatch):
+    bad_migration = Path("/tmp/mlb_bad_migration.sql")
+    monkeypatch.setattr(migrate, "MIGRATIONS_DIR", bad_migration.parent)
+    monkeypatch.setattr(Path, "glob", lambda _self, _pattern: [bad_migration])
+    monkeypatch.setattr(Path, "read_text", lambda _self: "SELECT from broken")
+    with pytest.raises(psycopg.Error):
+        migrate.run()
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_lock(hashtext('mlb-migrate'))")
+        assert cur.fetchone() == (True,)
+        cur.execute("SELECT pg_advisory_unlock(hashtext('mlb-migrate'))")
 
 
 def test_play_and_pitch_are_partitioned_tables():
@@ -72,7 +89,7 @@ def test_dead_play_pitch_tables_are_dropped():
         assert cur.fetchall() == []
 
 
-def test_prediction_primary_key_uses_durable_game_instance_identity():
+def test_prediction_primary_key_uses_canonical_mlb_identity():
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT a.attname FROM pg_constraint c "
@@ -82,7 +99,7 @@ def test_prediction_primary_key_uses_durable_game_instance_identity():
             "ORDER BY k.ord"
         )
         assert [row[0] for row in cur.fetchall()] == [
-            "game_instance_key",
+            "mlb_game_pk",
             "model_version",
             "generated_at",
         ]

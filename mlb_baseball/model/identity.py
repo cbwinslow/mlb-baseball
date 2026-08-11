@@ -24,6 +24,7 @@ def backfill_game_instance_keys(
                 WHERE f.game_instance_key IS NULL ORDER BY f.id LIMIT %s
             )
             UPDATE gold.game_feature f SET game_instance_key = COALESCE(
+                'mlb:' || f.mlb_game_pk,
                 (SELECT 'retro:' || g.retro_game_id FROM core.game g WHERE g.id = f.game_id),
                 'legacy-feature:' || f.id::text
             ) FROM batch WHERE f.id = batch.id
@@ -38,17 +39,9 @@ def backfill_game_instance_keys(
             WITH batch AS (
                 SELECT p.ctid FROM gold.prediction p
                 WHERE p.game_instance_key IS NULL ORDER BY p.generated_at, p.mlb_game_pk LIMIT %s
-            ), matches AS (
-                SELECT p.ctid, min(f.game_instance_key) AS key, count(*) AS n
-                FROM gold.prediction p JOIN batch b ON b.ctid = p.ctid
-                LEFT JOIN gold.game_feature f ON f.mlb_game_pk = p.mlb_game_pk
-                GROUP BY p.ctid
             )
-            UPDATE gold.prediction p SET game_instance_key = CASE WHEN m.n = 1 THEN m.key
-                ELSE 'legacy-prediction:' || md5(
-                    p.mlb_game_pk || ':' || p.model_version || ':' || p.generated_at::text
-                ) END
-            FROM matches m WHERE p.ctid = m.ctid
+            UPDATE gold.prediction p SET game_instance_key = 'mlb:' || p.mlb_game_pk
+            FROM batch WHERE p.ctid = batch.ctid
             """,
             (batch_size,),
         )
@@ -87,7 +80,7 @@ def sync_feature_instances(conn: psycopg.Connection) -> int:
             SELECT
                 f.game_instance_key,
                 CASE
-                    WHEN f.game_instance_key LIKE 'mlb:%%' THEN 'mlb_schedule'
+                    WHEN f.game_instance_key LIKE 'mlb:%%' THEN 'mlb_game'
                     WHEN f.game_instance_key LIKE 'retro:%%' THEN 'retrosheet'
                     ELSE 'legacy'
                 END,
@@ -100,7 +93,15 @@ def sync_feature_instances(conn: psycopg.Connection) -> int:
             FROM gold.game_feature f
             LEFT JOIN core.game g ON g.id = f.game_id
             ON CONFLICT (game_instance_key) DO UPDATE SET
-                core_game_id = COALESCE(EXCLUDED.core_game_id, meta.game_instance.core_game_id),
+                core_game_id = CASE
+                    WHEN meta.game_instance.core_game_id IS NOT NULL
+                        THEN meta.game_instance.core_game_id
+                    WHEN NOT EXISTS (
+                        SELECT 1 FROM meta.game_instance existing
+                        WHERE existing.core_game_id = EXCLUDED.core_game_id
+                          AND existing.game_instance_key <> EXCLUDED.game_instance_key
+                    ) THEN EXCLUDED.core_game_id
+                END,
                 retro_game_id = COALESCE(EXCLUDED.retro_game_id, meta.game_instance.retro_game_id),
                 last_seen_at = now()
             """

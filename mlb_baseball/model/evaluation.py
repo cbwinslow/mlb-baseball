@@ -62,14 +62,11 @@ def _selected_predictions(
             f"""
             WITH schedule AS (
                 SELECT game_id,
-                       format('mlb:%%s:%%s:%%s:%%s:%%s:%%s',
-                           _season, game_date, COALESCE(NULLIF(game_num, ''), '1'),
-                           home_id, away_id, game_id
-                       ) AS game_instance_key,
+                       'mlb:' || game_id AS game_instance_key,
                        min(NULLIF(game_datetime, '')::timestamptz) AS game_start
                 FROM raw.mlb_schedule
                 WHERE game_id IS NOT NULL AND NULLIF(game_datetime, '') IS NOT NULL
-                GROUP BY game_id, _season, game_date, game_num, home_id, away_id
+                GROUP BY game_id
                 HAVING count(DISTINCT NULLIF(game_datetime, '')) = 1
             ), instance_rows AS (
                 SELECT game_instance_key, season, game_date

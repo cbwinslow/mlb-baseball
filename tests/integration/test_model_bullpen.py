@@ -21,6 +21,20 @@ def _ensure_retrosheet_tables(db_conn):
                 "resp_pit_start_fl text, bat_event_fl text, event_cd text, "
                 "event_outs_ct text, _season text)"
             )
+        else:
+            for column in (
+                "game_id",
+                "bat_home_id",
+                "resp_pit_id",
+                "resp_pit_start_fl",
+                "bat_event_fl",
+                "event_cd",
+                "event_outs_ct",
+                "_season",
+            ):
+                cur.execute(
+                    f"ALTER TABLE raw.retrosheet_event ADD COLUMN IF NOT EXISTS {column} text"
+                )
         cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
         if not cur.fetchone()[0]:
             cur.execute("CREATE TABLE raw.retrosheet_gameinfo (gid text, gametype text)")

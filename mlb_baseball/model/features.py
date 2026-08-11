@@ -46,9 +46,7 @@ _COMPLETED_GAMES_SQL = """
     SELECT 'g' || g.id::text AS key, g.id AS game_id, g.game_pk AS mlb_game_pk,
         g.season, g.game_date, g.game_number, g.home_team_id, g.away_team_id,
         g.home_score, g.away_score, g.venue_id,
-        COALESCE(
-            'retro:' || g.retro_game_id
-        ) AS game_instance_key
+        COALESCE('mlb:' || g.game_pk, 'retro:' || g.retro_game_id) AS game_instance_key
     FROM core.game g
     JOIN core.team home ON home.id = g.home_team_id
     JOIN core.team away ON away.id = g.away_team_id
@@ -59,14 +57,7 @@ _COMPLETED_GAMES_WITH_SCHEDULE_SQL = """
     SELECT 'g' || g.id::text AS key, g.id AS game_id, g.game_pk AS mlb_game_pk,
         g.season, g.game_date, g.game_number, g.home_team_id, g.away_team_id,
         g.home_score, g.away_score, g.venue_id,
-        COALESCE(
-            CASE WHEN ms.game_id IS NOT NULL THEN
-                format('mlb:%s:%s:%s:%s:%s:%s',
-                    ms._season, ms.game_date, COALESCE(NULLIF(ms.game_num, ''), '1'),
-                    ms.home_id, ms.away_id, ms.game_id)
-            END,
-            'retro:' || g.retro_game_id
-        ) AS game_instance_key
+        COALESCE('mlb:' || g.game_pk, 'retro:' || g.retro_game_id) AS game_instance_key
     FROM core.game g
     JOIN core.team home ON home.id = g.home_team_id
     JOIN core.team away ON away.id = g.away_team_id
@@ -98,9 +89,7 @@ _UPCOMING_GAMES_SQL = """
         ms._season::integer, ms.game_date::date,
         CASE WHEN ms.game_num ~ '^[0-9]+$' THEN ms.game_num::integer END,
         home.id, away.id, NULL, NULL, venue.id,
-        format('mlb:%s:%s:%s:%s:%s:%s',
-            ms._season, ms.game_date, COALESCE(NULLIF(ms.game_num, ''), '1'),
-            ms.home_id, ms.away_id, ms.game_id)
+        'mlb:' || ms.game_id
     FROM raw.mlb_schedule ms
     JOIN core.team home ON home.mlb_team_id = ms.home_id::integer
         AND ms._season::integer BETWEEN home.first_year AND home.last_year

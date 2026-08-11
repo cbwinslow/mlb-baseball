@@ -59,7 +59,7 @@ time, not a later-updated freshness field.
 | `gold.park_factor` (target narrow family) | Venue-season needed by a `gold.game_feature` row | Trailing seasons only, never target-season games | SQLMesh candidate; its demand relation must include scheduled games before it replaces `model.park.compute` |
 | `gold.team_woba` (target narrow family) | Game-team entering value | Prior events only within the applicable game/season window | SQLMesh candidate; a wide `gold.game_feature` projection is derived only after parity |
 | Starter, bullpen, framing, OAA, speed, WAR families | Game-team or game-player feature family | Must be point-in-time/no-leakage as documented by the individual feature | Remain Python-owned until a narrow named SQL model has exact full/sampled tie-out |
-| `gold.prediction` | Immutable `(MLB game key, model version, generated_at)` snapshot; legacy `game_instance_key` remains only until a safe compatibility migration | `generated_at` and `data_cutoff` precede outcome; outcome is filled later | Append immutable prediction; never overwrite a historical forecast with a current rerun |
+| `gold.prediction` | Immutable `(mlb_game_pk, model version, generated_at)` snapshot; compatibility `game_instance_key` is `mlb:<game_pk>` or a Retrosheet/legacy provenance key | `generated_at` and `data_cutoff` precede outcome; outcome is filled later | Append immutable prediction; never overwrite a historical forecast with a current rerun |
 
 ## Audit contract
 

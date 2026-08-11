@@ -29,10 +29,10 @@ identifier and returns `gameNumber` and `doubleHeader` separately.  See
 | `gold.game_feature` / `gold.prediction` for MLB | One game / immutable prediction snapshot | Use `mlb_game_pk` as the business identity, plus model/version/timestamp where appropriate. |
 | Retrosheet | One Retrosheet game | `retro_game_id` remains its provider-native identity; do not manufacture a match when a verified MLB crosswalk is absent. |
 
-`meta.game_instance` and `game_instance_key` already exist from the earlier
-01F migration work.  They are retained for historical compatibility until a
-forward migration removes or repurposes them safely.  They must not be used to
-claim that a schedule date plus `game_pk` defines a second MLB game.
+`meta.game_instance` and `game_instance_key` remain as compatibility and
+provenance objects. For an MLB game their value is `mlb:<game_pk>`; for an
+unmatched Retrosheet game it is `retro:<retro_game_id>`. Older schedule-shaped
+registry keys are retained as `legacy` provenance, never as a second game.
 
 ## Required follow-up before any production core/gold rebuild
 
@@ -44,9 +44,9 @@ claim that a schedule date plus `game_pk` defines a second MLB game.
 3. Reconcile the 216 repeated-final schedule IDs against the live feed and
    Retrosheet where available.  The historical `123347` case remains an
    explicit research exception until verified, not evidence for a new key.
-4. Replace direct model joins on ambiguous current-feature rows with a tested
-   canonical-game relation.  This must be developed and proven in `mlb_test`
-   before owner-authorized production work.
+4. Keep model and evaluation joins on canonical `mlb:<game_pk>`/Retrosheet
+   keys. This has been corrected in the test-database path; production work
+   still requires explicit owner authorization.
 
 ## Null policy
 

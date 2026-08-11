@@ -16,6 +16,7 @@ def _reset(db_conn):
         cur.execute("UPDATE gold.prediction SET model_id = NULL, model_run_id = NULL")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
+        cur.execute("DELETE FROM meta.model_evaluation")
         cur.execute("DELETE FROM meta.model_run")
         cur.execute("DELETE FROM meta.model")
     db_conn.commit()

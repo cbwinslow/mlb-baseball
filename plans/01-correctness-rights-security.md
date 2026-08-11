@@ -140,6 +140,18 @@ the full-detail inspection path. The database audit detects exact duplicate
 physical indexes. Migration 0043 removes only duplicate non-unique raw indexes
 in a future owner-authorized migration run; production remains unchanged.
 
+**R4 compatibility evidence (2026-08-11):** Forward-only migration
+`0044_canonical_mlb_game_identity.sql` corrects the earlier schedule-instance
+assumption without discarding historical provenance. MLB feature/prediction
+compatibility keys are now `mlb:<game_pk>`; Retrosheet keys remain native; old
+schedule-shaped registry records are retained as `legacy`. The migration stops
+before changing anything when duplicate populated feature MLB keys or duplicate
+prediction MLB-key/model/timestamp records exist. `gold.prediction` now has its
+canonical primary key `(mlb_game_pk, model_version, generated_at)` and
+`gold.game_feature` has a partial unique populated MLB-key index. The focused
+migration/evaluation/feature/prediction suite passed 135 tests in `mlb_test`.
+Production remains read-only and requires separate owner approval.
+
 ## Acceptance gate
 
 - Modern-season linkage meets recorded targets and ambiguous identities remain

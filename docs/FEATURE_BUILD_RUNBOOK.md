@@ -2,7 +2,7 @@
 
 This is a reviewed operational sequence, not authorization to write to
 production. It separates reusable research features from model predictions.
-Run it only from the released revision containing migrations `0033`–`0035` and the
+Run it only from the released revision containing migrations `0033`–`0044` and the
 `mlb features` command.
 
 ## Scope and boundaries
@@ -12,25 +12,25 @@ Run it only from the released revision containing migrations `0033`–`0035` and
 This procedure is separate from a feature build. It has **not** been applied
 to production.
 
-1. Use a read-only connection to record prediction/feature row counts, NULL
-   `game_instance_key` counts, available disk/WAL headroom, and active locks.
-2. Run `mlb migrate`. Migration 0034 prepares nullable columns; 0035 stops at
-   its NOT NULL gate until identities have been backfilled.
-3. As the database owner, repeat bounded batches until both remaining counts
-   are zero:
+1. Use a read-only connection to record prediction/feature row counts, duplicate
+   populated `mlb_game_pk` values, available disk/WAL headroom, and active locks.
+2. Run `mlb migrate`. Migration 0044 refuses to proceed if it finds duplicate
+   feature MLB keys or duplicate prediction `(MLB key, model, timestamp)` rows.
+   It converts MLB compatibility values to `mlb:<game_pk>` and retains old
+   schedule-shaped registry rows as explicit `legacy` provenance.
+3. The older bounded backfill command remains available only to repair a
+   pre-0036 installation that still has NULL compatibility keys:
 
    ```sh
    DATABASE_URL=postgresql:///mlb uv run mlb backfill-game-identities --batch-size 1000
    ```
 
    Each invocation commits its feature and prediction batches independently.
-   It is safe to retry after interruption: only NULL keys are selected, and an
-   ambiguous lookup receives an explicit `legacy-prediction:*` key rather than
-   a guessed match. Stop if errors, remaining counts do not decline, or WAL/
-   disk headroom is unsafe.
-4. Validate no NULL feature/prediction keys and no duplicate durable feature
-   keys; retain command output. Then rerun `mlb migrate`. The concurrent
-   prediction-key index is built before the brief primary-key attachment.
+   It is safe to retry: MLB rows use `mlb:<game_pk>` and unmatched non-MLB
+   rows retain explicit legacy provenance. Stop if errors, remaining counts do
+   not decline, or WAL/disk headroom is unsafe.
+4. Validate no duplicate populated `mlb_game_pk` feature keys and no duplicate
+   `(mlb_game_pk, model_version, generated_at)` prediction rows; retain output.
 5. There is no automatic schema rollback. On failure preserve the error and
    database state, correct the cause, and retry the idempotent owner command
    or pending migration; do not delete predictions or manually rewrite keys.
@@ -61,8 +61,9 @@ Use an explicitly read-only connection to `mlb` and record the result.
    PostgreSQL advisory ingestion lock is granted.
 2. Confirm `0033_ingestion_run_features_mode.sql`,
    `0034_prediction_game_instance.sql`,
-   `0035_game_instance_registry.sql`, and
-   `0036_prediction_instance_primary_key.sql` are in
+   `0035_game_instance_registry.sql`,
+   `0036_prediction_instance_primary_key.sql`, and
+   `0044_canonical_mlb_game_identity.sql` are in
    `public.schema_migrations`. If it is absent, stop: apply only the reviewed
    migration in a separately approved migration phase, then re-run preflight.
 3. Record the latest `meta.ingestion_run` rows for `core` and `model`, current
@@ -87,8 +88,9 @@ transaction is rolled back; preserve the command output and run-ledger error.
 Verify all of the following before prediction:
 
 - `gold.game_feature` is non-empty.
-- Its durable `game_instance_key` is unique. `mlb_game_pk` is an MLB lookup
-  field and can legitimately repeat for suspended/resumed games.
+- Its `game_instance_key` is unique. For an MLB row it must equal
+  `mlb:<mlb_game_pk>` and its populated `mlb_game_pk` is unique; a suspended
+  or resumed schedule observation never creates a second feature row.
 - completed regular-season rows have a non-null outcome where `core.game` has
   a final score, while upcoming rows remain explicitly unlabeled.
 - season/date coverage is plausible relative to `core.game` and the current

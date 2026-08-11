@@ -51,6 +51,7 @@ Connectors are independent of each other; the Chadwick ID crosswalk is what ties
 - `mlb inventory` — live table/row-count report plus last run per source, queried fresh every time (a static doc would go stale immediately with this many tables)
 - `mlb metrics --source SOURCE --window-minutes 1..60` — read-only ingestion/database snapshot: recent durable-item throughput, cache hit rate, connection count, and the active MLB API raw tables' size, dead-row estimate, and scan mix. Use this before tuning a loader so a slow upstream API is not mistaken for slow PostgreSQL writes.
 - `mlb doctor` — DB connectivity, schema/migration state, and every connector's `health_check()` in one pass
+- `mlb audit --scope game|database|statcast` — read-only integrity/coverage gate. `game` is the bounded default; `database` adds planner-statistics context; `statcast` intentionally scans pitch rows to distinguish an upstream schedule-key gap from a later conformance gap.
 
 ## Conform contract
 

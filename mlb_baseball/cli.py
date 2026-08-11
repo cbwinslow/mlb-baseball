@@ -232,6 +232,18 @@ def main(argv: list[str] | None = None) -> None:
         help="use exact distinct-season coverage for registered historical tables",
     )
     subparsers.add_parser("doctor")
+    audit_parser = subparsers.add_parser(
+        "audit", help="run read-only game-identity and data-quality checks"
+    )
+    audit_parser.add_argument(
+        "--scope",
+        choices=["game", "database", "statcast"],
+        default="game",
+        help=(
+            "game is bounded identity validation; database adds planner statistics; "
+            "statcast scans pitch coverage"
+        ),
+    )
     preflight_parser = subparsers.add_parser(
         "preflight", help="validate a planned bootstrap without downloading or writing to Postgres"
     )
@@ -379,6 +391,11 @@ def main(argv: list[str] | None = None) -> None:
             print(f"[{status}] {check.name}: {check.detail}")
         print(f"\n{len(checks) - len(failed)}/{len(checks)} checks passed")
         if failed:
+            sys.exit(1)
+    elif args.command == "audit":
+        from mlb_baseball import audit
+
+        if not audit.print_report(args.scope):
             sys.exit(1)
     elif args.command == "preflight":
         from mlb_baseball import preflight

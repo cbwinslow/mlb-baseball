@@ -1970,8 +1970,8 @@ def test_build_pitches_leaves_unmatched_statcast_row_as_null_instead_of_dropping
 
     assert counts["core.pitch"] == 1
     with db_conn.cursor() as cur:
-        cur.execute("SELECT game_id, pitch_type FROM core.pitch")
-        assert cur.fetchone() == (None, "FF")
+        cur.execute("SELECT game_id, source_game_pk, pitch_type FROM core.pitch")
+        assert cur.fetchone() == (None, "999999999", "FF")
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")

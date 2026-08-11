@@ -5,7 +5,7 @@ import time
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
-from mlb_baseball import cli, model, progress_table
+from mlb_baseball import audit, cli, model, progress_table
 from mlb_baseball.source_profiles import SourceProfileError, require_sources
 
 
@@ -157,6 +157,19 @@ def test_metrics_command_passes_source_and_window(monkeypatch):
     cli.main(["metrics", "--source", "mlb_api", "--window-minutes", "10"])
 
     assert captured == {"source": "mlb_api", "window": 10}
+
+
+def test_audit_command_passes_scope_and_exits_cleanly(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        audit,
+        "print_report",
+        lambda scope: captured.setdefault("scope", scope) or True,
+    )
+
+    cli.main(["audit", "--scope", "database"])
+
+    assert captured == {"scope": "database"}
 
 
 def test_features_command_calls_model_feature_stage(monkeypatch, capsys):

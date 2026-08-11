@@ -847,13 +847,14 @@ def _build_pitches(conn: psycopg.Connection) -> int:
             cur.execute(
                 """
                 INSERT INTO core.pitch (
-                    game_id, season, at_bat_number, pitch_number, inning,
+                    game_id, source_game_pk, season, at_bat_number, pitch_number, inning,
                     batter_id, pitcher_id, pitch_type, pitch_name,
                     release_speed, release_spin_rate, launch_speed,
                     launch_angle, hit_distance, description, event
                 )
                 SELECT
                     g.id,
+                    NULLIF(sp.game_pk, ''),
                     sp.game_year::integer,
                     NULLIF(sp.at_bat_number, '')::integer,
                     NULLIF(sp.pitch_number, '')::integer,

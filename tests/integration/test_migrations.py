@@ -80,3 +80,13 @@ def test_core_game_mlb_key_has_a_partial_unique_index():
         indexdef = cur.fetchone()[0]
     assert "UNIQUE INDEX core_game_game_pk_key" in indexdef
     assert "WHERE (game_pk IS NOT NULL)" in indexdef
+
+
+def test_core_pitch_retains_the_statcast_source_game_key():
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_schema = 'core' AND table_name = 'pitch' "
+            "AND column_name = 'source_game_pk'"
+        )
+        assert cur.fetchone() == ("YES",)

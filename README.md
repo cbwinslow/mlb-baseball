@@ -13,6 +13,8 @@ This is a ground-up rebuild; see [docs/NORTH_STAR.md](docs/NORTH_STAR.md) for th
 - [docs/NORTH_STAR.md](docs/NORTH_STAR.md) — vision, the three build phases, budget constraint
 - [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) — every source the pipeline pulls from, cost and license notes
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — schema layering, connector shape, configuration
+- [docs/AUDIT_RUNBOOK.md](docs/AUDIT_RUNBOOK.md) — read-only integrity and coverage validation
+- [docs/KNOWLEDGE_BASE.md](docs/KNOWLEDGE_BASE.md) — source-attributed research and data decisions
 - [docs/DECISIONS.md](docs/DECISIONS.md) — architecture decision log
 - [docs/ROADMAP.md](docs/ROADMAP.md) — build order
 - [CLAUDE.md](CLAUDE.md) — operating rules for making changes to this repo
@@ -31,6 +33,7 @@ uv run mlb preflight --with-conform
 uv run mlb migrate
 uv run mlb bootstrap      # runs every registered connector's bootstrap()
 uv run mlb doctor         # confirms the raw layer and dependencies are healthy
+uv run mlb audit          # read-only game-identity/null/join readiness report
 uv run mlb conform        # only after the raw-layer checks you need are healthy
 uv run mlb inventory
 mlb predict              # builds gold.game_feature and generates win-probability predictions (Phase 2, ADR-032)
@@ -74,7 +77,7 @@ To rebuild that analytics range from verified local artifacts without calling ML
 
 For a complete MLB Stats API source rebuild (analytics plus every reference/catalog endpoint), run `scripts/mlb_api_backfill.sh`. It uses one lock, writes a log under `logs/`, resumes safely, refreshes PostgreSQL statistics/reclaimable space after the load, and ends with a database metrics snapshot. Run `mlb doctor` afterward, then `mlb conform` only once the raw-layer checks you need are healthy.
 
-`mlb doctor` reports on every source in one pass, and `mlb inventory` shows live row counts and last-run status per source — both are the way to check on a bootstrap's progress, not by assuming a long-running command has hung. `mlb status` gives the same live table-by-table state as a scannable progress-bar table (`--all` to include empty tables, `--run-status` to weight progress by each source's last ingestion-run outcome instead of just row count, `--watch SECONDS` to auto-refresh). Run `mlb metrics --source mlb_api --window-minutes 5` during a large load to see recent item throughput, database cache use, table size, dead-row estimates, and scan mix before changing performance settings.
+`mlb doctor` reports on every source in one pass, and `mlb inventory` shows live row counts and last-run status per source — both are the way to check on a bootstrap's progress, not by assuming a long-running command has hung. `mlb audit` is the separate, read-only data-correctness gate: use it after raw ingestion and after `mlb conform`; `mlb audit --scope statcast` deliberately performs the heavier exact pitch-to-schedule coverage scan. `mlb status` gives the same live table-by-table state as a scannable progress-bar table (`--all` to include empty tables, `--run-status` to weight progress by each source's last ingestion-run outcome instead of just row count, `--watch SECONDS` to auto-refresh). Run `mlb metrics --source mlb_api --window-minutes 5` during a large load to see recent item throughput, database cache use, table size, dead-row estimates, and scan mix before changing performance settings.
 
 ## Scheduling
 
@@ -127,4 +130,4 @@ On top of that, `tests/integration/test_conform.py` had ~18 leftover per-test `T
 
 For a dedicated, disposable test Postgres *instance* (never one that also hosts a real database), the instance-level `fsync = off` setting eliminates this cost entirely rather than just reducing it — but it disables crash safety for every database on that instance, so only set it in `postgresql.conf` on a cluster you'd happily wipe and never on a shared instance that also runs production data.
 
-Measured full-suite wall time on this machine (shared with other concurrent work at the time of both runs — expect better numbers on a quiet box): **before**, a full run against the unfixed code was deliberately stopped after 25 minutes having completed only 26 of ~400 tests (not a projection — an actual run, killed once the pace made a multi-hour completion time obvious); **after** these changes, the full suite (402 tests) completed in **18m05s**.
+Measured full-suite wall time on this machine (shared with other concurrent work at the time of both runs — expect better numbers on a quiet box): **before**, a full run against the unfixed code was deliberately stopped after 25 minutes having completed only 26 of roughly 400 tests (not a projection — an actual run, killed once the pace made a multi-hour completion time obvious); **after**, that then-current suite completed in **18m05s**. Test count changes as coverage is added, so do not treat the historical count as a performance claim.

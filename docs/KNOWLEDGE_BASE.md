@@ -56,7 +56,12 @@ design into this repository.
   not a published relational PostgreSQL database model.  Its useful role here
   is API field semantics and calculation cross-checks.
 - **Use in this project:** Cross-check API fields, identifiers, and published
-  metric definitions.  Do not make it the owner of our schema.
+  metric definitions. The repeatable game-identity check is
+  `baseballr::mlb_game_pks(date, level_ids = 1)`: compare its `game_pk`,
+  `gameGuid`, `officialDate`, `gameNumber`, and `doubleHeader` fields against
+  a same-date official Stats API schedule response or an archived project
+  fixture. It is a reference check, not a bootstrap dependency and not a
+  replacement for source-faithful raw landing.
 - **Source:** [baseballr repository](https://github.com/BillPetti/baseballr),
   accessed 2026-08-10.
 

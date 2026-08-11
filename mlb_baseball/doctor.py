@@ -131,6 +131,32 @@ def _stale_ingestion_runs() -> Check:
     )
 
 
+def _workflow_lock_state() -> Check:
+    """Expose a live workflow conflict without changing its owner or state."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT a.pid, a.state
+            FROM pg_locks l
+            JOIN pg_stat_activity a ON a.pid = l.pid
+            WHERE l.locktype = 'advisory'
+              AND l.objid = hashtext('mlb-workflow:raw-core-model')::oid
+              AND l.granted AND a.pid <> pg_backend_pid()
+            ORDER BY a.pid
+            """
+        )
+        holders = cur.fetchall()
+    if not holders:
+        return Check("workflow lock", True, "no active raw/core/model workflow")
+    details = ", ".join(f"pid {pid} ({state})" for pid, state in holders)
+    return Check(
+        "workflow lock",
+        False,
+        f"active workflow lock held by {details} — wait for it to finish; "
+        "do not start ingest/conform/model",
+    )
+
+
 # (name, check_fn) — every entry runs independently and defensively: a bug or
 # an unexpected DB state in any one check must never prevent the rest from
 # reporting, since that's exactly the "doctor itself is broken" failure mode
@@ -141,6 +167,7 @@ _CORE_CHECKS = [
     ("downloads directory", _downloads_directory_ok),
     ("pg_stat_statements", _pg_stat_statements_enabled),
     ("stale ingestion runs", _stale_ingestion_runs),
+    ("workflow lock", _workflow_lock_state),
 ]
 
 

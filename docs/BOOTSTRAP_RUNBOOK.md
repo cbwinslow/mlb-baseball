@@ -55,6 +55,11 @@ source and table that need attention. For a long MLB API historical run, use
 `mlb metrics --source mlb_api --window-minutes 5` to distinguish upstream/API
 time from database work.
 
+If `mlb doctor` reports an active `workflow lock`, another raw ingestion,
+conformance, or model operation owns the database workflow. Wait for it to
+finish; do not start a competing command or kill a session unless its owner
+has explicitly confirmed it is stale.
+
 ## 3. Conform and prove the result
 
 Only run conformance after the raw checks needed for your selected sources are

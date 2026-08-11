@@ -121,6 +121,20 @@ def test_stale_ingestion_runs_reports_dead_pid_without_reaping(db_conn):
         assert cur.fetchone() == ("running",)
 
 
+def test_workflow_lock_reports_an_active_run_without_releasing_it(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_lock_shared(hashtext('mlb-workflow:raw-core-model'))")
+    try:
+        result = doctor._workflow_lock_state()
+    finally:
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock_shared(hashtext('mlb-workflow:raw-core-model'))")
+        db_conn.commit()
+
+    assert not result.ok
+    assert "wait for it to finish" in result.detail
+
+
 def test_run_includes_a_fake_connectors_health_checks(monkeypatch):
     fake = type(
         "FakeConnector",

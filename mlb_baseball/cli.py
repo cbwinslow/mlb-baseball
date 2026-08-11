@@ -50,6 +50,7 @@ from collections.abc import Callable
 from typing import cast
 
 from mlb_baseball import (
+    config,
     conform,
     doctor,
     ingest,
@@ -164,6 +165,10 @@ def _run_all(mode: str, profile: str) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="mlb")
+    parser.add_argument(
+        "--config",
+        help="optional TOML settings file (defaults to ./mlb.toml when present)",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("migrate")
@@ -227,11 +232,26 @@ def main(argv: list[str] | None = None) -> None:
         help="use exact distinct-season coverage for registered historical tables",
     )
     subparsers.add_parser("doctor")
+    preflight_parser = subparsers.add_parser(
+        "preflight", help="validate a planned bootstrap without downloading or writing to Postgres"
+    )
+    preflight_parser.add_argument(
+        "--sources", nargs="+", choices=sorted(CONNECTORS), help="sources to plan individually"
+    )
+    preflight_parser.add_argument(
+        "--with-conform", action="store_true", help="include the post-ingestion conform step"
+    )
     subparsers.add_parser("repair-runs")
     backfill_identity = subparsers.add_parser("backfill-game-identities")
     backfill_identity.add_argument("--batch-size", type=int, default=1000)
 
     args = parser.parse_args(argv)
+
+    try:
+        settings = config.load_settings(args.config)
+        config.apply_settings(settings)
+    except config.ConfigError as exc:
+        parser.error(str(exc))
 
     profile = getattr(args, "profile", None) or active_profile()
 
@@ -253,9 +273,9 @@ def main(argv: list[str] | None = None) -> None:
 
                 def fn():
                     return connector.backfill_analytics(
-                        start_year=args.start_year or connector.FIRST_WIN_PROB_YEAR,
-                        end_year=args.end_year,
-                        workers=args.workers or connector.ANALYTICS_WORKERS,
+                        start_year=args.start_year or settings.analytics_start_year,
+                        end_year=args.end_year or settings.analytics_end_year,
+                        workers=args.workers or settings.analytics_workers,
                     )
 
             elif args.workers:
@@ -264,8 +284,8 @@ def main(argv: list[str] | None = None) -> None:
 
                 def fn():
                     return connector.replay_analytics(
-                        start_year=args.start_year or connector.FIRST_WIN_PROB_YEAR,
-                        end_year=args.end_year,
+                        start_year=args.start_year or settings.analytics_start_year,
+                        end_year=args.end_year or settings.analytics_end_year,
                     )
         elif args.start_year or args.end_year or args.workers:
             parser.error("--start-year, --end-year, and --workers require --stage analytics")
@@ -359,6 +379,20 @@ def main(argv: list[str] | None = None) -> None:
             print(f"[{status}] {check.name}: {check.detail}")
         print(f"\n{len(checks) - len(failed)}/{len(checks)} checks passed")
         if failed:
+            sys.exit(1)
+    elif args.command == "preflight":
+        from mlb_baseball import preflight
+
+        preflight_checks, commands = preflight.run(settings, args.sources, args.with_conform)
+        for preflight_check in preflight_checks:
+            print(
+                f"[{'OK' if preflight_check.ok else 'FAIL'}] "
+                f"{preflight_check.name}: {preflight_check.detail}"
+            )
+        print("\nPlanned commands (not run):")
+        for command in commands:
+            print(f"  {command}")
+        if any(not preflight_check.ok for preflight_check in preflight_checks):
             sys.exit(1)
     elif args.command == "repair-runs":
         from mlb_baseball.db import get_connection

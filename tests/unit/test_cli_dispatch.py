@@ -111,6 +111,25 @@ def test_migrate_command_calls_migrate_main(monkeypatch):
     assert called["count"] == 1
 
 
+def test_preflight_reports_plan_without_running_connectors(monkeypatch, capsys):
+    connector = _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
+    monkeypatch.setattr(
+        "mlb_baseball.preflight.run",
+        lambda settings, sources, with_conform: (
+            [],
+            ["mlb migrate", "mlb ingest fake --mode bootstrap"],
+        ),
+    )
+
+    cli.main(["preflight", "--sources", "fake"])
+
+    connector.bootstrap.assert_not_called()
+    output = capsys.readouterr().out
+    assert "Planned commands (not run):" in output
+    assert "mlb ingest fake --mode bootstrap" in output
+
+
 def test_conform_command_calls_conform_run(monkeypatch, capsys):
     monkeypatch.setattr(cli.conform, "run", lambda: {"core.team": 1})
 

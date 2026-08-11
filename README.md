@@ -24,15 +24,43 @@ AGPL-3.0 for the code (see [LICENSE](LICENSE)). Data retains whatever license it
 ## Setup
 
 ```bash
-pip install -e .
-cp .env.example .env   # then point DATABASE_URL at your own Postgres (bare-metal by default, see ADR-002)
-mlb migrate
-mlb doctor              # confirms the database and every dependency (see Requirements) is ready
-mlb bootstrap            # runs every registered connector's bootstrap() — see "Bootstrap procedure" below
-mlb conform              # builds core.player/team/game from the raw tables above
+uv sync --extra dev
+cp .env.example .env     # set DATABASE_URL to your own Postgres instance
+cp mlb.toml.example mlb.toml  # optional: ordinary paths/API limits, no secrets
+uv run mlb preflight --with-conform
+uv run mlb migrate
+uv run mlb bootstrap      # runs every registered connector's bootstrap()
+uv run mlb doctor         # confirms the raw layer and dependencies are healthy
+uv run mlb conform        # only after the raw-layer checks you need are healthy
+uv run mlb inventory
 mlb predict              # builds gold.game_feature and generates win-probability predictions (Phase 2, ADR-032)
 mlb train                # (optional) retrains the gradient-boosted model; only overwrites the saved model if it beats the log5/Elo baselines (ADR-033)
 ```
+
+`mlb preflight` does not download data or write to PostgreSQL. It validates the
+resolved non-secret settings, Chadwick tools, database reachability/migration
+state, writable download/log directories, free disk, and prints the commands it
+would run. Use `mlb preflight --sources mlb_api retrosheet --with-conform` to
+plan selected sources rather than the full registered set.
+
+## Configuration
+
+`.env` (or normal environment variables) holds secrets and always overrides
+ordinary settings. `mlb.toml` is optional, local, and ignored by Git; copy
+[`mlb.toml.example`](mlb.toml.example) to start. It supports only download/log
+directories and the already-existing MLB API analytics limits. It does not hide
+hardware choices behind presets.
+
+| Setting | Default | Environment override |
+| --- | --- | --- |
+| Download directory | `downloads` | `MLB_DOWNLOAD_DIR` |
+| Log directory | `logs` | `MLB_LOG_DIR` |
+| Analytics workers | `8` | `MLB_ANALYTICS_WORKERS` |
+| Analytics years | `1950` through current year | `MLB_ANALYTICS_START_YEAR`, `MLB_ANALYTICS_END_YEAR` |
+| Retry attempts/backoff/timeout | `3` / `1.0s` / `5s` | `MLB_RETRY_ATTEMPTS`, `MLB_BACKOFF_SECONDS`, `MLB_REQUEST_TIMEOUT_SECONDS` |
+
+`DATABASE_URL` and `TEST_DATABASE_URL` are intentionally environment-only.
+That keeps connection credentials out of `mlb.toml`, command output, and Git.
 
 `mlb bootstrap` is slow once `mlb_api`'s and Statcast's full historical ranges are involved, and it is resumable — see `docs/ARCHITECTURE.md` "Bootstrap procedure" before running it for real. To bootstrap one source at a time instead (useful while developing, or to retry just the source that failed), use `mlb ingest <source> --mode bootstrap`; every registered source is in `mlb_baseball/registry.py`. The largest MLB API backfill can also run on its own, without waiting through unrelated endpoint families:
 
@@ -68,7 +96,7 @@ Replace `/path/to/mlb-baseball` with this repo's actual path. `mlb_api_update.sh
 
 ```bash
 pip install -e ".[dev]"
-TEST_DATABASE_URL=postgresql://mlb:password@localhost:5432/mlb_test pytest
+TEST_DATABASE_URL=postgresql://mlb:password@localhost:5432/mlb_test uv run pytest
 ```
 
 Integration tests run against the existing disposable database selected by

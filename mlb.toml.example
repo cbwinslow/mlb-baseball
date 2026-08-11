@@ -1,0 +1,12 @@
+# Optional local operational overrides. Copy to mlb.toml and edit as needed.
+# Secrets and database URLs stay in .env or the process environment.
+
+[mlb]
+download_dir = "downloads"
+log_dir = "logs"
+analytics_workers = 8
+analytics_start_year = 1950
+# analytics_end_year = 2026
+retry_attempts = 3
+backoff_seconds = 1.0
+request_timeout_seconds = 5

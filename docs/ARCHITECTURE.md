@@ -81,7 +81,15 @@ Some connectors don't just need Python packages — `retrosheet_event`/`retroshe
 
 ## Configuration
 
-All configuration (database connection, any API keys for Kalshi, etc.) goes through environment variables documented in `.env.example`. No credentials or connection strings committed to the repo.
+Secrets (including `DATABASE_URL`, `TEST_DATABASE_URL`, and API keys) stay in
+environment variables documented in `.env.example`; no credentials or
+connection strings are committed. Optional local `mlb.toml`, copied from
+`mlb.toml.example`, holds only ordinary operational overrides: download/log
+directories and the already-existing bounded MLB API analytics controls.
+Environment variables take precedence over TOML, then documented built-in
+defaults apply. `mlb preflight` resolves and validates these settings without
+network ingestion or PostgreSQL writes, checks dependencies and free disk, and
+prints the exact next commands. It is the required first step for a new clone.
 
 ## Scheduling
 
@@ -96,7 +104,7 @@ Neither script is installed to crontab automatically — see the "Bootstrap proc
 
 ## Bootstrap procedure
 
-`mlb bootstrap` runs every registered connector's `bootstrap()` in one command — see `mlb_baseball/cli.py`'s `_run_all`. It's the actual answer to "how do I stand up this database from nothing": `mlb migrate` to create the schema, then `mlb bootstrap`, then `mlb conform`. See the README's "Setup" section for the exact commands.
+`mlb bootstrap` runs every registered connector's `bootstrap()` in one command — see `mlb_baseball/cli.py`'s `_run_all`. The supported clean-clone path is `mlb preflight`, then `mlb migrate` to create schemas, keys, and indexes, then `mlb bootstrap`, `mlb doctor`, `mlb conform` once required raw checks are healthy, and finally `mlb inventory`. See the README's "Setup" section for exact commands.
 
 A few things worth knowing before running it for real, not after:
 

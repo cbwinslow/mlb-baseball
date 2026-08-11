@@ -54,9 +54,11 @@ next package. Failed ideas and rejected designs are documented rather than erase
 
 Before broadening models or public serving, resolve these cross-plan contracts:
 
-1. **Prediction identity:** `mlb_game_pk` is not globally unique for real
-   suspended/resumed games. Define a durable game-instance/feature identity and
-   carry it through features, predictions, outcomes, evaluation, and serving.
+1. **Prediction identity:** Canonicalize one MLB game per provider `game_pk`.
+   Preserve postponed and suspended/resumed schedule observations in `raw`, and
+   retain a provider-native Retrosheet key when no safe crosswalk exists. Carry
+   this tested identity contract through features, predictions, outcomes,
+   evaluation, and serving.
 2. **Workflow serialization:** enforce—not merely document—the dependency chain
    `ingest → conform → features → predict`; per-source locks alone do not prevent
    conflicting cross-stage runs.

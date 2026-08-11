@@ -47,16 +47,24 @@ or production roles without explicit owner approval.
 
 ### 01F — Operational identity and serialization
 
-Replace the overloaded `mlb_game_pk` prediction identity with a durable
-game-instance/feature identity that handles scheduled, completed, and
-suspended/resumed games without fanout. Carry that identity through outcome
-backfill, evaluation, market matching, and eventual serving objects. Add a
-workflow-level lock/dependency gate so `ingest → conform → features → predict`
-cannot overlap in an inconsistent order; retain per-source locks for connector
-serialization. Make migration execution serializable too. Clearly separate
-read-only diagnostics from owner-authorized stale-run repair.
+Establish a correct, durable game identity and prevent fanout: one canonical
+MLB game per provider `mlb_game_pk`, with postponed/suspended/resumed schedule
+history retained in `raw`, and Retrosheet's native ID retained where no safe
+crosswalk exists. Carry that contract through outcome backfill, evaluation,
+market matching, and eventual serving objects. Add a workflow-level
+lock/dependency gate so `ingest → conform → features → predict` cannot overlap
+in an inconsistent order; retain per-source locks for connector serialization.
+Make migration execution serializable too. Clearly separate read-only
+diagnostics from owner-authorized stale-run repair.
 
 **Status:** Implementation exists but production cutover is BLOCKED pending remediation. Production `mlb` has not been touched and no production cutover is authorized.
+
+**Evidence correction (2026-08-10):** The prior premise that a suspended or
+resumed game creates two valid MLB game instances sharing `game_pk` is false.
+Official MLB documentation and baseballr define it as the unique game ID;
+production schedule duplicates are source-history observations.  The earlier
+`game_instance_key` migration remains a compatibility artifact pending a
+tested, forward-only correction. See `docs/GAME_INSTANCE_IDENTITY.md`.
 
 **Cutover Blockers:**
 - Registry `meta.game_instance` is created in 0036 after 0035 fails, while backfill requires it.

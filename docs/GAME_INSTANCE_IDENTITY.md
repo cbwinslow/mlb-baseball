@@ -1,79 +1,62 @@
-# Durable game-instance identity
+# MLB game identity
 
-`core.game.game_pk` and `gold.game_feature.mlb_game_pk` are MLB lookup
-identifiers, not primary identities. A real suspended/resumed pair can share a
-`game_pk`; migration `0015_game_feature_pk_not_unique.sql` records the
-production example. Using that value alone for feature, prediction, outcome,
-market, or evaluation joins can duplicate, collapse, or misattribute rows.
+## Current decision
 
-Migration 0034 adds `gold.game_feature.game_instance_key` and
-`gold.prediction.game_instance_key`. New normal-flow keys use the stable,
-human-inspectable form:
+For an MLB Stats API game, `game_pk` is the provider's game identity.  It is
+the natural key for an MLB game in this project.  A doubleheader consists of
+two games with two different `game_pk` values; `gameNumber` and
+`doubleHeader` describe the schedule, but are not part of the key.
 
-`mlb:<season>:<local game date>:<game number>:<home MLB team id>:<away MLB team id>:<game_pk>`
+This corrects an earlier project assumption.  `raw.mlb_schedule` has repeated
+`game_id` rows, but those rows are schedule observations, not proof of two
+games.  For example, production has two final schedule observations for game
+`824912` on 2026-06-16 and 2026-06-17.  Its live feed identifies one game and
+records the original and resume dates.  Postponements create the same shape:
+game `68185` has four postponed observations and one final makeup observation.
 
-Completed games use the matching retained schedule row when available, so a
-scheduled prediction and its later completed outcome retain the same key. A
-Retrosheet identifier is used when no MLB identity exists. Existing rows are
-preserved with deterministic `legacy-*` keys where their old `game_pk` cannot
-be resolved unambiguously; this keeps history intact and makes repair visible
-instead of silently guessing.
+The authoritative MLB field guide calls `gamePk`/`pk` the unique number for a
+game.  baseballr independently documents `game_pk` as the unique game
+identifier and returns `gameNumber` and `doubleHeader` separately.  See
+[`KNOWLEDGE_BASE.md`](KNOWLEDGE_BASE.md) for source links and review dates.
 
-## Audited grains and legacy ambiguity
+## Grain and join rules
 
-This is the Plan 01F read-only code/schema audit.  It distinguishes an
-acceptable provider lookup from a relational identity join; the latter must
-use `game_instance_key` at the feature/prediction boundary.
+| Relation | Grain | Correct identity rule |
+|---|---|---|
+| `raw.mlb_schedule` | One API schedule observation | `(game_id, observed/loaded version)` is source history; `game_id` may repeat. |
+| MLB live/play-by-play/Statcast sources | Provider record within one game | `game_pk` identifies the parent MLB game. |
+| `core.game` | One completed canonical game | Keep surrogate `id` for database foreign keys; make `game_pk` unique when populated by an MLB source. Retrosheet-only games may have no MLB key. |
+| `gold.game_feature` / `gold.prediction` for MLB | One game / immutable prediction snapshot | Use `mlb_game_pk` as the business identity, plus model/version/timestamp where appropriate. |
+| Retrosheet | One Retrosheet game | `retro_game_id` remains its provider-native identity; do not manufacture a match when a verified MLB crosswalk is absent. |
 
-| Location / relation | Actual grain | `game_pk` use and ambiguity | Contract after 0034/0035 |
-|---|---|---|---|
-| `core.game` | One completed conformed game; `id` is its database key | `game_pk` is an optional MLB lookup and is non-unique for a suspended/resumed pair | Do not join downstream model records directly to it on `game_pk` |
-| `raw.mlb_playbyplay` → `core.play` | Provider play/at-bat record | Existing conformance joins its provider `game_pk` to `core.game`; raw play-by-play has no separate cross-source instance key, so this remains an explicitly source-scoped ambiguity | Kept inside conformance; no model, market, or evaluation consumer may inherit this as prediction identity |
-| `raw.statcast_pitch` → `core.pitch` | Provider pitch record | Same source-scoped `game_pk` lookup ambiguity as play-by-play | Kept inside conformance; pitch consumers must join through `core.pitch.game_id` |
-| `gold.game_feature` | One scheduled or completed regular-season game instance | `game_id` is absent before completion; `mlb_game_pk` can repeat | Required unique `game_instance_key`; lookup columns are not unique identity |
-| `gold.prediction` | One immutable model snapshot for one game instance | Former primary key used `mlb_game_pk`, so same-time predictions for two instances could not coexist | Primary key is `(game_instance_key, model_version, generated_at)` |
-| Outcome backfill | Prediction-to-current-feature-to-completed-core-game | Former direct `prediction.game_pk = core.game.game_pk` could update both instances | Joins `prediction → game_feature → core.game` by declared instance key |
-| Market recording / health | Market's matched `core.game` and its feature | A direct prediction-to-game `game_pk` join could multiply market coverage | Inserts and health checks pass through the matching feature key |
-| Evaluation / provenance | One selected pre-game snapshot per model and instance | Partitioning or matching by MLB ID conflates repeated IDs | Schedule-derived instance key, feature-key join, and key partitioning are required |
-| Serving plans | A future read-only projection of gold outputs | `mlb_game_pk` alone is insufficient for a game URL or cache key | Serve the durable key (or an explicit opaque alias of it) alongside the human MLB lookup ID |
+`meta.game_instance` and `game_instance_key` already exist from the earlier
+01F migration work.  They are retained for historical compatibility until a
+forward migration removes or repurposes them safely.  They must not be used to
+claim that a schedule date plus `game_pk` defines a second MLB game.
 
-Migration 0035 changes the prediction primary key to
-`(game_instance_key, model_version, generated_at)`. `mlb_game_pk` remains
-indexed for API lookup but cannot prevent two valid instances from coexisting.
+## Required follow-up before any production core/gold rebuild
 
-Migration 0036 adds `meta.game_instance`, an append/preserve registry. It is
-the historical owner of an instance key because `gold.game_feature` is rebuilt
-in place. Feature builds upsert current instances but never delete registry
-entries referenced by older predictions. Evaluation uses the registry for
-Retrosheet rows when no MLB schedule record remains; its game-date fallback is
-not a precise first-pitch timestamp.
+1. Add an exact `core.game` identity audit: non-null MLB `game_pk` values must
+   be unique; unresolved cross-source mappings must be counted and explained.
+2. Preserve schedule revisions in `raw`, and land `officialDate`,
+   `originalDate`, and `resumeDate` when the Stats API supplies them.  These
+   explain postponements and suspensions; they are not substitute keys.
+3. Reconcile the 216 repeated-final schedule IDs against the live feed and
+   Retrosheet where available.  The historical `123347` case remains an
+   explicit research exception until verified, not evidence for a new key.
+4. Replace direct model joins on ambiguous current-feature rows with a tested
+   canonical-game relation.  This must be developed and proven in `mlb_test`
+   before owner-authorized production work.
 
-## Join rules
+## Null policy
 
-- Features, predictions, outcome backfill, market recording, and evaluation
-  join through `game_instance_key`.
-- Join a prediction to `core.game` through its feature row (`prediction` →
-  `game_feature` → `core.game`), never directly on `game_pk`.
-- Source connectors may use `game_pk` to request MLB API records; that is a
-  lookup, not a relational uniqueness assertion.
-- `gold.game_feature` is still a transactional full rebuild. Prediction
-  history therefore has no foreign key to the rebuilt feature table.
-- `raw.mlb_probable` currently exposes only `game_pk`; it cannot safely choose
-  between reused lookup IDs without richer provider fields.
+There must not be a blanket “no NULLs” rule.  `NULL` is correct for an
+unknown/absent source value, an upcoming game's final score, an unresolved
+cross-source match, or a legitimately inapplicable measurement.  Required
+columns are enforced with `NOT NULL`; optional columns need a documented
+reason, a coverage expectation, and a health check where they affect research
+or models.
 
-## Operational serialization
-
-Each connector run holds a shared PostgreSQL advisory workflow lock. Conform,
-feature build, and prediction runs hold the exclusive form. Existing
-per-source locks still prevent duplicate runs of one connector. `mlb doctor`
-is read-only; use `mlb repair-runs` to explicitly mark dead-process run rows
-failed.
-
-`mlb migrate` additionally takes `mlb-migrate`. Migration 0035 is explicitly
-nontransactional so PostgreSQL can build the replacement prediction identity
-index concurrently and record its ledger row only after all statements work.
-Run the 0034/0035 cutover in an approved maintenance window: 0034 backfills
-existing rows and can generate significant WAL. Preflight free disk/WAL
-headroom and validate row counts, null keys, and duplicate durable keys. Stop
-on failure; retries are idempotent, but schema migration has no automatic
-rollback.
+For this project specifically, every MLB-native core game should have a
+non-null `game_pk`; a Retrosheet-only game may not.  We must measure that
+coverage by source and era before imposing a global `NOT NULL` constraint.

@@ -329,7 +329,12 @@ Add a simple regularized logistic regression immediately. If XGBoost cannot mate
 
 ### Prediction identity needs improvement
 
-`mlb_game_pk` is not globally unique in historical data, and the project already removed a unique constraint after finding a real duplicate. It should not be the only prediction identity. Create a stable project `game_key` using the conformed game ID when known and a deterministic upcoming-game key such as `(source, game_pk, scheduled_start, game_number)`, then reconcile it after completion.
+This review's earlier conclusion about `mlb_game_pk` is superseded by a
+2026-08-10 source and production-data audit. Repeated schedule rows represent
+postponement or suspended/resumed history under one MLB game key, not two MLB
+games. Canonicalize one MLB game per `game_pk`, preserve schedule observations
+in `raw`, and retain `retro_game_id` for a record without a safe MLB crosswalk.
+See `GAME_INSTANCE_IDENTITY.md` and `KNOWLEDGE_BASE.md`.
 
 ### Market data is not yet an odds product
 

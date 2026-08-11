@@ -49,8 +49,9 @@ to production.
   not versioned. The recovery boundary is transaction rollback, not a retained
   previous feature-table snapshot. Do not attempt manual row restoration while
   a run is active.
-- Each successful build upserts `meta.game_instance`, which preserves
-  prediction identity after a later rebuild replaces feature rows.
+- Existing builds upsert `meta.game_instance` for historical compatibility.
+  The authoritative MLB business key is `mlb_game_pk`; do not derive a second
+  game from a schedule revision. See `GAME_INSTANCE_IDENTITY.md`.
 
 ## Phase 0 — read-only preflight
 
@@ -59,8 +60,9 @@ Use an explicitly read-only connection to `mlb` and record the result.
 1. Confirm the target is `mlb`, the release revision is correct, and no
    PostgreSQL advisory ingestion lock is granted.
 2. Confirm `0033_ingestion_run_features_mode.sql`,
-   `0034_prediction_game_instance.sql`, and
-   `0035_prediction_instance_primary_key.sql` are in
+   `0034_prediction_game_instance.sql`,
+   `0035_game_instance_registry.sql`, and
+   `0036_prediction_instance_primary_key.sql` are in
    `public.schema_migrations`. If it is absent, stop: apply only the reviewed
    migration in a separately approved migration phase, then re-run preflight.
 3. Record the latest `meta.ingestion_run` rows for `core` and `model`, current

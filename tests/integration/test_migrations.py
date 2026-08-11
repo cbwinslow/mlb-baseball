@@ -69,3 +69,14 @@ def test_game_instance_registry_exists_outside_rebuilt_feature_table():
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT to_regclass('meta.game_instance')")
         assert cur.fetchone() == ("meta.game_instance",)
+
+
+def test_core_game_mlb_key_has_a_partial_unique_index():
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE schemaname = 'core' AND indexname = 'core_game_game_pk_key'"
+        )
+        indexdef = cur.fetchone()[0]
+    assert "UNIQUE INDEX core_game_game_pk_key" in indexdef
+    assert "WHERE (game_pk IS NOT NULL)" in indexdef

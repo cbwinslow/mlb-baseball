@@ -18,6 +18,7 @@ that redundantly (a second, unnecessary pass truncating core.play/pitch's
 
 from decimal import Decimal
 
+import psycopg
 import pytest
 
 from mlb_baseball import conform
@@ -2074,7 +2075,7 @@ def test_health_check_lahman_team_count_matches_and_flags_mismatch(db_conn):
     db_conn.commit()
 
 
-def test_health_check_doubleheader_identity_flags_a_collision(db_conn):
+def test_database_rejects_a_doubleheader_game_pk_collision(db_conn):
     # Regression, end to end: before migration 0011's game_pk-overwrite
     # guard, this exact scenario (two games, same date/teams, distinct
     # game_number, both landing on the same game_pk) produced a real
@@ -2082,8 +2083,7 @@ def test_health_check_doubleheader_identity_flags_a_collision(db_conn):
     # produce one (see test_backfill_game_pk_distinguishes_doubleheader_games
     # above) -- this seeds the collision directly into core.game (same
     # date, same teams, distinct game_number -- a real doubleheader shape)
-    # to prove the health check would actually catch it if the fix ever
-    # regressed.
+    # to prove the database itself rejects it if the writer ever regresses.
     with db_conn.cursor() as cur:
         cur.execute(
             "CREATE TABLE raw.retrosheet_team "
@@ -2125,17 +2125,13 @@ def test_health_check_doubleheader_identity_flags_a_collision(db_conn):
     db_conn.commit()
     conform.run()
 
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "UPDATE core.game SET game_pk = '999999' "
-            "WHERE retro_game_id IN ('ATL202504011', 'ATL202504012')"
-        )
-    db_conn.commit()
-
-    check = next(c for c in conform.health_check() if c.name == "core.game doubleheader identity")
-
-    assert not check.ok
-    assert "colliding identity" in check.detail
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "UPDATE core.game SET game_pk = '999999' "
+                "WHERE retro_game_id IN ('ATL202504011', 'ATL202504012')"
+            )
+    db_conn.rollback()
 
     # core.play/pitch/market/game_feature/game are reset by the autouse
     # _clean_tables fixture right after this test — no need here too.

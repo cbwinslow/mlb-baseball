@@ -1,4 +1,4 @@
-"""Regression coverage for migration 0011's partitioning schema shape.
+"""Regression coverage for migration-driven database schema shape.
 
 No test previously asserted the actual schema migration 0011 produces (only
 the data conform.py builds on top of it) -- found reviewing this session's
@@ -7,7 +7,30 @@ tests/conftest.py's session-scoped migrate.run()), so these assert against
 the real, already-migrated schema rather than re-running the migration.
 """
 
+from pathlib import Path
+
 from mlb_baseball.db import get_connection
+
+
+def test_schedule_season_index_migration_removes_only_an_exact_duplicate(db_conn):
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+            cur.execute("CREATE TABLE raw.mlb_schedule (_season text, game_id text)")
+            cur.execute("CREATE INDEX mlb_schedule__season_idx ON raw.mlb_schedule (_season)")
+            cur.execute("CREATE INDEX mlb_schedule_season_idx ON raw.mlb_schedule (_season)")
+            cur.execute(Path("migrations/0042_drop_duplicate_schedule_season_index.sql").read_text())
+            cur.execute(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'raw' "
+                "AND tablename = 'mlb_schedule' ORDER BY indexname"
+            )
+            assert cur.fetchall() == [('mlb_schedule__season_idx',)]
+        db_conn.commit()
+    finally:
+        db_conn.rollback()
+        with db_conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        db_conn.commit()
 
 
 def test_play_and_pitch_are_partitioned_tables():

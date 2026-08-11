@@ -209,7 +209,15 @@ def main(argv: list[str] | None = None) -> None:
         "--cutoff", choices=["open", "24h", "6h", "close"], default="close"
     )
     evaluate_parser.add_argument("--bootstrap-samples", type=int, default=1000)
-    subparsers.add_parser("inventory")
+    inventory_parser = subparsers.add_parser("inventory")
+    inventory_parser.add_argument(
+        "--partitions",
+        action="store_true",
+        help="include individual core.play/core.pitch partitions",
+    )
+    inventory_parser.add_argument(
+        "--exact", action="store_true", help="count rows exactly instead of using catalog estimates"
+    )
     metrics_parser = subparsers.add_parser("metrics")
     metrics_parser.add_argument("--source", default="mlb_api")
     metrics_parser.add_argument("--window-minutes", type=int, default=5)
@@ -357,8 +365,9 @@ def main(argv: list[str] | None = None) -> None:
                 f"accuracy={metrics['accuracy']:.4f}"
             )
     elif args.command == "inventory":
-        for row in inventory.tables():
-            print(f"{row['schema']}.{row['table']}: {row['rows']} rows")
+        for row in inventory.tables(partitions=args.partitions, exact=args.exact):
+            approximate = "" if row["exact"] else "≈"
+            print(f"{row['schema']}.{row['table']}: {approximate}{row['rows']} rows")
         print("\nLast run per source:")
         for row in inventory.last_runs():
             print(

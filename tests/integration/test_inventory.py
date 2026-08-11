@@ -14,6 +14,18 @@ def test_tables_reports_row_counts(db_conn, drop_tables_after):
 
     match = next(r for r in rows if r["schema"] == "raw" and r["table"] == "test_inventory_widgets")
     assert match["rows"] == 3
+    assert match["exact"] is True
+
+
+def test_fast_inventory_hides_partition_children_and_keeps_parents():
+    rows = inventory.tables(partitions=False, exact=False)
+    names = {f"{row['schema']}.{row['table']}" for row in rows}
+
+    assert "core.play" in names
+    assert "core.pitch" in names
+    assert "core.play_2025" not in names
+    assert "core.pitch_2025" not in names
+    assert all(row["exact"] is False for row in rows)
 
 
 def test_last_runs_reports_most_recent_per_source(db_conn):

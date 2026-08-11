@@ -10,6 +10,7 @@ data contracts are safe for research and model work.
 uv run mlb audit
 uv run mlb audit --scope database
 uv run mlb audit --scope statcast
+uv run mlb schema
 ```
 
 - `game` is the default. It checks required schedule IDs, schedule-history
@@ -29,6 +30,11 @@ uv run mlb audit --scope statcast
 
 All modes begin a read-only transaction. They never repair, migrate, ingest,
 truncate, or rebuild data.
+
+`mlb schema` is the companion catalogue for database-object review. It reports
+the live table/view shape, parent partition, column and nullable-column counts,
+and primary/unique/foreign/check constraint plus index counts. Use
+`mlb schema --partitions` for the complete physical partition list.
 
 ## Reading results
 

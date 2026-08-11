@@ -58,6 +58,7 @@ from mlb_baseball import (
     migrate,
     model,
     progress_table,
+    schema_inventory,
 )
 from mlb_baseball import (
     metrics as operational_metrics,
@@ -215,6 +216,12 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="include individual core.play/core.pitch partitions",
     )
+    schema_parser = subparsers.add_parser(
+        "schema", help="inspect read-only schema objects and constraints"
+    )
+    schema_parser.add_argument(
+        "--partitions", action="store_true", help="include physical child partitions"
+    )
     inventory_parser.add_argument(
         "--exact", action="store_true", help="count rows exactly instead of using catalog estimates"
     )
@@ -332,6 +339,8 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "conform":
         for table, count in conform.run().items():
             print(f"{table}: {count} rows")
+    elif args.command == "schema":
+        schema_inventory.print_report(partitions=args.partitions)
     elif args.command == "features":
         for table, count in model.run_features().items():
             print(f"{table}: {count} rows")

@@ -477,13 +477,19 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
             "('888001', '2026-04-05', 'New York Yankees', 'Atlanta Braves', "
             "'2026', 'Final', 'R', '0', 'Truist Park', '4705', '3', '4'), "
             "('888002', '2026-04-06', 'New York Mets', 'Chicago Cubs', "
-            "'2026', 'Final', 'R', '0', 'Wrigley Field', '17', '1', '2')"
+            "'2026', 'Final', 'R', '0', 'Wrigley Field', '17', '1', '2'), "
+            "('888003', '2026-04-07', 'New York Mets', 'Chicago Cubs', "
+            "'2026', 'Completed Early', 'R', '0', 'Wrigley Field', '17', '1', '2'), "
+            "('888004', '2026-04-08', 'New York Mets', 'Chicago Cubs', "
+            "'2026', 'Scheduled', 'R', '0', 'Wrigley Field', '17', '', ''), "
+            "('888005', '2026-04-09', 'New York Mets', 'Chicago Cubs', "
+            "'2026', 'In Progress', 'R', '0', 'Wrigley Field', '17', '1', '0')"
         )
     db_conn.commit()
 
     counts = conform.run()
 
-    assert counts["core.game"] == 4  # 2 Retrosheet-sourced + 2 MLB-API-sourced
+    assert counts["core.game"] == 5  # 2 Retrosheet-sourced + 3 completed MLB-API games
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT retro_game_id, game_pk, season, away_score, home_score, "
@@ -517,6 +523,15 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
         cur.execute("SELECT id FROM core.venue WHERE retro_park_id = 'ATL03'")
         (expected_venue_id,) = cur.fetchone()
     assert row[9] == expected_venue_id
+
+    # `core.game` is a completed-facts table. A known completed exception
+    # lands, while scheduled and live rows must wait for a later conform run.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_game_id FROM core.game "
+            "WHERE retro_game_id IN ('MLB888003', 'MLB888004', 'MLB888005') ORDER BY 1"
+        )
+        assert cur.fetchall() == [("MLB888003",)]
 
     # Regression: MLB venue id 17 maps to both historical Los Angeles and
     # active Chicago Wrigley Field rows. The schedule row must remain one
@@ -1677,6 +1692,20 @@ def test_build_standings_rerunning_replaces_instead_of_duplicating(db_conn):
         # core.play/pitch/market/game_feature/game are reset by the autouse
         # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
+
+
+def test_build_standings_skips_an_incomplete_optional_raw_table(db_conn, capsys):
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        # An incomplete historical/raw-schema fixture must not prevent the
+        # independent core-game rebuild from completing.
+        cur.execute("CREATE TABLE raw.mlb_standing (team_id text)")
+    db_conn.commit()
+
+    counts = conform.run()
+
+    assert counts["core.standing"] == 0
+    assert "raw.mlb_standing not ready" in capsys.readouterr().out
 
 
 def test_build_player_war_leaves_unmatched_bref_row_as_null_instead_of_dropping(db_conn):

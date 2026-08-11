@@ -452,8 +452,10 @@ def _build_games(conn: psycopg.Connection) -> int:
                     ORDER BY first_year DESC NULLS LAST, id
                     LIMIT 1
                 ) venue ON TRUE
-                WHERE ms.status NOT IN
-                    ('Scheduled', 'Postponed', 'Cancelled', 'Pre-Game', 'Warmup')
+                -- core.game holds completed facts only. A positive list is
+                -- safer than excluding today's known unfinished statuses:
+                -- new upstream status values cannot silently become facts.
+                WHERE ms.status IN ('Final', 'Completed Early', 'Forfeit')
                     AND NOT EXISTS (
                         SELECT 1 FROM raw.retrosheet_gameinfo gi WHERE gi._season = ms._season
                     )
@@ -1338,8 +1340,11 @@ def _build_standings(conn: psycopg.Connection) -> int:
                 """
             )
             return cur.rowcount
-    except psycopg.errors.UndefinedTable:
-        print("conform: raw.mlb_standing not present yet — skipping core.standing")
+    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+        # A raw standing table can be absent on a partial bootstrap or come
+        # from an older source shape. It is optional enrichment, so keep the
+        # completed game rebuild usable and make the omission visible.
+        print("conform: raw.mlb_standing not ready — skipping core.standing")
         return 0
 
 

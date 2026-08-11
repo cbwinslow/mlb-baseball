@@ -1,3 +1,5 @@
+import pytest
+
 from mlb_baseball import audit
 
 
@@ -31,3 +33,8 @@ def test_print_report_returns_false_for_a_failure(monkeypatch):
     )
 
     assert not audit.print_report("game")
+
+
+def test_run_rejects_an_unknown_scope():
+    with pytest.raises(ValueError, match="unknown audit scope"):
+        audit.run("unexpected")  # type: ignore[arg-type]

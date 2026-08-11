@@ -45,8 +45,8 @@ time, not a later-updated freshness field.
 | `core.player` | One resolved person (`id`); provider IDs are alternate anchors | Biography/current identity, not a player-season fact | Multi-pass source reconciliation in `conform.py`; never treat display name as an identity key |
 | `core.team` | Franchise/team identity interval (`id`, `first_year`, `last_year`) | Team names/locations are valid only over their interval | Conformance resolves provider IDs and aliases; historical moves are not overwritten as one current row |
 | `core.venue` | Retrosheet park identity (`id` / `retro_park_id`) | Venue lifecycle fields are descriptive | Raw park plus best-effort MLB enrichment; SQLMesh candidate after deterministic duplicate-match parity gate |
-| `core.game` | One completed canonical game (`id`, source game keys); `game_pk` is the unique natural key when an MLB source supplies it, while `retro_game_id` is the Retrosheet-native key | `game_date`, game number, season, final score; excludes scheduled games | Conformance-owned resolution from raw products; schedule revisions are retained in `raw`, not duplicated as canonical games |
-| `core.play` | One canonical play within a game | Ordered game event; win-probability fields are play-time values | Conformance merges source events; partitioned fact, never a wide feature table |
+| `core.game` | One completed canonical game (`id`, source game keys); `game_pk` is the unique natural key when an MLB source supplies it, while `retro_game_id` is the Retrosheet-native key | `game_date`, game number, season, final score; excludes scheduled/live data | Conformance-owned resolution from raw products; current MLB-only rows are admitted only for `Final`, `Completed Early`, or `Forfeit` status. Retrosheet's `game_number = 0` means an ordinary single game. Schedule revisions are retained in `raw`, not duplicated as canonical games |
+| `core.play` | One canonical play within a game | Ordered game event; win-probability fields are play-time values | Conformance merges source events; partitioned fact, never a wide feature table. Terminal source counts of five balls/four strikes are retained rather than rewritten |
 | `core.pitch` | One landed Statcast pitch (`id`, `season`); `source_game_pk` preserves the provider game key while `game_id` is the nullable resolved core FK | Pitch sequence/event time where supplied | Conformance maps Statcast and play context. An unresolved `game_id` retains `source_game_pk` for exact audit/reconciliation rather than dropping the pitch or guessing a match |
 | `core.market` | One matched market/game/side observation or derived pregame selection | A selected value must be from before game start | Python-owned multi-pass market matching; no settled/current value may masquerade as pregame |
 | `core.player_war`, `core.standing` | Provider player-season / team-season fact | Season aggregate | Conformance-owned derived source facts; refresh replaces their declared season/source scope |
@@ -60,6 +60,23 @@ time, not a later-updated freshness field.
 | `gold.team_woba` (target narrow family) | Game-team entering value | Prior events only within the applicable game/season window | SQLMesh candidate; a wide `gold.game_feature` projection is derived only after parity |
 | Starter, bullpen, framing, OAA, speed, WAR families | Game-team or game-player feature family | Must be point-in-time/no-leakage as documented by the individual feature | Remain Python-owned until a narrow named SQL model has exact full/sampled tie-out |
 | `gold.prediction` | Immutable `(MLB game key, model version, generated_at)` snapshot; legacy `game_instance_key` remains only until a safe compatibility migration | `generated_at` and `data_cutoff` precede outcome; outcome is filled later | Append immutable prediction; never overwrite a historical forecast with a current rerun |
+
+## Audit contract
+
+`mlb audit` is the read-only evidence gate for these contracts. Its bounded
+default validates exact required-key null counts, duplicate business keys,
+foreign-key orphans, source/decade coverage for optional MLB keys, stable game
+and play value domains, and feature/prediction identity. The optional
+`database` scope reports row/dead-row estimates, analyze freshness, index-use
+signals, and raw landing freshness; `statcast` deliberately performs the
+separate pitch-level source-to-schedule scan. See [`AUDIT_RUNBOOK.md`](AUDIT_RUNBOOK.md)
+for interpretation and the safe production sequence.
+
+The audit is intentionally not a substitute for unproven uniqueness. In
+particular, `core.pitch` retains the source game key and surrogate primary key,
+but does not assert a compound Statcast pitch key until a full-source duplicate
+study proves one. A plausible-looking combination of game, plate appearance,
+and pitch number is not enough to make a permanent constraint.
 
 ## Meta contracts
 

@@ -21,9 +21,12 @@ def _seed_game_audit_data(db_conn):
         cur.execute(
             "INSERT INTO core.game (retro_game_id, season, game_date, game_number, game_pk) "
             "VALUES ('AUD202504010', 2025, '2025-04-01', 1, '900001'), "
-            "('AUD202504011', 2025, '2025-04-01', 2, '900002') RETURNING id, game_pk"
+            "('AUD202504011', 2025, '2025-04-01', 2, '900002'), "
+            "('AUD202504020', 2025, '2025-04-02', 1, NULL) RETURNING id, game_pk"
         )
-        game_rows = {game_pk: game_id for game_id, game_pk in cur.fetchall()}
+        game_rows = {game_pk: game_id for game_id, game_pk in cur.fetchall() if game_pk is not None}
+        cur.execute("SELECT id FROM core.game WHERE retro_game_id = 'AUD202504020'")
+        retrosheet_game_id = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO core.pitch (game_id, source_game_pk, season) "
             "VALUES (%s, '900001', 2025), (NULL, '999999', 2025)",
@@ -33,8 +36,9 @@ def _seed_game_audit_data(db_conn):
             "INSERT INTO gold.game_feature "
             "(game_id, mlb_game_pk, season, game_date, home_win, game_instance_key) VALUES "
             "(%s, '900001', 2025, '2025-04-01', true, 'audit:completed'), "
-            "(NULL, '900003', 2025, '2025-04-02', NULL, 'audit:upcoming')",
-            (game_rows['900001'],),
+            "(NULL, '900003', 2025, '2025-04-02', NULL, 'audit:upcoming'), "
+            "(%s, NULL, 2025, '2025-04-02', true, 'audit:retrosheet')",
+            (game_rows['900001'], retrosheet_game_id),
         )
         cur.execute(
             "INSERT INTO gold.prediction "
@@ -51,8 +55,10 @@ def _cleanup_game_audit_data(db_conn):
         cur.execute("DELETE FROM gold.prediction WHERE game_instance_key = 'audit:prediction'")
         cur.execute(
             "DELETE FROM gold.game_feature "
-            "WHERE game_instance_key IN ('audit:completed', 'audit:upcoming')"
+            "WHERE game_instance_key IN "
+            "('audit:completed', 'audit:upcoming', 'audit:retrosheet', 'audit:bad')"
         )
+        cur.execute("DELETE FROM core.play WHERE source = 'audit-invalid'")
         cur.execute("DELETE FROM core.pitch WHERE season = 2025")
         cur.execute("DELETE FROM core.game WHERE retro_game_id LIKE 'AUD%'")
         cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
@@ -70,7 +76,7 @@ def test_game_audit_reports_expected_nulls_and_statcast_gap(db_conn):
 
     schedule = _find(findings, "raw.mlb_schedule game ID")
     assert schedule.status == "PASS"
-    assert "0 missing game_id" in schedule.detail
+    assert "0/3 (0.0%) missing game_id" in schedule.detail
     assert "1 repeated game IDs" in _find(findings, "raw.mlb_schedule schedule history").detail
     assert _find(findings, "core.game MLB identity").status == "PASS"
     assert _find(findings, "core.game doubleheader identity").status == "PASS"
@@ -91,6 +97,7 @@ def test_game_audit_reports_expected_nulls_and_statcast_gap(db_conn):
     feature = _find(findings, "gold.game_feature identity")
     assert feature.status == "PASS"
     assert "1 expected upcoming rows" in feature.detail
+    assert "1 Retrosheet-native completed rows" in feature.detail
     assert _find(findings, "gold.prediction immutable identity").status == "PASS"
 
 
@@ -107,7 +114,7 @@ def test_game_audit_flags_a_missing_required_schedule_key(db_conn):
 
     schedule = _find(findings, "raw.mlb_schedule game ID")
     assert schedule.status == "FAIL"
-    assert "1 missing game_id" in schedule.detail
+    assert "1/1 (100.0%) missing game_id" in schedule.detail
 
 
 def test_audit_is_read_only(db_conn):
@@ -125,3 +132,37 @@ def test_audit_is_read_only(db_conn):
         _cleanup_game_audit_data(db_conn)
 
     assert after == before == 3
+
+
+def test_game_audit_flags_invalid_values_and_missing_mlb_feature_key(db_conn):
+    _cleanup_game_audit_data(db_conn)
+    _seed_game_audit_data(db_conn)
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT id FROM core.game WHERE retro_game_id = 'AUD202504010'")
+            game_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO core.play (game_id, season, source, play_index, inning) "
+                "VALUES (%s, 2025, 'audit-invalid', 1, 0)",
+                (game_id,),
+            )
+            cur.execute(
+                "INSERT INTO core.game (retro_game_id, season, game_date, game_number, game_pk) "
+                "VALUES ('AUD202504030', 2025, '2025-04-03', 1, '900004') RETURNING id"
+            )
+            missing_key_game_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO gold.game_feature "
+                "(game_id, mlb_game_pk, season, game_date, home_win, game_instance_key) VALUES "
+                "(%s, NULL, 2025, '2025-04-01', true, 'audit:bad')",
+                (missing_key_game_id,),
+            )
+        db_conn.commit()
+        findings = audit.run()
+    finally:
+        _cleanup_game_audit_data(db_conn)
+
+    assert _find(findings, "core.play controlled values").status == "FAIL"
+    feature = _find(findings, "gold.game_feature identity")
+    assert feature.status == "FAIL"
+    assert "1 missing MLB keys" in feature.detail

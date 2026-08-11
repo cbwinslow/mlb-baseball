@@ -30,6 +30,21 @@ def _relation_exists(cur: psycopg.Cursor, relation: str) -> bool:
     return fetch_one(cur)[0] is not None
 
 
+def _column_exists(cur: psycopg.Cursor, relation: str, column: str) -> bool:
+    """Return whether an optional audit column exists without assuming raw shape."""
+    schema, table = relation.split(".", maxsplit=1)
+    cur.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s AND column_name = %s
+        )
+        """,
+        (schema, table, column),
+    )
+    return fetch_one(cur)[0]
+
+
 def _all(cur: psycopg.Cursor) -> list[tuple]:
     """Return query rows with the same explicit empty-result contract as fetch_one."""
     return cur.fetchall() or []
@@ -51,7 +66,12 @@ def _schedule_audit(cur: psycopg.Cursor) -> list[Finding]:
     required = Finding(
         "raw.mlb_schedule game ID",
         "PASS" if missing == 0 else "FAIL",
-        f"{total:,} schedule observations; {missing:,} missing game_id",
+        (
+            f"{total:,} schedule observations; {missing:,}/{total:,} "
+            f"({missing / total:.1%}) missing game_id"
+            if total
+            else "0 schedule observations"
+        ),
     )
     cur.execute(
         """
@@ -110,13 +130,70 @@ def _core_game_audit(cur: psycopg.Cursor) -> list[Finding]:
         """
     )
     duplicate_count = fetch_one(cur)[0]
-    return [
+    findings = [
         Finding(
             "core.game MLB identity",
             "PASS" if duplicate_count == 0 else "FAIL",
             f"{populated:,}/{total:,} populated ({populated / total:.1%}); "
             f"{unresolved:,} unresolved cross-source mappings; "
             f"{duplicate_count:,} duplicate populated keys{_sample(duplicates)}",
+        )
+    ]
+    cur.execute(
+        """
+        SELECT (season / 10) * 10 AS decade,
+               CASE WHEN retro_game_id LIKE 'MLB%%' THEN 'MLB-schedule-only'
+                    ELSE 'Retrosheet-native' END AS source_group,
+               count(*), count(*) FILTER (WHERE game_pk IS NOT NULL AND game_pk <> '')
+        FROM core.game
+        GROUP BY 1, 2 ORDER BY 1 DESC, 2
+        """
+    )
+    for decade, source_group, rows, with_key in _all(cur):
+        missing = rows - with_key
+        status: Status = "PASS" if missing == 0 else "WARN"
+        findings.append(
+            Finding(
+                f"core.game MLB-key coverage ({decade}s; {source_group})",
+                status,
+                f"{with_key:,}/{rows:,} populated ({with_key / rows:.1%}); "
+                f"{missing:,} unresolved or provider-native rows",
+            )
+        )
+    return findings
+
+
+def _core_game_validity_audit(cur: psycopg.Cursor) -> list[Finding]:
+    """Check stable game facts without pretending historical optional fields are required."""
+    if not _relation_exists(cur, "core.game"):
+        return [Finding("core.game basic validity", "SKIP", "core.game absent")]
+    cur.execute("SELECT count(*) FROM core.game")
+    total = fetch_one(cur)[0]
+    if total == 0:
+        return [Finding("core.game basic validity", "SKIP", "0 canonical games")]
+    cur.execute(
+        """
+        SELECT count(*) FILTER (
+                   WHERE season < 1871 OR season > EXTRACT(YEAR FROM CURRENT_DATE)::integer + 1
+               ),
+               count(*) FILTER (
+                   WHERE game_date < DATE '1871-01-01' OR game_date > CURRENT_DATE + 366
+               ),
+               count(*) FILTER (WHERE game_number IS NOT NULL AND game_number < 0),
+               count(*) FILTER (WHERE away_score IS NOT NULL AND away_score < 0),
+               count(*) FILTER (WHERE home_score IS NOT NULL AND home_score < 0)
+        FROM core.game
+        """
+    )
+    bad_season, bad_date, bad_number, bad_away_score, bad_home_score = fetch_one(cur)
+    violations = bad_season + bad_date + bad_number + bad_away_score + bad_home_score
+    return [
+        Finding(
+            "core.game basic validity",
+            "PASS" if violations == 0 else "FAIL",
+            f"{total:,} rows; {bad_season:,} invalid seasons; {bad_date:,} invalid dates; "
+            f"{bad_number:,} invalid game numbers; "
+            f"{bad_away_score + bad_home_score:,} negative scores",
         )
     ]
 
@@ -157,9 +234,23 @@ def _doubleheader_audit(cur: psycopg.Cursor) -> Finding:
     )
 
 
-def _foreign_key_audit(cur: psycopg.Cursor, table: str, column: str) -> Finding:
+def _foreign_key_audit(
+    cur: psycopg.Cursor,
+    table: str,
+    column: str,
+    *,
+    parent_table: str = "core.game",
+    parent_column: str = "id",
+    nulls_are_expected: bool = False,
+) -> Finding:
     if not _relation_exists(cur, table):
         return Finding(f"{table}.{column} referential integrity", "SKIP", "table absent")
+    if not _relation_exists(cur, parent_table):
+        return Finding(
+            f"{table}.{column} referential integrity",
+            "SKIP",
+            f"parent table {parent_table} absent",
+        )
     cur.execute(f"SELECT count(*) FROM {table}")
     total = fetch_one(cur)[0]
     if total == 0:
@@ -168,11 +259,11 @@ def _foreign_key_audit(cur: psycopg.Cursor, table: str, column: str) -> Finding:
         f"""
         SELECT count(*), count(*) FILTER (WHERE child.{column} IS NULL),
                count(*) FILTER (WHERE child.{column} IS NOT NULL AND g.id IS NULL)
-        FROM {table} child LEFT JOIN core.game g ON g.id = child.{column}
+        FROM {table} child LEFT JOIN {parent_table} g ON g.{parent_column} = child.{column}
         """
     )
     rows, missing, orphans = fetch_one(cur)
-    if table == "core.pitch":
+    if nulls_are_expected:
         status: Status = "PASS" if orphans == 0 else "FAIL"
         null_text = f"{missing:,} unresolved ({missing / rows:.1%})"
     else:
@@ -182,6 +273,40 @@ def _foreign_key_audit(cur: psycopg.Cursor, table: str, column: str) -> Finding:
         f"{table}.{column} referential integrity",
         status,
         f"{rows:,} rows; {null_text}; {orphans:,} orphan references",
+    )
+
+
+def _play_value_audit(cur: psycopg.Cursor) -> Finding:
+    """Check the few play fields whose domains are stable across providers."""
+    if not _relation_exists(cur, "core.play"):
+        return Finding("core.play controlled values", "SKIP", "core.play absent")
+    cur.execute("SELECT count(*) FROM core.play")
+    total = fetch_one(cur)[0]
+    if total == 0:
+        return Finding("core.play controlled values", "SKIP", "0 core.play rows")
+    cur.execute(
+        """
+        SELECT count(*) FILTER (WHERE source NOT IN ('retrosheet', 'mlb_api')),
+               count(*) FILTER (WHERE inning IS NOT NULL AND inning < 1),
+               count(*) FILTER (
+                   WHERE half_inning IS NOT NULL AND half_inning NOT IN ('top', 'bottom')
+               ),
+               -- The Stats API occasionally reports the terminal count
+               -- after a walk/strikeout (5 balls or 4 strikes). Preserve
+               -- that source convention instead of treating it as corrupt.
+               count(*) FILTER (WHERE balls IS NOT NULL AND balls NOT BETWEEN 0 AND 5),
+               count(*) FILTER (WHERE strikes IS NOT NULL AND strikes NOT BETWEEN 0 AND 4),
+               count(*) FILTER (WHERE outs IS NOT NULL AND outs NOT BETWEEN 0 AND 3)
+        FROM core.play
+        """
+    )
+    bad_source, bad_inning, bad_half, bad_balls, bad_strikes, bad_outs = fetch_one(cur)
+    violations = bad_source + bad_inning + bad_half + bad_balls + bad_strikes + bad_outs
+    return Finding(
+        "core.play controlled values",
+        "PASS" if violations == 0 else "FAIL",
+        f"{total:,} rows; {bad_source:,} invalid sources; {bad_inning:,} invalid innings; "
+        f"{bad_half:,} invalid half-innings; {bad_balls + bad_strikes + bad_outs:,} invalid counts",
     )
 
 
@@ -316,20 +441,41 @@ def _game_feature_audit(cur: psycopg.Cursor) -> Finding:
         return Finding("gold.game_feature identity", "SKIP", "0 feature rows")
     cur.execute(
         """
-        SELECT count(*) FILTER (WHERE game_id IS NULL AND home_win IS NULL),
-               count(*) FILTER (WHERE game_id IS NULL AND home_win IS NOT NULL),
-               count(*) FILTER (WHERE game_id IS NOT NULL AND mlb_game_pk IS NULL)
-        FROM gold.game_feature
+        SELECT count(*) FILTER (
+                   WHERE f.game_id IS NULL AND f.home_win IS NULL AND f.mlb_game_pk IS NOT NULL
+               ),
+               count(*) FILTER (WHERE f.game_id IS NULL AND f.home_win IS NOT NULL),
+               count(*) FILTER (WHERE f.game_id IS NULL AND f.mlb_game_pk IS NULL),
+               count(*) FILTER (
+                   WHERE f.game_id IS NOT NULL AND f.mlb_game_pk IS NULL AND g.game_pk IS NULL
+               ),
+               count(*) FILTER (
+                   WHERE f.game_id IS NOT NULL AND f.mlb_game_pk IS NULL AND g.game_pk IS NOT NULL
+               ),
+               count(*) FILTER (
+                   WHERE f.game_id IS NOT NULL AND f.mlb_game_pk IS NOT NULL
+                     AND g.game_pk IS NOT NULL AND f.mlb_game_pk <> g.game_pk
+               )
+        FROM gold.game_feature f LEFT JOIN core.game g ON g.id = f.game_id
         """
     )
-    upcoming, invalid_completed, missing_completed_key = fetch_one(cur)
-    failures = invalid_completed + missing_completed_key
+    (
+        upcoming,
+        invalid_completed,
+        missing_identity,
+        retrosheet_native,
+        missing_mlb_key,
+        mismatched_mlb_key,
+    ) = fetch_one(cur)
+    failures = invalid_completed + missing_identity + missing_mlb_key + mismatched_mlb_key
     return Finding(
         "gold.game_feature identity",
         "PASS" if failures == 0 else "FAIL",
         f"{total:,} rows; {upcoming:,} expected upcoming rows without core game; "
         f"{invalid_completed:,} completed rows without core game; "
-        f"{missing_completed_key:,} completed rows without MLB key",
+        f"{retrosheet_native:,} Retrosheet-native completed rows without MLB key; "
+        f"{missing_identity:,} rows without either identity; "
+        f"{missing_mlb_key:,} missing MLB keys; {mismatched_mlb_key:,} mismatched MLB keys",
     )
 
 
@@ -359,21 +505,50 @@ def _prediction_audit(cur: psycopg.Cursor) -> Finding:
 def _database_health_audit(cur: psycopg.Cursor) -> list[Finding]:
     cur.execute(
         """
-        SELECT relname, n_live_tup, n_dead_tup, last_analyze, last_autoanalyze
-        FROM pg_stat_user_tables
-        WHERE schemaname IN ('raw', 'core', 'gold')
-          AND relname IN ('mlb_schedule', 'statcast_pitch', 'game', 'pitch', 'play', 'game_feature')
-        ORDER BY relname
+        SELECT t.schemaname, t.relname, t.n_live_tup, t.n_dead_tup,
+               t.last_analyze, t.last_autoanalyze,
+               COALESCE(i.index_scans, 0)
+        FROM pg_stat_user_tables t
+        LEFT JOIN LATERAL (
+            SELECT sum(idx_scan) AS index_scans
+            FROM pg_stat_user_indexes i
+            WHERE i.schemaname = t.schemaname AND i.relname = t.relname
+        ) i ON TRUE
+        WHERE t.schemaname IN ('raw', 'core', 'gold')
+          AND t.relname IN (
+              'mlb_schedule', 'statcast_pitch', 'game', 'pitch', 'play',
+              'game_feature', 'prediction'
+          )
+        ORDER BY t.schemaname, t.relname
         """
     )
     findings = []
-    for name, live, dead, manual, automatic in _all(cur):
+    for schema, name, live, dead, manual, automatic, index_scans in _all(cur):
         analyzed = manual or automatic
+        if live == 0:
+            status: Status = "SKIP"
+        elif analyzed is None:
+            status = "WARN"
+        else:
+            status = "PASS"
         findings.append(
             Finding(
-                f"planner statistics {name}",
-                "PASS" if analyzed is not None else "WARN",
-                f"rows≈{live:,}; dead≈{dead:,}; last analyzed={analyzed or 'never'}",
+                f"database health {schema}.{name}",
+                status,
+                f"rows≈{live:,}; dead≈{dead:,}; index scans≈{index_scans:,}; "
+                f"last analyzed={analyzed or 'never'}",
+            )
+        )
+    for relation in ("raw.mlb_schedule", "raw.statcast_pitch"):
+        if not _relation_exists(cur, relation) or not _column_exists(cur, relation, "_loaded_at"):
+            continue
+        cur.execute(f"SELECT count(*), max(_loaded_at) FROM {relation}")
+        rows, last_loaded = fetch_one(cur)
+        findings.append(
+            Finding(
+                f"table freshness {relation}",
+                "PASS" if rows > 0 and last_loaded is not None else "WARN",
+                f"{rows:,} rows; latest landed artifact at {last_loaded or 'unknown'}",
             )
         )
     return findings
@@ -381,15 +556,39 @@ def _database_health_audit(cur: psycopg.Cursor) -> list[Finding]:
 
 def run(scope: Literal["game", "database", "statcast"] = "game") -> list[Finding]:
     """Run the selected audit without changing database state."""
+    if scope not in {"game", "database", "statcast"}:
+        raise ValueError(f"unknown audit scope: {scope}")
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SET TRANSACTION READ ONLY")
             findings = _schedule_audit(cur)
             findings.extend(_core_game_audit(cur))
+            findings.extend(_core_game_validity_audit(cur))
             findings.append(_doubleheader_audit(cur))
-            findings.append(_foreign_key_audit(cur, "core.pitch", "game_id"))
+            findings.append(
+                _foreign_key_audit(
+                    cur,
+                    "core.game",
+                    "away_team_id",
+                    parent_table="core.team",
+                    nulls_are_expected=True,
+                )
+            )
+            findings.append(
+                _foreign_key_audit(
+                    cur,
+                    "core.game",
+                    "home_team_id",
+                    parent_table="core.team",
+                    nulls_are_expected=True,
+                )
+            )
+            findings.append(
+                _foreign_key_audit(cur, "core.pitch", "game_id", nulls_are_expected=True)
+            )
             findings.append(_pitch_resolution_audit(cur))
             findings.append(_foreign_key_audit(cur, "core.play", "game_id"))
+            findings.append(_play_value_audit(cur))
             findings.extend(_statcast_coverage_audit(cur))
             findings.append(_game_feature_audit(cur))
             findings.append(_prediction_audit(cur))

@@ -13,11 +13,15 @@ uv run mlb audit --scope statcast
 ```
 
 - `game` is the default. It checks required schedule IDs, schedule-history
-  duplicates, canonical MLB game-key uniqueness, doubleheaders, pitch/play
-  foreign-key coverage, expected upcoming-game nulls, and prediction identity.
-- `database` adds PostgreSQL planner-statistics context (row/dead-row estimates
-  and last-analyzed time). Those estimates guide maintenance; they do not prove
-  data correctness.
+  duplicates, canonical MLB game-key uniqueness and source/decade coverage,
+  doubleheaders, stable game/play value ranges, team/game foreign-key coverage,
+  unresolved pitch-source-key coverage, expected upcoming-game nulls, and
+  prediction identity. It reports retained Retrosheet-native identities
+  separately from a missing identity or a missing MLB key on an MLB game.
+- `database` adds PostgreSQL planner-statistics context: estimated live/dead
+  rows, last-analyzed time, cumulative index scans, and landing freshness where
+  the raw table exposes `_loaded_at`. These estimates guide maintenance; they
+  do not prove data correctness.
 - `statcast` adds the intentionally heavier exact scan of every raw Statcast
   pitch against distinct raw schedule keys, grouped by season. Use it after a
   Statcast load and before changing conformance logic.
@@ -35,9 +39,16 @@ truncate, or rebuild data.
   clean clone but means the corresponding research layer is not ready.
 
 Not every null is a failure. An upcoming feature row has no completed
-`core.game` yet; a Statcast pitch may have no resolved canonical game. The
-audit reports these separately from a missing required source key or an orphan
-foreign key.
+`core.game` yet; a Retrosheet-native game can have no MLB key; and a Statcast
+pitch may have no resolved canonical game. The audit reports these separately
+from a missing required source key, a missing identity, or an orphan foreign
+key. A warning is an investigation queue, not permission to silently fill a
+value with a weak match.
+
+Retrosheet uses game number `0` for an ordinary single game, so it is valid.
+The official play feed can also retain a terminal count of five balls or four
+strikes. The controlled-value check allows those documented source values and
+looks for values outside that wider domain instead.
 
 ## Current Statcast conclusion
 

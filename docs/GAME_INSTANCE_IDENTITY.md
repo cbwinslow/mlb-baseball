@@ -60,3 +60,12 @@ or models.
 For this project specifically, every MLB-native core game should have a
 non-null `game_pk`; a Retrosheet-only game may not.  We must measure that
 coverage by source and era before imposing a global `NOT NULL` constraint.
+
+## Completed-game boundary
+
+`core.game` is a completed-facts relation. The current-season MLB schedule
+writer admits only `Final`, `Completed Early`, and `Forfeit` rows. It does not
+use a broad “not scheduled” rule, because an unfamiliar future status must not
+silently become a completed fact. Retrosheet's game number `0` is its normal
+single-game convention; `1` and `2` distinguish a doubleheader only where the
+source supplies those values.

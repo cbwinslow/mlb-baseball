@@ -11,6 +11,7 @@ _DYNAMIC_SAMPLE_RELATIONS = (
     "raw.retrosheet_team",
     "raw.retrosheet_gameinfo",
     "raw.mlb_schedule",
+    "raw.mlb_team_history",
     "raw.retrosheet_event",
     "raw.mlb_playbyplay",
     "raw.statcast_pitch",
@@ -91,6 +92,12 @@ def _columns(cur: psycopg.Cursor, relation: str) -> list[tuple[str, str]]:
     return list(cur.fetchall())
 
 
+def _relation_exists(cur: psycopg.Cursor, relation: str) -> bool:
+    cur.execute("SELECT to_regclass(%s)", (relation,))
+    row = cur.fetchone()
+    return row is not None and row[0] is not None
+
+
 def _copy_query(
     source: psycopg.Connection,
     target: psycopg.Connection,
@@ -154,14 +161,25 @@ def load_sample(
         raise ValueError("at least one season and one game per season are required")
     params = (list(map(str, selected_seasons)), games_per_season)
     current_params = (str(max(selected_seasons)), games_per_season)
-    game_cte = """
+    # TEAMABR.TXT records every currently active franchise with its shared
+    # latest published last_year (2021 in the retained official file). Core
+    # treats that source sentinel as open-ended; the rehearsal must mirror
+    # the rule or it would falsely exclude valid modern games. Historical
+    # intervals still use Retrosheet's exact end year.
+    active_in_season = """
+        AND (
+            gi._season::integer BETWEEN {team}.first_year::integer AND {team}.last_year::integer
+            OR {team}.last_year::integer = (SELECT max(last_year::integer) FROM raw.retrosheet_team)
+        )
+    """
+    away_active = active_in_season.format(team="away")
+    home_active = active_in_season.format(team="home")
+    game_cte = f"""
         WITH matched AS (
             SELECT DISTINCT gi.gid, gi._season
             FROM raw.retrosheet_gameinfo gi
-            JOIN raw.retrosheet_team away ON away.team_id = gi.visteam
-                AND gi._season::integer BETWEEN away.first_year::integer AND away.last_year::integer
-            JOIN raw.retrosheet_team home ON home.team_id = gi.hometeam
-                AND gi._season::integer BETWEEN home.first_year::integer AND home.last_year::integer
+            JOIN raw.retrosheet_team away ON away.team_id = gi.visteam {away_active}
+            JOIN raw.retrosheet_team home ON home.team_id = gi.hometeam {home_active}
             JOIN raw.mlb_schedule ms ON ms.game_date::date = to_date(gi.date, 'YYYYMMDD')
                 AND ms.away_name = away.city || ' ' || away.nickname
                 AND ms.home_name = home.city || ' ' || home.nickname
@@ -200,6 +218,21 @@ def load_sample(
             (list(map(str, selected_seasons)),),
             recreate=True,
         )
+        # This compact MLB reference table supplies authoritative numeric
+        # team IDs for modern display-name changes such as Rays/Devil Rays,
+        # Angels/Anaheim, and Athletics/Oakland. Older source installations
+        # may not have this optional bootstrap table yet.
+        with source.cursor() as cur:
+            has_team_history = _relation_exists(cur, "raw.mlb_team_history")
+        if has_team_history:
+            counts["raw.mlb_team_history"] = _copy_query(
+                source,
+                target,
+                "raw.mlb_team_history",
+                "SELECT * FROM raw.mlb_team_history",
+                (),
+                recreate=True,
+            )
         counts["raw.retrosheet_event"] = _copy_query(
             source,
             target,
@@ -229,10 +262,8 @@ def load_sample(
             )
             SELECT DISTINCT ms.game_id FROM raw.mlb_schedule ms
             JOIN selected_games gi ON ms.game_date::date = to_date(gi.date, 'YYYYMMDD')
-            JOIN raw.retrosheet_team away ON away.team_id = gi.visteam
-                AND gi._season::integer BETWEEN away.first_year::integer AND away.last_year::integer
-            JOIN raw.retrosheet_team home ON home.team_id = gi.hometeam
-                AND gi._season::integer BETWEEN home.first_year::integer AND home.last_year::integer
+            JOIN raw.retrosheet_team away ON away.team_id = gi.visteam {away_active}
+            JOIN raw.retrosheet_team home ON home.team_id = gi.hometeam {home_active}
             WHERE ms.away_name = away.city || ' ' || away.nickname
               AND ms.home_name = home.city || ' ' || home.nickname
               AND COALESCE(NULLIF(ms.game_num, '')::integer, 1)

@@ -642,14 +642,39 @@ def _backfill_mlb_team_id(conn: psycopg.Connection) -> int:
                 WHERE r.team_id = t.id AND r.rnk = 1
                 """
             )
-            return cur.rowcount
+            schedule_count = cur.rowcount
+            # Some current MLB display names cannot safely string-match
+            # Retrosheet's deliberately historical names (Rays/Devil Rays,
+            # Angels/Anaheim, Athletics/Oakland). MLB's own team-history
+            # payload provides the exact stable numeric anchor: team_code is
+            # Retrosheet's code, team_id is MLB's ID. Require one distinct
+            # ID across the applicable team era; leave any future ambiguity
+            # unresolved instead of choosing a value.
+            cur.execute(
+                """
+                WITH candidate AS (
+                    SELECT t.id, min(h.team_id::integer) AS mlb_team_id
+                    FROM core.team t
+                    JOIN raw.mlb_team_history h
+                      ON lower(h.team_code) = lower(t.retro_team_id)
+                     AND h.team_id ~ '^[0-9]+$'
+                     AND h.season ~ '^[0-9]{4}$'
+                     AND h.season::integer BETWEEN t.first_year AND t.last_year
+                    WHERE t.mlb_team_id IS NULL
+                    GROUP BY t.id
+                    HAVING count(DISTINCT h.team_id) = 1
+                )
+                UPDATE core.team t
+                SET mlb_team_id = candidate.mlb_team_id
+                FROM candidate
+                WHERE t.id = candidate.id
+                """
+            )
+            return schedule_count + cur.rowcount
     except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
-        # UndefinedColumn as well as UndefinedTable: away_id/home_id are a
-        # real part of raw.mlb_schedule's production schema, but not every
-        # raw.mlb_schedule row source guarantees them (e.g. an older
-        # snapshot) — same "optional dependency not ready yet" case as the
-        # table not existing at all, not a real error.
-        print("conform: raw.mlb_schedule not present yet — skipping core.team.mlb_team_id backfill")
+        # The schedule vote and team-history fallback are optional raw
+        # enrichments. A partial older snapshot must not block conformance.
+        print("conform: MLB team IDs not present yet — skipping core.team.mlb_team_id backfill")
         return 0
 
 

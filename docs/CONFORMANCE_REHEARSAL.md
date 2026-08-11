@@ -70,10 +70,10 @@ CLEAR_REHEARSAL_SAMPLE=1 uv run python scripts/rehearse_sample.py
 
 ### Latest local evidence (2026-08-10)
 
-The bounded run produced 20 matched Retrosheet games (10 each from 2008 and
-2015), 1,547 Retrosheet plays, 753 current MLB plays, and 8,022 Statcast
-pitches. All sampled pitches resolved to a canonical game and all sampled
-plays had a valid game reference. The full schedule history intentionally
+The bounded run produced 40 matched Retrosheet games (10 each from 2008, 2015,
+2024, and 2025), 3,167 Retrosheet plays, 753 current MLB plays, and 14,154
+Statcast pitches. All sampled pitches resolved to a canonical game and all
+sampled plays had a valid game reference. The full schedule history intentionally
 retained 180 repeated official game IDs; `core.game` had no duplicate populated
 MLB keys.
 
@@ -81,12 +81,24 @@ Eight MLB-schedule-only canonical games remained without an MLB key. They are
 known source-history ambiguity cases, including the suspended/resumed 2026
 record, and correctly remain unresolved rather than being force-matched.
 
-This run also found a production-data coverage limitation: `raw.retrosheet_team`
-has team effective-date rows ending in 2021 although the landed Retrosheet game
-and event feeds extend through 2024–25. This prevents safe current-era
-Retrosheet team/game linking. It is an ingestion/reference-data repair task
-before a production conformance recommendation—not an acceptable reason to
-relax effective-date checks or guess a crosswalk.
+This run confirmed an upstream reference-data limitation: the official
+`TEAMABR.TXT` file has not been updated since 2020 and lists the shared latest
+season for active franchises as 2021, although landed Retrosheet game/event
+data extends through 2024–25. Raw retains that official value exactly. During
+conformance, the file's shared maximum is deliberately treated as open-ended
+for active franchises; historical intervals remain exact. The production-shaped
+sampler mirrors that proven rule so modern Retrosheet linkage is tested rather
+than accidentally excluded. This is a documented upstream limitation, not a
+reason to overwrite raw data or guess crosswalks.
+
+The rehearsal also copies the compact `raw.mlb_team_history` reference table.
+Its stable numeric IDs resolve the current name differences that Retrosheet
+cannot express literally: Tampa Bay Rays/Devil Rays, Los Angeles Angels/Anaheim
+Angels, and Athletics/Oakland Athletics. After this crosswalk, the only 2026
+sample team links left null are 34 away and 6 home roles in exhibition or
+All-Star games involving national, college, minor-league, or All-Star teams.
+Those entities are outside the MLB-team contract and are retained without a
+guessed `core.team` identity.
 
 ## Optional baseballr comparison
 

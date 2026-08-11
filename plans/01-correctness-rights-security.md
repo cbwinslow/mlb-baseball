@@ -116,14 +116,17 @@ test-database gate, not authorization to modify production.
 
 **Production-shaped rehearsal evidence (2026-08-10):** A bounded copy from
 production opened the source transaction read-only and wrote only `mlb_test`.
-It tied out 20 matched Retrosheet games (2008/2015), 1,547 Retrosheet plays,
-753 MLB plays, and 8,022 Statcast pitches with zero unresolved sampled pitch or
+It tied out 40 matched Retrosheet games (2008/2015/2024/2025), 3,167 Retrosheet plays,
+753 MLB plays, and 14,154 Statcast pitches with zero unresolved sampled pitch or
 play game links. `core.game` retained 180 repeated raw schedule-history keys,
 had zero duplicate populated MLB keys, and left eight documented ambiguous
-schedule-only records unresolved. The gate also found that
-`raw.retrosheet_team` ends in 2021 while landed game/event data extends to
-2024–25; repairing that reference-data coverage is a remaining blocker before
-any production conformance recommendation. See
+schedule-only records unresolved. The initially reported `raw.retrosheet_team`
+2021 horizon is an official Retrosheet source limit, not a failed download:
+`core` treats the file's shared active-team maximum as open-ended. The rehearsal
+now mirrors that rule and includes 2024–25 Retrosheet games; `raw.mlb_team_history`
+supplies authoritative numeric IDs for modern name changes. This removes the
+reference-horizon blocker for the test gate, but does not authorize production
+conformance. See
 [`CONFORMANCE_REHEARSAL.md`](../docs/CONFORMANCE_REHEARSAL.md).
 
 ## Acceptance gate

@@ -7,6 +7,9 @@ the same full-reload operation — like the Chadwick register and Lahman.
 - Team ID history: retrosheet.org/TEAMABR.TXT — headerless; layout (6 fields:
   team ID, league, city, nickname, first year, last year) confirmed against
   TeamIDs.htm and verified against the real downloaded file before hardcoding.
+  Retrosheet's official published file is dated 2020 and has 2021 as the
+  shared latest season for current franchises. Raw preserves that source fact;
+  core deliberately interprets the shared maximum as open-ended.
 - Biographical data: retrosheet.org/biofile.zip, containing four already-
   headered CSVs (biofile.csv, biofile0.csv — two different schemas Retrosheet
   distributes side by side, both landed as-is since raw stays source-faithful;

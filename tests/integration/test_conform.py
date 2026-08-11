@@ -596,7 +596,7 @@ def test_build_teams_treats_the_files_shared_max_last_year_as_open_ended(db_conn
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo VALUES "
-            "('ATL202104010', '2021', '20210401', '0', 'NYA', 'ATL', "
+            "('ATL202504010', '2025', '20250401', '0', 'NYA', 'ATL', "
             "'3', '5', 'regular', 'ATL03', '35000', '185', 'N', '', '', '', "
             "'', '', '', '', '', '')"
         )
@@ -616,6 +616,12 @@ def test_build_teams_treats_the_files_shared_max_last_year_as_open_ended(db_conn
     assert rows["ATL"] == 9999
     assert rows["NYA"] == 9999
     assert rows["MON"] == 2004
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT away_team_id IS NOT NULL, home_team_id IS NOT NULL "
+            "FROM core.game WHERE retro_game_id = 'ATL202504010'"
+        )
+        assert cur.fetchone() == (True, True)
 
 
 def test_build_plays_includes_win_probability_for_mlb_api_rows(db_conn):
@@ -1233,6 +1239,74 @@ def test_backfill_mlb_team_id_uses_majority_vote_despite_a_noisy_outlier(db_conn
         # core.play/pitch/market/game_feature/game are reset by the autouse
         # _clean_tables fixture right after this test — no need here too.
     db_conn.commit()
+
+
+def test_team_history_resolves_modern_retro_name_drift(db_conn):
+    """MLB's numeric team history bridges current names without guessing."""
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('ANA', 'AL', 'Anaheim', 'Angels', '1997', '2021'), "
+            "('OAK', 'AL', 'Oakland', 'Athletics', '1968', '2021'), "
+            "('TBA', 'AL', 'Tampa Bay', 'Devil Rays', '1998', '2021')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text, temp text, winddir text, "
+            "windspeed text, sky text, precip text, fieldcond text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('ANA202504010', '2025', '20250401', '0', 'TBA', 'ANA', "
+            "'3', '5', 'regular', 'ANA01', '', '', '', '', '', '', '', '', '', '', '', '')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, name_last, name_first) "
+            "VALUES ('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, venue_id text, away_score text, home_score text, "
+            "away_id text, home_id text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('510001', '2025-04-01', 'Tampa Bay Rays', 'Los Angeles Angels', "
+            "'2025', 'Final', 'R', '0', '', '', '3', '5', '139', '108'), "
+            "('510002', '2026-04-01', 'Athletics', 'Tampa Bay Rays', "
+            "'2026', 'Final', 'R', '0', '', '', '2', '1', '133', '139')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_team_history "
+            "(team_id text, season text, team_code text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_team_history VALUES "
+            "('108', '2005', 'ana'), ('133', '2024', 'oak'), ('139', '2025', 'tba')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT retro_team_id, mlb_team_id FROM core.team ORDER BY retro_team_id")
+        assert dict(cur.fetchall()) == {'ANA': 108, 'OAK': 133, 'TBA': 139}
+        cur.execute(
+            "SELECT game_pk, away_team_id IS NOT NULL, home_team_id IS NOT NULL "
+            "FROM core.game ORDER BY game_pk"
+        )
+        assert cur.fetchall() == [('510001', True, True), ('510002', True, True)]
 
 
 def test_backfill_team_ids_via_mlb_id_fixes_bare_name_mismatch(db_conn):

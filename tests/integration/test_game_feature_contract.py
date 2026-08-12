@@ -80,6 +80,18 @@ def test_strict_feature_contract_is_pit_safe_for_doubleheader_and_schedule_histo
         "2",
         "2024-01-01T00:00:00Z",
     )
+    # A later schedule observation under the same provider key belongs to a
+    # different source-history date. The completed game must select its own
+    # canonical-date observation, not whichever history row landed last.
+    _schedule(
+        db_conn,
+        "1002",
+        "2024-04-05",
+        "2024-04-05T18:00:00Z",
+        "Final",
+        "1",
+        "2024-02-01T00:00:00Z",
+    )
     _schedule(db_conn, "1004", "2024-04-03", "2024-04-03T18:00:00Z", "Scheduled")
     db_conn.commit()
 
@@ -100,6 +112,7 @@ def test_strict_feature_contract_is_pit_safe_for_doubleheader_and_schedule_histo
     assert by_key["1001"][1:6] == (None, None, None, None, True)
     # Second game sees G1 only; it cannot see either target-game final score.
     assert by_key["1002"][1:6] == (1, 0, 5, 3, True)
+    assert by_key["1002"][0].timestamp() == 1712077200
     # Second doubleheader game sees the first; order comes from cutoff/game number.
     assert by_key["1003"][1:6] == (2, 0, 7, 4, False)
     assert by_key["1004"][1:6] == (2, 1, 8, 8, None)

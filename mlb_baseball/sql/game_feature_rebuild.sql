@@ -1,18 +1,23 @@
 -- First game-feature family. Cutoff is the MLB schedule's declared first
 -- pitch. Doubleheaders sort by cutoff, declared game number, then provider key.
-WITH schedule AS (
-    SELECT DISTINCT ON (ms.game_id)
+WITH schedule_history AS (
+    SELECT
         ms.game_id, ms._season::integer AS season, ms.game_date::date AS game_date,
         CASE WHEN ms.game_num ~ '^[0-9]+$' THEN ms.game_num::integer END AS game_number,
         ms.game_datetime::timestamptz AS feature_cutoff_at,
-        ms.status, ms.home_id, ms.away_id, ms.venue_id
+        ms.status, ms.home_id, ms.away_id, ms.venue_id, ms._loaded_at
     FROM raw.mlb_schedule ms
     WHERE ms.game_type = 'R' AND ms.game_id IS NOT NULL
       AND ms._season ~ '^[0-9]{4}$'
       AND ms.game_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
       AND NULLIF(ms.game_datetime, '') IS NOT NULL
-    ORDER BY ms.game_id, ms._loaded_at DESC NULLS LAST,
-        ms.game_datetime DESC, ms.game_num DESC NULLS LAST
+),
+schedule AS (
+    SELECT DISTINCT ON (game_id) *
+    FROM schedule_history
+    WHERE status = 'Scheduled'
+    ORDER BY game_id, _loaded_at DESC NULLS LAST,
+        feature_cutoff_at DESC, game_number DESC NULLS LAST
 ),
 completed AS (
     SELECT 'g' || g.id::text AS key, g.id AS game_id, g.game_pk AS mlb_game_pk,
@@ -20,7 +25,20 @@ completed AS (
         s.feature_cutoff_at, g.home_team_id, g.away_team_id,
         g.home_score, g.away_score, g.venue_id, 'mlb:' || g.game_pk AS game_instance_key
     FROM core.game g
-    JOIN schedule s ON s.game_id = g.game_pk AND s.game_date = g.game_date
+    JOIN LATERAL (
+        SELECT sh.game_number, sh.feature_cutoff_at
+        FROM schedule_history sh
+        WHERE sh.game_id = g.game_pk AND sh.game_date = g.game_date
+        ORDER BY CASE sh.status
+            WHEN 'Final' THEN 0
+            WHEN 'Completed Early' THEN 1
+            WHEN 'Forfeit' THEN 2
+            ELSE 3
+        END,
+        sh._loaded_at DESC NULLS LAST, sh.feature_cutoff_at DESC,
+        sh.game_number DESC NULLS LAST
+        LIMIT 1
+    ) s ON TRUE
     WHERE g.game_type = 'regular' AND g.game_pk IS NOT NULL
       AND g.home_team_id IS NOT NULL AND g.away_team_id IS NOT NULL
       AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL

@@ -512,90 +512,52 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
     # two real games the id "really" belongs to.
     try:
         with conn.transaction(), conn.cursor() as cur:
-            # Self-healing: a game_pk assigned by an earlier conform() run,
-            # before this ambiguity check existed, stays wrong forever
-            # otherwise — the UPDATE below only ever touches rows where
-            # game_pk IS NULL, so a previously-corrupted value would never
-            # get revisited on subsequent runs without this.
             cur.execute(
-                f"""
-                UPDATE core.game
-                SET game_pk = NULL
-                WHERE game_pk IN ({_AMBIGUOUS_FINAL_GAME_IDS_SQL})
                 """
-            )
-            # FROM-list uses implicit (comma) joins, not explicit JOIN...ON,
-            # because Postgres's UPDATE...FROM doesn't allow the UPDATE
-            # target (g) to be referenced inside a JOIN...ON clause within
-            # the FROM list — only in WHERE. Found the hard way: the
-            # explicit-JOIN version raised UndefinedTable ("invalid
-            # reference to FROM-clause entry for table g"), which this
-            # function's own except clause silently absorbed as "table
-            # doesn't exist yet" — a real bug masking a real bug, caught by
-            # actually reading the exception's message during debugging
-            # rather than trusting the except clause's assumption.
-            cur.execute(
-                f"""
-                UPDATE core.game g
-                SET game_pk = ms.game_id
-                FROM raw.mlb_schedule ms, core.team away, core.team home
-                WHERE ms.game_date::date = g.game_date
-                    -- Schedule history is raw evidence, not a completed
-                    -- game fact.  A postponed observation can share a
-                    -- matchup/date/game number with a different game that
-                    -- was actually played that day (production game 15084
-                    -- is the regression).  Only a terminal observation may
-                    -- assign MLB's provider key to canonical core.game.
-                    AND ms.status IN ('Final', 'Completed Early', 'Forfeit')
-                    AND ms.away_name = away.city || ' ' || away.nickname
-                    AND ms.home_name = home.city || ' ' || home.nickname
-                    AND away.id = g.away_team_id
-                    AND home.id = g.home_team_id
-                    AND CASE
+                -- Build this mapping once, set-wise.  The old correlated
+                -- candidate count was correct for a single schedule row but
+                -- expensive at production scale and missed a key reused by
+                -- a postponed observation that coincided with another real
+                -- game.  A provider key is assignable only when *all* of
+                -- its terminal schedule observations map to one core game.
+                WITH terminal_schedule AS (
+                    SELECT
+                        ms.game_id,
+                        ms.game_date::date AS game_date,
+                        ms.away_name,
+                        ms.home_name,
+                        CASE
                             WHEN COALESCE(NULLIF(ms.game_num, '')::integer, 0) = 0 THEN 1
                             ELSE NULLIF(ms.game_num, '')::integer
-                        END
-                        = CASE
+                        END AS game_number
+                    FROM raw.mlb_schedule ms
+                    WHERE ms.status IN ('Final', 'Completed Early', 'Forfeit')
+                ), candidates AS (
+                    SELECT ms.game_id, g.id AS core_game_id
+                    FROM terminal_schedule ms
+                    JOIN core.team away
+                      ON ms.away_name = away.city || ' ' || away.nickname
+                    JOIN core.team home
+                      ON ms.home_name = home.city || ' ' || home.nickname
+                    JOIN core.game g
+                      ON g.game_date = ms.game_date
+                     AND g.away_team_id = away.id
+                     AND g.home_team_id = home.id
+                     AND CASE
                             WHEN COALESCE(g.game_number, 0) = 0 THEN 1
                             ELSE g.game_number
-                        END
-                    -- A provider key may appear in schedule history in a
-                    -- way that satisfies more than one canonical-game
-                    -- candidate. The old fixed exception list only knew
-                    -- about examples already observed; make the rule
-                    -- data-driven instead. An ambiguous key remains NULL
-                    -- for audit/reconciliation, never a uniqueness error.
-                    AND 1 = (
-                        SELECT count(*)
-                        FROM core.game candidate
-                        JOIN core.team candidate_away ON candidate_away.id = candidate.away_team_id
-                        JOIN core.team candidate_home ON candidate_home.id = candidate.home_team_id
-                        WHERE candidate.game_date = ms.game_date::date
-                          AND candidate_away.city || ' ' || candidate_away.nickname = ms.away_name
-                          AND candidate_home.city || ' ' || candidate_home.nickname = ms.home_name
-                          AND CASE
-                                WHEN COALESCE(candidate.game_number, 0) = 0 THEN 1
-                                ELSE candidate.game_number
-                              END = CASE
-                                WHEN COALESCE(NULLIF(ms.game_num, '')::integer, 0) = 0 THEN 1
-                                ELSE NULLIF(ms.game_num, '')::integer
-                              END
-                    )
-                    -- g.game_pk IS NULL: without this, a row that already
-                    -- got its correct game_pk from _build_games' second
-                    -- INSERT (the MLB-API-sourced path) could get silently
-                    -- overwritten here by a coincidental date/team/
-                    -- game_num match against a *different* schedule
-                    -- game_id. Found in production: MLB's real suspended-
-                    -- and-resumed-game quirk (the same game_pk listed
-                    -- under two dates, documented in _build_games above)
-                    -- means two distinct schedule rows can share the same
-                    -- matchup/date/game_num — one already-correct row got
-                    -- clobbered with the other's game_pk, producing a
-                    -- duplicate this file's own check_no_duplicate_key
-                    -- health check caught.
-                    AND g.game_pk IS NULL
-                    AND ms.game_id NOT IN ({_AMBIGUOUS_FINAL_GAME_IDS_SQL})
+                         END = ms.game_number
+                ), unambiguous AS (
+                    SELECT game_id, min(core_game_id) AS core_game_id
+                    FROM candidates
+                    GROUP BY game_id
+                    HAVING count(DISTINCT core_game_id) = 1
+                )
+                UPDATE core.game g
+                SET game_pk = u.game_id
+                FROM unambiguous u
+                WHERE g.id = u.core_game_id
+                  AND g.game_pk IS NULL
                 """
             )
             return cur.rowcount

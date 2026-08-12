@@ -71,3 +71,9 @@ use a broad “not scheduled” rule, because an unfamiliar future status must n
 silently become a completed fact. Retrosheet's game number `0` is its normal
 single-game convention; `1` and `2` distinguish a doubleheader only where the
 source supplies those values.
+
+When the sources disagree only on doubleheader number, conformance may use a
+last-resort match only if there is exactly one terminal schedule observation
+and exactly one canonical game with the same season, date, both MLB numeric
+team IDs, and both final scores. All other number/date/history disagreement
+remains unresolved with its provider key retained.

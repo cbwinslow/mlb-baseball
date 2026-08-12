@@ -2103,6 +2103,48 @@ def test_backfill_game_pk_distinguishes_doubleheader_games(db_conn):
     db_conn.commit()
 
 
+def test_backfill_game_pk_uses_an_exact_score_when_only_game_number_differs(db_conn):
+    """An exact final score may resolve a documented 0-versus-2 number drift."""
+    _reset_dynamic_tables(db_conn)
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('OAK', 'AL', 'Oakland', 'Athletics', '1968', '2025'), "
+            "('BAL', 'AL', 'Baltimore', 'Orioles', '1901', '2025')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('BAL200809060', '2008', '20080906', '0', 'OAK', 'BAL', "
+            "'5', '1', 'regular', 'BAL12', '', '', 'D', '', '', '', '', '', '', '', '', '')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "away_id text, home_id text, _season text, status text, game_type text, "
+            "game_num text, venue_name text, venue_id text, "
+            "away_score text, home_score text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('235881', '2008-09-06', 'Oakland Athletics', 'Baltimore Orioles', '133', '110', "
+            "'2008', 'Final', 'R', '2', '', '', '5', '1')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_team_history (team_code text, team_id text, season text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_team_history VALUES ('oak', '133', '2008'), ('bal', '110', '2008')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT game_pk FROM core.game WHERE retro_game_id = 'BAL200809060'")
+        assert cur.fetchone() == ('235881',)
+
+
 def test_backfill_game_pk_leaves_same_matchup_candidates_unresolved(db_conn):
     """Do not choose between two canonical rows matched by one schedule key."""
     with db_conn.cursor() as cur:

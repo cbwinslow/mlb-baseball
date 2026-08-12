@@ -806,6 +806,74 @@ def _backfill_game_pk_via_mlb_team_id(conn: psycopg.Connection) -> int:
         return 0
 
 
+def _backfill_game_pk_via_exact_final_score(conn: psycopg.Connection) -> int:
+    """Resolve a last, narrow class of provider game-number disagreement.
+
+    Retrosheet's zero game number normally means a single game, while the MLB
+    schedule can label an otherwise identical doubleheader game as number two.
+    This fallback requires one terminal schedule observation and one canonical
+    candidate matching season, date, both numeric team IDs, and both final
+    scores.  It therefore cannot turn a date/name similarity into a guess.
+    """
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH terminal_schedule AS (
+                    SELECT
+                        ms.game_id,
+                        ms.game_date::date AS game_date,
+                        NULLIF(ms.away_id, '')::integer AS away_mlb_team_id,
+                        NULLIF(ms.home_id, '')::integer AS home_mlb_team_id,
+                        ms.away_score::numeric::integer AS away_score,
+                        ms.home_score::numeric::integer AS home_score,
+                        ms._season::integer AS season
+                    FROM raw.mlb_schedule ms
+                    WHERE ms.game_type = 'R'
+                      AND ms.status IN ('Final', 'Completed Early', 'Forfeit')
+                      AND ms.away_score ~ '^[0-9]+(\\.[0-9]+)?$'
+                      AND ms.home_score ~ '^[0-9]+(\\.[0-9]+)?$'
+                ), singly_observed AS (
+                    SELECT game_id, min(game_date) AS game_date,
+                           min(away_mlb_team_id) AS away_mlb_team_id,
+                           min(home_mlb_team_id) AS home_mlb_team_id,
+                           min(away_score) AS away_score, min(home_score) AS home_score,
+                           min(season) AS season
+                    FROM terminal_schedule
+                    GROUP BY game_id
+                    HAVING count(*) = 1
+                ), candidates AS (
+                    SELECT ms.game_id, g.id AS core_game_id
+                    FROM singly_observed ms
+                    JOIN core.team away ON away.mlb_team_id = ms.away_mlb_team_id
+                    JOIN core.team home ON home.mlb_team_id = ms.home_mlb_team_id
+                    JOIN core.game g
+                      ON g.season = ms.season
+                     AND g.game_date = ms.game_date
+                     AND g.away_team_id = away.id
+                     AND g.home_team_id = home.id
+                     AND g.away_score = ms.away_score
+                     AND g.home_score = ms.home_score
+                    WHERE g.game_pk IS NULL
+                ), unambiguous AS (
+                    SELECT game_id, min(core_game_id) AS core_game_id
+                    FROM candidates
+                    GROUP BY game_id
+                    HAVING count(DISTINCT core_game_id) = 1
+                )
+                UPDATE core.game g
+                SET game_pk = u.game_id
+                FROM unambiguous u
+                WHERE g.id = u.core_game_id
+                  AND g.game_pk IS NULL
+                """
+            )
+            return cur.rowcount
+    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+        print("conform: schedule fields unavailable — skipping exact-score game-key fallback")
+        return 0
+
+
 def _backfill_team_ids_via_mlb_id(conn: psycopg.Connection) -> int:
     # Uses the mlb_team_id crosswalk _backfill_mlb_team_id just built to
     # fix core.game rows _build_games' string match missed — e.g. the
@@ -1550,6 +1618,7 @@ def run() -> dict[str, int]:
         # display-name drift and the remaining team IDs.
         _backfill_mlb_team_id(conn)
         _backfill_game_pk_via_mlb_team_id(conn)
+        _backfill_game_pk_via_exact_final_score(conn)
         _backfill_team_ids_via_mlb_id(conn)
         counts["core.game"] += _build_completed_spring_games(conn)
         # core.standing resolves team_id via mlb_team_id, so it must run

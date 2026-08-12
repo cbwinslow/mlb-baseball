@@ -268,6 +268,7 @@ _BAD_GAME_WARNING_RE = re.compile(
     r"^WARNING: (?:In (\S+?), skipping invalid record|Sanity check fails for game (\S+), skipping)",
     re.MULTILINE,
 )
+_BOXSCORE_GAME_ID_RE = re.compile(r'<boxscore game_id="([^"]+)">')
 
 
 def _reported_bad_game_id(stderr: str) -> str | None:
@@ -278,6 +279,27 @@ def _reported_bad_game_id(stderr: str) -> str | None:
     warning = _BAD_GAME_WARNING_RE.search(stderr)
     if warning is not None:
         return warning.group(1) or warning.group(2)
+    return None
+
+
+def _truncated_xml_game_id(xml_text: str) -> str | None:
+    """Identify the enclosing game when cwbox emits malformed partial XML.
+
+    This is used only after cwbox has already returned nonzero and its
+    stderr names no bad record.  The output must fail our normal XML parser;
+    then the last complete ``<boxscore game_id=...>`` before the parse error
+    identifies the one source record to exclude from the temporary copy.
+    """
+    try:
+        _parse_cwbox_xml(xml_text)
+    except ET.ParseError as exc:
+        line, column = exc.position
+        lines = xml_text.splitlines(keepends=True)
+        if line > len(lines):
+            return None
+        offset = sum(len(part) for part in lines[: line - 1]) + column
+        matches = list(_BOXSCORE_GAME_ID_RE.finditer(xml_text, 0, offset))
+        return matches[-1].group(1) if matches else None
     return None
 
 
@@ -322,6 +344,8 @@ def run_cwbox(event_dir: Path, year: int) -> dict[str, pd.DataFrame]:
     max_bad_games = 100
     while result.returncode != 0 and attempts < max_bad_games:
         bad_game_id = _reported_bad_game_id(result.stderr)
+        if bad_game_id is None and result.stdout.strip():
+            bad_game_id = _truncated_xml_game_id(result.stdout)
         if bad_game_id is None:
             break
         removed = False

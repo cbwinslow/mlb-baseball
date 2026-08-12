@@ -5,7 +5,7 @@ import time
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
-from mlb_baseball import audit, cli, model, progress_table
+from mlb_baseball import audit, cli, model, progress_table, report
 from mlb_baseball.source_profiles import SourceProfileError, require_sources
 
 
@@ -138,6 +138,14 @@ def test_conform_command_calls_conform_run(monkeypatch, capsys):
     assert "core.team: 1 rows" in capsys.readouterr().out
 
 
+def test_report_command_calls_report_run(monkeypatch, capsys):
+    monkeypatch.setattr(report, "run", lambda: {"gold.team_season": 1})
+
+    cli.main(["report"])
+
+    assert "gold.team_season: 1 rows" in capsys.readouterr().out
+
+
 def test_predict_command_calls_model_run(monkeypatch, capsys):
     monkeypatch.setattr(cli.model, "run", lambda: {"gold.game_feature": 1})
 
@@ -197,6 +205,7 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         "build_feature_stage",
         lambda _conn: {"gold.game_feature": 10, "gold.game_feature (starters updated)": 4},
     )
+    monkeypatch.setattr(model.elo, "compute_ratings", lambda _conn: 10)
     monkeypatch.setattr(model.market, "record", lambda _conn: 1)
     monkeypatch.setattr(model, "backfill_outcomes", lambda _conn: 2)
     monkeypatch.setattr(model.log5, "predict", lambda _conn: 3)
@@ -211,6 +220,7 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         "gold.prediction (gbm)": 5,
         "gold.prediction (market)": 1,
         "gold.prediction (outcomes backfilled)": 2,
+        "gold.game_feature (Elo ratings)": 10,
     }
     conn.commit.assert_called_once()
 

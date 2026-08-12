@@ -58,6 +58,7 @@ from mlb_baseball import (
     migrate,
     model,
     progress_table,
+    report,
     schema_inventory,
 )
 from mlb_baseball import (
@@ -200,6 +201,7 @@ def main(argv: list[str] | None = None) -> None:
         profile_parser.add_argument("--profile", choices=sorted(PROFILES))
 
     subparsers.add_parser("conform")
+    subparsers.add_parser("report", help="rebuild documented gold research tables")
     subparsers.add_parser("features")
     subparsers.add_parser("predict")
     subparsers.add_parser("train")
@@ -339,6 +341,9 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "conform":
         for table, count in conform.run().items():
             print(f"{table}: {count} rows")
+    elif args.command == "report":
+        for table, count in report.run().items():
+            print(f"{table}: {count} rows")
     elif args.command == "schema":
         schema_inventory.print_report(partitions=args.partitions)
     elif args.command == "features":
@@ -358,17 +363,19 @@ def main(argv: list[str] | None = None) -> None:
         else:
             print("not saved: did not beat both baselines")
     elif args.command == "evaluate":
-        report = model.evaluate(args.models, args.season, args.cutoff, args.bootstrap_samples)
+        evaluation_report = model.evaluate(
+            args.models, args.season, args.cutoff, args.bootstrap_samples
+        )
         print(
-            f"season {report['season']} / {report['cutoff']} cutoff / "
-            f"{report['common_games']} common games"
+            f"season {evaluation_report['season']} / {evaluation_report['cutoff']} cutoff / "
+            f"{evaluation_report['common_games']} common games"
         )
         for version in args.models:
-            metrics = report["models"][version]
+            metrics = evaluation_report["models"][version]
             log_low, log_high = metrics["log_loss_95ci"]
             brier_low, brier_high = metrics["brier_95ci"]
             print(
-                f"  {version}: coverage={report['coverage'][version]} "
+                f"  {version}: coverage={evaluation_report['coverage'][version]} "
                 f"log_loss={metrics['log_loss']:.4f} [{log_low:.4f}, {log_high:.4f}] "
                 f"brier={metrics['brier']:.4f} [{brier_low:.4f}, {brier_high:.4f}] "
                 f"accuracy={metrics['accuracy']:.4f}"

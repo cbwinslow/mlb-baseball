@@ -60,6 +60,9 @@ time, not a later-updated freshness field.
 | `gold.team_woba` (target narrow family) | Game-team entering value | Prior events only within the applicable game/season window | SQLMesh candidate; a wide `gold.game_feature` projection is derived only after parity |
 | Starter, bullpen, framing, OAA, speed, WAR families | Game-team or game-player feature family | Must be point-in-time/no-leakage as documented by the individual feature | Remain Python-owned until a narrow named SQL model has exact full/sampled tie-out |
 | `gold.prediction` | Immutable `(mlb_game_pk, model version, generated_at)` snapshot; compatibility `game_instance_key` is `mlb:<game_pk>` or a Retrosheet/legacy provenance key | `generated_at` and `data_cutoff` precede outcome; outcome is filled later | Append immutable prediction; never overwrite a historical forecast with a current rerun |
+| `gold.player_season` | One provider final-season line per `(player_id, season, is_pitcher)` | Final-season aggregate; never a pregame feature | Explicit `mlb report` rebuild from Baseball-Reference season rows plus conformed WAR. Current source coverage begins in 2008; unresolved provider player IDs are excluded and reported by health checks. |
+| `gold.team_season` | One final-season line per `(team_id, season)` | Final-season aggregate; never a pregame feature | Explicit `mlb report` rebuild from Lahman, core games, Retrosheet event aggregates, and conformed WAR. Historical team coverage differs from player coverage and known unresolvable teams remain documented gaps. |
+| `gold.division_standing` | One team-season standing row `(team_id, season)` | Final standings/snapshot values; never a pregame feature | Explicit `mlb report` rebuild from `core.standing` with retained MLB elimination markers. Source coverage starts in 1969. |
 
 ## Audit contract
 

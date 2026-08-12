@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mlb_baseball import doctor
+from mlb_baseball import doctor, report
 from mlb_baseball.connectors import mlb_api
 from mlb_baseball.health import Check
 
@@ -146,6 +146,18 @@ def test_run_includes_a_fake_connectors_health_checks(monkeypatch):
     checks = doctor.run()
 
     assert any(c.name == "fake thing" and c.ok for c in checks)
+
+
+def test_run_includes_reporting_health_checks(monkeypatch):
+    monkeypatch.setattr(
+        report,
+        "health_check",
+        lambda: [Check("reporting fixture", True, "healthy")],
+    )
+
+    checks = doctor.run()
+
+    assert any(c.name == "reporting fixture" and c.ok for c in checks)
 
 
 def test_run_flags_a_connector_with_no_health_check(monkeypatch):

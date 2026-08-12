@@ -63,18 +63,18 @@ def compute_ratings(conn: psycopg.Connection) -> int:
         # game; NULL for upcoming ones, where score is never used below
         # anyway since home_win is also NULL for those).
         #
-        # Ordered by (game_date, id) -- gold.game_feature has no game_number
-        # column, so a doubleheader's two games can land in either order
-        # here. Accepted as-is: it only affects which of that same day's two
-        # games updates a team's rating first, a negligible, self-correcting
-        # effect on the overall rating trajectory -- not worth a schema
-        # change to fix.
+        # The feature contract supplies a real pregame cutoff and declared
+        # doubleheader order.  A same-day ``id`` order is not a baseball
+        # order: it can change after a rebuild and leak the first game of a
+        # doubleheader into the second.  ``mlb_game_pk`` is a stable final
+        # tie-breaker for the rare identical-start-time case.
         cur.execute(
             "SELECT gf.id, gf.season, gf.home_team_id, gf.away_team_id, gf.home_win, "
             "g.home_score, g.away_score "
             "FROM gold.game_feature gf "
             "LEFT JOIN core.game g ON g.id = gf.game_id "
-            "ORDER BY gf.game_date, gf.id"
+            "ORDER BY gf.feature_cutoff_at NULLS LAST, gf.game_date, "
+            "gf.game_number NULLS LAST, gf.mlb_game_pk NULLS LAST, gf.id"
         )
         rows = cur.fetchall()
 

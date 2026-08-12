@@ -10,15 +10,10 @@ connectors underneath it. See ADR-057 for the full reasoning (materialized
 vs. view, grain choices, why nothing here gets a real FK to core.player/
 core.team).
 
-Not wired into `mlb conform`, `mlb predict`, or any CLI command yet --
-deliberately left for the project owner to wire by hand (see this module's
-own report back to the owner): `mlb_baseball/cli.py` and `mlb_baseball/
-doctor.py` are both being touched by parallel work in other worktrees this
-session, so editing them here risked a merge conflict for no benefit. A new
-`mlb report` subcommand (mirroring `mlb conform`'s own shape exactly) is
-the natural fit, calling `report.run()` the same way `cli.py`'s `conform`
-branch calls `conform.run()`; `doctor.py` should add `report.health_check()`
-to its own checks list the same way it already does for `conform`/`model`.
+`mlb report` runs this module explicitly. It is deliberately not folded into
+`mlb conform` or `mlb predict`: a researcher can rebuild these final-season
+aggregates without making a core rebuild or prediction run do unrelated work.
+`mlb doctor` includes this stage's health checks.
 
 Full truncate-and-rebuild every run, not incremental -- same reasoning as
 conform.py itself: at this row count (tens of thousands of player-seasons,

@@ -140,6 +140,49 @@ def test_predict_uses_computed_ratings_for_upcoming_game(db_conn):
 
 def test_rerunning_compute_ratings_is_idempotent(db_conn):
     _reset(db_conn)
+
+
+def test_compute_ratings_uses_declared_doubleheader_order_not_feature_row_id(db_conn):
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2024, '2024-04-01', %s, %s, 5, 3, 'regular'), "
+            "('G2', 2024, '2024-04-01', %s, %s, 2, 1, 'regular') "
+            "RETURNING id, retro_game_id",
+            (atl, nya, atl, nya),
+        )
+        games = {retro_id: game_id for game_id, retro_id in cur.fetchall()}
+        # Insert game two first so its surrogate feature ID is lower. The
+        # declared doubleheader number must still make game one update Elo
+        # before game two.
+        cur.execute(
+            "INSERT INTO gold.game_feature "
+            "(game_id, game_instance_key, season, game_date, game_number, feature_cutoff_at, "
+            "mlb_game_pk, home_team_id, away_team_id, home_win) "
+            "VALUES (%s, 'mlb:2', 2024, '2024-04-01', 2, '2024-04-01 19:00+00', "
+            "'2', %s, %s, true), "
+            "(%s, 'mlb:1', 2024, '2024-04-01', 1, '2024-04-01 13:00+00', "
+            "'1', %s, %s, true)",
+            (games["G2"], atl, nya, games["G1"], atl, nya),
+        )
+    db_conn.commit()
+
+    elo.compute_ratings(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_elo FROM gold.game_feature WHERE game_instance_key = 'mlb:2'"
+        )
+        (second_game_home_elo,) = cur.fetchone()
+    assert second_game_home_elo > Decimal("1500")
+
+    _reset(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
     with db_conn.cursor() as cur:

@@ -87,12 +87,20 @@ def run_features() -> dict[str, int]:
 
 
 def run() -> dict[str, int]:
-    """Build features then write predictions (legacy ``mlb predict`` behavior)."""
+    """Build features, derive sequential Elo, then write legacy predictions.
+
+    ``mlb features`` is intentionally only the reusable, audited base feature
+    stage.  Elo is not part of that base because it is model-specific and
+    sequential.  The backwards-compatible ``mlb predict`` command does need
+    it before the Elo and GBM predictors run, however.  Keeping the step here
+    makes that dependency explicit and prevents a silently empty Elo output.
+    """
     with (
         get_connection() as conn,
         track_run(conn, SOURCE, "bootstrap", workflow="exclusive") as result,
     ):
         feature_counts = build_feature_stage(conn)
+        elo_rows = elo.compute_ratings(conn)
         # market.record() runs before backfill_outcomes(), not after --
         # unlike log5/elo/gbm's own predictions (made for still-upcoming
         # games, where actual_home_win is legitimately unknown yet), every
@@ -117,6 +125,7 @@ def run() -> dict[str, int]:
         "gold.prediction (gbm)": gbm_count,
         "gold.prediction (market)": market_count,
         "gold.prediction (outcomes backfilled)": backfilled,
+        "gold.game_feature (Elo ratings)": elo_rows,
     }
 
 

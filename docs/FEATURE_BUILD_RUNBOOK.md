@@ -40,8 +40,9 @@ owner authorization; it remains a required preflight check for a clean clone.
   it does not silently substitute Retrosheet-only history or a date-only cutoff.
   It does **not** insert, update, or backfill `gold.prediction`.
 - `mlb predict` retains its legacy behavior: it invokes the same feature stage,
-  then writes market/model predictions and prediction provenance. Do not use it
-  as a feature-health probe.
+  derives the sequential Elo ratings required by its Elo/GBM paths, then writes
+  market/model predictions and prediction provenance. Do not use it as a
+  feature-health probe.
 - Both commands record a `meta.ingestion_run` row under source `model`, acquire
   the source advisory lock and an exclusive workflow advisory lock, and roll
   back their data transaction on failure. Connector ingestion holds a shared

@@ -296,8 +296,12 @@ def _truncated_xml_game_id(xml_text: str) -> str | None:
         line, column = exc.position
         lines = xml_text.splitlines(keepends=True)
         if line > len(lines):
-            return None
-        offset = sum(len(part) for part in lines[: line - 1]) + column
+            # ElementTree reports one line past the final physical line for
+            # an abruptly truncated document.  The last opened boxscore is
+            # still attributable and is the only candidate we may remove.
+            offset = len(xml_text)
+        else:
+            offset = sum(len(part) for part in lines[: line - 1]) + column
         matches = list(_BOXSCORE_GAME_ID_RE.finditer(xml_text, 0, offset))
         return matches[-1].group(1) if matches else None
     return None

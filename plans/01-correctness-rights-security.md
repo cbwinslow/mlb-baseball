@@ -58,9 +58,10 @@ Make migration execution serializable too. Clearly separate read-only
 diagnostics from owner-authorized stale-run repair.
 
 **Status:** The canonical identity correction and a production core rebuild were
-completed under prior owner authorization on 2026-08-12. This remaining
-join-coverage package is still test-database-only; no new production change is
-authorized until its tests, audit, and benchmark evidence are reviewed.
+completed under prior owner authorization on 2026-08-12. The first strict
+`gold.game_feature` rehearsal is test-database-only; no production feature
+rebuild or index change is authorized until its tests, audit, and benchmark
+evidence are reviewed.
 
 **Evidence correction (2026-08-10):** The prior premise that a suspended or
 resumed game creates two valid MLB game instances sharing `game_pk` is false.

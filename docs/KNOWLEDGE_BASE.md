@@ -50,6 +50,27 @@ design into this repository.
   `game_pk`. MLB-only canonical rows retain NULL rather than a manufactured
   Retrosheet-shaped identifier.
 
+### Pregame feature cutoff
+
+- **Question:** What timestamp defines information that may enter the first
+  MLB game-prediction feature family?
+- **Source:** The retained official MLB schedule payload's `game_datetime`
+  field, inspected 2026-08-12; it is available for all 239,364 retained
+  schedule observations in the production baseline.
+- **Local evidence:** A strict `mlb_test` rehearsal retained postponed history
+  in `raw.mlb_schedule`, selected one row per `game_pk`, and built 2,468
+  regular-season feature rows without duplicate MLB keys. Fixture tests show
+  the second game of a doubleheader sees the first game's completed result but
+  never its own result.
+- **Decision:** `gold.game_feature.feature_cutoff_at` is the schedule's
+  declared first-pitch time. Windows use only completed regular games before
+  that order; the documented tie-break order is cutoff, game number, then MLB
+  key. A missing provider start time means no row in this first MLB-only
+  relation rather than a guessed date-only cutoff.
+- **Known limit:** This is a scheduled start cutoff, not a claim that every
+  source value was available at that exact time. Weather, lineups, markets,
+  and live fields remain outside the first base family.
+
 ### Retrosheet supplemental team identities
 
 - **Question:** How should historical Negro League and newly assigned

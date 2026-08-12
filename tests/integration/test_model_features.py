@@ -42,7 +42,7 @@ def _ensure_mlb_schedule_table(db_conn):
                 "venue_id text)"
             )
         else:
-            for column in ("game_type", "status", "venue_id"):
+            for column in ("game_type", "status", "venue_id", "game_datetime", "_loaded_at"):
                 cur.execute(f"ALTER TABLE raw.mlb_schedule ADD COLUMN IF NOT EXISTS {column} text")
     db_conn.commit()
 
@@ -72,6 +72,7 @@ def test_build_computes_point_in_time_win_pct_and_pythagenpat(db_conn):
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
     with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.venue WHERE retro_park_id IN ('TSTCUR', 'TSTOLD')")
         cur.execute(
             "INSERT INTO core.game "
             "(retro_game_id, season, game_date, home_team_id, away_team_id, "
@@ -236,14 +237,21 @@ def test_build_selects_one_era_valid_venue_for_upcoming_games(db_conn):
 
 def test_feature_stage_builds_features_without_writing_predictions(db_conn):
     _reset(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
     teams = _seed_teams(db_conn)
     with db_conn.cursor() as cur:
+        cur.execute("ALTER TABLE raw.mlb_schedule ADD COLUMN IF NOT EXISTS game_datetime text")
         cur.execute(
             "INSERT INTO core.game "
-            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
             "home_score, away_score, game_type) VALUES "
-            "('FEATURE1', 2024, '2024-04-01', %s, %s, 5, 3, 'regular')",
+            "('FEATURE1', '999901', 2024, '2024-04-01', %s, %s, 5, 3, 'regular')",
             (teams["ATL"], teams["NYA"]),
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, game_datetime, _season, game_date, game_type, status, home_id, away_id, game_num) "  # noqa: E501
+            "VALUES ('999901', '2024-04-01T18:00:00Z', '2024', '2024-04-01', 'R', 'Final', '144', '147', '1')"  # noqa: E501
         )
         cur.execute("SELECT count(*) FROM gold.prediction")
         (predictions_before,) = cur.fetchone()

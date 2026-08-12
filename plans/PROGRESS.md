@@ -5,14 +5,43 @@ each completed plan gate.
 
 ## Current state summary
 
-- **Production state:** Migration `0038_ingestion_item_ledger.sql` has been applied to production `mlb` with owner authorization. No production data reload/cutover has yet occurred; the staged MLB API loader remains under `mlb_test` verification.
+- **Production state:** Production `mlb` is conformed through migration 0045.
+  Verified baseline: 236,303 core games, 16,493,878 plays, and 13,400,779
+  pitches; populated MLB keys are unique and core references have no orphans.
+  Remaining provider-history pitch gaps retain their source keys and are not
+  guessed. `gold.game_feature` is intentionally empty pending a separately
+  reviewed feature rebuild.
 - **Test database:** The current reusable local test database is `mlb_test`.
   Older evidence below may refer to `mlb_test_codex`, which is not present on
   the current host and must not be recreated without owner authorization.
-- **Plan 01 status:** Active; Plan 01F durable game-identity cutover is BLOCKED pending R1–R6 remediation.
+- **Plan 01 status:** Core identity/conformance remediation is complete under
+  prior owner authorization. The active test-only package is measured database
+  readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `01F-R1` (schema availability and registry setup).
+- **Next package:** feature-family rehearsal, measured workload evidence, and
+  production-safe recommendation; no production write is authorized.
+
+### First point-in-time feature rehearsal — 2026-08-12 (test database only)
+
+- A read-only production sample (2008, 2015, 2024–26) was copied into
+  `mlb_test`, conformed, and rebuilt through the strict `mlb features` path.
+  It produced 4,181 canonical games, 3,920 plays, 14,716 pitches, and 2,468
+  MLB-keyed regular-season feature rows. The database audit had 32 passes,
+  zero warnings, and zero failures (four expected empty-table skips).
+- The base feature contract is now explicit: `mlb_game_pk` is the one output
+  identity; `feature_cutoff_at` is the retained MLB schedule first-pitch time;
+  source schedule revisions remain raw history; only completed regular games
+  before that ordered cutoff contribute to a row. Fixture coverage proves
+  doubleheader ordering, schedule-history collapse, first-game nulls,
+  scheduled labels, idempotency, and raw/core immutability.
+- Measured representative lookup plans used the existing key/partition indexes:
+  game lookup 0.016 ms, team history 0.284 ms, game-to-play 0.053 ms, and
+  game-to-pitch 0.123 ms in the rehearsal. A production read-only
+  player-season scan was 34.980 ms. No index was added: a separate production
+  team-history plan identified a future candidate workload, but the bounded
+  rehearsal did not demonstrate a material improvement sufficient to justify a
+  new write cost.
 
 ## Plan 00A/00B — 2026-08-05
 

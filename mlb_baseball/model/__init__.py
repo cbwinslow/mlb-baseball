@@ -64,33 +64,14 @@ def backfill_outcomes(conn: psycopg.Connection) -> int:
 
 
 def build_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
-    """Rebuild and enrich ``gold.game_feature`` without writing predictions.
+    """Rebuild the audited base ``gold.game_feature`` family without predictions.
 
     This is deliberately connection-scoped and does not commit.  It lets
     :func:`run_features` expose a separately auditable CLI stage while
     preserving ``mlb predict``'s historic all-in-one transaction.
     """
-    feature_count = features.build(conn)
-    elo.compute_ratings(conn)
-    starter_count = starter.compute(conn)
-    starter.compute_live(conn)
-    starter.compute_probable(conn)
-    park.compute(conn)
-    offense.compute(conn)
-    offense.compute_wrc_plus(conn)
-    offense.compute_live(conn)
-    offense.compute_wrc_plus_live(conn)
-    war.compute(conn)
-    bullpen.compute(conn)
-    bullpen.compute_live(conn)
-    bullpen.compute_upcoming(conn)
-    oaa.compute(conn)
-    speed.compute(conn)
-    framing.compute(conn)
-    return {
-        "gold.game_feature": feature_count,
-        "gold.game_feature (starters updated)": starter_count,
-    }
+    feature_count = features.build(conn, strict=True)
+    return {"gold.game_feature": feature_count}
 
 
 def run_features() -> dict[str, int]:

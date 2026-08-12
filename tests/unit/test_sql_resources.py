@@ -46,7 +46,8 @@ def test_reads_named_game_feature_rebuild_transformation():
     sql = read_sql("game_feature_rebuild.sql")
 
     assert "INSERT INTO gold.game_feature" in sql
-    assert "{games_sql}" in sql
+    assert "feature_cutoff_at" in sql
+    assert "raw.mlb_schedule" in sql
 
 
 def test_reads_named_market_prediction_transformations():

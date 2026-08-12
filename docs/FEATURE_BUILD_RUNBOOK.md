@@ -2,15 +2,15 @@
 
 This is a reviewed operational sequence, not authorization to write to
 production. It separates reusable research features from model predictions.
-Run it only from the released revision containing migrations `0033`–`0044` and the
+Run it only from the released revision containing migrations `0033`–`0046` and the
 `mlb features` command.
 
 ## Scope and boundaries
 
 ## Identity migration preflight and cutover
 
-This procedure is separate from a feature build. It has **not** been applied
-to production.
+This procedure is separate from a feature build. It was applied under prior
+owner authorization; it remains a required preflight check for a clean clone.
 
 1. Use a read-only connection to record prediction/feature row counts, duplicate
    populated `mlb_game_pk` values, available disk/WAL headroom, and active locks.
@@ -35,7 +35,9 @@ to production.
    database state, correct the cause, and retry the idempotent owner command
    or pending migration; do not delete predictions or manually rewrite keys.
 
-- `mlb features` rebuilds and enriches `gold.game_feature` in one transaction.
+- `mlb features` rebuilds the narrow, audited base `gold.game_feature` family
+  in one transaction. It requires `raw.mlb_schedule` and a provider start time;
+  it does not silently substitute Retrosheet-only history or a date-only cutoff.
   It does **not** insert, update, or backfill `gold.prediction`.
 - `mlb predict` retains its legacy behavior: it invokes the same feature stage,
   then writes market/model predictions and prediction provenance. Do not use it

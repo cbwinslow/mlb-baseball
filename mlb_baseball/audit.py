@@ -612,6 +612,28 @@ def _game_feature_audit(cur: psycopg.Cursor) -> Finding:
     )
 
 
+def _game_feature_cutoff_audit(cur: psycopg.Cursor) -> Finding:
+    """Bounded contract check for the first strict MLB feature family."""
+    if not _relation_exists(cur, "gold.game_feature") or not _column_exists(
+        cur, "gold.game_feature", "feature_cutoff_at"
+    ):
+        return Finding("gold.game_feature cutoff", "SKIP", "migration 0046 not applied")
+    cur.execute(
+        "SELECT count(*), count(*) FILTER (WHERE feature_cutoff_at IS NULL), "
+        "count(*) FILTER (WHERE mlb_game_pk IS NULL) FROM gold.game_feature"
+    )
+    total, missing_cutoff, missing_key = fetch_one(cur)
+    if total == 0:
+        return Finding("gold.game_feature cutoff", "SKIP", "0 feature rows")
+    failures = missing_cutoff + missing_key
+    return Finding(
+        "gold.game_feature cutoff",
+        "PASS" if failures == 0 else "FAIL",
+        f"{total:,} rows; {missing_cutoff:,} missing feature cutoff; "
+        f"{missing_key:,} missing MLB key",
+    )
+
+
 def _prediction_audit(cur: psycopg.Cursor) -> Finding:
     if not _relation_exists(cur, "gold.prediction"):
         return Finding("gold.prediction immutable identity", "SKIP", "table absent")
@@ -762,6 +784,7 @@ def run(scope: Literal["game", "database", "statcast"] = "game") -> list[Finding
             findings.extend(_team_link_coverage_audit(cur))
             findings.extend(_statcast_coverage_audit(cur))
             findings.append(_game_feature_audit(cur))
+            findings.append(_game_feature_cutoff_audit(cur))
             findings.append(_prediction_audit(cur))
             if scope == "database":
                 findings.extend(_database_health_audit(cur))

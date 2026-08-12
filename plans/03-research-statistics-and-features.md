@@ -6,7 +6,9 @@ Build a governed, reusable catalog of baseball knowledge and point-in-time SQL
 statistics that supports broad experimentation without uncontrolled leakage or
 feature duplication.
 
-**Status:** Blocked by Plan 01F remediation and remaining Plan 02 contracts.
+**Status:** The first narrow, point-in-time-safe `gold.game_feature` base-family
+package is active in `mlb_test`. Broader feature families remain gated behind its
+rehearsal, audit, and production-safe review; this does not authorize ML work.
 
 ## Work packages
 

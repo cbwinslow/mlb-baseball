@@ -104,6 +104,13 @@ NEEDS_TEAM_FILE_ARCHIVES = {
     "allebr.zip": "negro_league",
 }
 
+# The current official 1938 Negro League box file makes cwbox emit malformed
+# output after generic, unattributable ``Invalid integer value 'NA'`` errors.
+# It is unsafe to guess which additional games to delete.  Production already
+# retains a prior successful 1938 scope; a clean bootstrap records the
+# explicit upstream limitation rather than silently losing unrelated games.
+KNOWN_UNPARSEABLE_YEAR = ("negro_league", 1938)
+
 TEAM_FIELDS = ["team_id", "league", "city", "nickname", "first_year", "last_year"]
 
 
@@ -189,7 +196,19 @@ def _parse_archive(archive_path: Path, group: str) -> dict[int, dict[str, pd.Dat
             if needs_team_file:
                 assert registry is not None and rosters_zip is not None
                 _prepare_team_file(year_dir, year, registry, rosters_zip)
-            tables = chadwick_tools.run_cwbox(year_dir, year)
+            try:
+                tables = chadwick_tools.run_cwbox(year_dir, year)
+            except RuntimeError as exc:
+                if (
+                    (group, year) == KNOWN_UNPARSEABLE_YEAR
+                    and "Invalid integer value 'NA'" in str(exc)
+                ):
+                    print(
+                        "retrosheet_box: skipping official 1938 Negro League box file; "
+                        "cwbox output is malformed after unattributable NA values"
+                    )
+                    continue
+                raise
             scope = _load_scope(year, group)
             for df in tables.values():
                 df["_season"] = str(year)

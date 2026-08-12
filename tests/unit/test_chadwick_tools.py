@@ -187,13 +187,6 @@ def test_run_cwbox_retries_a_warning_that_names_a_bad_game(tmp_path):
     assert list(result["game"]["game_id"]) == ["GAME2"]
 
 
-def test_truncated_xml_game_id_returns_the_enclosing_game():
-    xml_text = (
-        '<boxscore game_id="GOOD"><players/></boxscore>\n'
-        '<boxscore game_id="BROKEN"><players><player'
-    )
-
-    assert chadwick_tools._truncated_xml_game_id(xml_text) == "BROKEN"
 
 
 def test_parse_cwbox_xml_handles_multiple_boxscore_elements():

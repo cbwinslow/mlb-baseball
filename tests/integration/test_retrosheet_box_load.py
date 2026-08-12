@@ -166,3 +166,20 @@ def test_load_archive_accepts_an_authoritatively_empty_year(db_conn, tmp_path):
 
     assert counts == dict.fromkeys(box.ALL_TABLES, 0)
     assert box.manifest.load_manifest(box.SOURCE)["1871box.zip"]["status"] == "loaded"
+
+
+def test_known_unparseable_year_is_explicitly_skipped(monkeypatch, tmp_path, capsys):
+    archive_path = tmp_path / "allebr.zip"
+    with zipfile.ZipFile(archive_path, "w") as zf:
+        zf.writestr("1938.EBR", "id,FAKE193801010\n")
+    monkeypatch.setattr(box, "_team_registry", lambda group: box.pd.DataFrame())
+    monkeypatch.setattr(box, "_rosters_zip", lambda: tmp_path / "rosters.zip")
+    monkeypatch.setattr(box, "_prepare_team_file", lambda *args: None)
+    monkeypatch.setattr(
+        box.chadwick_tools,
+        "run_cwbox",
+        lambda *args: (_ for _ in ()).throw(RuntimeError("Invalid integer value 'NA'")),
+    )
+
+    assert box._parse_archive(archive_path, "negro_league") == {}
+    assert "skipping official 1938 Negro League" in capsys.readouterr().out

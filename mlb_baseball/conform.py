@@ -214,7 +214,21 @@ def _build_teams(conn: psycopg.Connection) -> int:
     # per-relation fsync passes over the same ~330 pitch/play partitions).
     with conn.cursor() as cur:
         cur.execute(read_sql("conform_team_insert.sql"))
-        return cur.rowcount
+        primary_count = cur.rowcount
+    try:
+        # run() already owns the outer transaction.  This savepoint keeps an
+        # absent optional raw table from aborting that whole rebuild.
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(read_sql("conform_team_supplemental_insert.sql"))
+            return primary_count + cur.rowcount
+    except psycopg.errors.UndefinedTable:
+        # TEAM{year}.TXT is an optional Retrosheet reference supplement.
+        # Its absence must not stop a normal affiliated-major-league rebuild.
+        print(
+            "conform: raw.retrosheet_team0 not present yet — "
+            "skipping supplemental team identities"
+        )
+        return primary_count
 
 
 def _build_venues(conn: psycopg.Connection) -> int:
@@ -360,10 +374,10 @@ def _build_games(conn: psycopg.Connection) -> int:
     # MLB-API-sourced half of core.play (joined via game_pk) silently drops
     # every row for that season instead of erroring — a real correctness
     # bug, not just a coverage gap. This backfills seasons Retrosheet
-    # doesn't have yet from raw.mlb_schedule instead. retro_game_id is
-    # synthesized ('MLB' + game_pk, Retrosheet's own IDs never take that
-    # form) since these games have no Retrosheet ID at all. Pitcher FKs stay
-    # NULL: raw.mlb_schedule's winning/losing/save pitcher fields are free
+    # doesn't have yet from raw.mlb_schedule instead.  These rows have no
+    # Retrosheet identifier, so retro_game_id stays NULL rather than carrying
+    # a manufactured string. Pitcher FKs stay NULL: raw.mlb_schedule's
+    # winning/losing/save pitcher fields are free
     # text names, not IDs, and matching those reliably to core.player isn't
     # attempted here — nullable is the honest answer, not a guessed match.
     try:
@@ -371,12 +385,11 @@ def _build_games(conn: psycopg.Connection) -> int:
             cur.execute(
                 r"""
                 INSERT INTO core.game (
-                    retro_game_id, game_pk, season, game_date, game_number,
+                    game_pk, season, game_date, game_number,
                     away_team_id, home_team_id, away_score, home_score,
                     game_type, site, venue_id
                 )
                 SELECT
-                    'MLB' || ms.game_id,
                     ms.game_id,
                     ms._season::integer,
                     ms.game_date::date,
@@ -465,6 +478,74 @@ def _build_games(conn: psycopg.Connection) -> int:
     except psycopg.errors.UndefinedTable:
         print("conform: raw.mlb_schedule not present yet — core.game has no current-season rows")
         return retro_count
+
+
+def _build_completed_spring_games(conn: psycopg.Connection) -> int:
+    """Add completed MLB Spring Training games absent from Retrosheet.
+
+    Historical Retrosheet seasons contain regular/postseason game facts but
+    not this complete MLB schedule population.  Each admitted row is anchored
+    by the distinct MLB provider key; scheduled, live, cancelled, and
+    postponed-only observations stay in raw schedule history.
+    """
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(
+                r"""
+                INSERT INTO core.game (
+                    game_pk, season, game_date, game_number,
+                    away_team_id, home_team_id, away_score, home_score,
+                    game_type, site
+                )
+                SELECT
+                    ms.game_id,
+                    ms._season::integer,
+                    ms.game_date::date,
+                    NULLIF(ms.game_num, '')::integer,
+                    away.id,
+                    home.id,
+                    CASE WHEN ms.away_score ~ '^[0-9]+(\.[0-9]+)?$'
+                         THEN ms.away_score::numeric::integer END,
+                    CASE WHEN ms.home_score ~ '^[0-9]+(\.[0-9]+)?$'
+                         THEN ms.home_score::numeric::integer END,
+                    'spring',
+                    ms.venue_name
+                FROM (
+                    SELECT DISTINCT ON (game_id) *
+                    FROM raw.mlb_schedule
+                    WHERE game_type = 'S'
+                      AND status IN ('Final', 'Completed Early', 'Forfeit')
+                    ORDER BY game_id, game_date DESC
+                ) ms
+                -- A stable MLB team ID can span multiple historical
+                -- core.team eras.  Select one source-season-valid era per
+                -- side so a schedule row cannot fan out into duplicate
+                -- canonical game_pk attempts.
+                LEFT JOIN LATERAL (
+                    SELECT id
+                    FROM core.team
+                    WHERE mlb_team_id = NULLIF(ms.away_id, '')::integer
+                      AND ms._season::integer BETWEEN first_year AND last_year
+                    ORDER BY first_year DESC, id
+                    LIMIT 1
+                ) away ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT id
+                    FROM core.team
+                    WHERE mlb_team_id = NULLIF(ms.home_id, '')::integer
+                      AND ms._season::integer BETWEEN first_year AND last_year
+                    ORDER BY first_year DESC, id
+                    LIMIT 1
+                ) home ON TRUE
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM core.game existing WHERE existing.game_pk = ms.game_id
+                )
+                """
+            )
+            return cur.rowcount
+    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+        print("conform: MLB schedule team IDs not present yet — skipping Spring Training games")
+        return 0
 
 
 def _backfill_game_pk(conn: psycopg.Connection) -> int:
@@ -641,7 +722,13 @@ def _backfill_mlb_team_id(conn: psycopg.Connection) -> int:
                       ON lower(h.team_code) = lower(t.retro_team_id)
                      AND h.team_id ~ '^[0-9]+$'
                      AND h.season ~ '^[0-9]{4}$'
-                     AND h.season::integer BETWEEN t.first_year AND t.last_year
+                     -- MLB's historical team payload can lag one season
+                     -- behind a relocation.  Retrosheet's official ATH
+                     -- record starts in 2025 while the retained MLB record
+                     -- carries the same exact code/id in 2024.  One adjacent
+                     -- season is an explicit, bounded source-history bridge,
+                     -- not a display-name guess.
+                     AND h.season::integer BETWEEN t.first_year - 1 AND t.last_year + 1
                     WHERE t.mlb_team_id IS NULL
                     GROUP BY t.id
                     HAVING count(DISTINCT h.team_id) = 1
@@ -1464,6 +1551,7 @@ def run() -> dict[str, int]:
         _backfill_mlb_team_id(conn)
         _backfill_game_pk_via_mlb_team_id(conn)
         _backfill_team_ids_via_mlb_id(conn)
+        counts["core.game"] += _build_completed_spring_games(conn)
         # core.standing resolves team_id via mlb_team_id, so it must run
         # after both backfills above, not before.
         counts["core.standing"] = _build_standings(conn)

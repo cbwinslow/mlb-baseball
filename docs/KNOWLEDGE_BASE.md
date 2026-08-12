@@ -34,8 +34,9 @@ design into this repository.
 - **Decision:** `game_pk` is the MLB game business key.  Store schedule
   changes as observations, not separate canonical games.  Use Retrosheet's
   own game ID when the record is Retrosheet-native or not safely crosswalked.
-- **Status:** Adopted in documentation; production core/gold remains empty,
-  and the implementation must be revised/tested in `mlb_test` first.
+- **Status:** Adopted and conformed in production on 2026-08-12. Further
+  coverage changes remain test-database-first and require a separate
+  production-safe recommendation.
 
 ### Retrosheet game IDs
 
@@ -46,7 +47,20 @@ design into this repository.
   and doubleheader number.
 - **Decision:** Keep `retro_game_id` as a provider-native key.  It is useful
   for reconciliation but must not be parsed into a replacement for MLB's
-  `game_pk`.
+  `game_pk`. MLB-only canonical rows retain NULL rather than a manufactured
+  Retrosheet-shaped identifier.
+
+### Retrosheet supplemental team identities
+
+- **Question:** How should historical Negro League and newly assigned
+  Retrosheet team codes enter `core.team`?
+- **Source:** Retrosheet `TEAM{year}.TXT` records, landed as
+  `raw.retrosheet_team0`, accessed 2026-08-12.
+- **Decision:** Use the official code, city, nickname, and first/last game
+  dates only when the code is absent from Retrosheet's primary TEAMABR
+  reference. Do not infer a relationship from a similar display name. The
+  MLB numeric team ID is attached only when Retrosheet and the MLB team-history
+  source share the exact code.
 
 ## Comparable open projects
 

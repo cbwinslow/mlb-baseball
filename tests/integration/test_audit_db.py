@@ -59,7 +59,12 @@ def _cleanup_game_audit_data(db_conn):
             "('audit:completed', 'audit:upcoming', 'audit:retrosheet', 'audit:bad')"
         )
         cur.execute("DELETE FROM core.play WHERE source = 'audit-invalid'")
-        cur.execute("DELETE FROM core.pitch WHERE season = 2025")
+        cur.execute(
+            "DELETE FROM core.pitch WHERE season = 2025 "
+            "OR source_game_pk IN ("
+            "'spring-final', 'regular-history', 'postponed-only', 'missing-schedule'"
+            ")"
+        )
         cur.execute("DELETE FROM core.game WHERE retro_game_id LIKE 'AUD%'")
         cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
@@ -183,3 +188,41 @@ def test_game_audit_flags_invalid_values_and_missing_mlb_feature_key(db_conn):
     feature = _find(findings, "gold.game_feature identity")
     assert feature.status == "FAIL"
     assert "1 missing MLB keys" in feature.detail
+
+
+def test_statcast_audit_classifies_unresolved_provider_keys_without_guessing(db_conn):
+    _cleanup_game_audit_data(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_type text, status text, _season text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('spring-final', 'S', 'Final', '2024'), "
+            "('regular-history', 'R', 'Final', '2024'), "
+            "('regular-history', 'R', 'Final', '2024'), "
+            "('postponed-only', 'R', 'Postponed', '2024')"
+        )
+        cur.execute(
+            "INSERT INTO core.pitch (game_id, source_game_pk, season) VALUES "
+            "(NULL, 'spring-final', 2024), (NULL, 'regular-history', 2024), "
+            "(NULL, 'postponed-only', 2024), (NULL, 'missing-schedule', 2024)"
+        )
+    db_conn.commit()
+    try:
+        findings = audit.run("statcast")
+    finally:
+        _cleanup_game_audit_data(db_conn)
+
+    names = {finding.name for finding in findings}
+    assert "core.pitch unresolved provider keys (completed Spring Training; 2024)" in names
+    assert (
+        "core.pitch unresolved provider keys (ambiguous terminal schedule history; 2024)"
+        in names
+    )
+    assert (
+        "core.pitch unresolved provider keys (postponed/suspended schedule history; 2024)"
+        in names
+    )
+    assert "core.pitch unresolved provider keys (missing schedule record; <missing>)" in names

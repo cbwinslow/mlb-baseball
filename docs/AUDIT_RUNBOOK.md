@@ -26,7 +26,12 @@ uv run mlb schema
   These estimates guide maintenance; they do not prove data correctness.
 - `statcast` adds the intentionally heavier exact scan of every raw Statcast
   pitch against distinct raw schedule keys, grouped by season. Use it after a
-  Statcast load and before changing conformance logic.
+  Statcast load and before changing conformance logic. It also classifies each
+  unresolved provider key by completed Spring Training, completed regular
+  season, ambiguous terminal schedule history, postponed/suspended history,
+  special game type, missing schedule record, or another documented source
+  difference. Those warnings are an investigation list, never a license to
+  guess a match.
 
 All modes begin a read-only transaction. They never repair, migrate, ingest,
 truncate, or rebuild data.

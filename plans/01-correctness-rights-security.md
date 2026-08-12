@@ -57,7 +57,10 @@ in an inconsistent order; retain per-source locks for connector serialization.
 Make migration execution serializable too. Clearly separate read-only
 diagnostics from owner-authorized stale-run repair.
 
-**Status:** Implementation exists but production cutover is BLOCKED pending remediation. Production `mlb` has not been touched and no production cutover is authorized.
+**Status:** The canonical identity correction and a production core rebuild were
+completed under prior owner authorization on 2026-08-12. This remaining
+join-coverage package is still test-database-only; no new production change is
+authorized until its tests, audit, and benchmark evidence are reviewed.
 
 **Evidence correction (2026-08-10):** The prior premise that a suspended or
 resumed game creates two valid MLB game instances sharing `game_pk` is false.
@@ -70,8 +73,10 @@ tested, forward-only correction. See `docs/GAME_INSTANCE_IDENTITY.md`.
 - The existing 0034–0037 `game_instance_key` cutover was built on the now-rejected
   premise that one MLB game can require two identities. It needs a tested,
   forward-only compatibility correction; do not rewrite applied migration files.
-- `core`/`gold` are empty in production, so canonical conformance and pitch/play
-  join coverage have not yet been proven at production scale.
+- `gold` remains empty in production. `core` was conformed at production scale,
+  but the remaining Spring Training, historical team-identity, and ambiguous
+  schedule-history coverage changes must be proven in `mlb_test` before any
+  further production rebuild.
 - Statcast's raw `game_pk` coverage is complete, but the earlier sparse
   Statcast-to-core join must be remeasured after canonical conformance with its
   retained source key and every remaining category documented.

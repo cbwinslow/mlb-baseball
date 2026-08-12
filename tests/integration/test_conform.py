@@ -51,6 +51,7 @@ DYNAMIC_RAW_TABLES = [
     "raw.retrosheet_gamelog",
     "raw.retrosheet_park",
     "raw.retrosheet_team",
+    "raw.retrosheet_team0",
     "raw.statcast_pitch",
 ]
 
@@ -253,6 +254,115 @@ def test_run_populates_team_player_and_game(db_conn):
 
     assert unresolved[0] == "ATL202504020"
     assert unresolved[3] is None  # "unresolvable" has no core.player row
+
+
+def test_conform_uses_official_supplemental_retrosheet_team_identities(db_conn):
+    """TEAM{year}.TXT extends team coverage without matching display names."""
+    _reset_dynamic_tables(db_conn)
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('NYA', 'AL', 'New York', 'Yankees', '1903', '2025')"
+        )
+        cur.execute(
+            "UPDATE raw.retrosheet_gameinfo SET gid = 'ATH202504010', hometeam = 'ATH' "
+            "WHERE gid = 'ATL202504010'"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team0 "
+            "(team text, city text, nickname text, first_g text, last_g text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team0 VALUES "
+            "('ATH', 'Sacramento', 'Athletics', '20250327', '20250928'), "
+            "('CAG', 'Chicago', 'American Giants', '19130503', '19490612')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_team_history (team_code text, team_id text, season text)"
+        )
+        cur.execute("INSERT INTO raw.mlb_team_history VALUES ('ath', '133', '2024')")
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_team_id, city, nickname, first_year, last_year, mlb_team_id "
+            "FROM core.team WHERE retro_team_id IN ('ATH', 'CAG') ORDER BY retro_team_id"
+        )
+        assert cur.fetchall() == [
+            ('ATH', 'Sacramento', 'Athletics', 2025, 2025, 133),
+            ('CAG', 'Chicago', 'American Giants', 1913, 1949, None),
+        ]
+        cur.execute("SELECT home_team_id FROM core.game WHERE retro_game_id = 'ATH202504010'")
+        assert cur.fetchone()[0] is not None
+
+
+def test_conform_adds_only_completed_spring_games_and_links_statcast_pitches(db_conn):
+    _reset_dynamic_tables(db_conn)
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('NYA', 'AL', 'New York', 'Yankees', '1903', '2025')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "away_id text, home_id text, _season text, status text, game_type text, "
+            "game_num text, venue_name text, venue_id text, "
+            "away_score text, home_score text)"
+        )
+        # The regular game establishes each official numeric team ID.  The
+        # spring rows have no Retrosheet counterparts and must be admitted
+        # only after their terminal MLB schedule state is present.
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('910000', '2025-04-01', 'New York Yankees', 'Atlanta Braves', '147', '144', "
+            "'2025', 'Final', 'R', '1', 'Truist Park', '', '3', '5'), "
+            "('910001', '2024-03-01', 'New York Yankees', 'Atlanta Braves', '147', '144', "
+            "'2024', 'Postponed', 'S', '1', 'Park', '', '', ''), "
+            "('910001', '2024-03-02', 'New York Yankees', 'Atlanta Braves', '147', '144', "
+            "'2024', 'Final', 'S', '1', 'Park', '', '4', '3'), "
+            "('910002', '2024-03-03', 'New York Yankees', 'Atlanta Braves', '147', '144', "
+            "'2024', 'Scheduled', 'S', '1', 'Park', '', '', ''), "
+            "('910003', '2024-03-04', 'New York Yankees', 'Atlanta Braves', '147', '144', "
+            "'2024', 'In Progress', 'S', '1', 'Park', '', '1', '0')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.statcast_pitch "
+            "(game_pk text, game_year text, at_bat_number text, pitch_number text, inning text, "
+            "batter text, pitcher text, pitch_type text, pitch_name text, release_speed text, "
+            "release_spin_rate text, launch_speed text, launch_angle text, hit_distance_sc text, "
+            "description text, events text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch VALUES "
+            "('910001', '2024', '1', '1', '1', '', '', 'FF', '4-Seam Fastball', "
+            "'', '', '', '', '', 'ball', '')"
+        )
+    db_conn.commit()
+
+    conform.run()
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_game_id, game_type, away_score, home_score, away_team_id, home_team_id "
+            "FROM core.game WHERE game_pk = '910001'"
+        )
+        game = cur.fetchone()
+        assert game[:4] == (None, 'spring', 4, 3)
+        assert game[4] is not None and game[5] is not None
+        cur.execute("SELECT count(*) FROM core.game WHERE game_pk IN ('910002', '910003')")
+        assert cur.fetchone() == (0,)
+        cur.execute(
+            "SELECT game_id, source_game_pk FROM core.pitch WHERE source_game_pk = '910001'"
+        )
+        pitch_game_id, source_key = cur.fetchone()
+        assert pitch_game_id is not None
+        assert source_key == '910001'
 
 
 def test_rerunning_replaces_instead_of_duplicating(db_conn):
@@ -495,10 +605,10 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
         cur.execute(
             "SELECT retro_game_id, game_pk, season, away_score, home_score, "
             "away_team_id, home_team_id, winning_pitcher_id, game_type, venue_id "
-            "FROM core.game WHERE retro_game_id = 'MLB888001'"
+            "FROM core.game WHERE game_pk = '888001'"
         )
         row = cur.fetchone()
-    assert row[0] == "MLB888001"  # synthesized ID, never collides with a real Retrosheet one
+    assert row[0] is None  # MLB supplied no Retrosheet-native ID
     assert row[1] == "888001"
     assert row[2] == 2026
     assert row[3] == 3  # away_score
@@ -529,10 +639,10 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
     # lands, while scheduled and live rows must wait for a later conform run.
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT retro_game_id FROM core.game "
-            "WHERE retro_game_id IN ('MLB888003', 'MLB888004', 'MLB888005') ORDER BY 1"
+            "SELECT game_pk FROM core.game "
+            "WHERE game_pk IN ('888003', '888004', '888005') ORDER BY 1"
         )
-        assert cur.fetchall() == [("MLB888003",)]
+        assert cur.fetchall() == [("888003",)]
 
     # Regression: MLB venue id 17 maps to both historical Los Angeles and
     # active Chicago Wrigley Field rows. The schedule row must remain one
@@ -541,7 +651,7 @@ def test_build_games_fills_seasons_retrosheet_has_not_published_yet(db_conn):
         cur.execute(
             "SELECT count(*), min(v.retro_park_id) "
             "FROM core.game g JOIN core.venue v ON v.id = g.venue_id "
-            "WHERE g.retro_game_id = 'MLB888002'"
+            "WHERE g.game_pk = '888002'"
         )
         assert cur.fetchone() == (1, "CHI11")
 
@@ -1901,13 +2011,11 @@ def test_backfill_game_pk_does_not_overwrite_an_already_correct_value(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT retro_game_id, game_pk FROM core.game "
-            "WHERE retro_game_id IN ('MLB900001', 'MLB900002') "
-            "ORDER BY retro_game_id"
+            "SELECT game_pk FROM core.game "
+            "WHERE game_pk IN ('900001', '900002') ORDER BY game_pk"
         )
-        rows = dict(cur.fetchall())
-    assert rows["MLB900001"] == "900001"
-    assert rows["MLB900002"] == "900002"
+        rows = cur.fetchall()
+    assert rows == [("900001",), ("900002",)]
 
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
@@ -2560,8 +2668,8 @@ def test_multi_source_conformance_rehearsal_ties_out_across_grains(db_conn):
     assert games == [
         ("ATL202504011", "700001", 2025, date(2025, 4, 1), 1, 3, 5, True, True, 72),
         ("ATL202504012", "700002", 2025, date(2025, 4, 1), 2, 1, 2, True, True, 70),
-        ("MLB800001", "800001", 2026, date(2026, 4, 12), 1, 2, 4, True, True, None),
         ("PIT194407020", None, 1944, date(1944, 7, 2), 0, 3, 5, True, True, None),
+        (None, "800001", 2026, date(2026, 4, 12), 1, 2, 4, True, True, None),
     ]
     assert plays == [
         ("700001", "retrosheet", 1, 1, "top", 0, 0),

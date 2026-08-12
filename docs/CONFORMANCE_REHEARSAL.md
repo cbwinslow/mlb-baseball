@@ -23,6 +23,18 @@ twice, runs `mlb audit`, and removes all fixture data afterward. It covers:
 5. Retrosheet and MLB play-by-play records; and
 6. resolved and unresolved Statcast pitches, including a retained source key.
 
+The focused coverage regressions additionally prove that a completed historical
+Spring Training schedule row enters `core.game` with its MLB key and a NULL
+`retro_game_id`, that scheduled/live Spring rows remain raw-only, and that
+Retrosheet's official supplemental team records resolve historical/Negro League
+codes without display-name matching:
+
+```bash
+uv run pytest -q \
+  tests/integration/test_conform.py::test_conform_adds_only_completed_spring_games_and_links_statcast_pitches \
+  tests/integration/test_conform.py::test_conform_uses_official_supplemental_retrosheet_team_identities
+```
+
 ## What it proves
 
 - A repeated conformance run has identical `core.game`, `core.play`,
@@ -78,7 +90,8 @@ sampled plays had a valid game reference. The full schedule history intentionall
 retained repeated official game IDs; `core.game` had no duplicate populated MLB
 keys.
 
-Exactly one canonical game remained without an MLB key: `MLB824912` on
+Exactly one canonical game remained without an MLB key: the then-synthetic
+MLB-only row for `824912` on
 2026-06-17, a retained suspended/resumed schedule-history case. It correctly
 remains unresolved rather than being force-matched. A second conformance run
 had identical raw and core row-count/key snapshots, proving this sample's

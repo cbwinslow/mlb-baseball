@@ -25,7 +25,7 @@ identifier and returns `gameNumber` and `doubleHeader` separately.  See
 |---|---|---|
 | `raw.mlb_schedule` | One API schedule observation | `(game_id, observed/loaded version)` is source history; `game_id` may repeat. |
 | MLB live/play-by-play/Statcast sources | Provider record within one game | `game_pk` identifies the parent MLB game. |
-| `core.game` | One completed canonical game | Keep surrogate `id` for database foreign keys; make `game_pk` unique when populated by an MLB source. Retrosheet-only games may have no MLB key. |
+| `core.game` | One completed canonical game | Keep surrogate `id` for database foreign keys; make `game_pk` unique when populated by an MLB source. `retro_game_id` is nullable and is populated only when Retrosheet supplied it; MLB-only games never receive a fabricated Retrosheet key. |
 | `gold.game_feature` / `gold.prediction` for MLB | One game / immutable prediction snapshot | Use `mlb_game_pk` as the business identity, plus model/version/timestamp where appropriate. |
 | Retrosheet | One Retrosheet game | `retro_game_id` remains its provider-native identity; do not manufacture a match when a verified MLB crosswalk is absent. |
 
@@ -58,13 +58,15 @@ reason, a coverage expectation, and a health check where they affect research
 or models.
 
 For this project specifically, every MLB-native core game should have a
-non-null `game_pk`; a Retrosheet-only game may not.  We must measure that
+non-null `game_pk`; a Retrosheet-only game may not.  A completed MLB-only game
+correctly has a NULL `retro_game_id`. We must measure that
 coverage by source and era before imposing a global `NOT NULL` constraint.
 
 ## Completed-game boundary
 
-`core.game` is a completed-facts relation. The current-season MLB schedule
-writer admits only `Final`, `Completed Early`, and `Forfeit` rows. It does not
+`core.game` is a completed-facts relation. The MLB schedule writers admit only
+`Final`, `Completed Early`, and `Forfeit` rows, including completed Spring
+Training games absent from Retrosheet. They do not
 use a broad “not scheduled” rule, because an unfamiliar future status must not
 silently become a completed fact. Retrosheet's game number `0` is its normal
 single-game convention; `1` and `2` distinguish a doubleheader only where the

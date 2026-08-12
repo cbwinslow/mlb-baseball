@@ -142,7 +142,7 @@ def _core_game_audit(cur: psycopg.Cursor) -> list[Finding]:
     cur.execute(
         """
         SELECT (season / 10) * 10 AS decade,
-               CASE WHEN retro_game_id LIKE 'MLB%%' THEN 'MLB-schedule-only'
+               CASE WHEN retro_game_id IS NULL THEN 'MLB-schedule-only'
                     ELSE 'Retrosheet-native' END AS source_group,
                count(*), count(*) FILTER (WHERE game_pk IS NOT NULL AND game_pk <> '')
         FROM core.game
@@ -432,6 +432,139 @@ def _statcast_schedule_audit(cur: psycopg.Cursor) -> list[Finding]:
     return findings
 
 
+def _unresolved_statcast_key_classification_audit(cur: psycopg.Cursor) -> list[Finding]:
+    """Classify unresolved provider keys without treating source history as corruption."""
+    required_columns = ("game_id", "game_type", "status", "_season")
+    if not _relation_exists(cur, "core.pitch") or not _relation_exists(cur, "raw.mlb_schedule"):
+        return [
+            Finding(
+                "core.pitch unresolved provider-key classification",
+                "SKIP",
+                "required table absent",
+            )
+        ]
+    if any(not _column_exists(cur, "raw.mlb_schedule", column) for column in required_columns):
+        return [
+            Finding(
+                "core.pitch unresolved provider-key classification",
+                "SKIP",
+                "raw.mlb_schedule lacks game-type/status fields",
+            )
+        ]
+    cur.execute(
+        """
+        WITH unresolved AS (
+            SELECT DISTINCT source_game_pk AS game_pk
+            FROM core.pitch
+            WHERE game_id IS NULL AND source_game_pk IS NOT NULL AND source_game_pk <> ''
+        ), schedule_rollup AS (
+            SELECT
+                u.game_pk,
+                max(ms._season) AS season,
+                count(ms.game_id) AS observations,
+                count(*) FILTER (WHERE ms.status IN ('Final', 'Completed Early', 'Forfeit'))
+                    AS terminal_observations,
+                bool_or(ms.game_type = 'S' AND ms.status IN ('Final', 'Completed Early', 'Forfeit'))
+                    AS completed_spring,
+                bool_or(ms.game_type = 'R' AND ms.status IN ('Final', 'Completed Early', 'Forfeit'))
+                    AS completed_regular,
+                bool_or(ms.game_type IN ('F', 'D', 'L', 'W', 'A', 'E')) AS special_game,
+                bool_or(ms.status IN ('Postponed', 'Suspended', 'Cancelled')) AS schedule_history
+            FROM unresolved u
+            LEFT JOIN raw.mlb_schedule ms ON ms.game_id = u.game_pk
+            GROUP BY u.game_pk
+        ), classified AS (
+            SELECT *, CASE
+                WHEN observations = 0 THEN 'missing schedule record'
+                WHEN completed_spring THEN 'completed Spring Training'
+                WHEN terminal_observations > 1 THEN 'ambiguous terminal schedule history'
+                WHEN completed_regular THEN 'completed regular season'
+                WHEN schedule_history THEN 'postponed/suspended schedule history'
+                WHEN special_game THEN 'postseason/all-star/exhibition'
+                ELSE 'other provider/source difference'
+            END AS category
+            FROM schedule_rollup
+        )
+        SELECT category, coalesce(season, '<missing>'), count(*),
+               (array_agg(game_pk ORDER BY game_pk))[1:5]
+        FROM classified
+        GROUP BY category, season
+        ORDER BY category, season DESC
+        """
+    )
+    findings: list[Finding] = []
+    for category, season, keys, samples in _all(cur):
+        findings.append(
+            Finding(
+                f"core.pitch unresolved provider keys ({category}; {season})",
+                "WARN",
+                f"{keys:,} provider keys retained without a canonical link"
+                f"{_sample(list(samples or []))}",
+            )
+        )
+    return findings or [
+        Finding(
+            "core.pitch unresolved provider-key classification",
+            "PASS",
+            "no unresolved provider keys",
+        )
+    ]
+
+
+def _team_link_coverage_audit(cur: psycopg.Cursor) -> list[Finding]:
+    """Make historical team-link gaps visible by source code and era."""
+    if not _relation_exists(cur, "core.game") or not _relation_exists(
+        cur, "raw.retrosheet_gameinfo"
+    ):
+        return [Finding("core.game team-link coverage", "SKIP", "required table absent")]
+    cur.execute(
+        """
+        WITH links AS (
+            SELECT 'away' AS side, gi.visteam AS team_code, gi._season::integer AS season,
+                   g.away_team_id AS team_id
+            FROM raw.retrosheet_gameinfo gi JOIN core.game g ON g.retro_game_id = gi.gid
+            UNION ALL
+            SELECT 'home', gi.hometeam, gi._season::integer, g.home_team_id
+            FROM raw.retrosheet_gameinfo gi JOIN core.game g ON g.retro_game_id = gi.gid
+        ), missing AS (
+            SELECT side, team_code, min(season) AS first_season,
+                   max(season) AS last_season, count(*) AS games
+            FROM links WHERE team_id IS NULL
+            GROUP BY side, team_code
+        )
+        SELECT side, team_code, first_season, last_season, games
+        FROM missing ORDER BY games DESC, side, team_code LIMIT 10
+        """
+    )
+    samples = _all(cur)
+    cur.execute(
+        """
+        WITH links AS (
+            SELECT g.away_team_id AS team_id FROM raw.retrosheet_gameinfo gi
+            JOIN core.game g ON g.retro_game_id = gi.gid
+            UNION ALL
+            SELECT g.home_team_id FROM raw.retrosheet_gameinfo gi
+            JOIN core.game g ON g.retro_game_id = gi.gid
+        )
+        SELECT count(*), count(*) FILTER (WHERE team_id IS NULL) FROM links
+        """
+    )
+    total, unresolved = fetch_one(cur)
+    detail_samples = ", ".join(
+        f"{side}:{code} {first}-{last} ({games:,})"
+        for side, code, first, last, games in samples[:5]
+    )
+    return [
+        Finding(
+            "core.game team-link coverage",
+            "PASS" if unresolved == 0 else "WARN",
+            f"{total - unresolved:,}/{total:,} resolved; "
+            f"{unresolved:,} unresolved Retrosheet side-links"
+            + (f"; largest: {detail_samples}" if detail_samples else ""),
+        )
+    ]
+
+
 def _game_feature_audit(cur: psycopg.Cursor) -> Finding:
     if not _relation_exists(cur, "gold.game_feature"):
         return Finding("gold.game_feature identity", "SKIP", "table absent")
@@ -626,6 +759,7 @@ def run(scope: Literal["game", "database", "statcast"] = "game") -> list[Finding
             findings.append(_pitch_resolution_audit(cur))
             findings.append(_foreign_key_audit(cur, "core.play", "game_id"))
             findings.append(_play_value_audit(cur))
+            findings.extend(_team_link_coverage_audit(cur))
             findings.extend(_statcast_coverage_audit(cur))
             findings.append(_game_feature_audit(cur))
             findings.append(_prediction_audit(cur))
@@ -633,6 +767,7 @@ def run(scope: Literal["game", "database", "statcast"] = "game") -> list[Finding
                 findings.extend(_database_health_audit(cur))
             if scope == "statcast":
                 findings.extend(_statcast_schedule_audit(cur))
+                findings.extend(_unresolved_statcast_key_classification_audit(cur))
     return findings
 
 

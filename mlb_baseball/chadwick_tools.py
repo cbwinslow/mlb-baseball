@@ -264,6 +264,21 @@ def _parse_cwbox_xml(xml_text: str) -> dict[str, pd.DataFrame]:
 # safely isolate that one named game from its temporary copy and retry the
 # rest of the official archive; an error without a game ID still fails loudly.
 _BAD_GAME_ERROR_RE = re.compile(r"^ERROR: In (\S+?),", re.MULTILINE)
+_BAD_GAME_WARNING_RE = re.compile(
+    r"^WARNING: (?:In (\S+?), skipping invalid record|Sanity check fails for game (\S+), skipping)",
+    re.MULTILINE,
+)
+
+
+def _reported_bad_game_id(stderr: str) -> str | None:
+    """Return the first source record cwbox explicitly says it skipped."""
+    error = _BAD_GAME_ERROR_RE.search(stderr)
+    if error is not None:
+        return error.group(1)
+    warning = _BAD_GAME_WARNING_RE.search(stderr)
+    if warning is not None:
+        return warning.group(1) or warning.group(2)
+    return None
 
 
 def _strip_game(text: str, game_id: str) -> str:
@@ -306,10 +321,9 @@ def run_cwbox(event_dir: Path, year: int) -> dict[str, pd.DataFrame]:
     attempts = 0
     max_bad_games = 100
     while result.returncode != 0 and attempts < max_bad_games:
-        match = _BAD_GAME_ERROR_RE.search(result.stderr)
-        if match is None:
+        bad_game_id = _reported_bad_game_id(result.stderr)
+        if bad_game_id is None:
             break
-        bad_game_id = match.group(1)
         removed = False
         for filename in files:
             path = event_dir / filename
@@ -328,18 +342,7 @@ def run_cwbox(event_dir: Path, year: int) -> dict[str, pd.DataFrame]:
         result = _run_cwbox(event_dir, year, files)
 
     if result.returncode != 0:
-        # cwbox returns nonzero after it has skipped source records with
-        # warnings (for example a batting/event HBP disagreement), even
-        # though it emits valid XML for every remaining game.  Once the loop
-        # above has removed all explicit ERROR games, accept that partial,
-        # source-faithful output only when it is nonempty and contains no
-        # unidentified ERROR line.  Anything else remains a hard failure.
-        if result.stdout.strip() and not re.search(r"^ERROR:", result.stderr, re.MULTILINE):
-            print(
-                f"chadwick_tools: accepting cwbox output with source warnings in {event_dir}"
-            )
-        else:
-            raise RuntimeError(f"cwbox failed in {event_dir}: {result.stderr.strip()}")
+        raise RuntimeError(f"cwbox failed in {event_dir}: {result.stderr.strip()}")
     if not result.stdout.strip():
         raise RuntimeError(f"cwbox produced no output in {event_dir}: {result.stderr.strip()}")
     return _parse_cwbox_xml(result.stdout)

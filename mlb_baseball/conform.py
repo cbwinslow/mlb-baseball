@@ -614,6 +614,12 @@ def _backfill_mlb_team_id(conn: psycopg.Connection) -> int:
     # raw.mlb_schedule while Retrosheet's retro_game_id reflects the actual
     # venue) — a genuine historical anomaly the majority vote correctly
     # treats as noise, not a bug to fix.
+    # These are deliberately separate optional enrichments.  In particular,
+    # a partial or older ``raw.mlb_team_history`` landing must never undo the
+    # independently valid schedule-majority crosswalk.  Each savepoint also
+    # keeps a failed optional statement from leaving the caller's transaction
+    # aborted.
+    schedule_count = 0
     try:
         with conn.transaction(), conn.cursor() as cur:
             cur.execute(
@@ -643,6 +649,13 @@ def _backfill_mlb_team_id(conn: psycopg.Connection) -> int:
                 """
             )
             schedule_count = cur.rowcount
+    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+        # Schedule coverage is optional during an incremental bootstrap.
+        print("conform: MLB schedule team IDs not present yet — skipping schedule backfill")
+
+    history_count = 0
+    try:
+        with conn.transaction(), conn.cursor() as cur:
             # Some current MLB display names cannot safely string-match
             # Retrosheet's deliberately historical names (Rays/Devil Rays,
             # Angels/Anaheim, Athletics/Oakland). MLB's own team-history
@@ -670,12 +683,12 @@ def _backfill_mlb_team_id(conn: psycopg.Connection) -> int:
                 WHERE t.id = candidate.id
                 """
             )
-            return schedule_count + cur.rowcount
+            history_count = cur.rowcount
     except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
-        # The schedule vote and team-history fallback are optional raw
-        # enrichments. A partial older snapshot must not block conformance.
-        print("conform: MLB team IDs not present yet — skipping core.team.mlb_team_id backfill")
-        return 0
+        # Team history is an optional supplement to schedule evidence.
+        print("conform: MLB team history not present yet — skipping history backfill")
+
+    return schedule_count + history_count
 
 
 def _backfill_game_pk_via_mlb_team_id(conn: psycopg.Connection) -> int:

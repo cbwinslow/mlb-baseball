@@ -90,6 +90,17 @@ def _acquire_workflow_lock(
     a changing raw layer or overlap each other.  Locks are session-scoped and
     therefore survive the commits used for ingestion-run bookkeeping.
     """
+    # A full real-Postgres suite mutates its disposable database extensively.
+    # Reserve it before any normal workflow can start, rather than letting an
+    # external connector deadlock fixture DDL halfway through a test run.
+    if os.environ.get("MLB_TEST_SUITE") != "1":
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pg_try_advisory_lock_shared(hashtext('mlb-test-suite'))"
+            )
+            if not fetch_one(cur)[0]:
+                raise RuntimeError("workflow: mlb_test is reserved by a running test suite")
+            cur.execute("SELECT pg_advisory_unlock_shared(hashtext('mlb-test-suite'))")
     function = "pg_try_advisory_lock_shared" if workflow == "shared" else "pg_try_advisory_lock"
     with conn.cursor() as cur:
         cur.execute(f"SELECT {function}(hashtext(%s))", ("mlb-workflow:raw-core-model",))

@@ -132,6 +132,15 @@ def test_workflow_lock_serializes_connectors_and_derived_stages(db_conn):
                     pass
 
 
+def test_workflow_rejects_a_database_reserved_for_tests(db_conn, monkeypatch):
+    monkeypatch.delenv("MLB_TEST_SUITE", raising=False)
+    source = f"test_reservation_{uuid.uuid4().hex}"
+    # tests/conftest.py already holds this session-wide reservation.
+    with pytest.raises(RuntimeError, match="reserved by a running test suite"):
+        with track_run(db_conn, source, "bootstrap"):
+            pass
+
+
 def test_reap_stale_runs_marks_dead_pid_as_failed(db_conn):
     source = f"test_reap_dead_{uuid.uuid4().hex}"
     # PID 1 is init/systemd on any real Linux host, never this test process —

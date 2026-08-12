@@ -111,6 +111,10 @@ create a database. `tests/unit/` covers pure logic with no I/O;
 `tests/integration/` covers everything that touches the database (network calls
 are mocked with fixture data so tests stay fast and offline-capable).
 
+Pytest reserves `mlb_test` for its session. A normal project ingestion,
+conformance, or model command started during the suite exits cleanly rather
+than competing with fixture setup; wait for pytest to finish and retry it.
+
 ## Python library usage
 
 This project can bootstrap a researcher-owned local PostgreSQL database; it

@@ -19,7 +19,7 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test"
 def _assert_is_test_db(url: str) -> None:
     """Safety check to ensure test execution never targets a production database."""
     params = psycopg.conninfo.conninfo_to_dict(url)
-    dbname = params.get("dbname", "")
+    dbname = str(params.get("dbname") or "")
     assert "test" in dbname.lower() or "codex" in dbname.lower(), (
         f"Refusing to execute least-privilege test against non-test database: {dbname}"
     )

@@ -1241,6 +1241,22 @@ def test_backfill_mlb_team_id_uses_majority_vote_despite_a_noisy_outlier(db_conn
     db_conn.commit()
 
 
+def test_schedule_team_id_backfill_survives_incompatible_optional_history(db_conn):
+    """A stale optional history landing cannot suppress valid schedule votes."""
+    _seed_mlb_team_id_scenario(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("CREATE TABLE raw.mlb_team_history (unexpected_column text)")
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT retro_team_id, mlb_team_id FROM core.team ORDER BY retro_team_id")
+        team_ids = dict(cur.fetchall())
+    assert team_ids["OAK"] == 133
+    assert team_ids["TEX"] == 140
+
+
 def test_team_history_resolves_modern_retro_name_drift(db_conn):
     """MLB's numeric team history bridges current names without guessing."""
     with db_conn.cursor() as cur:

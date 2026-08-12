@@ -14,12 +14,14 @@ from psycopg import sql
 
 load_dotenv()
 
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test")
+_test_database_url = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test")
+_separator = "&" if "?" in _test_database_url else "?"
+TEST_DATABASE_URL = f"{_test_database_url}{_separator}application_name=mlb_test_suite"
 
 
 def _assert_test_database_url(url: str) -> None:
     """Refuse the suite before it can mutate a non-disposable database."""
-    dbname = psycopg.conninfo.conninfo_to_dict(url).get("dbname", "")
+    dbname = str(psycopg.conninfo.conninfo_to_dict(url).get("dbname") or "")
     if "test" not in dbname.lower():
         raise RuntimeError(
             "TEST_DATABASE_URL must name a disposable test database; "
@@ -125,9 +127,18 @@ def _test_database():
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
     from mlb_baseball import migrate
 
-    migrate.run()
-    _speed_up_test_database(TEST_DATABASE_URL)
-    yield
+    # Keep an exclusive, session-scoped reservation for the entire test run.
+    # Normal project ingestion/conform/model workflows check this lock before
+    # starting, so they fail cleanly instead of deadlocking test fixture DDL.
+    with psycopg.connect(TEST_DATABASE_URL) as reservation:
+        reservation.execute("SELECT pg_advisory_lock(hashtext('mlb-test-suite'))")
+        os.environ["MLB_TEST_SUITE"] = "1"
+        try:
+            migrate.run()
+            _speed_up_test_database(TEST_DATABASE_URL)
+            yield
+        finally:
+            os.environ.pop("MLB_TEST_SUITE", None)
 
 
 @pytest.fixture

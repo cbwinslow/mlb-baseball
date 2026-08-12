@@ -292,21 +292,37 @@ def run_cwbox(event_dir: Path, year: int) -> dict[str, pd.DataFrame]:
     files = _box_files(event_dir)
     result = _run_cwbox(event_dir, year, files)
 
-    if result.returncode != 0:
+    # A small number of Retrosheet's historical box-score records name a
+    # player absent from that season's roster.  cwbox stops the whole yearly
+    # file at the first such record.  Preserve the source artifact, but
+    # exclude only the specifically reported unparseable game from this
+    # temporary parser copy and continue.  More than one such record can
+    # exist in a year, so retry until cwbox succeeds or reports a different
+    # (therefore actionable) error.  The bound prevents an unexpected
+    # upstream loop from becoming an unbounded mutation/retry cycle.
+    attempts = 0
+    max_bad_games = 100
+    while result.returncode != 0 and attempts < max_bad_games:
         match = _BAD_GAME_ERROR_RE.search(result.stderr)
-        if match:
-            bad_game_id = match.group(1)
-            for filename in files:
-                path = event_dir / filename
-                original = path.read_text()
-                stripped = _strip_game(original, bad_game_id)
-                if stripped != original:
-                    print(
-                        f"chadwick_tools: dropping game {bad_game_id} from {filename} "
-                        f"(cwbox: {result.stderr.strip().splitlines()[-1]})"
-                    )
-                    path.write_text(stripped)
-            result = _run_cwbox(event_dir, year, files)
+        if match is None:
+            break
+        bad_game_id = match.group(1)
+        removed = False
+        for filename in files:
+            path = event_dir / filename
+            original = path.read_text()
+            stripped = _strip_game(original, bad_game_id)
+            if stripped != original:
+                print(
+                    f"chadwick_tools: dropping game {bad_game_id} from {filename} "
+                    f"(cwbox: {result.stderr.strip().splitlines()[-1]})"
+                )
+                path.write_text(stripped)
+                removed = True
+        if not removed:
+            break
+        attempts += 1
+        result = _run_cwbox(event_dir, year, files)
 
     if result.returncode != 0:
         raise RuntimeError(f"cwbox failed in {event_dir}: {result.stderr.strip()}")

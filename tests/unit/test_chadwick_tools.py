@@ -1,5 +1,6 @@
 import zipfile
 from pathlib import Path
+from subprocess import CompletedProcess
 from unittest.mock import patch
 
 import pytest
@@ -146,6 +147,29 @@ def test_run_cwbox_parses_real_box_score_file_with_real_team_and_roster_files():
 def test_run_cwbox_raises_on_directory_with_no_box_files(tmp_path):
     with pytest.raises(RuntimeError, match="no box-score files"):
         chadwick_tools.run_cwbox(tmp_path, 1900)
+
+
+def test_run_cwbox_retries_each_known_bad_game(tmp_path):
+    box_file = tmp_path / "1900.EBN"
+    box_file.write_text(
+        "id,GAME1\nbox\n"
+        "id,GAME2\nbox\n"
+        "id,GAME3\nbox\n"
+    )
+    failures_then_success = [
+        CompletedProcess(
+            [], 1, "", "ERROR: In GAME1, cannot find entry for player 'onea101' listed in dline."
+        ),
+        CompletedProcess(
+            [], 1, "", "ERROR: In GAME2, cannot find entry for player 'twob101' listed in dline."
+        ),
+        CompletedProcess([], 0, "<boxscore game_id=\"GAME3\"><players/></boxscore>", ""),
+    ]
+    with patch.object(chadwick_tools, "_run_cwbox", side_effect=failures_then_success):
+        result = chadwick_tools.run_cwbox(tmp_path, 1900)
+
+    assert list(result["game"]["game_id"]) == ["GAME3"]
+    assert box_file.read_text() == "id,GAME3\nbox\n"
 
 
 def test_parse_cwbox_xml_handles_multiple_boxscore_elements():

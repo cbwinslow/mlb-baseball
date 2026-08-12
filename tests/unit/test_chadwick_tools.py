@@ -172,6 +172,20 @@ def test_run_cwbox_retries_each_known_bad_game(tmp_path):
     assert box_file.read_text() == "id,GAME3\nbox\n"
 
 
+def test_run_cwbox_accepts_valid_output_with_only_source_warnings(tmp_path):
+    (tmp_path / "1900.EBN").write_text("id,GAME1\nbox\n")
+    warning_result = CompletedProcess(
+        [],
+        1,
+        '<boxscore game_id="GAME1"><players/></boxscore>',
+        "WARNING: In GAME1, skipping invalid record: source disagreement",
+    )
+    with patch.object(chadwick_tools, "_run_cwbox", return_value=warning_result):
+        result = chadwick_tools.run_cwbox(tmp_path, 1900)
+
+    assert list(result["game"]["game_id"]) == ["GAME1"]
+
+
 def test_parse_cwbox_xml_handles_multiple_boxscore_elements():
     xml_text = (
         '<boxscore game_id="G1" date="1900/01/01">'

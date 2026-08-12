@@ -328,7 +328,18 @@ def run_cwbox(event_dir: Path, year: int) -> dict[str, pd.DataFrame]:
         result = _run_cwbox(event_dir, year, files)
 
     if result.returncode != 0:
-        raise RuntimeError(f"cwbox failed in {event_dir}: {result.stderr.strip()}")
+        # cwbox returns nonzero after it has skipped source records with
+        # warnings (for example a batting/event HBP disagreement), even
+        # though it emits valid XML for every remaining game.  Once the loop
+        # above has removed all explicit ERROR games, accept that partial,
+        # source-faithful output only when it is nonempty and contains no
+        # unidentified ERROR line.  Anything else remains a hard failure.
+        if result.stdout.strip() and not re.search(r"^ERROR:", result.stderr, re.MULTILINE):
+            print(
+                f"chadwick_tools: accepting cwbox output with source warnings in {event_dir}"
+            )
+        else:
+            raise RuntimeError(f"cwbox failed in {event_dir}: {result.stderr.strip()}")
     if not result.stdout.strip():
         raise RuntimeError(f"cwbox produced no output in {event_dir}: {result.stderr.strip()}")
     return _parse_cwbox_xml(result.stdout)

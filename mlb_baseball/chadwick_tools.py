@@ -268,7 +268,7 @@ _BAD_GAME_WARNING_RE = re.compile(
     r"^WARNING: (?:In (\S+?), skipping invalid record|Sanity check fails for game (\S+), skipping)",
     re.MULTILINE,
 )
-_BOXSCORE_GAME_ID_RE = re.compile(r'<boxscore game_id="([^"]+)">')
+_BOXSCORE_GAME_ID_RE = re.compile(r'<boxscore\s+game_id="([^"]+)"')
 
 
 def _reported_bad_game_id(stderr: str) -> str | None:

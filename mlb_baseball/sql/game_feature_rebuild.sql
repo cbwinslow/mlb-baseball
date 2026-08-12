@@ -19,26 +19,26 @@ schedule AS (
     ORDER BY game_id, _loaded_at DESC NULLS LAST,
         feature_cutoff_at DESC, game_number DESC NULLS LAST
 ),
+completed_schedule AS (
+    SELECT DISTINCT ON (game_id, game_date)
+        game_id, game_date, game_number, feature_cutoff_at
+    FROM schedule_history
+    ORDER BY game_id, game_date, CASE status
+        WHEN 'Final' THEN 0
+        WHEN 'Completed Early' THEN 1
+        WHEN 'Forfeit' THEN 2
+        ELSE 3
+    END,
+    _loaded_at DESC NULLS LAST, feature_cutoff_at DESC,
+    game_number DESC NULLS LAST
+),
 completed AS (
     SELECT 'g' || g.id::text AS key, g.id AS game_id, g.game_pk AS mlb_game_pk,
         g.season, g.game_date, COALESCE(g.game_number, s.game_number) AS game_number,
         s.feature_cutoff_at, g.home_team_id, g.away_team_id,
         g.home_score, g.away_score, g.venue_id, 'mlb:' || g.game_pk AS game_instance_key
     FROM core.game g
-    JOIN LATERAL (
-        SELECT sh.game_number, sh.feature_cutoff_at
-        FROM schedule_history sh
-        WHERE sh.game_id = g.game_pk AND sh.game_date = g.game_date
-        ORDER BY CASE sh.status
-            WHEN 'Final' THEN 0
-            WHEN 'Completed Early' THEN 1
-            WHEN 'Forfeit' THEN 2
-            ELSE 3
-        END,
-        sh._loaded_at DESC NULLS LAST, sh.feature_cutoff_at DESC,
-        sh.game_number DESC NULLS LAST
-        LIMIT 1
-    ) s ON TRUE
+    JOIN completed_schedule s ON s.game_id = g.game_pk AND s.game_date = g.game_date
     WHERE g.game_type = 'regular' AND g.game_pk IS NOT NULL
       AND g.home_team_id IS NOT NULL AND g.away_team_id IS NOT NULL
       AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL

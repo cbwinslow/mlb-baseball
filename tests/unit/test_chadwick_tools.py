@@ -161,7 +161,7 @@ def test_run_cwbox_retries_each_known_bad_game(tmp_path):
             [], 1, "", "ERROR: In GAME1, cannot find entry for player 'onea101' listed in dline."
         ),
         CompletedProcess(
-            [], 1, "", "ERROR: In GAME2, cannot find entry for player 'twob101' listed in dline."
+            [], 1, "", "ERROR: In GAME2, invalid position 34 for player 'twob101'."
         ),
         CompletedProcess([], 0, "<boxscore game_id=\"GAME3\"><players/></boxscore>", ""),
     ]

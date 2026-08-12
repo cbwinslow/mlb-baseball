@@ -257,10 +257,13 @@ def _parse_cwbox_xml(xml_text: str) -> dict[str, pd.DataFrame]:
 # references a player never otherwise registered for that game. cwbox aborts
 # ALL output for the files it was given when this happens — one bad game out
 # of an entire year's file otherwise loses every good game alongside it.
-# Confirmed rare (1 game out of 46 years' worth of Negro League box files)
-# rather than assumed, before deciding this was worth handling instead of
-# just letting the whole year fail.
-_BAD_GAME_ERROR_RE = re.compile(r"^ERROR: In (\S+?), cannot find entry for player", re.MULTILINE)
+# Historical Retrosheet box-score records can contain individual malformed
+# games: missing roster players, impossible fielding positions, and similar
+# source-record defects.  cwbox identifies the exact game on an ERROR line,
+# then exits nonzero even when it has skipped the game itself.  The parser can
+# safely isolate that one named game from its temporary copy and retry the
+# rest of the official archive; an error without a game ID still fails loudly.
+_BAD_GAME_ERROR_RE = re.compile(r"^ERROR: In (\S+?),", re.MULTILINE)
 
 
 def _strip_game(text: str, game_id: str) -> str:

@@ -1241,6 +1241,34 @@ def test_backfill_mlb_team_id_uses_majority_vote_despite_a_noisy_outlier(db_conn
     db_conn.commit()
 
 
+def test_game_pk_backfill_ignores_postponed_schedule_history(db_conn):
+    """A postponed observation cannot attach its key to another played game."""
+    _seed_mlb_team_id_scenario(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('OAK202404050', '2024', '20240405', '0', 'TEX', 'OAK', "
+            "'4', '6', 'regular', 'OAK01', '12000', '180', 'N', '', '', '', "
+            "'', '', '', '', '', '')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('500001', '2024-04-05', 'Texas Rangers', 'Oakland Athletics', "
+            "'2024', 'Postponed', 'R', '1', 'Oakland Coliseum', '', '', '', '140', '133')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_game_id, game_pk FROM core.game "
+            "WHERE retro_game_id IN ('OAK202404010', 'OAK202404050') "
+            "ORDER BY retro_game_id"
+        )
+        assert cur.fetchall() == [("OAK202404010", "500001"), ("OAK202404050", None)]
+
+
 def test_schedule_team_id_backfill_survives_incompatible_optional_history(db_conn):
     """A stale optional history landing cannot suppress valid schedule votes."""
     _seed_mlb_team_id_scenario(db_conn)

@@ -540,6 +540,13 @@ def _backfill_game_pk(conn: psycopg.Connection) -> int:
                 SET game_pk = ms.game_id
                 FROM raw.mlb_schedule ms, core.team away, core.team home
                 WHERE ms.game_date::date = g.game_date
+                    -- Schedule history is raw evidence, not a completed
+                    -- game fact.  A postponed observation can share a
+                    -- matchup/date/game number with a different game that
+                    -- was actually played that day (production game 15084
+                    -- is the regression).  Only a terminal observation may
+                    -- assign MLB's provider key to canonical core.game.
+                    AND ms.status IN ('Final', 'Completed Early', 'Forfeit')
                     AND ms.away_name = away.city || ' ' || away.nickname
                     AND ms.home_name = home.city || ' ' || home.nickname
                     AND away.id = g.away_team_id
@@ -708,6 +715,7 @@ def _backfill_game_pk_via_mlb_team_id(conn: psycopg.Connection) -> int:
                 SET game_pk = ms.game_id
                 FROM raw.mlb_schedule ms, core.team away, core.team home
                 WHERE ms.game_date::date = g.game_date
+                    AND ms.status IN ('Final', 'Completed Early', 'Forfeit')
                     AND away.id = g.away_team_id
                     AND home.id = g.home_team_id
                     AND away.mlb_team_id = NULLIF(ms.away_id, '')::integer

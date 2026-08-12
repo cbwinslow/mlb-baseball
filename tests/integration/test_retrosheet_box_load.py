@@ -5,6 +5,7 @@ own real TEAM/roster files (mirrors the "na" pre-1898 archives), while
 "1900sbox_no_team.zip" has neither (mirrors the actual "era"/"negro_league"
 archives) and exercises the team-file-construction path."""
 
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -151,3 +152,17 @@ def test_missing_archive_returns_empty_without_erroring(db_conn):
         counts = box._load_archive(db_conn, "9999box.zip", "https://example.com/x", "na")
 
     assert counts == {}
+
+
+def test_load_archive_accepts_an_authoritatively_empty_year(db_conn, tmp_path):
+    """Retrosheet's current 1871 archive has TEAM1871 but no .EB* records."""
+    empty_archive = tmp_path / "1871box.zip"
+    with zipfile.ZipFile(empty_archive, "w") as zf:
+        zf.writestr("TEAM1871", "BS1,NA,Boston,Red Stockings\n")
+
+    with patch.object(box.manifest, "download", return_value=empty_archive):
+        counts = box._load_archive(db_conn, "1871box.zip", "https://example.com/x", "na")
+    db_conn.commit()
+
+    assert counts == dict.fromkeys(box.ALL_TABLES, 0)
+    assert box.manifest.load_manifest(box.SOURCE)["1871box.zip"]["status"] == "loaded"

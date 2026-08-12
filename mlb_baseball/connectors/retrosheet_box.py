@@ -177,6 +177,15 @@ def _parse_archive(archive_path: Path, group: str) -> dict[int, dict[str, pd.Dat
         extract_dir = Path(tmp)
         archive.extract_zip(archive_path, extract_dir)
         for year, year_dir in chadwick_tools.split_by_year(extract_dir).items():
+            # Retrosheet currently publishes 1871box.zip with only its
+            # TEAM1871 reference file (no .EB* game records).  That is an
+            # authoritative, empty source slice, not a parser failure.  Do
+            # not call cwbox for it; record the archive as successfully
+            # processed with zero rows so normal updates remain repeatable.
+            # A directory that *should* contain records but is malformed is
+            # still caught by archive validation or cwbox below.
+            if not any(year_dir.glob("*.EB?")):
+                continue
             if needs_team_file:
                 assert registry is not None and rosters_zip is not None
                 _prepare_team_file(year_dir, year, registry, rosters_zip)

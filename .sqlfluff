@@ -1,0 +1,31 @@
+[sqlfluff]
+dialect = postgres
+templater = placeholder
+max_line_length = 100
+
+# 27 existing .sql files were reviewed and tested against production data
+# before landing (see docs/DECISIONS.md ADRs) using a deliberately dense
+# layout that predates sqlfluff adoption here and doesn't match sqlfluff's
+# default opinions on indentation, aliasing, qualification, or column
+# ordering. Retroactively reformatting tested, working SQL to satisfy a
+# linter's style preference is a real risk (touching shipped SQL for zero
+# functional benefit) for zero correctness benefit, so the `layout`,
+# `aliasing`, `references`, `structure`, `capitalisation`, and `ambiguous`
+# rule groups are disabled project-wide -- sqlfluff here checks
+# parseability (a real, useful check: it already caught nothing wrong, but
+# would catch a real syntax typo), not house style. Individually verified
+# several flagged cases from these groups before excluding them wholesale
+# (not just disabled on volume): AM03/AM05 both false-positive on patterns
+# this project genuinely and correctly uses (a DISTINCT ON tiebreak ORDER
+# BY, and joins whose column names happen to be unambiguous), and RF02
+# false-positives on the placeholder templater's psycopg %(name)s parameter
+# substitution being misread as a bare column reference. Added 2026-08-13,
+# independent research review.
+exclude_rules = layout,aliasing,references,structure,capitalisation,ambiguous
+
+# Named .sql resources under mlb_baseball/sql/ use psycopg's %(name)s
+# parameter style (see mlb_baseball/sql/__init__.py's read_sql() and its
+# callers) -- the placeholder templater substitutes a syntactically valid
+# stand-in value so sqlfluff can parse the query instead of choking on `%`.
+[sqlfluff:templater:placeholder]
+param_style = pyformat

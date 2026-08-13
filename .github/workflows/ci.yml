@@ -53,6 +53,9 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      - name: Lint (sqlfluff, mlb_baseball/sql/)
+        run: sqlfluff lint mlb_baseball/sql/
+
       - name: Type-check (mypy)
         run: mypy
 

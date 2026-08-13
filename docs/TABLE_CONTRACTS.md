@@ -16,6 +16,20 @@ not infer any of these from a convenient current row count or a Python query.
 `serve` is intentionally absent. It is introduced only in Plan 05 with a
 read-only role, source-profile eligibility, and an explicit public contract.
 
+**Terminology note (2026-08-13, independent research review):** what this doc
+calls a "feature cutoff" is the same concept dedicated feature-store products
+(Feast, Tecton, Hopsworks) call **point-in-time correctness**, implemented via
+an **as-of join** — for each entity row, retrieve the latest feature value
+timestamped at or before that row's own event timestamp, never after. This
+project's `feature_cutoff_at` is the event timestamp; the `ROWS BETWEEN
+UNBOUNDED PRECEDING AND 1 PRECEDING` window frame used throughout `gold`'s
+rolling-stat SQL is a hand-written as-of join. Noted here so a reader coming
+from the feature-store/MLOps literature recognizes this project's own
+vocabulary as the same thing under a different name, not a different design.
+Hand-rolling this in SQL rather than adopting a feature-store product is the
+right call at this project's current scale (single model consumer, no
+online/offline serving-skew problem to solve) — revisit only if that changes.
+
 ## Raw landing contracts
 
 Raw tables are grouped by source product because a connector, not a generic

@@ -12,6 +12,23 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 
 **Revisit if:** production experience shows 10/8 is still letting through misleading small-sample values (raise it), or is gating out too much of the early season to be useful as a feature (lower it) — this is a judgment call scaled for this specific entering-value use case, not a formula with a single correct answer, so it should move if real usage says so. Also revisit if a future package wants `offense.py`'s wOBA to adopt the same gating posture — that's a separate, not-yet-made decision this ADR deliberately leaves alone.
 
+**Addendum, 2026-08-13 (independent research review):** a hard PA/AB cutoff only
+excludes the single-game extreme; it does not solve small-sample noise in
+general — a team at 12 PA (just past the gate) is still far noisier than one
+at 460 PA (FanGraphs' own published OBP stabilization point), and both
+currently get treated as equally trustworthy once past the gate. Sports
+analytics' established answer to this specific problem is **empirical Bayes
+shrinkage toward the league-average rate**, with the shrinkage amount inversely
+proportional to sample size (the James-Stein result, applied to baseball rate
+stats the same way batting-average-in-April is the canonical worked example).
+Not adopted now — this would be new scope beyond what issue #8 committed to,
+and the hard gate is a defensible "good enough for now" position, the same
+posture `offense.py`'s own wOBA docstring already takes on the identical risk.
+Recorded here so that if/when this project revisits wOBA's small-sample risk,
+shrinkage (not a higher hard threshold) is the technique to reach for, with
+FanGraphs' published stabilization points (BB% 120 PA, K% 60 PA, OBP 460 PA,
+SLG 320 AB, ISO 160 AB) as the calibration reference.
+
 ## ADR-060: `chadwick_tools.CWEVENT_EXTENDED_FIELDS` was wrong for the installed Chadwick build, and killed `retrosheet_event`'s entire bootstrap with zero rows loaded
 
 **Decision:** `CWEVENT_EXTENDED_FIELDS` changed from `"0-66"` to `"0-63"`. `retrosheet_event.py` gained per-year isolation inside `_parse_archive` and per-archive isolation inside `bootstrap()`, both `try`/`except`/log/continue, matching `retrosheet.py`'s ADR-059 fix and `statcast.py`'s existing per-week pattern.

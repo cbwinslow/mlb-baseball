@@ -1,0 +1,14 @@
+# These files use SQL shapes sqlfluff's placeholder templater/parser
+# genuinely can't handle -- not bugs in the SQL, a tool limitation for
+# these specific patterns, confirmed by inspecting each file directly.
+
+# Python str.format() {values_clause} placeholders (see war.py/framing.py)
+# instead of psycopg's %(name)s style every other resource uses.
+mlb_baseball/sql/team_war_update.sql
+mlb_baseball/sql/team_framing_update.sql
+
+# RANGE BETWEEN (fatigue_days * INTERVAL '1 day') PRECEDING -- a computed
+# interval expression in a window frame bound, valid Postgres that
+# sqlfluff's grammar doesn't parse.
+mlb_baseball/sql/team_bullpen_live_update.sql
+mlb_baseball/sql/team_bullpen_retrosheet_update.sql

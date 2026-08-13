@@ -33,7 +33,10 @@ rolling AS (
         game_date - LAG(game_date) OVER w_career AS rest
     FROM pitcher_game_stats
     WINDOW
-        w_season AS (PARTITION BY pitcher_retro_id, season ORDER BY game_date, game_id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),
+        w_season AS (
+            PARTITION BY pitcher_retro_id, season ORDER BY game_date, game_id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ),
         w_career AS (PARTITION BY pitcher_retro_id ORDER BY game_date, game_id)
 ),
 quality AS (
@@ -41,7 +44,10 @@ quality AS (
         CASE WHEN bf_sum > 0 THEN k_sum::numeric / bf_sum END AS k_pct,
         CASE WHEN bf_sum > 0 THEN bb_sum::numeric / bf_sum END AS bb_pct,
         CASE WHEN bf_sum > 0 THEN hr_sum::numeric / bf_sum END AS hr_pct,
-        CASE WHEN outs_sum > 0 THEN (13 * hr_sum + 3 * (bb_sum + hbp_sum) - 2 * k_sum)::numeric / (outs_sum / 3.0) + %(fip_constant)s END AS fip
+        CASE WHEN outs_sum > 0 THEN
+            (13 * hr_sum + 3 * (bb_sum + hbp_sum) - 2 * k_sum)::numeric / (outs_sum / 3.0)
+                + %(fip_constant)s
+        END AS fip
     FROM rolling
 )
 UPDATE gold.game_feature f

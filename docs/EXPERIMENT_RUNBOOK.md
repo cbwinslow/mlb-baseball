@@ -34,6 +34,17 @@ default development folds test 2016 through 2024 one season at a time using
 only preceding seasons for training. 2025 is untouched final holdout; 2026 is
 forward monitoring, not model selection.
 
+**Why no purging/embargo (2026-08-13, independent research review):** financial
+ML's walk-forward validation typically adds a *purge* (drop training rows whose
+label window overlaps the test window) and an *embargo* (a buffer after the
+cut) because a label like "5-day-forward return" can straddle a fold boundary
+even when features are point-in-time-safe. This project's target (`home_win`)
+is resolved same-day and every feature is already cutoff-safe, so there is no
+overlapping-label window to purge — a season-boundary chronological split is
+sufficient by construction. Recorded explicitly so a future reader doesn't have
+to re-derive why this project's folds look simpler than the financial-ML
+literature's, rather than wondering if it's a gap.
+
 ## Metrics and nulls
 
 Log loss and Brier score judge probability quality. Accuracy is shown only as

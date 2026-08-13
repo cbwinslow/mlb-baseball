@@ -98,6 +98,24 @@ tracked in github.com/cbwinslow/mlb-baseball/issues/8. Same compatibility-
 column status as every existing enrichment family: tested and health-checked
 in isolation, not wired into the live pipeline or into `game_base_v1`.
 
+**Admission-queue contract closed (issue #8, ADR-062):** the four sub-items
+issue #8 tracked all landed. A documented min-sample gate (`MIN_PA=10` for
+OBP/BB%/K%, `MIN_AB=8` for SLG/ISO — new precedent, `805ad2e`, extended with
+real-value ISO test coverage in `4be0908`) replaced the earlier bare `> 0`
+guard for OFF-01/02. `gold.game_feature.home_pa`/`away_pa` (migration `0051`,
+`aec00dc`) retain OFF-03's PA denominator unconditionally, so a consumer can
+tell a genuinely below-threshold row from one with no data at all. A
+suspended/doubleheader regression test (`ee92003`) proved OFF-08/DEF-01's
+`compute_run_environment()` already correctly inherits the base feature
+family's postponed-observation exclusion and game-number doubleheader
+ordering — no production code changed. Historical-era coverage for OFF-01
+was measured directly against production `mlb` (`b75c5fc`): zero NULLs or
+empty values in `bat_event_fl`/`event_cd`/`ab_fl`/`sf_fl` across every decade
+from the 1900s through the 2020s (16,465,588 rows) — no gap found. DEF-01's
+separate pitching-vs-defense documentation distinction was not part of
+issue #8's scope and remains outstanding, tracked in
+`docs/FEATURE_ADMISSION_QUEUE.md`'s own row text.
+
 ## Acceptance gate
 
 - Every feature is traceable to a registry record and canonical SQL/model.

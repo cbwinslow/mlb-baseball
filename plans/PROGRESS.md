@@ -73,6 +73,30 @@ each completed plan gate.
   dormant-until-wired status as every existing sibling enrichment family,
   consistent with Plan 01F's production-cutover block.
 
+### Admission-queue contract closed for team_prior_offense_defense_v1 — 2026-08-13 (issue #8, ADR-062)
+
+- A documented min-sample gate (`MIN_PA=10` for OBP/BB%/K%, `MIN_AB=8` for
+  SLG/ISO) replaced the earlier `> 0` denominator guard in `team_rate.py`
+  and `team_rate_retrosheet_update.sql` (`805ad2e`; real-value ISO test
+  coverage added after review, `4be0908`) — new precedent, recorded as
+  ADR-062.
+- Migration `0051` adds `gold.game_feature.home_pa`/`away_pa`, populated
+  unconditionally from the same `pa_sum` the gate uses, so a below-threshold
+  row is distinguishable from one with no data at all (`aec00dc`).
+- A new regression test proved `compute_run_environment()` already correctly
+  excludes postponed observations and orders doubleheaders by game_number
+  (`ee92003`) — no production code changed; the base feature family
+  (migration 0046) already handled it.
+- Historical-era coverage for OFF-01 was measured directly against
+  production `mlb`: zero NULLs/empty values in `bat_event_fl`/`event_cd`/
+  `ab_fl`/`sf_fl` across every decade 1900s–2020s (16,465,588 rows), no
+  coverage gap (`b75c5fc`, `docs/RAW_CORE_GOLD_FIELD_CENSUS.md`).
+- All five admission-queue rows (OFF-01/02/03/08, DEF-01) updated to final
+  status in `docs/FEATURE_ADMISSION_QUEUE.md`. DEF-01's separate
+  pitching-vs-defense documentation distinction was never part of issue #8's
+  scope and remains open, noted explicitly in that row rather than claimed
+  done. Issue #8 closed.
+
 ## Plan 00A/00B — 2026-08-05
 
 ### Workspace inventory

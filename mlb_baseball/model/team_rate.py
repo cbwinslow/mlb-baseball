@@ -52,11 +52,12 @@ def compute(conn: psycopg.Connection) -> int:
 
 
 def health_check() -> list[Check]:
-    """Bounds are mathematical ceilings (OBP/BB%/K% in [0,1]; SLG/ISO in
-    [0,4], four total bases per at-bat) except runs-for/allowed averages,
-    which use a generous [0,30] to tolerate real early-season small-sample
-    swings (same posture as offense.py's home_woba bound, which documents
-    the identical tradeoff)."""
+    """Bounds are mathematical ceilings (OBP/BB%/K% in [0,1]; SLG in [0,4],
+    four total bases per at-bat; ISO in [0,3], since TB-H is always >= 0 and
+    bounded by 3 total bases of extra credit per at-bat) except runs-for/
+    allowed averages, which use a generous [0,30] to tolerate real
+    early-season small-sample swings (same posture as offense.py's
+    home_woba bound, which documents the identical tradeoff)."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT "
@@ -67,7 +68,7 @@ def health_check() -> list[Check]:
             "  WHERE home_slg IS NOT NULL AND (home_slg < 0 OR home_slg > 4)"
             "), "
             "count(*) FILTER ("
-            "  WHERE home_iso IS NOT NULL AND (home_iso < -1 OR home_iso > 4)"
+            "  WHERE home_iso IS NOT NULL AND (home_iso < 0 OR home_iso > 3)"
             "), "
             "count(*) FILTER ("
             "  WHERE home_bb_pct IS NOT NULL AND (home_bb_pct < 0 OR home_bb_pct > 1)"
@@ -95,7 +96,7 @@ def health_check() -> list[Check]:
     return [
         _check("home_obp plausible range", bad_obp, "0-1"),
         _check("home_slg plausible range", bad_slg, "0-4"),
-        _check("home_iso plausible range", bad_iso, "-1-4"),
+        _check("home_iso plausible range", bad_iso, "0-3"),
         _check("home_bb_pct plausible range", bad_bb, "0-1"),
         _check("home_k_pct plausible range", bad_k, "0-1"),
         _check("home_runs_for_avg plausible range", bad_rf, "0-30"),

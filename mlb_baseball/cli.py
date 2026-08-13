@@ -59,6 +59,7 @@ from mlb_baseball import (
     inventory,
     migrate,
     model,
+    player,
     progress_table,
     report,
     schema_inventory,
@@ -253,6 +254,13 @@ def main(argv: list[str] | None = None) -> None:
     )
     census_parser.add_argument("--output-json", type=Path)
     census_parser.add_argument("--output-markdown", type=Path)
+    player_id_parser = subparsers.add_parser(
+        "player-id", help="resolve a player's IDs across retro/mlbam/bbref/fangraphs/chadwick"
+    )
+    player_id_parser.add_argument(
+        "id_type", choices=sorted(player.ID_COLUMNS), help="which ID system you already have"
+    )
+    player_id_parser.add_argument("id_value", help="the ID value to look up")
     inventory_parser.add_argument(
         "--exact", action="store_true", help="count rows exactly instead of using catalog estimates"
     )
@@ -384,6 +392,8 @@ def main(argv: list[str] | None = None) -> None:
             )
         except ValueError as exc:
             parser.error(str(exc))
+    elif args.command == "player-id":
+        player.print_crosswalk(args.id_type, args.id_value)
     elif args.command == "features":
         for table, count in model.run_features().items():
             print(f"{table}: {count} rows")

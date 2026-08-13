@@ -500,3 +500,91 @@ def test_health_check_flags_an_implausible_value(db_conn):
     assert "1 rows" in obp_check.detail
 
     _reset(db_conn)
+
+
+def test_compute_run_environment_unaffected_by_postponed_observation(db_conn):
+    # A postponed schedule observation for a game_id never produces its own
+    # core.game row (docs/GAME_INSTANCE_IDENTITY.md; only the real makeup
+    # date's Final observation does) -- this proves compute_run_environment()
+    # stays correct through that, since it only reads gold.game_feature's
+    # own already-computed wins/losses/runs sums (mlb_baseball/sql/
+    # game_feature_rebuild.sql, migration 0046), which already handle this.
+    #
+    # G1 (2020-04-01): ATL scores 5, allows 3.
+    # A postponed observation for a game originally scheduled 2020-04-05
+    # (never played that day -- no core.game row for it at all) sits in
+    # raw.mlb_schedule alongside a *different*, later real game.
+    # DH1 (game_number=1, 2020-04-08): ATL scores 6, allows 5.
+    # DH2 (game_number=2, 2020-04-08, the actual makeup game, inserted
+    #   before DH1 to also prove doubleheader game_number ordering holds
+    #   for this function's pass-through): ATL scores 4, allows 2.
+    #
+    # Entering DH2: runs_for_avg = (5+6)/2 = 5.5, runs_allowed_avg = (3+5)/2 = 4.0
+    # (must reflect G1+DH1 only -- the postponed observation contributes
+    # nothing, and DH2 must not include itself).
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_schedule (game_id text, game_datetime text, "
+                "game_date text, game_type text, status text, home_id text, away_id text, "
+                "game_num text, venue_id text, _season text, _loaded_at timestamptz)"
+            )
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, game_number, "
+            "home_team_id, away_team_id, home_score, away_score, game_type) VALUES "
+            "('G1', 2001, 2020, '2020-04-01', 1, %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('DH2', 2003, 2020, '2020-04-08', 2, %(atl)s, %(nya)s, 4, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, game_number, "
+            "home_team_id, away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH1', 2002, 2020, '2020-04-08', 1, %(atl)s, %(nya)s, 6, 5, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, game_datetime, game_date, game_type, status, home_id, away_id, "
+            "game_num, _season, _loaded_at) VALUES "
+            "('2001', '2020-04-01T18:00:00Z', '2020-04-01', 'R', 'Final', "
+            "'144', '147', '1', '2020', now()), "
+            "('2002', '2020-04-08T17:00:00Z', '2020-04-08', 'R', 'Final', "
+            "'144', '147', '1', '2020', now()), "
+            "('2003', '2020-04-08T20:00:00Z', '2020-04-08', 'R', 'Final', "
+            "'144', '147', '2', '2020', now()), "
+            # Postponed-only observation: a game_id that never gets a
+            # matching core.game row at all.
+            "('2099', '2020-04-05T18:00:00Z', '2020-04-05', 'R', 'Postponed', "
+            "'144', '147', '1', '2020', now())"
+        )
+    db_conn.commit()
+
+    features.build(db_conn, strict=True)
+    db_conn.commit()
+    team_rate.compute_run_environment(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_runs_for_avg, f.home_runs_allowed_avg "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "WHERE g.retro_game_id = 'DH2'"
+        )
+        row = cur.fetchone()
+
+    assert row == (Decimal("5.5"), Decimal("4.0"))
+
+    _reset(db_conn)

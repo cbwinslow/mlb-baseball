@@ -248,19 +248,20 @@ def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT g.retro_game_id, f.home_obp, f.home_slg, f.home_iso, "
-            "f.home_bb_pct, f.home_k_pct "
+            "f.home_bb_pct, f.home_k_pct, f.home_pa "
             "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
             "ORDER BY g.retro_game_id"
         )
         rows = {r[0]: r[1:] for r in cur.fetchall()}
 
-    assert rows["G1"] == (None, None, None, None, None)  # first game
+    assert rows["G1"] == (None, None, None, None, None, None)  # first game
     g2 = rows["G2"]
     assert g2[0] == Decimal("0.7")  # OBP  (PA=10 >= MIN_PA=10)
     assert g2[1] is None  # SLG  (AB=5 < MIN_AB=8 -- gated)
     assert g2[2] is None  # ISO  (AB=5 < MIN_AB=8 -- gated)
     assert g2[3] == Decimal("0.4")  # BB%  (PA=10 >= MIN_PA=10)
     assert g2[4] == Decimal("0.1")  # K%  (PA=10 >= MIN_PA=10)
+    assert g2[5] == Decimal("10")  # PA  (ungated -- always populated)
 
     _reset(db_conn)
 
@@ -312,13 +313,14 @@ def test_compute_gates_rate_stats_below_min_sample(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT f.home_obp, f.home_bb_pct, f.home_k_pct, f.home_slg, f.home_iso "
+            "SELECT f.home_obp, f.home_bb_pct, f.home_k_pct, f.home_slg, f.home_iso, "
+            "f.home_pa "
             "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
             "WHERE g.retro_game_id = 'G2'"
         )
         row = cur.fetchone()
 
-    assert row == (None, None, None, None, None)
+    assert row == (None, None, None, None, None, Decimal("1"))
 
     _reset(db_conn)
 

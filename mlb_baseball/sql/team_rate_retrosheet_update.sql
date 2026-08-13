@@ -106,7 +106,8 @@ SET home_obp = ch.obp, away_obp = ca.obp,
     home_slg = ch.slg, away_slg = ca.slg,
     home_iso = ch.iso, away_iso = ca.iso,
     home_bb_pct = ch.bb_pct, away_bb_pct = ca.bb_pct,
-    home_k_pct = ch.k_pct, away_k_pct = ca.k_pct
+    home_k_pct = ch.k_pct, away_k_pct = ca.k_pct,
+    home_pa = ch.pa_sum, away_pa = ca.pa_sum
 FROM regular_games rg
 LEFT JOIN computed ch ON ch.game_id = rg.game_id AND ch.team_id = rg.home_team_id
 LEFT JOIN computed ca ON ca.game_id = rg.game_id AND ca.team_id = rg.away_team_id

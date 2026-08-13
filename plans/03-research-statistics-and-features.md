@@ -64,6 +64,22 @@ content-addressed copy of resolved `game_base_v1` rows. It records selection,
 schema, input watermark, code revision, and environment/lock identity. This is
 the recovery boundary for experiments; mutable `gold.game_feature` is not.
 
+### 03G — Source-field census and feature-admission queue
+
+Before adding another predictive feature, generate a versioned raw-to-core-to-
+gold field census. For every landed raw field, record its source/table/grain,
+candidate canonical destination, data type/domain/null rate/coverage, identity
+role, event and availability time, retention status, and reason it is not yet
+conformed or feature-eligible. Treat “not currently in `core`” as an inventory
+decision, not evidence that a source field should be discarded. Prioritize
+high-value game context, player, pitch, lineup, weather, venue, and market
+fields, then turn approved candidates into narrow PIT-safe feature-family
+proposals with research support, formula, anti-leakage contract, and test plan.
+Do not bulk-copy every raw column into `core` or a giant game table: raw stays
+source-faithful, `core` stays canonical, and model inputs are named `gold`
+families. Publish the census and admission queue before implementing the next
+feature family.
+
 ## Acceptance gate
 
 - Every feature is traceable to a registry record and canonical SQL/model.

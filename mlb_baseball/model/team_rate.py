@@ -30,7 +30,6 @@ before their own compute_live() follow-ups landed.
 
 import psycopg
 
-from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.sql import read_sql
 

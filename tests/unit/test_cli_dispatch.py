@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock
 
 from mlb_baseball import audit, cli, model, progress_table, report
+from mlb_baseball.model import experiment
 from mlb_baseball.source_profiles import SourceProfileError, require_sources
 
 
@@ -186,6 +187,18 @@ def test_features_command_calls_model_feature_stage(monkeypatch, capsys):
     cli.main(["features"])
 
     assert "gold.game_feature: 1 rows" in capsys.readouterr().out
+
+
+def test_experiment_snapshot_command_creates_and_prints_snapshot(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr(experiment, "create_snapshot", lambda _conn: "snapshot-1")
+
+    cli.main(["experiment", "snapshot"])
+
+    assert "snapshot: snapshot-1" in capsys.readouterr().out
+    conn.commit.assert_called_once()
 
 
 def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch):

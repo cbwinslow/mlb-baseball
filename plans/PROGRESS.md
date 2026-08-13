@@ -22,6 +22,23 @@ each completed plan gate.
 - **Next package:** feature-family rehearsal, measured workload evidence, and
   production-safe recommendation; no production write is authorized.
 
+### Experiment-lab rehearsal — 2026-08-12 (test database only)
+
+- Migration 0047 adds content-addressed `game_base_v1` snapshots, declared
+  experiments, and per-fold artifacts/results. Each snapshot preserves its
+  source selection, schema, source watermark, environment/lock identity, code
+  revision, keys, cutoffs, values, and resolved target rather than relying on
+  the mutable `gold.game_feature` rebuild.
+- The rehearsal runs home-rate, Log5, sequential Elo, regularized logistic
+  regression, histogram gradient boosting, and XGBoost against one common
+  chronological sample. Opening-game rate nulls stay retained-but-excluded for
+  the Log5 common comparison; Python estimators use explicit median plus
+  missing indicators.
+- The default development plan tests 2016–2024 by calendar year, reserves 2025
+  as untouched final holdout, and treats 2026 as forward monitor only. No
+  production model write, promotion, hyperparameter search, or performance
+  claim is authorized.
+
 ### First point-in-time feature rehearsal — 2026-08-12 (test database only)
 
 - A read-only production sample (2008, 2015, 2024–26) was copied into

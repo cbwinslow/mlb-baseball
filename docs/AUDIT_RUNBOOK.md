@@ -16,8 +16,8 @@ uv run mlb schema
 - `game` is the default. It checks required schedule IDs, schedule-history
   duplicates, canonical MLB game-key uniqueness and source/decade coverage,
   doubleheaders, stable game/play value ranges, team/game foreign-key coverage,
-  unresolved pitch-source-key coverage, expected upcoming-game nulls, and
-  prediction identity. It reports retained Retrosheet-native identities
+  unresolved pitch-source-key coverage, expected upcoming-game nulls,
+  prediction identity, and preserved experiment snapshots. It reports retained Retrosheet-native identities
   separately from a missing identity or a missing MLB key on an MLB game.
 - `database` adds PostgreSQL planner-statistics context: estimated live/dead
   rows, last-analyzed time, cumulative index scans, and landing freshness where
@@ -56,6 +56,12 @@ pitch may have no resolved canonical game. The audit reports these separately
 from a missing required source key, a missing identity, or an orphan foreign
 key. A warning is an investigation queue, not permission to silently fill a
 value with a weak match.
+
+Experiment snapshots are checked as immutable copies: the audit compares their
+stored row counts, unique keys, row checksum, and selection-SQL checksum to
+their metadata. It deliberately does not compare them to current
+`gold.game_feature`, because a later rebuild changing the mutable source must
+not invalidate or silently rewrite a completed experiment.
 
 Retrosheet uses game number `0` for an ordinary single game, so it is valid.
 The official play feed can also retain a terminal count of five balls or four

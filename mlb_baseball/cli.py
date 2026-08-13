@@ -64,6 +64,7 @@ from mlb_baseball import (
 from mlb_baseball import (
     metrics as operational_metrics,
 )
+from mlb_baseball.model import experiment
 from mlb_baseball.registry import CONNECTORS
 from mlb_baseball.source_profiles import (
     PROFILES,
@@ -205,6 +206,22 @@ def main(argv: list[str] | None = None) -> None:
     subparsers.add_parser("features")
     subparsers.add_parser("predict")
     subparsers.add_parser("train")
+    experiment_parser = subparsers.add_parser(
+        "experiment", help="create and compare reproducible game-win experiments"
+    )
+    experiment_commands = experiment_parser.add_subparsers(dest="experiment_command", required=True)
+    experiment_commands.add_parser("snapshot", help="copy approved PIT feature rows immutably")
+    experiment_run = experiment_commands.add_parser(
+        "run", help="run one declared model on calendar folds"
+    )
+    experiment_run.add_argument("--snapshot", required=True)
+    experiment_run.add_argument("--model", choices=experiment.SUPPORTED_MODELS, required=True)
+    experiment_run.add_argument(
+        "--fold-years", nargs="+", type=int, default=list(experiment.DEFAULT_FOLD_YEARS)
+    )
+    experiment_run.add_argument("--seed", type=int, default=0)
+    experiment_compare = experiment_commands.add_parser("compare", help="show saved fold metrics")
+    experiment_compare.add_argument("--snapshot", required=True)
     evaluate_parser = subparsers.add_parser("evaluate")
     evaluate_parser.add_argument("--season", type=int, required=True)
     evaluate_parser.add_argument("--models", nargs="+", required=True)
@@ -362,6 +379,37 @@ def main(argv: list[str] | None = None) -> None:
             print("saved: new model beat both baselines")
         else:
             print("not saved: did not beat both baselines")
+    elif args.command == "experiment":
+        from mlb_baseball.db import get_connection
+
+        with get_connection() as conn:
+            if args.experiment_command == "snapshot":
+                snapshot_id = experiment.create_snapshot(conn)
+                conn.commit()
+                print(f"snapshot: {snapshot_id}")
+            elif args.experiment_command == "run":
+                result = experiment.run(
+                    conn,
+                    experiment.ExperimentConfig(
+                        snapshot_id=args.snapshot,
+                        model_family=args.model,
+                        fold_years=tuple(args.fold_years),
+                        seed=args.seed,
+                    ),
+                )
+                conn.commit()
+                mode = "reused" if result["reused"] else "ran"
+                print(f"experiment: {result['experiment_id']} ({mode})")
+                for fold, metrics in result["folds"].items():
+                    print(
+                        f"  {fold}: log_loss={metrics['log_loss']:.4f} brier={metrics['brier']:.4f}"
+                    )
+            else:
+                for row in experiment.compare(conn, args.snapshot):
+                    print(
+                        f"{row['model']} {row['fold']}: "
+                        f"log_loss={row['log_loss']:.4f} brier={row['brier']:.4f}"
+                    )
     elif args.command == "evaluate":
         evaluation_report = model.evaluate(
             args.models, args.season, args.cutoff, args.bootstrap_samples

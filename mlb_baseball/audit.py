@@ -12,6 +12,7 @@ from typing import Literal
 import psycopg
 
 from mlb_baseball.db import fetch_one, get_connection
+from mlb_baseball.model import experiment
 
 Status = Literal["PASS", "WARN", "FAIL", "SKIP"]
 
@@ -221,8 +222,7 @@ def _doubleheader_audit(cur: psycopg.Cursor) -> Finding:
     cur.execute(query + "SELECT count(*) FROM collisions")
     collisions = fetch_one(cur)[0]
     cur.execute(
-        query
-        + "SELECT game_date::text || ':' || away_team_id::text || ':' || home_team_id::text "
+        query + "SELECT game_date::text || ':' || away_team_id::text || ':' || home_team_id::text "
         "FROM collisions ORDER BY 1 LIMIT 5"
     )
     samples = [row[0] for row in _all(cur)]
@@ -657,6 +657,57 @@ def _prediction_audit(cur: psycopg.Cursor) -> Finding:
     )
 
 
+def _experiment_snapshot_audit(conn: psycopg.Connection, cur: psycopg.Cursor) -> Finding:
+    """Verify preserved experiment inputs without trusting mutable gold rows."""
+    if not _relation_exists(cur, "meta.experiment_snapshot") or not _relation_exists(
+        cur, "gold.game_feature_snapshot"
+    ):
+        return Finding("experiment snapshots", "SKIP", "migration 0047 not applied")
+    cur.execute("SELECT count(*) FROM meta.experiment_snapshot")
+    snapshots = fetch_one(cur)[0]
+    if snapshots == 0:
+        return Finding(
+            "experiment snapshots",
+            "SKIP",
+            "no immutable experiment snapshot yet — run mlb experiment snapshot",
+        )
+    cur.execute(
+        """
+        SELECT count(*) FILTER (WHERE actual_rows <> expected_rows),
+               count(*)
+        FROM (
+            SELECT s.snapshot_id, s.row_count AS expected_rows, count(g.*) AS actual_rows
+            FROM meta.experiment_snapshot s
+            LEFT JOIN gold.game_feature_snapshot g USING (snapshot_id)
+            GROUP BY s.snapshot_id, s.row_count
+        ) coverage
+        """
+    )
+    mismatches, _ = fetch_one(cur)
+    cur.execute(
+        """
+        SELECT count(*) FROM (
+            SELECT snapshot_id, game_instance_key
+            FROM gold.game_feature_snapshot
+            GROUP BY snapshot_id, game_instance_key HAVING count(*) > 1
+        ) duplicates
+        """
+    )
+    duplicates = fetch_one(cur)[0]
+    integrity = experiment.snapshot_integrity(conn)
+    checksum_mismatches = (
+        integrity["row_hash_mismatches"] + integrity["selection_hash_mismatches"]
+    )
+    failures = mismatches + duplicates + checksum_mismatches
+    return Finding(
+        "experiment snapshots",
+        "PASS" if failures == 0 else "FAIL",
+        f"{snapshots:,} immutable snapshot(s); {mismatches:,} row-count mismatch(es); "
+        f"{duplicates:,} duplicate snapshot keys; {checksum_mismatches:,} checksum mismatch(es). "
+        "This checks preserved copies, not mutable gold.game_feature equivalence.",
+    )
+
+
 def _database_health_audit(cur: psycopg.Cursor) -> list[Finding]:
     cur.execute(
         """
@@ -786,6 +837,7 @@ def run(scope: Literal["game", "database", "statcast"] = "game") -> list[Finding
             findings.append(_game_feature_audit(cur))
             findings.append(_game_feature_cutoff_audit(cur))
             findings.append(_prediction_audit(cur))
+            findings.append(_experiment_snapshot_audit(conn, cur))
             if scope == "database":
                 findings.extend(_database_health_audit(cur))
             if scope == "statcast":

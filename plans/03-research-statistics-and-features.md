@@ -7,8 +7,9 @@ statistics that supports broad experimentation without uncontrolled leakage or
 feature duplication.
 
 **Status:** The first narrow, point-in-time-safe `gold.game_feature` base-family
-package is active in `mlb_test`. Broader feature families remain gated behind its
-rehearsal, audit, and production-safe review; this does not authorize ML work.
+and immutable experiment-input rehearsal are active in `mlb_test`. Broader
+feature families remain gated behind their own rehearsal, audit, and
+production-safe review; this does not authorize production model cutover.
 
 ## Work packages
 
@@ -57,6 +58,11 @@ coverage, null rates, availability cutoffs, and a health result. Add a
 the legacy combined prediction path remains compatibility behavior, not the
 recommended reproducible workflow. Design immutable snapshot storage before
 claiming that a build fingerprint alone can reproduce historical rows.
+
+**Implemented first slice:** `mlb experiment snapshot` creates a narrow,
+content-addressed copy of resolved `game_base_v1` rows. It records selection,
+schema, input watermark, code revision, and environment/lock identity. This is
+the recovery boundary for experiments; mutable `gold.game_feature` is not.
 
 ## Acceptance gate
 

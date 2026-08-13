@@ -124,3 +124,28 @@ design into this repository.
 - PostgreSQL references: [information schema](https://www.postgresql.org/docs/current/information-schema.html),
   [`pg_stats`](https://www.postgresql.org/docs/current/view-pg-stats.html), and
   [cumulative statistics](https://www.postgresql.org/docs/current/monitoring-stats.html).
+
+## Experiment evaluation
+
+### Chronological probability experiments
+
+- **Question:** How should game-win models be compared without learning from
+  later baseball games or rewarding confident but poorly calibrated answers?
+- **Sources:** [scikit-learn model-evaluation guide](https://scikit-learn.org/stable/modules/model_evaluation.html),
+  accessed 2026-08-12; its documented classification probability metrics are
+  log loss and Brier score. The cross-validation guide is supporting general
+  background, but this project uses baseball calendar folds rather than a
+  generic splitter because games are unevenly spaced and doubleheaders share a
+  date.
+- **Decision:** Use calendar-year development folds, train only on seasons
+  before the test season, retain 2025 as untouched holdout, and use 2026 only
+  for forward monitoring. Compare every model on the exact common eligible
+  game rows. Log loss and Brier score are primary; accuracy is secondary.
+  Persist fixed-bin calibration values, and omit slope/intercept when a fold is
+  too small to support them.
+- **Implementation:** `meta.experiment_snapshot`, `meta.experiment`,
+  `meta.experiment_fold`, `gold.game_feature_snapshot`, and
+  `mlb_baseball.model.experiment`.
+- **Known limits:** No calibration fitting, hyperparameter search, significance
+  claim, champion promotion, market evaluation, or production prediction is
+  authorized by this first test-only experiment package.

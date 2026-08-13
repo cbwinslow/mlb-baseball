@@ -19,6 +19,7 @@ import psycopg
 from mlb_baseball import conform, ingest, manifest, migrate, model, report
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
+from mlb_baseball.model import experiment
 from mlb_baseball.registry import CONNECTORS
 
 
@@ -219,5 +220,10 @@ def run() -> list[Check]:
         checks.extend(report.health_check())
     except Exception as exc:
         checks.append(Check("report", False, f"health_check() raised: {exc}"))
+
+    try:
+        checks.extend(experiment.health_check())
+    except Exception as exc:
+        checks.append(Check("experiment", False, f"health_check() raised: {exc}"))
 
     return checks

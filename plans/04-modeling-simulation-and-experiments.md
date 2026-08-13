@@ -5,7 +5,10 @@
 Create a reproducible breadth-and-depth modeling laboratory that can discover
 useful signals while resisting leakage, overfitting, and false discovery.
 
-**Status:** Queued (depends on Plan 03).
+**Status:** 04A/04B foundation active in `mlb_test` only. The first reusable
+game-win rehearsal supports fixed calendar folds, content-addressed snapshots,
+transparent baselines, scikit-learn/XGBoost estimators, and persisted evidence.
+It does not promote or write a production forecast.
 
 ## Work packages
 
@@ -25,6 +28,11 @@ regularized GLM, GAM, and shrinkage/hierarchical baselines before complex models
 Every target declares its game-instance identity, observation time, feature
 availability cutoff, and outcome-resolution rule; no evaluation may join only
 on an ambiguously reused external game ID.
+
+**First contract:** development folds test 2016–2024 one season at a time,
+training only through the preceding season. 2025 is reserved final holdout and
+2026 is forward monitoring. Log loss and Brier score are primary; accuracy is
+secondary. No random split is allowed.
 
 ### 04C — Model families
 

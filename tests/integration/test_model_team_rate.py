@@ -169,12 +169,11 @@ def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
     # deliberate: PA=10 is exactly MIN_PA, so this test also proves the
     # gate is ">=" (inclusive), not strictly ">". AB is unaffected
     # by the extra walks (ab_fl='F' on every BB row), so AB stays at 5 --
-    # below MIN_AB=8. That means, once the gate lands (Step 3/4 of this
-    # task), SLG/ISO stay NULL for G2 even though OBP/BB%/K% (all gated on
-    # PA, not AB) become real numbers -- the two gates are independent, and
-    # this fixture happens to land on opposite sides of each one. This is
-    # confirmed by hand below, then cross-checked against the actual SQL
-    # output before being hard-coded as the expected value.
+    # below MIN_AB=8. SLG/ISO stay NULL for G2 because AB=5 is below the
+    # MIN_AB=8 gate, even though OBP/BB%/K% (all gated on PA, not AB)
+    # become real numbers -- the two gates are independent, and this
+    # fixture happens to land on opposite sides of each one. The numbers
+    # below are verified hand arithmetic, matching the module's own SQL.
     #   AB = single + double + 2 generic outs + strikeout = 5
     #      (ab_fl='T' on every batted/struck-out plate appearance below)
     #   H = 1B(1) + 2B(1) = 2; TB = 1*1 + 2*1 = 3
@@ -248,20 +247,24 @@ def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT g.retro_game_id, f.home_obp, f.home_slg, f.home_iso, "
-            "f.home_bb_pct, f.home_k_pct, f.home_pa "
+            "f.home_bb_pct, f.home_k_pct, f.home_pa, f.away_pa "
             "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
             "ORDER BY g.retro_game_id"
         )
         rows = {r[0]: r[1:] for r in cur.fetchall()}
 
-    assert rows["G1"] == (None, None, None, None, None, None)  # first game
+    assert rows["G1"] == (None, None, None, None, None, None, None)  # first game
     g2 = rows["G2"]
     assert g2[0] == Decimal("0.7")  # OBP  (PA=10 >= MIN_PA=10)
     assert g2[1] is None  # SLG  (AB=5 < MIN_AB=8 -- gated)
     assert g2[2] is None  # ISO  (AB=5 < MIN_AB=8 -- gated)
     assert g2[3] == Decimal("0.4")  # BB%  (PA=10 >= MIN_PA=10)
     assert g2[4] == Decimal("0.1")  # K%  (PA=10 >= MIN_PA=10)
-    assert g2[5] == Decimal("10")  # PA  (ungated -- always populated)
+    assert g2[5] == Decimal("10")  # home_pa  (ungated -- always populated)
+    # NYA's only G1 row is a single generic out (ab_fl='T', event_cd='2',
+    # not in the BB/HBP filter set): AB=1, BB=0, HBP=0, SF=0 ->
+    # away_pa = AB+BB+HBP+SF = 1+0+0+0 = 1.
+    assert g2[6] == Decimal("1")  # away_pa  (ungated -- always populated)
 
     _reset(db_conn)
 
@@ -336,12 +339,11 @@ def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn)
     # stats into the first game's "entering" value, and vice versa.
     #
     # G1 (2020-04-01): ATL hits 8 singles -> AB=8, TB=8. (8, not 1, so
-    # entering-DH1 AB clears MIN_AB=8 -- otherwise the new min-sample gate
-    # (Step 3/4 of this task) would gate SLG to NULL and this test
-    # couldn't observe the ordering bug it's checking for at all. The
-    # 8-single/8-double counts below are the original 1-single/1-double
-    # fixture scaled up by 8x, which keeps the same SLG ratios --
-    # 1.0/1.5 -- as the original, smaller fixture.)
+    # entering-DH1 AB clears MIN_AB=8 -- otherwise the min-sample gate
+    # would gate SLG to NULL and this test couldn't observe the ordering
+    # bug it's checking for at all. The 8-single/8-double counts below are
+    # the original 1-single/1-double fixture scaled up by 8x, which keeps
+    # the same SLG ratios -- 1.0/1.5 -- as the original, smaller fixture.)
     # Doubleheader on 2020-04-08, inserted DH2 (game_number=2) BEFORE DH1
     # (game_number=1) so DH2 gets the LOWER core.game.id despite being the
     # chronologically later game -- this is what would fool an
@@ -498,6 +500,50 @@ def test_health_check_flags_an_implausible_value(db_conn):
 
     assert not obp_check.ok
     assert "1 rows" in obp_check.detail
+
+    _reset(db_conn)
+
+
+def test_health_check_flags_a_min_sample_gate_violation(db_conn):
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('G1', 2024, '2024-04-01', %s, %s, 5, 3, 'regular')",
+            (atl, nya),
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        # A populated home_obp with home_pa=5 violates the min-sample gate's
+        # own contract (ADR-062: a populated OBP always had >= MIN_PA=10
+        # prior PA) -- this simulates the gate silently ceasing to apply
+        # (e.g. a future refactor reintroducing a bare `> 0` guard), which
+        # only a real-data check like this one, not the fixture tests
+        # above, can catch.
+        cur.execute(
+            "UPDATE gold.game_feature SET home_obp = 0.7, home_pa = 5 "
+            "WHERE game_id = (SELECT id FROM core.game WHERE retro_game_id = 'G1')"
+        )
+    db_conn.commit()
+
+    checks = team_rate.health_check()
+    gate_check = next(c for c in checks if "gate" in c.name)
+
+    assert not gate_check.ok
+    assert "1 rows" in gate_check.detail
 
     _reset(db_conn)
 

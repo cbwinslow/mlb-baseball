@@ -81,7 +81,7 @@ rolling AS (
 -- gated rate is NULL rather than confusing "no data yet" with "sample too
 -- small".
 rate AS (
-    SELECT game_id, team_id, ab_sum, hbp_sum, sf_sum, so_sum,
+    SELECT game_id, team_id, ab_sum, hbp_sum, so_sum,
         (b1_sum + b2_sum + b3_sum + hr_sum) AS hits_sum,
         (b1_sum + 2 * b2_sum + 3 * b3_sum + 4 * hr_sum) AS tb_sum,
         (ubb_sum + ibb_sum) AS bb_sum,
@@ -91,7 +91,7 @@ rate AS (
 computed AS (
     SELECT game_id, team_id, pa_sum,
         CASE WHEN pa_sum >= %(min_pa)s THEN
-            (hits_sum + bb_sum + hbp_sum)::numeric / NULLIF(pa_sum, 0)
+            (hits_sum + bb_sum + hbp_sum)::numeric / pa_sum
         END AS obp,
         CASE WHEN ab_sum >= %(min_ab)s THEN tb_sum::numeric / ab_sum END AS slg,
         CASE WHEN ab_sum >= %(min_ab)s THEN

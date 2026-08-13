@@ -115,9 +115,11 @@ not these four fields' era coverage). A full field-by-field
 `mlb field-census --exact` scan was also started against production the same
 day, targeting `artifacts/census/mlb_era_coverage.{json,md}`. That scan does
 not change the finding above (it does not report era buckets and was run
-purely for the standard census artifact); it does not gate this entry, and
-its output — if it had finished by the time of this commit — is committed
-alongside this doc change under `artifacts/census/`.
+purely for the standard census artifact); it did not finish, and its output
+was not committed — `artifacts/census/` is empty in this repo. The
+decade-bucketed query above, with the measured results shown, is the
+evidence of record for OFF-01's era-coverage requirement, not a placeholder
+pending that artifact.
 
 ## Safe workflow
 

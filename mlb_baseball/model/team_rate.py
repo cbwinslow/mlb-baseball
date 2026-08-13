@@ -77,7 +77,12 @@ def health_check() -> list[Check]:
     bounded by 3 total bases of extra credit per at-bat) except runs-for/
     allowed averages, which use a generous [0,30] to tolerate real
     early-season small-sample swings (same posture as offense.py's
-    home_woba bound, which documents the identical tradeoff)."""
+    home_woba bound, which documents the identical tradeoff). The last two
+    checks prove the min-sample gate's own contract (ADR-062: a populated
+    OBP always had >= MIN_PA=10 prior PA) against real production data,
+    not just the hand-built fixtures in tests/integration/
+    test_model_team_rate.py -- this would catch the gate silently ceasing
+    to apply (e.g. a future refactor reintroducing a bare `> 0` guard)."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT "
@@ -103,10 +108,16 @@ def health_check() -> list[Check]:
             "count(*) FILTER ("
             "  WHERE home_runs_allowed_avg IS NOT NULL "
             "  AND (home_runs_allowed_avg < 0 OR home_runs_allowed_avg > 30)"
+            "), "
+            "count(*) FILTER ("
+            "  WHERE home_obp IS NOT NULL AND (home_pa IS NULL OR home_pa < 10)"
+            "), "
+            "count(*) FILTER ("
+            "  WHERE home_pa IS NOT NULL AND home_pa < 0"
             ") "
             "FROM gold.game_feature"
         )
-        bad_obp, bad_slg, bad_iso, bad_bb, bad_k, bad_rf, bad_ra = fetch_one(cur)
+        bad_obp, bad_slg, bad_iso, bad_bb, bad_k, bad_rf, bad_ra, bad_gate, bad_pa = fetch_one(cur)
 
     def _check(name: str, bad: int, bounds: str) -> Check:
         if bad:
@@ -121,4 +132,6 @@ def health_check() -> list[Check]:
         _check("home_k_pct plausible range", bad_k, "0-1"),
         _check("home_runs_for_avg plausible range", bad_rf, "0-30"),
         _check("home_runs_allowed_avg plausible range", bad_ra, "0-30"),
+        _check("home_obp min-sample gate holds", bad_gate, "home_pa >= 10"),
+        _check("home_pa plausible range", bad_pa, "0+"),
     ]

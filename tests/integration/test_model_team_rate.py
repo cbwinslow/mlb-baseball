@@ -349,12 +349,25 @@ def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn)
     #     assertions; only needs a row so the window has a "current row").
     #
     # Correctly ordered by game_number:
-    #   entering DH1 = G1 only:      TB=8, AB=8 -> SLG = 1.0
-    #   entering DH2 = G1 + DH1:     TB=8+16=24, AB=8+8=16 -> SLG = 1.5
+    #   entering DH1 = G1 only:      TB=8, AB=8, H=8 -> SLG = 1.0
+    #   entering DH2 = G1 + DH1:     TB=8+16=24, AB=8+8=16, H=8+8=16 -> SLG = 1.5
     # If ordered by insertion order instead (the bug), DH2 (lower game_id)
     # would sort before DH1 on the same date, giving the wrong pairing:
     #   entering DH1 (buggy) = G1 + DH2 -> SLG = (8+3)/(8+1) = 11/9 = 1.222
     #   entering DH2 (buggy) = G1 only  -> SLG = 1.0
+    #
+    # ISO coverage (added after code review flagged that no test in this
+    # file exercised a real, non-NULL ISO value once MIN_AB=8 landed --
+    # the hand-calc test's own ISO went NULL under the gate, since that
+    # test's AB stayed at 5). This fixture already clears AB>=8 at both
+    # entering points, so it doubles as ISO coverage for free:
+    #   AVG = H/AB; ISO = SLG - AVG
+    #   entering DH1: AVG = 8/8 = 1.0 -> ISO = SLG-AVG = 1.0-1.0 = 0.0
+    #     (all singles, so TB=H -- SLG and AVG coincide, a real edge case,
+    #     not evidence of a broken computation)
+    #   entering DH2: AVG = 16/16 = 1.0 -> ISO = 1.5-1.0 = 0.5
+    #     (a real, nonzero value -- proves TB/AB - H/AB is actually
+    #     subtracting two different numbers, not just echoing SLG)
     _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
@@ -428,14 +441,14 @@ def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn)
     assert updated == 3
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT g.retro_game_id, f.home_slg "
+            "SELECT g.retro_game_id, f.home_slg, f.home_iso "
             "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
             "ORDER BY g.retro_game_id"
         )
-        rows = {r[0]: r[1] for r in cur.fetchall()}
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
 
-    assert rows["DH1"] == Decimal("1.0")
-    assert rows["DH2"] == Decimal("1.5")
+    assert rows["DH1"] == (Decimal("1.0"), Decimal("0.0"))  # SLG, ISO
+    assert rows["DH2"] == (Decimal("1.5"), Decimal("0.5"))  # SLG, ISO
 
     _reset(db_conn)
 

@@ -34,6 +34,23 @@ from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.sql import read_sql
 
+# Min-sample gate (ADR-062): below these thresholds, OBP/SLG/ISO/BB%/K%
+# are one bad-luck game away from a wildly misleading ratio (e.g. 1-for-1
+# reads as a 1.000 OBP). No such gate existed anywhere in this codebase
+# before this -- offense.py's wOBA documents the identical small-sample-
+# noise risk in its health_check() docstring but deliberately does not
+# filter it; this is new precedent, not a copy of an existing pattern.
+# MIN_PA=10 (gates OBP/BB%/K%) and MIN_AB=8 (gates SLG/ISO) are scaled for
+# this module's entering-value, point-in-time context -- an early-season
+# team can easily have single-digit PA/AB entering its second or third
+# game -- not a season-total batting-title qualification threshold (e.g.
+# 3.1 PA/team-game), which would leave most of a season NULL. See
+# mlb_baseball/sql/team_rate_retrosheet_update.sql for the gate's SQL and
+# the PA/AB independence this implies (a team can clear one threshold
+# while still below the other).
+MIN_PA = 10
+MIN_AB = 8
+
 
 def compute_run_environment(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
@@ -47,7 +64,10 @@ def compute(conn: psycopg.Connection) -> int:
         (exists,) = fetch_one(cur)
         if not exists:
             return 0
-        cur.execute(read_sql("team_rate_retrosheet_update.sql"))
+        cur.execute(
+            read_sql("team_rate_retrosheet_update.sql"),
+            {"min_pa": MIN_PA, "min_ab": MIN_AB},
+        )
         return cur.rowcount
 
 

@@ -156,28 +156,43 @@ def _ensure_retrosheet_tables(db_conn):
 
 
 def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
-    # ATL (home) in G1: 1 single, 1 double, 1 unintentional BB, 1
+    # ATL (home) in G1: 1 single, 1 double, 3 unintentional BB, 1
     # intentional BB, 1 HBP, 1 strikeout, 2 generic outs -- every one of
     # these is a real plate appearance, so bat_event_fl='T' on all of them
     # (see mlb_baseball/model/starter.py's module docstring, ADR-034: a
     # verified real-data reconciliation found bat_event_fl='T' is required
     # to correctly scope K/BB/HR counts from raw.retrosheet_event; the
     # extra row below proves this module now applies that same guard).
+    #
+    # Two extra unintentional-BB rows versus the original fixture (there
+    # were 1 UBB + 1 IBB before) push PA from 8 to 10 -- this is
+    # deliberate: PA=10 is exactly MIN_PA, so this test also proves the
+    # gate is ">=" (inclusive), not strictly ">". AB is unaffected
+    # by the extra walks (ab_fl='F' on every BB row), so AB stays at 5 --
+    # below MIN_AB=8. That means, once the gate lands (Step 3/4 of this
+    # task), SLG/ISO stay NULL for G2 even though OBP/BB%/K% (all gated on
+    # PA, not AB) become real numbers -- the two gates are independent, and
+    # this fixture happens to land on opposite sides of each one. This is
+    # confirmed by hand below, then cross-checked against the actual SQL
+    # output before being hard-coded as the expected value.
     #   AB = single + double + 2 generic outs + strikeout = 5
     #      (ab_fl='T' on every batted/struck-out plate appearance below)
     #   H = 1B(1) + 2B(1) = 2; TB = 1*1 + 2*1 = 3
-    #   BB = ubb(1) + ibb(1) = 2; HBP = 1; SF = 0; SO = 1
-    #   OBP = (H+BB+HBP)/(AB+BB+HBP+SF) = (2+2+1)/(5+2+1+0) = 5/8 = 0.625
-    #   SLG = TB/AB = 3/5 = 0.6
-    #   AVG = H/AB = 2/5 = 0.4; ISO = SLG-AVG = 0.2
-    #   PA = AB+BB+HBP+SF = 5+2+1+0 = 8
-    #   BB% = 2/8 = 0.25; K% = 1/8 = 0.125
+    #   BB = ubb(3) + ibb(1) = 4; HBP = 1; SF = 0; SO = 1
+    #   PA = AB+BB+HBP+SF = 5+4+1+0 = 10  (>= MIN_PA=10 -> OBP/BB%/K% real)
+    #   OBP = (H+BB+HBP)/PA = (2+4+1)/10 = 7/10 = 0.7
+    #   BB% = BB/PA = 4/10 = 0.4; K% = SO/PA = 1/10 = 0.1
+    #   AB = 5  (< MIN_AB=8 -> SLG/ISO gated to NULL, even though the raw
+    #     hand-calculated SLG = TB/AB = 3/5 = 0.6 and ISO = SLG-AVG =
+    #     0.6-0.4 = 0.2 are real, nonzero values -- the gate hides them
+    #     for being too small a sample, same as OBP/BB%/K% would be
+    #     hidden below MIN_PA)
     #
-    # A ninth ATL row is a phantom event_cd='3' (strikeout-coded) record
+    # A tenth ATL row is a phantom event_cd='3' (strikeout-coded) record
     # with bat_event_fl='F' -- Retrosheet's own non-batter-event artifact
     # rows, not a real plate appearance. It must NOT move K% (or AB, since
-    # ab_fl/sf_fl='F' on it too): if it did, K% would come out to 2/8=0.25
-    # instead of the correct 1/8=0.125 asserted below.
+    # ab_fl/sf_fl='F' on it too): if it did, K% would come out to 2/10=0.2
+    # instead of the correct 1/10=0.1 asserted below.
     _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
@@ -208,6 +223,8 @@ def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
             "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # single
             "('G1', '1', '21', 'T', 'F', 'T', '2020'), "  # double
             "('G1', '1', '14', 'F', 'F', 'T', '2020'), "  # unintentional BB
+            "('G1', '1', '14', 'F', 'F', 'T', '2020'), "  # unintentional BB (extra, PA gate)
+            "('G1', '1', '14', 'F', 'F', 'T', '2020'), "  # unintentional BB (extra, PA gate)
             "('G1', '1', '15', 'F', 'F', 'T', '2020'), "  # intentional BB
             "('G1', '1', '16', 'F', 'F', 'T', '2020'), "  # HBP
             "('G1', '1', '3',  'T', 'F', 'T', '2020'), "  # strikeout
@@ -239,11 +256,69 @@ def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
 
     assert rows["G1"] == (None, None, None, None, None)  # first game
     g2 = rows["G2"]
-    assert g2[0] == Decimal("0.625")  # OBP
-    assert g2[1] == Decimal("0.6")  # SLG
-    assert g2[2] == Decimal("0.2")  # ISO
-    assert g2[3] == Decimal("0.25")  # BB%
-    assert g2[4] == Decimal("0.125")  # K%
+    assert g2[0] == Decimal("0.7")  # OBP  (PA=10 >= MIN_PA=10)
+    assert g2[1] is None  # SLG  (AB=5 < MIN_AB=8 -- gated)
+    assert g2[2] is None  # ISO  (AB=5 < MIN_AB=8 -- gated)
+    assert g2[3] == Decimal("0.4")  # BB%  (PA=10 >= MIN_PA=10)
+    assert g2[4] == Decimal("0.1")  # K%  (PA=10 >= MIN_PA=10)
+
+    _reset(db_conn)
+
+
+def test_compute_gates_rate_stats_below_min_sample(db_conn):
+    # ATL's only prior game (G1) has exactly 1 PA (a single, ab_fl='T',
+    # bat_event_fl='T') -- 1 PA is below MIN_PA=10, so every PA-denominator
+    # stat (OBP/BB%/K%) entering G2 must be NULL despite a real, nonzero
+    # underlying value existing. PA itself is NOT gated -- it must still
+    # report the real count (1) so a consumer can see why the rate is NULL.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2020, '2020-04-08', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('G2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL's only PA: 1 single
+            "('G1', '0', '2',  'T', 'F', 'T', '2020'), "  # NYA -- minimal
+            "('G2', '1', '2', 'T', 'F', 'T', '2020'), "
+            "('G2', '0', '2', 'T', 'F', 'T', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    team_rate.compute(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_obp, f.home_bb_pct, f.home_k_pct, f.home_slg, f.home_iso "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "WHERE g.retro_game_id = 'G2'"
+        )
+        row = cur.fetchone()
+
+    assert row == (None, None, None, None, None)
 
     _reset(db_conn)
 
@@ -258,21 +333,27 @@ def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn)
     # cross-run backfill scenario) would then leak the second game's
     # stats into the first game's "entering" value, and vice versa.
     #
-    # G1 (2020-04-01): ATL hits 1 single -> AB=1, TB=1.
+    # G1 (2020-04-01): ATL hits 8 singles -> AB=8, TB=8. (8, not 1, so
+    # entering-DH1 AB clears MIN_AB=8 -- otherwise the new min-sample gate
+    # (Step 3/4 of this task) would gate SLG to NULL and this test
+    # couldn't observe the ordering bug it's checking for at all. The
+    # 8-single/8-double counts below are the original 1-single/1-double
+    # fixture scaled up by 8x, which keeps the same SLG ratios --
+    # 1.0/1.5 -- as the original, smaller fixture.)
     # Doubleheader on 2020-04-08, inserted DH2 (game_number=2) BEFORE DH1
     # (game_number=1) so DH2 gets the LOWER core.game.id despite being the
     # chronologically later game -- this is what would fool an
     # insertion-order sort.
-    #   DH1 (game_number=1): ATL hits 1 double -> AB=1, TB=2.
+    #   DH1 (game_number=1): ATL hits 8 doubles -> AB=8, TB=16.
     #   DH2 (game_number=2): ATL hits 1 triple -> AB=1, TB=3 (unused in
     #     assertions; only needs a row so the window has a "current row").
     #
     # Correctly ordered by game_number:
-    #   entering DH1 = G1 only:      TB=1, AB=1 -> SLG = 1.0
-    #   entering DH2 = G1 + DH1:     TB=1+2=3, AB=1+1=2 -> SLG = 1.5
+    #   entering DH1 = G1 only:      TB=8, AB=8 -> SLG = 1.0
+    #   entering DH2 = G1 + DH1:     TB=8+16=24, AB=8+8=16 -> SLG = 1.5
     # If ordered by insertion order instead (the bug), DH2 (lower game_id)
     # would sort before DH1 on the same date, giving the wrong pairing:
-    #   entering DH1 (buggy) = G1 + DH2 -> SLG = (1+3)/(1+1) = 2.0
+    #   entering DH1 (buggy) = G1 + DH2 -> SLG = (8+3)/(8+1) = 11/9 = 1.222
     #   entering DH2 (buggy) = G1 only  -> SLG = 1.0
     _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
@@ -316,9 +397,23 @@ def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn)
         cur.execute(
             "INSERT INTO raw.retrosheet_event "
             "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
-            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single (1/8)
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single (2/8)
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single (3/8)
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single (4/8)
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single (5/8)
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single (6/8)
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single (7/8)
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single (8/8)
             "('G1', '0', '2',  'T', 'F', 'T', '2020'), "  # NYA -- minimal
-            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double (1/8)
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double (2/8)
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double (3/8)
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double (4/8)
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double (5/8)
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double (6/8)
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double (7/8)
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double (8/8)
             "('DH1', '0', '2',  'T', 'F', 'T', '2020'), "  # NYA -- minimal
             "('DH2', '1', '22', 'T', 'F', 'T', '2020'), "  # ATL triple
             "('DH2', '0', '2',  'T', 'F', 'T', '2020')"  # NYA -- minimal

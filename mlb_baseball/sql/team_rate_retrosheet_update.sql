@@ -1,4 +1,4 @@
--- Prior rolling team OBP/SLG/ISO/BB%/K% (OFF-01/02/03). Two corrections
+-- Prior rolling team OBP/SLG/ISO/BB%%/K%% (OFF-01/02/03). Two corrections
 -- versus the earlier team_woba_retrosheet_update.sql this was originally
 -- modeled on (both found by an independent whole-branch review after the
 -- fact, ADR-061 follow-up):
@@ -63,28 +63,42 @@ rolling AS (
         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
     )
 ),
+-- Min-sample gate (ADR-062): below MIN_PA/MIN_AB plate appearances or at-
+-- bats, a rate stat is one bad-luck game away from a wildly misleading
+-- ratio (e.g. 1-for-1 reads as a 1.000 OBP) -- no gate existed anywhere in
+-- this codebase before this (mlb_baseball/model/offense.py's wOBA
+-- documents the same small-sample-noise risk in its health_check()
+-- docstring but deliberately does not filter it; this establishes the
+-- first precedent). MIN_PA=10 / MIN_AB=8 are scaled for this module's
+-- entering-value, point-in-time context -- an early-season team can
+-- easily have single-digit PA/AB entering its second or third game of a
+-- season -- not a season-total batting-title qualification threshold
+-- (e.g. 3.1 PA/team-game), which would leave most of a season NULL. PA
+-- and AB are gated independently: OBP/BB%%/K%% depend on PA, SLG/ISO depend
+-- on AB, and a team can clear one threshold while still below the other
+-- (e.g. a string of walks raises PA without touching AB). pa_sum itself
+-- is never gated -- it is exposed ungated so a consumer can see why a
+-- gated rate is NULL rather than confusing "no data yet" with "sample too
+-- small".
 rate AS (
     SELECT game_id, team_id, ab_sum, hbp_sum, sf_sum, so_sum,
         (b1_sum + b2_sum + b3_sum + hr_sum) AS hits_sum,
         (b1_sum + 2 * b2_sum + 3 * b3_sum + 4 * hr_sum) AS tb_sum,
-        (ubb_sum + ibb_sum) AS bb_sum
+        (ubb_sum + ibb_sum) AS bb_sum,
+        (ab_sum + ubb_sum + ibb_sum + sf_sum + hbp_sum) AS pa_sum
     FROM rolling
 ),
 computed AS (
-    SELECT game_id, team_id,
-        CASE WHEN (ab_sum + bb_sum + sf_sum + hbp_sum) > 0 THEN
-            (hits_sum + bb_sum + hbp_sum)::numeric / (ab_sum + bb_sum + sf_sum + hbp_sum)
+    SELECT game_id, team_id, pa_sum,
+        CASE WHEN pa_sum >= %(min_pa)s THEN
+            (hits_sum + bb_sum + hbp_sum)::numeric / NULLIF(pa_sum, 0)
         END AS obp,
-        CASE WHEN ab_sum > 0 THEN tb_sum::numeric / ab_sum END AS slg,
-        CASE WHEN ab_sum > 0 THEN
+        CASE WHEN ab_sum >= %(min_ab)s THEN tb_sum::numeric / ab_sum END AS slg,
+        CASE WHEN ab_sum >= %(min_ab)s THEN
             (tb_sum::numeric / ab_sum) - (hits_sum::numeric / ab_sum)
         END AS iso,
-        CASE WHEN (ab_sum + bb_sum + sf_sum + hbp_sum) > 0 THEN
-            bb_sum::numeric / (ab_sum + bb_sum + sf_sum + hbp_sum)
-        END AS bb_pct,
-        CASE WHEN (ab_sum + bb_sum + sf_sum + hbp_sum) > 0 THEN
-            so_sum::numeric / (ab_sum + bb_sum + sf_sum + hbp_sum)
-        END AS k_pct
+        CASE WHEN pa_sum >= %(min_pa)s THEN bb_sum::numeric / pa_sum END AS bb_pct,
+        CASE WHEN pa_sum >= %(min_pa)s THEN so_sum::numeric / pa_sum END AS k_pct
     FROM rate
 )
 UPDATE gold.game_feature f

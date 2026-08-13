@@ -35,9 +35,9 @@ def _insert_three_games(db_conn):
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
         if not cur.fetchone()[0]:
             cur.execute(
-                "CREATE TABLE raw.mlb_schedule (game_id text, game_datetime text, game_date text, "
-                "game_type text, status text, home_id text, away_id text, game_num text, venue_id text, "
-                "_season text, _loaded_at timestamptz)"
+                "CREATE TABLE raw.mlb_schedule (game_id text, game_datetime text, "
+                "game_date text, game_type text, status text, home_id text, away_id text, "
+                "game_num text, venue_id text, _season text, _loaded_at timestamptz)"
             )
         else:
             # Add missing columns if they don't exist
@@ -67,11 +67,15 @@ def _insert_three_games(db_conn):
         # Insert schedule records to trigger strict path in features.build()
         cur.execute(
             "INSERT INTO raw.mlb_schedule "
-            "(game_id, game_datetime, game_date, game_type, status, home_id, away_id, game_num, _season, _loaded_at) "
+            "(game_id, game_datetime, game_date, game_type, status, home_id, away_id, "
+            "game_num, _season, _loaded_at) "
             "VALUES "
-            "('1001', '2020-04-01T18:00:00Z', '2020-04-01', 'R', 'Final', '144', '147', '1', '2020', now()), "
-            "('1002', '2020-04-08T18:00:00Z', '2020-04-08', 'R', 'Final', '144', '147', '1', '2020', now()), "
-            "('1003', '2020-04-15T18:00:00Z', '2020-04-15', 'R', 'Final', '144', '147', '1', '2020', now())"
+            "('1001', '2020-04-01T18:00:00Z', '2020-04-01', 'R', 'Final', '144', '147', "
+            "'1', '2020', now()), "
+            "('1002', '2020-04-08T18:00:00Z', '2020-04-08', 'R', 'Final', '144', '147', "
+            "'1', '2020', now()), "
+            "('1003', '2020-04-15T18:00:00Z', '2020-04-15', 'R', 'Final', '144', '147', "
+            "'1', '2020', now())"
         )
     db_conn.commit()
 

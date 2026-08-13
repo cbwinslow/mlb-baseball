@@ -19,6 +19,16 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 
 **Revisit if:** `mlb ingest retrosheet_event --mode bootstrap` hasn't yet been re-run against production since this fix landed — the original run left `raw.retrosheet_event`/`raw.retrosheet_game` empty, and that gap isn't closed until a real bootstrap completes.
 
+## ADR-061: Team prior offense/defense uses public sabermetric formulas, not provider metrics; run environment is derived, not recomputed
+
+**Decision:** `mlb_baseball/model/team_rate.py` adds two independent enrichment steps to `gold.game_feature`: `compute()` reconstructs prior rolling team OBP/SLG/ISO/BB%/K% from `raw.retrosheet_event` (same event_cd mapping as `starter.py`/`offense.py`); `compute_run_environment()` derives prior runs-for/allowed averages purely from columns `features.build()` already sets (`home_wins`/`home_losses`/`home_runs_for`/`home_runs_allowed`), with no new raw dependency.
+
+**Context:** Plan 03G's field census and admission queue (`docs/FEATURE_ADMISSION_QUEUE.md`, OFF-01/02/03/08, DEF-01) identified these as the highest-confidence next feature family: standard, publicly-defined formulas (OBP/SLG/ISO/BB%/K% are universal sabermetric arithmetic, not a provider's proprietary weights — unlike wOBA's FanGraphs-sourced linear weights, ADR-036), strong historical Retrosheet coverage, and a run-environment half that turned out to need no new source at all once `home_runs_for`/`home_wins`/`home_losses` were confirmed already point-in-time-safe sums on the same row.
+
+**Rationale:** PA is defined here as `AB+BB+HBP+SF` (excluding sacrifice bunts and catcher's interference, which `raw.retrosheet_event`'s `ab_fl`/`sf_fl` flags don't separately expose in this codebase) — an honest, documented denominator gap rather than a silent approximation, the same posture `offense.py` already takes for its own wOBA denominator. Deriving runs-for/allowed averages from already-computed columns instead of re-querying `core.game`/`raw.retrosheet_event` avoids a second source of truth for the same underlying counts and keeps the new columns trivially cheap to compute. Neither function is wired into `run()`/`build_feature_stage()`, matching every existing sibling enrichment family (starter, bullpen, park, oaa, speed, framing, war, woba) — live-pipeline wiring remains a separate decision blocked behind Plan 01F's production cutover gate, not something this package should quietly change.
+
+**Revisit if:** a future package needs sacrifice-bunt/catcher's-interference-inclusive PA, or needs these columns inside the `game_base_v1` experiment feature set — both are real, separately-gated follow-ups per `docs/FEATURE_REGISTRY.md`'s "later feature families must be registered separately" rule, not an oversight here.
+
 ## ADR-059: `retrosheet.py`'s `schema_drift_policy="error"` and missing per-year isolation aborted a real full-history bootstrap at year 2 of 128
 
 **Decision:** `_load_zip` no longer passes `schema_drift_policy="error"` to `load_dataframe` — it now uses the function's own default (`"warn"`), same as every other Retrosheet-family connector already does. `bootstrap()` also gained a per-year `try`/`except`/`rollback`/continue around each year's load, mirroring `statcast.py`'s already-proven per-week pattern (`_load_season`).

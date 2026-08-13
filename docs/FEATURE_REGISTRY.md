@@ -21,3 +21,10 @@ columns are not experiment features.
 
 `home_win` is a completed-game label, never a training feature. The base family
 does not include pitchers, lineups, weather, markets, or pitch-level metrics.
+
+`team_prior_offense_defense_v1` (`mlb_baseball/model/team_rate.py`, ADR-061)
+adds prior rolling OBP/SLG/ISO/BB%/K% (admission queue OFF-01/02/03) and
+prior runs-for/allowed averages (OFF-08/DEF-01) as compatibility enrichment
+columns on `gold.game_feature`, the same status as the existing starter/
+bullpen/park/oaa/speed/framing/war/woba columns: not part of `game_base_v1`,
+not wired into the live pipeline yet, tested and health-checked in isolation.

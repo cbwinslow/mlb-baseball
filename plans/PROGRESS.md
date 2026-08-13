@@ -60,6 +60,19 @@ each completed plan gate.
   rehearsal did not demonstrate a material improvement sufficient to justify a
   new write cost.
 
+### Team prior offense/defense — 2026-08-12 (test database only)
+
+- `team_prior_offense_defense_v1` (`mlb_baseball/model/team_rate.py`, ADR-061)
+  adds prior rolling team OBP/SLG/ISO/BB%/K% (admission queue OFF-01/02/03)
+  and prior runs-for/allowed averages (OFF-08/DEF-01) as `gold.game_feature`
+  enrichment columns. Migration `0050` adds 14 nullable columns.
+- Hand-computed fixture tests passed for both the Retrosheet-based rate
+  stats and the derived run-environment average; health checks added and
+  wired into `mlb doctor` via `model.health_check()`.
+- Not wired into `run()`/`build_feature_stage()` or `game_base_v1` — same
+  dormant-until-wired status as every existing sibling enrichment family,
+  consistent with Plan 01F's production-cutover block.
+
 ## Plan 00A/00B — 2026-08-05
 
 ### Workspace inventory

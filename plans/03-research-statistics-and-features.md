@@ -87,6 +87,14 @@ dropped. The initial queue contains 39 research-backed, timing-aware proposals
 and recommends `team_prior_offense_defense_v1` plus `pitcher_workload_v1` as
 the next separately gated implementation package.
 
+**First implemented feature family:** `team_prior_offense_defense_v1`
+(`mlb_baseball/model/team_rate.py`, ADR-061) adds prior rolling team
+OBP/SLG/ISO/BB%/K% and prior runs-for/allowed averages as
+`gold.game_feature` enrichment columns, covering admission-queue items
+OFF-01/02/03/08 and DEF-01. Same compatibility-column status as every
+existing enrichment family: tested and health-checked in isolation, not
+wired into the live pipeline or into `game_base_v1`.
+
 ## Acceptance gate
 
 - Every feature is traceable to a registry record and canonical SQL/model.

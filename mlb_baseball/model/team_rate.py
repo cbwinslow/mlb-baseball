@@ -30,7 +30,7 @@ before their own compute_live() follow-ups landed.
 
 import psycopg
 
-from mlb_baseball.db import fetch_one
+from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.sql import read_sql
 
@@ -52,4 +52,52 @@ def compute(conn: psycopg.Connection) -> int:
 
 
 def health_check() -> list[Check]:
-    return []
+    """Bounds are mathematical ceilings (OBP/BB%/K% in [0,1]; SLG/ISO in
+    [0,4], four total bases per at-bat) except runs-for/allowed averages,
+    which use a generous [0,30] to tolerate real early-season small-sample
+    swings (same posture as offense.py's home_woba bound, which documents
+    the identical tradeoff)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT "
+            "count(*) FILTER ("
+            "  WHERE home_obp IS NOT NULL AND (home_obp < 0 OR home_obp > 1)"
+            "), "
+            "count(*) FILTER ("
+            "  WHERE home_slg IS NOT NULL AND (home_slg < 0 OR home_slg > 4)"
+            "), "
+            "count(*) FILTER ("
+            "  WHERE home_iso IS NOT NULL AND (home_iso < -1 OR home_iso > 4)"
+            "), "
+            "count(*) FILTER ("
+            "  WHERE home_bb_pct IS NOT NULL AND (home_bb_pct < 0 OR home_bb_pct > 1)"
+            "), "
+            "count(*) FILTER ("
+            "  WHERE home_k_pct IS NOT NULL AND (home_k_pct < 0 OR home_k_pct > 1)"
+            "), "
+            "count(*) FILTER ("
+            "  WHERE home_runs_for_avg IS NOT NULL "
+            "  AND (home_runs_for_avg < 0 OR home_runs_for_avg > 30)"
+            "), "
+            "count(*) FILTER ("
+            "  WHERE home_runs_allowed_avg IS NOT NULL "
+            "  AND (home_runs_allowed_avg < 0 OR home_runs_allowed_avg > 30)"
+            ") "
+            "FROM gold.game_feature"
+        )
+        bad_obp, bad_slg, bad_iso, bad_bb, bad_k, bad_rf, bad_ra = fetch_one(cur)
+
+    def _check(name: str, bad: int, bounds: str) -> Check:
+        if bad:
+            return Check(name, False, f"{bad} rows outside {bounds}")
+        return Check(name, True, f"all computed values within {bounds}")
+
+    return [
+        _check("home_obp plausible range", bad_obp, "0-1"),
+        _check("home_slg plausible range", bad_slg, "0-4"),
+        _check("home_iso plausible range", bad_iso, "-1-4"),
+        _check("home_bb_pct plausible range", bad_bb, "0-1"),
+        _check("home_k_pct plausible range", bad_k, "0-1"),
+        _check("home_runs_for_avg plausible range", bad_rf, "0-30"),
+        _check("home_runs_allowed_avg plausible range", bad_ra, "0-30"),
+    ]

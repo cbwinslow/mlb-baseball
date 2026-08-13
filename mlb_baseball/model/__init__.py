@@ -37,6 +37,7 @@ from mlb_baseball.model import (
     park,
     speed,
     starter,
+    team_rate,
     war,
 )
 
@@ -161,6 +162,7 @@ def health_check() -> list[Check]:
         + starter.health_check()
         + park.health_check()
         + offense.health_check()
+        + team_rate.health_check()
         + war.health_check()
         + bullpen.health_check()
         + oaa.health_check()

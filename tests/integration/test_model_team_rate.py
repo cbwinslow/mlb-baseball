@@ -232,3 +232,41 @@ def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
     db_conn.commit()
 
     assert team_rate.compute(db_conn) == 0
+
+
+def test_health_check_flags_an_implausible_value(db_conn):
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('G1', 2024, '2024-04-01', %s, %s, 5, 3, 'regular')",
+            (atl, nya),
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET home_obp = 5.0 "
+            "WHERE game_id = (SELECT id FROM core.game WHERE retro_game_id = 'G1')"
+        )
+    db_conn.commit()
+
+    checks = team_rate.health_check()
+    obp_check = next(c for c in checks if "obp" in c.name)
+
+    assert not obp_check.ok
+    assert "1 rows" in obp_check.detail
+
+    _reset(db_conn)

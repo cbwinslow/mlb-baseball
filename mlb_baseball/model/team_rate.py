@@ -30,6 +30,7 @@ before their own compute_live() follow-ups landed.
 
 import psycopg
 
+from mlb_baseball.db import fetch_one
 from mlb_baseball.health import Check
 from mlb_baseball.sql import read_sql
 
@@ -37,6 +38,16 @@ from mlb_baseball.sql import read_sql
 def compute_run_environment(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute(read_sql("team_run_environment_update.sql"))
+        return cur.rowcount
+
+
+def compute(conn: psycopg.Connection) -> int:
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
+        (exists,) = fetch_one(cur)
+        if not exists:
+            return 0
+        cur.execute(read_sql("team_rate_retrosheet_update.sql"))
         return cur.rowcount
 
 

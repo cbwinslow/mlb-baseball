@@ -22,6 +22,18 @@ Principle: reuse well-established, actively-used libraries for talking to each s
 
 Several MCP servers exist that wrap MLB data (`mlb-api-mcp`, `mlb-mcp`, `mcp_mlb_statsapi`) — not adopted, because they're thin wrappers around the same libraries listed above (e.g. `mlb-mcp` literally uses `pybaseball` + `MLB-StatsAPI` under the hood). No reason to add an MCP layer between our code and a library we're already depending on directly.
 
+## Database backup/restore
+
+`mlb backup`/`mlb restore` (`mlb_baseball/backup.py`) wrap PostgreSQL's own
+`pg_dump`/`psql` CLI tools — the tools every real Postgres deployment already
+trusts for this, not a reimplemented dump format. Same posture as the Chadwick
+tools above: invoked directly via `subprocess`, `mlb doctor` checks both are
+on `PATH` before a backup/restore is attempted. Install via your OS's
+PostgreSQL client package (e.g. `apt install postgresql-client` on
+Debian/Ubuntu, `brew install libpq` on macOS) if `mlb doctor` reports them
+missing. `restore` is destructive (overwrites objects in the target
+database) and requires an explicit `--yes` flag.
+
 ## Orchestration
 
 None yet. Airflow/Dagster/Prefect all require real hosting/maintenance overhead not justified for one pipeline with a handful of connectors — confirmed by research, matches the existing call in `ARCHITECTURE.md`. Revisit only when there's an actual scheduling/coordination need across many connectors.

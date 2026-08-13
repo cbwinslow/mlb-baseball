@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import cast
 
 from mlb_baseball import (
+    backup,
     config,
     conform,
     doctor,
@@ -261,6 +262,30 @@ def main(argv: list[str] | None = None) -> None:
         "id_type", choices=sorted(player.ID_COLUMNS), help="which ID system you already have"
     )
     player_id_parser.add_argument("id_value", help="the ID value to look up")
+    backup_parser = subparsers.add_parser(
+        "backup", help="dump the configured database via pg_dump (read-only)"
+    )
+    backup_parser.add_argument(
+        "--output-dir", type=Path, default=Path("backups"), help="default: ./backups"
+    )
+    backup_parser.add_argument(
+        "--schema-only", action="store_true", help="omit row data, structure only"
+    )
+    backup_parser.add_argument(
+        "--schema",
+        dest="schemas",
+        action="append",
+        help="limit to this schema (repeatable); default: the whole database",
+    )
+    restore_parser = subparsers.add_parser(
+        "restore", help="restore a pg_dump file into the configured database (DESTRUCTIVE)"
+    )
+    restore_parser.add_argument("dump_path", type=Path)
+    restore_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="required: confirms you want to overwrite the target database",
+    )
     inventory_parser.add_argument(
         "--exact", action="store_true", help="count rows exactly instead of using catalog estimates"
     )
@@ -394,6 +419,32 @@ def main(argv: list[str] | None = None) -> None:
             parser.error(str(exc))
     elif args.command == "player-id":
         player.print_crosswalk(args.id_type, args.id_value)
+    elif args.command == "backup":
+        try:
+            output_path = backup.backup(
+                config.database_url(),
+                args.output_dir,
+                schema_only=args.schema_only,
+                schemas=args.schemas,
+            )
+        except RuntimeError as exc:
+            parser.error(str(exc))
+        else:
+            print(f"Wrote {output_path}")
+    elif args.command == "restore":
+        target = backup.dbname(config.database_url())
+        if not args.yes:
+            parser.error(
+                f"refusing to restore into database {target!r} without --yes "
+                "-- this OVERWRITES existing objects in that database"
+            )
+        print(f"Restoring {args.dump_path} into database {target!r} ...")
+        try:
+            backup.restore(config.database_url(), args.dump_path, confirm=True)
+        except RuntimeError as exc:
+            parser.error(str(exc))
+        else:
+            print("Restore complete.")
     elif args.command == "features":
         for table, count in model.run_features().items():
             print(f"{table}: {count} rows")

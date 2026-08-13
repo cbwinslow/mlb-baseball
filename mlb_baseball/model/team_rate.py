@@ -26,6 +26,19 @@ Scope: the rate-stat half covers 1910-2025 only (raw.retrosheet_event's
 known range); no 2026+ raw.mlb_playbyplay equivalent is built in this
 package -- an honest, documented gap, same as starter.py/offense.py
 before their own compute_live() follow-ups landed.
+
+Verified against real data, not just the synthetic fixtures (same
+discipline as starter.py's deGrom reconciliation, ADR-034): reconstructed
+Ronald Acuna Jr.'s full real 2023 regular season directly from
+raw.retrosheet_event (bat_id='acunr001', _season='2023', gametype
+filtered to regular via raw.retrosheet_gameinfo) using this exact
+event_cd/bat_event_fl/ab_fl/sf_fl formula, and compared against his
+official MLB Stats API season line. Every value matched exactly: AB=643,
+H=217 (35 2B, 4 3B, 41 HR), BB=80 (77 UBB + 3 IBB), HBP=9, SF=3, SO=84,
+PA=735, OBP=.416, SLG=.596. This is the same per-plate-appearance
+counting logic team_game_stats/rolling apply per (team, game) instead of
+per player, so this also confirms the team-level aggregation is sound,
+not just the event-code mapping in isolation.
 """
 
 import psycopg

@@ -1,32 +1,54 @@
--- Prior rolling team OBP/SLG/ISO/BB%/K% (OFF-01/02/03), same shape as
--- team_woba_retrosheet_update.sql: SUM(...) OVER an UNBOUNDED PRECEDING
--- .. 1 PRECEDING window, so the value entering a game reflects every
--- completed game strictly before it, within the same season.
+-- Prior rolling team OBP/SLG/ISO/BB%/K% (OFF-01/02/03). Two corrections
+-- versus the earlier team_woba_retrosheet_update.sql this was originally
+-- modeled on (both found by an independent whole-branch review after the
+-- fact, ADR-061 follow-up):
+--
+-- 1. Every event_cd FILTER is gated on `bat_event_fl = 'T'`, matching
+--    team_starter_retrosheet_update.sql / team_bullpen_retrosheet_update.sql
+--    (ADR-034). bat_event_fl='T' is what actually scopes a raw.
+--    retrosheet_event row to a real plate appearance; without it, K/BB/
+--    HBP/hit counts can double-count Retrosheet's own non-batter-event
+--    artifact rows. ADR-034's own docstring (mlb_baseball/model/
+--    starter.py) documents a real deGrom-2018 reconciliation proving this
+--    guard is required, not optional -- team_woba_retrosheet_update.sql
+--    predates that finding and has the same gap, tracked separately
+--    (github.com/cbwinslow/mlb-baseball/issues/9), not fixed here.
+-- 2. The rolling window orders by `game_date, game_number NULLS LAST,
+--    game_id`, not `game_date, game_id` alone -- matching the base
+--    family's own window (mlb_baseball/sql/game_feature_rebuild.sql,
+--    migration 0046). Ordering by game_id (an insertion-order serial)
+--    made a doubleheader's prior-game order depend on load order rather
+--    than the declared game_number, a real point-in-time-safety gap for
+--    same-date games loaded out of order across separate ingestion runs.
+--
+-- SUM(...) OVER an UNBOUNDED PRECEDING .. 1 PRECEDING window: the value
+-- entering a game reflects every completed game strictly before it,
+-- within the same season.
 
 WITH regular_games AS (
-    SELECT g.id AS game_id, g.season, g.game_date, g.retro_game_id,
+    SELECT g.id AS game_id, g.season, g.game_date, g.game_number, g.retro_game_id,
         g.home_team_id, g.away_team_id
     FROM core.game g
     WHERE g.game_type = 'regular'
 ),
 team_game_stats AS (
     SELECT
-        rg.game_id, rg.season, rg.game_date,
+        rg.game_id, rg.season, rg.game_date, rg.game_number,
         CASE WHEN re.bat_home_id = '1' THEN rg.home_team_id ELSE rg.away_team_id END AS team_id,
-        count(*) FILTER (WHERE re.event_cd = '14') AS ubb,
-        count(*) FILTER (WHERE re.event_cd = '15') AS ibb,
-        count(*) FILTER (WHERE re.event_cd = '16') AS hbp,
-        count(*) FILTER (WHERE re.event_cd = '20') AS b1,
-        count(*) FILTER (WHERE re.event_cd = '21') AS b2,
-        count(*) FILTER (WHERE re.event_cd = '22') AS b3,
-        count(*) FILTER (WHERE re.event_cd = '23') AS hr,
-        count(*) FILTER (WHERE re.event_cd = '3') AS so,
+        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '14') AS ubb,
+        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '15') AS ibb,
+        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '16') AS hbp,
+        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '20') AS b1,
+        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '21') AS b2,
+        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '22') AS b3,
+        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '23') AS hr,
+        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '3') AS so,
         count(*) FILTER (WHERE re.ab_fl = 'T') AS ab,
         count(*) FILTER (WHERE re.sf_fl = 'T') AS sf
     FROM regular_games rg
     JOIN raw.retrosheet_gameinfo gi ON gi.gid = rg.retro_game_id AND lower(gi.gametype) = 'regular'
     JOIN raw.retrosheet_event re ON re.game_id = rg.retro_game_id
-    GROUP BY rg.game_id, rg.season, rg.game_date,
+    GROUP BY rg.game_id, rg.season, rg.game_date, rg.game_number,
         CASE WHEN re.bat_home_id = '1' THEN rg.home_team_id ELSE rg.away_team_id END
 ),
 rolling AS (
@@ -37,7 +59,7 @@ rolling AS (
         SUM(ab) OVER w AS ab_sum, SUM(sf) OVER w AS sf_sum
     FROM team_game_stats
     WINDOW w AS (
-        PARTITION BY team_id, season ORDER BY game_date, game_id
+        PARTITION BY team_id, season ORDER BY game_date, game_number NULLS LAST, game_id
         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
     )
 ),

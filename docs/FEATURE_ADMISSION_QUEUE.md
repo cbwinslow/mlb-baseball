@@ -1,0 +1,83 @@
+# Feature admission queue
+
+This is a governed queue, not a feature dump.  “Now” means eligible for a
+small, separately reviewed implementation package after the field census; it
+does not mean automatically approved for `game_base_v1` or production use.
+Every proposed relation must be a narrow `gold` family with an explicit grain,
+point-in-time (PIT) cutoff, source profile, formula version, null policy, and
+tests.  See [feature-admission research sources](research/feature_admission_sources.md)
+and `mlb field-census` for the evidence record.
+
+## Evidence rules
+
+- A source field is not “dropped” merely because it is absent from `core`.
+  `raw` retains source-faithful records; `core` holds canonical facts; `gold`
+  holds declared analytical products.
+- A final-season statistic is descriptive/reporting data unless rebuilt from
+  earlier completed events or retained with a historical as-of timestamp.
+- `fWAR`, `rWAR`, WARP, provider wOBA/wRC+, and provider park factors are
+  separate, versioned metrics.  A project implementation must not use a
+  provider name unless its exact formula and constants match.
+- “Coverage” below is a requirement to measure with `mlb field-census --exact`,
+  not an assumption from a source's documentation.
+
+## Ranked proposals
+
+| ID / family | Grain and formula | Required inputs / PIT rule | Null policy and coverage gate | Risk / required test | Priority / cost |
+| --- | --- | --- | --- | --- | --- |
+| OFF-01 team prior OBP | game-team; `(H+BB+HBP)/(AB+BB+HBP+SF)` | Retrosheet/API events before game cutoff | NULL below denominator/min-sample; measure historical eras | no current-game PA; hand fixture and future-event exclusion | now / low |
+| OFF-02 team prior SLG/ISO | game-team; total bases/AB; `ISO=SLG-AVG` | prior completed events | NULL below AB threshold | denominator guard and doubleheader ordering | now / low |
+| OFF-03 team prior BB%/K% | game-team; BB/PA and K/PA | prior completed events | retain PA and missing flag | event-code parity with hand-calculated fixture | now / low |
+| OFF-04 team prior BABIP | game-team; `(H-HR)/(AB-K-HR+SF)` | prior completed events | NULL for zero denominator | event-code mapping and denominator guard | later / medium |
+| OFF-05 team prior wOBA-project | game-team; frozen linear weights / wOBA denominator | prior completed events + season constants | NULL/min PA plus count | constants version, provider-name prohibition, no future PA | later / medium |
+| OFF-06 team prior wRC-project | game-team; project-owned weighted-runs estimate | OFF-05 plus frozen league constants | NULL/min PA | formula parity and park/league version test | blocked / high |
+| OFF-07 recent-minus-season offense | game-team; rolling 14/30-game rate minus expanding rate | OFF-01–05 prior values | NULL when either window lacks sample | no row's event may enter itself; boundary dates | later / low |
+| OFF-08 run environment | game-team; prior runs/game and run differential | prior completed core games | first-game NULL retained | hand window + suspended/doubleheader test | now / low |
+| DEF-01 run prevention | game-team; prior RA/game and opponent-adjusted variant | prior completed games | first-game NULL retained | distinguish pitching from defense in documentation | now / low |
+| DEF-02 play-derived defense | game-team; errors, DPs, outs converted per chance | prior completed events | NULL where chance denominator absent | event mapping + era coverage test | later / medium |
+| DEF-03 prior OAA | game-team/player-game; prior-season/rolling OAA | timestamped Statcast OAA or recomputed events | unavailable flag rather than imputation | coverage, player-team mapping, no final leaderboard leakage | blocked / high |
+| PIT-01 starter prior K-BB% | game-player/game-team; `(K-BB)/BF` | confirmed/probable starter as-of cutoff + prior appearances | NULL starter/low BF with availability flags | actual starter cannot backfill; identity/timing fixture | now / medium |
+| PIT-02 starter prior FIP-project | game-player; `(13HR+3(BB+HBP)-2K)/IP+C` | prior appearances + versioned seasonal FIP constant | NULL/min IP | constant/version and hand fixture | later / medium |
+| PIT-03 starter rest/workload | game-player; days since start, prior 7/14-day pitches/outs | starter as-of + previous completed appearances | NULL unknown starter, explicit availability flag | probable captured before cutoff; no eventual-starter join | now / medium |
+| PIT-04 bullpen fatigue | game-team; reliever pitches/outs, consecutive days, rolling workload | prior completed appearances | NULL/coverage flag for unresolved roles | timeline and doubleheader fixture | now / medium |
+| PIT-05 bullpen FIP components | game-team; weighted active/available reliever prior components | prior appearances + availability source | NULL if roster/as-of state unavailable | no current bullpen outcomes; roster timing test | later / high |
+| PIT-06 HR/FB/xFIP-project | player/team; prior fly-ball and league HR/FB baseline | event/Statcast fly-ball classification | NULL below FB threshold | source coverage and frozen baseline test | blocked / high |
+| STA-01 pitcher velocity | game-player; rolling mean/distribution by pitch type | prior Statcast pitches only | unavailable flag pre-2015 / sparse samples | source coverage, cutoff, pitch-type domain | later / medium |
+| STA-02 whiff/chase/contact | game-player matchup; rolling pitch outcomes | prior Statcast pitches | NULL/min pitches | event definition/version and no forecast-game pitches | later / high |
+| STA-03 batted-ball quality | player/team; EV, barrel%, hard-hit%, xwOBA-project | prior Statcast batted balls | unavailable coverage flag; BBE minimum | 2015/2016-era gates; output must not impersonate provider | later / high |
+| STA-04 pitch movement/mix | game-player; pitch-type share/movement/spin | prior Statcast pitches | NULL/min pitches | source-domain and change-over-time test | later / high |
+| PLN-01 probable starter state | game-side; announced starter ID/status/capture timestamp | raw probable observation <= cutoff | explicit unknown/change flag | capture timestamp and later-change regression | now / medium |
+| PLN-02 lineup availability | game-side; announced lineup and handedness aggregates | independently captured lineup <= cutoff | NULL with availability flag | actual Retrosheet lineup must be rejected | blocked / high |
+| PLN-03 platoon matchup | game-side/player-game; prior split versus starter handedness | known starter + prior PA | NULL unknown starter/low PA | split denominator and starter as-of test | later / medium |
+| PLN-04 age/experience | player-game; age on game date and prior MLB PA/IP | resolved player identity + prior games | NULL unresolved identity | date math and crosswalk coverage test | later / low |
+| CTX-01 home/away/park | game; home indicator, venue, lagged park factor | schedule/venue prior to cutoff; park factor uses prior seasons only | NULL unavailable venue/factor | neutral site, relocation, trailing window test | later / medium |
+| CTX-02 rest/travel/timezone | game-team; rest, travel distance, timezone shift | prior completed schedule + versioned venue reference | NULL first/travel-unresolved game | doubleheader/reschedule/neutral-site test | later / medium |
+| CTX-03 schedule pressure | game-team; doubleheader, series game, days in row | schedule history as known before cutoff | explicit unknown for revised schedule | postponed/suspended history test | later / low |
+| CTX-04 weather forecast | game; forecast temperature/wind/precipitation | timestamped pregame forecast | NULL if forecast absent | prohibit realized weather; source rights/timing proof | blocked / high |
+| CTX-05 umpire assignment | game; assigned umpire historical tendency | timestamped assignment + prior calls | NULL unknown assignment | prohibit eventual umpire; assignment capture test | blocked / high |
+| RAT-01 Elo difference | game; home Elo − away Elo, sequential prior results | prior completed games in stable cutoff/game-number/key order | initial rating explicit | no self-update/doubleheader ordering test | existing / low |
+| RAT-02 Log5 strength | game; Log5 from prior win rates | prior completed regular games | opening-game NULL retained | exact common-row and denominator test | existing / low |
+| INT-01 home-minus-away | game; difference of paired approved team features | only approved same-cutoff feature family | NULL if either side unavailable | algebra parity and no fanout | later / low |
+| INT-02 recent-minus-long | game-side; rolling rate − expanding rate | approved prior rates | NULL/min sample flags | window boundary/no future data | later / low |
+| INT-03 starter × platoon | game-side; starter handedness × opponent prior split | PIT starter + PIT split | NULL any unknown component | no realized starter/lineup leakage | later / medium |
+| INT-04 park × batted ball | game-side; lagged park factor × prior EV/barrel profile | PIT park and Statcast families | NULL if either coverage unavailable | era/coverage and interaction registry test | blocked / high |
+| REP-01 provider WAR | player/team season value from BRef/FanGraphs | final-season provider rows | reporting only | reject as current-season pregame feature | reject / none |
+| REP-02 final provider wRC+/wOBA | player/team final-season leaderboard | final-season provider rows | reporting only | reject unless historical as-of reconstruction exists | reject / none |
+| LIVE-01 WPA/RE24/in-game odds | play/game snapshot | values after first-pitch cutoff | separate live model only | reject for pregame game-win target | reject / none |
+
+## Recommended next implementation package
+
+Implement **two and only two** narrow families next:
+
+1. `team_prior_offense_defense_v1`: prior completed-game team OBP/SLG/ISO,
+   BB%, K%, runs scored/allowed, and denominator/count fields.  It has a clear
+   formula, strong historical Retrosheet path, no need for external provider
+   leaderboards, and direct incremental value beyond wins/losses.
+2. `pitcher_workload_v1`: captured probable-starter availability plus prior
+   completed starter and bullpen rest/workload counts.  It is baseball-relevant
+   and research-supported, but must explicitly retain unknown/changed-starter
+   flags and cannot backfill actual starters.
+
+Defer provider WAR/wRC+, actual lineups, realized weather/umpires, settled
+markets, full Statcast families, and broad interaction searches.  Their timing,
+coverage, identity, rights, or formula-version contracts are not yet proven.

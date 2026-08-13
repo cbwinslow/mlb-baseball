@@ -94,6 +94,9 @@ and pitch number is not enough to make a permanent constraint.
 
 - Keep `raw`, `core`, `gold`, and `meta` names. Add narrow `gold` statistic or
   feature families rather than more sparse columns to `gold.game_feature`.
+- `mlb field-census` is the read-only evidence path for raw-to-core-to-gold
+  field flow. It classifies fields, but it never promotes a raw field; a new
+  canonical or gold destination needs its own documented contract and tests.
 - A misleading metric rename (including FIP presented as ERA) requires a
   numbered migration, compatibility period, consumer migration, and removal
   decision. It is never an unannounced column rename.

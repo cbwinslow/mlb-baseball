@@ -4,6 +4,11 @@ This registry records the first reusable feature family. It is intentionally
 narrow: later feature families must be registered separately rather than being
 silently added to `gold.game_feature`.
 
+The read-only [`mlb field-census`](RAW_CORE_GOLD_FIELD_CENSUS.md) and
+[feature-admission queue](FEATURE_ADMISSION_QUEUE.md) are the gate before a
+new family enters this registry. A landed raw value is not a feature merely
+because it is populated; it needs an explicit point-in-time contract.
+
 | Family / version | Grain and key | Availability and formula | Null policy | Tests / source lineage |
 | --- | --- | --- | --- | --- |
 | `game_base_v1` | One completed or scheduled regular-season MLB game; `mlb_game_pk` is unique, with `core.game.id` populated for completed games | `feature_cutoff_at` is `raw.mlb_schedule.game_datetime`. Team record, win rate, runs for/against, and rest use only completed regular games ordered before cutoff, then game number, then key. `home_field` is true by definition for the home-side columns. | First tracked game has NULL record/runs/rest; scheduled games have NULL label; unavailable venue remains NULL. Missing MLB key or cutoff excludes a row. | `tests/integration/test_game_feature_contract.py`; official MLB schedule payload retained in `raw.mlb_schedule`; contract in `TABLE_CONTRACTS.md`. |

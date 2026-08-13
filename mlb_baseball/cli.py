@@ -47,12 +47,14 @@ import argparse
 import concurrent.futures
 import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import cast
 
 from mlb_baseball import (
     config,
     conform,
     doctor,
+    field_census,
     ingest,
     inventory,
     migrate,
@@ -241,6 +243,16 @@ def main(argv: list[str] | None = None) -> None:
     schema_parser.add_argument(
         "--partitions", action="store_true", help="include physical child partitions"
     )
+    census_parser = subparsers.add_parser(
+        "field-census", help="read-only raw-to-core-to-gold field lineage inventory"
+    )
+    census_parser.add_argument(
+        "--exact",
+        action="store_true",
+        help="use exact raw relation counts instead of catalog estimates",
+    )
+    census_parser.add_argument("--output-json", type=Path)
+    census_parser.add_argument("--output-markdown", type=Path)
     inventory_parser.add_argument(
         "--exact", action="store_true", help="count rows exactly instead of using catalog estimates"
     )
@@ -363,6 +375,15 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{table}: {count} rows")
     elif args.command == "schema":
         schema_inventory.print_report(partitions=args.partitions)
+    elif args.command == "field-census":
+        try:
+            field_census.print_report(
+                exact=args.exact,
+                output_json=args.output_json,
+                output_markdown=args.output_markdown,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
     elif args.command == "features":
         for table, count in model.run_features().items():
             print(f"{table}: {count} rows")

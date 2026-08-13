@@ -80,6 +80,13 @@ source-faithful, `core` stays canonical, and model inputs are named `gold`
 families. Publish the census and admission queue before implementing the next
 feature family.
 
+**Implemented first slice:** `mlb field-census` is a repeatable-read,
+read-only raw metadata/coverage inventory with deterministic JSON and Markdown
+outputs. It classifies raw fields without pretending raw-only records were
+dropped. The initial queue contains 39 research-backed, timing-aware proposals
+and recommends `team_prior_offense_defense_v1` plus `pitcher_workload_v1` as
+the next separately gated implementation package.
+
 ## Acceptance gate
 
 - Every feature is traceable to a registry record and canonical SQL/model.

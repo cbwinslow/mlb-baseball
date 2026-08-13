@@ -11,6 +11,7 @@ uv run mlb audit
 uv run mlb audit --scope database
 uv run mlb audit --scope statcast
 uv run mlb schema
+uv run mlb field-census --exact --output-json artifacts/census/mlb_test.json --output-markdown artifacts/census/mlb_test.md
 ```
 
 - `game` is the default. It checks required schedule IDs, schedule-history
@@ -40,6 +41,13 @@ truncate, or rebuild data.
 the live table/view shape, parent partition, column and nullable-column counts,
 and primary/unique/foreign/check constraint plus index counts. Use
 `mlb schema --partitions` for the complete physical partition list.
+
+`mlb field-census` is the companion evidence command for proposed feature work.
+It is read-only and labels source fields as canonical, existing derived data,
+raw-only-by-design, invalid/deprecated, or research candidates. `--exact`
+measures field null/distinct/season evidence and is intentionally more expensive
+than catalog estimates. It never promotes fields; use the admission queue and
+the [field census runbook](RAW_CORE_GOLD_FIELD_CENSUS.md) before a new family.
 
 ## Reading results
 

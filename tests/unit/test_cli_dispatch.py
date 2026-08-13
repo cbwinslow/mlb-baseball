@@ -5,7 +5,7 @@ import time
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
-from mlb_baseball import audit, cli, model, progress_table, report
+from mlb_baseball import audit, cli, field_census, model, progress_table, report
 from mlb_baseball.model import experiment
 from mlb_baseball.source_profiles import SourceProfileError, require_sources
 
@@ -166,6 +166,19 @@ def test_metrics_command_passes_source_and_window(monkeypatch):
     cli.main(["metrics", "--source", "mlb_api", "--window-minutes", "10"])
 
     assert captured == {"source": "mlb_api", "window": 10}
+
+
+def test_field_census_command_is_read_only_dispatch(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        field_census,
+        "print_report",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    cli.main(["field-census", "--exact"])
+
+    assert captured == {"exact": True, "output_json": None, "output_markdown": None}
 
 
 def test_audit_command_passes_scope_and_exits_cleanly(monkeypatch):

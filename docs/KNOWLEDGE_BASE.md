@@ -71,6 +71,37 @@ design into this repository.
   source value was available at that exact time. Weather, lineups, markets,
   and live fields remain outside the first base family.
 
+## Feature-admission evidence
+
+### Provider metrics versus entering-game inputs
+
+- **Question:** Can published WAR, wOBA, wRC+, Statcast leaderboards, or actual
+  lineups be copied directly into a pregame game-win model?
+- **Sources:** [FanGraphs WAR methodology](https://library.fangraphs.com/misc/war/),
+  [linear weights](https://library.fangraphs.com/principles/linear-weights/),
+  [FIP definition](https://library.fangraphs.com/pitching/fip/),
+  [MLB Statcast glossary](https://www.mlb.com/glossary/statcast), and
+  [Retrosheet event-file specification](https://www.retrosheet.org/eventfile.htm),
+  accessed 2026-08-12.
+- **Local evidence:** The production read-only census found 138 raw relations
+  and 3,545 fields. It confirmed 16,465,588 Retrosheet events across 205,890
+  games; 13,400,779 Statcast pitches from 2008–2026; 239,364 schedule
+  observations with no missing scheduled start time; and only 128 retained
+  probable-pitcher observations for 77 games, captured 2026-08-09 through
+  2026-08-12. Provider aggregates have materially different coverage: OAA
+  begins 2016, sprint speed/framing begin 2015, and Baseball-Reference batting
+  begins 2008. These values are evidence of coverage, not evidence that every
+  provider value was available before a historical game.
+- **Decision:** Treat provider metrics as provider/version-specific descriptive
+  or reporting data unless rebuilt from earlier completed events or retained
+  with a pregame publication timestamp. Actual Retrosheet lineups/weather and
+  final-season WAR/wRC+/wOBA cannot become pregame features by a convenient
+  join. The first candidate implementations are project-computable prior-game
+  team offense/defense and captured starter/bullpen workload.
+- **Implementation status:** Admission queue only; no new feature family is
+  approved by this entry. See [feature-admission sources](research/feature_admission_sources.md)
+  and [feature-admission queue](FEATURE_ADMISSION_QUEUE.md).
+
 ### Retrosheet supplemental team identities
 
 - **Question:** How should historical Negro League and newly assigned

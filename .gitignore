@@ -15,6 +15,13 @@ downloads/
 /models/
 .claude/
 
+# Real pg_dump output (mlb_baseball/backup.py) -- can be tens of GB against
+# production; never belongs in git. The one pre-existing small schema-only
+# snapshot already tracked (backups/mlb_schema_20260807.sql) is left as-is,
+# not retroactively removed from history.
+/backups/*.sql
+!/backups/mlb_schema_20260807.sql
+
 # SQLMesh spike (transforms/) -- local cache/run artifacts, not project state.
 transforms/.cache/
 transforms/logs/

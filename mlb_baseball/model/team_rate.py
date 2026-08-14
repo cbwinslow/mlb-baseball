@@ -98,42 +98,7 @@ def health_check() -> list[Check]:
     test_model_team_rate.py -- this would catch the gate silently ceasing
     to apply (e.g. a future refactor reintroducing a bare `> 0` guard)."""
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT "
-            "count(*) FILTER ("
-            "  WHERE home_obp IS NOT NULL AND (home_obp < 0 OR home_obp > 1)"
-            "), "
-            "count(*) FILTER ("
-            "  WHERE home_slg IS NOT NULL AND (home_slg < 0 OR home_slg > 4)"
-            "), "
-            "count(*) FILTER ("
-            "  WHERE home_iso IS NOT NULL AND (home_iso < 0 OR home_iso > 3)"
-            "), "
-            "count(*) FILTER ("
-            "  WHERE home_babip IS NOT NULL AND (home_babip < 0 OR home_babip > 1)"
-            "), "
-            "count(*) FILTER ("
-            "  WHERE home_bb_pct IS NOT NULL AND (home_bb_pct < 0 OR home_bb_pct > 1)"
-            "), "
-            "count(*) FILTER ("
-            "  WHERE home_k_pct IS NOT NULL AND (home_k_pct < 0 OR home_k_pct > 1)"
-            "), "
-            "count(*) FILTER ("
-            "  WHERE home_runs_for_avg IS NOT NULL "
-            "  AND (home_runs_for_avg < 0 OR home_runs_for_avg > 30)"
-            "), "
-            "count(*) FILTER ("
-            "  WHERE home_runs_allowed_avg IS NOT NULL "
-            "  AND (home_runs_allowed_avg < 0 OR home_runs_allowed_avg > 30)"
-            "), "
-            "count(*) FILTER ("
-            "  WHERE home_obp IS NOT NULL AND (home_pa IS NULL OR home_pa < 10)"
-            "), "
-            "count(*) FILTER ("
-            "  WHERE home_pa IS NOT NULL AND home_pa < 0"
-            ") "
-            "FROM gold.game_feature"
-        )
+        cur.execute(read_sql("team_rate_health_check.sql"), {"min_pa": MIN_PA})
         bad_obp, bad_slg, bad_iso, bad_babip, bad_bb, bad_k, bad_rf, bad_ra, bad_gate, bad_pa = (
             fetch_one(cur)
         )
@@ -155,4 +120,5 @@ def health_check() -> list[Check]:
         _check("home_obp min-sample gate holds", bad_gate, "home_pa >= 10"),
         _check("home_pa plausible range", bad_pa, "0+"),
     ]
+
 

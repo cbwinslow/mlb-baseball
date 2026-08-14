@@ -2,6 +2,17 @@
 
 This project was rebuilt from scratch after the original (Gemini-built) version accumulated bugs and inconsistent code quality. The rules below exist to prevent a repeat. Read [AGENTS.md](AGENTS.md), [docs/NORTH_STAR.md](docs/NORTH_STAR.md), and [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) before making changes.
 
+## Database names — golden rule
+
+There are exactly two Postgres databases for this project, and their names are fixed, always:
+
+- **`mlb`** — the real, production database. Real ingested data lives here. A destructive command against it is real and, without a backup, unrecoverable.
+- **`mlb_test`** — the disposable integration-test database. Tests are free to truncate, drop, and recreate anything in it, any time.
+
+Never conflate the two — not in code, not in scripts, not in an ad-hoc shell command, not in conversation. `TEST_DATABASE_URL` always means `mlb_test` and nothing else; `tests/conftest.py::_assert_test_database_url` hard-fails the entire suite if it doesn't — that guard is why the dangerous direction (a test run touching real data) already can't happen by accident. Don't weaken or remove it. `DATABASE_URL` means "whichever database this process should act on" — production by default, or `mlb_test` only for the duration of a pytest run, which `tests/conftest.py` points it at deliberately and temporarily.
+
+Before running anything destructive (`DROP`, `TRUNCATE`, `DELETE`, `pg_restore`, `mlb restore`, a migration) — including one-off scratch commands, not just committed code — say out loud, in the command itself or in a message to the owner, which database it targets. If a command's target database isn't obvious at a glance, that's a sign to make it explicit before running it, not after.
+
 ## Talking to the owner
 
 Explain things in plain, simple language — no heavy technical jargon, no dense paragraphs. Short sentences. If something needs a technical detail, give the plain-English version first and only add the technical term if it's actually needed. Give a direct bottom line before the supporting detail, not after it.

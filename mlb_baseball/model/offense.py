@@ -175,8 +175,7 @@ def compute_wrc_plus_live(conn: psycopg.Connection) -> int:
 
 
 def health_check() -> list[Check]:
-    """Bounds calibrated against gold.game_feature's actual real values,
-    not guessed -- home_woba holds a per-game ENTERING value, which for
+    """Bounds are broad because gold.game_feature is per-game, so
     an early-season game can reflect just 1-3 real games (legitimate
     small-sample noise, the same reason home_win_pct can be exactly 1.0
     early in a season), not a full-season average. Confirmed directly:
@@ -188,16 +187,7 @@ def health_check() -> list[Check]:
     sample sensitivity since it's already relative to the same-sized
     league-wide sample."""
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT "
-            "count(*) FILTER ("
-            "  WHERE home_woba IS NOT NULL AND (home_woba < 0.05 OR home_woba > 0.65)"
-            "), "
-            "count(*) FILTER ("
-            "  WHERE home_wrc_plus IS NOT NULL AND (home_wrc_plus < 20 OR home_wrc_plus > 250)"
-            ") "
-            "FROM gold.game_feature"
-        )
+        cur.execute(read_sql("offense_health_check.sql"))
         bad_woba, bad_wrc = fetch_one(cur)
 
     def _check(name: str, bad: int, bounds: str) -> Check:

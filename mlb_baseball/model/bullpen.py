@@ -121,50 +121,6 @@ def compute_upcoming(conn: psycopg.Connection) -> int:
         return cur.rowcount
 
 
-# Shared by health_check()'s upcoming-coverage check below (ADR-051) --
-# one row per (upcoming game, side), with the feature table's own
-# resolved home/away_bullpen_fip attached per side. No core.player
-# crosswalk involved anywhere here (unlike starter.py's own analogous
-# check, see issue #5) -- bullpen identity is team_id straight from
-# gold.game_feature, so that whole bug class doesn't apply to this check.
-_UPCOMING_COVERAGE_CTE = """
-WITH sided AS (
-    SELECT f.id, f.game_date, f.home_team_id AS team_id, f.home_bullpen_fip AS resolved_fip
-    FROM gold.game_feature f
-    WHERE f.home_win IS NULL AND f.mlb_game_pk IS NOT NULL
-    UNION ALL
-    SELECT f.id, f.game_date, f.away_team_id, f.away_bullpen_fip
-    FROM gold.game_feature f
-    WHERE f.home_win IS NULL AND f.mlb_game_pk IS NOT NULL
-)
-"""
-
-_UPCOMING_ACTUAL_SQL = (
-    _UPCOMING_COVERAGE_CTE + "SELECT count(*) FROM sided WHERE resolved_fip IS NOT NULL"
-)
-
-# "Expected" here means "this team has at least one qualifying prior 2026
-# relief appearance to roll up" -- same tolerance reasoning as starter.py's
-# own probable-coverage check (ADR-048): a team's only qualifying prior
-# game(s) can legitimately have zero relief outs recorded (e.g. a
-# complete-game shutout), which correctly leaves fip NULL despite "having
-# a game" by this check's own EXISTS test -- a real, understood edge case,
-# not a bug to chase to zero.
-_UPCOMING_EXPECTED_SQL = (
-    _UPCOMING_COVERAGE_CTE
-    + """
-    SELECT count(*) FROM sided s
-    WHERE EXISTS (
-        SELECT 1 FROM core.game g
-        JOIN raw.mlb_playbyplay pbp ON pbp.game_pk = g.game_pk
-        WHERE g.game_type = 'regular' AND g.game_pk IS NOT NULL
-            AND g.game_date < s.game_date
-            AND (g.home_team_id = s.team_id OR g.away_team_id = s.team_id)
-    )
-    """
-)
-
-
 def health_check() -> list[Check]:
     """Internal consistency, not an external reconciliation: raw.
     bref_pitching has no team-season total rows to compare against (it's
@@ -183,58 +139,14 @@ def health_check() -> list[Check]:
     return [
         check_totals_reconcile(
             "bullpen/starter split: relief + starter outs vs team's total outs pitched",
-            """
-            WITH regular_games AS (
-                SELECT g.id AS game_id, g.retro_game_id, g.home_team_id, g.away_team_id
-                FROM core.game g WHERE g.game_type = 'regular'
-            ),
-            starters AS (
-                SELECT rg.game_id,
-                    max(re.resp_pit_id) FILTER (WHERE re.bat_home_id = '0') AS home_sp,
-                    max(re.resp_pit_id) FILTER (WHERE re.bat_home_id = '1') AS away_sp
-                FROM regular_games rg
-                JOIN raw.retrosheet_gameinfo gi
-                    ON gi.gid = rg.retro_game_id AND lower(gi.gametype) = 'regular'
-                JOIN raw.retrosheet_event re ON re.game_id = rg.retro_game_id
-                WHERE re.resp_pit_start_fl = 'T'
-                GROUP BY rg.game_id
-            ),
-            team_pitcher_outs AS (
-                SELECT rg.game_id,
-                    CASE WHEN re.bat_home_id = '0'
-                        THEN rg.home_team_id ELSE rg.away_team_id END AS team_id,
-                    re.resp_pit_id AS pitcher_retro_id,
-                    sum(re.event_outs_ct::numeric) AS outs
-                FROM regular_games rg
-                JOIN raw.retrosheet_gameinfo gi
-                    ON gi.gid = rg.retro_game_id AND lower(gi.gametype) = 'regular'
-                JOIN raw.retrosheet_event re ON re.game_id = rg.retro_game_id
-                GROUP BY rg.game_id, rg.home_team_id, rg.away_team_id,
-                    re.bat_home_id, re.resp_pit_id
-            ),
-            per_team_game AS (
-                SELECT tpo.game_id, tpo.team_id, sum(tpo.outs) AS total_outs,
-                    sum(tpo.outs) FILTER (WHERE tpo.pitcher_retro_id = CASE
-                        WHEN tpo.team_id = rg.home_team_id THEN s.home_sp ELSE s.away_sp END
-                    ) AS starter_outs,
-                    sum(tpo.outs) FILTER (WHERE tpo.pitcher_retro_id IS DISTINCT FROM CASE
-                        WHEN tpo.team_id = rg.home_team_id THEN s.home_sp ELSE s.away_sp END
-                    ) AS relief_outs
-                FROM team_pitcher_outs tpo
-                JOIN regular_games rg ON rg.game_id = tpo.game_id
-                JOIN starters s ON s.game_id = tpo.game_id
-                GROUP BY tpo.game_id, tpo.team_id
-            )
-            SELECT game_id || '-' || team_id, total_outs,
-                COALESCE(starter_outs, 0) + COALESCE(relief_outs, 0)
-            FROM per_team_game
-            """,
+            read_sql("bullpen_outs_reconcile.sql"),
             tolerance=0,
         ),
         check_join_coverage(
             "upcoming games get a resolved bullpen feature",
-            _UPCOMING_ACTUAL_SQL,
-            _UPCOMING_EXPECTED_SQL,
+            read_sql("bullpen_upcoming_actual.sql"),
+            read_sql("bullpen_upcoming_expected.sql"),
             tolerance=5,
         ),
     ]
+

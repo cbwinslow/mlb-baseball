@@ -151,8 +151,19 @@ def _ensure_retrosheet_tables(db_conn):
             )
         cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
         if not cur.fetchone()[0]:
-            cur.execute("CREATE TABLE raw.retrosheet_gameinfo (gid text, gametype text)")
+            cur.execute(
+                "CREATE TABLE raw.retrosheet_gameinfo ("
+                "gid text, gametype text, visteam text, hometeam text, _season text)"
+            )
+        else:
+            cur.execute(
+                "ALTER TABLE raw.retrosheet_gameinfo "
+                "ADD COLUMN IF NOT EXISTS visteam text, "
+                "ADD COLUMN IF NOT EXISTS hometeam text, "
+                "ADD COLUMN IF NOT EXISTS _season text"
+            )
     db_conn.commit()
+
 
 
 def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):

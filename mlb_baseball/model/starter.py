@@ -162,67 +162,6 @@ def compute_probable(conn: psycopg.Connection) -> int:
         return cur.rowcount
 
 
-# Shared by health_check()'s probable-pitcher coverage check below: one row
-# per (upcoming game, side-with-an-announced-probable), with the feature
-# table's own resolved era value attached per side.
-_PROBABLE_COVERAGE_CTE = """
-WITH latest_probable AS (
-    SELECT DISTINCT ON (game_pk, side) game_pk, side, pitcher_id
-    FROM raw.mlb_probable
-    WHERE pitcher_id IS NOT NULL
-    ORDER BY game_pk, side, _loaded_at DESC
-),
-sided AS (
-    SELECT f.id, f.game_date, lp.pitcher_id,
-        CASE WHEN lp.side = 'home' THEN f.home_starter_era ELSE f.away_starter_era END
-            AS resolved_era
-    FROM gold.game_feature f
-    JOIN latest_probable lp ON lp.game_pk = f.mlb_game_pk
-    WHERE f.home_win IS NULL
-)
-"""
-
-_PROBABLE_ACTUAL_SQL = (
-    _PROBABLE_COVERAGE_CTE + "SELECT count(*) FROM sided WHERE resolved_era IS NOT NULL"
-)
-
-# "Expected" here means "this pitcher has at least one qualifying prior
-# appearance to compute a rate from" -- a debut call-up with zero prior
-# raw.mlb_playbyplay history correctly stays NULL (see home_quality/
-# away_quality above), so counting every announced probable as "should
-# resolve" regardless would make this check permanently, falsely red.
-#
-# Real bug found via mlb doctor (issue #5): this used to additionally
-# require a core.player row (JOIN core.player p ON pbp.pitcher_id =
-# p.mlbam_id) before counting a pitcher as "has qualifying history" -- but
-# home_quality/away_quality above never go through core.player at all to
-# compute fip/k_pct/etc., they match raw.mlb_probable.pitcher_id straight
-# to raw.mlb_playbyplay.pitcher_id (both already mlbam-style numeric ids,
-# no crosswalk needed). That extra join meant a pitcher new enough to have
-# prior 2026 starts but not yet in core.player (e.g. the register/Chadwick
-# crosswalk hasn't caught up to a very recent debut) resolved a real,
-# correct fip that this check then couldn't explain -- confirmed directly
-# in production: 5 rows had resolved_era set with no matching core.player
-# row at all (5/5 confirmed absent), producing "62 > expected 57" (doctor's
-# check_join_coverage flags any over-count as a bug, matching this exactly).
-# Also added ms.game_type = 'R' to mirror play_outs' own filter above --
-# without it, a pitcher whose only prior appearance was spring
-# training/exhibition would count as "expected" here despite play_outs
-# never having a qualifying row for them either.
-_PROBABLE_EXPECTED_SQL = (
-    _PROBABLE_COVERAGE_CTE
-    + """
-    SELECT count(*) FROM sided s
-    WHERE EXISTS (
-        SELECT 1 FROM raw.mlb_playbyplay pbp
-        JOIN raw.mlb_schedule ms ON ms.game_id = pbp.game_pk
-            AND ms.game_date::date < s.game_date AND ms.game_type = 'R'
-        WHERE pbp.pitcher_id = s.pitcher_id
-    )
-    """
-)
-
-
 def health_check() -> list[Check]:
     """Reconciles this module's own computed season totals (summed across
     a pitcher's starts, using the same raw.retrosheet_event/gameinfo
@@ -259,65 +198,22 @@ def health_check() -> list[Check]:
     return [
         check_totals_reconcile(
             "starter reconstruction: strikeouts vs bref_pitching",
-            """
-            WITH mine AS (
-                SELECT p.mlbam_id, re._season,
-                    count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '3') AS k
-                FROM raw.retrosheet_event re
-                JOIN raw.retrosheet_gameinfo gi
-                    ON gi.gid = re.game_id AND lower(gi.gametype) = 'regular'
-                JOIN core.player p ON p.retro_id = re.resp_pit_id
-                WHERE p.mlbam_id IS NOT NULL
-                GROUP BY p.mlbam_id, re._season
-            )
-            SELECT m.mlbam_id || '-' || m._season, m.k, bp.so::integer
-            FROM mine m
-            JOIN raw.bref_pitching bp ON bp.mlbid = m.mlbam_id AND bp._season = m._season
-            WHERE bp.so ~ '^[0-9]+$'
-            """,
+            read_sql("starter_strikeouts_reconcile.sql"),
             tolerance=5,
             max_mismatch_rate=0.02,
         ),
         check_totals_reconcile(
             "starter reconstruction: outs vs bref_pitching "
             "(small tolerance -- see module docstring)",
-            """
-            WITH mine AS (
-                SELECT p.mlbam_id, re._season, sum(re.event_outs_ct::numeric) AS outs
-                FROM raw.retrosheet_event re
-                JOIN raw.retrosheet_gameinfo gi
-                    ON gi.gid = re.game_id AND lower(gi.gametype) = 'regular'
-                JOIN core.player p ON p.retro_id = re.resp_pit_id
-                WHERE p.mlbam_id IS NOT NULL
-                GROUP BY p.mlbam_id, re._season
-            )
-            -- bp.ip is baseball notation ("217.2" = 217 innings + 2 outs,
-            -- NOT decimal 217.2) -- split_part on '.' and treat the
-            -- fractional part as a literal out count, not a fraction.
-            SELECT m.mlbam_id || '-' || m._season, m.outs,
-                split_part(bp.ip, '.', 1)::numeric * 3
-                    + COALESCE(NULLIF(split_part(bp.ip, '.', 2), ''), '0')::numeric
-            FROM mine m
-            JOIN raw.bref_pitching bp ON bp.mlbid = m.mlbam_id AND bp._season = m._season
-            WHERE bp.ip ~ '^[0-9]+\\.?[0-9]*$'
-            """,
+            read_sql("starter_outs_reconcile.sql"),
             tolerance=18,
             max_mismatch_rate=0.02,
         ),
-        # ADR-048: an upcoming game with an announced probable pitcher
-        # should get a non-NULL starter feature whenever that pitcher has
-        # some real prior 2026 history to compute one from -- otherwise
-        # compute_probable() silently isn't running, or a real join is
-        # broken (e.g. the core.player.mlbam_id crosswalk). A small
-        # tolerance, not 0: a pitcher can have prior appearances with zero
-        # outs recorded (e.g. immediately removed from a rain-shortened
-        # game) which legitimately leaves fip NULL despite "having
-        # history" by this check's own EXISTS test -- a real, understood
-        # edge case, not a bug to chase to zero.
         check_join_coverage(
             "upcoming games with an announced probable get a resolved starter feature",
-            _PROBABLE_ACTUAL_SQL,
-            _PROBABLE_EXPECTED_SQL,
+            read_sql("starter_probable_actual.sql"),
+            read_sql("starter_probable_expected.sql"),
             tolerance=5,
         ),
     ]
+

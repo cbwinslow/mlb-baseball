@@ -22,6 +22,12 @@ each completed plan gate.
 - **Next package:** feature-family rehearsal, measured workload evidence, and
   production-safe recommendation; no production write is authorized.
 
+### Developer environment & linting posture — 2026-08-14
+
+- Added complete portable `.devcontainer` configuration (`devcontainer.json`, `docker-compose.yml`, `Dockerfile`, and `post-create.sh`) supporting VS Code and GitHub Codespaces with Python 3.11, PostgreSQL 16 (`pg_stat_statements` enabled), and Chadwick C-tools (`cwevent`, `cwgame`, `cwbox`) built from source.
+- Added `.pre-commit-config.yaml` to enforce Ruff formatting/linting, mypy static typing, and SQLFluff validation on local commits.
+- Verified test suite baseline: 289 unit tests passing in 3.35s; Ruff, SQLFluff, and mypy checks clean.
+
 ### Experiment-lab rehearsal — 2026-08-12 (test database only)
 
 - Migration 0047 adds content-addressed `game_base_v1` snapshots, declared

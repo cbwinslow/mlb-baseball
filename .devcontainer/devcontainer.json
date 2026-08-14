@@ -1,0 +1,38 @@
+{
+  "name": "MLB Baseball Research Platform",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-python.mypy-type-checker",
+        "sqlfluff.vscode-sqlfluff",
+        "toby-m.sqlmesh",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-pg"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+          }
+        },
+        "[sql]": {
+          "editor.defaultFormatter": "sqlfluff.vscode-sqlfluff",
+          "editor.formatOnSave": true
+        },
+        "sqlfluff.config": "/workspace/.sqlfluff"
+      }
+    }
+  },
+  "postCreateCommand": "chmod +x .devcontainer/post-create.sh && .devcontainer/post-create.sh",
+  "remoteUser": "root"
+}

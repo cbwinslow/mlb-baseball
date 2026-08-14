@@ -5,6 +5,16 @@
 # (CLAUDE.md / README "Testing"). The Chadwick CLI tools (cwevent/cwgame/cwbox)
 # are built from source so the retrosheet_event/retrosheet_box tests actually
 # run instead of skipping — the build is ~a minute and cached by release tag.
+#
+# Uses `uv sync --frozen` + `uv run` throughout, not pip, per the committed
+# uv.lock and docs/PROJECT_REVIEW.md's "standardize uv sync/uv run as the
+# only documented local and CI path" recommendation -- also a hard
+# requirement now, not just a style preference: the integration suite
+# includes a real subprocess call to `uv run` (test_sqlmesh_candidate_gate.py,
+# the Plan 02 SQLMesh parity gate), so `uv` must be on PATH for tests to pass
+# at all. Its earlier absence from this file is why CI was silently red on
+# every push from 2026-08-07 through 2026-08-13 (27 commits) -- one test
+# failing with "FileNotFoundError: 'uv'", unnoticed the whole time.
 
 name: ci
 
@@ -42,22 +52,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.11"
-          cache: pip
+          enable-cache: true
 
       - name: Install package with dev dependencies
-        run: pip install -e ".[dev]"
+        run: uv sync --frozen --extra dev
 
       - name: Lint (ruff)
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Lint (sqlfluff, mlb_baseball/sql/)
-        run: sqlfluff lint mlb_baseball/sql/
+        run: uv run sqlfluff lint mlb_baseball/sql/
 
       - name: Type-check (mypy)
-        run: mypy
+        run: uv run mypy
 
       - name: Enable pg_stat_statements in the Postgres service
         run: |
@@ -93,4 +103,4 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mlb_test
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mlb_test
-        run: pytest -q
+        run: uv run pytest -q

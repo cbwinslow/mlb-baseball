@@ -1695,11 +1695,27 @@ def health_check() -> list[Check]:
         # (raw.lahman_teams, joined via retro_team_id — a completely
         # separate raw table from anything conform.py otherwise builds
         # from). tolerance=3 calibrated directly against real production
-        # data: ~2,753 team-seasons checked, the largest genuine mismatch
-        # found was exactly 3 (1951/1962's famous NL pennant-tiebreaker
-        # playoffs — Lahman's official standings count those games,
-        # Retrosheet classifies them game_type='playoff', both correct in
-        # their own convention, not a bug).
+        # data: ~2,753 AL/NL team-seasons checked, the largest genuine
+        # mismatch found was exactly 3 (1951/1962's famous NL pennant-
+        # tiebreaker playoffs — Lahman's official standings count those
+        # games, Retrosheet classifies them game_type='playoff', both
+        # correct in their own convention, not a bug).
+        #
+        # Filtered to Lahman's own lgid IN ('AL', 'NL'), matching the team-
+        # count check right below (added 2026-08-14, found via `mlb doctor`
+        # while validating the production enrichment rollout: this check
+        # was originally calibrated before core.game's real, extensive
+        # Negro League coverage was reconciled here, and was missing the
+        # filter its sibling check already documents needing -- without
+        # it, this joins core.game's Retrosheet-sourced Negro League win
+        # counts against raw.lahman_teams' OWN, separately and incompletely
+        # compiled Negro League win totals (e.g. CAG-1920: Lahman's own row
+        # says lgid='NNL', w=45; core.game's Retrosheet-sourced game log
+        # for that team-season only covers a handful of games). Both
+        # sources' Negro League coverage is real but independently
+        # incomplete for this era -- comparing them isn't a meaningful
+        # reconciliation of either source's correctness, the same reason
+        # the team-count check already excludes them.
         check_totals_reconcile(
             "core.game team-season wins vs Lahman",
             """
@@ -1720,6 +1736,7 @@ def health_check() -> list[Check]:
             FROM raw.lahman_teams lt
             JOIN core_totals ct
                 ON ct.retro_team_id = lt.teamidretro AND ct.season = lt.yearid::integer
+            WHERE lt.lgid IN ('AL', 'NL')
             """,
             tolerance=3,
         ),

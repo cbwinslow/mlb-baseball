@@ -2395,6 +2395,40 @@ def test_health_check_lahman_reconciliation_flags_a_real_mismatch(db_conn):
     db_conn.commit()
 
 
+def test_health_check_lahman_reconciliation_ignores_negro_league_rows(db_conn):
+    # Real production case, 2026-08-14: raw.lahman_teams carries its own,
+    # separately (and incompletely) compiled Negro League team-seasons
+    # (lgid='NNL'/'NAL'/etc, not just 'AL'/'NL') -- e.g. CAG-1920: w=45 in
+    # Lahman's own data. core.game's Retrosheet-sourced win count for the
+    # same team-season is unrelated (both sources' Negro League coverage
+    # is real but independently incomplete), so comparing them isn't a
+    # meaningful reconciliation -- this check must exclude non-AL/NL
+    # Lahman rows entirely, not just tolerate the gap. ATL(NL)'s own real
+    # 2-win match still reconciles clean alongside it.
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.lahman_teams "
+            "(teamidretro text, yearid text, w text, l text, g text, lgid text)"
+        )
+        cur.execute("INSERT INTO raw.lahman_teams VALUES ('ATL', '2025', '2', '0', '2', 'NL')")
+        # core.game has zero games for CAG at all -- a Negro League row
+        # this far off would fail loudly (tolerance=3) if not excluded.
+        cur.execute("INSERT INTO raw.lahman_teams VALUES ('CAG', '1920', '45', '10', '55', 'NNL')")
+    db_conn.commit()
+
+    conform.run()
+
+    check = next(
+        c for c in conform.health_check() if c.name == "core.game team-season wins vs Lahman"
+    )
+    assert check.ok, check.detail
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.lahman_teams")
+    db_conn.commit()
+
+
 def test_health_check_lahman_team_count_matches_and_flags_mismatch(db_conn):
     # _seed_raw_tables only resolves one team (ATL) for 2025 -- NYM is
     # deliberately left unresolved, so core.game's team-count for that

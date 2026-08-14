@@ -5,18 +5,18 @@ each completed plan gate.
 
 ## Current state summary
 
-- **Production state:** Production `mlb` is at migration 0052. `gold.game_feature`
-  has 217,340 rows and is no longer empty -- the owner-authorized production
-  enrichment rollout (2026-08-13/14, one module at a time, health-checked
-  after each) has so far run `park.compute()` (207,279 rows), `team_rate.compute()`
-  (216,592 rows: OBP/SLG/ISO/BB%/K%/BABIP/PA/run environment), and
-  `offense.compute()`/`compute_wrc_plus()` (216,592 / 201,524 rows: wOBA/wRC+).
-  All health checks pass as of `41fe788` (two bounds widened for verified
-  real Negro League small-sample cases, see that commit). Still pending, in
-  dependency order: `offense.compute_live()`/`compute_wrc_plus_live()` (if
-  `raw.mlb_playbyplay` has production data), `starter`, `bullpen`, `oaa`,
-  `speed`, `framing`, `war` -- none of these 5 have been run against
-  production yet.
+- **Production state:** Production `mlb` is at migration 0052.
+  `gold.game_feature` has 217,340 rows and every enrichment module has now
+  run against it for the first time ever (2026-08-13/14, owner-authorized,
+  one module at a time, health-checked after each): `park`, `team_rate`,
+  `offense` (+`_live`), `starter` (+`_live`+`_probable`), `bullpen`
+  (+`_live`+`_upcoming`), `oaa`, `speed`, `framing`, `war`. Every health
+  check passed, including `starter`'s full 13,613-pitcher-season
+  reconciliation against `raw.bref_pitching` (1.7% mismatch, within its
+  documented 2.0% accepted rate) and `bullpen`'s 406,516-row outs
+  reconciliation. Two bounds were widened for verified real small-sample
+  cases (`41fe788`) and one stale docstring citation was synced with
+  `docs/RESEARCH.md`'s prior correction (`7b4c4e2`).
 - **Test database:** The current reusable local test database is `mlb_test`.
   Older evidence below may refer to `mlb_test_codex`, which is not present on
   the current host and must not be recreated without owner authorization.
@@ -25,36 +25,48 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** finish the owner-authorized production enrichment rollout
-  (starter/bullpen/oaa/speed/framing/war, one module at a time), then
-  `pitcher_workload_v1` (the second recommended feature package in
-  `docs/FEATURE_ADMISSION_QUEUE.md`).
+- **Next package:** `pitcher_workload_v1` (the second recommended feature
+  package in `docs/FEATURE_ADMISSION_QUEUE.md`), or the 4 open GitHub
+  issues (#6 mojibake names, #7 test pollution, #9 paper cuts, #10 SQL
+  lint script).
 
-### Production enrichment rollout, part 2 — 2026-08-14
+### Production enrichment rollout, part 2 (completed) — 2026-08-14
 
-- Resumed exactly where the prior session paused: `park.compute()` had
-  already run against production with 4 rows flagged by its own health
-  check. Root-caused by hand (read-only queries against `mlb`): venue 1604
-  ("South Side Park III") was the Chicago American Giants' Negro League
-  home park 1913-1940 after the White Sox left in 1910, with as few as
-  1-11 games/season -- legitimately noisy small-sample park factors
-  (33.33-290.00), not a bug.
-- Ran `team_rate.compute()` against production for the first time
-  (216,592 rows: OBP/SLG/ISO/BB%/K%/BABIP/PA/run environment) after
-  applying migration `0052_team_babip.sql`. All 10 of its own health
-  checks passed clean, no anomalies.
-- Ran `offense.compute()`/`compute_wrc_plus()` against production for the
-  first time (216,592 / 201,524 rows: wOBA/wRC+). Surfaced one more
-  verified small-sample case, same root cause as the park factor one: the
+Resumed exactly where the prior session paused, and finished it: every
+enrichment module that had never run against production now has.
+
+- **park**: `park.compute()` had already run with 4 rows flagged by its own
+  health check. Root-caused by hand (read-only queries against `mlb`):
+  venue 1604 ("South Side Park III") was the Chicago American Giants'
+  Negro League home park 1913-1940 after the White Sox left in 1910, with
+  as few as 1-11 games/season -- legitimately noisy small-sample park
+  factors (33.33-290.00), not a bug.
+- **team_rate**: first production run (216,592 rows: OBP/SLG/ISO/BB%/K%/
+  BABIP/PA/run environment) after applying migration `0052_team_babip.sql`.
+  All 10 health checks passed clean.
+- **offense**: first production run, both historical and live paths
+  (216,592/201,524 historical, 16,406/1,776 live rows: wOBA/wRC+). Surfaced
+  one more verified small-sample case, same root cause as park's: the
   Philadelphia Stars (Negro League) had exactly one prior-1946 game with
   Retrosheet play-by-play coverage before their 1946-05-13 game -- hand
-  calculation matches the stored wOBA to 13 decimal places.
-- Both health checks widened with the verified real bounds and a new
-  regression test each (`41fe788`). Full suite: 735 passed, 1 skipped;
-  ruff/mypy/sqlfluff clean.
-- Remaining for this rollout: `offense.compute_live()`/
-  `compute_wrc_plus_live()`, `starter`, `bullpen`, `oaa`, `speed`,
-  `framing`, `war` -- none run against production yet.
+  calculation matches the stored wOBA to 13 decimal places. Both bounds
+  widened with the verified real ranges, each with a new regression test
+  (`41fe788`).
+- **starter**: first production run, all 3 paths (201,524 historical +
+  1,776 live + 36 probable rows). Clean on the first try: the 13,613-
+  pitcher-season reconciliation against `raw.bref_pitching` landed at 1.7%
+  mismatch, inside its documented 2.0% accepted rate. Also synced a stale
+  citation in its docstring with `docs/RESEARCH.md`'s 2026-08-13 correction
+  (`7b4c4e2`), noticed while reading it before running.
+- **bullpen**: first production run, all 3 paths (216,592 + 15,264 +
+  748 rows). Clean: 406,516-row starter/bullpen outs-split reconciliation
+  passed exactly.
+- **oaa**, **speed**, **framing**, **war**: first production runs
+  (216,592 rows each). All clean, no anomalies.
+
+Full suite: 735 passed, 1 skipped; ruff/mypy/sqlfluff clean throughout.
+Every read/write step stated its target database explicitly before running,
+per CLAUDE.md's database-naming golden rule.
 
 ### Team prior BABIP (OFF-04, ADR-063) — 2026-08-14 (test database only)
 

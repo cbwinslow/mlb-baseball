@@ -272,3 +272,47 @@ def test_health_check_flags_an_implausible_value(db_conn):
     assert "1 rows" in check.detail
 
     _reset(db_conn)
+
+
+def test_health_check_accepts_verified_small_sample_historical_extreme(db_conn):
+    # Real production value, not synthetic: the Philadelphia Stars (retro_team_id
+    # PH5, Negro League, 1934-1949) entering their 1946-05-13 home game had
+    # exactly one prior 1946 game with Retrosheet play-by-play coverage, going
+    # 0-for-56 with 2 walks. Hand-verified against production on 2026-08-14:
+    # wOBA = (0.690*2) / (56+2) = 0.023793103448275862... -- see offense.py's
+    # health_check docstring. Not a bug; a genuine computation bug (e.g. a
+    # dropped weight or inverted denominator) would produce something well
+    # outside even this widened bound, which the previous test covers.
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('G1', 2024, '2024-04-01', %s, %s, 5, 3, 'regular')",
+            (atl, nya),
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET home_woba = 0.0237931034482759 "
+            "WHERE game_id = (SELECT id FROM core.game WHERE retro_game_id = 'G1')"
+        )
+    db_conn.commit()
+
+    check = offense.health_check()[0]
+
+    assert check.ok
+
+    _reset(db_conn)

@@ -178,14 +178,22 @@ def health_check() -> list[Check]:
     """Bounds are broad because gold.game_feature is per-game, so
     an early-season game can reflect just 1-3 real games (legitimate
     small-sample noise, the same reason home_win_pct can be exactly 1.0
-    early in a season), not a full-season average. Confirmed directly:
-    the real range across all of MLB history is 0.0606-0.5870 -- a
-    tighter bound calibrated for full-season averages (like the .317
-    league-average figure verified in this module's own docstring) would
-    false-positive on real early-season games, not catch an actual bug.
-    wRC+ is centered on 100 by construction and has much less small-
-    sample sensitivity since it's already relative to the same-sized
-    league-wide sample."""
+    early in a season), not a full-season average. wRC+ is centered on
+    100 by construction and has much less small-sample sensitivity since
+    it's already relative to the same-sized league-wide sample.
+
+    home_woba's bound was widened 0.05-0.65 -> 0.02-0.70 after a real
+    production case, verified by hand on 2026-08-14: the Philadelphia
+    Stars (retro_team_id PH5, Negro League, 1934-1949) entering their
+    1946-05-13 home game had exactly one prior 1946 game with Retrosheet
+    play-by-play coverage (an away game, NW2194605050) -- in it, they
+    went 0-for-56 (56 AB) with 2 unintentional walks and zero hits. Hand
+    calculation matches production exactly: wOBA = (0.690*2) / (56+2) =
+    0.023793..., i.e. home_woba's stored value to 13 decimal places.
+    Not a bug -- Retrosheet's Negro League play-by-play coverage is
+    sparse enough that a team's entire "prior sample" for a season can be
+    a single real, if extreme, game. Full verified range across all
+    400,356 non-null home/away_woba rows in production: 0.0238-0.6067."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(read_sql("offense_health_check.sql"))
         bad_woba, bad_wrc = fetch_one(cur)
@@ -196,6 +204,6 @@ def health_check() -> list[Check]:
         return Check(name, True, f"all computed values within {bounds}")
 
     return [
-        _check("home_woba plausible range", bad_woba, "0.05-0.65"),
+        _check("home_woba plausible range", bad_woba, "0.02-0.70"),
         _check("home_wrc_plus plausible range", bad_wrc, "20-250"),
     ]

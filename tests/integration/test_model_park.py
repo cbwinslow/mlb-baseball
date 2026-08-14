@@ -108,3 +108,53 @@ def test_health_check_flags_an_implausible_value(db_conn):
     assert "1 rows" in check.detail
 
     _reset(db_conn)
+
+
+def test_health_check_accepts_verified_small_sample_historical_extremes(db_conn):
+    # Real production values, not synthetic: venue 1604 ("South Side Park
+    # III") was the Chicago American Giants' (a Negro League team) home
+    # park 1913-1940, with as few as 1-11 games/season -- a legitimately
+    # noisy trailing-window ratio, not a bug. Confirmed by hand against
+    # production on 2026-08-14: the real full range across all 207,279
+    # non-null park_factor rows is exactly 33.33-290.00 (see park.py's
+    # health_check docstring). Both must stay inside the health check's
+    # bound; a genuine computation bug (inverted ratio) would produce
+    # something near 0 or in the thousands, which the next test covers.
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 1926, '1926-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 1929, '1929-04-01', %(nya)s, %(atl)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET park_factor = 290.00 "
+            "WHERE game_id = (SELECT id FROM core.game WHERE retro_game_id = 'G1')"
+        )
+        cur.execute(
+            "UPDATE gold.game_feature SET park_factor = 33.33 "
+            "WHERE game_id = (SELECT id FROM core.game WHERE retro_game_id = 'G2')"
+        )
+    db_conn.commit()
+
+    check = park.health_check()[0]
+
+    assert check.ok
+
+    _reset(db_conn)

@@ -1,8 +1,15 @@
 """Starting-pitcher quality: true FIP and K%/BB%/HR% (ADR-034,
-docs/RESEARCH.md's feature-engineering backlog). Research consensus
-(Wharton thesis, CS229 Stanford project, MDPI feature-selection study)
-ranks starting-pitcher quality among the most predictive single factors
-in MLB win prediction -- more so than team-level pitching stats alone.
+docs/RESEARCH.md's feature-engineering backlog). Two of four independently
+checked sources (Donaker 2005, Chen & He 2010) support starting-pitcher
+quality as among the most predictive single factors in MLB win prediction;
+the other two (Cui 2020's Wharton thesis, Li et al. 2022) don't -- both
+found team-record/OBP-type signals dominate instead, with Cui's own thesis
+attributing weak pitching signal to using lagged season aggregates, which
+is evidence FOR this module's rolling within-season design below, not
+evidence pitcher quality is a top predictor in the abstract. Full citations
+and what each source actually found: docs/RESEARCH.md, "Starting pitcher
+quality" (correction, 2026-08-13) -- this docstring previously overstated
+the same three-source claim docs/RESEARCH.md corrected; kept in sync here.
 
 raw.bref_pitching/raw.statcast_pitcher_expected have real ERA/xERA but
 are SEASON AGGREGATES -- the same leakage trap ADR-032 already flagged

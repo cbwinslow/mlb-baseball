@@ -22,6 +22,12 @@ each completed plan gate.
 - **Next package:** feature-family rehearsal, measured workload evidence, and
   production-safe recommendation; no production write is authorized.
 
+### Team prior BABIP (OFF-04, ADR-063) — 2026-08-14 (test database only)
+
+- Migration `0052_team_babip.sql` adds nullable `home_babip` and `away_babip` columns to `gold.game_feature`.
+- `team_rate_retrosheet_update.sql` and `team_rate.py` implement point-in-time BABIP entering each regular-season game: $(H - HR) / (AB - K - HR + SF)$ with a documented minimum balls-in-play gate (`MIN_BIP = 8`).
+- Integration tests in `tests/integration/test_model_team_rate.py` verified exact hand-calculated Decimal arithmetic ($7/11$ BABIP when $BIP=11$, NULL when $BIP < 8$), full suite of 10 tests passed against `mlb_test`. Full unit suite (289 passed in 2.7s), Ruff, mypy, and SQLFluff all clean. `docs/FEATURE_ADMISSION_QUEUE.md` updated and ADR-063 recorded.
+
 ### Developer environment & linting posture — 2026-08-14
 
 - Added complete portable `.devcontainer` configuration (`devcontainer.json`, `docker-compose.yml`, `Dockerfile`, and `post-create.sh`) supporting VS Code and GitHub Codespaces with Python 3.11, PostgreSQL 16 (`pg_stat_statements` enabled), and Chadwick C-tools (`cwevent`, `cwgame`, `cwbox`) built from source.

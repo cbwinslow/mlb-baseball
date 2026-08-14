@@ -63,6 +63,7 @@ from mlb_baseball.sql import read_sql
 # while still below the other).
 MIN_PA = 10
 MIN_AB = 8
+MIN_BIP = 8
 
 
 def compute_run_environment(conn: psycopg.Connection) -> int:
@@ -79,19 +80,19 @@ def compute(conn: psycopg.Connection) -> int:
             return 0
         cur.execute(
             read_sql("team_rate_retrosheet_update.sql"),
-            {"min_pa": MIN_PA, "min_ab": MIN_AB},
+            {"min_pa": MIN_PA, "min_ab": MIN_AB, "min_bip": MIN_BIP},
         )
         return cur.rowcount
 
 
 def health_check() -> list[Check]:
-    """Bounds are mathematical ceilings (OBP/BB%/K% in [0,1]; SLG in [0,4],
+    """Bounds are mathematical ceilings (OBP/BB%/K%/BABIP in [0,1]; SLG in [0,4],
     four total bases per at-bat; ISO in [0,3], since TB-H is always >= 0 and
     bounded by 3 total bases of extra credit per at-bat) except runs-for/
     allowed averages, which use a generous [0,30] to tolerate real
     early-season small-sample swings (same posture as offense.py's
     home_woba bound, which documents the identical tradeoff). The last two
-    checks prove the min-sample gate's own contract (ADR-062: a populated
+    checks prove the min-sample gate's own contract (ADR-062/ADR-063: a populated
     OBP always had >= MIN_PA=10 prior PA) against real production data,
     not just the hand-built fixtures in tests/integration/
     test_model_team_rate.py -- this would catch the gate silently ceasing
@@ -107,6 +108,9 @@ def health_check() -> list[Check]:
             "), "
             "count(*) FILTER ("
             "  WHERE home_iso IS NOT NULL AND (home_iso < 0 OR home_iso > 3)"
+            "), "
+            "count(*) FILTER ("
+            "  WHERE home_babip IS NOT NULL AND (home_babip < 0 OR home_babip > 1)"
             "), "
             "count(*) FILTER ("
             "  WHERE home_bb_pct IS NOT NULL AND (home_bb_pct < 0 OR home_bb_pct > 1)"
@@ -130,7 +134,9 @@ def health_check() -> list[Check]:
             ") "
             "FROM gold.game_feature"
         )
-        bad_obp, bad_slg, bad_iso, bad_bb, bad_k, bad_rf, bad_ra, bad_gate, bad_pa = fetch_one(cur)
+        bad_obp, bad_slg, bad_iso, bad_babip, bad_bb, bad_k, bad_rf, bad_ra, bad_gate, bad_pa = (
+            fetch_one(cur)
+        )
 
     def _check(name: str, bad: int, bounds: str) -> Check:
         if bad:
@@ -141,6 +147,7 @@ def health_check() -> list[Check]:
         _check("home_obp plausible range", bad_obp, "0-1"),
         _check("home_slg plausible range", bad_slg, "0-4"),
         _check("home_iso plausible range", bad_iso, "0-3"),
+        _check("home_babip plausible range", bad_babip, "0-1"),
         _check("home_bb_pct plausible range", bad_bb, "0-1"),
         _check("home_k_pct plausible range", bad_k, "0-1"),
         _check("home_runs_for_avg plausible range", bad_rf, "0-30"),
@@ -148,3 +155,4 @@ def health_check() -> list[Check]:
         _check("home_obp min-sample gate holds", bad_gate, "home_pa >= 10"),
         _check("home_pa plausible range", bad_pa, "0+"),
     ]
+

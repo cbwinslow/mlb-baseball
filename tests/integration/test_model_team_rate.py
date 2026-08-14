@@ -247,24 +247,107 @@ def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT g.retro_game_id, f.home_obp, f.home_slg, f.home_iso, "
-            "f.home_bb_pct, f.home_k_pct, f.home_pa, f.away_pa "
+            "f.home_babip, f.home_bb_pct, f.home_k_pct, f.home_pa, f.away_pa "
             "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
             "ORDER BY g.retro_game_id"
         )
         rows = {r[0]: r[1:] for r in cur.fetchall()}
 
-    assert rows["G1"] == (None, None, None, None, None, None, None)  # first game
+    assert rows["G1"] == (None, None, None, None, None, None, None, None)  # first game
     g2 = rows["G2"]
     assert g2[0] == Decimal("0.7")  # OBP  (PA=10 >= MIN_PA=10)
     assert g2[1] is None  # SLG  (AB=5 < MIN_AB=8 -- gated)
     assert g2[2] is None  # ISO  (AB=5 < MIN_AB=8 -- gated)
-    assert g2[3] == Decimal("0.4")  # BB%  (PA=10 >= MIN_PA=10)
-    assert g2[4] == Decimal("0.1")  # K%  (PA=10 >= MIN_PA=10)
-    assert g2[5] == Decimal("10")  # home_pa  (ungated -- always populated)
+    assert g2[3] is None  # BABIP (BIP=4 < MIN_BIP=8 -- gated)
+    assert g2[4] == Decimal("0.4")  # BB%  (PA=10 >= MIN_PA=10)
+    assert g2[5] == Decimal("0.1")  # K%  (PA=10 >= MIN_PA=10)
+    assert g2[6] == Decimal("10")  # home_pa  (ungated -- always populated)
     # NYA's only G1 row is a single generic out (ab_fl='T', event_cd='2',
     # not in the BB/HBP filter set): AB=1, BB=0, HBP=0, SF=0 ->
     # away_pa = AB+BB+HBP+SF = 1+0+0+0 = 1.
-    assert g2[6] == Decimal("1")  # away_pa  (ungated -- always populated)
+    assert g2[7] == Decimal("1")  # away_pa  (ungated -- always populated)
+
+    _reset(db_conn)
+
+
+def test_compute_babip_matches_hand_calculation(db_conn):
+    # Proves BABIP = (H - HR) / (AB - SO - HR + SF) when BIP >= MIN_BIP (8).
+    # G1: 4 singles, 2 doubles, 1 triple, 1 HR, 2 strikeouts, 3 generic outs,
+    # 1 sac fly, 2 walks, 1 HBP.
+    # H = 4+2+1+1 = 8; HR = 1; H - HR = 7
+    # AB = 4+2+1+1 + 2 (K) + 3 (out) = 13 (>= 8)
+    # SO = 2; HR = 1; SF = 1
+    # BIP = AB - SO - HR + SF = 13 - 2 - 1 + 1 = 11 (>= 8)
+    # BABIP = 7 / 11
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', %(atl)s, %(nya)s, 8, 3, 'regular'), "
+            "('G2', 2020, '2020-04-08', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('G2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # 1B
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # 1B
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # 1B
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # 1B
+            "('G1', '1', '21', 'T', 'F', 'T', '2020'), "  # 2B
+            "('G1', '1', '21', 'T', 'F', 'T', '2020'), "  # 2B
+            "('G1', '1', '22', 'T', 'F', 'T', '2020'), "  # 3B
+            "('G1', '1', '23', 'T', 'F', 'T', '2020'), "  # HR
+            "('G1', '1', '3',  'T', 'F', 'T', '2020'), "  # K
+            "('G1', '1', '3',  'T', 'F', 'T', '2020'), "  # K
+            "('G1', '1', '2',  'T', 'F', 'T', '2020'), "  # out
+            "('G1', '1', '2',  'T', 'F', 'T', '2020'), "  # out
+            "('G1', '1', '2',  'T', 'F', 'T', '2020'), "  # out
+            "('G1', '1', '2',  'F', 'T', 'T', '2020'), "  # SF (ab_fl='F', sf_fl='T')
+            "('G1', '1', '14', 'F', 'F', 'T', '2020'), "  # BB
+            "('G1', '1', '14', 'F', 'F', 'T', '2020'), "  # BB
+            "('G1', '1', '16', 'F', 'F', 'T', '2020'), "  # HBP
+            "('G1', '0', '2',  'T', 'F', 'T', '2020'), "  # NYA
+            "('G2', '1', '2',  'T', 'F', 'T', '2020'), "
+            "('G2', '0', '2',  'T', 'F', 'T', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    team_rate.compute(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_babip, f.home_slg, f.home_iso, f.home_obp "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "WHERE g.retro_game_id = 'G2'"
+        )
+        babip, slg, iso, obp = cur.fetchone()
+
+    # BABIP = 7/11, SLG = 15/13, ISO = 7/13, OBP = 11/17
+    expected_babip = Decimal(7) / Decimal(11)
+    assert abs(babip - expected_babip) < Decimal("0.0000000001")
+    assert abs(slg - (Decimal(15) / Decimal(13))) < Decimal("0.0000000001")
+    assert abs(iso - (Decimal(7) / Decimal(13))) < Decimal("0.0000000001")
+    assert abs(obp - (Decimal(11) / Decimal(17))) < Decimal("0.0000000001")
 
     _reset(db_conn)
 
@@ -272,7 +355,7 @@ def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
 def test_compute_gates_rate_stats_below_min_sample(db_conn):
     # ATL's only prior game (G1) has exactly 1 PA (a single, ab_fl='T',
     # bat_event_fl='T') -- 1 PA is below MIN_PA=10, so every PA-denominator
-    # stat (OBP/BB%/K%) entering G2 must be NULL despite a real, nonzero
+    # stat (OBP/BB%/K%/BABIP) entering G2 must be NULL despite a real, nonzero
     # underlying value existing. PA itself is NOT gated -- it must still
     # report the real count (1) so a consumer can see why the rate is NULL.
     _reset(db_conn)
@@ -317,13 +400,13 @@ def test_compute_gates_rate_stats_below_min_sample(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT f.home_obp, f.home_bb_pct, f.home_k_pct, f.home_slg, f.home_iso, "
-            "f.home_pa "
+            "f.home_babip, f.home_pa "
             "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
             "WHERE g.retro_game_id = 'G2'"
         )
         row = cur.fetchone()
 
-    assert row == (None, None, None, None, None, Decimal("1"))
+    assert row == (None, None, None, None, None, None, Decimal("1"))
 
     _reset(db_conn)
 

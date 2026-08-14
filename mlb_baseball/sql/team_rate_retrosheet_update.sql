@@ -81,7 +81,7 @@ rolling AS (
 -- gated rate is NULL rather than confusing "no data yet" with "sample too
 -- small".
 rate AS (
-    SELECT game_id, team_id, ab_sum, hbp_sum, so_sum,
+    SELECT game_id, team_id, ab_sum, hbp_sum, so_sum, hr_sum, sf_sum,
         (b1_sum + b2_sum + b3_sum + hr_sum) AS hits_sum,
         (b1_sum + 2 * b2_sum + 3 * b3_sum + 4 * hr_sum) AS tb_sum,
         (ubb_sum + ibb_sum) AS bb_sum,
@@ -97,6 +97,9 @@ computed AS (
         CASE WHEN ab_sum >= %(min_ab)s THEN
             (tb_sum::numeric / ab_sum) - (hits_sum::numeric / ab_sum)
         END AS iso,
+        CASE WHEN (ab_sum - so_sum - hr_sum + sf_sum) >= %(min_bip)s THEN
+            (hits_sum - hr_sum)::numeric / (ab_sum - so_sum - hr_sum + sf_sum)
+        END AS babip,
         CASE WHEN pa_sum >= %(min_pa)s THEN bb_sum::numeric / pa_sum END AS bb_pct,
         CASE WHEN pa_sum >= %(min_pa)s THEN so_sum::numeric / pa_sum END AS k_pct
     FROM rate
@@ -105,6 +108,7 @@ UPDATE gold.game_feature f
 SET home_obp = ch.obp, away_obp = ca.obp,
     home_slg = ch.slg, away_slg = ca.slg,
     home_iso = ch.iso, away_iso = ca.iso,
+    home_babip = ch.babip, away_babip = ca.babip,
     home_bb_pct = ch.bb_pct, away_bb_pct = ca.bb_pct,
     home_k_pct = ch.k_pct, away_k_pct = ca.k_pct,
     home_pa = ch.pa_sum, away_pa = ca.pa_sum

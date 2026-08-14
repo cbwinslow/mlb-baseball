@@ -2,6 +2,16 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-063: Team prior BABIP (OFF-04) computed point-in-time from Retrosheet events with a minimum balls-in-play gate (MIN_BIP = 8)
+
+**Decision:** `mlb_baseball/model/team_rate.py::compute()` and `mlb_baseball/sql/team_rate_retrosheet_update.sql` add `home_babip` and `away_babip` (migration `0052_team_babip.sql`) to `gold.game_feature`. Formula is $(H - HR) / (AB - K - HR + SF)$ entering each game, computed point-in-time from prior completed regular-season Retrosheet events. The metric gates on `MIN_BIP = 8` balls in play ($AB - K - HR + SF \ge 8$); below this threshold, BABIP is NULL.
+
+**Context:** Admission queue item `OFF-04` called for rolling prior BABIP. Like OBP/SLG/ISO (ADR-061/062), this is a within-season entering value computed strictly from prior completed games. Retrosheet event mapping uses $H = \text{1B}(20) + \text{2B}(21) + \text{3B}(22) + \text{HR}(23)$, $K = \text{SO}(3)$, and $SF = \text{sf\_fl} = 'T'$, with `bat_event_fl = 'T'` scoping.
+
+**Rationale:** BABIP isolates batted-ball outcomes by removing home runs (which do not involve the defense) and strikeouts/walks (which are not balls in play). Because BABIP denominators are a subset of at-bats, small-sample swings are even more acute early in the season. Setting `MIN_BIP = 8` ensures a team has put at least 8 balls into play before reporting an entering BABIP, preventing misleading single-game extremes (e.g. 1-for-1 on ground balls reading as 1.000 BABIP).
+
+**Revisit if:** Future feature sets introduce player-level or pitcher-facing BABIP (which has much higher regression to the mean over full seasons than team batting BABIP).
+
 ## ADR-062: Team rate stats gate on a new min-sample threshold (10 PA / 8 AB), not an existing precedent
 
 **Decision:** `mlb_baseball/model/team_rate.py::compute()` and `mlb_baseball/sql/team_rate_retrosheet_update.sql` now gate the OFF-01/02/03 rate stats on a documented minimum sample instead of a bare `> 0` denominator guard: `MIN_PA = 10` NULLs out OBP/BB%/K% below 10 plate appearances entering a game, and `MIN_AB = 8` NULLs out SLG/ISO below 8 at-bats. The two thresholds gate independently — PA and AB move at different rates (a walk raises PA without touching AB), so a team can clear one while still below the other. `gold.game_feature.home_pa`/`away_pa` (migration `0051`) expose the same `pa_sum` the gate reads, populated unconditionally so a consumer can distinguish a genuinely-below-threshold row from one with no data at all.

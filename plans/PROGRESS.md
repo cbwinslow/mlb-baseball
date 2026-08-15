@@ -30,6 +30,19 @@ each completed plan gate.
   issues (#6 mojibake names, #7 test pollution, #9 paper cuts, #10 SQL
   lint script).
 
+### Forward-stepwise feature selection with nested validation (stage 3) (completed) — 2026-08-14
+
+Implemented Stage 3 of spec section 3 (feature selection) from `docs/superpowers/specs/2026-08-14-ml-modeling-harness-design.md` under Plan 04E posture (`mlb_test` only, no production reads/writes, purely diagnostic evidence):
+
+- **New module (`mlb_baseball/model/feature_select_stepwise.py`)**: derives candidate features from the stage 1/2 stability report (`min_survival_fraction >= 0.70`), evaluates forward-stepwise search with nested chronological inner train/validate splits (train $\le T-2$, validate $T-1$) inside each outer fold ($\le T-1$).
+- **Empty-inner-data handling**: graceful skip path for earliest folds (e.g. `season-2016` inner split needing $\le 2014$ data on a 2015-start history) recorded as `{"skipped": true, "reason": "insufficient inner-split data"}` without crashing or leaking.
+- **Paired real-vs-shuffled control threshold**: at each forward step, tests baseline probe model (`logistic` / `ridge`) against both the real candidate feature column and a training matrix with the candidate column permuted via deterministic seed `int(_sha256(f"{seed}:{test_season}:{len(selected)}:{candidate}")[:15], 16)`. Candidate passes if and only if `real_score < shuffled_score`.
+- **Greedy margin selection & stopping**: adds passing candidate with largest positive margin (`shuffled_score - real_score`) to selected set; terminates when no candidate beats its shuffled control.
+- **Persistence (`meta.feature_selection_stepwise`)**: migration `0055_feature_selection_stepwise.sql` adds single-table persistence and content-addressed JSON artifact output (`artifacts/feature_selection_stepwise/<sha256>.json`). Deterministic `selection_id` (`fstep-<hash>`) ensures idempotency.
+- **CLI (`mlb experiment select-features-stepwise --snapshot <id>`)**: discovers snapshot target, executes nested stepwise search, and prints candidate selection rates.
+- **Verified ADR-066**: documents design choices, seed construction, and sibling module structure.
+- **Verification**: synthetic unit tests prove paired shuffled control separates signal from noise and stops before noise features; integration tests verify classification and regression end-to-end execution, skip-path handling on `season-2016`, trace generation on `season-2017`/`2018`, DB idempotency, and CLI dispatch against `mlb_test`.
+
 ### Feature selection stability reporting (filter + embedded stages) (completed) — 2026-08-14
 
 Implemented the first two stages of spec section 3 (feature selection) from `docs/superpowers/specs/2026-08-14-ml-modeling-harness-design.md` under Plan 04E posture (`mlb_test` only, no production reads/writes, purely diagnostic report):

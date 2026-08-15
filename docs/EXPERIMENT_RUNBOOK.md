@@ -32,6 +32,10 @@ DATABASE_URL=postgresql:///mlb_test uv run mlb experiment compare \
 DATABASE_URL=postgresql:///mlb_test uv run mlb experiment select-features \
   --snapshot <snapshot-id>
 
+# Forward-stepwise feature selection (stage 3 nested chronological validation)
+DATABASE_URL=postgresql:///mlb_test uv run mlb experiment select-features-stepwise \
+  --snapshot <snapshot-id>
+
 DATABASE_URL=postgresql:///mlb_test uv run mlb audit
 ```
 
@@ -51,19 +55,23 @@ forward monitoring, not model selection.
 
 ## Feature selection stability reporting
 
-`mlb experiment select-features --snapshot <snapshot-id>` evaluates the 11
-`BASE_COLUMNS` candidate features across calendar folds through two complementary
-stages:
+Feature selection evaluates the 11 `BASE_COLUMNS` candidate features across calendar
+folds through three complementary stages:
 1. **Stage 1 (filter)**: permutation importance against a linear baseline model
    (`logistic` for `home_win`, `ridge` for `run_differential`), evaluated against an
    injected synthetic normal noise column (`__noise__`).
 2. **Stage 2 (embedded)**: tree-based feature importance from XGBoost models
    (`xgboost` / `xgboost_regressor`) against the same injected noise column.
+3. **Stage 3 (forward-stepwise wrapper)**: nested chronological inner split
+   (train on seasons $\le T-2$, validate on season $T-1$) inside each outer fold's
+   training slice ($\le T-1$), evaluating only candidates that survived Stages 1 & 2
+   in $\ge 70\%$ of evaluated folds. Each forward addition is tested against an
+   injected permuted (shuffled) control variant, stopping when no candidate improves
+   over shuffled noise.
 
-Features surviving both stages across eras are reported as evidence of signal
-stability. **This command is purely diagnostic: it reports evidence, and does not
-select, drop, or alter what models train on.** Stage 3 (the forward-stepwise wrapper
-with nested walk-forward selection) is deferred to future work.
+Features surviving these stages across eras are reported as evidence of signal
+stability. **These commands are purely diagnostic: they report evidence, and do not
+select, drop, or alter what models train on.**
 
 **Why no purging/embargo (2026-08-13, independent research review):** financial
 ML's walk-forward validation typically adds a *purge* (drop training rows whose

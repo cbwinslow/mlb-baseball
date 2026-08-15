@@ -246,6 +246,18 @@ def main(argv: list[str] | None = None) -> None:
     experiment_select.add_argument(
         "--fold-years", nargs="+", type=int, default=list(experiment.DEFAULT_FOLD_YEARS)
     )
+    experiment_stepwise = experiment_commands.add_parser(
+        "select-features-stepwise",
+        help="run forward-stepwise feature selection with nested chronological validation",
+    )
+    experiment_stepwise.add_argument("--snapshot", required=True)
+    experiment_stepwise.add_argument("--seed", type=int, default=0)
+    experiment_stepwise.add_argument(
+        "--fold-years", nargs="+", type=int, default=list(experiment.DEFAULT_FOLD_YEARS)
+    )
+    experiment_stepwise.add_argument(
+        "--min-survival-fraction", type=float, default=0.70
+    )
     evaluate_parser = subparsers.add_parser("evaluate")
     evaluate_parser.add_argument("--season", type=int, required=True)
     evaluate_parser.add_argument("--models", nargs="+", required=True)
@@ -531,6 +543,26 @@ def main(argv: list[str] | None = None) -> None:
                     s2 = summary["stage2_survived_folds"]
                     both = summary["both_stages_survived_folds"]
                     print(f"  {feat}: stage1: {s1}/{n}  stage2: {s2}/{n}  both: {both}/{n}")
+            elif args.experiment_command == "select-features-stepwise":
+                from mlb_baseball.model import feature_select_stepwise
+
+                result = feature_select_stepwise.select_features_stepwise(
+                    conn,
+                    args.snapshot,
+                    seed=args.seed,
+                    fold_years=tuple(args.fold_years),
+                    min_survival_fraction=args.min_survival_fraction,
+                )
+                conn.commit()
+                mode = "reused" if result.get("reused") else "ran"
+                print(f"feature_selection_stepwise: {result['selection_id']} ({mode})")
+                n = result["total_folds_evaluated"]
+                candidates = result["candidate_features"]
+                print(f"candidates ({len(candidates)}): {', '.join(candidates)}")
+                for feat, summary in result["features"].items():
+                    sel = summary["selected_folds"]
+                    pct = summary["selection_fraction"]
+                    print(f"  {feat}: selected {sel}/{n} folds ({pct:.0%})")
             else:
                 for row in experiment.compare(conn, args.snapshot):
                     if "log_loss" in row:

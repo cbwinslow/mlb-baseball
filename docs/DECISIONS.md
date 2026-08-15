@@ -2,6 +2,27 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-066: Forward-stepwise feature selection (stage 3) with nested chronological validation and paired shuffled-control threshold
+
+**Decision:**
+1. Implement Stage 3 of feature selection in `mlb_baseball/model/feature_select_stepwise.py` and database schema (migration `0055_feature_selection_stepwise.sql` introducing `meta.feature_selection_stepwise`) following ADR-065's stage-3 recommendation.
+2. Structure candidate derivation: call `select_features()` to obtain the Stage 1/2 stability report and filter to features where `both_stages_survived_folds / total_folds_evaluated >= min_survival_fraction` (default 0.70). Fail closed with `ExperimentError` if no candidates survive.
+3. Nested chronological split: inside each outer fold's training slice (seasons $\le T-1$), divide rows into inner training (seasons $\le T-2$) and inner validation (season $T-1$). If either inner train or inner validate is empty (e.g. outer fold `season-2016` where $\le 2014$ contains no data), record the fold as skipped with `"insufficient inner-split data"` without crashing or leaking.
+4. Paired real-vs-shuffled control threshold: evaluate baseline probe estimators (`logistic` with `log_loss` for classification, `ridge` with `mae` for regression) against both the real candidate column and a training matrix with the candidate column permuted via deterministic seed `int(_sha256(f"{seed}:{test_season}:{len(selected)}:{candidate}")[:15], 16)`. A candidate passes if and only if `real_score < shuffled_score`.
+5. Greedy margin step and termination: among passing candidates at each step, select the candidate with the largest improvement margin (`shuffled_score - real_score`). If no remaining candidate beats its shuffled control, forward selection terminates for that fold.
+6. Record full evidence: persist each fold's ordered selections, step-by-step traces (real score, shuffled score, margin, passed, added), and cross-fold survival summary to `meta.feature_selection_stepwise` and `artifacts/feature_selection_stepwise/<sha256>.json`.
+7. Module organization: placed stepwise logic in dedicated sibling module `mlb_baseball/model/feature_select_stepwise.py` to prevent `feature_select.py` from growing past 600 lines, preserving modularity and cohesion.
+8. Diagnostic posture: `select-features-stepwise` generates cross-era stability evidence and does not promote or auto-apply feature sets to production models.
+
+**Context:** Section 3 of `docs/superpowers/specs/2026-08-14-ml-modeling-harness-design.md` and ADR-065 specified a 3-stage feature selection hierarchy. Stage 3 (forward-stepwise wrapper) was deferred from the initial package to ensure nested chronological validation was designed without leakage.
+
+**Rationale:**
+- **No future leakage:** Splitting inner train/validate strictly within the outer training window ensures that feature selection never observes the outer fold test season $T$.
+- **Empirical control threshold:** Comparing the candidate feature against its own permuted marginal distribution avoids arbitrary epsilon hyperparameters and ensures the feature's specific correlation with the target drives selection.
+- **Fail-closed candidate gating:** Restricting the search space to features verified by both linear filter (Stage 1) and non-linear embedded (Stage 2) stability eliminates noise candidates before stepwise wrapper computation.
+
+**Revisit if:** High-dimensional candidate sets (>50 features) require backward elimination or group-stepwise selection.
+
 ## ADR-065: Feature-selection stability reporting (filter + embedded stages) and deliberate stage-3 scope cut
 
 **Decision:**

@@ -1,11 +1,13 @@
-"""Integration tests for feature-selection stability reports against real Postgres (mlb_test)."""
+"""Integration tests for forward-stepwise feature selection against real Postgres (mlb_test)."""
 
 # ruff: noqa: E501
 
 from pathlib import Path
 
+import pytest
+
 from mlb_baseball import cli
-from mlb_baseball.model import experiment, feature_select
+from mlb_baseball.model import experiment, feature_select_stepwise
 
 
 def _reset(conn):
@@ -103,20 +105,20 @@ def _seed(conn):
     conn.commit()
 
 
-def test_select_features_classification_end_to_end_and_idempotent(db_conn, tmp_path):
+def test_select_features_stepwise_classification_end_to_end_and_idempotent(db_conn, tmp_path):
     _reset(db_conn)
     _seed(db_conn)
 
     snapshot_id = experiment.create_snapshot(db_conn, target="home_win")
     db_conn.commit()
 
-    artifact_dir = tmp_path / "artifacts"
-    result1 = feature_select.select_features(
+    artifact_dir = tmp_path / "artifacts_stepwise"
+    result1 = feature_select_stepwise.select_features_stepwise(
         db_conn,
         snapshot_id,
-        n_repeats=5,
         seed=42,
-        fold_years=(2016, 2017),
+        fold_years=(2016, 2017, 2018),
+        min_survival_fraction=0.30,
         artifact_dir=artifact_dir,
     )
     db_conn.commit()
@@ -125,19 +127,28 @@ def test_select_features_classification_end_to_end_and_idempotent(db_conn, tmp_p
     assert result1["reused"] is False
     assert result1["target"] == "home_win"
     assert result1["total_folds_evaluated"] == 2
-    assert len(result1["features"]) == 11
-    for _feat_name, summary in result1["features"].items():
-        assert "stage1_survived_folds" in summary
-        assert "stage2_survived_folds" in summary
-        assert "both_stages_survived_folds" in summary
-        assert "stage1_by_fold" in summary
-        assert "stage2_by_fold" in summary
-        assert "both_by_fold" in summary
+    assert len(result1["candidate_features"]) >= 1
+
+    # Verify fold results and empty-inner-data skip path
+    folds_res = result1["folds"]
+    assert "season-2016" in folds_res
+    assert folds_res["season-2016"]["skipped"] is True
+    assert folds_res["season-2016"]["reason"] == "insufficient inner-split data"
+
+    assert "season-2017" in folds_res
+    assert folds_res["season-2017"]["skipped"] is False
+    assert "selected" in folds_res["season-2017"]
+    assert len(folds_res["season-2017"]["trace"]) >= 1
+
+    assert "season-2018" in folds_res
+    assert folds_res["season-2018"]["skipped"] is False
+    assert "selected" in folds_res["season-2018"]
+    assert len(folds_res["season-2018"]["trace"]) >= 1
 
     # Verify database persistence
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT selection_id, status, error, artifact_uri, artifact_sha256 FROM meta.feature_selection WHERE selection_id = %s",
+            "SELECT selection_id, status, error, artifact_uri, artifact_sha256 FROM meta.feature_selection_stepwise WHERE selection_id = %s",
             (result1["selection_id"],),
         )
         row = cur.fetchone()
@@ -148,38 +159,38 @@ def test_select_features_classification_end_to_end_and_idempotent(db_conn, tmp_p
         assert Path(row[3]).exists()
 
     # Rerun idempotency test
-    result2 = feature_select.select_features(
+    result2 = feature_select_stepwise.select_features_stepwise(
         db_conn,
         snapshot_id,
-        n_repeats=5,
         seed=42,
-        fold_years=(2016, 2017),
+        fold_years=(2016, 2017, 2018),
+        min_survival_fraction=0.30,
         artifact_dir=artifact_dir,
     )
     assert result2["status"] == "success"
     assert result2["reused"] is True
     assert result2["selection_id"] == result1["selection_id"]
 
-    # Verify no duplicate rows
+    # Verify no duplicate rows in meta.feature_selection_stepwise
     with db_conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM meta.feature_selection")
+        cur.execute("SELECT count(*) FROM meta.feature_selection_stepwise")
         assert cur.fetchone()[0] == 1
 
 
-def test_select_features_regression_end_to_end(db_conn, tmp_path):
+def test_select_features_stepwise_regression_end_to_end(db_conn, tmp_path):
     _reset(db_conn)
     _seed(db_conn)
 
     snapshot_id = experiment.create_snapshot(db_conn, target="run_differential")
     db_conn.commit()
 
-    artifact_dir = tmp_path / "artifacts"
-    result = feature_select.select_features(
+    artifact_dir = tmp_path / "artifacts_stepwise"
+    result = feature_select_stepwise.select_features_stepwise(
         db_conn,
         snapshot_id,
-        n_repeats=5,
         seed=42,
-        fold_years=(2016, 2017),
+        fold_years=(2016, 2017, 2018),
+        min_survival_fraction=0.30,
         artifact_dir=artifact_dir,
     )
     db_conn.commit()
@@ -187,14 +198,38 @@ def test_select_features_regression_end_to_end(db_conn, tmp_path):
     assert result["status"] == "success"
     assert result["reused"] is False
     assert result["target"] == "run_differential"
-    assert result["method_config"]["stage1_estimator"] == "ridge"
-    assert result["method_config"]["stage2_estimator"] == "xgboost_regressor"
-    assert result["method_config"]["scoring"] == "neg_mean_absolute_error"
+    assert result["method_config"]["probe_estimator"] == "ridge"
+    assert result["method_config"]["scoring"] == "mae"
     assert result["total_folds_evaluated"] == 2
-    assert len(result["features"]) == 11
+    assert len(result["candidate_features"]) >= 1
+
+    folds_res = result["folds"]
+    assert folds_res["season-2016"]["skipped"] is True
+    assert folds_res["season-2017"]["skipped"] is False
+    assert folds_res["season-2018"]["skipped"] is False
 
 
-def test_cli_select_features(db_conn, tmp_path, monkeypatch, capsys):
+def test_empty_candidate_set_raises_on_integration_fixture(db_conn):
+    _reset(db_conn)
+    _seed(db_conn)
+
+    snapshot_id = experiment.create_snapshot(db_conn, target="home_win")
+    db_conn.commit()
+
+    with pytest.raises(
+        experiment.ExperimentError,
+        match="no candidate features survived stage 1\\+2 at the 70th-percent threshold",
+    ):
+        feature_select_stepwise.select_features_stepwise(
+            db_conn,
+            snapshot_id,
+            seed=42,
+            fold_years=(2016, 2017, 2018),
+            min_survival_fraction=0.70,
+        )
+
+
+def test_cli_select_features_stepwise(db_conn, tmp_path, monkeypatch, capsys):
     _reset(db_conn)
     _seed(db_conn)
 
@@ -206,18 +241,21 @@ def test_cli_select_features(db_conn, tmp_path, monkeypatch, capsys):
         [
             "mlb",
             "experiment",
-            "select-features",
+            "select-features-stepwise",
             "--snapshot",
             snapshot_id,
-            "--n-repeats",
-            "5",
             "--fold-years",
             "2016",
             "2017",
+            "2018",
+            "--min-survival-fraction",
+            "0.30",
+            "--seed",
+            "42",
         ],
     )
     cli.main()
     captured = capsys.readouterr()
-    assert "feature_selection:" in captured.out
-    assert "home_wins: stage1:" in captured.out
-    assert "away_wins: stage1:" in captured.out
+    assert "feature_selection_stepwise:" in captured.out
+    assert "candidates" in captured.out
+    assert "selected" in captured.out

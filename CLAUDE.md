@@ -27,6 +27,10 @@ After finishing a piece of work — writing code, or digging through data/docs �
 - Don't add a data source that isn't listed in `docs/DATA_SOURCES.md`. If a new source is genuinely needed, add it to that doc (cost, access method, license note) in the same change.
 - Assume $0/month budget. No paid API, database, or hosting dependency without asking first.
 
+## ML modeling work
+
+Broad technique search is welcome — don't rule out ensembles, neural/attention models, or domain-engineered features. But every technique clears the same bar before it counts as a result: chronological (never random) folds, transparent baselines beaten first, and honest calibration/uncertainty reporting. See `docs/NORTH_STAR.md` and `plans/04-modeling-simulation-and-experiments.md`'s acceptance gate for the full contract; `docs/RESEARCH.md` documents this domain's known leakage failure modes and honest accuracy ceiling.
+
 ## Definition of done
 
 A task is not complete until:
@@ -42,6 +46,7 @@ A task is not complete until:
 - `tests/integration/` — anything that touches Postgres. Runs against a real, dedicated `mlb_test` database (never the real `mlb` one) — see `README.md` "Testing". Mock the network (fixture CSV/JSON content), not the database — real Postgres is cheap to run against locally and mocking it hides real bugs (e.g. transaction/lock behavior, COPY column mismatches).
 - Every connector needs an integration test that actually loads rows and asserts idempotency (run twice, same row count) — not just a unit test on its parsing helpers.
 - If a bug involved a transaction, a lock, or connection state, write the regression test through the real fixtures (`db_conn`, non-autocommit, matching production) — not a mock, or the regression can silently stop being tested. `tests/integration/test_ingest_tracking.py::test_failure_path_logs_error_and_leaves_connection_usable` is the reference example: it caught a real bug (`track_run` not rolling back before logging a failure) that a mocked connection would never have surfaced.
+- A new CLI subcommand needs its own CLI-dispatch-level test (through `cli.main([...])` and real argparse, not just a test of the underlying function it calls) — an argparse argument silently missing from a subparser while the handler still reads it crashes at runtime with nothing to catch it otherwise. `tests/unit/test_cli_dispatch.py::test_experiment_run_command_parses_all_its_own_arguments` is the reference example: it caught exactly that (a `--seed` argument accidentally dropped from one subparser while being added to a sibling one), which direct calls to the underlying Python function couldn't have surfaced.
 
 ## Naming convention
 
@@ -77,4 +82,5 @@ Use GitHub for what it's actually good at, not for its own sake — this is a so
 
 ## Before declaring a task finished
 
-Run the actual test suite and linter — don't assert success without having run them in this session.
+- Run the actual test suite and linter — don't assert success without having run them in this session.
+- When accepting work from a dispatched or delegated agent (including an external tool), re-run the tests and read the diff yourself before treating it as done — a dispatch's own passing self-report isn't sufficient evidence on its own.

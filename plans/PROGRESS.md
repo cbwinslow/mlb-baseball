@@ -30,6 +30,20 @@ each completed plan gate.
   issues (#6 mojibake names, #7 test pollution, #9 paper cuts, #10 SQL
   lint script).
 
+### Target-agnostic experiment lab + run_differential (completed) — 2026-08-14
+
+Implemented sections 1-2 of `docs/superpowers/specs/2026-08-14-ml-modeling-harness-design.md` under Plan 04B posture (`mlb_test` only, no production reads/writes, no promotion):
+
+- **Target registry (`meta.experiment_target`)**: migration `0053_experiment_target_registry.sql` replaces hardcoded `CHECK (target = 'home_win')` on `meta.experiment_snapshot` and `meta.experiment` with foreign keys to `meta.experiment_target`. Seeded with `home_win` (classification) and `run_differential` (regression).
+- **Snapshot uniqueness bug fix**: `meta.experiment_snapshot.row_sha256` constraint updated from bare `UNIQUE (row_sha256)` to `UNIQUE (row_sha256, target)`. `create_snapshot()` query updated to filter by `(row_sha256, target)`. Tested to prove identical rows produce separate, reusable snapshot IDs across targets.
+- **Run differential regression models**: added baselines `zero` (0.0 margin) and `season_average` (`(home_runs_for - home_runs_allowed)/(home_wins + home_losses) - (away_runs_for - away_runs_allowed)/(away_wins + away_losses)` with divide-by-zero guards) plus ML regressors `ridge`, `hist_gradient_boosting_regressor`, and `xgboost_regressor`.
+- **Regression metrics**: MAE and RMSE with 200-sample bootstrap 95% confidence intervals and decile predicted-value residual calibration.
+- **CLI & compare**: `mlb experiment snapshot --target <name>`, `mlb experiment run --target <name> --model <name>`, and `mlb experiment compare` support both targets and format classification (log loss, brier) vs regression (mae, rmse) metrics cleanly.
+- **Spec baseline corrections documented in ADR-064**: dropped preliminary unsourced Pythagenpat margin baseline; used season-average baseline computed from existing `BASE_COLUMNS`.
+- **First-game-of-season null finding**: confirmed empirically that all 8 entering win/run columns are NULL on season openers, cleanly filtered by generic `required_columns` common-row selection.
+- **Verification**: 311 unit and integration tests passed clean in pytest (including all 6 classification models, all 5 regression models, uniqueness, and metric determinism); Ruff and mypy passed 100% clean across all 68 source files.
+- **Explicitly deferred**: feature selection (spec section 3), ensembles/stacking (section 5), Markov-derived features (section 4), neural models (section 6), and Parquet interoperability export (section 7).
+
 ### Production enrichment rollout, part 2 (completed) — 2026-08-14
 
 Resumed exactly where the prior session paused, and finished it: every

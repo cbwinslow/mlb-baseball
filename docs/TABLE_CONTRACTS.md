@@ -102,6 +102,7 @@ and pitch number is not enough to make a permanent constraint.
 | Relation | Grain / key | Contract |
 |---|---|---|
 | `meta.ingestion_run` | One connector invocation | Starts `running`, ends `success` or `failed`; source advisory lock prevents overlap; rows/error/pid are operational lineage |
+| `meta.experiment_target` | Declared experiment target (`name`) | Seeded with `home_win` (classification) and `run_differential` (regression); defines task type and target description |
 | Model/artifact/run/snapshot/evaluation relations | Immutable model/version/run/snapshot/evaluation identity | Records must make a prediction and evaluation reproducible without claiming old in-place feature rows still exist |
 | Experiment snapshot/run/fold relations | Content-addressed game-win input, declared config/folds, and one result artifact per model/fold | Calendar folds train only on preceding seasons; 2025 is reserved holdout and 2026 forward-monitoring under the default plan | `meta.experiment_snapshot`, `meta.experiment`, and `meta.experiment_fold` retain input hash, selection, lock/environment identity, scores, errors, and artifact hashes. No experiment automatically promotes a production model. |
 

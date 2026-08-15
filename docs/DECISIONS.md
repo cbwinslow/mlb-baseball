@@ -2,6 +2,28 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-064: Target-agnostic experiment lab, `run_differential` regression, and snapshot target uniqueness
+
+**Decision:**
+1. Generalize `mlb_baseball/model/experiment.py` and database schema (migration `0053_experiment_target_registry.sql`) to introduce `meta.experiment_target` (`name`, `task_type`, `description`), populated with `home_win` (classification) and `run_differential` (regression).
+2. The hardcoded `CHECK (target = 'home_win')` constraints on `meta.experiment_snapshot` and `meta.experiment` are replaced with foreign keys to `meta.experiment_target(name)`.
+3. Snapshot row uniqueness constraint is corrected from a bare `UNIQUE (row_sha256)` to `UNIQUE (row_sha256, target)`, and snapshot lookup queries filter by both `row_sha256` and `target`.
+4. `run_differential` regression is implemented on the exact same `game_base_v1` feature family without duplicating the feature matrix layer, providing two baseline models (`zero` and `season_average`) and three ML regressors (`ridge`, `hist_gradient_boosting_regressor`, `xgboost_regressor`).
+5. Metrics for regression evaluate MAE and RMSE with 200-sample bootstrap 95% confidence intervals, accompanied by predicted-decile residual calibration.
+6. The proposed "Pythagenpat baseline" from the preliminary spec is dropped because Pythagenpat produces win probabilities (`home_pyth_wpct`) rather than expected run differentials, and no sourced conversion formula exists. The season-average baseline is computed directly from existing columns `(home_runs_for - home_runs_allowed) / (home_wins + home_losses) - (away_runs_for - away_runs_allowed) / (away_wins + away_losses)` with divide-by-zero guards.
+7. Empirical testing confirmed that on season-opening games, all eight entering win and run columns (`home_wins`, `home_losses`, `away_wins`, `away_losses`, `home_runs_for`, `home_runs_allowed`, `away_runs_for`, `away_runs_allowed`) evaluate to `NULL` (none to `0`), cleanly filtered by generic `required_columns` common-row selection across both targets.
+
+**Context:** Plan 04B specifies extending the experiment harness to a target ladder beyond single-target binary classification. The design spec `docs/superpowers/specs/2026-08-14-ml-modeling-harness-design.md` sections 1-2 outlined generalizing the lab to regression on `run_differential`. During implementation, reading the source code and database identified:
+- A latent uniqueness collision: `_row_identity()` hashes underlying feature rows without the target name. Two snapshots for different targets built from identical rows produced identical hashes, causing collisions under a bare `UNIQUE (row_sha256)` constraint.
+- Spec baseline corrections: Section 2 described a "Pythagenpat-derived expected differential" baseline. `gold.game_feature` computes `home_pyth_wpct` as win probability; attempting to convert this to an expected margin without a sourced formula would repeat the unsourced log5 issue documented in `docs/RESEARCH.md`. The season-average baseline from existing `BASE_COLUMNS` serves as the domain baseline without requiring any new feature rebuild migrations.
+
+**Rationale:**
+- Preserving strict equivalence: `home_win` classification behavior is byte-for-byte unchanged post-refactor (proven via integration regression testing).
+- Target-agnostic feature sharing: Both classification and regression estimators train against the identical `BASE_COLUMNS` feature matrix; only the label extraction (`spec.label`) and scoring functions differ.
+- Fail-closed integrity: Invalid targets or unsupported estimator combinations are rejected at both Python parse/runtime and database foreign key layers.
+
+**Revisit if:** Future targets require multi-output, distributional, or ordinal formulations (e.g. totals or run lines).
+
 ## ADR-063: Team prior BABIP (OFF-04) computed point-in-time from Retrosheet events with a minimum balls-in-play gate (MIN_BIP = 8)
 
 **Decision:** `mlb_baseball/model/team_rate.py::compute()` and `mlb_baseball/sql/team_rate_retrosheet_update.sql` add `home_babip` and `away_babip` (migration `0052_team_babip.sql`) to `gold.game_feature`. Formula is $(H - HR) / (AB - K - HR + SF)$ entering each game, computed point-in-time from prior completed regular-season Retrosheet events. The metric gates on `MIN_BIP = 8` balls in play ($AB - K - HR + SF \ge 8$); below this threshold, BABIP is NULL.

@@ -348,3 +348,150 @@ def test_failed_run_can_resume_same_declared_configuration(db_conn, tmp_path):
         "SELECT status, error FROM meta.experiment WHERE experiment_id = %s", (experiment_id,)
     ).fetchone() == ("success", None)
     _reset(db_conn)
+
+
+def test_row_sha256_uniqueness_across_targets(db_conn):
+    _reset(db_conn)
+    _seed(db_conn)
+
+    hw_id = experiment.create_snapshot(db_conn, target="home_win")
+    db_conn.commit()
+    rd_id = experiment.create_snapshot(db_conn, target="run_differential")
+    db_conn.commit()
+
+    assert hw_id != rd_id
+    assert hw_id.startswith(f"{experiment.FEATURE_SET_VERSION}:home_win:")
+    assert rd_id.startswith(f"{experiment.FEATURE_SET_VERSION}:run_differential:")
+
+    # Both snapshot IDs independently reuse their existing database record
+    assert experiment.create_snapshot(db_conn, target="home_win") == hw_id
+    assert experiment.create_snapshot(db_conn, target="run_differential") == rd_id
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT target, row_sha256 FROM meta.experiment_snapshot ORDER BY target")
+        records = cur.fetchall()
+    assert len(records) == 2
+    assert records[0][0] == "home_win"
+    assert records[1][0] == "run_differential"
+    # Content hash is identical because underlying rows are identical
+    assert records[0][1] == records[1][1]
+
+    # Rejection of unregistered target
+    with pytest.raises(experiment.ExperimentError, match="unsupported target"):
+        experiment.create_snapshot(db_conn, target="unknown_target")
+
+    _reset(db_conn)
+
+
+@pytest.mark.parametrize(
+    "model_family",
+    experiment.TARGET_REGISTRY["run_differential"].valid_model_families,
+)
+def test_run_differential_models_share_calendar_rehearsal_rows(db_conn, tmp_path, model_family):
+    _reset(db_conn)
+    _seed(db_conn)
+    snapshot_id = experiment.create_snapshot(db_conn, target="run_differential")
+    config = experiment.ExperimentConfig(
+        snapshot_id=snapshot_id,
+        model_family=model_family,
+        target="run_differential",
+        fold_years=(2016, 2017),
+        artifact_dir=tmp_path / model_family,
+    )
+
+    first = experiment.run(db_conn, config)
+    db_conn.commit()
+    second = experiment.run(db_conn, config)
+    db_conn.commit()
+
+    assert first["status"] == "success"
+    assert not first["reused"]
+    assert second["reused"]
+    assert first["aggregate"] == second["aggregate"]
+    assert first["aggregate"]["rows"] == 14
+    assert set(first["folds"]) == {"season-2016", "season-2017"}
+    for metrics in first["folds"].values():
+        assert metrics["coverage"]["common_rows"] == 22
+        assert metrics["coverage"]["excluded_opening_or_missing_rate_rows"] == 3
+        assert metrics["rows"] == 7
+        assert metrics["mae"] >= 0
+        assert metrics["rmse"] >= 0
+        assert "mae_95ci" in metrics
+        assert "rmse_95ci" in metrics
+        assert "calibration" in metrics
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT train_through_season, test_season, artifact_uri, artifact_sha256 "
+            "FROM meta.experiment_fold WHERE experiment_id = %s ORDER BY test_season",
+            (first["experiment_id"],),
+        )
+        rows = cur.fetchall()
+    assert [(row[0], row[1]) for row in rows] == [(2015, 2016), (2016, 2017)]
+    for _train, _test, artifact_uri, artifact_sha in rows:
+        path = Path(artifact_uri)
+        assert path.exists()
+        assert path.name == f"{artifact_sha}.json"
+        content = json.loads(path.read_text())
+        assert len(content["predictions"]) == 7
+        for pred in content["predictions"]:
+            assert "prediction" in pred
+            assert "actual_run_differential" in pred
+
+    # Compare reports all folds and models
+    comparison = experiment.compare(db_conn, snapshot_id)
+    assert any(row["model"] == model_family for row in comparison)
+
+    _reset(db_conn)
+
+
+def test_first_game_of_season_null_zero_empirical_behavior(db_conn):
+    _reset(db_conn)
+    _seed(db_conn)
+
+    # In our database schema / rebuild query, check the opening games for each season
+    # (e.g. 201501, 201601, 201701)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT mlb_game_pk, home_wins, home_losses, away_wins, away_losses,
+                   home_runs_for, home_runs_allowed, away_runs_for, away_runs_allowed
+            FROM gold.game_feature
+            WHERE mlb_game_pk IN ('201501', '201601', '201701')
+            ORDER BY mlb_game_pk
+            """
+        )
+        rows = cur.fetchall()
+    for row in rows:
+        _pk, hw, hl, aw, al, hrf, hra, arf, ara = row
+        # Empirical finding: All 8 entering run/win columns are NULL (not 0) on opening games
+        assert hw is None, f"expected NULL home_wins, got {hw}"
+        assert hl is None, f"expected NULL home_losses, got {hl}"
+        assert aw is None, f"expected NULL away_wins, got {aw}"
+        assert al is None, f"expected NULL away_losses, got {al}"
+        assert hrf is None, f"expected NULL home_runs_for, got {hrf}"
+        assert hra is None, f"expected NULL home_runs_allowed, got {hra}"
+        assert arf is None, f"expected NULL away_runs_for, got {arf}"
+        assert ara is None, f"expected NULL away_runs_allowed, got {ara}"
+
+    # Snapshot rows accurately retain these NULL values
+    snapshot_id = experiment.create_snapshot(db_conn, target="run_differential")
+    snapshot_rows = experiment._snapshot_rows(db_conn, snapshot_id)
+    opening_rows = [r for r in snapshot_rows if r.mlb_game_pk in {"201501", "201601", "201701"}]
+    assert len(opening_rows) == 3
+    for r in opening_rows:
+        assert r.values["home_wins"] is None
+        assert r.values["home_runs_for"] is None
+
+    # And common-row filtering cleanly excludes them for both targets
+    hw_eligible = experiment._common_rows(snapshot_rows, experiment.TARGET_REGISTRY["home_win"])
+    rd_eligible = experiment._common_rows(
+        snapshot_rows, experiment.TARGET_REGISTRY["run_differential"]
+    )
+    assert len(hw_eligible) == 22
+    assert len(rd_eligible) == 22
+    assert all(r.mlb_game_pk not in {"201501", "201601", "201701"} for r in hw_eligible)
+    assert all(r.mlb_game_pk not in {"201501", "201601", "201701"} for r in rd_eligible)
+
+    _reset(db_conn)
+

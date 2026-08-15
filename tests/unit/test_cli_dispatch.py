@@ -206,7 +206,9 @@ def test_experiment_snapshot_command_creates_and_prints_snapshot(monkeypatch, ca
     conn = MagicMock()
     conn.__enter__.return_value = conn
     monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
-    monkeypatch.setattr(experiment, "create_snapshot", lambda _conn: "snapshot-1")
+    monkeypatch.setattr(
+        experiment, "create_snapshot", lambda _conn, target="home_win": "snapshot-1"
+    )
 
     cli.main(["experiment", "snapshot"])
 

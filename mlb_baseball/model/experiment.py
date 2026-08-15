@@ -11,21 +11,27 @@ import hashlib
 import json
 import platform
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from random import Random
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import psycopg
 import xgboost as xgb
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, brier_score_loss, log_loss
+from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.metrics import (
+    accuracy_score,
+    brier_score_loss,
+    log_loss,
+    mean_absolute_error,
+    root_mean_squared_error,
+)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -103,6 +109,63 @@ class SnapshotRow:
     away_score: int
     values: dict[str, float | None]
     home_win: bool
+
+
+@dataclass(frozen=True)
+class TargetSpec:
+    name: str
+    task_type: Literal["classification", "regression"]
+    label: Callable[[SnapshotRow], float]
+    required_columns: tuple[str, ...]
+    valid_model_families: tuple[str, ...]
+
+
+TARGET_REGISTRY: dict[str, TargetSpec] = {
+    "home_win": TargetSpec(
+        name="home_win",
+        task_type="classification",
+        label=lambda row: float(row.home_win),
+        required_columns=("home_win_pct", "away_win_pct"),
+        valid_model_families=(
+            "home_rate",
+            "log5",
+            "elo",
+            "logistic",
+            "hist_gradient_boosting",
+            "xgboost",
+        ),
+    ),
+    "run_differential": TargetSpec(
+        name="run_differential",
+        task_type="regression",
+        label=lambda row: float(row.home_score - row.away_score),
+        required_columns=(
+            "home_runs_for",
+            "home_runs_allowed",
+            "away_runs_for",
+            "away_runs_allowed",
+            "home_wins",
+            "home_losses",
+            "away_wins",
+            "away_losses",
+        ),
+        valid_model_families=(
+            "zero",
+            "season_average",
+            "ridge",
+            "hist_gradient_boosting_regressor",
+            "xgboost_regressor",
+        ),
+    ),
+}
+
+ALL_MODEL_FAMILIES: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        model
+        for spec in TARGET_REGISTRY.values()
+        for model in spec.valid_model_families
+    )
+)
 
 
 def _canonical_json(value: object) -> str:
@@ -215,15 +278,24 @@ def _row_identity(rows: Iterable[SnapshotRow]) -> str:
     return _sha256(_canonical_json(payload))
 
 
-def create_snapshot(conn: psycopg.Connection, *, source_profile: str = SOURCE_PROFILE) -> str:
+def create_snapshot(
+    conn: psycopg.Connection,
+    *,
+    target: str = TARGET,
+    source_profile: str = SOURCE_PROFILE,
+) -> str:
     """Copy the approved PIT rows into an immutable, content-addressed snapshot."""
+    if target not in TARGET_REGISTRY:
+        raise ExperimentError(f"unsupported target {target!r}")
     rows = _source_rows(conn)
     row_sha = _row_identity(rows)
-    snapshot_id = f"{FEATURE_SET_VERSION}:{TARGET}:{row_sha[:24]}"
+    snapshot_id = f"{FEATURE_SET_VERSION}:{target}:{row_sha[:24]}"
     selection_sha = _sha256(_SELECTION_SQL)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT snapshot_id FROM meta.experiment_snapshot WHERE row_sha256 = %s", (row_sha,)
+            "SELECT snapshot_id FROM meta.experiment_snapshot "
+            "WHERE row_sha256 = %s AND target = %s",
+            (row_sha, target),
         )
         existing = cur.fetchone()
         if existing is not None:
@@ -241,7 +313,7 @@ def create_snapshot(conn: psycopg.Connection, *, source_profile: str = SOURCE_PR
             (
                 snapshot_id,
                 FEATURE_SET_VERSION,
-                TARGET,
+                target,
                 source_profile,
                 _SELECTION_SQL,
                 selection_sha,
@@ -339,14 +411,16 @@ def folds(fold_years: Sequence[int]) -> tuple[Fold, ...]:
     return tuple(Fold(f"season-{year}", year - 1, year) for year in years)
 
 
-def _common_rows(rows: Sequence[SnapshotRow]) -> list[SnapshotRow]:
-    # Log5 is part of every comparison, so common-sample scoring requires its
-    # two prior-rate inputs. Opening games remain in the immutable snapshot but
-    # are reported as excluded, not silently filled with a made-up rate.
+def _common_rows(
+    rows: Sequence[SnapshotRow], spec: TargetSpec = TARGET_REGISTRY["home_win"]
+) -> list[SnapshotRow]:
+    # Common-sample scoring requires the declared target's non-null inputs.
+    # Opening games remain in the immutable snapshot but are reported as
+    # excluded, not silently filled with a made-up rate or value.
     return [
         row
         for row in rows
-        if row.values["home_win_pct"] is not None and row.values["away_win_pct"] is not None
+        if all(row.values.get(column) is not None for column in spec.required_columns)
     ]
 
 
@@ -360,8 +434,12 @@ def _matrix(rows: Sequence[SnapshotRow]) -> np.ndarray:
     )
 
 
-def _labels(rows: Sequence[SnapshotRow]) -> np.ndarray:
-    return np.array([int(row.home_win) for row in rows], dtype=np.int64)
+def _labels(
+    rows: Sequence[SnapshotRow], spec: TargetSpec = TARGET_REGISTRY["home_win"]
+) -> np.ndarray:
+    if spec.task_type == "classification":
+        return np.array([int(spec.label(row)) for row in rows], dtype=np.int64)
+    return np.array([float(spec.label(row)) for row in rows], dtype=np.float64)
 
 
 def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
@@ -390,12 +468,37 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
             n_jobs=1,
             **parameters,
         )
+    if model_family == "ridge":
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("scale", StandardScaler()),
+                ("model", Ridge(random_state=seed, **parameters)),
+            ]
+        )
+    if model_family == "hist_gradient_boosting_regressor":
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("model", HistGradientBoostingRegressor(random_state=seed, **parameters)),
+            ]
+        )
+    if model_family == "xgboost_regressor":
+        return xgb.XGBRegressor(
+            n_estimators=100,
+            max_depth=3,
+            learning_rate=0.05,
+            eval_metric="rmse",
+            random_state=seed,
+            n_jobs=1,
+            **parameters,
+        )
     raise ExperimentError(f"unsupported estimator {model_family!r}")
 
 
 def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
     """Reject ignored or misspelled estimator choices before a run is recorded."""
-    if model_family in {"home_rate", "log5", "elo"}:
+    if model_family in {"home_rate", "log5", "elo", "zero", "season_average"}:
         if parameters:
             raise ExperimentError(f"{model_family} accepts no estimator parameters")
         return
@@ -403,8 +506,16 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = LogisticRegression().get_params(deep=False)
     elif model_family == "hist_gradient_boosting":
         allowed = HistGradientBoostingClassifier().get_params(deep=False)
-    else:
+    elif model_family == "xgboost":
         allowed = xgb.XGBClassifier().get_params(deep=False)
+    elif model_family == "ridge":
+        allowed = Ridge().get_params(deep=False)
+    elif model_family == "hist_gradient_boosting_regressor":
+        allowed = HistGradientBoostingRegressor().get_params(deep=False)
+    elif model_family == "xgboost_regressor":
+        allowed = xgb.XGBRegressor().get_params(deep=False)
+    else:
+        raise ExperimentError(f"unsupported estimator {model_family!r}")
     unknown = sorted(set(parameters) - set(allowed))
     if unknown:
         raise ExperimentError(
@@ -488,10 +599,11 @@ def _probabilities(
     all_rows: Sequence[SnapshotRow],
     train_rows: Sequence[SnapshotRow],
     test_rows: Sequence[SnapshotRow],
+    spec: TargetSpec,
 ) -> np.ndarray:
     parameters = config.parameters or {}
     if config.model_family == "home_rate":
-        return np.full(len(test_rows), _labels(train_rows).mean(), dtype=np.float64)
+        return np.full(len(test_rows), _labels(train_rows, spec).mean(), dtype=np.float64)
     if config.model_family == "log5":
         return np.array(
             [
@@ -508,9 +620,44 @@ def _probabilities(
     if config.model_family == "elo":
         return _elo_probabilities(all_rows, test_rows)
     estimator = _make_estimator(config.model_family, parameters, config.seed)
-    estimator.fit(_matrix(train_rows), _labels(train_rows))
+    estimator.fit(_matrix(train_rows), _labels(train_rows, spec))
     probabilities = estimator.predict_proba(_matrix(test_rows))[:, 1]
     return np.asarray(probabilities, dtype=np.float64)
+
+
+def _predictions(
+    config: ExperimentConfig,
+    all_rows: Sequence[SnapshotRow],
+    train_rows: Sequence[SnapshotRow],
+    test_rows: Sequence[SnapshotRow],
+    spec: TargetSpec,
+) -> np.ndarray:
+    parameters = config.parameters or {}
+    if config.model_family == "zero":
+        return np.zeros(len(test_rows), dtype=np.float64)
+    if config.model_family == "season_average":
+        preds: list[float] = []
+        for row in test_rows:
+            hw = row.values.get("home_wins") or 0.0
+            hl = row.values.get("home_losses") or 0.0
+            hrf = row.values.get("home_runs_for") or 0.0
+            hra = row.values.get("home_runs_allowed") or 0.0
+            hg = hw + hl
+            h_diff = (hrf - hra) / hg if hg > 0 else 0.0
+
+            aw = row.values.get("away_wins") or 0.0
+            al = row.values.get("away_losses") or 0.0
+            arf = row.values.get("away_runs_for") or 0.0
+            ara = row.values.get("away_runs_allowed") or 0.0
+            ag = aw + al
+            a_diff = (arf - ara) / ag if ag > 0 else 0.0
+
+            preds.append(h_diff - a_diff)
+        return np.array(preds, dtype=np.float64)
+    estimator = _make_estimator(config.model_family, parameters, config.seed)
+    estimator.fit(_matrix(train_rows), _labels(train_rows, spec))
+    predictions = estimator.predict(_matrix(test_rows))
+    return np.asarray(predictions, dtype=np.float64)
 
 
 def _calibration(y: np.ndarray, probabilities: np.ndarray) -> dict[str, Any]:
@@ -543,6 +690,33 @@ def _calibration(y: np.ndarray, probabilities: np.ndarray) -> dict[str, Any]:
     }
 
 
+def _residual_calibration(y: np.ndarray, predictions: np.ndarray) -> dict[str, Any]:
+    """Residual calibration for regression: bin games by predicted-value deciles
+    and report row count, mean prediction, and mean residual (actual - predicted).
+    A well-calibrated model has near-zero mean residual in every bin, not just
+    a low aggregate MAE."""
+    if len(y) == 0:
+        return {"bins": []}
+    quantiles = np.quantile(predictions, np.linspace(0.0, 1.0, 11))
+    bins = []
+    for index in range(10):
+        low, high = float(quantiles[index]), float(quantiles[index + 1])
+        mask = (predictions >= low) & (
+            (predictions < high) if index < 9 else (predictions <= high)
+        )
+        if mask.any():
+            bins.append(
+                {
+                    "low": low,
+                    "high": high,
+                    "count": int(mask.sum()),
+                    "mean_prediction": float(predictions[mask].mean()),
+                    "mean_residual": float((y[mask] - predictions[mask]).mean()),
+                }
+            )
+    return {"bins": bins}
+
+
 def _metrics(y: np.ndarray, probabilities: np.ndarray, seed: int) -> dict[str, Any]:
     if (
         len(y) == 0
@@ -573,6 +747,35 @@ def _metrics(y: np.ndarray, probabilities: np.ndarray, seed: int) -> dict[str, A
     scores["log_loss_95ci"] = [samples[int(0.025 * 199)][0], samples[int(0.975 * 199)][0]]
     briers = sorted(sample[1] for sample in samples)
     scores["brier_95ci"] = [briers[int(0.025 * 199)], briers[int(0.975 * 199)]]
+    return scores
+
+
+def _regression_metrics(y: np.ndarray, predictions: np.ndarray, seed: int) -> dict[str, Any]:
+    if len(y) == 0 or not np.isfinite(predictions).all():
+        raise ExperimentError("model did not produce finite predictions")
+    mae = float(mean_absolute_error(y, predictions))
+    rmse = float(root_mean_squared_error(y, predictions))
+    scores: dict[str, Any] = {
+        "rows": int(len(y)),
+        "mae": mae,
+        "rmse": rmse,
+        "calibration": _residual_calibration(y, predictions),
+    }
+    rng = Random(seed)
+    samples: list[tuple[float, float]] = []
+    for _ in range(200):
+        indexes = [rng.randrange(len(y)) for _ in range(len(y))]
+        sample_y, sample_p = y[indexes], predictions[indexes]
+        samples.append(
+            (
+                float(mean_absolute_error(sample_y, sample_p)),
+                float(root_mean_squared_error(sample_y, sample_p)),
+            )
+        )
+    samples.sort()
+    scores["mae_95ci"] = [samples[int(0.025 * 199)][0], samples[int(0.975 * 199)][0]]
+    rmses = sorted(sample[1] for sample in samples)
+    scores["rmse_95ci"] = [rmses[int(0.025 * 199)], rmses[int(0.975 * 199)]]
     return scores
 
 
@@ -624,12 +827,34 @@ def _aggregate_metrics(fold_results: dict[str, dict[str, Any]]) -> dict[str, flo
     }
 
 
+def _aggregate_regression_metrics(
+    fold_results: dict[str, dict[str, Any]]
+) -> dict[str, float | int]:
+    rows = sum(int(metrics["rows"]) for metrics in fold_results.values())
+    if rows == 0:
+        raise ExperimentError("cannot aggregate an experiment with no scored rows")
+    return {
+        "rows": rows,
+        "mae": sum(
+            float(metrics["mae"]) * int(metrics["rows"]) for metrics in fold_results.values()
+        )
+        / rows,
+        "rmse": sum(
+            float(metrics["rmse"]) * int(metrics["rows"]) for metrics in fold_results.values()
+        )
+        / rows,
+    }
+
+
 def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
     """Run or return a deterministic experiment; never promotes a model."""
-    if config.model_family not in SUPPORTED_MODELS:
-        raise ExperimentError(f"model_family must be one of {', '.join(SUPPORTED_MODELS)}")
-    if config.target != TARGET:
-        raise ExperimentError(f"only target {TARGET!r} is approved for this experiment lab")
+    if config.target not in TARGET_REGISTRY:
+        raise ExperimentError(f"unsupported target {config.target!r}")
+    spec = TARGET_REGISTRY[config.target]
+    if config.model_family not in spec.valid_model_families:
+        raise ExperimentError(
+            f"model_family must be one of {', '.join(spec.valid_model_families)}"
+        )
     if config.feature_set_version != FEATURE_SET_VERSION:
         raise ExperimentError(
             f"only feature set {FEATURE_SET_VERSION!r} is approved for this experiment lab"
@@ -651,7 +876,7 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
             "and source profile"
         )
     all_rows = _snapshot_rows(conn, config.snapshot_id)
-    eligible = _common_rows(all_rows)
+    eligible = _common_rows(all_rows, spec)
     experiment_id = _experiment_id(config)
     fold_plan = [asdict(fold) for fold in folds(config.fold_years)]
     with conn.cursor() as cur:
@@ -709,21 +934,42 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
                 row.feature_cutoff_at for row in test_rows
             ):
                 raise ExperimentError(f"{fold.name} violates chronological cutoff separation")
-            probabilities = _probabilities(config, eligible, train_rows, test_rows)
-            metrics = _metrics(_labels(test_rows), probabilities, config.seed + fold.test_season)
-            metrics["coverage"] = {
-                "snapshot_rows": len(all_rows),
-                "common_rows": len(eligible),
-                "excluded_opening_or_missing_rate_rows": len(all_rows) - len(eligible),
-            }
-            predictions = [
-                {
-                    "game_instance_key": row.game_instance_key,
-                    "probability": float(probability),
-                    "actual_home_win": row.home_win,
+            if spec.task_type == "classification":
+                probabilities = _probabilities(config, eligible, train_rows, test_rows, spec)
+                metrics = _metrics(
+                    _labels(test_rows, spec), probabilities, config.seed + fold.test_season
+                )
+                metrics["coverage"] = {
+                    "snapshot_rows": len(all_rows),
+                    "common_rows": len(eligible),
+                    "excluded_opening_or_missing_rate_rows": len(all_rows) - len(eligible),
                 }
-                for row, probability in zip(test_rows, probabilities, strict=True)
-            ]
+                predictions = [
+                    {
+                        "game_instance_key": row.game_instance_key,
+                        "probability": float(probability),
+                        "actual_home_win": row.home_win,
+                    }
+                    for row, probability in zip(test_rows, probabilities, strict=True)
+                ]
+            else:
+                raw_predictions = _predictions(config, eligible, train_rows, test_rows, spec)
+                metrics = _regression_metrics(
+                    _labels(test_rows, spec), raw_predictions, config.seed + fold.test_season
+                )
+                metrics["coverage"] = {
+                    "snapshot_rows": len(all_rows),
+                    "common_rows": len(eligible),
+                    "excluded_opening_or_missing_rate_rows": len(all_rows) - len(eligible),
+                }
+                predictions = [
+                    {
+                        "game_instance_key": row.game_instance_key,
+                        "prediction": float(prediction),
+                        "actual_run_differential": float(row.home_score - row.away_score),
+                    }
+                    for row, prediction in zip(test_rows, raw_predictions, strict=True)
+                ]
             prediction_sha = _sha256(_canonical_json(predictions))
             artifact_uri, artifact_sha = _write_artifact(
                 config,
@@ -761,7 +1007,10 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
                     ),
                 )
             results[fold.name] = metrics
-        aggregate = _aggregate_metrics(results)
+        if spec.task_type == "classification":
+            aggregate = _aggregate_metrics(results)
+        else:
+            aggregate = _aggregate_regression_metrics(results)
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE meta.experiment SET status = 'success', finished_at = now(), "
@@ -827,6 +1076,7 @@ def compare(conn: psycopg.Connection, snapshot_id: str) -> list[dict[str, Any]]:
 
 def health_check() -> list[Check]:
     return [
+        check_table_exists("meta.experiment_target"),
         check_table_exists("meta.experiment_snapshot"),
         check_table_exists("gold.game_feature_snapshot"),
     ]

@@ -214,12 +214,24 @@ def main(argv: list[str] | None = None) -> None:
         "experiment", help="create and compare reproducible game-win experiments"
     )
     experiment_commands = experiment_parser.add_subparsers(dest="experiment_command", required=True)
-    experiment_commands.add_parser("snapshot", help="copy approved PIT feature rows immutably")
+    experiment_snapshot = experiment_commands.add_parser(
+        "snapshot", help="copy approved PIT feature rows immutably"
+    )
+    experiment_snapshot.add_argument(
+        "--target",
+        choices=list(experiment.TARGET_REGISTRY),
+        default="home_win",
+    )
     experiment_run = experiment_commands.add_parser(
         "run", help="run one declared model on calendar folds"
     )
     experiment_run.add_argument("--snapshot", required=True)
-    experiment_run.add_argument("--model", choices=experiment.SUPPORTED_MODELS, required=True)
+    experiment_run.add_argument(
+        "--target",
+        choices=list(experiment.TARGET_REGISTRY),
+        default="home_win",
+    )
+    experiment_run.add_argument("--model", choices=experiment.ALL_MODEL_FAMILIES, required=True)
     experiment_run.add_argument(
         "--fold-years", nargs="+", type=int, default=list(experiment.DEFAULT_FOLD_YEARS)
     )
@@ -466,7 +478,7 @@ def main(argv: list[str] | None = None) -> None:
 
         with get_connection() as conn:
             if args.experiment_command == "snapshot":
-                snapshot_id = experiment.create_snapshot(conn)
+                snapshot_id = experiment.create_snapshot(conn, target=args.target)
                 conn.commit()
                 print(f"snapshot: {snapshot_id}")
             elif args.experiment_command == "run":
@@ -475,6 +487,7 @@ def main(argv: list[str] | None = None) -> None:
                     experiment.ExperimentConfig(
                         snapshot_id=args.snapshot,
                         model_family=args.model,
+                        target=args.target,
                         fold_years=tuple(args.fold_years),
                         seed=args.seed,
                     ),
@@ -483,15 +496,26 @@ def main(argv: list[str] | None = None) -> None:
                 mode = "reused" if result["reused"] else "ran"
                 print(f"experiment: {result['experiment_id']} ({mode})")
                 for fold, metrics in result["folds"].items():
-                    print(
-                        f"  {fold}: log_loss={metrics['log_loss']:.4f} brier={metrics['brier']:.4f}"
-                    )
+                    if "log_loss" in metrics:
+                        log_loss_val = metrics["log_loss"]
+                        brier_val = metrics["brier"]
+                        print(f"  {fold}: log_loss={log_loss_val:.4f} brier={brier_val:.4f}")
+                    elif "mae" in metrics:
+                        print(
+                            f"  {fold}: mae={metrics['mae']:.4f} rmse={metrics['rmse']:.4f}"
+                        )
             else:
                 for row in experiment.compare(conn, args.snapshot):
-                    print(
-                        f"{row['model']} {row['fold']}: "
-                        f"log_loss={row['log_loss']:.4f} brier={row['brier']:.4f}"
-                    )
+                    if "log_loss" in row:
+                        print(
+                            f"{row['model']} {row['fold']}: "
+                            f"log_loss={row['log_loss']:.4f} brier={row['brier']:.4f}"
+                        )
+                    elif "mae" in row:
+                        print(
+                            f"{row['model']} {row['fold']}: "
+                            f"mae={row['mae']:.4f} rmse={row['rmse']:.4f}"
+                        )
     elif args.command == "evaluate":
         evaluation_report = model.evaluate(
             args.models, args.season, args.cutoff, args.bootstrap_samples

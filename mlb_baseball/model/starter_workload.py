@@ -26,11 +26,9 @@ Reused patterns and design choices:
    pitcher_retro_id ordered by game_date, game_id. A pitcher's very first tracked
    start correctly leaves both rest_days and outs_7d NULL.
 
-Scope: Retrosheet-historical path only (compute()), covering 1910-2025.
-compute_live() (2026 play-by-play) and compute_probable() (forward-looking
-scheduled games) are deliberately deferred as follow-up work, matching the
-established phased development precedent of every sibling feature family
-(starter.py, bullpen.py, offense.py).
+Scope: Retrosheet-historical path (compute(), covering 1910-2025),
+live 2026 play-by-play (compute_live()), and forward-looking probable
+starter path (compute_probable()).
 """
 
 import psycopg
@@ -50,6 +48,34 @@ def compute(conn: psycopg.Connection) -> int:
             return 0
         cur.execute(
             read_sql("starter_workload_retrosheet_update.sql"),
+            {"workload_days": WORKLOAD_WINDOW_DAYS},
+        )
+        return cur.rowcount
+
+
+def compute_live(conn: psycopg.Connection) -> int:
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
+        (exists,) = fetch_one(cur)
+        if not exists:
+            return 0
+        cur.execute(
+            read_sql("starter_workload_live_update.sql"),
+            {"workload_days": WORKLOAD_WINDOW_DAYS},
+        )
+        return cur.rowcount
+
+
+def compute_probable(conn: psycopg.Connection) -> int:
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_probable')")
+        (probable_exists,) = fetch_one(cur)
+        cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
+        (playbyplay_exists,) = fetch_one(cur)
+        if not probable_exists or not playbyplay_exists:
+            return 0
+        cur.execute(
+            read_sql("starter_workload_probable_update.sql"),
             {"workload_days": WORKLOAD_WINDOW_DAYS},
         )
         return cur.rowcount

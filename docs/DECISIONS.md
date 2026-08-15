@@ -2,6 +2,36 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-069: Starter rest and workload live and probable paths (pitcher_workload_v1_live)
+
+**Decision:**
+1. Extend `mlb_baseball/model/starter_workload.py` (PIT-03) with `compute_live(conn) -> int` and `compute_probable(conn) -> int`, bringing it to parity with `starter.py`'s three-path shape.
+2. Implement live completed 2026 game path via `mlb_baseball/sql/starter_workload_live_update.sql`:
+   - Reuses `team_starter_live_update.sql`'s `first_pitcher` CTE (`SELECT DISTINCT ON (game_pk, half_inning) ... ORDER BY at_bat_index::int`) to identify starters for each side.
+   - Reuses `play_outs`'s running outs diff (`outs::int - LAG(outs::int, 1, 0) OVER (PARTITION BY game_pk, inning, half_inning ORDER BY at_bat_index::int)`).
+   - Applies ADR-042's day-collapse `RANGE`-frame pattern keyed by `pitcher_id` across the parameterized trailing window (`WORKLOAD_WINDOW_DAYS = 7`), with `LAG(game_date)` partitioned by `pitcher_id` over starts only for rest days.
+   - Gates updates on `WHERE f.game_id = s.game_id AND f.home_starter_rest_days IS NULL` to ensure historical Retrosheet-derived values are never overwritten.
+3. Implement forward-looking scheduled game path via `mlb_baseball/sql/starter_workload_probable_update.sql`:
+   - Reuses `team_starter_probable_update.sql`'s `latest_probable` CTE (`SELECT DISTINCT ON (game_pk, side) ... ORDER BY _loaded_at DESC`) to ensure the latest snapshot wins over earlier announcements or scratches.
+   - Strictly enforces point-in-time timeline safety by aggregating a pitcher's own historical appearances with `s.game_date < t.game_date` (the target game's own date, not "as of today").
+   - Computes rest days as `t.game_date - MAX(s.game_date) FILTER (WHERE s.is_start)` and trailing workload outs as `SUM(s.outs) FILTER (WHERE s.game_date >= t.game_date - (%(workload_days)s * INTERVAL '1 day'))`. Debut starters with no prior appearances cleanly leave both columns NULL.
+4. Verify with hand-calculated regression test fixtures in `tests/integration/test_model_starter_workload.py`:
+   - Hand-computed live 2026 multi-start, relief, and post-window scenario (`test_compute_live_starter_workload_matches_hand_calculation`).
+   - Retrosheet-protection test (`test_compute_live_does_not_overwrite_retrosheet_derived_values`).
+   - Probable announcement and scratch resolution test (`test_compute_probable_populates_upcoming_game_from_latest_announced_probable`).
+   - Leakage-safety proof exercising an announced-days-ahead-of-an-intervening-start scenario (`test_compute_probable_only_uses_history_strictly_before_target_game_date`).
+   - Table existence gates (`test_compute_live_returns_zero_without_playbyplay_table`, `test_compute_probable_returns_zero_without_probable_or_playbyplay_table`).
+
+**Context:**
+ADR-068 delivered the Retrosheet-historical path (`compute()`) for PIT-03 while deliberately deferring the live 2026 play-by-play and probable starter paths. This follow-up closes the remaining gap, enabling `gold.game_feature` to populate `home_starter_rest_days`/`away_starter_rest_days` and `home_starter_outs_7d`/`away_starter_outs_7d` across 2026 completed games and upcoming scheduled games.
+
+**Rationale:**
+- **Exact structural mirror:** Rather than inventing a new architecture, reusing `starter.py`'s proven `compute_live()` and `compute_probable()` patterns ensures consistency and reliability across the model layer.
+- **Strict point-in-time isolation:** Filtering pitcher appearances strictly before `t.game_date` guarantees that probable announcements made in advance correctly reflect any intervening starts while strictly excluding future appearances.
+
+**Revisit if:**
+Starter workload definitions are expanded to multi-window configurations or pitch-count based metrics when pitch tracking becomes available.
+
 ## ADR-068: Starter rest and workload (PIT-03) and feature admission closures for bullpen fatigue (PIT-04) and probable starter (PLN-01)
 
 **Decision:**

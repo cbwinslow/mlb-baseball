@@ -25,9 +25,17 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `pitcher_workload_v1` live/probable extension, or the 4 open GitHub
-  issues (#6 mojibake names, #7 test pollution, #9 paper cuts, #10 SQL
-  lint script).
+- **Next package:** The 4 open GitHub issues (#6 mojibake names, #7 test pollution, #9 paper cuts, #10 SQL lint script).
+
+### Starter workload live and probable paths (pitcher_workload_v1_live, completed) — 2026-08-15
+
+Completed extension of `mlb_baseball/model/starter_workload.py` (PIT-03) adding `compute_live()` and `compute_probable()` (ADR-069):
+
+- **Live 2026 completed game path (`compute_live()`)**: Implemented via `mlb_baseball/sql/starter_workload_live_update.sql`, reusing `starter.py`'s `first_pitcher` CTE and `play_outs` LAG-diff running outs logic to compute rest days and trailing 7-day workload outs from `raw.mlb_playbyplay` for completed 2026 games. Gated on `f.home_starter_rest_days IS NULL` to ensure Retrosheet historical rows are never overwritten.
+- **Probable starter upcoming game path (`compute_probable()`)**: Implemented via `mlb_baseball/sql/starter_workload_probable_update.sql`, reusing `latest_probable` (`_loaded_at DESC`) to ensure the latest snapshot wins over earlier announcements or scratches.
+- **Strict point-in-time timeline safety**: Trailing workload and rest days aggregate pitcher history strictly before the target game's own date (`s.game_date < t.game_date`), eliminating leakage when probables are announced days ahead of an intervening start.
+- **Comprehensive hand-computed regression tests**: Extended `tests/integration/test_model_starter_workload.py` with 6 new tests verifying hand-computed multi-start/relief 2026 lines, Retrosheet non-overwrite protection, latest probable / scratch resolution, table existence gates, and explicit leakage-safety proof exercising an announced-days-ahead-of-an-intervening-start scenario.
+- **Bookkeeping and decisions**: Updated `docs/FEATURE_ADMISSION_QUEUE.md` (PIT-03 row fully closed with live/probable paths) and documented ADR-069 in `docs/DECISIONS.md`.
 
 ### Starter rest/workload (PIT-03) and PIT-04/PLN-01 admission closure (completed) — 2026-08-15
 

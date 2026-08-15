@@ -68,6 +68,9 @@ def _reset(db_conn):
         for table in (
             "raw.retrosheet_event",
             "raw.retrosheet_gameinfo",
+            "raw.mlb_schedule",
+            "raw.mlb_probable",
+            "raw.mlb_playbyplay",
         ):
             cur.execute("SELECT to_regclass(%s)", (table,))
             if cur.fetchone()[0]:
@@ -297,4 +300,433 @@ def test_health_check_flags_negative_values(db_conn):
     assert not neg_outs_check.ok
 
     _reset(db_conn)
+
+
+def _ensure_playbyplay_table(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_playbyplay ("
+                "game_pk text, at_bat_index text, inning text, half_inning text, "
+                "pitcher_id text, event_type text, outs text, _season text)"
+            )
+    db_conn.commit()
+
+
+def _ensure_mlb_schedule_table(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_schedule ("
+                "game_id text, _season text, game_date text, game_type text, "
+                "status text, home_id text, away_id text, game_num text, "
+                "venue_id text)"
+            )
+    db_conn.commit()
+
+
+def _ensure_probable_table(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_probable')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_probable "
+                "(game_pk text, side text, pitcher_id text, pitcher_name text, "
+                "_loaded_at timestamptz NOT NULL DEFAULT now())"
+            )
+    db_conn.commit()
+
+
+def _extend_team_range_to_2026(db_conn, *team_ids):
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE core.team SET last_year = 2026 WHERE id = ANY(%s)", (list(team_ids),))
+    db_conn.commit()
+
+
+def test_compute_live_starter_workload_matches_hand_calculation(db_conn):
+    # 2026 completed games via raw.mlb_playbyplay:
+    # G1 (2026-04-01, game_pk='900001'):
+    #   ATL starts livep001 (pitcher_id='5001', top half inning, home starter)
+    #   NYA starts livep002 (pitcher_id='5002', bottom half inning, away starter)
+    #   livep001 pitches 3 outs (outs 0->1, 1->2, 2->3).
+    #   livep002 pitches 3 outs (outs 0->1, 1->2, 2->3).
+    #   Entering G1: both pitchers have no prior starts -> rest_days = NULL, outs_7d = NULL.
+    #
+    # G1_MID (2026-04-04, game_pk='900002'):
+    #   NYA uses livep002 in relief (top half inning, inning 2, at_bat_index 4, outs 0->2).
+    #   livep002 pitches 2 relief outs.
+    #   Starter for NYA is otherp (5003, top half, inning 1, 3 outs).
+    #   Starter for ATL is otherp2 (5004, bottom half, inning 1, 3 outs).
+    #
+    # G2 (2026-04-06, game_pk='900003', 5 days after G1):
+    #   ATL starts livep001 (top half), NYA starts livep002 (bottom half).
+    #   livep001 entering G2:
+    #     prior start: G1 (2026-04-01) -> rest_days = 2026-04-06 - 2026-04-01 = 5
+    #     trailing 7d workload [2026-03-30 to 2026-04-05]: G1 (3 outs) -> outs_7d = 3
+    #   livep002 entering G2:
+    #     prior start: G1 (2026-04-01) -> rest_days = 2026-04-06 - 2026-04-01 = 5
+    #     trailing 7d workload [2026-03-30 to 2026-04-05]:
+    #       G1 start (3 outs) + G1_MID relief (2 outs) -> outs_7d = 5
+    #   In G2, livep001 pitches 3 outs, livep002 pitches 3 outs.
+    #
+    # G3 (2026-04-20, game_pk='900004', 14 days after G2):
+    #   ATL starts livep001 (top half), NYA starts livep002 (bottom half).
+    #   livep001 entering G3:
+    #     prior start: G2 (2026-04-06) -> rest_days = 2026-04-20 - 2026-04-06 = 14
+    #     trailing 7d workload [2026-04-13 to 2026-04-19]:
+    #       no appearances in window -> outs_7d = NULL
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('MLB900001', '900001', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('MLB900002', '900002', 2026, '2026-04-04', %(nya)s, %(atl)s, 4, 2, 'regular'), "
+            "('MLB900003', '900003', 2026, '2026-04-06', %(atl)s, %(nya)s, 2, 1, 'regular'), "
+            "('MLB900004', '900004', 2026, '2026-04-20', %(atl)s, %(nya)s, 3, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            # G1: livep001 (ATL starter, top) 3 outs; livep002 (NYA starter, bottom) 3 outs
+            "('900001', '0', '1', 'top', '5001', 'strikeout', '1', '2026'), "
+            "('900001', '1', '1', 'top', '5001', 'field_out', '2', '2026'), "
+            "('900001', '2', '1', 'top', '5001', 'field_out', '3', '2026'), "
+            "('900001', '3', '1', 'bottom', '5002', 'strikeout', '1', '2026'), "
+            "('900001', '4', '1', 'bottom', '5002', 'field_out', '2', '2026'), "
+            "('900001', '5', '1', 'bottom', '5002', 'field_out', '3', '2026'), "
+            # G1_MID: otherp starts for NYA (top, 3 outs), livep002 relief (top, 2 outs)
+            "('900002', '0', '1', 'top', '5003', 'strikeout', '1', '2026'), "
+            "('900002', '1', '1', 'top', '5003', 'field_out', '2', '2026'), "
+            "('900002', '2', '1', 'top', '5003', 'field_out', '3', '2026'), "
+            "('900002', '3', '1', 'bottom', '5004', 'field_out', '1', '2026'), "
+            "('900002', '4', '2', 'top', '5002', 'field_out', '2', '2026'), "
+            # G2: livep001 (top) 3 outs, livep002 (bottom) 3 outs
+            "('900003', '0', '1', 'top', '5001', 'strikeout', '1', '2026'), "
+            "('900003', '1', '1', 'top', '5001', 'field_out', '2', '2026'), "
+            "('900003', '2', '1', 'top', '5001', 'field_out', '3', '2026'), "
+            "('900003', '3', '1', 'bottom', '5002', 'strikeout', '1', '2026'), "
+            "('900003', '4', '1', 'bottom', '5002', 'field_out', '2', '2026'), "
+            "('900003', '5', '1', 'bottom', '5002', 'field_out', '3', '2026'), "
+            # G3: livep001 (top) 3 outs, livep002 (bottom) 3 outs
+            "('900004', '0', '1', 'top', '5001', 'strikeout', '1', '2026'), "
+            "('900004', '1', '1', 'top', '5001', 'field_out', '2', '2026'), "
+            "('900004', '2', '1', 'top', '5001', 'field_out', '3', '2026'), "
+            "('900004', '3', '1', 'bottom', '5002', 'strikeout', '1', '2026')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = starter_workload.compute_live(db_conn)
+    db_conn.commit()
+
+    assert updated == 4
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.retro_game_id, "
+            "f.home_starter_rest_days, f.home_starter_outs_7d, "
+            "f.away_starter_rest_days, f.away_starter_outs_7d "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "ORDER BY g.game_date, g.retro_game_id"
+        )
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
+
+    # G1: first start for both -> all NULL
+    assert rows["MLB900001"] == (None, None, None, None)
+
+    # G2: 5 days rest for both; livep001 had 3 outs; livep002 had 3 start + 2 relief = 5 outs
+    g2 = rows["MLB900003"]
+    assert g2[0] == 5
+    assert g2[1] == Decimal("3")
+    assert g2[2] == 5
+    assert g2[3] == Decimal("5")
+
+    # G3: 14 days rest for livep001; no appearances in trailing 7 days -> outs_7d = NULL
+    g3 = rows["MLB900004"]
+    assert g3[0] == 14
+    assert g3[1] is None
+
+    _reset(db_conn)
+
+
+def test_compute_live_returns_zero_without_playbyplay_table(db_conn):
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_playbyplay")
+    db_conn.commit()
+
+    assert starter_workload.compute_live(db_conn) == 0
+
+
+def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
+    # compute_live() must only fill the NULL gap compute() leaves --
+    # a game already resolved via compute() must never be touched by the live path.
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('MLB900003', '900003', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET home_starter_rest_days = 6, home_starter_outs_7d = 15 "
+            "WHERE mlb_game_pk = '900003'"
+        )
+    db_conn.commit()
+
+    starter_workload.compute_live(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_rest_days, home_starter_outs_7d "
+            "FROM gold.game_feature WHERE mlb_game_pk = '900003'"
+        )
+        rest_days, outs_7d = cur.fetchone()
+    assert rest_days == 6
+    assert outs_7d == Decimal("15")
+
+    _reset(db_conn)
+
+
+def test_compute_probable_populates_upcoming_game_from_latest_announced_probable(db_conn):
+    # Home probable (pitcher_id 7001) has a prior start on 2026-04-01 (6 outs)
+    # and a relief outing on 2026-04-04 (3 outs).
+    # Entering upcoming scheduled start on 2026-04-08:
+    #   rest_days = 2026-04-08 - 2026-04-01 = 7 days
+    #   trailing 7d workload [2026-04-01 to 2026-04-07]: 6 + 3 = 9 outs.
+    # Away probable (pitcher_id 7002) has zero prior history (debut):
+    #   rest_days = NULL, outs_7d = NULL.
+    # Stale scratched announcement for home (pitcher_id 555555, loaded 1 day earlier)
+    # must lose to 7001.
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    _ensure_probable_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    _extend_team_range_to_2026(db_conn, atl, nya)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id) VALUES "
+            "('900030', '2026', '2026-04-01', 'R', 'Final', '144', '147'), "
+            "('900032', '2026', '2026-04-04', 'R', 'Final', '147', '144'), "
+            "('900031', '2026', '2026-04-08', 'R', 'Scheduled', '144', '147')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            # 900030: 7001 starts (top half) and pitches 6 outs (2 innings of 3 outs)
+            "('900030', '0', '1', 'top', '7001', 'strikeout', '1', '2026'), "
+            "('900030', '1', '1', 'top', '7001', 'field_out', '2', '2026'), "
+            "('900030', '2', '1', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900030', '3', '2', 'top', '7001', 'strikeout', '1', '2026'), "
+            "('900030', '4', '2', 'top', '7001', 'field_out', '2', '2026'), "
+            "('900030', '5', '2', 'top', '7001', 'field_out', '3', '2026'), "
+            # 900032: 5003 starts, 7001 relieves for 3 outs (bottom half)
+            "('900032', '0', '1', 'bottom', '5003', 'field_out', '1', '2026'), "
+            "('900032', '1', '2', 'bottom', '7001', 'strikeout', '1', '2026'), "
+            "('900032', '2', '2', 'bottom', '7001', 'field_out', '2', '2026'), "
+            "('900032', '3', '2', 'bottom', '7001', 'field_out', '3', '2026')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_probable (game_pk, side, pitcher_id, pitcher_name, _loaded_at) "
+            "VALUES "
+            "('900031', 'home', '555555', 'Scratched Pitcher', now() - interval '1 day'), "
+            "('900031', 'home', '7001', 'Real Starter', now()), "
+            "('900031', 'away', '7002', 'Rookie Debut', now())"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = starter_workload.compute_probable(db_conn)
+    db_conn.commit()
+
+    assert updated == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_rest_days, home_starter_outs_7d, "
+            "away_starter_rest_days, away_starter_outs_7d "
+            "FROM gold.game_feature WHERE mlb_game_pk = '900031'"
+        )
+        home_rest, home_outs, away_rest, away_outs = cur.fetchone()
+
+    # Home probable 7001: 7 days rest, 6 start outs + 3 relief outs = 9 outs
+    assert home_rest == 7
+    assert home_outs == Decimal("9")
+    # Away probable 7002: debut with zero history -> NULL
+    assert away_rest is None
+    assert away_outs is None
+
+    # Idempotence: re-running does not corrupt or alter values
+    updated_again = starter_workload.compute_probable(db_conn)
+    db_conn.commit()
+    assert updated_again == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_rest_days, home_starter_outs_7d "
+            "FROM gold.game_feature WHERE mlb_game_pk = '900031'"
+        )
+        assert cur.fetchone() == (7, Decimal("9"))
+
+    _reset(db_conn)
+
+
+def test_compute_probable_only_uses_history_strictly_before_target_game_date(db_conn):
+    # Leakage-safety proof: rest-days and trailing workload calculations for a
+    # probable (not-yet-played) game must only ever look at appearances
+    # strictly before THAT target game's own date, never 'as of today'.
+    #
+    # Specifically tests a probable announced days ahead of an intervening start:
+    # Pitcher probp1 (7001) is announced as probable for Game A on 2026-04-15 (900041)
+    # and also for Game B on 2026-04-08 (900044).
+    #
+    # Pitcher 7001's history across 2026 contains:
+    # 1. 2026-04-01 (900040): Start, pitches 15 outs.
+    # 2. 2026-04-08 (900042): Start, pitches 18 outs. (Intervening start between 900040 and 900041).
+    # 3. 2026-04-20 (900043): Start, pitches 20 outs. (Future start strictly after 900041).
+    #
+    # Expected entering Game B (900044 on 2026-04-08):
+    #   - Appearances strictly before 2026-04-08: 900040 (2026-04-01) only.
+    #   - Prior start: 2026-04-01 -> rest_days = 2026-04-08 - 2026-04-01 = 7.
+    #   - Trailing 7d workload [2026-04-01 to 2026-04-07]: 900040 (15 outs) -> outs_7d = 15.
+    #   - 900042 (on 2026-04-08 itself) and 900043 (on 2026-04-20) MUST NOT leak into 900044.
+    #
+    # Expected entering Game A (900041 on 2026-04-15):
+    #   - Appearances strictly before 2026-04-15: 900040 (2026-04-01) and 900042 (2026-04-08).
+    #   - Prior start: 900042 (2026-04-08) -> rest_days = 2026-04-15 - 2026-04-08 = 7.
+    #     (If the intervening start 900042 was missed, rest_days would be 14 from 900040.
+    #      If future 900043 leaked, rest_days would be negative: 2026-04-15 - 2026-04-20 = -5).
+    #   - Trailing 7d workload [2026-04-08 to 2026-04-14]: 900042 (18 outs) is within window.
+    #     900040 (2026-04-01, 14 days ago) is outside window.
+    #     900043 (2026-04-20, in future) is strictly excluded.
+    #     -> outs_7d = 18.
+    #     (If 900040 leaked into the 7d sum, outs_7d would be 15 + 18 = 33.
+    #      If 900043 leaked into the 7d sum, outs_7d would be 18 + 20 = 38).
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    _ensure_probable_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    _extend_team_range_to_2026(db_conn, atl, nya)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id) VALUES "
+            "('900040', '2026', '2026-04-01', 'R', 'Final', '144', '147'), "
+            "('900042', '2026', '2026-04-08', 'R', 'Final', '144', '147'), "
+            "('900044', '2026', '2026-04-08', 'R', 'Scheduled', '144', '147'), "
+            "('900041', '2026', '2026-04-15', 'R', 'Scheduled', '144', '147'), "
+            "('900043', '2026', '2026-04-20', 'R', 'Final', '144', '147')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            # 900040 (2026-04-01): 7001 starts (top half) and pitches 15 outs
+            "('900040', '0', '1', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900040', '1', '2', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900040', '2', '3', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900040', '3', '4', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900040', '4', '5', 'top', '7001', 'field_out', '3', '2026'), "
+            # 900042 (2026-04-08): 7001 starts (top half) and pitches 18 outs
+            "('900042', '0', '1', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900042', '1', '2', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900042', '2', '3', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900042', '3', '4', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900042', '4', '5', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900042', '5', '6', 'top', '7001', 'field_out', '3', '2026'), "
+            # 900043 (2026-04-20): 7001 starts (top half) and pitches 20 outs
+            "('900043', '0', '1', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900043', '1', '2', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900043', '2', '3', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900043', '3', '4', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900043', '4', '5', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900043', '5', '6', 'top', '7001', 'field_out', '3', '2026'), "
+            "('900043', '6', '7', 'top', '7001', 'field_out', '2', '2026')"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_probable (game_pk, side, pitcher_id, pitcher_name) "
+            "VALUES "
+            "('900044', 'home', '7001', 'Real Starter'), "
+            "('900041', 'home', '7001', 'Real Starter')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    starter_workload.compute_probable(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_rest_days, home_starter_outs_7d "
+            "FROM gold.game_feature WHERE mlb_game_pk = '900044'"
+        )
+        g_tgt2_rest, g_tgt2_outs = cur.fetchone()
+
+        cur.execute(
+            "SELECT home_starter_rest_days, home_starter_outs_7d "
+            "FROM gold.game_feature WHERE mlb_game_pk = '900041'"
+        )
+        g_tgt1_rest, g_tgt1_outs = cur.fetchone()
+
+    # Game B (900044 on 2026-04-08): only sees 900040 (2026-04-01)
+    assert g_tgt2_rest == 7
+    assert g_tgt2_outs == Decimal("15")
+
+    # Game A (900041 on 2026-04-15): sees intervening start 900042 (2026-04-08) as prior start
+    assert g_tgt1_rest == 7
+    assert g_tgt1_outs == Decimal("18")
+
+    _reset(db_conn)
+
+
+def test_compute_probable_returns_zero_without_probable_or_playbyplay_table(db_conn):
+    _reset(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_probable")
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_playbyplay")
+    db_conn.commit()
+
+    assert starter_workload.compute_probable(db_conn) == 0
+
+    _ensure_probable_table(db_conn)
+    assert starter_workload.compute_probable(db_conn) == 0  # playbyplay still missing
+
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_playbyplay")
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_probable")
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+    db_conn.commit()
+
 

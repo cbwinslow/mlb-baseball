@@ -235,9 +235,17 @@ def main(argv: list[str] | None = None) -> None:
     experiment_run.add_argument(
         "--fold-years", nargs="+", type=int, default=list(experiment.DEFAULT_FOLD_YEARS)
     )
-    experiment_run.add_argument("--seed", type=int, default=0)
     experiment_compare = experiment_commands.add_parser("compare", help="show saved fold metrics")
     experiment_compare.add_argument("--snapshot", required=True)
+    experiment_select = experiment_commands.add_parser(
+        "select-features", help="compute feature-selection stability report"
+    )
+    experiment_select.add_argument("--snapshot", required=True)
+    experiment_select.add_argument("--n-repeats", type=int, default=30)
+    experiment_select.add_argument("--seed", type=int, default=0)
+    experiment_select.add_argument(
+        "--fold-years", nargs="+", type=int, default=list(experiment.DEFAULT_FOLD_YEARS)
+    )
     evaluate_parser = subparsers.add_parser("evaluate")
     evaluate_parser.add_argument("--season", type=int, required=True)
     evaluate_parser.add_argument("--models", nargs="+", required=True)
@@ -504,6 +512,25 @@ def main(argv: list[str] | None = None) -> None:
                         print(
                             f"  {fold}: mae={metrics['mae']:.4f} rmse={metrics['rmse']:.4f}"
                         )
+            elif args.experiment_command == "select-features":
+                from mlb_baseball.model import feature_select
+
+                result = feature_select.select_features(
+                    conn,
+                    args.snapshot,
+                    n_repeats=args.n_repeats,
+                    seed=args.seed,
+                    fold_years=tuple(args.fold_years),
+                )
+                conn.commit()
+                mode = "reused" if result.get("reused") else "ran"
+                print(f"feature_selection: {result['selection_id']} ({mode})")
+                n = result["total_folds_evaluated"]
+                for feat, summary in result["features"].items():
+                    s1 = summary["stage1_survived_folds"]
+                    s2 = summary["stage2_survived_folds"]
+                    both = summary["both_stages_survived_folds"]
+                    print(f"  {feat}: stage1: {s1}/{n}  stage2: {s2}/{n}  both: {both}/{n}")
             else:
                 for row in experiment.compare(conn, args.snapshot):
                     if "log_loss" in row:

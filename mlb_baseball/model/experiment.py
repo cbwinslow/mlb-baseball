@@ -1079,4 +1079,5 @@ def health_check() -> list[Check]:
         check_table_exists("meta.experiment_target"),
         check_table_exists("meta.experiment_snapshot"),
         check_table_exists("gold.game_feature_snapshot"),
+        check_table_exists("meta.feature_selection"),
     ]

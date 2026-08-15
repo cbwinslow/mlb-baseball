@@ -28,6 +28,10 @@ DATABASE_URL=postgresql:///mlb_test uv run mlb experiment run \
 DATABASE_URL=postgresql:///mlb_test uv run mlb experiment compare \
   --snapshot <snapshot-id>
 
+# Feature selection stability report (filter + embedded stages)
+DATABASE_URL=postgresql:///mlb_test uv run mlb experiment select-features \
+  --snapshot <snapshot-id>
+
 DATABASE_URL=postgresql:///mlb_test uv run mlb audit
 ```
 
@@ -44,6 +48,22 @@ Random train/test splits let later games teach a model about earlier ones. The
 default development folds test 2016 through 2024 one season at a time using
 only preceding seasons for training. 2025 is untouched final holdout; 2026 is
 forward monitoring, not model selection.
+
+## Feature selection stability reporting
+
+`mlb experiment select-features --snapshot <snapshot-id>` evaluates the 11
+`BASE_COLUMNS` candidate features across calendar folds through two complementary
+stages:
+1. **Stage 1 (filter)**: permutation importance against a linear baseline model
+   (`logistic` for `home_win`, `ridge` for `run_differential`), evaluated against an
+   injected synthetic normal noise column (`__noise__`).
+2. **Stage 2 (embedded)**: tree-based feature importance from XGBoost models
+   (`xgboost` / `xgboost_regressor`) against the same injected noise column.
+
+Features surviving both stages across eras are reported as evidence of signal
+stability. **This command is purely diagnostic: it reports evidence, and does not
+select, drop, or alter what models train on.** Stage 3 (the forward-stepwise wrapper
+with nested walk-forward selection) is deferred to future work.
 
 **Why no purging/embargo (2026-08-13, independent research review):** financial
 ML's walk-forward validation typically adds a *purge* (drop training rows whose

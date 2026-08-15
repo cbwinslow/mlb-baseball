@@ -30,6 +30,22 @@ each completed plan gate.
   issues (#6 mojibake names, #7 test pollution, #9 paper cuts, #10 SQL
   lint script).
 
+### Feature selection stability reporting (filter + embedded stages) (completed) — 2026-08-14
+
+Implemented the first two stages of spec section 3 (feature selection) from `docs/superpowers/specs/2026-08-14-ml-modeling-harness-design.md` under Plan 04E posture (`mlb_test` only, no production reads/writes, purely diagnostic report):
+
+- **New module (`mlb_baseball/model/feature_select.py`)**: produces a per-fold, per-candidate-feature stability report across the 11 `BASE_COLUMNS` candidate features.
+- **Stage 1 (filter)**: permutation importance against a regularized linear baseline (`logistic` / `ridge`) evaluated against an injected standard normal control noise column (`__noise__`).
+- **Stage 2 (embedded)**: tree-based feature importance from XGBoost (`xgboost` / `xgboost_regressor`) evaluated against the same injected noise column.
+- **Survival criterion**: a feature survives a stage in a fold if and only if its importance strictly exceeds that of the injected control noise column in the same fit.
+- **Persistence (`meta.feature_selection`)**: migration `0054_feature_selection.sql` adds single-table persistence and content-addressed JSON artifact output (`artifacts/feature_selection/<sha256>.json`). Deterministic `selection_id` (`fsel-<hash>`) ensures idempotency and fast reuse.
+- **CLI (`mlb experiment select-features --snapshot <id>`)**: discovers the snapshot's target automatically and prints a per-feature cross-era survival summary table (`feature: stage1: k/n stage2: k/n both: k/n`).
+- **Verified environment facts documented in ADR-065**:
+  - Confirmed `HistGradientBoostingClassifier`/`Regressor` in installed `scikit-learn==1.9.0` do not expose `.feature_importances_` post-fit; XGBoost is used for the embedded stage.
+  - Confirmed `xgboost==3.3.0` defaults `importance_type` to gain-based importance for `.feature_importances_`.
+- **Deliberate scope cut**: Stage 3 (forward-stepwise wrapper with nested walk-forward CV) is deliberately deferred to avoid premature complexity and leakage risks before stages 1-2 provide proven survivor signals.
+- **Verification**: unit tests prove synthetic signal vs noise separation across random seeds (10/10 true signal wins, <=1/10 noise false positives) and `selection_id` determinism; integration tests prove end-to-end classification and regression runs, idempotency, and CLI output against `mlb_test`.
+
 ### Target-agnostic experiment lab + run_differential (completed) — 2026-08-14
 
 Implemented sections 1-2 of `docs/superpowers/specs/2026-08-14-ml-modeling-harness-design.md` under Plan 04B posture (`mlb_test` only, no production reads/writes, no promotion):

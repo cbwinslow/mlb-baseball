@@ -5,11 +5,12 @@
 Create a reproducible breadth-and-depth modeling laboratory that can discover
 useful signals while resisting leakage, overfitting, and false discovery.
 
-**Status:** 04A/04B foundation active in `mlb_test` only. The reusable
-experiment laboratory supports target-agnostic execution (`home_win` classification
-and `run_differential` regression), fixed calendar folds, content-addressed
-snapshots, transparent baselines, scikit-learn/XGBoost estimators, and persisted
-evidence. It does not promote or write a production forecast.
+**Status:** 04A/04B foundation and 04E feature-selection stability reporting
+active in `mlb_test` only. The reusable experiment laboratory supports target-agnostic
+execution (`home_win` classification and `run_differential` regression), fixed calendar
+folds, content-addressed snapshots, transparent baselines, scikit-learn/XGBoost
+estimators, permutation filter and tree-embedded feature stability reporting, and
+persisted evidence. It does not promote or write a production forecast.
 
 ## Work packages
 

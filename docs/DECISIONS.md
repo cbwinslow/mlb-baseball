@@ -2,6 +2,30 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-065: Feature-selection stability reporting (filter + embedded stages) and deliberate stage-3 scope cut
+
+**Decision:**
+1. Implement `mlb_baseball/model/feature_select.py` and database schema (migration `0054_feature_selection.sql` introducing `meta.feature_selection`) to produce a per-fold, per-candidate-feature stability report across the 11 `BASE_COLUMNS` candidate features.
+2. Structure the evaluation into two complementary stages:
+   - **Stage 1 (filter):** cheap permutation importance against a regularized linear baseline (`logistic` for `home_win`, `ridge` for `run_differential`), evaluated against an injected synthetic standard normal control column (`__noise__`).
+   - **Stage 2 (embedded):** tree-based feature importance from XGBoost (`xgb.XGBClassifier` for `home_win`, `xgb.XGBRegressor` for `run_differential`), also evaluated against the injected `__noise__` column.
+3. A feature is reported as surviving a stage within a fold if and only if its importance strictly exceeds that of the concurrently-fit `__noise__` column.
+4. Persist selection runs in a single `meta.feature_selection` table and JSON artifact (`artifacts/feature_selection/<sha256>.json`). Unlike `meta.experiment`/`meta.experiment_fold`, feature selection produces a single unified cross-era stability summary rather than independent per-fold scored outcomes, making a single table sufficient and clean.
+5. **Stage 3 (forward-stepwise wrapper with nested walk-forward cross-validation) is deliberately deferred** to a future package. Stage 3 requires nested chronological CV inside each outer fold's training slice to avoid leakage, introducing meaningful complexity. Landing stages 1-2 establishes tested survivor signals for stage 3 to consume.
+6. Record two environment-verified facts directly confirmed during design:
+   - `HistGradientBoostingClassifier` and `HistGradientBoostingRegressor` in installed `scikit-learn==1.9.0` do **not** expose `.feature_importances_` post-fit (`hasattr(estimator, 'feature_importances_')` evaluates to `False`). XGBoost (`xgb.XGBClassifier`/`XGBRegressor`) is used for Stage 2 instead.
+   - In installed `xgboost==3.3.0`, `XGBClassifier().importance_type` defaults to `None`, which resolves internally to gain-based importance for `.feature_importances_` (empirically confirmed by fitting toy models where importances sum to 1.0 and rank true signals above noise).
+7. Purely diagnostic posture: `select-features` reports evidence of stability across calendar folds, but does not select, drop, or alter what any model trains on.
+
+**Context:** Section 3 of `docs/superpowers/specs/2026-08-14-ml-modeling-harness-design.md` designed a multi-method feature selection process. Evaluating agreement across methods and across chronological folds turns feature selection into an evidence signal rather than an arbitrary single-model keep/drop heuristic.
+
+**Rationale:**
+- **Injected noise control:** Comparing feature importance to an injected noise column in the same fit provides an empirical baseline threshold rather than an arbitrary epsilon.
+- **Method agreement:** Combining a linear filter method and a non-linear tree embedded method identifies features that provide stable signal across multiple model structures.
+- **Fail-closed & idempotent:** Deterministic `selection_id` hashing `{snapshot_id, target, fold_plan, n_repeats, seed}` allows fast retrieval of completed runs without re-fitting.
+
+**Revisit if:** Plan 03 feature admission queue introduces high-dimensional feature spaces (>100 features) requiring pre-filtering before Stage 1, or when Stage 3 forward-stepwise selection is implemented.
+
 ## ADR-064: Target-agnostic experiment lab, `run_differential` regression, and snapshot target uniqueness
 
 **Decision:**

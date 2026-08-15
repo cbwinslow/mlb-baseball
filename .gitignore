@@ -13,7 +13,7 @@ build/
 /logs/
 downloads/
 /models/
-.claude/
+.claude/settings.local.json
 
 # Real pg_dump output (mlb_baseball/backup.py) -- can be tens of GB against
 # production; never belongs in git. The one pre-existing small schema-only

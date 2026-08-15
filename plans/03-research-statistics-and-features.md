@@ -113,8 +113,17 @@ was measured directly against production `mlb` (`b75c5fc`): zero NULLs or
 empty values in `bat_event_fl`/`event_cd`/`ab_fl`/`sf_fl` across every decade
 from the 1900s through the 2020s (16,465,588 rows) — no gap found. DEF-01's
 separate pitching-vs-defense documentation distinction was not part of
-issue #8's scope and remains outstanding, tracked in
+issue #8's scope and was closed in `docs/TABLE_CONTRACTS.md` and
 `docs/FEATURE_ADMISSION_QUEUE.md`'s own row text.
+
+**Second implemented feature family (PIT-03) and admission closures (PIT-04, PLN-01):**
+`starter_workload.py` (ADR-068, migration `0056_starter_workload.sql`) adds starting
+pitcher rest days (`home_starter_rest_days`/`away_starter_rest_days`) and trailing
+7-day workload outs (`home_starter_outs_7d`/`away_starter_outs_7d`) as `gold.game_feature`
+enrichment columns via Retrosheet events, reusing ADR-042's day-collapse window RANGE-frame
+pattern. Admission queue rows PIT-04 (bullpen fatigue) and PLN-01 (probable starter state)
+were verified and formally closed with cited commits and test coverage in
+`docs/FEATURE_ADMISSION_QUEUE.md`.
 
 ## Acceptance gate
 

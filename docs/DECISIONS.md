@@ -2,6 +2,31 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-068: Starter rest and workload (PIT-03) and feature admission closures for bullpen fatigue (PIT-04) and probable starter (PLN-01)
+
+**Decision:**
+1. Formally close admission-queue items `PIT-04` (bullpen fatigue) and `PLN-01` (probable starter state) in `docs/FEATURE_ADMISSION_QUEUE.md` based on verified, shipped code and existing regression tests:
+   - `PIT-04` (bullpen fatigue): implemented via `mlb_baseball/model/bullpen.py` (`home_bullpen_fatigue`/`away_bullpen_fatigue`, migration `0020_bullpen.sql`, commit `ca43079` under ADR-039; performance fix in `c1d6156` under ADR-042; live 2026 path in `d36fff1` under ADR-051). Unresolved roles are partitioned via the `resp_pit_start_fl = 'T'` starters CTE and `bat_home_id` attribution. Timeline isolation and doubleheader peer-row handling are verified by hand-calculated integration tests `test_compute_gives_both_doubleheader_games_the_same_fatigue_value` and `test_compute_rolls_up_relief_only_with_zero_leakage_and_correct_fatigue_window` in `tests/integration/test_model_bullpen.py`.
+   - `PLN-01` (probable starter state): implemented via `raw.mlb_probable` (connector `mlb_baseball/connectors/mlb_api.py`), `starter.py::compute_probable()`, and `team_starter_probable_update.sql` (migration `0014`, ADR-048 `4e488c0`; health check fix `e3b6b8d`). `raw.mlb_probable` is append-only with immutable ISO capture timestamps (`captured_at`). Unknown probables explicitly remain NULL (`home_starter_id`/`away_starter_id` NULL) while debuted pitchers resolve identity with NULL rates. Later-announced changes / scratches are verified by integration tests `test_load_probable_appends_a_new_snapshot_on_a_scratch` in `tests/integration/test_mlb_api_load.py` and `test_compute_probable_populates_upcoming_game_from_latest_announced_probable` in `tests/integration/test_model_starter.py`.
+2. Implement `PIT-03` (starter rest and workload) in `mlb_baseball/model/starter_workload.py` and migration `0056_starter_workload.sql` (`home_starter_rest_days`/`away_starter_rest_days` as integer, `home_starter_outs_7d`/`away_starter_outs_7d` as numeric on `gold.game_feature`), updated via `mlb_baseball/sql/starter_workload_retrosheet_update.sql`.
+3. **Reused patterns and design choices:**
+   - **Day-collapse RANGE frame (ADR-042 at pitcher grain):** Trailing workload outs sums all of that pitcher's outs (in any role: start or relief) by collapsing outs to one row per `(pitcher_retro_id, calendar day)` first, then applying `SUM(outs) OVER (PARTITION BY pitcher_retro_id ORDER BY game_date RANGE BETWEEN (%(workload_days)s * INTERVAL '1 day') PRECEDING AND INTERVAL '1 day' PRECEDING)`. Collapsing to day grain first eliminates peer-row ambiguity on doubleheaders and keeps the query strictly O(N) linear across historical data.
+   - **Units (outs, not pitches):** Ingested `raw.retrosheet_event` records `event_outs_ct` per play but does not include pitch-by-pitch counts in this project's ingested source. Outs provides a direct, verifiable workload proxy without ungrounded imputation, matching bullpen fatigue's precedent.
+   - **Single parameterized window (`WORKLOAD_WINDOW_DAYS = 7`):** Implements a single 7-day trailing window (`home_starter_outs_7d`/`away_starter_outs_7d`), mirroring bullpen fatigue's `FATIGUE_WINDOW_DAYS = 3`. 7 days captures a starting pitcher's prior regular turn in a 5-man rotation plus any recent relief appearances.
+   - **Pitcher-level rest calculation:** Rest days is computed specifically between starts (`resp_pit_start_fl = 'T'`), using `LAG(game_date)` partitioned by `pitcher_retro_id` ordered by `game_date, game_id`. A pitcher's very first tracked start correctly leaves both `rest_days` and `outs_7d` NULL. Doubleheader starts on the same day resolve to 0 rest days.
+   - **Deliberate scope cut (Retrosheet-historical only):** Follows the exact phased rollout precedent established by `starter.py`, `bullpen.py`, and `offense.py` by implementing the historical Retrosheet path (`compute()`) first. Live 2026 (`compute_live()`) and probable (`compute_probable()`) paths are deliberately deferred as a recommended follow-up package.
+   - **Dormant-until-wired posture:** Like all sibling feature enrichments, `starter_workload.py` is reachable via its own `compute()` and `model.health_check()`, but not wired into `run()` / `build_feature_stage()`, preserving gold pipeline isolation until Plan 01F.
+
+**Context:**
+`docs/FEATURE_ADMISSION_QUEUE.md` recommended `pitcher_workload_v1` as three proposals (PLN-01, PIT-03, PIT-04). Direct inspection revealed PIT-04 and PLN-01 were already fully implemented and verified in the codebase but never formally closed with evidence in the queue documentation. Only PIT-03 was an unbuilt feature.
+
+**Rationale:**
+- **Evidence-based queue closure:** Matching the precedent of issue #8 / ADR-062 (`team_prior_offense_defense_v1`), queue rows are closed only after verifying actual database schemas, SQL pipelines, and passing regression test fixtures.
+- **Linear complexity guarantee:** Applying ADR-042's day-collapse before window RANGE frames prevents quadratic query latency against 220K+ games.
+
+**Revisit if:**
+The live 2026 play-by-play pipeline (`raw.mlb_playbyplay`) and forward-looking probable starter pipeline (`raw.mlb_probable`) are scheduled for integration with starter workload features.
+
 ## ADR-067: Experiment lab failure bookkeeping fix, stepwise single-class split guard, and doctor coverage
 
 **Decision:**

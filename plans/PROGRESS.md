@@ -25,10 +25,19 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `pitcher_workload_v1` (the second recommended feature
-  package in `docs/FEATURE_ADMISSION_QUEUE.md`), or the 4 open GitHub
+- **Next package:** `pitcher_workload_v1` live/probable extension, or the 4 open GitHub
   issues (#6 mojibake names, #7 test pollution, #9 paper cuts, #10 SQL
   lint script).
+
+### Starter rest/workload (PIT-03) and PIT-04/PLN-01 admission closure (completed) — 2026-08-15
+
+Completed two-part package closing admission-queue bookkeeping for PIT-04 and PLN-01, and implementing PIT-03 starter rest/workload (ADR-068):
+
+- **Admission queue closures**: Verified and formally closed `PIT-04` (bullpen fatigue, ADR-039/042/051) and `PLN-01` (probable starter state, ADR-048) in `docs/FEATURE_ADMISSION_QUEUE.md` with cited commits and integration tests (`test_compute_gives_both_doubleheader_games_the_same_fatigue_value`, `test_compute_rolls_up_relief_only_with_zero_leakage_and_correct_fatigue_window`, `test_load_probable_appends_a_new_snapshot_on_a_scratch`, and `test_compute_probable_populates_upcoming_game_from_latest_announced_probable`).
+- **PIT-03 starter rest/workload implementation**: Added `home_starter_rest_days`/`away_starter_rest_days` (integer) and `home_starter_outs_7d`/`away_starter_outs_7d` (numeric) via migration `0056_starter_workload.sql`, computed by `mlb_baseball/model/starter_workload.py` using `mlb_baseball/sql/starter_workload_retrosheet_update.sql`.
+- **Reused ADR-042 day-collapse pattern**: Collapses all outs across appearances to pitcher-day grain before applying the window `RANGE` frame over trailing 7 calendar days, ensuring linear O(N) execution and unambiguous doubleheader peer-row resolution.
+- **Hand-computed fixtures**: Comprehensive integration tests in `tests/integration/test_model_starter_workload.py` verified exact Decimal arithmetic matching a hand-calculated sequence modeled after Jacob deGrom's 2018 schedule, proving debut starts leave both columns NULL, rest days accurately diff consecutive start dates, relief appearances sum into 7d workload, and doubleheaders collapse correctly.
+- **Scope discipline**: Retrosheet-historical path only (`compute()`). Live 2026 (`compute_live()`) and probable (`compute_probable()`) paths deferred as a recommended follow-up package.
 
 ### ML experiment lab code quality and dispatch structure pass (completed) — 2026-08-15
 

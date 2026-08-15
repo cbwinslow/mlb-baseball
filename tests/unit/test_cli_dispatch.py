@@ -216,6 +216,55 @@ def test_experiment_snapshot_command_creates_and_prints_snapshot(monkeypatch, ca
     conn.commit.assert_called_once()
 
 
+def test_experiment_run_command_parses_all_its_own_arguments(monkeypatch, capsys):
+    # Regression test: experiment_run's --seed argument was accidentally
+    # deleted from the argparse subparser in 442f47e (while --seed was being
+    # added to the new select-features subparser), which crashed every real
+    # `mlb experiment run` invocation with AttributeError: 'Namespace' object
+    # has no attribute 'seed' -- undetected because no test exercised this
+    # subcommand's CLI dispatch at all, only experiment.run() directly.
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    captured_config = {}
+
+    def fake_run(_conn, config):
+        captured_config["config"] = config
+        return {
+            "experiment_id": "exp-1",
+            "reused": False,
+            "folds": {"season-2016": {"log_loss": 0.6, "brier": 0.2}},
+        }
+
+    monkeypatch.setattr(experiment, "run", fake_run)
+
+    cli.main(
+        [
+            "experiment",
+            "run",
+            "--snapshot",
+            "snap-1",
+            "--model",
+            "home_rate",
+            "--target",
+            "home_win",
+            "--seed",
+            "7",
+            "--fold-years",
+            "2016",
+            "2017",
+        ]
+    )
+
+    config = captured_config["config"]
+    assert config.snapshot_id == "snap-1"
+    assert config.model_family == "home_rate"
+    assert config.target == "home_win"
+    assert config.seed == 7
+    assert config.fold_years == (2016, 2017)
+    assert "experiment: exp-1 (ran)" in capsys.readouterr().out
+
+
 def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch):
     """The compatibility command still reports feature and prediction results."""
     conn = MagicMock()

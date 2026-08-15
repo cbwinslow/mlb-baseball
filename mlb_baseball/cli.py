@@ -235,6 +235,7 @@ def main(argv: list[str] | None = None) -> None:
     experiment_run.add_argument(
         "--fold-years", nargs="+", type=int, default=list(experiment.DEFAULT_FOLD_YEARS)
     )
+    experiment_run.add_argument("--seed", type=int, default=0)
     experiment_compare = experiment_commands.add_parser("compare", help="show saved fold metrics")
     experiment_compare.add_argument("--snapshot", required=True)
     experiment_select = experiment_commands.add_parser(

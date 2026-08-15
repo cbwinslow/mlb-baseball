@@ -1,8 +1,10 @@
-"""Reproducible, point-in-time game-win experiments.
+"""Reproducible, point-in-time machine-learning experiment lab.
 
-This is intentionally a small lab, not a generic AutoML framework.  It makes
-one approved feature family, calendar folds, probability models, and the full
-evidence trail reusable.  Production prediction remains a separate decision.
+Target-agnostic experiment harness supporting classification (home_win) and
+regression (run_differential) across calendar folds. Provides transparent
+baselines through full estimator families, immutable snapshots, and full
+evidence-trail persistence. Anchors downstream feature-selection pipelines.
+This is intentionally a focused lab, not a generic AutoML framework.
 """
 
 from __future__ import annotations

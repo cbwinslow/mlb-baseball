@@ -16,7 +16,6 @@ import numpy as np
 import psycopg
 from sklearn.inspection import permutation_importance
 
-from mlb_baseball.health import Check, check_table_exists
 from mlb_baseball.model.experiment import (
     BASE_COLUMNS,
     DEFAULT_FOLD_YEARS,
@@ -298,8 +297,3 @@ def select_features(
         )
         raise
 
-
-def health_check() -> list[Check]:
-    return [
-        check_table_exists("meta.feature_selection"),
-    ]

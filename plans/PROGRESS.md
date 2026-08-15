@@ -30,6 +30,17 @@ each completed plan gate.
   issues (#6 mojibake names, #7 test pollution, #9 paper cuts, #10 SQL
   lint script).
 
+### ML experiment lab code quality and dispatch structure pass (completed) — 2026-08-15
+
+Completed code-quality, DevOps standards, and dispatch structure pass over the ML modeling harness (`mlb_baseball/model/experiment.py`, `feature_select.py`, `feature_select_stepwise.py`, and `mlb_baseball/cli.py`):
+
+- **Dead code removal**: deleted unreachable and redundant `feature_select.py::health_check()` and associated unused `mlb_baseball.health` imports (`experiment.health_check()` and `feature_select_stepwise.health_check()` already comprehensively cover all experiment metadata tables).
+- **Accurate module docstrings**: updated `experiment.py`'s module docstring to accurately describe its multi-target capabilities (classification and regression across calendar folds) and its role anchoring downstream feature selection.
+- **Extracted CLI dispatch**: extracted `_run_experiment_command(args, conn)` from `main()` in `mlb_baseball/cli.py`, simplifying `main()` to a clean delegation call.
+- **De-duplicated metric formatting**: unified classification (`log_loss`, `brier`) and regression (`mae`, `rmse`) formatting into `_format_metrics_line()`, shared across `experiment run` and `experiment compare`.
+- **CLI dispatch test coverage**: added unit tests in `tests/unit/test_cli_dispatch.py` exercising real `cli.main()` dispatch for `experiment compare`, `experiment select-features`, `experiment select-features-stepwise`, and `experiment run` with regression metrics, verifying argument parsing, dead code removal, and byte-identical formatted output.
+- **Full test suite, Ruff, and mypy pass clean**: verified zero regressions across all 773 tests and static analysis.
+
 ### Experiment lab failure bookkeeping fix, stepwise single-class guard, and doctor coverage (completed) — 2026-08-14
 
 Fixed lost failure bookkeeping across the experiment lab, closed a single-class training split edge case in stepwise selection, and completed `mlb doctor` coverage under Plan 04E posture (`mlb_test` only, no production reads/writes):

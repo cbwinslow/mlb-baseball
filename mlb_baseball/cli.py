@@ -48,7 +48,9 @@ import concurrent.futures
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
+
+import psycopg
 
 from mlb_baseball import (
     backup,
@@ -168,6 +170,83 @@ def _run_all(mode: str, profile: str) -> None:
             sys.exit(1)
     if any(results):
         sys.exit(1)
+
+
+def _format_metrics_line(metrics: dict[str, Any]) -> str:
+    if "log_loss" in metrics:
+        return f"log_loss={metrics['log_loss']:.4f} brier={metrics['brier']:.4f}"
+    if "mae" in metrics:
+        return f"mae={metrics['mae']:.4f} rmse={metrics['rmse']:.4f}"
+    return ""
+
+
+def _run_experiment_command(args: argparse.Namespace, conn: psycopg.Connection) -> None:
+    if args.experiment_command == "snapshot":
+        snapshot_id = experiment.create_snapshot(conn, target=args.target)
+        conn.commit()
+        print(f"snapshot: {snapshot_id}")
+    elif args.experiment_command == "run":
+        result = experiment.run(
+            conn,
+            experiment.ExperimentConfig(
+                snapshot_id=args.snapshot,
+                model_family=args.model,
+                target=args.target,
+                fold_years=tuple(args.fold_years),
+                seed=args.seed,
+            ),
+        )
+        conn.commit()
+        mode = "reused" if result["reused"] else "ran"
+        print(f"experiment: {result['experiment_id']} ({mode})")
+        for fold, metrics in result["folds"].items():
+            formatted = _format_metrics_line(metrics)
+            if formatted:
+                print(f"  {fold}: {formatted}")
+    elif args.experiment_command == "select-features":
+        from mlb_baseball.model import feature_select
+
+        result = feature_select.select_features(
+            conn,
+            args.snapshot,
+            n_repeats=args.n_repeats,
+            seed=args.seed,
+            fold_years=tuple(args.fold_years),
+        )
+        conn.commit()
+        mode = "reused" if result.get("reused") else "ran"
+        print(f"feature_selection: {result['selection_id']} ({mode})")
+        n = result["total_folds_evaluated"]
+        for feat, summary in result["features"].items():
+            s1 = summary["stage1_survived_folds"]
+            s2 = summary["stage2_survived_folds"]
+            both = summary["both_stages_survived_folds"]
+            print(f"  {feat}: stage1: {s1}/{n}  stage2: {s2}/{n}  both: {both}/{n}")
+    elif args.experiment_command == "select-features-stepwise":
+        from mlb_baseball.model import feature_select_stepwise
+
+        result = feature_select_stepwise.select_features_stepwise(
+            conn,
+            args.snapshot,
+            seed=args.seed,
+            fold_years=tuple(args.fold_years),
+            min_survival_fraction=args.min_survival_fraction,
+        )
+        conn.commit()
+        mode = "reused" if result.get("reused") else "ran"
+        print(f"feature_selection_stepwise: {result['selection_id']} ({mode})")
+        n = result["total_folds_evaluated"]
+        candidates = result["candidate_features"]
+        print(f"candidates ({len(candidates)}): {', '.join(candidates)}")
+        for feat, summary in result["features"].items():
+            sel = summary["selected_folds"]
+            pct = summary["selection_fraction"]
+            print(f"  {feat}: selected {sel}/{n} folds ({pct:.0%})")
+    else:
+        for row in experiment.compare(conn, args.snapshot):
+            formatted = _format_metrics_line(row)
+            if formatted:
+                print(f"{row['model']} {row['fold']}: {formatted}")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -498,84 +577,7 @@ def main(argv: list[str] | None = None) -> None:
         from mlb_baseball.db import get_connection
 
         with get_connection() as conn:
-            if args.experiment_command == "snapshot":
-                snapshot_id = experiment.create_snapshot(conn, target=args.target)
-                conn.commit()
-                print(f"snapshot: {snapshot_id}")
-            elif args.experiment_command == "run":
-                result = experiment.run(
-                    conn,
-                    experiment.ExperimentConfig(
-                        snapshot_id=args.snapshot,
-                        model_family=args.model,
-                        target=args.target,
-                        fold_years=tuple(args.fold_years),
-                        seed=args.seed,
-                    ),
-                )
-                conn.commit()
-                mode = "reused" if result["reused"] else "ran"
-                print(f"experiment: {result['experiment_id']} ({mode})")
-                for fold, metrics in result["folds"].items():
-                    if "log_loss" in metrics:
-                        log_loss_val = metrics["log_loss"]
-                        brier_val = metrics["brier"]
-                        print(f"  {fold}: log_loss={log_loss_val:.4f} brier={brier_val:.4f}")
-                    elif "mae" in metrics:
-                        print(
-                            f"  {fold}: mae={metrics['mae']:.4f} rmse={metrics['rmse']:.4f}"
-                        )
-            elif args.experiment_command == "select-features":
-                from mlb_baseball.model import feature_select
-
-                result = feature_select.select_features(
-                    conn,
-                    args.snapshot,
-                    n_repeats=args.n_repeats,
-                    seed=args.seed,
-                    fold_years=tuple(args.fold_years),
-                )
-                conn.commit()
-                mode = "reused" if result.get("reused") else "ran"
-                print(f"feature_selection: {result['selection_id']} ({mode})")
-                n = result["total_folds_evaluated"]
-                for feat, summary in result["features"].items():
-                    s1 = summary["stage1_survived_folds"]
-                    s2 = summary["stage2_survived_folds"]
-                    both = summary["both_stages_survived_folds"]
-                    print(f"  {feat}: stage1: {s1}/{n}  stage2: {s2}/{n}  both: {both}/{n}")
-            elif args.experiment_command == "select-features-stepwise":
-                from mlb_baseball.model import feature_select_stepwise
-
-                result = feature_select_stepwise.select_features_stepwise(
-                    conn,
-                    args.snapshot,
-                    seed=args.seed,
-                    fold_years=tuple(args.fold_years),
-                    min_survival_fraction=args.min_survival_fraction,
-                )
-                conn.commit()
-                mode = "reused" if result.get("reused") else "ran"
-                print(f"feature_selection_stepwise: {result['selection_id']} ({mode})")
-                n = result["total_folds_evaluated"]
-                candidates = result["candidate_features"]
-                print(f"candidates ({len(candidates)}): {', '.join(candidates)}")
-                for feat, summary in result["features"].items():
-                    sel = summary["selected_folds"]
-                    pct = summary["selection_fraction"]
-                    print(f"  {feat}: selected {sel}/{n} folds ({pct:.0%})")
-            else:
-                for row in experiment.compare(conn, args.snapshot):
-                    if "log_loss" in row:
-                        print(
-                            f"{row['model']} {row['fold']}: "
-                            f"log_loss={row['log_loss']:.4f} brier={row['brier']:.4f}"
-                        )
-                    elif "mae" in row:
-                        print(
-                            f"{row['model']} {row['fold']}: "
-                            f"mae={row['mae']:.4f} rmse={row['rmse']:.4f}"
-                        )
+            _run_experiment_command(args, conn)
     elif args.command == "evaluate":
         evaluation_report = model.evaluate(
             args.models, args.season, args.cutoff, args.bootstrap_samples

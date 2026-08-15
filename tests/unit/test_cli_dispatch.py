@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock
 
 from mlb_baseball import audit, cli, field_census, model, progress_table, report
-from mlb_baseball.model import experiment
+from mlb_baseball.model import experiment, feature_select, feature_select_stepwise
 from mlb_baseball.source_profiles import SourceProfileError, require_sources
 
 
@@ -263,6 +263,187 @@ def test_experiment_run_command_parses_all_its_own_arguments(monkeypatch, capsys
     assert config.seed == 7
     assert config.fold_years == (2016, 2017)
     assert "experiment: exp-1 (ran)" in capsys.readouterr().out
+
+
+def test_experiment_run_command_prints_regression_metrics(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+
+    def fake_run(_conn, config):
+        return {
+            "experiment_id": "exp-reg-1",
+            "reused": False,
+            "folds": {"season-2021": {"mae": 1.4567, "rmse": 2.1234}},
+        }
+
+    monkeypatch.setattr(experiment, "run", fake_run)
+
+    cli.main(
+        [
+            "experiment",
+            "run",
+            "--snapshot",
+            "snap-1",
+            "--model",
+            "ridge",
+            "--target",
+            "run_differential",
+            "--seed",
+            "42",
+            "--fold-years",
+            "2021",
+        ]
+    )
+
+    out = capsys.readouterr().out
+    assert "experiment: exp-reg-1 (ran)" in out
+    assert "  season-2021: mae=1.4567 rmse=2.1234" in out
+    conn.commit.assert_called_once()
+
+
+def test_experiment_compare_command_parses_arguments_and_prints_metrics(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+
+    rows = [
+        {"model": "home_rate", "fold": "season-2020", "log_loss": 0.61234, "brier": 0.21234},
+        {"model": "ridge", "fold": "season-2020", "mae": 1.54321, "rmse": 2.12345},
+    ]
+    monkeypatch.setattr(
+        experiment,
+        "compare",
+        lambda _conn, snapshot: rows if snapshot == "snap-1" else [],
+    )
+
+    cli.main(["experiment", "compare", "--snapshot", "snap-1"])
+
+    out = capsys.readouterr().out
+    assert "home_rate season-2020: log_loss=0.6123 brier=0.2123" in out
+    assert "ridge season-2020: mae=1.5432 rmse=2.1235" in out
+
+
+def test_experiment_select_features_command_parses_all_its_own_arguments(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    captured_args = {}
+
+    def fake_select(conn_arg, snapshot, n_repeats=10, seed=42, fold_years=None):
+        captured_args["snapshot"] = snapshot
+        captured_args["n_repeats"] = n_repeats
+        captured_args["seed"] = seed
+        captured_args["fold_years"] = fold_years
+        return {
+            "selection_id": "sel-1",
+            "reused": False,
+            "total_folds_evaluated": 5,
+            "features": {
+                "elo_diff": {
+                    "stage1_survived_folds": 4,
+                    "stage2_survived_folds": 3,
+                    "both_stages_survived_folds": 3,
+                }
+            },
+        }
+
+    monkeypatch.setattr(feature_select, "select_features", fake_select)
+
+    cli.main(
+        [
+            "experiment",
+            "select-features",
+            "--snapshot",
+            "snap-1",
+            "--n-repeats",
+            "7",
+            "--seed",
+            "99",
+            "--fold-years",
+            "2018",
+            "2019",
+        ]
+    )
+
+    assert captured_args["snapshot"] == "snap-1"
+    assert captured_args["n_repeats"] == 7
+    assert captured_args["seed"] == 99
+    assert captured_args["fold_years"] == (2018, 2019)
+    conn.commit.assert_called_once()
+    out = capsys.readouterr().out
+    assert "feature_selection: sel-1 (ran)" in out
+    assert "  elo_diff: stage1: 4/5  stage2: 3/5  both: 3/5" in out
+
+
+def test_experiment_select_features_stepwise_command_parses_all_its_own_arguments(
+    monkeypatch, capsys
+):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    captured_args = {}
+
+    def fake_stepwise(conn_arg, snapshot, seed=42, fold_years=None, min_survival_fraction=0.75):
+        captured_args["snapshot"] = snapshot
+        captured_args["seed"] = seed
+        captured_args["fold_years"] = fold_years
+        captured_args["min_survival_fraction"] = min_survival_fraction
+        return {
+            "selection_id": "step-1",
+            "reused": True,
+            "total_folds_evaluated": 4,
+            "candidate_features": ["f1", "f2"],
+            "features": {
+                "f1": {
+                    "selected_folds": 3,
+                    "selection_fraction": 0.75,
+                }
+            },
+        }
+
+    monkeypatch.setattr(
+        feature_select_stepwise, "select_features_stepwise", fake_stepwise
+    )
+
+    cli.main(
+        [
+            "experiment",
+            "select-features-stepwise",
+            "--snapshot",
+            "snap-2",
+            "--seed",
+            "101",
+            "--fold-years",
+            "2020",
+            "--min-survival-fraction",
+            "0.5",
+        ]
+    )
+
+    assert captured_args["snapshot"] == "snap-2"
+    assert captured_args["seed"] == 101
+    assert captured_args["fold_years"] == (2020,)
+    assert captured_args["min_survival_fraction"] == 0.5
+    conn.commit.assert_called_once()
+    out = capsys.readouterr().out
+    assert "feature_selection_stepwise: step-1 (reused)" in out
+    assert "candidates (2): f1, f2" in out
+    assert "  f1: selected 3/4 folds (75%)" in out
+
+
+def test_format_metrics_line_classification_and_regression():
+    class_metrics = {"log_loss": 0.54321, "brier": 0.18765}
+    assert cli._format_metrics_line(class_metrics) == "log_loss=0.5432 brier=0.1877"
+
+    reg_metrics = {"mae": 1.23456, "rmse": 2.34567}
+    assert cli._format_metrics_line(reg_metrics) == "mae=1.2346 rmse=2.3457"
+
+    assert cli._format_metrics_line({}) == ""
+
+
+def test_feature_select_has_no_health_check():
+    assert not hasattr(feature_select, "health_check")
 
 
 def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch):

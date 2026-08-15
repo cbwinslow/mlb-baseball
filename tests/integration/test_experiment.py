@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from mlb_baseball import audit
+from mlb_baseball.db import get_connection
 from mlb_baseball.model import experiment
 
 
@@ -275,9 +276,14 @@ def test_failed_experiment_is_recorded_without_corrupting_success(db_conn, tmp_p
         parameters={"C": -1.0},
         artifact_dir=tmp_path,
     )
+    # Regression: run through with get_connection() as conn: to exercise
+    # the real CLI execution path. When an exception propagates through
+    # Connection.__exit__, psycopg3 calls rollback(). _finalize_failed_run
+    # must commit the 'failed' row before raising, so it survives.
     with pytest.raises(ValueError, match="range"):
-        experiment.run(db_conn, bad)
-    db_conn.commit()
+        with get_connection() as conn:
+            experiment.run(conn, bad)
+    # Deliberately no manual commit here.
 
     statuses = db_conn.execute("SELECT status FROM meta.experiment ORDER BY started_at").fetchall()
     assert {status[0] for status in statuses} == {"success", "failed"}

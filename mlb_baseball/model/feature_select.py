@@ -24,6 +24,7 @@ from mlb_baseball.model.experiment import (
     ExperimentError,
     _canonical_json,
     _common_rows,
+    _finalize_failed_run,
     _labels,
     _make_estimator,
     _matrix,
@@ -276,26 +277,25 @@ def select_features(
         return result_payload | {"reused": False}
 
     except Exception as error:
-        conn.rollback()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO meta.feature_selection (
-                    selection_id, snapshot_id, target, fold_plan_json, method_config_json,
-                    status, error, finished_at
-                ) VALUES (%s, %s, %s, %s, %s, 'failed', %s, now())
-                ON CONFLICT (selection_id) DO UPDATE SET
-                    status = 'failed', error = EXCLUDED.error, finished_at = EXCLUDED.finished_at
-                """,
-                (
-                    selection_id,
-                    snapshot_id,
-                    target,
-                    json.dumps(fold_plan),
-                    json.dumps(method_config),
-                    str(error),
-                ),
-            )
+        _finalize_failed_run(
+            conn,
+            """
+            INSERT INTO meta.feature_selection (
+                selection_id, snapshot_id, target, fold_plan_json, method_config_json,
+                status, error, finished_at
+            ) VALUES (%s, %s, %s, %s, %s, 'failed', %s, now())
+            ON CONFLICT (selection_id) DO UPDATE SET
+                status = 'failed', error = EXCLUDED.error, finished_at = EXCLUDED.finished_at
+            """,
+            (
+                selection_id,
+                snapshot_id,
+                target,
+                json.dumps(fold_plan),
+                json.dumps(method_config),
+                str(error),
+            ),
+        )
         raise
 
 

@@ -271,3 +271,10 @@ def test_run_diagnoses_mlb_api_as_healthy_after_bootstrap_including_empty_live_t
     assert not live_check.ok
     assert "never bootstrapped" in live_check.detail
     assert next(c for c in checks if c.name == "mlb_api freshness").ok
+
+
+def test_run_includes_feature_select_stepwise_health_check():
+    checks = doctor.run()
+    stepwise_check = next((c for c in checks if c.name == "meta.feature_selection_stepwise"), None)
+    assert stepwise_check is not None
+    assert stepwise_check.ok

@@ -2,6 +2,25 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-067: Experiment lab failure bookkeeping fix, stepwise single-class split guard, and doctor coverage
+
+**Decision:**
+1. Fix lost failure bookkeeping across `mlb_baseball/model/experiment.py` (`run()`), `mlb_baseball/model/feature_select.py` (`select_features()`), and `mlb_baseball/model/feature_select_stepwise.py` (`select_features_stepwise()`) by introducing a shared private helper `_finalize_failed_run(conn, sql, params)`. The helper executes `conn.rollback()` (rolling back partial computation), executes the caller's failure recording SQL (`status = 'failed'`), and immediately calls `conn.commit()` before the caller re-raises.
+2. Factor only the failure path rollback/commit sequence into `_finalize_failed_run`, keeping SQL queries and success-path execution local to each module to avoid introducing unnecessary indirection across already-reviewed success paths.
+3. In `feature_select_stepwise.py`, extend the inner-split validation guard: for classification targets, verify that `inner_train_rows` contains at least two distinct class outcomes (`len(set(_labels(inner_train_rows, spec).tolist())) >= 2`). If only one outcome is present, record the fold as skipped with reason `"single-class inner-training split"` rather than crashing `LogisticRegression.fit` with a `ValueError`.
+4. In `mlb_baseball/doctor.py`, wire `feature_select_stepwise.health_check()` into `doctor.run()`, closing the only genuine gap in experiment-lab operational health check coverage (all other experiment tables are already covered by `experiment.health_check()`).
+5. Author regression tests in `test_experiment.py`, `test_feature_select.py`, and `test_feature_select_stepwise.py` that reproduce the real CLI execution path (`with get_connection() as conn:`) where `Connection.__exit__` automatically rolls back propagating exceptions, verifying that failure records persist in Postgres without manual post-exception commits.
+
+**Context:**
+An independent code review identified that `experiment.run()`, `feature_select.select_features()`, and `feature_select_stepwise.select_features_stepwise()` rolled back aborted work and executed an `INSERT/UPDATE ... status = 'failed'` without calling `conn.commit()` before re-raising. Because `cli.py` invokes these routines inside `with get_connection() as conn:`, psycopg3's `Connection.__exit__` triggers a second rollback upon propagating the unhandled exception, wiping out the uncommitted 'failed' row. Existing tests had masked this bug by executing the call bare and manually calling `db_conn.commit()` after `pytest.raises`. Additionally, stepwise feature selection had no check for single-class inner-training slices, which would crash logistic regression fitting.
+
+**Rationale:**
+- **Failure persistence under context-manager semantics:** Explicitly committing the failure row inside `_finalize_failed_run` ensures the status is durable in Postgres even when the connection context manager subsequently exits on exception.
+- **Differentiated skip telemetry:** Distinguishing `"single-class inner-training split"` from `"insufficient inner-split data"` enables unambiguous debugging of data slice edge cases from database records and artifacts alone.
+- **Complete doctor visibility:** Wiring `feature_select_stepwise.health_check()` ensures `mlb doctor` reports on all experiment lab metadata tables (`meta.experiment_target`, `meta.experiment_snapshot`, `gold.game_feature_snapshot`, `meta.feature_selection`, and `meta.feature_selection_stepwise`).
+
+**Revisit if:** Future experiment runners require distributed worker execution or asynchronous task tracking beyond direct database transactions.
+
 ## ADR-066: Forward-stepwise feature selection (stage 3) with nested chronological validation and paired shuffled-control threshold
 
 **Decision:**

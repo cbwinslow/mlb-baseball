@@ -846,6 +846,21 @@ def _aggregate_regression_metrics(
     }
 
 
+def _finalize_failed_run(
+    conn: psycopg.Connection, sql: str, params: tuple[Any, ...]
+) -> None:
+    """Roll back aborted work, record the failed run status, and commit.
+
+    The explicit commit ensures the failure record persists in Postgres even when
+    the caller manages this connection with a context manager (e.g. `with conn:`)
+    that would otherwise roll back the transaction when the exception propagates.
+    """
+    conn.rollback()
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+    conn.commit()
+
+
 def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
     """Run or return a deterministic experiment; never promotes a model."""
     if config.target not in TARGET_REGISTRY:
@@ -1028,32 +1043,31 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
         # A database error can leave the caller's transaction aborted. Roll
         # back the incomplete fold writes, then preserve a small terminal run
         # record so a retry is visible and uses the same deterministic ID.
-        conn.rollback()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO meta.experiment (
-                    experiment_id, snapshot_id, target, source_profile, fold_plan_json,
-                    model_family, parameters_json, seed, calibration, code_sha,
-                    status, error, finished_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'failed', %s, now())
-                ON CONFLICT (experiment_id) DO UPDATE SET
-                    status = 'failed', error = EXCLUDED.error, finished_at = EXCLUDED.finished_at
-                """,
-                (
-                    experiment_id,
-                    config.snapshot_id,
-                    config.target,
-                    config.source_profile,
-                    json.dumps(fold_plan),
-                    config.model_family,
-                    json.dumps(parameters),
-                    config.seed,
-                    config.calibration,
-                    provenance.git_sha(),
-                    str(error),
-                ),
-            )
+        _finalize_failed_run(
+            conn,
+            """
+            INSERT INTO meta.experiment (
+                experiment_id, snapshot_id, target, source_profile, fold_plan_json,
+                model_family, parameters_json, seed, calibration, code_sha,
+                status, error, finished_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'failed', %s, now())
+            ON CONFLICT (experiment_id) DO UPDATE SET
+                status = 'failed', error = EXCLUDED.error, finished_at = EXCLUDED.finished_at
+            """,
+            (
+                experiment_id,
+                config.snapshot_id,
+                config.target,
+                config.source_profile,
+                json.dumps(fold_plan),
+                config.model_family,
+                json.dumps(parameters),
+                config.seed,
+                config.calibration,
+                provenance.git_sha(),
+                str(error),
+            ),
+        )
         raise
 
 

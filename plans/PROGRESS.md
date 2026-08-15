@@ -30,6 +30,17 @@ each completed plan gate.
   issues (#6 mojibake names, #7 test pollution, #9 paper cuts, #10 SQL
   lint script).
 
+### Experiment lab failure bookkeeping fix, stepwise single-class guard, and doctor coverage (completed) — 2026-08-14
+
+Fixed lost failure bookkeeping across the experiment lab, closed a single-class training split edge case in stepwise selection, and completed `mlb doctor` coverage under Plan 04E posture (`mlb_test` only, no production reads/writes):
+
+- **Shared failure-bookkeeping helper (`_finalize_failed_run`)**: added private helper in `mlb_baseball/model/experiment.py` that executes `conn.rollback()`, executes the caller's failure SQL (`status = 'failed'`), and explicitly calls `conn.commit()`. Used across `experiment.py`, `feature_select.py`, and `feature_select_stepwise.py` before re-raising.
+- **Root cause resolved**: fixes uncommitted failure records being wiped out by psycopg3's `Connection.__exit__` rollback when invoked through CLI context manager (`with get_connection() as conn:`).
+- **Graceful single-class split guard**: in `feature_select_stepwise.py`, added verification that `inner_train_rows` contains at least two distinct class outcomes for classification targets. Single-class inner-training slices are recorded as `{"skipped": true, "reason": "single-class inner-training split"}` rather than crashing `LogisticRegression.fit`.
+- **Operational doctor coverage**: wired `feature_select_stepwise.health_check()` directly into `mlb_baseball/doctor.py`, ensuring all three experiment-lab metadata tables (`meta.experiment_*`, `meta.feature_selection`, `meta.feature_selection_stepwise`) are reported by `mlb doctor`.
+- **Verified ADR-067**: documented the exact failure mechanism, fix rationale, single-class telemetry, and doctor coverage.
+- **Regression test suite**: tests in `test_experiment.py`, `test_feature_select.py`, and `test_feature_select_stepwise.py` reproduce real CLI context-manager failure paths and verify persistence without manual commits; new unit/integration tests verify the single-class skip path and doctor check reachability.
+
 ### Forward-stepwise feature selection with nested validation (stage 3) (completed) — 2026-08-14
 
 Implemented Stage 3 of spec section 3 (feature selection) from `docs/superpowers/specs/2026-08-14-ml-modeling-harness-design.md` under Plan 04E posture (`mlb_test` only, no production reads/writes, purely diagnostic evidence):

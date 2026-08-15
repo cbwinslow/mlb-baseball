@@ -4,7 +4,10 @@
 
 from pathlib import Path
 
+import pytest
+
 from mlb_baseball import cli
+from mlb_baseball.db import get_connection
 from mlb_baseball.model import experiment, feature_select
 
 
@@ -221,3 +224,35 @@ def test_cli_select_features(db_conn, tmp_path, monkeypatch, capsys):
     assert "feature_selection:" in captured.out
     assert "home_wins: stage1:" in captured.out
     assert "away_wins: stage1:" in captured.out
+
+
+def test_failed_feature_select_is_recorded_through_connection_context_manager(db_conn, tmp_path):
+    _reset(db_conn)
+    _seed(db_conn)
+
+    snapshot_id = experiment.create_snapshot(db_conn, target="home_win")
+    db_conn.commit()
+
+    artifact_dir = tmp_path / "artifacts"
+    # Regression: run through with get_connection() as conn: to exercise real CLI
+    # context-manager exit semantics. n_repeats=0 raises ValueError inside permutation_importance,
+    # and _finalize_failed_run must commit before re-raising so the failed status persists.
+    with pytest.raises(ValueError, match="n_repeats"):
+        with get_connection() as conn:
+            feature_select.select_features(
+                conn,
+                snapshot_id,
+                n_repeats=0,
+                seed=42,
+                fold_years=(2016,),
+                artifact_dir=artifact_dir,
+            )
+    # Deliberately no db_conn.commit() here.
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT status, error FROM meta.feature_selection")
+        rows = cur.fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == "failed"
+        assert "n_repeats" in (rows[0][1] or "")
+    _reset(db_conn)

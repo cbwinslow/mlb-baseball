@@ -19,7 +19,7 @@ import psycopg
 from mlb_baseball import backup, conform, ingest, manifest, migrate, model, report
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
-from mlb_baseball.model import experiment
+from mlb_baseball.model import experiment, feature_select_stepwise
 from mlb_baseball.registry import CONNECTORS
 
 
@@ -225,6 +225,11 @@ def run() -> list[Check]:
         checks.extend(experiment.health_check())
     except Exception as exc:
         checks.append(Check("experiment", False, f"health_check() raised: {exc}"))
+
+    try:
+        checks.extend(feature_select_stepwise.health_check())
+    except Exception as exc:
+        checks.append(Check("feature_select_stepwise", False, f"health_check() raised: {exc}"))
 
     # backup.py has no bootstrap()/update() either -- it's an operational
     # tool, not a data source, but a missing pg_dump/psql should still show

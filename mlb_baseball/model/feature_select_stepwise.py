@@ -28,6 +28,7 @@ from mlb_baseball.model.experiment import (
     SnapshotRow,
     _canonical_json,
     _common_rows,
+    _finalize_failed_run,
     _labels,
     _make_estimator,
     _sha256,
@@ -198,6 +199,20 @@ def select_features_stepwise(
                     "validate_rows": len(inner_validate_rows),
                     "skipped": True,
                     "reason": "insufficient inner-split data",
+                    "selected": [],
+                    "trace": [],
+                }
+                continue
+
+            if (
+                spec.task_type == "classification"
+                and len(set(_labels(inner_train_rows, spec).tolist())) < 2
+            ):
+                fold_results[fold.name] = {
+                    "train_rows": len(inner_train_rows),
+                    "validate_rows": len(inner_validate_rows),
+                    "skipped": True,
+                    "reason": "single-class inner-training split",
                     "selected": [],
                     "trace": [],
                 }
@@ -379,26 +394,25 @@ def select_features_stepwise(
         return result_payload | {"reused": False}
 
     except Exception as error:
-        conn.rollback()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO meta.feature_selection_stepwise (
-                    selection_id, snapshot_id, target, fold_plan_json, method_config_json,
-                    status, error, finished_at
-                ) VALUES (%s, %s, %s, %s, %s, 'failed', %s, now())
-                ON CONFLICT (selection_id) DO UPDATE SET
-                    status = 'failed', error = EXCLUDED.error, finished_at = EXCLUDED.finished_at
-                """,
-                (
-                    selection_id,
-                    snapshot_id,
-                    target,
-                    json.dumps(fold_plan),
-                    json.dumps(method_config),
-                    str(error),
-                ),
-            )
+        _finalize_failed_run(
+            conn,
+            """
+            INSERT INTO meta.feature_selection_stepwise (
+                selection_id, snapshot_id, target, fold_plan_json, method_config_json,
+                status, error, finished_at
+            ) VALUES (%s, %s, %s, %s, %s, 'failed', %s, now())
+            ON CONFLICT (selection_id) DO UPDATE SET
+                status = 'failed', error = EXCLUDED.error, finished_at = EXCLUDED.finished_at
+            """,
+            (
+                selection_id,
+                snapshot_id,
+                target,
+                json.dumps(fold_plan),
+                json.dumps(method_config),
+                str(error),
+            ),
+        )
         raise
 
 

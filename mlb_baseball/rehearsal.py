@@ -174,7 +174,7 @@ def load_sample(
     """
     away_active = active_in_season.format(team="away")
     home_active = active_in_season.format(team="home")
-    game_cte = f"""
+    game_cte = rf"""
         WITH matched AS (
             SELECT DISTINCT gi.gid, gi._season
             FROM raw.retrosheet_gameinfo gi
@@ -184,7 +184,11 @@ def load_sample(
                 AND ms.away_name = away.city || ' ' || away.nickname
                 AND ms.home_name = home.city || ' ' || home.nickname
                 AND COALESCE(NULLIF(ms.game_num, '')::integer, 1)
-                    = COALESCE(NULLIF(gi.number, '')::integer, 1)
+                    = COALESCE(
+                        CASE WHEN gi.number ~ '^[0-9]+(\.[0-9]+)?$'
+                             THEN gi.number::numeric::integer END,
+                        1
+                    )
             WHERE gi._season = ANY(%s) AND ms.status IN ('Final', 'Completed Early', 'Forfeit')
         ), ranked AS (
             SELECT gid, row_number() OVER (PARTITION BY _season ORDER BY gid) AS n FROM matched
@@ -256,7 +260,7 @@ def load_sample(
         # Play/pitch rows are selected only for MLB keys that the sampled
         # Retrosheet games can actually resolve. This keeps a sample boundary
         # from masquerading as an upstream source coverage defect.
-        matched = f"""
+        matched = rf"""
             WITH selected_games AS (
                 SELECT gi.* FROM raw.retrosheet_gameinfo gi WHERE gid IN ({game_cte})
             )
@@ -267,7 +271,11 @@ def load_sample(
             WHERE ms.away_name = away.city || ' ' || away.nickname
               AND ms.home_name = home.city || ' ' || home.nickname
               AND COALESCE(NULLIF(ms.game_num, '')::integer, 1)
-                  = COALESCE(NULLIF(gi.number, '')::integer, 1)
+                  = COALESCE(
+                      CASE WHEN gi.number ~ '^[0-9]+(\.[0-9]+)?$'
+                           THEN gi.number::numeric::integer END,
+                      1
+                  )
         """
         # A present-season slice explicitly exercises the MLB play-by-play
         # source even when Retrosheet has not yet published that season.

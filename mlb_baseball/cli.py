@@ -257,7 +257,16 @@ def main(argv: list[str] | None = None) -> None:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("migrate")
+    migrate_parser = subparsers.add_parser("migrate")
+    migrate_parser.add_argument(
+        "--skip",
+        action="append",
+        default=[],
+        metavar="FILENAME",
+        help="defer this migration version (by filename) to a later run; "
+        "repeatable. For a documented forward dependency only -- see "
+        "mlb_baseball/migrate.py's run().",
+    )
 
     ingest_parser = subparsers.add_parser("ingest")
     ingest_parser.add_argument("source", choices=sorted(CONNECTORS))
@@ -459,7 +468,7 @@ def main(argv: list[str] | None = None) -> None:
     profile = getattr(args, "profile", None) or active_profile()
 
     if args.command == "migrate":
-        migrate.main()
+        migrate.main(skip=set(args.skip))
     elif args.command == "ingest":
         try:
             require_sources(profile, [args.source], purpose=f"ingest {args.source}")

@@ -2205,6 +2205,75 @@ def test_backfill_game_pk_leaves_same_matchup_candidates_unresolved(db_conn):
         assert cur.fetchall() == [(None,), (None,)]
 
 
+def test_exact_score_fallback_does_not_steal_an_already_claimed_game_pk(db_conn):
+    """A doubleheader partner with an identical score must not get the same key.
+
+    Real production bug (1941-09-14, Homestead Grays @ Newark Eagles): MLB's
+    schedule only published a gamePk for game 2 of this doubleheader,
+    correctly matched by the game-number-aware pass. Both games ended 6-4,
+    so the score-only fallback -- which only checked that *its own*
+    candidate set was unambiguous, not whether the schedule key was already
+    claimed by game 2's row -- then handed game 1 that same already-used
+    gamePk, producing a duplicate populated core.game.game_pk.
+    """
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('HOM', 'NN', 'Homestead', 'Grays', '1935', '1948'), "
+            "('NWK', 'NN', 'Newark', 'Eagles', '1936', '1948')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text, temp text, winddir text, "
+            "windspeed text, sky text, precip text, fieldcond text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('NWK194109141', '1941', '19410914', '1', 'HOM', 'NWK', "
+            "'6', '4', 'regular', 'NWK01', '', '', '', '', '', '', '', '', '', '', '', ''), "
+            "('NWK194109142', '1941', '19410914', '2', 'HOM', 'NWK', "
+            "'6', '4', 'regular', 'NWK01', '', '', '', '', '', '', '', '', '', '', '', '')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "away_id text, home_id text, _season text, status text, game_type text, "
+            "game_num text, venue_name text, venue_id text, "
+            "away_score text, home_score text)"
+        )
+        # Only game 2 has a published gamePk -- game 1's is genuinely
+        # missing from MLB's schedule, not just unresolved by this pipeline.
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('802526', '1941-09-14', 'Homestead Grays', 'Newark Eagles', '9001', '9002', "
+            "'1941', 'Final', 'R', '2', '', '', '6', '4')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, name_last, name_first) "
+            "VALUES ('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_game_id, game_pk FROM core.game "
+            "WHERE retro_game_id IN ('NWK194109141', 'NWK194109142') "
+            "ORDER BY retro_game_id"
+        )
+        assert cur.fetchall() == [("NWK194109141", None), ("NWK194109142", "802526")]
+
+
 def test_backfill_game_pk_leaves_ambiguous_final_id_null(db_conn):
     # Real bug found via mlb doctor's check_no_duplicate_key in production:
     # game_pk 123347 was shared by two genuinely distinct, real 1944 PIT

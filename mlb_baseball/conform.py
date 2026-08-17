@@ -855,6 +855,17 @@ def _backfill_game_pk_via_exact_final_score(conn: psycopg.Connection) -> int:
                      AND g.away_score = ms.away_score
                      AND g.home_score = ms.home_score
                     WHERE g.game_pk IS NULL
+                      -- A more specific, game-number-aware pass may already
+                      -- have claimed this exact schedule game_id for a
+                      -- *different* core.game row (its doubleheader partner
+                      -- with an identical score) earlier in this same run.
+                      -- Score/team/date alone can't tell the two games
+                      -- apart, so once the key is claimed it must not be
+                      -- handed to a second row too.
+                      AND NOT EXISTS (
+                          SELECT 1 FROM core.game claimed
+                          WHERE claimed.game_pk = ms.game_id
+                      )
                 ), unambiguous AS (
                     SELECT game_id, min(core_game_id) AS core_game_id
                     FROM candidates

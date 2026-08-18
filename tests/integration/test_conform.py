@@ -2922,5 +2922,5 @@ def test_conform_rebuilds_play_and_pitch_indexes(db_conn):
         "pitch_season_idx",
     }
 
-    assert expected_play_indexes.issubset(play_indexes)
-    assert expected_pitch_indexes.issubset(pitch_indexes)
+    assert play_indexes == expected_play_indexes
+    assert pitch_indexes == expected_pitch_indexes

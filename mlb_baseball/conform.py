@@ -1099,52 +1099,52 @@ def _build_pitches(conn: psycopg.Connection) -> int:
         return 0
 
 
-def _drop_bulk_indexes(conn: psycopg.Connection) -> None:
-    """Drop non-unique secondary indexes on core.play and core.pitch before bulk load.
+def _drop_bulk_indexes(conn: psycopg.Connection) -> list[str]:
+    """Drop core.play/core.pitch's non-unique secondary indexes before bulk load,
+    returning their exact CREATE INDEX statements so _rebuild_bulk_indexes can
+    recreate precisely what was dropped -- not a second, hardcoded copy of the
+    DDL that could silently drift from whatever a future migration actually
+    defines (e.g. a migration renaming or retuning one of these indexes would
+    leave a hardcoded recreate restoring the old definition unnoticed). The
+    index's *current* definition, read from Postgres itself right before the
+    drop, is the only source of truth used here.
 
-    Maintaining live indexes during millions of row inserts on disk-bound storage
-    (HDDs) causes massive random I/O overhead. Dropping non-unique indexes prior to
-    insert and rebuilding them afterward in bulk reduces I/O bottleneck significantly.
-
-    Unique key constraints (play_pkey, play_game_id_source_play_index_key, pitch_pkey)
-    are strictly preserved for data integrity and never dropped.
+    Maintaining live indexes during a multi-million-row INSERT on disk-bound
+    (HDD) storage costs expensive random I/O; Postgres builds an index over an
+    already-populated table far faster than maintaining one incrementally.
+    Unique/PK indexes (play_pkey, play_game_id_source_play_index_key,
+    pitch_pkey) are catching exactly the class of bug this project fixed in
+    production this session (duplicate game_pk values) -- never touched here.
     """
     with conn.cursor() as cur:
         cur.execute(
             """
-            DROP INDEX IF EXISTS core.play_batter_id_idx;
-            DROP INDEX IF EXISTS core.play_game_id_idx;
-            DROP INDEX IF EXISTS core.play_pitcher_id_idx;
-            DROP INDEX IF EXISTS core.play_season_idx;
-            DROP INDEX IF EXISTS core.pitch_batter_id_idx;
-            DROP INDEX IF EXISTS core.pitch_game_id_idx;
-            DROP INDEX IF EXISTS core.pitch_pitcher_id_idx;
-            DROP INDEX IF EXISTS core.pitch_season_idx;
-            DROP INDEX IF EXISTS core.core_pitch_source_game_pk_idx;
+            SELECT indexname, indexdef FROM pg_indexes
+            WHERE schemaname = 'core' AND tablename IN ('play', 'pitch')
+              AND indexname NOT IN (
+                  'play_pkey', 'play_game_id_source_play_index_key', 'pitch_pkey'
+              )
+            ORDER BY indexname
             """
         )
+        rows = cur.fetchall()
+        definitions = [indexdef for _, indexdef in rows]
+        for indexname, _ in rows:
+            cur.execute(f"DROP INDEX core.{indexname}")
+    return definitions
 
 
-def _rebuild_bulk_indexes(conn: psycopg.Connection) -> None:
-    """Rebuild non-unique secondary indexes on core.play and core.pitch after bulk load.
+def _rebuild_bulk_indexes(conn: psycopg.Connection, definitions: list[str]) -> None:
+    """Recreate exactly the index definitions _drop_bulk_indexes captured.
 
-    Creates non-unique indexes on parent tables without ONLY, allowing Postgres 12+
-    to construct and attach indexes across all underlying season partitions.
+    Each definition is `CREATE INDEX name ON core.play (col)` -- issued
+    against the partitioned parent table with no ONLY, so Postgres 12+
+    automatically builds and attaches a matching index on every existing
+    season partition, same as the original DDL that created them.
     """
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            CREATE INDEX play_batter_id_idx ON core.play (batter_id);
-            CREATE INDEX play_game_id_idx ON core.play (game_id);
-            CREATE INDEX play_pitcher_id_idx ON core.play (pitcher_id);
-            CREATE INDEX play_season_idx ON core.play (season);
-            CREATE INDEX pitch_batter_id_idx ON core.pitch (batter_id);
-            CREATE INDEX pitch_game_id_idx ON core.pitch (game_id);
-            CREATE INDEX pitch_pitcher_id_idx ON core.pitch (pitcher_id);
-            CREATE INDEX pitch_season_idx ON core.pitch (season);
-            CREATE INDEX core_pitch_source_game_pk_idx ON core.pitch (source_game_pk);
-            """
-        )
+        for definition in definitions:
+            cur.execute(definition)
 
 
 def _team_lookup(conn: psycopg.Connection) -> dict[str, int]:
@@ -1686,11 +1686,11 @@ def run() -> dict[str, int]:
         # core.standing resolves team_id via mlb_team_id, so it must run
         # after both backfills above, not before.
         counts["core.standing"] = _build_standings(conn)
-        _drop_bulk_indexes(conn)
+        bulk_index_definitions = _drop_bulk_indexes(conn)
         counts["core.play"] = _build_plays(conn)
         _backfill_win_probability(conn)
         counts["core.pitch"] = _build_pitches(conn)
-        _rebuild_bulk_indexes(conn)
+        _rebuild_bulk_indexes(conn, bulk_index_definitions)
         counts["core.market"] = _build_market(conn)
         counts["core.player_war"] = _build_player_war(conn)
         conn.commit()

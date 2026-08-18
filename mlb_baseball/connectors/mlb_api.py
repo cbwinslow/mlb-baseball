@@ -1043,10 +1043,7 @@ _LINESCORE_COLUMNS = [
 
 
 def _linescore_schedule_url(season: int) -> str:
-    return (
-        "https://statsapi.mlb.com/api/v1/schedule?"
-        f"sportId=1&season={season}&hydrate=linescore"
-    )
+    return f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&season={season}&hydrate=linescore"
 
 
 def _season_linescore_df(data: dict, season: int) -> pd.DataFrame:
@@ -1162,9 +1159,8 @@ def _linescores_already_landed(conn: psycopg.Connection, season: int) -> bool:
             if item is None:
                 return False
             cur.execute("SELECT count(*) FROM raw.mlb_linescore WHERE _season = %s", (str(season),))
-            return (
-                int(fetch_one(cur)[0]) == int(item[0] or 0)
-                and _analytics_artifact_is_valid(item[1], item[2])
+            return int(fetch_one(cur)[0]) == int(item[0] or 0) and _analytics_artifact_is_valid(
+                item[1], item[2]
             )
     except psycopg.errors.UndefinedTable:
         conn.rollback()
@@ -1345,6 +1341,7 @@ def _fetch_analytics_document(endpoint: str, game_pk: int, params: dict) -> obje
     game documents.  Sessions are thread-local: no unsafe cross-thread state,
     and no connection setup for every request.
     """
+
     def reset_session(session: requests.Session) -> None:
         """Do not retry a failed request over a potentially stale socket.
 
@@ -1465,13 +1462,11 @@ def _terminal_analytics_games(conn: psycopg.Connection, season: int) -> set[int]
         if win is None or context is None:
             continue
         win_ok = (
-            (win[0] == "unavailable" or win_rows.get(game_pk, 0) == win[1])
-            and has_valid_artifact(win[2], win[3])
-        )
+            win[0] == "unavailable" or win_rows.get(game_pk, 0) == win[1]
+        ) and has_valid_artifact(win[2], win[3])
         context_ok = (
-            (context[0] == "unavailable" or context_rows.get(game_pk, 0) == context[1])
-            and has_valid_artifact(context[2], context[3])
-        )
+            context[0] == "unavailable" or context_rows.get(game_pk, 0) == context[1]
+        ) and has_valid_artifact(context[2], context[3])
         if win_ok and context_ok:
             terminal.add(game_pk)
     return terminal
@@ -1831,9 +1826,7 @@ def _load_analytics_for_season(
         print(f"mlb_api: linescores for season {season} already landed, skipping hydration")
     else:
         try:
-            totals["raw.mlb_linescore"] = _load_linescores_for_season(
-                conn, season, run_id=run_id
-            )
+            totals["raw.mlb_linescore"] = _load_linescores_for_season(conn, season, run_id=run_id)
             conn.commit()
         except Exception as exc:
             conn.rollback()
@@ -1931,9 +1924,7 @@ def _read_analytics_artifact(relative_path: str, expected_sha256: str) -> bytes:
     return content
 
 
-def _analytics_artifact_is_valid(
-    relative_path: str | None, expected_sha256: str | None
-) -> bool:
+def _analytics_artifact_is_valid(relative_path: str | None, expected_sha256: str | None) -> bool:
     """Whether a ledger reference still resolves to its immutable bytes."""
     if not relative_path or not expected_sha256:
         return False
@@ -2100,7 +2091,7 @@ def _load_leagues(conn: psycopg.Connection) -> int:
     data = call_with_retry(_get, "league", {"sportId": 1}, force=True)
     rows = []
     for league in data.get("leagues", []):
-        row = {k: v for k, v in league.items() if not isinstance(v, (dict, list))}
+        row = {k: v for k, v in league.items() if not isinstance(v, dict | list)}
         season_info = league.get("seasonDateInfo", {})
         rows.append({**row, **{f"season_{k}": v for k, v in season_info.items()}})
     df = pd.DataFrame(rows)
@@ -2113,7 +2104,7 @@ def _load_divisions(conn: psycopg.Connection) -> int:
     data = call_with_retry(_get, "divisions", {"sportId": 1}, force=True)
     rows = []
     for division in data.get("divisions", []):
-        row = {k: v for k, v in division.items() if not isinstance(v, (dict, list))}
+        row = {k: v for k, v in division.items() if not isinstance(v, dict | list)}
         row["league_id"] = division.get("league", {}).get("id")
         rows.append(row)
     df = pd.DataFrame(rows)

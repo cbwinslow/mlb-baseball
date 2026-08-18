@@ -19,6 +19,22 @@ This is a ground-up rebuild; see [docs/NORTH_STAR.md](docs/NORTH_STAR.md) for th
 - [docs/ROADMAP.md](docs/ROADMAP.md) — build order
 - [CLAUDE.md](CLAUDE.md) — operating rules for making changes to this repo
 
+## Contributing
+
+Contributions are welcome from any GitHub account through fork-based pull
+requests. Direct pushes to `main` are disabled: every change must pass the
+required CI checks and be reviewed by the maintainer before it is merged.
+
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+- Report suspected vulnerabilities privately under [SECURITY.md](SECURITY.md);
+  never include credentials in an issue, discussion, or pull request.
+- Use the public [roadmap project](https://github.com/users/cbwinslow/projects/25)
+  to find the current work, and GitHub Discussions for questions and ideas.
+
+The project is in an early, data-pipeline-first stage. The public website is a
+planned Astro deliverable; current progress and sequencing are tracked in
+[plans/PROGRESS.md](plans/PROGRESS.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## License
 
 AGPL-3.0 for the code (see [LICENSE](LICENSE)). Data retains whatever license its source requires — see [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).

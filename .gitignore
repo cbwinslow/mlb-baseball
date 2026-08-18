@@ -6,14 +6,25 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .env
+.env.*
+!.env.example
 mlb.toml
+.mypy_cache/
 .pybaseball_cache/
 dist/
 build/
 /logs/
 downloads/
 /models/
-.claude/settings.local.json
+htmlcov/
+.coverage
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+.claude/
+.codex/
+.cursor/
 
 # Real pg_dump output (mlb_baseball/backup.py) -- can be tens of GB against
 # production; never belongs in git. The one pre-existing small schema-only

@@ -43,6 +43,7 @@ from sklearn.metrics import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import SplineTransformer, StandardScaler
+from sklearn.svm import SVC, SVR
 
 from mlb_baseball.db import fetch_one
 from mlb_baseball.health import Check, check_table_exists
@@ -78,6 +79,7 @@ SUPPORTED_MODELS = (
     "random_forest",
     "extra_trees",
     "gam",
+    "svm",
 )
 _SELECTION_SQL = read_sql("experiment_selection.sql")
 
@@ -148,6 +150,7 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "random_forest",
             "extra_trees",
             "gam",
+            "svm",
         ),
     ),
     "run_differential": TargetSpec(
@@ -173,6 +176,7 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "random_forest_regressor",
             "extra_trees_regressor",
             "gam_regressor",
+            "svm_regressor",
         ),
     ),
 }
@@ -532,6 +536,27 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
                 ("model", LogisticRegression(**kwargs)),
             ]
         )
+    if model_family == "svm":
+        # probability=True is required for predict_proba (_probabilities()
+        # calls it unconditionally for every family past the three
+        # hardcoded baselines) -- scikit-learn 1.9 deprecated this in favor
+        # of CalibratedClassifierCV(SVC(), ensemble=False), removal
+        # targeted for 1.11. Not switched to that wrapper yet: nesting SVC
+        # inside CalibratedClassifierCV would push kernel/C/etc. behind an
+        # `estimator__` prefix in get_params(deep=False), breaking this
+        # file's established flat-pipeline _validate_parameters pattern
+        # (every sibling family here validates its own directly-tunable
+        # params, not a meta-estimator's). Revisit before the 1.11 upgrade.
+        kwargs = _merged_kwargs(
+            {"kernel": "rbf", "probability": True, "random_state": seed}, parameters
+        )
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("scale", StandardScaler()),
+                ("model", SVC(**kwargs)),
+            ]
+        )
     if model_family == "ridge":
         kwargs = _merged_kwargs({"random_state": seed}, parameters)
         return Pipeline(
@@ -592,6 +617,15 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
                 ("model", Ridge(**kwargs)),
             ]
         )
+    if model_family == "svm_regressor":
+        kwargs = _merged_kwargs({"kernel": "rbf"}, parameters)
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("scale", StandardScaler()),
+                ("model", SVR(**kwargs)),
+            ]
+        )
     raise ExperimentError(f"unsupported estimator {model_family!r}")
 
 
@@ -613,6 +647,8 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = ExtraTreesClassifier().get_params(deep=False)
     elif model_family == "gam":
         allowed = LogisticRegression().get_params(deep=False)
+    elif model_family == "svm":
+        allowed = SVC().get_params(deep=False)
     elif model_family == "ridge":
         allowed = Ridge().get_params(deep=False)
     elif model_family == "hist_gradient_boosting_regressor":
@@ -625,11 +661,24 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = ExtraTreesRegressor().get_params(deep=False)
     elif model_family == "gam_regressor":
         allowed = Ridge().get_params(deep=False)
+    elif model_family == "svm_regressor":
+        allowed = SVR().get_params(deep=False)
     else:
         raise ExperimentError(f"unsupported estimator {model_family!r}")
     unknown = sorted(set(parameters) - set(allowed))
     if unknown:
         raise ExperimentError(f"{model_family} has unsupported parameter(s): {', '.join(unknown)}")
+    # svm's probability=True default isn't just a preference -- _probabilities()
+    # unconditionally calls predict_proba() for every family past the three
+    # hardcoded baselines, which SVC only exposes when probability=True.
+    # `unknown` alone wouldn't catch an override to False: "probability" is a
+    # real SVC constructor parameter, so it passes the generic allowed-set
+    # check above -- confirmed directly: SVC(probability=False).predict_proba
+    # raises AttributeError. Reject the override explicitly instead of
+    # letting a caller-configured, individually "valid" SVC construct a
+    # model that fails later, mid-run, during scoring.
+    if model_family == "svm" and parameters.get("probability") is False:
+        raise ExperimentError("svm requires probability=True (predict_proba is required)")
 
 
 def _snapshot_metadata(conn: psycopg.Connection, snapshot_id: str) -> tuple[str, str, str]:

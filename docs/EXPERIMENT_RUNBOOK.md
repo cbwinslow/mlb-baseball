@@ -41,12 +41,26 @@ DATABASE_URL=postgresql:///mlb_test uv run mlb audit
 
 For `home_win`, run the snapshot through `home_rate`, `log5`, `elo`,
 `logistic`, `hist_gradient_boosting`, `xgboost`, `random_forest`,
-`extra_trees`, and `gam`.
+`extra_trees`, `gam`, and `svm`.
 For `run_differential`, run through `zero`, `season_average`, `ridge`,
 `hist_gradient_boosting_regressor`, `xgboost_regressor`,
-`random_forest_regressor`, `extra_trees_regressor`, and `gam_regressor`.
+`random_forest_regressor`, `extra_trees_regressor`, `gam_regressor`, and
+`svm_regressor`.
 The report lists one result per calendar fold; compare like-for-like folds,
 never a model's best isolated season against another model's total.
+
+`svm`/`svm_regressor` scale worse than every other family here: kernel SVM
+fitting is at least quadratic in training-row count, and `probability=True`
+adds an internal 5-fold calibration on top of that (AGENTS.md: "SVMs where
+dataset size permits", not unconditionally). Fitting them fold-by-fold
+against a full production-scale snapshot (hundreds of thousands of rows per
+training fold) is a real, practical resource concern the other families in
+this list don't share. There's no code-level row cap — matching this file's
+existing posture toward every other known-but-not-yet-enforced limitation
+(e.g. `svm`'s own `probability=True` deprecation) — so bound the sample
+deliberately when rehearsing these two specifically (`mlb_baseball.rehearsal
+.load_sample`'s existing small, bounded multi-season sample, not a full
+production-shaped snapshot).
 
 ## Why the split is chronological
 

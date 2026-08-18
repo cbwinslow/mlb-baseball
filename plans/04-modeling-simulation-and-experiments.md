@@ -10,13 +10,15 @@ active in `mlb_test` only. The reusable experiment laboratory supports target-ag
 execution (`home_win` classification and `run_differential` regression), fixed calendar
 folds, content-addressed snapshots, transparent baselines, scikit-learn/XGBoost
 estimators (logistic/ridge, HistGradientBoosting, XGBoost, random forest/extra
-trees added 2026-08-18, and — added 2026-08-18 — `gam`/`gam_regressor`, a
+trees added 2026-08-18, `gam`/`gam_regressor` added 2026-08-18 — a
 spline-expanded logistic/ridge pipeline closing 04C's "GAM" requirement with
-no new dependency), permutation filter (stage 1), tree-embedded (stage 2), and
-forward-stepwise wrapper with nested chronological splits (stage 3) feature
-stability reporting, and persisted evidence. It does not promote or write a
-production forecast. Remaining 04C families not yet built: SVMs,
-Bayesian/hierarchical approaches, neural/sequence/embedding models.
+no new dependency — and `svm`/`svm_regressor` added 2026-08-18, closing 04C's
+"SVMs on appropriately bounded samples" requirement), permutation filter
+(stage 1), tree-embedded (stage 2), and forward-stepwise wrapper with nested
+chronological splits (stage 3) feature stability reporting, and persisted
+evidence. It does not promote or write a production forecast. Remaining 04C
+families not yet built: Bayesian/hierarchical approaches,
+neural/sequence/embedding models.
 
 ## Work packages
 

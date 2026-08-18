@@ -68,6 +68,26 @@ def _fake_war_tables(monkeypatch):
     )
 
 
+def test_load_season_repairs_mangled_names_before_loading(db_conn, monkeypatch):
+    # Issue #6: pybaseball's own str(bytes).encode() bug mangles accented
+    # names into their literal backslash-escaped repr -- see
+    # bref._repair_name_mojibake's docstring for the full mechanism.
+    # _load_table must repair this before the row ever reaches Postgres,
+    # not leave it for a later cleanup pass.
+    _fake_tables(
+        monkeypatch,
+        batting_fn=lambda season: _stats_df(1, name="Jos\\xc3\\xa9 Abreu"),
+        pitching_fn=lambda season: _stats_df(1, name="Mike Trout"),
+    )
+    bref._load_season(db_conn, 2024)
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT name FROM raw.bref_batting")
+        assert cur.fetchone() == ("José Abreu",)
+        cur.execute("SELECT name FROM raw.bref_pitching")
+        assert cur.fetchone() == ("Mike Trout",)
+
+
 def test_load_season_loads_batting_and_pitching(db_conn, monkeypatch):
     _fake_tables(monkeypatch)
     counts = bref._load_season(db_conn, 2024)

@@ -9,9 +9,13 @@ useful signals while resisting leakage, overfitting, and false discovery.
 active in `mlb_test` only. The reusable experiment laboratory supports target-agnostic
 execution (`home_win` classification and `run_differential` regression), fixed calendar
 folds, content-addressed snapshots, transparent baselines, scikit-learn/XGBoost
-estimators, permutation filter (stage 1), tree-embedded (stage 2), and forward-stepwise
-wrapper with nested chronological splits (stage 3) feature stability reporting, and
-persisted evidence. It does not promote or write a production forecast.
+estimators (logistic/ridge, HistGradientBoosting, XGBoost, and — added
+2026-08-18 — random forest/extra trees, closing part of 04C's "random
+forests/extra trees" requirement), permutation filter (stage 1), tree-embedded
+(stage 2), and forward-stepwise wrapper with nested chronological splits
+(stage 3) feature stability reporting, and persisted evidence. It does not
+promote or write a production forecast. Remaining 04C families not yet built:
+SVMs, Bayesian/hierarchical approaches, GAM, neural/sequence/embedding models.
 
 ## Work packages
 

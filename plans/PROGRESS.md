@@ -644,3 +644,87 @@ The retained files passed scoped Ruff format/check and 28 focused unit tests.
   unaffected by this change and remain open; this entry closes only the
   production-cutover portion of R2 that every later item was blocked
   behind.
+
+### Plan 04C — random forest / extra trees model families — 2026-08-18 (`mlb_test` only)
+
+- Added `random_forest`/`extra_trees` (classifier, `home_win`) and
+  `random_forest_regressor`/`extra_trees_regressor` (regressor,
+  `run_differential`) to `mlb_baseball/model/experiment.py`'s
+  `TARGET_REGISTRY`, `SUPPORTED_MODELS`, `_make_estimator`, and
+  `_validate_parameters` — the next explicitly-named, entirely
+  unimplemented family from Plan 04C's model list (regularized regression,
+  gradient boosting, and now random forests/extra trees are built; SVMs,
+  Bayesian/hierarchical, GAM, and neural/sequence models remain open).
+  Followed `docs/EXPERIMENT_RUNBOOK.md`'s own documented "Add a model or
+  target" procedure exactly: no new files, no model-specific training
+  script, reused the shared snapshot/fold/scoring/artifact path.
+  `_probabilities`/`_predictions` needed no changes — both already
+  dispatch generically to `_make_estimator` + `predict_proba`/`predict`
+  for anything past their own hardcoded baselines (`_probabilities` has
+  three — `home_rate`/`log5`/`elo`; `_predictions` has two —
+  `zero`/`season_average`), and RandomForest/ExtraTrees both support
+  `predict_proba` natively.
+- `tests/integration/test_experiment.py`'s two existing tests
+  (`test_all_supported_models_share_calendar_rehearsal_rows`,
+  `test_run_differential_models_share_calendar_rehearsal_rows`) are
+  parametrized over `SUPPORTED_MODELS`/`valid_model_families`, so the four
+  new families got full idempotency/fold-structure/no-leakage coverage
+  automatically (17 -> 21 passing). Added targeted `_validate_parameters`
+  unit coverage for all four (`tests/unit/test_experiment_metrics.py`) and
+  fixed the one hardcoded `run_differential` family-list assertion.
+- **Real production-shaped verification, not just the small `mlb_test`
+  fixture**: loaded a 640-game real sample (100 games/season, 2015-2024,
+  via `mlb_baseball.rehearsal.load_sample`'s existing read-only-on-source
+  path) into `mlb_test`, ran `mlb conform`/`mlb features`, then ran every
+  `home_win` model family (`home_rate`, `log5`, `elo`, `logistic`,
+  `hist_gradient_boosting`, `random_forest`, `extra_trees`) and every
+  `run_differential` family through `mlb experiment run`/`compare`.
+  `random_forest`/`extra_trees` produced plausible log-loss (0.67-0.83,
+  same range as the other real model families) on this honest small
+  sample — worse than the transparent `home_rate`/`elo` baselines, which
+  is the expected, non-suspicious result on this little data (per
+  `docs/RESEARCH.md`'s own calibration doctrine: beating simple baselines
+  on a small sample is a leakage red flag, not a win to celebrate).
+  `extra_trees` was noisier than `random_forest` (log-loss up to 2.97 in
+  one fold) — a known real property of its extra-random split selection
+  on small samples, not a bug. Re-running the identical config correctly
+  returned `(reused)` with byte-identical metrics (idempotency, verified,
+  not assumed).
+- **Found and fixed a real, pre-existing bug along the way, not
+  hypothetical**: `log5.probability()` divides 0/0 whenever both teams'
+  win percentages are equal at exactly 0 or exactly 1 — confirmed via two
+  distinct real cases in the above production sample (two genuine
+  still-winless 2018/2020 teams, 0-2 and 0-1; and three genuine
+  still-undefeated 2019/2020/2023 team pairs, up to 4-0). The function's
+  old docstring claimed the 0/0 case "can't happen for a team with at
+  least one prior game," which is simply false — a winless-or-undefeated
+  team's record is a real, common early-season state, and this rehearsal
+  sample's shallow per-team-game counts (not a deep multi-decade sample)
+  made it common enough to hit directly rather than needing an edge-case
+  hunt. Fixed by returning `0.5` for both cases — verified this is the
+  same limiting value the formula already returns for two *equal* teams
+  at every other winning percentage, not an arbitrary guess. Two new
+  regression tests in `tests/unit/test_log5_formula.py` (7 passing, up
+  from 5) reproduce both cases directly. This bug pre-dates today's work
+  entirely and would affect `log5.predict()`'s real production
+  predictions and `gbm.py`'s use of the same function too, not just the
+  experiment lab -- not scoped further here (out of scope for this
+  package), but worth an owner-authorized production re-check of
+  `gold.prediction` for any historical `log5-v2` row keyed to a genuinely
+  winless-or-undefeated matchup.
+- `uv run ruff check .` clean. Full relevant suite:
+  `tests/integration/test_experiment.py` (21), `test_model_log5.py` (3),
+  `test_model_gbm.py` (9), `tests/unit/test_experiment_metrics.py` (7),
+  `tests/unit/test_log5_formula.py` (7), `tests/unit/test_cli_dispatch.py`
+  experiment subset (6) — 53 passed, 0 failed. Rehearsal sample cleared
+  via `CLEAR_REHEARSAL_SAMPLE=1` before the final clean run, per
+  `docs/CONFORMANCE_REHEARSAL.md`'s own documented boundary. No production
+  `mlb` write occurred -- the real-data verification pulled read-only from
+  `mlb` (source transaction explicitly `SET TRANSACTION READ ONLY`) into
+  `mlb_test` only, same safety pattern `scripts/rehearse_sample.py` already
+  established.
+- Not wired into any production path -- matches every sibling model
+  family's own dormant-until-a-separate-promotion-decision posture. No
+  champion/challenger comparison or promotion decision was made; this
+  package only proves the two families work correctly end-to-end and
+  produce honest, plausible metrics on real data.

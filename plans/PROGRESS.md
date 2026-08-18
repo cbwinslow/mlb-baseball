@@ -5,9 +5,12 @@ each completed plan gate.
 
 ## Current state summary
 
-- **Production state:** Production `mlb` is at migration 0052.
-  `gold.game_feature` has 217,340 rows and every enrichment module has now
-  run against it for the first time ever (2026-08-13/14, owner-authorized,
+- **Production state (superseded 2026-08-18, see "Plan 01F production
+  cutover executed" below for the current state):** Production `mlb` was at
+  migration 0052 as of 2026-08-13/14 evidence below; now at migration 0056
+  with the `game_pk` uniqueness cutover applied and `core`/`gold` rebuilt.
+  `gold.game_feature` had 217,340 rows and every enrichment module had run
+  against it for the first time ever (2026-08-13/14, owner-authorized,
   one module at a time, health-checked after each): `park`, `team_rate`,
   `offense` (+`_live`), `starter` (+`_live`+`_probable`), `bullpen`
   (+`_live`+`_upcoming`), `oaa`, `speed`, `framing`, `war`. Every health
@@ -583,3 +586,61 @@ The retained files passed scoped Ruff format/check and 28 focused unit tests.
   - Legacy prediction mapping through current feature rows is not historically unambiguous.
   - Deterministic batch ordering must use full old primary key.
   - `mlb doctor`, runbook, contracts, and public API need alignment and explicit read-only validation checks.
+
+### Plan 01F production cutover executed — 2026-08-18
+
+- Migrations `0040`–`0056` applied to production `mlb` (previously verified
+  only in `mlb_test` per the R1-R6 rehearsal evidence above). `mlb migrate`
+  needed a new `--skip` flag to sequence around a real forward dependency:
+  `0040`'s `core.game.game_pk` unique index couldn't apply until `mlb
+  conform` deduplicated existing data, but the code path `conform` needed
+  to do that safely (`retro_game_id` nullable) was added in `0045`, after
+  `0040` in file order.
+- Root-caused the actual duplicate-`game_pk` defect blocking `0040`:
+  `_backfill_game_pk_via_exact_final_score` (`conform.py`) could assign an
+  already-claimed MLB `game_pk` to a doubleheader partner with an
+  identical score — found via a real production case (1941-09-14
+  Homestead Grays @ Newark Eagles, both games 6-4, only game 2 had a
+  published `gamePk`). Fixed with a `NOT EXISTS` guard against
+  already-claimed keys; regression test reproduces the exact scenario.
+  1,135 production duplicates (concentrated 1901-1909, one 1941 case) →
+  0 after rebuild.
+- `mlb backfill-game-identities` run to completion against production
+  first (per `0036`'s own precondition), then `mlb conform` rebuilt
+  `core`/`gold` (~30M rows), `mlb features`/`mlb report`/`mlb predict` run
+  to populate the previously-empty `gold.game_feature`,
+  `gold.player_season`, `gold.team_season`, `gold.division_standing`.
+- **Acceptance gate evidence, production `mlb`, post-cutover:**
+  - `mlb audit --scope game`: 0 duplicate populated `game_pk` values, 0
+    doubleheader-identity collisions, 24/28 checks PASS (remainder SKIP —
+    expected, no experiment snapshots yet).
+  - `mlb doctor`: 182/192 checks passing (up from 137/163 pre-cutover).
+    Remaining fails are pre-existing, unrelated gaps (never-bootstrapped
+    Kalshi/Polymarket intraday-price tables, a stale 2026-08-16
+    `retrosheet_box` run, 1950s `mlb_api` analytics coverage) — not new
+    regressions from this cutover.
+  - `SELECT count(*) FROM (SELECT game_pk FROM core.game WHERE game_pk IS
+    NOT NULL GROUP BY game_pk HAVING count(*) > 1) d` → `0`.
+- A second, independent gap found and fixed along the way: this host's
+  cron silently missed the entire daily pipeline (`mlb update` →
+  `mlb conform` → `mlb predict`, including Kalshi/Polymarket) for two days
+  after a mid-cron-slot reboot, with zero `meta.ingestion_run` row and zero
+  `mlb doctor` signal — `check_recent_run` (mlb_api's existing 15-minute
+  freshness check) had never been extended to the daily-cadence
+  connectors/`conform`/`predict`. Now added everywhere it applies, scoped
+  by `meta.ingestion_run.mode` where a `SOURCE` is shared across a
+  scheduled and an unscheduled mode (e.g. kalshi's daily `update` vs.
+  owner-triggered `backfill`).
+- All work merged to `main` via PR #14 (squash-merged as `7fd9e7a`), after
+  resolving a real conflict with a concurrently-merged PR #13 (GitHub
+  branch-protection rollout) that independently landed an unrelated,
+  narrower fix in the same area (removing the daily-freshness check from
+  three genuinely seasonal sources — bref/statcast/statcast_leaderboard —
+  whose own docstrings already say they don't change intra-day).
+- **This closes the specific blocker cited by every "dormant until wired"
+  enrichment family since 2026-08-07** (see `team_prior_offense_defense_v1`
+  above, 2026-08-12/13). Plan 01F's remaining acceptance-gate items
+  (consumer/workflow-overlap tests, `public_safe` rights enforcement) are
+  unaffected by this change and remain open; this entry closes only the
+  production-cutover portion of R2 that every later item was blocked
+  behind.

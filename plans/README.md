@@ -21,7 +21,7 @@ earlier.
 | Plan | Status |
 |---|---|
 | 00 | Accepted / archived baseline |
-| 01 | Active; 01F production cutover blocked pending R1–R6 remediation |
+| 01 | Active; 01F production cutover executed 2026-08-18 (see `PROGRESS.md`) — R1-R4 done in production; R5 (consumer/workflow integrity) and R6 (docs/final verification) still open |
 | 02 | SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F |
 | 03 | Blocked by 01F and remaining Plan 02 contracts |
 | 04–05 | Queued |
@@ -58,7 +58,10 @@ Before broadening models or public serving, resolve these cross-plan contracts:
    Preserve postponed and suspended/resumed schedule observations in `raw`, and
    retain a provider-native Retrosheet key when no safe crosswalk exists. Carry
    this tested identity contract through features, predictions, outcomes,
-   evaluation, and serving.
+   evaluation, and serving. **Done in production 2026-08-18** — migration 0040's
+   unique index is live and enforced; 0 duplicate `game_pk` values, confirmed
+   via `mlb audit --scope game`. See `PROGRESS.md` "Plan 01F production
+   cutover executed."
 2. **Workflow serialization:** enforce—not merely document—the dependency chain
    `ingest → conform → features → predict`; per-source locks alone do not prevent
    conflicting cross-stage runs.

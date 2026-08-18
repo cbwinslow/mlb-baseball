@@ -72,6 +72,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 import psycopg
+from psycopg import sql
 
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
@@ -229,8 +230,7 @@ def _build_teams(conn: psycopg.Connection) -> int:
         # TEAM{year}.TXT is an optional Retrosheet reference supplement.
         # Its absence must not stop a normal affiliated-major-league rebuild.
         print(
-            "conform: raw.retrosheet_team0 not present yet — "
-            "skipping supplemental team identities"
+            "conform: raw.retrosheet_team0 not present yet — skipping supplemental team identities"
         )
         return primary_count
 
@@ -1100,6 +1100,54 @@ def _build_pitches(conn: psycopg.Connection) -> int:
         return 0
 
 
+def _drop_bulk_indexes(conn: psycopg.Connection) -> list[str]:
+    """Drop core.play/core.pitch's non-unique secondary indexes before bulk load,
+    returning their exact CREATE INDEX statements so _rebuild_bulk_indexes can
+    recreate precisely what was dropped -- not a second, hardcoded copy of the
+    DDL that could silently drift from whatever a future migration actually
+    defines (e.g. a migration renaming or retuning one of these indexes would
+    leave a hardcoded recreate restoring the old definition unnoticed). The
+    index's *current* definition, read from Postgres itself right before the
+    drop, is the only source of truth used here.
+
+    Maintaining live indexes during a multi-million-row INSERT on disk-bound
+    (HDD) storage costs expensive random I/O; Postgres builds an index over an
+    already-populated table far faster than maintaining one incrementally.
+    Unique/PK indexes (play_pkey, play_game_id_source_play_index_key,
+    pitch_pkey) are catching exactly the class of bug this project fixed in
+    production this session (duplicate game_pk values) -- never touched here.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT indexname, indexdef FROM pg_indexes
+            WHERE schemaname = 'core' AND tablename IN ('play', 'pitch')
+              AND indexname NOT IN (
+                  'play_pkey', 'play_game_id_source_play_index_key', 'pitch_pkey'
+              )
+            ORDER BY indexname
+            """
+        )
+        rows = cur.fetchall()
+        definitions = [indexdef for _, indexdef in rows]
+        for indexname, _ in rows:
+            cur.execute(sql.SQL("DROP INDEX core.{}").format(sql.Identifier(indexname)))
+    return definitions
+
+
+def _rebuild_bulk_indexes(conn: psycopg.Connection, definitions: list[str]) -> None:
+    """Recreate exactly the index definitions _drop_bulk_indexes captured.
+
+    Each definition is `CREATE INDEX name ON core.play (col)` -- issued
+    against the partitioned parent table with no ONLY, so Postgres 12+
+    automatically builds and attaches a matching index on every existing
+    season partition, same as the original DDL that created them.
+    """
+    with conn.cursor() as cur:
+        for definition in definitions:
+            cur.execute(definition)
+
+
 def _team_lookup(conn: psycopg.Connection) -> dict[str, int]:
     # One unified alias -> team_id dict, not the old by_name/by_retro_id
     # pair: core.team's own "city nickname" string plus every seeded
@@ -1639,9 +1687,11 @@ def run() -> dict[str, int]:
         # core.standing resolves team_id via mlb_team_id, so it must run
         # after both backfills above, not before.
         counts["core.standing"] = _build_standings(conn)
+        bulk_index_definitions = _drop_bulk_indexes(conn)
         counts["core.play"] = _build_plays(conn)
         _backfill_win_probability(conn)
         counts["core.pitch"] = _build_pitches(conn)
+        _rebuild_bulk_indexes(conn, bulk_index_definitions)
         counts["core.market"] = _build_market(conn)
         counts["core.player_war"] = _build_player_war(conn)
         conn.commit()

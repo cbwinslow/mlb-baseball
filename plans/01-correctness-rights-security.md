@@ -58,10 +58,15 @@ Make migration execution serializable too. Clearly separate read-only
 diagnostics from owner-authorized stale-run repair.
 
 **Status:** The canonical identity correction and a production core rebuild were
-completed under prior owner authorization on 2026-08-12. The first strict
-`gold.game_feature` rehearsal is test-database-only; no production feature
-rebuild or index change is authorized until its tests, audit, and benchmark
-evidence are reviewed.
+completed under prior owner authorization on 2026-08-12. **Superseded
+2026-08-18**: migrations 0040-0056 (including the `core.game.game_pk` unique
+index) and a full production `core`/`gold` rebuild were owner-authorized and
+executed against production `mlb` — see `PROGRESS.md` "Plan 01F production
+cutover executed" for evidence. `gold.game_feature`/`gold.player_season`/
+`gold.team_season`/`gold.division_standing` are populated in production;
+`mlb predict` has run. This closes R1-R4 of the remediation sequence below in
+production, not just `mlb_test`. R5 (consumer/workflow integrity) and R6
+(documentation/final verification) remain open.
 
 **Evidence correction (2026-08-10):** The prior premise that a suspended or
 resumed game creates two valid MLB game instances sharing `game_pk` is false.
@@ -70,23 +75,31 @@ production schedule duplicates are source-history observations.  The earlier
 `game_instance_key` migration remains a compatibility artifact pending a
 tested, forward-only correction. See `docs/GAME_INSTANCE_IDENTITY.md`.
 
-**Cutover Blockers:**
+**Cutover Blockers (resolved 2026-08-18 — kept here for history, see the
+Status note above):**
 - The existing 0034–0037 `game_instance_key` cutover was built on the now-rejected
   premise that one MLB game can require two identities. It needs a tested,
   forward-only compatibility correction; do not rewrite applied migration files.
-- `gold` remains empty in production. `core` was conformed at production scale,
-  but the remaining Spring Training, historical team-identity, and ambiguous
-  schedule-history coverage changes must be proven in `mlb_test` before any
-  further production rebuild.
+  Resolved by migration `0044_canonical_mlb_game_identity.sql`, applied to
+  production 2026-08-18.
+- ~~`gold` remains empty in production.~~ Resolved 2026-08-18: `gold.game_feature`
+  (217,186 rows), `gold.player_season`, `gold.team_season`,
+  `gold.division_standing` are now populated in production; `mlb predict` has
+  run.
 - Statcast's raw `game_pk` coverage is complete, but the earlier sparse
   Statcast-to-core join must be remeasured after canonical conformance with its
   retained source key and every remaining category documented.
-- A production conformance rebuild remains owner-authorized work only.
+- ~~A production conformance rebuild remains owner-authorized work only.~~
+  Executed 2026-08-18, owner-authorized — see `PROGRESS.md`.
 
 #### 01F remediation sequence
 
-Production `mlb` remains out of scope. Any later database verification uses only
-the existing `mlb_test` database.
+Production `mlb` was out of scope through R1-R4's `mlb_test`-only rehearsal
+evidence below; the production cutover itself (owner-authorized, executed
+2026-08-18) is recorded in `PROGRESS.md` "Plan 01F production cutover
+executed," not in this historical rehearsal-evidence section. R5/R6 evidence
+below still applies only to `mlb_test` until separately executed against
+production.
 
 1. **01F-R1 — read-only evidence:** run the bounded game audit and the opt-in
    Statcast scan. Gate: exact required-null, duplicate, orphan, schedule-history,

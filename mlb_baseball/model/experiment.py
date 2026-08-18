@@ -668,6 +668,17 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
     unknown = sorted(set(parameters) - set(allowed))
     if unknown:
         raise ExperimentError(f"{model_family} has unsupported parameter(s): {', '.join(unknown)}")
+    # svm's probability=True default isn't just a preference -- _probabilities()
+    # unconditionally calls predict_proba() for every family past the three
+    # hardcoded baselines, which SVC only exposes when probability=True.
+    # `unknown` alone wouldn't catch an override to False: "probability" is a
+    # real SVC constructor parameter, so it passes the generic allowed-set
+    # check above -- confirmed directly: SVC(probability=False).predict_proba
+    # raises AttributeError. Reject the override explicitly instead of
+    # letting a caller-configured, individually "valid" SVC construct a
+    # model that fails later, mid-run, during scoring.
+    if model_family == "svm" and parameters.get("probability") is False:
+        raise ExperimentError("svm requires probability=True (predict_proba is required)")
 
 
 def _snapshot_metadata(conn: psycopg.Connection, snapshot_id: str) -> tuple[str, str, str]:

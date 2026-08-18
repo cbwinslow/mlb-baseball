@@ -188,6 +188,24 @@ def test_validate_parameters_for_all_model_families():
         experiment._validate_parameters("svm_regressor", {"bad_param": 1})
 
 
+def test_validate_parameters_rejects_svm_probability_false():
+    # Real bug found via PR review: "probability" is a genuine SVC
+    # constructor parameter, so the generic allowed-set check alone lets
+    # {"probability": False} through -- but _probabilities() unconditionally
+    # calls predict_proba(), which SVC only exposes when probability=True.
+    # Without this explicit rejection, a caller-configured, individually
+    # "valid" SVC would fail later, mid-run, during scoring instead of at
+    # validation time.
+    with pytest.raises(experiment.ExperimentError, match="probability=True"):
+        experiment._validate_parameters("svm", {"probability": False})
+    # An explicit probability=True override is redundant but not harmful --
+    # confirm it's still accepted, not incorrectly rejected too.
+    experiment._validate_parameters("svm", {"probability": True})
+    # svm_regressor is unaffected -- SVR has no probability parameter at all.
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("svm_regressor", {"probability": False})
+
+
 def test_common_rows_filters_per_target_spec():
     base_values: dict[str, float | None] = {
         "home_win_pct": 0.55,

@@ -917,36 +917,66 @@ Two bug-fix PRs closing real, previously-open issues:
   `_validate_parameters` convention every other family follows. Documented
   as a "Revisit if" item in ADR-073 and a code comment at the `svm` branch
   rather than left as a silent trap for a future scikit-learn upgrade.
+- **PR review found and fixed a real bug: `probability=False` was silently
+  accepted, then crashed mid-run.** `probability` is a genuine `SVC`
+  constructor parameter, so `_validate_parameters`'s generic allowed-set
+  check let a `{"probability": False}` override straight through -- but
+  `_probabilities()` unconditionally calls `predict_proba`, which `SVC`
+  only exposes when `probability=True` (confirmed directly:
+  `SVC(probability=False).predict_proba(...)` raises `AttributeError`).
+  Fixed with an explicit rejection in `_validate_parameters`, covered by
+  a new regression test.
+- **Investigated and declined a P1 review claim that `SVC`'s internal
+  calibration violates the chronological-folds doctrine.** `SVC`'s
+  Platt-scaling calibration uses a random 5-fold split, but only ever
+  over the *already fully chronologically-isolated training set* --
+  `AGENTS.md`'s "rolling-origin and nested validation" requirement
+  governs the experiment lab's own outer train-through-season/test-season
+  boundary, which this never touches. Same category of internal,
+  in-training-set-only randomness as `RandomForestClassifier`'s bootstrap
+  resampling. Declined building a custom chronological calibrator (no
+  such thing exists in scikit-learn) to close a leakage path that isn't
+  actually open.
+- **Added a documentation caveat (not a code-level cap) for SVM's
+  sample-size sensitivity**, per review and `AGENTS.md`'s own "SVMs where
+  dataset size permits" scoping -- `docs/EXPERIMENT_RUNBOOK.md` now flags
+  `svm`/`svm_regressor`'s quadratic-ish scaling explicitly. No enforced
+  row-count cap: no sibling family has one either, matching this file's
+  "document a known limitation, don't pre-engineer for it" posture.
 - **Verified against real production-shaped data, not just the small
-  `mlb_test` fixture:** loaded a bounded multi-season real sample (10
-  games/season across 2008/2015/2024/2025/2026, via
-  `mlb_baseball.rehearsal.load_sample`'s existing read-only-on-source
-  path) into `mlb_test`, ran `mlb conform`/`mlb features`, then ran both
-  new families through `mlb experiment run` alongside an existing
-  baseline for context (default `--fold-years` 2016-2024 don't match this
-  sample's non-contiguous seasons, so `--fold-years 2015 2024 2025 2026`
-  was used instead). `svm` produced finite, plausible log-loss
-  (0.60-0.78) and Brier (0.21-0.29), in the same range as `home_rate`'s
-  own baseline (log-loss 0.51-0.81) -- not a suspicious "beats every
-  baseline" result. `svm_regressor` produced finite MAE (3.23-3.79) and
-  RMSE (4.34-4.92), noticeably better than `season_average`'s baseline
-  (MAE 3.73-8.99) on this small sample -- per `docs/RESEARCH.md`'s own
-  calibration doctrine this pattern would be a leakage red flag on a
-  *larger* sample, but `svm_regressor` uses the identical `BASE_COLUMNS`
-  feature set every other regression family already uses (no new or
-  different data access), and beating a naive baseline by chance on a
-  ~10-game/season sample is unsurprising -- noted honestly rather than
-  over-claimed. Re-running each identical config correctly returned
-  `(reused)` with byte-identical metrics (idempotency, verified, not
-  assumed). Rehearsal sample cleared via `CLEAR_REHEARSAL_SAMPLE=1` before
-  the final clean test run. No production `mlb` write occurred -- pulled
-  read-only from `mlb` into `mlb_test` only.
+  `mlb_test` fixture -- and respecting the reserved 2025 final holdout:**
+  loaded a bounded multi-season real sample (10 games/season across
+  2008/2015/2024/2025/2026, via `mlb_baseball.rehearsal.load_sample`'s
+  existing read-only-on-source path) into `mlb_test`, ran `mlb conform`/
+  `mlb features`, then ran both new families through `mlb experiment run`
+  with `--fold-years 2015 2024` specifically -- **not** the sample's full
+  span, since `plans/04-modeling-simulation-and-experiments.md` reserves
+  2025 as an untouched final holdout and 2026 for forward monitoring (an
+  initial verification pass mistakenly included both; caught in PR
+  review, re-run correctly before merge). `svm` produced finite,
+  plausible log-loss (0.65-0.73) and Brier (0.23-0.26), in the same range
+  as `home_rate`'s own baseline (log-loss 0.51-0.78) -- not a suspicious
+  "beats every baseline" result. `svm_regressor` produced finite MAE
+  (3.27-3.70) and RMSE (4.34-4.38), noticeably better than
+  `season_average`'s baseline (MAE 7.88-8.99) on this small sample -- per
+  `docs/RESEARCH.md`'s own calibration doctrine this pattern would be a
+  leakage red flag on a *larger* sample, but `svm_regressor` uses the
+  identical `BASE_COLUMNS` feature set every other regression family
+  already uses (no new or different data access), and beating a naive
+  baseline by chance on a ~10-game/season sample is unsurprising --
+  noted honestly rather than over-claimed. Re-running each identical
+  config correctly returned `(reused)` with byte-identical metrics
+  (idempotency, verified, not assumed). Rehearsal sample cleared via
+  `CLEAR_REHEARSAL_SAMPLE=1` before the final clean test run. No
+  production `mlb` write occurred -- pulled read-only from `mlb` into
+  `mlb_test` only.
 - `uv run ruff check .` clean, `uv run ruff format --check .` clean on
   every file touched, `uv run mypy mlb_baseball/model/experiment.py`
   clean. Full relevant suite: `tests/integration/test_experiment.py`,
   `tests/unit/test_experiment_metrics.py`, `tests/unit/test_cli_dispatch.py`
-  -- 86 passed, 0 failed, run twice (once against the loaded rehearsal
-  sample, once after clearing it).
+  -- 86 passed (plus the new `probability=False` regression test), 0
+  failed, run twice (once against the loaded rehearsal sample, once
+  after clearing it).
 - `svm_regressor` needed its own dedicated override-effect test
   (`test_make_estimator_lets_a_valid_svm_regressor_override_take_effect`,
   using `C` as the override parameter) rather than joining the existing

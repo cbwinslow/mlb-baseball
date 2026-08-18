@@ -5,9 +5,12 @@ each completed plan gate.
 
 ## Current state summary
 
-- **Production state:** Production `mlb` is at migration 0052.
-  `gold.game_feature` has 217,340 rows and every enrichment module has now
-  run against it for the first time ever (2026-08-13/14, owner-authorized,
+- **Production state (superseded 2026-08-18, see "Plan 01F production
+  cutover executed" below for the current state):** Production `mlb` was at
+  migration 0052 as of 2026-08-13/14 evidence below; now at migration 0056
+  with the `game_pk` uniqueness cutover applied and `core`/`gold` rebuilt.
+  `gold.game_feature` had 217,340 rows and every enrichment module had run
+  against it for the first time ever (2026-08-13/14, owner-authorized,
   one module at a time, health-checked after each): `park`, `team_rate`,
   `offense` (+`_live`), `starter` (+`_live`+`_probable`), `bullpen`
   (+`_live`+`_upcoming`), `oaa`, `speed`, `framing`, `war`. Every health

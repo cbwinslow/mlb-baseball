@@ -38,7 +38,7 @@ def probability(home_win_pct: Decimal, away_win_pct: Decimal) -> Decimal:
     percentage (verified: probability(x, x) == 0.5 for every x strictly
     between 0 and 1), so this is the limiting value the formula is
     degenerate at in both cases, not an arbitrary guess."""
-    if home_win_pct == away_win_pct and home_win_pct in (0, 1):
+    if home_win_pct == away_win_pct and home_win_pct in (Decimal("0"), Decimal("1")):
         return Decimal("0.5")
     home_term = home_win_pct * (1 - away_win_pct)
     away_term = away_win_pct * (1 - home_win_pct)
@@ -63,6 +63,16 @@ def predict(conn: psycopg.Connection) -> int:
     # Also requires both teams to have at least one prior game this season
     # (home_win_pct/away_win_pct both non-NULL) -- log5 has no sensible
     # answer for a team's own season opener, see probability()'s docstring.
+    #
+    # This raw SQL formula (not probability() itself -- an INSERT ... SELECT
+    # can't call back into Python per row) hits the same 0/0 degenerate case
+    # probability() now guards: both teams equal at exactly 0 or exactly 1.
+    # A found-in-production real bug: the original exclusion only handled
+    # (0,0), never (1,1) -- an undefeated-vs-undefeated matchup would have
+    # aborted this entire INSERT with a division error, silently blocking
+    # every other still-undecided game's prediction in the same run. Both
+    # degenerate rows are excluded here (not computed as 0.5 inline) to
+    # match this function's pre-existing (0,0) design -- skip, not guess.
     model_id = provenance.register_model(
         conn,
         name="log5",
@@ -97,7 +107,7 @@ def predict(conn: psycopg.Connection) -> int:
                 "FROM gold.game_feature "
                 "WHERE home_win IS NULL AND mlb_game_pk IS NOT NULL "
                 "  AND home_win_pct IS NOT NULL AND away_win_pct IS NOT NULL "
-                "  AND NOT (home_win_pct = 0 AND away_win_pct = 0)",
+                "  AND NOT (home_win_pct = away_win_pct AND home_win_pct IN (0, 1))",
                 (MODEL_VERSION, model_id, run_id, data_cutoff, feature_snapshot_id),
             )
             inserted = cur.rowcount

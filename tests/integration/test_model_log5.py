@@ -126,6 +126,65 @@ def test_predict_skips_decided_games_and_season_openers(db_conn):
     _reset(db_conn)
 
 
+def test_predict_handles_two_undefeated_teams_without_aborting_the_whole_run(db_conn):
+    # Real bug found via PR review: predict()'s raw SQL formula (a
+    # standalone INSERT ... SELECT, can't call back into probability()
+    # per row) excludes the (0,0) winless-vs-winless degenerate case, but
+    # never excluded the mirror-image (1,1) undefeated-vs-undefeated case
+    # -- both divide 0/0. An undefeated-vs-undefeated matchup on the same
+    # day as any other still-undecided game would abort the entire INSERT
+    # (a single division error kills every row in one SELECT), silently
+    # blocking every other game's prediction in the same run, not just
+    # this one game's.
+    _reset(db_conn)
+    _ensure_mlb_schedule_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        # A third team (BOS) each play a win against, so ATL and NYA enter
+        # their own head-to-head 1-0 each -- both undefeated
+        # (home_win_pct == away_win_pct == 1.0), without a loss against
+        # each other muddying either record.
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('BOS', 'Boston', 'Red Sox', 1908, 2025, 111) "
+            "RETURNING id"
+        )
+        (bos,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2024, '2024-04-01', %(atl)s, %(bos)s, 5, 0, 'regular'), "
+            "('G2', 2024, '2024-04-02', %(nya)s, %(bos)s, 5, 0, 'regular')",
+            {"atl": atl, "nya": nya, "bos": bos},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, _season, game_date, game_type, status, home_id, away_id, game_num) "
+            "VALUES ('999002', '2024', '2024-04-03', 'R', 'Scheduled', '144', '147', '1')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    inserted = log5.predict(db_conn)
+    db_conn.commit()
+
+    # The undefeated-vs-undefeated game itself is correctly excluded (no
+    # sensible log5 answer, same as the pre-existing winless-vs-winless
+    # exclusion) -- the point of this test is that the INSERT completes at
+    # all instead of raising and aborting.
+    assert inserted == 0
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM gold.prediction WHERE mlb_game_pk = '999002'")
+        (count,) = cur.fetchone()
+    assert count == 0
+
+    _reset(db_conn)
+
+
 def test_backfill_outcomes_fills_in_actual_result_once_game_is_final(db_conn):
     _reset(db_conn)
     _ensure_mlb_schedule_table(db_conn)

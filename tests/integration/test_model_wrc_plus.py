@@ -28,20 +28,44 @@ def _ensure_retrosheet_tables(db_conn):
 
 
 def _reset(db_conn):
+    # DROPs raw.retrosheet_event/retrosheet_gameinfo rather than DELETEing
+    # their rows -- see test_model_offense.py's identical _reset for the
+    # full explanation (issue #7): several test_model_*.py files each
+    # create their own minimal stub schema for these two tables, and a
+    # stale stub from an earlier file's run breaks later files' schema
+    # expectations. Dropping means _ensure_retrosheet_tables always
+    # recreates exactly this file's own shape, regardless of run order.
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.retrosheet_event")
-        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.retrosheet_gameinfo")
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.venue")
         cur.execute("DELETE FROM core.team")
     db_conn.commit()
+
+
+def test_compute_wrc_plus_returns_zero_without_retrosheet_gameinfo_table(db_conn):
+    # Issue #9 item 2: compute_wrc_plus()'s own SQL joins
+    # raw.retrosheet_gameinfo too, but only retrosheet_event was gated --
+    # see test_model_offense.py's identical regression for compute() for
+    # the full explanation (retrosheet_event/retrosheet_gameinfo are landed
+    # by two different connectors).
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_event ("
+            "game_id text, bat_home_id text, event_cd text, "
+            "ab_fl text, sf_fl text, _season text)"
+        )
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
+    db_conn.commit()
+
+    assert offense.compute_wrc_plus(db_conn) == 0
+
+    _reset(db_conn)
 
 
 def test_compute_wrc_plus_matches_hand_calculation(db_conn):

@@ -69,12 +69,18 @@ def _ensure_dynamic_tables(conn):
 
 
 def _reset(conn):
+    # DROPs (not DELETEs) every stub table this file creates on demand --
+    # see test_model_offense.py's identical _reset for the full explanation
+    # (issue #7): each test_model_*.py file creates its own minimal schema
+    # for retrosheet_event/retrosheet_gameinfo specifically, and a stale
+    # stub from an earlier file's run breaks later files' schema
+    # expectations. All of _DYNAMIC_RAW_TABLES is created ad-hoc by this
+    # file's own _ensure_dynamic_tables, never by a migration, so dropping
+    # them is always safe.
     conn.rollback()
     with conn.cursor() as cur:
         for table in _DYNAMIC_RAW_TABLES:
-            cur.execute(f"SELECT to_regclass('{table}')")
-            if cur.fetchone()[0]:
-                cur.execute(f"DELETE FROM {table}")
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
         for table in (
             "gold.player_season",
             "gold.team_season",
@@ -164,8 +170,23 @@ def test_build_player_season_resolves_batting_and_pitching_and_sums_war(db_conn)
         )
         row = cur.fetchone()
         assert row == (
-            False, 150, 600, 540, 30, 2, 20, 75, 50, 110, 5, 15, 4,
-            Decimal("0.278"), Decimal("0.345"), Decimal("0.460"), Decimal("0.805"),
+            False,
+            150,
+            600,
+            540,
+            30,
+            2,
+            20,
+            75,
+            50,
+            110,
+            5,
+            15,
+            4,
+            Decimal("0.278"),
+            Decimal("0.345"),
+            Decimal("0.460"),
+            Decimal("0.805"),
             Decimal("3.5"),  # 2.5 + 1.0, summed across both 2023 stints
             Decimal("1.5"),  # 1.1 + 0.4
         )
@@ -177,9 +198,24 @@ def test_build_player_season_resolves_batting_and_pitching_and_sums_war(db_conn)
         )
         row = cur.fetchone()
         assert row == (
-            True, 30, 30, 12, 8, None, Decimal("180.1"), 65,
-            Decimal("3.25"), Decimal("1.137"), Decimal("9.5"),
-            70, 160, 45, 190, 18, Decimal("4.2"), Decimal("2.0"),
+            True,
+            30,
+            30,
+            12,
+            8,
+            None,
+            Decimal("180.1"),
+            65,
+            Decimal("3.25"),
+            Decimal("1.137"),
+            Decimal("9.5"),
+            70,
+            160,
+            45,
+            190,
+            18,
+            Decimal("4.2"),
+            Decimal("2.0"),
         )
 
     _reset(db_conn)
@@ -352,9 +388,7 @@ def test_build_team_season_base_from_lahman_computes_win_pct_and_remaps_athletic
         row = cur.fetchone()
         # win_pct = 98 / (98+64) = 0.60494, rounded to 3 places = 0.605
         assert row == (teams["LAN"], 98, 64, Decimal("0.605"), 842, 659, 210, Decimal("3.71"))
-        cur.execute(
-            "SELECT team_id, wins, losses FROM gold.team_season WHERE season = 2025"
-        )
+        cur.execute("SELECT team_id, wins, losses FROM gold.team_season WHERE season = 2025")
         assert cur.fetchone() == (teams["OAK"], 76, 86)
 
     _reset(db_conn)
@@ -394,9 +428,7 @@ def test_compute_park_factor_matches_hand_calculation(db_conn):
         # _compute_park_factor only fills park_factor onto rows the base
         # INSERT (raw.lahman_teams) already established (see run()'s own
         # ordering comment).
-        cur.execute(
-            "INSERT INTO gold.team_season (team_id, season) VALUES (%s, 2024)", (team_a,)
-        )
+        cur.execute("INSERT INTO gold.team_season (team_id, season) VALUES (%s, 2024)", (team_a,))
     db_conn.commit()
 
     updated = report._compute_park_factor(db_conn)
@@ -446,9 +478,7 @@ def test_compute_woba_and_wrc_plus_matches_hand_calculation(db_conn):
             "('WB1', 2024, '2024-04-01', %(a)s, %(b)s, 4, 1, 'regular')",
             {"a": team_a, "b": team_b},
         )
-        cur.execute(
-            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) VALUES ('WB1', 'regular')"
-        )
+        cur.execute("INSERT INTO raw.retrosheet_gameinfo (gid, gametype) VALUES ('WB1', 'regular')")
         cur.execute(
             "INSERT INTO raw.retrosheet_event "
             "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, _season) "
@@ -514,9 +544,7 @@ def test_compute_war_sums_across_batting_and_pitching_via_bref_crosswalk(db_conn
 
     assert updated == 1
     with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT war FROM gold.team_season WHERE team_id = %s AND season = 2023", (lan,)
-        )
+        cur.execute("SELECT war FROM gold.team_season WHERE team_id = %s AND season = 2023", (lan,))
         (war,) = cur.fetchone()
     assert war == Decimal("8.5")
 
@@ -562,8 +590,20 @@ def test_build_division_standing_enriches_core_standing_with_elim_num(db_conn):
         row = cur.fetchone()
     # win_pct = 94 / (94+68) = 0.58024..., rounded to 3 places = 0.580
     assert row == (
-        "New York", "Yankees", "American League East", 2, 94, 68, Decimal("0.580"),
-        Decimal("3.0"), 4, Decimal("0.0"), 3, 5, "-", "E",
+        "New York",
+        "Yankees",
+        "American League East",
+        2,
+        94,
+        68,
+        Decimal("0.580"),
+        Decimal("3.0"),
+        4,
+        Decimal("0.0"),
+        3,
+        5,
+        "-",
+        "E",
     )
 
     _reset(db_conn)

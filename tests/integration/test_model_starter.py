@@ -61,6 +61,15 @@ def _seed_teams_and_players(db_conn):
 
 
 def _reset(db_conn):
+    # DROPs (not DELETEs) every stub table this file creates on demand --
+    # see test_model_offense.py's identical _reset for the full explanation
+    # (issue #7): each test_model_*.py file creates its own minimal schema
+    # for these tables, and a stale stub from an earlier file's run breaks
+    # later files' schema expectations (or, for retrosheet_event/gameinfo
+    # specifically, the real connector's own schema-drift check when the
+    # full-column suite runs later in the same session). All five tables
+    # here are created ad-hoc by this file's own _ensure_retrosheet_tables/
+    # test fixtures, never by a migration, so dropping them is always safe.
     db_conn.rollback()
     with db_conn.cursor() as cur:
         for table in (
@@ -70,9 +79,7 @@ def _reset(db_conn):
             "raw.mlb_probable",
             "raw.mlb_playbyplay",
         ):
-            cur.execute("SELECT to_regclass(%s)", (table,))
-            if cur.fetchone()[0]:
-                cur.execute(f"DELETE FROM {table}")
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
@@ -169,6 +176,28 @@ def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
     _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")
+    db_conn.commit()
+
+    assert starter.compute(db_conn) == 0
+
+    _reset(db_conn)
+
+
+def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
+    # Issue #9 item 2: compute()'s own SQL joins raw.retrosheet_gameinfo
+    # too, but only retrosheet_event was gated -- see
+    # test_model_offense.py's identical regression for the full explanation
+    # (retrosheet_event/retrosheet_gameinfo are landed by two different
+    # connectors).
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_event ("
+            "game_id text, bat_home_id text, resp_pit_id text, "
+            "resp_pit_start_fl text, bat_event_fl text, event_cd text, "
+            "event_outs_ct text, _season text)"
+        )
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
     db_conn.commit()
 
     assert starter.compute(db_conn) == 0
@@ -320,8 +349,7 @@ def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
     db_conn.commit()
     with db_conn.cursor() as cur:
         cur.execute(
-            "UPDATE gold.game_feature SET home_starter_era = 3.33 "
-            "WHERE mlb_game_pk = '900003'"
+            "UPDATE gold.game_feature SET home_starter_era = 3.33 WHERE mlb_game_pk = '900003'"
         )
     db_conn.commit()
 

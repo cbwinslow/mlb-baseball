@@ -74,9 +74,14 @@ WOBA_SCALE = 1.20
 
 def compute(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
+        # Two-table dependency, two-table gate (issue #9 item 2): the SQL
+        # below also joins raw.retrosheet_gameinfo -- see team_rate.py's
+        # compute() for the full explanation (two different connectors).
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        (exists,) = fetch_one(cur)
-        if not exists:
+        (event_exists,) = fetch_one(cur)
+        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
+        (gameinfo_exists,) = fetch_one(cur)
+        if not event_exists or not gameinfo_exists:
             return 0
         cur.execute(
             read_sql("team_woba_retrosheet_update.sql"),
@@ -97,9 +102,14 @@ def compute_wrc_plus(conn: psycopg.Connection) -> int:
     and after park.compute() (needs park_factor already set) -- reads
     both directly off gold.game_feature rather than recomputing them."""
     with conn.cursor() as cur:
+        # Two-table dependency, two-table gate (issue #9 item 2) -- see
+        # compute() above / team_rate.py's compute() for the full
+        # explanation.
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        (exists,) = fetch_one(cur)
-        if not exists:
+        (event_exists,) = fetch_one(cur)
+        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
+        (gameinfo_exists,) = fetch_one(cur)
+        if not event_exists or not gameinfo_exists:
             return 0
         cur.execute(
             read_sql("team_wrc_plus_retrosheet_update.sql"),
@@ -127,12 +137,23 @@ def compute_wrc_plus(conn: psycopg.Connection) -> int:
 # baserunning-only event types (caught_stealing*/pickoff*/wild_pitch/
 # game_advisory), which aren't a batter's own plate appearance at all.
 _AB_EVENT_TYPES = (
-    "single", "double", "triple", "home_run",
-    "strikeout", "strikeout_double_play",
-    "field_out", "force_out", "double_play", "grounded_into_double_play",
-    "fielders_choice", "fielders_choice_out", "field_error",
-    "triple_play", "other_out",
+    "single",
+    "double",
+    "triple",
+    "home_run",
+    "strikeout",
+    "strikeout_double_play",
+    "field_out",
+    "force_out",
+    "double_play",
+    "grounded_into_double_play",
+    "fielders_choice",
+    "fielders_choice_out",
+    "field_error",
+    "triple_play",
+    "other_out",
 )
+
 
 def compute_live(conn: psycopg.Connection) -> int:
     """raw.mlb_playbyplay equivalent of compute() (ADR-046 for
@@ -147,8 +168,12 @@ def compute_live(conn: psycopg.Connection) -> int:
         cur.execute(
             read_sql("team_woba_live_update.sql"),
             {
-                "w_ubb": W_UBB, "w_hbp": W_HBP, "w_1b": W_1B,
-                "w_2b": W_2B, "w_3b": W_3B, "w_hr": W_HR,
+                "w_ubb": W_UBB,
+                "w_hbp": W_HBP,
+                "w_1b": W_1B,
+                "w_2b": W_2B,
+                "w_3b": W_3B,
+                "w_hr": W_HR,
                 "ab_types": list(_AB_EVENT_TYPES),
             },
         )
@@ -166,9 +191,14 @@ def compute_wrc_plus_live(conn: psycopg.Connection) -> int:
         cur.execute(
             read_sql("team_wrc_plus_live_update.sql"),
             {
-                "w_ubb": W_UBB, "w_hbp": W_HBP, "w_1b": W_1B,
-                "w_2b": W_2B, "w_3b": W_3B, "w_hr": W_HR,
-                "woba_scale": WOBA_SCALE, "ab_types": list(_AB_EVENT_TYPES),
+                "w_ubb": W_UBB,
+                "w_hbp": W_HBP,
+                "w_1b": W_1B,
+                "w_2b": W_2B,
+                "w_3b": W_3B,
+                "w_hr": W_HR,
+                "woba_scale": WOBA_SCALE,
+                "ab_types": list(_AB_EVENT_TYPES),
             },
         )
         return cur.rowcount

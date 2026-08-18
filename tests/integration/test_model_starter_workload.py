@@ -302,8 +302,64 @@ def test_compute_starter_workload_returns_zero_without_retrosheet_gameinfo_table
 
 def test_health_check_runs_cleanly_against_empty_database():
     checks = starter_workload.health_check()
-    assert len(checks) == 3
+    assert len(checks) == 4
     assert all(c.ok for c in checks)
+
+
+def test_health_check_reports_coverage_when_healthy(db_conn):
+    # Issue #9 item 3 fix surfaced a real, separate pre-existing bug: the
+    # old inline logic only ever appended a "May+ rest days coverage"
+    # check when coverage was BELOW 0.90 (or when there were zero May+
+    # starts at all) -- when coverage was fine (the common, healthy case),
+    # nothing was appended at all, so `mlb doctor` silently omitted this
+    # check exactly when it was passing. One populated May+ row (100%
+    # coverage) proves the refactored _coverage_checks() now reports an
+    # explicit passing check in that case, for both home and away.
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.player (retro_id, first_name, last_name) "
+            "VALUES ('startp1', 'Start', 'PitcherOne'), "
+            "('startp2', 'Start', 'PitcherTwo') "
+            "RETURNING id, retro_id"
+        )
+        players = {retro_id: player_id for player_id, retro_id in cur.fetchall()}
+        home_starter, away_starter = players["startp1"], players["startp2"]
+        cur.execute(
+            "INSERT INTO gold.game_feature "
+            "(game_instance_key, mlb_game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_win, home_starter_id, home_starter_rest_days, "
+            "away_starter_id, away_starter_rest_days) VALUES "
+            "('mlb:999002', '999002', 2020, '2020-05-15', %(atl)s, %(nya)s, true, "
+            "%(home_starter)s, 5, %(away_starter)s, 4)",
+            {
+                "atl": atl,
+                "nya": nya,
+                "home_starter": home_starter,
+                "away_starter": away_starter,
+            },
+        )
+    db_conn.commit()
+
+    checks = starter_workload.health_check()
+    home_check = next(
+        c
+        for c in checks
+        if c.name == "starter workload: May+ rest days coverage for resolved home starters"
+    )
+    away_check = next(
+        c
+        for c in checks
+        if c.name == "starter workload: May+ rest days coverage for resolved away starters"
+    )
+    assert home_check.ok
+    assert "100.0%" in home_check.detail
+    assert away_check.ok
+    assert "100.0%" in away_check.detail
+
+    _reset(db_conn)
 
 
 def test_health_check_flags_negative_values(db_conn):

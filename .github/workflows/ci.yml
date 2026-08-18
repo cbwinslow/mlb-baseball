@@ -96,7 +96,7 @@ jobs:
 
       - name: Cache Chadwick tools build
         id: chadwick-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/chadwick-install
           key: chadwick-${{ env.CHADWICK_REF }}

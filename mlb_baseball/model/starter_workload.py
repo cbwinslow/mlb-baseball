@@ -91,9 +91,10 @@ def health_check() -> list[Check]:
        an away-only join bug is a real, if unlikely, failure mode a
        home-only check can't surface): for completed regular-season games
        beyond the season's opening month (May onwards) where a starting
-       pitcher was resolved, the vast majority (>90%) have a populated
-       rest_days value (only mid-season debuts or newly acquired pitchers
-       with no prior tracked starts lack a prior start).
+       pitcher was resolved, the vast majority (>=90%, see _coverage_check's
+       own `coverage < 0.90` threshold) have a populated rest_days value
+       (only mid-season debuts or newly acquired pitchers with no prior
+       tracked starts lack a prior start).
     """
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT to_regclass('gold.game_feature')")

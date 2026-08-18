@@ -223,7 +223,12 @@ def health_check() -> list[Check]:
     Not a bug -- Retrosheet's Negro League play-by-play coverage is
     sparse enough that a team's entire "prior sample" for a season can be
     a single real, if extreme, game. Full verified range across all
-    400,356 non-null home/away_woba rows in production: 0.0238-0.6067."""
+    400,356 non-null home/away_woba rows in production: 0.0238-0.6067.
+
+    away_woba/away_wrc_plus get the identical bounds check as their home_*
+    counterparts (issue #9 item 3): home and away are computed through the
+    same formula but two different join legs, so an away-only join bug is
+    a real, if unlikely, failure mode a home-only check can't surface."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(read_sql("offense_health_check.sql"))
         bad_woba, bad_wrc, bad_away_woba, bad_away_wrc = fetch_one(cur)

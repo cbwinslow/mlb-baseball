@@ -110,7 +110,9 @@ def health_check() -> list[Check]:
     Checked on both home and away sides (issue #9 item 3): the two go
     through the same formula but two different join legs, so an away-only
     join bug is a real, if unlikely, failure mode a home-only check can't
-    surface."""
+    surface. Every home_* check below (obp/slg/iso/babip/bb_pct/k_pct/
+    runs_for_avg/runs_allowed_avg/min-sample gate/pa) has an away_*
+    twin using the identical bound."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(read_sql("team_rate_health_check.sql"), {"min_pa": MIN_PA})
         (

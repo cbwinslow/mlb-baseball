@@ -1,7 +1,10 @@
 -- Diagnostic health-check query for team prior rate statistics (ADR-061/062/063).
 -- Both sides checked (issue #9 item 3): home and away go through the same
 -- formula but two different join legs, so an away-only join bug is a real,
--- if unlikely, failure mode a home-only check can't surface.
+-- if unlikely, failure mode a home-only check can't surface. The final
+-- home_pa/away_pa checks are a sanity guard against data corruption --
+-- plate-appearance counts are never negative -- not an expected business
+-- rule with edge cases to reason about.
 SELECT
     count(*) FILTER (
         WHERE home_obp IS NOT NULL AND (home_obp < 0 OR home_obp > 1)

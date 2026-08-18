@@ -80,6 +80,7 @@ def test_target_registry_specifications():
         "random_forest_regressor",
         "extra_trees_regressor",
         "gam_regressor",
+        "svm_regressor",
     )
 
     sample_row = experiment.SnapshotRow(
@@ -178,6 +179,14 @@ def test_validate_parameters_for_all_model_families():
     with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
         experiment._validate_parameters("gam_regressor", {"bad_param": 1})
 
+    experiment._validate_parameters("svm", {"kernel": "linear"})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("svm", {"bad_param": 1})
+
+    experiment._validate_parameters("svm_regressor", {"kernel": "linear"})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("svm_regressor", {"bad_param": 1})
+
 
 def test_common_rows_filters_per_target_spec():
     base_values: dict[str, float | None] = {
@@ -266,6 +275,7 @@ def test_common_rows_filters_per_target_spec():
         "extra_trees_regressor",
         "gam",
         "gam_regressor",
+        "svm",
     ],
 )
 def test_make_estimator_lets_a_valid_override_actually_take_effect(model_family):
@@ -282,3 +292,16 @@ def test_make_estimator_lets_a_valid_override_actually_take_effect(model_family)
     estimator = experiment._make_estimator(model_family, {"random_state": 99}, seed=0)
     model = estimator.named_steps["model"] if hasattr(estimator, "named_steps") else estimator
     assert model.random_state == 99
+
+
+def test_make_estimator_lets_a_valid_svm_regressor_override_take_effect():
+    # svm_regressor is excluded from the parametrized override test above:
+    # unlike every other family here, scikit-learn's SVR has no
+    # random_state constructor parameter at all (SVR's solver is
+    # deterministic, unlike SVC's probability-calibration step) -- passing
+    # one would raise TypeError, not silently ignore it. Covers the same
+    # "an explicit, valid override actually takes effect" contract with a
+    # parameter SVR does support.
+    estimator = experiment._make_estimator("svm_regressor", {"C": 2.5}, seed=0)
+    model = estimator.named_steps["model"]
+    assert model.C == 2.5

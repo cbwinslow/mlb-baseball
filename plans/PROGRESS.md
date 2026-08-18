@@ -890,3 +890,68 @@ Two bug-fix PRs closing real, previously-open issues:
 - Not wired into any production path beyond what was already running --
   these are correctness fixes to already-deployed enrichment SQL
   (`offense.py`/`bullpen.py`), not new features.
+
+### Plan 04C — SVM model family — 2026-08-18 (`mlb_test` only)
+
+- Added `svm` (classifier, `home_win`) and `svm_regressor` (regressor,
+  `run_differential`) to `mlb_baseball/model/experiment.py` --
+  `TARGET_REGISTRY`, `SUPPORTED_MODELS`, `_make_estimator`,
+  `_validate_parameters`. The last explicitly-named Plan 04C model family
+  still entirely unbuilt: regularized regression, gradient boosting,
+  random forest/extra trees (2026-08-18 earlier this same day), and GAM
+  (2026-08-18) were already built; only Bayesian/hierarchical and
+  neural/sequence/embedding models remain open. `svm` is
+  `impute -> scale -> SVC(kernel="rbf", probability=True,
+  random_state=seed)`, matching `logistic`'s scaled-pipeline shape.
+  `svm_regressor` is `impute -> scale -> SVR(kernel="rbf")` matching
+  `ridge`'s shape, with no `random_state` (scikit-learn's `SVR` has no
+  such constructor parameter at all, unlike `Ridge`) and no `probability`.
+- **A real, tracked future-breakage point, not silently ignored:**
+  `SVC(probability=True)` is required for `predict_proba` (every family
+  past the three hardcoded baselines needs it), but scikit-learn 1.9 (the
+  version pinned here) deprecated that constructor argument in favor of
+  `CalibratedClassifierCV(SVC(), ensemble=False)`, removal targeted for
+  1.11. Deliberately not switched to that wrapper yet: it would push every
+  tunable SVM parameter behind an `estimator__` prefix in
+  `get_params(deep=False)`, breaking this file's established flat-pipeline
+  `_validate_parameters` convention every other family follows. Documented
+  as a "Revisit if" item in ADR-073 and a code comment at the `svm` branch
+  rather than left as a silent trap for a future scikit-learn upgrade.
+- **Verified against real production-shaped data, not just the small
+  `mlb_test` fixture:** loaded a bounded multi-season real sample (10
+  games/season across 2008/2015/2024/2025/2026, via
+  `mlb_baseball.rehearsal.load_sample`'s existing read-only-on-source
+  path) into `mlb_test`, ran `mlb conform`/`mlb features`, then ran both
+  new families through `mlb experiment run` alongside an existing
+  baseline for context (default `--fold-years` 2016-2024 don't match this
+  sample's non-contiguous seasons, so `--fold-years 2015 2024 2025 2026`
+  was used instead). `svm` produced finite, plausible log-loss
+  (0.60-0.78) and Brier (0.21-0.29), in the same range as `home_rate`'s
+  own baseline (log-loss 0.51-0.81) -- not a suspicious "beats every
+  baseline" result. `svm_regressor` produced finite MAE (3.23-3.79) and
+  RMSE (4.34-4.92), noticeably better than `season_average`'s baseline
+  (MAE 3.73-8.99) on this small sample -- per `docs/RESEARCH.md`'s own
+  calibration doctrine this pattern would be a leakage red flag on a
+  *larger* sample, but `svm_regressor` uses the identical `BASE_COLUMNS`
+  feature set every other regression family already uses (no new or
+  different data access), and beating a naive baseline by chance on a
+  ~10-game/season sample is unsurprising -- noted honestly rather than
+  over-claimed. Re-running each identical config correctly returned
+  `(reused)` with byte-identical metrics (idempotency, verified, not
+  assumed). Rehearsal sample cleared via `CLEAR_REHEARSAL_SAMPLE=1` before
+  the final clean test run. No production `mlb` write occurred -- pulled
+  read-only from `mlb` into `mlb_test` only.
+- `uv run ruff check .` clean, `uv run ruff format --check .` clean on
+  every file touched, `uv run mypy mlb_baseball/model/experiment.py`
+  clean. Full relevant suite: `tests/integration/test_experiment.py`,
+  `tests/unit/test_experiment_metrics.py`, `tests/unit/test_cli_dispatch.py`
+  -- 86 passed, 0 failed, run twice (once against the loaded rehearsal
+  sample, once after clearing it).
+- `svm_regressor` needed its own dedicated override-effect test
+  (`test_make_estimator_lets_a_valid_svm_regressor_override_take_effect`,
+  using `C` as the override parameter) rather than joining the existing
+  parametrized test the other 8 families share, since that test overrides
+  `random_state` specifically and `SVR` has no such parameter to override.
+- Not wired into any production path -- matches every sibling model
+  family's own dormant-until-a-separate-promotion-decision posture. No
+  champion/challenger comparison or promotion decision was made.

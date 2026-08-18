@@ -228,6 +228,101 @@ def test_compute_rolls_up_relief_only_with_zero_leakage_and_correct_fatigue_wind
     _reset(db_conn)
 
 
+def test_compute_orders_quality_window_by_game_number_not_insertion_order(db_conn):
+    # Issue #9 item 6 (found by direct audit, same bug class as item 1's
+    # db97d96 fix for team_rate_retrosheet_update.sql): the rolling QUALITY
+    # window (k_pct/bb_pct/fip) used to order same-date rows by `game_id`
+    # (an insertion-order serial), not the declared `game_number`. The
+    # fatigue window is deliberately immune to this (collapsed to one row
+    # per team-day first, see test_compute_gives_both_doubleheader_games_
+    # the_same_fatigue_value and the module docstring) -- this test targets
+    # the separate quality window specifically.
+    #
+    # DH2 (game_number=2) is inserted BEFORE DH1 (game_number=1) so DH2
+    # gets the LOWER core.game.id despite being the chronologically later
+    # game -- this is what would fool an insertion-order sort.
+    #   G1 (2020-04-01): ATL reliever relp1 faces 2 batters (1 K, 1 out).
+    #   DH1 (game_number=1): ATL reliever relp1 faces 1 batter (1 BB).
+    #   DH2 (game_number=2): ATL reliever relp1 faces 1 batter (1 out) --
+    #     only needs a row so the window has a "current row".
+    # Correctly ordered by game_number, entering DH2 pools G1 + DH1 relief:
+    #   k_sum=1, bb_sum=1, bf_sum=3, hr_sum=0, outs_sum=2
+    #   k_pct = 1/3 = 0.33333, bb_pct = 1/3 = 0.33333
+    #   fip = (13*0 + 3*(1+0) - 2*1) / (2/3) + 3.10 = 1/0.66667 + 3.10 = 4.60
+    # If ordered by insertion order instead (the bug), DH2 (lower game_id)
+    # would sort before DH1, so entering DH2 would only see G1's relief:
+    #   k_pct = 1/2 = 0.5, bb_pct = 0, fip = -2/0.66667 + 3.10 = 0.10
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', 1, %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        # DH2 (game_number=2) inserted before DH1 (game_number=1) on
+        # purpose -- this is what gives DH2 the lower serial game_id.
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH2', 2020, '2020-04-08', 2, %(atl)s, %(nya)s, 4, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH1', 2020, '2020-04-08', 1, %(atl)s, %(nya)s, 6, 5, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('DH1', 'regular'), ('DH2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "bat_event_fl, event_cd, event_outs_ct, _season) VALUES "
+            # G1: ATL starter startp1 faces one batter (so `starters`
+            # resolves), then reliever relp1 faces 2 (1 K, 1 out).
+            "('G1', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('G1', '0', 'relp1', 'F', 'T', '3', '1', '2020'), "  # K
+            "('G1', '0', 'relp1', 'F', 'T', '2', '1', '2020'), "  # generic out
+            # DH1: same starter/reliever split; relp1 faces 1 (BB).
+            "('DH1', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('DH1', '0', 'relp1', 'F', 'T', '14', '0', '2020'), "  # BB
+            # DH2: same split; relp1's own line here is unused in assertions.
+            "('DH2', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('DH2', '0', 'relp1', 'F', 'T', '2', '1', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = bullpen.compute(db_conn)
+    db_conn.commit()
+
+    assert updated == 3
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_bullpen_fip, f.home_bullpen_k_pct, f.home_bullpen_bb_pct "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "WHERE g.retro_game_id = 'DH2'"
+        )
+        fip, k_pct, bb_pct = cur.fetchone()
+
+    assert abs(fip - Decimal("4.60")) < Decimal("0.01")
+    assert abs(k_pct - Decimal("1") / Decimal("3")) < Decimal("0.0001")
+    assert abs(bb_pct - Decimal("1") / Decimal("3")) < Decimal("0.0001")
+
+    _reset(db_conn)
+
+
 def test_compute_gives_both_doubleheader_games_the_same_fatigue_value(db_conn):
     # ADR-042: fatigue is computed by collapsing to one row per
     # (team, calendar day) before the window RANGE frame, specifically

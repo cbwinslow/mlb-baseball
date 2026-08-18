@@ -14,7 +14,7 @@ def _ensure_retrosheet_tables(db_conn):
             cur.execute(
                 "CREATE TABLE raw.retrosheet_event ("
                 "game_id text, bat_home_id text, event_cd text, "
-                "ab_fl text, sf_fl text, _season text)"
+                "ab_fl text, sf_fl text, bat_event_fl text, _season text)"
             )
         cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
         if not cur.fetchone()[0]:
@@ -75,17 +75,17 @@ def test_compute_rolling_woba_matches_hand_calculation(db_conn):
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_event "
-            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, _season) VALUES "
-            "('G1', '1', '20', 'T', 'F', '2020'), "  # single
-            "('G1', '1', '14', 'F', 'F', '2020'), "  # BB
-            "('G1', '1', '16', 'F', 'F', '2020'), "  # HBP
-            "('G1', '1', '2', 'T', 'F', '2020'), "  # generic out
-            "('G1', '0', '2', 'T', 'F', '2020'), "  # NYA (away) batting -- minimal
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # single
+            "('G1', '1', '14', 'F', 'F', 'T', '2020'), "  # BB
+            "('G1', '1', '16', 'F', 'F', 'T', '2020'), "  # HBP
+            "('G1', '1', '2', 'T', 'F', 'T', '2020'), "  # generic out
+            "('G1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA (away) batting -- minimal
             # G2 needs at least one event row per side for the rolling
             # window's "current row" to exist at all -- otherwise there's
             # nothing for the window to attach the entering-G2 value to.
-            "('G2', '1', '2', 'T', 'F', '2020'), "
-            "('G2', '0', '2', 'T', 'F', '2020')"
+            "('G2', '1', '2', 'T', 'F', 'T', '2020'), "
+            "('G2', '0', '2', 'T', 'F', 'T', '2020')"
         )
     db_conn.commit()
 
@@ -105,6 +105,165 @@ def test_compute_rolling_woba_matches_hand_calculation(db_conn):
 
     assert rows["G1"] is None  # first game -- nothing prior
     assert rows["G2"] == Decimal("0.5725")
+
+    _reset(db_conn)
+
+
+def test_compute_ignores_a_non_batter_event_phantom_row(db_conn):
+    # Issue #9 item 6: team_woba_retrosheet_update.sql predates ADR-034's
+    # finding (team_rate_retrosheet_update.sql's db97d96 fix) that every
+    # event_cd count must be gated on bat_event_fl='T' -- without it, a
+    # non-batter-event row (e.g. a baserunning-only pickoff/wild-pitch
+    # artifact Retrosheet's own event files carry) with a coincidentally
+    # matching event_cd would be double-counted into the wOBA numerator.
+    # G1 has one real single (bat_event_fl='T') plus one phantom row with
+    # event_cd='20' (single) but bat_event_fl='F' -- a real event_cd that
+    # must NOT count, since it isn't a real plate appearance.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2020, '2020-04-08', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('G2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # real single (1/1)
+            "('G1', '1', '20', 'F', 'F', 'F', '2020'), "  # phantom -- must not count
+            "('G1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA (away) batting -- minimal
+            "('G2', '1', '2', 'T', 'F', 'T', '2020'), "
+            "('G2', '0', '2', 'T', 'F', 'T', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = offense.compute(db_conn)
+    db_conn.commit()
+
+    assert updated == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_woba FROM gold.game_feature f "
+            "JOIN core.game g ON g.id = f.game_id WHERE g.retro_game_id = 'G2'"
+        )
+        (woba,) = cur.fetchone()
+
+    # Entering G2 with the phantom row correctly excluded: 1 single only,
+    # AB=1 -> wOBA = W_1B(0.878)/1 = 0.878. If the phantom row were wrongly
+    # counted, AB would still be 1 (ab_fl='F' on the phantom, so AB itself
+    # is unaffected) but the single-weighted numerator would double to
+    # 1.756, giving wOBA = 1.756 -- a value clearly outside a real wOBA's
+    # range, which is what this assertion actually rules out.
+    assert woba == Decimal("0.8780")
+
+    _reset(db_conn)
+
+
+def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn):
+    # Issue #9 item 6 (found by direct audit, same bug class as item 1's
+    # db97d96 fix): the rolling window used to order same-date rows by
+    # `game_id` (an insertion-order serial), not the declared
+    # `game_number`. A doubleheader loaded "second game first" (a
+    # realistic cross-run backfill scenario) would leak the second game's
+    # stats into the first game's "entering" value, and vice versa.
+    #
+    # DH2 (game_number=2) is inserted BEFORE DH1 (game_number=1) so DH2
+    # gets the LOWER core.game.id despite being the chronologically later
+    # game -- this is what would fool an insertion-order sort.
+    #   G1 (2020-04-01): ATL hits 1 single -> entering DH1 wOBA = 0.878/1.
+    #   DH1 (game_number=1): ATL hits 1 double.
+    #   DH2 (game_number=2): ATL hits 1 triple -- only needs a row so the
+    #     window has a "current row"; unused in assertions.
+    # Correctly ordered by game_number, entering DH2 = G1 + DH1:
+    #   numerator = W_1B(0.878) + W_2B(1.242) = 2.120; AB=2 -> 1.060.
+    # If ordered by insertion order instead (the bug), DH2 (lower game_id)
+    # would sort before DH1 on the same date, so entering DH2 would only
+    # see G1 (0.878), not G1+DH1 (1.060).
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', 1, %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        # DH2 (game_number=2) inserted before DH1 (game_number=1) on
+        # purpose -- this is what gives DH2 the lower serial game_id.
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH2', 2020, '2020-04-08', 2, %(atl)s, %(nya)s, 4, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH1', 2020, '2020-04-08', 1, %(atl)s, %(nya)s, 6, 5, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('DH1', 'regular'), ('DH2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single
+            "('G1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA -- minimal
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double
+            "('DH1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA -- minimal
+            "('DH2', '1', '22', 'T', 'F', 'T', '2020'), "  # ATL triple
+            "('DH2', '0', '2', 'T', 'F', 'T', '2020')"  # NYA -- minimal
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = offense.compute(db_conn)
+    db_conn.commit()
+
+    assert updated == 3
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.retro_game_id, f.home_woba "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "ORDER BY g.retro_game_id"
+        )
+        rows = {r[0]: r[1] for r in cur.fetchall()}
+
+    assert abs(rows["DH2"] - Decimal("1.060")) < Decimal("0.0001")
 
     _reset(db_conn)
 

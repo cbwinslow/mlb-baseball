@@ -76,15 +76,16 @@ INSERT INTO gold.player_season (
 )
 SELECT
     p.id, b._season::integer, false, b.name, b.tm,
-    NULLIF(b.g, '')::integer,
-    NULLIF(b.pa, '')::integer, NULLIF(b.ab, '')::integer,
-    NULLIF(b.n2b, '')::integer, NULLIF(b.n3b, '')::integer,
-    NULLIF(b.rbi, '')::integer, NULLIF(b.hbp, '')::integer,
-    NULLIF(b.sb, '')::integer, NULLIF(b.cs, '')::integer,
+    NULLIF(b.g, '')::numeric::integer,
+    NULLIF(b.pa, '')::numeric::integer, NULLIF(b.ab, '')::numeric::integer,
+    NULLIF(b.n2b, '')::numeric::integer, NULLIF(b.n3b, '')::numeric::integer,
+    NULLIF(b.rbi, '')::numeric::integer, NULLIF(b.hbp, '')::numeric::integer,
+    NULLIF(b.sb, '')::numeric::integer, NULLIF(b.cs, '')::numeric::integer,
     NULLIF(b.ba, '')::numeric, NULLIF(b.obp, '')::numeric,
     NULLIF(b.slg, '')::numeric, NULLIF(b.ops, '')::numeric,
-    NULLIF(b.r, '')::integer, NULLIF(b.h, '')::integer,
-    NULLIF(b.bb, '')::integer, NULLIF(b.so, '')::integer, NULLIF(b.hr, '')::integer,
+    NULLIF(b.r, '')::numeric::integer, NULLIF(b.h, '')::numeric::integer,
+    NULLIF(b.bb, '')::numeric::integer, NULLIF(b.so, '')::numeric::integer,
+    NULLIF(b.hr, '')::numeric::integer,
     ws.war, ws.waa
 FROM raw.bref_batting b
 JOIN core.player p ON p.mlbam_id = b.mlbid
@@ -105,12 +106,15 @@ INSERT INTO gold.player_season (
 )
 SELECT
     p.id, b._season::integer, true, b.name, b.tm,
-    NULLIF(b.g, '')::integer,
-    NULLIF(b.gs, '')::integer, NULLIF(b.w, '')::integer, NULLIF(b.l, '')::integer,
-    NULLIF(b.sv, '')::integer, NULLIF(b.ip, '')::numeric, NULLIF(b.er, '')::integer,
+    NULLIF(b.g, '')::numeric::integer,
+    NULLIF(b.gs, '')::numeric::integer, NULLIF(b.w, '')::numeric::integer,
+    NULLIF(b.l, '')::numeric::integer,
+    NULLIF(b.sv, '')::numeric::integer, NULLIF(b.ip, '')::numeric,
+    NULLIF(b.er, '')::numeric::integer,
     NULLIF(b.era, '')::numeric, NULLIF(b.whip, '')::numeric, NULLIF(b.so9, '')::numeric,
-    NULLIF(b.r, '')::integer, NULLIF(b.h, '')::integer,
-    NULLIF(b.bb, '')::integer, NULLIF(b.so, '')::integer, NULLIF(b.hr, '')::integer,
+    NULLIF(b.r, '')::numeric::integer, NULLIF(b.h, '')::numeric::integer,
+    NULLIF(b.bb, '')::numeric::integer, NULLIF(b.so, '')::numeric::integer,
+    NULLIF(b.hr, '')::numeric::integer,
     ws.war, ws.waa
 FROM raw.bref_pitching b
 JOIN core.player p ON p.mlbam_id = b.mlbid
@@ -150,14 +154,14 @@ INSERT INTO gold.team_season (
 )
 SELECT
     t.id, lt.yearid::integer, t.city, t.nickname, NULLIF(lt.lgid, ''),
-    NULLIF(lt.w, '')::integer, NULLIF(lt.l, '')::integer,
+    NULLIF(lt.w, '')::numeric::integer, NULLIF(lt.l, '')::numeric::integer,
     CASE WHEN NULLIF(lt.w, '')::numeric + NULLIF(lt.l, '')::numeric > 0
         THEN round(
             NULLIF(lt.w, '')::numeric / (NULLIF(lt.w, '')::numeric + NULLIF(lt.l, '')::numeric), 3
         )
     END,
-    NULLIF(lt.r, '')::integer, NULLIF(lt.ra, '')::integer,
-    NULLIF(lt.hr, '')::integer, NULLIF(lt.era, '')::numeric
+    NULLIF(lt.r, '')::numeric::integer, NULLIF(lt.ra, '')::numeric::integer,
+    NULLIF(lt.hr, '')::numeric::integer, NULLIF(lt.era, '')::numeric
 FROM raw.lahman_teams lt
 JOIN core.team t
     ON t.retro_team_id = (CASE WHEN lt.teamidretro = 'ATH' THEN 'OAK' ELSE lt.teamidretro END)

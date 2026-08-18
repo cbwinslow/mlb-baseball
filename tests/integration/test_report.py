@@ -185,6 +185,73 @@ def test_build_player_season_resolves_batting_and_pitching_and_sums_war(db_conn)
     _reset(db_conn)
 
 
+def test_build_player_season_parses_decimal_text_pitching_counts(db_conn):
+    # Real production bug: raw.bref_pitching.w/l/sv are text, and pandas
+    # coerces an int column with any missing values to float on read, so a
+    # real fraction of rows land as "4.0"/"2.0" rather than "4"/"2" -- a
+    # bare ::integer cast errors on that (confirmed directly: this broke
+    # `mlb report` in production). NULLIF(...)::numeric::integer must
+    # handle both forms.
+    _reset(db_conn)
+    _ensure_dynamic_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.player (retro_id, mlbam_id, first_name, last_name) "
+            "VALUES ('pitchea01', '592789', 'Pitch', 'Er') RETURNING id"
+        )
+        (pitcher_id,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO raw.bref_pitching "
+            "(name, tm, g, gs, w, l, sv, ip, h, r, er, bb, so, hr, era, whip, so9, "
+            "mlbid, _season) VALUES "
+            "('Pitch Er', 'New York', '30', '0', '4.0', '2.0', '3.0', '40.0', '35', "
+            "'20', '18', '15', '45', '4', '4.05', '1.250', '10.1', '592789', '2023')"
+        )
+    db_conn.commit()
+
+    counts = {"gold.player_season": report._build_player_season(db_conn)}
+    db_conn.commit()
+
+    assert counts["gold.player_season"] == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT w, l, sv, r, h, bb, so, hr FROM gold.player_season WHERE player_id = %s",
+            (pitcher_id,),
+        )
+        assert cur.fetchone() == (4, 2, 3, 20, 35, 15, 45, 4)
+
+    _reset(db_conn)
+
+
+def test_build_team_season_base_parses_decimal_text_run_counts(db_conn):
+    # Same real bug, raw.lahman_teams side: r/ra/hr are text and pandas'
+    # float coercion produces "650.0"-style values for a real fraction of
+    # rows (confirmed directly against production: 3,613 rows each).
+    _reset(db_conn)
+    _ensure_dynamic_tables(db_conn)
+    with db_conn.cursor() as cur:
+        teams = _insert_teams(cur, [("BOS", "Boston", "Red Sox", 1901, 9999, 111)])
+        cur.execute(
+            "INSERT INTO raw.lahman_teams (teamidretro, yearid, lgid, w, l, r, ra, hr, era) "
+            "VALUES ('BOS', '2023', 'AL', '78.0', '84.0', '755.0', '774.0', '181.0', '4.28')"
+        )
+    db_conn.commit()
+
+    updated = report._build_team_season_base(db_conn)
+    db_conn.commit()
+
+    assert updated == 1
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT wins, losses, runs, runs_allowed, hr "
+            "FROM gold.team_season WHERE team_id = %s AND season = 2023",
+            (teams["BOS"],),
+        )
+        assert cur.fetchone() == (78, 84, 755, 774, 181)
+
+    _reset(db_conn)
+
+
 def test_build_player_season_excludes_rows_with_no_resolvable_player(db_conn):
     # A real, documented gap (~0.5% of production rows, see ADR-057) --
     # confirmed excluded, not silently turned into a NULL-player_id row

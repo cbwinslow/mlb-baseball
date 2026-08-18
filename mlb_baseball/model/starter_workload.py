@@ -141,21 +141,22 @@ def health_check() -> list[Check]:
             Check("starter workload: non-negative workload outs", True, "all workload outs >= 0")
         )
 
-    checks.extend(_coverage_checks("home", unpop_may_rest, total_may_starts))
-    checks.extend(_coverage_checks("away", unpop_may_away_rest, total_may_away_starts))
+    checks.append(_coverage_check("home", unpop_may_rest, total_may_starts))
+    checks.append(_coverage_check("away", unpop_may_away_rest, total_may_away_starts))
 
     return checks
 
 
-def _coverage_checks(side: str, unpopulated: int, total: int) -> list[Check]:
+def _coverage_check(side: str, unpopulated: int, total: int) -> Check:
     name = f"starter workload: May+ rest days coverage for resolved {side} starters"
     if total <= 0:
-        return [Check(name, True, "no completed May+ starts to evaluate")]
+        return Check(name, True, "no completed May+ starts to evaluate")
     coverage = 1.0 - (unpopulated / total)
+    populated = total - unpopulated
     if coverage < 0.90:
-        populated = total - unpopulated
-        return [
-            Check(name, False, f"{coverage:.1%} coverage ({unpopulated}/{total} missing)"),
-            Check(name, True, f"{coverage:.1%} coverage ({populated}/{total} populated)"),
-        ]
-    return [Check(name, True, f"{coverage:.1%} coverage ({total - unpopulated}/{total} populated)")]
+        return Check(
+            name,
+            False,
+            f"{coverage:.1%} coverage ({populated}/{total} populated, {unpopulated} missing)",
+        )
+    return Check(name, True, f"{coverage:.1%} coverage ({populated}/{total} populated)")

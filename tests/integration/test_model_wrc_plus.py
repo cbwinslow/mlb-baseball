@@ -76,6 +76,11 @@ def test_compute_wrc_plus_matches_hand_calculation(db_conn):
     # road 2+3=5 -- see test_model_park.py for this exact derivation).
     # G3 (2023): ATL (home) bats 1 single/1 BB/1 HBP/1 out -> team_woba
     # 0.5725 (see test_model_offense.py). NYA (away) bats 1 single/1 out.
+    # A phantom event_cd='20' row with bat_event_fl='F' also sits on G3 --
+    # it must not count toward the league b1 numerator (this fixture would
+    # still pass with the bat_event_fl guard removed from
+    # team_wrc_plus_retrosheet_update.sql without this row, since every
+    # other row already has bat_event_fl='T').
     # League G3 combined: ubb=1, hbp=1, 1B=2, AB=4 -> league_woba = 0.528.
     # Entering G4: wRC+ = (((0.5725-0.528)/1.20)+1) / (240/100) * 100
     #                   = 43.2118055555556 (verified via Python Fraction
@@ -116,6 +121,7 @@ def test_compute_wrc_plus_matches_hand_calculation(db_conn):
             "INSERT INTO raw.retrosheet_event "
             "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
             "('G3', '1', '20', 'T', 'F', 'T', '2023'), "
+            "('G3', '1', '20', 'F', 'F', 'F', '2023'), "  # phantom -- must not count
             "('G3', '1', '14', 'F', 'F', 'T', '2023'), "
             "('G3', '1', '16', 'F', 'F', 'T', '2023'), "
             "('G3', '1', '2', 'T', 'F', 'T', '2023'), "
@@ -181,6 +187,23 @@ def test_compute_wrc_plus_orders_doubleheader_by_game_number_not_insertion_order
     # would sort before DH1 on the same date, so entering DH2's league
     # pool would see only G1 (b1=1, ab=2) -> league_woba = 0.878/2 = 0.439,
     # giving wrc_plus = 151.75 instead -- a different, wrong value.
+    #
+    # OTHR (BOS home vs TOR away, also 2020-04-08, game_number=1 -- an
+    # intentional COLLISION with DH1's own game_number): a real, separate
+    # PR review finding (P1, flagged independently by three reviewers) on
+    # top of the doubleheader case above -- `game_number` alone is not a
+    # safe league-wide tiebreak, since it only means "which game of THIS
+    # matchup's doubleheader" and carries no relationship to an unrelated
+    # matchup's game_number on the same date. OTHR hits a HR (weight
+    # 2.015, the largest of any event here) specifically so that if it
+    # were wrongly pulled into DH2's entering league pool, the assertion
+    # below would visibly fail rather than silently pass. BOS/TOR are
+    # inserted in a later statement than ATL/NYA, guaranteeing higher
+    # serial team ids -- (BOS, TOR) as a home/away tiebreak pair therefore
+    # sorts after (ATL, NYA) among 2020-04-08's rows, so OTHR is
+    # deterministically excluded from DH2's entering pool by the
+    # home_team_id/away_team_id tiebreak, regardless of its colliding
+    # game_number or its own game_id/insertion position.
     _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
@@ -193,6 +216,15 @@ def test_compute_wrc_plus_orders_doubleheader_by_game_number_not_insertion_order
         )
         teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
         atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('BOS', 'Boston', 'Red Sox', 1901, 2025, 111), "
+            "('TOR', 'Toronto', 'Blue Jays', 1977, 2025, 141) "
+            "RETURNING id, retro_team_id"
+        )
+        teams |= {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        bos, tor = teams["BOS"], teams["TOR"]
         cur.execute(
             "INSERT INTO core.game "
             "(retro_game_id, season, game_date, game_number, home_team_id, "
@@ -217,8 +249,16 @@ def test_compute_wrc_plus_orders_doubleheader_by_game_number_not_insertion_order
             {"atl": atl, "nya": nya},
         )
         cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('OTHR', 2020, '2020-04-08', 1, %(bos)s, %(tor)s, 9, 1, 'regular')",
+            {"bos": bos, "tor": tor},
+        )
+        cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
-            "VALUES ('G1', 'regular'), ('DH1', 'regular'), ('DH2', 'regular')"
+            "VALUES ('G1', 'regular'), ('DH1', 'regular'), ('DH2', 'regular'), "
+            "('OTHR', 'regular')"
         )
         cur.execute(
             "INSERT INTO raw.retrosheet_event "
@@ -228,7 +268,9 @@ def test_compute_wrc_plus_orders_doubleheader_by_game_number_not_insertion_order
             "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double
             "('DH1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA out
             "('DH2', '1', '22', 'T', 'F', 'T', '2020'), "  # ATL triple
-            "('DH2', '0', '2', 'T', 'F', 'T', '2020')"  # NYA out
+            "('DH2', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA out
+            "('OTHR', '1', '23', 'T', 'F', 'T', '2020'), "  # BOS HR -- must not leak into DH2
+            "('OTHR', '0', '2', 'T', 'F', 'T', '2020')"  # TOR out
         )
     db_conn.commit()
 

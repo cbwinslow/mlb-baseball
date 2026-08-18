@@ -4,18 +4,35 @@
 -- team_woba_retrosheet_update.sql's identical header comment for the full
 -- explanation of both:
 -- 1. Every event_cd FILTER is gated on `bat_event_fl = 'T'` (ADR-034).
--- 2. The rolling window orders by `game_date, game_number NULLS LAST,
---    game_id`, not `game_date, game_id` alone. This file's window is
---    season-wide (every game in the league, not one team), so a same-date
---    tiebreak matters on effectively every date, not just doubleheaders.
+-- 2. The rolling window orders by `game_date, home_team_id, away_team_id,
+--    game_number NULLS LAST, game_id`, not `game_date, game_id` alone.
+--    This file's window is season-wide (every game in the league, not one
+--    team), so `game_number` alone is NOT a safe tiebreak here the way it
+--    is in team_woba/team_rate/team_bullpen's team-partitioned windows:
+--    game_number only orders two games of the SAME matchup's doubleheader
+--    against each other, it carries no meaning between two DIFFERENT
+--    matchups that happen to share a game_date (flagged independently by
+--    three reviewers on the PR that introduced this fix, PR #25 -- a real
+--    P1, not a nitpick: ordering league-wide by game_number alone would
+--    put every date's doubleheader-game-1's ahead of every single game
+--    and every doubleheader-game-2 that same date, regardless of actual
+--    matchup or first-pitch time). home_team_id/away_team_id sort first
+--    among same-date ties specifically so game_number only ever
+--    disambiguates two rows that are already known to be the same
+--    matchup's own doubleheader -- unrelated same-date games remain
+--    ordered by team-pair (still not true chronology, since this dataset
+--    has no usable first-pitch timestamp, but at least never pretends a
+--    false doubleheader relationship between two different matchups).
 WITH regular_games AS (
-    SELECT g.id AS game_id, g.season, g.game_date, g.game_number, g.retro_game_id
+    SELECT g.id AS game_id, g.season, g.game_date, g.game_number, g.retro_game_id,
+        g.home_team_id, g.away_team_id
     FROM core.game g WHERE g.game_type = 'regular'
 ),
 -- Aggregate both sides before the rolling frame: league wOBA entering one
 -- game must be identical for its home and away rows.
 game_stats AS (
     SELECT rg.game_id, rg.season, rg.game_date, rg.game_number,
+        rg.home_team_id, rg.away_team_id,
         count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '14') AS ubb,
         count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '16') AS hbp,
         count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '20') AS b1,
@@ -27,7 +44,7 @@ game_stats AS (
     FROM regular_games rg
     JOIN raw.retrosheet_gameinfo gi ON gi.gid = rg.retro_game_id AND lower(gi.gametype) = 'regular'
     JOIN raw.retrosheet_event re ON re.game_id = rg.retro_game_id
-    GROUP BY rg.game_id, rg.season, rg.game_date, rg.game_number
+    GROUP BY rg.game_id, rg.season, rg.game_date, rg.game_number, rg.home_team_id, rg.away_team_id
 ),
 league_rolling AS (
     SELECT game_id,
@@ -37,7 +54,8 @@ league_rolling AS (
         SUM(ab) OVER w AS ab_sum, SUM(sf) OVER w AS sf_sum
     FROM game_stats
     WINDOW w AS (
-        PARTITION BY season ORDER BY game_date, game_number NULLS LAST, game_id
+        PARTITION BY season
+        ORDER BY game_date, home_team_id, away_team_id, game_number NULLS LAST, game_id
         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
     )
 ),

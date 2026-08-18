@@ -2536,6 +2536,54 @@ def test_health_check_lahman_team_count_matches_and_flags_mismatch(db_conn):
     db_conn.commit()
 
 
+def test_health_check_lahman_team_count_excludes_negro_league_teams(db_conn):
+    # Proves Negro League teams with game_type='regular' games in core.game
+    # are excluded from core_teams count by matching against Lahman's AL/NL scope.
+    # Without this filter, core_teams would count both AL/NL and Negro League teams,
+    # causing a false-positive mismatch against lahman_teams.
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('NYA', 'AL', 'New York', 'Yankees', '1903', '2025'), "
+            "('CAG', 'NNL', 'Chicago', 'American Giants', '1920', '1950'), "
+            "('HOM', 'NNL', 'Homestead', 'Grays', '1920', '1950')"
+        )
+
+        # 1 AL/NL game (NYA at ATL) and 1 Negro League game (CAG at HOM) for 1921
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('ATL192104010', '1921', '19210401', '0', 'NYA', 'ATL', '3', '5', 'regular', "
+            "'ATL01', '10000', '120', 'D', '', '', '', '', '', '', '', '', ''), "
+            "('HOM192104020', '1921', '19210402', '0', 'CAG', 'HOM', '4', '2', 'regular', "
+            "'HOM01', '5000', '110', 'D', '', '', '', '', '', '', '', '', '')"
+        )
+
+        cur.execute(
+            "CREATE TABLE raw.lahman_teams "
+            "(teamidretro text, yearid text, w text, l text, g text, lgid text)"
+        )
+        # Lahman has ATL (NL) and NYA (AL) for 1921, plus Negro League teams (NNL)
+        cur.execute(
+            "INSERT INTO raw.lahman_teams VALUES "
+            "('ATL', '1921', '80', '70', '150', 'NL'), "
+            "('NYA', '1921', '90', '60', '150', 'AL'), "
+            "('CAG', '1921', '50', '30', '80', 'NNL'), "
+            "('HOM', '1921', '40', '40', '80', 'NNL')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    check = next(c for c in conform.health_check() if c.name == "core.game team count vs Lahman")
+    assert check.ok, check.detail
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.lahman_teams")
+    db_conn.commit()
+
+
+
 def test_database_rejects_a_doubleheader_game_pk_collision(db_conn):
     # Regression, end to end: before migration 0011's game_pk-overwrite
     # guard, this exact scenario (two games, same date/teams, distinct

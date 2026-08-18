@@ -1816,6 +1816,9 @@ def health_check() -> list[Check]:
                 SELECT cg.season, count(DISTINCT t.retro_team_id) AS core_team_count
                 FROM core.game cg
                 JOIN core.team t ON cg.home_team_id = t.id OR cg.away_team_id = t.id
+                JOIN raw.lahman_teams lt_filter ON lt_filter.yearid::integer = cg.season
+                                               AND lt_filter.teamidretro = t.retro_team_id
+                                               AND lt_filter.lgid IN ('AL', 'NL')
                 WHERE cg.game_type = 'regular'
                 GROUP BY cg.season
             ),

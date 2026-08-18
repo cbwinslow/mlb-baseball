@@ -163,6 +163,32 @@ def test_check_recent_run_false_when_last_run_is_stale(db_conn):
     assert "still running" in result.detail
 
 
+def test_check_recent_run_mode_scoping_ignores_a_recent_run_of_a_different_mode(db_conn):
+    # A source whose SOURCE constant is shared across a scheduled mode
+    # (e.g. kalshi/polymarket's daily "update") and an unscheduled one
+    # (e.g. an owner-triggered "backfill") must not have a recent manual
+    # run of the unscheduled mode mask a genuinely stale scheduled one.
+    source = f"test_health_mode_{uuid.uuid4().hex}"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO meta.ingestion_run (source, mode, status, started_at, finished_at) "
+            "VALUES (%s, 'update', 'success', now() - interval '45 minutes', now())",
+            (source,),
+        )
+        cur.execute(
+            "INSERT INTO meta.ingestion_run (source, mode, status, started_at, finished_at) "
+            "VALUES (%s, 'backfill', 'success', now() - interval '2 minutes', now())",
+            (source,),
+        )
+    db_conn.commit()
+
+    unscoped = check_recent_run(source, max_age_minutes=15)
+    scoped = check_recent_run(source, max_age_minutes=15, mode="update")
+
+    assert unscoped.ok  # would false-positive healthy without mode scoping
+    assert not scoped.ok
+
+
 def test_check_join_coverage_ok_on_exact_match(db_conn, drop_tables_after):
     core = drop_tables_after("raw.test_health_join_core")
     src = drop_tables_after("raw.test_health_join_src")

@@ -1,3 +1,5 @@
+import pytest
+
 from mlb_baseball import migrate
 
 
@@ -5,6 +7,13 @@ def test_rerunning_migrate_applies_nothing_new():
     # The session fixture already applied every migration once.
     applied = migrate.run()
     assert applied == []
+
+
+def test_skip_with_unknown_filename_raises_instead_of_silently_no_opping():
+    # A typo in --skip must not silently match nothing and let the named
+    # migration apply anyway with no warning.
+    with pytest.raises(ValueError, match="not_a_real_migration.sql"):
+        migrate.run(skip={"not_a_real_migration.sql"})
 
 
 def test_every_migration_file_is_recorded_as_applied(db_conn):

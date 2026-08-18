@@ -89,6 +89,12 @@ def run(skip: set[str] | None = None) -> list[str]:
     """
     skip = skip or set()
     migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    unknown_skips = skip - {path.name for path in migration_files}
+    if unknown_skips:
+        raise ValueError(
+            f"--skip names no real migration file: {sorted(unknown_skips)} "
+            f"-- a typo here silently no-ops the skip"
+        )
     applied = []
     with get_connection() as conn:
         _acquire_migration_lock(conn)

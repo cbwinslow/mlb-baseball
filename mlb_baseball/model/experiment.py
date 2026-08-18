@@ -24,7 +24,14 @@ from typing import Any, Literal
 import numpy as np
 import psycopg
 import xgboost as xgb
-from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    ExtraTreesRegressor,
+    HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor,
+    RandomForestClassifier,
+    RandomForestRegressor,
+)
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import (
@@ -68,6 +75,8 @@ SUPPORTED_MODELS = (
     "logistic",
     "hist_gradient_boosting",
     "xgboost",
+    "random_forest",
+    "extra_trees",
 )
 _SELECTION_SQL = read_sql("experiment_selection.sql")
 
@@ -135,6 +144,8 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "logistic",
             "hist_gradient_boosting",
             "xgboost",
+            "random_forest",
+            "extra_trees",
         ),
     ),
     "run_differential": TargetSpec(
@@ -157,16 +168,14 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "ridge",
             "hist_gradient_boosting_regressor",
             "xgboost_regressor",
+            "random_forest_regressor",
+            "extra_trees_regressor",
         ),
     ),
 }
 
 ALL_MODEL_FAMILIES: tuple[str, ...] = tuple(
-    dict.fromkeys(
-        model
-        for spec in TARGET_REGISTRY.values()
-        for model in spec.valid_model_families
-    )
+    dict.fromkeys(model for spec in TARGET_REGISTRY.values() for model in spec.valid_model_families)
 )
 
 
@@ -470,6 +479,30 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
             n_jobs=1,
             **parameters,
         )
+    if model_family == "random_forest":
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                (
+                    "model",
+                    RandomForestClassifier(
+                        n_estimators=200, random_state=seed, n_jobs=1, **parameters
+                    ),
+                ),
+            ]
+        )
+    if model_family == "extra_trees":
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                (
+                    "model",
+                    ExtraTreesClassifier(
+                        n_estimators=200, random_state=seed, n_jobs=1, **parameters
+                    ),
+                ),
+            ]
+        )
     if model_family == "ridge":
         return Pipeline(
             [
@@ -495,6 +528,30 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
             n_jobs=1,
             **parameters,
         )
+    if model_family == "random_forest_regressor":
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                (
+                    "model",
+                    RandomForestRegressor(
+                        n_estimators=200, random_state=seed, n_jobs=1, **parameters
+                    ),
+                ),
+            ]
+        )
+    if model_family == "extra_trees_regressor":
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                (
+                    "model",
+                    ExtraTreesRegressor(
+                        n_estimators=200, random_state=seed, n_jobs=1, **parameters
+                    ),
+                ),
+            ]
+        )
     raise ExperimentError(f"unsupported estimator {model_family!r}")
 
 
@@ -510,19 +567,25 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = HistGradientBoostingClassifier().get_params(deep=False)
     elif model_family == "xgboost":
         allowed = xgb.XGBClassifier().get_params(deep=False)
+    elif model_family == "random_forest":
+        allowed = RandomForestClassifier().get_params(deep=False)
+    elif model_family == "extra_trees":
+        allowed = ExtraTreesClassifier().get_params(deep=False)
     elif model_family == "ridge":
         allowed = Ridge().get_params(deep=False)
     elif model_family == "hist_gradient_boosting_regressor":
         allowed = HistGradientBoostingRegressor().get_params(deep=False)
     elif model_family == "xgboost_regressor":
         allowed = xgb.XGBRegressor().get_params(deep=False)
+    elif model_family == "random_forest_regressor":
+        allowed = RandomForestRegressor().get_params(deep=False)
+    elif model_family == "extra_trees_regressor":
+        allowed = ExtraTreesRegressor().get_params(deep=False)
     else:
         raise ExperimentError(f"unsupported estimator {model_family!r}")
     unknown = sorted(set(parameters) - set(allowed))
     if unknown:
-        raise ExperimentError(
-            f"{model_family} has unsupported parameter(s): {', '.join(unknown)}"
-        )
+        raise ExperimentError(f"{model_family} has unsupported parameter(s): {', '.join(unknown)}")
 
 
 def _snapshot_metadata(conn: psycopg.Connection, snapshot_id: str) -> tuple[str, str, str]:
@@ -703,9 +766,7 @@ def _residual_calibration(y: np.ndarray, predictions: np.ndarray) -> dict[str, A
     bins = []
     for index in range(10):
         low, high = float(quantiles[index]), float(quantiles[index + 1])
-        mask = (predictions >= low) & (
-            (predictions < high) if index < 9 else (predictions <= high)
-        )
+        mask = (predictions >= low) & ((predictions < high) if index < 9 else (predictions <= high))
         if mask.any():
             bins.append(
                 {
@@ -830,7 +891,7 @@ def _aggregate_metrics(fold_results: dict[str, dict[str, Any]]) -> dict[str, flo
 
 
 def _aggregate_regression_metrics(
-    fold_results: dict[str, dict[str, Any]]
+    fold_results: dict[str, dict[str, Any]],
 ) -> dict[str, float | int]:
     rows = sum(int(metrics["rows"]) for metrics in fold_results.values())
     if rows == 0:
@@ -848,9 +909,7 @@ def _aggregate_regression_metrics(
     }
 
 
-def _finalize_failed_run(
-    conn: psycopg.Connection, sql: str, params: tuple[Any, ...]
-) -> None:
+def _finalize_failed_run(conn: psycopg.Connection, sql: str, params: tuple[Any, ...]) -> None:
     """Roll back aborted work, record the failed run status, and commit.
 
     The explicit commit ensures the failure record persists in Postgres even when
@@ -869,9 +928,7 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
         raise ExperimentError(f"unsupported target {config.target!r}")
     spec = TARGET_REGISTRY[config.target]
     if config.model_family not in spec.valid_model_families:
-        raise ExperimentError(
-            f"model_family must be one of {', '.join(spec.valid_model_families)}"
-        )
+        raise ExperimentError(f"model_family must be one of {', '.join(spec.valid_model_families)}")
     if config.feature_set_version != FEATURE_SET_VERSION:
         raise ExperimentError(
             f"only feature set {FEATURE_SET_VERSION!r} is approved for this experiment lab"

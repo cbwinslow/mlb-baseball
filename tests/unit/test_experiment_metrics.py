@@ -77,6 +77,8 @@ def test_target_registry_specifications():
         "ridge",
         "hist_gradient_boosting_regressor",
         "xgboost_regressor",
+        "random_forest_regressor",
+        "extra_trees_regressor",
     )
 
     sample_row = experiment.SnapshotRow(
@@ -151,6 +153,22 @@ def test_validate_parameters_for_all_model_families():
     with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
         experiment._validate_parameters("xgboost_regressor", {"bad_param": 1})
 
+    experiment._validate_parameters("random_forest", {"max_depth": 5})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("random_forest", {"bad_param": 1})
+
+    experiment._validate_parameters("extra_trees", {"max_depth": 5})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("extra_trees", {"bad_param": 1})
+
+    experiment._validate_parameters("random_forest_regressor", {"max_depth": 5})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("random_forest_regressor", {"bad_param": 1})
+
+    experiment._validate_parameters("extra_trees_regressor", {"max_depth": 5})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("extra_trees_regressor", {"bad_param": 1})
+
 
 def test_common_rows_filters_per_target_spec():
     base_values: dict[str, float | None] = {
@@ -166,20 +184,50 @@ def test_common_rows_filters_per_target_spec():
         "away_losses": 5.0,
     }
     row_full = experiment.SnapshotRow(
-        "k1", "pk1", datetime(2024, 4, 1, 12, 0, tzinfo=UTC),
-        2024, date(2024, 4, 1), 1, 1, 2, 5, 3, base_values, True,
+        "k1",
+        "pk1",
+        datetime(2024, 4, 1, 12, 0, tzinfo=UTC),
+        2024,
+        date(2024, 4, 1),
+        1,
+        1,
+        2,
+        5,
+        3,
+        base_values,
+        True,
     )
     # Missing rate inputs for home_win
     values_no_rates = dict(base_values, home_win_pct=None, away_win_pct=None)
     row_no_rates = experiment.SnapshotRow(
-        "k2", "pk2", datetime(2024, 4, 1, 12, 0, tzinfo=UTC),
-        2024, date(2024, 4, 1), 1, 1, 2, 5, 3, values_no_rates, True,
+        "k2",
+        "pk2",
+        datetime(2024, 4, 1, 12, 0, tzinfo=UTC),
+        2024,
+        date(2024, 4, 1),
+        1,
+        1,
+        2,
+        5,
+        3,
+        values_no_rates,
+        True,
     )
     # Missing runs for run_differential
     values_no_runs = dict(base_values, home_runs_for=None)
     row_no_runs = experiment.SnapshotRow(
-        "k3", "pk3", datetime(2024, 4, 1, 12, 0, tzinfo=UTC),
-        2024, date(2024, 4, 1), 1, 1, 2, 5, 3, values_no_runs, True,
+        "k3",
+        "pk3",
+        datetime(2024, 4, 1, 12, 0, tzinfo=UTC),
+        2024,
+        date(2024, 4, 1),
+        1,
+        1,
+        2,
+        5,
+        3,
+        values_no_runs,
+        True,
     )
 
     hw_spec = experiment.TARGET_REGISTRY["home_win"]

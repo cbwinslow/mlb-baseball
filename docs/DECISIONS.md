@@ -2,6 +2,22 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-070: Random forest / extra trees model families; fixed a real log5 0/0 bug found verifying them
+
+**Decision:** Added `random_forest`/`extra_trees` (classifier, `home_win`) and `random_forest_regressor`/`extra_trees_regressor` (regressor, `run_differential`) to `mlb_baseball/model/experiment.py` — `TARGET_REGISTRY`, `SUPPORTED_MODELS`, `_make_estimator`, `_validate_parameters`. Each is a `SimpleImputer(strategy="median", add_indicator=True)` + `RandomForestClassifier`/`ExtraTreesClassifier`/`RandomForestRegressor`/`ExtraTreesRegressor` pipeline (`n_estimators=200`, `n_jobs=1`), matching `hist_gradient_boosting`'s existing shape exactly. `_probabilities`/`_predictions` needed no changes — both already dispatch generically to `_make_estimator` + `predict_proba`/`predict` for anything past the three hardcoded baselines.
+
+**Context:** The next explicitly-named, entirely unimplemented model family from Plan 04C's list (`plans/04-modeling-simulation-and-experiments.md`) — regularized regression, gradient boosting were already built; SVMs, Bayesian/hierarchical, GAM, and neural/sequence models remain open. Followed `docs/EXPERIMENT_RUNBOOK.md`'s own documented "Add a model or target" procedure exactly.
+
+**Verified against real production-shaped data, not just the small `mlb_test` fixture:** loaded a 640-game real sample (100 games/season, 2015-2024, via `mlb_baseball.rehearsal.load_sample`'s existing read-only-on-source path) into `mlb_test`, ran the full model comparison across all `home_win`/`run_differential` families. `random_forest`/`extra_trees` produced plausible log-loss (0.67-0.83) in the same range as the other real model families — worse than the transparent `home_rate`/`elo` baselines, the expected non-suspicious result on this little data (`docs/RESEARCH.md`'s own doctrine: beating simple baselines on a small sample is a leakage red flag, not a win). Re-running the identical config correctly returned `(reused)` with byte-identical metrics.
+
+**Found and fixed a real, pre-existing bug along the way:** `log5.probability()` divides 0/0 whenever both teams' win percentages are equal at exactly 0 or exactly 1 — confirmed via two distinct real cases in the production sample above (two genuine still-winless 2018/2020 teams, 0-2 and 0-1; three genuine still-undefeated 2019/2020/2023 team pairs, up to 4-0). The function's old docstring claimed this "can't happen for a team with at least one prior game" — false; a winless-or-undefeated record is a real, common early-season state. Fixed by returning `0.5` for both cases, verified as the same limiting value the formula already returns for two *equal* teams at every other winning percentage (`probability(x, x) == 0.5` for every `x` strictly between 0 and 1), not an arbitrary guess. Two new regression tests in `tests/unit/test_log5_formula.py` reproduce both cases directly.
+
+**Consequence:** This bug pre-dates this session's work and affects `log5.predict()`'s real production predictions and `gbm.py`'s use of the same function, not just the experiment lab — not scoped further here. Worth an owner-authorized production check of `gold.prediction` for any historical `log5-v2` row keyed to a genuinely winless-or-undefeated matchup.
+
+**Not wired into any production path** — matches every sibling model family's dormant-until-a-separate-promotion-decision posture (Plan 01F). No champion/challenger comparison or promotion decision was made.
+
+**Revisit if:** a future 04C package builds SVMs/Bayesian/GAM/neural families — this ADR's `_make_estimator`/`_validate_parameters` branch-per-family pattern is the one to follow, not a new shape.
+
 ## ADR-069: Starter rest and workload live and probable paths (pitcher_workload_v1_live)
 
 **Decision:**

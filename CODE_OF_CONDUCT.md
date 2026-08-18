@@ -9,5 +9,5 @@ Harassment, personal attacks, discrimination, threats, doxxing, or deliberately
 disruptive behavior are not welcome. The maintainer may remove content or limit
 participation when needed to protect the community and project.
 
-Report conduct concerns privately through the maintainer's GitHub profile. Do
+Report conduct concerns privately through [@cbwinslow's GitHub profile](https://github.com/cbwinslow). Do
 not include private information in public reports.

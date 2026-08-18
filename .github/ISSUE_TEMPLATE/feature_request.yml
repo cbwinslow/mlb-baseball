@@ -20,6 +20,6 @@ body:
     id: safety
     attributes:
       label: Data rights and point-in-time considerations
-      description: Identify sources, reuse rights, and leakage risks, or say why they do not apply.
+      description: Identify sources, reuse rights, cost, access method, and leakage risks. New sources must be recorded in docs/DATA_SOURCES.md with a license note.
     validations:
       required: true

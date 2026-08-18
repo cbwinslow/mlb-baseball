@@ -1,5 +1,5 @@
 WITH regular_games AS (
-    SELECT g.id AS game_id, g.season, g.game_date, g.retro_game_id,
+    SELECT g.id AS game_id, g.season, g.game_date, g.game_number, g.retro_game_id,
         g.home_team_id, g.away_team_id
     FROM core.game g
     WHERE g.game_type = 'regular'
@@ -49,28 +49,35 @@ relief_only AS (
 -- zero relief innings IN today's game says nothing about whether their
 -- bullpen was worked hard in the days/games before it.
 team_game AS (
-    SELECT game_id, season, game_date, home_team_id AS team_id FROM regular_games
+    SELECT game_id, season, game_date, game_number, home_team_id AS team_id FROM regular_games
     UNION ALL
-    SELECT game_id, season, game_date, away_team_id AS team_id FROM regular_games
+    SELECT game_id, season, game_date, game_number, away_team_id AS team_id FROM regular_games
 ),
 team_relief_game AS (
-    SELECT tg.game_id, tg.season, tg.game_date, tg.team_id,
+    SELECT tg.game_id, tg.season, tg.game_date, tg.game_number, tg.team_id,
         COALESCE(sum(ro.k), 0) AS k, COALESCE(sum(ro.bb), 0) AS bb,
         COALESCE(sum(ro.hbp), 0) AS hbp, COALESCE(sum(ro.hr), 0) AS hr,
         COALESCE(sum(ro.bf), 0) AS bf, COALESCE(sum(ro.outs), 0) AS outs
     FROM team_game tg
     LEFT JOIN relief_only ro ON ro.game_id = tg.game_id AND ro.team_id = tg.team_id
-    GROUP BY tg.game_id, tg.season, tg.game_date, tg.team_id
+    GROUP BY tg.game_id, tg.season, tg.game_date, tg.game_number, tg.team_id
 ),
 -- Quality: season-to-date rolling rates, same no-leakage shape as
--- starter.py (excludes the current game itself).
+-- starter.py (excludes the current game itself). Orders by `game_date,
+-- game_number NULLS LAST, game_id`, not `game_date, game_id` alone --
+-- found by direct audit alongside issue #9 item 6, the same
+-- doubleheader-ordering bug team_rate_retrosheet_update.sql had before
+-- db97d96 (see that file's header comment): game_id is an insertion-order
+-- serial, not the declared game_number, so a doubleheader loaded "second
+-- game first" would leak the later game's stats into the earlier game's
+-- "entering" value and vice versa.
 rolling_quality AS (
     SELECT game_id, team_id,
         SUM(k) OVER w AS k_sum, SUM(bb) OVER w AS bb_sum, SUM(hbp) OVER w AS hbp_sum,
         SUM(hr) OVER w AS hr_sum, SUM(bf) OVER w AS bf_sum, SUM(outs) OVER w AS outs_sum
     FROM team_relief_game
     WINDOW w AS (
-        PARTITION BY team_id, season ORDER BY game_date, game_id
+        PARTITION BY team_id, season ORDER BY game_date, game_number NULLS LAST, game_id
         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
     )
 ),

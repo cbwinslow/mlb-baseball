@@ -100,17 +100,43 @@ def health_check() -> list[Check]:
     bounded by 3 total bases of extra credit per at-bat) except runs-for/
     allowed averages, which use a generous [0,30] to tolerate real
     early-season small-sample swings (same posture as offense.py's
-    home_woba bound, which documents the identical tradeoff). The last two
-    checks prove the min-sample gate's own contract (ADR-062/ADR-063: a populated
+    home_woba bound, which documents the identical tradeoff). The gate
+    checks (home/away "min-sample gate holds" and "pa plausible range")
+    prove the min-sample gate's own contract (ADR-062/ADR-063: a populated
     OBP always had >= MIN_PA=10 prior PA) against real production data,
     not just the hand-built fixtures in tests/integration/
     test_model_team_rate.py -- this would catch the gate silently ceasing
-    to apply (e.g. a future refactor reintroducing a bare `> 0` guard)."""
+    to apply (e.g. a future refactor reintroducing a bare `> 0` guard).
+    Checked on both home and away sides (issue #9 item 3): the two go
+    through the same formula but two different join legs, so an away-only
+    join bug is a real, if unlikely, failure mode a home-only check can't
+    surface. Every home_* check below (obp/slg/iso/babip/bb_pct/k_pct/
+    runs_for_avg/runs_allowed_avg/min-sample gate/pa) has an away_*
+    twin using the identical bound."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(read_sql("team_rate_health_check.sql"), {"min_pa": MIN_PA})
-        bad_obp, bad_slg, bad_iso, bad_babip, bad_bb, bad_k, bad_rf, bad_ra, bad_gate, bad_pa = (
-            fetch_one(cur)
-        )
+        (
+            bad_obp,
+            bad_slg,
+            bad_iso,
+            bad_babip,
+            bad_bb,
+            bad_k,
+            bad_rf,
+            bad_ra,
+            bad_gate,
+            bad_pa,
+            bad_away_obp,
+            bad_away_slg,
+            bad_away_iso,
+            bad_away_babip,
+            bad_away_bb,
+            bad_away_k,
+            bad_away_rf,
+            bad_away_ra,
+            bad_away_gate,
+            bad_away_pa,
+        ) = fetch_one(cur)
 
     def _check(name: str, bad: int, bounds: str) -> Check:
         if bad:
@@ -128,4 +154,14 @@ def health_check() -> list[Check]:
         _check("home_runs_allowed_avg plausible range", bad_ra, "0-30"),
         _check("home_obp min-sample gate holds", bad_gate, "home_pa >= 10"),
         _check("home_pa plausible range", bad_pa, "0+"),
+        _check("away_obp plausible range", bad_away_obp, "0-1"),
+        _check("away_slg plausible range", bad_away_slg, "0-4"),
+        _check("away_iso plausible range", bad_away_iso, "0-3"),
+        _check("away_babip plausible range", bad_away_babip, "0-1"),
+        _check("away_bb_pct plausible range", bad_away_bb, "0-1"),
+        _check("away_k_pct plausible range", bad_away_k, "0-1"),
+        _check("away_runs_for_avg plausible range", bad_away_rf, "0-30"),
+        _check("away_runs_allowed_avg plausible range", bad_away_ra, "0-30"),
+        _check("away_obp min-sample gate holds", bad_away_gate, "away_pa >= 10"),
+        _check("away_pa plausible range", bad_away_pa, "0+"),
     ]

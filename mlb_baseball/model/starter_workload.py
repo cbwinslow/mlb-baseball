@@ -84,11 +84,17 @@ def health_check() -> list[Check]:
     """Internal consistency and coverage check: rest days and workload outs
     have no external published season aggregate to reconcile against (unlike
     starter.py's rate stats vs raw.bref_pitching). Instead, this verifies:
-    1. Bounds sanity: zero negative rest days or negative workload outs.
-    2. Coverage: for completed regular-season games beyond the season's opening
-       month (May onwards) where a starting pitcher was resolved, the vast
-       majority (>90%) have a populated rest_days value (only mid-season debuts
-       or newly acquired pitchers with no prior tracked starts lack a prior start).
+    1. Bounds sanity: zero negative rest days or negative workload outs
+       (already checked on both home and away sides).
+    2. Coverage, checked on both home and away sides (issue #9 item 3: the
+       two resolve through the same logic but two different join legs, so
+       an away-only join bug is a real, if unlikely, failure mode a
+       home-only check can't surface): for completed regular-season games
+       beyond the season's opening month (May onwards) where a starting
+       pitcher was resolved, the vast majority (>=90%, see _coverage_check's
+       own `coverage < 0.90` threshold) have a populated rest_days value
+       (only mid-season debuts or newly acquired pitchers with no prior
+       tracked starts lack a prior start).
     """
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT to_regclass('gold.game_feature')")
@@ -102,7 +108,14 @@ def health_check() -> list[Check]:
                 )
             ]
         cur.execute(read_sql("starter_workload_health_check.sql"))
-        neg_rest, neg_outs, unpop_may_rest, total_may_starts = fetch_one(cur)
+        (
+            neg_rest,
+            neg_outs,
+            unpop_may_rest,
+            total_may_starts,
+            unpop_may_away_rest,
+            total_may_away_starts,
+        ) = fetch_one(cur)
 
     checks = []
     if neg_rest > 0:
@@ -129,31 +142,22 @@ def health_check() -> list[Check]:
             Check("starter workload: non-negative workload outs", True, "all workload outs >= 0")
         )
 
-    if total_may_starts > 0:
-        coverage = 1.0 - (unpop_may_rest / total_may_starts)
-        if coverage < 0.90:
-            checks.append(
-                Check(
-                    "starter workload: May+ rest days coverage for resolved starters",
-                    False,
-                    f"{coverage:.1%} coverage ({unpop_may_rest}/{total_may_starts} missing)",
-                )
-            )
-            pop = total_may_starts - unpop_may_rest
-            checks.append(
-                Check(
-                    "starter workload: May+ rest days coverage for resolved starters",
-                    True,
-                    f"{coverage:.1%} coverage ({pop}/{total_may_starts} populated)",
-                )
-            )
-    else:
-        checks.append(
-            Check(
-                "starter workload: May+ rest days coverage for resolved starters",
-                True,
-                "no completed May+ starts to evaluate",
-            )
-        )
+    checks.append(_coverage_check("home", unpop_may_rest, total_may_starts))
+    checks.append(_coverage_check("away", unpop_may_away_rest, total_may_away_starts))
 
     return checks
+
+
+def _coverage_check(side: str, unpopulated: int, total: int) -> Check:
+    name = f"starter workload: May+ rest days coverage for resolved {side} starters"
+    if total <= 0:
+        return Check(name, True, "no completed May+ starts to evaluate")
+    coverage = 1.0 - (unpopulated / total)
+    populated = total - unpopulated
+    if coverage < 0.90:
+        return Check(
+            name,
+            False,
+            f"{coverage:.1%} coverage ({populated}/{total} populated, {unpopulated} missing)",
+        )
+    return Check(name, True, f"{coverage:.1%} coverage ({populated}/{total} populated)")

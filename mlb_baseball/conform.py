@@ -72,6 +72,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 import psycopg
+from psycopg import sql
 
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
@@ -1130,7 +1131,7 @@ def _drop_bulk_indexes(conn: psycopg.Connection) -> list[str]:
         rows = cur.fetchall()
         definitions = [indexdef for _, indexdef in rows]
         for indexname, _ in rows:
-            cur.execute(f"DROP INDEX core.{indexname}")
+            cur.execute(sql.SQL("DROP INDEX core.{}").format(sql.Identifier(indexname)))
     return definitions
 
 

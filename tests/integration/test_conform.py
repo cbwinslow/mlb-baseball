@@ -2888,39 +2888,39 @@ def test_multi_source_conformance_rehearsal_ties_out_across_grains(db_conn):
     )
 
 
+def _core_play_pitch_index_names(cur) -> tuple[set[str], set[str]]:
+    cur.execute("SELECT indexname FROM pg_indexes WHERE schemaname = 'core' AND tablename = 'play'")
+    play_indexes = {row[0] for row in cur.fetchall()}
+    cur.execute(
+        "SELECT indexname FROM pg_indexes WHERE schemaname = 'core' AND tablename = 'pitch'"
+    )
+    pitch_indexes = {row[0] for row in cur.fetchall()}
+    return play_indexes, pitch_indexes
+
+
 def test_conform_rebuilds_play_and_pitch_indexes(db_conn):
-    """Assert that core.play and core.pitch non-unique and unique indexes exist after run()."""
+    """core.play/core.pitch's index set after a conform run must be identical to
+    before it -- proves _drop_bulk_indexes/_rebuild_bulk_indexes is a true no-op
+    from \\d core.play's perspective, not just that some hardcoded list exists.
+    Comparing to the *live* pre-run set (not a hardcoded expected list) means
+    this stays correct if a future migration adds or removes a real index,
+    matching CodeRabbit's "verify nothing is silently lost" concern without
+    Kilo's "brittle to legitimate future indexes" downside."""
     _reset_dynamic_tables(db_conn)
     _seed_raw_tables(db_conn)
+
+    with db_conn.cursor() as cur:
+        indexes_before = _core_play_pitch_index_names(cur)
+
     conform.run()
 
     with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT indexname FROM pg_indexes WHERE schemaname = 'core' AND tablename = 'play'"
-        )
-        play_indexes = {row[0] for row in cur.fetchall()}
+        indexes_after = _core_play_pitch_index_names(cur)
 
-        cur.execute(
-            "SELECT indexname FROM pg_indexes WHERE schemaname = 'core' AND tablename = 'pitch'"
-        )
-        pitch_indexes = {row[0] for row in cur.fetchall()}
-
-    expected_play_indexes = {
-        "play_pkey",
-        "play_game_id_source_play_index_key",
-        "play_batter_id_idx",
-        "play_game_id_idx",
-        "play_pitcher_id_idx",
-        "play_season_idx",
-    }
-    expected_pitch_indexes = {
-        "pitch_pkey",
-        "core_pitch_source_game_pk_idx",
-        "pitch_batter_id_idx",
-        "pitch_game_id_idx",
-        "pitch_pitcher_id_idx",
-        "pitch_season_idx",
-    }
-
-    assert play_indexes == expected_play_indexes
-    assert pitch_indexes == expected_pitch_indexes
+    assert indexes_after == indexes_before
+    # Also assert the known unique/pkey indexes specifically survived --
+    # a set-equality pass alone wouldn't distinguish "nothing changed" from
+    # "everything changed to a different, still-equal-sized set."
+    play_indexes_after, pitch_indexes_after = indexes_after
+    assert {"play_pkey", "play_game_id_source_play_index_key"}.issubset(play_indexes_after)
+    assert "pitch_pkey" in pitch_indexes_after

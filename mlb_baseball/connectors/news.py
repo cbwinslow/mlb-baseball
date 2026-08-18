@@ -49,11 +49,18 @@ import feedparser
 import psycopg
 
 from mlb_baseball.db import fetch_one, get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.net import get_with_retry
 
 SOURCE = "news"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 TABLE = "raw.news"
 
 # Identifies this project to the servers it polls, in place of the default
@@ -316,4 +323,9 @@ def _freshness_check() -> Check:
 
 
 def health_check() -> list[Check]:
-    return [check_table_has_rows(TABLE), check_last_run(SOURCE), _freshness_check()]
+    return [
+        check_table_has_rows(TABLE),
+        check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
+        _freshness_check(),
+    ]

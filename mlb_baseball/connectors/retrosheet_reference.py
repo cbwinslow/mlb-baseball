@@ -35,11 +35,18 @@ import psycopg
 
 from mlb_baseball import manifest
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
 
 SOURCE = "retrosheet_reference"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 TEAM_FIELDS = ["team_id", "league", "city", "nickname", "first_year", "last_year"]
 
 BIOFILE_MEMBERS = {
@@ -123,4 +130,5 @@ def health_check() -> list[Check]:
         check_table_has_rows("raw.retrosheet_park"),
         check_table_has_rows("raw.retrosheet_biofile"),
         check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

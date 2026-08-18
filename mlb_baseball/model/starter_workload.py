@@ -8,7 +8,7 @@ strictly point-in-time and without leakage.
 Reused patterns and design choices:
 1. Day-collapse RANGE frame (ADR-042): trailing workload is computed by
    collapsing outs to one row per (pitcher, calendar day) first, then applying
-   a window RANGE frame (RANGE BETWEEN (workload_days * INTERVAL '1 day') PRECEDING
+   a window RANGE frame (RANGE BETWEEN INTERVAL '7 days' PRECEDING
    AND INTERVAL '1 day' PRECEDING). As documented in ADR-042 for bullpen
    fatigue, collapsing to day grain first eliminates peer-row ambiguity on
    doubleheaders while keeping the computation linear (O(N)) across historical
@@ -17,7 +17,7 @@ Reused patterns and design choices:
    per play but does not include pitch-by-pitch counts in this project's ingested
    source. Outs provides a direct, verifiable workload proxy without ungrounded
    imputation, matching bullpen fatigue's own precedent.
-3. Single parameterized window: implements a single trailing window
+3. Fixed window: implements a single trailing window
    (WORKLOAD_WINDOW_DAYS = 7, mirroring bullpen fatigue's FATIGUE_WINDOW_DAYS = 3).
    7 days captures a starter's prior regular turn in a 5-day rotation plus any
    recent relief outings.
@@ -46,10 +46,7 @@ def compute(conn: psycopg.Connection) -> int:
         (exists,) = fetch_one(cur)
         if not exists:
             return 0
-        cur.execute(
-            read_sql("starter_workload_retrosheet_update.sql"),
-            {"workload_days": WORKLOAD_WINDOW_DAYS},
-        )
+        cur.execute(read_sql("starter_workload_retrosheet_update.sql"))
         return cur.rowcount
 
 
@@ -59,10 +56,7 @@ def compute_live(conn: psycopg.Connection) -> int:
         (exists,) = fetch_one(cur)
         if not exists:
             return 0
-        cur.execute(
-            read_sql("starter_workload_live_update.sql"),
-            {"workload_days": WORKLOAD_WINDOW_DAYS},
-        )
+        cur.execute(read_sql("starter_workload_live_update.sql"))
         return cur.rowcount
 
 

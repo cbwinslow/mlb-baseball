@@ -57,7 +57,7 @@ pitcher_day_workload AS (
         game_date,
         SUM(outs) OVER (
             PARTITION BY pitcher_id ORDER BY game_date
-            RANGE BETWEEN (%(workload_days)s * INTERVAL '1 day') PRECEDING
+            RANGE BETWEEN INTERVAL '7 days' PRECEDING
                 AND INTERVAL '1 day' PRECEDING
         ) AS workload_outs
     FROM pitcher_day_outs

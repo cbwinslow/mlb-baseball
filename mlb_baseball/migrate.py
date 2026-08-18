@@ -77,7 +77,17 @@ def _apply_nontransactional_migration(conn: psycopg.Connection, sql: str) -> Non
         conn.autocommit = old_autocommit
 
 
-def run() -> list[str]:
+def run(skip: set[str] | None = None) -> list[str]:
+    """Apply every pending migration in filename order.
+
+    ``skip`` defers specific versions to a later run -- for a rare, documented
+    forward dependency where an earlier migration's own precondition (e.g. no
+    duplicate keys) can only be satisfied by data work that a *later*
+    migration's schema change unblocks (see 0040/0045, ADR: production
+    game_pk dedup). Skipped versions are never marked applied; a later
+    unskipped run still requires and applies them in order.
+    """
+    skip = skip or set()
     migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
     applied = []
     with get_connection() as conn:
@@ -91,7 +101,7 @@ def run() -> list[str]:
             conn.commit()
             for path in migration_files:
                 version = path.name
-                if version in already_applied:
+                if version in already_applied or version in skip:
                     continue
                 sql = path.read_text()
                 if sql.startswith(_NONTRANSACTIONAL_MARKER):
@@ -122,8 +132,8 @@ def run() -> list[str]:
     return applied
 
 
-def main() -> None:
-    applied = run()
+def main(skip: set[str] | None = None) -> None:
+    applied = run(skip=skip)
     if not applied:
         print("No pending migrations.")
     else:

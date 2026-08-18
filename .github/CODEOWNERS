@@ -1,0 +1,12 @@
+# Maintainer review is expected for every pull request. These paths additionally
+# identify the owner of security-, architecture-, and data-critical changes.
+* @cbwinslow
+
+/AGENTS.md @cbwinslow
+/CLAUDE.md @cbwinslow
+/SECURITY.md @cbwinslow
+/migrations/ @cbwinslow
+/mlb_baseball/ @cbwinslow
+/plans/ @cbwinslow
+/docs/ @cbwinslow
+/.github/ @cbwinslow

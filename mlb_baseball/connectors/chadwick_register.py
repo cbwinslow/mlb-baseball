@@ -15,10 +15,17 @@ import psycopg
 import requests
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 
 SOURCE = "register"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 
 BASE_URL = "https://raw.githubusercontent.com/chadwickbureau/register/master/data"
 PEOPLE_SHARDS = "0123456789abcdef"
@@ -92,4 +99,8 @@ def update() -> dict[str, int]:
 
 
 def health_check() -> list[Check]:
-    return [check_table_has_rows("raw.register_people"), check_last_run(SOURCE)]
+    return [
+        check_table_has_rows("raw.register_people"),
+        check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
+    ]

@@ -20,11 +20,18 @@ import psycopg
 
 from mlb_baseball import manifest
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
 
 SOURCE = "retrosheet_schedule"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 TABLE = "raw.retrosheet_schedule"
 COLUMN_RENAMES = {
     "League": "visitor_league",
@@ -73,4 +80,8 @@ def update() -> dict[str, int]:
 
 
 def health_check() -> list[Check]:
-    return [check_table_has_rows(TABLE), check_last_run(SOURCE)]
+    return [
+        check_table_has_rows(TABLE),
+        check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
+    ]

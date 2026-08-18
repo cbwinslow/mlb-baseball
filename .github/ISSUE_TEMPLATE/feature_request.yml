@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose a focused, source-safe improvement.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or research question
+      description: Describe the user or research need first.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Data rights and point-in-time considerations
+      description: Identify sources, reuse rights, cost, access method, and leakage risks. New sources must be recorded in docs/DATA_SOURCES.md with a license note.
+    validations:
+      required: true

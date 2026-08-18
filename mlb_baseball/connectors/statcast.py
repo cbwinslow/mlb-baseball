@@ -47,7 +47,8 @@ the current season (same season-scoped replace, so re-running is
 idempotent). Unlike mlb_api.py, this connector isn't on a repeating cron
 schedule (nothing here needs to be real-time — Statcast data for a game
 isn't available until well after the game, and doesn't change), so
-health_check() uses check_last_run, not check_recent_run.
+health_check() reports the outcome of the last run rather than treating a
+valid historical load as stale.
 
 Retry-with-backoff (net.call_with_retry) wraps every pybaseball.statcast()
 call — proactively, not after a demonstrated failure this time (contrast
@@ -74,7 +75,11 @@ import psycopg
 import pybaseball
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    Check,
+    check_last_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe, season_already_loaded
 from mlb_baseball.net import call_with_retry

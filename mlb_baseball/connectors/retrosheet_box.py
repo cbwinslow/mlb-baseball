@@ -54,11 +54,18 @@ import psycopg
 
 from mlb_baseball import archive, chadwick_tools, manifest
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
 
 SOURCE = "retrosheet_box"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 EVENTS_BASE_URL = "https://www.retrosheet.org/events"
 PARSER_VERSION = "retrosheet-box-cwbox-v1"
 
@@ -298,4 +305,5 @@ def health_check() -> list[Check]:
         tool_check,
         *[check_table_has_rows(t) for t in ALL_TABLES],
         check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

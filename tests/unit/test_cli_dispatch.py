@@ -102,14 +102,21 @@ def test_ingest_mode_backfill_on_a_connector_without_it_exits_cleanly(monkeypatc
 
 
 def test_migrate_command_calls_migrate_main(monkeypatch):
-    called = {"count": 0}
-    monkeypatch.setattr(
-        cli.migrate, "main", lambda: called.__setitem__("count", called["count"] + 1)
-    )
+    calls = []
+    monkeypatch.setattr(cli.migrate, "main", lambda skip=None: calls.append(skip))
 
     cli.main(["migrate"])
 
-    assert called["count"] == 1
+    assert calls == [set()]
+
+
+def test_migrate_command_parses_repeated_skip_arguments(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli.migrate, "main", lambda skip=None: calls.append(skip))
+
+    cli.main(["migrate", "--skip", "0040_core_game_pk_unique.sql", "--skip", "0045_x.sql"])
+
+    assert calls == [{"0040_core_game_pk_unique.sql", "0045_x.sql"}]
 
 
 def test_preflight_reports_plan_without_running_connectors(monkeypatch, capsys):

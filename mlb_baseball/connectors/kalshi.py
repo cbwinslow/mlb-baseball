@@ -74,12 +74,20 @@ import psycopg
 import requests
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_exists, check_table_has_rows
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+    check_table_exists,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import append_dataframe, load_dataframe
 from mlb_baseball.net import call_with_retry
 
 SOURCE = "kalshi"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 # /markets accepts up to 1000 (confirmed directly); /events rejects anything
 # above ~200-300 with a plain 400 (confirmed directly: 200 works, 300+
@@ -421,4 +429,5 @@ def health_check() -> list[Check]:
         check_table_exists(SNAPSHOT_TABLE),
         check_table_exists(CANDLE_TABLE),
         check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

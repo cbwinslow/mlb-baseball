@@ -59,8 +59,8 @@ SIMPLE_LEADERBOARDS pattern as the tracking-only leaderboards above:
 bootstrap() loads full history one season at a time per leaderboard;
 update() reloads just the current season. Not on a repeating cron schedule
 (same reasoning as statcast.py — this data isn't real-time and doesn't
-change once a season's data is published), so health_check() uses
-check_last_run, not check_recent_run.
+change once a season's data is published), so health_check() reports the
+outcome of the last run rather than treating a valid historical load as stale.
 """
 
 import io
@@ -72,7 +72,11 @@ import pybaseball
 import requests
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    Check,
+    check_last_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe, season_already_loaded
 from mlb_baseball.net import call_with_retry

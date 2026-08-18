@@ -2205,6 +2205,75 @@ def test_backfill_game_pk_leaves_same_matchup_candidates_unresolved(db_conn):
         assert cur.fetchall() == [(None,), (None,)]
 
 
+def test_exact_score_fallback_does_not_steal_an_already_claimed_game_pk(db_conn):
+    """A doubleheader partner with an identical score must not get the same key.
+
+    Real production bug (1941-09-14, Homestead Grays @ Newark Eagles): MLB's
+    schedule only published a gamePk for game 2 of this doubleheader,
+    correctly matched by the game-number-aware pass. Both games ended 6-4,
+    so the score-only fallback -- which only checked that *its own*
+    candidate set was unambiguous, not whether the schedule key was already
+    claimed by game 2's row -- then handed game 1 that same already-used
+    gamePk, producing a duplicate populated core.game.game_pk.
+    """
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team "
+            "(team_id text, league text, city text, nickname text, "
+            "first_year text, last_year text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('HOM', 'NN', 'Homestead', 'Grays', '1935', '1948'), "
+            "('NWK', 'NN', 'Newark', 'Eagles', '1936', '1948')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, _season text, date text, number text, "
+            "visteam text, hometeam text, vruns text, hruns text, "
+            "gametype text, site text, attendance text, timeofgame text, "
+            "daynight text, wp text, lp text, save text, temp text, winddir text, "
+            "windspeed text, sky text, precip text, fieldcond text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('NWK194109141', '1941', '19410914', '1', 'HOM', 'NWK', "
+            "'6', '4', 'regular', 'NWK01', '', '', '', '', '', '', '', '', '', '', '', ''), "
+            "('NWK194109142', '1941', '19410914', '2', 'HOM', 'NWK', "
+            "'6', '4', 'regular', 'NWK01', '', '', '', '', '', '', '', '', '', '', '', '')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "away_id text, home_id text, _season text, status text, game_type text, "
+            "game_num text, venue_name text, venue_id text, "
+            "away_score text, home_score text)"
+        )
+        # Only game 2 has a published gamePk -- game 1's is genuinely
+        # missing from MLB's schedule, not just unresolved by this pipeline.
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('802526', '1941-09-14', 'Homestead Grays', 'Newark Eagles', '9001', '9002', "
+            "'1941', 'Final', 'R', '2', '', '', '6', '4')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, name_last, name_first) "
+            "VALUES ('smitj001', '123456', 'smitj01', '1001', 'uuid-1', 'Smith', 'John')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_game_id, game_pk FROM core.game "
+            "WHERE retro_game_id IN ('NWK194109141', 'NWK194109142') "
+            "ORDER BY retro_game_id"
+        )
+        assert cur.fetchall() == [("NWK194109141", None), ("NWK194109142", "802526")]
+
+
 def test_backfill_game_pk_leaves_ambiguous_final_id_null(db_conn):
     # Real bug found via mlb doctor's check_no_duplicate_key in production:
     # game_pk 123347 was shared by two genuinely distinct, real 1944 PIT
@@ -2465,6 +2534,54 @@ def test_health_check_lahman_team_count_matches_and_flags_mismatch(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.lahman_teams")
     db_conn.commit()
+
+
+def test_health_check_lahman_team_count_excludes_negro_league_teams(db_conn):
+    # Proves Negro League teams with game_type='regular' games in core.game
+    # are excluded from core_teams count by matching against Lahman's AL/NL scope.
+    # Without this filter, core_teams would count both AL/NL and Negro League teams,
+    # causing a false-positive mismatch against lahman_teams.
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('NYA', 'AL', 'New York', 'Yankees', '1903', '2025'), "
+            "('CAG', 'NNL', 'Chicago', 'American Giants', '1920', '1950'), "
+            "('HOM', 'NNL', 'Homestead', 'Grays', '1920', '1950')"
+        )
+
+        # 1 AL/NL game (NYA at ATL) and 1 Negro League game (CAG at HOM) for 1921
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo VALUES "
+            "('ATL192104010', '1921', '19210401', '0', 'NYA', 'ATL', '3', '5', 'regular', "
+            "'ATL01', '10000', '120', 'D', '', '', '', '', '', '', '', '', ''), "
+            "('HOM192104020', '1921', '19210402', '0', 'CAG', 'HOM', '4', '2', 'regular', "
+            "'HOM01', '5000', '110', 'D', '', '', '', '', '', '', '', '', '')"
+        )
+
+        cur.execute(
+            "CREATE TABLE raw.lahman_teams "
+            "(teamidretro text, yearid text, w text, l text, g text, lgid text)"
+        )
+        # Lahman has ATL (NL) and NYA (AL) for 1921, plus Negro League teams (NNL)
+        cur.execute(
+            "INSERT INTO raw.lahman_teams VALUES "
+            "('ATL', '1921', '80', '70', '150', 'NL'), "
+            "('NYA', '1921', '90', '60', '150', 'AL'), "
+            "('CAG', '1921', '50', '30', '80', 'NNL'), "
+            "('HOM', '1921', '40', '40', '80', 'NNL')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    check = next(c for c in conform.health_check() if c.name == "core.game team count vs Lahman")
+    assert check.ok, check.detail
+
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.lahman_teams")
+    db_conn.commit()
+
 
 
 def test_database_rejects_a_doubleheader_game_pk_collision(db_conn):

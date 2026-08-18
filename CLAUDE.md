@@ -73,12 +73,23 @@ A task is not complete until:
 
 ## GitHub workflow
 
-Use GitHub for what it's actually good at, not for its own sake — this is a solo project, so the goal is a clear, durable record and correct process, not team-review ceremony.
+Use GitHub for a clear, durable record and safe collaboration. The public
+repository accepts fork-based contributions from any GitHub account; no outside
+contributor receives direct-write access.
 
-- **Commits**: direct to `main`, proactively and often — commit after each meaningful, working change rather than batching unrelated work into one commit or waiting to be asked. Push after committing. Every message explains *why*, not just what changed, in enough detail that the reasoning is still clear without the surrounding conversation; see this repo's own history for the pattern. Don't commit half-finished or broken states — "often" means small coherent steps, not partial work.
-- **Pull requests**: not the default — direct-to-main is normal here. Open one when a change genuinely benefits from being isolated for review before merging (a large or risky architectural change), or when explicitly asked for one.
+- **Commits and pull requests**: work on a focused branch and open a pull
+  request into `main`. Direct pushes to `main` are prohibited by its GitHub
+  protection rule, including for administrators. Every commit message explains
+  *why*, and a PR must be coherent, passing, and ready to review rather than a
+  half-finished checkpoint.
+- **Merges**: the maintainer merges only a current, passing PR after resolving
+  its conversations. The required `test` check is the baseline gate. A second
+  trusted maintainer should raise the required approval count from zero to one.
 - **Issues**: open one for (a) a known, real gap or limitation documented in an ADR (see `docs/DECISIONS.md`) — e.g. a "Revisit if" clause worth tracking as concrete follow-up work, not left as prose only; (b) a real bug found but not fixed in the same change, so it isn't lost; (c) a roadmap/future-work item worth tracking outside `docs/ROADMAP.md`'s prose. Don't open issues for minor style nits, vague hunches, or anything trivial enough to just fix inline.
-- **Pre-authorized**: committing, pushing, and creating issues and pull requests on `cbwinslow/mlb-baseball` doesn't need a fresh ask each time — this section is that authorization, per the project owner's explicit instruction. Force-push, closing issues, merging PRs, deleting branches, or editing someone else's content still needs an explicit ask, same as always.
+- **Pre-authorized**: creating branches, committing, pushing a branch, and
+  opening issues or pull requests on `cbwinslow/mlb-baseball` does not need a
+  fresh ask. Force-pushing, closing issues, merging PRs, deleting branches, or
+  editing someone else's content still needs an explicit ask, same as always.
 
 ## Before declaring a task finished
 

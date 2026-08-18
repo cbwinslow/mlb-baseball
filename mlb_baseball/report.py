@@ -167,6 +167,17 @@ JOIN core.team t
     ON t.retro_team_id = (CASE WHEN lt.teamidretro = 'ATH' THEN 'OAK' ELSE lt.teamidretro END)
     AND lt.yearid::integer BETWEEN t.first_year AND t.last_year
 WHERE lt.teamidretro IS NOT NULL AND lt.teamidretro != ''
+  -- A handful of Negro League teams (e.g. Toledo Crawfords, 1939) appear
+  -- twice for the same (teamidretro, yearid) under two different league
+  -- affiliations (NAL/NN2) -- a genuine mid-season league-switch case, not
+  -- a data error. Combining the two rows' W/L/R/RA/HR/ERA would guess at
+  -- a merge this project has no source authority for, so this leaves both
+  -- ambiguous rows out entirely -- same "leave it out, don't guess"
+  -- precedent as core.game.game_pk's own backfill.
+  AND (
+      SELECT count(*) FROM raw.lahman_teams dup
+      WHERE dup.teamidretro = lt.teamidretro AND dup.yearid = lt.yearid
+  ) = 1
 """
 
 

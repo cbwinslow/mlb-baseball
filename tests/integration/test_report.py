@@ -252,6 +252,38 @@ def test_build_team_season_base_parses_decimal_text_run_counts(db_conn):
     _reset(db_conn)
 
 
+def test_build_team_season_base_leaves_ambiguous_dual_league_seasons_unresolved(db_conn):
+    # Real production bug: raw.lahman_teams has genuine Negro League cases
+    # of the same teamidretro/yearid pair appearing twice under two
+    # different league affiliations in one season (Toledo Crawfords, 1939:
+    # NAL and NN2) -- a real mid-season league switch, not a data error.
+    # Confirmed this crashed mlb report outright (duplicate key on
+    # team_season_team_id_season_key) before this test existed. There's no
+    # source authority for merging the two rows, so both must be left out
+    # entirely rather than guessed at.
+    _reset(db_conn)
+    _ensure_dynamic_tables(db_conn)
+    with db_conn.cursor() as cur:
+        _insert_teams(cur, [("TLC", "Toledo", "Crawfords", 1939, 1939, None)])
+        cur.execute(
+            "INSERT INTO raw.lahman_teams (teamidretro, yearid, lgid, w, l, r, ra, hr, era) "
+            "VALUES "
+            "('TLC', '1939', 'NAL', '8', '10', '120', '140', '20', '4.50'), "
+            "('TLC', '1939', 'NN2', '4', '6', '60', '70', '10', '4.20')"
+        )
+    db_conn.commit()
+
+    updated = report._build_team_season_base(db_conn)
+    db_conn.commit()
+
+    assert updated == 0
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM gold.team_season")
+        assert cur.fetchone() == (0,)
+
+    _reset(db_conn)
+
+
 def test_build_player_season_excludes_rows_with_no_resolvable_player(db_conn):
     # A real, documented gap (~0.5% of production rows, see ADR-057) --
     # confirmed excluded, not silently turned into a NULL-player_id row

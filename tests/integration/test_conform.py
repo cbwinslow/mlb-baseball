@@ -278,9 +278,7 @@ def test_conform_uses_official_supplemental_retrosheet_team_identities(db_conn):
             "('ATH', 'Sacramento', 'Athletics', '20250327', '20250928'), "
             "('CAG', 'Chicago', 'American Giants', '19130503', '19490612')"
         )
-        cur.execute(
-            "CREATE TABLE raw.mlb_team_history (team_code text, team_id text, season text)"
-        )
+        cur.execute("CREATE TABLE raw.mlb_team_history (team_code text, team_id text, season text)")
         cur.execute("INSERT INTO raw.mlb_team_history VALUES ('ath', '133', '2024')")
     db_conn.commit()
 
@@ -292,8 +290,8 @@ def test_conform_uses_official_supplemental_retrosheet_team_identities(db_conn):
             "FROM core.team WHERE retro_team_id IN ('ATH', 'CAG') ORDER BY retro_team_id"
         )
         assert cur.fetchall() == [
-            ('ATH', 'Sacramento', 'Athletics', 2025, 2025, 133),
-            ('CAG', 'Chicago', 'American Giants', 1913, 1949, None),
+            ("ATH", "Sacramento", "Athletics", 2025, 2025, 133),
+            ("CAG", "Chicago", "American Giants", 1913, 1949, None),
         ]
         cur.execute("SELECT home_team_id FROM core.game WHERE retro_game_id = 'ATH202504010'")
         assert cur.fetchone()[0] is not None
@@ -353,7 +351,7 @@ def test_conform_adds_only_completed_spring_games_and_links_statcast_pitches(db_
             "FROM core.game WHERE game_pk = '910001'"
         )
         game = cur.fetchone()
-        assert game[:4] == (None, 'spring', 4, 3)
+        assert game[:4] == (None, "spring", 4, 3)
         assert game[4] is not None and game[5] is not None
         cur.execute("SELECT count(*) FROM core.game WHERE game_pk IN ('910002', '910003')")
         assert cur.fetchone() == (0,)
@@ -362,7 +360,7 @@ def test_conform_adds_only_completed_spring_games_and_links_statcast_pitches(db_
         )
         pitch_game_id, source_key = cur.fetchone()
         assert pitch_game_id is not None
-        assert source_key == '910001'
+        assert source_key == "910001"
 
 
 def test_rerunning_replaces_instead_of_duplicating(db_conn):
@@ -1441,10 +1439,7 @@ def test_team_history_resolves_modern_retro_name_drift(db_conn):
             "('510002', '2026-04-01', 'Athletics', 'Tampa Bay Rays', "
             "'2026', 'Final', 'R', '0', '', '', '2', '1', '133', '139')"
         )
-        cur.execute(
-            "CREATE TABLE raw.mlb_team_history "
-            "(team_id text, season text, team_code text)"
-        )
+        cur.execute("CREATE TABLE raw.mlb_team_history (team_id text, season text, team_code text)")
         cur.execute(
             "INSERT INTO raw.mlb_team_history VALUES "
             "('108', '2005', 'ana'), ('133', '2024', 'oak'), ('139', '2025', 'tba')"
@@ -1455,12 +1450,12 @@ def test_team_history_resolves_modern_retro_name_drift(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("SELECT retro_team_id, mlb_team_id FROM core.team ORDER BY retro_team_id")
-        assert dict(cur.fetchall()) == {'ANA': 108, 'OAK': 133, 'TBA': 139}
+        assert dict(cur.fetchall()) == {"ANA": 108, "OAK": 133, "TBA": 139}
         cur.execute(
             "SELECT game_pk, away_team_id IS NOT NULL, home_team_id IS NOT NULL "
             "FROM core.game ORDER BY game_pk"
         )
-        assert cur.fetchall() == [('510001', True, True), ('510002', True, True)]
+        assert cur.fetchall() == [("510001", True, True), ("510002", True, True)]
 
 
 def test_backfill_team_ids_via_mlb_id_fixes_bare_name_mismatch(db_conn):
@@ -2011,8 +2006,7 @@ def test_backfill_game_pk_does_not_overwrite_an_already_correct_value(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT game_pk FROM core.game "
-            "WHERE game_pk IN ('900001', '900002') ORDER BY game_pk"
+            "SELECT game_pk FROM core.game WHERE game_pk IN ('900001', '900002') ORDER BY game_pk"
         )
         rows = cur.fetchall()
     assert rows == [("900001",), ("900002",)]
@@ -2130,9 +2124,7 @@ def test_backfill_game_pk_uses_an_exact_score_when_only_game_number_differs(db_c
             "('235881', '2008-09-06', 'Oakland Athletics', 'Baltimore Orioles', '133', '110', "
             "'2008', 'Final', 'R', '2', '', '', '5', '1')"
         )
-        cur.execute(
-            "CREATE TABLE raw.mlb_team_history (team_code text, team_id text, season text)"
-        )
+        cur.execute("CREATE TABLE raw.mlb_team_history (team_code text, team_id text, season text)")
         cur.execute(
             "INSERT INTO raw.mlb_team_history VALUES ('oak', '133', '2008'), ('bal', '110', '2008')"
         )
@@ -2142,7 +2134,7 @@ def test_backfill_game_pk_uses_an_exact_score_when_only_game_number_differs(db_c
 
     with db_conn.cursor() as cur:
         cur.execute("SELECT game_pk FROM core.game WHERE retro_game_id = 'BAL200809060'")
-        assert cur.fetchone() == ('235881',)
+        assert cur.fetchone() == ("235881",)
 
 
 def test_backfill_game_pk_leaves_same_matchup_candidates_unresolved(db_conn):
@@ -2583,7 +2575,6 @@ def test_health_check_lahman_team_count_excludes_negro_league_teams(db_conn):
     db_conn.commit()
 
 
-
 def test_database_rejects_a_doubleheader_game_pk_collision(db_conn):
     # Regression, end to end: before migration 0011's game_pk-overwrite
     # guard, this exact scenario (two games, same date/teams, distinct
@@ -2877,12 +2868,59 @@ def test_multi_source_conformance_rehearsal_ties_out_across_grains(db_conn):
     findings = audit.run("game")
     failures = [finding for finding in findings if finding.status == "FAIL"]
     assert failures == []
-    assert next(
-        finding for finding in findings if finding.name == "core.game doubleheader identity"
-    ).status == "PASS"
-    assert next(
-        finding for finding in findings if finding.name == "core.pitch unresolved-key coverage"
-    ).status == "WARN"
-    assert next(
-        finding for finding in findings if finding.name == "core.play controlled values"
-    ).status == "PASS"
+    assert (
+        next(
+            finding for finding in findings if finding.name == "core.game doubleheader identity"
+        ).status
+        == "PASS"
+    )
+    assert (
+        next(
+            finding for finding in findings if finding.name == "core.pitch unresolved-key coverage"
+        ).status
+        == "WARN"
+    )
+    assert (
+        next(
+            finding for finding in findings if finding.name == "core.play controlled values"
+        ).status
+        == "PASS"
+    )
+
+
+def test_conform_rebuilds_play_and_pitch_indexes(db_conn):
+    """Assert that core.play and core.pitch non-unique and unique indexes exist after run()."""
+    _reset_dynamic_tables(db_conn)
+    _seed_raw_tables(db_conn)
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = 'core' AND tablename = 'play'"
+        )
+        play_indexes = {row[0] for row in cur.fetchall()}
+
+        cur.execute(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = 'core' AND tablename = 'pitch'"
+        )
+        pitch_indexes = {row[0] for row in cur.fetchall()}
+
+    expected_play_indexes = {
+        "play_pkey",
+        "play_game_id_source_play_index_key",
+        "play_batter_id_idx",
+        "play_game_id_idx",
+        "play_pitcher_id_idx",
+        "play_season_idx",
+    }
+    expected_pitch_indexes = {
+        "pitch_pkey",
+        "core_pitch_source_game_pk_idx",
+        "pitch_batter_id_idx",
+        "pitch_game_id_idx",
+        "pitch_pitcher_id_idx",
+        "pitch_season_idx",
+    }
+
+    assert expected_play_indexes.issubset(play_indexes)
+    assert expected_pitch_indexes.issubset(pitch_indexes)

@@ -229,8 +229,7 @@ def _build_teams(conn: psycopg.Connection) -> int:
         # TEAM{year}.TXT is an optional Retrosheet reference supplement.
         # Its absence must not stop a normal affiliated-major-league rebuild.
         print(
-            "conform: raw.retrosheet_team0 not present yet — "
-            "skipping supplemental team identities"
+            "conform: raw.retrosheet_team0 not present yet — skipping supplemental team identities"
         )
         return primary_count
 
@@ -1100,6 +1099,54 @@ def _build_pitches(conn: psycopg.Connection) -> int:
         return 0
 
 
+def _drop_bulk_indexes(conn: psycopg.Connection) -> None:
+    """Drop non-unique secondary indexes on core.play and core.pitch before bulk load.
+
+    Maintaining live indexes during millions of row inserts on disk-bound storage
+    (HDDs) causes massive random I/O overhead. Dropping non-unique indexes prior to
+    insert and rebuilding them afterward in bulk reduces I/O bottleneck significantly.
+
+    Unique key constraints (play_pkey, play_game_id_source_play_index_key, pitch_pkey)
+    are strictly preserved for data integrity and never dropped.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DROP INDEX IF EXISTS core.play_batter_id_idx;
+            DROP INDEX IF EXISTS core.play_game_id_idx;
+            DROP INDEX IF EXISTS core.play_pitcher_id_idx;
+            DROP INDEX IF EXISTS core.play_season_idx;
+            DROP INDEX IF EXISTS core.pitch_batter_id_idx;
+            DROP INDEX IF EXISTS core.pitch_game_id_idx;
+            DROP INDEX IF EXISTS core.pitch_pitcher_id_idx;
+            DROP INDEX IF EXISTS core.pitch_season_idx;
+            DROP INDEX IF EXISTS core.core_pitch_source_game_pk_idx;
+            """
+        )
+
+
+def _rebuild_bulk_indexes(conn: psycopg.Connection) -> None:
+    """Rebuild non-unique secondary indexes on core.play and core.pitch after bulk load.
+
+    Creates non-unique indexes on parent tables without ONLY, allowing Postgres 12+
+    to construct and attach indexes across all underlying season partitions.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE INDEX play_batter_id_idx ON core.play (batter_id);
+            CREATE INDEX play_game_id_idx ON core.play (game_id);
+            CREATE INDEX play_pitcher_id_idx ON core.play (pitcher_id);
+            CREATE INDEX play_season_idx ON core.play (season);
+            CREATE INDEX pitch_batter_id_idx ON core.pitch (batter_id);
+            CREATE INDEX pitch_game_id_idx ON core.pitch (game_id);
+            CREATE INDEX pitch_pitcher_id_idx ON core.pitch (pitcher_id);
+            CREATE INDEX pitch_season_idx ON core.pitch (season);
+            CREATE INDEX core_pitch_source_game_pk_idx ON core.pitch (source_game_pk);
+            """
+        )
+
+
 def _team_lookup(conn: psycopg.Connection) -> dict[str, int]:
     # One unified alias -> team_id dict, not the old by_name/by_retro_id
     # pair: core.team's own "city nickname" string plus every seeded
@@ -1639,9 +1686,11 @@ def run() -> dict[str, int]:
         # core.standing resolves team_id via mlb_team_id, so it must run
         # after both backfills above, not before.
         counts["core.standing"] = _build_standings(conn)
+        _drop_bulk_indexes(conn)
         counts["core.play"] = _build_plays(conn)
         _backfill_win_probability(conn)
         counts["core.pitch"] = _build_pitches(conn)
+        _rebuild_bulk_indexes(conn)
         counts["core.market"] = _build_market(conn)
         counts["core.player_war"] = _build_player_war(conn)
         conn.commit()

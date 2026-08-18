@@ -26,10 +26,20 @@ def probability(home_win_pct: Decimal, away_win_pct: Decimal) -> Decimal:
     home^2/(home^2+away^2) form does not (e.g. it returns .5902, not
     .600, for a .600 team against a .500 team) and was never actually
     the cited formula -- log5-v1's predictions are known-invalid, kept
-    as historical record rather than silently relabeled. Undefined when
-    both inputs are 0 (can't happen for a team with at least one prior
-    game -- win_pct of exactly 0.0 is a real, distinct value from "no
-    games played yet", which is NULL, not 0)."""
+    as historical record rather than silently relabeled.
+
+    Undefined (0/0) when both inputs are equal AND at one of the two
+    extremes (both exactly 0, or both exactly 1) -- found both are real,
+    not hypothetical: two genuine winless-so-far teams (2018/2020 samples,
+    0-2 and 0-1) and two genuine still-undefeated teams (2019/2020/2023
+    samples, up to 4-0) matched against each other, all in real production
+    gold.game_feature data. Both explicitly return 0.5 -- the same answer
+    the formula already gives for two *equal* teams at every other winning
+    percentage (verified: probability(x, x) == 0.5 for every x strictly
+    between 0 and 1), so this is the limiting value the formula is
+    degenerate at in both cases, not an arbitrary guess."""
+    if home_win_pct == away_win_pct and home_win_pct in (0, 1):
+        return Decimal("0.5")
     home_term = home_win_pct * (1 - away_win_pct)
     away_term = away_win_pct * (1 - home_win_pct)
     return home_term / (home_term + away_term)

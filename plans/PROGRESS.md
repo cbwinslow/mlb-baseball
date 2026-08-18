@@ -660,8 +660,10 @@ The retained files passed scoped Ruff format/check and 28 focused unit tests.
   script, reused the shared snapshot/fold/scoring/artifact path.
   `_probabilities`/`_predictions` needed no changes — both already
   dispatch generically to `_make_estimator` + `predict_proba`/`predict`
-  for anything past the three hardcoded baselines, and RandomForest/
-  ExtraTrees both support `predict_proba` natively.
+  for anything past their own hardcoded baselines (`_probabilities` has
+  three — `home_rate`/`log5`/`elo`; `_predictions` has two —
+  `zero`/`season_average`), and RandomForest/ExtraTrees both support
+  `predict_proba` natively.
 - `tests/integration/test_experiment.py`'s two existing tests
   (`test_all_supported_models_share_calendar_rehearsal_rows`,
   `test_run_differential_models_share_calendar_rehearsal_rows`) are

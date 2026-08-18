@@ -202,6 +202,8 @@ def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
 
     assert starter.compute(db_conn) == 0
 
+    _reset(db_conn)
+
 
 def test_health_check_runs_cleanly_against_an_empty_database():
     # Not asserting on the result -- just that it returns cleanly even

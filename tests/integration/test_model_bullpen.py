@@ -316,6 +316,8 @@ def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
 
     assert bullpen.compute(db_conn) == 0
 
+    _reset(db_conn)
+
 
 def test_compute_live_rolling_fip_and_rates_match_hand_calculation(db_conn):
     # ADR-051: raw.mlb_playbyplay equivalent of the retrosheet-sourced test

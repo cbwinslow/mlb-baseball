@@ -139,6 +139,8 @@ def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
 
     assert offense.compute(db_conn) == 0
 
+    _reset(db_conn)
+
 
 def _ensure_playbyplay_table(db_conn):
     with db_conn.cursor() as cur:

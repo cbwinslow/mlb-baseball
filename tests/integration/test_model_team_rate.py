@@ -580,6 +580,8 @@ def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
 
     assert team_rate.compute(db_conn) == 0
 
+    _reset(db_conn)
+
 
 def test_health_check_flags_an_implausible_value(db_conn):
     _reset(db_conn)

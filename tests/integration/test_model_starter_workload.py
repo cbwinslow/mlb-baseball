@@ -297,6 +297,8 @@ def test_compute_starter_workload_returns_zero_without_retrosheet_gameinfo_table
 
     assert starter_workload.compute(db_conn) == 0
 
+    _reset(db_conn)
+
 
 def test_health_check_runs_cleanly_against_empty_database():
     checks = starter_workload.health_check()

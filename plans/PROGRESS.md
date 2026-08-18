@@ -728,3 +728,103 @@ The retained files passed scoped Ruff format/check and 28 focused unit tests.
   champion/challenger comparison or promotion decision was made; this
   package only proves the two families work correctly end-to-end and
   produce honest, plausible metrics on real data.
+
+### Plan 04C — GAM model family — 2026-08-18 (`mlb_test` only)
+
+- Added `gam` (classifier, `home_win`) and `gam_regressor` (regressor,
+  `run_differential`) to `mlb_baseball/model/experiment.py`'s
+  `TARGET_REGISTRY`, `SUPPORTED_MODELS`, `_make_estimator`, and
+  `_validate_parameters` -- the next explicitly-named, entirely
+  unimplemented family from Plan 04C's model list (regularized regression,
+  gradient boosting, random forest/extra trees were already built; SVMs,
+  Bayesian/hierarchical, and neural/sequence models remain open). No new
+  dependency: a GAM is mathematically a linear model fit over
+  spline-expanded features, so both families reuse `logistic`/`ridge`'s
+  exact pipeline shape with one added step --
+  `SimpleImputer(strategy="median", add_indicator=True)` ->
+  `SplineTransformer(degree=3, n_knots=5)` -> `StandardScaler()` ->
+  `LogisticRegression`/`Ridge` -- ordered so the spline transform (which
+  rejects NaN input) always runs after imputation, matching this file's
+  existing ordering discipline. `gam` reuses `logistic`'s defaults
+  (`max_iter=1_000`, `random_state=seed`); `gam_regressor` reuses
+  `ridge`'s (`random_state=seed`). `_validate_parameters` checks `gam`
+  against `LogisticRegression().get_params(deep=False)` and
+  `gam_regressor` against `Ridge().get_params(deep=False)`, in their own
+  `elif` branches per this file's per-family-string dispatch convention.
+  `_probabilities`/`_predictions` needed no changes -- both already
+  dispatch generically to `_make_estimator` + `predict_proba`/`predict`
+  for anything past their own hardcoded baselines.
+- `tests/integration/test_experiment.py`'s two existing tests
+  (`test_all_supported_models_share_calendar_rehearsal_rows`,
+  `test_run_differential_models_share_calendar_rehearsal_rows`) are
+  parametrized over `SUPPORTED_MODELS`/`valid_model_families`, so both new
+  families got full idempotency/fold-structure/no-leakage coverage
+  automatically with zero test-file changes needed (82 passed total in
+  this targeted suite, up from the file's baseline). Added targeted
+  `_validate_parameters` and override-effect unit coverage for both in
+  `tests/unit/test_experiment_metrics.py` (its estimator-override test
+  and its `run_differential` `valid_model_families` spec assertion are
+  both hardcoded lists there, not dynamic, so `gam`/`gam_regressor` were
+  added to both explicitly). Grepped the repo for any other hardcoded
+  model-family list (CLI dispatch, docs generation) that might need a
+  matching update -- `mlb_baseball/cli.py`'s `--model` argument already
+  uses `choices=experiment.ALL_MODEL_FAMILIES` (dynamic), so no change was
+  needed there; also updated `docs/EXPERIMENT_RUNBOOK.md`'s prose model
+  list in the same change for consistency.
+- **Real production-shaped verification, not just the small `mlb_test`
+  fixture**: loaded a 640-game real sample (100 games/season, 2015-2024,
+  via `mlb_baseball.rehearsal.load_sample`'s existing read-only-on-source
+  path) into `mlb_test`, ran `mlb conform`/`mlb features`, then ran every
+  `home_win` model family (`home_rate`, `log5`, `elo`, `logistic`,
+  `hist_gradient_boosting`, `random_forest`, `extra_trees`, `gam`) and
+  every `run_differential` family (`zero`, `season_average`, `ridge`,
+  `gam_regressor`) through `mlb experiment run`/`compare`. `gam` produced
+  finite log-loss across the nine 2016-2024 folds (0.6992-1.8681, Brier
+  0.2520-0.4579) -- in the same noisy-but-sane range as `random_forest`
+  (0.6785-0.8305) and `extra_trees` (0.7667-2.9670) on this small sample,
+  worse than the transparent `home_rate`/`elo` baselines on several
+  folds, which is the expected non-suspicious result on this little data
+  (per `docs/RESEARCH.md`'s own calibration doctrine: beating simple
+  baselines on a small sample is a leakage red flag, not a win to
+  celebrate). `gam_regressor` produced finite MAE (3.7522-7.9090) and
+  RMSE (4.7706-10.3353) across the same folds, in the same range as
+  `season_average` (MAE 4.3896-7.0316, RMSE 5.3632-8.9434). No NaN/inf,
+  no crash, and no convergence warning was observed at `n_knots=5` on
+  this sample size. An independent Gemini review pass flagged, and direct
+  verification confirmed, that `SimpleImputer(add_indicator=True)`'s
+  binary missing-value indicator columns are *not* passed through
+  `SplineTransformer` unchanged as first assumed -- it spline-expands
+  every input column indiscriminately (confirmed: 13 input columns ->
+  91 output columns at `degree=3, n_knots=5`), so each indicator becomes
+  7 redundant, collinear dummy columns rather than staying a single 0/1
+  feature. This does not break anything -- the real-data run above stayed
+  finite and plausible, and `LogisticRegression`/`Ridge`'s L2 penalty
+  absorbs the collinearity -- but it is real, avoidable dimensionality
+  waste, documented as a "Revisit if" item in ADR-072 rather than fixed
+  here (fixing it needs a `ColumnTransformer` to route indicator columns
+  around the spline step, a real architectural change to the shared
+  impute -> transform -> scale -> model pipeline shape, not a one-line
+  fix). Re-running each identical config correctly returned
+  `(reused)` with byte-identical metrics (idempotency, verified, not
+  assumed). Rehearsal sample cleared via `CLEAR_REHEARSAL_SAMPLE=1` before
+  the final clean test run, per `docs/CONFORMANCE_REHEARSAL.md`'s own
+  documented boundary. No production `mlb` write occurred -- the
+  real-data verification pulled read-only from `mlb` (source transaction
+  explicitly `SET TRANSACTION READ ONLY`) into `mlb_test` only, same
+  safety pattern `scripts/rehearse_sample.py` already established.
+- `uv run ruff check .` clean and `uv run ruff format --check .` clean on
+  every file touched by this change (`mlb_baseball/model/experiment.py`,
+  `tests/unit/test_experiment_metrics.py`, `docs/EXPERIMENT_RUNBOOK.md`).
+  The repo-wide `ruff format --check .` also reports pre-existing
+  unformatted files unrelated to this change (confirmed via `git stash`
+  before touching anything) -- an environment/ruff-version drift from an
+  earlier session, not introduced or touched here. `uv run mypy
+  mlb_baseball/model/experiment.py` clean. Full relevant suite:
+  `tests/integration/test_experiment.py`, `tests/unit/test_experiment_metrics.py`,
+  `tests/unit/test_cli_dispatch.py` -- 82 passed, 0 failed, run twice
+  (once against the loaded rehearsal sample, once after clearing it).
+- Not wired into any production path -- matches every sibling model
+  family's own dormant-until-a-separate-promotion-decision posture. No
+  champion/challenger comparison or promotion decision was made; this
+  package only proves the two families work correctly end-to-end and
+  produce honest, plausible metrics on real data.

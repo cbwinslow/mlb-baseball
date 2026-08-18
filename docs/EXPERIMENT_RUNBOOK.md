@@ -40,11 +40,11 @@ DATABASE_URL=postgresql:///mlb_test uv run mlb audit
 ```
 
 For `home_win`, run the snapshot through `home_rate`, `log5`, `elo`,
-`logistic`, `hist_gradient_boosting`, `xgboost`, `random_forest`, and
-`extra_trees`.
+`logistic`, `hist_gradient_boosting`, `xgboost`, `random_forest`,
+`extra_trees`, and `gam`.
 For `run_differential`, run through `zero`, `season_average`, `ridge`,
 `hist_gradient_boosting_regressor`, `xgboost_regressor`,
-`random_forest_regressor`, and `extra_trees_regressor`.
+`random_forest_regressor`, `extra_trees_regressor`, and `gam_regressor`.
 The report lists one result per calendar fold; compare like-for-like folds,
 never a model's best isolated season against another model's total.
 

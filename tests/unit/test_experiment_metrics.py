@@ -79,6 +79,7 @@ def test_target_registry_specifications():
         "xgboost_regressor",
         "random_forest_regressor",
         "extra_trees_regressor",
+        "gam_regressor",
     )
 
     sample_row = experiment.SnapshotRow(
@@ -169,6 +170,14 @@ def test_validate_parameters_for_all_model_families():
     with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
         experiment._validate_parameters("extra_trees_regressor", {"bad_param": 1})
 
+    experiment._validate_parameters("gam", {"max_iter": 50})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("gam", {"bad_param": 1})
+
+    experiment._validate_parameters("gam_regressor", {"alpha": 0.5})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("gam_regressor", {"bad_param": 1})
+
 
 def test_common_rows_filters_per_target_spec():
     base_values: dict[str, float | None] = {
@@ -255,6 +264,8 @@ def test_common_rows_filters_per_target_spec():
         "xgboost_regressor",
         "random_forest_regressor",
         "extra_trees_regressor",
+        "gam",
+        "gam_regressor",
     ],
 )
 def test_make_estimator_lets_a_valid_override_actually_take_effect(model_family):

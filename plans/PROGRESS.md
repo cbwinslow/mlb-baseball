@@ -28,7 +28,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** The 4 open GitHub issues (#6 mojibake names, #7 test pollution, #9 paper cuts, #10 SQL lint script).
+- **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #28/#29 narrow edge cases found during PR #25 review). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open).
 
 ### Starter workload live and probable paths (pitcher_workload_v1_live, completed) — 2026-08-15
 
@@ -828,3 +828,65 @@ The retained files passed scoped Ruff format/check and 28 focused unit tests.
   champion/challenger comparison or promotion decision was made; this
   package only proves the two families work correctly end-to-end and
   produce honest, plausible metrics on real data.
+
+### Issue #6 (bref mojibake) and issue #9 item 6 (bat_event_fl + doubleheader ordering) — 2026-08-18
+
+Two bug-fix PRs closing real, previously-open issues:
+
+- **PR #24 (issue #6, merged `f913ff6`):** `raw.bref_batting`/`raw.bref_pitching.name`
+  stored non-ASCII player names as literal escaped garbage instead of real
+  UTF-8. Root-caused by reading `pybaseball`'s own source, not guessed:
+  `batting_stats_bref()`/`pitching_stats_bref()` scrape HTML via `get_soup()`,
+  which calls `str(response.content).encode()` -- `str()` on raw HTTP
+  response `bytes` produces `bytes.__repr__()` text instead of decoding it,
+  so every accented name comes back as its own backslash-escaped repr.
+  Reproduced byte-for-byte against a real `pybaseball.batting_stats_bref(2023)`
+  call (59/660 rows mangled) and `pitching_stats_bref(2023)` (75/863 mangled);
+  0 mangled after the fix. `pybaseball.bwar_bat()`/`bwar_pitch()` take a
+  different, correct decode path and were confirmed clean (0 of
+  126,478/57,686 rows). Fixed via a new `_repair_name_mojibake()` in
+  `mlb_baseball/connectors/bref.py`, applied to the `Name` column only
+  before loading. See ADR-071. Only fixes rows loaded from this point
+  forward -- existing production `mlb` rows still carry the old mangled
+  names until an owner-authorized forced reload or repair `UPDATE`, not
+  done as part of this fix.
+- **PR #25 (issue #9 item 6, merged `cfa84d7`):** `team_woba_retrosheet_update.sql`
+  and `team_wrc_plus_retrosheet_update.sql` predated ADR-034's finding
+  (`team_rate_retrosheet_update.sql`'s `db97d96` fix) that every `event_cd`
+  count from `raw.retrosheet_event` must be gated on `bat_event_fl = 'T'`.
+  Fixed both. Auditing every retrosheet-event SQL file for the same pattern
+  also found the identical doubleheader-ordering bug `db97d96` fixed in
+  `team_rate` (rolling window ordered same-date rows by `game_id`, an
+  insertion-order serial, not the declared `game_number`) independently
+  present in `team_woba`, `team_wrc_plus`, and a fourth occurrence in
+  `team_bullpen_retrosheet_update.sql`'s quality window (not named in
+  issue #9's text) -- fixed all four.
+- **Real review value, not just process:** PR #25's review round caught a
+  genuine P1 bug in the doubleheader-ordering fix itself, independently
+  flagged by three reviewers (chatgpt-codex-connector, coderabbitai,
+  codeant-ai): `team_wrc_plus_retrosheet_update.sql`'s window is
+  season-wide (every team pooled together), so `game_number` alone is not
+  a safe tiebreak there the way it is in `team_rate`/`team_woba`/`team_bullpen`'s
+  team-partitioned windows -- `game_number` only means "which game of THIS
+  matchup's doubleheader," and carries no relationship to a different
+  matchup sharing the same `game_date`. Fixed by sorting on
+  `home_team_id`/`away_team_id` before `game_number`, so `game_number` only
+  ever disambiguates two rows already known to be the same matchup.
+  Verified directly: reverted the fix, confirmed the extended regression
+  test (an unrelated same-date game with a colliding `game_number` and a
+  distinctive HR event) fails with the exact wrong value
+  (`130.902777777778` instead of `144.1666666666667`), restored the fix.
+  Two narrower findings from the same review round were real but
+  out-of-scope for this PR and tracked separately rather than patched in:
+  issue #28 (a data-quality edge case in the already-established
+  `game_number NULLS LAST` pattern, shared by all 4 team-partitioned files,
+  not new to this PR) and issue #29 (`team_bullpen`'s pre-existing
+  zero-fill backbone for Retrosheet-uncovered games, predates this PR).
+- Full relevant suite green: `test_model_offense.py`, `test_model_wrc_plus.py`,
+  `test_model_bullpen.py` -- 27 passed; `test_model_team_rate.py`,
+  `test_model_starter.py`, `test_model_starter_workload.py` (unaffected,
+  checked for regressions) -- 35 passed. `ruff check .` clean,
+  `sqlfluff-lint` (pre-commit hook) passed on all touched SQL.
+- Not wired into any production path beyond what was already running --
+  these are correctness fixes to already-deployed enrichment SQL
+  (`offense.py`/`bullpen.py`), not new features.

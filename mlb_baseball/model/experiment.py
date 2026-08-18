@@ -453,103 +453,120 @@ def _labels(
     return np.array([float(spec.label(row)) for row in rows], dtype=np.float64)
 
 
+def _merged_kwargs(defaults: dict[str, Any], parameters: dict[str, Any]) -> dict[str, Any]:
+    """Merge this family's fixed defaults with the caller's overrides, caller
+    wins. Every one of this function's callers previously passed its
+    defaults as explicit keyword arguments *and* expanded `parameters`
+    alongside them (`Estimator(random_state=seed, **parameters)`) -- a real
+    bug found via PR review: `_validate_parameters` legitimately allows a
+    caller to override `random_state`/`n_estimators`/`n_jobs` (scikit-learn
+    exposes all three as real constructor params), but overriding any of
+    them raised "got multiple values for keyword argument" instead of
+    applying the override, for every model family in this file, not just
+    the ones added alongside this fix. Merging first and expanding once
+    lets an explicit override actually take effect."""
+    return {**defaults, **parameters}
+
+
 def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
     if model_family == "logistic":
+        kwargs = _merged_kwargs({"max_iter": 1_000, "random_state": seed}, parameters)
         return Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median", add_indicator=True)),
                 ("scale", StandardScaler()),
-                ("model", LogisticRegression(max_iter=1_000, random_state=seed, **parameters)),
+                ("model", LogisticRegression(**kwargs)),
             ]
         )
     if model_family == "hist_gradient_boosting":
+        kwargs = _merged_kwargs({"random_state": seed}, parameters)
         return Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median", add_indicator=True)),
-                ("model", HistGradientBoostingClassifier(random_state=seed, **parameters)),
+                ("model", HistGradientBoostingClassifier(**kwargs)),
             ]
         )
     if model_family == "xgboost":
-        return xgb.XGBClassifier(
-            n_estimators=100,
-            max_depth=3,
-            learning_rate=0.05,
-            eval_metric="logloss",
-            random_state=seed,
-            n_jobs=1,
-            **parameters,
+        kwargs = _merged_kwargs(
+            {
+                "n_estimators": 100,
+                "max_depth": 3,
+                "learning_rate": 0.05,
+                "eval_metric": "logloss",
+                "random_state": seed,
+                "n_jobs": 1,
+            },
+            parameters,
         )
+        return xgb.XGBClassifier(**kwargs)
     if model_family == "random_forest":
+        kwargs = _merged_kwargs(
+            {"n_estimators": 200, "random_state": seed, "n_jobs": 1}, parameters
+        )
         return Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median", add_indicator=True)),
-                (
-                    "model",
-                    RandomForestClassifier(
-                        n_estimators=200, random_state=seed, n_jobs=1, **parameters
-                    ),
-                ),
+                ("model", RandomForestClassifier(**kwargs)),
             ]
         )
     if model_family == "extra_trees":
+        kwargs = _merged_kwargs(
+            {"n_estimators": 200, "random_state": seed, "n_jobs": 1}, parameters
+        )
         return Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median", add_indicator=True)),
-                (
-                    "model",
-                    ExtraTreesClassifier(
-                        n_estimators=200, random_state=seed, n_jobs=1, **parameters
-                    ),
-                ),
+                ("model", ExtraTreesClassifier(**kwargs)),
             ]
         )
     if model_family == "ridge":
+        kwargs = _merged_kwargs({"random_state": seed}, parameters)
         return Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median", add_indicator=True)),
                 ("scale", StandardScaler()),
-                ("model", Ridge(random_state=seed, **parameters)),
+                ("model", Ridge(**kwargs)),
             ]
         )
     if model_family == "hist_gradient_boosting_regressor":
+        kwargs = _merged_kwargs({"random_state": seed}, parameters)
         return Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median", add_indicator=True)),
-                ("model", HistGradientBoostingRegressor(random_state=seed, **parameters)),
+                ("model", HistGradientBoostingRegressor(**kwargs)),
             ]
         )
     if model_family == "xgboost_regressor":
-        return xgb.XGBRegressor(
-            n_estimators=100,
-            max_depth=3,
-            learning_rate=0.05,
-            eval_metric="rmse",
-            random_state=seed,
-            n_jobs=1,
-            **parameters,
+        kwargs = _merged_kwargs(
+            {
+                "n_estimators": 100,
+                "max_depth": 3,
+                "learning_rate": 0.05,
+                "eval_metric": "rmse",
+                "random_state": seed,
+                "n_jobs": 1,
+            },
+            parameters,
         )
+        return xgb.XGBRegressor(**kwargs)
     if model_family == "random_forest_regressor":
+        kwargs = _merged_kwargs(
+            {"n_estimators": 200, "random_state": seed, "n_jobs": 1}, parameters
+        )
         return Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median", add_indicator=True)),
-                (
-                    "model",
-                    RandomForestRegressor(
-                        n_estimators=200, random_state=seed, n_jobs=1, **parameters
-                    ),
-                ),
+                ("model", RandomForestRegressor(**kwargs)),
             ]
         )
     if model_family == "extra_trees_regressor":
+        kwargs = _merged_kwargs(
+            {"n_estimators": 200, "random_state": seed, "n_jobs": 1}, parameters
+        )
         return Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median", add_indicator=True)),
-                (
-                    "model",
-                    ExtraTreesRegressor(
-                        n_estimators=200, random_state=seed, n_jobs=1, **parameters
-                    ),
-                ),
+                ("model", ExtraTreesRegressor(**kwargs)),
             ]
         )
     raise ExperimentError(f"unsupported estimator {model_family!r}")

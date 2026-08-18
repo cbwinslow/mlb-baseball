@@ -240,3 +240,34 @@ def test_common_rows_filters_per_target_spec():
     # run_differential keeps row_full and row_no_rates (which has runs/wins), drops row_no_runs
     rd_filtered = experiment._common_rows([row_full, row_no_rates, row_no_runs], rd_spec)
     assert [r.game_instance_key for r in rd_filtered] == ["k1", "k2"]
+
+
+@pytest.mark.parametrize(
+    "model_family",
+    [
+        "logistic",
+        "hist_gradient_boosting",
+        "xgboost",
+        "random_forest",
+        "extra_trees",
+        "ridge",
+        "hist_gradient_boosting_regressor",
+        "xgboost_regressor",
+        "random_forest_regressor",
+        "extra_trees_regressor",
+    ],
+)
+def test_make_estimator_lets_a_valid_override_actually_take_effect(model_family):
+    # Real bug found via PR review: every one of these families passes its
+    # own fixed defaults (random_state=seed, and for the ensembles
+    # n_estimators/n_jobs too) as explicit keyword arguments *and* expands
+    # `parameters` alongside them -- a caller overriding any of those (which
+    # _validate_parameters legitimately allows, since scikit-learn exposes
+    # all of them as real constructor params) previously raised "got
+    # multiple values for keyword argument" instead of applying the
+    # override, for every model family in this file, not just the ones
+    # this test happens to be checking. Constructing with an override must
+    # not raise, and the resulting estimator must actually reflect it.
+    estimator = experiment._make_estimator(model_family, {"random_state": 99}, seed=0)
+    model = estimator.named_steps["model"] if hasattr(estimator, "named_steps") else estimator
+    assert model.random_state == 99

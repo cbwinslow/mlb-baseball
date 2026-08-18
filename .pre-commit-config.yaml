@@ -11,7 +11,9 @@ repos:
         args: ['--maxkb=1000']
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.1
+    # Keep the hook aligned with the version resolved from this project's
+    # development dependencies, so contributors and CI enforce the same rules.
+    rev: v0.16.1
     hooks:
       - id: ruff
         args: [--fix]
@@ -23,3 +25,10 @@ repos:
       - id: sqlfluff-lint
         files: ^mlb_baseball/sql/
         additional_dependencies: ['sqlfluff-templater-dbt']
+
+  # Blocks known credential patterns before they enter a commit. GitHub secret
+  # scanning and push protection remain the server-side backstop.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

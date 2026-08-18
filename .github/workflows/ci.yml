@@ -32,6 +32,21 @@ env:
   CHADWICK_REF: baa7c4b3e89cf2c9871a9f7f853f6980b4226af7
 
 jobs:
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan committed files for credentials
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   test:
     runs-on: ubuntu-latest
     services:

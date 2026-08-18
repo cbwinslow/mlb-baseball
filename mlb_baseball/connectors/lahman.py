@@ -24,7 +24,13 @@ import pandas as pd
 import pybaseball.lahman as network_lahman
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
 
@@ -33,6 +39,7 @@ from mlb_baseball.load import load_dataframe
 network_lahman.url = "https://github.com/cbwinslow/baseballdatabank/archive/refs/heads/master.zip"
 
 SOURCE = "lahman"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 DOWNLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "downloads"
 
 # (raw table name, Lahman's own CSV filename, network fallback function)
@@ -119,7 +126,11 @@ def update() -> dict[str, int]:
 
 
 def health_check() -> list[Check]:
-    checks = [check_table_has_rows("raw.lahman_batting"), check_last_run(SOURCE)]
+    checks = [
+        check_table_has_rows("raw.lahman_batting"),
+        check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
+    ]
     zip_path = find_local_zip()
     if zip_path:
         checks.append(Check("lahman data currency", True, f"local zip present: {zip_path.name}"))

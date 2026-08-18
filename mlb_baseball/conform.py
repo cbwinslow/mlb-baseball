@@ -75,10 +75,13 @@ import psycopg
 
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
     Check,
     check_grouped_no_duplicates,
     check_join_coverage,
+    check_last_run,
     check_no_duplicate_key,
+    check_recent_run,
     check_table_exists,
     check_table_has_rows,
     check_totals_reconcile,
@@ -87,6 +90,7 @@ from mlb_baseball.ingest import track_run
 from mlb_baseball.sql import read_sql
 
 SOURCE = "core"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 
 # Kalshi's own KXMLBGAME market-ticker team-code suffixes -> Retrosheet's
 # Seed data for core.team_alias (migration 0009) — only needed for
@@ -1647,6 +1651,8 @@ def run() -> dict[str, int]:
 
 def health_check() -> list[Check]:
     return [
+        check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
         check_table_has_rows("core.player"),
         check_table_has_rows("core.team"),
         check_table_has_rows("core.team_alias"),

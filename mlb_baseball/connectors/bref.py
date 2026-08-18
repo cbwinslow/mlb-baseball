@@ -68,7 +68,7 @@ one-shot full reload); update() reloads just the current season (season-
 scoped replace, idempotent) plus re-runs the same WAR full reload (cheap —
 one HTTP call each, and idempotent by construction). Not on a repeating
 cron schedule — season stats don't change intra-day — so health_check()
-uses check_last_run, not check_recent_run, same as statcast.py.
+uses check_last_run and check_recent_run, same as statcast.py.
 """
 
 from datetime import date
@@ -77,12 +77,19 @@ import psycopg
 import pybaseball
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe, season_already_loaded
 from mlb_baseball.net import call_with_retry
 
 SOURCE = "bref"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 FIRST_YEAR = 2008
 TABLES = [
     ("raw.bref_batting", pybaseball.batting_stats_bref),
@@ -164,4 +171,5 @@ def health_check() -> list[Check]:
         check_table_has_rows("raw.bref_war_batting"),
         check_table_has_rows("raw.bref_war_pitching"),
         check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

@@ -60,7 +60,7 @@ bootstrap() loads full history one season at a time per leaderboard;
 update() reloads just the current season. Not on a repeating cron schedule
 (same reasoning as statcast.py — this data isn't real-time and doesn't
 change once a season's data is published), so health_check() uses
-check_last_run, not check_recent_run.
+check_last_run and check_recent_run.
 """
 
 import io
@@ -72,12 +72,19 @@ import pybaseball
 import requests
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe, season_already_loaded
 from mlb_baseball.net import call_with_retry
 
 SOURCE = "statcast_leaderboard"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 FIRST_YEAR = 2015
 OAA_POSITIONS = [3, 4, 5, 6, 7, 8, 9]
 # pybaseball's own statcast_catcher_framing() (installed version) still
@@ -227,4 +234,5 @@ def health_check() -> list[Check]:
         check_table_has_rows("raw.statcast_pitcher_arsenal_stat"),
         check_table_has_rows("raw.statcast_spin_dir"),
         check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
     ]

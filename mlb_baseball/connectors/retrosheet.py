@@ -66,11 +66,18 @@ import psycopg
 
 from mlb_baseball import manifest
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check, check_last_run, check_table_has_rows
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
 
 SOURCE = "retrosheet"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 BASE_URL = "https://www.retrosheet.org/downloads"
 FIRST_YEAR = 1898
 CSV_NAMES = ["allplayers", "batting", "fielding", "gameinfo", "pitching", "plays", "teamstats"]
@@ -178,5 +185,6 @@ def health_check() -> list[Check]:
     return [
         check_table_has_rows("raw.retrosheet_plays"),
         check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
         _check_gametype_casing(),
     ]

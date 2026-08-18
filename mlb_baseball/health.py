@@ -10,6 +10,11 @@ import psycopg
 
 from mlb_baseball.db import fetch_one, get_connection
 
+# Default freshness threshold for daily-cadence jobs (28 hours = 1680 minutes).
+# Daily cron runs every 24h at 06:00 UTC; 28h leaves headroom for pipeline execution
+# while catching any missed daily run well before the next day.
+DAILY_FRESHNESS_THRESHOLD_MINUTES = 28 * 60
+
 
 @dataclass
 class Check:

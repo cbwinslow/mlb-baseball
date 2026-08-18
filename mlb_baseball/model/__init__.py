@@ -21,7 +21,12 @@ separate follow-up, not automatic just because the columns now exist).
 import psycopg
 
 from mlb_baseball.db import get_connection
-from mlb_baseball.health import Check
+from mlb_baseball.health import (
+    DAILY_FRESHNESS_THRESHOLD_MINUTES,
+    Check,
+    check_last_run,
+    check_recent_run,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.model import (
     bullpen,
@@ -43,6 +48,7 @@ from mlb_baseball.model import (
 )
 
 SOURCE = "model"
+FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 
 
 def backfill_outcomes(conn: psycopg.Connection) -> int:
@@ -156,7 +162,10 @@ def evaluate(model_versions: list[str], season: int, cutoff: str, bootstrap_samp
 
 
 def health_check() -> list[Check]:
-    return (
+    return [
+        check_last_run(SOURCE),
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
+    ] + (
         features.health_check()
         + log5.health_check()
         + gbm.health_check()

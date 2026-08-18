@@ -56,9 +56,14 @@ FATIGUE_WINDOW_DAYS = 3
 
 def compute(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
+        # Two-table dependency, two-table gate (issue #9 item 2): the SQL
+        # below also joins raw.retrosheet_gameinfo -- see team_rate.py's
+        # compute() for the full explanation (two different connectors).
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        (exists,) = fetch_one(cur)
-        if not exists:
+        (event_exists,) = fetch_one(cur)
+        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
+        (gameinfo_exists,) = fetch_one(cur)
+        if not event_exists or not gameinfo_exists:
             return 0
         cur.execute(
             read_sql("team_bullpen_retrosheet_update.sql"),
@@ -149,4 +154,3 @@ def health_check() -> list[Check]:
             tolerance=5,
         ),
     ]
-

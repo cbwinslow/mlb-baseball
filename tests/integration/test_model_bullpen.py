@@ -65,6 +65,15 @@ def _seed_teams(db_conn):
 
 
 def _reset(db_conn):
+    # DROPs (not DELETEs) every stub table this file creates on demand --
+    # see test_model_offense.py's identical _reset for the full explanation
+    # (issue #7): each test_model_*.py file creates its own minimal schema
+    # for these tables, and a stale stub from an earlier file's run breaks
+    # later files' schema expectations. All four tables here are created
+    # ad-hoc by this file's own fixtures, never by a migration, so dropping
+    # them is always safe -- this also replaces the old single
+    # last-test-in-this-file cleanup (order-dependent, fragile) with a
+    # per-test drop that works regardless of collection order.
     db_conn.rollback()
     with db_conn.cursor() as cur:
         for table in (
@@ -73,9 +82,7 @@ def _reset(db_conn):
             "raw.mlb_schedule",
             "raw.mlb_playbyplay",
         ):
-            cur.execute("SELECT to_regclass(%s)", (table,))
-            if cur.fetchone()[0]:
-                cur.execute(f"DELETE FROM {table}")
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
@@ -287,6 +294,30 @@ def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
 
     assert bullpen.compute(db_conn) == 0
 
+    _reset(db_conn)
+
+
+def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
+    # Issue #9 item 2: compute()'s own SQL joins raw.retrosheet_gameinfo
+    # too, but only retrosheet_event was gated -- see
+    # test_model_offense.py's identical regression for the full explanation
+    # (retrosheet_event/retrosheet_gameinfo are landed by two different
+    # connectors).
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_event ("
+            "game_id text, bat_home_id text, resp_pit_id text, "
+            "resp_pit_start_fl text, bat_event_fl text, event_cd text, "
+            "event_outs_ct text, _season text)"
+        )
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
+    db_conn.commit()
+
+    assert bullpen.compute(db_conn) == 0
+
+    _reset(db_conn)
+
 
 def test_compute_live_rolling_fip_and_rates_match_hand_calculation(db_conn):
     # ADR-051: raw.mlb_playbyplay equivalent of the retrosheet-sourced test
@@ -394,9 +425,7 @@ def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
             "('G1', '900001', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
             {"atl": atl, "nya": nya},
         )
-        cur.execute(
-            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) VALUES ('G1', 'regular')"
-        )
+        cur.execute("INSERT INTO raw.retrosheet_gameinfo (gid, gametype) VALUES ('G1', 'regular')")
         cur.execute(
             "INSERT INTO raw.retrosheet_event "
             "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
@@ -428,19 +457,6 @@ def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
     assert before == after
 
     _reset(db_conn)
-    # This is the last test in this file to (re-)create raw.retrosheet_event
-    # via _ensure_retrosheet_tables -- drop it rather than leave it sitting
-    # around with this file's own minimal schema. Every other test_model_*.py
-    # file that touches raw.retrosheet_event only ever DELETEs rows, never
-    # drops the table, so whichever file's minimal schema happens to exist
-    # first "wins" for the rest of the session -- found the hard way:
-    # without this, test_model_offense.py's own richer schema (needs ab_fl/
-    # sf_fl, which this file's schema doesn't have) failed with a real
-    # UndefinedColumn error, purely from file collection order.
-    with db_conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")
-        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
-    db_conn.commit()
 
 
 def test_compute_upcoming_rolls_up_team_history_with_zero_leakage(db_conn):
@@ -562,9 +578,7 @@ def test_compute_upcoming_only_uses_history_strictly_before_target_game_date(db_
     # fip = (13*0 + 3*1 - 2*0)/(1/3) + 3.10 = 9 + 3.10 = 12.1 -- if the
     # later game's HR leaked in, this would be 30.1 instead (see above).
     with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT home_bullpen_fip FROM gold.game_feature WHERE mlb_game_pk = '900002'"
-        )
+        cur.execute("SELECT home_bullpen_fip FROM gold.game_feature WHERE mlb_game_pk = '900002'")
         (fip,) = cur.fetchone()
     assert fip == Decimal("12.1")
 

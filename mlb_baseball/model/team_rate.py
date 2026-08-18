@@ -74,9 +74,18 @@ def compute_run_environment(conn: psycopg.Connection) -> int:
 
 def compute(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
+        # Two-table dependency, two-table gate (issue #9 item 2): the SQL
+        # below also joins raw.retrosheet_gameinfo. retrosheet_event and
+        # retrosheet_gameinfo are landed by two different connectors
+        # (retrosheet_event.py, retrosheet.py) -- a fresh clone that's only
+        # bootstrapped one of them would otherwise hit an UndefinedTable
+        # error here instead of the same clean "not ready yet, return 0"
+        # every sibling module gives for its own single-table gate.
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        (exists,) = fetch_one(cur)
-        if not exists:
+        (event_exists,) = fetch_one(cur)
+        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
+        (gameinfo_exists,) = fetch_one(cur)
+        if not event_exists or not gameinfo_exists:
             return 0
         cur.execute(
             read_sql("team_rate_retrosheet_update.sql"),
@@ -120,5 +129,3 @@ def health_check() -> list[Check]:
         _check("home_obp min-sample gate holds", bad_gate, "home_pa >= 10"),
         _check("home_pa plausible range", bad_pa, "0+"),
     ]
-
-

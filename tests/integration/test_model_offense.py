@@ -23,14 +23,19 @@ def _ensure_retrosheet_tables(db_conn):
 
 
 def _reset(db_conn):
+    # DROPs raw.retrosheet_event/retrosheet_gameinfo rather than DELETEing
+    # their rows (issue #7): several test_model_*.py files each create their
+    # own minimal stub schema for these two tables on demand, and a stub
+    # with the wrong columns left behind by whichever file's tests happened
+    # to run first in a full-suite session breaks every other file's own
+    # schema expectations (or trips the real retrosheet connector's schema-
+    # drift check when the full-column suite runs later in the same
+    # session). Dropping means _ensure_retrosheet_tables always recreates
+    # exactly this file's own shape, regardless of run order.
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.retrosheet_event")
-        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.retrosheet_gameinfo")
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
@@ -111,6 +116,30 @@ def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
     db_conn.commit()
 
     assert offense.compute(db_conn) == 0
+
+    _reset(db_conn)
+
+
+def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
+    # Issue #9 item 2: compute()'s own SQL joins raw.retrosheet_gameinfo
+    # too, but only retrosheet_event was gated -- retrosheet_event and
+    # retrosheet_gameinfo are landed by two different connectors
+    # (retrosheet_event.py, retrosheet.py), so a fresh clone that's only
+    # bootstrapped one of them previously hit an UndefinedTable error here
+    # instead of the same clean "not ready yet" 0 every sibling gate gives.
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_event ("
+            "game_id text, bat_home_id text, event_cd text, "
+            "ab_fl text, sf_fl text, _season text)"
+        )
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
+    db_conn.commit()
+
+    assert offense.compute(db_conn) == 0
+
+    _reset(db_conn)
 
 
 def _ensure_playbyplay_table(db_conn):
@@ -212,9 +241,7 @@ def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
     features.build(db_conn)
     db_conn.commit()
     with db_conn.cursor() as cur:
-        cur.execute(
-            "UPDATE gold.game_feature SET home_woba = 0.333 WHERE mlb_game_pk = '910003'"
-        )
+        cur.execute("UPDATE gold.game_feature SET home_woba = 0.333 WHERE mlb_game_pk = '910003'")
     db_conn.commit()
 
     offense.compute_live(db_conn)

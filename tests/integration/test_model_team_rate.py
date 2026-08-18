@@ -9,17 +9,18 @@ from mlb_baseball.model import features, team_rate
 
 
 def _reset(db_conn):
+    # DROPs (not DELETEs) every stub table this file creates on demand --
+    # see test_model_offense.py's identical _reset for the full explanation
+    # (issue #7/#9 item 5): each test_model_*.py file creates its own
+    # minimal schema for these tables, and a stale stub from an earlier
+    # file's run breaks later files' schema expectations. All three tables
+    # here are created ad-hoc by this file's own fixtures (each guarded by
+    # its own to_regclass check), never by a migration, so dropping them is
+    # always safe.
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.retrosheet_event")
-        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.retrosheet_gameinfo")
-        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM raw.mlb_schedule")
+        for table in ("raw.retrosheet_event", "raw.retrosheet_gameinfo", "raw.mlb_schedule"):
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
@@ -163,7 +164,6 @@ def _ensure_retrosheet_tables(db_conn):
                 "ADD COLUMN IF NOT EXISTS _season text"
             )
     db_conn.commit()
-
 
 
 def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
@@ -558,6 +558,29 @@ def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
     db_conn.commit()
 
     assert team_rate.compute(db_conn) == 0
+
+    _reset(db_conn)
+
+
+def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
+    # Issue #9 item 2: compute()'s own SQL joins raw.retrosheet_gameinfo
+    # too, but only retrosheet_event was gated -- see
+    # test_model_offense.py's identical regression for the full explanation
+    # (retrosheet_event/retrosheet_gameinfo are landed by two different
+    # connectors).
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_event ("
+            "game_id text, bat_home_id text, resp_bat_id text, event_cd text, "
+            "ab_fl text, sf_fl text, bat_event_fl text, _season text)"
+        )
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
+    db_conn.commit()
+
+    assert team_rate.compute(db_conn) == 0
+
+    _reset(db_conn)
 
 
 def test_health_check_flags_an_implausible_value(db_conn):

@@ -101,10 +101,46 @@ WAR_TABLES = [
 ]
 
 
+def _repair_name_mojibake(name: object) -> object:
+    """pybaseball.batting_stats_bref()/pitching_stats_bref() scrape HTML via
+    get_soup() (pybaseball/league_batting_stats.py, league_pitching_stats.py),
+    which has a real upstream bug on the response-decoding line: `s =
+    str(session.get(url).content).encode()` calls Python's str() directly on
+    a bytes object, which produces bytes.__repr__() text (e.g. the 11 real
+    bytes b'Jos\\xc3\\xa9 Abreu' become the 17-character *literal* string
+    "Jos\\xc3\\xa9 Abreu", backslashes and all) instead of decoding it --
+    BeautifulSoup then parses that repr text as if it were the real page, so
+    every accented player name comes back mangled instead of real UTF-8.
+    Confirmed directly, not guessed: reproduced byte-for-byte with real bref
+    data (both raw.bref_batting and raw.bref_pitching, ~9% of a season's
+    names affected) and by reading pybaseball's own source for the exact
+    str()/encode() line responsible (see issue #6). pybaseball's own
+    bwar_bat()/bwar_pitch() (raw.bref_war_batting/raw.bref_war_pitching) hit
+    a different code path (`s.decode('utf-8')`, done correctly) and were
+    confirmed unaffected -- this is scoped to just Name on these two tables,
+    not applied generically to every column/source.
+
+    Reverses it by undoing exactly that transformation: decode the literal
+    \\xHH escapes back into real bytes (unicode_escape, which treats each
+    character as one raw byte -- a latin1 round-trip is byte-preserving),
+    then decode those bytes as the real UTF-8 they always were. A name with
+    no \\x escape (already correct -- e.g. if pybaseball fixes this
+    upstream) is returned unchanged rather than risking a spurious re-encode.
+    """
+    if not isinstance(name, str) or "\\x" not in name:
+        return name
+    try:
+        return name.encode("latin1").decode("unicode_escape").encode("latin1").decode("utf-8")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return name
+
+
 def _load_table(conn: psycopg.Connection, table: str, fn, season: int) -> int:
     df = call_with_retry(fn, season)
     if df.empty:
         return 0
+    if "Name" in df.columns:
+        df["Name"] = df["Name"].map(_repair_name_mojibake)
     df["_season"] = str(season)
     return load_dataframe(conn, table, df, scope_column="_season", scope_value=str(season))
 

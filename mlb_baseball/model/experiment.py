@@ -42,7 +42,7 @@ from sklearn.metrics import (
     root_mean_squared_error,
 )
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import SplineTransformer, StandardScaler
 
 from mlb_baseball.db import fetch_one
 from mlb_baseball.health import Check, check_table_exists
@@ -77,6 +77,7 @@ SUPPORTED_MODELS = (
     "xgboost",
     "random_forest",
     "extra_trees",
+    "gam",
 )
 _SELECTION_SQL = read_sql("experiment_selection.sql")
 
@@ -146,6 +147,7 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "xgboost",
             "random_forest",
             "extra_trees",
+            "gam",
         ),
     ),
     "run_differential": TargetSpec(
@@ -170,6 +172,7 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "xgboost_regressor",
             "random_forest_regressor",
             "extra_trees_regressor",
+            "gam_regressor",
         ),
     ),
 }
@@ -519,6 +522,16 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
                 ("model", ExtraTreesClassifier(**kwargs)),
             ]
         )
+    if model_family == "gam":
+        kwargs = _merged_kwargs({"max_iter": 1_000, "random_state": seed}, parameters)
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("spline", SplineTransformer(degree=3, n_knots=5)),
+                ("scale", StandardScaler()),
+                ("model", LogisticRegression(**kwargs)),
+            ]
+        )
     if model_family == "ridge":
         kwargs = _merged_kwargs({"random_state": seed}, parameters)
         return Pipeline(
@@ -569,6 +582,16 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
                 ("model", ExtraTreesRegressor(**kwargs)),
             ]
         )
+    if model_family == "gam_regressor":
+        kwargs = _merged_kwargs({"random_state": seed}, parameters)
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("spline", SplineTransformer(degree=3, n_knots=5)),
+                ("scale", StandardScaler()),
+                ("model", Ridge(**kwargs)),
+            ]
+        )
     raise ExperimentError(f"unsupported estimator {model_family!r}")
 
 
@@ -588,6 +611,8 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = RandomForestClassifier().get_params(deep=False)
     elif model_family == "extra_trees":
         allowed = ExtraTreesClassifier().get_params(deep=False)
+    elif model_family == "gam":
+        allowed = LogisticRegression().get_params(deep=False)
     elif model_family == "ridge":
         allowed = Ridge().get_params(deep=False)
     elif model_family == "hist_gradient_boosting_regressor":
@@ -598,6 +623,8 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = RandomForestRegressor().get_params(deep=False)
     elif model_family == "extra_trees_regressor":
         allowed = ExtraTreesRegressor().get_params(deep=False)
+    elif model_family == "gam_regressor":
+        allowed = Ridge().get_params(deep=False)
     else:
         raise ExperimentError(f"unsupported estimator {model_family!r}")
     unknown = sorted(set(parameters) - set(allowed))

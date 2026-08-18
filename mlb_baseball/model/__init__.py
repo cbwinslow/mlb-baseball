@@ -164,7 +164,12 @@ def evaluate(model_versions: list[str], season: int, cutoff: str, bootstrap_samp
 def health_check() -> list[Check]:
     return [
         check_last_run(SOURCE),
-        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
+        # mode="bootstrap" -- run()'s own track_run mode, confusingly named
+        # but is in fact `mlb predict`, the daily-cron-scheduled one.
+        # Unscoped, a manual run_features()/train()/evaluate() call (modes
+        # "features"/"train"/"evaluate") would mask a genuinely stale daily
+        # predict run -- the same blind spot this check exists to close.
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES, mode="bootstrap"),
     ] + (
         features.health_check()
         + log5.health_check()

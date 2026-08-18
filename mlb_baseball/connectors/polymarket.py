@@ -361,5 +361,8 @@ def health_check() -> list[Check]:
         check_table_exists(SNAPSHOT_TABLE),
         check_table_exists(PRICE_TABLE),
         check_last_run(SOURCE),
-        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES),
+        # mode="update" -- the daily-cron-scheduled mode. Unscoped, a manual
+        # backfill_history() run (mode="backfill") would mask a genuinely
+        # stale daily update, the same blind spot this check exists to close.
+        check_recent_run(SOURCE, FRESHNESS_THRESHOLD_MINUTES, mode="update"),
     ]

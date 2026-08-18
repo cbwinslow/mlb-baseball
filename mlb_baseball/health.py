@@ -298,21 +298,37 @@ def check_grouped_no_duplicates(label: str, sql: str) -> Check:
     return Check(label, True, f"{len(rows)} multi-game groups checked, no collisions")
 
 
-def check_recent_run(source: str, max_age_minutes: int) -> Check:
+def check_recent_run(source: str, max_age_minutes: int, mode: str | None = None) -> Check:
     """For sources expected to run on a repeating schedule (e.g. mlb_api's
     cron-driven live-game capture) — check_last_run only tells you whether
     the *last* run succeeded, not whether the scheduler is still running at
     all. A cron job that silently stopped (crashed host, disabled crontab
     entry, expired credentials) still has an old "success" row forever,
-    which check_last_run alone would report as healthy indefinitely."""
+    which check_last_run alone would report as healthy indefinitely.
+
+    ``mode`` scopes the check to one meta.ingestion_run.mode value — required
+    for a source whose SOURCE constant is shared across a scheduled mode and
+    an unscheduled one (e.g. kalshi/polymarket's daily "update" vs. their
+    owner-invoked "backfill", or model's daily "bootstrap" [predict] vs. its
+    manual "features"/"train"/"evaluate"). Without it, a manual run of the
+    unscheduled mode would mask a genuinely stale scheduled one — the same
+    blind spot this check exists to close, just one mode-column away from
+    where check_last_run already had it."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             try:
-                cur.execute(
-                    "SELECT status, started_at FROM meta.ingestion_run "
-                    "WHERE source = %s ORDER BY id DESC LIMIT 1",
-                    (source,),
-                )
+                if mode is None:
+                    cur.execute(
+                        "SELECT status, started_at FROM meta.ingestion_run "
+                        "WHERE source = %s ORDER BY id DESC LIMIT 1",
+                        (source,),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT status, started_at FROM meta.ingestion_run "
+                        "WHERE source = %s AND mode = %s ORDER BY id DESC LIMIT 1",
+                        (source, mode),
+                    )
             except psycopg.errors.UndefinedTable:
                 conn.rollback()
                 return Check(

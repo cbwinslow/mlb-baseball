@@ -11,7 +11,16 @@ not evidence of a fair experiment or valid backtest.
 
 ## Rehearsal sequence
 
-Use `mlb_test` for all writes and verification.
+Use `mlb_test` for all writes and verification. Several ADRs in
+`docs/DECISIONS.md` verify a new model family with `--fold-years 2015
+2024` specifically -- a small, deliberately bounded smoke-test pair, not
+`plans/04-modeling-simulation-and-experiments.md`'s declared 2016-2024
+development-fold contract. The two seasons exist only to prove a new
+family runs end to end and produces finite, sane output against real
+production-shaped data; they are not a promotion-track evaluation, and a
+new family's rehearsal result is never compared against another family's
+result from the full contract's fold set. The declared 2016-2024 contract
+still governs any result used to promote a champion.
 
 ```sh
 # Classification (home_win)

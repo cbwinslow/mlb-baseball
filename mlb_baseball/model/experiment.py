@@ -567,8 +567,9 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
         # hence "naive") rather than approximating it, and exposes
         # predict_proba natively -- no probability=True-style opt-in and no
         # deprecation risk like svm's. No random_state: GaussianNB fits a
-        # closed-form per-class Gaussian, with no internal randomness to
-        # seed, unlike every tree/boosting/SVM family above.
+        # closed-form per-class Gaussian with no internal randomness to
+        # seed (unlike the tree/boosting/SVM families above, which all
+        # require random_state for their stochastic components).
         kwargs = _merged_kwargs({}, parameters)
         return Pipeline(
             [
@@ -653,8 +654,9 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
         # round, repeated until `tol` convergence or `max_iter`), matching
         # ridge's impute -> scale -> model shape. No random_state: the
         # iteration is deterministic given the data -- no internal
-        # randomness to seed, unlike GaussianNB's single-pass closed-form
-        # per-class fit or every tree/boosting/SVM family above.
+        # randomness to seed, unlike every tree/boosting/SVM family above
+        # (GaussianNB likewise has no randomness to seed, via its own
+        # single-pass closed-form per-class fit).
         kwargs = _merged_kwargs({}, parameters)
         return Pipeline(
             [

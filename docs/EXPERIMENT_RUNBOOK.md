@@ -85,7 +85,14 @@ scale, where per-class training counts are much larger, is a hypothesis
 based on how `GaussianNB`'s variance estimates work, not a verified
 result — confirm it against real production-scale folds (with the usual
 calibration/uncertainty checks) before treating it as established, the same
-bar any other family here would need to clear before promotion.
+bar any other family here would need to clear before promotion. If this
+shows up on a real comparison run, `--parameters '{"var_smoothing": 1e-6}'`
+(or another value larger than the `1e-9` default) is the standard
+`GaussianNB` mitigation — it widens the per-class variance floor and damps
+the near-0/near-1 posteriors this section describes. No such override is
+applied by default: this is a dormant, not-yet-promoted research family
+(see `docs/DECISIONS.md`'s ADR-074), and this file's established posture is
+to document a known limitation rather than pre-engineer around it.
 
 ## Why the split is chronological
 

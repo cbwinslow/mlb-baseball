@@ -73,3 +73,21 @@ The corrected sample is directionally encouraging for `gbm-v1`, but 47 shared ga
 ## Phase 3 — Astro website (oddstrader-style)
 
 Not planned yet. The gold-layer reporting surface above (`gold.player_season`/`team_season`/`division_standing`) is a real, deliberate head start on this phase's eventual data needs, built once the underlying stats were already sitting scattered across `core`/`model` with no single queryable home — see ADR-057. No UI, API, or Astro code exists yet.
+
+**Owner direction, 2026-08-19: a public research/query interface (in the
+spirit of baseball.computer's own query layer) is now a goal for this
+phase, in addition to — not instead of — the predictions/live-data/market-data
+differentiators `docs/NORTH_STAR.md` already claims.** `docs/PROJECT_REVIEW.md`
+already establishes the licensing boundary this needs to respect
+(baseball.computer is CC BY-NC-SA; reference their public *interface concept*
+freely, never copy their schema, SQL, prose, or UI verbatim). Concretely, this
+project's own data surface is already broader than baseball.computer's own
+query layer covers — the full sabermetrics layer is already built (see Phase
+2 above: wOBA, wRC+, OBP/SLG/ISO/BABIP/BB%/K%, starter FIP/K%/BB%/HR%, bullpen
+FIP/K%/BB%/fatigue, park factor, WAR, OAA, sprint speed, catcher framing, plus
+`gold.player_season`/`team_season`/`division_standing`) — what's missing isn't
+more stats, it's a way for someone besides this project's own code to actually
+query them. Not started; not scoped yet (needs its own design pass — what
+gets exposed publicly is gated by `docs/SOURCE_RIGHTS.md`, same as everything
+else in Phase 3). A real next step when this phase starts, not a reason to
+pull it forward now.

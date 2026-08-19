@@ -5,13 +5,16 @@ each completed plan gate.
 
 ## Current state summary
 
-- **Production state (superseded 2026-08-18, see "Plan 01F production
-  cutover executed" below for the current state):** Production `mlb` was at
-  migration 0052 as of 2026-08-13/14 evidence below; now at migration 0056
-  with the `game_pk` uniqueness cutover applied and `core`/`gold` rebuilt.
-  `gold.game_feature` had 217,340 rows and every enrichment module had run
-  against it for the first time ever (2026-08-13/14, owner-authorized,
-  one module at a time, health-checked after each): `park`, `team_rate`,
+- **Production state (superseded again 2026-08-19, see "Production incident
+  found and fixed" below for the current state):** Production `mlb` was at
+  migration 0052 as of 2026-08-13/14 evidence below; then migration 0056
+  with the `game_pk` uniqueness cutover applied and `core`/`gold` rebuilt
+  2026-08-18 (this rebuild silently wiped every enrichment column back to
+  NULL -- the base rebuild only populates the base feature family; caught
+  and re-backfilled 2026-08-19, see below). `gold.game_feature` had 217,340
+  rows and every enrichment module had run against it for the first time
+  ever (2026-08-13/14, owner-authorized, one module at a time,
+  health-checked after each): `park`, `team_rate`,
   `offense` (+`_live`), `starter` (+`_live`+`_probable`), `bullpen`
   (+`_live`+`_upcoming`), `oaa`, `speed`, `framing`, `war`. Every health
   check passed, including `starter`'s full 13,613-pitcher-season
@@ -1750,3 +1753,83 @@ Two bug-fix PRs closing real, previously-open issues:
   SQL files (`team_bullpen_retrosheet_update.sql` is in `.sqlfluffignore`
   already, pre-existing). All TDD, written and watched fail before
   implementation.
+
+### Production incident found and fixed: every enrichment column in `gold.game_feature` was NULL -- 2026-08-19 (`mlb` -- owner-authorized)
+
+- **Found while investigating issue #32 (health-check join-coverage gap),
+  not by looking for it.** Before proposing a design for #32's "detect a
+  total join failure" check, queried real production `mlb` to calibrate
+  it and found `count(home_obp), count(home_woba), count(home_pa)` were
+  all **0 out of 217,196 rows** -- every enrichment column (team rate
+  stats, wOBA/wRC+, starter ERA, bullpen FIP, park factor, WAR, OAA)
+  across the *entire* table, not a partial or recent-only gap. This is
+  exactly the silent-failure shape issue #32 warns existing health checks
+  can't catch (`IS NOT NULL` filters exclude an all-NULL column from ever
+  registering as "bad").
+- **Root cause traced precisely, not guessed:** every one of the 217,196
+  rows shares the identical `_built_at` timestamp (2026-08-18 07:01:57
+  UTC) -- a single bulk rebuild, matching the `game_pk`-uniqueness
+  migration cutover recorded above ("Plan 01F production cutover
+  executed"). That rebuild populates only the base feature family
+  (win%/Elo/outcome); the enrichment modules were run once before it
+  (2026-08-13/14, see "Production enrichment rollout, part 2" above) and
+  never re-run after the table was rebuilt out from under them. Not a bug
+  in any enrichment SQL -- an operational gap (no automated re-run after
+  a rebuild), confirmed by checking `meta.model_run`/`meta.ingestion_run`
+  showed nothing scheduled for these modules.
+- **Reported to the owner before acting, not fixed unilaterally.** A
+  write of this size against real production data needs explicit
+  authorization regardless of how clear the fix looks -- asked directly,
+  received it, then proceeded.
+- **Backfilled by re-running every enrichment module against real `mlb`,
+  in the same order and shape as the original 2026-08-13/14 rollout**
+  (`park`, `team_rate` + `compute_run_environment`, `offense` +
+  `compute_wrc_plus` + both live paths, `starter` + live + probable,
+  `bullpen` + live + upcoming, `oaa`, `speed`, `framing`, `war` --
+  one-off script, `DATABASE_URL=postgresql:///mlb` stated explicitly on
+  every invocation per the database-naming golden rule). Row counts
+  landed within a few hundred rows of the original rollout's own figures
+  across every module (e.g. `team_rate.compute`: 216,646 vs the original
+  216,592; `bullpen.compute`: 216,646 vs 216,592) -- the small deltas are
+  real new games ingested since 08-13/14, not a discrepancy.
+- **Verified with `mlb doctor` against production, not just row counts.**
+  209/222 checks passed; every check touching the backfilled data passed
+  clean (all rate-stat plausible-range checks, the 406,516-row
+  bullpen/starter outs reconciliation, the 13,613-pitcher-season starter
+  reconciliation within its documented 2.0% tolerance). The 13 pre-existing
+  `FAIL`s are unrelated to this backfill (unbootstrapped
+  `polymarket_price`/`kalshi_candle` tables, stale cron-freshness checks,
+  a small pre-existing `core.play`/`core.pitch` row-loss gap, no trained
+  `gbm-v1` model file) with one real exception worth a follow-up:
+  `starter_workload` (PIT-03, added 2026-08-15 -- after the *original*
+  rollout, so it was never run in production either time) shows 0%
+  `rest_days`/`outs_7d` coverage. Not fixed in this change; a real,
+  scoped follow-up (add `starter_workload.compute()` to the enrichment
+  run order) rather than expanding this incident response further.
+- **A live performance investigation grew out of this**, prompted
+  directly by the owner ("mlb doctor is taking forever"): caught the
+  exact slow query live via `pg_stat_activity` during the verification
+  `mlb doctor` run -- `bullpen_outs_reconcile.sql` alone took ~83-85s.
+  `EXPLAIN (ANALYZE, BUFFERS)` showed `raw.retrosheet_gameinfo` had no
+  index on `gid` (its actual join key everywhere in this codebase, only
+  `_season` was indexed) -- added `idx_retrosheet_gameinfo_gid`
+  (`CREATE INDEX CONCURRENTLY`, safe/additive, applied directly to
+  production) and re-verified with a second `EXPLAIN`: honestly, it
+  didn't meaningfully change *this* query's runtime (83.99s vs 85.24s),
+  because `retrosheet_event`'s side of the join already used its own
+  existing index correctly. The new index is still kept (a real
+  improvement for other, more selective queries joining the same column)
+  but the actual bottleneck was traced further: this one query
+  independently scans all of `raw.retrosheet_event` *twice* (two CTEs,
+  each rejoining the same three tables) and spills ~850MB to disk
+  sorting the combined result. Filed as issue #46 with the full
+  `EXPLAIN` evidence rather than rewriting a correctness-critical
+  production reconciliation query under time pressure.
+- **Owner also gave broader direction this session, captured where the
+  active plans live rather than only in this log:** sequence/embedding
+  modeling is now a tracked goal, not just a declined gap (`plans/
+  04-modeling-simulation-and-experiments.md`'s 04C status); a public
+  research/query interface (baseball.computer-style, respecting its CC
+  BY-NC-SA terms) is now a tracked Phase 3 goal (`docs/ROADMAP.md`).
+  Neither is started -- both explicitly scoped as future work, not
+  implied in-progress.

@@ -168,6 +168,38 @@ def test_estimate_transition_matrix_excludes_other_seasons_and_gametypes(db_conn
     assert set(matrix[empty_zero]) == {markov.BaseOutState(0, True, False, False)}
 
 
+def test_estimate_transition_matrix_excludes_event_codes_zero_and_one(db_conn):
+    # PR review finding: the SQL's `event_cd NOT IN ('0', '1')` filter was
+    # only proven absent from *current* data (a GROUP BY scan), never
+    # proven to actually work mechanically -- a regression that silently
+    # dropped or reversed the filter would have gone uncaught. Each
+    # excluded row here is wired to produce a distinct, easy-to-detect
+    # outcome (scoring a run from empty bases) if it leaked in.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype, _season) "
+            "VALUES ('G1', 'regular', '2021')"
+        )
+        # The only row that should survive: a leadoff single.
+        _insert_event(cur, "G1", "0", "0", "20", bat_dest="1")
+        # event_cd='0' (unknown) -- would score a run from empty bases if
+        # counted, which no real single-into-1st transition produces.
+        _insert_event(cur, "G1", "0", "0", "0", bat_dest="4")
+        # event_cd='1' (no play, e.g. a substitution) -- same distinct,
+        # detectable outcome if it leaked in.
+        _insert_event(cur, "G1", "0", "0", "1", bat_dest="4")
+    db_conn.commit()
+
+    matrix = markov.estimate_transition_matrix(db_conn, seasons=[2021])
+
+    empty_zero = markov.BaseOutState(0, False, False, False)
+    first_zero = markov.BaseOutState(0, True, False, False)
+    assert set(matrix[empty_zero]) == {first_zero}
+    assert matrix[empty_zero][first_zero] == 1.0
+
+
 def test_estimate_run_expectancy_matches_hand_calculation(db_conn):
     _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)

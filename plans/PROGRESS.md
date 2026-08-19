@@ -1176,8 +1176,8 @@ Two bug-fix PRs closing real, previously-open issues:
   that it runs without crashing.
 - `uv run ruff check .`/`uv run ruff format --check .` clean,
   `uv run mypy mlb_baseball/model/markov.py` clean.
-  `tests/unit/test_markov_transitions.py` (10 passed, pure logic, no DB)
-  and `tests/integration/test_model_markov.py` (3 passed, real Postgres) --
+  `tests/unit/test_markov_transitions.py` (15 passed, pure logic, no DB)
+  and `tests/integration/test_model_markov.py` (6 passed, real Postgres) --
   both TDD, written and watched fail before implementation.
 - **Found and fixed a real, pre-existing, unrelated test-pollution issue
   while verifying against `mlb_test`:** `tests/integration/test_audit_db.py`
@@ -1208,3 +1208,27 @@ Two bug-fix PRs closing real, previously-open issues:
   `gametype` substitute) -- noted the real, tiny (316-row, ~0.002%)
   join-coverage gap that claim surfaced as an accepted limitation instead.
   See ADR-076 for full detail.
+- **Second review round (3 fixed, 3 declined):** added `numpy>=1.26` as an
+  explicit direct dependency (was only transitive via scikit-learn);
+  added a citation ([FanGraphs](https://library.fangraphs.com/misc/re24/))
+  and honest reframing to the RE24 comparison (published tables vary by
+  run environment/era, not one fixed number); resynced this file's and
+  ADR-076's test counts, which had drifted out of sync after the first
+  fix round (now both 15 unit / 6 integration), and added a mutation-
+  tested regression proving the `event_cd IN ('0','1')` exclusion filter
+  actually works, not just "confirmed absent from current data" as a
+  comment. Declined a hard-reject for rows with ambiguous duplicate
+  destination claims after checking real data directly: 9,229 of
+  16.4M rows have this pattern, but 9,224 of them already collapse to
+  the shared `TERMINAL` state regardless (harmless), and the remaining 5
+  are statistically negligible -- rejecting them would break real-world
+  usability for a documented, provably harmless edge case. Declined
+  shortening identifiers to CLAUDE.md's "one word, two at most" after
+  confirming `health.py`/`experiment.py` already routinely use 3-4-word
+  function names throughout -- the convention's own examples are about
+  DB-layer naming, not Python identifiers. Declined a per-test
+  `current_database()` guard after confirming `tests/conftest.py`'s
+  session-scoped `_assert_test_database_url` already makes this
+  structurally impossible to get wrong, the same way every sibling
+  `test_model_*.py` file already relies on it without a redundant
+  per-file check.

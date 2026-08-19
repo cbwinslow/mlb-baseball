@@ -28,6 +28,17 @@ families not yet built: true hierarchical/multilevel (partial-pooling)
 models and true sequence/embedding models (recurrent/attention architectures
 over a sequential, not flat per-game, feature representation).
 
+**04D status:** first package landed 2026-08-19 — `mlb_baseball/model/markov.py`
+estimates the 24-state base/out transition matrix and its RE24-style run-
+expectancy table directly from `raw.retrosheet_event` (ADR-076; `core.play`
+alone cannot, it has no runner-on-base columns — a correction to
+`docs/RESEARCH.md`'s prior claim). Verified against real `mlb` data: closely
+matches published modern-era RE24 values allowing for real run-environment
+spread across cited eras (e.g. bases loaded/0 outs 2.430 vs. FanGraphs'
+2.282 baseline — see ADR-076 for the full cited comparison protocol). Not
+yet built: the half-inning/game simulator and
+calibration against held-out real seasons.
+
 ## Work packages
 
 ### 04A — Experiment platform

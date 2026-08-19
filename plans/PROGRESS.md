@@ -1118,3 +1118,117 @@ Two bug-fix PRs closing real, previously-open issues:
 - Not wired into any production path -- matches every sibling model
   family's own dormant-until-a-separate-promotion-decision posture. No
   champion/challenger comparison or promotion decision was made.
+
+### Plan 04D -- base/out transition matrix + run expectancy (first package) -- 2026-08-19 (`mlb_test` only)
+
+- Added `mlb_baseball/model/markov.py` and
+  `mlb_baseball/sql/markov_transition_counts.sql`: estimates the classic
+  24-state (8 base configurations x 3 outs) base/out Markov chain plus one
+  absorbing `TERMINAL` state directly from `raw.retrosheet_event`, scoped
+  to regular-season games via the same `raw.retrosheet_gameinfo` join
+  every sibling retrosheet_event consumer uses -- plus the RE24-style
+  run-expectancy table derived from it (`run_expectancy`, solving the
+  absorbing-chain identity `(I-Q)@RE=r` via `numpy.linalg.solve`, no new
+  dependency). Plan 04D's first deliverable ("Estimate base/out transition
+  matrices and run expectancy by context... validate probabilities and
+  conservation rules"); the simulator and calibration against held-out
+  seasons are separate follow-up packages.
+- **Correction to `docs/RESEARCH.md`, found before writing any code:**
+  that doc claimed `core.play` has the data to build this directly.
+  Checked directly against the live schema: `core.play` has `outs` but no
+  runner-on-base columns at all -- no equivalent of `raw.retrosheet_event`'s
+  `base1/2/3_run_id`/`bat_dest_id`/`run1/2/3_dest_id`. Built off
+  `raw.retrosheet_event` instead (already ingested, no new source/schema
+  change). See ADR-076.
+- **No sequential per-game walk needed, confirmed not assumed:** every
+  `raw.retrosheet_event` row already self-describes both its pre-play
+  state and everything needed to derive its post-play state, so this is a
+  single aggregate `GROUP BY` query, not a stateful per-game replay.
+- **Destination-code mapping verified against real rows:** confirmed via
+  a full `GROUP BY` scan that `bat_dest_id`/`run{N}_dest_id` values `5`
+  and `6` occur in real data (26,080 + 345 rows) and represent
+  error-driven/team-unearned scoring, not a distinct "special"
+  destination -- `IN (4,5,6)` is treated as "reached home" throughout, not
+  just `= 4`, which would have undercounted runs on those plays.
+- **A real conservation rule beyond "probabilities sum to 1":**
+  `_validate_row_conservation` rejects any row where
+  `runs_scored + post_b1 + post_b2 + post_b3` exceeds
+  `pre_b1 + pre_b2 + pre_b3 + 1` (existing runners plus the batter) --
+  catches encoding bugs a pure probability-normalization check can't see.
+  Also rejects outs decreasing and `post_outs > 3`.
+- **Verified against real production-shaped data:** ran the raw SQL
+  directly against real `mlb` (read-only, no write) for season 2019 --
+  bases-loaded/0-outs shows a substantially higher one-step scoring rate
+  than bases-empty/0-outs (585/680 vs. 1,787/46,017), the expected
+  direction. `tests/integration/test_model_markov.py` seeds a hand-built
+  multi-game fixture and asserts the resulting matrix matches
+  hand-calculated probabilities exactly, including that playoff-game and
+  wrong-season rows are correctly excluded.
+- **Run expectancy checked against published RE24 tables, not just
+  internal consistency:** ran `estimate_run_expectancy` against real
+  `mlb` (read-only, season 2019). Every value is correctly monotonic
+  (decreases as outs increase, increases as more bases are occupied) and
+  closely matches widely-published modern-era RE24 values: bases
+  empty/0 outs 0.542 (published ~0.48-0.56), bases loaded/0 outs 2.430
+  (published ~2.28-2.42), bases empty/2 outs 0.115 (published
+  ~0.10-0.12), bases loaded/2 outs 0.790 (published ~0.74-0.81) --
+  strong end-to-end evidence the whole pipeline is correct, not just
+  that it runs without crashing.
+- `uv run ruff check .`/`uv run ruff format --check .` clean,
+  `uv run mypy mlb_baseball/model/markov.py` clean.
+  `tests/unit/test_markov_transitions.py` (15 passed, pure logic, no DB)
+  and `tests/integration/test_model_markov.py` (6 passed, real Postgres) --
+  both TDD, written and watched fail before implementation.
+- **Found and fixed a real, pre-existing, unrelated test-pollution issue
+  while verifying against `mlb_test`:** `tests/integration/test_audit_db.py`
+  depends on `raw.retrosheet_gameinfo` carrying its full real column set,
+  but several `test_model_*.py` files' own `_reset()` fixtures
+  unconditionally `DROP TABLE`+recreate it with a minimal stub (this
+  file's new fixture included) -- whichever runs last in a shared
+  `mlb_test` session leaves the table too narrow for
+  `test_audit_db.py`'s assumptions. Fixed by reloading the real schema
+  from production `mlb` (read-only) into `mlb_test`; the underlying
+  fragility (these fixtures fighting over one shared table's shape) is
+  real and not fixed here -- tracked as issue #37.
+- No persistence layer added -- `estimate_transition_matrix`/
+  `estimate_run_expectancy` return in-memory results, no new migration or
+  `meta`/`gold` table, matching every dormant Plan 04 research module's
+  "not wired into production" posture.
+- **PR review (5 fixed, 3 investigated-and-declined with real evidence):**
+  added the missing two-table readiness gate (matching `team_rate.py`),
+  fixed `n<=0`/`pre_outs` range validation gaps, made
+  `_immediate_expected_runs` validate independently, wrapped
+  `np.linalg.solve`'s singular-matrix case as a clean `MarkovError`, and
+  rejected empty `seasons`. Declined a `bat_event_fl='T'` filter claim
+  after directly comparing real 2019 RE24 values with/without it (no
+  improvement, sometimes worse) and confirming the described SQL bug
+  doesn't exist; declined switching the season/gametype join to
+  `raw.retrosheet_event`'s own `_group` column after confirming
+  `_group='pbp'` includes postseason/allstar/exhibition games too (not a
+  `gametype` substitute) -- noted the real, tiny (316-row, ~0.002%)
+  join-coverage gap that claim surfaced as an accepted limitation instead.
+  See ADR-076 for full detail.
+- **Second review round (3 fixed, 3 declined):** added `numpy>=1.26` as an
+  explicit direct dependency (was only transitive via scikit-learn);
+  added a citation ([FanGraphs](https://library.fangraphs.com/misc/re24/))
+  and honest reframing to the RE24 comparison (published tables vary by
+  run environment/era, not one fixed number); resynced this file's and
+  ADR-076's test counts, which had drifted out of sync after the first
+  fix round (now both 15 unit / 6 integration), and added a mutation-
+  tested regression proving the `event_cd IN ('0','1')` exclusion filter
+  actually works, not just "confirmed absent from current data" as a
+  comment. Declined a hard-reject for rows with ambiguous duplicate
+  destination claims after checking real data directly: 9,229 of
+  16.4M rows have this pattern, but 9,224 of them already collapse to
+  the shared `TERMINAL` state regardless (harmless), and the remaining 5
+  are statistically negligible -- rejecting them would break real-world
+  usability for a documented, provably harmless edge case. Declined
+  shortening identifiers to CLAUDE.md's "one word, two at most" after
+  confirming `health.py`/`experiment.py` already routinely use 3-4-word
+  function names throughout -- the convention's own examples are about
+  DB-layer naming, not Python identifiers. Declined a per-test
+  `current_database()` guard after confirming `tests/conftest.py`'s
+  session-scoped `_assert_test_database_url` already makes this
+  structurally impossible to get wrong, the same way every sibling
+  `test_model_*.py` file already relies on it without a redundant
+  per-file check.

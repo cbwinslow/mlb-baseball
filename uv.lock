@@ -1337,6 +1337,8 @@ source = { editable = "." }
 dependencies = [
     { name = "feedparser" },
     { name = "mlb-statsapi" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pandas" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pybaseball" },
@@ -1363,6 +1365,7 @@ requires-dist = [
     { name = "feedparser", specifier = ">=6.0.14" },
     { name = "mlb-statsapi", specifier = ">=1.7" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.6" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },

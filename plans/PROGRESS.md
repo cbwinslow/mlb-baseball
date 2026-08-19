@@ -1317,3 +1317,69 @@ Two bug-fix PRs closing real, previously-open issues:
   `_reset()` (already centrally enforced by `tests/conftest.py`'s
   autouse `_assert_test_database_url`, the same claim ADR-076's own
   review already investigated and declined).
+
+### Plan 04D -- full-game simulator + calibration check (third package) -- 2026-08-19 (`mlb_test` only)
+
+- Added `simulate_half_inning_steps`, `GameResult`, `simulate_game`, and
+  `real_game_scores` to `mlb_baseball/model/markov.py`, plus
+  `mlb_baseball/sql/markov_game_scores.sql`. Closes Plan 04D's
+  "full 9-inning/both-teams game simulation" gap flagged open in the
+  second package's own entry above (ADR-078). Calibration against a
+  genuinely held-out season remains open.
+- **Why a full game needs a lower-level "one play at a time" primitive:**
+  a walk-off (home team takes the lead in the 9th or later) ends the
+  game the instant the winning run scores, not after 3 outs --
+  `simulate_game` must be able to check the score after every individual
+  play during a late-inning home at-bat, not just receive one final
+  half-inning total. `simulate_half_inning_steps` is a generator
+  yielding each play's runs one at a time; `simulate_half_inning` is now
+  just `sum(simulate_half_inning_steps(...))` -- a pure refactor,
+  verified with a regression test to not change the rng draw sequence.
+- `simulate_game` implements real game-ending rules, not a fixed inning
+  count: skips a needless bottom of the 9th (or later) if the home team
+  is already ahead after the top half; ends immediately mid-half-inning
+  on a walk-off; continues to extra innings for as long as tied at or
+  past regulation. Verified with a `_ScriptedRandom` test double (a fake
+  satisfying `random.Random`'s `.choices()` interface with a pre-set
+  outcome sequence) rather than real `random.Random`, since pinning an
+  exact multi-inning sequence through real RNG internals would be
+  fragile -- 5 tests, each scripted to the exact number of plays the
+  code under test should draw, so an extra unwanted draw (e.g. batting
+  after a walk-off, or batting a 9th that should've been skipped) fails
+  the test immediately rather than silently returning a wrong result.
+- `real_game_scores` uses `raw.retrosheet_gameinfo`'s own `vruns`/`hruns`
+  columns for final scores (confirmed exact match against
+  `MAX(away_score_ct)`/`MAX(home_score_ct)` for a 20-game spot-check) and
+  `raw.retrosheet_event`'s `MAX(inn_ct)` per game for innings played
+  (`retrosheet_gameinfo`'s own `innings` column is blank for every 2019
+  regular-season row -- not usable). Checked real 2019 data for anything
+  that would make `vruns`/`hruns` untrustworthy: zero forfeits, 4
+  suspended-and-resumed games, no nulls/blanks on any of the 2,429
+  regular-season games -- no special-casing needed.
+- **Verified against real production data at the game level:** ran the
+  full pipeline against real `mlb` (read-only, 2019, 2,429 real games).
+  Total-runs mean: real 9.66 vs. simulated 9.83 (~1.7%). Innings-played
+  mean: real 9.19 vs. simulated 9.17 (~0.2%). Extra-innings rate: real
+  8.56% vs. simulated 8.36% (~2.4% relative). Away-runs mean differs more
+  (real 4.84 vs. simulated 5.09, ~5.2%) than home-runs mean (real 4.82
+  vs. simulated 4.74, ~1.7%) -- not a new bug, this is the already-known
+  ADR-077 half-inning-level bias (simulated mean 0.552 vs. real 0.534,
+  ~3.4% high) propagating up: the away team always plays complete
+  half-innings, inheriting that inflation directly across ~9 innings,
+  while the home team's total is partially compressed back down by the
+  same game-ending rules that make it the winning side more often.
+- **Home win rate is an honestly-reported gap, not smoothed over:** real
+  2019 home teams won 52.9% of games (baseball's real, well-documented
+  home-field advantage) vs. the simulator's 49.9% (a coin flip, expected
+  -- `simulate_game` draws both teams from the same league-average
+  distribution, no home/away split). Modeling separate home/away
+  distributions is real future scope, not attempted here.
+- `uv run ruff check .`/`uv run ruff format --check .` clean,
+  `uv run mypy mlb_baseball/model/markov.py` clean, `uv run sqlfluff
+  lint` clean on the new SQL file. `tests/unit/test_markov_simulate.py`
+  gained 3 tests (the stepper refactor, 15 total now);
+  `tests/unit/test_markov_game.py` is new (5 tests, no DB);
+  `tests/integration/test_model_markov.py` gained 2 more tests (13 total
+  now). All TDD, written and watched fail before implementation.
+- No persistence layer added, matching ADR-076's/ADR-077's and every
+  dormant Plan 04 research module's "not wired into production" posture.

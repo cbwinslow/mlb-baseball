@@ -10,6 +10,7 @@ from mlb_baseball.model.markov import (
     TransitionCountRow,
     build_outcome_distribution,
     simulate_half_inning,
+    simulate_half_inning_steps,
     simulate_half_innings,
     summarize_runs,
 )
@@ -100,6 +101,43 @@ def test_simulate_half_innings_sampling_converges_to_the_true_expected_value():
     results = simulate_half_innings(distribution, random.Random(7), 20_000)
     mean = sum(results) / len(results)
     assert mean == pytest.approx(2.0, abs=0.1)
+
+
+def test_simulate_half_inning_steps_yields_one_run_value_per_play():
+    # Same deterministic 2-play chain as the walk test above, but through
+    # the lower-level stepper: a caller (simulate_game's walk-off check)
+    # needs the runs from each individual play, not just the half-inning
+    # total, so it can react before all 3 outs are reached.
+    empty_zero = BaseOutState(0, False, False, False)
+    first_zero = BaseOutState(0, True, False, False)
+    distribution = {
+        empty_zero: {Outcome(first_zero, 0): 1.0},
+        first_zero: {Outcome(TERMINAL, 2): 1.0},
+    }
+    steps = list(simulate_half_inning_steps(distribution, random.Random(0)))
+    assert steps == [0, 2]
+
+
+def test_simulate_half_inning_steps_raises_on_a_dead_end_state():
+    distribution: dict[BaseOutState, dict[Outcome, float]] = {}
+    with pytest.raises(MarkovError, match="no observed outcomes"):
+        list(simulate_half_inning_steps(distribution, random.Random(0)))
+
+
+def test_simulate_half_inning_still_matches_the_sum_of_its_own_steps():
+    # Regression check for the simulate_half_inning_steps refactor: the
+    # two must stay in lockstep for the exact same seed (same rng draw
+    # sequence), not just agree on the total in isolation.
+    empty_zero = BaseOutState(0, False, False, False)
+    distribution = {
+        empty_zero: {
+            Outcome(TERMINAL, 0): 0.5,
+            Outcome(TERMINAL, 4): 0.5,
+        },
+    }
+    total = simulate_half_inning(distribution, random.Random(3))
+    steps_total = sum(simulate_half_inning_steps(distribution, random.Random(3)))
+    assert total == steps_total
 
 
 def test_simulate_half_innings_returns_one_result_per_requested_inning():

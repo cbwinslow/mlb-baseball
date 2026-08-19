@@ -468,6 +468,11 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         "build_feature_stage",
         lambda _conn: {"gold.game_feature": 10, "gold.game_feature (starters updated)": 4},
     )
+    # A single-key stand-in for the real 20-key dict (one per enrichment
+    # module) is enough here -- this test only proves run() merges
+    # whatever enrich_feature_stage() returns into its own result, not
+    # every module's own row count; the real dict's exact shape is
+    # tests/integration/test_model_enrich_stage.py's job to verify.
     monkeypatch.setattr(
         model,
         "enrich_feature_stage",

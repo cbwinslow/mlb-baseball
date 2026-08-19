@@ -116,6 +116,9 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
     production the same day: park first (zero-leakage, no raw.retrosheet_*
     dependency), then every Retrosheet-derived module, live/upcoming/
     probable variants immediately after each historical path.
+
+    :param conn: an open, non-autocommit connection already inside the
+        same transaction ``build_feature_stage(conn)`` just ran in.
     """
     return {
         "gold.game_feature (park_factor)": park.compute(conn),
@@ -179,7 +182,13 @@ def run() -> dict[str, int]:
         gbm_count = gbm.predict(conn)
         conn.commit()
         result["rows"] = (
-            feature_counts["gold.game_feature"] + log5_count + elo_count + gbm_count + market_count
+            feature_counts["gold.game_feature"]
+            + sum(enrich_counts.values())
+            + log5_count
+            + elo_count
+            + gbm_count
+            + market_count
+            + backfilled
         )
     return {
         **feature_counts,

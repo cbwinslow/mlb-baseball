@@ -24,7 +24,7 @@ from mlb_baseball.model import enrich_feature_stage, features
 def _reset(db_conn):
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        for table in ("raw.retrosheet_event", "raw.retrosheet_gameinfo", "raw.mlb_schedule"):
+        for table in ("raw.retrosheet_event", "raw.retrosheet_gameinfo"):
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
@@ -108,8 +108,14 @@ def test_enrich_feature_stage_populates_columns_from_multiple_real_modules(db_co
         )
     db_conn.commit()
 
+    # No commit between these two calls -- matches production's real
+    # transaction boundary exactly (run() commits once, after both stages;
+    # see mlb_baseball/model/__init__.py). Same-session reads already see
+    # a connection's own uncommitted writes, so this isn't required for
+    # enrich_feature_stage() to see features.build()'s rows -- it's here
+    # so this test's own structure actually proves what run() does, not
+    # a looser approximation of it.
     features.build(db_conn)
-    db_conn.commit()
     counts = enrich_feature_stage(db_conn)
     db_conn.commit()
 
@@ -170,7 +176,6 @@ def test_enrich_feature_stage_returns_zero_without_retrosheet_tables(db_conn):
     db_conn.commit()
 
     features.build(db_conn)
-    db_conn.commit()
     counts = enrich_feature_stage(db_conn)
     db_conn.commit()
 

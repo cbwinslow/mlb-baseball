@@ -985,3 +985,69 @@ Two bug-fix PRs closing real, previously-open issues:
 - Not wired into any production path -- matches every sibling model
   family's own dormant-until-a-separate-promotion-decision posture. No
   champion/challenger comparison or promotion decision was made.
+
+### Plan 04C -- Bayesian model family -- 2026-08-19 (`mlb_test` only)
+
+- Added `bayesian` (classifier, `home_win`, `GaussianNB`) and
+  `bayesian_regressor` (regressor, `run_differential`, `BayesianRidge`) to
+  `mlb_baseball/model/experiment.py` -- `TARGET_REGISTRY`,
+  `SUPPORTED_MODELS`, `_make_estimator`, `_validate_parameters`, following
+  the same branch-per-family pattern as every prior 04C family. Both are
+  genuinely Bayesian (Bayes' rule applied directly), not new-dependency
+  approximations: `GaussianNB` is scikit-learn's own Bayesian classifier,
+  `BayesianRidge` places explicit priors on weights/noise precision and
+  fits them by evidence maximization. Neither has a `random_state`
+  parameter -- both fit closed-form/analytic solutions with no internal
+  randomness, the same situation `svm_regressor` was in with `SVR`.
+- **Real scope gap, made explicit rather than silently claimed closed:**
+  Plan 04C names "Bayesian/hierarchical approaches" as one family, but
+  they are different techniques. True hierarchical/multilevel
+  (partial-pooling) models need `statsmodels` or a probabilistic-
+  programming library, neither of which is in `pyproject.toml` -- adding
+  one is a real dependency decision, not made here. Plan 04C's own status
+  line now says "true hierarchical/multilevel (partial-pooling) and
+  neural/sequence/embedding models" specifically, not "Bayesian/
+  hierarchical" as one bucket, so this stays visible as still-open work.
+  See ADR-074.
+- **A real, honestly-documented finding: `bayesian` was badly
+  miscalibrated on the small rehearsal sample, not hidden or smoothed
+  over.** `--fold-years 2015 2024`: `season-2015` log loss was exactly
+  `0.0000` (confidently and correctly certain on every test-fold game),
+  but `season-2024` was `14.4175` -- one confidently wrong call is
+  catastrophic under log loss. Root cause: `GaussianNB` has no
+  regularization on its per-class Gaussian variance estimates beyond a
+  tiny `var_smoothing` term, so a near-zero variance estimate on a tiny
+  per-class training fold can produce near-0/near-1 posterior
+  probabilities. Documented as a caveat in `docs/EXPERIMENT_RUNBOOK.md`;
+  no code-level cap added, matching this file's established "document,
+  don't pre-engineer for" posture for a dormant family.
+- **Verified against real production-shaped data, not just the small
+  `mlb_test` fixture -- and respecting the reserved 2025 final holdout:**
+  loaded a bounded multi-season real sample (10 games/season across
+  2008/2015/2024/2025/2026) into `mlb_test`, ran `mlb conform`/
+  `mlb features`, then ran both new families through `mlb experiment run`
+  with `--fold-years 2015 2024` specifically (2025 stays the untouched
+  final holdout, 2026 forward monitoring only). `bayesian_regressor`
+  produced finite MAE (3.72-5.44) and RMSE (4.11-6.38), better than
+  `season_average`'s baseline (MAE 7.88-8.99) on this small sample --
+  same "uses the identical `BASE_COLUMNS` every other regressor already
+  uses, not a leakage red flag" honest caveat as every prior regressor
+  family here. Re-running each identical config correctly returned
+  `(reused)` with byte-identical metrics. Rehearsal sample cleared before
+  the final clean test run. No production `mlb` write occurred.
+- `uv run ruff check .` clean, `uv run ruff format --check .` clean on
+  every file touched, `uv run mypy mlb_baseball/model/experiment.py`
+  clean. Full relevant suite: `tests/integration/test_experiment.py`
+  (27 passed), `tests/unit/test_experiment_metrics.py` (24 passed,
+  including 4 new tests), `tests/unit/test_cli_dispatch.py` and
+  `tests/integration/test_ingest_tracking.py` (50 passed, regression
+  check) -- 361 passed total, run twice (once against the loaded
+  rehearsal sample, once after clearing it).
+- `bayesian`/`bayesian_regressor` each needed their own dedicated
+  override-effect test (`var_smoothing` and `alpha_1` respectively),
+  excluded from the existing parametrized `random_state`-override test
+  the same way `svm_regressor` was, since neither estimator has a
+  `random_state` parameter.
+- Not wired into any production path -- matches every sibling model
+  family's own dormant-until-a-separate-promotion-decision posture. No
+  champion/challenger comparison or promotion decision was made.

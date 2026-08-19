@@ -41,11 +41,11 @@ DATABASE_URL=postgresql:///mlb_test uv run mlb audit
 
 For `home_win`, run the snapshot through `home_rate`, `log5`, `elo`,
 `logistic`, `hist_gradient_boosting`, `xgboost`, `random_forest`,
-`extra_trees`, `gam`, and `svm`.
+`extra_trees`, `gam`, `svm`, and `bayesian`.
 For `run_differential`, run through `zero`, `season_average`, `ridge`,
 `hist_gradient_boosting_regressor`, `xgboost_regressor`,
-`random_forest_regressor`, `extra_trees_regressor`, `gam_regressor`, and
-`svm_regressor`.
+`random_forest_regressor`, `extra_trees_regressor`, `gam_regressor`,
+`svm_regressor`, and `bayesian_regressor`.
 The report lists one result per calendar fold; compare like-for-like folds,
 never a model's best isolated season against another model's total.
 
@@ -61,6 +61,22 @@ existing posture toward every other known-but-not-yet-enforced limitation
 deliberately when rehearsing these two specifically (`mlb_baseball.rehearsal
 .load_sample`'s existing small, bounded multi-season sample, not a full
 production-shaped snapshot).
+
+`bayesian` (`GaussianNB`) can produce overconfident, badly miscalibrated
+probabilities on a small per-fold training sample: it multiplies independent
+per-feature Gaussian likelihoods with no regularization beyond a tiny
+`var_smoothing` term, so a near-zero estimated variance in one feature can
+push a prediction to (near-)0 or (near-)1 probability. Confirmed directly on
+the bounded 2015/2024 rehearsal sample: `season-2015`'s log loss was exactly
+`0.0000` (confidently and correctly certain), but `season-2024`'s was
+`14.4175` — one confidently wrong call is catastrophic under log loss. This
+is a real small-sample calibration risk specific to `bayesian`, not shared by
+the regularized (`logistic`/`ridge`/`gam`) or ensembled (`random_forest`/
+`xgboost`) families, which never emit exactly 0 or 1. Watch for it
+specifically when comparing `bayesian` against other families on small
+samples; it is expected to behave better at full production scale, where
+per-class training counts are large enough for `GaussianNB`'s Gaussian
+variance estimates to stabilize.
 
 ## Why the split is chronological
 

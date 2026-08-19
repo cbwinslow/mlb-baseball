@@ -33,7 +33,7 @@ from sklearn.ensemble import (
     RandomForestRegressor,
 )
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.linear_model import BayesianRidge, LogisticRegression, Ridge
 from sklearn.metrics import (
     accuracy_score,
     brier_score_loss,
@@ -41,6 +41,7 @@ from sklearn.metrics import (
     mean_absolute_error,
     root_mean_squared_error,
 )
+from sklearn.naive_bayes import GaussianNB
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import SplineTransformer, StandardScaler
 from sklearn.svm import SVC, SVR
@@ -80,6 +81,7 @@ SUPPORTED_MODELS = (
     "extra_trees",
     "gam",
     "svm",
+    "bayesian",
 )
 _SELECTION_SQL = read_sql("experiment_selection.sql")
 
@@ -151,6 +153,7 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "extra_trees",
             "gam",
             "svm",
+            "bayesian",
         ),
     ),
     "run_differential": TargetSpec(
@@ -177,6 +180,7 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "extra_trees_regressor",
             "gam_regressor",
             "svm_regressor",
+            "bayesian_regressor",
         ),
     ),
 }
@@ -557,6 +561,22 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
                 ("model", SVC(**kwargs)),
             ]
         )
+    if model_family == "bayesian":
+        # GaussianNB is scikit-learn's Bayesian classifier: it applies
+        # Bayes' theorem directly (conditional independence per feature,
+        # hence "naive") rather than approximating it, and exposes
+        # predict_proba natively -- no probability=True-style opt-in and no
+        # deprecation risk like svm's. No random_state: GaussianNB fits a
+        # closed-form per-class Gaussian, with no internal randomness to
+        # seed, unlike every tree/boosting/SVM family above.
+        kwargs = _merged_kwargs({}, parameters)
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("scale", StandardScaler()),
+                ("model", GaussianNB(**kwargs)),
+            ]
+        )
     if model_family == "ridge":
         kwargs = _merged_kwargs({"random_state": seed}, parameters)
         return Pipeline(
@@ -626,6 +646,20 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
                 ("model", SVR(**kwargs)),
             ]
         )
+    if model_family == "bayesian_regressor":
+        # BayesianRidge: genuine Bayesian linear regression -- places priors
+        # on the weights and noise precision and fits them analytically,
+        # matching ridge's impute -> scale -> model shape. No random_state:
+        # like GaussianNB, it fits a closed-form solution with no internal
+        # randomness.
+        kwargs = _merged_kwargs({}, parameters)
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("scale", StandardScaler()),
+                ("model", BayesianRidge(**kwargs)),
+            ]
+        )
     raise ExperimentError(f"unsupported estimator {model_family!r}")
 
 
@@ -649,6 +683,8 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = LogisticRegression().get_params(deep=False)
     elif model_family == "svm":
         allowed = SVC().get_params(deep=False)
+    elif model_family == "bayesian":
+        allowed = GaussianNB().get_params(deep=False)
     elif model_family == "ridge":
         allowed = Ridge().get_params(deep=False)
     elif model_family == "hist_gradient_boosting_regressor":
@@ -663,6 +699,8 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = Ridge().get_params(deep=False)
     elif model_family == "svm_regressor":
         allowed = SVR().get_params(deep=False)
+    elif model_family == "bayesian_regressor":
+        allowed = BayesianRidge().get_params(deep=False)
     else:
         raise ExperimentError(f"unsupported estimator {model_family!r}")
     unknown = sorted(set(parameters) - set(allowed))

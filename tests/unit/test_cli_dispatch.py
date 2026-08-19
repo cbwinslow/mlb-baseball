@@ -455,11 +455,13 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     """The compatibility command still reports feature and prediction results."""
     conn = MagicMock()
     conn.__enter__.return_value = conn
+    tracked: dict = {}
 
     @contextmanager
     def tracked_run(_conn, _source, _mode, **_kwargs):
         result = {}
         yield result
+        tracked.update(result)
 
     monkeypatch.setattr(model, "get_connection", lambda: conn)
     monkeypatch.setattr(model, "track_run", tracked_run)
@@ -497,6 +499,13 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         "gold.game_feature (Elo ratings)": 10,
     }
     conn.commit.assert_called_once()
+    # A regression that dropped enrich_counts (or backfilled) from
+    # result["rows"] would still pass the assertion above -- that dict
+    # never includes result["rows"] at all, it's a separate value handed
+    # to track_run's own tracking, not part of run()'s return value.
+    # feature_counts(10) + enrich_counts(6) + log5(3) + elo(4) + gbm(5) +
+    # market(1) + backfilled(2) = 31.
+    assert tracked["rows"] == 31
 
 
 def test_train_command_calls_model_train_and_reports_metrics(monkeypatch, capsys):

@@ -299,6 +299,103 @@ def test_compute_wrc_plus_orders_doubleheader_by_game_number_not_insertion_order
     _reset(db_conn)
 
 
+def test_compute_wrc_plus_orders_doubleheader_by_coalesced_game_number_when_number_is_null(
+    db_conn,
+):
+    # Issue #28: confirmed against real production `mlb` data that
+    # Retrosheet's raw `number` field is genuinely empty for 10,020 games
+    # (all 1901-1909), which conform.py turns into a NULL core.game.
+    # game_number. `game_number NULLS LAST` sorts a NULL-game_number row
+    # *after* any row with a real number -- wrong whenever the NULL game
+    # is actually the earlier of a doubleheader pair. Same shape as
+    # test_compute_wrc_plus_orders_doubleheader_by_game_number_not_
+    # insertion_order above but for the NULL-number case specifically
+    # (natural insertion order alone doesn't trigger this bug -- `NULLS
+    # LAST` does, regardless of game_id order), and without that test's
+    # separate same-date-different-matchup (OTHR) scenario, which is a
+    # distinct concern already covered there.
+    #   G1 (2020-04-01): ATL (home) hits 1 single; NYA (away) makes 1 out.
+    #   DH1 (game_number=NULL): ATL hits 1 double; NYA makes 1 out.
+    #   DH2 (game_number=2): ATL hits 1 triple; NYA makes 1 out.
+    # Correctly ordered (COALESCE(game_number, 0) puts DH1 first), entering
+    # DH2 pools G1 + DH1: league_woba = (0.878+1.242)/4 = 0.530,
+    # home_woba entering DH2 = (0.878+1.242)/2 = 1.060, park_factor=100:
+    #   wrc_plus = (((1.060-0.530)/1.20)+1)/(100/100)*100 = 144.1666666666667
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', 1, %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        # DH1's game_number is NULL -- the malformed-source-data case.
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH1', 2020, '2020-04-08', NULL, %(atl)s, %(nya)s, 6, 5, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH2', 2020, '2020-04-08', 2, %(atl)s, %(nya)s, 4, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('DH1', 'regular'), ('DH2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single
+            "('G1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA out
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double
+            "('DH1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA out
+            "('DH2', '1', '22', 'T', 'F', 'T', '2020'), "  # ATL triple
+            "('DH2', '0', '2', 'T', 'F', 'T', '2020')"  # NYA out
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    offense.compute(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET park_factor = 100 "
+            "WHERE game_id = (SELECT id FROM core.game WHERE retro_game_id = 'DH2')"
+        )
+    db_conn.commit()
+    offense.compute_wrc_plus(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_wrc_plus FROM gold.game_feature f "
+            "JOIN core.game g ON g.id = f.game_id WHERE g.retro_game_id = 'DH2'"
+        )
+        (wrc_plus,) = cur.fetchone()
+
+    assert abs(wrc_plus - Decimal("144.1666666666667")) < Decimal("0.0001")
+
+    _reset(db_conn)
+
+
 def test_league_average_hitter_in_a_neutral_park_is_exactly_100(db_conn):
     # Algebraic sanity check baked into a real test: if team_woba equals
     # league_woba (an exactly-average hitter) and park_factor is 100 (a

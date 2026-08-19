@@ -268,6 +268,95 @@ def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn)
     _reset(db_conn)
 
 
+def test_compute_orders_doubleheader_by_coalesced_game_number_when_number_is_null(db_conn):
+    # Issue #28: confirmed against real production `mlb` data that
+    # Retrosheet's raw `number` field is genuinely empty for 10,020 games
+    # (all 1901-1909), which conform.py turns into a NULL core.game.
+    # game_number. `game_number NULLS LAST` sorts a NULL-game_number row
+    # *after* any row with a real number -- wrong whenever the NULL game
+    # is actually the earlier of a doubleheader pair. Same shape as
+    # test_compute_orders_doubleheader_by_game_number_not_insertion_order
+    # above but for the NULL-number case specifically (natural insertion
+    # order alone doesn't trigger this bug -- `NULLS LAST` does, regardless
+    # of game_id order).
+    #   G1 (2020-04-01): ATL hits 1 single -> entering DH1 wOBA = 0.878/1.
+    #   DH1 (game_number=NULL): ATL hits 1 double.
+    #   DH2 (game_number=2): ATL hits 1 triple -- only needs a row so the
+    #     window has a "current row"; unused in assertions.
+    # Correctly ordered (COALESCE(game_number, 0) puts DH1 first), entering
+    # DH2 = G1 + DH1: numerator = W_1B(0.878) + W_2B(1.242) = 2.120;
+    # AB=2 -> 1.060. If ordered by `game_number NULLS LAST` instead (the
+    # bug), DH2 (non-null) sorts before DH1 (NULL) despite being the later
+    # game, so entering DH2 would only see G1 (0.878), not G1+DH1 (1.060).
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', 1, %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        # DH1's game_number is NULL -- the malformed-source-data case.
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH1', 2020, '2020-04-08', NULL, %(atl)s, %(nya)s, 6, 5, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH2', 2020, '2020-04-08', 2, %(atl)s, %(nya)s, 4, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('DH1', 'regular'), ('DH2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single
+            "('G1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA -- minimal
+            "('DH1', '1', '21', 'T', 'F', 'T', '2020'), "  # ATL double
+            "('DH1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA -- minimal
+            "('DH2', '1', '22', 'T', 'F', 'T', '2020'), "  # ATL triple
+            "('DH2', '0', '2', 'T', 'F', 'T', '2020')"  # NYA -- minimal
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = offense.compute(db_conn)
+    db_conn.commit()
+
+    assert updated == 3
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.retro_game_id, f.home_woba "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "ORDER BY g.retro_game_id"
+        )
+        rows = {r[0]: r[1] for r in cur.fetchall()}
+
+    assert abs(rows["DH2"] - Decimal("1.060")) < Decimal("0.0001")
+
+    _reset(db_conn)
+
+
 def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
     _reset(db_conn)
     with db_conn.cursor() as cur:

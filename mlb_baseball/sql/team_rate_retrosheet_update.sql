@@ -13,13 +13,31 @@
 --    guard is required, not optional -- team_woba_retrosheet_update.sql
 --    predates that finding and has the same gap, tracked separately
 --    (github.com/cbwinslow/mlb-baseball/issues/9), not fixed here.
--- 2. The rolling window orders by `game_date, game_number NULLS LAST,
---    game_id`, not `game_date, game_id` alone -- matching the base
---    family's own window (mlb_baseball/sql/game_feature_rebuild.sql,
---    migration 0046). Ordering by game_id (an insertion-order serial)
---    made a doubleheader's prior-game order depend on load order rather
---    than the declared game_number, a real point-in-time-safety gap for
---    same-date games loaded out of order across separate ingestion runs.
+-- 2. The rolling window orders by `game_date, COALESCE(game_number, 0),
+--    game_id`, not `game_date, game_id` alone -- the same "use
+--    game_number as a same-date doubleheader tiebreak, not insertion
+--    order" idea the base family's own window already uses
+--    (mlb_baseball/sql/game_feature_rebuild.sql, migration 0046). This
+--    isn't an identical ordering, though (caught in PR #44 review, a real
+--    finding, not a nitpick): the base window's primary sort key is
+--    `feature_cutoff_at` (a timestamp), not `game_date`, and as of this
+--    file's own issue #28 fix its NULL-handling for game_number also
+--    diverges from the base window's `NULLS LAST` (see below) -- the two
+--    pipelines share the same tiebreak *concept*, not the same ordering
+--    or NULL semantics; don't assume they're interchangeable. Ordering by
+--    game_id (an insertion-order serial) made a doubleheader's prior-game
+--    order depend on load order rather than the declared game_number, a
+--    real point-in-time-safety gap for same-date games loaded out of
+--    order across separate ingestion runs.
+--    COALESCE(game_number, 0), not `game_number NULLS LAST`: confirmed
+--    against real production `mlb` data (issue #28) that Retrosheet's raw
+--    `number` field is genuinely empty for 10,020 games, all 1901-1909 --
+--    `NULLS LAST` would sort a malformed game *after* its true doubleheader
+--    partner regardless of which one actually came first, a real
+--    misordering, not a hypothetical one. `conform.py` already treats
+--    `COALESCE(game_number, 0) = 0` as "single game or first game"
+--    throughout its own MLB-schedule-matching logic -- this reuses that
+--    exact convention rather than inventing a new one.
 --
 -- SUM(...) OVER an UNBOUNDED PRECEDING .. 1 PRECEDING window: the value
 -- entering a game reflects every completed game strictly before it,
@@ -59,7 +77,7 @@ rolling AS (
         SUM(ab) OVER w AS ab_sum, SUM(sf) OVER w AS sf_sum
     FROM team_game_stats
     WINDOW w AS (
-        PARTITION BY team_id, season ORDER BY game_date, game_number NULLS LAST, game_id
+        PARTITION BY team_id, season ORDER BY game_date, COALESCE(game_number, 0), game_id
         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
     )
 ),

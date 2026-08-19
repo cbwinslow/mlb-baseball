@@ -64,20 +64,25 @@ team_relief_game AS (
 ),
 -- Quality: season-to-date rolling rates, same no-leakage shape as
 -- starter.py (excludes the current game itself). Orders by `game_date,
--- game_number NULLS LAST, game_id`, not `game_date, game_id` alone --
+-- COALESCE(game_number, 0), game_id`, not `game_date, game_id` alone --
 -- found by direct audit alongside issue #9 item 6, the same
 -- doubleheader-ordering bug team_rate_retrosheet_update.sql had before
 -- db97d96 (see that file's header comment): game_id is an insertion-order
 -- serial, not the declared game_number, so a doubleheader loaded "second
 -- game first" would leak the later game's stats into the earlier game's
--- "entering" value and vice versa.
+-- "entering" value and vice versa. COALESCE(game_number, 0), not
+-- `game_number NULLS LAST`: see team_rate_retrosheet_update.sql's own
+-- comment (issue #28) -- confirmed against real production `mlb` data that
+-- Retrosheet's raw `number` field is genuinely empty for 10,020 games (all
+-- 1901-1909), which `NULLS LAST` would sort after its true doubleheader
+-- partner regardless of actual order.
 rolling_quality AS (
     SELECT game_id, team_id,
         SUM(k) OVER w AS k_sum, SUM(bb) OVER w AS bb_sum, SUM(hbp) OVER w AS hbp_sum,
         SUM(hr) OVER w AS hr_sum, SUM(bf) OVER w AS bf_sum, SUM(outs) OVER w AS outs_sum
     FROM team_relief_game
     WINDOW w AS (
-        PARTITION BY team_id, season ORDER BY game_date, game_number NULLS LAST, game_id
+        PARTITION BY team_id, season ORDER BY game_date, COALESCE(game_number, 0), game_id
         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
     )
 ),

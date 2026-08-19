@@ -48,17 +48,19 @@ pairwise gaps), and both closely match `run_expectancy`'s
 independently-computed bases-empty/0-outs value (0.542) — three
 different code paths (linear solve, Monte Carlo walk, direct real-data
 aggregate) landing within ~3.4% of each other. Third package landed the
-same day (ADR-078): `simulate_game` plays a full 9-inning (or longer, on
-a tie), both-teams game, applying real game-ending rules — a walk-off
-ends the game mid-half-inning the instant the home team takes the lead
-in the 9th or later, and an already-decided game skips a needless bottom
-9th — via a new lower-level `simulate_half_inning_steps` primitive;
-`real_game_scores` computes real final scores from
-`raw.retrosheet_gameinfo`'s own `vruns`/`hruns` columns. Verified against
-real 2019 `mlb` data (2,429 games): total-runs mean real 9.66 vs.
-simulated 9.83 (~1.7%), innings-played mean real 9.19 vs. simulated 9.17
-(~0.2%), extra-innings rate real 8.56% vs. simulated 8.36% (~2.4%
-relative) — all close. Home win rate is the one honestly-reported gap:
+same day (ADR-078): `simulate_game` plays a full game of `regulation_innings`
+length (9 by default, configurable — or longer, on a tie), both teams
+alternating, applying real game-ending rules — a walk-off ends the game
+mid-half-inning the instant the home team takes the lead at or past
+`regulation_innings`, and an already-decided game skips a needless
+bottom half — via a new lower-level `simulate_half_inning_steps`
+primitive; `real_game_scores` computes real final scores from
+`raw.retrosheet_gameinfo`'s own `vruns`/`hruns` columns. Verified as an
+in-sample diagnostic against real 2019 `mlb` data (2,429 games):
+total-runs mean real 9.66 vs. simulated 9.83 (~1.7%), innings-played
+mean real 9.19 vs. simulated 9.17 (~0.2%), extra-innings rate real 8.56%
+vs. simulated 8.36% (~2.4% relative) — all close summary statistics, not
+a distribution-distance metric. Home win rate is the one honestly-reported gap:
 real 52.9% (real baseball's well-documented home-field advantage) vs.
 simulated 49.9% (a coin flip, expected — the simulator uses one
 league-average distribution for both teams, no home/away split). Not yet

@@ -406,6 +406,7 @@ def simulate_game(
     distribution: dict[BaseOutState, dict[Outcome, float]],
     rng: random.Random,
     regulation_innings: int = 9,
+    max_innings: int = 30,
 ) -> GameResult:
     """Simulate a full game -- both teams alternating half-innings from
     `distribution` -- applying baseball's actual game-ending rules
@@ -420,14 +421,34 @@ def simulate_game(
     the score is tied after a completed (or walked-off) inning at or past
     `regulation_innings`. Both teams draw from the same `distribution` --
     no team-specific modeling yet, matching every other estimator here's
-    league-average scope."""
+    league-average scope.
+
+    Unlike a single half-inning (guaranteed to reach TERMINAL in finitely
+    many steps, since outs never decrease), a tied extra-innings game has
+    no such structural guarantee -- it terminates "almost surely" for any
+    real, non-degenerate estimated distribution, but not for a narrow or
+    degenerate one (e.g. a distribution with zero probability of ever
+    breaking a tie). `max_innings` (default 30 -- MLB's longest games on
+    record run to 25-26 innings) is a defensive bound raising MarkovError
+    if exceeded, rather than hanging forever, matching
+    `simulate_half_inning`'s own "fail loudly, don't hang" contract for a
+    dead-end state."""
     if regulation_innings < 1:
         raise MarkovError(f"regulation_innings must be at least 1, got {regulation_innings}")
+    if max_innings < regulation_innings:
+        raise MarkovError(
+            f"max_innings ({max_innings}) must be >= regulation_innings ({regulation_innings})"
+        )
     away_runs = 0
     home_runs = 0
     inning = 0
     while True:
         inning += 1
+        if inning > max_innings:
+            raise MarkovError(
+                f"game still tied after {max_innings} innings -- the distribution may be "
+                "degenerate (no path to a run that breaks the tie), refusing to loop forever"
+            )
         away_runs += simulate_half_inning(distribution, rng)
         if inning >= regulation_innings and home_runs > away_runs:
             break  # home already ahead after the top half; no need to bat

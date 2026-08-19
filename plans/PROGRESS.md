@@ -1378,8 +1378,40 @@ Two bug-fix PRs closing real, previously-open issues:
   `uv run mypy mlb_baseball/model/markov.py` clean, `uv run sqlfluff
   lint` clean on the new SQL file. `tests/unit/test_markov_simulate.py`
   gained 3 tests (the stepper refactor, 15 total now);
-  `tests/unit/test_markov_game.py` is new (5 tests, no DB);
+  `tests/unit/test_markov_game.py` is new (7 tests, no DB);
   `tests/integration/test_model_markov.py` gained 2 more tests (13 total
   now). All TDD, written and watched fail before implementation.
 - No persistence layer added, matching ADR-076's/ADR-077's and every
   dormant Plan 04 research module's "not wired into production" posture.
+- **PR #40 review round:** fixed 4 real gaps. A tied extra-innings game
+  had no upper bound (a degenerate distribution could hang
+  `simulate_game` forever) -- added a `max_innings` parameter (default
+  30, matching MLB's longest games on record) raising `MarkovError` if
+  exceeded, extending `simulate_half_inning`'s own "fail loudly, don't
+  hang" contract to the game level. `markov_game_scores.sql` joined
+  `raw.retrosheet_gameinfo` twice -- restructured to filter once, in the
+  outer query only (verified byte-identical results before/after). The
+  `_ScriptedRandom` test double didn't enforce `random.Random.choices()`'s
+  own contract (population membership), so a test could script an
+  outcome a real Markov chain could never produce -- added the check and
+  fixed every test's distribution to include what it scripts. The
+  calibration numbers were only ever run from an uncommitted scratch
+  script, not reproducible from a clean clone (`AGENTS.md`'s own
+  standard) -- added `scripts/verify_markov_calibration.py`, a committed,
+  read-only, seeded script that reproduces all three ADRs' figures
+  exactly. Declined 3 claims with evidence: precise walk-off run
+  crediting (a home-run walk-off should credit every runner, but any
+  other multi-run walk-off hit should stop counting the instant the
+  go-ahead run scores -- `Outcome` can't currently distinguish the two;
+  measured the real impact at 0.023 runs/game across 2,429 simulated
+  games, too small to move any reported conclusion, and a correct fix
+  needs real structural work on `TransitionCountRow`/`Outcome` -- tracked
+  as real future work, not fixed here); rerunning the calibration against
+  `mlb_test` (impossible -- `mlb_test` holds no real historical season
+  data at all, only hand-built test fixtures; `mlb`, read-only, is the
+  only database that can answer this, exactly like ADR-076/077's own
+  precedent); and a `None`-values claim on `real_game_scores`'s output
+  (checked directly: `vruns`/`hruns` are never null across all 220,191
+  regular-season games in the database, every era, and a game missing
+  event data is silently excluded by the join, not passed through with a
+  null `innings`).

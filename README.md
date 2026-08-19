@@ -10,6 +10,7 @@ This is a ground-up rebuild; see [docs/NORTH_STAR.md](docs/NORTH_STAR.md) for th
 
 ## Docs
 
+- [docs/MAP.md](docs/MAP.md) — index of `docs/`, grouped by what you're trying to do. Start here if you don't know which file you need.
 - [docs/NORTH_STAR.md](docs/NORTH_STAR.md) — vision, the three build phases, budget constraint
 - [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) — every source the pipeline pulls from, cost and license notes
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — schema layering, connector shape, configuration

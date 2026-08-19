@@ -1015,13 +1015,20 @@ Two bug-fix PRs closing real, previously-open issues:
   sample, not hidden.** `--fold-years 2015 2024`: `neural`'s log loss
   (2.04-2.09) was far worse than `home_rate`'s (0.51-0.78);
   `neural_regressor`'s MAE (8.61-9.86) was worse than `season_average`'s
-  (7.88-8.99). This is the expected, non-suspicious outcome per
-  `docs/RESEARCH.md`'s own calibration doctrine for a high-capacity model
-  on a tiny sample -- a small sample where `neural` unexpectedly *beat*
-  every baseline would be the result worth distrusting instead. No
-  convergence warning observed (rehearsal sample or a larger synthetic
-  400-row check); `max_iter=1_000` appears sufficient at this scale,
-  documented as a caveat in `docs/EXPERIMENT_RUNBOOK.md`.
+  (7.88-8.99). The training sets were smaller than "rehearsal sample"
+  suggests -- confirmed directly by querying `mlb_test`, not assumed:
+  `season-2015`'s training fold had exactly 10 `gold.game_feature` rows,
+  `season-2024`'s had exactly 20 (the rehearsal's `games_per_season=10`
+  bound narrows historical seasons this far even though `core.game`
+  itself has the full season; see `docs/EXPERIMENT_RUNBOOK.md`). A
+  100-unit hidden-layer network fit on 10-20 rows makes severe
+  overfitting close to guaranteed, which is the expected, non-suspicious
+  outcome per `docs/RESEARCH.md`'s own calibration doctrine -- a small
+  sample where `neural` unexpectedly *beat* every baseline would be the
+  result worth distrusting instead. No convergence warning observed
+  (rehearsal sample or a larger synthetic 400-row check); `max_iter=1_000`
+  appears sufficient at this scale, documented as a caveat in
+  `docs/EXPERIMENT_RUNBOOK.md`.
 - **Verified against real production-shaped data, not just the small
   `mlb_test` fixture -- and respecting the reserved 2025 final holdout:**
   loaded a bounded multi-season real sample (10 games/season across

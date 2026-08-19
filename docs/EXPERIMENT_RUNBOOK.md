@@ -70,12 +70,26 @@ sequence models" below). On the bounded 2015/2024 rehearsal sample, both
 performed clearly *worse* than their transparent baselines (`neural`:
 log loss 2.04-2.09 vs. `home_rate`'s 0.51-0.78; `neural_regressor`: MAE
 8.61-9.86 vs. `season_average`'s 7.88-8.99) — an honest, non-suspicious
-result on this little data (a few hundred training rows per fold is not
-enough to fit a network with a 100-unit hidden layer without overfitting),
-not a sign of a bug. Per this file's own calibration doctrine, that is
-the *expected* outcome for a high-capacity model on a small honest
-sample; a small sample where `neural` unexpectedly beat every baseline
-would be the result worth distrusting.
+result on this little data, not a sign of a bug — and the training sets
+involved were smaller than "rehearsal sample" might suggest. Confirmed
+directly by querying `mlb_test` after this exact run: `core.game` has
+the full season (464-491 games) for every historical season in the
+sample — `mlb_baseball.rehearsal.load_sample`'s `games_per_season=10`
+bound only restricts the Retrosheet-sourced tables it copies
+(`raw.retrosheet_gameinfo`/`raw.retrosheet_event`), not the season-wide
+`raw.mlb_schedule` copy `core.game` is built from — but `gold.game_feature`
+narrows each historical season down to exactly 10 rows (only the
+Retrosheet-matched games apparently survive whichever enrichment join
+requires that coverage; not fully traced here). `season-2015`'s training
+fold (seasons through 2014) had exactly 10 `gold.game_feature` rows;
+`season-2024`'s (seasons through 2023) had exactly 20. A network with a
+100-unit hidden layer fit on 10-20 rows is not a marginal small-sample
+case — severe overfitting there is close to guaranteed, which only makes
+the "worse than baseline" result *more* expected, not less. Per this
+file's own calibration doctrine, that is the *expected* outcome for a
+high-capacity model on a small honest sample; a small sample where
+`neural` unexpectedly beat every baseline would be the result worth
+distrusting.
 
 ### Neural vs. sequence models
 
@@ -91,7 +105,9 @@ needs two things this project doesn't have yet: a sequential (not flat
 per-game) feature representation, and almost certainly a new dependency
 (PyTorch/TensorFlow/JAX — scikit-learn has no recurrent/attention
 architectures), neither of which is in `pyproject.toml` today. Adding
-either is a real scope decision, not made here — see ADR-075.
+either is a real scope decision, not made here — see this file's own ADR
+in `docs/DECISIONS.md` (numbered relative to `main` at the time this PR
+was opened; check that file for its current number).
 
 ## Why the split is chronological
 

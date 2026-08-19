@@ -23,6 +23,7 @@ no 2026+ raw.mlb_playbyplay equivalent exists here yet.
 
 from __future__ import annotations
 
+import math
 import random
 from collections.abc import Hashable, Iterable, Sequence
 from dataclasses import dataclass
@@ -373,6 +374,8 @@ def simulate_half_innings(
     total runs scored -- the Monte Carlo sample a calibration check
     compares against the real historical per-half-inning run
     distribution."""
+    if count < 0:
+        raise MarkovError(f"count must be non-negative, got {count}")
     return [simulate_half_inning(distribution, rng, start) for _ in range(count)]
 
 
@@ -407,10 +410,16 @@ def summarize_runs(values: Sequence[int]) -> dict[str, float]:
         raise MarkovError("cannot summarize an empty run distribution")
     ordered = sorted(values)
     n = len(ordered)
+    if n % 2 == 0:
+        median = (ordered[n // 2 - 1] + ordered[n // 2]) / 2
+    else:
+        median = float(ordered[n // 2])
+    # Nearest-rank percentile: the ceil(p*n)-th smallest value (1-indexed).
+    p90_rank = math.ceil(0.9 * n)
     return {
         "count": float(n),
         "mean": sum(ordered) / n,
-        "median": float(ordered[n // 2]),
-        "p90": float(ordered[min(int(n * 0.9), n - 1)]),
+        "median": median,
+        "p90": float(ordered[p90_rank - 1]),
         "max": float(ordered[-1]),
     }

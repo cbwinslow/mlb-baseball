@@ -1256,28 +1256,48 @@ Two bug-fix PRs closing real, previously-open issues:
 - **Verified against real production data three independent ways:** ran
   the full pipeline against real `mlb` (read-only, 2019, 43,551 real
   half-innings). Real mean (0.539) and simulated mean (0.552, seeded)
-  differ by ~2.4%. Both closely match `run_expectancy`'s own
-  independently-computed bases-empty/0-outs value (0.542, ADR-076) --
-  three different code paths (linear solve, Monte Carlo walk, direct
-  real-data aggregate) agreeing within ~2% is strong cross-validation.
+  differ by ~2.4% -- the largest of the three pairwise gaps. Both closely
+  match `run_expectancy`'s own independently-computed bases-empty/0-outs
+  value (0.542, ADR-076, ~1.8%/~0.6% gaps respectively) -- three
+  different code paths (linear solve, Monte Carlo walk, direct
+  real-data aggregate) agreeing within ~2.4% is strong cross-validation.
   Median (0), p90 (2), and max (11) match exactly between real and
   simulated.
 - **`real_half_inning_runs` hand-verified against a real box score, not
   just run and trusted:** picked one real half-inning (ANA201904040, top
-  of 1st) at random, walked its rows in physical load order
-  (`ORDER BY ctid`), hand-summed runs_scored (a 3-run HR + a 2-run HR =
-  5), cross-checked against that game's own `away_score_ct` progression
-  (0->0->0->3->3->5, exact match), then confirmed the SQL independently
-  produces 5 for that exact half-inning.
+  of 1st) at random, walked its rows ordered by `event_id::int` within
+  `game_id` -- the durable, source-assigned event sequence (confirmed
+  this reproduces the identical row order physical storage order
+  (`ctid`) happened to give for this game; `ctid` is a Postgres
+  storage detail that isn't stable across a `VACUUM FULL`, so
+  `event_id` is the identifier worth citing), hand-summed runs_scored
+  (a 3-run HR + a 2-run HR = 5), cross-checked against that game's own
+  `away_score_ct` progression (0->0->0->3->3->5, exact match), then
+  confirmed the SQL independently produces 5 for that exact half-inning.
 - `summarize_runs` reports descriptive stats only, not a pass/fail
   verdict -- unlike RE24 (which has a cited published tolerance), this
   project has no established "close enough" bar for a full distributional
   comparison yet; reporting real numbers honestly is what's shippable now.
 - `uv run ruff check .`/`uv run ruff format --check .` clean,
   `uv run mypy mlb_baseball/model/markov.py` clean.
-  `tests/unit/test_markov_simulate.py` (9 passed, pure logic -- includes
+  `tests/unit/test_markov_simulate.py` (12 passed, pure logic -- includes
   a law-of-large-numbers convergence check with a fixed seed -- no DB)
   and `tests/integration/test_model_markov.py` (10 total now, all
   passing) -- both TDD, written and watched fail before implementation.
 - No persistence layer added, matching ADR-076's and every dormant
   Plan 04 research module's "not wired into production" posture.
+- **PR #39 review round:** fixed 4 real gaps (negative `count` in
+  `simulate_half_innings` silently produced `[]` instead of raising;
+  `summarize_runs`' median took the upper-middle element instead of
+  averaging the two middle values for an even-sized sample; its p90
+  used a formula that returns the max whenever `n` is an exact
+  multiple of 10 instead of the correct nearest-rank value; the box-score
+  verification note above cited `ctid`, a physical-storage detail, as a
+  durable identifier). Declined 2 claims with evidence: a theoretical
+  infinite-loop risk in `simulate_half_inning` (no real half-inning data
+  can produce a state with self-loop probability 1.0, and 43,551 real
+  simulations completed without incident) and a per-file
+  `current_database()` guard on `test_model_markov.py`'s `_reset()`
+  (already centrally enforced by `tests/conftest.py`'s autouse
+  `_assert_test_database_url`, the same claim ADR-076's own review
+  already investigated and declined).

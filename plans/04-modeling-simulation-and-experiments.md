@@ -41,10 +41,11 @@ Second package landed the same day (ADR-077): `simulate_half_inning`/
 outcome distribution; `real_half_inning_runs` computes the real historical
 per-half-inning run distribution to compare against. Verified three
 independent ways against real 2019 `mlb` data (43,551 half-innings): real
-mean (0.539) and simulated mean (0.552) differ by ~2.4%, and both closely
-match `run_expectancy`'s independently-computed bases-empty/0-outs value
-(0.542) — three different code paths (linear solve, Monte Carlo walk,
-direct real-data aggregate) landing within ~2% of each other. Not yet
+mean (0.539) and simulated mean (0.552) differ by ~2.4% (the largest of
+the three pairwise gaps), and both closely match `run_expectancy`'s
+independently-computed bases-empty/0-outs value (0.542) — three
+different code paths (linear solve, Monte Carlo walk, direct real-data
+aggregate) landing within ~2.4% of each other. Not yet
 built: full 9-inning/both-teams game simulation, and calibration against a
 genuinely held-out season (this package's own calibration check is
 in-sample — same season for estimation and comparison).

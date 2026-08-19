@@ -121,6 +121,29 @@ def test_summarize_runs_matches_hand_calculation():
     assert summary["max"] == 7
 
 
+def test_summarize_runs_averages_the_two_middle_values_for_even_n():
+    # 4 values: no single middle element, so median is the mean of the
+    # two middle ordered values (1 and 2), not just one of them picked
+    # arbitrarily.
+    summary = summarize_runs([3, 0, 1, 2])
+    assert summary["median"] == pytest.approx(1.5)
+
+
+def test_summarize_runs_computes_p90_via_nearest_rank():
+    # 10 values 1..10: nearest-rank p90 is ceil(0.9*10)=9th smallest (9),
+    # not the max (10) -- the max only belongs at p90 when n < 10.
+    values = list(range(1, 11))
+    summary = summarize_runs(values)
+    assert summary["p90"] == 9
+
+
 def test_summarize_runs_rejects_empty_input():
     with pytest.raises(MarkovError, match="empty"):
         summarize_runs([])
+
+
+def test_simulate_half_innings_rejects_a_negative_count():
+    empty_zero = BaseOutState(0, False, False, False)
+    distribution = {empty_zero: {Outcome(TERMINAL, 0): 1.0}}
+    with pytest.raises(MarkovError, match="non-negative"):
+        simulate_half_innings(distribution, random.Random(0), -1)

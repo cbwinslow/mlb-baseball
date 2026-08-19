@@ -14,12 +14,21 @@
 --    predates that finding and has the same gap, tracked separately
 --    (github.com/cbwinslow/mlb-baseball/issues/9), not fixed here.
 -- 2. The rolling window orders by `game_date, COALESCE(game_number, 0),
---    game_id`, not `game_date, game_id` alone -- matching the base
---    family's own window (mlb_baseball/sql/game_feature_rebuild.sql,
---    migration 0046). Ordering by game_id (an insertion-order serial)
---    made a doubleheader's prior-game order depend on load order rather
---    than the declared game_number, a real point-in-time-safety gap for
---    same-date games loaded out of order across separate ingestion runs.
+--    game_id`, not `game_date, game_id` alone -- the same "use
+--    game_number as a same-date doubleheader tiebreak, not insertion
+--    order" idea the base family's own window already uses
+--    (mlb_baseball/sql/game_feature_rebuild.sql, migration 0046). This
+--    isn't an identical ordering, though (caught in PR #44 review, a real
+--    finding, not a nitpick): the base window's primary sort key is
+--    `feature_cutoff_at` (a timestamp), not `game_date`, and as of this
+--    file's own issue #28 fix its NULL-handling for game_number also
+--    diverges from the base window's `NULLS LAST` (see below) -- the two
+--    pipelines share the same tiebreak *concept*, not the same ordering
+--    or NULL semantics; don't assume they're interchangeable. Ordering by
+--    game_id (an insertion-order serial) made a doubleheader's prior-game
+--    order depend on load order rather than the declared game_number, a
+--    real point-in-time-safety gap for same-date games loaded out of
+--    order across separate ingestion runs.
 --    COALESCE(game_number, 0), not `game_number NULLS LAST`: confirmed
 --    against real production `mlb` data (issue #28) that Retrosheet's raw
 --    `number` field is genuinely empty for 10,020 games, all 1901-1909 --

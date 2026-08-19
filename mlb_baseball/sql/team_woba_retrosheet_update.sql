@@ -9,14 +9,22 @@
 --    the same gap as team_rate_retrosheet_update.sql did before db97d96 --
 --    tracked as issue #9 item 6.
 -- 2. The rolling window orders by `game_date, COALESCE(game_number, 0),
---    game_id`, not `game_date, game_id` alone -- matching the base
---    family's own window (game_feature_rebuild.sql) and
---    team_rate_retrosheet_update.sql's own db97d96 fix. Found by direct
---    audit of this file (same team-partitioned window shape as
---    team_rate's pre-fix bug); not separately named in issue #9's text,
---    but the identical point-in-time-safety gap: a doubleheader loaded
---    "second game first" would leak the later game's stats into the
---    earlier game's "entering" value and vice versa.
+--    game_id`, not `game_date, game_id` alone -- the same "use
+--    game_number as a same-date doubleheader tiebreak, not insertion
+--    order" idea the base family's own window already uses
+--    (game_feature_rebuild.sql) and team_rate_retrosheet_update.sql's own
+--    db97d96 fix. Found by direct audit of this file (same
+--    team-partitioned window shape as team_rate's pre-fix bug); not
+--    separately named in issue #9's text, but the identical
+--    point-in-time-safety gap: a doubleheader loaded "second game first"
+--    would leak the later game's stats into the earlier game's "entering"
+--    value and vice versa. This isn't an identical ordering to the base
+--    window, though (caught in PR #44 review, a real finding): the base
+--    window's primary sort key is `feature_cutoff_at` (a timestamp), not
+--    `game_date`, and as of this file's own issue #28 fix its
+--    NULL-handling also diverges from the base window's `NULLS LAST` (see
+--    below) -- the two pipelines share the same tiebreak *concept*, not
+--    the same ordering or NULL semantics.
 --    COALESCE(game_number, 0), not `game_number NULLS LAST`: see
 --    team_rate_retrosheet_update.sql's own comment (issue #28) -- confirmed
 --    against real production `mlb` data that Retrosheet's raw `number`

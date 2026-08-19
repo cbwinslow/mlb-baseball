@@ -282,14 +282,20 @@ def test_compute_excludes_games_without_event_coverage_from_the_backbone(db_conn
     assert updated == 2
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT f.home_bullpen_fatigue, f.away_bullpen_fatigue "
+            "SELECT f.home_bullpen_fatigue, f.away_bullpen_fatigue, "
+            "f.home_bullpen_fip, f.home_bullpen_k_pct, f.home_bullpen_bb_pct, "
+            "f.away_bullpen_fip, f.away_bullpen_k_pct, f.away_bullpen_bb_pct "
             "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
             "WHERE g.retro_game_id = 'G2'"
         )
-        home_fatigue, away_fatigue = cur.fetchone()
+        row = cur.fetchone()
 
-    assert home_fatigue is None
-    assert away_fatigue is None
+    # Fatigue is the column this fix changes (a fabricated 0 becomes NULL);
+    # quality (fip/k_pct/bb_pct) was already NULL either way in this
+    # fixture (an empty rolling window resolves NULL regardless of whether
+    # G_GAP contributed a zero-filled row or no row at all) -- asserted
+    # here too for full row coverage, not because it discriminates the fix.
+    assert row == (None, None, None, None, None, None, None, None)
 
     _reset(db_conn)
 

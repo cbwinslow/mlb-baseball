@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Hashable, Iterable, Sequence
+from collections.abc import Hashable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -37,6 +37,7 @@ from mlb_baseball.sql import read_sql
 
 _TRANSITION_COUNTS_SQL = read_sql("markov_transition_counts.sql")
 _HALF_INNING_RUNS_SQL = read_sql("markov_half_inning_runs.sql")
+_GAME_SCORES_SQL = read_sql("markov_game_scores.sql")
 
 
 @dataclass(frozen=True)
@@ -339,6 +340,30 @@ def estimate_outcome_distribution(
     return build_outcome_distribution(rows)
 
 
+def simulate_half_inning_steps(
+    distribution: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    start: BaseOutState = EMPTY_ZERO_OUTS,
+) -> Iterator[int]:
+    """Yield the runs scored by each individual play of a simulated
+    half-inning, one at a time, stopping once TERMINAL (3 outs) is
+    reached. `simulate_half_inning` is just `sum(...)` over this; a
+    caller that needs to react to the score after every play --
+    `simulate_game`'s walk-off check, which must be able to end a
+    half-inning the instant the home team takes the lead rather than
+    waiting for all 3 outs -- needs this lower-level generator instead.
+    Same injected-`random.Random`/dead-end-state contract as
+    `simulate_half_inning`."""
+    state = start
+    while state != TERMINAL:
+        outcomes = distribution.get(state)
+        if not outcomes:
+            raise MarkovError(f"no observed outcomes for state {state}, cannot simulate")
+        chosen = rng.choices(list(outcomes.keys()), weights=list(outcomes.values()), k=1)[0]
+        yield chosen.runs
+        state = chosen.post
+
+
 def simulate_half_inning(
     distribution: dict[BaseOutState, dict[Outcome, float]],
     rng: random.Random,
@@ -352,16 +377,7 @@ def simulate_half_inning(
     Raises MarkovError if a reached state has no observed outcomes at all
     (e.g. a rare configuration absent from a narrow real sample) rather
     than silently hanging or returning a nonsensical result."""
-    state = start
-    total_runs = 0
-    while state != TERMINAL:
-        outcomes = distribution.get(state)
-        if not outcomes:
-            raise MarkovError(f"no observed outcomes for state {state}, cannot simulate")
-        chosen = rng.choices(list(outcomes.keys()), weights=list(outcomes.values()), k=1)[0]
-        total_runs += chosen.runs
-        state = chosen.post
-    return total_runs
+    return sum(simulate_half_inning_steps(distribution, rng, start))
 
 
 def simulate_half_innings(
@@ -379,6 +395,79 @@ def simulate_half_innings(
     return [simulate_half_inning(distribution, rng, start) for _ in range(count)]
 
 
+@dataclass(frozen=True)
+class GameResult:
+    away_runs: int
+    home_runs: int
+    innings: int
+
+
+def simulate_game(
+    distribution: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    regulation_innings: int = 9,
+    max_innings: int = 30,
+) -> GameResult:
+    """Simulate a full game -- both teams alternating half-innings from
+    `distribution` -- applying baseball's actual game-ending rules
+    instead of always playing a fixed number of complete innings: if the
+    home team is already leading after the top of the
+    `regulation_innings`th inning (or any inning after it), the bottom
+    half is skipped entirely (no need to bat); if the home team takes the
+    lead mid-half-inning in the bottom of the `regulation_innings`th
+    inning or later, the game ends immediately on that play (a walk-off)
+    via `simulate_half_inning_steps` rather than finishing the
+    half-inning's remaining outs. Extra innings continue for as long as
+    the score is tied after a completed (or walked-off) inning at or past
+    `regulation_innings`. Both teams draw from the same `distribution` --
+    no team-specific modeling yet, matching every other estimator here's
+    league-average scope.
+
+    Unlike a single half-inning (guaranteed to reach TERMINAL in finitely
+    many steps, since outs never decrease), a tied extra-innings game has
+    no such structural guarantee -- it terminates "almost surely" for any
+    real, non-degenerate estimated distribution, but not for a narrow or
+    degenerate one (e.g. a distribution with zero probability of ever
+    breaking a tie). `max_innings` (default 30 -- MLB's longest games on
+    record run to 25-26 innings) is a defensive bound raising MarkovError
+    if exceeded, rather than hanging forever, matching
+    `simulate_half_inning`'s own "fail loudly, don't hang" contract for a
+    dead-end state. Must be strictly greater than `regulation_innings` --
+    equal would leave no room for even one extra inning, so any tied
+    regulation game would immediately hit this guard instead of ever
+    getting a chance to resolve."""
+    if regulation_innings < 1:
+        raise MarkovError(f"regulation_innings must be at least 1, got {regulation_innings}")
+    if max_innings <= regulation_innings:
+        raise MarkovError(
+            f"max_innings ({max_innings}) must be greater than regulation_innings "
+            f"({regulation_innings}) -- equal leaves no room for even one extra inning"
+        )
+    away_runs = 0
+    home_runs = 0
+    inning = 0
+    while True:
+        inning += 1
+        if inning > max_innings:
+            raise MarkovError(
+                f"game still tied after {max_innings} innings -- the distribution may be "
+                "degenerate (no path to a run that breaks the tie), refusing to loop forever"
+            )
+        away_runs += simulate_half_inning(distribution, rng)
+        if inning >= regulation_innings and home_runs > away_runs:
+            break  # home already ahead after the top half; no need to bat
+        if inning >= regulation_innings:
+            for runs in simulate_half_inning_steps(distribution, rng):
+                home_runs += runs
+                if home_runs > away_runs:
+                    break  # walk-off: the game ends on this exact play
+        else:
+            home_runs += simulate_half_inning(distribution, rng)
+        if inning >= regulation_innings and home_runs != away_runs:
+            break  # decided in regulation or later; anything but a tie ends it
+    return GameResult(away_runs=away_runs, home_runs=home_runs, innings=inning)
+
+
 def real_half_inning_runs(conn: psycopg.Connection, seasons: Sequence[int]) -> list[int]:
     """Real per-half-inning run totals from Retrosheet play-by-play for the
     given regular-season years -- one value per (game, inning, side), what
@@ -393,6 +482,23 @@ def real_half_inning_runs(conn: psycopg.Connection, seasons: Sequence[int]) -> l
     with conn.cursor() as cur:
         cur.execute(_HALF_INNING_RUNS_SQL, {"seasons": [str(s) for s in seasons]})
         return [int(total_runs) for _game_id, _inning, _side, total_runs in cur.fetchall()]
+
+
+def real_game_scores(conn: psycopg.Connection, seasons: Sequence[int]) -> list[GameResult]:
+    """Real final game scores from Retrosheet for the given regular-season
+    years -- one `GameResult` per game, what `simulate_game`'s output is
+    compared against for Plan 04D's game-level calibration check. Returns
+    an empty list, matching every other estimator here's "not ready yet"
+    contract, if either source table hasn't been bootstrapped."""
+    _validate_seasons(seasons)
+    if not _retrosheet_tables_ready(conn):
+        return []
+    with conn.cursor() as cur:
+        cur.execute(_GAME_SCORES_SQL, {"seasons": [str(s) for s in seasons]})
+        return [
+            GameResult(away_runs=away_runs, home_runs=home_runs, innings=innings)
+            for _game_id, away_runs, home_runs, innings in cur.fetchall()
+        ]
 
 
 def summarize_runs(values: Sequence[int]) -> dict[str, float]:

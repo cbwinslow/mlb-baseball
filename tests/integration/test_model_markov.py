@@ -23,7 +23,8 @@ def _ensure_retrosheet_tables(db_conn):
         cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
         if not cur.fetchone()[0]:
             cur.execute(
-                "CREATE TABLE raw.retrosheet_gameinfo (gid text, gametype text, _season text)"
+                "CREATE TABLE raw.retrosheet_gameinfo "
+                "(gid text, gametype text, _season text, vruns text, hruns text)"
             )
     db_conn.commit()
 
@@ -388,3 +389,30 @@ def test_real_half_inning_runs_excludes_a_walk_off_truncated_half_inning(db_conn
 def test_real_half_inning_runs_returns_empty_when_tables_missing(db_conn):
     _reset(db_conn)
     assert markov.real_half_inning_runs(db_conn, seasons=[2021]) == []
+
+
+def test_real_game_scores_matches_hand_calculation(db_conn):
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype, _season, vruns, hruns) "
+            "VALUES ('G1', 'regular', '2021', '4', '2'), ('G2', 'playoff', '2021', '9', '9')"
+        )
+        # G1 plays across 2 innings, no runs recorded via events (the
+        # events here only exist to establish which innings were played
+        # -- the score itself comes from gameinfo's own vruns/hruns).
+        _insert_event(cur, "G1", "0", "1", "3", inn_ct="1", bat_dest="0")
+        _insert_event(cur, "G1", "0", "1", "3", inn_ct="2", bat_dest="0")
+        # G2 (playoff): would be included if not excluded by the gametype filter.
+        _insert_event(cur, "G2", "0", "1", "3", inn_ct="1", bat_dest="0")
+    db_conn.commit()
+
+    scores = markov.real_game_scores(db_conn, seasons=[2021])
+
+    assert scores == [markov.GameResult(away_runs=4, home_runs=2, innings=2)]
+
+
+def test_real_game_scores_returns_empty_when_tables_missing(db_conn):
+    _reset(db_conn)
+    assert markov.real_game_scores(db_conn, seasons=[2021]) == []

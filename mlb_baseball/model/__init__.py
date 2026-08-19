@@ -94,20 +94,75 @@ def run_features() -> dict[str, int]:
     return counts
 
 
+def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
+    """Repopulate every enrichment column on ``gold.game_feature`` after a
+    base rebuild.
+
+    ``features.build()`` (called by ``build_feature_stage()``) TRUNCATEs
+    ``gold.game_feature`` and rebuilds only the base family (win%/Elo/
+    outcome) -- every enrichment module here writes UPDATE statements
+    against rows that already exist, so this must run strictly after
+    ``build_feature_stage()``, never before or concurrently with it.
+
+    Found missing from ``run()`` during PR review of the 2026-08-19
+    production incident (see plans/PROGRESS.md "Production incident found
+    and fixed" and issue #48): every enrichment module was run once by
+    hand, but none was ever wired into the path `mlb predict` (this
+    module's own ``run()``) actually takes -- the same path the daily cron
+    (``scripts/mlb_daily_update.sh``, 06:00 UTC) calls every day. Without
+    this, the next scheduled rebuild silently truncates every enrichment
+    column back to NULL again, recurring indefinitely, not a one-time
+    incident. Order matches the manual backfill script that fixed
+    production the same day: park first (zero-leakage, no raw.retrosheet_*
+    dependency), then every Retrosheet-derived module, live/upcoming/
+    probable variants immediately after each historical path.
+    """
+    return {
+        "gold.game_feature (park_factor)": park.compute(conn),
+        "gold.game_feature (team_rate)": team_rate.compute(conn),
+        "gold.game_feature (team_rate run environment)": team_rate.compute_run_environment(conn),
+        "gold.game_feature (offense)": offense.compute(conn),
+        "gold.game_feature (wrc_plus)": offense.compute_wrc_plus(conn),
+        "gold.game_feature (offense live)": offense.compute_live(conn),
+        "gold.game_feature (wrc_plus live)": offense.compute_wrc_plus_live(conn),
+        "gold.game_feature (starter)": starter.compute(conn),
+        "gold.game_feature (starter live)": starter.compute_live(conn),
+        "gold.game_feature (starter probable)": starter.compute_probable(conn),
+        "gold.game_feature (starter workload)": starter_workload.compute(conn),
+        "gold.game_feature (starter workload live)": starter_workload.compute_live(conn),
+        "gold.game_feature (starter workload probable)": starter_workload.compute_probable(conn),
+        "gold.game_feature (bullpen)": bullpen.compute(conn),
+        "gold.game_feature (bullpen live)": bullpen.compute_live(conn),
+        "gold.game_feature (bullpen upcoming)": bullpen.compute_upcoming(conn),
+        "gold.game_feature (oaa)": oaa.compute(conn),
+        "gold.game_feature (speed)": speed.compute(conn),
+        "gold.game_feature (framing)": framing.compute(conn),
+        "gold.game_feature (war)": war.compute(conn),
+    }
+
+
 def run() -> dict[str, int]:
-    """Build features, derive sequential Elo, then write legacy predictions.
+    """Build features, enrich them, derive sequential Elo, then write
+    legacy predictions.
 
     ``mlb features`` is intentionally only the reusable, audited base feature
     stage.  Elo is not part of that base because it is model-specific and
     sequential.  The backwards-compatible ``mlb predict`` command does need
     it before the Elo and GBM predictors run, however.  Keeping the step here
     makes that dependency explicit and prevents a silently empty Elo output.
+
+    ``enrich_feature_stage()`` runs here, not inside ``build_feature_stage()``
+    -- ``mlb features`` (``run_features()``) stays scoped to exactly the base
+    family it always has been (a separately auditable stage other tooling
+    may call standalone); ``mlb predict`` is the one path the daily cron
+    actually calls, so it's the one that must keep enrichment populated.
     """
     with (
         get_connection() as conn,
         track_run(conn, SOURCE, "bootstrap", workflow="exclusive") as result,
     ):
         feature_counts = build_feature_stage(conn)
+        enrich_counts = enrich_feature_stage(conn)
         elo_rows = elo.compute_ratings(conn)
         # market.record() runs before backfill_outcomes(), not after --
         # unlike log5/elo/gbm's own predictions (made for still-upcoming
@@ -128,6 +183,7 @@ def run() -> dict[str, int]:
         )
     return {
         **feature_counts,
+        **enrich_counts,
         "gold.prediction (log5)": log5_count,
         "gold.prediction (elo)": elo_count,
         "gold.prediction (gbm)": gbm_count,

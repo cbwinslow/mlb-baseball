@@ -409,9 +409,7 @@ def test_experiment_select_features_stepwise_command_parses_all_its_own_argument
             },
         }
 
-    monkeypatch.setattr(
-        feature_select_stepwise, "select_features_stepwise", fake_stepwise
-    )
+    monkeypatch.setattr(feature_select_stepwise, "select_features_stepwise", fake_stepwise)
 
     cli.main(
         [
@@ -470,6 +468,11 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         "build_feature_stage",
         lambda _conn: {"gold.game_feature": 10, "gold.game_feature (starters updated)": 4},
     )
+    monkeypatch.setattr(
+        model,
+        "enrich_feature_stage",
+        lambda _conn: {"gold.game_feature (park_factor)": 6},
+    )
     monkeypatch.setattr(model.elo, "compute_ratings", lambda _conn: 10)
     monkeypatch.setattr(model.market, "record", lambda _conn: 1)
     monkeypatch.setattr(model, "backfill_outcomes", lambda _conn: 2)
@@ -480,6 +483,7 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     assert model.run() == {
         "gold.game_feature": 10,
         "gold.game_feature (starters updated)": 4,
+        "gold.game_feature (park_factor)": 6,
         "gold.prediction (log5)": 3,
         "gold.prediction (elo)": 4,
         "gold.prediction (gbm)": 5,

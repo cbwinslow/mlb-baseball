@@ -1053,3 +1053,68 @@ Two bug-fix PRs closing real, previously-open issues:
 - Not wired into any production path -- matches every sibling model
   family's own dormant-until-a-separate-promotion-decision posture. No
   champion/challenger comparison or promotion decision was made.
+
+### Plan 04C -- neural model family -- 2026-08-19 (`mlb_test` only)
+
+- Added `neural` (classifier, `home_win`, `MLPClassifier`) and
+  `neural_regressor` (regressor, `run_differential`, `MLPRegressor`) to
+  `mlb_baseball/model/experiment.py` -- `TARGET_REGISTRY`,
+  `SUPPORTED_MODELS`, `_make_estimator`, `_validate_parameters`, following
+  the same branch-per-family pattern as every prior 04C family. Both are
+  genuinely neural (feedforward network, backprop-trained weights), not a
+  relabeled linear model the way `gam` is -- `sklearn.neural_network`
+  ships this already, no new dependency. `max_iter` raised from
+  scikit-learn's default 200 to 1,000 (the same fix `logistic`/`gam`
+  already apply). Both take `random_state` (weight init + `solver="adam"`
+  stochasticity), so both join the existing shared parametrized
+  override-effect test directly -- no dedicated override test needed,
+  unlike `svm_regressor`.
+- **Real scope gap, made explicit rather than silently claimed closed:**
+  Plan 04C names "neural/sequence/embedding models" as one family, but
+  they are different techniques. True sequence models (RNN/LSTM/
+  attention) need a sequential feature representation this project
+  doesn't have (`game_base_v1` is a flat per-game vector) and almost
+  certainly a new dependency (PyTorch/TensorFlow/JAX), neither of which
+  is added here. Plan 04C's own status line now names this gap
+  specifically rather than bundling it under "neural" as closed. See
+  ADR-075.
+- **A real, honestly-documented finding: both new families performed
+  clearly worse than their transparent baselines on the small rehearsal
+  sample, not hidden.** `--fold-years 2015 2024`: `neural`'s log loss
+  (2.04-2.09) was far worse than `home_rate`'s (0.51-0.78);
+  `neural_regressor`'s MAE (8.61-9.86) was worse than `season_average`'s
+  (7.88-8.99). The training sets were smaller than "rehearsal sample"
+  suggests -- confirmed directly by querying `mlb_test`, not assumed:
+  `season-2015`'s training fold had exactly 10 `gold.game_feature` rows,
+  `season-2024`'s had exactly 20 (the rehearsal's `games_per_season=10`
+  bound narrows historical seasons this far even though `core.game`
+  itself has the full season; see `docs/EXPERIMENT_RUNBOOK.md`). A
+  100-unit hidden-layer network fit on 10-20 rows makes severe
+  overfitting close to guaranteed, which is the expected, non-suspicious
+  outcome per `docs/RESEARCH.md`'s own calibration doctrine -- a small
+  sample where `neural` unexpectedly *beat* every baseline would be the
+  result worth distrusting instead. No convergence warning observed
+  (rehearsal sample or a larger synthetic 400-row check); `max_iter=1_000`
+  appears sufficient at this scale, documented as a caveat in
+  `docs/EXPERIMENT_RUNBOOK.md`.
+- **Verified against real production-shaped data, not just the small
+  `mlb_test` fixture -- and respecting the reserved 2025 final holdout:**
+  loaded a bounded multi-season real sample (10 games/season across
+  2008/2015/2024/2025/2026) into `mlb_test`, ran `mlb conform`/
+  `mlb features`, then ran both new families through `mlb experiment run`
+  with `--fold-years 2015 2024` specifically (2025 stays the untouched
+  final holdout, 2026 forward monitoring only). Re-running each identical
+  config correctly returned `(reused)` with byte-identical metrics.
+  Rehearsal sample cleared before the final clean test run. No
+  production `mlb` write occurred.
+- `uv run ruff check .` clean, `uv run ruff format --check .` clean on
+  every file touched, `uv run mypy mlb_baseball/model/experiment.py`
+  clean. Full relevant suite: `tests/integration/test_experiment.py`
+  (27 passed), `tests/unit/test_experiment_metrics.py` (24 passed),
+  `tests/unit/test_cli_dispatch.py` and
+  `tests/integration/test_ingest_tracking.py` (50 passed, regression
+  check) -- 361 passed total, run twice (once against the loaded
+  rehearsal sample, once after clearing it).
+- Not wired into any production path -- matches every sibling model
+  family's own dormant-until-a-separate-promotion-decision posture. No
+  champion/challenger comparison or promotion decision was made.

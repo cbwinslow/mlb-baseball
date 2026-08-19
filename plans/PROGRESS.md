@@ -1415,3 +1415,65 @@ Two bug-fix PRs closing real, previously-open issues:
   regular-season games in the database, every era, and a game missing
   event data is silently excluded by the join, not passed through with a
   null `innings`).
+- **PR #40 re-review round (after the fixes above landed):** fixed 1 more
+  real gap -- `max_innings == regulation_innings` was allowed, but leaves
+  zero room for even one extra inning, so any tied regulation game would
+  immediately hit the `max_innings` guard instead of getting a chance to
+  resolve; tightened to reject equality too. That same review also
+  surfaced a real bug in the perpetual-tie regression test added for the
+  first `max_innings` fix: it used the default `regulation_innings=9`
+  with `max_innings=5`, so it was actually hitting the earlier,
+  unrelated `max_innings`-vs-`regulation_innings` validation rather than
+  the tied-game loop guard it was named for and claimed to test -- it
+  passed, but for the wrong reason. Fixed to use
+  `regulation_innings=1`/`max_innings=2` so it genuinely reaches and
+  exercises the loop guard. Declined a NULL-cast SQL suggestion (verified
+  directly against Postgres: `max(x::int)` over a NULL row doesn't raise,
+  so the suggested reordering has no behavioral difference) and applied
+  a naming-clarity comment (declined the full rename, too broad a blast
+  radius for a naming nit touching already-merged PR #39 code).
+
+### Plan 04D -- genuinely held-out-season calibration check (fourth package) -- 2026-08-19 (`mlb_test` only)
+
+- Extended `scripts/verify_markov_calibration.py` with an
+  `--estimate-seasons` argument, letting the outcome distribution be
+  estimated from different seasons than the ones real data is compared
+  against. Closes the "held-out season" gap flagged open in ADR-076/077/078
+  -- no changes needed to `mlb_baseball/model/markov.py` itself, since
+  every estimator/real-data function already independently accepts its
+  own `seasons` argument; this was purely a verification exercise using
+  already-tested machinery.
+- **Ran it: estimated from 2015-2018, compared against real 2019**,
+  following Plan 04B's own chronological-fold convention ("training only
+  through the preceding season"). Every gap widened honestly relative to
+  the in-sample checks: half-inning runs mean ~5.2% (vs. in-sample
+  ~3.4%), total-runs mean ~5.7% (vs. in-sample ~1.7%), extra-innings rate
+  ~18.8% relative (vs. in-sample ~2.4%). Innings-played mean stayed close
+  (~0.5%) and home win rate was essentially unchanged (~50.5% vs.
+  in-sample ~49.9%) -- that gap is a separate, unrelated limitation (no
+  home/away split) that held-out estimation doesn't affect either way.
+- **Root cause verified directly, not assumed:** real average runs/game
+  rose from 8.50 (2015) to 8.96 (2016) to 9.29 (2017) to 8.90 (2018) to
+  9.66 (2019) -- a genuine, measurable run-environment shift (the
+  widely-documented "juiced ball" 2019 season). The held-out model,
+  estimated only from the lower-scoring 2015-2018 average (~8.9
+  runs/game), predicts 9.11 for 2019 -- close to its own training
+  period's average, honestly missing the real offensive spike 2019
+  turned out to have relative to its immediate predecessors. Exactly the
+  behavior a correctly-generalizing but non-omniscient model should show.
+- This doesn't invalidate the in-sample numbers already reported in
+  ADR-076/077/078 -- both remain accurate descriptions of what they
+  measured -- but it does mean those numbers shouldn't be read as a
+  general-purpose accuracy claim beyond their own season. A production
+  use of this machinery would need to either re-estimate close to the
+  target season or explicitly model run-environment drift, neither of
+  which exists yet.
+- No new tests: this package added a CLI argument to an already-uncovered
+  verification script, not a new function in `mlb_baseball/model/markov.py`
+  -- matches the established precedent of `scripts/rehearse_sample.py`/
+  `scripts/benchmark_mlb_api_ingestion.py`. Verified manually:
+  `--estimate-seasons` omitted still reproduces ADR-076/077/078's exact
+  previously-documented figures byte-for-byte.
+- `uv run ruff check .`/`uv run ruff format --check .` clean.
+- No persistence layer added, matching every prior Plan 04D package's
+  "not wired into production" posture.

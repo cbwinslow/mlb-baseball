@@ -2,6 +2,31 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-079: Genuinely held-out-season calibration check (Plan 04D, fourth package)
+
+**Decision:** Extended `scripts/verify_markov_calibration.py` with an `--estimate-seasons` argument, letting the outcome distribution be estimated from a different set of seasons than the one real data is compared against. Closes the "calibration against a genuinely held-out season" gap explicitly flagged open in ADR-076, ADR-077, and ADR-078 -- every prior Plan 04D calibration check used the same season (2019) for both estimation and comparison, in-sample. No changes to `mlb_baseball/model/markov.py` were needed: `estimate_outcome_distribution`/`estimate_run_expectancy` and `real_half_inning_runs`/`real_game_scores` already each independently accept their own `seasons` argument, so this was purely a verification exercise using already-built, already-tested machinery -- not a new estimator.
+
+**Ran it: estimated from 2015-2018 (4 prior seasons), compared against real 2019** -- following Plan 04B's own established chronological-fold convention ("training only through the preceding season"), applied to Plan 04D's machinery for the first time. Every gap widened relative to the in-sample checks already documented in ADR-076/077/078, honestly and by a real, measured amount, not smoothed over:
+
+- `run_expectancy`'s bases-empty/0-outs value: in-sample 0.542, held-out 0.501 (~7.6% lower than in-sample's own figure -- the two aren't directly comparable numbers, but both estimate the same real quantity, so the held-out estimate is the one that matters for judging out-of-sample accuracy).
+- Half-inning runs mean: real 0.534 vs. held-out-simulated 0.506 (~5.2% gap, versus ADR-077's in-sample ~3.4%).
+- Full-game total-runs mean: real 9.66 vs. held-out-simulated 9.11 (~5.7% gap, versus ADR-078's in-sample ~1.7%).
+- Innings-played mean: real 9.19 vs. held-out-simulated 9.23 (~0.5% gap) -- stayed close, unaffected by run-environment drift the way scoring rate is.
+- Extra-innings rate: real 8.56% vs. held-out-simulated 10.17% (~18.8% relative gap, versus ADR-078's in-sample ~2.4%).
+- Home win rate: real 52.9% vs. held-out-simulated 50.5% -- essentially unchanged from ADR-078's in-sample 49.9%, as expected: this gap is caused by the model having no home/away split at all, a completely different, unrelated limitation that held-out estimation neither helps nor hurts.
+
+**Root cause identified and verified directly, not assumed:** real per-game scoring rose measurably across these exact seasons -- `raw.retrosheet_gameinfo`'s own `vruns`/`hruns` show real average total runs/game of 8.50 (2015), 8.96 (2016), 9.29 (2017), 8.90 (2018), 9.66 (2019). The held-out model, estimated only from the lower-scoring 2015-2018 average (~8.9 runs/game), predicts 9.11 for 2019 -- close to its own training-period average, honestly missing the real, measurable offensive spike 2019 turned out to have relative to its immediate predecessors (the widely-documented "juiced ball" era). This is exactly the behavior a correctly-generalizing but non-omniscient model should show: it reproduces the run environment it was trained on, not the one it's evaluated against, and the gap size (~5-6% on the aggregate scoring metrics) is a reasonable, honest measure of how much a single real season's offense can drift from its own recent past.
+
+**This is real, useful evidence, not a failure to hide:** the held-out check doesn't invalidate the in-sample numbers already reported in ADR-076/077/078 (both remain accurate descriptions of what they measured), but it does mean those numbers shouldn't be read as a general-purpose accuracy claim beyond their own season -- exactly the caveat CodeRabbit's PR #40 review asked for (ADR-078's "in-sample diagnostic" qualifier) and this package now backs with an actual out-of-sample number instead of just a caveat. A production forecasting use of this machinery (not attempted anywhere in Plan 04D yet -- these are all research/diagnostic modules per every prior ADR's "no persistence layer" note) would need to either re-estimate close to the target season or explicitly model era/run-environment drift, neither of which exists here.
+
+**No new tests added** -- this package added no new function to `mlb_baseball/model/markov.py`, only a CLI argument to an already-uncovered verification script (`scripts/verify_markov_calibration.py` itself has no dedicated test file, matching the established precedent of `scripts/rehearse_sample.py`/`scripts/benchmark_mlb_api_ingestion.py`, ops/diagnostic tooling that composes already-tested public functions rather than containing its own logic worth unit-testing). Verified manually: `--estimate-seasons` omitted still reproduces ADR-076/077/078's exact previously-documented figures byte-for-byte (confirming no regression to the default in-sample behavior), and `--estimate-seasons 2015 2016 2017 2018 --season 2019` produces the held-out figures cited above.
+
+**`uv run ruff check .`/`uv run ruff format --check .` clean.**
+
+**No persistence layer added** -- matches every prior Plan 04D package's "not wired into production" posture (Plan 01F).
+
+**Revisit if:** a future package wants this held-out check run across multiple eval seasons (not just 2019) to see whether the ~5-6% gap size is typical or 2019-specific, wants the estimation window size (currently a fixed 4 prior seasons, chosen arbitrarily) itself tuned/justified rather than picked once, or wants an explicit run-environment-drift adjustment (e.g. league-average-runs-per-game normalization) added to the estimator itself rather than left as an unmodeled, honestly-reported gap.
+
 ## ADR-078: Full-game simulator + calibration check (Plan 04D, third package)
 
 **Decision:** Added `simulate_half_inning_steps`, `GameResult`, `simulate_game`, and `real_game_scores` to `mlb_baseball/model/markov.py`, plus `mlb_baseball/sql/markov_game_scores.sql`. This is Plan 04D's third deliverable, closing the "full 9-inning/both-teams game simulation" gap flagged as open in ADR-077's "Revisit if". Calibration against a genuinely held-out season (rather than the same season used for estimation) remains open for a future package.

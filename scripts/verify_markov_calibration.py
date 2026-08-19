@@ -6,6 +6,11 @@ Prints the same real-vs-simulated comparison numbers cited in
 docs/DECISIONS.md's ADR-076 (run expectancy), ADR-077 (half-inning
 simulator), and ADR-078 (full-game simulator), so those figures can be
 regenerated and audited rather than trusted from prose alone.
+
+By default `--estimate-seasons` matches `--season`, reproducing those
+ADRs' in-sample diagnostic exactly. Pass `--estimate-seasons` with
+seasons strictly before `--season` for a genuinely held-out check (e.g.
+`--estimate-seasons 2015 2016 2017 2018 --season 2019`) -- see ADR-079.
 """
 
 import argparse
@@ -18,24 +23,37 @@ from mlb_baseball.model import markov
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--season", type=int, default=2019)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--season", type=int, default=2019, help="season real data is drawn from")
+    parser.add_argument(
+        "--estimate-seasons",
+        type=int,
+        nargs="+",
+        default=None,
+        help="seasons to estimate the outcome distribution from (defaults to [--season], "
+        "i.e. in-sample)",
+    )
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
     url = os.environ.get("DATABASE_URL")
     if not url:
         raise SystemExit("DATABASE_URL is required (read-only; safe against production mlb)")
-    seasons = [args.season]
+    eval_seasons = [args.season]
+    estimate_seasons = args.estimate_seasons if args.estimate_seasons is not None else eval_seasons
 
     with psycopg.connect(url) as conn:
-        re_table = markov.estimate_run_expectancy(conn, seasons)
-        distribution = markov.estimate_outcome_distribution(conn, seasons)
-        real_half_innings = markov.real_half_inning_runs(conn, seasons)
-        real_games = markov.real_game_scores(conn, seasons)
+        re_table = markov.estimate_run_expectancy(conn, estimate_seasons)
+        distribution = markov.estimate_outcome_distribution(conn, estimate_seasons)
+        real_half_innings = markov.real_half_inning_runs(conn, eval_seasons)
+        real_games = markov.real_game_scores(conn, eval_seasons)
 
-    if not re_table or not distribution or not real_half_innings or not real_games:
-        raise SystemExit(f"season {args.season} not bootstrapped -- run `mlb doctor` first")
+    if not re_table or not distribution:
+        raise SystemExit(f"estimate seasons {estimate_seasons} not bootstrapped")
+    if not real_half_innings or not real_games:
+        raise SystemExit(f"eval season {args.season} not bootstrapped")
 
     # Independent, separately-seeded rng per check -- matches how each
     # figure below was originally computed and cited in its own ADR, not
@@ -47,7 +65,12 @@ def main() -> None:
     game_rng = random.Random(args.seed)
     sim_games = [markov.simulate_game(distribution, game_rng) for _ in range(len(real_games))]
 
-    print(f"season={args.season} seed={args.seed}")
+    print(f"eval_season={args.season} estimate_seasons={estimate_seasons} seed={args.seed}")
+    print(
+        "held-out (estimate seasons exclude eval season)"
+        if args.season not in estimate_seasons
+        else "in-sample (estimate seasons include eval season)"
+    )
     print()
     print("ADR-076 run expectancy, bases-empty/0-outs:", re_table[markov.EMPTY_ZERO_OUTS])
     print()

@@ -63,11 +63,21 @@ vs. simulated 8.36% (~2.4% relative) — all close summary statistics, not
 a distribution-distance metric. Home win rate is the one honestly-reported gap:
 real 52.9% (real baseball's well-documented home-field advantage) vs.
 simulated 49.9% (a coin flip, expected — the simulator uses one
-league-average distribution for both teams, no home/away split). Not yet
-built: calibration against a genuinely held-out season (all three
-packages' calibration checks are in-sample — same season for estimation
-and comparison), and separate home/away outcome distributions to close
-the home-field-advantage gap above.
+league-average distribution for both teams, no home/away split).
+Fourth package landed the same day (ADR-079): a genuinely held-out
+calibration check — `scripts/verify_markov_calibration.py
+--estimate-seasons 2015 2016 2017 2018 --season 2019` estimates from
+seasons strictly before 2019 and compares against real 2019, closing
+the in-sample gap the first three packages flagged. Every gap widened
+honestly (half-inning mean ~5.2% vs. in-sample ~3.4%; total-runs mean
+~5.7% vs. in-sample ~1.7%; extra-innings rate ~18.8% relative vs.
+in-sample ~2.4%) — root cause verified directly: real average runs/game
+rose from 8.50 (2015) to 9.66 (2019), and the held-out model, trained
+only on the lower-scoring 2015-2018 average, predicts 9.11, honestly
+missing 2019's real offensive spike rather than having learned it. Not
+yet built: separate home/away outcome distributions to close the
+home-field-advantage gap above, and precise walk-off run crediting
+(ADR-078's Revisit-if).
 
 ## Work packages
 

@@ -432,12 +432,16 @@ def simulate_game(
     record run to 25-26 innings) is a defensive bound raising MarkovError
     if exceeded, rather than hanging forever, matching
     `simulate_half_inning`'s own "fail loudly, don't hang" contract for a
-    dead-end state."""
+    dead-end state. Must be strictly greater than `regulation_innings` --
+    equal would leave no room for even one extra inning, so any tied
+    regulation game would immediately hit this guard instead of ever
+    getting a chance to resolve."""
     if regulation_innings < 1:
         raise MarkovError(f"regulation_innings must be at least 1, got {regulation_innings}")
-    if max_innings < regulation_innings:
+    if max_innings <= regulation_innings:
         raise MarkovError(
-            f"max_innings ({max_innings}) must be >= regulation_innings ({regulation_innings})"
+            f"max_innings ({max_innings}) must be greater than regulation_innings "
+            f"({regulation_innings}) -- equal leaves no room for even one extra inning"
         )
     away_runs = 0
     home_runs = 0

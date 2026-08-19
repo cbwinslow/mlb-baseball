@@ -150,6 +150,16 @@ def test_simulate_game_rejects_a_max_innings_below_regulation_innings():
         simulate_game(distribution, _ScriptedRandom([]), regulation_innings=9, max_innings=8)
 
 
+def test_simulate_game_rejects_a_max_innings_equal_to_regulation_innings():
+    # Equal to (not just below) regulation_innings must also be rejected:
+    # it would leave zero room for even one extra inning, so any tied
+    # regulation game would immediately hit the max_innings guard instead
+    # of ever getting a chance to resolve in extras.
+    distribution = {EMPTY_ZERO: {Outcome(TERMINAL, 0): 1.0}}
+    with pytest.raises(MarkovError, match="max_innings"):
+        simulate_game(distribution, _ScriptedRandom([]), regulation_innings=9, max_innings=9)
+
+
 def test_simulate_game_raises_rather_than_hang_forever_on_a_perpetual_tie():
     # A degenerate distribution where every half-inning is guaranteed
     # scoreless can never break a tie -- real random.Random (not scripted)
@@ -161,6 +171,12 @@ def test_simulate_game_raises_rather_than_hang_forever_on_a_perpetual_tie():
     # a realistic production scenario -- but simulate_half_inning already
     # refuses to silently hang on a dead-end state, and this extends that
     # same "fail loudly, don't hang" contract to the game level.
+    #
+    # regulation_innings=1/max_innings=2 (rather than the default 9/30)
+    # keeps this fast while still genuinely reaching the tied-game loop
+    # guard -- not the earlier, unrelated max_innings-vs-regulation_innings
+    # validation, which a too-close pair of defaults would trigger instead
+    # without ever exercising the code path this test is named for.
     distribution = {EMPTY_ZERO: {Outcome(TERMINAL, 0): 1.0}}
-    with pytest.raises(MarkovError, match="max_innings"):
-        simulate_game(distribution, random.Random(0), max_innings=5)
+    with pytest.raises(MarkovError, match="still tied"):
+        simulate_game(distribution, random.Random(0), regulation_innings=1, max_innings=2)

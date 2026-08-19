@@ -57,6 +57,10 @@ def main() -> None:
     print()
     real_total = [g.away_runs + g.home_runs for g in real_games]
     sim_total = [g.away_runs + g.home_runs for g in sim_games]
+    # summarize_runs is generic descriptive-stats logic (count/mean/median/
+    # p90/max over a list of ints) despite its run-total-shaped name --
+    # reused here for innings played, a different domain but the same
+    # statistical shape.
     real_innings = [g.innings for g in real_games]
     sim_innings = [g.innings for g in sim_games]
     real_home_win_rate = sum(1 for g in real_games if g.home_runs > g.away_runs) / len(real_games)

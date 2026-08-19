@@ -1858,3 +1858,28 @@ Two bug-fix PRs closing real, previously-open issues:
   BY-NC-SA terms) is now a tracked Phase 3 goal (`docs/ROADMAP.md`).
   Neither is started -- both explicitly scoped as future work, not
   implied in-progress.
+
+### Fix issue #48: `starter_workload` (PIT-03) backfilled against production `mlb` -- 2026-08-19 (owner-authorized)
+
+- **Real, scoped gap, not a duplicate of the earlier incident.**
+  `starter_workload.py` (PIT-03, `home_starter_rest_days`/`away_starter_
+  rest_days`/`home_starter_outs_7d`/`away_starter_outs_7d`) was added
+  2026-08-15 -- after both the original 2026-08-13/14 enrichment rollout
+  and this same day's 2026-08-19 backfill (which deliberately mirrored
+  that original rollout's exact module list). It was never included in
+  either, so unlike every other enrichment module, this one had never
+  run against production even once -- 0% coverage, confirmed directly.
+- **Backfilled the same way as every other module today**: `starter_
+  workload.compute()`/`compute_live()`/`compute_probable()` against real
+  `mlb`, `DATABASE_URL=postgresql:///mlb` stated explicitly. Row counts
+  matched `starter.py`'s own sibling figures closely (compute: 201,523;
+  compute_live: 1,729; compute_probable: 52).
+- **Verified with `mlb doctor` against production**: 211/222 checks
+  passed (up from 209/222 before this fix -- the two previously-failing
+  `starter workload` coverage checks are now clean). `home_starter_rest_
+  days`/`away_starter_rest_days` land at 98.4%/98.5% coverage (176,151/
+  178,931 and 176,278/178,902) -- the remaining ~1.5-1.6% gap matches the
+  same order of magnitude as this project's other already-documented
+  Retrosheet-derived coverage gaps (e.g. `starter.py`'s own ~1.7%), not
+  investigated further here since both checks already passed their
+  existing thresholds.

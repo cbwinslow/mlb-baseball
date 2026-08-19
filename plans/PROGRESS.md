@@ -1781,17 +1781,26 @@ Two bug-fix PRs closing real, previously-open issues:
   write of this size against real production data needs explicit
   authorization regardless of how clear the fix looks -- asked directly,
   received it, then proceeded.
-- **Backfilled by re-running every enrichment module against real `mlb`,
-  in the same order and shape as the original 2026-08-13/14 rollout**
-  (`park`, `team_rate` + `compute_run_environment`, `offense` +
-  `compute_wrc_plus` + both live paths, `starter` + live + probable,
-  `bullpen` + live + upcoming, `oaa`, `speed`, `framing`, `war` --
+- **Backfilled by re-running every enrichment module from the original
+  rollout against real `mlb`, in the same order and shape as the original
+  2026-08-13/14 rollout** (`park`, `team_rate` + `compute_run_environment`,
+  `offense` + `compute_wrc_plus` + both live paths, `starter` + live +
+  probable, `bullpen` + live + upcoming, `oaa`, `speed`, `framing`, `war` --
   one-off script, `DATABASE_URL=postgresql:///mlb` stated explicitly on
-  every invocation per the database-naming golden rule). Row counts
-  landed within a few hundred rows of the original rollout's own figures
-  across every module (e.g. `team_rate.compute`: 216,646 vs the original
-  216,592; `bullpen.compute`: 216,646 vs 216,592) -- the small deltas are
-  real new games ingested since 08-13/14, not a discrepancy.
+  every invocation per the database-naming golden rule). `starter_workload`
+  (PIT-03) was *not* included -- it was added 2026-08-15, after the
+  original rollout, so it was never part of the module list this backfill
+  deliberately mirrored; it remains at 0% coverage, tracked separately as
+  issue #48. Row counts landed within a few hundred rows of the original
+  rollout's own figures across every module that *was* rerun (e.g.
+  `team_rate.compute`: 216,646 vs the original 216,592; `bullpen.compute`:
+  216,646 vs 216,592) -- these are enrichment-computation row counts
+  specifically (rows each module's own UPDATE touched), not
+  `gold.game_feature`'s total row count (see the "Production state" summary
+  above for that separate figure, which moved a different, unrelated
+  direction across the intervening `game_pk`-uniqueness rebuild). The small
+  increases here are real new games ingested since 08-13/14, not a
+  discrepancy.
 - **Verified with `mlb doctor` against production, not just row counts.**
   209/222 checks passed; every check touching the backfilled data passed
   clean (all rate-stat plausible-range checks, the 406,516-row
@@ -1814,7 +1823,14 @@ Two bug-fix PRs closing real, previously-open issues:
   index on `gid` (its actual join key everywhere in this codebase, only
   `_season` was indexed) -- added `idx_retrosheet_gameinfo_gid`
   (`CREATE INDEX CONCURRENTLY`, safe/additive, applied directly to
-  production) and re-verified with a second `EXPLAIN`: honestly, it
+  production first, then correctly captured in migration `0057_
+  retrosheet_gameinfo_gid_index.sql` -- PR #47 review (CodeAnt/Kilo)
+  correctly caught that an unmigrated production DDL change is real schema
+  drift a clean clone or `mlb_test` would never reproduce; applied `mlb
+  migrate` against both `mlb_test` and `mlb` afterward to close the gap,
+  the latter a no-op `CREATE INDEX IF NOT EXISTS` reconciling the already-
+  applied index into migration history rather than creating a duplicate)
+  and re-verified with a second `EXPLAIN`: honestly, it
   didn't meaningfully change *this* query's runtime (83.99s vs 85.24s),
   because `retrosheet_event`'s side of the join already used its own
   existing index correctly. The new index is still kept (a real

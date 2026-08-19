@@ -31,7 +31,7 @@ over a sequential, not flat per-game, feature representation).
 **Owner direction, 2026-08-19: sequence/embedding modeling is now an active
 project goal, not just a deferred gap.** The eventual target is genuinely
 new -- an in-game, half-inning-level prediction model, distinct from every
-family built so far (all of which predict a single pre-game probability from
+family built so far (all of which produce a single pre-game prediction from
 a flat per-game feature vector). This needs, in order: (1) a sequential
 training representation (pitch- or plate-appearance-level, not
 `game_base_v1`'s flat per-game rows -- `docs/RESEARCH.md`'s own cited

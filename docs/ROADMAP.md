@@ -77,10 +77,17 @@ Not planned yet. The gold-layer reporting surface above (`gold.player_season`/`t
 **Owner direction, 2026-08-19: a public research/query interface (in the
 spirit of baseball.computer's own query layer) is now a goal for this
 phase, in addition to — not instead of — the predictions/live-data/market-data
-differentiators `docs/NORTH_STAR.md` already claims.** `docs/PROJECT_REVIEW.md`
-already establishes the licensing boundary this needs to respect
-(baseball.computer is CC BY-NC-SA; reference their public *interface concept*
-freely, never copy their schema, SQL, prose, or UI verbatim). Concretely, this
+differentiators `docs/NORTH_STAR.md` already claims.** Checked baseball.computer's
+own stated terms directly (not assumed) before writing this: Retrosheet data
+carries only its own attribution requirement, pre-1901 Lahman data is CC
+BY-SA 3.0, and the project's *own* additions/contributions are released
+under CC BY-SA 4.0 — not a blanket CC BY-NC-SA as an earlier draft of this
+note incorrectly claimed (corrected during PR #47 review). None of that data
+licensing actually binds this project either way, since it sources
+Retrosheet/Lahman independently rather than through baseball.computer — the
+real, separate constraint (already established in `docs/PROJECT_REVIEW.md`)
+is not licensing but originality: reference their public *interface concept*
+freely, never copy their schema, SQL, prose, or UI verbatim. Concretely, this
 project's own data surface is already broader than baseball.computer's own
 query layer covers — the full sabermetrics layer is already built (see Phase
 2 above: wOBA, wRC+, OBP/SLG/ISO/BABIP/BB%/K%, starter FIP/K%/BB%/HR%, bullpen

@@ -23,8 +23,10 @@ no 2026+ raw.mlb_playbyplay equivalent exists here yet.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import random
+from collections.abc import Hashable, Iterable, Sequence
 from dataclasses import dataclass
+from typing import TypeVar
 
 import numpy as np
 import psycopg
@@ -33,6 +35,7 @@ from mlb_baseball.db import fetch_one
 from mlb_baseball.sql import read_sql
 
 _TRANSITION_COUNTS_SQL = read_sql("markov_transition_counts.sql")
+_HALF_INNING_RUNS_SQL = read_sql("markov_half_inning_runs.sql")
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,12 @@ class BaseOutState:
 # The shared absorbing state every 3-outs transition collapses into --
 # base occupancy is meaningless once the half-inning is over.
 TERMINAL = BaseOutState(outs=3)
+
+# The state every half-inning starts from -- a module-level singleton
+# rather than constructed in a default argument (ruff B008: a mutable-
+# looking call in a default is evaluated once at def time, which is
+# actually fine for a frozen dataclass, but the singleton is clearer).
+EMPTY_ZERO_OUTS = BaseOutState(0, False, False, False)
 
 TRANSIENT_STATES: tuple[BaseOutState, ...] = tuple(
     BaseOutState(o, b1, b2, b3)
@@ -116,12 +125,15 @@ def _validate_row_conservation(row: TransitionCountRow) -> None:
         )
 
 
+_OutcomeKey = TypeVar("_OutcomeKey", bound=Hashable)
+
+
 def _validate_probabilities_sum_to_one(
-    post_probs: dict[BaseOutState, float], tolerance: float = 1e-9
+    probabilities: dict[_OutcomeKey, float], tolerance: float = 1e-9
 ) -> None:
-    total = sum(post_probs.values())
+    total = sum(probabilities.values())
     if abs(total - 1.0) > tolerance:
-        raise MarkovError(f"post-state probabilities sum to {total}, not 1.0")
+        raise MarkovError(f"outgoing probabilities sum to {total}, not 1.0")
 
 
 def build_transition_matrix(
@@ -273,3 +285,132 @@ def estimate_run_expectancy(
     matrix = build_transition_matrix(rows)
     immediate_runs = _immediate_expected_runs(rows)
     return run_expectancy(matrix, immediate_runs)
+
+
+@dataclass(frozen=True)
+class Outcome:
+    post: BaseOutState
+    runs: int
+
+
+def build_outcome_distribution(
+    rows: Iterable[TransitionCountRow],
+) -> dict[BaseOutState, dict[Outcome, float]]:
+    """Aggregate raw (pre_state, post_state, runs_scored, n) rows into a
+    per-state probability distribution over (post_state, runs_scored)
+    outcomes -- unlike build_transition_matrix, this keeps runs_scored as
+    part of the sampled outcome instead of discarding it. A simulator needs
+    this: "which post-state" and "how many runs scored getting there" are
+    correlated (the same (pre, post) pair can arise from plays that scored
+    different numbers of runs), so they must be sampled jointly from one
+    distribution per pre-state, not independently from two separate
+    marginal distributions -- doing the latter could combine a state
+    transition with a run total that never actually co-occurred in the
+    real data. Same validation as build_transition_matrix; raises
+    MarkovError on any physical/probability violation."""
+    counts: dict[BaseOutState, dict[Outcome, int]] = {}
+    for row in rows:
+        _validate_row_conservation(row)
+        pre = _pre_state(row)
+        outcome = Outcome(_post_state(row), row.runs_scored)
+        bucket = counts.setdefault(pre, {})
+        bucket[outcome] = bucket.get(outcome, 0) + row.n
+
+    distribution: dict[BaseOutState, dict[Outcome, float]] = {}
+    for pre, outcome_counts in counts.items():
+        total = sum(outcome_counts.values())
+        probs = {outcome: n / total for outcome, n in outcome_counts.items()}
+        _validate_probabilities_sum_to_one(probs)
+        distribution[pre] = probs
+    return distribution
+
+
+def estimate_outcome_distribution(
+    conn: psycopg.Connection, seasons: Sequence[int]
+) -> dict[BaseOutState, dict[Outcome, float]]:
+    """Estimate the joint (post_state, runs_scored) outcome distribution
+    from real Retrosheet play-by-play for the given regular-season years
+    -- the input simulate_half_inning/simulate_half_innings need. Returns
+    an empty dict, matching estimate_transition_matrix's "not ready yet"
+    contract, if either source table hasn't been bootstrapped."""
+    _validate_seasons(seasons)
+    rows = _fetch_transition_counts(conn, seasons)
+    return build_outcome_distribution(rows)
+
+
+def simulate_half_inning(
+    distribution: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    start: BaseOutState = EMPTY_ZERO_OUTS,
+) -> int:
+    """Simulate one half-inning by sampling outcomes from `distribution`
+    starting at `start` (bases empty, 0 outs by default) until reaching
+    TERMINAL, summing runs scored along the way. `rng` is an injected
+    random.Random instance -- a caller seeds it for deterministic,
+    reproducible simulation runs; this function never seeds its own.
+    Raises MarkovError if a reached state has no observed outcomes at all
+    (e.g. a rare configuration absent from a narrow real sample) rather
+    than silently hanging or returning a nonsensical result."""
+    state = start
+    total_runs = 0
+    while state != TERMINAL:
+        outcomes = distribution.get(state)
+        if not outcomes:
+            raise MarkovError(f"no observed outcomes for state {state}, cannot simulate")
+        chosen = rng.choices(list(outcomes.keys()), weights=list(outcomes.values()), k=1)[0]
+        total_runs += chosen.runs
+        state = chosen.post
+    return total_runs
+
+
+def simulate_half_innings(
+    distribution: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    count: int,
+    start: BaseOutState = EMPTY_ZERO_OUTS,
+) -> list[int]:
+    """Simulate `count` independent half-innings, returning each one's
+    total runs scored -- the Monte Carlo sample a calibration check
+    compares against the real historical per-half-inning run
+    distribution."""
+    return [simulate_half_inning(distribution, rng, start) for _ in range(count)]
+
+
+def real_half_inning_runs(conn: psycopg.Connection, seasons: Sequence[int]) -> list[int]:
+    """Real per-half-inning run totals from Retrosheet play-by-play for the
+    given regular-season years -- one value per (game, inning, side), what
+    `simulate_half_innings`' output is compared against for Plan 04D's
+    calibration check ("Calibrate composed distributions against held-out
+    seasons and real forward results"). Returns an empty list, matching
+    every other estimator here's "not ready yet" contract, if either
+    source table hasn't been bootstrapped."""
+    _validate_seasons(seasons)
+    if not _retrosheet_tables_ready(conn):
+        return []
+    with conn.cursor() as cur:
+        cur.execute(_HALF_INNING_RUNS_SQL, {"seasons": [str(s) for s in seasons]})
+        return [int(total_runs) for _game_id, _inning, _side, total_runs in cur.fetchall()]
+
+
+def summarize_runs(values: Sequence[int]) -> dict[str, float]:
+    """Basic descriptive stats for a per-half-inning run distribution --
+    used to compare a simulated distribution (simulate_half_innings)
+    against the real one (real_half_inning_runs). Deliberately just
+    descriptive stats, not a pass/fail threshold: unlike run expectancy
+    (which has published RE24 tables to compare against), this project has
+    no established tolerance yet for "close enough" on a full distributional
+    comparison -- reporting the real numbers honestly is what's shippable
+    now, not an invented bar. Raises MarkovError on empty input rather than
+    silently returning NaN/zero stats for a comparison that never actually
+    ran."""
+    if not values:
+        raise MarkovError("cannot summarize an empty run distribution")
+    ordered = sorted(values)
+    n = len(ordered)
+    return {
+        "count": float(n),
+        "mean": sum(ordered) / n,
+        "median": float(ordered[n // 2]),
+        "p90": float(ordered[min(int(n * 0.9), n - 1)]),
+        "max": float(ordered[-1]),
+    }

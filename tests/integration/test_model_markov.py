@@ -2,6 +2,8 @@
 matrix estimation from raw.retrosheet_event (Plan 04D).
 """
 
+import random
+
 import pytest
 
 from mlb_baseball.model import markov
@@ -13,7 +15,8 @@ def _ensure_retrosheet_tables(db_conn):
         if not cur.fetchone()[0]:
             cur.execute(
                 "CREATE TABLE raw.retrosheet_event ("
-                "game_id text, outs_ct text, event_outs_ct text, event_cd text, "
+                "game_id text, inn_ct text, bat_home_id text, "
+                "outs_ct text, event_outs_ct text, event_cd text, "
                 "base1_run_id text, base2_run_id text, base3_run_id text, "
                 "bat_dest_id text, run1_dest_id text, run2_dest_id text, run3_dest_id text)"
             )
@@ -45,6 +48,8 @@ def _insert_event(
     event_outs_ct,
     event_cd,
     *,
+    inn_ct="1",
+    bat_home_id="0",
     b1=None,
     b2=None,
     b3=None,
@@ -55,11 +60,14 @@ def _insert_event(
 ):
     cur.execute(
         "INSERT INTO raw.retrosheet_event "
-        "(game_id, outs_ct, event_outs_ct, event_cd, base1_run_id, base2_run_id, "
+        "(game_id, inn_ct, bat_home_id, outs_ct, event_outs_ct, event_cd, "
+        "base1_run_id, base2_run_id, "
         "base3_run_id, bat_dest_id, run1_dest_id, run2_dest_id, run3_dest_id) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (
             game_id,
+            inn_ct,
+            bat_home_id,
             outs_ct,
             event_outs_ct,
             event_cd,
@@ -267,3 +275,75 @@ def test_estimate_transition_matrix_returns_empty_when_only_one_table_exists(db_
         cur.execute("CREATE TABLE raw.retrosheet_gameinfo (gid text, gametype text, _season text)")
     db_conn.commit()
     assert markov.estimate_transition_matrix(db_conn, seasons=[2021]) == {}
+
+
+def test_estimate_outcome_distribution_keeps_runs_scored_and_simulates(db_conn):
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype, _season) "
+            "VALUES ('G1', 'regular', '2021')"
+        )
+        # A deterministic single-path half-inning, each state visited
+        # exactly once (empty/0, 1st/0, 1st/1, TERMINAL -- no revisits, so
+        # every pre-state has exactly one observed outcome):
+        # leadoff single (empty/0 -> 1st/0, 0 runs), a strikeout holding
+        # the runner (1st/0 -> 1st/1, 0 runs), then the third out on a
+        # play that also scores the runner from 1st (1st/1 -> TERMINAL,
+        # 1 run).
+        _insert_event(cur, "G1", "0", "0", "20", bat_dest="1")
+        _insert_event(cur, "G1", "0", "1", "3", b1="r1", bat_dest="0", r1_dest="1")
+        _insert_event(cur, "G1", "1", "2", "2", b1="r1", bat_dest="0", r1_dest="4")
+    db_conn.commit()
+
+    distribution = markov.estimate_outcome_distribution(db_conn, seasons=[2021])
+
+    empty_zero = markov.BaseOutState(0, False, False, False)
+    first_zero = markov.BaseOutState(0, True, False, False)
+    first_one = markov.BaseOutState(1, True, False, False)
+    assert distribution[empty_zero][markov.Outcome(first_zero, 0)] == 1.0
+    assert distribution[first_zero][markov.Outcome(first_one, 0)] == 1.0
+    assert distribution[first_one][markov.Outcome(markov.TERMINAL, 1)] == 1.0
+
+    # The whole chain is deterministic (every state has exactly one
+    # observed outcome), so simulating it must always sum to the same
+    # total regardless of the RNG seed: 0 (single) + 0 (K, runner held) +
+    # 1 (the play ending the inning also scores the runner) = 1.
+    runs = markov.simulate_half_inning(distribution, random.Random(0))
+    assert runs == 1
+
+
+def test_estimate_outcome_distribution_returns_empty_when_tables_missing(db_conn):
+    _reset(db_conn)
+    assert markov.estimate_outcome_distribution(db_conn, seasons=[2021]) == {}
+
+
+def test_real_half_inning_runs_matches_hand_calculation(db_conn):
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype, _season) "
+            "VALUES ('G1', 'regular', '2021'), ('G2', 'playoff', '2021')"
+        )
+        # G1, inning 1, away batting (bat_home_id='0'): two separate plays
+        # each scoring, totaling 3 runs in this one half-inning.
+        _insert_event(cur, "G1", "0", "0", "23", bat_dest="4")  # solo HR: 1 run
+        _insert_event(
+            cur, "G1", "0", "1", "21", b1="r1", b2="r2", bat_dest="2", r1_dest="4", r2_dest="4"
+        )  # 2-run double, batter safe at 2nd
+        # G1, inning 1, home batting (bat_home_id='1'): no runs.
+        _insert_event(cur, "G1", "0", "1", "3", bat_home_id="1", bat_dest="0")
+        # G2 (playoff): would add a run if not excluded by the gametype filter.
+        _insert_event(cur, "G2", "0", "0", "23", bat_dest="4")
+    db_conn.commit()
+
+    totals = markov.real_half_inning_runs(db_conn, seasons=[2021])
+
+    assert sorted(totals) == [0, 3]
+
+
+def test_real_half_inning_runs_returns_empty_when_tables_missing(db_conn):
+    _reset(db_conn)
+    assert markov.real_half_inning_runs(db_conn, seasons=[2021]) == []

@@ -46,17 +46,30 @@ row per game, with no hand-joining. `LEFT JOIN`s throughout so an upcoming
 (not yet played) game still appears with NULL score/venue/starter rather
 than being dropped. A view, not a materialized table -- every column is
 already computed and stored elsewhere, so it needs no separate refresh
-step. Covered by `tests/integration/test_game_export_view.py` (2 tests:
-name/score resolution against a hand-built fixture, and the LEFT JOIN
-behavior for an upcoming game); confirmed via mutation testing (dropping
-the view made both tests fail with `UndefinedTable`, not pass trivially).
-The documented `COPY (SELECT * FROM ...) TO STDOUT WITH CSV HEADER` recipe
-for this view plus the pre-existing `gold.player_season`/`team_season` was
-added to `docs/RESEARCH_QUERY_RUNBOOK.md` "Exporting to CSV" in the same
-change. A small `mlb export` CLI wrapper was considered and deliberately
-deferred -- `psql \copy` already covers any of these relations generically,
-so a Python wrapper would add no real capability until there's a concrete
+step. Covered by `tests/integration/test_game_export_view.py` (3 tests:
+name/score resolution against a hand-built fixture, the LEFT JOIN
+behavior for an upcoming game, and a partial-name case where
+`core.player.last_name` is NULL); confirmed via mutation testing (dropping
+the view made all three tests fail with `UndefinedTable`, not pass
+trivially). The documented `psql \copy` recipe for this view plus the
+pre-existing `gold.player_season`/`team_season` was added to
+`docs/RESEARCH_QUERY_RUNBOOK.md` "Exporting to CSV" in the same change. A
+small `mlb export` CLI wrapper was considered and deliberately deferred --
+`psql \copy` already covers any of these relations generically, so a
+Python wrapper would add no real capability until there's a concrete
 need (e.g. non-technical collaborators without `psql` access).
+
+PR #51 review (Kilo, CodeAnt, CodeRabbit) caught two real gaps, fixed in
+follow-up commits: `||` string concatenation returns NULL if either side
+is NULL (`core.player.last_name` is genuinely NULL for 224 production
+rows -- confirmed directly, not hypothetical), switched to
+`NULLIF(CONCAT_WS(...), '')`; and the view omitted several real
+`gold.game_feature` columns (`home_runs_for`/`home_runs_allowed`/
+`away_runs_for`/`away_runs_allowed`/`home_field`/`home_starter_rest`/
+`away_starter_rest`), added. Also added an explicit point-in-time
+contract comment (migration + runbook doc): `home_score`/`away_score`/
+`home_win` are reporting-only, postgame values, never a pregame model
+input for the game they belong to.
 
 ### Starter workload live and probable paths (pitcher_workload_v1_live, completed) — 2026-08-15
 

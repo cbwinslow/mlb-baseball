@@ -126,7 +126,7 @@ and isn't a blocker for this.
 ✅ **Game export view** (migration 0058) — `gold.game_export`, a plain view
 over `gold.game_feature` joined to `core.team`/`core.player`/`core.venue`/
 `core.game` for readable team/starter names and the real final score. The
-`COPY ... TO STDOUT WITH CSV HEADER` recipe for it, `gold.player_season`,
+`psql \copy` recipe for it, `gold.player_season`,
 and `gold.team_season` is documented in `docs/RESEARCH_QUERY_RUNBOOK.md`
 "Exporting to CSV". A small `mlb export` CLI wrapper remains a real,
 deliberately deferred next step — not needed while `psql \copy` already

@@ -11,6 +11,13 @@
 -- LEFT JOINs throughout: an upcoming (not yet played) game has no
 -- core.game row yet, no venue/starter resolved, no score -- those columns
 -- come back NULL for such a row rather than dropping it from the export.
+--
+-- Point-in-time contract: home_score/away_score/home_win are reporting-
+-- only, postgame values -- never a model input for the game they belong
+-- to. Every other, pregame column is only ever known as of
+-- feature_cutoff_at (already gold.game_feature's own point-in-time
+-- cutoff); this view relabels and joins, it doesn't change what was
+-- knowable when.
 CREATE OR REPLACE VIEW gold.game_export AS
 SELECT
     f.game_instance_key,

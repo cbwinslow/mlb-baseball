@@ -27,7 +27,7 @@ import math
 import random
 from collections.abc import Hashable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import numpy as np
 import psycopg
@@ -180,7 +180,7 @@ def _retrosheet_tables_ready(conn: psycopg.Connection) -> bool:
 
 
 def _fetch_transition_counts(
-    conn: psycopg.Connection, seasons: Sequence[int], bat_home: str | None = None
+    conn: psycopg.Connection, seasons: Sequence[int], bat_home: Literal["0", "1"] | None = None
 ) -> list[TransitionCountRow]:
     if not _retrosheet_tables_ready(conn):
         return []
@@ -330,7 +330,7 @@ def build_outcome_distribution(
 
 
 def estimate_outcome_distribution(
-    conn: psycopg.Connection, seasons: Sequence[int], bat_home: str | None = None
+    conn: psycopg.Connection, seasons: Sequence[int], bat_home: Literal["0", "1"] | None = None
 ) -> dict[BaseOutState, dict[Outcome, float]]:
     """Estimate the joint (post_state, runs_scored) outcome distribution
     from real Retrosheet play-by-play for the given regular-season years
@@ -344,8 +344,14 @@ def estimate_outcome_distribution(
     behavior. Real per-play scoring rates genuinely differ by batting
     side in most seasons (verified directly against real data, ADR-080)
     -- pass '1'/'0' to get each side's own distribution for
-    `simulate_game`'s optional `home_distribution` parameter."""
+    `simulate_game`'s optional `home_distribution` parameter. Raises
+    MarkovError for any other value -- a typo like 'home'/'away' would
+    otherwise silently match zero SQL rows (bat_home_id only ever
+    contains '0'/'1') and return an empty distribution instead of
+    failing loudly."""
     _validate_seasons(seasons)
+    if bat_home is not None and bat_home not in ("0", "1"):
+        raise MarkovError(f"bat_home must be '0', '1', or None, got {bat_home!r}")
     rows = _fetch_transition_counts(conn, seasons, bat_home)
     return build_outcome_distribution(rows)
 

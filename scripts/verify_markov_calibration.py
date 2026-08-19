@@ -4,7 +4,8 @@
 Read-only against DATABASE_URL (safe against production `mlb` -- no writes).
 Prints the same real-vs-simulated comparison numbers cited in
 docs/DECISIONS.md's ADR-076 (run expectancy), ADR-077 (half-inning
-simulator), and ADR-078 (full-game simulator), so those figures can be
+simulator), ADR-078 (full-game simulator), ADR-079 (held-out-season
+check), and ADR-080 (home/away split), so those figures can be
 regenerated and audited rather than trusted from prose alone.
 
 By default `--estimate-seasons` matches `--season`, reproducing those
@@ -81,11 +82,19 @@ def main() -> None:
     with psycopg.connect(url) as conn:
         re_table = markov.estimate_run_expectancy(conn, estimate_seasons)
         distribution = markov.estimate_outcome_distribution(conn, estimate_seasons)
+        away_distribution = markov.estimate_outcome_distribution(
+            conn, estimate_seasons, bat_home="0"
+        )
+        home_distribution = markov.estimate_outcome_distribution(
+            conn, estimate_seasons, bat_home="1"
+        )
         real_half_innings = markov.real_half_inning_runs(conn, eval_seasons)
         real_games = markov.real_game_scores(conn, eval_seasons)
 
     if not re_table or not distribution:
         raise SystemExit(f"estimate seasons {estimate_seasons} not bootstrapped")
+    if not away_distribution or not home_distribution:
+        raise SystemExit(f"estimate seasons {estimate_seasons} has no home/away-split data")
     if not real_half_innings or not real_games:
         raise SystemExit(f"eval season {args.season} not bootstrapped")
 
@@ -98,6 +107,11 @@ def main() -> None:
     )
     game_rng = random.Random(args.seed)
     sim_games = [markov.simulate_game(distribution, game_rng) for _ in range(len(real_games))]
+    split_game_rng = random.Random(args.seed)
+    sim_split_games = [
+        markov.simulate_game(away_distribution, split_game_rng, home_distribution=home_distribution)
+        for _ in range(len(real_games))
+    ]
 
     print(f"eval_season={args.season} estimate_seasons={estimate_seasons} seed={args.seed}")
     print(season_mode)
@@ -129,6 +143,19 @@ def main() -> None:
     print(f"  sim  home win rate: {sim_home_win_rate:.4f}")
     print(f"  real extra-innings rate: {real_extra_innings_rate:.4f}")
     print(f"  sim  extra-innings rate: {sim_extra_innings_rate:.4f}")
+    print()
+    split_home_win_rate = sum(1 for g in sim_split_games if g.home_runs > g.away_runs) / len(
+        sim_split_games
+    )
+    split_away_mean = sum(g.away_runs for g in sim_split_games) / len(sim_split_games)
+    split_home_mean = sum(g.home_runs for g in sim_split_games) / len(sim_split_games)
+    print("ADR-080 home/away split (combined-distribution sim vs. split-distribution sim):")
+    print(f"  real home win rate:                {real_home_win_rate:.4f}")
+    print(f"  combined-distribution home win rate: {sim_home_win_rate:.4f}")
+    print(f"  split-distribution    home win rate: {split_home_win_rate:.4f}")
+    print(
+        f"  split-distribution away/home run means: {split_away_mean:.3f} / {split_home_mean:.3f}"
+    )
 
 
 if __name__ == "__main__":

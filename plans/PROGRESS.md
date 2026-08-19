@@ -1536,9 +1536,31 @@ Two bug-fix PRs closing real, previously-open issues:
   lint` clean. `tests/unit/test_markov_game.py` gained 2 tests (proving
   `home_distribution` is actually wired to the home team's draws, using
   the existing `_ScriptedRandom` double). `tests/integration/test_model_markov.py`
-  gained 1 test proving `bat_home` actually filters real rows (verified
+  gained 2 tests -- `bat_home` actually filters real rows (verified
   with mutation testing: temporarily reverted the SQL filter, confirmed
-  the test fails, restored it). All TDD, written and watched fail before
-  implementation.
+  the test fails, restored it), and an invalid `bat_home` value fails
+  loudly. All TDD, written and watched fail before implementation.
 - No persistence layer added, matching every prior Plan 04D package's
   "not wired into production" posture.
+- **PR review round:** fixed 2 real gaps. The 52.57% split-distribution
+  home-win figure and other seed results above existed only in prose --
+  `scripts/verify_markov_calibration.py` didn't estimate a home/away
+  split or call `simulate_game` with `home_distribution`, so a clean
+  clone couldn't reproduce this package's own headline evidence.
+  Extended the script to estimate both sides and print the split
+  comparison; running it now reproduces this entry's exact cited
+  figures byte-for-byte. `bat_home` was plain `str` with no runtime
+  check, so a typo like `'home'`/`'away'` would silently match zero SQL
+  rows and return an empty distribution instead of failing loudly --
+  tightened to `Literal["0", "1"] | None` with an explicit `MarkovError`
+  for anything else. Declined 2 claims with evidence: a side-specific
+  distribution could in principle omit a state the combined one has
+  (checked directly against the real 2019 data this package's own
+  evidence uses: all 24 states covered by both sides, zero gap; for a
+  hypothetical narrower sample, raising loudly on a missing state is the
+  same already-established `simulate_half_inning` contract, not a new
+  defect); and a claimed-redundant `::text` cast in the SQL (checked
+  directly: removing it reproduces a real `psycopg.errors.AmbiguousParameter`
+  against the actual query, since `bat_home` can be bound to `NULL` and
+  Postgres can't infer its type from a bare comparison alone -- the cast
+  is required).

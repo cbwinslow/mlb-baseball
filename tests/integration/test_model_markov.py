@@ -352,6 +352,15 @@ def test_estimate_outcome_distribution_bat_home_filters_to_one_side(db_conn):
     assert len(combined[empty_zero]) == 2
 
 
+def test_estimate_outcome_distribution_rejects_an_invalid_bat_home(db_conn):
+    # A typo like 'home'/'away'/'2' would otherwise silently match zero
+    # SQL rows (bat_home_id only ever contains '0'/'1') and return an
+    # empty distribution instead of failing loudly -- fail fast on the
+    # bad input itself, before any query runs.
+    with pytest.raises(markov.MarkovError, match="bat_home"):
+        markov.estimate_outcome_distribution(db_conn, seasons=[2021], bat_home="home")
+
+
 def test_real_half_inning_runs_matches_hand_calculation(db_conn):
     _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)

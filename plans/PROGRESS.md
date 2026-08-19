@@ -33,6 +33,31 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #28/#29 narrow edge cases found during PR #25 review). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open).
 
+### Game export view (gold.game_export, completed) — 2026-08-19
+
+Completed the first concrete piece of the 2026-08-19 owner-directed
+research-interoperability goal (`docs/ROADMAP.md` Phase 3 addendum): a
+plain PostgreSQL view, `gold.game_export` (migration 0058), joining
+`gold.game_feature` to `core.team`/`core.player`/`core.venue`/`core.game`
+so a researcher gets readable home/away team and starter names plus the
+real final score (`core.game.home_score`/`away_score` -- `gold.game_feature`
+itself only carries the boolean `home_win`) in one flat, CSV/Excel/R-ready
+row per game, with no hand-joining. `LEFT JOIN`s throughout so an upcoming
+(not yet played) game still appears with NULL score/venue/starter rather
+than being dropped. A view, not a materialized table -- every column is
+already computed and stored elsewhere, so it needs no separate refresh
+step. Covered by `tests/integration/test_game_export_view.py` (2 tests:
+name/score resolution against a hand-built fixture, and the LEFT JOIN
+behavior for an upcoming game); confirmed via mutation testing (dropping
+the view made both tests fail with `UndefinedTable`, not pass trivially).
+The documented `COPY (SELECT * FROM ...) TO STDOUT WITH CSV HEADER` recipe
+for this view plus the pre-existing `gold.player_season`/`team_season` was
+added to `docs/RESEARCH_QUERY_RUNBOOK.md` "Exporting to CSV" in the same
+change. A small `mlb export` CLI wrapper was considered and deliberately
+deferred -- `psql \copy` already covers any of these relations generically,
+so a Python wrapper would add no real capability until there's a concrete
+need (e.g. non-technical collaborators without `psql` access).
+
 ### Starter workload live and probable paths (pitcher_workload_v1_live, completed) — 2026-08-15
 
 Completed extension of `mlb_baseball/model/starter_workload.py` (PIT-03) adding `compute_live()` and `compute_probable()` (ADR-069):

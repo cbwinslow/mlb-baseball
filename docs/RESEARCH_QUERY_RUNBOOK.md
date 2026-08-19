@@ -41,6 +41,35 @@ WHERE team_id = :team_id
 ORDER BY season DESC;
 ```
 
+## Game exports
+
+`gold.game_export` (migration 0058) is a wide, pre-joined view over
+`gold.game_feature` for researchers who want one flat, CSV/Excel/R-ready
+table per game instead of hand-joining team/player IDs themselves. It
+resolves `core.team`/`core.player` IDs into readable names (`home_team`,
+`home_starter`, ...) and adds the real final score from `core.game`
+(`home_score`/`away_score` — `gold.game_feature` itself only carries the
+boolean `home_win`). It is a view, not a materialized table: every column
+is already computed and stored elsewhere, so it needs no separate refresh
+and is always as fresh as `gold.game_feature`. Upcoming (not yet played)
+games still appear in it, with score/venue/starter columns `NULL` until
+`core.game`/features resolve them.
+
 For pitch, play, or identity research, join the explicit `core` relations by
 their documented keys. Do not union Retrosheet and MLB play-by-play rows until
 their source-specific grains have been selected and documented.
+
+## Exporting to CSV
+
+Every relation above can be piped straight to a CSV file with `psql`'s
+`\copy` (client-side, so it works against a remote database without
+server filesystem access):
+
+```sh
+psql "postgresql:///mlb" -c "\copy (SELECT * FROM gold.team_season ORDER BY season, team_id) TO 'team_season.csv' WITH CSV HEADER"
+psql "postgresql:///mlb" -c "\copy (SELECT * FROM gold.player_season ORDER BY season, player_id) TO 'player_season.csv' WITH CSV HEADER"
+psql "postgresql:///mlb" -c "\copy (SELECT * FROM gold.game_export ORDER BY season, game_date) TO 'game_export.csv' WITH CSV HEADER"
+```
+
+Always filter or `LIMIT` first for a one-off look — these three relations
+are unbounded and can be tens of millions of rows for the full history.

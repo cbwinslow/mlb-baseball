@@ -41,11 +41,11 @@ DATABASE_URL=postgresql:///mlb_test uv run mlb audit
 
 For `home_win`, run the snapshot through `home_rate`, `log5`, `elo`,
 `logistic`, `hist_gradient_boosting`, `xgboost`, `random_forest`,
-`extra_trees`, `gam`, and `svm`.
+`extra_trees`, `gam`, `svm`, and `neural`.
 For `run_differential`, run through `zero`, `season_average`, `ridge`,
 `hist_gradient_boosting_regressor`, `xgboost_regressor`,
-`random_forest_regressor`, `extra_trees_regressor`, `gam_regressor`, and
-`svm_regressor`.
+`random_forest_regressor`, `extra_trees_regressor`, `gam_regressor`,
+`svm_regressor`, and `neural_regressor`.
 The report lists one result per calendar fold; compare like-for-like folds,
 never a model's best isolated season against another model's total.
 
@@ -61,6 +61,37 @@ existing posture toward every other known-but-not-yet-enforced limitation
 deliberately when rehearsing these two specifically (`mlb_baseball.rehearsal
 .load_sample`'s existing small, bounded multi-season sample, not a full
 production-shaped snapshot).
+
+`neural`/`neural_regressor` (`MLPClassifier`/`MLPRegressor`) are a
+feedforward neural network over the same flat `game_base_v1` feature
+vector every other family uses — not a sequence/recurrent model, since
+`game_base_v1` has no sequential structure to feed one (see "Neural vs.
+sequence models" below). On the bounded 2015/2024 rehearsal sample, both
+performed clearly *worse* than their transparent baselines (`neural`:
+log loss 2.04-2.09 vs. `home_rate`'s 0.51-0.78; `neural_regressor`: MAE
+8.61-9.86 vs. `season_average`'s 7.88-8.99) — an honest, non-suspicious
+result on this little data (a few hundred training rows per fold is not
+enough to fit a network with a 100-unit hidden layer without overfitting),
+not a sign of a bug. Per this file's own calibration doctrine, that is
+the *expected* outcome for a high-capacity model on a small honest
+sample; a small sample where `neural` unexpectedly beat every baseline
+would be the result worth distrusting.
+
+### Neural vs. sequence models
+
+Plan 04C names "neural/sequence/embedding models where structure and data
+justify them" as one combined family, but they are different techniques.
+`neural`/`neural_regressor` above are neural in the literal sense (a
+feedforward network with a hidden layer) fit over the same flat per-game
+feature vector every other family here uses. A true *sequence* model
+(RNN/LSTM/attention over a chronological sequence of plate appearances or
+pitches — the approach `docs/RESEARCH.md` cites, e.g. "Deepball: Modeling
+Expectation and Uncertainty in Baseball With Recurrent Neural Networks")
+needs two things this project doesn't have yet: a sequential (not flat
+per-game) feature representation, and almost certainly a new dependency
+(PyTorch/TensorFlow/JAX — scikit-learn has no recurrent/attention
+architectures), neither of which is in `pyproject.toml` today. Adding
+either is a real scope decision, not made here — see ADR-075.
 
 ## Why the split is chronological
 

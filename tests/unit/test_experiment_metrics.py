@@ -81,6 +81,7 @@ def test_target_registry_specifications():
         "extra_trees_regressor",
         "gam_regressor",
         "svm_regressor",
+        "neural_regressor",
     )
 
     sample_row = experiment.SnapshotRow(
@@ -186,6 +187,14 @@ def test_validate_parameters_for_all_model_families():
     experiment._validate_parameters("svm_regressor", {"kernel": "linear"})
     with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
         experiment._validate_parameters("svm_regressor", {"bad_param": 1})
+
+    experiment._validate_parameters("neural", {"hidden_layer_sizes": (50,)})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("neural", {"bad_param": 1})
+
+    experiment._validate_parameters("neural_regressor", {"hidden_layer_sizes": (50,)})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("neural_regressor", {"bad_param": 1})
 
 
 def test_validate_parameters_rejects_svm_probability_false():
@@ -294,6 +303,8 @@ def test_common_rows_filters_per_target_spec():
         "gam",
         "gam_regressor",
         "svm",
+        "neural",
+        "neural_regressor",
     ],
 )
 def test_make_estimator_lets_a_valid_override_actually_take_effect(model_family):

@@ -41,6 +41,7 @@ from sklearn.metrics import (
     mean_absolute_error,
     root_mean_squared_error,
 )
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import SplineTransformer, StandardScaler
 from sklearn.svm import SVC, SVR
@@ -80,6 +81,7 @@ SUPPORTED_MODELS = (
     "extra_trees",
     "gam",
     "svm",
+    "neural",
 )
 _SELECTION_SQL = read_sql("experiment_selection.sql")
 
@@ -151,6 +153,7 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "extra_trees",
             "gam",
             "svm",
+            "neural",
         ),
     ),
     "run_differential": TargetSpec(
@@ -177,6 +180,7 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "extra_trees_regressor",
             "gam_regressor",
             "svm_regressor",
+            "neural_regressor",
         ),
     ),
 }
@@ -557,6 +561,25 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
                 ("model", SVC(**kwargs)),
             ]
         )
+    if model_family == "neural":
+        # MLPClassifier: a genuine feedforward neural network (one hidden
+        # layer of 100 units by default -- sklearn's own default, not
+        # tuned here). max_iter raised from sklearn's default 200 to 1_000
+        # for the same reason logistic/gam raise it: this pipeline's
+        # scaled, imputed input can need more optimizer iterations to
+        # converge than the raw default allows, and a spurious
+        # ConvergenceWarning is not the failure mode this file wants to
+        # surface. random_state seeds MLPClassifier's weight
+        # initialization and its solver's own internal stochasticity
+        # (default solver="adam", a mini-batch stochastic method).
+        kwargs = _merged_kwargs({"max_iter": 1_000, "random_state": seed}, parameters)
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("scale", StandardScaler()),
+                ("model", MLPClassifier(**kwargs)),
+            ]
+        )
     if model_family == "ridge":
         kwargs = _merged_kwargs({"random_state": seed}, parameters)
         return Pipeline(
@@ -626,6 +649,16 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
                 ("model", SVR(**kwargs)),
             ]
         )
+    if model_family == "neural_regressor":
+        # MLPRegressor: same shape and reasoning as neural above.
+        kwargs = _merged_kwargs({"max_iter": 1_000, "random_state": seed}, parameters)
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("scale", StandardScaler()),
+                ("model", MLPRegressor(**kwargs)),
+            ]
+        )
     raise ExperimentError(f"unsupported estimator {model_family!r}")
 
 
@@ -649,6 +682,8 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = LogisticRegression().get_params(deep=False)
     elif model_family == "svm":
         allowed = SVC().get_params(deep=False)
+    elif model_family == "neural":
+        allowed = MLPClassifier().get_params(deep=False)
     elif model_family == "ridge":
         allowed = Ridge().get_params(deep=False)
     elif model_family == "hist_gradient_boosting_regressor":
@@ -663,6 +698,8 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = Ridge().get_params(deep=False)
     elif model_family == "svm_regressor":
         allowed = SVR().get_params(deep=False)
+    elif model_family == "neural_regressor":
+        allowed = MLPRegressor().get_params(deep=False)
     else:
         raise ExperimentError(f"unsupported estimator {model_family!r}")
     unknown = sorted(set(parameters) - set(allowed))

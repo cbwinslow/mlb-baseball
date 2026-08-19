@@ -327,14 +327,20 @@ def test_real_half_inning_runs_matches_hand_calculation(db_conn):
             "INSERT INTO raw.retrosheet_gameinfo (gid, gametype, _season) "
             "VALUES ('G1', 'regular', '2021'), ('G2', 'playoff', '2021')"
         )
-        # G1, inning 1, away batting (bat_home_id='0'): two separate plays
-        # each scoring, totaling 3 runs in this one half-inning.
+        # G1, inning 1, away batting (bat_home_id='0'): two scoring plays
+        # (3 runs total), then a double play completing the half-inning's
+        # 3rd out -- real_half_inning_runs only counts half-innings that
+        # actually reach 3 outs (see the walk-off test below for why).
         _insert_event(cur, "G1", "0", "0", "23", bat_dest="4")  # solo HR: 1 run
         _insert_event(
             cur, "G1", "0", "1", "21", b1="r1", b2="r2", bat_dest="2", r1_dest="4", r2_dest="4"
         )  # 2-run double, batter safe at 2nd
-        # G1, inning 1, home batting (bat_home_id='1'): no runs.
+        _insert_event(cur, "G1", "1", "2", "2", bat_dest="0")  # double play: 3rd out
+        # G1, inning 1, home batting (bat_home_id='1'): three separate outs,
+        # no runs.
         _insert_event(cur, "G1", "0", "1", "3", bat_home_id="1", bat_dest="0")
+        _insert_event(cur, "G1", "1", "1", "3", bat_home_id="1", bat_dest="0")
+        _insert_event(cur, "G1", "2", "1", "3", bat_home_id="1", bat_dest="0")
         # G2 (playoff): would add a run if not excluded by the gametype filter.
         _insert_event(cur, "G2", "0", "0", "23", bat_dest="4")
     db_conn.commit()
@@ -342,6 +348,41 @@ def test_real_half_inning_runs_matches_hand_calculation(db_conn):
     totals = markov.real_half_inning_runs(db_conn, seasons=[2021])
 
     assert sorted(totals) == [0, 3]
+
+
+def test_real_half_inning_runs_excludes_a_walk_off_truncated_half_inning(db_conn):
+    # A home half-inning that ends on the winning run (a real walk-off) never
+    # records a 3rd out -- the game simply stops. simulate_half_inning always
+    # walks a half-inning to TERMINAL (3 outs), so a truncated real
+    # half-inning like this isn't an observation of the same quantity and
+    # would bias the calibration comparison if counted; it must be excluded.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype, _season) "
+            "VALUES ('G1', 'regular', '2021')"
+        )
+        _insert_event(cur, "G1", "0", "1", "3", inn_ct="9", bat_home_id="1", bat_dest="0")
+        _insert_event(
+            cur,
+            "G1",
+            "1",
+            "1",
+            "21",
+            inn_ct="9",
+            bat_home_id="1",
+            b1="r1",
+            b2="r2",
+            bat_dest="2",
+            r1_dest="4",
+            r2_dest="4",
+        )  # walk-off 2-run double; game ends here, only 1 out ever recorded
+    db_conn.commit()
+
+    totals = markov.real_half_inning_runs(db_conn, seasons=[2021])
+
+    assert totals == []
 
 
 def test_real_half_inning_runs_returns_empty_when_tables_missing(db_conn):

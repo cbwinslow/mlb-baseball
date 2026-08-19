@@ -1689,3 +1689,64 @@ Two bug-fix PRs closing real, previously-open issues:
 - `uv run mypy mlb_baseball/audit.py` clean, `uv run ruff check .`/`uv run
   ruff format --check .` clean. All TDD, written and watched fail before
   implementation, including the two PR-review-driven corrections above.
+
+### Fix issue #28: doubleheader `NULLS LAST` misordering on a malformed Retrosheet `number` field -- 2026-08-19
+
+- **Checked the premise against real production `mlb` data before writing
+  any fix, exactly as the issue itself asked.** `team_rate_retrosheet_
+  update.sql`/`team_woba_retrosheet_update.sql`/`team_bullpen_retrosheet_
+  update.sql`'s team-partitioned rolling windows (plus, found during this
+  same check, `team_wrc_plus_retrosheet_update.sql`'s league-wide window
+  -- added after issue #28 was filed, same window shape, not in the
+  issue's original file list) order by `game_date, game_number NULLS
+  LAST, game_id`. A first pass query for a literally-malformed (non-
+  numeric) `number` field found none -- but that query's own regex check
+  (`NOT (number ~ regex)`) silently returns NULL, not TRUE, when `number`
+  itself is NULL, so it was excluding exactly the rows that matter.
+  Corrected to `number IS NULL OR NOT (number ~ regex)` and found the
+  real count: 10,020 of 224,877 `raw.retrosheet_gameinfo` rows (4.5%),
+  every one confined to the 1901-1909 seasons (Retrosheet's earliest
+  data, before it reliably populated this field) -- not present in any
+  modern-era data. Then confirmed the concrete failure mode directly by
+  joining `core.game` to itself on (home_team_id, away_team_id,
+  game_date): found real doubleheader pairs (e.g. `NY1190906231`/
+  `NY1190906232`, 1909-06-23) where one side's `game_number` is NULL and
+  the other's is a real value -- exactly the misordering scenario the
+  issue described, confirmed to actually occur, not just theoretically
+  possible.
+- **Root cause and fix match an existing codebase convention, not a new
+  one.** `mlb_baseball/conform.py` already treats `COALESCE(g.game_number,
+  0) = 0` as "single game or first game" throughout its own MLB-schedule-
+  matching logic (`_build_games` and its callers). Replaced `game_number
+  NULLS LAST` with `COALESCE(game_number, 0)` in all 4 files' window
+  `ORDER BY` clauses -- reusing that exact convention rather than
+  inventing a new one, per the issue's own suggested fix. `NULLS LAST`
+  pushes a malformed game to sort *after* any real-numbered row
+  regardless of true order; `COALESCE(..., 0)` sorts it as if it were the
+  date's first/only game, which is correct here since 0 is always less
+  than any real doubleheader number (1 or 2).
+- **Verified with a real regression test per file, not just reasoning
+  about it.** Each of `tests/integration/test_model_team_rate.py`,
+  `test_model_offense.py` (covers `team_woba`), `test_model_wrc_plus.py`
+  (covers `team_wrc_plus`), and `test_model_bullpen.py` (quality window)
+  gained a new test mirroring that file's existing insertion-order
+  doubleheader regression test, but triggering the bug via a NULL
+  `game_number` instead of insertion order (natural insertion order
+  alone doesn't trigger `NULLS LAST`'s bug -- the NULL value does,
+  regardless of `game_id` order). Each asserts the same correct entering-
+  value the sibling insertion-order test already proves, now also proven
+  reachable via the NULL-number path.
+- **Not fixed, and confirmed out of scope:** `mlb_baseball/model/elo.py`,
+  `experiment.py`, `game_feature_rebuild.sql`, and `experiment_selection.
+  sql` also use `game_number NULLS LAST`, but each orders primarily by a
+  timestamp (`feature_cutoff_at`) with `game_number` only as a same-
+  instant tiebreak -- a different shape than the 4 files fixed here,
+  where `game_number` is the primary same-date disambiguator. Not
+  investigated further in this change; if a real same-`feature_cutoff_at`
+  collision on a malformed-`game_number` game is ever confirmed there,
+  it would need its own separate look.
+- `uv run ruff check .`/`uv run ruff format --check .` clean on every
+  test file touched, `uv run sqlfluff lint` clean on the 3 non-ignored
+  SQL files (`team_bullpen_retrosheet_update.sql` is in `.sqlfluffignore`
+  already, pre-existing). All TDD, written and watched fail before
+  implementation.

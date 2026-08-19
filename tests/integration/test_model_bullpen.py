@@ -323,6 +323,90 @@ def test_compute_orders_quality_window_by_game_number_not_insertion_order(db_con
     _reset(db_conn)
 
 
+def test_compute_orders_quality_window_by_coalesced_game_number_when_number_is_null(db_conn):
+    # Issue #28: confirmed against real production `mlb` data that
+    # Retrosheet's raw `number` field is genuinely empty for 10,020 games
+    # (all 1901-1909), which conform.py turns into a NULL core.game.
+    # game_number. `game_number NULLS LAST` sorts a NULL-game_number row
+    # *after* any row with a real number -- wrong whenever the NULL game
+    # is actually the earlier of a doubleheader pair. Same shape as
+    # test_compute_orders_quality_window_by_game_number_not_insertion_order
+    # above but for the NULL-number case specifically (natural insertion
+    # order alone doesn't trigger this bug -- `NULLS LAST` does, regardless
+    # of game_id order).
+    #   G1 (2020-04-01): ATL reliever relp1 faces 2 batters (1 K, 1 out).
+    #   DH1 (game_number=NULL): ATL reliever relp1 faces 1 batter (1 BB).
+    #   DH2 (game_number=2): ATL reliever relp1 faces 1 batter (1 out).
+    # Correctly ordered (COALESCE(game_number, 0) puts DH1 first), entering
+    # DH2 pools G1 + DH1 relief: k_sum=1, bb_sum=1, bf_sum=3, hr_sum=0,
+    # outs_sum=2 -- same expected values as the insertion-order regression
+    # test above.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', 1, %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        # DH1's game_number is NULL -- the malformed-source-data case.
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH1', 2020, '2020-04-08', NULL, %(atl)s, %(nya)s, 6, 5, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('DH2', 2020, '2020-04-08', 2, %(atl)s, %(nya)s, 4, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('DH1', 'regular'), ('DH2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "bat_event_fl, event_cd, event_outs_ct, _season) VALUES "
+            "('G1', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('G1', '0', 'relp1', 'F', 'T', '3', '1', '2020'), "  # K
+            "('G1', '0', 'relp1', 'F', 'T', '2', '1', '2020'), "  # generic out
+            "('DH1', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('DH1', '0', 'relp1', 'F', 'T', '14', '0', '2020'), "  # BB
+            "('DH2', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('DH2', '0', 'relp1', 'F', 'T', '2', '1', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = bullpen.compute(db_conn)
+    db_conn.commit()
+
+    assert updated == 3
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_bullpen_fip, f.home_bullpen_k_pct, f.home_bullpen_bb_pct "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "WHERE g.retro_game_id = 'DH2'"
+        )
+        fip, k_pct, bb_pct = cur.fetchone()
+
+    assert abs(fip - Decimal("4.60")) < Decimal("0.01")
+    assert abs(k_pct - Decimal("1") / Decimal("3")) < Decimal("0.0001")
+    assert abs(bb_pct - Decimal("1") / Decimal("3")) < Decimal("0.0001")
+
+    _reset(db_conn)
+
+
 def test_compute_gives_both_doubleheader_games_the_same_fatigue_value(db_conn):
     # ADR-042: fatigue is computed by collapsing to one row per
     # (team, calendar day) before the window RANGE frame, specifically

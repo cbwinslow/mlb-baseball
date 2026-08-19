@@ -8,7 +8,7 @@
 --    reconciliation proving the guard is required, not optional) and had
 --    the same gap as team_rate_retrosheet_update.sql did before db97d96 --
 --    tracked as issue #9 item 6.
--- 2. The rolling window orders by `game_date, game_number NULLS LAST,
+-- 2. The rolling window orders by `game_date, COALESCE(game_number, 0),
 --    game_id`, not `game_date, game_id` alone -- matching the base
 --    family's own window (game_feature_rebuild.sql) and
 --    team_rate_retrosheet_update.sql's own db97d96 fix. Found by direct
@@ -17,6 +17,12 @@
 --    but the identical point-in-time-safety gap: a doubleheader loaded
 --    "second game first" would leak the later game's stats into the
 --    earlier game's "entering" value and vice versa.
+--    COALESCE(game_number, 0), not `game_number NULLS LAST`: see
+--    team_rate_retrosheet_update.sql's own comment (issue #28) -- confirmed
+--    against real production `mlb` data that Retrosheet's raw `number`
+--    field is genuinely empty for 10,020 games (all 1901-1909), which
+--    `NULLS LAST` would sort after its true doubleheader partner
+--    regardless of actual order.
 WITH regular_games AS (
     SELECT g.id AS game_id, g.season, g.game_date, g.game_number, g.retro_game_id,
         g.home_team_id, g.away_team_id
@@ -49,7 +55,7 @@ rolling AS (
         SUM(ab) OVER w AS ab_sum, SUM(sf) OVER w AS sf_sum
     FROM team_game_stats
     WINDOW w AS (
-        PARTITION BY team_id, season ORDER BY game_date, game_number NULLS LAST, game_id
+        PARTITION BY team_id, season ORDER BY game_date, COALESCE(game_number, 0), game_id
         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
     )
 ),

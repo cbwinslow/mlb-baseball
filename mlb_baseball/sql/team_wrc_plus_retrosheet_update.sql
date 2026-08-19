@@ -5,7 +5,7 @@
 -- explanation of both:
 -- 1. Every event_cd FILTER is gated on `bat_event_fl = 'T'` (ADR-034).
 -- 2. The rolling window orders by `game_date, home_team_id, away_team_id,
---    game_number NULLS LAST, game_id`, not `game_date, game_id` alone.
+--    COALESCE(game_number, 0), game_id`, not `game_date, game_id` alone.
 --    This file's window is season-wide (every game in the league, not one
 --    team), so `game_number` alone is NOT a safe tiebreak here the way it
 --    is in team_woba/team_rate/team_bullpen's team-partitioned windows:
@@ -23,6 +23,14 @@
 --    ordered by team-pair (still not true chronology, since this dataset
 --    has no usable first-pitch timestamp, but at least never pretends a
 --    false doubleheader relationship between two different matchups).
+--    COALESCE(game_number, 0), not `game_number NULLS LAST`: see
+--    team_rate_retrosheet_update.sql's own comment (issue #28) -- confirmed
+--    against real production `mlb` data that Retrosheet's raw `number`
+--    field is genuinely empty for 10,020 games (all 1901-1909), which
+--    `NULLS LAST` would sort after its true doubleheader partner
+--    regardless of actual order. This file wasn't in issue #28's original
+--    file list -- it was added later (issue #9 item 6), after that issue
+--    was filed -- but has the identical window shape and the identical gap.
 WITH regular_games AS (
     SELECT g.id AS game_id, g.season, g.game_date, g.game_number, g.retro_game_id,
         g.home_team_id, g.away_team_id
@@ -55,7 +63,7 @@ league_rolling AS (
     FROM game_stats
     WINDOW w AS (
         PARTITION BY season
-        ORDER BY game_date, home_team_id, away_team_id, game_number NULLS LAST, game_id
+        ORDER BY game_date, home_team_id, away_team_id, COALESCE(game_number, 0), game_id
         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
     )
 ),

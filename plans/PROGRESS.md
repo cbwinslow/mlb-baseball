@@ -1086,9 +1086,11 @@ Two bug-fix PRs closing real, previously-open issues:
   (7.88-8.99). The training sets were smaller than "rehearsal sample"
   suggests -- confirmed directly by querying `mlb_test`, not assumed:
   `season-2015`'s training fold had exactly 10 `gold.game_feature` rows,
-  `season-2024`'s had exactly 20 (the rehearsal's `games_per_season=10`
-  bound narrows historical seasons this far even though `core.game`
-  itself has the full season; see `docs/EXPERIMENT_RUNBOOK.md`). A
+  `season-2024`'s had exactly 20, even though `core.game` itself has the
+  full season -- the rehearsal's `games_per_season=10` bound only
+  directly restricts the Retrosheet-sourced tables it copies; the exact
+  join that narrows `gold.game_feature` down to that same count isn't
+  traced here (see `docs/EXPERIMENT_RUNBOOK.md`). A
   100-unit hidden-layer network fit on 10-20 rows makes severe
   overfitting close to guaranteed, which is the expected, non-suspicious
   outcome per `docs/RESEARCH.md`'s own calibration doctrine -- a small

@@ -363,3 +363,22 @@ def test_make_estimator_lets_a_valid_bayesian_regressor_override_take_effect():
     estimator = experiment._make_estimator("bayesian_regressor", {"alpha_1": 1e-5}, seed=0)
     model = estimator.named_steps["model"]
     assert model.alpha_1 == 1e-5
+
+
+def test_make_estimator_lets_a_valid_neural_hidden_layer_override_take_effect():
+    # PR #35 review: the parametrized random_state override test above
+    # proves *some* override reaches MLPClassifier/MLPRegressor, but
+    # hidden_layer_sizes -- the parameter that actually distinguishes
+    # "neural" from every other family in this file -- was never itself
+    # checked end to end. Covers the same "an explicit, valid override
+    # actually takes effect" contract with the parameter unique to this
+    # family.
+    estimator = experiment._make_estimator("neural", {"hidden_layer_sizes": (50,)}, seed=0)
+    model = estimator.named_steps["model"]
+    assert model.hidden_layer_sizes == (50,)
+
+    estimator = experiment._make_estimator(
+        "neural_regressor", {"hidden_layer_sizes": (50,)}, seed=0
+    )
+    model = estimator.named_steps["model"]
+    assert model.hidden_layer_sizes == (50,)

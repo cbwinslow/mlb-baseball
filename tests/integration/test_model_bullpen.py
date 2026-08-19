@@ -228,6 +228,72 @@ def test_compute_rolls_up_relief_only_with_zero_leakage_and_correct_fatigue_wind
     _reset(db_conn)
 
 
+def test_compute_excludes_games_without_event_coverage_from_the_backbone(db_conn):
+    # Issue #29: regular_games (and, through it, team_game) pulls every
+    # core.game row with game_type='regular' unconditionally -- including
+    # a game with no matching raw.retrosheet_gameinfo/retrosheet_event
+    # rows at all (Retrosheet's own ~0.85% real coverage gap, confirmed
+    # against production -- currently entirely the still-in-progress
+    # current season, whose event files Retrosheet hasn't published yet;
+    # not a parsing bug on this project's side). Before this fix,
+    # COALESCE(sum(ro.*), 0) fabricated an explicit zero relief-outs row
+    # for such a game, indistinguishable from a team that genuinely used
+    # no reliever in a game we DO have full data for.
+    #
+    # G_GAP (2020-04-01): core.game row exists, but NO retrosheet_gameinfo
+    # /retrosheet_event rows reference it -- an uncovered game.
+    # G2 (2020-04-03, within the 3-day fatigue window): fully covered,
+    # both teams use only their starters.
+    #
+    # Entering G2, each team's only "history" is G_GAP -- which carries no
+    # real information at all. The team_game backbone must exclude
+    # G_GAP entirely (as if it never happened), so G2's fatigue resolves
+    # NULL (unknown), not a fabricated 0 (a real, present measurement of
+    # zero bullpen usage).
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G_GAP', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2020, '2020-04-03', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        # No raw.retrosheet_gameinfo/retrosheet_event rows for G_GAP at all.
+        cur.execute("INSERT INTO raw.retrosheet_gameinfo (gid, gametype) VALUES ('G2', 'regular')")
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "bat_event_fl, event_cd, event_outs_ct, _season) VALUES "
+            "('G2', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('G2', '1', 'startp2', 'T', 'T', '2', '1', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = bullpen.compute(db_conn)
+    db_conn.commit()
+
+    assert updated == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_bullpen_fatigue, f.away_bullpen_fatigue "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "WHERE g.retro_game_id = 'G2'"
+        )
+        home_fatigue, away_fatigue = cur.fetchone()
+
+    assert home_fatigue is None
+    assert away_fatigue is None
+
+    _reset(db_conn)
+
+
 def test_compute_orders_quality_window_by_game_number_not_insertion_order(db_conn):
     # Issue #9 item 6 (found by direct audit, same bug class as item 1's
     # db97d96 fix for team_rate_retrosheet_update.sql): the rolling QUALITY

@@ -69,7 +69,9 @@ def main() -> None:
     args = parser.parse_args()
 
     eval_seasons = [args.season]
-    estimate_seasons = args.estimate_seasons if args.estimate_seasons is not None else eval_seasons
+    estimate_seasons = (
+        args.estimate_seasons if args.estimate_seasons is not None else list(eval_seasons)
+    )
     try:
         season_mode = _classify_seasons(args.season, estimate_seasons)
     except ValueError as error:

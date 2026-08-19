@@ -41,11 +41,11 @@ DATABASE_URL=postgresql:///mlb_test uv run mlb audit
 
 For `home_win`, run the snapshot through `home_rate`, `log5`, `elo`,
 `logistic`, `hist_gradient_boosting`, `xgboost`, `random_forest`,
-`extra_trees`, `gam`, `svm`, and `neural`.
+`extra_trees`, `gam`, `svm`, `bayesian`, and `neural`.
 For `run_differential`, run through `zero`, `season_average`, `ridge`,
 `hist_gradient_boosting_regressor`, `xgboost_regressor`,
 `random_forest_regressor`, `extra_trees_regressor`, `gam_regressor`,
-`svm_regressor`, and `neural_regressor`.
+`svm_regressor`, `bayesian_regressor`, and `neural_regressor`.
 The report lists one result per calendar fold; compare like-for-like folds,
 never a model's best isolated season against another model's total.
 
@@ -61,6 +61,38 @@ existing posture toward every other known-but-not-yet-enforced limitation
 deliberately when rehearsing these two specifically (`mlb_baseball.rehearsal
 .load_sample`'s existing small, bounded multi-season sample, not a full
 production-shaped snapshot).
+
+`bayesian` (`GaussianNB`) can produce overconfident, badly miscalibrated
+probabilities on a small per-fold training sample: it multiplies independent
+per-feature Gaussian likelihoods with no regularization beyond a tiny
+`var_smoothing` term, so a near-zero estimated variance in one feature can
+push a prediction to (near-)0 or (near-)1 probability. Confirmed directly on
+the bounded 2015/2024 rehearsal sample: `season-2015`'s log loss was exactly
+`0.0000` (confidently and correctly certain), but `season-2024`'s was
+`14.4175` — one confidently wrong call is catastrophic under log loss.
+Other families can also reach an exact `0`/`1` probability on a small,
+easy sample (confirmed directly: `RandomForestClassifier.predict_proba` can
+return exactly `1.0`/`0.0` when every tree in the forest agrees), so this
+isn't a claim that `bayesian` is uniquely capable of extreme confidence —
+the specific risk here is *how easily* it gets there: `GaussianNB` has no
+regularization at all on its per-class variance estimates, so a handful of
+training rows is routinely enough, unlike the regularized linear families
+(`logistic`/`ridge`/`gam`) or a tree ensemble reaching unanimous agreement
+(a structurally different, comparatively rarer path to the same extreme
+value). Watch for it specifically when comparing `bayesian` against other
+families on small samples. Whether it behaves better at full production
+scale, where per-class training counts are much larger, is a hypothesis
+based on how `GaussianNB`'s variance estimates work, not a verified
+result — confirm it against real production-scale folds (with the usual
+calibration/uncertainty checks) before treating it as established, the same
+bar any other family here would need to clear before promotion. If this
+shows up on a real comparison run, `--parameters '{"var_smoothing": 1e-6}'`
+(or another value larger than the `1e-9` default) is the standard
+`GaussianNB` mitigation — it widens the per-class variance floor and damps
+the near-0/near-1 posteriors this section describes. No such override is
+applied by default: this is a dormant, not-yet-promoted research family
+(see `docs/DECISIONS.md`'s ADR-074), and this file's established posture is
+to document a known limitation rather than pre-engineer around it.
 
 `neural`/`neural_regressor` (`MLPClassifier`/`MLPRegressor`) are a
 feedforward neural network over the same flat `game_base_v1` feature
@@ -105,9 +137,8 @@ needs two things this project doesn't have yet: a sequential (not flat
 per-game) feature representation, and almost certainly a new dependency
 (PyTorch/TensorFlow/JAX — scikit-learn has no recurrent/attention
 architectures), neither of which is in `pyproject.toml` today. Adding
-either is a real scope decision, not made here — see this file's own ADR
-in `docs/DECISIONS.md` (numbered relative to `main` at the time this PR
-was opened; check that file for its current number).
+either is a real scope decision, not made here — see ADR-075 in
+`docs/DECISIONS.md`.
 
 ## Why the split is chronological
 

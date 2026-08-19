@@ -33,7 +33,7 @@ from sklearn.ensemble import (
     RandomForestRegressor,
 )
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.linear_model import BayesianRidge, LogisticRegression, Ridge
 from sklearn.metrics import (
     accuracy_score,
     brier_score_loss,
@@ -41,6 +41,7 @@ from sklearn.metrics import (
     mean_absolute_error,
     root_mean_squared_error,
 )
+from sklearn.naive_bayes import GaussianNB
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import SplineTransformer, StandardScaler
@@ -81,6 +82,7 @@ SUPPORTED_MODELS = (
     "extra_trees",
     "gam",
     "svm",
+    "bayesian",
     "neural",
 )
 _SELECTION_SQL = read_sql("experiment_selection.sql")
@@ -153,6 +155,7 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "extra_trees",
             "gam",
             "svm",
+            "bayesian",
             "neural",
         ),
     ),
@@ -180,6 +183,7 @@ TARGET_REGISTRY: dict[str, TargetSpec] = {
             "extra_trees_regressor",
             "gam_regressor",
             "svm_regressor",
+            "bayesian_regressor",
             "neural_regressor",
         ),
     ),
@@ -561,6 +565,23 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
                 ("model", SVC(**kwargs)),
             ]
         )
+    if model_family == "bayesian":
+        # GaussianNB is scikit-learn's Bayesian classifier: it applies
+        # Bayes' theorem directly (conditional independence per feature,
+        # hence "naive") rather than approximating it, and exposes
+        # predict_proba natively -- no probability=True-style opt-in and no
+        # deprecation risk like svm's. No random_state: GaussianNB fits a
+        # closed-form per-class Gaussian with no internal randomness to
+        # seed (unlike the tree/boosting/SVM families above, which all
+        # require random_state for their stochastic components).
+        kwargs = _merged_kwargs({}, parameters)
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("scale", StandardScaler()),
+                ("model", GaussianNB(**kwargs)),
+            ]
+        )
     if model_family == "neural":
         # MLPClassifier: a genuine feedforward neural network (one hidden
         # layer of 100 units by default -- sklearn's own default, not
@@ -649,6 +670,24 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
                 ("model", SVR(**kwargs)),
             ]
         )
+    if model_family == "bayesian_regressor":
+        # BayesianRidge: genuine Bayesian linear regression -- places priors
+        # on the weights and noise precision and fits them by iterative
+        # evidence maximization (analytic conditional-posterior updates each
+        # round, repeated until `tol` convergence or `max_iter`), matching
+        # ridge's impute -> scale -> model shape. No random_state: the
+        # iteration is deterministic given the data -- no internal
+        # randomness to seed, unlike every tree/boosting/SVM family above
+        # (GaussianNB likewise has no randomness to seed, via its own
+        # single-pass closed-form per-class fit).
+        kwargs = _merged_kwargs({}, parameters)
+        return Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+                ("scale", StandardScaler()),
+                ("model", BayesianRidge(**kwargs)),
+            ]
+        )
     if model_family == "neural_regressor":
         # MLPRegressor: same shape and reasoning as neural above.
         kwargs = _merged_kwargs({"max_iter": 1_000, "random_state": seed}, parameters)
@@ -682,6 +721,8 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = LogisticRegression().get_params(deep=False)
     elif model_family == "svm":
         allowed = SVC().get_params(deep=False)
+    elif model_family == "bayesian":
+        allowed = GaussianNB().get_params(deep=False)
     elif model_family == "neural":
         allowed = MLPClassifier().get_params(deep=False)
     elif model_family == "ridge":
@@ -698,6 +739,8 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
         allowed = Ridge().get_params(deep=False)
     elif model_family == "svm_regressor":
         allowed = SVR().get_params(deep=False)
+    elif model_family == "bayesian_regressor":
+        allowed = BayesianRidge().get_params(deep=False)
     elif model_family == "neural_regressor":
         allowed = MLPRegressor().get_params(deep=False)
     else:

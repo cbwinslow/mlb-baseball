@@ -13,19 +13,20 @@ estimators (logistic/ridge, HistGradientBoosting, XGBoost, random forest/extra
 trees added 2026-08-18, `gam`/`gam_regressor` added 2026-08-18 — a
 spline-expanded logistic/ridge pipeline closing 04C's "GAM" requirement with
 no new dependency — `svm`/`svm_regressor` added 2026-08-18, closing 04C's
-"SVMs on appropriately bounded samples" requirement, and `neural`/
-`neural_regressor` added 2026-08-19 (`MLPClassifier`/`MLPRegressor`, no new
-dependency), closing 04C's "neural" requirement specifically — see ADR-074
-for why true sequence/embedding models are a distinct, still-open gap, not
-covered by this), permutation filter (stage 1), tree-embedded (stage 2), and
-forward-stepwise wrapper with nested chronological splits (stage 3) feature
-stability reporting, and persisted evidence. It does not promote or write a
-production forecast. Remaining 04C families not yet built on this branch:
-Bayesian/hierarchical approaches (in progress in parallel on a separate
-branch/PR — see PR #34) and true sequence/embedding models
-(recurrent/attention architectures over a sequential, not flat per-game,
-feature representation; see ADR-074's "Declined" section for why this PR
-doesn't cover that despite closing 04C's "neural" requirement).
+"SVMs on appropriately bounded samples" requirement, `bayesian`/
+`bayesian_regressor` added 2026-08-19 (`GaussianNB`/`BayesianRidge`, no new
+dependency), closing 04C's "Bayesian" requirement specifically (ADR-074),
+and `neural`/`neural_regressor` added 2026-08-19 (`MLPClassifier`/
+`MLPRegressor`, no new dependency), closing 04C's "neural" requirement
+specifically (ADR-075) — see those ADRs' "Declined" sections for why true
+hierarchical/multilevel partial-pooling and true sequence/embedding models
+remain distinct, still-open gaps, not covered by either), permutation filter
+(stage 1), tree-embedded (stage 2), and forward-stepwise wrapper with nested
+chronological splits (stage 3) feature stability reporting, and persisted
+evidence. It does not promote or write a production forecast. Remaining 04C
+families not yet built: true hierarchical/multilevel (partial-pooling)
+models and true sequence/embedding models (recurrent/attention architectures
+over a sequential, not flat per-game, feature representation).
 
 ## Work packages
 

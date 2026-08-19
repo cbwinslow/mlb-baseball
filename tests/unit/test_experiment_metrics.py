@@ -81,6 +81,7 @@ def test_target_registry_specifications():
         "extra_trees_regressor",
         "gam_regressor",
         "svm_regressor",
+        "bayesian_regressor",
         "neural_regressor",
     )
 
@@ -187,6 +188,14 @@ def test_validate_parameters_for_all_model_families():
     experiment._validate_parameters("svm_regressor", {"kernel": "linear"})
     with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
         experiment._validate_parameters("svm_regressor", {"bad_param": 1})
+
+    experiment._validate_parameters("bayesian", {"var_smoothing": 1e-8})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("bayesian", {"bad_param": 1})
+
+    experiment._validate_parameters("bayesian_regressor", {"alpha_1": 1e-5})
+    with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
+        experiment._validate_parameters("bayesian_regressor", {"bad_param": 1})
 
     experiment._validate_parameters("neural", {"hidden_layer_sizes": (50,)})
     with pytest.raises(experiment.ExperimentError, match="unsupported parameter"):
@@ -334,3 +343,23 @@ def test_make_estimator_lets_a_valid_svm_regressor_override_take_effect():
     estimator = experiment._make_estimator("svm_regressor", {"C": 2.5}, seed=0)
     model = estimator.named_steps["model"]
     assert model.C == 2.5
+
+
+def test_make_estimator_lets_a_valid_bayesian_override_take_effect():
+    # bayesian (GaussianNB) and bayesian_regressor (BayesianRidge) are both
+    # excluded from the random_state parametrized test above: neither
+    # estimator has a random_state constructor parameter at all -- both fit
+    # deterministically (GaussianNB via a single closed-form per-class
+    # calculation, BayesianRidge via deterministic iterative evidence
+    # maximization), unlike every other family in this file. Covers the
+    # same "an explicit, valid override actually takes effect" contract
+    # with parameters they do support.
+    estimator = experiment._make_estimator("bayesian", {"var_smoothing": 1e-7}, seed=0)
+    model = estimator.named_steps["model"]
+    assert model.var_smoothing == 1e-7
+
+
+def test_make_estimator_lets_a_valid_bayesian_regressor_override_take_effect():
+    estimator = experiment._make_estimator("bayesian_regressor", {"alpha_1": 1e-5}, seed=0)
+    model = estimator.named_steps["model"]
+    assert model.alpha_1 == 1e-5

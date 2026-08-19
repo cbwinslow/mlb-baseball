@@ -85,6 +85,18 @@ contributor receives direct-write access.
 - **Merges**: the maintainer merges only a current, passing PR after resolving
   its conversations. The required `test` check is the baseline gate. A second
   trusted maintainer should raise the required approval count from zero to one.
+- **Review comments**: on every PR you're actively working with, address
+  every comment left by a human reviewer and by automated reviewers (e.g.
+  CodeRabbit, Kilo, Codex, CodeAnt, and similar tools) — don't leave
+  findings sitting unanswered. Verify each claim against actual code/library
+  behavior first (don't blindly accept *or* blindly dismiss a bot's claim);
+  fix real issues with the same rigor as the original change (tests, lint,
+  docs updated together), and when a suggestion is wrong or out of scope,
+  say so with a concrete reason (matching an ADR's "Declined"/"Revisit if"
+  pattern) rather than silently ignoring it. A bot check failing due to the
+  bot service's own infrastructure (not a real code finding) needs no fix.
+  Do this for each PR you work on, not only the one being actively worked
+  on at that moment.
 - **Issues**: open one for (a) a known, real gap or limitation documented in an ADR (see `docs/DECISIONS.md`) — e.g. a "Revisit if" clause worth tracking as concrete follow-up work, not left as prose only; (b) a real bug found but not fixed in the same change, so it isn't lost; (c) a roadmap/future-work item worth tracking outside `docs/ROADMAP.md`'s prose. Don't open issues for minor style nits, vague hunches, or anything trivial enough to just fix inline.
 - **Pre-authorized**: creating branches, committing, pushing a branch, and
   opening issues or pull requests on `cbwinslow/mlb-baseball` does not need a

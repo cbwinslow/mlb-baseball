@@ -1604,3 +1604,58 @@ Two bug-fix PRs closing real, previously-open issues:
   against the actual query, since `bat_home` can be bound to `NULL` and
   Postgres can't infer its type from a bare comparison alone -- the cast
   is required).
+
+### Fix issue #37: `_team_link_coverage_audit` crashed instead of skipping on a narrower `raw.retrosheet_gameinfo` -- 2026-08-19 (`mlb_test` only)
+
+- **Root cause identified precisely, not just worked around.** Issue #37
+  reported `test_audit_db.py` crashing with `UndefinedColumn: column
+  gi.visteam does not exist` whenever a `test_model_*.py` file's own
+  narrower `raw.retrosheet_gameinfo` stub (e.g. `test_model_bullpen.py`'s,
+  which only has `gid`/`gametype`/`_season`) happened to run first in the
+  same `mlb_test` session -- the table is shared and persistent across a
+  full suite run, not recreated per file. Traced the actual crash to
+  `mlb_baseball/audit.py`'s `_team_link_coverage_audit`: it checks that
+  `raw.retrosheet_gameinfo` *exists* before querying it, but not that it
+  has the specific `visteam`/`hometeam` columns its own query selects --
+  the one audit finding in the file that doesn't follow the defensive
+  pattern its own siblings already use (`_game_feature_cutoff_audit`
+  already checks both table *and* column existence for
+  `gold.game_feature.feature_cutoff_at`, the exact same class of
+  narrow-schema robustness).
+- **This is a real production robustness gap, not just a test-fixture
+  problem** -- if real `mlb`'s own `raw.retrosheet_gameinfo` were ever
+  mid-migration or partially ingested with a narrower column set,
+  `audit.run()` would crash entirely instead of reporting a `SKIP`
+  finding for just that one check, the same "not ready yet" contract
+  every other audit finding in this module already honors.
+- **Fixed at the source, not by coordinating 9 files' test stubs.**
+  Added a `visteam`/`hometeam` column-existence check (using the
+  already-shared `_column_exists` helper) alongside the existing
+  table-existence check, matching `_game_feature_cutoff_audit`'s own
+  established pattern exactly. Considered the issue's other proposed
+  fixes (consolidating all 9 `test_model_*.py` files' independent
+  `raw.retrosheet_event`/`retrosheet_gameinfo` stub schemas into one
+  shared, canonical definition) but declined that broader refactor: it
+  would touch a lot of already-working, already-tested code for
+  uncertain additional benefit, and each file's stub being scoped to
+  exactly what its own tests need is a reasonable, minimal design in its
+  own right -- the actual bug was a downstream consumer not being
+  defensive enough against schema variance it should have expected,
+  which the targeted fix resolves completely.
+- **Verified with a real regression test, not just reasoning about it.**
+  `tests/integration/test_audit_db.py` gained 2 tests:
+  `test_team_link_coverage_audit_skips_when_table_missing` (existing
+  behavior, now with explicit coverage -- this finding had no dedicated
+  test at all before this) and
+  `test_team_link_coverage_audit_skips_when_columns_missing`, which
+  reproduces issue #37's exact crash shape (a `raw.retrosheet_gameinfo`
+  with only `gid`/`gametype`/`_season`, matching `test_model_bullpen.py`'s
+  own real stub). Confirmed the second test fails with the exact reported
+  `UndefinedColumn` error before the fix, and passes after. Also
+  reproduced the original end-to-end scenario directly: running
+  `pytest tests/integration/test_model_bullpen.py tests/integration/test_audit_db.py`
+  together (the exact file-ordering that originally triggered the crash)
+  now passes cleanly.
+- `uv run mypy mlb_baseball/audit.py` clean, `uv run ruff check .`/`uv run
+  ruff format --check .` clean. All TDD, written and watched fail before
+  implementation.

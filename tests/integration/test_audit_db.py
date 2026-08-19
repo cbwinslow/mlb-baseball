@@ -30,7 +30,7 @@ def _seed_game_audit_data(db_conn):
         cur.execute(
             "INSERT INTO core.pitch (game_id, source_game_pk, season) "
             "VALUES (%s, '900001', 2025), (NULL, '999999', 2025)",
-            (game_rows['900001'],),
+            (game_rows["900001"],),
         )
         cur.execute(
             "INSERT INTO gold.game_feature "
@@ -38,7 +38,7 @@ def _seed_game_audit_data(db_conn):
             "(%s, '900001', 2025, '2025-04-01', true, 'audit:completed'), "
             "(NULL, '900003', 2025, '2025-04-02', NULL, 'audit:upcoming'), "
             "(%s, NULL, 2025, '2025-04-02', true, 'audit:retrosheet')",
-            (game_rows['900001'], retrosheet_game_id),
+            (game_rows["900001"], retrosheet_game_id),
         )
         cur.execute(
             "INSERT INTO gold.prediction "
@@ -218,11 +218,57 @@ def test_statcast_audit_classifies_unresolved_provider_keys_without_guessing(db_
     names = {finding.name for finding in findings}
     assert "core.pitch unresolved provider keys (completed Spring Training; 2024)" in names
     assert (
-        "core.pitch unresolved provider keys (ambiguous terminal schedule history; 2024)"
-        in names
+        "core.pitch unresolved provider keys (ambiguous terminal schedule history; 2024)" in names
     )
     assert (
-        "core.pitch unresolved provider keys (postponed/suspended schedule history; 2024)"
-        in names
+        "core.pitch unresolved provider keys (postponed/suspended schedule history; 2024)" in names
     )
     assert "core.pitch unresolved provider keys (missing schedule record; <missing>)" in names
+
+
+def _reset_retrosheet_gameinfo(db_conn):
+    # DROP, not DELETE -- matches every test_model_*.py file's own
+    # raw.retrosheet_gameinfo stub-table convention (issue #7), since
+    # this table (unlike raw.mlb_schedule/statcast_pitch) isn't created
+    # by a migration -- it only ever exists as one test file's or
+    # another's own ad-hoc stub.
+    db_conn.rollback()
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
+    db_conn.commit()
+
+
+def test_team_link_coverage_audit_skips_when_table_missing(db_conn):
+    _reset_retrosheet_gameinfo(db_conn)
+    try:
+        findings = audit.run()
+    finally:
+        _reset_retrosheet_gameinfo(db_conn)
+
+    assert _find(findings, "core.game team-link coverage").status == "SKIP"
+
+
+def test_team_link_coverage_audit_skips_when_columns_missing(db_conn):
+    # Issue #37: several test_model_*.py files each DROP and recreate
+    # their own narrow raw.retrosheet_gameinfo stub (just the columns
+    # their own SQL needs), and mlb_test is a shared, persistent database
+    # across a full suite run -- whichever file runs last can leave a
+    # table that exists but is missing columns a *different* consumer
+    # needs. This reproduces that exact shape: a table with only the
+    # columns test_model_bullpen.py's own stub happens to use, missing
+    # visteam/hometeam (which real production's table always has, and
+    # which _team_link_coverage_audit's own query selects). Table
+    # existence alone isn't enough for this finding to trust the query
+    # will succeed -- it must also check for the specific columns it
+    # queries, the same defensive pattern _game_feature_cutoff_audit
+    # already uses for gold.game_feature.
+    _reset_retrosheet_gameinfo(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("CREATE TABLE raw.retrosheet_gameinfo (gid text, gametype text, _season text)")
+    db_conn.commit()
+    try:
+        findings = audit.run()
+    finally:
+        _reset_retrosheet_gameinfo(db_conn)
+
+    assert _find(findings, "core.game team-link coverage").status == "SKIP"

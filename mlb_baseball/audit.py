@@ -513,10 +513,13 @@ def _unresolved_statcast_key_classification_audit(cur: psycopg.Cursor) -> list[F
 
 def _team_link_coverage_audit(cur: psycopg.Cursor) -> list[Finding]:
     """Make historical team-link gaps visible by source code and era."""
-    if not _relation_exists(cur, "core.game") or not _relation_exists(
-        cur, "raw.retrosheet_gameinfo"
+    if (
+        not _relation_exists(cur, "core.game")
+        or not _relation_exists(cur, "raw.retrosheet_gameinfo")
+        or not _column_exists(cur, "raw.retrosheet_gameinfo", "visteam")
+        or not _column_exists(cur, "raw.retrosheet_gameinfo", "hometeam")
     ):
-        return [Finding("core.game team-link coverage", "SKIP", "required table absent")]
+        return [Finding("core.game team-link coverage", "SKIP", "required table/column absent")]
     cur.execute(
         """
         WITH links AS (
@@ -695,9 +698,7 @@ def _experiment_snapshot_audit(conn: psycopg.Connection, cur: psycopg.Cursor) ->
     )
     duplicates = fetch_one(cur)[0]
     integrity = experiment.snapshot_integrity(conn)
-    checksum_mismatches = (
-        integrity["row_hash_mismatches"] + integrity["selection_hash_mismatches"]
-    )
+    checksum_mismatches = integrity["row_hash_mismatches"] + integrity["selection_hash_mismatches"]
     failures = mismatches + duplicates + checksum_mismatches
     return Finding(
         "experiment snapshots",

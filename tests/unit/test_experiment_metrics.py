@@ -338,9 +338,11 @@ def test_make_estimator_lets_a_valid_bayesian_override_take_effect():
     # bayesian (GaussianNB) and bayesian_regressor (BayesianRidge) are both
     # excluded from the random_state parametrized test above: neither
     # estimator has a random_state constructor parameter at all -- both fit
-    # deterministically (closed-form/analytic solutions), unlike every other
-    # family in this file. Covers the same "an explicit, valid override
-    # actually takes effect" contract with parameters they do support.
+    # deterministically (GaussianNB via a single closed-form per-class
+    # calculation, BayesianRidge via deterministic iterative evidence
+    # maximization), unlike every other family in this file. Covers the
+    # same "an explicit, valid override actually takes effect" contract
+    # with parameters they do support.
     estimator = experiment._make_estimator("bayesian", {"var_smoothing": 1e-7}, seed=0)
     model = estimator.named_steps["model"]
     assert model.var_smoothing == 1e-7

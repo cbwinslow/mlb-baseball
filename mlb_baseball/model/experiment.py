@@ -648,10 +648,13 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
         )
     if model_family == "bayesian_regressor":
         # BayesianRidge: genuine Bayesian linear regression -- places priors
-        # on the weights and noise precision and fits them analytically,
-        # matching ridge's impute -> scale -> model shape. No random_state:
-        # like GaussianNB, it fits a closed-form solution with no internal
-        # randomness.
+        # on the weights and noise precision and fits them by iterative
+        # evidence maximization (analytic conditional-posterior updates each
+        # round, repeated until `tol` convergence or `max_iter`), matching
+        # ridge's impute -> scale -> model shape. No random_state: the
+        # iteration is deterministic given the data -- no internal
+        # randomness to seed, unlike GaussianNB's single-pass closed-form
+        # per-class fit or every tree/boosting/SVM family above.
         kwargs = _merged_kwargs({}, parameters)
         return Pipeline(
             [

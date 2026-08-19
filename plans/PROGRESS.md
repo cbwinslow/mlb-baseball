@@ -996,9 +996,11 @@ Two bug-fix PRs closing real, previously-open issues:
   genuinely Bayesian (Bayes' rule applied directly), not new-dependency
   approximations: `GaussianNB` is scikit-learn's own Bayesian classifier,
   `BayesianRidge` places explicit priors on weights/noise precision and
-  fits them by evidence maximization. Neither has a `random_state`
-  parameter -- both fit closed-form/analytic solutions with no internal
-  randomness, the same situation `svm_regressor` was in with `SVR`.
+  fits them by deterministic iterative evidence maximization (not a
+  single-shot closed form -- analytic updates each round, repeated until
+  convergence or `max_iter`). Neither has a `random_state` parameter --
+  neither has internal randomness to seed, the same situation
+  `svm_regressor` was in with `SVR`.
 - **Real scope gap, made explicit rather than silently claimed closed:**
   Plan 04C names "Bayesian/hierarchical approaches" as one family, but
   they are different techniques. True hierarchical/multilevel

@@ -69,14 +69,23 @@ per-feature Gaussian likelihoods with no regularization beyond a tiny
 push a prediction to (near-)0 or (near-)1 probability. Confirmed directly on
 the bounded 2015/2024 rehearsal sample: `season-2015`'s log loss was exactly
 `0.0000` (confidently and correctly certain), but `season-2024`'s was
-`14.4175` — one confidently wrong call is catastrophic under log loss. This
-is a real small-sample calibration risk specific to `bayesian`, not shared by
-the regularized (`logistic`/`ridge`/`gam`) or ensembled (`random_forest`/
-`xgboost`) families, which never emit exactly 0 or 1. Watch for it
-specifically when comparing `bayesian` against other families on small
-samples; it is expected to behave better at full production scale, where
-per-class training counts are large enough for `GaussianNB`'s Gaussian
-variance estimates to stabilize.
+`14.4175` — one confidently wrong call is catastrophic under log loss.
+Other families can also reach an exact `0`/`1` probability on a small,
+easy sample (confirmed directly: `RandomForestClassifier.predict_proba` can
+return exactly `1.0`/`0.0` when every tree in the forest agrees), so this
+isn't a claim that `bayesian` is uniquely capable of extreme confidence —
+the specific risk here is *how easily* it gets there: `GaussianNB` has no
+regularization at all on its per-class variance estimates, so a handful of
+training rows is routinely enough, unlike the regularized linear families
+(`logistic`/`ridge`/`gam`) or a tree ensemble reaching unanimous agreement
+(a structurally different, comparatively rarer path to the same extreme
+value). Watch for it specifically when comparing `bayesian` against other
+families on small samples. Whether it behaves better at full production
+scale, where per-class training counts are much larger, is a hypothesis
+based on how `GaussianNB`'s variance estimates work, not a verified
+result — confirm it against real production-scale folds (with the usual
+calibration/uncertainty checks) before treating it as established, the same
+bar any other family here would need to clear before promotion.
 
 ## Why the split is chronological
 

@@ -180,12 +180,14 @@ def _retrosheet_tables_ready(conn: psycopg.Connection) -> bool:
 
 
 def _fetch_transition_counts(
-    conn: psycopg.Connection, seasons: Sequence[int]
+    conn: psycopg.Connection, seasons: Sequence[int], bat_home: str | None = None
 ) -> list[TransitionCountRow]:
     if not _retrosheet_tables_ready(conn):
         return []
     with conn.cursor() as cur:
-        cur.execute(_TRANSITION_COUNTS_SQL, {"seasons": [str(s) for s in seasons]})
+        cur.execute(
+            _TRANSITION_COUNTS_SQL, {"seasons": [str(s) for s in seasons], "bat_home": bat_home}
+        )
         return [TransitionCountRow(*row) for row in cur.fetchall()]
 
 
@@ -328,15 +330,23 @@ def build_outcome_distribution(
 
 
 def estimate_outcome_distribution(
-    conn: psycopg.Connection, seasons: Sequence[int]
+    conn: psycopg.Connection, seasons: Sequence[int], bat_home: str | None = None
 ) -> dict[BaseOutState, dict[Outcome, float]]:
     """Estimate the joint (post_state, runs_scored) outcome distribution
     from real Retrosheet play-by-play for the given regular-season years
     -- the input simulate_half_inning/simulate_half_innings need. Returns
     an empty dict, matching estimate_transition_matrix's "not ready yet"
-    contract, if either source table hasn't been bootstrapped."""
+    contract, if either source table hasn't been bootstrapped.
+
+    `bat_home` optionally scopes to one batting side only ('1' = home,
+    '0' = away) -- None (the default) combines both sides into one
+    league-average distribution, matching every prior Plan 04D package's
+    behavior. Real per-play scoring rates genuinely differ by batting
+    side in most seasons (verified directly against real data, ADR-080)
+    -- pass '1'/'0' to get each side's own distribution for
+    `simulate_game`'s optional `home_distribution` parameter."""
     _validate_seasons(seasons)
-    rows = _fetch_transition_counts(conn, seasons)
+    rows = _fetch_transition_counts(conn, seasons, bat_home)
     return build_outcome_distribution(rows)
 
 
@@ -407,21 +417,27 @@ def simulate_game(
     rng: random.Random,
     regulation_innings: int = 9,
     max_innings: int = 30,
+    home_distribution: dict[BaseOutState, dict[Outcome, float]] | None = None,
 ) -> GameResult:
-    """Simulate a full game -- both teams alternating half-innings from
-    `distribution` -- applying baseball's actual game-ending rules
-    instead of always playing a fixed number of complete innings: if the
-    home team is already leading after the top of the
-    `regulation_innings`th inning (or any inning after it), the bottom
-    half is skipped entirely (no need to bat); if the home team takes the
-    lead mid-half-inning in the bottom of the `regulation_innings`th
-    inning or later, the game ends immediately on that play (a walk-off)
-    via `simulate_half_inning_steps` rather than finishing the
-    half-inning's remaining outs. Extra innings continue for as long as
-    the score is tied after a completed (or walked-off) inning at or past
-    `regulation_innings`. Both teams draw from the same `distribution` --
-    no team-specific modeling yet, matching every other estimator here's
-    league-average scope.
+    """Simulate a full game -- both teams alternating half-innings --
+    applying baseball's actual game-ending rules instead of always
+    playing a fixed number of complete innings: if the home team is
+    already leading after the top of the `regulation_innings`th inning
+    (or any inning after it), the bottom half is skipped entirely (no
+    need to bat); if the home team takes the lead mid-half-inning in the
+    bottom of the `regulation_innings`th inning or later, the game ends
+    immediately on that play (a walk-off) via `simulate_half_inning_steps`
+    rather than finishing the half-inning's remaining outs. Extra
+    innings continue for as long as the score is tied after a completed
+    (or walked-off) inning at or past `regulation_innings`.
+
+    The away team always draws from `distribution`. The home team draws
+    from `home_distribution` if given, otherwise from `distribution` too
+    (the original, backward-compatible behavior -- no team-specific
+    modeling at all). Splitting the two is real, not cosmetic: real
+    per-play scoring rates genuinely differ by batting side in most
+    seasons (verified directly against real data, ADR-080), which one
+    combined league-average `distribution` can't capture.
 
     Unlike a single half-inning (guaranteed to reach TERMINAL in finitely
     many steps, since outs never decrease), a tied extra-innings game has
@@ -443,6 +459,7 @@ def simulate_game(
             f"max_innings ({max_innings}) must be greater than regulation_innings "
             f"({regulation_innings}) -- equal leaves no room for even one extra inning"
         )
+    home_dist = home_distribution if home_distribution is not None else distribution
     away_runs = 0
     home_runs = 0
     inning = 0
@@ -457,12 +474,12 @@ def simulate_game(
         if inning >= regulation_innings and home_runs > away_runs:
             break  # home already ahead after the top half; no need to bat
         if inning >= regulation_innings:
-            for runs in simulate_half_inning_steps(distribution, rng):
+            for runs in simulate_half_inning_steps(home_dist, rng):
                 home_runs += runs
                 if home_runs > away_runs:
                     break  # walk-off: the game ends on this exact play
         else:
-            home_runs += simulate_half_inning(distribution, rng)
+            home_runs += simulate_half_inning(home_dist, rng)
         if inning >= regulation_innings and home_runs != away_runs:
             break  # decided in regulation or later; anything but a tie ends it
     return GameResult(away_runs=away_runs, home_runs=home_runs, innings=inning)

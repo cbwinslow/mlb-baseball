@@ -79,9 +79,21 @@ learned it. Home win rate is the exception — it narrowed slightly
 (held-out 50.5% vs. real 52.9%, a 2.4-point gap, versus in-sample's
 3.0-point gap), not meaningful given a single ~2,429-game sample, and a
 separate limitation (no home/away split) that held-out estimation
-doesn't meaningfully affect either way. Not yet built: separate
-home/away outcome distributions to close the home-field-advantage gap
-above, and precise walk-off run crediting (ADR-078's Revisit-if).
+doesn't meaningfully affect either way. Fifth package (ADR-080):
+`estimate_outcome_distribution` gained an optional `bat_home` filter and
+`simulate_game` an optional `home_distribution` parameter, closing that
+home/away gap — verified the premise first (2019 alone showed no real
+home/away scoring difference, an anomaly; 2015-2018 all showed a real
+one, e.g. 2017 home batters scored on 3.32% of plate appearances vs.
+away batters' 3.09%), then verified the fix: split-distribution home
+win rate landed at 52.6% (vs. the original combined-distribution
+49.9%), a ~8x reduction in the gap from real 52.9%, stable across
+multiple seeds. Not yet built: whether the home/away split's benefit
+holds out-of-sample too (ADR-079 tested the combined-distribution
+approach only), understanding why the split closes the gap despite the
+two sides' simulated run means coming out nearly identical (ADR-080's
+own open question), and precise walk-off run crediting (ADR-078's
+Revisit-if).
 
 ## Work packages
 

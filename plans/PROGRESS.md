@@ -1495,3 +1495,50 @@ Two bug-fix PRs closing real, previously-open issues:
   widened") -- the home win rate actually narrowed slightly, corrected
   above -- and clarified that the "four prior seasons" figure was this
   run's own choice, not a fixed CLI constraint.
+
+### Plan 04D -- home/away outcome distribution split (fifth package) -- 2026-08-19 (no writes to `mlb_test` or `mlb`; the calibration query itself reads real 2015-2019 history from `mlb`, read-only)
+
+- Added an optional `bat_home` parameter to `estimate_outcome_distribution`/
+  `_fetch_transition_counts`/`markov_transition_counts.sql` (`'1'`=home,
+  `'0'`=away, `None`=both combined -- the unchanged default every prior
+  caller keeps using), and an optional `home_distribution` parameter to
+  `simulate_game` (home team draws from it instead of `distribution` when
+  given). Closes the "separate home/away outcome distributions" gap
+  flagged open in the third package's entry above (ADR-078/080).
+- **Verified the premise before building anything, and the first check
+  was almost a false start:** checked 2019 specifically first -- home and
+  away per-play scoring rates were statistically identical (0.0354 vs.
+  0.0354 to four decimal places), which would have meant a home/away
+  split couldn't possibly help. Before concluding that, checked four
+  more seasons (2015-2018): every one showed a real, meaningful home
+  advantage (e.g. 2017: home batters scored on 3.32% of plate appearances
+  vs. away batters' 3.09%) -- 2019 was the anomaly, not the pattern.
+- **Verified the fix actually works, not just that it runs:** ran
+  `simulate_game` 2,429 times against real 2019 `mlb` data three ways.
+  Combined-distribution home win rate: 49.94% (a 3.00-point gap from
+  real 52.94%, ADR-078's own figure). Split-distribution home win rate:
+  52.57% (a 0.37-point gap) -- roughly an 8x reduction, essentially
+  closing the gap. Confirmed not a seed-specific fluke: reran with 3 more
+  seeds, landing at 53.03%/52.49%/52.53%, all tightly clustered around
+  the real figure.
+- **Honestly-reported open wrinkle:** the split-distribution run's
+  away/home run means came out nearly identical (4.911/4.913) despite
+  the win-rate gap closing dramatically -- meaning the improvement isn't
+  a simple mean-shift, something about the fuller shape of the two
+  sides' outcome distributions matters. Not fully explained, noted as a
+  real open question rather than glossed over.
+- Backward-compatible by construction: every existing caller across
+  ADR-076/077/078/079 and every existing test keeps working unchanged,
+  since both new parameters default to values reproducing the prior
+  combined-distribution behavior exactly.
+- `uv run ruff check .`/`uv run ruff format --check .` clean,
+  `uv run mypy mlb_baseball/model/markov.py` clean, `uv run sqlfluff
+  lint` clean. `tests/unit/test_markov_game.py` gained 2 tests (proving
+  `home_distribution` is actually wired to the home team's draws, using
+  the existing `_ScriptedRandom` double). `tests/integration/test_model_markov.py`
+  gained 1 test proving `bat_home` actually filters real rows (verified
+  with mutation testing: temporarily reverted the SQL filter, confirmed
+  the test fails, restored it). All TDD, written and watched fail before
+  implementation.
+- No persistence layer added, matching every prior Plan 04D package's
+  "not wired into production" posture.

@@ -180,3 +180,36 @@ def test_simulate_game_raises_rather_than_hang_forever_on_a_perpetual_tie():
     distribution = {EMPTY_ZERO: {Outcome(TERMINAL, 0): 1.0}}
     with pytest.raises(MarkovError, match="still tied"):
         simulate_game(distribution, random.Random(0), regulation_innings=1, max_innings=2)
+
+
+def test_simulate_game_draws_the_home_team_from_home_distribution_when_given():
+    # away_distribution only ever scores 0; home_distribution only ever
+    # scores 1. If the home team were mistakenly drawn from
+    # away_distribution instead of home_distribution, it would also
+    # always score 0 -- an eternal 0-0 tie that (with regulation_innings=1
+    # and the default max_innings=30) would eventually raise MarkovError
+    # rather than produce a real result, clearly distinguishing correct
+    # wiring from incorrect wiring, not just silently returning a
+    # slightly-different number.
+    away_distribution = {EMPTY_ZERO: {Outcome(TERMINAL, 0): 1.0}}
+    home_distribution = {EMPTY_ZERO: {Outcome(TERMINAL, 1): 1.0}}
+    result = simulate_game(
+        away_distribution,
+        random.Random(0),
+        regulation_innings=1,
+        home_distribution=home_distribution,
+    )
+    assert result == GameResult(away_runs=0, home_runs=1, innings=1)
+
+
+def test_simulate_game_uses_the_shared_distribution_for_home_when_not_given():
+    # Backward-compatible default: home_distribution omitted means both
+    # teams draw from the same distribution. _ScriptedRandom's own
+    # population-membership check proves this directly -- both scripted
+    # draws must be valid members of the one distribution dict passed, or
+    # the double raises; there's no second distribution for home to draw
+    # from instead.
+    distribution = {EMPTY_ZERO: {Outcome(TERMINAL, 0): 0.5, Outcome(TERMINAL, 1): 0.5}}
+    script = _ScriptedRandom([Outcome(TERMINAL, 0), Outcome(TERMINAL, 1)])
+    result = simulate_game(distribution, script, regulation_innings=1)
+    assert result == GameResult(away_runs=0, home_runs=1, innings=1)

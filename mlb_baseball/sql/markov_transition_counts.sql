@@ -41,6 +41,17 @@
 -- (dest is 0 when base{N}_run_id is NULL, confirmed above), but the
 -- explicit pre_b{n} AND guard makes that invariant visible in the query
 -- itself rather than relying on it silently.
+--
+-- The bat_home parameter optionally scopes to one batting side only
+-- ('1' = home, '0' = away) -- NULL (the default every existing caller
+-- passes) means no filter, both sides combined, exactly this query's
+-- original behavior. Added for Plan 04D's home/away split (ADR-080):
+-- real per-play scoring rates genuinely differ by batting side in most
+-- seasons (verified directly against real 2017 data: home batters
+-- scored on about 3.3 of every 100 plate appearances, away batters
+-- about 3.1 of every 100), so simulate_game can optionally draw each
+-- side from its own estimated distribution instead of one combined
+-- league-average one.
 
 WITH scoped_events AS (
     SELECT
@@ -57,6 +68,7 @@ WITH scoped_events AS (
     JOIN raw.retrosheet_gameinfo gi ON gi.gid = re.game_id AND lower(gi.gametype) = 'regular'
     WHERE gi._season = ANY(%(seasons)s)
       AND re.event_cd NOT IN ('0', '1')
+      AND (%(bat_home)s::text IS NULL OR re.bat_home_id = %(bat_home)s::text)
 ),
 derived AS (
     SELECT

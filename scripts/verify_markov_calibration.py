@@ -107,11 +107,24 @@ def main() -> None:
     sim_half_innings = markov.simulate_half_innings(
         distribution, random.Random(args.seed), len(real_half_innings)
     )
+    # max_innings=60, well above simulate_game's own 30-inning default:
+    # running thousands of independent games is an order-statistics
+    # problem, not a single-game one -- the *maximum* inning count across
+    # ~2,400+ trials routinely exceeds any one real game's longest-on-
+    # record figure (confirmed directly: a held-out 2015-2018 estimate,
+    # seed=1, hit exactly 31 innings in one simulated game, one past the
+    # library default, with no other sign of a degenerate distribution).
+    # 60 leaves comfortable headroom without masking a genuinely
+    # degenerate distribution, which would still raise well before that.
     game_rng = random.Random(args.seed)
-    sim_games = [markov.simulate_game(distribution, game_rng) for _ in range(len(real_games))]
+    sim_games = [
+        markov.simulate_game(distribution, game_rng, max_innings=60) for _ in range(len(real_games))
+    ]
     split_game_rng = random.Random(args.seed)
     sim_split_games = [
-        markov.simulate_game(away_distribution, split_game_rng, home_distribution=home_distribution)
+        markov.simulate_game(
+            away_distribution, split_game_rng, max_innings=60, home_distribution=home_distribution
+        )
         for _ in range(len(real_games))
     ]
 

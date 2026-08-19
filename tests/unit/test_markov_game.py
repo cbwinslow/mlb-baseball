@@ -202,6 +202,40 @@ def test_simulate_game_draws_the_home_team_from_home_distribution_when_given():
     assert result == GameResult(away_runs=0, home_runs=1, innings=1)
 
 
+def test_simulate_game_draws_the_home_team_from_home_distribution_before_regulation():
+    # PR review finding: the test above only ever uses regulation_innings=1,
+    # so every inning takes the simulate_half_inning_steps(home_dist, rng)
+    # branch (inning >= regulation_innings is always true starting from
+    # inning 1) -- the *other* branch, simulate_half_inning(home_dist, rng)
+    # for a pre-regulation inning, was never exercised with a distinct
+    # home_distribution at all. Confirmed this was a real, not just
+    # theoretical, gap via mutation testing: swapping home_dist for
+    # distribution on that line left every existing test passing.
+    # regulation_innings=2 forces inning 1 through the pre-regulation
+    # (simulate_half_inning) branch before the mechanism above takes over.
+    # away always scores 0, home always scores 1 (both deterministic).
+    # regulation_innings=3 forces two full pre-regulation innings (1 and
+    # 2) before the game becomes eligible to end early: by the top of
+    # inning 3, home already leads 2-0 purely from those two pre-
+    # regulation innings, so the bottom of inning 3 is skipped entirely
+    # (already ahead) -- the stepper branch (simulate_half_inning_steps)
+    # is never even reached this time, isolating the pre-regulation
+    # simulate_half_inning(home_dist, rng) branch completely. If that
+    # branch used the wrong distribution (e.g. away's, always 0), home
+    # would still be scoreless entering inning 3, and the game would
+    # instead reach the stepper branch and produce a different result
+    # (away=0, home=1, innings=3) -- this test distinguishes the two.
+    away_distribution = {EMPTY_ZERO: {Outcome(TERMINAL, 0): 1.0}}
+    home_distribution = {EMPTY_ZERO: {Outcome(TERMINAL, 1): 1.0}}
+    result = simulate_game(
+        away_distribution,
+        random.Random(0),
+        regulation_innings=3,
+        home_distribution=home_distribution,
+    )
+    assert result == GameResult(away_runs=0, home_runs=2, innings=3)
+
+
 def test_simulate_game_uses_the_shared_distribution_for_home_when_not_given():
     # Backward-compatible default: home_distribution omitted means both
     # teams draw from the same distribution. _ScriptedRandom's own

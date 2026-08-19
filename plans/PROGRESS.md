@@ -1232,3 +1232,88 @@ Two bug-fix PRs closing real, previously-open issues:
   structurally impossible to get wrong, the same way every sibling
   `test_model_*.py` file already relies on it without a redundant
   per-file check.
+
+### Plan 04D -- half-inning simulator + calibration check (second package) -- 2026-08-19 (`mlb_test` only)
+
+- Added `Outcome`, `build_outcome_distribution`,
+  `estimate_outcome_distribution`, `simulate_half_inning`,
+  `simulate_half_innings`, `real_half_inning_runs`, and `summarize_runs`
+  to `mlb_baseball/model/markov.py`, plus
+  `mlb_baseball/sql/markov_half_inning_runs.sql`. Plan 04D's second
+  deliverable ("simulate plate appearances, innings, games...
+  Calibrate composed distributions against held-out seasons and real
+  forward results"). Full 9-inning/both-teams game simulation and
+  calibration against a genuinely held-out season remain open.
+- **Why runs_scored can't be discarded for the simulator, unlike the
+  transition matrix:** the same (pre_state, post_state) pair can arise
+  from plays that scored different numbers of runs -- sampling "next
+  state" and "runs scored" independently from separate marginal
+  distributions would combine values that never actually co-occurred in
+  real data. `build_outcome_distribution` samples them jointly as one
+  `Outcome(post, runs)` per pre-state instead. Confirmed with a
+  hand-built fixture: two rows sharing one (pre, post) pair but different
+  runs_scored produce two distinct, correctly-weighted outcomes (0.75/0.25).
+- **Verified against real production data three independent ways:** ran
+  the full pipeline against real `mlb` (read-only, 2019, 43,346 real,
+  complete half-innings -- excludes 205 walk-off-truncated ones that
+  never reach 3 outs, a real bias a PR review round caught; see below).
+  Real mean (0.534) and simulated mean (0.552, seeded) differ by ~3.4%
+  -- the largest of the three pairwise gaps. Both closely match
+  `run_expectancy`'s own independently-computed bases-empty/0-outs
+  value (0.542, ADR-076, ~1.5%/~1.8% gaps respectively) -- three
+  different code paths (linear solve, Monte Carlo walk, direct
+  real-data aggregate) agreeing within ~3.4% is reasonable
+  cross-validation for a full-distribution Monte Carlo comparison.
+  Median (0), p90 (2), and max (11) match exactly between real and
+  simulated.
+- **`real_half_inning_runs` hand-verified against a real box score, not
+  just run and trusted:** picked one real half-inning (ANA201904040, top
+  of 1st) at random, walked its rows ordered by `event_id::int` within
+  `game_id` -- the durable, source-assigned event sequence (confirmed
+  this reproduces the identical row order physical storage order
+  (`ctid`) happened to give for this game; `ctid` is a Postgres
+  storage detail that isn't stable across a `VACUUM FULL`, so
+  `event_id` is the identifier worth citing), hand-summed runs_scored
+  (a 3-run HR + a 2-run HR = 5), cross-checked against that game's own
+  `away_score_ct` progression (0->0->0->3->3->5, exact match), then
+  confirmed the SQL independently produces 5 for that exact half-inning.
+- `summarize_runs` reports descriptive stats only, not a pass/fail
+  verdict -- unlike RE24 (which has a cited published tolerance), this
+  project has no established "close enough" bar for a full distributional
+  comparison yet; reporting real numbers honestly is what's shippable now.
+- `uv run ruff check .`/`uv run ruff format --check .` clean,
+  `uv run mypy mlb_baseball/model/markov.py` clean.
+  `tests/unit/test_markov_simulate.py` (12 passed, pure logic -- includes
+  a law-of-large-numbers convergence check with a fixed seed -- no DB)
+  and `tests/integration/test_model_markov.py` (11 total now, all
+  passing) -- both TDD, written and watched fail before implementation.
+- No persistence layer added, matching ADR-076's and every dormant
+  Plan 04 research module's "not wired into production" posture.
+- **PR #39 review round:** fixed 5 real gaps. The significant one:
+  `real_half_inning_runs` counted every (game, inning, side) group,
+  including half-innings that never reach 3 outs -- a walk-off ends the
+  game the instant the home team takes the lead in the 9th or later, so
+  that half-inning's play-by-play stops before its 3rd out is ever
+  recorded, while `simulate_half_inning` always walks to `TERMINAL` (3
+  outs). Checked directly: 205 of the original 43,551 half-innings
+  (0.47%) never reach 3 outs, with a mean runs (1.585) roughly 3x every
+  other half-inning's (0.534) -- confirming this was a real, biasing
+  gap, not hypothetical. Added a `HAVING` clause excluding them, with a
+  hand-built walk-off regression test; this changed the headline
+  calibration numbers above (previously ~2.4% max gap under the old,
+  truncation-inclusive real mean) -- corrected and reported honestly
+  rather than left at the more flattering, wrong number. The other 4:
+  negative `count` in `simulate_half_innings` silently produced `[]`
+  instead of raising; `summarize_runs`' median took the upper-middle
+  element instead of averaging the two middle values for an even-sized
+  sample; its p90 used a formula that returns the max whenever `n` is
+  an exact multiple of 10 instead of the correct nearest-rank value; the
+  box-score verification note above cited `ctid`, a physical-storage
+  detail, as a durable identifier. Declined 2 claims with evidence: a
+  theoretical infinite-loop risk in `simulate_half_inning` (no real
+  half-inning data can produce a state with self-loop probability 1.0,
+  and 43,346 real simulations completed without incident) and a
+  per-file `current_database()` guard on `test_model_markov.py`'s
+  `_reset()` (already centrally enforced by `tests/conftest.py`'s
+  autouse `_assert_test_database_url`, the same claim ADR-076's own
+  review already investigated and declined).

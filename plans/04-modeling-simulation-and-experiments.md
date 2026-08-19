@@ -35,9 +35,22 @@ alone cannot, it has no runner-on-base columns — a correction to
 `docs/RESEARCH.md`'s prior claim). Verified against real `mlb` data: closely
 matches published modern-era RE24 values allowing for real run-environment
 spread across cited eras (e.g. bases loaded/0 outs 2.430 vs. FanGraphs'
-2.282 baseline — see ADR-076 for the full cited comparison protocol). Not
-yet built: the half-inning/game simulator and
-calibration against held-out real seasons.
+2.282 baseline — see ADR-076 for the full cited comparison protocol).
+Second package landed the same day (ADR-077): `simulate_half_inning`/
+`simulate_half_innings` Monte Carlo-sample half-innings from the estimated
+outcome distribution; `real_half_inning_runs` computes the real historical
+per-half-inning run distribution to compare against. Verified three
+independent ways against real 2019 `mlb` data (43,346 complete
+half-innings, excluding 205 walk-off-truncated ones that never reach 3
+outs, a real, non-negligible bias a PR review caught): real mean (0.534)
+and simulated mean (0.552) differ by ~3.4% (the largest of the three
+pairwise gaps), and both closely match `run_expectancy`'s
+independently-computed bases-empty/0-outs value (0.542) — three
+different code paths (linear solve, Monte Carlo walk, direct real-data
+aggregate) landing within ~3.4% of each other. Not yet
+built: full 9-inning/both-teams game simulation, and calibration against a
+genuinely held-out season (this package's own calibration check is
+in-sample — same season for estimation and comparison).
 
 ## Work packages
 

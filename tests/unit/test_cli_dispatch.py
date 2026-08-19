@@ -409,9 +409,7 @@ def test_experiment_select_features_stepwise_command_parses_all_its_own_argument
             },
         }
 
-    monkeypatch.setattr(
-        feature_select_stepwise, "select_features_stepwise", fake_stepwise
-    )
+    monkeypatch.setattr(feature_select_stepwise, "select_features_stepwise", fake_stepwise)
 
     cli.main(
         [
@@ -457,11 +455,13 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     """The compatibility command still reports feature and prediction results."""
     conn = MagicMock()
     conn.__enter__.return_value = conn
+    tracked: dict = {}
 
     @contextmanager
     def tracked_run(_conn, _source, _mode, **_kwargs):
         result = {}
         yield result
+        tracked.update(result)
 
     monkeypatch.setattr(model, "get_connection", lambda: conn)
     monkeypatch.setattr(model, "track_run", tracked_run)
@@ -469,6 +469,16 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         model,
         "build_feature_stage",
         lambda _conn: {"gold.game_feature": 10, "gold.game_feature (starters updated)": 4},
+    )
+    # A single-key stand-in for the real 20-key dict (one per enrichment
+    # module) is enough here -- this test only proves run() merges
+    # whatever enrich_feature_stage() returns into its own result, not
+    # every module's own row count; the real dict's exact shape is
+    # tests/integration/test_model_enrich_stage.py's job to verify.
+    monkeypatch.setattr(
+        model,
+        "enrich_feature_stage",
+        lambda _conn: {"gold.game_feature (park_factor)": 6},
     )
     monkeypatch.setattr(model.elo, "compute_ratings", lambda _conn: 10)
     monkeypatch.setattr(model.market, "record", lambda _conn: 1)
@@ -480,6 +490,7 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     assert model.run() == {
         "gold.game_feature": 10,
         "gold.game_feature (starters updated)": 4,
+        "gold.game_feature (park_factor)": 6,
         "gold.prediction (log5)": 3,
         "gold.prediction (elo)": 4,
         "gold.prediction (gbm)": 5,
@@ -488,6 +499,13 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         "gold.game_feature (Elo ratings)": 10,
     }
     conn.commit.assert_called_once()
+    # A regression that dropped enrich_counts (or backfilled) from
+    # result["rows"] would still pass the assertion above -- that dict
+    # never includes result["rows"] at all, it's a separate value handed
+    # to track_run's own tracking, not part of run()'s return value.
+    # feature_counts(10) + enrich_counts(6) + log5(3) + elo(4) + gbm(5) +
+    # market(1) + backfilled(2) = 31.
+    assert tracked["rows"] == 31
 
 
 def test_train_command_calls_model_train_and_reports_metrics(monkeypatch, capsys):

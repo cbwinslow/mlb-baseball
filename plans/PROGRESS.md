@@ -1858,3 +1858,85 @@ Two bug-fix PRs closing real, previously-open issues:
   BY-NC-SA terms) is now a tracked Phase 3 goal (`docs/ROADMAP.md`).
   Neither is started -- both explicitly scoped as future work, not
   implied in-progress.
+
+### Fix issue #48: `starter_workload` (PIT-03) backfilled against production `mlb` -- 2026-08-19 (owner-authorized)
+
+- **Real, scoped gap, not a duplicate of the earlier incident.**
+  `starter_workload.py` (PIT-03, `home_starter_rest_days`/
+  `away_starter_rest_days`/`home_starter_outs_7d`/`away_starter_outs_7d`)
+  was added 2026-08-15 -- after both the original 2026-08-13/14 enrichment rollout
+  and this same day's 2026-08-19 backfill (which deliberately mirrored
+  that original rollout's exact module list). It was never included in
+  either, so unlike every other enrichment module, this one had never
+  run against production even once -- 0% coverage, confirmed directly.
+- **Backfilled the same way as every other module today**:
+  `starter_workload.compute()`/`compute_live()`/`compute_probable()`
+  against real `mlb`, `DATABASE_URL=postgresql:///mlb` stated explicitly. Row counts
+  matched `starter.py`'s own sibling figures closely (compute: 201,523;
+  compute_live: 1,729; compute_probable: 52).
+- **Verified with `mlb doctor` against production**: 211/222 checks
+  passed (up from 209/222 before this fix -- the two previously-failing
+  `starter workload` coverage checks are now clean).
+  `home_starter_rest_days`/`away_starter_rest_days` land at 98.4%/98.5% coverage (176,151/
+  178,931 and 176,278/178,902) -- the remaining ~1.5-1.6% gap matches the
+  same order of magnitude as this project's other already-documented
+  Retrosheet-derived coverage gaps (e.g. `starter.py`'s own ~1.7%), not
+  investigated further here since both checks already passed their
+  existing thresholds.
+
+### Fix the actual root cause: enrichment was never wired into `mlb predict`'s daily rebuild -- 2026-08-19 (P1, found in PR #50 review)
+
+- **The single most important finding of the day, caught by PR review, not
+  by this session.** Reviewing this very PR (the `starter_workload`
+  backfill), Kilo correctly identified that `scripts/mlb_daily_update.sh`
+  -- confirmed live in `crontab -l`, runs `mlb predict` every day at
+  06:00 UTC -- calls `mlb_baseball.model.run()`, which calls
+  `build_feature_stage()` -> `features.build()`, which **TRUNCATEs
+  `gold.game_feature`** and rebuilds only the base feature family. **None
+  of the 10 enrichment modules (park, team_rate, offense, starter,
+  starter_workload, bullpen, oaa, speed, framing, war) were ever called
+  from `run()`.** This is the real root cause of the incident documented
+  above -- not a one-time migration side effect, a recurring gap that
+  would have wiped every enrichment column again on the very next
+  scheduled run (~06:00 UTC, hours away when this was found), and would
+  keep doing so indefinitely, every day, until fixed at the source.
+- **Fixed by adding `enrich_feature_stage(conn)`** to `mlb_baseball/
+  model/__init__.py`, calling every enrichment module (historical + live
+  + probable/upcoming variants) in the same order as today's manual
+  backfill script, wired into `run()` immediately after
+  `build_feature_stage()` -- inside the same transaction `run()` already
+  used, matching its existing all-in-one-transaction design.
+  `run_features()` (`mlb features`, a separately auditable stage other
+  tooling may call standalone) deliberately keeps its existing base-only
+  scope; `mlb predict` -- the one path the daily cron actually calls --
+  is the one that needed to change.
+- **Verified with a real regression test proving the wiring itself, not
+  just each module's already-tested math.** New
+  `tests/integration/test_model_enrich_stage.py`: one test proves
+  `enrich_feature_stage()` actually invokes real compute() functions that
+  write real, non-NULL data end to end (park_factor and team_rate,
+  checked on two different games since team_rate's rolling window
+  partitions by season and park_factor's spans seasons by design -- a
+  real fixture-design lesson, not incidental); one proves the aggregator
+  still returns cleanly (0 rows updated, not a crash) when Retrosheet
+  tables aren't bootstrapped yet, matching every individual module's own
+  "not ready yet" contract. Updated the existing mocked unit test
+  (`test_predict_keeps_feature_stage_and_prediction_writes_separate`) to
+  mock and assert the new call too.
+- **A second, separate operational gap surfaced while investigating
+  this, not yet fixed:** the actual server checkout the cron job runs
+  from (`/home/cbwinslow/workspace/mlb`, distinct from any worktree) is
+  **26 commits behind `origin/main`** -- predates even the original
+  Plan 01F production-cutover commit. There is no auto-deploy; someone
+  has to `git pull` there for a merged fix to actually take effect. This
+  session's own git-safety sandbox correctly refuses to run git commands
+  against that directory from within an isolated worktree, so this step
+  needs the owner directly. Flagged prominently, not silently assumed
+  resolved by merging the PR alone.
+- `uv run ruff check .`/`uv run ruff format --check .` clean on every
+  file touched, `uv run mypy mlb_baseball/model/__init__.py` clean. All
+  TDD: wrote the integration test first, watched it fail on
+  `ImportError: cannot import name 'enrich_feature_stage'`, implemented,
+  watched it pass; the existing unit test's failure after adding the new
+  call (before updating its mock) independently confirmed the wiring
+  actually executes real code, not a no-op.

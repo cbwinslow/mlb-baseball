@@ -73,7 +73,7 @@ def test_rejects_more_movers_than_possible_occupants():
 
 def test_rejects_negative_row_count():
     rows = [TransitionCountRow(0, False, False, False, 0, True, False, False, 0, -1)]
-    with pytest.raises(MarkovError, match="negative row count"):
+    with pytest.raises(MarkovError, match="non-positive row count"):
         build_transition_matrix(rows)
 
 
@@ -84,15 +84,19 @@ def test_rejects_post_outs_above_three():
 
 
 def test_immediate_expected_runs_is_the_count_weighted_average():
-    # From state (0, empty): 3 rows scoring 0 runs, 1 row scoring 2 runs.
-    # Hand-computed: (3*0 + 1*2) / 4 = 0.5.
+    # From state (0, empty): 3 rows scoring 0 runs (a strikeout -- only
+    # the batter can possibly move from an empty-bases state, and they
+    # made an out), 1 row scoring 1 run (a leadoff home run -- the only
+    # way to score more than 0 from this exact state in a single play,
+    # since there are no pre-existing runners to also drive in).
+    # Hand-computed: (3*0 + 1*1) / 4 = 0.25.
     rows = [
         TransitionCountRow(0, False, False, False, 1, False, False, False, 0, 3),
-        TransitionCountRow(0, False, False, False, 0, True, True, False, 2, 1),
+        TransitionCountRow(0, False, False, False, 0, False, False, False, 1, 1),
     ]
     immediate = markov._immediate_expected_runs(rows)
     pre = BaseOutState(0, False, False, False)
-    assert immediate[pre] == pytest.approx(0.5)
+    assert immediate[pre] == pytest.approx(0.25)
 
 
 def test_run_expectancy_solves_a_two_level_chain_by_hand():
@@ -132,3 +136,51 @@ def test_run_expectancy_is_never_negative():
     immediate_runs = dict.fromkeys(markov.TRANSIENT_STATES, 0.0)
     re = run_expectancy(matrix, immediate_runs)
     assert all(value >= 0.0 for value in re.values())
+
+
+def test_rejects_zero_row_count():
+    # PR review finding: `row.n < 0` let n=0 through, which would divide
+    # by zero in build_transition_matrix if a pre-state's only rows all
+    # had n=0. The real SQL always produces n >= 1 (a COUNT(*) GROUP BY
+    # row can't exist with zero members), but build_transition_matrix
+    # accepts arbitrary rows, so this is a real boundary to validate.
+    rows = [TransitionCountRow(0, False, False, False, 0, True, False, False, 0, 0)]
+    with pytest.raises(MarkovError, match="non-positive row count"):
+        build_transition_matrix(rows)
+
+
+def test_rejects_pre_outs_out_of_range():
+    # PR review finding: pre_outs=3 (or negative) passed validation
+    # silently, produced a BaseOutState not in TRANSIENT_STATES, and was
+    # silently skipped by run_expectancy instead of being rejected.
+    rows = [TransitionCountRow(3, False, False, False, 3, False, False, False, 0, 1)]
+    with pytest.raises(MarkovError, match="invalid pre_outs"):
+        build_transition_matrix(rows)
+
+
+def test_immediate_expected_runs_validates_rows_independently():
+    # _immediate_expected_runs is called directly in estimate_run_expectancy
+    # alongside build_transition_matrix, but as its own public-ish function
+    # (imported and tested directly like every other _-prefixed helper in
+    # this file) it must not skip validation just because a caller didn't
+    # also call build_transition_matrix first.
+    rows = [TransitionCountRow(0, False, False, False, 1, False, False, False, 0, -1)]
+    with pytest.raises(MarkovError, match="non-positive row count"):
+        markov._immediate_expected_runs(rows)
+
+
+def test_run_expectancy_raises_markov_error_on_singular_matrix():
+    # A row-stochastic Q with a row summing to exactly 1.0 at the diagonal
+    # (state transitions to itself with certainty, forever) makes (I - Q)
+    # singular -- numpy.linalg.solve would raise a raw LinAlgError; this
+    # must surface as a clean, catchable MarkovError instead.
+    state = next(iter(markov.TRANSIENT_STATES))
+    matrix = {state: {state: 1.0}}
+    immediate_runs = {state: 0.0}
+    with pytest.raises(MarkovError, match="singular"):
+        run_expectancy(matrix, immediate_runs)
+
+
+def test_estimate_transition_matrix_rejects_empty_seasons():
+    with pytest.raises(ValueError, match="seasons"):
+        markov.estimate_transition_matrix(object(), seasons=[])

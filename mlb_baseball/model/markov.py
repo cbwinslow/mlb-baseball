@@ -29,6 +29,7 @@ from dataclasses import dataclass
 import numpy as np
 import psycopg
 
+from mlb_baseball.db import fetch_one
 from mlb_baseball.sql import read_sql
 
 _TRANSITION_COUNTS_SQL = read_sql("markov_transition_counts.sql")
@@ -84,10 +85,20 @@ def _post_state(row: TransitionCountRow) -> BaseOutState:
 
 
 def _validate_row_conservation(row: TransitionCountRow) -> None:
-    if row.n < 0:
-        raise MarkovError(f"negative row count: {row}")
+    # n <= 0, not just < 0: a row with n=0 contributes nothing to a
+    # pre-state's total, and a pre-state whose only rows all have n=0
+    # would divide by zero when normalized to probabilities downstream.
+    if row.n <= 0:
+        raise MarkovError(f"non-positive row count: {row}")
     if row.runs_scored < 0:
         raise MarkovError(f"negative runs_scored: {row}")
+    # pre_outs is always 0, 1, or 2 for any real pre-play state (a
+    # half-inning has already ended by 3 outs, so no further play can
+    # start from there) -- a row outside that range would silently
+    # construct a BaseOutState absent from TRANSIENT_STATES and be
+    # skipped rather than rejected further downstream.
+    if row.pre_outs < 0 or row.pre_outs > 2:
+        raise MarkovError(f"invalid pre_outs (must be 0, 1, or 2): {row}")
     if row.post_outs < row.pre_outs:
         raise MarkovError(f"outs decreased: {row}")
     if row.post_outs > 3:
@@ -138,19 +149,45 @@ def build_transition_matrix(
     return matrix
 
 
+def _retrosheet_tables_ready(conn: psycopg.Connection) -> bool:
+    # Two-table dependency, two-table gate (matching team_rate.py/
+    # offense.py/starter.py's established convention, issue #9 item 2):
+    # raw.retrosheet_event and raw.retrosheet_gameinfo are landed by two
+    # different connectors -- a fresh clone or partial bootstrap that's
+    # only ingested one of them would otherwise hit an UndefinedTable
+    # error here instead of the same clean "not ready yet" every sibling
+    # retrosheet_event consumer gives.
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
+        (event_exists,) = fetch_one(cur)
+        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
+        (gameinfo_exists,) = fetch_one(cur)
+    return bool(event_exists) and bool(gameinfo_exists)
+
+
 def _fetch_transition_counts(
     conn: psycopg.Connection, seasons: Sequence[int]
 ) -> list[TransitionCountRow]:
+    if not _retrosheet_tables_ready(conn):
+        return []
     with conn.cursor() as cur:
         cur.execute(_TRANSITION_COUNTS_SQL, {"seasons": [str(s) for s in seasons]})
         return [TransitionCountRow(*row) for row in cur.fetchall()]
+
+
+def _validate_seasons(seasons: Sequence[int]) -> None:
+    if not seasons:
+        raise ValueError("seasons must not be empty")
 
 
 def estimate_transition_matrix(
     conn: psycopg.Connection, seasons: Sequence[int]
 ) -> dict[BaseOutState, dict[BaseOutState, float]]:
     """Estimate the base/out transition matrix from real Retrosheet
-    play-by-play for the given regular-season years."""
+    play-by-play for the given regular-season years. Returns an empty
+    dict, matching every sibling retrosheet_event consumer's "not ready
+    yet" contract, if either source table hasn't been bootstrapped."""
+    _validate_seasons(seasons)
     rows = _fetch_transition_counts(conn, seasons)
     return build_transition_matrix(rows)
 
@@ -160,10 +197,15 @@ def _immediate_expected_runs(rows: Iterable[TransitionCountRow]) -> dict[BaseOut
     marginalized over every observed outcome (count-weighted average of
     row.runs_scored across every row sharing that pre-state) -- this is
     exactly sum_post P(pre->post) * E[runs | pre->post] by construction,
-    the "immediate reward" term the run-expectancy linear system needs."""
+    the "immediate reward" term the run-expectancy linear system needs.
+    Validates each row the same way build_transition_matrix does -- this
+    function is called independently in estimate_run_expectancy and is
+    also tested directly, so it must not rely on a caller having already
+    validated via build_transition_matrix first."""
     totals: dict[BaseOutState, int] = {}
     weighted_runs: dict[BaseOutState, int] = {}
     for row in rows:
+        _validate_row_conservation(row)
         pre = _pre_state(row)
         totals[pre] = totals.get(pre, 0) + row.n
         weighted_runs[pre] = weighted_runs.get(pre, 0) + row.n * row.runs_scored
@@ -208,7 +250,10 @@ def run_expectancy(
         for post, probability in post_probs.items():
             if post in index:
                 q[i, index[post]] = probability
-    re = np.linalg.solve(np.eye(n) - q, r)
+    try:
+        re = np.linalg.solve(np.eye(n) - q, r)
+    except np.linalg.LinAlgError as error:
+        raise MarkovError(f"singular matrix in run expectancy solve: {error}") from error
     return {state: float(re[i]) for state, i in index.items()}
 
 
@@ -216,8 +261,15 @@ def estimate_run_expectancy(
     conn: psycopg.Connection, seasons: Sequence[int]
 ) -> dict[BaseOutState, float]:
     """Estimate the RE24-style run-expectancy table from real Retrosheet
-    play-by-play for the given regular-season years."""
+    play-by-play for the given regular-season years. Returns an empty
+    dict, matching estimate_transition_matrix's "not ready yet" contract,
+    if either source table hasn't been bootstrapped -- not a full table of
+    zeros, which run_expectancy's own "unobserved state defaults to 0"
+    behavior would otherwise produce from an empty matrix."""
+    _validate_seasons(seasons)
     rows = _fetch_transition_counts(conn, seasons)
+    if not rows:
+        return {}
     matrix = build_transition_matrix(rows)
     immediate_runs = _immediate_expected_runs(rows)
     return run_expectancy(matrix, immediate_runs)

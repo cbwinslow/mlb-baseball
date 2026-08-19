@@ -216,3 +216,22 @@ def test_estimate_run_expectancy_matches_hand_calculation(db_conn):
     assert re[first_zero] == pytest.approx(0.0)
     assert re[empty_zero] == pytest.approx(0.0)
     assert re[loaded_one] == pytest.approx(2.0)
+
+
+def test_estimate_transition_matrix_returns_empty_when_tables_missing(db_conn):
+    # Two-table readiness gate (PR review finding), matching team_rate.py/
+    # offense.py/starter.py's own established convention: a fresh or
+    # partially bootstrapped database (either table not yet ingested) must
+    # return the same "no evidence yet" empty result every sibling
+    # retrosheet_event consumer gives, not raise UndefinedTable.
+    _reset(db_conn)
+    assert markov.estimate_transition_matrix(db_conn, seasons=[2021]) == {}
+    assert markov.estimate_run_expectancy(db_conn, seasons=[2021]) == {}
+
+
+def test_estimate_transition_matrix_returns_empty_when_only_one_table_exists(db_conn):
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("CREATE TABLE raw.retrosheet_gameinfo (gid text, gametype text, _season text)")
+    db_conn.commit()
+    assert markov.estimate_transition_matrix(db_conn, seasons=[2021]) == {}

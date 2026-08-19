@@ -1194,3 +1194,17 @@ Two bug-fix PRs closing real, previously-open issues:
   `estimate_run_expectancy` return in-memory results, no new migration or
   `meta`/`gold` table, matching every dormant Plan 04 research module's
   "not wired into production" posture.
+- **PR review (5 fixed, 3 investigated-and-declined with real evidence):**
+  added the missing two-table readiness gate (matching `team_rate.py`),
+  fixed `n<=0`/`pre_outs` range validation gaps, made
+  `_immediate_expected_runs` validate independently, wrapped
+  `np.linalg.solve`'s singular-matrix case as a clean `MarkovError`, and
+  rejected empty `seasons`. Declined a `bat_event_fl='T'` filter claim
+  after directly comparing real 2019 RE24 values with/without it (no
+  improvement, sometimes worse) and confirming the described SQL bug
+  doesn't exist; declined switching the season/gametype join to
+  `raw.retrosheet_event`'s own `_group` column after confirming
+  `_group='pbp'` includes postseason/allstar/exhibition games too (not a
+  `gametype` substitute) -- noted the real, tiny (316-row, ~0.002%)
+  join-coverage gap that claim surfaced as an accepted limitation instead.
+  See ADR-076 for full detail.

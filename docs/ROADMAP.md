@@ -97,11 +97,31 @@ reference their public *interface concept*
 freely, never copy their schema, SQL, prose, or UI verbatim. Concretely, this
 project's own data surface is already broader than baseball.computer's own
 query layer covers — the full sabermetrics layer is already built (see Phase
-2 above: wOBA, wRC+, OBP/SLG/ISO/BABIP/BB%/K%, starter FIP/K%/BB%/HR%, bullpen
-FIP/K%/BB%/fatigue, park factor, WAR, OAA, sprint speed, catcher framing, plus
-`gold.player_season`/`team_season`/`division_standing`) — what's missing isn't
-more stats, it's a way for someone besides this project's own code to actually
-query them. Not started; not scoped yet (needs its own design pass — what
-gets exposed publicly is gated by `docs/SOURCE_RIGHTS.md`, same as everything
-else in Phase 3). A real next step when this phase starts, not a reason to
-pull it forward now.
+2 above) — and the *formulas themselves* (wOBA's linear weights, FIP's
+constant, WAR's replacement level) are published sabermetric research, not
+proprietary to baseball.computer or anyone else; this project already
+implements them independently from primary sources (FanGraphs' glossary,
+Tom Tango's own published work), not by reading baseball.computer's code.
+What's actually missing isn't a formula or a license workaround — it's an
+export-friendly *shape*: wide, pre-joined, analysis-ready views/tables a
+researcher can point Excel or R straight at, or `COPY ... TO` a CSV from,
+without hand-assembling a query across a dozen `core`/`gold` tables first.
+
+**Owner direction, 2026-08-19: research-data interoperability (CSV/Excel/R-
+ready exports) is a primary, standalone goal — not gated behind the Phase 3
+website, and not gated behind SQLMesh.** `gold.player_season`/`team_season`/
+`division_standing` (ADR-057) are the existing head start; the remaining
+work is genuinely simple: plain PostgreSQL views (or, where a heavy join
+needs to stay fast, materialized views refreshed on the same cadence as
+`mlb features`) covering the full sabermetrics surface per player-season,
+team-season, and game, plus a documented `COPY (SELECT * FROM ...) TO STDOUT
+WITH CSV HEADER` recipe (or a small `mlb export` CLI wrapper around the same
+thing) for each one. Does not need SQLMesh — `transforms/`'s spike (see
+`docs/SQLMESH_OPERATIONS.md`) remains gated behind its own promotion review
+and isn't a blocker for this. Not started; a real next step, not implied
+in-progress.
+
+**The public website's own query interface (Phase 3, still not planned)
+is a separate, later goal** — a hosted, public-facing version of the same
+idea, gated by `docs/SOURCE_RIGHTS.md` the same as everything else exposed
+publicly in that phase. The export views above don't wait for it.

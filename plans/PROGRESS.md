@@ -1433,7 +1433,7 @@ Two bug-fix PRs closing real, previously-open issues:
   a naming-clarity comment (declined the full rename, too broad a blast
   radius for a naming nit touching already-merged PR #39 code).
 
-### Plan 04D -- genuinely held-out-season calibration check (fourth package) -- 2026-08-19 (`mlb_test` only)
+### Plan 04D -- genuinely held-out-season calibration check (fourth package) -- 2026-08-19 (no writes to `mlb_test` or `mlb`; the calibration query itself reads real 2015-2019 history from `mlb`, read-only)
 
 - Extended `scripts/verify_markov_calibration.py` with an
   `--estimate-seasons` argument, letting the outcome distribution be
@@ -1443,15 +1443,19 @@ Two bug-fix PRs closing real, previously-open issues:
   every estimator/real-data function already independently accepts its
   own `seasons` argument; this was purely a verification exercise using
   already-tested machinery.
-- **Ran it: estimated from 2015-2018, compared against real 2019**,
+- **Ran it: estimated from 2015-2018 (this run's own choice of four prior
+  seasons, not a fixed requirement), compared against real 2019**,
   following Plan 04B's own chronological-fold convention ("training only
-  through the preceding season"). Every gap widened honestly relative to
-  the in-sample checks: half-inning runs mean ~5.2% (vs. in-sample
-  ~3.4%), total-runs mean ~5.7% (vs. in-sample ~1.7%), extra-innings rate
-  ~18.8% relative (vs. in-sample ~2.4%). Innings-played mean stayed close
-  (~0.5%) and home win rate was essentially unchanged (~50.5% vs.
-  in-sample ~49.9%) -- that gap is a separate, unrelated limitation (no
-  home/away split) that held-out estimation doesn't affect either way.
+  through the preceding season"). Every scoring/timing gap widened
+  honestly relative to the in-sample checks: half-inning runs mean ~5.2%
+  (vs. in-sample ~3.4%), total-runs mean ~5.7% (vs. in-sample ~1.7%),
+  extra-innings rate ~18.8% relative (vs. in-sample ~2.4%). Innings-played
+  mean stayed close (~0.5%). Home win rate is the one exception: it
+  actually narrowed slightly (held-out 50.5% vs. real 52.9%, a 2.4-point
+  gap, versus in-sample's 3.0-point gap) -- not meaningful given a single
+  ~2,429-game sample, and that gap is a separate, unrelated limitation
+  (no home/away split) that held-out estimation doesn't meaningfully
+  affect either way.
 - **Root cause verified directly, not assumed:** real average runs/game
   rose from 8.50 (2015) to 8.96 (2016) to 9.29 (2017) to 8.90 (2018) to
   9.66 (2019) -- a genuine, measurable run-environment shift (the
@@ -1468,12 +1472,26 @@ Two bug-fix PRs closing real, previously-open issues:
   use of this machinery would need to either re-estimate close to the
   target season or explicitly model run-environment drift, neither of
   which exists yet.
-- No new tests: this package added a CLI argument to an already-uncovered
-  verification script, not a new function in `mlb_baseball/model/markov.py`
-  -- matches the established precedent of `scripts/rehearse_sample.py`/
-  `scripts/benchmark_mlb_api_ingestion.py`. Verified manually:
-  `--estimate-seasons` omitted still reproduces ADR-076/077/078's exact
-  previously-documented figures byte-for-byte.
+- No changes to `mlb_baseball/model/markov.py`, only a CLI argument added
+  to `scripts/verify_markov_calibration.py`. Verified manually before
+  review: `--estimate-seasons` omitted still reproduces ADR-076/077/078's
+  exact previously-documented figures byte-for-byte.
 - `uv run ruff check .`/`uv run ruff format --check .` clean.
 - No persistence layer added, matching every prior Plan 04D package's
   "not wired into production" posture.
+- **PR review round:** four independent reviewers (CodeRabbit, Codex,
+  Kilo, CodeAnt) each separately caught the same real gap in the
+  original held-out/in-sample label: a naive `eval_season not in
+  estimate_seasons` check mislabeled a future estimate season (e.g.
+  `--estimate-seasons 2020 --season 2019`) as "held-out" when it's
+  actually data leakage from the future, and mislabeled a mixed list
+  (e.g. `--estimate-seasons 2018 2019 --season 2019`) as "in-sample" when
+  it's really neither a clean in-sample nor held-out check. Extracted a
+  pure `_classify_seasons` function that rejects any future estimate
+  season outright and gives the mixed case its own distinct label.
+  Added `tests/unit/test_verify_markov_calibration.py` (5 tests, loading
+  the script by path via `importlib` since `scripts/` isn't a package).
+  Also fixed an overgeneralized claim this entry made ("every gap
+  widened") -- the home win rate actually narrowed slightly, corrected
+  above -- and clarified that the "four prior seasons" figure was this
+  run's own choice, not a fixed CLI constraint.

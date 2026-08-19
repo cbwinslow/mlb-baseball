@@ -77,16 +77,23 @@ Not planned yet. The gold-layer reporting surface above (`gold.player_season`/`t
 **Owner direction, 2026-08-19: a public research/query interface (in the
 spirit of baseball.computer's own query layer) is now a goal for this
 phase, in addition to — not instead of — the predictions/live-data/market-data
-differentiators `docs/NORTH_STAR.md` already claims.** Checked baseball.computer's
-own stated terms directly (not assumed) before writing this: Retrosheet data
-carries only its own attribution requirement, pre-1901 Lahman data is CC
-BY-SA 3.0, and the project's *own* additions/contributions are released
-under CC BY-SA 4.0 — not a blanket CC BY-NC-SA as an earlier draft of this
-note incorrectly claimed (corrected during PR #47 review). None of that data
-licensing actually binds this project either way, since it sources
-Retrosheet/Lahman independently rather than through baseball.computer — the
-real, separate constraint (already established in `docs/PROJECT_REVIEW.md`)
-is not licensing but originality: reference their public *interface concept*
+differentiators `docs/NORTH_STAR.md` already claims.** Checked
+baseball.computer's own stated terms directly (not assumed), and this needs
+two separate licenses kept straight, not conflated as one (an earlier draft
+of this note during PR #47 review corrected the code license into the data
+license by mistake — both statements below are independently verified):
+the `github.com/droher/baseball.computer` **repository's own `LICENSE` file
+is CC BY-NC-SA 4.0** (NonCommercial) — that's the real reason this project
+must write its own SQL/schema/interface from scratch rather than adapt
+theirs, `docs/PROJECT_REVIEW.md`'s existing "no verbatim copying" stance.
+Separately, the *data* baseball.computer redistributes carries its own,
+different, source-specific terms stated on the site: Retrosheet data with
+only its own attribution requirement, pre-1901 Lahman under CC BY-SA 3.0,
+and baseball.computer's own additions to the data under CC BY-SA 4.0 (not
+NC) — irrelevant to this project either way, since it sources
+Retrosheet/Lahman independently rather than through baseball.computer. The
+constraint that actually matters here is the repo's own NC code license:
+reference their public *interface concept*
 freely, never copy their schema, SQL, prose, or UI verbatim. Concretely, this
 project's own data surface is already broader than baseball.computer's own
 query layer covers — the full sabermetrics layer is already built (see Phase

@@ -28,6 +28,35 @@ families not yet built: true hierarchical/multilevel (partial-pooling)
 models and true sequence/embedding models (recurrent/attention architectures
 over a sequential, not flat per-game, feature representation).
 
+**Owner direction, 2026-08-19: sequence/embedding modeling is now an active
+project goal, not just a deferred gap.** The eventual target is genuinely
+new -- an in-game, half-inning-level prediction model, distinct from every
+family built so far (all of which produce a single pre-game prediction from
+a flat per-game feature vector). This needs, in order: (1) a sequential
+training representation (pitch- or plate-appearance-level, not
+`game_base_v1`'s flat per-game rows -- `docs/RESEARCH.md`'s own cited
+literature, e.g. Calzada's "Deepball," operates at this granularity, and
+`raw.retrosheet_event`/`core.pitch` already carry the needed play-by-play
+detail, just not yet reshaped into a sequence-model-ready feature snapshot);
+(2) a real recurrent/attention library, since scikit-learn has none --
+PyTorch is the likely choice (broadest ecosystem, most literature precedent)
+but this is a genuinely new dependency and, per this project's own established
+precedent for scope decisions (ADR-073/074/075's "Declined" sections, and
+CLAUDE.md's ML-modeling doctrine), still needs its own quick confirmation at
+the point of actually adding it -- not blanket-authorized by this note alone.
+The owner has two older NVIDIA GPUs (K40, K80) available in a homelab server
+for this; both are Kepler-generation (2013/2014) and may need an older
+CUDA/PyTorch version pairing to work at all -- verify compatibility before
+depending on them, and note that Plan 04D's own Markov/simulation engine
+(`mlb_baseball/model/markov.py`) is the natural foundation to compose with
+here: it already estimates play-by-play outcome distributions and simulates
+half-innings/games from real data, which is a different (simulation-based)
+approach to the same "predict what happens in this half-inning" question a
+sequence model would answer from a learned (not simulated) representation --
+worth comparing, not just picking one and dropping the other. Not started;
+tracked here as the next real exploration once current PR/review work is
+clear, not implied to already be in progress.
+
 **04D status:** first package landed 2026-08-19 — `mlb_baseball/model/markov.py`
 estimates the 24-state base/out transition matrix and its RE24-style run-
 expectancy table directly from `raw.retrosheet_event` (ADR-076; `core.play`

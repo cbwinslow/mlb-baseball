@@ -73,3 +73,58 @@ The corrected sample is directionally encouraging for `gbm-v1`, but 47 shared ga
 ## Phase 3 — Astro website (oddstrader-style)
 
 Not planned yet. The gold-layer reporting surface above (`gold.player_season`/`team_season`/`division_standing`) is a real, deliberate head start on this phase's eventual data needs, built once the underlying stats were already sitting scattered across `core`/`model` with no single queryable home — see ADR-057. No UI, API, or Astro code exists yet.
+
+**Owner direction, 2026-08-19: a public research/query interface (in the
+spirit of baseball.computer's own query layer) is now a goal for this
+phase, in addition to — not instead of — the predictions/live-data/market-data
+differentiators `docs/NORTH_STAR.md` already claims.** Checked
+baseball.computer's own stated terms directly (not assumed), and this needs
+two separate licenses kept straight, not conflated as one (an earlier draft
+of this note during PR #47 review corrected the code license into the data
+license by mistake — both statements below are independently verified):
+the `github.com/droher/baseball.computer` **repository's own `LICENSE` file
+is CC BY-NC-SA 4.0** (NonCommercial) — checked directly at
+`https://github.com/droher/baseball.computer/blob/main/LICENSE`, not
+assumed — that's the real reason this project must write its own
+SQL/schema/interface from scratch rather than adapt theirs,
+`docs/PROJECT_REVIEW.md`'s existing "no verbatim copying" stance.
+Separately, the *data* baseball.computer redistributes carries its own,
+different, source-specific terms stated on the site itself
+(`https://baseball.computer/`): Retrosheet data with only its own
+attribution requirement, pre-1901 Lahman under CC BY-SA 3.0, and
+baseball.computer's own additions to the data under CC BY-SA 4.0 (not
+NC) — irrelevant to this project either way, since it sources
+Retrosheet/Lahman independently rather than through baseball.computer. The
+constraint that actually matters here is the repo's own NC code license:
+reference their public *interface concept*
+freely, never copy their schema, SQL, prose, or UI verbatim. Concretely, this
+project's own data surface is already broader than baseball.computer's own
+query layer covers — the full sabermetrics layer is already built (see Phase
+2 above) — and the *formulas themselves* (wOBA's linear weights, FIP's
+constant, WAR's replacement level) are published sabermetric research, not
+proprietary to baseball.computer or anyone else; this project already
+implements them independently from primary sources (FanGraphs' glossary,
+Tom Tango's own published work), not by reading baseball.computer's code.
+What's actually missing isn't a formula or a license workaround — it's an
+export-friendly *shape*: wide, pre-joined, analysis-ready views/tables a
+researcher can point Excel or R straight at, or `COPY ... TO` a CSV from,
+without hand-assembling a query across a dozen `core`/`gold` tables first.
+
+**Owner direction, 2026-08-19: research-data interoperability (CSV/Excel/R-
+ready exports) is a primary, standalone goal — not gated behind the Phase 3
+website, and not gated behind SQLMesh.** `gold.player_season`/`team_season`/
+`division_standing` (ADR-057) are the existing head start; the remaining
+work is genuinely simple: plain PostgreSQL views (or, where a heavy join
+needs to stay fast, materialized views refreshed on the same cadence as
+`mlb features`) covering the full sabermetrics surface per player-season,
+team-season, and game, plus a documented `COPY (SELECT * FROM ...) TO STDOUT
+WITH CSV HEADER` recipe (or a small `mlb export` CLI wrapper around the same
+thing) for each one. Does not need SQLMesh — `transforms/`'s spike (see
+`docs/SQLMESH_OPERATIONS.md`) remains gated behind its own promotion review
+and isn't a blocker for this. Not started; a real next step, not implied
+in-progress.
+
+**The public website's own query interface (Phase 3, still not planned)
+is a separate, later goal** — a hosted, public-facing version of the same
+idea, gated by `docs/SOURCE_RIGHTS.md` the same as everything else exposed
+publicly in that phase. The export views above don't wait for it.

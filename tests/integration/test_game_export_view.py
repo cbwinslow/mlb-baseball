@@ -57,9 +57,10 @@ def test_game_export_resolves_team_starter_names_and_real_score(db_conn):
         cur.execute(
             "INSERT INTO gold.game_feature "
             "(game_id, season, game_date, home_team_id, away_team_id, venue_id, "
-            "home_starter_id, home_starter_era, home_win, game_instance_key) VALUES "
+            "home_starter_id, home_starter_era, home_starter_rest, home_field, "
+            "home_runs_for, home_runs_allowed, home_win, game_instance_key) VALUES "
             "(%(game_id)s, 2024, '2024-04-01', %(atl)s, %(nya)s, %(venue)s, "
-            "%(starter_id)s, 2.50, true, 'export-test:G1')",
+            "%(starter_id)s, 2.50, 4, true, 5, 3, true, 'export-test:G1')",
             {
                 "game_id": game_id,
                 "atl": atl,
@@ -73,7 +74,8 @@ def test_game_export_resolves_team_starter_names_and_real_score(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT home_team, away_team, home_team_code, away_team_code, "
-            "home_score, away_score, venue_name, home_starter, home_starter_era, home_win "
+            "home_score, away_score, venue_name, home_starter, home_starter_era, "
+            "home_starter_rest, home_field, home_runs_for, home_runs_allowed, home_win "
             "FROM gold.game_export WHERE game_instance_key = 'export-test:G1'"
         )
         row = cur.fetchone()
@@ -88,8 +90,56 @@ def test_game_export_resolves_team_starter_names_and_real_score(db_conn):
         "Test Park",
         "Jacob deGrom",
         Decimal("2.50"),
+        4,
+        True,
+        5,
+        3,
         True,
     )
+
+    _reset(db_conn)
+
+
+def test_game_export_resolves_a_partial_name_instead_of_going_fully_null(db_conn):
+    # Issue found in PR #51 review (Kilo): `||` concatenation returns NULL
+    # if *either* operand is NULL. core.player.last_name is genuinely NULL
+    # for 224 real production rows (confirmed against production `mlb`
+    # before this fix) -- a real, currently-occurring case, not a
+    # hypothetical. CONCAT_WS(' ', ...) must resolve to just the
+    # non-NULL part instead of losing the name entirely.
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.player (retro_id, first_name, last_name) "
+            "VALUES ('unknp001', 'Satchel', NULL) RETURNING id"
+        )
+        (starter_id,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO gold.game_feature "
+            "(season, game_date, home_team_id, away_team_id, home_starter_id, "
+            "game_instance_key) VALUES "
+            "(2024, '2024-04-01', %(atl)s, %(nya)s, %(starter_id)s, 'export-test:partial-name')",
+            {"atl": atl, "nya": nya, "starter_id": starter_id},
+        )
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter FROM gold.game_export "
+            "WHERE game_instance_key = 'export-test:partial-name'"
+        )
+        (home_starter,) = cur.fetchone()
+
+    assert home_starter == "Satchel"
 
     _reset(db_conn)
 

@@ -12,6 +12,26 @@
 -- plans/PROGRESS.md's "Production incident found and fixed" entry) without
 -- a migration -- correct finding, fixed here so a clean clone, `mlb_test`,
 -- and a restored production database all reproduce the same schema.
+--
+-- Non-CONCURRENTLY, on purpose, not an oversight (real finding from the
+-- same review round, verified directly against real Postgres): a DO block
+-- is PL/pgSQL, and `CREATE INDEX CONCURRENTLY cannot be executed from a
+-- function` -- confirmed by actually running it inside one and reading the
+-- real error, not assumed. The conditional table-existence guard above
+-- (needed since raw.retrosheet_gameinfo is loader-created, not always
+-- present) and CONCURRENTLY are mutually exclusive; migration 0039 has the
+-- identical constraint for the same reason and made the same choice. On a
+-- clean clone this is a no-op (table doesn't exist yet). On `mlb_test` or a
+-- restored production snapshot where the table already has real rows,
+-- applying this migration *will* briefly take an ACCESS EXCLUSIVE lock on
+-- raw.retrosheet_gameinfo for the index build -- acceptable here since
+-- `mlb migrate` runs as a deliberate maintenance step against a
+-- non-latency-sensitive raw ingestion table, not concurrently with live
+-- traffic, matching this codebase's existing precedent for this exact
+-- tradeoff. Production `mlb` itself already has the index (applied via
+-- CONCURRENTLY before this migration existed, see above) so this specific
+-- migration only ever locks anything on a *different* environment that
+-- doesn't have it yet.
 DO $$
 BEGIN
     IF to_regclass('raw.retrosheet_gameinfo') IS NOT NULL THEN

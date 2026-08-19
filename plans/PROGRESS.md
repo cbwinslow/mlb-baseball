@@ -1829,8 +1829,17 @@ Two bug-fix PRs closing real, previously-open issues:
   drift a clean clone or `mlb_test` would never reproduce; applied `mlb
   migrate` against both `mlb_test` and `mlb` afterward to close the gap,
   the latter a no-op `CREATE INDEX IF NOT EXISTS` reconciling the already-
-  applied index into migration history rather than creating a duplicate)
-  and re-verified with a second `EXPLAIN`: honestly, it
+  applied index into migration history rather than creating a duplicate).
+  The migration itself uses a `DO` block guard for clean-clone safety
+  (`raw.retrosheet_gameinfo` may not exist yet), and `CREATE INDEX
+  CONCURRENTLY` genuinely cannot run inside one (confirmed directly against
+  real Postgres, not assumed -- matches migration `0039`'s identical
+  constraint) -- so on `mlb_test` or a restored production snapshot where
+  the table already has rows, applying this migration will briefly lock it
+  for the index build, unlike the CONCURRENTLY-built index already on
+  production `mlb` itself. Same review round flagged this too; see the
+  migration file's own comment for the full reasoning.
+  Re-verified with a second `EXPLAIN`: honestly, it
   didn't meaningfully change *this* query's runtime (83.99s vs 85.24s),
   because `retrosheet_event`'s side of the join already used its own
   existing index correctly. The new index is still kept (a real

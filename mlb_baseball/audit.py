@@ -516,8 +516,10 @@ def _team_link_coverage_audit(cur: psycopg.Cursor) -> list[Finding]:
     if (
         not _relation_exists(cur, "core.game")
         or not _relation_exists(cur, "raw.retrosheet_gameinfo")
+        or not _column_exists(cur, "raw.retrosheet_gameinfo", "gid")
         or not _column_exists(cur, "raw.retrosheet_gameinfo", "visteam")
         or not _column_exists(cur, "raw.retrosheet_gameinfo", "hometeam")
+        or not _column_exists(cur, "raw.retrosheet_gameinfo", "_season")
     ):
         return [Finding("core.game team-link coverage", "SKIP", "required table/column absent")]
     cur.execute(

@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
 from mlb_baseball import audit
 
 
@@ -254,17 +256,55 @@ def test_team_link_coverage_audit_skips_when_columns_missing(db_conn):
     # their own SQL needs), and mlb_test is a shared, persistent database
     # across a full suite run -- whichever file runs last can leave a
     # table that exists but is missing columns a *different* consumer
-    # needs. This reproduces that exact shape: a table with only the
-    # columns test_model_bullpen.py's own stub happens to use, missing
-    # visteam/hometeam (which real production's table always has, and
-    # which _team_link_coverage_audit's own query selects). Table
-    # existence alone isn't enough for this finding to trust the query
-    # will succeed -- it must also check for the specific columns it
-    # queries, the same defensive pattern _game_feature_cutoff_audit
+    # needs. This reproduces that exact shape: a table with exactly
+    # test_model_markov.py's own stub columns (gid/gametype/_season,
+    # missing visteam/hometeam -- which real production's table always
+    # has, and which _team_link_coverage_audit's own query selects).
+    # Table existence alone isn't enough for this finding to trust the
+    # query will succeed -- it must also check for the specific columns
+    # it queries, the same defensive pattern _game_feature_cutoff_audit
     # already uses for gold.game_feature.
+    #
+    # (An earlier version of this comment attributed this stub shape to
+    # test_model_bullpen.py -- wrong, caught in PR review:
+    # test_model_bullpen.py's own stub already includes visteam/hometeam/
+    # _season and its _reset drops the table after each test, so it can't
+    # actually reproduce this scenario. test_model_markov.py's is the real
+    # match, and it's the file that leaves a stale table behind: it drops
+    # the table at the *start* of each test via its own _reset, not after
+    # the file's last test, so a table in this exact shape can persist
+    # into whatever runs next in a shared mlb_test session.)
     _reset_retrosheet_gameinfo(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("CREATE TABLE raw.retrosheet_gameinfo (gid text, gametype text, _season text)")
+    db_conn.commit()
+    try:
+        findings = audit.run()
+    finally:
+        _reset_retrosheet_gameinfo(db_conn)
+
+    assert _find(findings, "core.game team-link coverage").status == "SKIP"
+
+
+@pytest.mark.parametrize("missing_column", ["gid", "visteam", "hometeam", "_season"])
+def test_team_link_coverage_audit_skips_when_any_single_required_column_missing(
+    db_conn, missing_column
+):
+    # PR #43 review (Kilo): the query joins on gi.gid and casts gi._season
+    # too, not just visteam/hometeam -- a table with visteam/hometeam but
+    # missing gid or _season still crashed with UndefinedColumn, an
+    # incomplete guard. Also addresses a separate CodeRabbit finding on
+    # the same PR: the original combined test (both visteam AND hometeam
+    # missing together) would still pass even if the implementation only
+    # checked one of the two -- this proves each of the 4 columns the
+    # query actually consumes is independently sufficient to trigger the
+    # SKIP, with the other 3 present.
+    all_columns = {"gid", "visteam", "hometeam", "_season"}
+    present_columns = sorted(all_columns - {missing_column})
+    _reset_retrosheet_gameinfo(db_conn)
+    with db_conn.cursor() as cur:
+        columns_sql = ", ".join(f"{column} text" for column in present_columns)
+        cur.execute(f"CREATE TABLE raw.retrosheet_gameinfo ({columns_sql})")
     db_conn.commit()
     try:
         findings = audit.run()

@@ -1610,16 +1610,16 @@ Two bug-fix PRs closing real, previously-open issues:
 - **Root cause identified precisely, not just worked around.** Issue #37
   reported `test_audit_db.py` crashing with `UndefinedColumn: column
   gi.visteam does not exist` whenever a `test_model_*.py` file's own
-  narrower `raw.retrosheet_gameinfo` stub (e.g. `test_model_bullpen.py`'s,
-  which only has `gid`/`gametype`/`_season`) happened to run first in the
-  same `mlb_test` session -- the table is shared and persistent across a
-  full suite run, not recreated per file. Traced the actual crash to
-  `mlb_baseball/audit.py`'s `_team_link_coverage_audit`: it checks that
-  `raw.retrosheet_gameinfo` *exists* before querying it, but not that it
-  has the specific `visteam`/`hometeam` columns its own query selects --
-  the one audit finding in the file that doesn't follow the defensive
-  pattern its own siblings already use (`_game_feature_cutoff_audit`
-  already checks both table *and* column existence for
+  narrower `raw.retrosheet_gameinfo` stub happened to persist into the
+  same `mlb_test` session -- the table is shared, not recreated per file
+  or per test, and a stub built by one test can outlive that test if the
+  next thing to touch the table doesn't reset it first. Traced the actual
+  crash to `mlb_baseball/audit.py`'s `_team_link_coverage_audit`: it
+  checked that `raw.retrosheet_gameinfo` *exists* before querying it, but
+  not that it has the specific columns its own query selects -- the one
+  audit finding in the file that doesn't follow the defensive pattern its
+  own siblings already use (`_game_feature_cutoff_audit` already checks
+  both table *and* column existence for
   `gold.game_feature.feature_cutoff_at`, the exact same class of
   narrow-schema robustness).
 - **This is a real production robustness gap, not just a test-fixture
@@ -1629,33 +1629,61 @@ Two bug-fix PRs closing real, previously-open issues:
   finding for just that one check, the same "not ready yet" contract
   every other audit finding in this module already honors.
 - **Fixed at the source, not by coordinating 9 files' test stubs.**
-  Added a `visteam`/`hometeam` column-existence check (using the
-  already-shared `_column_exists` helper) alongside the existing
-  table-existence check, matching `_game_feature_cutoff_audit`'s own
-  established pattern exactly. Considered the issue's other proposed
-  fixes (consolidating all 9 `test_model_*.py` files' independent
-  `raw.retrosheet_event`/`retrosheet_gameinfo` stub schemas into one
-  shared, canonical definition) but declined that broader refactor: it
-  would touch a lot of already-working, already-tested code for
-  uncertain additional benefit, and each file's stub being scoped to
-  exactly what its own tests need is a reasonable, minimal design in its
-  own right -- the actual bug was a downstream consumer not being
-  defensive enough against schema variance it should have expected,
-  which the targeted fix resolves completely.
-- **Verified with a real regression test, not just reasoning about it.**
-  `tests/integration/test_audit_db.py` gained 2 tests:
+  Added a column-existence check (using the already-shared
+  `_column_exists` helper) alongside the existing table-existence check,
+  matching `_game_feature_cutoff_audit`'s own established pattern.
+  Considered the issue's other proposed fix (consolidating all 9
+  `test_model_*.py` files' independent `raw.retrosheet_event`/
+  `retrosheet_gameinfo` stub schemas into one shared, canonical
+  definition) but declined that broader refactor: it would touch a lot
+  of already-working, already-tested code for uncertain additional
+  benefit, and each file's stub being scoped to exactly what its own
+  tests need is a reasonable, minimal design in its own right -- the
+  actual bug was a downstream consumer not being defensive enough
+  against schema variance it should have expected.
+- **Correction from PR review, verified directly, not just accepted:**
+  the first version of this fix only guarded `visteam`/`hometeam` --
+  Kilo's review correctly caught that the query also joins on `gi.gid`
+  and casts `gi._season`, both unguarded, so a table with visteam/
+  hometeam but missing either of those still crashed. Widened the guard
+  to all 4 columns the query actually consumes (`gid`, `visteam`,
+  `hometeam`, `_season`). Confirmed each is independently necessary via
+  a parametrized regression test (one case per column, the other 3
+  present) -- reverting the guard back to visteam/hometeam-only and
+  re-running reproduced `UndefinedColumn` on exactly the `gid` and
+  `_season` cases, confirming both were real, not speculative.
+- **A second correction from the same review pass: the originally-claimed
+  end-to-end reproduction evidence was wrong, and has been replaced with
+  a verified one.** The original claim was that `test_model_bullpen.py`'s
+  own stub matches the narrow `gid`/`gametype`/`_season` shape and that
+  running it before `test_audit_db.py` reproduces the crash -- Kilo's
+  review checked this directly and found it false:
+  `test_model_bullpen.py`'s stub already includes `visteam`/`hometeam`/
+  `_season`, and its own `_reset` drops the table after every test, so
+  that command could never have reproduced the reported crash. Re-traced
+  properly: `test_model_markov.py::
+  test_estimate_transition_matrix_returns_empty_when_only_one_table_exists`
+  is the real match -- it creates exactly `(gid, gametype, _season)` and
+  performs no cleanup afterward, so the table persists in that exact
+  shape into whatever runs next. Verified by mutation: temporarily
+  reverted the fix, ran `pytest
+  tests/integration/test_model_markov.py::test_estimate_transition_matrix_returns_empty_when_only_one_table_exists
+  tests/integration/test_audit_db.py`, and reproduced the exact reported
+  `UndefinedColumn: column gi.visteam does not exist` (11 of 13 tests in
+  that run failed on it) -- then restored the fix and confirmed the same
+  command passes cleanly (13 passed).
+- **Verified with real regression tests, not just reasoning about it.**
+  `tests/integration/test_audit_db.py` gained 4 tests total:
   `test_team_link_coverage_audit_skips_when_table_missing` (existing
   behavior, now with explicit coverage -- this finding had no dedicated
-  test at all before this) and
-  `test_team_link_coverage_audit_skips_when_columns_missing`, which
-  reproduces issue #37's exact crash shape (a `raw.retrosheet_gameinfo`
-  with only `gid`/`gametype`/`_season`, matching `test_model_bullpen.py`'s
-  own real stub). Confirmed the second test fails with the exact reported
-  `UndefinedColumn` error before the fix, and passes after. Also
-  reproduced the original end-to-end scenario directly: running
-  `pytest tests/integration/test_model_bullpen.py tests/integration/test_audit_db.py`
-  together (the exact file-ordering that originally triggered the crash)
-  now passes cleanly.
+  test at all before this fix), `test_team_link_coverage_audit_skips_when_columns_missing`
+  (the original 2-column-missing shape, comment corrected to attribute it
+  to `test_model_markov.py`, not `test_model_bullpen.py`), and a new
+  parametrized `test_team_link_coverage_audit_skips_when_any_single_required_column_missing`
+  (4 cases, one per required column) added in response to a separate
+  CodeRabbit finding on the same PR: the original 2-column test alone
+  couldn't prove the guard checks each column independently, since both
+  were missing together.
 - `uv run mypy mlb_baseball/audit.py` clean, `uv run ruff check .`/`uv run
   ruff format --check .` clean. All TDD, written and watched fail before
-  implementation.
+  implementation, including the two PR-review-driven corrections above.

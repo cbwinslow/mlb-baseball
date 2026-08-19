@@ -1495,3 +1495,112 @@ Two bug-fix PRs closing real, previously-open issues:
   widened") -- the home win rate actually narrowed slightly, corrected
   above -- and clarified that the "four prior seasons" figure was this
   run's own choice, not a fixed CLI constraint.
+
+### Plan 04D -- home/away outcome distribution split (fifth package) -- 2026-08-19 (no writes to `mlb_test` or `mlb`; the calibration query itself reads real 2015-2019 history from `mlb`, read-only)
+
+- Added an optional `bat_home` parameter to `estimate_outcome_distribution`/
+  `_fetch_transition_counts`/`markov_transition_counts.sql` (`'1'`=home,
+  `'0'`=away, `None`=both combined -- the unchanged default every prior
+  caller keeps using), and an optional `home_distribution` parameter to
+  `simulate_game` (home team draws from it instead of `distribution` when
+  given). Closes the "separate home/away outcome distributions" gap
+  flagged open in the third package's entry above (ADR-078/080).
+- **Verified the premise before building anything, and the first check
+  was almost a false start:** checked 2019 specifically first -- home and
+  away per-play scoring rates were statistically identical (0.0354 vs.
+  0.0354 to four decimal places), which would have meant a home/away
+  split couldn't possibly help. Before concluding that, checked four
+  more seasons (2015-2018): every one showed a real, meaningful home
+  advantage (e.g. 2017: home batters scored on 3.32% of plate appearances
+  vs. away batters' 3.09%) -- 2019 was the anomaly, not the pattern.
+- **Verified the fix actually works, not just that it runs -- in-sample
+  first, the same starting point every prior package used before
+  ADR-079:** ran `simulate_game` 2,429 times against real 2019 `mlb`
+  data three ways. Combined-distribution home win rate: 49.94% (a
+  3.00-point gap from real 52.94%, ADR-078's own figure). Split-distribution
+  home win rate: 52.57% (a 0.37-point gap) -- roughly an 8x reduction,
+  essentially closing the gap in-sample. Confirmed not a seed-specific
+  fluke: reran with 3 more seeds, landing at 53.03%/52.49%/52.53%, all
+  tightly clustered around the real figure.
+- **Then answered this package's own open question directly: does the
+  split's benefit hold out-of-sample?** `scripts/verify_markov_calibration.py`
+  already composes with ADR-079's `--estimate-seasons` with no new code
+  (`away_distribution`/`home_distribution` are estimated from
+  `estimate_seasons` the same way the combined distribution is). Ran
+  `--estimate-seasons 2015 2016 2017 2018 --season 2019` across the same
+  4 seeds: held-out combined-distribution home win rate averaged ~50.3%
+  (gap from real: 2.4-3.6 points across seeds), held-out split-distribution
+  averaged ~54.3% (gap: 0.8-3.1 points) -- the benefit holds out-of-sample
+  too, real and not purely an in-sample artifact, but visibly smaller and
+  noisier than the in-sample number (~48% average gap reduction held-out
+  vs. ~88% in-sample). Honest, not dressed up: one seed's split result
+  overshot real by more than that seed's own combined-distribution gap
+  improved by -- "the split helps" is a real, consistent-across-seeds
+  pattern, not a fixed-size improvement.
+- **This run also surfaced a real, separate bug:** one seed crashed with
+  `simulate_game`'s own `MarkovError` ("game still tied after 30
+  innings"). Investigated directly: reran with `max_innings=200` and
+  found the actual longest simulated game was 31 innings -- one past the
+  library's 30-inning default, no sign of a degenerate distribution
+  (running ~2,429 independent trials in one batch is an order-statistics
+  problem -- the *maximum* across many trials routinely exceeds what's
+  typical for any single real game, unlike MLB's own 25-26-inning record,
+  which is a maximum across ~100+ years of real games). Fixed by passing
+  `max_innings=60` in the calibration script's own `simulate_game` calls
+  only, not touching `simulate_game`'s general-purpose 30-inning default.
+- **Also found a real, mutation-tested test-coverage gap:** both existing
+  `home_distribution` tests used `regulation_innings=1`, so
+  `simulate_game`'s pre-regulation branch was never exercised with a
+  distinct `home_distribution` at all. Confirmed real via mutation
+  testing (swapping the distribution on that line left every existing
+  test passing). A first attempt at a regression test
+  (`regulation_innings=2`) still didn't isolate it -- the next inning's
+  decisive check still exercised the (unmutated) other branch correctly,
+  masking the same mutation again. `regulation_innings=3` (two full
+  pre-regulation innings decide the game before the other branch is ever
+  reached) does isolate it, confirmed by re-running the mutation against
+  the new test.
+- **Honestly-reported open wrinkle:** the split-distribution run's
+  away/home run means came out nearly identical (4.911/4.913) despite
+  the win-rate gap closing dramatically -- meaning the improvement isn't
+  a simple mean-shift, something about the fuller shape of the two
+  sides' outcome distributions matters. Not fully explained, noted as a
+  real open question rather than glossed over.
+- Backward-compatible by construction: every existing caller across
+  ADR-076/077/078/079 and every existing test keeps working unchanged,
+  since both new parameters default to values reproducing the prior
+  combined-distribution behavior exactly.
+- `uv run ruff check .`/`uv run ruff format --check .` clean,
+  `uv run mypy mlb_baseball/model/markov.py` clean, `uv run sqlfluff
+  lint` clean. `tests/unit/test_markov_game.py` gained 3 tests (proving
+  `home_distribution` is actually wired to the home team's draws in both
+  the stepper and pre-regulation branches, using the existing
+  `_ScriptedRandom` double). `tests/integration/test_model_markov.py`
+  gained 2 tests -- `bat_home` actually filters real rows (verified
+  with mutation testing: temporarily reverted the SQL filter, confirmed
+  the test fails, restored it), and an invalid `bat_home` value fails
+  loudly. All TDD, written and watched fail before implementation.
+- No persistence layer added, matching every prior Plan 04D package's
+  "not wired into production" posture.
+- **PR review round:** fixed 2 real gaps. The 52.57% split-distribution
+  home-win figure and other seed results above existed only in prose --
+  `scripts/verify_markov_calibration.py` didn't estimate a home/away
+  split or call `simulate_game` with `home_distribution`, so a clean
+  clone couldn't reproduce this package's own headline evidence.
+  Extended the script to estimate both sides and print the split
+  comparison; running it now reproduces this entry's exact cited
+  figures byte-for-byte. `bat_home` was plain `str` with no runtime
+  check, so a typo like `'home'`/`'away'` would silently match zero SQL
+  rows and return an empty distribution instead of failing loudly --
+  tightened to `Literal["0", "1"] | None` with an explicit `MarkovError`
+  for anything else. Declined 2 claims with evidence: a side-specific
+  distribution could in principle omit a state the combined one has
+  (checked directly against the real 2019 data this package's own
+  evidence uses: all 24 states covered by both sides, zero gap; for a
+  hypothetical narrower sample, raising loudly on a missing state is the
+  same already-established `simulate_half_inning` contract, not a new
+  defect); and a claimed-redundant `::text` cast in the SQL (checked
+  directly: removing it reproduces a real `psycopg.errors.AmbiguousParameter`
+  against the actual query, since `bat_home` can be bound to `NULL` and
+  Postgres can't infer its type from a bare comparison alone -- the cast
+  is required).

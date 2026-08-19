@@ -320,6 +320,47 @@ def test_estimate_outcome_distribution_returns_empty_when_tables_missing(db_conn
     assert markov.estimate_outcome_distribution(db_conn, seasons=[2021]) == {}
 
 
+def test_estimate_outcome_distribution_bat_home_filters_to_one_side(db_conn):
+    # Both plays go straight from empty/0 to TERMINAL in one play (an
+    # unrealistic combination of outs/scoring for a single real play, but
+    # a valid, minimal fixture -- event_outs_ct=3 reaches 3 outs
+    # immediately regardless of what else happens on the play). G1's away
+    # half-inning (bat_home_id='0', the _insert_event default) scores 0;
+    # G1's home half-inning (bat_home_id='1') scores 1. Without a
+    # bat_home filter both plays combine into one distribution; with
+    # bat_home='1' only the scoring (home) play should appear, and with
+    # bat_home='0' only the scoreless (away) play should appear.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype, _season) "
+            "VALUES ('G1', 'regular', '2021')"
+        )
+        _insert_event(cur, "G1", "0", "3", "2", bat_dest="0")  # away: scoreless
+        _insert_event(cur, "G1", "0", "3", "23", bat_home_id="1", bat_dest="4")  # home: scores 1
+    db_conn.commit()
+
+    empty_zero = markov.BaseOutState(0, False, False, False)
+
+    home_only = markov.estimate_outcome_distribution(db_conn, seasons=[2021], bat_home="1")
+    away_only = markov.estimate_outcome_distribution(db_conn, seasons=[2021], bat_home="0")
+    combined = markov.estimate_outcome_distribution(db_conn, seasons=[2021])
+
+    assert list(home_only[empty_zero].keys()) == [markov.Outcome(markov.TERMINAL, 1)]
+    assert list(away_only[empty_zero].keys()) == [markov.Outcome(markov.TERMINAL, 0)]
+    assert len(combined[empty_zero]) == 2
+
+
+def test_estimate_outcome_distribution_rejects_an_invalid_bat_home(db_conn):
+    # A typo like 'home'/'away'/'2' would otherwise silently match zero
+    # SQL rows (bat_home_id only ever contains '0'/'1') and return an
+    # empty distribution instead of failing loudly -- fail fast on the
+    # bad input itself, before any query runs.
+    with pytest.raises(markov.MarkovError, match="bat_home"):
+        markov.estimate_outcome_distribution(db_conn, seasons=[2021], bat_home="home")
+
+
 def test_real_half_inning_runs_matches_hand_calculation(db_conn):
     _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)

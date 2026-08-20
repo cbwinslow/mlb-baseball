@@ -117,7 +117,9 @@ OPTIONAL_COLUMNS = [
 # against production `mlb` that added them didn't beat both baselines
 # (team_rate + starter_workload together: gbm log_loss 0.6792 vs elo's
 # 0.6801, only a 0.0009 improvement -- well under the required 0.002
-# margin; see docs/DECISIONS.md for the full result), so the saved model
+# margin. The model did clearly beat log5's 0.9774 log-loss -- the
+# promotion gate requires beating both baselines, and elo was the one it
+# missed; see docs/DECISIONS.md for the full result), so the saved model
 # on disk still expects the 37-column shape above it -- adding columns
 # here without a successful save broke predict() outright (ValueError:
 # Feature shape mismatch, confirmed directly in production before this

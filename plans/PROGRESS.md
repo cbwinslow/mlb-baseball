@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `BSR-01`, `INT-01`, `INT-02`, and `PLN-04`'s career-PA/IP half all merged into `main`. `PLN-04`'s age half (`PR #64`) is implemented and rebased, pending merge -- once it merges it needs a real-state view correction (`gold.game_export` must extend from `experience_v1`'s real merged tail, `ADR-085`, not the anticipated-but-now-superseded state its own migration currently assumes). This retrain package (`gbm-v1` tried and reverted team_rate/starter_workload, this dated section below) is implemented and rebased onto `main` post-`PLN-04`-experience merge. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` (batted-ball spray/placement × handedness -- proposal written, `core.pitch` schema extension needed first, own open formula-convention question), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+- **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04`'s career-PA/IP half, and the `gbm-v1` retrain negative result all merged into `main`. `PLN-04`'s age half (`PR #64`) is implemented and rebased, pending merge -- once it merges it needs a real-state view correction (`gold.game_export` must extend from `experience_v1`'s real merged tail, `ADR-085`, not the anticipated-but-now-superseded state its own migration currently assumes). `BAT-01`'s proposal (this dated section below) is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
 
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
@@ -217,8 +217,6 @@ health-check clean-pass test after a real `compute()`.
 test_game_export_view.py` re-run and confirmed unaffected. Full details
 in `docs/DECISIONS.md` ADR-083.
 
-- **BAT-01 research finding, not yet implemented:** checked `raw.statcast_pitch` directly for batted-ball spray/placement fields -- `hc_x`/`hc_y` (Statcast hit coordinates, needed for spray angle) and `stand`/`p_throws` (batter/pitcher handedness) all exist with strong real coverage (`stand`/`p_throws` populated for all 13.48M rows; `hc_x`/`hc_y` populated for 2,372,586 of 2,443,788 real batted balls, ~97.1%). The real blocker isn't data availability -- it's that `core.pitch` (migration 0006) currently only copies a subset of `raw.statcast_pitch`'s columns (release_speed/spin_rate, launch_speed/angle, hit_distance, description, event); `hc_x`/`hc_y`/`stand`/`p_throws` aren't in `core.pitch` yet. Building `BAT-01` for real needs a `core.pitch` schema extension + a `conform.py` change to populate the new columns, not just a narrow `gold`-only feature module like every other item this session -- a bigger, more foundational change (touches a shared core table other future features will also read from) that deserves its own design pass rather than being rushed through in one autonomous iteration. Deferred, not abandoned.
-
 ### PLN-04 starter career experience (experience half): implemented, admission queue — 2026-08-20
 
 Added `mlb_baseball/model/experience.py` (`compute()`/`health_check()`)
@@ -306,6 +304,205 @@ rebase -- `INT-01` real-merged and took `ADR-082` for itself first; this
 branch's own retrain doesn't touch any migration/schema, so only the ADR
 number needed renumbering, not a migration file). `uv run mypy`/`ruff
 check`/`ruff format --check` clean on `mlb_baseball/model/gbm.py`.
+
+### BAT-01 proposal: batted-ball spray/placement × handedness — evidence gathered, design written, not implemented — 2026-08-20
+
+**Why this is a proposal, not a landed change:** every other feature this
+session (`BSR-01`, `INT-01`, `INT-02`, `PLN-04`'s two halves) only ever
+touched `gold.game_feature` -- a narrow, low-risk addition with no
+consumer beyond the one new module. `BAT-01` is different: the data it
+needs (`hc_x`/`hc_y`/`stand`/`p_throws`) isn't in `core.pitch` yet, and
+`core.pitch` is a shared, foundational, 13,484,101-row, 158-partition
+table other current and future features also read from. Extending it is
+a real architecture change, and CLAUDE.md's own rule for that ("evidence
+first, review pass, mandatory tests for non-trivial schema/design
+decisions") is exactly why this stops at a written, evidence-backed
+design rather than an autonomous implementation.
+
+**A real, separate reason not to build this yet, caught by PR review
+(CodeRabbit) and confirmed directly against `mlb_baseball/
+source_profiles.py`/`docs/SOURCE_RIGHTS.md`, not assumed:** `raw.
+statcast_pitch` comes from Baseball Savant/Statcast, which this
+project's own data-rights matrix classifies as "owner-risk research
+only" -- `PUBLIC_SAFE` (`source_profiles.py`) contains only the
+Retrosheet family, and `licensed_full` is deliberately no broader than
+`public_safe` until a real licensed feed is approved (neither includes
+`statcast`). Any `gold`-layer feature this proposal eventually produces
+inherits that same restriction: fine to build and use under
+`local_research` (the default), but not eligible for a public artifact
+or `public_safe`/`licensed_full` use without either a recorded license
+or an explicit, reviewed exception -- exactly the gate `require_sources()`
+already enforces at ingestion time for `raw.statcast_pitch` itself. This
+doesn't block writing the proposal or even a future `local_research`
+implementation; it means the eventual admission-queue row and any
+`gold`-layer module built from it must carry this restriction forward
+explicitly, not silently inherit `raw.statcast_pitch`'s existing
+connector-level gate as if that were the whole story.
+
+**Evidence gathered, checked directly against production `mlb` (read-only):**
+- `raw.statcast_pitch` already has every input `BAT-01` needs: `hc_x`/
+  `hc_y` (Statcast's own hit-coordinate fields, the standard input for
+  spray angle) and `stand`/`p_throws` (batter/pitcher handedness).
+- `stand`/`p_throws` are populated for all 13,484,101 rows in
+  `raw.statcast_pitch` (100% coverage) -- handedness is always known.
+- `hc_x`/`hc_y` are populated for 2,372,586 of 2,443,788 real batted-ball
+  rows (`description = 'hit_into_play'`), 97.1% coverage within the
+  batted-ball subset -- strong, real coverage, not a sparse or
+  speculative field.
+- `core.pitch` (migration 0006) currently copies only a subset of
+  `raw.statcast_pitch`'s columns (release_speed/spin_rate, launch_speed/
+  angle, hit_distance, description, event) -- confirmed directly via
+  `information_schema.columns` that `hc_x`/`hc_y`/`stand`/`p_throws` are
+  not among them.
+
+Reproducible directly (PR review, CodeRabbit, correctly asked for this
+rather than prose-only numbers) -- the exact queries behind the figures
+above, runnable read-only against production `mlb`:
+
+```sql
+-- Total rows / handedness coverage (100%)
+SELECT count(*), count(stand), count(p_throws) FROM raw.statcast_pitch;
+-- Batted-ball rows and *pairwise* hc_x/hc_y coverage within them (97.1%) --
+-- counts rows where BOTH coordinates are present, not hc_x alone (PR
+-- review, CodeAnt: count(hc_x) alone doesn't prove hc_y is also present).
+-- Verified directly: in production this makes no difference at all --
+-- hc_x/hc_y are always NULL/non-NULL together, 2,372,586 either way --
+-- but the pairwise form is the correct, defensible query regardless.
+SELECT count(*) FILTER (WHERE description = 'hit_into_play') AS batted_balls,
+       count(*) FILTER (
+         WHERE description = 'hit_into_play'
+           AND hc_x IS NOT NULL AND hc_y IS NOT NULL
+       ) AS with_both_coords
+FROM raw.statcast_pitch;
+-- core.pitch's actual current column list
+SELECT column_name FROM information_schema.columns
+WHERE table_schema = 'core' AND table_name = 'pitch' ORDER BY column_name;
+```
+
+Handedness domain checked directly too (PR review, CodeAnt: non-NULL
+doesn't prove a valid `L`/`R` value -- switch-hitter markers, blanks, or
+other unexpected text are all possible in an unconstrained `text`
+column): `SELECT stand, count(*) FROM raw.statcast_pitch GROUP BY stand`
+and the same for `p_throws` -- both return exactly two rows each, `'R'`
+and `'L'`, no third value, no blank, no NULL-that-slipped-through. The
+`stand != p_throws` platoon-matchup comparison this proposal's own
+`p_throws` paragraph describes is safe to build directly against the
+real data as-is; no normalization step is actually needed today, though
+a future implementation should still fail loudly (not silently coerce)
+if a genuinely new value ever appears.
+
+**Proposed `core.pitch` schema extension:**
+
+```sql
+ALTER TABLE core.pitch ADD COLUMN hc_x numeric;
+ALTER TABLE core.pitch ADD COLUMN hc_y numeric;
+ALTER TABLE core.pitch ADD COLUMN stand text;
+ALTER TABLE core.pitch ADD COLUMN p_throws text;
+```
+
+`ADD COLUMN` with no default is a fast, metadata-only operation in
+modern Postgres (no full-table rewrite), and cascades automatically to
+every existing partition of a partitioned parent table -- real, but
+worth confirming with `\timing` against a real-sized clone or a
+maintenance window before running on production, given the table's real
+size.
+
+**Proposed `conform.py` change:** extend `_build_pitches`' `INSERT`
+column list and `SELECT` (currently `mlb_baseball/conform.py` around
+line 1067) with `sp.hc_x`/`sp.hc_y`/`sp.stand`/`sp.p_throws` (`hc_x`/
+`hc_y` need the same `NULLIF(..., '')::numeric` cast pattern already used
+for `launch_speed`/`launch_angle`/`hit_distance` on the adjacent lines).
+No backfill script needed beyond a normal `mlb conform` run:
+`_build_pitches` is not self-truncating internally, but `core.pitch` is
+truncated and fully rebuilt from `raw.statcast_pitch` by every conform
+run (see `run()`'s own `TRUNCATE core.play, core.pitch, ...` before
+`_build_pitches` is called) -- the very next scheduled conform run
+populates the new columns for the full history automatically, the same
+"truncate everything, rebuild from raw" design this table already has.
+"No backfill script needed" is not the same as "no rehearsal needed"
+though (PR review, CodeRabbit, a fair distinction): that next conform
+run truncates and rebuilds all 13,484,101 rows of `core.pitch`, not a
+small or incremental operation just because it's automatic. Before
+scheduling this against production, rehearse the full rebuild against
+`mlb_test` first -- real wall-clock duration, lock behavior against any
+concurrent reader, and a retained before/after row-count and
+spot-check-value comparison -- the same discipline every schema change
+in this project already goes through, not treated as a metadata-only
+follow-up just because the column-add step itself is fast.
+
+**Deployment order matters too, explicitly (PR review, CodeRabbit):**
+the migration must apply *before* the `conform.py` version that reads
+`sp.hc_x`/`sp.hc_y`/`sp.stand`/`sp.p_throws` is deployed -- the reverse
+order makes `mlb conform` crash outright with `UndefinedColumn` against
+a schema that doesn't have those columns yet. This is the same
+migrate-then-deploy ordering every other migration in this project
+already follows by construction (`mlb migrate` is its own separate CLI
+step, always run before the code that depends on the new schema); no
+special-case rollback handling is needed for these four columns
+specifically, since they're nullable and backward-compatible with the
+*previous* `conform.py` version (which simply won't select them) --
+only the ordering itself needs to be explicit here.
+
+**Proposed spray-angle formula -- deliberately unsettled, not a finished
+spec (PR review, CodeRabbit, a real convention-ambiguity finding worth
+recording rather than silently picking one):** the 125.42/198.27
+reference-point constants are consistent across the public sabermetric
+community's independent reimplementations, but the surrounding
+trigonometry is not: this write-up's own first draft used
+
+```text
+spray_angle_deg = atan2(hc_x - 125.42, 198.27 - hc_y) * 180 / pi()
+```
+
+while at least one other cited public reimplementation (Analyzing
+Baseball Data with R's own `abdwr3e` writeup, and pybaseball's own
+`add_spray_angle` docs) uses `atan` (not `atan2`) with an extra `* 0.75`
+empirical scale factor -- `atan((hc_x - 125.42) / (198.27 - hc_y)) *
+180 / pi() * 0.75` -- and handles left/right batter sign-flipping
+(`stand == 'L'`) as an explicit separate step rather than folding it
+into `atan2`'s own quadrant behavior. These are not equivalent: `atan2`
+preserves full ±180° quadrant information `atan` alone cannot, and the
+`0.75` scale factor changes every angle's magnitude by a quarter. Which
+convention is actually right for this project's own coordinate data
+isn't decided here -- picking one (or documenting a third, explicitly
+versioned convention) is real work for whoever implements this,
+verified against a real, independently-knowable case before being
+trusted, not decided by citation alone.
+125.42/198.27 are the standard reference-point constants for Statcast's
+own coordinate system (the estimated home-plate origin in its `hc_x`/
+`hc_y` pixel-grid convention), used consistently across the public
+sabermetric community's own independent reimplementations of this exact
+conversion. Pull/oppo/center classification would then combine the sign
+of `spray_angle_deg` with `stand` (a positive angle is pulled for a
+right-handed batter, opposite for a left-handed one) -- the actual
+classification thresholds and the resulting `gold`-layer feature module
+(grain, rolling window, null policy for the pre-2015/non-batted-ball
+gap) are real design decisions still open, deliberately not settled here
+-- this write-up stops at "the inputs are real and the core-layer path
+is clear," not "here is the finished feature spec."
+
+**`p_throws`'s own role, spelled out (PR review, CodeRabbit, a fair gap
+in the first draft):** `stand` alone is what pull/oppo/center
+classification needs; `p_throws` is proposed for `core.pitch` because
+`BAT-01`'s own admission-queue definition (`docs/FEATURE_ADMISSION_QUEUE.md`)
+explicitly includes "platoon interaction," not just spray/placement on
+its own. The platoon-relevant question isn't the pitcher's handedness by
+itself, but the batter/pitcher handedness *matchup* (same-handed vs.
+opposite-handed) -- a real, well-documented effect independent of spray
+angle (platoon splits shift pull tendency, not just contact quality).
+`p_throws` is the raw input a future `gold`-layer feature would need to
+compute that matchup flag (`stand = p_throws` vs. `stand != p_throws`);
+it isn't used directly in the spray-angle formula itself, and the first
+draft of this proposal listed it as a needed column without ever saying
+what it was for -- fixed here.
+
+**Verification plan for whoever picks this up next:** resolve the
+`atan2`-vs-`atan`+`0.75`-scale ambiguity above first, then cross-check
+computed spray angles against a real, independently-knowable case (e.g.
+a specific real batter's known pull tendency, or Baseball Savant's own
+published spray chart for a real game) -- the same reconciliation
+discipline `starter.py` (deGrom) and `team_rate.py` (Acuña) already
+established for this project, not a formula trusted on citation alone.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

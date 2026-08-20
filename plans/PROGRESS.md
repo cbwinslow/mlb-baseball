@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #28/#29 narrow edge cases found during PR #25 review). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open).
+- **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29 are fixed and merged.
 
 ### Game export view (gold.game_export, completed) — 2026-08-19
 
@@ -70,6 +70,42 @@ rows -- confirmed directly, not hypothetical), switched to
 contract comment (migration + runbook doc): `home_score`/`away_score`/
 `home_win` are reporting-only, postgame values, never a pregame model
 input for the game they belong to.
+
+### team_bullpen backbone excludes uncovered games (issue #29, completed) — 2026-08-19
+
+Fixed `team_bullpen_retrosheet_update.sql`'s `team_game` backbone (issue
+#29, flagged in PR #25 review): it pulled every `core.game` row with
+`game_type='regular'` unconditionally, then `COALESCE(sum(ro.*), 0)`
+fabricated an explicit zero relief-outs row for a game with no matching
+`raw.retrosheet_event`/`retrosheet_gameinfo` rows at all -- making a
+genuinely-uncovered game indistinguishable from a team that really used
+zero relievers in a game we have full data for. That zero then fed
+`team_day_fatigue`'s trailing-window sum, understating real bullpen
+fatigue for any date whose window included an uncovered game.
+
+Checked scale in production `mlb` first: 1,880 of 222,071 regular games
+(0.85%) lack event coverage, and **all 1,880 are 2026** -- the
+still-in-progress current season, whose event files Retrosheet hasn't
+published yet (they publish a season's files only after it ends). Every
+season 1898-2025 is fully covered. Not an ingestion gap -- there is
+nothing to re-ingest yet for 2026 by design; this is exactly why
+`compute_live()`/`compute_upcoming()` exist to cover 2026 from
+`raw.mlb_playbyplay` instead.
+
+Fix: added a `covered_games` CTE (same join shape as the existing
+`starters`/`pitcher_game_stats` CTEs, reused as an existence gate) and
+required `team_game` to join through it -- an uncovered game now gets no
+backbone row at all, excluded from a team's rolling history entirely
+("as if it never happened") rather than contributing a fabricated zero.
+Regression test `test_compute_excludes_games_without_event_coverage_from_the_backbone`
+in `tests/integration/test_model_bullpen.py` proves this: watched it
+fail against the pre-fix SQL (`Decimal('0')` instead of `None` for
+fatigue when a team's only history in the trailing window was an
+uncovered game), then confirmed green after the fix. All 15 bullpen
+tests pass; the pre-existing "genuine zero relief usage in a covered
+game" test (`test_compute_rolls_up_relief_only_with_zero_leakage_and_correct_fatigue_window`)
+still passes unchanged, confirming the fix doesn't touch that legitimate
+case.
 
 ### Starter workload live and probable paths (pitcher_workload_v1_live, completed) — 2026-08-15
 

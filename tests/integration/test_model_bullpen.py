@@ -9,6 +9,7 @@ discipline as starter.py's tests.
 from decimal import Decimal
 
 from mlb_baseball.model import bullpen, features
+from mlb_baseball.sql import read_sql
 
 
 def _ensure_retrosheet_tables(db_conn):
@@ -224,6 +225,182 @@ def test_compute_rolls_up_relief_only_with_zero_leakage_and_correct_fatigue_wind
     assert g2[5] is None
     assert g2[6] is None
     assert g2[7] == Decimal("0")
+
+    _reset(db_conn)
+
+
+def _reconcile_sql_exposing_the_split(sql: str) -> str:
+    # Test-only variant of bullpen_outs_reconcile.sql's own CTEs (same
+    # per_team_game CTE, unmodified) with a different final SELECT that
+    # exposes starter_outs/relief_outs separately instead of pre-summing
+    # them. The production file can't return these directly:
+    # check_totals_reconcile (mlb_baseball/health.py) unpacks each row as
+    # exactly `(key, computed, reference)`, so a 5-column row would raise
+    # a ValueError there. Splitting the marker on the file's own final
+    # SELECT text means an edit to that final SELECT breaks this test
+    # loudly (a clear failure) rather than silently testing stale SQL.
+    prefix, marker, _ = sql.partition("SELECT game_id || '-' || team_id, total_outs,")
+    assert marker, "bullpen_outs_reconcile.sql's final SELECT shape changed -- update this test"
+    return (
+        prefix
+        + "SELECT game_id, team_id, total_outs, starter_outs, relief_outs FROM per_team_game;"
+    )
+
+
+def test_reconcile_splits_relief_across_multiple_pitchers(db_conn):
+    # Issue #46: bullpen_outs_reconcile.sql used to join core.game ->
+    # raw.retrosheet_gameinfo -> raw.retrosheet_event twice (once in a
+    # `starters` CTE, once in `team_pitcher_outs`), scanning the same
+    # ~16M production event rows twice and paying for two disk-spilling
+    # sorts. Rewritten to scan once, identifying each team's starter via
+    # a window aggregate (`max(...) FILTER (...) OVER (PARTITION BY
+    # game_id, team_id)`) instead of a second GROUP BY + JOIN back.
+    # Confirmed row-for-row identical to the old two-scan query against
+    # all of production (406,516/406,516 rows, zero mismatches either
+    # direction) before landing, and again after the team_events CTE
+    # split below (PR #53 review).
+    #
+    # This fixture exercises the specific mechanism that changed: ATL
+    # (home, pitches when bat_home_id='0') uses a starter for 2 outs and
+    # ONE reliever for 1 out; NYA (away, pitches when bat_home_id='1')
+    # uses a starter for 1 out and TWO different relievers for 1 out
+    # each -- multiple non-starter pitchers per team-game is exactly the
+    # case a broken window partition (e.g. wrong PARTITION BY key,
+    # picking the wrong max) would get wrong.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute("INSERT INTO raw.retrosheet_gameinfo (gid, gametype) VALUES ('G1', 'regular')")
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "bat_event_fl, event_cd, event_outs_ct, _season) VALUES "
+            # ATL (home) pitching: starter (2 outs) + 1 reliever (1 out).
+            "('G1', '0', 'atl_sp', 'T', 'T', '2', '1', '2020'), "
+            "('G1', '0', 'atl_sp', 'T', 'T', '2', '1', '2020'), "
+            "('G1', '0', 'atl_relief', 'F', 'T', '2', '1', '2020'), "
+            # NYA (away) pitching: starter (1 out) + 2 different relievers (1 out each).
+            "('G1', '1', 'nya_sp', 'T', 'T', '2', '1', '2020'), "
+            "('G1', '1', 'nya_relief_a', 'F', 'T', '2', '1', '2020'), "
+            "('G1', '1', 'nya_relief_b', 'F', 'T', '2', '1', '2020')"
+        )
+    db_conn.commit()
+
+    # First, the production query exactly as bullpen.health_check() runs
+    # it: proves total_outs itself (the hand-summed event_outs_ct) is
+    # right and that starter_outs + relief_outs reconciles to it -- no
+    # row dropped, none double-counted.
+    with db_conn.cursor() as cur:
+        cur.execute(read_sql("bullpen_outs_reconcile.sql"))
+        rows = {key: (total, computed) for key, total, computed in cur.fetchall()}
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id FROM core.game WHERE retro_game_id = 'G1'")
+        (game_id,) = cur.fetchone()
+
+    assert rows[f"{game_id}-{atl}"] == (Decimal("3"), Decimal("3"))
+    assert rows[f"{game_id}-{nya}"] == (Decimal("3"), Decimal("3"))
+
+    # That reconciliation alone can't catch a wrong starter_id: starter_outs
+    # + relief_outs sums to total_outs for *any* starter_id value, by
+    # construction of the `= starter_id` / `IS DISTINCT FROM starter_id`
+    # filter pair. Query the same CTEs with the split exposed to prove the
+    # window aggregate actually picked the *right* pitcher as starter:
+    # ATL's starter got 2 outs (not 1, not 3), NYA's got 1 (not the
+    # reliever's 2).
+    with db_conn.cursor() as cur:
+        cur.execute(_reconcile_sql_exposing_the_split(read_sql("bullpen_outs_reconcile.sql")))
+        split = {
+            (g, t): (total, starter, relief) for g, t, total, starter, relief in cur.fetchall()
+        }
+
+    assert split[(game_id, atl)] == (Decimal("3"), Decimal("2"), Decimal("1"))
+    assert split[(game_id, nya)] == (Decimal("3"), Decimal("1"), Decimal("2"))
+
+    checks = bullpen.health_check()
+    reconcile = next(c for c in checks if c.name.startswith("bullpen/starter split"))
+    assert reconcile.ok
+
+    _reset(db_conn)
+
+
+def test_compute_excludes_games_without_event_coverage_from_the_backbone(db_conn):
+    # Issue #29: regular_games (and, through it, team_game) pulls every
+    # core.game row with game_type='regular' unconditionally -- including
+    # a game with no matching raw.retrosheet_gameinfo/retrosheet_event
+    # rows at all (Retrosheet's own ~0.85% real coverage gap, confirmed
+    # against production -- currently entirely the still-in-progress
+    # current season, whose event files Retrosheet hasn't published yet;
+    # not a parsing bug on this project's side). Before this fix,
+    # COALESCE(sum(ro.*), 0) fabricated an explicit zero relief-outs row
+    # for such a game, indistinguishable from a team that genuinely used
+    # no reliever in a game we DO have full data for.
+    #
+    # G_GAP (2020-04-01): core.game row exists, but NO retrosheet_gameinfo
+    # /retrosheet_event rows reference it -- an uncovered game.
+    # G2 (2020-04-03, within the 3-day fatigue window): fully covered,
+    # both teams use only their starters.
+    #
+    # Entering G2, each team's only "history" is G_GAP -- which carries no
+    # real information at all. The team_game backbone must exclude
+    # G_GAP entirely (as if it never happened), so G2's fatigue resolves
+    # NULL (unknown), not a fabricated 0 (a real, present measurement of
+    # zero bullpen usage).
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G_GAP', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2020, '2020-04-03', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        # No raw.retrosheet_gameinfo/retrosheet_event rows for G_GAP at all.
+        cur.execute("INSERT INTO raw.retrosheet_gameinfo (gid, gametype) VALUES ('G2', 'regular')")
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "bat_event_fl, event_cd, event_outs_ct, _season) VALUES "
+            "('G2', '0', 'startp1', 'T', 'T', '2', '1', '2020'), "
+            "('G2', '1', 'startp2', 'T', 'T', '2', '1', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = bullpen.compute(db_conn)
+    db_conn.commit()
+
+    assert updated == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_bullpen_fatigue, f.away_bullpen_fatigue, "
+            "f.home_bullpen_fip, f.home_bullpen_k_pct, f.home_bullpen_bb_pct, "
+            "f.away_bullpen_fip, f.away_bullpen_k_pct, f.away_bullpen_bb_pct "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "WHERE g.retro_game_id = 'G2'"
+        )
+        row = cur.fetchone()
+
+    # Fatigue is the column this fix changes (a fabricated 0 becomes NULL);
+    # quality (fip/k_pct/bb_pct) was already NULL either way in this
+    # fixture (an empty rolling window resolves NULL regardless of whether
+    # G_GAP contributed a zero-filled row or no row at all) -- asserted
+    # here too for full row coverage, not because it discriminates the fix.
+    assert row == (None, None, None, None, None, None, None, None)
 
     _reset(db_conn)
 

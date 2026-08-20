@@ -10,6 +10,8 @@ path an undecided game can realistically take in production.
 
 from decimal import Decimal
 
+import pytest
+
 from mlb_baseball import model
 from mlb_baseball.model import features, log5
 
@@ -50,12 +52,12 @@ def _ensure_mlb_schedule_table(db_conn):
 
 
 def _reset(db_conn):
-    # Called at both the start and end of every test here -- a prior test
-    # (in this file or test_model_features.py, which shares this natural
-    # key) failing before reaching its own cleanup would otherwise leave
-    # ATL/NYA rows behind and collide with the next test's _seed_teams
-    # insert. Same defensive-reset pattern as test_conform.py's
-    # _reset_dynamic_tables().
+    # Called automatically before and after every test here by the _clean
+    # autouse fixture below -- a prior test (in this file or
+    # test_model_features.py, which shares this natural key) failing
+    # before reaching its own cleanup would otherwise leave ATL/NYA rows
+    # behind and collide with the next test's _seed_teams insert. Same
+    # defensive-reset pattern as test_conform.py's _reset_dynamic_tables().
     db_conn.rollback()
     with db_conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
@@ -69,8 +71,18 @@ def _reset(db_conn):
     db_conn.commit()
 
 
-def test_predict_skips_decided_games_and_season_openers(db_conn):
+@pytest.fixture(autouse=True)
+def _clean(db_conn):
+    # Issue #9 item 5: an autouse fixture's teardown runs regardless of
+    # pass/fail, unlike the per-test trailing _reset(db_conn) call this
+    # replaces, which never ran if a test failed partway through -- see
+    # test_model_offense.py's identical fixture for the full explanation.
     _reset(db_conn)
+    yield
+    _reset(db_conn)
+
+
+def test_predict_skips_decided_games_and_season_openers(db_conn):
     _ensure_mlb_schedule_table(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
@@ -123,8 +135,6 @@ def test_predict_skips_decided_games_and_season_openers(db_conn):
         _model_id, run_type, status = cur.fetchone()
     assert (run_type, status) == ("predict", "success")
 
-    _reset(db_conn)
-
 
 def test_predict_handles_two_undefeated_teams_without_aborting_the_whole_run(db_conn):
     # Real bug found via PR review: predict()'s raw SQL formula (a
@@ -136,7 +146,6 @@ def test_predict_handles_two_undefeated_teams_without_aborting_the_whole_run(db_
     # (a single division error kills every row in one SELECT), silently
     # blocking every other game's prediction in the same run, not just
     # this one game's.
-    _reset(db_conn)
     _ensure_mlb_schedule_table(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
@@ -182,11 +191,8 @@ def test_predict_handles_two_undefeated_teams_without_aborting_the_whole_run(db_
         (count,) = cur.fetchone()
     assert count == 0
 
-    _reset(db_conn)
-
 
 def test_backfill_outcomes_fills_in_actual_result_once_game_is_final(db_conn):
-    _reset(db_conn)
     _ensure_mlb_schedule_table(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
@@ -240,14 +246,11 @@ def test_backfill_outcomes_fills_in_actual_result_once_game_is_final(db_conn):
         (actual,) = cur.fetchone()
     assert actual is False  # home team (ATL) lost, 2-4
 
-    _reset(db_conn)
-
 
 def test_rerunning_predict_before_game_day_preserves_prediction_history(db_conn):
     # gold.prediction is deliberately history-preserving (migration 0013)
     # -- re-running predict() for the same still-undecided game before it's
     # played should add another row, not overwrite/skip the first one.
-    _reset(db_conn)
     _ensure_mlb_schedule_table(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
@@ -279,5 +282,3 @@ def test_rerunning_predict_before_game_day_preserves_prediction_history(db_conn)
         cur.execute("SELECT count(*) FROM gold.prediction")
         (count,) = cur.fetchone()
     assert count == 2
-
-    _reset(db_conn)

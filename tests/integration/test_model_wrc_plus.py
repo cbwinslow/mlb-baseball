@@ -5,6 +5,8 @@ test_model_offense.py -- this focuses on the park/league-adjustment layer.
 
 from decimal import Decimal
 
+import pytest
+
 from mlb_baseball.model import features, offense, park
 
 
@@ -50,13 +52,23 @@ def _reset(db_conn):
     db_conn.commit()
 
 
+@pytest.fixture(autouse=True)
+def _clean(db_conn):
+    # Issue #9 item 5: an autouse fixture's teardown runs regardless of
+    # pass/fail, unlike the per-test trailing _reset(db_conn) call this
+    # replaces, which never ran if a test failed partway through -- see
+    # test_model_offense.py's identical fixture for the full explanation.
+    _reset(db_conn)
+    yield
+    _reset(db_conn)
+
+
 def test_compute_wrc_plus_returns_zero_without_retrosheet_gameinfo_table(db_conn):
     # Issue #9 item 2: compute_wrc_plus()'s own SQL joins
     # raw.retrosheet_gameinfo too, but only retrosheet_event was gated --
     # see test_model_offense.py's identical regression for compute() for
     # the full explanation (retrosheet_event/retrosheet_gameinfo are landed
     # by two different connectors).
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
             "CREATE TABLE raw.retrosheet_event ("
@@ -67,8 +79,6 @@ def test_compute_wrc_plus_returns_zero_without_retrosheet_gameinfo_table(db_conn
     db_conn.commit()
 
     assert offense.compute_wrc_plus(db_conn) == 0
-
-    _reset(db_conn)
 
 
 def test_compute_wrc_plus_matches_hand_calculation(db_conn):
@@ -85,7 +95,6 @@ def test_compute_wrc_plus_matches_hand_calculation(db_conn):
     # Entering G4: wRC+ = (((0.5725-0.528)/1.20)+1) / (240/100) * 100
     #                   = 43.2118055555556 (verified via Python Fraction
     #                     arithmetic before writing this assertion).
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -153,8 +162,6 @@ def test_compute_wrc_plus_matches_hand_calculation(db_conn):
     assert rows["G3"] is None  # first game of 2023 for both teams -- nothing prior
     assert abs(rows["G4"] - Decimal("43.2118055555556")) < Decimal("0.0001")
 
-    _reset(db_conn)
-
 
 def test_compute_wrc_plus_orders_doubleheader_by_game_number_not_insertion_order(db_conn):
     # Issue #9 item 6 (found by direct audit, same bug class as item 1's
@@ -204,7 +211,6 @@ def test_compute_wrc_plus_orders_doubleheader_by_game_number_not_insertion_order
     # deterministically excluded from DH2's entering pool by the
     # home_team_id/away_team_id tiebreak, regardless of its colliding
     # game_number or its own game_id/insertion position.
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -296,8 +302,6 @@ def test_compute_wrc_plus_orders_doubleheader_by_game_number_not_insertion_order
 
     assert abs(wrc_plus - Decimal("144.1666666666667")) < Decimal("0.0001")
 
-    _reset(db_conn)
-
 
 def test_compute_wrc_plus_orders_doubleheader_by_coalesced_game_number_when_number_is_null(
     db_conn,
@@ -321,7 +325,6 @@ def test_compute_wrc_plus_orders_doubleheader_by_coalesced_game_number_when_numb
     # DH2 pools G1 + DH1: league_woba = (0.878+1.242)/4 = 0.530,
     # home_woba entering DH2 = (0.878+1.242)/2 = 1.060, park_factor=100:
     #   wrc_plus = (((1.060-0.530)/1.20)+1)/(100/100)*100 = 144.1666666666667
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -393,15 +396,12 @@ def test_compute_wrc_plus_orders_doubleheader_by_coalesced_game_number_when_numb
 
     assert abs(wrc_plus - Decimal("144.1666666666667")) < Decimal("0.0001")
 
-    _reset(db_conn)
-
 
 def test_league_average_hitter_in_a_neutral_park_is_exactly_100(db_conn):
     # Algebraic sanity check baked into a real test: if team_woba equals
     # league_woba (an exactly-average hitter) and park_factor is 100 (a
     # neutral park), wRC+ must reduce to exactly 100 -- that's required by
     # wRC+'s own definition, not just a property of some specific fixture.
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -463,5 +463,3 @@ def test_league_average_hitter_in_a_neutral_park_is_exactly_100(db_conn):
         (wrc_plus,) = cur.fetchone()
 
     assert wrc_plus == Decimal("100.00000000000000")
-
-    _reset(db_conn)

@@ -10,6 +10,8 @@ these tests never touch core.play/core.pitch at all.
 
 from decimal import Decimal
 
+import pytest
+
 from mlb_baseball import model
 from mlb_baseball.model import features
 
@@ -48,12 +50,12 @@ def _ensure_mlb_schedule_table(db_conn):
 
 
 def _reset(db_conn):
-    # Called at both the start and end of every test here -- a prior test
-    # in this file (or test_model_log5.py, which shares this natural key)
-    # failing before reaching its own cleanup would otherwise leave
-    # ATL/NYA rows behind and collide with the next test's _seed_teams
-    # insert. Same defensive-reset pattern as test_conform.py's
-    # _reset_dynamic_tables().
+    # Called automatically before and after every test here by the _clean
+    # autouse fixture below -- a prior test in this file (or
+    # test_model_log5.py, which shares this natural key) failing before
+    # reaching its own cleanup would otherwise leave ATL/NYA rows behind
+    # and collide with the next test's _seed_teams insert. Same defensive-
+    # reset pattern as test_conform.py's _reset_dynamic_tables().
     db_conn.rollback()
     with db_conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
@@ -67,8 +69,18 @@ def _reset(db_conn):
     db_conn.commit()
 
 
-def test_build_computes_point_in_time_win_pct_and_pythagenpat(db_conn):
+@pytest.fixture(autouse=True)
+def _clean(db_conn):
+    # Issue #9 item 5: an autouse fixture's teardown runs regardless of
+    # pass/fail, unlike the per-test trailing _reset(db_conn) call this
+    # replaces, which never ran if a test failed partway through -- see
+    # test_model_offense.py's identical fixture for the full explanation.
     _reset(db_conn)
+    yield
+    _reset(db_conn)
+
+
+def test_build_computes_point_in_time_win_pct_and_pythagenpat(db_conn):
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
     with db_conn.cursor() as cur:
@@ -123,14 +135,11 @@ def test_build_computes_point_in_time_win_pct_and_pythagenpat(db_conn):
     assert g3[3] == Decimal("-3")
     assert g3[4] is False  # ATL lost G3, 1-4
 
-    _reset(db_conn)
-
 
 def test_pythagenpat_home_and_away_sum_to_one(db_conn):
     # Same run total (RS+RA) on both sides of a game means the same
     # scoring-environment exponent applies to both teams -- home_pyth_wpct
     # and away_pyth_wpct should be exact complements, not just close.
-    _reset(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
     with db_conn.cursor() as cur:
@@ -157,11 +166,8 @@ def test_pythagenpat_home_and_away_sum_to_one(db_conn):
     assert home_pyth + away_pyth == Decimal("1.00000000000000000000")
     assert Decimal("0.71") < home_pyth < Decimal("0.72")
 
-    _reset(db_conn)
-
 
 def test_build_resolves_venue_id_for_completed_and_upcoming_games(db_conn):
-    _reset(db_conn)
     _ensure_mlb_schedule_table(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
@@ -193,12 +199,10 @@ def test_build_resolves_venue_id_for_completed_and_upcoming_games(db_conn):
         assert cur.fetchone() == (venue_id,)
         cur.execute("SELECT venue_id FROM gold.game_feature WHERE mlb_game_pk = '999005'")
         assert cur.fetchone() == (venue_id,)
-    _reset(db_conn)
 
 
 def test_build_selects_one_era_valid_venue_for_upcoming_games(db_conn):
     """A reused MLB venue ID must not fan one scheduled game into two rows."""
-    _reset(db_conn)
     _ensure_mlb_schedule_table(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -229,6 +233,12 @@ def test_build_selects_one_era_valid_venue_for_upcoming_games(db_conn):
             "WHERE f.mlb_game_pk = '999026'"
         )
         assert cur.fetchone() == (1, "TSTCUR")
+    # _reset(db_conn) here is not boilerplate -- it clears the
+    # gold.game_feature row this test just built (which still references
+    # the TSTCUR venue) so the venue DELETE below doesn't hit a foreign
+    # key violation. Found the hard way: the blanket boilerplate-removal
+    # pass for issue #9 item 5 stripped this call too, and this test
+    # started failing with ForeignKeyViolation as a result.
     _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM core.venue WHERE retro_park_id IN ('TSTCUR', 'TSTOLD')")
@@ -236,7 +246,6 @@ def test_build_selects_one_era_valid_venue_for_upcoming_games(db_conn):
 
 
 def test_feature_stage_builds_features_without_writing_predictions(db_conn):
-    _reset(db_conn)
     _ensure_mlb_schedule_table(db_conn)
     teams = _seed_teams(db_conn)
     with db_conn.cursor() as cur:
@@ -263,14 +272,12 @@ def test_feature_stage_builds_features_without_writing_predictions(db_conn):
         assert cur.fetchone() == (1, 1)
         cur.execute("SELECT count(*) FROM gold.prediction")
         assert cur.fetchone() == (predictions_before,)
-    _reset(db_conn)
 
 
 def test_build_computes_rest_days_across_the_season_boundary(db_conn):
     # Rest is NOT season-partitioned, unlike win_pct/pyth_wpct -- a team's
     # rest entering next season's opener is real and should reflect the
     # actual offseason gap, not reset to NULL at the season boundary.
-    _reset(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
     with db_conn.cursor() as cur:
@@ -302,11 +309,8 @@ def test_build_computes_rest_days_across_the_season_boundary(db_conn):
     assert rows["G3"] == (4, 4)  # 2024-04-06 minus 2024-04-02
     assert rows["G4"] == (356, 356)  # 2025-03-28 minus 2024-04-06 -- real offseason gap, not NULL
 
-    _reset(db_conn)
-
 
 def test_rerunning_build_truncates_instead_of_duplicating(db_conn):
-    _reset(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
     with db_conn.cursor() as cur:
@@ -331,8 +335,6 @@ def test_rerunning_build_truncates_instead_of_duplicating(db_conn):
         (count,) = cur.fetchone()
     assert count == 1
 
-    _reset(db_conn)
-
 
 def test_health_check_flags_empty_table():
     check = next(c for c in features.health_check() if c.name == "gold.game_feature")
@@ -352,7 +354,6 @@ def test_build_includes_upcoming_game_from_raw_mlb_schedule(db_conn):
     # entering) so the win_pct/run_diff/pyth_wpct values are already
     # hand-verified by that test -- this one is about game_id/mlb_game_pk
     # identity and sourcing, not re-deriving the math.
-    _reset(db_conn)
     _ensure_mlb_schedule_table(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
@@ -391,8 +392,6 @@ def test_build_includes_upcoming_game_from_raw_mlb_schedule(db_conn):
     assert away_win_pct == Decimal("0E-20")
     assert home_win is None  # undecided
 
-    _reset(db_conn)
-
 
 def test_build_degrades_gracefully_without_raw_mlb_schedule(db_conn):
     # A fresh clone that's run mlb migrate + mlb conform but never mlb
@@ -402,7 +401,6 @@ def test_build_degrades_gracefully_without_raw_mlb_schedule(db_conn):
     # Explicitly dropped here (not just asserted absent) so this test's
     # precondition doesn't depend on running before any other test in this
     # file that creates the table via _ensure_mlb_schedule_table.
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
     db_conn.commit()
@@ -423,5 +421,3 @@ def test_build_degrades_gracefully_without_raw_mlb_schedule(db_conn):
     db_conn.commit()
 
     assert count == 1
-
-    _reset(db_conn)

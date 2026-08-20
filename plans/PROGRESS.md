@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `BSR-01` (stolen-base run value / wSB, admission queue) merged into `main`. `INT-01` (home-minus-away interaction terms) is implemented -- see the dated section below -- and rebased onto `main` post-`BSR-01` merge (migration renumbered `0059`→`0060`, ADR renumbered `ADR-081`→`ADR-082`). Next candidate per the same queue: `INT-02` (recent-minus-long interaction terms). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+- **Next package:** `BSR-01` (stolen-base run value / wSB) and `INT-01` (home-minus-away diffs) both merged into `main`. `INT-02` (recent-minus-long win-rate trend) is implemented -- see the dated section below -- rebased onto `main` post-`INT-01` merge (migration `0061`, `ADR-083`, view extended from `INT-01`'s real merged columns). `PLN-04`'s age half (`PR #64`) is implemented and under review, not yet merged. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` (batted-ball spray/placement × handedness -- proposal written, `core.pitch` schema extension needed first), `PIT-07` (pitch-sequence rate stats), `PLN-04`'s deferred career-PA/IP half. Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
 
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
@@ -158,6 +158,64 @@ test_predict_keeps_feature_stage_and_prediction_writes_separate`) needed
 updating for `run()`'s new return-dict key and the `result["rows"]`
 exclusion above, caught by CI. Full details in `docs/DECISIONS.md`
 ADR-082.
+
+### INT-02 recent-minus-long win-rate trend: implemented, admission queue — 2026-08-20
+
+Added `mlb_baseball/model/trend.py` (`compute()`/`health_check()`) and
+two new `gold.game_feature` columns (`home_win_pct_trend`,
+`away_win_pct_trend`, migration `0061`), wired into
+`enrich_feature_stage()`. Implements `INT-02`: `win_pct_10 - win_pct` per
+side, pure algebra over two already-approved, already-populated columns
+-- no new raw dependency, no join.
+
+Key finding checked directly before assuming new rolling-window SQL was
+needed: `game_feature_rebuild.sql` (migration 0012) already computes
+`home_win_pct_10`/`away_win_pct_10` as a genuine trailing-10-game rolling
+window (`w_last10`), alongside the existing season-to-date expanding
+`home_win_pct`/`away_win_pct` (`w_season`). This is the one
+already-approved family with both a "recent" and a "long" version already
+built -- every other rate family (OBP/SLG/FIP/bullpen fatigue/etc.) only
+has an expanding version so far, so this module deliberately covers only
+the win-rate pair, not a speculative rolling-window rebuild of every
+other family (real, separate, larger future work).
+
+No ordering dependency on any other enrichment module (unlike `INT-01`'s
+`diff.py`, which found a real bug: `elo_diff` was permanently NULL in
+production because it was computed before `elo.compute_ratings()` ran --
+see `INT-01`'s own dated section for the full story) -- `trend.compute()`
+only reads base-family columns already populated before
+`enrich_feature_stage()` runs, so it's placed early in the dispatch
+order, right after `park.compute()`, with no equivalent risk.
+
+Health check is algebraic parity (each trend column must exactly equal
+`win_pct_10 - win_pct` wherever both are populated), matching `INT-02`'s
+own admission-queue test requirement ("window boundary/no future data").
+A follow-up review pass (Kilo) found the health-check error messages used
+a generic `win_pct_10 - win_pct` for both sides instead of the real
+side-specific formula -- fixed to pass the exact formula string per call
+site.
+
+Same migration-number collision pattern as `BSR-01`/`INT-01`: this branch
+also independently took `0059` off the same `main` tip. `BSR-01` merged
+first (`0059`), then `INT-01` (`0060`/`ADR-082`) -- both real and merged
+as of this rebase -- so this branch renumbers to `0061`/`ADR-083` and
+extends `gold.game_export`'s view directly from `INT-01`'s own real
+merged tail (`...wrc_plus_diff`), which already includes `BSR-01`'s own
+columns. This rebase needed two passes: the first (while `INT-01` was
+still an open PR) extended from `BSR-01`'s tail only, anticipating
+`INT-01`'s eventual columns; once `INT-01` actually merged, the view
+needed a second, real correction.
+
+`uv run ruff check .`/`ruff format --check .` clean, `uv run mypy
+mlb_baseball/model/trend.py` clean, `uv run sqlfluff lint` clean on both
+new SQL files. `tests/integration/test_model_trend.py` -- 5 new tests
+against real Postgres: hand-calculated trend values for a team playing
+both better and worse than its season rate, NULL-when-either-window-
+unavailable, idempotency, a health-check parity-violation test, and a
+health-check clean-pass test after a real `compute()`.
+`tests/integration/test_model_enrich_stage.py`/`tests/integration/
+test_game_export_view.py` re-run and confirmed unaffected. Full details
+in `docs/DECISIONS.md` ADR-083.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

@@ -1,5 +1,5 @@
 """Regression coverage for mlb_baseball.model.bsr -- prior rolling team
-stolen-base run value (wSB, ADR-083, admission queue BSR-01).
+stolen-base run value (wSB, ADR-081, admission queue BSR-01).
 """
 
 from decimal import Decimal

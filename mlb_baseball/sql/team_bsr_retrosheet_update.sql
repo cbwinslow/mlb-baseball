@@ -95,13 +95,14 @@ league_rolling AS (
 league_wsb AS (
     SELECT season, game_date,
         CASE WHEN (b1_sum + ubb_sum + hbp_sum) > 0 THEN
-            (sb_sum * %(run_sb)s + cs_sum * %(run_cs)s) / (b1_sum + ubb_sum + hbp_sum)::numeric
+            (COALESCE(sb_sum, 0) * %(run_sb)s::numeric + COALESCE(cs_sum, 0) * %(run_cs)s::numeric)
+                / (b1_sum + ubb_sum + hbp_sum)
         END AS lgwsb
     FROM league_rolling
 ),
 computed AS (
     SELECT tr.game_id, tr.team_id, tr.sb_sum, tr.cs_sum,
-        (tr.b1_sum + tr.ubb_sum + tr.hbp_sum) AS opp_sum,
+        (COALESCE(tr.b1_sum, 0) + COALESCE(tr.ubb_sum, 0) + COALESCE(tr.hbp_sum, 0)) AS opp_sum,
         lg.lgwsb
     FROM team_rolling tr
     LEFT JOIN league_wsb lg ON lg.season = tr.season AND lg.game_date = tr.game_date
@@ -109,7 +110,8 @@ computed AS (
 wsb AS (
     SELECT game_id, team_id, sb_sum, cs_sum,
         CASE WHEN COALESCE(sb_sum, 0) + COALESCE(cs_sum, 0) >= %(min_attempts)s AND lgwsb IS NOT NULL THEN
-            sb_sum * %(run_sb)s + cs_sum * %(run_cs)s - lgwsb * opp_sum
+            COALESCE(sb_sum, 0) * %(run_sb)s::numeric + COALESCE(cs_sum, 0) * %(run_cs)s::numeric
+                - lgwsb * opp_sum
         END AS wsb
     FROM computed
 )

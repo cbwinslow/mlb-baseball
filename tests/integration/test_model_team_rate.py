@@ -753,6 +753,76 @@ def test_health_check_flags_a_min_sample_gate_violation(db_conn):
     assert "1 rows" in gate_check.detail
 
 
+def test_health_check_flags_a_pa_coverage_gap(db_conn):
+    # Issue #32: the range/gate checks above can only ever catch a value
+    # that's present but implausible or under-sampled -- a total join
+    # failure (e.g. a mismatched team_id in team_rate_retrosheet_update.sql)
+    # makes home_pa NULL for every row instead, which those checks'
+    # `IS NOT NULL` filters explicitly exclude from the count. ATL is
+    # "eligible" entering G2 (it has a real, covered prior game, G1) so a
+    # NULL home_pa there is exactly the silent-join-break scenario the
+    # coverage check exists to catch -- not the ordinary "first game of the
+    # season, nothing prior yet" NULL that G1 itself would still have if
+    # its own home_pa were (correctly) NULL.
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2020, '2020-04-08', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('G2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single
+            "('G1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA (away) -- minimal
+            "('G2', '1', '2', 'T', 'F', 'T', '2020'), "
+            "('G2', '0', '2', 'T', 'F', 'T', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    team_rate.compute(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_pa FROM gold.game_feature f "
+            "JOIN core.game g ON g.id = f.game_id WHERE g.retro_game_id = 'G2'"
+        )
+        (pa,) = cur.fetchone()
+    assert pa is not None  # sanity: compute() really did populate it
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET home_pa = NULL "
+            "WHERE game_id = (SELECT id FROM core.game WHERE retro_game_id = 'G2')"
+        )
+    db_conn.commit()
+
+    checks = team_rate.health_check()
+    coverage_check = next(c for c in checks if c.name == "home_pa coverage")
+
+    assert not coverage_check.ok
+    assert "1 eligible rows" in coverage_check.detail
+
+
 def test_compute_run_environment_unaffected_by_postponed_observation(db_conn):
     # A postponed schedule observation for a game_id never produces its own
     # core.game row (docs/GAME_INSTANCE_IDENTITY.md; only the real makeup

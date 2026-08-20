@@ -56,12 +56,12 @@ def health_check() -> list[Check]:
         )
         bad_home, bad_away = fetch_one(cur)
 
-    def _check(name: str, bad: int) -> Check:
+    def _check(name: str, bad: int, formula: str) -> Check:
         if bad:
-            return Check(name, False, f"{bad} rows where {name} != win_pct_10 - win_pct")
-        return Check(name, True, "every row matches win_pct_10 - win_pct")
+            return Check(name, False, f"{bad} rows where {name} != {formula}")
+        return Check(name, True, f"every row matches {formula}")
 
     return [
-        _check("home_win_pct_trend", bad_home),
-        _check("away_win_pct_trend", bad_away),
+        _check("home_win_pct_trend", bad_home, "home_win_pct_10 - home_win_pct"),
+        _check("away_win_pct_trend", bad_away, "away_win_pct_10 - away_win_pct"),
     ]

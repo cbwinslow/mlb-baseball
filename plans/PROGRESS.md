@@ -319,6 +319,26 @@ first, review pass, mandatory tests for non-trivial schema/design
 decisions") is exactly why this stops at a written, evidence-backed
 design rather than an autonomous implementation.
 
+**A real, separate reason not to build this yet, caught by PR review
+(CodeRabbit) and confirmed directly against `mlb_baseball/
+source_profiles.py`/`docs/SOURCE_RIGHTS.md`, not assumed:** `raw.
+statcast_pitch` comes from Baseball Savant/Statcast, which this
+project's own data-rights matrix classifies as "owner-risk research
+only" -- `PUBLIC_SAFE` (`source_profiles.py`) contains only the
+Retrosheet family, and `licensed_full` is deliberately no broader than
+`public_safe` until a real licensed feed is approved (neither includes
+`statcast`). Any `gold`-layer feature this proposal eventually produces
+inherits that same restriction: fine to build and use under
+`local_research` (the default), but not eligible for a public artifact
+or `public_safe`/`licensed_full` use without either a recorded license
+or an explicit, reviewed exception -- exactly the gate `require_sources()`
+already enforces at ingestion time for `raw.statcast_pitch` itself. This
+doesn't block writing the proposal or even a future `local_research`
+implementation; it means the eventual admission-queue row and any
+`gold`-layer module built from it must carry this restriction forward
+explicitly, not silently inherit `raw.statcast_pitch`'s existing
+connector-level gate as if that were the whole story.
+
 **Evidence gathered, checked directly against production `mlb` (read-only):**
 - `raw.statcast_pitch` already has every input `BAT-01` needs: `hc_x`/
   `hc_y` (Statcast's own hit-coordinate fields, the standard input for
@@ -342,14 +362,34 @@ above, runnable read-only against production `mlb`:
 ```sql
 -- Total rows / handedness coverage (100%)
 SELECT count(*), count(stand), count(p_throws) FROM raw.statcast_pitch;
--- Batted-ball rows and hc_x/hc_y coverage within them (97.1%)
+-- Batted-ball rows and *pairwise* hc_x/hc_y coverage within them (97.1%) --
+-- counts rows where BOTH coordinates are present, not hc_x alone (PR
+-- review, CodeAnt: count(hc_x) alone doesn't prove hc_y is also present).
+-- Verified directly: in production this makes no difference at all --
+-- hc_x/hc_y are always NULL/non-NULL together, 2,372,586 either way --
+-- but the pairwise form is the correct, defensible query regardless.
 SELECT count(*) FILTER (WHERE description = 'hit_into_play') AS batted_balls,
-       count(hc_x) FILTER (WHERE description = 'hit_into_play') AS with_coords
+       count(*) FILTER (
+         WHERE description = 'hit_into_play'
+           AND hc_x IS NOT NULL AND hc_y IS NOT NULL
+       ) AS with_both_coords
 FROM raw.statcast_pitch;
 -- core.pitch's actual current column list
 SELECT column_name FROM information_schema.columns
 WHERE table_schema = 'core' AND table_name = 'pitch' ORDER BY column_name;
 ```
+
+Handedness domain checked directly too (PR review, CodeAnt: non-NULL
+doesn't prove a valid `L`/`R` value -- switch-hitter markers, blanks, or
+other unexpected text are all possible in an unconstrained `text`
+column): `SELECT stand, count(*) FROM raw.statcast_pitch GROUP BY stand`
+and the same for `p_throws` -- both return exactly two rows each, `'R'`
+and `'L'`, no third value, no blank, no NULL-that-slipped-through. The
+`stand != p_throws` platoon-matchup comparison this proposal's own
+`p_throws` paragraph describes is safe to build directly against the
+real data as-is; no normalization step is actually needed today, though
+a future implementation should still fail loudly (not silently coerce)
+if a genuinely new value ever appears.
 
 **Proposed `core.pitch` schema extension:**
 
@@ -388,6 +428,19 @@ concurrent reader, and a retained before/after row-count and
 spot-check-value comparison -- the same discipline every schema change
 in this project already goes through, not treated as a metadata-only
 follow-up just because the column-add step itself is fast.
+
+**Deployment order matters too, explicitly (PR review, CodeRabbit):**
+the migration must apply *before* the `conform.py` version that reads
+`sp.hc_x`/`sp.hc_y`/`sp.stand`/`sp.p_throws` is deployed -- the reverse
+order makes `mlb conform` crash outright with `UndefinedColumn` against
+a schema that doesn't have those columns yet. This is the same
+migrate-then-deploy ordering every other migration in this project
+already follows by construction (`mlb migrate` is its own separate CLI
+step, always run before the code that depends on the new schema); no
+special-case rollback handling is needed for these four columns
+specifically, since they're nullable and backward-compatible with the
+*previous* `conform.py` version (which simply won't select them) --
+only the ordering itself needs to be explicit here.
 
 **Proposed spray-angle formula -- deliberately unsettled, not a finished
 spec (PR review, CodeRabbit, a real convention-ambiguity finding worth

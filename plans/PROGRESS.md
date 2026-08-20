@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `BSR-01` (stolen-base run value / wSB, admission queue) is now implemented -- see the dated section below. Next candidate per the same queue: `INT-01`/`INT-02` (home-minus-away, recent-minus-long interaction terms over already-approved columns). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+- **Next package:** `BSR-01` (stolen-base run value / wSB, admission queue) merged into `main`. `INT-01` (home-minus-away interaction terms) is implemented -- see the dated section below -- and rebased onto `main` post-`BSR-01` merge (migration renumbered `0059`→`0060`, ADR renumbered `ADR-081`→`ADR-082`). Next candidate per the same queue: `INT-02` (recent-minus-long interaction terms). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
 
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
@@ -81,6 +81,73 @@ gap that test exists to catch (issue #37's failure shape).
 `uv run ruff check .`/`ruff format --check .` clean, `uv run mypy
 mlb_baseball/model/bsr.py` clean, `uv run sqlfluff lint` clean on all
 three new SQL files. Full details in `docs/DECISIONS.md` ADR-081.
+
+### INT-01 home-minus-away interaction terms: implemented, admission queue — 2026-08-20
+
+Added `mlb_baseball/model/diff.py` (`compute()`/`health_check()`) and six
+new `gold.game_feature` columns (`win_pct_diff`, `win_pct_10_diff`,
+`pyth_wpct_diff`, `elo_diff`, `woba_diff`, `wrc_plus_diff`, migration
+`0060`), wired into `run()` -- after `elo.compute_ratings()`, not inside
+`enrich_feature_stage()`. Pure algebra (`home_X - away_X`) over six
+already-approved paired team features -- no new raw dependency, no join,
+same "derive from a prior step's own already-computed columns" shape as
+`team_rate.py::compute_run_environment`.
+
+**A real, serious bug was found and fixed before merge (PR review,
+CodeAnt):** the first version called `diff.compute()` from inside
+`enrich_feature_stage()`, positioned last so it would see
+`offense.compute_wrc_plus()`'s already-populated `woba`/`wrc_plus`
+values. That reasoning didn't hold for `elo_diff`: `home_elo`/`away_elo`
+are never populated by `build_feature_stage()` at all -- only
+`elo.compute_ratings()` writes real values there, and that call happens
+in `run()`, strictly after `enrich_feature_stage()` returns. Every real
+`mlb predict` run would have computed `elo_diff` from NULL `home_elo`/
+`away_elo`, making the column permanently NULL in production. Fixed by
+moving `diff.compute()` out of `enrich_feature_stage()` and calling it
+separately in `run()`, after `elo.compute_ratings()`. A new regression
+test (`test_diff_compute_after_elo_ratings_produces_a_real_elo_diff`,
+`tests/integration/test_model_enrich_stage.py`) proves the fix: ATL/NYA's
+first-ever game gives `elo_diff = 0` exactly (both start at
+`STARTING_ELO`), which only happens with real values -- `NULL - NULL` is
+`NULL`, not `0`, so this genuinely distinguishes the fix from the bug.
+
+Real, honest open question left unresolved on purpose: tree-based models
+(`gbm-v1`) can in principle learn a difference from two raw inputs on
+their own; a linear model (`log5`/`elo`) cannot. Whether these six diff
+columns actually improve `gbm-v1`'s held-out log-loss is a separate,
+later retrain question, matching every prior feature family's own "build
+first, evaluate in a model separately" precedent -- this lands the
+feature honestly, without claiming an untested predictive-value result.
+
+Health check is algebraic parity (each diff column must exactly equal
+`home - away` wherever both sides are populated), not a plausible-range
+check -- a difference of two rates/ratings has no natural bound of its
+own, matching `INT-01`'s own admission-queue test requirement ("algebra
+parity and no fanout").
+
+A real local-development collision surfaced and was fixed, not a code
+bug: this branch and the sibling `BSR-01` branch both took migration
+number `0059` off the same `main` tip (each branch numbers sequentially
+from wherever `main` stood when it was created). `BSR-01` merged first;
+this branch renumbered its own migration to `0060` and its own ADR to
+`ADR-082` during rebase onto the updated `main`, extending
+`gold.game_export`'s view definition from `BSR-01`'s own new baseline
+(its `home_sb`/`away_sb`/`home_cs`/`away_cs`/`home_wsb`/`away_wsb`
+columns) rather than the pre-`BSR-01` shape.
+
+`uv run ruff check .`/`ruff format --check .` clean, `uv run mypy
+mlb_baseball/model/diff.py` clean, `uv run sqlfluff lint` clean on both
+new SQL files. `tests/integration/test_model_diff.py` -- 5 new tests
+against real Postgres: hand-calculated diff values across all six
+columns, NULL-when-either-side-unavailable, idempotency, a health-check
+parity-violation test, and a health-check clean-pass test after a real
+`compute()`. `tests/integration/test_model_enrich_stage.py` gained the
+elo-ordering regression test above; `tests/integration/
+test_game_export_view.py` re-run and confirmed unaffected. A pre-existing
+test (`tests/unit/test_cli_dispatch.py::
+test_predict_keeps_feature_stage_and_prediction_writes_separate`) needed
+updating for `run()`'s new return-dict key, caught by CI. Full details in
+`docs/DECISIONS.md` ADR-082.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

@@ -31,6 +31,7 @@ from mlb_baseball.ingest import track_run
 from mlb_baseball.model import (
     bsr,
     bullpen,
+    diff,
     elo,
     evaluation,
     features,
@@ -143,6 +144,9 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         "gold.game_feature (speed)": speed.compute(conn),
         "gold.game_feature (framing)": framing.compute(conn),
         "gold.game_feature (war)": war.compute(conn),
+        # diff.compute() must run last -- it derives from win_pct/elo/woba/
+        # wrc_plus, which every enrichment module above populates.
+        "gold.game_feature (diff)": diff.compute(conn),
     }
 
 
@@ -253,4 +257,5 @@ def health_check() -> list[Check]:
         + framing.health_check()
         + market.health_check()
         + starter_workload.health_check()
+        + diff.health_check()
     )

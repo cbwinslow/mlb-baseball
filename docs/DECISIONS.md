@@ -80,6 +80,32 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 
 **Revisit if:** a `gbm-v1` retrain wants to actually test whether career experience improves held-out log-loss (not yet attempted, same "build first, evaluate separately" posture as every other feature family this session); a future package wants this same career-window treatment applied to a bullpen reliever's own career workload (not just starters); or `starter.py`'s own pre-existing doubleheader-ordering gap (issue #67) is picked up as its own, separate fix.
 
+## ADR-086: `team_prior_offense_defense_v1`/`pitcher_workload_v1` tried in `gbm-v1` -- honest negative result
+
+**Decision:** Not saved, not promoted. Added `team_prior_offense_defense_v1`'s OBP/SLG/ISO/BB%/K%/BABIP/run-environment columns (ADR-061) and `pitcher_workload_v1`'s starter rest-days/7-day-outs columns (ADR-068/069) to `gbm.py`'s `OPTIONAL_COLUMNS`, ran a real `mlb train` against production `mlb`, and reverted the addition after the retrain didn't beat baseline by the required margin. `FEATURE_COLUMNS` is back to its original 37-column shape; nothing about the saved champion model changed.
+
+**Context:** Both feature families had been fully built, tested, health-checked, and live in `gold.game_feature` -- `team_rate.py` since ADR-061, `starter_workload.py` since ADR-068/069, both wired into `enrich_feature_stage()`'s daily run -- but neither had ever been added to `gbm.py`'s own `FEATURE_COLUMNS`, so the champion model never saw them. No ADR or PROGRESS.md entry recorded an attempt either way. Found during a 2026-08-20 audit prompted by the owner asking "have we applied everything we've researched" -- checked `gbm.py`'s actual feature list directly (`grep` for `home_obp`/`home_bb_pct`/etc., zero matches) rather than assuming.
+
+**Real coverage checked before adding, not assumed:** against production `mlb`, `home_obp`/`home_bb_pct` populated on 200,185/216,676 (92.4%) decided rows, `home_runs_for_avg` on 215,220/216,676 (99.3%), `home_starter_rest_days` on 199,846/216,676 (92.2%), `home_starter_outs_7d` on 177,548/216,676 (82.0%) -- among the best-covered optional families in the model, well above `home_oaa_prior`/`home_speed_prior`'s existing 2016+-only coverage.
+
+**The actual retrain, real production data, not synthetic:** `train_rows=208,454`, `validation_rows=4,821` (2023-cutoff train / 2024-2025 validation, matching ADR-032's existing split -- a real, solid sample, not a small-n fluke). Results:
+
+| | log_loss | brier |
+|---|---|---|
+| gbm (with the new columns) | 0.6792 | 0.2431 |
+| elo | 0.6801 | 0.2436 |
+| log5 | 0.9774 | 0.2573 |
+
+`vs_elo` improvement: 0.0009 -- less than half the required `MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT = 0.002` margin. `eligible: false`, `saved: false`. `train()`'s own promotion gate did exactly what it's designed to do: registered the attempt as a `candidate` in `meta.model` (a real, harmless audit-trail row -- every `train()` call does this regardless of outcome) and left the actual champion on disk untouched.
+
+**A real, honest finding, not a wasted attempt:** this directly tests `docs/RESEARCH.md`'s own working theory -- *"gbm-v1 barely beat Elo despite having 10 features to Elo's 2 -- the current feature set doesn't carry much more signal than a bare Elo rating."* Adding ~20 more real, well-covered, legitimately-built features moved the held-out log-loss by less than a tenth of the required margin. That's evidence against "the bottleneck is simply feature count" as a complete explanation -- it doesn't rule out that some *other* subset of features would help, or that model capacity/hyperparameters are the real constraint, but it means the next round of feature work (the `docs/FEATURE_ADMISSION_QUEUE.md` additions from the same 2026-08-20 research pass) should be evaluated the same way, one honest retrain at a time, not assumed to help because the features themselves are legitimate.
+
+**A real safety catch, not just a negative result:** because the retrain didn't save, the champion model file on disk still expects the original 37-column shape. Leaving the `FEATURE_COLUMNS` addition in place after this result would have broken `predict()` outright on its next run (`ValueError: Feature shape mismatch`) -- the exact same failure mode `home_framing_prior`'s own earlier attempt hit (ADR-045), and the reason that addition is also excluded from `OPTIONAL_COLUMNS` today. Reverted immediately upon getting the real result, before this could reach a shared branch. `gbm.py`'s own comment above `OPTIONAL_COLUMNS`'s closing bracket now documents both negative results together, so a future retrain attempt doesn't need to rediscover this.
+
+**`uv run mypy mlb_baseball/model/gbm.py`/`ruff check`/`ruff format --check` clean.** `tests/integration/test_model_gbm.py`'s existing 9 tests (which seed only `REQUIRED_COLUMNS` and already prove optional-columns-as-NULL is tolerated) pass unchanged before and after -- no test changes needed for either the addition or the revert, since they were never coupled to the exact `OPTIONAL_COLUMNS` contents.
+
+**Revisit if:** a future retrain (e.g. once `BSR-01`/`INT-01`/`INT-02` and the rest of the 2026-08-20 admission-queue batch are built) wants to try `team_prior_offense_defense_v1`/`pitcher_workload_v1` again, alone or combined with the newer features -- the columns themselves remain fully built and populated, only excluded from this one model's feature list.
+
 ## ADR-080: Home/away outcome distribution split (Plan 04D, fifth package)
 
 **Decision:** Added an optional `bat_home` parameter to `estimate_outcome_distribution`/`_fetch_transition_counts`/`markov_transition_counts.sql` (`'1'` = home batting, `'0'` = away batting, `None` = both combined, the existing default every prior caller keeps using unchanged), and an optional `home_distribution` parameter to `simulate_game` -- when given, the home team draws from it instead of `distribution` (which the away team always uses). Closes the "separate home/away outcome distributions to close the home-field-advantage gap" item flagged open in ADR-078.

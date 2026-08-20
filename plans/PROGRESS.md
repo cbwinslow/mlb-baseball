@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `BSR-01`, `INT-01`, and `INT-02` all merged into `main`. `PLN-04`'s age half (`PR #64`) is implemented and under review, not yet merged. `PLN-04`'s career-PA/IP half (this dated section below) is implemented, rebased onto `main` post-`INT-02` merge, anticipating `age.py`'s planned merge ahead of it (migration `0063`, `ADR-085`). Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` (batted-ball spray/placement × handedness -- proposal written, `core.pitch` schema extension needed first), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+- **Next package:** `BSR-01`, `INT-01`, `INT-02`, and `PLN-04`'s career-PA/IP half all merged into `main`. `PLN-04`'s age half (`PR #64`) is implemented and rebased, pending merge -- once it merges it needs a real-state view correction (`gold.game_export` must extend from `experience_v1`'s real merged tail, `ADR-085`, not the anticipated-but-now-superseded state its own migration currently assumes). This retrain package (`gbm-v1` tried and reverted team_rate/starter_workload, this dated section below) is implemented and rebased onto `main` post-`PLN-04`-experience merge. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` (batted-ball spray/placement × handedness -- proposal written, `core.pitch` schema extension needed first, own open formula-convention question), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
 
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
@@ -263,6 +263,47 @@ season partition, plus a different starter's debut correctly NULL, both
 in one test), the doubleheader-ordering regression above, an idempotency
 test, two missing-table gate tests, and a health-check test.
 Full details in `docs/DECISIONS.md` ADR-085.
+
+### `gbm-v1` retrain with `team_prior_offense_defense_v1`/`pitcher_workload_v1`: real, honest negative result — 2026-08-20
+
+Prompted by the owner asking "have we applied everything we've researched"
+during a broader feature-engineering discussion. Audited `gbm.py`'s actual
+`FEATURE_COLUMNS` directly (not assumed) and found two fully-built,
+tested, production-populated feature families -- `team_rate.py`'s prior
+OBP/SLG/ISO/BB%/K%/BABIP/run-environment (ADR-061) and
+`starter_workload.py`'s rest-days/7-day-outs (ADR-068/069), both wired
+into `enrich_feature_stage()`'s daily run for weeks -- had never once
+been added to the champion model's own feature list.
+
+Checked real coverage against production `mlb` before adding anything
+(92-99% populated on decided rows, among the best-covered optional
+families already in the model), added both to `OPTIONAL_COLUMNS`, and
+ran a real `mlb train` against production: 208,454 train rows, 4,821
+held-out validation rows (2023-cutoff/2024-2025 split, matching
+ADR-032). Result: gbm log-loss 0.6792 vs. Elo's 0.6801 -- a 0.0009
+improvement, less than half the required 0.002 promotion margin.
+`eligible: false`, `saved: false` -- `train()`'s own gate correctly
+declined to promote, registering the attempt as a `candidate` row in
+`meta.model` (harmless, expected audit trail) and leaving the real
+champion untouched.
+
+**Caught and fixed a real safety issue before it could reach a shared
+branch:** since the retrain didn't save, the model file still on disk
+expects the original 37-column shape -- leaving the `FEATURE_COLUMNS`
+addition in place would have broken `predict()`'s very next run with a
+feature-shape mismatch, the identical failure mode `home_framing_prior`
+hit first (ADR-045). Reverted `FEATURE_COLUMNS` back to exactly 37
+columns immediately upon getting the real result; confirmed via
+`len(gbm.FEATURE_COLUMNS) == 37` and `tests/integration/test_model_gbm.py`
+(9 tests, unaffected either way since they only ever seed
+`REQUIRED_COLUMNS`).
+
+Full detail, the real numbers, and the promotion-gate table: `docs/DECISIONS.md`
+ADR-086 (renumbered from this branch's own original `ADR-082` during
+rebase -- `INT-01` real-merged and took `ADR-082` for itself first; this
+branch's own retrain doesn't touch any migration/schema, so only the ADR
+number needed renumbering, not a migration file). `uv run mypy`/`ruff
+check`/`ruff format --check` clean on `mlb_baseball/model/gbm.py`.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

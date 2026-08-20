@@ -338,6 +338,7 @@ design rather than an autonomous implementation.
 Reproducible directly (PR review, CodeRabbit, correctly asked for this
 rather than prose-only numbers) -- the exact queries behind the figures
 above, runnable read-only against production `mlb`:
+
 ```sql
 -- Total rows / handedness coverage (100%)
 SELECT count(*), count(stand), count(p_throws) FROM raw.statcast_pitch;
@@ -351,6 +352,7 @@ WHERE table_schema = 'core' AND table_name = 'pitch' ORDER BY column_name;
 ```
 
 **Proposed `core.pitch` schema extension:**
+
 ```sql
 ALTER TABLE core.pitch ADD COLUMN hc_x numeric;
 ALTER TABLE core.pitch ADD COLUMN hc_y numeric;
@@ -376,14 +378,42 @@ run (see `run()`'s own `TRUNCATE core.play, core.pitch, ...` before
 `_build_pitches` is called) -- the very next scheduled conform run
 populates the new columns for the full history automatically, the same
 "truncate everything, rebuild from raw" design this table already has.
+"No backfill script needed" is not the same as "no rehearsal needed"
+though (PR review, CodeRabbit, a fair distinction): that next conform
+run truncates and rebuilds all 13,484,101 rows of `core.pitch`, not a
+small or incremental operation just because it's automatic. Before
+scheduling this against production, rehearse the full rebuild against
+`mlb_test` first -- real wall-clock duration, lock behavior against any
+concurrent reader, and a retained before/after row-count and
+spot-check-value comparison -- the same discipline every schema change
+in this project already goes through, not treated as a metadata-only
+follow-up just because the column-add step itself is fast.
 
-**Proposed spray-angle formula (a public, well-established convention --
-independently reimplemented here, not copied from any specific library's
-code, consistent with this project's `wSB`/`wOBA`/`wRC+` precedent of
-reimplementing public formulas rather than scraping or vendoring code):**
-```
+**Proposed spray-angle formula -- deliberately unsettled, not a finished
+spec (PR review, CodeRabbit, a real convention-ambiguity finding worth
+recording rather than silently picking one):** the 125.42/198.27
+reference-point constants are consistent across the public sabermetric
+community's independent reimplementations, but the surrounding
+trigonometry is not: this write-up's own first draft used
+
+```text
 spray_angle_deg = atan2(hc_x - 125.42, 198.27 - hc_y) * 180 / pi()
 ```
+
+while at least one other cited public reimplementation (Analyzing
+Baseball Data with R's own `abdwr3e` writeup, and pybaseball's own
+`add_spray_angle` docs) uses `atan` (not `atan2`) with an extra `* 0.75`
+empirical scale factor -- `atan((hc_x - 125.42) / (198.27 - hc_y)) *
+180 / pi() * 0.75` -- and handles left/right batter sign-flipping
+(`stand == 'L'`) as an explicit separate step rather than folding it
+into `atan2`'s own quadrant behavior. These are not equivalent: `atan2`
+preserves full ±180° quadrant information `atan` alone cannot, and the
+`0.75` scale factor changes every angle's magnitude by a quarter. Which
+convention is actually right for this project's own coordinate data
+isn't decided here -- picking one (or documenting a third, explicitly
+versioned convention) is real work for whoever implements this,
+verified against a real, independently-knowable case before being
+trusted, not decided by citation alone.
 125.42/198.27 are the standard reference-point constants for Statcast's
 own coordinate system (the estimated home-plate origin in its `hc_x`/
 `hc_y` pixel-grid convention), used consistently across the public
@@ -412,13 +442,13 @@ it isn't used directly in the spray-angle formula itself, and the first
 draft of this proposal listed it as a needed column without ever saying
 what it was for -- fixed here.
 
-**Verification plan for whoever picks this up next:** before trusting
-the formula's sign/threshold conventions, cross-check computed spray
-angles against a real, independently-knowable case (e.g. a specific real
-batter's known pull tendency, or Baseball Savant's own published spray
-chart for a real game) -- the same reconciliation discipline `starter.py`
-(deGrom) and `team_rate.py` (Acuña) already established for this project,
-not a formula trusted on citation alone.
+**Verification plan for whoever picks this up next:** resolve the
+`atan2`-vs-`atan`+`0.75`-scale ambiguity above first, then cross-check
+computed spray angles against a real, independently-knowable case (e.g.
+a specific real batter's known pull tendency, or Baseball Savant's own
+published spray chart for a real game) -- the same reconciliation
+discipline `starter.py` (deGrom) and `team_rate.py` (Acuña) already
+established for this project, not a formula trusted on citation alone.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

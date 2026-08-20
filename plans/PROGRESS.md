@@ -197,9 +197,12 @@ site.
 
 Same migration-number collision pattern as `BSR-01`/`INT-01`: this branch
 also independently took `0059` off the same `main` tip. `BSR-01` merged
-first (`0059`); `INT-01` renumbered to `0060`/`ADR-082` ahead of this
-branch in the planned merge order; this branch renumbers to
-`0061`/`ADR-083`.
+first (`0059`); `INT-01` (`0060`/`ADR-082`) had not actually merged yet
+as of this rebase, so this branch renumbers to `0061`/`ADR-083` and
+extends `gold.game_export`'s view directly from `BSR-01`'s own real
+merged tail (`...away_wsb`), not from an assumed `INT-01` state.
+Whichever of `INT-01`/`INT-02` merges second will need to re-extend the
+view again from the other's real merged state at that time.
 
 `uv run ruff check .`/`ruff format --check .` clean, `uv run mypy
 mlb_baseball/model/trend.py` clean, `uv run sqlfluff lint` clean on both

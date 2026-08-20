@@ -3,9 +3,13 @@
 -- already-approved win_pct/win_pct_10 -- no new raw dependency.
 --
 -- Renumbered from 0059 to 0061 (ADR from 081 to 083) during rebase onto
--- main: BSR-01 (migration 0059) and INT-01 (migration 0060, ADR-082)
--- both merge ahead of this one -- the same migration-number/ADR-number
--- collision pattern documented throughout this session.
+-- main: BSR-01 took migration 0059. INT-01 (migration 0060, ADR-082) has
+-- not actually merged yet as of this rebase, so the view below extends
+-- 0059_team_bsr.sql's real current tail (...away_wsb) directly -- it does
+-- NOT anticipate INT-01's diff_v1 columns. Whichever of INT-01/INT-02
+-- merges second will need to re-extend the view again from the other's
+-- real merged state, per the same collision pattern documented throughout
+-- this session.
 
 ALTER TABLE gold.game_feature ADD COLUMN home_win_pct_trend numeric;
 ALTER TABLE gold.game_feature ADD COLUMN away_win_pct_trend numeric;
@@ -117,12 +121,6 @@ SELECT
     f.away_cs,
     f.home_wsb,
     f.away_wsb,
-    f.win_pct_diff,
-    f.win_pct_10_diff,
-    f.pyth_wpct_diff,
-    f.elo_diff,
-    f.woba_diff,
-    f.wrc_plus_diff,
     f.home_win_pct_trend,
     f.away_win_pct_trend
 FROM gold.game_feature f

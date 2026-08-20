@@ -41,17 +41,39 @@ relief_only AS (
     WHERE pgs.pitcher_retro_id IS DISTINCT FROM
         CASE WHEN pgs.is_home_pitcher THEN s.home_starter_retro_id ELSE s.away_starter_retro_id END
 ),
--- One row per team per game, always -- including team-games where no
--- reliever was used at all (rare, but a real possibility with a complete
--- game). Without this backbone, both the rolling-quality window below
--- and the fatigue lookup would silently go NULL for exactly the games
--- that most need an accurate "entering this game" value: a team having
--- zero relief innings IN today's game says nothing about whether their
--- bullpen was worked hard in the days/games before it.
+-- Which regular games actually have Retrosheet event coverage at all
+-- (issue #29): `regular_games` pulls every core.game row unconditionally,
+-- but Retrosheet's own published event-file coverage has a real ~0.85%
+-- gap (confirmed against production -- currently entirely the
+-- still-in-progress current season, whose event files Retrosheet hasn't
+-- published yet; not a parsing bug here). Same join shape as `starters`/
+-- `pitcher_game_stats` above -- reused as an existence gate rather than a
+-- data source.
+covered_games AS (
+    SELECT DISTINCT rg.game_id
+    FROM regular_games rg
+    JOIN raw.retrosheet_gameinfo gi ON gi.gid = rg.retro_game_id AND lower(gi.gametype) = 'regular'
+    JOIN raw.retrosheet_event re ON re.game_id = rg.retro_game_id
+),
+-- One row per team per COVERED game, always -- including team-games
+-- where no reliever was used at all (rare, but a real possibility with a
+-- complete game). Without this backbone, both the rolling-quality window
+-- below and the fatigue lookup would silently go NULL for exactly the
+-- games that most need an accurate "entering this game" value: a team
+-- having zero relief innings IN today's game says nothing about whether
+-- their bullpen was worked hard in the days/games before it. An
+-- uncovered game gets no row at all here (not a zero-filled one) --
+-- COALESCE(..., 0) below is only ever reached for a game we have real
+-- event data for, so a genuine zero and "we don't know" stay
+-- distinguishable; an uncovered game is excluded from the team's own
+-- rolling history entirely, as if it never happened, rather than
+-- fabricating a zero that would understate real fatigue/quality.
 team_game AS (
-    SELECT game_id, season, game_date, game_number, home_team_id AS team_id FROM regular_games
+    SELECT rg.game_id, rg.season, rg.game_date, rg.game_number, rg.home_team_id AS team_id
+    FROM regular_games rg JOIN covered_games cg ON cg.game_id = rg.game_id
     UNION ALL
-    SELECT game_id, season, game_date, game_number, away_team_id AS team_id FROM regular_games
+    SELECT rg.game_id, rg.season, rg.game_date, rg.game_number, rg.away_team_id AS team_id
+    FROM regular_games rg JOIN covered_games cg ON cg.game_id = rg.game_id
 ),
 team_relief_game AS (
     SELECT tg.game_id, tg.season, tg.game_date, tg.game_number, tg.team_id,

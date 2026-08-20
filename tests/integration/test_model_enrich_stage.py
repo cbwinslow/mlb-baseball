@@ -16,9 +16,15 @@ of the 2026-08-19 backfill (issue #48), not caught by any prior test.
 Doesn't re-prove any individual module's math (each already has its own
 exhaustive tests) -- only that enrich_feature_stage() actually calls real
 compute() functions that write real, non-NULL data, end to end.
+
+Also covers the one enrichment-adjacent module deliberately NOT called
+from inside enrich_feature_stage() -- diff.compute() (elo_diff), which
+depends on elo.compute_ratings() running first and is called separately
+in run() -- see test_diff_compute_after_elo_ratings_produces_a_real_elo_diff
+and enrich_feature_stage()'s own docstring for why.
 """
 
-from mlb_baseball.model import enrich_feature_stage, features
+from mlb_baseball.model import diff, elo, enrich_feature_stage, features
 
 
 def _reset(db_conn):
@@ -182,5 +188,63 @@ def test_enrich_feature_stage_returns_zero_without_retrosheet_tables(db_conn):
     db_conn.commit()
 
     assert counts["gold.game_feature (team_rate)"] == 0
+
+    _reset(db_conn)
+
+
+def test_diff_compute_after_elo_ratings_produces_a_real_elo_diff(db_conn):
+    # Real bug found in PR review (CodeAnt): diff.compute() (elo_diff =
+    # home_elo - away_elo) used to be called from inside
+    # enrich_feature_stage(), which runs BEFORE elo.compute_ratings() in
+    # run() -- but home_elo/away_elo are never populated by
+    # build_feature_stage() at all (game_feature_rebuild.sql has no elo
+    # logic whatsoever); only elo.compute_ratings() actually writes real
+    # values there. Calling diff.compute() any earlier reads NULL
+    # home_elo/away_elo on every real production run, making elo_diff
+    # permanently NULL. This proves the real, correct ordering
+    # (build -> enrich -> elo.compute_ratings() -> diff.compute(), the
+    # same sequence run() now uses) produces a real, non-NULL elo_diff.
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    enrich_feature_stage(db_conn)
+    elo.compute_ratings(db_conn)
+    diff.compute(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_elo, away_elo, elo_diff FROM gold.game_feature f "
+            "JOIN core.game g ON g.id = f.game_id WHERE g.retro_game_id = 'G1'"
+        )
+        home_elo, away_elo, elo_diff = cur.fetchone()
+
+    # ATL/NYA's first-ever game: both start at elo.STARTING_ELO (1500.0),
+    # so elo_diff = 0 exactly -- a real, non-NULL, non-default value, not
+    # a coincidental pass from a stale-NULL-minus-stale-NULL that would
+    # also read as "0-ish" by accident (NULL - NULL is NULL, not 0, so
+    # this genuinely distinguishes the fixed ordering from the bug).
+    assert home_elo is not None
+    assert away_elo is not None
+    assert elo_diff is not None
+    assert elo_diff == home_elo - away_elo
 
     _reset(db_conn)

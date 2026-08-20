@@ -31,7 +31,83 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29 are fixed and merged.
+- **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+
+### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
+
+Fixed `bullpen_outs_reconcile.sql` (the `bullpen.health_check()`
+starter/relief reconciliation, part of `mlb doctor`): flagged by the
+owner as feeling slow, then confirmed live via `pg_stat_activity` against
+production `mlb` -- this one query alone took ~83-85 seconds. Root cause
+(via `EXPLAIN (ANALYZE, BUFFERS)`, not guessed): its `starters` and
+`team_pitcher_outs` CTEs each independently joined `core.game` ->
+`raw.retrosheet_gameinfo` -> `raw.retrosheet_event`, scanning the same
+~16 million event rows twice, each producing a `GroupAggregate` over an
+external merge sort spilling ~850MB to disk.
+
+Fix: collapsed both CTEs into one `event_rows` CTE that joins the three
+tables exactly once, resolving each team's starting pitcher with a
+window aggregate (`max(resp_pit_id) FILTER (WHERE resp_pit_start_fl =
+'T') OVER (PARTITION BY game_id, team_id)`) instead of a second `GROUP
+BY` + `JOIN` back to a separate `starters` CTE. An earlier alternative
+(an explicit `MATERIALIZED` CTE feeding two separate `HashAggregate`s)
+was tried and measured slower in practice (45s) than the window-function
+version, because the planner badly under-estimated the materialized
+CTE's row count and re-spilled twice; not used.
+
+Verified two ways before landing, both against real production `mlb`,
+read-only:
+- **Row-for-row equivalence**: ran the old and new query logic
+  side-by-side in one read-only `SELECT`, `EXCEPT ALL`-diffed both
+  directions. 406,516 rows on both sides, zero rows in either
+  direction-only diff -- an exact match, not a sample check.
+- **Timing**: old query 62.9s wall-clock; new query 36.9s -- a ~41%
+  reduction, with total disk spill also roughly halved (three ~206MB
+  per-worker sorts instead of one ~850MB sort). Matches the issue's own
+  "should roughly halve" estimate.
+
+New regression test `test_reconcile_splits_relief_across_multiple_pitchers`
+in `tests/integration/test_model_bullpen.py`: seeds one game where the
+home team uses a starter (2 outs) plus one reliever (1 out) and the away
+team uses a starter (1 out) plus two *different* relievers (1 out each)
+-- multiple non-starter pitchers per team-game is exactly what a broken
+window partition (wrong `PARTITION BY` key, wrong `max`) would get
+wrong. Checks two separate things: (1) the production query's own
+`(total_outs, computed)` pair for both teams -- not a discriminating
+check by itself, since `starter_outs + relief_outs` sums to `total_outs`
+for *any* `starter_id` value by construction of the `=`/`IS DISTINCT
+FROM` filter pair, so this only proves no row was dropped or
+double-counted; (2) a second, test-only query (same CTEs, a different
+final `SELECT` exposing `starter_outs`/`relief_outs` directly instead of
+pre-summing them -- `check_totals_reconcile` needs the production
+query's exact 3-column shape, so this can't live in the shipped file)
+asserting the actual split: ATL's starter got 2 outs and its reliever 1,
+NYA's starter got 1 and its two relievers 2 combined -- proving the
+window aggregate picked the *right* pitcher as starter, which (1) alone
+cannot show. (CodeRabbit correctly flagged (1) alone as insufficient in
+PR #53 review; this addresses it.) All 15 bullpen tests pass;
+`uv run sqlfluff lint`, `ruff check`, `ruff format --check`, and `mypy`
+all clean on the changed files.
+
+Also cleaned up the `PARTITION BY` clause per PR #53 review (Kilo): it
+repeated the `team_id` `CASE` expression inline instead of reusing a
+computed column, so `event_rows` was split into `team_events` (computes
+`team_id` once) + `event_rows` (the window aggregate, referencing
+`team_id` directly). Re-verified row-for-row identical against
+production after the split (406,516/406,516, zero mismatches) --
+33s wall-clock, consistent with the original single-scan measurement.
+Declined a separate Kilo suggestion to expose `starter_outs`/
+`relief_outs` in the production query's own output for debuggability --
+`check_totals_reconcile` requires exactly the 3-column `(key, computed,
+reference)` shape, so a 4th/5th column would break every call site, not
+just this one; the same information is available by running
+`_reconcile_sql_exposing_the_split` in the test file, or ad hoc.
+
+`mlb_baseball/sql/bullpen_outs_reconcile.sql` only, per the issue's own
+scope note -- `team_bullpen_retrosheet_update.sql` (used by `compute()`
+for the actual production fatigue/quality numbers, not just this health
+check) has a similar-looking `starters` CTE but was out of scope and not
+touched; whether it has the same double-scan shape is unexamined.
 
 ### Game export view (gold.game_export, completed) — 2026-08-19
 

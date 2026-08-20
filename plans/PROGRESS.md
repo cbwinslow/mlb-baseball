@@ -335,6 +335,21 @@ design rather than an autonomous implementation.
   `information_schema.columns` that `hc_x`/`hc_y`/`stand`/`p_throws` are
   not among them.
 
+Reproducible directly (PR review, CodeRabbit, correctly asked for this
+rather than prose-only numbers) -- the exact queries behind the figures
+above, runnable read-only against production `mlb`:
+```sql
+-- Total rows / handedness coverage (100%)
+SELECT count(*), count(stand), count(p_throws) FROM raw.statcast_pitch;
+-- Batted-ball rows and hc_x/hc_y coverage within them (97.1%)
+SELECT count(*) FILTER (WHERE description = 'hit_into_play') AS batted_balls,
+       count(hc_x) FILTER (WHERE description = 'hit_into_play') AS with_coords
+FROM raw.statcast_pitch;
+-- core.pitch's actual current column list
+SELECT column_name FROM information_schema.columns
+WHERE table_schema = 'core' AND table_name = 'pitch' ORDER BY column_name;
+```
+
 **Proposed `core.pitch` schema extension:**
 ```sql
 ALTER TABLE core.pitch ADD COLUMN hc_x numeric;
@@ -381,6 +396,21 @@ classification thresholds and the resulting `gold`-layer feature module
 gap) are real design decisions still open, deliberately not settled here
 -- this write-up stops at "the inputs are real and the core-layer path
 is clear," not "here is the finished feature spec."
+
+**`p_throws`'s own role, spelled out (PR review, CodeRabbit, a fair gap
+in the first draft):** `stand` alone is what pull/oppo/center
+classification needs; `p_throws` is proposed for `core.pitch` because
+`BAT-01`'s own admission-queue definition (`docs/FEATURE_ADMISSION_QUEUE.md`)
+explicitly includes "platoon interaction," not just spray/placement on
+its own. The platoon-relevant question isn't the pitcher's handedness by
+itself, but the batter/pitcher handedness *matchup* (same-handed vs.
+opposite-handed) -- a real, well-documented effect independent of spray
+angle (platoon splits shift pull tendency, not just contact quality).
+`p_throws` is the raw input a future `gold`-layer feature would need to
+compute that matchup flag (`stand = p_throws` vs. `stand != p_throws`);
+it isn't used directly in the spray-angle formula itself, and the first
+draft of this proposal listed it as a needed column without ever saying
+what it was for -- fixed here.
 
 **Verification plan for whoever picks this up next:** before trusting
 the formula's sign/threshold conventions, cross-check computed spray

@@ -399,6 +399,7 @@ ALTER TABLE core.pitch ADD COLUMN hc_y numeric;
 ALTER TABLE core.pitch ADD COLUMN stand text;
 ALTER TABLE core.pitch ADD COLUMN p_throws text;
 ```
+
 `ADD COLUMN` with no default is a fast, metadata-only operation in
 modern Postgres (no full-table rewrite), and cascades automatically to
 every existing partition of a partitioned parent table -- real, but

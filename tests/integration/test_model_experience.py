@@ -138,6 +138,120 @@ def test_compute_carries_experience_across_season_boundaries(db_conn):
     assert g2[3] is None  # away_starter_career_ip
 
 
+def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn):
+    # PR review (CodeAnt) found a real bug: the career window's own
+    # ORDER BY game_date, game_id would order a doubleheader by
+    # core.game.id -- a surrogate insertion-order key, not a
+    # chronological one (same finding bsr.py's own ADR-081 already
+    # documents). Proven here the same way, not assumed: G2 (the
+    # nightcap, game_number=2) is inserted BEFORE G1 (the opener,
+    # game_number=1), so G2 gets the LOWER core.game.id despite being
+    # chronologically second. With the bug (game_id-only ordering), the
+    # window would process G2 first, leaving its own entering career
+    # value NULL. With the fix (game_number as the real tie-breaker), G2
+    # correctly reflects G1's stats regardless of insertion/id order.
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        # G2 (nightcap) inserted first -- gets the lower id.
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, game_number, home_team_id, "
+            "away_team_id, home_score, away_score, game_type) VALUES "
+            "('G2', 2021, '2021-06-01', 2, %(atl)s, %(nya)s, 2, 1, 'regular'), "
+            "('G1', 2021, '2021-06-01', 1, %(atl)s, %(nya)s, 3, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('G2', 'regular')"
+        )
+        rows = []
+        # G1 (opener): home starter dh0001 faces 10 batters, 9 outs (3.0 IP).
+        for _ in range(9):
+            rows.append("('G1', '0', 'dh0001', 'T', 'T', '1', '2021')")
+        rows.append("('G1', '0', 'dh0001', 'T', 'T', '0', '2021')")
+        rows.append("('G1', '1', 'oppop002', 'T', 'T', '0', '2021')")
+        # G2 (nightcap): same home starter dh0001 again, plus a minimal
+        # away starter row.
+        rows.append("('G2', '0', 'dh0001', 'T', 'T', '0', '2021')")
+        rows.append("('G2', '1', 'oppop003', 'T', 'T', '0', '2021')")
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "bat_event_fl, event_outs_ct, _season) VALUES " + ", ".join(rows)
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    experience.compute(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.retro_game_id, f.home_starter_career_bf, f.home_starter_career_ip "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "ORDER BY g.retro_game_id"
+        )
+        rows_by_game = {r[0]: r[1:] for r in cur.fetchall()}
+
+    assert rows_by_game["G1"] == (None, None)  # dh0001's first-ever appearance
+    # G2 must reflect G1's stats -- NOT NULL, despite G2.id < G1.id.
+    assert rows_by_game["G2"] == (10, Decimal("3.0"))
+
+
+def test_compute_is_idempotent(db_conn):
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2019, '2019-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2019, '2019-04-08', %(atl)s, %(nya)s, 4, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('G2', 'regular')"
+        )
+        rows = []
+        # 9 outs (3.0 IP) plus 1 batter reaching (event_outs_ct='0') -- 10
+        # batters faced total, matching the doubleheader test's own shape.
+        for _ in range(9):
+            rows.append("('G1', '0', 'idem0001', 'T', 'T', '1', '2019')")
+        rows.append("('G1', '0', 'idem0001', 'T', 'T', '0', '2019')")
+        rows.append("('G1', '1', 'oppop004', 'T', 'T', '0', '2019')")
+        rows.append("('G2', '0', 'idem0001', 'T', 'T', '0', '2019')")
+        rows.append("('G2', '1', 'oppop005', 'T', 'T', '0', '2019')")
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "bat_event_fl, event_outs_ct, _season) VALUES " + ", ".join(rows)
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    experience.compute(db_conn)
+    experience.compute(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT g.retro_game_id, f.home_starter_career_bf, f.home_starter_career_ip "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "ORDER BY g.retro_game_id"
+        )
+        rows_by_game = {r[0]: r[1:] for r in cur.fetchall()}
+
+    assert rows_by_game["G2"] == (10, Decimal("3.0"))
+
+
 def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")

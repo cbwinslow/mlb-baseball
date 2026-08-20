@@ -1,5 +1,5 @@
 -- Recent-minus-long win-rate trend (INT-02, docs/FEATURE_ADMISSION_QUEUE.md,
--- ADR-081). Pure algebra derived from two already-populated
+-- ADR-083). Pure algebra derived from two already-populated
 -- gold.game_feature columns per side -- no new raw dependency, no join,
 -- same shape as int_diff_update.sql/team_run_environment_update.sql.
 --

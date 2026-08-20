@@ -1,5 +1,5 @@
 """Regression coverage for mlb_baseball.model.trend -- recent-minus-long
-win-rate trend (ADR-081, admission queue INT-02). Pure algebra over
+win-rate trend (ADR-083, admission queue INT-02). Pure algebra over
 already-populated gold.game_feature columns, so these tests seed
 gold.game_feature directly rather than running the full features.build()
 pipeline -- trend.py has no raw-table or core.game dependency at all.

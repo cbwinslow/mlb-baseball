@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `BSR-01`, `INT-01`, `INT-02`, and `PLN-04`'s career-PA/IP half all merged into `main`. `PLN-04`'s age half (`PR #64`) is implemented and rebased, pending merge -- once it merges it needs a real-state view correction (`gold.game_export` must extend from `experience_v1`'s real merged tail, `ADR-085`, not the anticipated-but-now-superseded state its own migration currently assumes). This retrain package (`gbm-v1` tried and reverted team_rate/starter_workload, this dated section below) is implemented and rebased onto `main` post-`PLN-04`-experience merge. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` (batted-ball spray/placement × handedness -- proposal written, `core.pitch` schema extension needed first, own open formula-convention question), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+- **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04`'s career-PA/IP half, and the `gbm-v1` retrain negative result all merged into `main`. `PLN-04`'s age half (`PR #64`) is implemented and rebased, pending merge -- once it merges it needs a real-state view correction (`gold.game_export` must extend from `experience_v1`'s real merged tail, `ADR-085`, not the anticipated-but-now-superseded state its own migration currently assumes). `BAT-01`'s proposal (this dated section below) is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
 
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
@@ -217,8 +217,6 @@ health-check clean-pass test after a real `compute()`.
 test_game_export_view.py` re-run and confirmed unaffected. Full details
 in `docs/DECISIONS.md` ADR-083.
 
-- **BAT-01 research finding, not yet implemented:** checked `raw.statcast_pitch` directly for batted-ball spray/placement fields -- `hc_x`/`hc_y` (Statcast hit coordinates, needed for spray angle) and `stand`/`p_throws` (batter/pitcher handedness) all exist with strong real coverage (`stand`/`p_throws` populated for all 13.48M rows; `hc_x`/`hc_y` populated for 2,372,586 of 2,443,788 real batted balls, ~97.1%). The real blocker isn't data availability -- it's that `core.pitch` (migration 0006) currently only copies a subset of `raw.statcast_pitch`'s columns (release_speed/spin_rate, launch_speed/angle, hit_distance, description, event); `hc_x`/`hc_y`/`stand`/`p_throws` aren't in `core.pitch` yet. Building `BAT-01` for real needs a `core.pitch` schema extension + a `conform.py` change to populate the new columns, not just a narrow `gold`-only feature module like every other item this session -- a bigger, more foundational change (touches a shared core table other future features will also read from) that deserves its own design pass rather than being rushed through in one autonomous iteration. Deferred, not abandoned.
-
 ### PLN-04 starter career experience (experience half): implemented, admission queue — 2026-08-20
 
 Added `mlb_baseball/model/experience.py` (`compute()`/`health_check()`)
@@ -306,6 +304,91 @@ rebase -- `INT-01` real-merged and took `ADR-082` for itself first; this
 branch's own retrain doesn't touch any migration/schema, so only the ADR
 number needed renumbering, not a migration file). `uv run mypy`/`ruff
 check`/`ruff format --check` clean on `mlb_baseball/model/gbm.py`.
+
+### BAT-01 proposal: batted-ball spray/placement × handedness — evidence gathered, design written, not implemented — 2026-08-20
+
+**Why this is a proposal, not a landed change:** every other feature this
+session (`BSR-01`, `INT-01`, `INT-02`, `PLN-04`'s two halves) only ever
+touched `gold.game_feature` -- a narrow, low-risk addition with no
+consumer beyond the one new module. `BAT-01` is different: the data it
+needs (`hc_x`/`hc_y`/`stand`/`p_throws`) isn't in `core.pitch` yet, and
+`core.pitch` is a shared, foundational, 13,484,101-row, 158-partition
+table other current and future features also read from. Extending it is
+a real architecture change, and CLAUDE.md's own rule for that ("evidence
+first, review pass, mandatory tests for non-trivial schema/design
+decisions") is exactly why this stops at a written, evidence-backed
+design rather than an autonomous implementation.
+
+**Evidence gathered, checked directly against production `mlb` (read-only):**
+- `raw.statcast_pitch` already has every input `BAT-01` needs: `hc_x`/
+  `hc_y` (Statcast's own hit-coordinate fields, the standard input for
+  spray angle) and `stand`/`p_throws` (batter/pitcher handedness).
+- `stand`/`p_throws` are populated for all 13,484,101 rows in
+  `raw.statcast_pitch` (100% coverage) -- handedness is always known.
+- `hc_x`/`hc_y` are populated for 2,372,586 of 2,443,788 real batted-ball
+  rows (`description = 'hit_into_play'`), 97.1% coverage within the
+  batted-ball subset -- strong, real coverage, not a sparse or
+  speculative field.
+- `core.pitch` (migration 0006) currently copies only a subset of
+  `raw.statcast_pitch`'s columns (release_speed/spin_rate, launch_speed/
+  angle, hit_distance, description, event) -- confirmed directly via
+  `information_schema.columns` that `hc_x`/`hc_y`/`stand`/`p_throws` are
+  not among them.
+
+**Proposed `core.pitch` schema extension:**
+```sql
+ALTER TABLE core.pitch ADD COLUMN hc_x numeric;
+ALTER TABLE core.pitch ADD COLUMN hc_y numeric;
+ALTER TABLE core.pitch ADD COLUMN stand text;
+ALTER TABLE core.pitch ADD COLUMN p_throws text;
+```
+`ADD COLUMN` with no default is a fast, metadata-only operation in
+modern Postgres (no full-table rewrite), and cascades automatically to
+every existing partition of a partitioned parent table -- real, but
+worth confirming with `\timing` against a real-sized clone or a
+maintenance window before running on production, given the table's real
+size.
+
+**Proposed `conform.py` change:** extend `_build_pitches`' `INSERT`
+column list and `SELECT` (currently `mlb_baseball/conform.py` around
+line 1067) with `sp.hc_x`/`sp.hc_y`/`sp.stand`/`sp.p_throws` (`hc_x`/
+`hc_y` need the same `NULLIF(..., '')::numeric` cast pattern already used
+for `launch_speed`/`launch_angle`/`hit_distance` on the adjacent lines).
+No backfill script needed beyond a normal `mlb conform` run:
+`_build_pitches` is not self-truncating internally, but `core.pitch` is
+truncated and fully rebuilt from `raw.statcast_pitch` by every conform
+run (see `run()`'s own `TRUNCATE core.play, core.pitch, ...` before
+`_build_pitches` is called) -- the very next scheduled conform run
+populates the new columns for the full history automatically, the same
+"truncate everything, rebuild from raw" design this table already has.
+
+**Proposed spray-angle formula (a public, well-established convention --
+independently reimplemented here, not copied from any specific library's
+code, consistent with this project's `wSB`/`wOBA`/`wRC+` precedent of
+reimplementing public formulas rather than scraping or vendoring code):**
+```
+spray_angle_deg = atan2(hc_x - 125.42, 198.27 - hc_y) * 180 / pi()
+```
+125.42/198.27 are the standard reference-point constants for Statcast's
+own coordinate system (the estimated home-plate origin in its `hc_x`/
+`hc_y` pixel-grid convention), used consistently across the public
+sabermetric community's own independent reimplementations of this exact
+conversion. Pull/oppo/center classification would then combine the sign
+of `spray_angle_deg` with `stand` (a positive angle is pulled for a
+right-handed batter, opposite for a left-handed one) -- the actual
+classification thresholds and the resulting `gold`-layer feature module
+(grain, rolling window, null policy for the pre-2015/non-batted-ball
+gap) are real design decisions still open, deliberately not settled here
+-- this write-up stops at "the inputs are real and the core-layer path
+is clear," not "here is the finished feature spec."
+
+**Verification plan for whoever picks this up next:** before trusting
+the formula's sign/threshold conventions, cross-check computed spray
+angles against a real, independently-knowable case (e.g. a specific real
+batter's known pull tendency, or Baseball Savant's own published spray
+chart for a real game) -- the same reconciliation discipline `starter.py`
+(deGrom) and `team_rate.py` (Acuña) already established for this project,
+not a formula trusted on citation alone.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

@@ -34,6 +34,7 @@ from mlb_baseball.model import (
     diff,
     elo,
     evaluation,
+    experience,
     features,
     framing,
     gbm,
@@ -154,6 +155,7 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         "gold.game_feature (starter)": starter.compute(conn),
         "gold.game_feature (starter live)": starter.compute_live(conn),
         "gold.game_feature (starter probable)": starter.compute_probable(conn),
+        "gold.game_feature (starter experience)": experience.compute(conn),
         "gold.game_feature (starter workload)": starter_workload.compute(conn),
         "gold.game_feature (starter workload live)": starter_workload.compute_live(conn),
         "gold.game_feature (starter workload probable)": starter_workload.compute_probable(conn),
@@ -292,4 +294,5 @@ def health_check() -> list[Check]:
         + market.health_check()
         + starter_workload.health_check()
         + diff.health_check()
+        + experience.health_check()
     )

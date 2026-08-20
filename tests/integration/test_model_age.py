@@ -85,6 +85,14 @@ def test_compute_matches_hand_calculation(db_conn):
 
 
 def test_compute_is_null_when_starter_or_birth_date_is_unresolved(db_conn):
+    # Two NULL-causing scenarios exist per side (unresolved starter_id,
+    # or a resolved starter with an unknown birth_date) -- checked on
+    # BOTH sides here (issue #9 item 3 precedent: team_rate.py's own
+    # tests check home and away independently since they go through the
+    # same formula but two different join legs, so a home-only check
+    # can't surface an away-only join bug, and vice versa). G2 covers
+    # unresolved-starter on home + unknown-birth_date on away; G2b covers
+    # the mirror combination.
     _reset(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
@@ -94,16 +102,27 @@ def test_compute_is_null_when_starter_or_birth_date_is_unresolved(db_conn):
         # some real production rows), not a hypothetical.
         cur.execute(
             "INSERT INTO core.player (retro_id, first_name, last_name, birth_date) "
-            "VALUES ('awayp002', 'Away', 'NoBirthDate', NULL) RETURNING id"
+            "VALUES ('awayp002', 'Away', 'NoBirthDate', NULL), "
+            "('homep002', 'Home', 'NoBirthDate', NULL) "
+            "RETURNING id, retro_id"
         )
-        (away_player,) = cur.fetchone()
+        players = {retro_id: player_id for player_id, retro_id in cur.fetchall()}
         cur.execute(
             "INSERT INTO gold.game_feature "
             "(season, game_date, home_team_id, away_team_id, game_instance_key, "
             "home_starter_id, away_starter_id) VALUES "
-            # home_starter_id NULL: starter not yet resolved for this game.
-            "(2024, '2024-04-01', %(atl)s, %(nya)s, 'age-test:G2', NULL, %(ap)s)",
-            {"atl": atl, "nya": nya, "ap": away_player},
+            # G2: home_starter_id NULL (starter not yet resolved); away
+            # starter resolved but with unknown birth_date.
+            "(2024, '2024-04-01', %(atl)s, %(nya)s, 'age-test:G2', NULL, %(ap)s), "
+            # G2b: the mirror combination -- home starter resolved but
+            # with unknown birth_date; away_starter_id NULL.
+            "(2024, '2024-04-02', %(atl)s, %(nya)s, 'age-test:G2b', %(hp)s, NULL)",
+            {
+                "atl": atl,
+                "nya": nya,
+                "ap": players["awayp002"],
+                "hp": players["homep002"],
+            },
         )
     db_conn.commit()
 
@@ -112,12 +131,14 @@ def test_compute_is_null_when_starter_or_birth_date_is_unresolved(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT home_starter_age, away_starter_age "
-            "FROM gold.game_feature WHERE game_instance_key = 'age-test:G2'"
+            "SELECT game_instance_key, home_starter_age, away_starter_age "
+            "FROM gold.game_feature WHERE game_instance_key IN ('age-test:G2', 'age-test:G2b') "
+            "ORDER BY game_instance_key"
         )
-        row = cur.fetchone()
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
 
-    assert row == (None, None)
+    assert rows["age-test:G2"] == (None, None)
+    assert rows["age-test:G2b"] == (None, None)
 
 
 def test_compute_handles_an_upcoming_game_with_no_core_game_row(db_conn):

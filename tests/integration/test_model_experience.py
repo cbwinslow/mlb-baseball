@@ -161,6 +161,11 @@ def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
 
 
 def test_health_check_flags_an_implausible_value(db_conn):
+    # All four columns flagged in one fixture, each with a distinct
+    # implausible value -- proves the health check isn't just checking
+    # home_starter_career_bf while silently ignoring the other three
+    # (e.g. a copy-paste bug swapping bf_min/bf_max for an ip check, or
+    # home for away, would only be caught by exercising all four).
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO core.team "
@@ -183,13 +188,17 @@ def test_health_check_flags_an_implausible_value(db_conn):
     db_conn.commit()
     with db_conn.cursor() as cur:
         cur.execute(
-            "UPDATE gold.game_feature SET home_starter_career_bf = 999999 "
+            "UPDATE gold.game_feature SET "
+            "home_starter_career_bf = 999999, home_starter_career_ip = 999999, "
+            "away_starter_career_bf = -1, away_starter_career_ip = -1 "
             "WHERE game_id = (SELECT id FROM core.game WHERE retro_game_id = 'G1')"
         )
     db_conn.commit()
 
     checks = experience.health_check()
-    bf_check = next(c for c in checks if c.name == "home_starter_career_bf plausible range")
+    by_name = {c.name: c for c in checks}
 
-    assert not bf_check.ok
-    assert "1 rows" in bf_check.detail
+    assert not by_name["home_starter_career_bf plausible range"].ok
+    assert not by_name["home_starter_career_ip plausible range"].ok
+    assert not by_name["away_starter_career_bf plausible range"].ok
+    assert not by_name["away_starter_career_ip plausible range"].ok

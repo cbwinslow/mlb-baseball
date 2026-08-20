@@ -26,6 +26,16 @@ make it harder to reason about and test in isolation. Duplicates
 pitcher_game_stats' shape rather than importing it, since SQL files in
 this codebase are standalone (mlb_baseball/sql/read_sql), not composed --
 same posture as every other *_update.sql file here.
+
+Career totals intentionally include relief appearances, not just starts
+(PR review, Kilo, confirmed intentional rather than an oversight):
+pitcher_game_stats sums every appearance a pitcher recorded, regardless
+of that game's own start/relief role, so a swingman's career BF/IP
+reflects his whole MLB career. "Prior MLB PA/IP" in the admission
+queue's own words is a general experience/service-time proxy, not
+specifically "prior starts' worth of PA/IP" -- relief innings are real
+MLB pitching experience too, and excluding them would understate a
+swingman's actual career experience.
 """
 
 import psycopg
@@ -34,12 +44,16 @@ from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.sql import read_sql
 
-# Plausible-range bounds for health_check() -- generous around real
-# career extremes (a 20+ year Hall of Fame career can reach ~15,000 career
-# batters faced and ~5,000 career innings; these bounds have real
-# headroom above that, not a tight assumption).
-BF_MIN, BF_MAX = 0, 20000
-IP_MIN, IP_MAX = 0, 6000
+# Plausible-range bounds for health_check() -- checked against the real,
+# all-time MLB career records (PR review, Kilo, then verified directly
+# rather than assumed correct): Cy Young holds both records, 29,565
+# career batters faced and 7,356 career innings pitched (a 22-year,
+# dead-ball-era career never surpassed since). Bounds sit with real
+# headroom above those, not a tight guess -- an earlier draft used
+# 20,000/6,000, which would have flagged Cy Young's own real numbers as
+# implausible had his full career ever loaded into this system.
+BF_MIN, BF_MAX = 0, 32000
+IP_MIN, IP_MAX = 0, 8000
 
 
 def compute(conn: psycopg.Connection) -> int:

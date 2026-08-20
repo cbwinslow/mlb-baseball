@@ -174,11 +174,19 @@ def test_age_runs_after_starter_resolves_ids_through_the_real_dispatch(db_conn):
     # own birth_date.
     _reset(db_conn)
     with db_conn.cursor() as cur:
+        # Wide enough for every Retrosheet-derived module
+        # enrich_feature_stage() calls, including bsr.compute() -- same
+        # gap this module's own shared fixture guards against (issue
+        # #37's failure shape): without run1_sb_fl/etc., bsr.compute()
+        # crashes with UndefinedColumn once starter.compute() has real
+        # rows to work with.
         cur.execute(
             "CREATE TABLE raw.retrosheet_event ("
             "game_id text, bat_home_id text, resp_pit_id text, "
             "resp_pit_start_fl text, event_cd text, ab_fl text, "
-            "sf_fl text, bat_event_fl text, event_outs_ct text, _season text)"
+            "sf_fl text, bat_event_fl text, event_outs_ct text, _season text, "
+            "run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
+            "run1_cs_fl text, run2_cs_fl text, run3_cs_fl text)"
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo "

@@ -29,6 +29,7 @@ from mlb_baseball.health import (
 )
 from mlb_baseball.ingest import track_run
 from mlb_baseball.model import (
+    bsr,
     bullpen,
     elo,
     evaluation,
@@ -124,6 +125,7 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         "gold.game_feature (park_factor)": park.compute(conn),
         "gold.game_feature (team_rate)": team_rate.compute(conn),
         "gold.game_feature (team_rate run environment)": team_rate.compute_run_environment(conn),
+        "gold.game_feature (bsr)": bsr.compute(conn),
         "gold.game_feature (offense)": offense.compute(conn),
         "gold.game_feature (wrc_plus)": offense.compute_wrc_plus(conn),
         "gold.game_feature (offense live)": offense.compute_live(conn),
@@ -243,6 +245,7 @@ def health_check() -> list[Check]:
         + park.health_check()
         + offense.health_check()
         + team_rate.health_check()
+        + bsr.health_check()
         + war.health_check()
         + bullpen.health_check()
         + oaa.health_check()

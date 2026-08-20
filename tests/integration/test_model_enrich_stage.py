@@ -43,16 +43,18 @@ def test_enrich_feature_stage_populates_columns_from_multiple_real_modules(db_co
     _reset(db_conn)
     with db_conn.cursor() as cur:
         # Wide enough for every Retrosheet-derived module enrich_feature_stage
-        # calls (team_rate, offense, starter, starter_workload, bullpen), not
-        # just the two this test asserts on -- the table EXISTS, so each
-        # module's own to_regclass gate won't save it from a real
-        # UndefinedColumn crash if a column it queries is missing (issue #37's
-        # exact failure shape).
+        # calls (team_rate, bsr, offense, starter, starter_workload,
+        # bullpen), not just the two this test asserts on -- the table
+        # EXISTS, so each module's own to_regclass gate won't save it from a
+        # real UndefinedColumn crash if a column it queries is missing
+        # (issue #37's exact failure shape).
         cur.execute(
             "CREATE TABLE raw.retrosheet_event ("
             "game_id text, bat_home_id text, resp_pit_id text, "
             "resp_pit_start_fl text, event_cd text, ab_fl text, "
-            "sf_fl text, bat_event_fl text, event_outs_ct text, _season text)"
+            "sf_fl text, bat_event_fl text, event_outs_ct text, _season text, "
+            "run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
+            "run1_cs_fl text, run2_cs_fl text, run3_cs_fl text)"
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo "

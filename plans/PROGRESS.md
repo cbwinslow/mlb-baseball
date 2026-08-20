@@ -31,7 +31,56 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+- **Next package:** `BSR-01` (stolen-base run value / wSB, admission queue) is now implemented -- see the dated section below. Next candidate per the same queue: `INT-01`/`INT-02` (home-minus-away, recent-minus-long interaction terms over already-approved columns). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+
+### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
+
+Added `mlb_baseball/model/bsr.py` (`compute()`/`health_check()`),
+`gold.game_feature.home_sb/away_sb/home_cs/away_cs/home_wsb/away_wsb`
+(migration `0059`), wired into `enrich_feature_stage()` right after
+`team_rate`'s own OBP/SLG family. Implements Tom Tango's linear-weights
+wSB formula from the admission queue's `BSR-01` row (FanGraphs library
+page cited there), with fixed constants `RUN_SB=0.2`/`RUN_CS=-0.42`.
+
+Real, non-obvious data finding made before writing any SQL: checked
+production `mlb` directly and found `raw.retrosheet_event`'s primary
+`event_cd` (`'4'`=SB, `'6'`=CS) undercounts real attempts -- Chadwick
+cwevent's `run1/2/3_sb_fl`/`_cs_fl` per-runner advance flags also catch a
+steal/caught-stealing embedded as a secondary event on a different play's
+primary event (e.g. `"K+CS2(24)"`). Counting via these flags instead
+catches 251,782 real SB events versus 226,458 from primary `event_cd`
+alone (11% more), and 138,254 real CS events versus 113,100 (22% more).
+Also confirmed SB/CS counting must NOT be gated on `bat_event_fl='T'`
+(unlike 1B/BB/HBP counting) -- most real `run1_sb_fl='T'` rows have
+`bat_event_fl='F'`, since a bare `"SB2"` on a non-PA-ending pitch isn't a
+plate appearance; that gate would have silently dropped most real steals.
+
+Point-in-time safety: same entering-value rolling-window shape as
+`team_rate.py`. The league-wide `lgwSB` term uses its own, coarser
+`(season, game_date)`-grain rolling context (summed across every team,
+since `game_number` isn't comparable across two different teams' same-day
+games), with a stricter same-day exclusion than the team-level window
+allows for a same-team doubleheader nightcap -- deliberate, documented,
+not an inconsistency.
+
+Verified with a real hand-calculated fixture (`tests/integration/
+test_model_bsr.py`): two teams across two prior games with distinct
+SB/CS/1B/UBB/HBP counts on both sides, expected `lgwSB` and both teams'
+entering `wSB` hand-derived by the same arithmetic the SQL performs,
+asserted to match within `0.001`. Same fixture proves the `MIN_ATTEMPTS=5`
+gate on both sides of the boundary. Six tests total (hand-calc, two
+missing-table gates, plausible-range/min-sample-gate/coverage health
+checks), all passing against real Postgres (`mlb_test`).
+
+`tests/integration/test_model_enrich_stage.py`'s shared "wide enough for
+every Retrosheet-derived module" stub table needed the new `run*_sb_fl`/
+`run*_cs_fl` columns added -- without them, `enrich_feature_stage()`'s
+real call into `bsr.compute()` crashed with `UndefinedColumn`, exactly the
+gap that test exists to catch (issue #37's failure shape).
+
+`uv run ruff check .`/`ruff format --check .` clean, `uv run mypy
+mlb_baseball/model/bsr.py` clean, `uv run sqlfluff lint` clean on all
+three new SQL files. Full details in `docs/DECISIONS.md` ADR-081.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

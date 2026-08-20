@@ -66,6 +66,16 @@ def _reset(db_conn):
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team")
+        # Test-owned venues (PR #55 review, coderabbitai): this file
+        # inserts 'ATL03'/'TSTCUR'/'TSTOLD' and each test that does so
+        # also deletes its own rows before returning, but a test failing
+        # partway through would previously leave them behind since _reset
+        # (unlike the tables above) never touched core.venue at all --
+        # the exact class of flake this file's autouse fixture otherwise
+        # closes. gold.game_feature is deleted first, above, so this never
+        # hits the venue_id foreign key. Deletes only these known test
+        # rows, not every venue.
+        cur.execute("DELETE FROM core.venue WHERE retro_park_id IN ('ATL03', 'TSTCUR', 'TSTOLD')")
     db_conn.commit()
 
 

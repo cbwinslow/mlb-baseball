@@ -4,6 +4,8 @@ wOBA computed from raw.retrosheet_event (ADR-036).
 
 from decimal import Decimal
 
+import pytest
+
 from mlb_baseball.model import features, offense
 
 
@@ -43,13 +45,25 @@ def _reset(db_conn):
     db_conn.commit()
 
 
+@pytest.fixture(autouse=True)
+def _clean(db_conn):
+    # Issue #9 item 5: every test in this file used to call _reset(db_conn)
+    # as its own first and last line. If a test failed partway through, the
+    # trailing call never ran, leaking its stub tables/rows into whichever
+    # test happened to run next. An autouse fixture's teardown runs
+    # regardless of pass/fail, so this closes that gap without every test
+    # needing its own explicit call.
+    _reset(db_conn)
+    yield
+    _reset(db_conn)
+
+
 def test_compute_rolling_woba_matches_hand_calculation(db_conn):
     # ATL (home, batting when bat_home_id='1') in G1: 1 single, 1 BB,
     # 1 HBP, 1 generic out (AB=2: the single + the out). Entering G2:
     #   numerator = 0.690*1 + 0.722*1 + 0.878*1 = 2.290
     #   denominator = AB(2) + uBB(1) + SF(0) + HBP(1) = 4
     #   wOBA = 2.290 / 4 = 0.5725
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -106,8 +120,6 @@ def test_compute_rolling_woba_matches_hand_calculation(db_conn):
     assert rows["G1"] is None  # first game -- nothing prior
     assert rows["G2"] == Decimal("0.5725")
 
-    _reset(db_conn)
-
 
 def test_compute_ignores_a_non_batter_event_phantom_row(db_conn):
     # Issue #9 item 6: team_woba_retrosheet_update.sql predates ADR-034's
@@ -119,7 +131,6 @@ def test_compute_ignores_a_non_batter_event_phantom_row(db_conn):
     # G1 has one real single (bat_event_fl='T') plus one phantom row with
     # event_cd='20' (single) but bat_event_fl='F' -- a real event_cd that
     # must NOT count, since it isn't a real plate appearance.
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -175,8 +186,6 @@ def test_compute_ignores_a_non_batter_event_phantom_row(db_conn):
     # range, which is what this assertion actually rules out.
     assert woba == Decimal("0.8780")
 
-    _reset(db_conn)
-
 
 def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn):
     # Issue #9 item 6 (found by direct audit, same bug class as item 1's
@@ -198,7 +207,6 @@ def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn)
     # If ordered by insertion order instead (the bug), DH2 (lower game_id)
     # would sort before DH1 on the same date, so entering DH2 would only
     # see G1 (0.878), not G1+DH1 (1.060).
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -265,8 +273,6 @@ def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn)
 
     assert abs(rows["DH2"] - Decimal("1.060")) < Decimal("0.0001")
 
-    _reset(db_conn)
-
 
 def test_compute_orders_doubleheader_by_coalesced_game_number_when_number_is_null(db_conn):
     # Issue #28: confirmed against real production `mlb` data that
@@ -288,7 +294,6 @@ def test_compute_orders_doubleheader_by_coalesced_game_number_when_number_is_nul
     # AB=2 -> 1.060. If ordered by `game_number NULLS LAST` instead (the
     # bug), DH2 (non-null) sorts before DH1 (NULL) despite being the later
     # game, so entering DH2 would only see G1 (0.878), not G1+DH1 (1.060).
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -354,18 +359,13 @@ def test_compute_orders_doubleheader_by_coalesced_game_number_when_number_is_nul
 
     assert abs(rows["DH2"] - Decimal("1.060")) < Decimal("0.0001")
 
-    _reset(db_conn)
-
 
 def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")
     db_conn.commit()
 
     assert offense.compute(db_conn) == 0
-
-    _reset(db_conn)
 
 
 def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
@@ -375,7 +375,6 @@ def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
     # (retrosheet_event.py, retrosheet.py), so a fresh clone that's only
     # bootstrapped one of them previously hit an UndefinedTable error here
     # instead of the same clean "not ready yet" 0 every sibling gate gives.
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
             "CREATE TABLE raw.retrosheet_event ("
@@ -386,8 +385,6 @@ def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
     db_conn.commit()
 
     assert offense.compute(db_conn) == 0
-
-    _reset(db_conn)
 
 
 def _ensure_playbyplay_table(db_conn):
@@ -407,7 +404,6 @@ def test_compute_live_rolling_woba_matches_hand_calculation(db_conn):
     # walk, 1 hit_by_pitch, 1 field_out (AB=2: the single + the out).
     # Same numbers as the Retrosheet-based test above, same hand-computed
     # result: wOBA = 2.290 / 4 = 0.5725.
-    _reset(db_conn)
     _ensure_playbyplay_table(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -462,11 +458,8 @@ def test_compute_live_rolling_woba_matches_hand_calculation(db_conn):
     # HBP) -- a real, valid (if tiny-sample) wOBA of exactly 0, not NULL.
     assert g2[1] == Decimal("0")
 
-    _reset(db_conn)
-
 
 def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
-    _reset(db_conn)
     _ensure_playbyplay_table(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -500,11 +493,8 @@ def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
         (woba,) = cur.fetchone()
     assert woba == Decimal("0.333")
 
-    _reset(db_conn)
-
 
 def test_compute_live_returns_zero_without_playbyplay_table(db_conn):
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_playbyplay")
     db_conn.commit()
@@ -513,7 +503,6 @@ def test_compute_live_returns_zero_without_playbyplay_table(db_conn):
 
 
 def test_health_check_flags_an_implausible_value(db_conn):
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO core.team "
@@ -546,8 +535,6 @@ def test_health_check_flags_an_implausible_value(db_conn):
     assert not check.ok
     assert "1 rows" in check.detail
 
-    _reset(db_conn)
-
 
 def test_health_check_accepts_verified_small_sample_historical_extreme(db_conn):
     # Real production value, not synthetic: the Philadelphia Stars (retro_team_id
@@ -558,7 +545,6 @@ def test_health_check_accepts_verified_small_sample_historical_extreme(db_conn):
     # health_check docstring. Not a bug; a genuine computation bug (e.g. a
     # dropped weight or inverted denominator) would produce something well
     # outside even this widened bound, which the previous test covers.
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO core.team "
@@ -590,8 +576,6 @@ def test_health_check_accepts_verified_small_sample_historical_extreme(db_conn):
 
     assert check.ok
 
-    _reset(db_conn)
-
 
 def test_health_check_flags_a_woba_coverage_gap(db_conn):
     # Issue #32: the plausible-range check above can only ever catch a
@@ -604,7 +588,6 @@ def test_health_check_flags_a_woba_coverage_gap(db_conn):
     # coverage check exists to catch -- not the ordinary "first game of the
     # season, nothing prior yet" NULL that G1 itself would still have if
     # its own home_woba were (correctly) NULL.
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -663,8 +646,6 @@ def test_health_check_flags_a_woba_coverage_gap(db_conn):
     assert not coverage_check.ok
     assert "1 eligible rows" in coverage_check.detail
 
-    _reset(db_conn)
-
 
 def test_health_check_flags_a_wrc_plus_coverage_gap(db_conn):
     # Issue #32, home_wrc_plus/away_wrc_plus half: these have no separate
@@ -678,7 +659,6 @@ def test_health_check_flags_a_wrc_plus_coverage_gap(db_conn):
     # coverage sub-checks share one gate (offense.py::health_check), since
     # wrc_plus is never meaningful before woba/park_factor are, which in
     # practice always requires retrosheet coverage anyway.
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -720,5 +700,3 @@ def test_health_check_flags_a_wrc_plus_coverage_gap(db_conn):
     # which only passed because the SQL never actually applied that
     # criterion to wrc_plus -- true by accident, not by the check's design).
     assert "1 woba/park_factor-populated rows" in coverage_check.detail
-
-    _reset(db_conn)

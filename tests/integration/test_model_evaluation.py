@@ -39,8 +39,18 @@ def _reset(db_conn):
     db_conn.commit()
 
 
-def test_evaluate_treats_schedule_history_as_one_mlb_game(db_conn):
+@pytest.fixture(autouse=True)
+def _clean(db_conn):
+    # Issue #9 item 5: an autouse fixture's teardown runs regardless of
+    # pass/fail, unlike the per-test trailing _reset(db_conn) call this
+    # replaces, which never ran if a test failed partway through -- see
+    # test_model_offense.py's identical fixture for the full explanation.
     _reset(db_conn)
+    yield
+    _reset(db_conn)
+
+
+def test_evaluate_treats_schedule_history_as_one_mlb_game(db_conn):
     _ensure_schedule_shape(db_conn)
     key = "mlb:999"
     with db_conn.cursor() as cur:
@@ -69,15 +79,21 @@ def test_evaluate_treats_schedule_history_as_one_mlb_game(db_conn):
 
     assert report["coverage"] == {"a": 1}
     assert report["common_games"] == 1
-    _reset(db_conn)
 
 
 def test_evaluate_uses_one_pregame_snapshot_and_exact_common_sample(db_conn):
-    _reset(db_conn)
+    # Pre-existing gap, found (not introduced) while removing this file's
+    # boilerplate _reset(db_conn) calls in favor of the _clean autouse
+    # fixture above: this test's entire body was already just a bare
+    # _reset(db_conn) call, with no actual test logic -- it always passed
+    # without checking anything its name claims to. Left as a stub (not
+    # written here -- out of scope for a test-isolation cleanup) rather
+    # than silently deleted, so the gap stays visible instead of vanishing
+    # along with the boilerplate call that used to occupy this body.
+    pytest.skip("stub test never had real content -- see issue #9 item 5 PR for context")
 
 
 def test_evaluate_retains_retrosheet_history_after_feature_rows_are_rebuilt(db_conn):
-    _reset(db_conn)
     key = "retro:HIST202604010"
     with db_conn.cursor() as cur:
         cur.execute(
@@ -99,6 +115,13 @@ def test_evaluate_retains_retrosheet_history_after_feature_rows_are_rebuilt(db_c
 
     assert report["coverage"] == {"a": 1}
     assert report["common_games"] == 1
+    # _reset(db_conn) here is not boilerplate -- it clears the legacy
+    # prediction/game_feature rows from the evaluate() call just above so
+    # the second evaluate() call below starts from a clean slate instead
+    # of accumulating this phase's data. Found the hard way: the blanket
+    # boilerplate-removal pass for issue #9 item 5 stripped this call too,
+    # and this test started failing (coverage counted 3 games, not 2) as
+    # a result.
     _reset(db_conn)
     _ensure_schedule_shape(db_conn)
     with db_conn.cursor() as cur:
@@ -148,5 +171,3 @@ def test_evaluate_retains_retrosheet_history_after_feature_rows_are_rebuilt(db_c
         )
         persisted = cur.fetchone()
     assert persisted == (1, "evaluate", "success")
-
-    _reset(db_conn)

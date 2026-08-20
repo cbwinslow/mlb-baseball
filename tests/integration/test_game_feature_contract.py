@@ -2,6 +2,8 @@
 
 # ruff: noqa: E501
 
+import pytest
+
 from mlb_baseball.model import features
 
 
@@ -16,6 +18,17 @@ def _reset(db_conn):
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team")
     db_conn.commit()
+
+
+@pytest.fixture(autouse=True)
+def _clean(db_conn):
+    # Issue #9 item 5: an autouse fixture's teardown runs regardless of
+    # pass/fail, unlike the per-test trailing _reset(db_conn) call this
+    # replaces, which never ran if a test failed partway through -- see
+    # test_model_offense.py's identical fixture for the full explanation.
+    _reset(db_conn)
+    yield
+    _reset(db_conn)
 
 
 def _seed(db_conn):
@@ -62,7 +75,6 @@ def _schedule(db_conn, pk, date, start, status="Final", game_no="1", loaded="202
 
 
 def test_strict_feature_contract_is_pit_safe_for_doubleheader_and_schedule_history(db_conn):
-    _reset(db_conn)
     teams = _seed(db_conn)
     _game(db_conn, teams, "G1", "1001", "2024-04-01", 1, 5, 3)
     _game(db_conn, teams, "DH1", "1002", "2024-04-02", 1, 2, 1)
@@ -133,11 +145,9 @@ def test_strict_feature_contract_is_pit_safe_for_doubleheader_and_schedule_histo
         "SELECT mlb_game_pk, home_wins, away_wins, feature_cutoff_at FROM gold.game_feature ORDER BY mlb_game_pk"
     ).fetchall()
     assert second == first
-    _reset(db_conn)
 
 
 def test_strict_feature_contract_excludes_non_mlb_and_nonterminal_schedule_rows(db_conn):
-    _reset(db_conn)
     teams = _seed(db_conn)
     _game(db_conn, teams, "RETRO_ONLY", None, "2024-04-01", 1, 3, 2)
     _schedule(db_conn, "2001", "2024-04-04", "2024-04-04T18:00:00Z", "Live")
@@ -151,11 +161,9 @@ def test_strict_feature_contract_excludes_non_mlb_and_nonterminal_schedule_rows(
         "SELECT mlb_game_pk, game_id, home_win, home_win_pct, venue_id FROM gold.game_feature"
     ).fetchone()
     assert row == ("2003", None, None, None, None)
-    _reset(db_conn)
 
 
 def test_strict_feature_contract_uses_numeric_team_identity_across_name_drift(db_conn):
-    _reset(db_conn)
     _seed(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -177,4 +185,3 @@ def test_strict_feature_contract_uses_numeric_team_identity_across_name_drift(db
         ).fetchone()
         == db_conn.execute("SELECT id FROM core.team WHERE retro_team_id = 'TBA'").fetchone()
     )
-    _reset(db_conn)

@@ -5,6 +5,8 @@ runs-for/allowed averages (OFF-08/DEF-01).
 
 from decimal import Decimal
 
+import pytest
+
 from mlb_baseball.model import features, team_rate
 
 
@@ -26,6 +28,17 @@ def _reset(db_conn):
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team")
     db_conn.commit()
+
+
+@pytest.fixture(autouse=True)
+def _clean(db_conn):
+    # Issue #9 item 5: an autouse fixture's teardown runs regardless of
+    # pass/fail, unlike the per-test trailing _reset(db_conn) call this
+    # replaces, which never ran if a test failed partway through -- see
+    # test_model_offense.py's identical fixture for the full explanation.
+    _reset(db_conn)
+    yield
+    _reset(db_conn)
 
 
 def _insert_three_games(db_conn):
@@ -82,7 +95,6 @@ def _insert_three_games(db_conn):
 
 
 def test_compute_run_environment_matches_hand_calculation(db_conn):
-    _reset(db_conn)
     _insert_three_games(db_conn)
     features.build(db_conn, strict=True)
     db_conn.commit()
@@ -102,11 +114,8 @@ def test_compute_run_environment_matches_hand_calculation(db_conn):
     assert rows["G1"] == (None, None)  # first game -- nothing prior
     assert rows["G3"] == (Decimal("3.5"), Decimal("4.5"))
 
-    _reset(db_conn)
-
 
 def test_compute_run_environment_is_idempotent(db_conn):
-    _reset(db_conn)
     _insert_three_games(db_conn)
     features.build(db_conn, strict=True)
     db_conn.commit()
@@ -130,8 +139,6 @@ def test_compute_run_environment_is_idempotent(db_conn):
         (second_run,) = cur.fetchone()
 
     assert first_run == second_run == Decimal("3.5")
-
-    _reset(db_conn)
 
 
 def _ensure_retrosheet_tables(db_conn):
@@ -203,7 +210,6 @@ def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
     # rows, not a real plate appearance. It must NOT move K% (or AB, since
     # ab_fl/sf_fl='F' on it too): if it did, K% would come out to 2/10=0.2
     # instead of the correct 1/10=0.1 asserted below.
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -278,8 +284,6 @@ def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
     # away_pa = AB+BB+HBP+SF = 1+0+0+0 = 1.
     assert g2[7] == Decimal("1")  # away_pa  (ungated -- always populated)
 
-    _reset(db_conn)
-
 
 def test_compute_babip_matches_hand_calculation(db_conn):
     # Proves BABIP = (H - HR) / (AB - SO - HR + SF) when BIP >= MIN_BIP (8).
@@ -290,7 +294,6 @@ def test_compute_babip_matches_hand_calculation(db_conn):
     # SO = 2; HR = 1; SF = 1
     # BIP = AB - SO - HR + SF = 13 - 2 - 1 + 1 = 11 (>= 8)
     # BABIP = 7 / 11
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -360,8 +363,6 @@ def test_compute_babip_matches_hand_calculation(db_conn):
     assert abs(iso - (Decimal(7) / Decimal(13))) < Decimal("0.0000000001")
     assert abs(obp - (Decimal(11) / Decimal(17))) < Decimal("0.0000000001")
 
-    _reset(db_conn)
-
 
 def test_compute_gates_rate_stats_below_min_sample(db_conn):
     # ATL's only prior game (G1) has exactly 1 PA (a single, ab_fl='T',
@@ -369,7 +370,6 @@ def test_compute_gates_rate_stats_below_min_sample(db_conn):
     # stat (OBP/BB%/K%/BABIP) entering G2 must be NULL despite a real, nonzero
     # underlying value existing. PA itself is NOT gated -- it must still
     # report the real count (1) so a consumer can see why the rate is NULL.
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -419,8 +419,6 @@ def test_compute_gates_rate_stats_below_min_sample(db_conn):
 
     assert row == (None, None, None, None, None, None, Decimal("1"))
 
-    _reset(db_conn)
-
 
 def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn):
     # Regression for a real ordering bug: the rolling window used to order
@@ -466,7 +464,6 @@ def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn)
     #   entering DH2: AVG = 16/16 = 1.0 -> ISO = 1.5-1.0 = 0.5
     #     (a real, nonzero value -- proves TB/AB - H/AB is actually
     #     subtracting two different numbers, not just echoing SLG)
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -548,8 +545,6 @@ def test_compute_orders_doubleheader_by_game_number_not_insertion_order(db_conn)
     assert rows["DH1"] == (Decimal("1.0"), Decimal("0.0"))  # SLG, ISO
     assert rows["DH2"] == (Decimal("1.5"), Decimal("0.5"))  # SLG, ISO
 
-    _reset(db_conn)
-
 
 def test_compute_orders_doubleheader_by_coalesced_game_number_when_number_is_null(db_conn):
     # Issue #28: confirmed against real production `mlb` data that
@@ -575,7 +570,6 @@ def test_compute_orders_doubleheader_by_coalesced_game_number_when_number_is_nul
     # (non-null) sorts before DH1 (NULL) despite being the later game:
     #   entering DH2 (buggy) = G1 only -> SLG = 1.0, ISO = 0.0
     #   entering DH1 (buggy) = G1 + DH2 -> SLG = 11/9 = 1.222, ISO = 0.222
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -656,18 +650,13 @@ def test_compute_orders_doubleheader_by_coalesced_game_number_when_number_is_nul
     assert rows["DH1"] == (Decimal("1.0"), Decimal("0.0"))  # SLG, ISO
     assert rows["DH2"] == (Decimal("1.5"), Decimal("0.5"))  # SLG, ISO
 
-    _reset(db_conn)
-
 
 def test_compute_returns_zero_without_retrosheet_event_table(db_conn):
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")
     db_conn.commit()
 
     assert team_rate.compute(db_conn) == 0
-
-    _reset(db_conn)
 
 
 def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
@@ -676,7 +665,6 @@ def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
     # test_model_offense.py's identical regression for the full explanation
     # (retrosheet_event/retrosheet_gameinfo are landed by two different
     # connectors).
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
             "CREATE TABLE raw.retrosheet_event ("
@@ -688,11 +676,8 @@ def test_compute_returns_zero_without_retrosheet_gameinfo_table(db_conn):
 
     assert team_rate.compute(db_conn) == 0
 
-    _reset(db_conn)
-
 
 def test_health_check_flags_an_implausible_value(db_conn):
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO core.team "
@@ -726,11 +711,8 @@ def test_health_check_flags_an_implausible_value(db_conn):
     assert not obp_check.ok
     assert "1 rows" in obp_check.detail
 
-    _reset(db_conn)
-
 
 def test_health_check_flags_a_min_sample_gate_violation(db_conn):
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO core.team "
@@ -770,8 +752,6 @@ def test_health_check_flags_a_min_sample_gate_violation(db_conn):
     assert not gate_check.ok
     assert "1 rows" in gate_check.detail
 
-    _reset(db_conn)
-
 
 def test_health_check_flags_a_pa_coverage_gap(db_conn):
     # Issue #32: the range/gate checks above can only ever catch a value
@@ -784,7 +764,6 @@ def test_health_check_flags_a_pa_coverage_gap(db_conn):
     # coverage check exists to catch -- not the ordinary "first game of the
     # season, nothing prior yet" NULL that G1 itself would still have if
     # its own home_pa were (correctly) NULL.
-    _reset(db_conn)
     _ensure_retrosheet_tables(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -843,8 +822,6 @@ def test_health_check_flags_a_pa_coverage_gap(db_conn):
     assert not coverage_check.ok
     assert "1 eligible rows" in coverage_check.detail
 
-    _reset(db_conn)
-
 
 def test_compute_run_environment_unaffected_by_postponed_observation(db_conn):
     # A postponed schedule observation for a game_id never produces its own
@@ -866,7 +843,6 @@ def test_compute_run_environment_unaffected_by_postponed_observation(db_conn):
     # Entering DH2: runs_for_avg = (5+6)/2 = 5.5, runs_allowed_avg = (3+5)/2 = 4.0
     # (must reflect G1+DH1 only -- the postponed observation contributes
     # nothing, and DH2 must not include itself).
-    _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
         if not cur.fetchone()[0]:
@@ -930,5 +906,3 @@ def test_compute_run_environment_unaffected_by_postponed_observation(db_conn):
         row = cur.fetchone()
 
     assert row == (Decimal("5.5"), Decimal("4.0"))
-
-    _reset(db_conn)

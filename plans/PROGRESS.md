@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #29 team_bullpen backbone zero-fill -- fixed on branch `bullpen-uncovered-games-fix`/PR #52, awaiting merge, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#46 are fixed and merged.
+- **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 
@@ -108,6 +108,80 @@ scope note -- `team_bullpen_retrosheet_update.sql` (used by `compute()`
 for the actual production fatigue/quality numbers, not just this health
 check) has a similar-looking `starters` CTE but was out of scope and not
 touched; whether it has the same double-scan shape is unexamined.
+
+### Game export view (gold.game_export, completed) — 2026-08-19
+
+Completed the first concrete piece of the 2026-08-19 owner-directed
+research-interoperability goal (`docs/ROADMAP.md` Phase 3 addendum): a
+plain PostgreSQL view, `gold.game_export` (migration 0058), joining
+`gold.game_feature` to `core.team`/`core.player`/`core.venue`/`core.game`
+so a researcher gets readable home/away team and starter names plus the
+real final score (`core.game.home_score`/`away_score` -- `gold.game_feature`
+itself only carries the boolean `home_win`) in one flat, CSV/Excel/R-ready
+row per game, with no hand-joining. `LEFT JOIN`s throughout so an upcoming
+(not yet played) game still appears with NULL score/venue/starter rather
+than being dropped. A view, not a materialized table -- every column is
+already computed and stored elsewhere, so it needs no separate refresh
+step. Covered by `tests/integration/test_game_export_view.py` (3 tests:
+name/score resolution against a hand-built fixture, the LEFT JOIN
+behavior for an upcoming game, and a partial-name case where
+`core.player.last_name` is NULL); confirmed via mutation testing (dropping
+the view made all three tests fail with `UndefinedTable`, not pass
+trivially). The documented `psql \copy` recipe for this view plus the
+pre-existing `gold.player_season`/`team_season` was added to
+`docs/RESEARCH_QUERY_RUNBOOK.md` "Exporting to CSV" in the same change. A
+small `mlb export` CLI wrapper was considered and deliberately deferred --
+`psql \copy` already covers any of these relations generically, so a
+Python wrapper would add no real capability until there's a concrete
+need (e.g. non-technical collaborators without `psql` access).
+
+PR #51 review (Kilo, CodeAnt, CodeRabbit) caught two real gaps, fixed in
+follow-up commits: `||` string concatenation returns NULL if either side
+is NULL (`core.player.last_name` is genuinely NULL for 224 production
+rows -- confirmed directly, not hypothetical), switched to
+`NULLIF(CONCAT_WS(...), '')`; and the view omitted several real
+`gold.game_feature` columns (`home_runs_for`/`home_runs_allowed`/
+`away_runs_for`/`away_runs_allowed`/`home_field`/`home_starter_rest`/
+`away_starter_rest`), added. Also added an explicit point-in-time
+contract comment (migration + runbook doc): `home_score`/`away_score`/
+`home_win` are reporting-only, postgame values, never a pregame model
+input for the game they belong to.
+
+### team_bullpen backbone excludes uncovered games (issue #29, completed) — 2026-08-19
+
+Fixed `team_bullpen_retrosheet_update.sql`'s `team_game` backbone (issue
+#29, flagged in PR #25 review): it pulled every `core.game` row with
+`game_type='regular'` unconditionally, then `COALESCE(sum(ro.*), 0)`
+fabricated an explicit zero relief-outs row for a game with no matching
+`raw.retrosheet_event`/`retrosheet_gameinfo` rows at all -- making a
+genuinely-uncovered game indistinguishable from a team that really used
+zero relievers in a game we have full data for. That zero then fed
+`team_day_fatigue`'s trailing-window sum, understating real bullpen
+fatigue for any date whose window included an uncovered game.
+
+Checked scale in production `mlb` first: 1,880 of 222,071 regular games
+(0.85%) lack event coverage, and **all 1,880 are 2026** -- the
+still-in-progress current season, whose event files Retrosheet hasn't
+published yet (they publish a season's files only after it ends). Every
+season 1898-2025 is fully covered. Not an ingestion gap -- there is
+nothing to re-ingest yet for 2026 by design; this is exactly why
+`compute_live()`/`compute_upcoming()` exist to cover 2026 from
+`raw.mlb_playbyplay` instead.
+
+Fix: added a `covered_games` CTE (same join shape as the existing
+`starters`/`pitcher_game_stats` CTEs, reused as an existence gate) and
+required `team_game` to join through it -- an uncovered game now gets no
+backbone row at all, excluded from a team's rolling history entirely
+("as if it never happened") rather than contributing a fabricated zero.
+Regression test `test_compute_excludes_games_without_event_coverage_from_the_backbone`
+in `tests/integration/test_model_bullpen.py` proves this: watched it
+fail against the pre-fix SQL (`Decimal('0')` instead of `None` for
+fatigue when a team's only history in the trailing window was an
+uncovered game), then confirmed green after the fix. All 15 bullpen
+tests pass; the pre-existing "genuine zero relief usage in a covered
+game" test (`test_compute_rolls_up_relief_only_with_zero_leakage_and_correct_fatigue_window`)
+still passes unchanged, confirming the fix doesn't touch that legitimate
+case.
 
 ### Starter workload live and probable paths (pitcher_workload_v1_live, completed) — 2026-08-15
 

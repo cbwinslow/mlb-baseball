@@ -121,8 +121,16 @@ team-season, and game, plus a documented `COPY (SELECT * FROM ...) TO STDOUT
 WITH CSV HEADER` recipe (or a small `mlb export` CLI wrapper around the same
 thing) for each one. Does not need SQLMesh — `transforms/`'s spike (see
 `docs/SQLMESH_OPERATIONS.md`) remains gated behind its own promotion review
-and isn't a blocker for this. Not started; a real next step, not implied
-in-progress.
+and isn't a blocker for this.
+
+✅ **Game export view** (migration 0058) — `gold.game_export`, a plain view
+over `gold.game_feature` joined to `core.team`/`core.player`/`core.venue`/
+`core.game` for readable team/starter names and the real final score. The
+`psql \copy` recipe for it, `gold.player_season`,
+and `gold.team_season` is documented in `docs/RESEARCH_QUERY_RUNBOOK.md`
+"Exporting to CSV". A small `mlb export` CLI wrapper remains a real,
+deliberately deferred next step — not needed while `psql \copy` already
+covers any of these relations generically.
 
 **The public website's own query interface (Phase 3, still not planned)
 is a separate, later goal** — a hosted, public-facing version of the same

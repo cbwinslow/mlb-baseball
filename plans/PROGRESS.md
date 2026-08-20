@@ -288,12 +288,14 @@ declined to promote, registering the attempt as a `candidate` row in
 champion untouched.
 
 **Caught and fixed a real safety issue before it could reach a shared
-branch:** since the retrain didn't save, the model file still on disk
-expects the original 37-column shape -- leaving the `FEATURE_COLUMNS`
-addition in place would have broken `predict()`'s very next run with a
-feature-shape mismatch, the identical failure mode `home_framing_prior`
-hit first (ADR-045). Reverted `FEATURE_COLUMNS` back to exactly 37
-columns immediately upon getting the real result; confirmed via
+branch:** since this retrain wasn't promoted to champion (a real
+candidate artifact was still saved to disk and registered, just never
+loaded), the model `predict()` actually serves still expects the
+original 37-column shape -- leaving the `FEATURE_COLUMNS` addition in
+place would have broken `predict()`'s very next run with a feature-shape
+mismatch, the identical failure mode `home_framing_prior` hit first
+(ADR-045). Reverted `FEATURE_COLUMNS` back to exactly 37 columns
+immediately upon getting the real result; confirmed via
 `len(gbm.FEATURE_COLUMNS) == 37` and `tests/integration/test_model_gbm.py`
 (9 tests, unaffected either way since they only ever seed
 `REQUIRED_COLUMNS`).

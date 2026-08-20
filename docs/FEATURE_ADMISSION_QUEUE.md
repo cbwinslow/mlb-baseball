@@ -81,17 +81,20 @@ and `mlb field-census` for the evidence record.
 implemented; see their rows above. Superseded, not left stale.
 
 **Item 1 done, 2026-08-20 — real, honest negative result, see `docs/DECISIONS.md`
-ADR-082.** `team_prior_offense_defense_v1` + `starter_workload_v1` were added
+ADR-086.** `team_prior_offense_defense_v1` + `starter_workload_v1` were added
 to `gbm.py`'s `FEATURE_COLUMNS` and retrained against real production `mlb`
 (208,454 train rows, 4,821 held-out validation rows): gbm log-loss 0.6792 vs.
 Elo's 0.6801, a 0.0009 improvement -- well under the required 0.002 margin.
-Not saved, not promoted, `FEATURE_COLUMNS` reverted to its original 37-column
-shape (an unsaved retrain would otherwise have broken `predict()`'s next run
-via a feature-shape mismatch -- the same failure mode framing's own attempt
-hit first). Real evidence against "the bottleneck is simply feature count"
-as a complete explanation -- doesn't mean the newer rows below won't help,
-means they need the same one-honest-retrain-at-a-time evaluation, not an
-assumption either way.
+Not promoted to champion (a real, retrievable `candidate` artifact and
+`meta.model` row were persisted from this run, same as every `train()` call
+-- `_get_champion()` just never loads it), `FEATURE_COLUMNS` reverted to its
+original 37-column shape (leaving it in place would otherwise have broken
+`predict()`'s next run via a feature-shape mismatch against the still-loaded
+champion -- the same failure mode framing's own attempt hit first). Real
+evidence against "the bottleneck is simply feature count" as a complete
+explanation -- doesn't mean the newer rows below won't help, means they need
+the same one-honest-retrain-at-a-time evaluation, not an assumption either
+way.
 
 Next, in priority order:
 

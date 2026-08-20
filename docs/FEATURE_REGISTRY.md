@@ -38,18 +38,22 @@ does not include pitchers, lineups, weather, markets, or pitch-level metrics.
 `team_prior_offense_defense_v1` (`mlb_baseball/model/team_rate.py`, ADR-061)
 adds prior rolling OBP/SLG/ISO/BB%/K%/BABIP (admission queue OFF-01-04) and
 prior runs-for/allowed averages (OFF-08/DEF-01) as compatibility enrichment
-columns on `gold.game_feature` -- not part of `game_base_v1`, but (correction,
-2026-08-20: this note was stale) wired into the live daily pipeline via
-`enrich_feature_stage()` since ADR-061, and into `gbm.py`'s `FEATURE_COLUMNS`
-as of 2026-08-20 (a real gap: it sat built, tested, and populated in
-production for weeks before anyone tried it in the champion model -- see
-`docs/DECISIONS.md`'s entry for that change for the retrain result).
+columns on `gold.game_feature` -- not part of `game_base_v1`, wired into
+the live daily pipeline via `enrich_feature_stage()` since ADR-061. Briefly
+added to `gbm.py`'s `FEATURE_COLUMNS` on 2026-08-20 for a real retrain
+against production, then reverted the same day (the addition beat both
+baselines on raw log-loss but didn't clear the required improvement margin
+over elo, so the champion model's saved shape never changed) -- see
+`docs/DECISIONS.md`'s entry for that change for the full retrain result.
+Currently absent from `gbm.py`'s own `FEATURE_COLUMNS`/`OPTIONAL_COLUMNS`
+again, same as `starter_workload_v1` below.
 
 All families above (`starter_prior_v1` through `framing_prior_v1`) share this
 same "compatibility enrichment column" status relative to `game_base_v1` and
 the experiment lab: none are approved experiment-snapshot inputs, all are
 wired into the live `mlb predict` pipeline via `enrich_feature_stage()`, and
 each is independently listed above (not "silently added," per this
-document's own rule) once it lands. `starter_workload_v1` is the one
-built-and-populated exception still missing from `gbm.py`'s own feature set,
-same shape as `team_prior_offense_defense_v1` was until this correction.
+document's own rule) once it lands. `starter_workload_v1` and
+`team_prior_offense_defense_v1` are both currently missing from `gbm.py`'s
+own feature set (see above for `team_prior_offense_defense_v1`'s own
+briefly-tried-and-reverted history).

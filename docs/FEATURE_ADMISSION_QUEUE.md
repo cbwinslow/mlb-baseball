@@ -96,17 +96,18 @@ explanation -- doesn't mean the newer rows below won't help, means they need
 the same one-honest-retrain-at-a-time evaluation, not an assumption either
 way.
 
-Next, in priority order:
+Next, in priority order (updated 2026-08-20 -- `BSR-01`/`INT-01`/`INT-02`
+and `PLN-04`'s career-PA/IP half are now all implemented and merged; see
+their own rows above, not repeated here):
 
-1. **`BSR-01` stolen-base run value** — the highest-confidence, lowest-cost
-   new row in this table: established decades-old methodology, zero new
-   data needed, directly buildable from `core.play` today.
-2. `INT-01`/`INT-02` (home-minus-away, recent-minus-long) — cheapest
-   interaction terms, pure algebra over already-approved columns, no new
-   data or research needed, just never built.
-3. The remaining new rows (`BSR-02`, `BAT-01`, `PIT-07`, `PLN-04`) in
-   roughly the order listed — each individually low/medium cost with a
-   sourced formula, none blocked on a new data source.
+1. `PLN-04`'s age half — implemented, rebased, pending merge (`PR #64`).
+2. `BSR-02` (baserunning detail by base) — now unblocked, `BSR-01` merged.
+3. `BAT-01` (batted-ball spray/placement × handedness) — proposal
+   written (evidence, schema extension, `local_research`-only source
+   profile all recorded), pending owner review before implementation.
+4. `PIT-07` (pitch-sequence rate stats) — deferred pending an
+   independent verification pass of Retrosheet's pitch-sequence
+   alphabet (see `plans/PROGRESS.md`'s own note on this).
 
 Defer `PIT-08` (pitch-sequence predictability — genuinely mixed evidence),
 `CTX-06` (leverage history — real but historically weak signal, per

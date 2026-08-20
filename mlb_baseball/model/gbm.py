@@ -11,13 +11,11 @@ every day the way log5/elo's stateless formulas do -- retraining daily
 would be wasteful and could make predictions unstable day to day for no
 benefit. predict() here just loads whatever model train() last saved.
 
-Feature set is exactly gold.game_feature's currently-populated columns
-(win%, run-diff, Pythagenpat, Elo) -- starter stats, rest days, prior-
-season WAR, and weather are real, known-incomplete gaps (see ADR-032's
-gold.game_feature column list), not built yet. Retraining against a
-richer feature set later is expected, ordinary iteration, not something
-this version is "half-finished" without -- gold.prediction.model_version
-exists specifically so multiple model versions can coexist.
+Feature set grows as enrichment families get built and, separately,
+proven to help -- gold.prediction.model_version exists specifically so
+multiple model versions can coexist while that happens. Weather remains
+a real, known-incomplete gap (schema-reserved since ADR-032, never
+populated -- see docs/RESEARCH.md).
 
 ADR-044: FEATURE_COLUMNS now also includes every feature built since
 ADR-033 (starter quality, park factor, team wOBA/wRC+, prior-season
@@ -41,6 +39,14 @@ values at each tree split (the sklearn wrapper's default `missing=nan`
 already matches what _fetch_rows/predict() now pass through), so a row
 missing some optional features still trains/predicts on whatever it
 does have, instead of being dropped or needing manual imputation.
+
+2026-08-20: tried adding team_prior_offense_defense_v1 and
+starter_workload_v1 to OPTIONAL_COLUMNS -- both had been live in
+gold.game_feature for weeks without ever being tried in this model. A
+real retrain against production `mlb` beat both baselines on raw
+log-loss but didn't clear the required 0.002 improvement margin over
+elo; see the comment just above OPTIONAL_COLUMNS's closing bracket and
+docs/DECISIONS.md for the full result.
 """
 
 import uuid
@@ -105,14 +111,24 @@ OPTIONAL_COLUMNS = [
     "away_speed_prior",
 ]
 
-# home_framing_prior/away_framing_prior (ADR-045) are deliberately NOT
-# in OPTIONAL_COLUMNS yet: the retrain that added them didn't beat both
-# baselines, so the saved model on disk still expects the 37-column
-# shape above it -- adding two more here without a successful save
-# broke predict() outright (ValueError: Feature shape mismatch,
-# confirmed directly in production before this fix). Re-add once a
-# future `mlb train` run with framing included actually beats both
-# baselines and saves a new model with the wider shape.
+# home_framing_prior/away_framing_prior (ADR-045), and -- as of 2026-08-20
+# -- team_prior_offense_defense_v1's OBP/SLG/ISO/BB%/K%/BABIP/run-environment
+# columns (ADR-061) plus starter_workload_v1's rest-days/7-day-outs columns
+# (ADR-068/069) are deliberately NOT in OPTIONAL_COLUMNS: real retrains
+# against production `mlb` that added them beat both baselines on raw
+# log-loss but didn't clear the required 0.002 improvement margin over
+# elo (team_rate + starter_workload together: gbm log_loss 0.6792 vs
+# elo's 0.6801, only a 0.0009 improvement over elo -- well under the
+# required 0.002 margin; the model beat log5's 0.9774 log-loss by a wide
+# 0.2982 margin, well clear -- it was elo's tighter margin it missed;
+# see docs/DECISIONS.md for the full result), so the saved model
+# on disk still expects the 37-column shape above it -- adding columns
+# here without a successful save broke predict() outright (ValueError:
+# Feature shape mismatch, confirmed directly in production before this
+# fix, the exact same failure mode framing's own attempt hit first).
+# Re-add any of these once a future `mlb train` run that includes them
+# actually beats both baselines and saves a new model with the wider
+# shape.
 
 FEATURE_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 

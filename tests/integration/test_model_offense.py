@@ -591,3 +591,127 @@ def test_health_check_accepts_verified_small_sample_historical_extreme(db_conn):
     assert check.ok
 
     _reset(db_conn)
+
+
+def test_health_check_flags_a_woba_coverage_gap(db_conn):
+    # Issue #32: the plausible-range check above can only ever catch a
+    # value that's present but out of range -- a total join failure (e.g. a
+    # mismatched team_id in team_woba_retrosheet_update.sql) makes the
+    # column NULL for every row instead, which the range check's own
+    # `IS NOT NULL` filter explicitly excludes from the count. ATL is
+    # "eligible" entering G2 (it has a real, covered prior game, G1) so a
+    # NULL home_woba there is exactly the silent-join-break scenario the
+    # coverage check exists to catch -- not the ordinary "first game of the
+    # season, nothing prior yet" NULL that G1 itself would still have if
+    # its own home_woba were (correctly) NULL.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2020, '2020-04-08', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('G2', 'regular')"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
+            "('G1', '1', '20', 'T', 'F', 'T', '2020'), "  # ATL single
+            "('G1', '0', '2', 'T', 'F', 'T', '2020'), "  # NYA (away) -- minimal
+            "('G2', '1', '2', 'T', 'F', 'T', '2020'), "
+            "('G2', '0', '2', 'T', 'F', 'T', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    offense.compute(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_woba FROM gold.game_feature f "
+            "JOIN core.game g ON g.id = f.game_id WHERE g.retro_game_id = 'G2'"
+        )
+        (woba,) = cur.fetchone()
+    assert woba is not None  # sanity: compute() really did populate it
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET home_woba = NULL "
+            "WHERE game_id = (SELECT id FROM core.game WHERE retro_game_id = 'G2')"
+        )
+    db_conn.commit()
+
+    checks = offense.health_check()
+    coverage_check = next(c for c in checks if c.name == "home_woba coverage")
+
+    assert not coverage_check.ok
+    assert "1 eligible rows" in coverage_check.detail
+
+    _reset(db_conn)
+
+
+def test_health_check_flags_a_wrc_plus_coverage_gap(db_conn):
+    # Issue #32, home_wrc_plus/away_wrc_plus half: these have no separate
+    # per-side join to break (both are computed straight off
+    # home_woba/park_factor in the same UPDATE, see
+    # team_wrc_plus_retrosheet_update.sql), so their coverage check is
+    # simpler -- once woba and park_factor are both present, wrc_plus must
+    # be too. This simulates that UPDATE simply not having run yet on one
+    # row despite its inputs being ready. Needs the retrosheet tables to
+    # exist even though this check's own query never reads them -- both
+    # coverage sub-checks share one gate (offense.py::health_check), since
+    # wrc_plus is never meaningful before woba/park_factor are, which in
+    # practice always requires retrosheet coverage anyway.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('G1', 2024, '2024-04-01', %s, %s, 5, 3, 'regular')",
+            (atl, nya),
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET home_woba = 0.320, park_factor = 100, "
+            "home_wrc_plus = NULL "
+            "WHERE game_id = (SELECT id FROM core.game WHERE retro_game_id = 'G1')"
+        )
+    db_conn.commit()
+
+    checks = offense.health_check()
+    coverage_check = next(c for c in checks if c.name == "home_wrc_plus coverage")
+
+    assert not coverage_check.ok
+    assert "1 eligible rows" in coverage_check.detail
+
+    _reset(db_conn)

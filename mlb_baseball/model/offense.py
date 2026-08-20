@@ -71,6 +71,15 @@ W_HR = 2.015
 # See module docstring for why this is fixed, not year-specific.
 WOBA_SCALE = 1.20
 
+# Plausible-range bounds for health_check() (see its own docstring for the
+# rationale behind each). Named params passed into offense_health_check.sql
+# and used to build the Check message below, rather than separate literals
+# in the SQL and the message string -- issue #32's follow-up finding: if one
+# changed without the other, the reported message would silently lie about
+# the actual enforced bound.
+WOBA_MIN, WOBA_MAX = 0.02, 0.70
+WRC_PLUS_MIN, WRC_PLUS_MAX = 20, 250
+
 
 def compute(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
@@ -228,19 +237,69 @@ def health_check() -> list[Check]:
     away_woba/away_wrc_plus get the identical bounds check as their home_*
     counterparts (issue #9 item 3): home and away are computed through the
     same formula but two different join legs, so an away-only join bug is
-    a real, if unlikely, failure mode a home-only check can't surface."""
+    a real, if unlikely, failure mode a home-only check can't surface.
+
+    The range checks above can only ever catch a value that's present but
+    out of range -- a total join failure (e.g. a mismatched team_id) makes
+    the column NULL for every row instead, which IS NOT NULL excludes from
+    the count. The coverage checks below close that gap (issue #32): once a
+    team has at least one prior game that season with real Retrosheet event
+    coverage ("eligible", reconstructed the same way
+    team_woba_retrosheet_update.sql itself defines it), the computed value
+    must not be NULL. home_wrc_plus/away_wrc_plus have no separate per-side
+    join to break -- their coverage check is simply that once woba and
+    park_factor are both present, wrc_plus must be too."""
+    woba_bounds = f"{WOBA_MIN}-{WOBA_MAX}"
+    wrc_bounds = f"{WRC_PLUS_MIN}-{WRC_PLUS_MAX}"
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(read_sql("offense_health_check.sql"))
+        cur.execute(
+            read_sql("offense_health_check.sql"),
+            {
+                "woba_min": WOBA_MIN,
+                "woba_max": WOBA_MAX,
+                "wrc_min": WRC_PLUS_MIN,
+                "wrc_max": WRC_PLUS_MAX,
+            },
+        )
         bad_woba, bad_wrc, bad_away_woba, bad_away_wrc = fetch_one(cur)
+
+        # Coverage checks need raw.retrosheet_event/retrosheet_gameinfo to
+        # exist (same two-table gate as compute()/compute_wrc_plus() above)
+        # -- before either table is bootstrapped, there's no eligible
+        # population to check against, so 0 bad rows is the honest answer.
+        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
+        (event_exists,) = fetch_one(cur)
+        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
+        (gameinfo_exists,) = fetch_one(cur)
+        if event_exists and gameinfo_exists:
+            cur.execute(read_sql("offense_coverage_health_check.sql"))
+            (
+                bad_home_woba_coverage,
+                bad_away_woba_coverage,
+                bad_home_wrc_coverage,
+                bad_away_wrc_coverage,
+            ) = fetch_one(cur)
+        else:
+            bad_home_woba_coverage = bad_away_woba_coverage = 0
+            bad_home_wrc_coverage = bad_away_wrc_coverage = 0
 
     def _check(name: str, bad: int, bounds: str) -> Check:
         if bad:
             return Check(name, False, f"{bad} rows outside {bounds}")
         return Check(name, True, f"all computed values within {bounds}")
 
+    def _coverage_check(name: str, bad: int) -> Check:
+        if bad:
+            return Check(name, False, f"{bad} eligible rows have no computed value")
+        return Check(name, True, "every eligible row has a computed value")
+
     return [
-        _check("home_woba plausible range", bad_woba, "0.02-0.70"),
-        _check("home_wrc_plus plausible range", bad_wrc, "20-250"),
-        _check("away_woba plausible range", bad_away_woba, "0.02-0.70"),
-        _check("away_wrc_plus plausible range", bad_away_wrc, "20-250"),
+        _check("home_woba plausible range", bad_woba, woba_bounds),
+        _check("home_wrc_plus plausible range", bad_wrc, wrc_bounds),
+        _check("away_woba plausible range", bad_away_woba, woba_bounds),
+        _check("away_wrc_plus plausible range", bad_away_wrc, wrc_bounds),
+        _coverage_check("home_woba coverage", bad_home_woba_coverage),
+        _coverage_check("away_woba coverage", bad_away_woba_coverage),
+        _coverage_check("home_wrc_plus coverage", bad_home_wrc_coverage),
+        _coverage_check("away_wrc_plus coverage", bad_away_wrc_coverage),
     ]

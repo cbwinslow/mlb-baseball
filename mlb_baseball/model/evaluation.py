@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 import psycopg
 
+from mlb_baseball.db import fetch_one
 from mlb_baseball.model import provenance
 
 
@@ -58,16 +59,32 @@ def _selected_predictions(
 
     cutoff_predicate, cutoff_order = _CUTOFF_SQL[cutoff]
     with conn.cursor() as cur:
+        # raw.mlb_schedule only exists once `mlb ingest mlb_api` has run at
+        # least once -- not a given (e.g. a fresh clone that's only run
+        # `mlb migrate`/`mlb conform`/Retrosheet ingestion so far). Every
+        # other enrichment module in this codebase gates on this same
+        # to_regclass check rather than crashing; here it degrades to the
+        # `schedule` CTE always resolving empty, so every game falls back
+        # to the retrosheet next-day-midnight cutoff below -- the same
+        # fallback retrosheet-only games already use when a real schedule
+        # row just doesn't match, not a new code path.
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        (schedule_exists,) = fetch_one(cur)
+        schedule_source = (
+            "SELECT game_id, 'mlb:' || game_id AS game_instance_key, "
+            "min(NULLIF(game_datetime, '')::timestamptz) AS game_start "
+            "FROM raw.mlb_schedule "
+            "WHERE game_id IS NOT NULL AND NULLIF(game_datetime, '') IS NOT NULL "
+            "GROUP BY game_id "
+            "HAVING count(DISTINCT NULLIF(game_datetime, '')) = 1"
+            if schedule_exists
+            else "SELECT NULL::text AS game_id, NULL::text AS game_instance_key, "
+            "NULL::timestamptz AS game_start WHERE false"
+        )
         cur.execute(
             f"""
             WITH schedule AS (
-                SELECT game_id,
-                       'mlb:' || game_id AS game_instance_key,
-                       min(NULLIF(game_datetime, '')::timestamptz) AS game_start
-                FROM raw.mlb_schedule
-                WHERE game_id IS NOT NULL AND NULLIF(game_datetime, '') IS NOT NULL
-                GROUP BY game_id
-                HAVING count(DISTINCT NULLIF(game_datetime, '')) = 1
+                {schedule_source}
             ), instance_rows AS (
                 SELECT game_instance_key, season, game_date
                 FROM meta.game_instance

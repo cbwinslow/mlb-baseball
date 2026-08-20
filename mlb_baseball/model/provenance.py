@@ -204,6 +204,15 @@ def start_run(
 
 
 def finish_run(conn: psycopg.Connection, run_id: int, *, error: Exception | None = None) -> None:
+    """Same rollback-before-logging-a-failure fix as ingest.py's track_run
+    (see its own docstring/ADR-022 precedent): the caller's failed
+    operation typically leaves `conn` in InFailedSqlTransaction state, and
+    without rolling back first, this UPDATE itself would raise
+    InFailedSqlTransaction instead of ever recording the real error --
+    only on the failure path, never on success, where rolling back would
+    discard the very work this call is meant to commit."""
+    if error:
+        conn.rollback()
     with conn.cursor() as cur:
         cur.execute(
             """

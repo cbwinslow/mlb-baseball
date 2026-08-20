@@ -27,15 +27,19 @@ def _ensure_schedule_shape(db_conn):
 
 
 def _reset(db_conn):
+    # raw.mlb_schedule is DROPped, not DELETEd (issue #9 item 5): this
+    # table is never created by a migration, only ad-hoc by whichever
+    # test_model_*.py file's tests run first in a given pytest session.
+    # _ensure_schedule_shape above already recreates it with the full
+    # column set from scratch when missing, so a DROP here is safe and
+    # prevents a stale, narrower schema from an earlier test/file
+    # lingering for the rest of the run.
     db_conn.rollback()
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM meta.model_evaluation")
-        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        (exists,) = cur.fetchone()
-        if exists:
-            cur.execute("DELETE FROM raw.mlb_schedule")
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
     db_conn.commit()
 
 

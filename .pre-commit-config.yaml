@@ -26,6 +26,20 @@ repos:
         files: ^mlb_baseball/sql/
         additional_dependencies: ['sqlfluff-templater-dbt']
 
+  # Flags inline SQL in mlb_baseball/*.py that should be a named .sql
+  # resource instead (issue #10, docs/SQL_OWNERSHIP.md). Runs against the
+  # whole mlb_baseball/ package itself, not per-changed-file, so `files`
+  # is left unset; pass_filenames: false stops pre-commit from appending
+  # the (irrelevant) staged-file list as extra argv.
+  - repo: local
+    hooks:
+      - id: sql-ownership-lint
+        name: SQL ownership (inline SQL that should be a named resource)
+        entry: uv run python scripts/lint_sql_ownership.py
+        language: system
+        pass_filenames: false
+        files: ^mlb_baseball/.*\.py$
+
   # Blocks known credential patterns before they enter a commit. GitHub secret
   # scanning and push protection remain the server-side backstop.
   - repo: https://github.com/gitleaks/gitleaks

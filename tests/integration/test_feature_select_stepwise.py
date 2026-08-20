@@ -23,9 +23,11 @@ def _reset(conn):
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team")
-        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        if cur.fetchone()[0] is not None:
-            cur.execute("DELETE FROM raw.mlb_schedule WHERE game_id LIKE 'experiment-%'")
+        # raw.mlb_schedule is DROPped, not just scoped-DELETEd (issue #9
+        # item 5) -- see test_experiment.py's identical _reset for the
+        # full explanation. _seed() below already recreates it fresh
+        # (CREATE TABLE IF NOT EXISTS) when missing.
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
     conn.commit()
 
 

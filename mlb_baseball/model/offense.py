@@ -252,6 +252,13 @@ def health_check() -> list[Check]:
     woba_bounds = f"{WOBA_MIN}-{WOBA_MAX}"
     wrc_bounds = f"{WRC_PLUS_MIN}-{WRC_PLUS_MAX}"
     with get_connection() as conn, conn.cursor() as cur:
+        # REPEATABLE READ so the range query and the coverage query below
+        # see one consistent snapshot of gold.game_feature -- otherwise a
+        # concurrent feature rebuild committing between the two (default
+        # READ COMMITTED gives each statement its own fresh snapshot) could
+        # make them describe two different versions of the table, producing
+        # a transient contradictory or false-clean result (PR #54 review).
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
         cur.execute(
             read_sql("offense_health_check.sql"),
             {
@@ -288,10 +295,20 @@ def health_check() -> list[Check]:
             return Check(name, False, f"{bad} rows outside {bounds}")
         return Check(name, True, f"all computed values within {bounds}")
 
-    def _coverage_check(name: str, bad: int) -> Check:
+    def _coverage_check(name: str, bad: int, population: str = "eligible") -> Check:
         if bad:
-            return Check(name, False, f"{bad} eligible rows have no computed value")
-        return Check(name, True, "every eligible row has a computed value")
+            return Check(name, False, f"{bad} {population} rows have no computed value")
+        return Check(name, True, f"every {population} row has a computed value")
+
+    # wrc_plus coverage uses a different population than "eligible" (row_number
+    # > 1) -- it has no separate per-side join to break, so its own query
+    # checks a different, simpler precondition (woba/park_factor present)
+    # instead. Naming it accurately here, rather than reusing "eligible"
+    # verbatim, keeps the reported message honest about what was actually
+    # checked (PR #54 review: the shared message text previously called
+    # these rows "eligible" even though the SQL never applied that
+    # criterion to them).
+    wrc_population = "woba/park_factor-populated"
 
     return [
         _check("home_woba plausible range", bad_woba, woba_bounds),
@@ -300,6 +317,6 @@ def health_check() -> list[Check]:
         _check("away_wrc_plus plausible range", bad_away_wrc, wrc_bounds),
         _coverage_check("home_woba coverage", bad_home_woba_coverage),
         _coverage_check("away_woba coverage", bad_away_woba_coverage),
-        _coverage_check("home_wrc_plus coverage", bad_home_wrc_coverage),
-        _coverage_check("away_wrc_plus coverage", bad_away_wrc_coverage),
+        _coverage_check("home_wrc_plus coverage", bad_home_wrc_coverage, wrc_population),
+        _coverage_check("away_wrc_plus coverage", bad_away_wrc_coverage, wrc_population),
     ]

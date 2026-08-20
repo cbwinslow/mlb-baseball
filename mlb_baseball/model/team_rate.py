@@ -137,6 +137,13 @@ def health_check() -> list[Check]:
     prior game that season with real Retrosheet event coverage), home_pa/
     away_pa must not be NULL."""
     with get_connection() as conn, conn.cursor() as cur:
+        # REPEATABLE READ so the range query and the coverage query below
+        # see one consistent snapshot of gold.game_feature -- otherwise a
+        # concurrent feature rebuild committing between the two (default
+        # READ COMMITTED gives each statement its own fresh snapshot) could
+        # make them describe two different versions of the table, producing
+        # a transient contradictory or false-clean result (PR #54 review).
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
         cur.execute(
             read_sql("team_rate_health_check.sql"),
             {

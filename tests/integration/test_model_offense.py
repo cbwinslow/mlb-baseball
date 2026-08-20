@@ -712,6 +712,13 @@ def test_health_check_flags_a_wrc_plus_coverage_gap(db_conn):
     coverage_check = next(c for c in checks if c.name == "home_wrc_plus coverage")
 
     assert not coverage_check.ok
-    assert "1 eligible rows" in coverage_check.detail
+    # Not "eligible" -- G1 is this team's first game of the season, so it
+    # never clears the row_number() > 1 eligibility bar the woba/pa checks
+    # use. wrc_plus coverage checks a different, simpler population
+    # (woba/park_factor already present), and the message says so
+    # explicitly (PR #54 review: this assertion used to say "eligible",
+    # which only passed because the SQL never actually applied that
+    # criterion to wrc_plus -- true by accident, not by the check's design).
+    assert "1 woba/park_factor-populated rows" in coverage_check.detail
 
     _reset(db_conn)

@@ -65,6 +65,17 @@ MIN_PA = 10
 MIN_AB = 8
 MIN_BIP = 8
 
+# Plausible-range bounds for health_check() (see its own docstring for the
+# rationale behind each). Named params passed into team_rate_health_check.sql
+# and used to build the Check message below, rather than separate literals
+# in the SQL and the message string -- issue #32's follow-up finding: if one
+# changed without the other, the reported message would silently lie about
+# the actual enforced bound.
+RATE_MIN, RATE_MAX = 0, 1  # OBP/BABIP/BB%/K%
+SLG_MIN, SLG_MAX = 0, 4
+ISO_MIN, ISO_MAX = 0, 3
+RUNS_MIN, RUNS_MAX = 0, 30
+
 
 def compute_run_environment(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
@@ -112,9 +123,41 @@ def health_check() -> list[Check]:
     join bug is a real, if unlikely, failure mode a home-only check can't
     surface. Every home_* check below (obp/slg/iso/babip/bb_pct/k_pct/
     runs_for_avg/runs_allowed_avg/min-sample gate/pa) has an away_*
-    twin using the identical bound."""
+    twin using the identical bound.
+
+    The range checks above can only ever catch a value that's present but
+    out of range -- a total join failure (e.g. a mismatched team_id) makes
+    the columns NULL for every row instead, which IS NOT NULL excludes from
+    the count. The coverage checks below close that gap (issue #32):
+    home_pa/away_pa are the right target -- ungated (always populated
+    whenever the join succeeds, unlike obp/slg/etc which can be legitimately
+    NULL below MIN_PA/MIN_AB/MIN_BIP) and every other rate stat here rides
+    on the same join, so once a team is "eligible" (reconstructed the same
+    way team_rate_retrosheet_update.sql itself defines it -- at least one
+    prior game that season with real Retrosheet event coverage), home_pa/
+    away_pa must not be NULL."""
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(read_sql("team_rate_health_check.sql"), {"min_pa": MIN_PA})
+        # REPEATABLE READ so the range query and the coverage query below
+        # see one consistent snapshot of gold.game_feature -- otherwise a
+        # concurrent feature rebuild committing between the two (default
+        # READ COMMITTED gives each statement its own fresh snapshot) could
+        # make them describe two different versions of the table, producing
+        # a transient contradictory or false-clean result (PR #54 review).
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        cur.execute(
+            read_sql("team_rate_health_check.sql"),
+            {
+                "min_pa": MIN_PA,
+                "rate_min": RATE_MIN,
+                "rate_max": RATE_MAX,
+                "slg_min": SLG_MIN,
+                "slg_max": SLG_MAX,
+                "iso_min": ISO_MIN,
+                "iso_max": ISO_MAX,
+                "runs_min": RUNS_MIN,
+                "runs_max": RUNS_MAX,
+            },
+        )
         (
             bad_obp,
             bad_slg,
@@ -138,30 +181,56 @@ def health_check() -> list[Check]:
             bad_away_pa,
         ) = fetch_one(cur)
 
+        # Coverage check needs raw.retrosheet_event/retrosheet_gameinfo to
+        # exist (same two-table gate as compute() above) -- before either
+        # table is bootstrapped, there's no eligible population to check
+        # against, so 0 bad rows is the honest answer.
+        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
+        (event_exists,) = fetch_one(cur)
+        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
+        (gameinfo_exists,) = fetch_one(cur)
+        if event_exists and gameinfo_exists:
+            cur.execute(read_sql("team_rate_coverage_health_check.sql"))
+            bad_home_pa_coverage, bad_away_pa_coverage = fetch_one(cur)
+        else:
+            bad_home_pa_coverage = bad_away_pa_coverage = 0
+
     def _check(name: str, bad: int, bounds: str) -> Check:
         if bad:
             return Check(name, False, f"{bad} rows outside {bounds}")
         return Check(name, True, f"all computed values within {bounds}")
 
+    def _coverage_check(name: str, bad: int) -> Check:
+        if bad:
+            return Check(name, False, f"{bad} eligible rows have no computed value")
+        return Check(name, True, "every eligible row has a computed value")
+
+    rate_bounds = f"{RATE_MIN}-{RATE_MAX}"
+    slg_bounds = f"{SLG_MIN}-{SLG_MAX}"
+    iso_bounds = f"{ISO_MIN}-{ISO_MAX}"
+    runs_bounds = f"{RUNS_MIN}-{RUNS_MAX}"
+
     return [
-        _check("home_obp plausible range", bad_obp, "0-1"),
-        _check("home_slg plausible range", bad_slg, "0-4"),
-        _check("home_iso plausible range", bad_iso, "0-3"),
-        _check("home_babip plausible range", bad_babip, "0-1"),
-        _check("home_bb_pct plausible range", bad_bb, "0-1"),
-        _check("home_k_pct plausible range", bad_k, "0-1"),
-        _check("home_runs_for_avg plausible range", bad_rf, "0-30"),
-        _check("home_runs_allowed_avg plausible range", bad_ra, "0-30"),
-        _check("home_obp min-sample gate holds", bad_gate, "home_pa >= 10"),
+        _check("home_obp plausible range", bad_obp, rate_bounds),
+        _check("home_slg plausible range", bad_slg, slg_bounds),
+        _check("home_iso plausible range", bad_iso, iso_bounds),
+        _check("home_babip plausible range", bad_babip, rate_bounds),
+        _check("home_bb_pct plausible range", bad_bb, rate_bounds),
+        _check("home_k_pct plausible range", bad_k, rate_bounds),
+        _check("home_runs_for_avg plausible range", bad_rf, runs_bounds),
+        _check("home_runs_allowed_avg plausible range", bad_ra, runs_bounds),
+        _check("home_obp min-sample gate holds", bad_gate, f"home_pa >= {MIN_PA}"),
         _check("home_pa plausible range", bad_pa, "0+"),
-        _check("away_obp plausible range", bad_away_obp, "0-1"),
-        _check("away_slg plausible range", bad_away_slg, "0-4"),
-        _check("away_iso plausible range", bad_away_iso, "0-3"),
-        _check("away_babip plausible range", bad_away_babip, "0-1"),
-        _check("away_bb_pct plausible range", bad_away_bb, "0-1"),
-        _check("away_k_pct plausible range", bad_away_k, "0-1"),
-        _check("away_runs_for_avg plausible range", bad_away_rf, "0-30"),
-        _check("away_runs_allowed_avg plausible range", bad_away_ra, "0-30"),
-        _check("away_obp min-sample gate holds", bad_away_gate, "away_pa >= 10"),
+        _check("away_obp plausible range", bad_away_obp, rate_bounds),
+        _check("away_slg plausible range", bad_away_slg, slg_bounds),
+        _check("away_iso plausible range", bad_away_iso, iso_bounds),
+        _check("away_babip plausible range", bad_away_babip, rate_bounds),
+        _check("away_bb_pct plausible range", bad_away_bb, rate_bounds),
+        _check("away_k_pct plausible range", bad_away_k, rate_bounds),
+        _check("away_runs_for_avg plausible range", bad_away_rf, runs_bounds),
+        _check("away_runs_allowed_avg plausible range", bad_away_ra, runs_bounds),
+        _check("away_obp min-sample gate holds", bad_away_gate, f"away_pa >= {MIN_PA}"),
         _check("away_pa plausible range", bad_away_pa, "0+"),
+        _coverage_check("home_pa coverage", bad_home_pa_coverage),
+        _coverage_check("away_pa coverage", bad_away_pa_coverage),
     ]

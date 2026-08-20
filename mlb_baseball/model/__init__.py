@@ -46,6 +46,7 @@ from mlb_baseball.model import (
     starter,
     starter_workload,
     team_rate,
+    trend,
     war,
 )
 
@@ -138,6 +139,11 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
     """
     return {
         "gold.game_feature (park_factor)": park.compute(conn),
+        # trend.compute() only reads base-family columns (win_pct/
+        # win_pct_10), already populated by build_feature_stage() before
+        # this function ever runs -- no ordering dependency on any other
+        # enrichment module here.
+        "gold.game_feature (trend)": trend.compute(conn),
         "gold.game_feature (team_rate)": team_rate.compute(conn),
         "gold.game_feature (team_rate run environment)": team_rate.compute_run_environment(conn),
         "gold.game_feature (bsr)": bsr.compute(conn),
@@ -277,6 +283,7 @@ def health_check() -> list[Check]:
         + offense.health_check()
         + team_rate.health_check()
         + bsr.health_check()
+        + trend.health_check()
         + war.health_check()
         + bullpen.health_check()
         + oaa.health_check()

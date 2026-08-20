@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `BSR-01` (stolen-base run value / wSB) and `INT-01` (home-minus-away diffs) both merged into `main`. `INT-02` (recent-minus-long win-rate trend) is implemented -- see the dated section below -- rebased onto `main` post-`INT-01` merge (migration `0061`, `ADR-083`, view extended from `INT-01`'s real merged columns). `PLN-04`'s age half (`PR #64`) is implemented and under review, not yet merged. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` (batted-ball spray/placement × handedness -- proposal written, `core.pitch` schema extension needed first), `PIT-07` (pitch-sequence rate stats), `PLN-04`'s deferred career-PA/IP half. Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+- **Next package:** `BSR-01`, `INT-01`, and `INT-02` all merged into `main`. `PLN-04`'s age half (`PR #64`) is implemented and under review, not yet merged. `PLN-04`'s career-PA/IP half (this dated section below) is implemented, rebased onto `main` post-`INT-02` merge, anticipating `age.py`'s planned merge ahead of it (migration `0063`, `ADR-085`). Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` (batted-ball spray/placement × handedness -- proposal written, `core.pitch` schema extension needed first), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
 
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
@@ -216,6 +216,53 @@ health-check clean-pass test after a real `compute()`.
 `tests/integration/test_model_enrich_stage.py`/`tests/integration/
 test_game_export_view.py` re-run and confirmed unaffected. Full details
 in `docs/DECISIONS.md` ADR-083.
+
+- **BAT-01 research finding, not yet implemented:** checked `raw.statcast_pitch` directly for batted-ball spray/placement fields -- `hc_x`/`hc_y` (Statcast hit coordinates, needed for spray angle) and `stand`/`p_throws` (batter/pitcher handedness) all exist with strong real coverage (`stand`/`p_throws` populated for all 13.48M rows; `hc_x`/`hc_y` populated for 2,372,586 of 2,443,788 real batted balls, ~97.1%). The real blocker isn't data availability -- it's that `core.pitch` (migration 0006) currently only copies a subset of `raw.statcast_pitch`'s columns (release_speed/spin_rate, launch_speed/angle, hit_distance, description, event); `hc_x`/`hc_y`/`stand`/`p_throws` aren't in `core.pitch` yet. Building `BAT-01` for real needs a `core.pitch` schema extension + a `conform.py` change to populate the new columns, not just a narrow `gold`-only feature module like every other item this session -- a bigger, more foundational change (touches a shared core table other future features will also read from) that deserves its own design pass rather than being rushed through in one autonomous iteration. Deferred, not abandoned.
+
+### PLN-04 starter career experience (experience half): implemented, admission queue — 2026-08-20
+
+Added `mlb_baseball/model/experience.py` (`compute()`/`health_check()`)
+and four new `gold.game_feature` columns (`home_starter_career_bf`,
+`away_starter_career_bf`, `home_starter_career_ip`,
+`away_starter_career_ip`, migration `0063`), wired into
+`enrich_feature_stage()` right after `starter.compute_probable()`.
+Career (not season-scoped) batters-faced/innings-pitched entering a
+game, same event-code counting as `starter.py`'s own season window but
+with no season partition -- the deferred "prior MLB PA/IP" half of
+`PLN-04` that `age.py` (a sibling PR from the same session) explicitly
+left for later, since it needed genuinely new career-cumulative window
+SQL rather than pure algebra over existing columns.
+
+A real fixture bug caught by the test itself failing for the right
+reason: the first draft inverted `bat_home_id`'s meaning (assigned `'1'`
+to the intended home starter's rows, when the established convention
+elsewhere in this codebase is `'0'` = away batting = home pitcher on the
+mound). The test asserted a real career value and got `None` -- a
+genuine assertion failure, not a false pass -- fixed by rewriting the
+fixture with the correct convention and explicit, hand-counted rows (18
+outs + 4 non-out rows = 22 batters faced, 6.0 IP) instead of a generic
+loop.
+
+A real, serious doubleheader-ordering bug found by PR review (CodeAnt)
+and fixed before merge: the career window's own `ORDER BY game_date,
+game_id` used `core.game.id` (insertion order, not chronological order)
+as the same-day tie-breaker -- the exact class of bug `elo.py`/`bsr.py`
+already found and fixed in this codebase. Fixed by adding `game_number`
+to the window (`ORDER BY game_date, COALESCE(game_number, 0), game_id`,
+matching `bsr.py`'s own convention), with a dedicated regression test
+that inserts a doubleheader's nightcap before its opener (so the
+nightcap gets the lower `id`) and proves the fix orders correctly
+anyway. `starter.py`'s own season window has this identical
+pre-existing gap, out of scope here -- tracked separately as issue #67.
+
+`uv run ruff check .`/`ruff format --check .` clean, `uv run mypy
+mlb_baseball/model/experience.py` clean, `uv run sqlfluff lint` clean on
+both new SQL files. `tests/integration/test_model_experience.py` -- 6
+tests against real Postgres: a cross-season-boundary fixture (proving no
+season partition, plus a different starter's debut correctly NULL, both
+in one test), the doubleheader-ordering regression above, an idempotency
+test, two missing-table gate tests, and a health-check test.
+Full details in `docs/DECISIONS.md` ADR-085.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

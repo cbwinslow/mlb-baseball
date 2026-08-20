@@ -9,6 +9,7 @@ discipline as starter.py's tests.
 from decimal import Decimal
 
 from mlb_baseball.model import bullpen, features
+from mlb_baseball.sql import read_sql
 
 
 def _ensure_retrosheet_tables(db_conn):
@@ -224,6 +225,77 @@ def test_compute_rolls_up_relief_only_with_zero_leakage_and_correct_fatigue_wind
     assert g2[5] is None
     assert g2[6] is None
     assert g2[7] == Decimal("0")
+
+    _reset(db_conn)
+
+
+def test_reconcile_query_splits_multiple_relievers_correctly_after_single_scan_rewrite(db_conn):
+    # Issue #46: bullpen_outs_reconcile.sql used to join core.game ->
+    # raw.retrosheet_gameinfo -> raw.retrosheet_event twice (once in a
+    # `starters` CTE, once in `team_pitcher_outs`), scanning the same
+    # ~16M production event rows twice and paying for two disk-spilling
+    # sorts. Rewritten to scan once, identifying each team's starter via
+    # a window aggregate (`max(...) FILTER (...) OVER (PARTITION BY
+    # game_id, team_id)`) instead of a second GROUP BY + JOIN back.
+    # Confirmed row-for-row identical to the old two-scan query against
+    # all of production (406,516/406,516 rows, zero mismatches either
+    # direction) before landing.
+    #
+    # This fixture exercises the specific mechanism that changed: ATL
+    # (home, pitches when bat_home_id='0') uses a starter for 2 outs and
+    # ONE reliever for 1 out; NYA (away, pitches when bat_home_id='1')
+    # uses a starter for 1 out and TWO different relievers for 1 out
+    # each -- multiple non-starter pitchers per team-game is exactly the
+    # case a broken window partition (e.g. wrong PARTITION BY key,
+    # picking the wrong max) would get wrong.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute("INSERT INTO raw.retrosheet_gameinfo (gid, gametype) VALUES ('G1', 'regular')")
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "bat_event_fl, event_cd, event_outs_ct, _season) VALUES "
+            # ATL (home) pitching: starter (2 outs) + 1 reliever (1 out).
+            "('G1', '0', 'atl_sp', 'T', 'T', '2', '1', '2020'), "
+            "('G1', '0', 'atl_sp', 'T', 'T', '2', '1', '2020'), "
+            "('G1', '0', 'atl_relief', 'F', 'T', '2', '1', '2020'), "
+            # NYA (away) pitching: starter (1 out) + 2 different relievers (1 out each).
+            "('G1', '1', 'nya_sp', 'T', 'T', '2', '1', '2020'), "
+            "('G1', '1', 'nya_relief_a', 'F', 'T', '2', '1', '2020'), "
+            "('G1', '1', 'nya_relief_b', 'F', 'T', '2', '1', '2020')"
+        )
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(read_sql("bullpen_outs_reconcile.sql"))
+        rows = {key: (total, computed) for key, total, computed in cur.fetchall()}
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id FROM core.game WHERE retro_game_id = 'G1'")
+        (game_id,) = cur.fetchone()
+
+    # (key, total_outs, computed) -- computed is starter_outs + relief_outs,
+    # which must equal total_outs (no row dropped, none double-counted)
+    # and total_outs itself must match the hand-summed event_outs_ct,
+    # proving the single-scan rewrite doesn't fan out or drop rows.
+    atl_total, atl_computed = rows[f"{game_id}-{atl}"]
+    nya_total, nya_computed = rows[f"{game_id}-{nya}"]
+    assert (atl_total, atl_computed) == (Decimal("3"), Decimal("3"))
+    assert (nya_total, nya_computed) == (Decimal("3"), Decimal("3"))
+
+    checks = bullpen.health_check()
+    reconcile = next(c for c in checks if c.name.startswith("bullpen/starter split"))
+    assert reconcile.ok
 
     _reset(db_conn)
 

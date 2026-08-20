@@ -31,7 +31,63 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #28/#29 narrow edge cases found during PR #25 review). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open).
+- **Next package:** Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #29 team_bullpen backbone zero-fill -- fixed on branch `bullpen-uncovered-games-fix`/PR #52, awaiting merge, #32 offense/team_rate health-check join-failure gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#46 are fixed and merged.
+
+### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
+
+Fixed `bullpen_outs_reconcile.sql` (the `bullpen.health_check()`
+starter/relief reconciliation, part of `mlb doctor`): flagged by the
+owner as feeling slow, then confirmed live via `pg_stat_activity` against
+production `mlb` -- this one query alone took ~83-85 seconds. Root cause
+(via `EXPLAIN (ANALYZE, BUFFERS)`, not guessed): its `starters` and
+`team_pitcher_outs` CTEs each independently joined `core.game` ->
+`raw.retrosheet_gameinfo` -> `raw.retrosheet_event`, scanning the same
+~16 million event rows twice, each producing a `GroupAggregate` over an
+external merge sort spilling ~850MB to disk.
+
+Fix: collapsed both CTEs into one `event_rows` CTE that joins the three
+tables exactly once, resolving each team's starting pitcher with a
+window aggregate (`max(resp_pit_id) FILTER (WHERE resp_pit_start_fl =
+'T') OVER (PARTITION BY game_id, team_id)`) instead of a second `GROUP
+BY` + `JOIN` back to a separate `starters` CTE. An earlier alternative
+(an explicit `MATERIALIZED` CTE feeding two separate `HashAggregate`s)
+was tried and measured slower in practice (45s) than the window-function
+version, because the planner badly under-estimated the materialized
+CTE's row count and re-spilled twice; not used.
+
+Verified two ways before landing, both against real production `mlb`,
+read-only:
+- **Row-for-row equivalence**: ran the old and new query logic
+  side-by-side in one read-only `SELECT`, `EXCEPT ALL`-diffed both
+  directions. 406,516 rows on both sides, zero rows in either
+  direction-only diff -- an exact match, not a sample check.
+- **Timing**: old query 62.9s wall-clock; new query 36.9s -- a ~41%
+  reduction, with total disk spill also roughly halved (three ~206MB
+  per-worker sorts instead of one ~850MB sort). Matches the issue's own
+  "should roughly halve" estimate.
+
+New regression test
+`test_reconcile_query_splits_multiple_relievers_correctly_after_single_scan_rewrite`
+in `tests/integration/test_model_bullpen.py`: seeds one game where the
+home team uses a starter (2 outs) plus one reliever (1 out) and the away
+team uses a starter (1 out) plus two *different* relievers (1 out each)
+-- multiple non-starter pitchers per team-game is exactly what a broken
+window partition (wrong `PARTITION BY` key, wrong `max`) would get
+wrong. Asserts the query's own `(total_outs, computed)` pair for both
+teams, not just that `bullpen.health_check()` reports `ok` (that
+top-level check is a self-consistency tautology by construction --
+`starter_outs + relief_outs` always sums to `total_outs` for *any*
+`starter_id` value, so it alone can't catch a wrong starter
+identification; the production-wide `EXCEPT ALL` diff above is the real
+correctness evidence for that). All 15 bullpen tests pass;
+`uv run sqlfluff lint`, `ruff check`, `ruff format --check`, and `mypy`
+all clean on the changed files.
+
+`mlb_baseball/sql/bullpen_outs_reconcile.sql` only, per the issue's own
+scope note -- `team_bullpen_retrosheet_update.sql` (used by `compute()`
+for the actual production fatigue/quality numbers, not just this health
+check) has a similar-looking `starters` CTE but was out of scope and not
+touched; whether it has the same double-scan shape is unexamined.
 
 ### Starter workload live and probable paths (pitcher_workload_v1_live, completed) — 2026-08-15
 

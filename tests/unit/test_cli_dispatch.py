@@ -512,9 +512,13 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     # result["rows"] would still pass the assertion above -- that dict
     # never includes result["rows"] at all, it's a separate value handed
     # to track_run's own tracking, not part of run()'s return value.
-    # feature_counts(10) + enrich_counts(6) + diff(7) + log5(3) + elo(4) +
-    # gbm(5) + market(1) + backfilled(2) = 38.
-    assert tracked["rows"] == 38
+    # diff_count is deliberately excluded from this total, matching
+    # elo_rows' own established exclusion: both diff.compute() and
+    # elo.compute_ratings() touch every row on every run, not just
+    # newly-written ones (PR review, Kilo -- see run()'s own comment).
+    # feature_counts(10) + enrich_counts(6) + log5(3) + elo(4) + gbm(5) +
+    # market(1) + backfilled(2) = 31.
+    assert tracked["rows"] == 31
 
 
 def test_train_command_calls_model_train_and_reports_metrics(monkeypatch, capsys):

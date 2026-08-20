@@ -135,6 +135,15 @@ this branch renumbered its own migration to `0060` and its own ADR to
 (its `home_sb`/`away_sb`/`home_cs`/`away_cs`/`home_wsb`/`away_wsb`
 columns) rather than the pre-`BSR-01` shape.
 
+`diff_count` was briefly summed into `run()`'s own `result["rows"]`
+total, then reverted -- a real inconsistency, PR review (Kilo):
+`diff.compute()`'s SQL is `UPDATE gold.game_feature SET ... WHERE TRUE`,
+touching every row every run, exactly like `elo.compute_ratings()`
+(already excluded from this total on `main`, pre-existing). Fixed by
+excluding `diff_count` too, matching that precedent -- `diff_count` is
+still returned in `run()`'s own dict for direct observability, only the
+aggregate total excludes it.
+
 `uv run ruff check .`/`ruff format --check .` clean, `uv run mypy
 mlb_baseball/model/diff.py` clean, `uv run sqlfluff lint` clean on both
 new SQL files. `tests/integration/test_model_diff.py` -- 5 new tests
@@ -146,8 +155,9 @@ elo-ordering regression test above; `tests/integration/
 test_game_export_view.py` re-run and confirmed unaffected. A pre-existing
 test (`tests/unit/test_cli_dispatch.py::
 test_predict_keeps_feature_stage_and_prediction_writes_separate`) needed
-updating for `run()`'s new return-dict key, caught by CI. Full details in
-`docs/DECISIONS.md` ADR-082.
+updating for `run()`'s new return-dict key and the `result["rows"]`
+exclusion above, caught by CI. Full details in `docs/DECISIONS.md`
+ADR-082.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

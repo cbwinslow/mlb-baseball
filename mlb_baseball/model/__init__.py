@@ -205,10 +205,17 @@ def run() -> dict[str, int]:
         elo_count = elo.predict(conn)
         gbm_count = gbm.predict(conn)
         conn.commit()
+        # diff_count is excluded here, matching elo_rows' own established
+        # exclusion just below: both diff.compute() (`UPDATE ... WHERE
+        # TRUE`) and elo.compute_ratings() (walks every row) touch every
+        # row in gold.game_feature on every run, not just newly-written
+        # ones. Summing either into a "rows written this run" total would
+        # make the total roughly equal to the full table size on every
+        # run, regardless of how much actually changed -- diluting the
+        # signal this total exists to give (PR review, Kilo).
         result["rows"] = (
             feature_counts["gold.game_feature"]
             + sum(enrich_counts.values())
-            + diff_count
             + log5_count
             + elo_count
             + gbm_count

@@ -31,6 +31,7 @@ from mlb_baseball.ingest import track_run
 from mlb_baseball.model import (
     bsr,
     bullpen,
+    diff,
     elo,
     evaluation,
     features,
@@ -118,6 +119,20 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
     dependency), then every Retrosheet-derived module, live/upcoming/
     probable variants immediately after each historical path.
 
+    ``diff.compute()`` is deliberately NOT called here, even though it
+    only reads ``gold.game_feature`` columns like every other module in
+    this dict (issue found in PR review, CodeAnt): ``elo_diff`` needs
+    ``home_elo``/``away_elo``, which ``build_feature_stage()``'s own SQL
+    (``game_feature_rebuild.sql``) never populates at all -- only
+    ``elo.compute_ratings()`` writes real values there, and that runs
+    *after* this function returns (see ``run()``'s own docstring for why
+    Elo is sequential/model-specific and deliberately not part of this
+    base enrichment stage). Calling ``diff.compute()`` from inside this
+    function would silently read NULL ``home_elo``/``away_elo`` on every
+    real production run, making ``elo_diff`` permanently NULL --
+    ``diff.compute()`` is called separately in ``run()``, positioned
+    after ``elo.compute_ratings()``, instead.
+
     :param conn: an open, non-autocommit connection already inside the
         same transaction ``build_feature_stage(conn)`` just ran in.
     """
@@ -147,8 +162,9 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
 
 
 def run() -> dict[str, int]:
-    """Build features, enrich them, derive sequential Elo, then write
-    legacy predictions.
+    """Build features, enrich them, derive sequential Elo, compute the
+    Elo-dependent home-minus-away diff column, then write legacy
+    predictions.
 
     ``mlb features`` is intentionally only the reusable, audited base feature
     stage.  Elo is not part of that base because it is model-specific and
@@ -169,6 +185,12 @@ def run() -> dict[str, int]:
         feature_counts = build_feature_stage(conn)
         enrich_counts = enrich_feature_stage(conn)
         elo_rows = elo.compute_ratings(conn)
+        # diff.compute() runs here, not inside enrich_feature_stage(): it
+        # needs home_elo/away_elo, which only elo.compute_ratings() (just
+        # above) actually populates -- calling it any earlier would read
+        # NULL Elo values on every real run (see enrich_feature_stage()'s
+        # own docstring for the full explanation, PR review finding).
+        diff_count = diff.compute(conn)
         # market.record() runs before backfill_outcomes(), not after --
         # unlike log5/elo/gbm's own predictions (made for still-upcoming
         # games, where actual_home_win is legitimately unknown yet), every
@@ -183,6 +205,14 @@ def run() -> dict[str, int]:
         elo_count = elo.predict(conn)
         gbm_count = gbm.predict(conn)
         conn.commit()
+        # diff_count is excluded here, matching elo_rows' own established
+        # exclusion just below: both diff.compute() (`UPDATE ... WHERE
+        # TRUE`) and elo.compute_ratings() (walks every row) touch every
+        # row in gold.game_feature on every run, not just newly-written
+        # ones. Summing either into a "rows written this run" total would
+        # make the total roughly equal to the full table size on every
+        # run, regardless of how much actually changed -- diluting the
+        # signal this total exists to give (PR review, Kilo).
         result["rows"] = (
             feature_counts["gold.game_feature"]
             + sum(enrich_counts.values())
@@ -195,6 +225,7 @@ def run() -> dict[str, int]:
     return {
         **feature_counts,
         **enrich_counts,
+        "gold.game_feature (diff)": diff_count,
         "gold.prediction (log5)": log5_count,
         "gold.prediction (elo)": elo_count,
         "gold.prediction (gbm)": gbm_count,
@@ -253,4 +284,5 @@ def health_check() -> list[Check]:
         + framing.health_check()
         + market.health_check()
         + starter_workload.health_check()
+        + diff.health_check()
     )

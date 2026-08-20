@@ -481,6 +481,14 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         lambda _conn: {"gold.game_feature (park_factor)": 6},
     )
     monkeypatch.setattr(model.elo, "compute_ratings", lambda _conn: 10)
+    # diff.compute() must run after elo.compute_ratings() (real bug found
+    # and fixed in PR review, CodeAnt: elo_diff was permanently NULL in
+    # production because it used to be computed from inside
+    # enrich_feature_stage(), which runs before Elo ratings are written --
+    # see mlb_baseball/model/__init__.py's own docstrings for the full
+    # explanation). Mocked separately here since it's its own call in
+    # run(), not part of enrich_feature_stage()'s returned dict anymore.
+    monkeypatch.setattr(model.diff, "compute", lambda _conn: 7)
     monkeypatch.setattr(model.market, "record", lambda _conn: 1)
     monkeypatch.setattr(model, "backfill_outcomes", lambda _conn: 2)
     monkeypatch.setattr(model.log5, "predict", lambda _conn: 3)
@@ -491,6 +499,7 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         "gold.game_feature": 10,
         "gold.game_feature (starters updated)": 4,
         "gold.game_feature (park_factor)": 6,
+        "gold.game_feature (diff)": 7,
         "gold.prediction (log5)": 3,
         "gold.prediction (elo)": 4,
         "gold.prediction (gbm)": 5,
@@ -503,6 +512,10 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     # result["rows"] would still pass the assertion above -- that dict
     # never includes result["rows"] at all, it's a separate value handed
     # to track_run's own tracking, not part of run()'s return value.
+    # diff_count is deliberately excluded from this total, matching
+    # elo_rows' own established exclusion: both diff.compute() and
+    # elo.compute_ratings() touch every row on every run, not just
+    # newly-written ones (PR review, Kilo -- see run()'s own comment).
     # feature_counts(10) + enrich_counts(6) + log5(3) + elo(4) + gbm(5) +
     # market(1) + backfilled(2) = 31.
     assert tracked["rows"] == 31

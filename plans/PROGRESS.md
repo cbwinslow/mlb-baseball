@@ -264,7 +264,7 @@ in one test), the doubleheader-ordering regression above, an idempotency
 test, two missing-table gate tests, and a health-check test.
 Full details in `docs/DECISIONS.md` ADR-085.
 
-### `gbm-v1` retrain with `team_prior_offense_defense_v1`/`pitcher_workload_v1`: real, honest negative result — 2026-08-20
+### `gbm-v1` retrain with `team_prior_offense_defense_v1`/`starter_workload_v1`: real, honest negative result — 2026-08-20
 
 Prompted by the owner asking "have we applied everything we've researched"
 during a broader feature-engineering discussion. Audited `gbm.py`'s actual

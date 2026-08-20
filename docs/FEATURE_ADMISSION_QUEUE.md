@@ -77,11 +77,11 @@ and `mlb field-census` for the evidence record.
 ## Recommended next implementation package
 
 **Updated 2026-08-20** — both families this section previously recommended
-(`team_prior_offense_defense_v1`, `pitcher_workload_v1`) are now fully
+(`team_prior_offense_defense_v1`, `starter_workload_v1`) are now fully
 implemented; see their rows above. Superseded, not left stale.
 
 **Item 1 done, 2026-08-20 — real, honest negative result, see `docs/DECISIONS.md`
-ADR-082.** `team_prior_offense_defense_v1` + `pitcher_workload_v1` were added
+ADR-082.** `team_prior_offense_defense_v1` + `starter_workload_v1` were added
 to `gbm.py`'s `FEATURE_COLUMNS` and retrained against real production `mlb`
 (208,454 train rows, 4,821 held-out validation rows): gbm log-loss 0.6792 vs.
 Elo's 0.6801, a 0.0009 improvement -- well under the required 0.002 margin.

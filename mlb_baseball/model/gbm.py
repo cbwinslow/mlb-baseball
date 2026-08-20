@@ -41,10 +41,11 @@ missing some optional features still trains/predicts on whatever it
 does have, instead of being dropped or needing manual imputation.
 
 2026-08-20: tried adding team_prior_offense_defense_v1 and
-pitcher_workload_v1 to OPTIONAL_COLUMNS -- both had been live in
+starter_workload_v1 to OPTIONAL_COLUMNS -- both had been live in
 gold.game_feature for weeks without ever being tried in this model. A
-real retrain against production `mlb` didn't beat baseline; see the
-comment just above OPTIONAL_COLUMNS's closing bracket and
+real retrain against production `mlb` beat both baselines on raw
+log-loss but didn't clear the required 0.002 improvement margin over
+elo; see the comment just above OPTIONAL_COLUMNS's closing bracket and
 docs/DECISIONS.md for the full result.
 """
 
@@ -112,14 +113,15 @@ OPTIONAL_COLUMNS = [
 
 # home_framing_prior/away_framing_prior (ADR-045), and -- as of 2026-08-20
 # -- team_prior_offense_defense_v1's OBP/SLG/ISO/BB%/K%/BABIP/run-environment
-# columns (ADR-061) plus pitcher_workload_v1's rest-days/7-day-outs columns
+# columns (ADR-061) plus starter_workload_v1's rest-days/7-day-outs columns
 # (ADR-068/069) are deliberately NOT in OPTIONAL_COLUMNS: real retrains
-# against production `mlb` that added them didn't beat both baselines
-# (team_rate + starter_workload together: gbm log_loss 0.6792 vs elo's
-# 0.6801, only a 0.0009 improvement -- well under the required 0.002
-# margin. The model did clearly beat log5's 0.9774 log-loss -- the
-# promotion gate requires beating both baselines, and elo was the one it
-# missed; see docs/DECISIONS.md for the full result), so the saved model
+# against production `mlb` that added them beat both baselines on raw
+# log-loss but didn't clear the required 0.002 improvement margin over
+# elo (team_rate + starter_workload together: gbm log_loss 0.6792 vs
+# elo's 0.6801, only a 0.0009 improvement over elo -- well under the
+# required 0.002 margin; the model beat log5's 0.9774 log-loss by a wide
+# 0.2982 margin, well clear -- it was elo's tighter margin it missed;
+# see docs/DECISIONS.md for the full result), so the saved model
 # on disk still expects the 37-column shape above it -- adding columns
 # here without a successful save broke predict() outright (ValueError:
 # Feature shape mismatch, confirmed directly in production before this

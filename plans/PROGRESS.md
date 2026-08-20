@@ -549,6 +549,19 @@ renumber off the same original claim). `gold.game_export`'s view now
 extends from `experience_v1`'s own real merged tail, not the earlier
 anticipated state.
 
+PR review found one real, fixed test-coverage gap -- every existing
+`age.compute()` test seeded `home_starter_id`/`away_starter_id` directly,
+never actually proving age runs after `starter.compute()` through the
+real dispatch. Added
+`test_model_enrich_stage.py::test_age_runs_after_starter_resolves_ids_through_the_real_dispatch`,
+confirmed it catches the real ordering bug via mutation testing (moved
+`age.compute()` first in the dispatch list, watched it fail for the
+right reason, restored the fix). Four other review claims (column
+naming, unconditional UPDATE performance, rowcount semantics, view
+recreation) investigated and declined -- each already matches an
+established, existing codebase convention, not a new problem this PR
+introduced. Full reasoning for both in `docs/DECISIONS.md` ADR-087.
+
 `uv run ruff check .`/`ruff format --check .` clean, `uv run mypy
 mlb_baseball/model/age.py` clean, `uv run sqlfluff lint` clean on both new
 SQL files. `tests/integration/test_model_age.py` -- 6 new tests against
@@ -556,8 +569,9 @@ real Postgres: hand-calculated age for two starters (verified against
 real date math), NULL-when-unresolved (including a real production gap:
 `core.player.birth_date` is genuinely NULL for ~7% of rows, 1,840 of
 25,543, confirmed directly), the upcoming-game self-join regression,
-idempotency, and two health-check tests. Full details in
-`docs/DECISIONS.md` ADR-087.
+idempotency, and two health-check tests. `tests/integration/
+test_model_enrich_stage.py` gained the real-dispatch-order test above.
+Full details in `docs/DECISIONS.md` ADR-087.
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 
 Fixed `bullpen_outs_reconcile.sql` (the `bullpen.health_check()`

@@ -1,7 +1,8 @@
 """Regression coverage for mlb_baseball.model.enrich_feature_stage --
 proves the enrichment modules (team_rate, offense, starter, bullpen,
-starter_workload, park, oaa, speed, framing, war) are actually wired into
-the same rebuild path `mlb predict` runs daily, not just runnable by hand.
+starter_workload, park, oaa, speed, framing, war, age) are actually wired
+into the same rebuild path `mlb predict` runs daily, not just runnable by
+hand.
 
 Issue: a real production incident (2026-08-19, see plans/PROGRESS.md
 "Production incident found and fixed") found every enrichment column in
@@ -154,6 +155,92 @@ def test_enrich_feature_stage_populates_columns_from_multiple_real_modules(db_co
     # prior plate appearances this small fixture doesn't clear.
     assert rows["G3"][0] is not None  # park_factor
     assert rows["G2"][1] is not None  # home_pa
+
+    _reset(db_conn)
+
+
+def test_age_runs_after_starter_resolves_ids_through_the_real_dispatch(db_conn):
+    # PR review (CodeRabbit) found every existing age.compute() test seeds
+    # home_starter_id/away_starter_id directly on gold.game_feature,
+    # bypassing starter.compute() entirely -- so age.py's own documented
+    # dependency ("compute() must run after starter.compute() has resolved
+    # home_starter_id/away_starter_id ... enrich_feature_stage() enforces
+    # this via dispatch order") was never actually proven end to end, only
+    # asserted in a docstring. This test proves it: starter.compute()
+    # resolves the two starters from real retrosheet_event rows (same
+    # fixture shape as test_model_starter.py's own test), and only
+    # age.compute() -- running later in enrich_feature_stage()'s real
+    # dispatch order -- turns that into a non-NULL age, from core.player's
+    # own birth_date.
+    _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_event ("
+            "game_id text, bat_home_id text, resp_pit_id text, "
+            "resp_pit_start_fl text, event_cd text, ab_fl text, "
+            "sf_fl text, bat_event_fl text, event_outs_ct text, _season text)"
+        )
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_gameinfo "
+            "(gid text, gametype text, visteam text, hometeam text, _season text)"
+        )
+        cur.execute(
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 2025, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.player (retro_id, first_name, last_name, birth_date) "
+            "VALUES ('startp1', 'Start', 'PitcherOne', '1990-01-01'), "
+            "('startp2', 'Start', 'PitcherTwo', '1985-06-15')"
+        )
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute("INSERT INTO raw.retrosheet_gameinfo (gid, gametype) VALUES ('G1', 'regular')")
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, "
+            "event_cd, ab_fl, sf_fl, bat_event_fl, _season) VALUES "
+            # startp1 (ATL's starter) pitching to the away team.
+            "('G1', '0', 'startp1', 'T', '2', 'T', 'F', 'T', '2020'), "
+            # startp2 (NYA's starter) pitching to the home team.
+            "('G1', '1', 'startp2', 'T', '2', 'T', 'F', 'T', '2020')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    counts = enrich_feature_stage(db_conn)
+    db_conn.commit()
+
+    assert counts["gold.game_feature (starter)"] > 0
+    assert counts["gold.game_feature (age)"] > 0
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_id, away_starter_id, "
+            "home_starter_age, away_starter_age "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "WHERE g.retro_game_id = 'G1'"
+        )
+        home_starter_id, away_starter_id, home_age, away_age = cur.fetchone()
+
+    # Both starter IDs actually resolved (starter.compute() ran) and both
+    # ages are non-NULL (age.compute() then ran, seeing those IDs) --
+    # NULL here would mean either module didn't run, or ran in the wrong
+    # order.
+    assert home_starter_id is not None
+    assert away_starter_id is not None
+    assert home_age is not None
+    assert away_age is not None
 
     _reset(db_conn)
 

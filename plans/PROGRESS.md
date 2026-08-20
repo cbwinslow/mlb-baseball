@@ -66,22 +66,42 @@ read-only:
   per-worker sorts instead of one ~850MB sort). Matches the issue's own
   "should roughly halve" estimate.
 
-New regression test
-`test_reconcile_query_splits_multiple_relievers_correctly_after_single_scan_rewrite`
+New regression test `test_reconcile_splits_relief_across_multiple_pitchers`
 in `tests/integration/test_model_bullpen.py`: seeds one game where the
 home team uses a starter (2 outs) plus one reliever (1 out) and the away
 team uses a starter (1 out) plus two *different* relievers (1 out each)
 -- multiple non-starter pitchers per team-game is exactly what a broken
 window partition (wrong `PARTITION BY` key, wrong `max`) would get
-wrong. Asserts the query's own `(total_outs, computed)` pair for both
-teams, not just that `bullpen.health_check()` reports `ok` (that
-top-level check is a self-consistency tautology by construction --
-`starter_outs + relief_outs` always sums to `total_outs` for *any*
-`starter_id` value, so it alone can't catch a wrong starter
-identification; the production-wide `EXCEPT ALL` diff above is the real
-correctness evidence for that). All 15 bullpen tests pass;
+wrong. Checks two separate things: (1) the production query's own
+`(total_outs, computed)` pair for both teams -- not a discriminating
+check by itself, since `starter_outs + relief_outs` sums to `total_outs`
+for *any* `starter_id` value by construction of the `=`/`IS DISTINCT
+FROM` filter pair, so this only proves no row was dropped or
+double-counted; (2) a second, test-only query (same CTEs, a different
+final `SELECT` exposing `starter_outs`/`relief_outs` directly instead of
+pre-summing them -- `check_totals_reconcile` needs the production
+query's exact 3-column shape, so this can't live in the shipped file)
+asserting the actual split: ATL's starter got 2 outs and its reliever 1,
+NYA's starter got 1 and its two relievers 2 combined -- proving the
+window aggregate picked the *right* pitcher as starter, which (1) alone
+cannot show. (CodeRabbit correctly flagged (1) alone as insufficient in
+PR #53 review; this addresses it.) All 15 bullpen tests pass;
 `uv run sqlfluff lint`, `ruff check`, `ruff format --check`, and `mypy`
 all clean on the changed files.
+
+Also cleaned up the `PARTITION BY` clause per PR #53 review (Kilo): it
+repeated the `team_id` `CASE` expression inline instead of reusing a
+computed column, so `event_rows` was split into `team_events` (computes
+`team_id` once) + `event_rows` (the window aggregate, referencing
+`team_id` directly). Re-verified row-for-row identical against
+production after the split (406,516/406,516, zero mismatches) --
+33s wall-clock, consistent with the original single-scan measurement.
+Declined a separate Kilo suggestion to expose `starter_outs`/
+`relief_outs` in the production query's own output for debuggability --
+`check_totals_reconcile` requires exactly the 3-column `(key, computed,
+reference)` shape, so a 4th/5th column would break every call site, not
+just this one; the same information is available by running
+`_reconcile_sql_exposing_the_split` in the test file, or ad hoc.
 
 `mlb_baseball/sql/bullpen_outs_reconcile.sql` only, per the issue's own
 scope note -- `team_bullpen_retrosheet_update.sql` (used by `compute()`

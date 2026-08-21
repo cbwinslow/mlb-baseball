@@ -27,6 +27,10 @@ After finishing a piece of work — writing code, or digging through data/docs �
 - Don't add a data source that isn't listed in `docs/DATA_SOURCES.md`. If a new source is genuinely needed, add it to that doc (cost, access method, license note) in the same change.
 - Assume $0/month budget. No paid API, database, or hosting dependency without asking first.
 
+## Check for established solutions first
+
+Before designing a bespoke solution to a cross-cutting infrastructure problem (test isolation, auth, migrations, CI orchestration, and similar), check whether a well-adopted library or pattern already solves it, and say what was found before proposing a hand-rolled alternative. Prefer the established tool unless there's a concrete, stated reason it doesn't fit — "we'd rather write it ourselves" is not that reason.
+
 ## ML modeling work
 
 Broad technique search is welcome — don't rule out ensembles, neural/attention models, or domain-engineered features. But every technique clears the same bar before it counts as a result: chronological (never random) folds, transparent baselines beaten first, and honest calibration/uncertainty reporting. See `docs/NORTH_STAR.md` and `plans/04-modeling-simulation-and-experiments.md`'s acceptance gate for the full contract; `docs/RESEARCH.md` documents this domain's known leakage failure modes and honest accuracy ceiling.

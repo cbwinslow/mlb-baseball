@@ -35,7 +35,7 @@ repos:
     hooks:
       - id: sql-ownership-lint
         name: SQL ownership (inline SQL that should be a named resource)
-        entry: uv run python scripts/lint_sql_ownership.py
+        entry: python scripts/lint_sql_ownership.py
         language: system
         pass_filenames: false
         files: ^mlb_baseball/.*\.py$

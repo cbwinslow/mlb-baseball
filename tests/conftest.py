@@ -1,22 +1,20 @@
-"""Shared fixtures for tests that use the existing disposable test database.
-
-Tests never create additional databases.  Most integration coverage uses the
-database selected by ``TEST_DATABASE_URL``; the small number of tests for an
-unmigrated database simulate PostgreSQL's missing-table error in-process.
+"""Shared fixtures for tests. Each pytest invocation gets its own isolated,
+disposable database, built via pytest-postgresql's postgresql_noproc fixture
+(see docs/superpowers/plans/2026-08-21-test-db-isolation.md) -- no database
+is shared across concurrent test runs, so there is nothing to lock.
 """
 
+import getpass
 import os
+import secrets
 
 import psycopg
 import pytest
 from dotenv import load_dotenv
 from psycopg import sql
+from pytest_postgresql import factories
 
 load_dotenv()
-
-_test_database_url = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test")
-_separator = "&" if "?" in _test_database_url else "?"
-TEST_DATABASE_URL = f"{_test_database_url}{_separator}application_name=mlb_test_suite"
 
 
 def _assert_test_database_url(url: str) -> None:
@@ -27,6 +25,147 @@ def _assert_test_database_url(url: str) -> None:
             "TEST_DATABASE_URL must name a disposable test database; "
             f"refusing to run against {dbname or '<unspecified>'!r}"
         )
+
+
+_base_test_url = os.environ.get("TEST_DATABASE_URL", "postgresql:///mlb_test")
+_assert_test_database_url(_base_test_url)
+_base_conninfo = psycopg.conninfo.conninfo_to_dict(_base_test_url)
+
+# One high-entropy database name per pytest process -- not per test, not per
+# xdist worker within a process (this project has no xdist parallelism
+# today). Any number of concurrent `pytest` invocations (separate agent
+# worktrees) each get their own name and never collide.
+_RUN_DBNAME = f"mlb_test_{secrets.token_hex(6)}"
+_assert_test_database_url(f"postgresql:///{_RUN_DBNAME}")
+
+# Resolve the actual host/user/password ONCE, so postgresql_noproc (below)
+# and TEST_DATABASE_URL (used everywhere else -- db_conn, _build_test_database,
+# tests/integration/test_least_privilege.py, ...) can never diverge onto two
+# different connections. This project's local Postgres uses Unix-socket peer
+# auth for a bare `postgresql:///dbname` connection, which leaves host/user
+# unset in _base_conninfo; TCP to "localhost" as the current OS user is
+# confirmed to work locally via ~/.pgpass (keyed on the literal hostname
+# "localhost", not "127.0.0.1" -- pytest_postgresql's own ini default), and
+# this generalizes to any contributor running the same peer-auth setup under
+# their own OS username: getpass.getuser() resolves that per-contributor, so
+# no username is hardcoded here or in pyproject.toml.
+_resolved_host = _base_conninfo.get("host") or "localhost"
+_resolved_user = _base_conninfo.get("user") or getpass.getuser()
+_resolved_password = _base_conninfo.get("password")
+
+# Deviation from the original brief, verified empirically this session:
+# factories.postgresql_noproc's own DatabaseJanitor (noprocess.py:99-122) is
+# hardcoded to create the database as f"{dbname}_tmpl" with
+# IS_TEMPLATE = true (NoopExecutor.template_dbname, executor_noop.py:60-63) --
+# _RUN_DBNAME itself (no suffix) is never created by postgresql_noproc alone.
+# That bare name is reserved for pytest_postgresql's separate, function-scoped
+# `postgresql(...)` client fixture, which clones a fresh copy from the
+# template per test -- not what this project wants (one persistent database
+# for the whole run). Confirmed directly: connecting to plain _RUN_DBNAME
+# fails with "database ... does not exist", while f"{_RUN_DBNAME}_tmpl" is
+# the exact dbname the `load=[_build_test_database]` callable below receives
+# and successfully migrates. IS_TEMPLATE = true only marks a database
+# eligible to seed `CREATE DATABASE ... TEMPLATE`; it does not block normal
+# connections (datallowconn stays true), so using it directly as this run's
+# working database is safe -- and postgresql_noproc's own janitor.drop()
+# still tears it down at session end, same as any other database it creates.
+TEST_DATABASE_URL = psycopg.conninfo.make_conninfo(
+    _base_test_url,
+    host=_resolved_host,
+    user=_resolved_user,
+    password=_resolved_password,
+    dbname=f"{_RUN_DBNAME}_tmpl",
+    application_name="mlb_test_suite",
+)
+_assert_test_database_url(TEST_DATABASE_URL)
+# Set at *import* time, not inside a fixture -- tests/conftest.py is always
+# imported before any test module under tests/ is collected, so any test
+# file reading os.environ["TEST_DATABASE_URL"] at its own module level
+# (e.g. tests/integration/test_least_privilege.py) already sees this run's
+# real database name, not the base-configured one.
+os.environ["TEST_DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+
+
+def _speed_up_test_database(url: str) -> None:
+    """Test-only durability relaxations for the disposable database at
+    `url` -- never called against production (this only ever runs from the
+    postgresql_noproc load callable below, which always targets this run's
+    own database). See GitHub issue #2 and README "Testing" for the full
+    measurement.
+
+    Two independent changes, both needed:
+
+    1. `synchronous_commit = off` -- every test's commit otherwise waits on
+       a WAL flush it doesn't need for disposable data.
+
+    2. UNLOGGED on every core.play/core.pitch season partition (migration
+       0011; ~316 partitions combined). Confirmed directly (psql \\timing
+       + pg_stat_activity) that TRUNCATE on these is dominated by a
+       synchronous per-relation fsync (`DataFileImmediateSync` wait), and
+       that this is *independent* of synchronous_commit. Unlogged relations
+       skip that fsync (they're wiped on crash recovery anyway, which is
+       fine -- test data is always rebuilt).
+    """
+    with psycopg.connect(url, autocommit=True) as conn:
+        dbname = conn.info.dbname
+        alter_db = sql.SQL("ALTER DATABASE {} SET synchronous_commit = off")
+        conn.execute(alter_db.format(sql.Identifier(dbname)))
+        conn.execute("SET synchronous_commit = off")
+        partitions = conn.execute(
+            """
+            SELECT n.nspname, c.relname
+            FROM pg_inherits i
+            JOIN pg_class c ON c.oid = i.inhrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_class p ON p.oid = i.inhparent
+            JOIN pg_namespace pn ON pn.oid = p.relnamespace
+            WHERE pn.nspname = 'core'
+              AND p.relname IN ('play', 'pitch')
+              AND c.relpersistence <> 'u'
+            """
+        ).fetchall()
+        for schema_name, table_name in partitions:
+            conn.execute(
+                sql.SQL("ALTER TABLE {}.{} SET UNLOGGED").format(
+                    sql.Identifier(schema_name), sql.Identifier(table_name)
+                )
+            )
+
+
+def _build_test_database(
+    host: str, port: int, user: str, dbname: str, password: str | None
+) -> None:
+    """pytest-postgresql `load` callable -- runs once, after postgresql_noproc
+    has already created `dbname` (empty). Builds this run's real schema and
+    applies the same test-only speed tweaks the old shared-database fixture
+    applied once per session -- just retargeted at this run's own database.
+    """
+    dsn = psycopg.conninfo.make_conninfo(
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        dbname=dbname,
+        application_name="mlb_test_suite",
+    )
+    os.environ["DATABASE_URL"] = dsn
+    os.environ["MLB_TEST_SUITE"] = "1"
+
+    from mlb_baseball import migrate
+
+    migrate.run()
+    _speed_up_test_database(dsn)
+
+
+postgresql_noproc = factories.postgresql_noproc(
+    host=_resolved_host,
+    port=_base_conninfo.get("port"),
+    user=_resolved_user,
+    password=_resolved_password,
+    dbname=_RUN_DBNAME,
+    load=[_build_test_database],
+)
 
 
 class _UndefinedTableCursor:
@@ -66,126 +205,19 @@ def unmigrated_db_connection():
     return _UnmigratedConnection()
 
 
-def _speed_up_test_database(url: str) -> None:
-    """Test-only durability relaxations for the disposable database at
-    `url` — never called against production (this only ever runs from the
-    session fixture below, which always targets TEST_DATABASE_URL, never
-    the DATABASE_URL production code paths use). See GitHub issue #2 and
-    README "Testing" for the full measurement.
-
-    Two independent changes, both needed:
-
-    1. `synchronous_commit = off` — every test's commit otherwise waits on
-       a WAL flush it doesn't need for disposable data. Free win for the
-       suite's many small per-test transactions.
-
-    2. UNLOGGED on every core.play/core.pitch season partition (migration
-       0011; ~316 partitions combined). Confirmed directly (psql \\timing
-       + pg_stat_activity) that TRUNCATE on these is dominated by a
-       synchronous per-relation fsync (`DataFileImmediateSync` wait), and
-       that this is *independent* of synchronous_commit — a bare TRUNCATE
-       took ~79s with synchronous_commit on and ~84s with it off, no
-       improvement. Unlogged relations skip that fsync (they're wiped on
-       crash recovery anyway, which is fine — test data is always
-       rebuilt), dropping the same TRUNCATE to ~20s. Idempotent and cheap
-       (~0.2s total) once already set, so this runs unconditionally on
-       every session start rather than only on a fresh database.
+@pytest.fixture(scope="session")
+def _test_database(postgresql_noproc):
+    """Depends on postgresql_noproc so pytest builds this run's isolated
+    database (via _build_test_database above) before any test runs, and
+    drops it after the session ends -- both handled by the library's
+    DatabaseJanitor, not by this fixture.
     """
-    with psycopg.connect(url, autocommit=True) as conn:
-        dbname = conn.info.dbname
-        alter_db = sql.SQL("ALTER DATABASE {} SET synchronous_commit = off")
-        conn.execute(alter_db.format(sql.Identifier(dbname)))
-        conn.execute("SET synchronous_commit = off")
-        partitions = conn.execute(
-            """
-            SELECT n.nspname, c.relname
-            FROM pg_inherits i
-            JOIN pg_class c ON c.oid = i.inhrelid
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            JOIN pg_class p ON p.oid = i.inhparent
-            JOIN pg_namespace pn ON pn.oid = p.relnamespace
-            WHERE pn.nspname = 'core'
-              AND p.relname IN ('play', 'pitch')
-              AND c.relpersistence <> 'u'
-            """
-        ).fetchall()
-        for schema_name, table_name in partitions:
-            conn.execute(
-                sql.SQL("ALTER TABLE {}.{} SET UNLOGGED").format(
-                    sql.Identifier(schema_name), sql.Identifier(table_name)
-                )
-            )
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _test_database():
-    """Points DATABASE_URL at the test database, applies migrations once
-    per test session before any test runs, then applies test-only
-    durability relaxations (never done against production — see
-    _speed_up_test_database's docstring)."""
-    _assert_test_database_url(TEST_DATABASE_URL)
-    os.environ["DATABASE_URL"] = TEST_DATABASE_URL
-    from mlb_baseball import migrate
-
-    # Keep an exclusive, session-scoped reservation for the entire test run.
-    # Normal project ingestion/conform/model workflows check this lock before
-    # starting, so they fail cleanly instead of deadlocking test fixture DDL.
-    #
-    # Non-blocking (pg_try_advisory_lock), not the blocking pg_advisory_lock:
-    # two test sessions racing for mlb_test used to mean the second one just
-    # hung silently -- often for the other session's entire multi-minute run
-    # -- with zero indication of what it was waiting on or why. Failing
-    # immediately with who's holding it is strictly more useful than an
-    # opaque wait, especially for an agent (not a human watching a
-    # terminal) deciding whether to wait, investigate, or back off.
-    with psycopg.connect(TEST_DATABASE_URL) as reservation:
-        acquired = reservation.execute(
-            "SELECT pg_try_advisory_lock(hashtext('mlb-test-suite'))"
-        ).fetchone()[0]
-        if not acquired:
-            # A single-bigint pg_advisory_lock's key is split across
-            # pg_locks.classid (high 32 bits) and .objid (low 32 bits),
-            # objsubid=1 marking this form (vs. the two-int32-arg form's
-            # objsubid=2) -- matching only on objid, as an earlier version
-            # of this query did, could in principle match a different
-            # advisory lock that happens to share the same low 32 bits.
-            # Verified directly against a real held lock before relying on
-            # this: reconstructing (classid << 32 | objid) reproduces
-            # hashtext('mlb-test-suite')::bigint exactly, including the
-            # negative-hashtext case this actual key produces.
-            holder = reservation.execute(
-                """
-                SELECT a.pid, a.application_name, a.state, a.query_start
-                FROM pg_locks l
-                JOIN pg_stat_activity a ON a.pid = l.pid
-                WHERE l.locktype = 'advisory'
-                  AND l.objsubid = 1
-                  AND (l.classid::bigint << 32) | l.objid::bigint
-                      = hashtext('mlb-test-suite')::bigint
-                  AND l.granted AND a.pid <> pg_backend_pid()
-                """
-            ).fetchone()
-            detail = (
-                f"pid {holder[0]} ({holder[1]!r}, {holder[2]}, running since {holder[3]})"
-                if holder
-                else "an unidentified session"
-            )
-            pytest.exit(
-                f"{TEST_DATABASE_URL!r} is already reserved by another test session -- "
-                f"{detail}. Wait for it to finish before running tests.",
-                returncode=1,
-            )
-        os.environ["MLB_TEST_SUITE"] = "1"
-        try:
-            migrate.run()
-            _speed_up_test_database(TEST_DATABASE_URL)
-            yield
-        finally:
-            os.environ.pop("MLB_TEST_SUITE", None)
+    yield
+    os.environ.pop("MLB_TEST_SUITE", None)
 
 
 @pytest.fixture
-def db_conn():
+def db_conn(_test_database):
     # Deliberately NOT autocommit — matches mlb_baseball.db.get_connection()
     # exactly, so tests exercise the same transaction semantics production
     # code actually runs under (this is what the track_run regression test

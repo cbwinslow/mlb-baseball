@@ -28,6 +28,7 @@ dev = [
     "pre-commit>=4.6",
     "sqlmesh[postgres]>=0.236.1",
     "sqlfluff>=3.0",
+    "pytest-postgresql>=8.1,<9",
 ]
 
 [project.scripts]
@@ -52,6 +53,10 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# host/user for pytest-postgresql's postgresql_noproc fixture are resolved
+# in tests/conftest.py (falling back to "localhost" / getpass.getuser()),
+# not hardcoded here -- a hardcoded postgresql_user would be one specific
+# contributor's OS username, which breaks for everyone else.
 
 [tool.mypy]
 files = ["mlb_baseball"]

@@ -84,6 +84,7 @@ _assert_test_database_url(TEST_DATABASE_URL)
 # (e.g. tests/integration/test_least_privilege.py) already sees this run's
 # real database name, not the base-configured one.
 os.environ["TEST_DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 
 def _speed_up_test_database(url: str) -> None:

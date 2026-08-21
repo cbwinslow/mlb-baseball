@@ -30,6 +30,7 @@ from mlb_baseball.health import (
 from mlb_baseball.ingest import track_run
 from mlb_baseball.model import (
     age,
+    batted_ball,
     bsr,
     bullpen,
     diff,
@@ -159,6 +160,7 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         "gold.game_feature (starter probable)": starter.compute_probable(conn),
         "gold.game_feature (experience)": experience.compute(conn),
         "gold.game_feature (pitch_discipline)": pitch_discipline.compute(conn),
+        "gold.game_feature (batted_ball)": batted_ball.compute(conn),
         "gold.game_feature (starter workload)": starter_workload.compute(conn),
         "gold.game_feature (starter workload live)": starter_workload.compute_live(conn),
         "gold.game_feature (starter workload probable)": starter_workload.compute_probable(conn),
@@ -303,5 +305,6 @@ def health_check() -> list[Check]:
         + diff.health_check()
         + experience.health_check()
         + pitch_discipline.health_check()
+        + batted_ball.health_check()
         + age.health_check()
     )

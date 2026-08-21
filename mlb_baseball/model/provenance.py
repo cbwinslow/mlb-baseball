@@ -182,6 +182,16 @@ def start_run(
     prediction_cutoff: str | None = None,
     feature_snapshot_id: str | None = None,
 ) -> int:
+    """Commits the new meta.model_run row immediately, independently of
+    whatever transaction the caller's own real work (train/predict/
+    evaluate) uses -- same reasoning as ingest.py's track_run (ADR-022).
+    Every caller (elo.py, log5.py, gbm.py, evaluation.py) calls this, then
+    does its real work, then calls finish_run() -- none of them commit in
+    between. Without committing here, a later failure that aborts the
+    transaction would roll this INSERT away along with the failed work,
+    so finish_run()'s own rollback-then-UPDATE (see its docstring) would
+    silently match zero rows: no failure ever gets recorded, the exact
+    thing that fix exists to guarantee (PR review, CodeAnt)."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -200,10 +210,32 @@ def start_run(
                 feature_snapshot_id,
             ),
         )
-        return int(fetch_one(cur)[0])
+        run_id = int(fetch_one(cur)[0])
+    conn.commit()
+    return run_id
 
 
 def finish_run(conn: psycopg.Connection, run_id: int, *, error: Exception | None = None) -> None:
+    """Same rollback-before-logging-a-failure fix as ingest.py's track_run
+    (see its own docstring/ADR-022 precedent): the caller's failed
+    operation typically leaves `conn` in InFailedSqlTransaction state, and
+    without rolling back first, this UPDATE itself would raise
+    InFailedSqlTransaction instead of ever recording the real error --
+    only on the failure path, never on success, where rolling back would
+    discard the very work this call is meant to commit.
+
+    Commits the UPDATE itself on both paths (PR review, Kilo -- a real,
+    confirmed bug missed by this module's own tests but not by real
+    usage): every real caller (log5.py/elo.py/gbm.py) re-raises after
+    calling this on the failure path, and predict()/train() are always
+    invoked from model/__init__.py's run(), inside track_run()'s own
+    context manager (ingest.py). track_run's own except-block does a
+    *second* conn.rollback() when that re-raised exception reaches it --
+    which would silently wipe out this UPDATE if it were left
+    uncommitted, discarding the very failure record this whole fix chain
+    exists to guarantee."""
+    if error:
+        conn.rollback()
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -213,3 +245,4 @@ def finish_run(conn: psycopg.Connection, run_id: int, *, error: Exception | None
             """,
             ("failed" if error else "success", str(error) if error else None, run_id),
         )
+    conn.commit()

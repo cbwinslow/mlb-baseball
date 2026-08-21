@@ -352,6 +352,7 @@ def create_snapshot(
                 provenance.git_sha(),
             ),
         )
+        # sql-ownership: allow -- pre-existing gap, extraction tracked separately (issue #72)
         cur.executemany(
             """
             INSERT INTO gold.game_feature_snapshot (

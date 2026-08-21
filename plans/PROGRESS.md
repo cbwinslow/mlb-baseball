@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+- **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
@@ -604,6 +604,176 @@ parameter) were investigated and declined -- each either matches an
 established codebase convention checked directly against 20+ other
 files, or (the self-join one) would introduce a real bug if "simplified"
 as suggested. Full reasoning in `docs/DECISIONS.md` ADR-087.
+
+### Issue #10: SQL ownership lint check — 2026-08-20
+
+Built the bespoke enforcement `docs/POLICY_REVIEW_2026-08.md` §1 flagged
+as a real, scoped gap and explicitly deferred: SQLFluff (added that
+day) checks that the 27 named `.sql` resources are themselves valid
+SQL, but nothing checked whether a *new* piece of inline SQL in a
+`.py` file should have been extracted to a named resource per
+`docs/SQL_OWNERSHIP.md`'s own categories.
+
+`scripts/lint_sql_ownership.py` (~120 lines, AST-walking, matching the
+issue's own size estimate): walks every `.py` file under
+`mlb_baseball/` (excluding `tests/`), flags a `.execute(...)`/
+`.executemany(...)` call whose first argument is a **multi-line, static
+string literal**
+(`ast.Constant`, not an f-string or `.format()` result -- those are
+dynamic identifier composition, which `SQL_OWNERSHIP.md`'s own "Retain
+in Python" section already allows inline, since a parameterized query
+literally cannot bind an identifier) containing a mutating statement
+(`INSERT`/`UPDATE`/`DELETE`) targeting `core.*`/`gold.*`. A single-line
+statement is deliberately not flagged -- far more often a small
+operational/diagnostic one-liner than a business mutation worth its
+own file, matching that same "Retain in Python" category.
+
+Two suppression mechanisms, matched to two different real shapes of
+"this is fine" found when the script was first run against the actual
+codebase (18 findings, all in `conform.py` and `model/identity.py`):
+- **Per-call-site**: a `# sql-ownership: allow -- <reason>` comment on
+  the line immediately above the flagged call (this project's existing
+  `# noqa`/`# type: ignore`-style inline-suppression convention).
+- **Per-module**: a small `EXEMPT_MODULES` set in the script itself,
+  used for `conform.py` (all 16 findings -- `SQL_OWNERSHIP.md`'s own
+  "Remaining extraction queue" #1 already documents its writes staying
+  inline "until identity and dependent surrogate-ID contracts have
+  dedicated parity gates") and `model/identity.py` (both findings --
+  matches "Retain in Python"'s own "Multi-pass game/team identity
+  reconciliation" bullet verbatim). Chosen over 18 near-identical
+  inline comments, which would just be diff noise on two files this
+  check isn't asking anyone to change yet, not real per-site
+  justification -- each exemption cites the exact doc entry that
+  covers it, so it stays honest and auditable, not a silent blanket
+  exclusion.
+
+Wired into both `.github/workflows/ci.yml` (new step, right after the
+sqlfluff step) and `.pre-commit-config.yaml` (a `repo: local` hook,
+`pass_filenames: false` since the script walks the whole package
+itself rather than taking changed files as argv). Confirmed clean
+against the current codebase after the two exemptions:
+`SQL ownership check passed: no unjustified inline mutating SQL found.`
+
+`tests/unit/test_lint_sql_ownership.py` (10 tests, loaded by path via
+`importlib.util` -- `scripts/` isn't a package, same pattern already
+used by `test_verify_markov_calibration.py`): proves the positive case
+(multi-line `INSERT`/`UPDATE`/`DELETE` into `core.*`/`gold.*` gets
+flagged, via both `.execute()` and `.executemany()`) and every negative case that matters (single-line statement,
+non-mutating `SELECT`, f-string composition, a mutation outside
+`core`/`gold`, the inline-allow comment actually suppressing, and --
+the case that would make the suppression mechanism silently unsafe --
+an allow comment elsewhere in the file that must *not* blanket-exempt
+an unrelated later call).
+
+`uv run mypy scripts/lint_sql_ownership.py` clean (not part of this
+project's own `mypy` scope, `pyproject.toml` only checks
+`mlb_baseball/`, matching every other `scripts/*.py` file -- checked by
+hand anyway). `ruff check`/`ruff format --check` clean on both new
+files. `pre-commit run --all-files` itself currently can't run in this
+environment (`pre-commit --version` reports `None` -- confirmed a
+pre-existing, unrelated broken local install: the identical crash
+reproduces against `main`'s own unmodified `.pre-commit-config.yaml`)
+-- the hook's actual `entry` command was verified directly instead.
+
+### Issue #9 items 4 and 5: naming-collision ADR, test-isolation leak — 2026-08-20
+
+Closed out the remaining open items on issue #9 (`team_prior_offense_defense_v1`'s
+follow-up paper cuts). First audited all 6 items against the actual current
+code rather than trusting the issue's own stale checklist: items 1 and 6
+were already fixed (`db97d96`, PR #25); items 2 and 3 turned out to
+**already be fixed in the code** (`team_rate.py`/`offense.py` both
+two-table-gate and both check away-side health, each with a comment
+citing "issue #9 item 2"/"item 3") but no PROGRESS.md entry had ever
+recorded it -- only items 4 and 5 were genuinely still open.
+
+**Item 4 (naming collision risk):** Added `docs/DECISIONS.md` ADR-089
+(originally drafted as ADR-081, renumbered twice during rebase -- first
+to `ADR-088` when `ADR-081` through `ADR-087` were all independently
+claimed by seven sibling branches off the same earlier `main` tip and
+merged first, then to `ADR-089` when a later, unrelated PR (#71,
+SQLMesh reactivation) also independently claimed `ADR-088` and merged
+first -- the same ADR-number collision pattern documented throughout
+this session, just recurring a second time on the same section),
+documenting the rule rather than renaming anything: team-level rate
+columns (`team_rate.py`'s `home_bb_pct`/`home_k_pct`) stay unprefixed;
+a future family adding its own `*_bb_pct`/`*_k_pct` column gets the
+role prefix (matching `starter_`/`bullpen_`'s already-correct pattern),
+not the other way around. No rename now -- CLAUDE.md's own "don't
+prefix by default" rule means speculative disambiguation before a real
+collision exists would itself violate the convention it's meant to
+protect.
+
+**Item 5 (test isolation, `raw.mlb_schedule` leak):** Found 8 more
+`test_model_*.py`/`test_experiment.py`/`test_feature_select*.py` files
+(beyond `test_model_bullpen.py`/`test_model_team_rate.py`, already
+fixed) whose `_reset()` only `DELETE`d `raw.mlb_schedule` instead of
+dropping it -- this table is never created by a migration, only ad-hoc
+by whichever file's tests happen to run first in a pytest session, so a
+`DELETE`-only reset leaves that first file's narrow schema (silently
+patched over by every later file's own `ALTER TABLE ADD COLUMN IF NOT
+EXISTS`) sitting around for the rest of the run. Changed all 8 to
+`DROP TABLE IF EXISTS raw.mlb_schedule` instead.
+
+**This immediately surfaced two real, latent bugs the leaked schema had
+been masking, not synthetic ones:**
+- `test_model_features.py`'s `_ensure_mlb_schedule_table` only added
+  `_loaded_at`/`game_datetime` to an *already-existing* table (the
+  fresh-CREATE branch omitted them) -- a truly fresh table (now the
+  normal case, since `_reset()` drops it) was missing `_loaded_at`,
+  and `test_feature_stage_builds_features_without_writing_predictions`
+  had silently depended on a leaked table from elsewhere in the session
+  already having patched it in. Fixed by always running the
+  `ALTER TABLE ADD COLUMN IF NOT EXISTS` block, not just in the
+  table-already-existed branch.
+- `mlb_baseball/model/evaluation.py`'s `_selected_predictions` joined
+  `raw.mlb_schedule` unconditionally, with no `to_regclass` gate every
+  other enrichment module in this codebase already uses -- a real
+  production robustness gap (a fresh clone that's only run `mlb
+  migrate`/`mlb conform` so far, never `mlb ingest mlb_api`, would
+  crash `mlb evaluate` outright, even for a retrosheet-only cutoff that
+  doesn't need schedule data at all). Fixed by gating on `to_regclass`
+  and swapping in an empty-result `schedule` CTE when the table's
+  missing, so every game instance falls back to the same
+  retrosheet-next-day-midnight cutoff it already uses when a real
+  schedule row just doesn't match -- not a new code path, the existing
+  fallback taking over.
+- That crash's `except` handler then called `provenance.finish_run(conn,
+  run_id, error=error)` on the now-aborted connection **without rolling
+  back first**, the exact same bug class `ingest.py`'s `track_run` was
+  already fixed for (ADR-022's precedent, see its own
+  `test_failure_path_logs_error_and_leaves_connection_usable`) -- the
+  failure-logging UPDATE itself raised `InFailedSqlTransaction`,
+  masking the real error and leaving no failure record in
+  `meta.model_run` at all. Fixed with the identical
+  `conn.rollback()`-before-logging pattern (only on the failure path,
+  never on success, which would discard real work). New regression test
+  `test_finish_run_logs_failure_after_an_aborted_transaction` in
+  `tests/integration/test_model_provenance.py`, following the exact
+  shape of `track_run`'s own reference test: confirmed it fails with
+  `InFailedSqlTransaction` against the pre-fix code (reverted the fix,
+  watched it fail, restored it), then passes clean.
+
+**Verified thoroughly, not just file-by-file:** each of the 8 files'
+own tests pass individually, then all 16 `raw.mlb_schedule`-touching
+`tests/integration/` files (the 8 fixed here plus the 8 already-correct
+ones) run together -- 233 passed -- to catch any cross-file ordering
+dependency the individual runs alone couldn't. One run in the middle of
+this hit `RuntimeError: migration: another migration run is already
+active` / `schema "raw" does not exist` from a *different* active
+session's own concurrent `pytest`/`mlb migrate` run against the same
+shared `mlb_test` database (`migrate.py`'s own migration lock uses a
+non-blocking `pg_try_advisory_lock`, so two sessions' `migrate.run()`
+calls can transiently collide) -- confirmed via `pg_stat_activity`
+that no code in this repo does `DROP SCHEMA`, and a clean re-run once
+the other session's window passed came back 233/233 green, ruling out
+a real bug.
+
+`uv run mypy mlb_baseball/` and `ruff check`/`ruff format --check` clean
+on every file touched (3 pre-existing, unrelated `ruff format` drift
+spots in `test_experiment.py`/`test_feature_select_stepwise.py`/
+`test_model_elo.py`, confirmed already present on `main` before this
+change and outside CI's own `ruff check .`-only gate -- left alone,
+out of scope).
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

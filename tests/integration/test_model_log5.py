@@ -58,12 +58,15 @@ def _reset(db_conn):
     # before reaching its own cleanup would otherwise leave ATL/NYA rows
     # behind and collide with the next test's _seed_teams insert. Same
     # defensive-reset pattern as test_conform.py's _reset_dynamic_tables().
+    #
+    # raw.mlb_schedule is DROPped, not DELETEd (issue #9 item 5) -- see
+    # test_model_features.py's identical _reset for the full explanation.
+    # _ensure_mlb_schedule_table above already recreates it fresh on
+    # demand, unconditionally re-running its ALTER ADD COLUMN block
+    # either way, so this is safe.
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        (schedule_exists,) = cur.fetchone()
-        if schedule_exists:
-            cur.execute("DELETE FROM raw.mlb_schedule")
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")

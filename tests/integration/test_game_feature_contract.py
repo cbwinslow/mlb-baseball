@@ -8,11 +8,16 @@ from mlb_baseball.model import features
 
 
 def _reset(db_conn):
+    # raw.mlb_schedule is DROPped, not DELETEd (issue #9 item 5): this
+    # table is never created by a migration, only ad-hoc by whichever
+    # test_model_*.py file's tests run first in a given pytest session.
+    # _seed() below already recreates it with the correct schema from
+    # scratch when it's missing, so a DROP here is safe and prevents a
+    # stale, narrower schema from an earlier test/file lingering for the
+    # rest of the run.
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        if cur.fetchone()[0] is not None:
-            cur.execute("DELETE FROM raw.mlb_schedule")
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")

@@ -22,9 +22,15 @@ def _reset(conn):
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team")
-        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        if cur.fetchone()[0] is not None:
-            cur.execute("DELETE FROM raw.mlb_schedule WHERE game_id LIKE 'experiment-%'")
+        # raw.mlb_schedule is DROPped, not just scoped-DELETEd (issue #9
+        # item 5): this table is never created by a migration, only ad-hoc
+        # by whichever test_model_*.py file's tests run first in a given
+        # pytest session. This file's own _seed() always uses an
+        # 'experiment-%' game_id prefix and already recreates the table
+        # fresh (CREATE TABLE IF NOT EXISTS) when missing, so a DROP here
+        # is safe and prevents a stale, differently-shaped schema from an
+        # earlier test/file lingering for the rest of the run.
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
     conn.commit()
 
 

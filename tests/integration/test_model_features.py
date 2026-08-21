@@ -33,6 +33,14 @@ def _ensure_mlb_schedule_table(db_conn):
     # (load_dataframe creates raw tables from whatever a real load
     # contains) -- not a given in a fresh mlb_test. Created here with just
     # the columns features.py's upcoming-games query actually reads.
+    #
+    # The ALTER TABLE ADD COLUMN IF NOT EXISTS block below always runs,
+    # even right after CREATE TABLE -- not just when the table already
+    # existed (issue #9 item 5): now that _reset() drops this table
+    # between tests instead of leaving a stale schema around, a truly
+    # fresh table must get its full column set from this function alone,
+    # not depend on a leaked table from an earlier test/file having
+    # already patched it in.
     with db_conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
         (exists,) = cur.fetchone()
@@ -43,9 +51,8 @@ def _ensure_mlb_schedule_table(db_conn):
                 "status text, home_id text, away_id text, game_num text, "
                 "venue_id text)"
             )
-        else:
-            for column in ("game_type", "status", "venue_id", "game_datetime", "_loaded_at"):
-                cur.execute(f"ALTER TABLE raw.mlb_schedule ADD COLUMN IF NOT EXISTS {column} text")
+        for column in ("game_type", "status", "venue_id", "game_datetime", "_loaded_at"):
+            cur.execute(f"ALTER TABLE raw.mlb_schedule ADD COLUMN IF NOT EXISTS {column} text")
     db_conn.commit()
 
 
@@ -56,12 +63,20 @@ def _reset(db_conn):
     # reaching its own cleanup would otherwise leave ATL/NYA rows behind
     # and collide with the next test's _seed_teams insert. Same defensive-
     # reset pattern as test_conform.py's _reset_dynamic_tables().
+    #
+    # raw.mlb_schedule is DROPped, not DELETEd (issue #9 item 5): this
+    # table is never created by a migration, only ad-hoc by whichever
+    # test_model_*.py file's tests happen to run first in a given pytest
+    # session, each with its own narrow column set. A DELETE-only reset
+    # leaves that first file's schema (patched over time by every other
+    # file's own ALTER TABLE ADD COLUMN IF NOT EXISTS) sitting around for
+    # the rest of the run instead of letting each file's own
+    # _ensure_mlb_schedule_table start from a clean, self-consistent
+    # table -- fragile, not yet an observed failure. DROP is safe here:
+    # _ensure_mlb_schedule_table already recreates it fresh on demand.
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        (schedule_exists,) = cur.fetchone()
-        if schedule_exists:
-            cur.execute("DELETE FROM raw.mlb_schedule")
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
@@ -408,9 +423,11 @@ def test_build_degrades_gracefully_without_raw_mlb_schedule(db_conn):
     # ingest mlb_api has no raw.mlb_schedule table at all yet -- must still
     # build features for whatever completed games exist in core.game, not
     # crash the entire rebuild over a table it doesn't strictly need.
-    # Explicitly dropped here (not just asserted absent) so this test's
-    # precondition doesn't depend on running before any other test in this
-    # file that creates the table via _ensure_mlb_schedule_table.
+    # The autouse _clean fixture's own pre-test _reset(db_conn) call
+    # already guarantees this (_reset() drops raw.mlb_schedule itself,
+    # issue #9 item 5) -- kept explicit anyway as a readable, self-
+    # documenting precondition rather than relying on fixture ordering
+    # a future reader has to trace.
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
     db_conn.commit()

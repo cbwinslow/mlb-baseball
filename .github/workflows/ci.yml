@@ -100,6 +100,9 @@ jobs:
       - name: Lint (sqlfluff, mlb_baseball/sql/)
         run: uv run sqlfluff lint mlb_baseball/sql/
 
+      - name: Lint (SQL ownership -- inline SQL that should be a named resource)
+        run: uv run python scripts/lint_sql_ownership.py
+
       - name: Type-check (mypy)
         run: uv run mypy
 

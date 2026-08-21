@@ -239,7 +239,11 @@ def test_all_supported_models_share_calendar_rehearsal_rows(db_conn, tmp_path, m
     ).fetchone()
     assert stored_aggregate == ("14",)
     snapshot_rows = experiment._snapshot_rows(db_conn, snapshot_id)
-    assert {(row.mlb_game_pk, row.game_number) for row in snapshot_rows if row.game_date.isoformat() == "2016-04-02"} >= {
+    assert {
+        (row.mlb_game_pk, row.game_number)
+        for row in snapshot_rows
+        if row.game_date.isoformat() == "2016-04-02"
+    } >= {
         ("201602", 1),
         ("201603", 2),
     }
@@ -331,9 +335,7 @@ def test_failed_run_can_resume_same_declared_configuration(db_conn, tmp_path):
         snapshot_id, "home_rate", fold_years=(2016,), artifact_dir=tmp_path
     )
     experiment_id = experiment._experiment_id(config)
-    fold_plan = [
-        {"name": "season-2016", "train_through_season": 2015, "test_season": 2016}
-    ]
+    fold_plan = [{"name": "season-2016", "train_through_season": 2015, "test_season": 2016}]
     db_conn.execute(
         """
         INSERT INTO meta.experiment (
@@ -500,4 +502,3 @@ def test_first_game_of_season_null_zero_empirical_behavior(db_conn):
     assert all(r.mlb_game_pk not in {"201501", "201601", "201701"} for r in rd_eligible)
 
     _reset(db_conn)
-

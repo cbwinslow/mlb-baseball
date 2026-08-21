@@ -81,17 +81,13 @@ def test_league_average_hitter_in_a_neutral_park_is_exactly_100(db_conn):
     offense.compute_live(db_conn)
     db_conn.commit()
     with db_conn.cursor() as cur:
-        cur.execute(
-            "UPDATE gold.game_feature SET park_factor = 100 WHERE mlb_game_pk = '920002'"
-        )
+        cur.execute("UPDATE gold.game_feature SET park_factor = 100 WHERE mlb_game_pk = '920002'")
     db_conn.commit()
     offense.compute_wrc_plus_live(db_conn)
     db_conn.commit()
 
     with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT home_wrc_plus FROM gold.game_feature WHERE mlb_game_pk = '920002'"
-        )
+        cur.execute("SELECT home_wrc_plus FROM gold.game_feature WHERE mlb_game_pk = '920002'")
         (wrc_plus,) = cur.fetchone()
 
     assert wrc_plus == Decimal("100.00000000000000")

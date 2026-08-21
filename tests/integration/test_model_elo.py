@@ -176,9 +176,7 @@ def test_compute_ratings_uses_declared_doubleheader_order_not_feature_row_id(db_
     db_conn.commit()
 
     with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT home_elo FROM gold.game_feature WHERE game_instance_key = 'mlb:2'"
-        )
+        cur.execute("SELECT home_elo FROM gold.game_feature WHERE game_instance_key = 'mlb:2'")
         (second_game_home_elo,) = cur.fetchone()
     assert second_game_home_elo > Decimal("1500")
 

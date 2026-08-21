@@ -291,9 +291,7 @@ def predict(conn: psycopg.Connection) -> int:
 
         n_features = len(FEATURE_COLUMNS)
         game_pks = [row[0] for row in rows]
-        X = np.array(
-            [_to_float_row(row[1 : 1 + n_features]) for row in rows], dtype=np.float64
-        )
+        X = np.array([_to_float_row(row[1 : 1 + n_features]) for row in rows], dtype=np.float64)
         baseline = [float(row[1 + n_features]) for row in rows]
         preds = model.predict(X)
 

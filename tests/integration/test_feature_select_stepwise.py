@@ -333,7 +333,17 @@ def test_select_features_stepwise_skips_single_class_inner_training_split(db_con
                     "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, game_number, "
                     "home_team_id, away_team_id, home_score, away_score, game_type) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'regular') RETURNING id",
-                    (f"G{pk}", pk, season, game_date, game_number, home, away, home_score, away_score),
+                    (
+                        f"G{pk}",
+                        pk,
+                        season,
+                        game_date,
+                        game_number,
+                        home,
+                        away,
+                        home_score,
+                        away_score,
+                    ),
                 )
                 (game_id,) = cur.fetchone()
                 rate = 0.5

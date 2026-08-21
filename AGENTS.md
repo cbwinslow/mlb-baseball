@@ -38,8 +38,10 @@ remain removable and must never influence model output or research conclusions.
   before the next package begins.
 - Preserve user and parallel-agent changes. Never assume a dirty worktree is
   disposable.
-- Reuse the existing `mlb_test` test database for database verification;
-  do not create additional test databases unless the owner explicitly asks.
+- Testing automatically provisions an isolated per-session database
+  (`mlb_test_<hex>`) via `pytest-postgresql` and tears it down on exit; parallel
+  agents can run test suites concurrently without manual database management or
+  lock collisions. Do not create ad-hoc manual test databases.
 
 ## Architecture decisions
 

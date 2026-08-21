@@ -5,7 +5,7 @@ import time
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
-from mlb_baseball import audit, cli, field_census, model, progress_table, report
+from mlb_baseball import audit, backup, cli, field_census, model, progress_table, report
 from mlb_baseball.model import experiment, feature_select, feature_select_stepwise
 from mlb_baseball.source_profiles import SourceProfileError, require_sources
 
@@ -769,3 +769,76 @@ def test_status_season_coverage_flag_selects_exact_coverage_strategy(monkeypatch
     cli.main(["status", "--season-coverage"])
 
     assert isinstance(captured["strategy"], progress_table.SeasonCoverageStrategy)
+
+
+def test_backup_keep_flag_rotates_after_a_successful_full_backup(monkeypatch, tmp_path, capsys):
+    dump_path = tmp_path / "mlb_20260101T000000Z.sql"
+    monkeypatch.setattr(backup, "backup", lambda *a, **k: dump_path)
+    deleted = [tmp_path / "mlb_20251201T000000Z.sql"]
+    rotate_mock = MagicMock(return_value=deleted)
+    monkeypatch.setattr(backup, "rotate_backups", rotate_mock)
+
+    cli.main(["backup", "--output-dir", str(tmp_path), "--keep", "3"])
+
+    rotate_mock.assert_called_once()
+    assert rotate_mock.call_args.kwargs["keep"] == 3
+    assert "Rotated 1 old backup(s)" in capsys.readouterr().out
+
+
+def test_backup_without_keep_flag_does_not_rotate(monkeypatch, tmp_path):
+    monkeypatch.setattr(backup, "backup", lambda *a, **k: tmp_path / "mlb_20260101T000000Z.sql")
+    rotate_mock = MagicMock()
+    monkeypatch.setattr(backup, "rotate_backups", rotate_mock)
+
+    cli.main(["backup", "--output-dir", str(tmp_path)])
+
+    rotate_mock.assert_not_called()
+
+
+def test_backup_schema_only_with_keep_flag_does_not_rotate(monkeypatch, tmp_path):
+    # --keep exists to bound the automated full-backup cron's disk usage --
+    # applying it to an ad-hoc --schema-only dump would be a no-op at best
+    # (nothing schema-only matches rotate_backups' full-backup pattern
+    # anyway) and confusing at worst, so the CLI skips the call outright.
+    monkeypatch.setattr(
+        backup, "backup", lambda *a, **k: tmp_path / "mlb_schema_20260101T000000Z.sql"
+    )
+    rotate_mock = MagicMock()
+    monkeypatch.setattr(backup, "rotate_backups", rotate_mock)
+
+    cli.main(["backup", "--output-dir", str(tmp_path), "--schema-only", "--keep", "3"])
+
+    rotate_mock.assert_not_called()
+
+
+def test_backup_scoped_with_keep_flag_does_not_rotate(monkeypatch, tmp_path):
+    # Same reasoning as the --schema-only case: a --schema-scoped dump
+    # can't restore the whole database, so --keep must not treat it as a
+    # rotatable full backup either.
+    monkeypatch.setattr(
+        backup, "backup", lambda *a, **k: tmp_path / "mlb_scoped_20260101T000000Z.sql"
+    )
+    rotate_mock = MagicMock()
+    monkeypatch.setattr(backup, "rotate_backups", rotate_mock)
+
+    cli.main(["backup", "--output-dir", str(tmp_path), "--schema", "raw", "--keep", "3"])
+
+    rotate_mock.assert_not_called()
+
+
+def test_backup_keep_zero_is_rejected_before_running_pg_dump(monkeypatch, tmp_path):
+    # keep=0 would delete every full backup rotate_backups() itself already
+    # rejects (ValueError) -- but that check happening only inside
+    # rotate_backups() means a real, possibly multi-GB backup() call would
+    # run to completion first, for nothing, before the error surfaces.
+    backup_mock = MagicMock()
+    monkeypatch.setattr(backup, "backup", backup_mock)
+
+    try:
+        cli.main(["backup", "--output-dir", str(tmp_path), "--keep", "0"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected --keep 0 to be rejected")
+
+    backup_mock.assert_not_called()

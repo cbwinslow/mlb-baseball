@@ -4,6 +4,7 @@ from mlb_baseball.health import (
     check_grouped_no_duplicates,
     check_join_coverage,
     check_last_run,
+    check_never_vacuumed,
     check_no_duplicate_key,
     check_partition_coverage,
     check_recent_run,
@@ -11,6 +12,40 @@ from mlb_baseball.health import (
     check_table_has_rows,
     check_totals_reconcile,
 )
+
+VACUUM_SCHEMA = "health_vacuum"
+
+
+def _reset_never_vacuumed_schema(db_conn):
+    db_conn.autocommit = False
+    db_conn.rollback()
+    with db_conn.cursor() as cur:
+        cur.execute(f"DROP SCHEMA IF EXISTS {VACUUM_SCHEMA} CASCADE")
+    db_conn.commit()
+
+
+def _table_with_dead_tuples(db_conn, name, *, dead_rows):
+    table = f"{VACUUM_SCHEMA}.{name}"
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE SCHEMA IF NOT EXISTS {VACUUM_SCHEMA}")
+        # autovacuum_enabled=false: this fixture's whole point is dead
+        # tuples with NO recorded vacuum activity -- without this, a real
+        # autovacuum worker racing the test (this cluster's
+        # autovacuum_vacuum_cost_limit was raised to 2000 the same night
+        # this test was written) could vacuum the table before the
+        # assertion runs, making the test flaky rather than wrong.
+        cur.execute(f"CREATE TABLE {table} (id int) WITH (autovacuum_enabled = false)")
+        cur.execute(f"INSERT INTO {table} (id) SELECT generate_series(1, %s)", (dead_rows,))
+        cur.execute(f"DELETE FROM {table}")
+    db_conn.commit()
+    # pg_stat_user_tables is fed by each backend's own cumulative stats,
+    # flushed on a timer (~1s), not synchronously at COMMIT -- without
+    # forcing it, check_never_vacuumed's query (a separate connection) can
+    # race the flush and see 0 dead tuples immediately after this commit.
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT pg_stat_force_next_flush()")
+    db_conn.commit()
+    return table
 
 
 def test_check_table_has_rows_true_when_populated(db_conn, drop_tables_after):
@@ -493,6 +528,81 @@ def test_check_grouped_no_duplicates_false_when_source_table_missing():
 
     assert not result.ok
     assert "does not exist" in result.detail
+
+
+def test_check_never_vacuumed_flags_a_table_with_real_dead_tuples_and_no_vacuum_ever(db_conn):
+    # The exact bug pattern found live on production (raw.mlb_win_prob,
+    # raw.mlb_linescore): real, substantial dead tuples, autovacuum/manual
+    # VACUUM never once run. Deliberately checked via an absolute dead-tuple
+    # floor, not a percentage -- a percentage computed against
+    # pg_stat_user_tables.n_live_tup would have been fooled the same way a
+    # naive version of this check was during that investigation, since
+    # n_live_tup is only as fresh as the table's last ANALYZE.
+    _reset_never_vacuumed_schema(db_conn)
+    _table_with_dead_tuples(db_conn, "bloated", dead_rows=1500)
+
+    result = check_never_vacuumed(schemas=(VACUUM_SCHEMA,), min_dead_tuples=1000)
+
+    assert not result.ok
+    assert "bloated" in result.detail
+
+    _reset_never_vacuumed_schema(db_conn)
+
+
+def test_check_never_vacuumed_ignores_a_table_below_the_min_dead_tuples_floor(db_conn):
+    _reset_never_vacuumed_schema(db_conn)
+    _table_with_dead_tuples(db_conn, "small_churn", dead_rows=5)
+
+    result = check_never_vacuumed(schemas=(VACUUM_SCHEMA,), min_dead_tuples=1000)
+
+    assert result.ok
+
+    _reset_never_vacuumed_schema(db_conn)
+
+
+def test_check_never_vacuumed_flags_a_table_at_exactly_the_floor(db_conn):
+    # The floor is inclusive (>=): a table sitting at exactly
+    # min_dead_tuples is exactly as overdue as this check exists to catch,
+    # not a near-miss to exclude.
+    _reset_never_vacuumed_schema(db_conn)
+    _table_with_dead_tuples(db_conn, "at_floor", dead_rows=1000)
+
+    result = check_never_vacuumed(schemas=(VACUUM_SCHEMA,), min_dead_tuples=1000)
+
+    assert not result.ok
+    assert "at_floor" in result.detail
+
+    _reset_never_vacuumed_schema(db_conn)
+
+
+def test_check_never_vacuumed_ignores_a_table_that_has_already_been_vacuumed(db_conn):
+    _reset_never_vacuumed_schema(db_conn)
+    table = _table_with_dead_tuples(db_conn, "cleaned", dead_rows=1500)
+    db_conn.autocommit = True  # VACUUM can't run inside a transaction block
+    with db_conn.cursor() as cur:
+        cur.execute(f"VACUUM {table}")
+    db_conn.autocommit = False
+
+    result = check_never_vacuumed(schemas=(VACUUM_SCHEMA,), min_dead_tuples=1000)
+
+    assert result.ok
+
+    _reset_never_vacuumed_schema(db_conn)
+
+
+def test_check_never_vacuumed_ok_when_schema_has_no_qualifying_tables(db_conn):
+    _reset_never_vacuumed_schema(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE SCHEMA {VACUUM_SCHEMA}")
+        cur.execute(f"CREATE TABLE {VACUUM_SCHEMA}.untouched (id int)")
+    db_conn.commit()
+
+    result = check_never_vacuumed(schemas=(VACUUM_SCHEMA,), min_dead_tuples=1000)
+
+    assert result.ok
+    assert "no tables" in result.detail
+
+    _reset_never_vacuumed_schema(db_conn)
 
 
 def test_check_recent_run_false_when_last_run_failed_even_if_recent(db_conn):

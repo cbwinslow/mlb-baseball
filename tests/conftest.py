@@ -130,8 +130,51 @@ def _test_database():
     # Keep an exclusive, session-scoped reservation for the entire test run.
     # Normal project ingestion/conform/model workflows check this lock before
     # starting, so they fail cleanly instead of deadlocking test fixture DDL.
+    #
+    # Non-blocking (pg_try_advisory_lock), not the blocking pg_advisory_lock:
+    # two test sessions racing for mlb_test used to mean the second one just
+    # hung silently -- often for the other session's entire multi-minute run
+    # -- with zero indication of what it was waiting on or why. Failing
+    # immediately with who's holding it is strictly more useful than an
+    # opaque wait, especially for an agent (not a human watching a
+    # terminal) deciding whether to wait, investigate, or back off.
     with psycopg.connect(TEST_DATABASE_URL) as reservation:
-        reservation.execute("SELECT pg_advisory_lock(hashtext('mlb-test-suite'))")
+        acquired = reservation.execute(
+            "SELECT pg_try_advisory_lock(hashtext('mlb-test-suite'))"
+        ).fetchone()[0]
+        if not acquired:
+            # A single-bigint pg_advisory_lock's key is split across
+            # pg_locks.classid (high 32 bits) and .objid (low 32 bits),
+            # objsubid=1 marking this form (vs. the two-int32-arg form's
+            # objsubid=2) -- matching only on objid, as an earlier version
+            # of this query did, could in principle match a different
+            # advisory lock that happens to share the same low 32 bits.
+            # Verified directly against a real held lock before relying on
+            # this: reconstructing (classid << 32 | objid) reproduces
+            # hashtext('mlb-test-suite')::bigint exactly, including the
+            # negative-hashtext case this actual key produces.
+            holder = reservation.execute(
+                """
+                SELECT a.pid, a.application_name, a.state, a.query_start
+                FROM pg_locks l
+                JOIN pg_stat_activity a ON a.pid = l.pid
+                WHERE l.locktype = 'advisory'
+                  AND l.objsubid = 1
+                  AND (l.classid::bigint << 32) | l.objid::bigint
+                      = hashtext('mlb-test-suite')::bigint
+                  AND l.granted AND a.pid <> pg_backend_pid()
+                """
+            ).fetchone()
+            detail = (
+                f"pid {holder[0]} ({holder[1]!r}, {holder[2]}, running since {holder[3]})"
+                if holder
+                else "an unidentified session"
+            )
+            pytest.exit(
+                f"{TEST_DATABASE_URL!r} is already reserved by another test session -- "
+                f"{detail}. Wait for it to finish before running tests.",
+                returncode=1,
+            )
         os.environ["MLB_TEST_SUITE"] = "1"
         try:
             migrate.run()

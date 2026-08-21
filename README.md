@@ -127,15 +127,18 @@ pip install -e ".[dev]"
 TEST_DATABASE_URL=postgresql://mlb:password@localhost:5432/mlb_test uv run pytest
 ```
 
-Integration tests run against the existing disposable database selected by
-`TEST_DATABASE_URL` (normally `mlb_test`) — never `mlb`, and tests never
-create a database. `tests/unit/` covers pure logic with no I/O;
-`tests/integration/` covers everything that touches the database (network calls
-are mocked with fixture data so tests stay fast and offline-capable).
+Each `pytest` invocation automatically creates an isolated, uniquely-named database
+(via `pytest-postgresql`) and tears it down after the run completes. `TEST_DATABASE_URL`
+still names the base connection (host, port, user, password), but the actual database
+used each run is a clone, not `mlb_test` itself. This isolation means concurrent runs —
+including from multiple agent worktrees — no longer collide or interfere.
 
-Pytest reserves `mlb_test` for its session. A normal project ingestion,
-conformance, or model command started during the suite exits cleanly rather
-than competing with fixture setup; wait for pytest to finish and retry it.
+`tests/unit/` covers pure logic with no I/O; `tests/integration/` covers everything
+that touches the database (network calls are mocked with fixture data so tests stay
+fast and offline-capable). `mlb_test` is never used or modified during testing.
+
+If a pytest process crashes and orphans its per-run database, run `scripts/reap_test_databases.py`
+to clean them up.
 
 ## Python library usage
 

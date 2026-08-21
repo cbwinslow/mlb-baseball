@@ -151,6 +151,15 @@ Maintain a structured knowledge base containing:
 - implementation status and linked feature/model IDs; and
 - reproduction notes and result.
 
+### Formula and Cross-Reference Verification Doctrine
+
+Every calculated sabermetric statistic, rolling rate, and model feature must:
+1. Document its authoritative formula citation (e.g., FanGraphs Library, Baseball-Reference, Tangotiger/The Book, MLB Statcast specifications, or peer-reviewed research);
+2. Implement exact point-in-time correctness with zero future leakage;
+3. Include deterministic hand-calculated integration test fixtures verifying arithmetic precision;
+4. Undergo cross-reference validation against known credible reference sources (e.g., `baseballr`, `baseball.computer`, Retrosheet box scores, or FanGraphs season aggregates) with explicit tolerance thresholds; and
+5. Maintain health checks with domain bounds and null rate assertions.
+
 Every proposed statistic or feature must link to research, a transparent baseball
 or mathematical rationale, or an explicitly labeled exploratory hypothesis.
 Negative results are retained so failed ideas are not repeatedly rediscovered.

@@ -199,7 +199,7 @@ def unmigrated_db_connection():
     return _UnmigratedConnection()
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def _test_database(postgresql_noproc):
     """Depends on postgresql_noproc so pytest builds this run's isolated
     database (via _build_test_database above) before any test runs, and
@@ -211,7 +211,7 @@ def _test_database(postgresql_noproc):
 
 
 @pytest.fixture
-def db_conn():
+def db_conn(_test_database):
     # Deliberately NOT autocommit — matches mlb_baseball.db.get_connection()
     # exactly, so tests exercise the same transaction semantics production
     # code actually runs under (this is what the track_run regression test

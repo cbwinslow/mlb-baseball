@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04`'s career-PA/IP half, and the `gbm-v1` retrain negative result all merged into `main`. `PLN-04`'s age half (`PR #64`) is implemented and rebased, pending merge -- once it merges it needs a real-state view correction (`gold.game_export` must extend from `experience_v1`'s real merged tail, `ADR-085`, not the anticipated-but-now-superseded state its own migration currently assumes). `BAT-01`'s proposal (this dated section below) is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+- **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
 
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
@@ -503,6 +503,107 @@ a specific real batter's known pull tendency, or Baseball Savant's own
 published spray chart for a real game) -- the same reconciliation
 discipline `starter.py` (deGrom) and `team_rate.py` (Acuña) already
 established for this project, not a formula trusted on citation alone.
+
+### PLN-04 starter age on game date (age half): implemented, admission queue — 2026-08-20
+
+Added `mlb_baseball/model/age.py` (`compute()`/`health_check()`) and two
+new `gold.game_feature` columns (`home_starter_age`, `away_starter_age`,
+migration `0064`), wired into `enrich_feature_stage()` as the last
+enrichment step. Exact age (day-count / 365.25, a continuous decimal) from
+two already-populated pieces -- `gold.game_feature`'s own
+`home_starter_id`/`away_starter_id` (resolved by `starter.py`) and
+`core.player.birth_date` -- no new raw-event dependency.
+
+Deliberately narrower than `PLN-04`'s full row: "prior MLB PA/IP" (career
+experience) is the deferred half, built separately as `experience.py`
+(see its own dated section above, `ADR-085`) -- that half needed a
+genuinely new career-cumulative rolling window over
+`raw.retrosheet_event`, real separate work, not bundled here.
+
+A real Postgres self-join subtlety caught before it became a silent bug:
+the natural `WHERE f.game_id = gf.game_id` self-join pattern would have
+silently excluded every upcoming/scheduled game row (`game_id` is NULL
+until a game completes, and `NULL = NULL` is never true in SQL) --
+`starter_age_update.sql` self-joins on `gold.game_feature.id` (the real,
+always-populated surrogate key) instead, with a dedicated regression test
+proving an upcoming game still gets updated.
+
+A real hand-calculation error caught before it shipped: the test
+fixture's first-draft comment hand-derived leap-year day counts by
+reasoning manually (30 years = 7 leap days = 10957 days; 10 years = 2
+leap days = 3652 days) -- checked directly with Python's own `date`
+subtraction before trusting either number, and both were off by exactly
+one day (10958 and 3653). Fixed before the test was ever run against real
+Postgres, not caught by a failing assertion after the fact.
+
+Same migration-number collision pattern already documented for
+`BSR-01`/`INT-01`/`INT-02`/`experience.py`'s own PLN-04 half: this branch
+also independently took `0059` off the same `main` tip. `BSR-01`
+(`0059`/`ADR-081`), `INT-01` (`0060`/`ADR-082`), `INT-02`
+(`0061`/`ADR-083`), and `experience.py` (`0063`/`ADR-085`) are all real
+and merged as of this final rebase -- this branch's ADR number needed
+renumbering, from the anticipated `ADR-084` to `ADR-087` (`ADR-086` went
+to the `gbm-v1` retrain, a sibling PR that also had to renumber off the
+same original claim). `gold.game_export`'s view now extends from
+`experience_v1`'s own real merged tail, not the earlier anticipated
+state.
+
+A second, real numbering bug, caught by CI rather than by review:
+migration number `0062` was numerically free, so it looked safe, but
+migrations run in filename order and `0062` sorts *before*
+`0063_starter_experience.sql`. This is one root cause with two possible
+symptoms, not two things that happened together in one run: `0062`'s
+view body already referenced `experience_v1`'s not-yet-existing columns,
+so on a fresh database it failed immediately with `UndefinedColumn` --
+what CI actually caught, and the run stopped there. Had the view instead
+stayed scoped to only already-existing columns, it would have applied
+silently, and `0063`'s own already-merged view replacement would then
+have dropped those columns later -- a more dangerous failure mode that
+didn't happen here but is worth naming. "Numerically unclaimed" and
+"sorts after its dependency" are different properties. Renumbered again
+to `0064`, the first number that actually sorts after `0063`. Full
+reasoning in `docs/DECISIONS.md` ADR-087.
+
+PR review found one real, fixed test-coverage gap -- every existing
+`age.compute()` test seeded `home_starter_id`/`away_starter_id` directly,
+never actually proving age runs after `starter.compute()` through the
+real dispatch. Added
+`test_model_enrich_stage.py::test_age_runs_after_starter_resolves_ids_through_the_real_dispatch`,
+confirmed it catches the real ordering bug via mutation testing (moved
+`age.compute()` first in the dispatch list, watched it fail for the
+right reason, restored the fix). Four other review claims (column
+naming, unconditional UPDATE performance, rowcount semantics, view
+recreation) investigated and declined -- each already matches an
+established, existing codebase convention, not a new problem this PR
+introduced. Full reasoning for both in `docs/DECISIONS.md` ADR-087.
+
+`uv run ruff check .`/`ruff format --check .` clean, `uv run mypy
+mlb_baseball/model/age.py` clean, `uv run sqlfluff lint` clean on both new
+SQL files. `tests/integration/test_model_age.py` -- 7 tests against
+real Postgres (6 at first merge, one more from a second review round
+below): hand-calculated age for two starters (verified against
+real date math), NULL-when-unresolved (including a real production gap:
+`core.player.birth_date` is genuinely NULL for ~7% of rows, 1,840 of
+25,543, confirmed directly), the upcoming-game self-join regression,
+idempotency, and three health-check tests (home-side implausible value,
+clean pass, away-side implausible value). `tests/integration/
+test_model_enrich_stage.py` gained the real-dispatch-order test above.
+The `0062`->`0064` migration-numbering fix above (a real bug the local
+suite hadn't caught, only CI's fresh-database run did) was verified a
+second way too: a freshly reset local `mlb_test` migrated clean in the
+correct order. Full details in `docs/DECISIONS.md` ADR-087.
+
+A second PR review round (after the renumbering fix) found one more
+real, fixed test-coverage gap -- the existing implausible-value
+health-check test only ever covered the home side, never proving the
+away side's independent `FILTER` clause actually works. Added
+`test_health_check_flags_the_away_side_independently`. Four other
+review claims (self-join redundancy, `CHECK` constraints for age bounds,
+indexes on `starter_id` columns, `health_check()` not taking a `conn`
+parameter) were investigated and declined -- each either matches an
+established codebase convention checked directly against 20+ other
+files, or (the self-join one) would introduce a real bug if "simplified"
+as suggested. Full reasoning in `docs/DECISIONS.md` ADR-087.
 
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 

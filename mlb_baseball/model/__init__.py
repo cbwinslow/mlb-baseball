@@ -29,6 +29,7 @@ from mlb_baseball.health import (
 )
 from mlb_baseball.ingest import track_run
 from mlb_baseball.model import (
+    age,
     bsr,
     bullpen,
     diff,
@@ -166,6 +167,10 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         "gold.game_feature (speed)": speed.compute(conn),
         "gold.game_feature (framing)": framing.compute(conn),
         "gold.game_feature (war)": war.compute(conn),
+        # age.compute() must run last -- it reads home_starter_id/
+        # away_starter_id, which every starter.compute*() call above may
+        # set (historical, live, or probable path).
+        "gold.game_feature (age)": age.compute(conn),
     }
 
 
@@ -295,4 +300,5 @@ def health_check() -> list[Check]:
         + starter_workload.health_check()
         + diff.health_check()
         + experience.health_check()
+        + age.health_check()
     )

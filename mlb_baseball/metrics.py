@@ -101,8 +101,12 @@ def collect(
         )
         tables = [
             TableMetrics(
-                table=row[0], rows_estimate=row[1], dead_rows_estimate=row[2],
-                sequential_scans=row[3], index_scans=row[4], total_size=row[5],
+                table=row[0],
+                rows_estimate=row[1],
+                dead_rows_estimate=row[2],
+                sequential_scans=row[3],
+                index_scans=row[4],
+                total_size=row[5],
             )
             for row in cur.fetchall()
         ]

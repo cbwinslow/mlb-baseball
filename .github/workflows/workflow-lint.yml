@@ -1,0 +1,71 @@
+# Lints the workflow YAML in this directory, not application code:
+#   - actionlint catches syntax/logic bugs in workflow files (bad matrix,
+#     wrong context, shell mistakes) -- the kind of mistake that left CI
+#     silently red for 27 commits in ci.yml's own history (see its header
+#     comment) because nothing checked the workflow file itself.
+#   - zizmor catches GitHub Actions security footguns (script injection via
+#     unquoted ${{ }} interpolation into run:, overly broad permissions).
+#
+# Both report as informational (non-blocking) for now: fail_level/continue-on-error
+# are relaxed so this workflow surfaces findings without gating merges until
+# any existing backlog is triaged. Tighten once that's done.
+name: workflow-lint
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/**"]
+  pull_request:
+    branches: [main]
+    paths: [".github/workflows/**"]
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: reviewdog/action-actionlint@dbe5299849118fd6f099ba563d263d770955a64a # v1.73.2
+        with:
+          reporter: github-pr-review
+          fail_level: none
+
+  zizmor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+
+      - name: Scan workflows with zizmor
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # A bare `continue-on-error: true` here would let a crashed/incomplete
+        # run silently fall through to upload-sarif with a missing or invalid
+        # SARIF file, which fails confusingly on an unrelated step. Instead,
+        # fall back to an empty-but-valid SARIF document on any failure so the
+        # upload always has something real to work with.
+        run: |
+          uvx zizmor@1.29.0 --format=sarif .github/workflows/ > zizmor-results.sarif || {
+            echo '{"version":"2.1.0","$schema":"https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json","runs":[]}' > zizmor-results.sarif
+          }
+
+      - uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        with:
+          sarif_file: zizmor-results.sarif
+          category: zizmor

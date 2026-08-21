@@ -20,12 +20,29 @@ def test_win_loss_columns_deliberately_excluded():
     # module's own docstring / docs/RESEARCH.md) -- these carry no
     # consistent-sign signal for a run-total target, unlike win/loss.
     excluded = {
-        "home_win_pct", "away_win_pct", "home_win_pct_10", "away_win_pct_10",
-        "home_run_diff", "away_run_diff", "home_pyth_wpct", "away_pyth_wpct",
-        "home_elo", "away_elo", "home_oaa_prior", "away_oaa_prior",
-        "home_speed_prior", "away_speed_prior", "home_framing_prior",
-        "away_framing_prior", "home_war_prior", "away_war_prior",
-        "temp_f", "wind_speed_mph", "wind_dir", "sky", "precip",
+        "home_win_pct",
+        "away_win_pct",
+        "home_win_pct_10",
+        "away_win_pct_10",
+        "home_run_diff",
+        "away_run_diff",
+        "home_pyth_wpct",
+        "away_pyth_wpct",
+        "home_elo",
+        "away_elo",
+        "home_oaa_prior",
+        "away_oaa_prior",
+        "home_speed_prior",
+        "away_speed_prior",
+        "home_framing_prior",
+        "away_framing_prior",
+        "home_war_prior",
+        "away_war_prior",
+        "temp_f",
+        "wind_speed_mph",
+        "wind_dir",
+        "sky",
+        "precip",
     }
     assert excluded.isdisjoint(total.FEATURE_COLUMNS)
 

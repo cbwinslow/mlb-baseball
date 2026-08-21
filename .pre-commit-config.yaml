@@ -32,3 +32,26 @@ repos:
     rev: v8.30.1
     hooks:
       - id: gitleaks
+
+# Config for the pre-commit.ci hosted bot (https://pre-commit.ci): reports
+# hook results on every PR, which helps fork contributors who haven't run
+# `pre-commit install` locally see formatting/lint issues without waiting on
+# a human reviewer. Two hooks are skipped there:
+#   - gitleaks: a compiled Go binary, which pre-commit.ci's hook sandbox
+#     doesn't build. ci.yml's separate `secrets` job already runs gitleaks on
+#     every push/PR regardless.
+#   - sqlfluff-lint: its environment (sqlfluff + sqlfluff-templater-dbt) is
+#     287.5MiB, over pre-commit.ci's free-tier 250MiB build cap -- confirmed
+#     by an actual failed build, not a guess. ci.yml's `test` job already runs
+#     `sqlfluff lint` on every push/PR regardless.
+#
+# autofix_prs is off: touching this file's hook config makes pre-commit.ci
+# run --all-files instead of diff-only, and it pushed a same-again autofix
+# commit reformatting 25 unrelated files each time it was reverted --
+# confirmed live on PR #68, not a hypothetical. Reporting findings without
+# auto-pushing avoids that failure mode entirely; a human still applies
+# `pre-commit run --all-files` deliberately when a real reformat is wanted.
+ci:
+  autofix_prs: false
+  autoupdate_schedule: monthly
+  skip: [gitleaks, sqlfluff-lint]

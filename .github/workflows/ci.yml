@@ -24,6 +24,19 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel a still-running run for the same branch/PR once a newer commit lands,
+# instead of letting both finish -- saves Actions minutes and gets feedback
+# on the latest push faster.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# No job below needs to write to the repo; default (write-all-ish) permissions
+# are narrowed to read-only at the workflow level. The secrets job further
+# narrows to contents: read explicitly for clarity.
+permissions:
+  contents: read
+
 # Chadwick is pinned to a git commit, not the v0.10.0 release tarball: the
 # release's cwevent rejects the full field spec chadwick_tools.py requests
 # ("Invalid field spec") — the extended field range grew after the release,
@@ -65,12 +78,15 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: "3.11"
           enable-cache: true
@@ -88,15 +104,17 @@ jobs:
         run: uv run mypy
 
       - name: Enable pg_stat_statements in the Postgres service
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: |
-          docker exec ${{ job.services.postgres.id }} psql -U postgres -c \
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
             "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements'"
-          docker restart ${{ job.services.postgres.id }}
-          until docker exec ${{ job.services.postgres.id }} pg_isready -U postgres; do sleep 1; done
+          docker restart "$POSTGRES_CONTAINER_ID"
+          until docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres; do sleep 1; done
 
       - name: Cache Chadwick tools build
         id: chadwick-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/chadwick-install
           key: chadwick-${{ env.CHADWICK_REF }}
@@ -121,4 +139,11 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mlb_test
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mlb_test
-        run: uv run pytest -q
+        run: uv run pytest -q --cov=mlb_baseball --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false

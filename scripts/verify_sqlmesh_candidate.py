@@ -42,8 +42,8 @@ def main() -> None:
     if not url:
         raise SystemExit("TEST_DATABASE_URL is required; DATABASE_URL is deliberately ignored")
     with psycopg.connect(url) as conn:
-        if conn.info.dbname != "mlb_test":
-            raise SystemExit("candidate gate only permits the existing mlb_test database")
+        if not conn.info.dbname.startswith("mlb_test"):
+            raise SystemExit("candidate gate only permits an mlb_test-named database")
         with conn.cursor() as cur:
             venue_mismatches = _count(
                 cur,

@@ -551,13 +551,18 @@ state.
 A second, real numbering bug, caught by CI rather than by review:
 migration number `0062` was numerically free, so it looked safe, but
 migrations run in filename order and `0062` sorts *before*
-`0063_starter_experience.sql`. On a fresh database `0062`'s view would
-run first and reference `experience_v1`'s columns before that migration
-creates them (`UndefinedColumn`), and `0063`'s own already-merged
-`CREATE OR REPLACE VIEW` would then silently drop this migration's age
-columns from the view when it ran second. "Numerically unclaimed" and
+`0063_starter_experience.sql`. This is one root cause with two possible
+symptoms, not two things that happened together in one run: `0062`'s
+view body already referenced `experience_v1`'s not-yet-existing columns,
+so on a fresh database it failed immediately with `UndefinedColumn` --
+what CI actually caught, and the run stopped there. Had the view instead
+stayed scoped to only already-existing columns, it would have applied
+silently, and `0063`'s own already-merged view replacement would then
+have dropped those columns later -- a more dangerous failure mode that
+didn't happen here but is worth naming. "Numerically unclaimed" and
 "sorts after its dependency" are different properties. Renumbered again
-to `0064`, the first number that actually sorts after `0063`.
+to `0064`, the first number that actually sorts after `0063`. Full
+reasoning in `docs/DECISIONS.md` ADR-087.
 
 PR review found one real, fixed test-coverage gap -- every existing
 `age.compute()` test seeded `home_starter_id`/`away_starter_id` directly,
@@ -583,14 +588,10 @@ real date math), NULL-when-unresolved (including a real production gap:
 idempotency, and three health-check tests (home-side implausible value,
 clean pass, away-side implausible value). `tests/integration/
 test_model_enrich_stage.py` gained the real-dispatch-order test above.
-Full details in `docs/DECISIONS.md` ADR-087.
-
-CI caught a real bug the local suite hadn't: migration `0062` was
-numerically free but sorted *before* `0063_starter_experience.sql`, whose
-columns its view extension referenced -- renumbered to `0064`, the first
-number that actually sorts after `0063`. Verified against both a freshly
-reset local `mlb_test` and a clean CI run. Full reasoning in
-`docs/DECISIONS.md` ADR-087.
+The `0062`->`0064` migration-numbering fix above (a real bug the local
+suite hadn't caught, only CI's fresh-database run did) was verified a
+second way too: a freshly reset local `mlb_test` migrated clean in the
+correct order. Full details in `docs/DECISIONS.md` ADR-087.
 
 A second PR review round (after the renumbering fix) found one more
 real, fixed test-coverage gap -- the existing implausible-value

@@ -13,7 +13,15 @@ import time
 import psycopg
 from psycopg import sql
 
-_PATTERN = "mlb\\_test\\_%"  # escaped for LIKE: literal underscores, not wildcards
+_PATTERN = "^mlb_test_[0-9a-f]{12}$"
+
+
+def _assert_test_dsn(dsn: str) -> None:
+    dbname = str(psycopg.conninfo.conninfo_to_dict(dsn).get("dbname") or "")
+    if "test" not in dbname.lower() and dbname.lower() not in ("postgres", "template1"):
+        raise RuntimeError(
+            f"Refusing to run test database reaper against non-test DSN: dbname={dbname!r}"
+        )
 
 
 def find_orphaned_test_databases(cur: psycopg.Cursor) -> list[str]:
@@ -24,7 +32,7 @@ def find_orphaned_test_databases(cur: psycopg.Cursor) -> list[str]:
         """
         SELECT d.datname
         FROM pg_database d
-        WHERE d.datname LIKE %s
+        WHERE d.datname ~ %s
           AND NOT EXISTS (
               SELECT 1 FROM pg_stat_activity a WHERE a.datname = d.datname
           )
@@ -39,6 +47,7 @@ def reap_orphaned_test_databases(dsn: str, *, recheck_delay_seconds: float = 5.0
     """Drops databases still orphaned after two checks `recheck_delay_seconds`
     apart -- rules out the narrow race of a database just created by a
     session that hasn't connected to it yet."""
+    _assert_test_dsn(dsn)
     with psycopg.connect(dsn, autocommit=True) as conn:
         with conn.cursor() as cur:
             first_pass = set(find_orphaned_test_databases(cur))
@@ -51,7 +60,14 @@ def reap_orphaned_test_databases(dsn: str, *, recheck_delay_seconds: float = 5.0
             second_pass = set(find_orphaned_test_databases(cur))
 
         still_orphaned = sorted(first_pass & second_pass)
+        dropped: list[str] = []
         with conn.cursor() as cur:
             for dbname in still_orphaned:
-                cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(dbname)))
-    return still_orphaned
+                try:
+                    cur.execute(
+                        sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(dbname))
+                    )
+                    dropped.append(dbname)
+                except psycopg.errors.ObjectInUse:
+                    pass
+    return dropped

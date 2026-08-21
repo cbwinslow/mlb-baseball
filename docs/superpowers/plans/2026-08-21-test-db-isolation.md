@@ -29,7 +29,7 @@
 **Interfaces:**
 - Produces: `pytest_postgresql` importable at `pytest-postgresql>=8.1,<9` in the `dev` extra.
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 Already staged in this worktree via `uv add --optional dev "pytest-postgresql"`. Confirm the exact pin in `pyproject.toml`:
 
@@ -46,12 +46,12 @@ dev = [
 ]
 ```
 
-- [ ] **Step 2: Sync and verify import**
+- [x] **Step 2: Sync and verify import**
 
 Run: `uv sync --extra dev && uv run python -c "import pytest_postgresql; print(pytest_postgresql.__file__)"`
 Expected: prints a path under `.venv/lib/.../site-packages/pytest_postgresql/__init__.py`, no error.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add pyproject.toml uv.lock
@@ -76,7 +76,7 @@ git commit -m "deps: add pytest-postgresql for per-run test database isolation"
 - Its `load` callables are invoked with keyword args `host, port, user, dbname, password` (`janitor.py:111-128`) *after* the database already exists — this project's loader just needs to connect using those and run `migrate.run()` + the existing speed tweaks.
 - The library's ini defaults (`postgresql_host="127.0.0.1"`, `postgresql_user="postgres"`, confirmed in `plugin.py`) do **not** match this project's local Unix-socket peer-auth setup — every connection parameter must be passed explicitly, derived from the already-configured `TEST_DATABASE_URL`.
 
-- [ ] **Step 1: Write the new fixture module code**
+- [x] **Step 1: Write the new fixture module code**
 
 Replace `tests/conftest.py` lines 1-184 with:
 
@@ -259,17 +259,17 @@ def _test_database(postgresql_noproc):
 
 Note: `host`/`port`/`user`/`password` passed to `factories.postgresql_noproc(...)` may legitimately be `None` when `_base_test_url` doesn't specify them (e.g. local `postgresql:///mlb_test` peer-auth style) — `factories.postgresql_noproc`'s own fallback (`host or config.host`) would substitute the library's ini default (`127.0.0.1`/`postgres` user) in that case, which is **wrong** for this project. Step 2 below verifies this empirically for the actual local setup; if it fails, add explicit `postgresql_host`/`postgresql_user` entries to `pyproject.toml`'s `[tool.pytest.ini_options]` matching the real local Postgres role instead of leaving it to fall through to the library's defaults.
 
-- [ ] **Step 2: Run the full existing suite against the new fixture**
+- [x] **Step 2: Run the full existing suite against the new fixture**
 
 Run: `uv run pytest -q`
 Expected: all currently-passing tests still pass (929 of 931 — the two lock-contention tests fail here, expected; fixed in Task 4). Watch specifically for a connection/auth error on the very first test — if one occurs, it confirms the host/user fallback problem noted above; add explicit `postgresql_host = "localhost"` / `postgresql_user = "<the value _base_conninfo lacked>"` to `[tool.pytest.ini_options]` in `pyproject.toml` and rerun.
 
-- [ ] **Step 3: Confirm the database is actually dropped after the run**
+- [x] **Step 3: Confirm the database is actually dropped after the run**
 
 Run: `uv run pytest -q tests/unit/test_config.py && psql postgresql:///postgres -c "SELECT datname FROM pg_database WHERE datname LIKE 'mlb_test_%'"`
 Expected: no rows (the run's database was created and dropped within that single `pytest` invocation).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/conftest.py
@@ -290,12 +290,12 @@ git commit -m "test: replace shared mlb_test database + global lock with a per-r
 - Consumes: nothing new.
 - Produces: nothing new — same CLI contract, just a loosened safety check.
 
-- [ ] **Step 1: Run the existing test to see it fail for the right reason**
+- [x] **Step 1: Run the existing test to see it fail for the right reason**
 
 Run: `uv run pytest tests/integration/test_sqlmesh_candidate_gate.py -v`
 Expected (before the fix, after Task 2 lands): FAIL with `SystemExit: candidate gate only permits the existing mlb_test database`.
 
-- [ ] **Step 2: Loosen the check**
+- [x] **Step 2: Loosen the check**
 
 In `scripts/verify_sqlmesh_candidate.py`, replace:
 
@@ -311,12 +311,12 @@ with:
             raise SystemExit("candidate gate only permits an mlb_test-named database")
 ```
 
-- [ ] **Step 3: Run the test again to confirm it passes**
+- [x] **Step 3: Run the test again to confirm it passes**
 
 Run: `uv run pytest tests/integration/test_sqlmesh_candidate_gate.py -v`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/verify_sqlmesh_candidate.py
@@ -337,7 +337,7 @@ git commit -m "fix: sqlmesh candidate gate accepts any mlb_test-prefixed databas
 - Consumes: nothing new (subprocess-based, like the test it replaces).
 - Produces: nothing new.
 
-- [ ] **Step 1: Write the new test**
+- [x] **Step 1: Write the new test**
 
 ```python
 """Regression coverage proving concurrent pytest sessions no longer collide.
@@ -377,16 +377,16 @@ def test_concurrent_test_sessions_both_succeed_with_isolated_databases():
     assert "passed" in result.stdout
 ```
 
-- [ ] **Step 2: Run it to verify it fails against the OLD conftest.py (sanity check, skip if Task 2 already landed)**
+- [x] **Step 2: Run it to verify it fails against the OLD conftest.py (sanity check, skip if Task 2 already landed)**
 
 Only relevant if Task 2 hasn't been committed yet in this session's history; otherwise skip straight to Step 3.
 
-- [ ] **Step 3: Run it for real**
+- [x] **Step 3: Run it for real**
 
 Run: `uv run pytest tests/integration/test_database_isolation.py -v`
 Expected: PASS. (This spawns a real second `pytest` process against a real second database — it is legitimately slower than a typical test; that's expected and correct, not a bug.)
 
-- [ ] **Step 4: Delete the old test and commit both changes together**
+- [x] **Step 4: Delete the old test and commit both changes together**
 
 ```bash
 git rm tests/integration/test_conftest_lock_contention.py
@@ -411,7 +411,7 @@ git commit -m "test: prove concurrent pytest sessions get isolated databases ins
 - Produces: `find_orphaned_test_databases(cur: psycopg.Cursor) -> list[str]` — pure function, takes a cursor, returns candidate database names (queries `pg_database` LEFT JOIN `pg_stat_activity`).
 - Produces: `reap_orphaned_test_databases(dsn: str, *, recheck_delay_seconds: float = 5.0) -> list[str]` — connects, finds candidates twice (with a delay between), drops the intersection, returns what was dropped.
 
-- [ ] **Step 1: Write the failing unit test for the selection logic**
+- [x] **Step 1: Write the failing unit test for the selection logic**
 
 ```python
 # tests/unit/test_reap_test_databases.py
@@ -432,12 +432,12 @@ def test_finds_databases_matching_pattern_with_no_active_connections():
     assert "mlb\\_test\\_%" in query or "mlb\\_test\\_%" in params
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `uv run pytest tests/unit/test_reap_test_databases.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'mlb_baseball.reap_test_databases'`.
 
-- [ ] **Step 3: Write the module**
+- [x] **Step 3: Write the module**
 
 ```python
 # mlb_baseball/reap_test_databases.py
@@ -501,12 +501,12 @@ def reap_orphaned_test_databases(
     return still_orphaned
 ```
 
-- [ ] **Step 4: Run the unit test again to verify it passes**
+- [x] **Step 4: Run the unit test again to verify it passes**
 
 Run: `uv run pytest tests/unit/test_reap_test_databases.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Write the CLI entry point**
+- [x] **Step 5: Write the CLI entry point**
 
 ```python
 # scripts/reap_test_databases.py
@@ -539,7 +539,7 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 6: Manual smoke test against a real orphan**
+- [x] **Step 6: Manual smoke test against a real orphan**
 
 Run:
 ```bash
@@ -549,7 +549,7 @@ psql postgresql:///postgres -c "SELECT datname FROM pg_database WHERE datname = 
 ```
 Expected: script prints `dropped 1 orphaned test database(s): mlb_test_smoketest123`; the final query returns no rows.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add mlb_baseball/reap_test_databases.py scripts/reap_test_databases.py tests/unit/test_reap_test_databases.py
@@ -563,11 +563,11 @@ git commit -m "feat: add orphaned test database reaper for crashed pytest sessio
 **Files:**
 - Modify: `README.md` (the "Testing" section — locate via `grep -n "^## Testing" README.md`)
 
-- [ ] **Step 1: Update the documented behavior**
+- [x] **Step 1: Update the documented behavior**
 
 Read the current section first (`grep -n -A15 "^## Testing" README.md`), then replace any description of the single shared `mlb_test` database + advisory-lock reservation with a short description of the new behavior: each `pytest` invocation builds and tears down its own isolated database automatically (via `pytest-postgresql`); `TEST_DATABASE_URL` in `.env` still names the base connection (host/port/user/password) tests connect through, but the actual database used each run is a uniquely-named clone, not `mlb_test` itself; concurrent runs (including multiple agent worktrees) no longer collide. Mention `scripts/reap_test_databases.py` for cleaning up after a crashed run.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add README.md
@@ -586,7 +586,7 @@ git commit -m "docs: describe per-run isolated test databases, replacing the old
 **Interfaces:**
 - Produces: three independent jobs (`lint`, `unit`, `integration`) alongside the existing `secrets` job, replacing today's single `test` job.
 
-- [ ] **Step 1: Split the `test` job into `lint`, `unit`, `integration`**
+- [x] **Step 1: Split the `test` job into `lint`, `unit`, `integration`**
 
 Replace the single `test:` job in `.github/workflows/ci.yml` with:
 
@@ -727,12 +727,12 @@ Replace the single `test:` job in `.github/workflows/ci.yml` with:
 
 Also update the file's top comment (lines 1-17) to describe three parallel jobs instead of one linear job.
 
-- [ ] **Step 2: Push and verify on a real CI run**
+- [x] **Step 2: Push and verify on a real CI run**
 
 Run: `git push` (on this task's branch), then `gh run watch` (or `gh run list --limit 1` then `gh run view <id>`).
 Expected: `secrets`, `lint`, `unit`, `integration` all run concurrently (not one after another) and all pass. `lint` and `unit` should finish well before `integration`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add .github/workflows/ci.yml
@@ -746,7 +746,7 @@ git commit -m "ci: split lint/unit/integration into parallel jobs for faster fee
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Add the directive**
+- [x] **Step 1: Add the directive**
 
 Add a new subsection under "Scope discipline" (or as its own short section near it):
 
@@ -760,7 +760,7 @@ established tool unless there's a concrete, stated reason it doesn't fit — "we
 ourselves" is not that reason.
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add CLAUDE.md

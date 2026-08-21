@@ -137,8 +137,11 @@ including from multiple agent worktrees — no longer collide or interfere.
 that touches the database (network calls are mocked with fixture data so tests stay
 fast and offline-capable). `mlb_test` is never used or modified during testing.
 
-If a pytest process crashes and orphans its per-run database, run `scripts/reap_test_databases.py`
-to clean them up.
+If a pytest process crashes and orphans its per-run database, run:
+```bash
+TEST_DATABASE_URL=postgresql:///mlb_test uv run python scripts/reap_test_databases.py --apply
+```
+(omit `--apply` for dry-run inspection mode).
 
 ## Python library usage
 

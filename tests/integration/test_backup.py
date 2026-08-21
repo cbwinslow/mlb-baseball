@@ -92,10 +92,15 @@ def test_restore_refuses_without_explicit_confirmation(tmp_path, database_url):
 
 
 def test_backup_full_dump_is_recorded_for_the_freshness_check(db_conn, tmp_path, database_url):
+    # Deliberately no `schemas=` here -- this must be a real, unscoped full
+    # dump. An earlier version of this test passed schemas=[SCRATCH_SCHEMA],
+    # which is a *scoped* dump, not a full one; it happened to still pass
+    # because of the exact tracking bug this file's other tests below now
+    # cover (a scoped dump was wrongly tracked as if it were full).
     _reset(db_conn)
     _create_scratch_table_with_rows(db_conn)
 
-    backup.backup(database_url, tmp_path, schemas=[SCRATCH_SCHEMA])
+    backup.backup(database_url, tmp_path)
 
     checks = backup.health_check()
     freshness = next(c for c in checks if c.name == "backup freshness")
@@ -125,6 +130,38 @@ def test_backup_schema_only_dump_is_not_recorded_as_a_tracked_run(db_conn, tmp_p
     assert after == before
 
     _reset(db_conn)
+
+
+def test_backup_scoped_dump_is_not_recorded_as_a_tracked_run(db_conn, tmp_path, database_url):
+    # Same coverage as the schema-only case above, but for a dump that
+    # scopes to specific schemas without --schema-only -- a `--schema raw`
+    # backup can't restore the whole database either, so it must not be
+    # able to satisfy "is there a recent full backup" any more than a
+    # schema-only dump can.
+    _reset(db_conn)
+    _create_scratch_table_with_rows(db_conn)
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM meta.ingestion_run WHERE source = %s", (backup.SOURCE,))
+        before = cur.fetchone()[0]
+
+    backup.backup(database_url, tmp_path, schemas=[SCRATCH_SCHEMA])
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM meta.ingestion_run WHERE source = %s", (backup.SOURCE,))
+        after = cur.fetchone()[0]
+    assert after == before
+
+    _reset(db_conn)
+
+
+def test_backup_scoped_dump_gets_a_distinct_filename_from_a_full_dump(tmp_path, database_url):
+    # Without this, a scoped dump's filename is indistinguishable from a
+    # real full dump -- both to a human looking for the newest full backup
+    # and to rotate_backups()'s naming-based pattern match.
+    output_path = backup.backup(database_url, tmp_path, schemas=["meta"])
+
+    assert "_scoped_" in output_path.name
 
 
 def test_restore_full_round_trip_recreates_dropped_data(db_conn, tmp_path, database_url):

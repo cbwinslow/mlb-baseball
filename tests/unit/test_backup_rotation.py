@@ -5,7 +5,7 @@ import pytest
 
 from mlb_baseball import backup
 
-DATABASE_URL = "postgresql:///mlb"
+DATABASE_URL = "postgresql:///mlb_test"
 DB = backup.dbname(DATABASE_URL)
 
 

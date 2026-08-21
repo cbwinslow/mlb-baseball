@@ -13,22 +13,28 @@ from mlb_baseball.health import (
     check_totals_reconcile,
 )
 
-NEVER_VACUUMED_SCHEMA = "health_never_vacuumed_scratch"
+VACUUM_SCHEMA = "health_vacuum"
 
 
 def _reset_never_vacuumed_schema(db_conn):
     db_conn.autocommit = False
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute(f"DROP SCHEMA IF EXISTS {NEVER_VACUUMED_SCHEMA} CASCADE")
+        cur.execute(f"DROP SCHEMA IF EXISTS {VACUUM_SCHEMA} CASCADE")
     db_conn.commit()
 
 
 def _table_with_dead_tuples(db_conn, name, *, dead_rows):
-    table = f"{NEVER_VACUUMED_SCHEMA}.{name}"
+    table = f"{VACUUM_SCHEMA}.{name}"
     with db_conn.cursor() as cur:
-        cur.execute(f"CREATE SCHEMA IF NOT EXISTS {NEVER_VACUUMED_SCHEMA}")
-        cur.execute(f"CREATE TABLE {table} (id int)")
+        cur.execute(f"CREATE SCHEMA IF NOT EXISTS {VACUUM_SCHEMA}")
+        # autovacuum_enabled=false: this fixture's whole point is dead
+        # tuples with NO recorded vacuum activity -- without this, a real
+        # autovacuum worker racing the test (this cluster's
+        # autovacuum_vacuum_cost_limit was raised to 2000 the same night
+        # this test was written) could vacuum the table before the
+        # assertion runs, making the test flaky rather than wrong.
+        cur.execute(f"CREATE TABLE {table} (id int) WITH (autovacuum_enabled = false)")
         cur.execute(f"INSERT INTO {table} (id) SELECT generate_series(1, %s)", (dead_rows,))
         cur.execute(f"DELETE FROM {table}")
     db_conn.commit()
@@ -535,7 +541,7 @@ def test_check_never_vacuumed_flags_a_table_with_real_dead_tuples_and_no_vacuum_
     _reset_never_vacuumed_schema(db_conn)
     _table_with_dead_tuples(db_conn, "bloated", dead_rows=1500)
 
-    result = check_never_vacuumed(schemas=(NEVER_VACUUMED_SCHEMA,), min_dead_tuples=1000)
+    result = check_never_vacuumed(schemas=(VACUUM_SCHEMA,), min_dead_tuples=1000)
 
     assert not result.ok
     assert "bloated" in result.detail
@@ -547,9 +553,24 @@ def test_check_never_vacuumed_ignores_a_table_below_the_min_dead_tuples_floor(db
     _reset_never_vacuumed_schema(db_conn)
     _table_with_dead_tuples(db_conn, "small_churn", dead_rows=5)
 
-    result = check_never_vacuumed(schemas=(NEVER_VACUUMED_SCHEMA,), min_dead_tuples=1000)
+    result = check_never_vacuumed(schemas=(VACUUM_SCHEMA,), min_dead_tuples=1000)
 
     assert result.ok
+
+    _reset_never_vacuumed_schema(db_conn)
+
+
+def test_check_never_vacuumed_flags_a_table_at_exactly_the_floor(db_conn):
+    # The floor is inclusive (>=): a table sitting at exactly
+    # min_dead_tuples is exactly as overdue as this check exists to catch,
+    # not a near-miss to exclude.
+    _reset_never_vacuumed_schema(db_conn)
+    _table_with_dead_tuples(db_conn, "at_floor", dead_rows=1000)
+
+    result = check_never_vacuumed(schemas=(VACUUM_SCHEMA,), min_dead_tuples=1000)
+
+    assert not result.ok
+    assert "at_floor" in result.detail
 
     _reset_never_vacuumed_schema(db_conn)
 
@@ -562,7 +583,7 @@ def test_check_never_vacuumed_ignores_a_table_that_has_already_been_vacuumed(db_
         cur.execute(f"VACUUM {table}")
     db_conn.autocommit = False
 
-    result = check_never_vacuumed(schemas=(NEVER_VACUUMED_SCHEMA,), min_dead_tuples=1000)
+    result = check_never_vacuumed(schemas=(VACUUM_SCHEMA,), min_dead_tuples=1000)
 
     assert result.ok
 
@@ -572,11 +593,11 @@ def test_check_never_vacuumed_ignores_a_table_that_has_already_been_vacuumed(db_
 def test_check_never_vacuumed_ok_when_schema_has_no_qualifying_tables(db_conn):
     _reset_never_vacuumed_schema(db_conn)
     with db_conn.cursor() as cur:
-        cur.execute(f"CREATE SCHEMA {NEVER_VACUUMED_SCHEMA}")
-        cur.execute(f"CREATE TABLE {NEVER_VACUUMED_SCHEMA}.untouched (id int)")
+        cur.execute(f"CREATE SCHEMA {VACUUM_SCHEMA}")
+        cur.execute(f"CREATE TABLE {VACUUM_SCHEMA}.untouched (id int)")
     db_conn.commit()
 
-    result = check_never_vacuumed(schemas=(NEVER_VACUUMED_SCHEMA,), min_dead_tuples=1000)
+    result = check_never_vacuumed(schemas=(VACUUM_SCHEMA,), min_dead_tuples=1000)
 
     assert result.ok
     assert "no tables" in result.detail

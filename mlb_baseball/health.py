@@ -301,8 +301,12 @@ def check_grouped_no_duplicates(label: str, sql: str) -> Check:
 def check_never_vacuumed(
     schemas: tuple[str, ...] = ("raw", "core", "gold"), *, min_dead_tuples: int = 1000
 ) -> Check:
-    """Flags any table with a meaningful number of dead tuples that
-    autovacuum (or a manual VACUUM) has never once touched.
+    """Flags any table with a meaningful number of dead tuples and no
+    recorded vacuum activity (autovacuum or manual) -- `last_autovacuum`/
+    `last_vacuum` are NULL either because a vacuum genuinely never ran, or
+    because `pg_stat_reset()` cleared the counters after one did; either
+    way, dead tuples are accumulating with no visible cleanup, which is the
+    actionable signal.
 
     Deliberately an absolute floor on `n_dead_tup`, not a dead-tuple
     *percentage* -- found the hard way in a real production investigation:
@@ -313,10 +317,12 @@ def check_never_vacuumed(
     off that stale estimate read as "97% dead," a false crisis. The real
     signal was simpler and didn't depend on any estimate that can go stale:
     both tables had tens of thousands of real dead tuples and a NULL
-    last_autovacuum/last_vacuum, meaning the cleanup genuinely never ran.
+    last_autovacuum/last_vacuum, meaning no cleanup was visible in either.
     min_dead_tuples=1000 sits comfortably above normal per-run churn and
     Postgres's own default autovacuum threshold (50), well below what a
-    table actually overdue for its first vacuum accumulates.
+    table actually overdue for its first vacuum accumulates. Inclusive
+    (`>=`): a table sitting at exactly the configured floor is exactly as
+    overdue as this check exists to catch, not a near-miss to exclude.
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -327,7 +333,7 @@ def check_never_vacuumed(
                 WHERE schemaname = ANY(%s)
                   AND last_autovacuum IS NULL
                   AND last_vacuum IS NULL
-                  AND n_dead_tup > %s
+                  AND n_dead_tup >= %s
                 ORDER BY n_dead_tup DESC
                 """,
                 (list(schemas), min_dead_tuples),
@@ -341,9 +347,9 @@ def check_never_vacuumed(
         return Check(
             "never-vacuumed tables",
             False,
-            f"{len(rows)} table(s) with dead tuples but no vacuum ever: {shown}{more} "
-            "-- run `VACUUM <table>` manually, or investigate why autovacuum hasn't "
-            "reached them",
+            f"{len(rows)} table(s) with dead tuples and no recorded vacuum activity: "
+            f"{shown}{more} -- run `VACUUM <table>` manually, or investigate why "
+            "autovacuum hasn't reached them",
         )
     return Check("never-vacuumed tables", True, "no tables with significant unvacuumed dead tuples")
 

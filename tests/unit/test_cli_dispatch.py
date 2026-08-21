@@ -809,3 +809,36 @@ def test_backup_schema_only_with_keep_flag_does_not_rotate(monkeypatch, tmp_path
     cli.main(["backup", "--output-dir", str(tmp_path), "--schema-only", "--keep", "3"])
 
     rotate_mock.assert_not_called()
+
+
+def test_backup_scoped_with_keep_flag_does_not_rotate(monkeypatch, tmp_path):
+    # Same reasoning as the --schema-only case: a --schema-scoped dump
+    # can't restore the whole database, so --keep must not treat it as a
+    # rotatable full backup either.
+    monkeypatch.setattr(
+        backup, "backup", lambda *a, **k: tmp_path / "mlb_scoped_20260101T000000Z.sql"
+    )
+    rotate_mock = MagicMock()
+    monkeypatch.setattr(backup, "rotate_backups", rotate_mock)
+
+    cli.main(["backup", "--output-dir", str(tmp_path), "--schema", "raw", "--keep", "3"])
+
+    rotate_mock.assert_not_called()
+
+
+def test_backup_keep_zero_is_rejected_before_running_pg_dump(monkeypatch, tmp_path):
+    # keep=0 would delete every full backup rotate_backups() itself already
+    # rejects (ValueError) -- but that check happening only inside
+    # rotate_backups() means a real, possibly multi-GB backup() call would
+    # run to completion first, for nothing, before the error surfaces.
+    backup_mock = MagicMock()
+    monkeypatch.setattr(backup, "backup", backup_mock)
+
+    try:
+        cli.main(["backup", "--output-dir", str(tmp_path), "--keep", "0"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected --keep 0 to be rejected")
+
+    backup_mock.assert_not_called()

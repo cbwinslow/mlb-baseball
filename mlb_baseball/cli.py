@@ -546,6 +546,8 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "player-id":
         player.print_crosswalk(args.id_type, args.id_value)
     elif args.command == "backup":
+        if args.keep is not None and args.keep < 1:
+            parser.error("--keep must be >= 1")
         try:
             output_path = backup.backup(
                 config.database_url(),
@@ -557,7 +559,7 @@ def main(argv: list[str] | None = None) -> None:
             parser.error(str(exc))
         else:
             print(f"Wrote {output_path}")
-            if args.keep is not None and not args.schema_only:
+            if args.keep is not None and not args.schema_only and not args.schemas:
                 deleted = backup.rotate_backups(
                     config.database_url(), args.output_dir, keep=args.keep
                 )

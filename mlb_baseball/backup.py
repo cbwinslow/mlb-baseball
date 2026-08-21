@@ -44,7 +44,7 @@ from mlb_baseball.ingest import track_run
 REQUIRED_TOOLS = ("pg_dump", "psql")
 
 # meta.ingestion_run source/mode for a full backup -- see migration
-# 0064_ingestion_run_backup_mode.sql. Schema-only/scoped dumps aren't tracked
+# 0065_ingestion_run_backup_mode.sql. Schema-only/scoped dumps aren't tracked
 # under this (see backup() below): the freshness check this powers exists to
 # answer "is there a recent full backup to restore from," and a schema-only
 # snapshot shouldn't be able to mask a stale one.
@@ -87,17 +87,48 @@ def backup(
     `schemas`, if given, scopes the dump to only those schemas (pg_dump
     `-n`) instead of the whole database.
 
-    A full dump (`schema_only=False`) is recorded in `meta.ingestion_run`
-    for the `mlb doctor` freshness check -- see the module docstring. A
-    schema-only or scoped dump isn't: those are ad-hoc/manual by nature,
-    not a stand-in for "is there a recent restorable full backup."
+    A full dump (`schema_only=False` AND `schemas` empty) is recorded in
+    `meta.ingestion_run` for the `mlb doctor` freshness check -- see the
+    module docstring. A schema-only OR schema-scoped dump isn't tracked:
+    both are ad-hoc/manual by nature, not a stand-in for "is there a
+    recent restorable full backup" -- a `--schema raw` dump can't restore
+    the whole database, so it must not be able to satisfy that check
+    either.
+
+    Tracking runs *after* `_dump()` completes, not wrapped around it:
+    `track_run` commits a 'running' row immediately on entry, and
+    `pg_dump` takes its MVCC snapshot at the moment it starts -- wrapping
+    the dump in `track_run` would freeze that 'running' row into the dump
+    itself (a restored backup would then show its own creation as
+    perpetually unfinished, defeating the freshness check the very next
+    time `mlb doctor` runs against a fresh restore). Deferring the
+    (near-instant) tracking bookkeeping to after the dump also means the
+    source/workflow advisory locks `track_run` takes are held for a
+    fraction of a second, not for however long a multi-GB `pg_dump`
+    takes -- a backup no longer risks delaying a scheduled `conform` run
+    (which needs the exclusive workflow lock) for its entire duration.
+    Trade-off, stated explicitly rather than hidden: two concurrent
+    `mlb backup` invocations are no longer prevented from both running
+    `pg_dump` at once (only `scripts/mlb_backup.sh`'s own `flock` still
+    prevents overlapping *scheduled* runs) -- acceptable since a manual
+    concurrent invocation is rare and merely wasteful, not unsafe.
     """
     if missing_tools():
         raise RuntimeError(f"pg_dump not installed or not on PATH -- {INSTALL_HINT}")
     output_dir.mkdir(parents=True, exist_ok=True)
     db = dbname(database_url)
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    suffix = "_schema" if schema_only else ""
+    # A scoped (schemas=[...]) dump gets its own suffix too, not just
+    # schema-only: without one it would carry the exact same filename shape
+    # as a true full dump, indistinguishable both to a human looking for
+    # "the newest real full backup" and to rotate_backups()'s naming-based
+    # pattern match.
+    if schema_only:
+        suffix = "_schema"
+    elif schemas:
+        suffix = "_scoped"
+    else:
+        suffix = ""
     output_path = output_dir / f"{db}{suffix}_{timestamp}.sql"
 
     args = ["pg_dump", "--no-owner", "--no-privileges", "-f", str(output_path)]
@@ -113,11 +144,17 @@ def backup(
             output_path.unlink(missing_ok=True)
             raise RuntimeError(f"pg_dump failed: {result.stderr.strip()}")
 
-    if schema_only:
+    if schema_only or schemas:
         _dump()
     else:
-        with psycopg.connect(database_url) as conn, track_run(conn, SOURCE, SOURCE):
+        error: Exception | None = None
+        try:
             _dump()
+        except Exception as exc:
+            error = exc
+        with psycopg.connect(database_url) as conn, track_run(conn, SOURCE, SOURCE):
+            if error is not None:
+                raise error
     return output_path
 
 

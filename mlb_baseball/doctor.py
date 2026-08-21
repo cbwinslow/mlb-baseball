@@ -133,7 +133,16 @@ def _stale_ingestion_runs() -> Check:
 
 
 def _workflow_lock_state() -> Check:
-    """Expose a live workflow conflict without changing its owner or state."""
+    """Expose a live workflow conflict without changing its owner or state.
+
+    A single-bigint pg_advisory_lock/pg_advisory_lock_shared's key is split
+    across pg_locks.classid (high 32 bits) and .objid (low 32 bits),
+    objsubid=1 marking this form -- matching only on objid could in
+    principle match a different advisory lock sharing the same low 32
+    bits. Verified directly against a real held lock: reconstructing
+    (classid << 32 | objid) reproduces hashtext(key)::bigint exactly,
+    including the negative-hashtext case a key like this one can produce.
+    """
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -141,7 +150,9 @@ def _workflow_lock_state() -> Check:
             FROM pg_locks l
             JOIN pg_stat_activity a ON a.pid = l.pid
             WHERE l.locktype = 'advisory'
-              AND l.objid = hashtext('mlb-workflow:raw-core-model')::oid
+              AND l.objsubid = 1
+              AND (l.classid::bigint << 32) | l.objid::bigint
+                  = hashtext('mlb-workflow:raw-core-model')::bigint
               AND l.granted AND a.pid <> pg_backend_pid()
             ORDER BY a.pid
             """

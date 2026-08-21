@@ -11,6 +11,7 @@ golden rule.
 import time
 
 import psycopg
+from psycopg import sql
 
 _PATTERN = "mlb\\_test\\_%"  # escaped for LIKE: literal underscores, not wildcards
 
@@ -52,5 +53,5 @@ def reap_orphaned_test_databases(dsn: str, *, recheck_delay_seconds: float = 5.0
         still_orphaned = sorted(first_pass & second_pass)
         with conn.cursor() as cur:
             for dbname in still_orphaned:
-                cur.execute(f'DROP DATABASE IF EXISTS "{dbname}"')
+                cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(dbname)))
     return still_orphaned

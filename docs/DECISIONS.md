@@ -8,7 +8,7 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 
 **Decision:** Reactivate ADR-050's own "conditional go" recommendation, at exactly the scope it already found safe — no wider:
 
-- New `model/` stat/feature modules should be authored as SQLMesh models going forward, not new Python + hand-rolled `health_check()` copy-paste.
+- New `model/` stat/feature modules that are deterministic, set-based transformations should be authored as SQLMesh models going forward (see below for what stays Python), not new Python + hand-rolled `health_check()` copy-paste.
 - Existing `model/` modules (park factor, wOBA, wRC+, WAR, bullpen fatigue, etc.) get ported incrementally, opportunistically, not as a single big-bang migration — table-by-table cutover, one Python writer deleted in the same change that adds its SQLMesh model, per ADR-050's own coexistence rule (never two writers of the same table at once).
 - `conform.py`'s raw→core identity resolution (the `game_pk`/`mlb_team_id`/`team_id` multi-pass chain, market matching's `ast.literal_eval` handling, Elo's sequential walk, model training) stays Python, permanently — this is a **reaffirmed no-go**, not a deferral. Two real production bugs were already found and fixed in that exact chain (the 2004 Hurricane Frances anomaly, the doubleheader `game_pk` collision); a rushed reimplementation risks reintroducing subtlety this project has already paid to learn.
 - Markov/simulation/training code is not in scope and never was — SQLMesh has no bearing on genuinely sequential, procedural logic.

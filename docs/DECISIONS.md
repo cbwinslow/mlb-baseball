@@ -2,6 +2,23 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-088: SQLMesh adoption reactivated for the `model/` gold-feature layer — resolves ADR-050's draft status
+
+**Status: ADOPTED.** This closes ADR-050's `DRAFT` status and the inconsistency it left standing: `AGENTS.md` ("Architecture decisions" > "SQLMesh is the preferred SQL transformation framework") has stated since it was written that SQLMesh is preferred and should be adopted incrementally, while ADR-050 itself — the spike that produced that recommendation — still read `DRAFT — spike output, not adopted, not decided`, deferred twice, most recently because its own stated revisit trigger ("`model/` grows by 5+ more feature modules") hadn't fired. Meanwhile, seven feature-admission PRs landed in `model/` between the spike and this entry (BSR-01, INT-01, INT-02, the PLN-04 age/experience halves, etc.), every one of them plain Python + package `.sql` resources, none as SQLMesh models — the trigger's premise (`model/` isn't growing) was already false in a different sense: it *is* growing, just not through the lens that would have counted toward the trigger. A policy that says "preferred" while the project keeps not doing it, with no one revisiting why, is exactly the kind of staleness `AGENTS.md` itself asks to be repaired on sight ("When an older document conflicts with verified current repository state, repair the stale document in the same change").
+
+**Decision:** Reactivate ADR-050's own "conditional go" recommendation, at exactly the scope it already found safe — no wider:
+
+- New `model/` stat/feature modules should be authored as SQLMesh models going forward, not new Python + hand-rolled `health_check()` copy-paste.
+- Existing `model/` modules (park factor, wOBA, wRC+, WAR, bullpen fatigue, etc.) get ported incrementally, opportunistically, not as a single big-bang migration — table-by-table cutover, one Python writer deleted in the same change that adds its SQLMesh model, per ADR-050's own coexistence rule (never two writers of the same table at once).
+- `conform.py`'s raw→core identity resolution (the `game_pk`/`mlb_team_id`/`team_id` multi-pass chain, market matching's `ast.literal_eval` handling, Elo's sequential walk, model training) stays Python, permanently — this is a **reaffirmed no-go**, not a deferral. Two real production bugs were already found and fixed in that exact chain (the 2004 Hurricane Frances anomaly, the doubleheader `game_pk` collision); a rushed reimplementation risks reintroducing subtlety this project has already paid to learn.
+- Markov/simulation/training code is not in scope and never was — SQLMesh has no bearing on genuinely sequential, procedural logic.
+
+**Why now, not waiting for the original trigger:** the owner's actual goal — make it easy to keep adding new stats and models without growing `conform.py`/`model/`'s copy-paste boilerplate — is served today, independent of whether the specific "5+ new modules" trigger condition was met by the letter. `model/`'s real growth since the spike (7 feature PRs, all outside SQLMesh) is itself evidence the ergonomics problem SQLMesh addresses is already live, just not the exact shape the trigger anticipated.
+
+**Tracked via:** [issue #70](https://github.com/cbwinslow/mlb-baseball/issues/70) — the catch-up backlog (ports of existing `model/` modules, the `gold.game_export` view, and CI/tooling wiring).
+
+**Revisit if:** `conform.py`'s SQL-representable raw→core builders (teams, players, venues, standings) later look attractive for a second phase — ADR-050 already scoped this as a separate, larger, ~1-2-week decision requiring its own review, not something this entry authorizes.
+
 ## ADR-081: Team prior stolen-base run value, wSB (admission queue BSR-01)
 
 **Decision:** Added `mlb_baseball/model/bsr.py` (`compute()`/`health_check()`), `gold.game_feature.home_sb/away_sb/home_cs/away_cs/home_wsb/away_wsb` (migration 0059), and wired `bsr.compute()` into `enrich_feature_stage()` right after `team_rate`'s own OBP/SLG family. Implements Tom Tango's linear-weights wSB formula (`docs/FEATURE_ADMISSION_QUEUE.md`'s BSR-01 row, cited from FanGraphs' library page): `wSB = SB*runSB + CS*runCS - lgwSB*(1B+BB+HBP-IBB)`, `lgwSB = (lgSB*runSB + lgCS*runCS)/(lg1B+lgBB+lgHBP-lgIBB)`. `RUN_SB=0.2`/`RUN_CS=-0.42` are the widely-cited fixed Tango constants, not a per-season refit (FanGraphs' own year-by-year weights aren't public in closed form).
@@ -777,11 +794,17 @@ So 177 is the standard, full-fidelity shape (matching the *current* era too, not
 
 **Not wired into `bootstrap()`** — same reasoning as every other `raw.mlb_playbyplay`-sourced live/upcoming function in this codebase: `mlb predict`'s own `run()` call is what actually needs this, on the same cadence as everything else in that function.
 
-## ADR-050 (DRAFT — spike output, not adopted, not decided): SQLMesh migration spike — conditional go, scoped to `model/`, not `conform.py`
+## ADR-050 (SUPERSEDED by ADR-088 — see top of file): SQLMesh migration spike — conditional go, scoped to `model/`, not `conform.py`
 
-**Status: DRAFT.** This entry documents a time-boxed spike's findings for the
-project owner to decide on — it is not a decision yet, and nothing in
-`mlb_baseball/` was changed to act on it. Spike artifacts live in
+**Status: SUPERSEDED by ADR-088.** The spike's own recommendation below —
+conditional go on `model/`, no-go on `conform.py` — is now the adopted
+decision, reactivated at exactly this scope; ADR-088 explains why now rather
+than waiting for the trigger below to fire by the letter. The spike's
+findings themselves remain accurate background and aren't repeated there.
+
+**Status (historical, as originally written): DRAFT.** This entry documented a time-boxed spike's findings for the
+project owner to decide on — it was not a decision yet, and nothing in
+`mlb_baseball/` was changed to act on it at the time. Spike artifacts live in
 `transforms/` (see `transforms/README.md` for full detail: exact seed data,
 tie-out queries, and what was exercised). The spike ran against a disposable
 `mlb_spike` database seeded read-only from production; nothing in `mlb` or

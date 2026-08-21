@@ -396,6 +396,13 @@ def main(argv: list[str] | None = None) -> None:
         action="append",
         help="limit to this schema (repeatable); default: the whole database",
     )
+    backup_parser.add_argument(
+        "--keep",
+        type=int,
+        default=None,
+        help="after a successful full backup, delete older full backups in "
+        "--output-dir beyond the newest N (no effect with --schema-only)",
+    )
     restore_parser = subparsers.add_parser(
         "restore", help="restore a pg_dump file into the configured database (DESTRUCTIVE)"
     )
@@ -550,6 +557,13 @@ def main(argv: list[str] | None = None) -> None:
             parser.error(str(exc))
         else:
             print(f"Wrote {output_path}")
+            if args.keep is not None and not args.schema_only:
+                deleted = backup.rotate_backups(
+                    config.database_url(), args.output_dir, keep=args.keep
+                )
+                if deleted:
+                    names = ", ".join(p.name for p in deleted)
+                    print(f"Rotated {len(deleted)} old backup(s): {names}")
     elif args.command == "restore":
         target = backup.dbname(config.database_url())
         if not args.yes:

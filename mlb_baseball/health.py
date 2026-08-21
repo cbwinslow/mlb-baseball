@@ -298,6 +298,56 @@ def check_grouped_no_duplicates(label: str, sql: str) -> Check:
     return Check(label, True, f"{len(rows)} multi-game groups checked, no collisions")
 
 
+def check_never_vacuumed(
+    schemas: tuple[str, ...] = ("raw", "core", "gold"), *, min_dead_tuples: int = 1000
+) -> Check:
+    """Flags any table with a meaningful number of dead tuples that
+    autovacuum (or a manual VACUUM) has never once touched.
+
+    Deliberately an absolute floor on `n_dead_tup`, not a dead-tuple
+    *percentage* -- found the hard way in a real production investigation:
+    `pg_stat_user_tables.n_live_tup` is only as fresh as the last `ANALYZE`,
+    and two tables (`raw.mlb_win_prob`, `raw.mlb_linescore`) that had never
+    been auto-analyzed reported n_live_tup of 2,191 and 550 while actually
+    holding ~12.6M and ~3M live rows -- a naive dead/(live+dead) percentage
+    off that stale estimate read as "97% dead," a false crisis. The real
+    signal was simpler and didn't depend on any estimate that can go stale:
+    both tables had tens of thousands of real dead tuples and a NULL
+    last_autovacuum/last_vacuum, meaning the cleanup genuinely never ran.
+    min_dead_tuples=1000 sits comfortably above normal per-run churn and
+    Postgres's own default autovacuum threshold (50), well below what a
+    table actually overdue for its first vacuum accumulates.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT schemaname, relname, n_dead_tup
+                FROM pg_stat_user_tables
+                WHERE schemaname = ANY(%s)
+                  AND last_autovacuum IS NULL
+                  AND last_vacuum IS NULL
+                  AND n_dead_tup > %s
+                ORDER BY n_dead_tup DESC
+                """,
+                (list(schemas), min_dead_tuples),
+            )
+            rows = cur.fetchall()
+    if rows:
+        shown = ", ".join(
+            f"{schema}.{table} ({dead} dead tuples)" for schema, table, dead in rows[:10]
+        )
+        more = f" (+{len(rows) - 10} more)" if len(rows) > 10 else ""
+        return Check(
+            "never-vacuumed tables",
+            False,
+            f"{len(rows)} table(s) with dead tuples but no vacuum ever: {shown}{more} "
+            "-- run `VACUUM <table>` manually, or investigate why autovacuum hasn't "
+            "reached them",
+        )
+    return Check("never-vacuumed tables", True, "no tables with significant unvacuumed dead tuples")
+
+
 def check_recent_run(source: str, max_age_minutes: int, mode: str | None = None) -> Check:
     """For sources expected to run on a repeating schedule (e.g. mlb_api's
     cron-driven live-game capture) — check_last_run only tells you whether

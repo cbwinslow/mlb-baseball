@@ -91,6 +91,42 @@ def test_restore_refuses_without_explicit_confirmation(tmp_path, database_url):
         backup.restore(database_url, fake_dump, confirm=False)
 
 
+def test_backup_full_dump_is_recorded_for_the_freshness_check(db_conn, tmp_path, database_url):
+    _reset(db_conn)
+    _create_scratch_table_with_rows(db_conn)
+
+    backup.backup(database_url, tmp_path, schemas=[SCRATCH_SCHEMA])
+
+    checks = backup.health_check()
+    freshness = next(c for c in checks if c.name == "backup freshness")
+    assert freshness.ok
+
+    _reset(db_conn)
+
+
+def test_backup_schema_only_dump_is_not_recorded_as_a_tracked_run(db_conn, tmp_path, database_url):
+    # A schema-only backup must never be able to mask a stale full backup.
+    # Compared as a before/after count (not via health_check()'s freshness
+    # result) so this doesn't depend on test ordering within the session --
+    # another test's full backup landing first would otherwise make the
+    # freshness check pass regardless of what this test does.
+    _reset(db_conn)
+    _create_scratch_table_with_rows(db_conn)
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM meta.ingestion_run WHERE source = %s", (backup.SOURCE,))
+        before = cur.fetchone()[0]
+
+    backup.backup(database_url, tmp_path, schemas=[SCRATCH_SCHEMA], schema_only=True)
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM meta.ingestion_run WHERE source = %s", (backup.SOURCE,))
+        after = cur.fetchone()[0]
+    assert after == before
+
+    _reset(db_conn)
+
+
 def test_restore_full_round_trip_recreates_dropped_data(db_conn, tmp_path, database_url):
     # The real proof a backup is worth anything: back it up, actually lose
     # the data, restore, confirm it's back -- not just "the tool ran".

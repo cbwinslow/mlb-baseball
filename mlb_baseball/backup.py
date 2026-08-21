@@ -20,8 +20,17 @@ explicit `confirm=True` -- the CLI entry point requires an explicit
 `--yes` flag and always prints the target database name first, the same
 "make the target impossible to misread" posture as
 `tests/conftest.py`'s own database-name safety check.
+
+A full backup (not schema-only) records itself in `meta.ingestion_run` via
+the same `track_run()` every connector uses, so `mlb doctor` can flag a
+stale backup with the existing `check_recent_run` helper instead of a
+one-off freshness mechanism -- see `health_check()` below.
+`rotate_backups()` is the other half of the automated-cron story
+(`scripts/mlb_backup.sh`): deletes old full backups beyond a keep count so
+a nightly cron doesn't fill the disk.
 """
 
+import re
 import shutil
 import subprocess
 from datetime import UTC, datetime
@@ -29,9 +38,17 @@ from pathlib import Path
 
 import psycopg
 
-from mlb_baseball.health import Check
+from mlb_baseball.health import DAILY_FRESHNESS_THRESHOLD_MINUTES, Check, check_recent_run
+from mlb_baseball.ingest import track_run
 
 REQUIRED_TOOLS = ("pg_dump", "psql")
+
+# meta.ingestion_run source/mode for a full backup -- see migration
+# 0064_ingestion_run_backup_mode.sql. Schema-only/scoped dumps aren't tracked
+# under this (see backup() below): the freshness check this powers exists to
+# answer "is there a recent full backup to restore from," and a schema-only
+# snapshot shouldn't be able to mask a stale one.
+SOURCE = "backup"
 
 INSTALL_HINT = (
     "install the PostgreSQL client tools for your OS (e.g. `apt install "
@@ -69,6 +86,11 @@ def backup(
 
     `schemas`, if given, scopes the dump to only those schemas (pg_dump
     `-n`) instead of the whole database.
+
+    A full dump (`schema_only=False`) is recorded in `meta.ingestion_run`
+    for the `mlb doctor` freshness check -- see the module docstring. A
+    schema-only or scoped dump isn't: those are ad-hoc/manual by nature,
+    not a stand-in for "is there a recent restorable full backup."
     """
     if missing_tools():
         raise RuntimeError(f"pg_dump not installed or not on PATH -- {INSTALL_HINT}")
@@ -85,11 +107,47 @@ def backup(
         args.extend(["-n", schema])
     args.append(database_url)
 
-    result = subprocess.run(args, capture_output=True, text=True)
-    if result.returncode != 0:
-        output_path.unlink(missing_ok=True)
-        raise RuntimeError(f"pg_dump failed: {result.stderr.strip()}")
+    def _dump() -> None:
+        result = subprocess.run(args, capture_output=True, text=True)
+        if result.returncode != 0:
+            output_path.unlink(missing_ok=True)
+            raise RuntimeError(f"pg_dump failed: {result.stderr.strip()}")
+
+    if schema_only:
+        _dump()
+    else:
+        with psycopg.connect(database_url) as conn, track_run(conn, SOURCE, SOURCE):
+            _dump()
     return output_path
+
+
+_FULL_BACKUP_TIMESTAMP = r"\d{8}T\d{6}Z"
+
+
+def rotate_backups(database_url: str, output_dir: Path, *, keep: int) -> list[Path]:
+    """Deletes all but the newest `keep` full backups `backup()` itself
+    produced in `output_dir` (matched by its exact naming shape, not just
+    the `.sql` extension), so a nightly cron doesn't fill the disk.
+
+    Never touches schema-only dumps or any file backup() didn't create --
+    e.g. the one small schema snapshot tracked in git (`backups/
+    mlb_schema_20260807.sql`), which predates this naming convention and
+    has no timestamp suffix to match against anyway.
+
+    Returns the paths deleted.
+    """
+    if keep < 1:
+        raise ValueError("keep must be >= 1")
+    db = dbname(database_url)
+    pattern = re.compile(rf"^{re.escape(db)}_{_FULL_BACKUP_TIMESTAMP}\.sql$")
+    candidates = sorted(
+        (p for p in output_dir.glob("*.sql") if pattern.match(p.name)),
+        key=lambda p: p.name,
+    )
+    to_delete = candidates[:-keep] if len(candidates) > keep else []
+    for path in to_delete:
+        path.unlink()
+    return to_delete
 
 
 def restore(database_url: str, input_path: Path, *, confirm: bool) -> None:
@@ -128,4 +186,7 @@ def health_check() -> list[Check]:
                 f"missing: {', '.join(missing)} -- {INSTALL_HINT}",
             )
         ]
-    return [Check("backup tools (pg_dump/psql)", True, "pg_dump and psql found on PATH")]
+    return [
+        Check("backup tools (pg_dump/psql)", True, "pg_dump and psql found on PATH"),
+        check_recent_run(SOURCE, DAILY_FRESHNESS_THRESHOLD_MINUTES),
+    ]

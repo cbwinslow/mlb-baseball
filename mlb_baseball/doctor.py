@@ -18,7 +18,7 @@ import psycopg
 
 from mlb_baseball import backup, conform, ingest, manifest, migrate, model, report
 from mlb_baseball.db import fetch_one, get_connection
-from mlb_baseball.health import Check
+from mlb_baseball.health import Check, check_never_vacuumed
 from mlb_baseball.model import experiment, feature_select_stepwise
 from mlb_baseball.registry import CONNECTORS
 
@@ -169,6 +169,7 @@ _CORE_CHECKS = [
     ("pg_stat_statements", _pg_stat_statements_enabled),
     ("stale ingestion runs", _stale_ingestion_runs),
     ("workflow lock", _workflow_lock_state),
+    ("never-vacuumed tables", check_never_vacuumed),
 ]
 
 

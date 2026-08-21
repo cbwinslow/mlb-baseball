@@ -1,5 +1,13 @@
 # CI: lint, type-check, and run the full test suite on every push/PR to main.
 #
+# Three jobs run in parallel instead of one linear job, so a trivial lint
+# error gets feedback in well under a minute instead of waiting behind the
+# full ~5-6 minute test run:
+#   - lint: ruff, sqlfluff, mypy -- fast, no services needed.
+#   - unit: tests/unit -- fast, no services needed.
+#   - integration: tests/integration -- needs the Postgres service container
+#     and the Chadwick build, so it's the slow one.
+#
 # Integration tests run against a real Postgres service container (mlb_test),
 # matching the project's "mock the network, never the database" testing rule
 # (CLAUDE.md / README "Testing"). The Chadwick CLI tools (cwevent/cwgame/cwbox)
@@ -61,7 +69,64 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  test:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install package with dev dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Lint (sqlfluff, mlb_baseball/sql/)
+        run: uv run sqlfluff lint mlb_baseball/sql/
+
+      - name: Lint (SQL ownership -- inline SQL that should be a named resource)
+        run: uv run python scripts/lint_sql_ownership.py
+
+      - name: Type-check (mypy)
+        run: uv run mypy
+
+  unit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install package with dev dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit -q --cov=mlb_baseball --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: coverage.xml
+          flags: unit
+          fail_ci_if_error: false
+
+  integration:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -93,18 +158,6 @@ jobs:
 
       - name: Install package with dev dependencies
         run: uv sync --frozen --extra dev
-
-      - name: Lint (ruff)
-        run: uv run ruff check .
-
-      - name: Lint (sqlfluff, mlb_baseball/sql/)
-        run: uv run sqlfluff lint mlb_baseball/sql/
-
-      - name: Lint (SQL ownership -- inline SQL that should be a named resource)
-        run: uv run python scripts/lint_sql_ownership.py
-
-      - name: Type-check (mypy)
-        run: uv run mypy
 
       - name: Enable pg_stat_statements in the Postgres service
         env:
@@ -138,15 +191,16 @@ jobs:
         run: |
           echo "$HOME/chadwick-install/bin" >> "$GITHUB_PATH"
 
-      - name: Run tests
+      - name: Run integration tests
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mlb_test
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mlb_test
-        run: uv run pytest -q --cov=mlb_baseball --cov-report=xml
+        run: uv run pytest tests/integration -q --cov=mlb_baseball --cov-report=xml
 
       - name: Upload coverage to Codecov
         if: always()
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: coverage.xml
+          flags: integration
           fail_ci_if_error: false

@@ -3,13 +3,21 @@
 -- resolved starter identity and core.player.birth_date -- no new raw
 -- dependency.
 --
--- Renumbered from 0059 to 0062 (ADR from 081 to 087) during rebase onto
+-- Renumbered from 0059 to 0064 (ADR from 081 to 087) during rebase onto
 -- main: BSR-01 (0059/ADR-081), INT-01 (0060/ADR-082), INT-02
 -- (0061/ADR-083), and experience_v1 (0063/ADR-085, PLN-04's career-PA/IP
--- half) are all real and merged as of this rebase -- 0062 itself was
--- never claimed by any other branch, so only the ADR number needed to
--- change (084/085/086 all went to real siblings first). The view below
--- extends 0063_starter_experience.sql's real current tail
+-- half) are all real and merged as of this rebase. This file was first
+-- renumbered to 0062, which is numerically free -- but CI caught a real
+-- bug: migrations run in filename order, so 0062 would run BEFORE
+-- 0063_starter_experience.sql on a fresh database, referencing
+-- home_starter_career_bf/away_starter_career_bf/home_starter_career_ip/
+-- away_starter_career_ip before that migration creates them
+-- (UndefinedColumn), and 0063's own already-merged CREATE OR REPLACE VIEW
+-- would then silently drop this migration's age columns from the view
+-- when it ran second. Renumbered again to 0064 -- the first number that
+-- actually sorts after 0063 -- so this always runs strictly after
+-- experience_v1 and its view extension is safe. The view below extends
+-- 0063_starter_experience.sql's real current tail
 -- (...home_starter_career_bf, away_starter_career_bf,
 -- home_starter_career_ip, away_starter_career_ip) directly.
 

@@ -237,6 +237,34 @@ def test_health_check_flags_an_implausible_value(db_conn):
     assert "1 rows" in home_check.detail
 
 
+def test_health_check_flags_the_away_side_independently(db_conn):
+    # health_check() runs two independent FILTER clauses, one per side
+    # (age.py's own bad_home/bad_away). The test above only ever exercises
+    # bad_home -- seeding an implausible value on the away side only,
+    # proves the away FILTER clause is real and not a copy-paste of the
+    # home one (PR review, Kilo).
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO gold.game_feature "
+            "(season, game_date, home_team_id, away_team_id, game_instance_key, "
+            "away_starter_age) VALUES "
+            "(2024, '2024-04-01', %s, %s, 'age-test:G6', 99)",
+            (atl, nya),
+        )
+    db_conn.commit()
+
+    checks = age.health_check()
+    home_check = next(c for c in checks if c.name == "home_starter_age plausible range")
+    away_check = next(c for c in checks if c.name == "away_starter_age plausible range")
+
+    assert home_check.ok
+    assert not away_check.ok
+    assert "1 rows" in away_check.detail
+
+
 def test_health_check_passes_after_a_real_compute(db_conn):
     _reset(db_conn)
     teams = _seed_teams(db_conn)

@@ -574,14 +574,36 @@ introduced. Full reasoning for both in `docs/DECISIONS.md` ADR-087.
 
 `uv run ruff check .`/`ruff format --check .` clean, `uv run mypy
 mlb_baseball/model/age.py` clean, `uv run sqlfluff lint` clean on both new
-SQL files. `tests/integration/test_model_age.py` -- 6 new tests against
-real Postgres: hand-calculated age for two starters (verified against
+SQL files. `tests/integration/test_model_age.py` -- 7 tests against
+real Postgres (6 at first merge, one more from a second review round
+below): hand-calculated age for two starters (verified against
 real date math), NULL-when-unresolved (including a real production gap:
 `core.player.birth_date` is genuinely NULL for ~7% of rows, 1,840 of
 25,543, confirmed directly), the upcoming-game self-join regression,
-idempotency, and two health-check tests. `tests/integration/
+idempotency, and three health-check tests (home-side implausible value,
+clean pass, away-side implausible value). `tests/integration/
 test_model_enrich_stage.py` gained the real-dispatch-order test above.
 Full details in `docs/DECISIONS.md` ADR-087.
+
+CI caught a real bug the local suite hadn't: migration `0062` was
+numerically free but sorted *before* `0063_starter_experience.sql`, whose
+columns its view extension referenced -- renumbered to `0064`, the first
+number that actually sorts after `0063`. Verified against both a freshly
+reset local `mlb_test` and a clean CI run. Full reasoning in
+`docs/DECISIONS.md` ADR-087.
+
+A second PR review round (after the renumbering fix) found one more
+real, fixed test-coverage gap -- the existing implausible-value
+health-check test only ever covered the home side, never proving the
+away side's independent `FILTER` clause actually works. Added
+`test_health_check_flags_the_away_side_independently`. Four other
+review claims (self-join redundancy, `CHECK` constraints for age bounds,
+indexes on `starter_id` columns, `health_check()` not taking a `conn`
+parameter) were investigated and declined -- each either matches an
+established codebase convention checked directly against 20+ other
+files, or (the self-join one) would introduce a real bug if "simplified"
+as suggested. Full reasoning in `docs/DECISIONS.md` ADR-087.
+
 ### bullpen_outs_reconcile.sql: single scan instead of two (issue #46, completed) — 2026-08-20
 
 Fixed `bullpen_outs_reconcile.sql` (the `bullpen.health_check()`

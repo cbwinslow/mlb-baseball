@@ -616,8 +616,9 @@ SQL, but nothing checked whether a *new* piece of inline SQL in a
 
 `scripts/lint_sql_ownership.py` (~120 lines, AST-walking, matching the
 issue's own size estimate): walks every `.py` file under
-`mlb_baseball/` (excluding `tests/`), flags a `.execute(...)` call
-whose first argument is a **multi-line, static string literal**
+`mlb_baseball/` (excluding `tests/`), flags a `.execute(...)`/
+`.executemany(...)` call whose first argument is a **multi-line, static
+string literal**
 (`ast.Constant`, not an f-string or `.format()` result -- those are
 dynamic identifier composition, which `SQL_OWNERSHIP.md`'s own "Retain
 in Python" section already allows inline, since a parameterized query
@@ -653,11 +654,11 @@ itself rather than taking changed files as argv). Confirmed clean
 against the current codebase after the two exemptions:
 `SQL ownership check passed: no unjustified inline mutating SQL found.`
 
-`tests/unit/test_lint_sql_ownership.py` (9 tests, loaded by path via
+`tests/unit/test_lint_sql_ownership.py` (10 tests, loaded by path via
 `importlib.util` -- `scripts/` isn't a package, same pattern already
 used by `test_verify_markov_calibration.py`): proves the positive case
 (multi-line `INSERT`/`UPDATE`/`DELETE` into `core.*`/`gold.*` gets
-flagged) and every negative case that matters (single-line statement,
+flagged, via both `.execute()` and `.executemany()`) and every negative case that matters (single-line statement,
 non-mutating `SELECT`, f-string composition, a mutation outside
 `core`/`gold`, the inline-allow comment actually suppressing, and --
 the case that would make the suppression mechanism silently unsafe --

@@ -1,8 +1,10 @@
+import uuid
 from datetime import date
 
 import psycopg
 import pytest
 
+from mlb_baseball.ingest import track_run
 from mlb_baseball.model import provenance
 
 
@@ -133,6 +135,41 @@ def test_finish_run_logs_failure_after_an_aborted_transaction(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("SELECT 1")
         assert cur.fetchone() == (1,)
+
+    _reset(db_conn)
+
+
+def test_finish_run_failure_record_survives_the_real_track_run_nesting(db_conn):
+    # Regression (PR #59 review, Kilo -- a real, confirmed bug the test
+    # above didn't catch): every real caller of start_run()/finish_run()
+    # (log5.py/elo.py/gbm.py's predict()/train()) is itself only ever
+    # invoked from model/__init__.py's run(), inside ingest.py's own
+    # track_run() context manager. track_run's own except-block does a
+    # *second* conn.rollback() when the re-raised exception reaches it --
+    # without finish_run() committing its own UPDATE first, that second
+    # rollback would silently wipe out the failure record this whole fix
+    # chain exists to guarantee. Reproduces the real nesting shape
+    # directly, not just finish_run() in isolation.
+    _reset(db_conn)
+    source = f"test_provenance_nesting_{uuid.uuid4().hex}"
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with track_run(db_conn, source, "bootstrap"):
+            run_id = provenance.start_run(db_conn, run_type="predict")
+            try:
+                raise RuntimeError("boom")
+            except RuntimeError as error:
+                provenance.finish_run(db_conn, run_id, error=error)
+                raise
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT status, error FROM meta.model_run WHERE run_id = %s",
+            (run_id,),
+        )
+        status, error = cur.fetchone()
+    assert status == "failed"
+    assert "boom" in error
 
     _reset(db_conn)
 

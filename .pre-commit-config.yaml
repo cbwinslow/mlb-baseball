@@ -36,10 +36,15 @@ repos:
 # Config for the pre-commit.ci hosted bot (https://pre-commit.ci): runs these
 # hooks on every PR and pushes an autofix commit for anything --fix/format can
 # resolve, which helps fork contributors who haven't run `pre-commit install`
-# locally. gitleaks is skipped there -- it's a compiled Go binary, which
-# pre-commit.ci's hook sandbox doesn't build, and ci.yml's separate `secrets`
-# job already runs gitleaks on every push/PR regardless.
+# locally. Two hooks are skipped there:
+#   - gitleaks: a compiled Go binary, which pre-commit.ci's hook sandbox
+#     doesn't build. ci.yml's separate `secrets` job already runs gitleaks on
+#     every push/PR regardless.
+#   - sqlfluff-lint: its environment (sqlfluff + sqlfluff-templater-dbt) is
+#     287.5MiB, over pre-commit.ci's free-tier 250MiB build cap -- confirmed
+#     by an actual failed build, not a guess. ci.yml's `test` job already runs
+#     `sqlfluff lint` on every push/PR regardless.
 ci:
   autofix_commit_msg: "[pre-commit.ci] auto fixes from pre-commit hooks"
   autoupdate_schedule: monthly
-  skip: [gitleaks]
+  skip: [gitleaks, sqlfluff-lint]

@@ -53,13 +53,10 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Local Postgres uses Unix-socket peer auth for a bare `postgresql:///dbname`
-# connection, so TEST_DATABASE_URL's conninfo has no host/user for
-# pytest-postgresql to pick up -- its own ini defaults (127.0.0.1 / postgres)
-# don't match this project's actual role, so they're set explicitly here.
-# TCP to localhost as the current OS user is confirmed to work (~/.pgpass).
-postgresql_host = "localhost"
-postgresql_user = "cbwinslow"
+# host/user for pytest-postgresql's postgresql_noproc fixture are resolved
+# in tests/conftest.py (falling back to "localhost" / getpass.getuser()),
+# not hardcoded here -- a hardcoded postgresql_user would be one specific
+# contributor's OS username, which breaks for everyone else.
 
 [tool.mypy]
 files = ["mlb_baseball"]

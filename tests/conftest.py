@@ -4,6 +4,7 @@ disposable database, built via pytest-postgresql's postgresql_noproc fixture
 is shared across concurrent test runs, so there is nothing to lock.
 """
 
+import getpass
 import os
 import secrets
 
@@ -37,6 +38,21 @@ _base_conninfo = psycopg.conninfo.conninfo_to_dict(_base_test_url)
 _RUN_DBNAME = f"mlb_test_{secrets.token_hex(6)}"
 _assert_test_database_url(f"postgresql:///{_RUN_DBNAME}")
 
+# Resolve the actual host/user/password ONCE, so postgresql_noproc (below)
+# and TEST_DATABASE_URL (used everywhere else -- db_conn, _build_test_database,
+# tests/integration/test_least_privilege.py, ...) can never diverge onto two
+# different connections. This project's local Postgres uses Unix-socket peer
+# auth for a bare `postgresql:///dbname` connection, which leaves host/user
+# unset in _base_conninfo; TCP to "localhost" as the current OS user is
+# confirmed to work locally via ~/.pgpass (keyed on the literal hostname
+# "localhost", not "127.0.0.1" -- pytest_postgresql's own ini default), and
+# this generalizes to any contributor running the same peer-auth setup under
+# their own OS username: getpass.getuser() resolves that per-contributor, so
+# no username is hardcoded here or in pyproject.toml.
+_resolved_host = _base_conninfo.get("host") or "localhost"
+_resolved_user = _base_conninfo.get("user") or getpass.getuser()
+_resolved_password = _base_conninfo.get("password")
+
 # Deviation from the original brief, verified empirically this session:
 # factories.postgresql_noproc's own DatabaseJanitor (noprocess.py:99-122) is
 # hardcoded to create the database as f"{dbname}_tmpl" with
@@ -55,9 +71,13 @@ _assert_test_database_url(f"postgresql:///{_RUN_DBNAME}")
 # still tears it down at session end, same as any other database it creates.
 TEST_DATABASE_URL = psycopg.conninfo.make_conninfo(
     _base_test_url,
+    host=_resolved_host,
+    user=_resolved_user,
+    password=_resolved_password,
     dbname=f"{_RUN_DBNAME}_tmpl",
     application_name="mlb_test_suite",
 )
+_assert_test_database_url(TEST_DATABASE_URL)
 # Set at *import* time, not inside a fixture -- tests/conftest.py is always
 # imported before any test module under tests/ is collected, so any test
 # file reading os.environ["TEST_DATABASE_URL"] at its own module level
@@ -133,10 +153,10 @@ def _build_test_database(
 
 
 postgresql_noproc = factories.postgresql_noproc(
-    host=_base_conninfo.get("host"),
+    host=_resolved_host,
     port=_base_conninfo.get("port"),
-    user=_base_conninfo.get("user"),
-    password=_base_conninfo.get("password"),
+    user=_resolved_user,
+    password=_resolved_password,
     dbname=_RUN_DBNAME,
     load=[_build_test_database],
 )

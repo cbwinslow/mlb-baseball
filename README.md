@@ -25,6 +25,11 @@ This is a ground-up rebuild; see [docs/NORTH_STAR.md](docs/NORTH_STAR.md) for th
 Contributions are welcome from any GitHub account through fork-based pull
 requests. Direct pushes to `main` are disabled: every change must pass the
 required CI checks and be reviewed by the maintainer before it is merged.
+`.github/workflows/ci.yml` (lint, type-check, the full test suite against a
+real Postgres service, and a gitleaks secret scan) is the required gate;
+CodeQL, a dependency-review check, an Actions-workflow linter (actionlint +
+zizmor), OpenSSF Scorecard, and a Codecov coverage report also run and post
+results without blocking a merge.
 
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 - Report suspected vulnerabilities privately under [SECURITY.md](SECURITY.md);

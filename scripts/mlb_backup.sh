@@ -20,7 +20,17 @@ LOG_FILE="$REPO_DIR/logs/mlb_backup.log"
 # raise or lower to match actual available space.
 KEEP=7
 
+# A minimum, not a precise forecast: current production size (~38GB) plus
+# real headroom, so a genuinely full disk fails loudly here instead of
+# pg_dump failing partway through with a truncated, useless dump file.
+MIN_FREE_GB=50
+
 mkdir -p "$REPO_DIR/logs"
+
+if ! command -v flock >/dev/null 2>&1; then
+    echo "$(date -u +%FT%TZ) flock not found on PATH -- cannot safely run" >> "$LOG_FILE"
+    exit 1
+fi
 
 exec 200>"$LOCK_FILE"
 if ! flock -n 200; then
@@ -31,6 +41,12 @@ fi
 cd "$REPO_DIR"
 {
     echo "$(date -u +%FT%TZ) starting nightly backup"
+    free_kb=$(df --output=avail -k "$REPO_DIR" | tail -1)
+    free_gb=$((free_kb / 1024 / 1024))
+    if [ "$free_gb" -lt "$MIN_FREE_GB" ]; then
+        echo "$(date -u +%FT%TZ) only ${free_gb}GB free (need >= ${MIN_FREE_GB}GB) -- skipping"
+        exit 1
+    fi
     "$REPO_DIR/.venv/bin/mlb" backup --keep "$KEEP"
     echo "$(date -u +%FT%TZ) finished nightly backup"
 } >> "$LOG_FILE" 2>&1

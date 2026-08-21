@@ -101,9 +101,17 @@ def test_finish_run_logs_failure_after_an_aborted_transaction(db_conn):
     # ingest.py's track_run (see its own
     # test_failure_path_logs_error_and_leaves_connection_usable, the
     # reference example for this pattern).
+    #
+    # Deliberately does NOT commit after start_run() here (PR review,
+    # CodeAnt caught this as a real gap: every real caller -- elo.py,
+    # log5.py, gbm.py, evaluation.py -- calls start_run() then goes
+    # straight into its own real work with no commit in between, so a
+    # test that manually committed here wouldn't actually exercise the
+    # real failure shape). start_run() now commits its own INSERT
+    # internally for exactly this reason -- proven by this test still
+    # finding the run row after the rollback below.
     _reset(db_conn)
     run_id = provenance.start_run(db_conn, run_type="evaluate")
-    db_conn.commit()
 
     with db_conn.cursor() as cur, pytest.raises(psycopg.errors.UndefinedTable):
         cur.execute("SELECT * FROM raw.this_table_does_not_exist")

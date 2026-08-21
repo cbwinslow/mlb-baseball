@@ -47,6 +47,22 @@ def test_flags_multiline_delete_from_core(tmp_path):
     assert len(check_file(path, "module.py")) == 1
 
 
+def test_flags_multiline_insert_via_executemany(tmp_path):
+    # Regression (PR #59 review, Kilo): _is_execute_call originally only
+    # matched .execute(), silently missing .executemany() -- which real,
+    # multi-line, mutating inline SQL already uses elsewhere in this
+    # codebase (stack.py, total.py, experiment.py), leaving them
+    # permanently unflagged regardless of docs/SQL_OWNERSHIP.md policy.
+    source = (
+        'cur.executemany(\n    """\n    INSERT INTO gold.prediction (id)\n'
+        '    VALUES (%s)\n    """,\n    rows,\n)\n'
+    )
+    path = _write(tmp_path, source)
+    findings = check_file(path, "module.py")
+    assert len(findings) == 1
+    assert "module.py:1" in findings[0]
+
+
 def test_does_not_flag_single_line_mutation(tmp_path):
     # A one-line operational/diagnostic statement, not a business mutation
     # worth its own .sql resource -- matches docs/SQL_OWNERSHIP.md's

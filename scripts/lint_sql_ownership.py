@@ -63,10 +63,15 @@ EXEMPT_MODULES = {
 
 
 def _is_execute_call(node: ast.AST) -> TypeGuard[ast.Call]:
+    # executemany() takes its SQL as the same first positional argument
+    # shape as execute() (`cur.executemany(sql, rows)`) -- real, current
+    # multi-line mutating INSERTs already use it (stack.py, total.py),
+    # which the check below would otherwise silently never see (PR
+    # review, Kilo).
     return (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "execute"
+        and node.func.attr in ("execute", "executemany")
     )
 
 

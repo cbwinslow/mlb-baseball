@@ -28,6 +28,7 @@ dev = [
     "pre-commit>=4.6",
     "sqlmesh[postgres]>=0.236.1",
     "sqlfluff>=3.0",
+    "pytest-postgresql>=8.1,<9",
 ]
 
 [project.scripts]

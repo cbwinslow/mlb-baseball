@@ -1,0 +1,30 @@
+# Catches dead links across the docs/ and plans/ tree (large, growing, and
+# easy to let rot). Runs weekly rather than per-PR since most breakage is
+# external links going stale, not something a given PR introduces.
+name: link-check
+
+on:
+  schedule:
+    - cron: "37 6 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  lychee:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --no-progress
+            --exclude-mail
+            'docs/**/*.md'
+            'plans/**/*.md'
+            '*.md'
+          fail: true

@@ -1,0 +1,29 @@
+ingestion:
+  - changed-files:
+      - any-glob-to-any-file: "mlb_baseball/connectors/**"
+
+modeling:
+  - changed-files:
+      - any-glob-to-any-file: "mlb_baseball/model/**"
+
+sql:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "mlb_baseball/sql/**"
+          - "migrations/**"
+          - "transforms/**"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: "tests/**"
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "plans/**"
+          - "*.md"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: ".github/**"

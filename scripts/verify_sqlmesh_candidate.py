@@ -7,6 +7,7 @@ SQLMesh environment; this gate never creates schemas, relations, or databases.
 
 import argparse
 import os
+import re
 
 import psycopg
 from psycopg import sql
@@ -42,7 +43,7 @@ def main() -> None:
     if not url:
         raise SystemExit("TEST_DATABASE_URL is required; DATABASE_URL is deliberately ignored")
     with psycopg.connect(url) as conn:
-        if not conn.info.dbname.startswith("mlb_test"):
+        if not re.match(r"^mlb_test(_[a-f0-9]+)?(_tmpl)?$", conn.info.dbname):
             raise SystemExit("candidate gate only permits an mlb_test-named database")
         with conn.cursor() as cur:
             venue_mismatches = _count(

@@ -142,7 +142,12 @@ def _build_test_database(
     applied once per session -- just retargeted at this run's own database.
     """
     dsn = psycopg.conninfo.make_conninfo(
-        host=host, port=port, user=user, password=password, dbname=dbname
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        dbname=dbname,
+        application_name="mlb_test_suite",
     )
     os.environ["DATABASE_URL"] = dsn
     os.environ["MLB_TEST_SUITE"] = "1"

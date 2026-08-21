@@ -95,9 +95,7 @@ def _acquire_workflow_lock(
     # external connector deadlock fixture DDL halfway through a test run.
     if os.environ.get("MLB_TEST_SUITE") != "1":
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT pg_try_advisory_lock_shared(hashtext('mlb-test-suite'))"
-            )
+            cur.execute("SELECT pg_try_advisory_lock_shared(hashtext('mlb-test-suite'))")
             if not fetch_one(cur)[0]:
                 raise RuntimeError("workflow: mlb_test is reserved by a running test suite")
             cur.execute("SELECT pg_advisory_unlock_shared(hashtext('mlb-test-suite'))")

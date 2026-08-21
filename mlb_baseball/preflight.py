@@ -56,9 +56,7 @@ def run(
     selected = sources or list(CONNECTORS)
     invalid = sorted(set(selected) - set(CONNECTORS))
     source_detail = (
-        "selected: " + ", ".join(selected)
-        if not invalid
-        else f"unknown: {', '.join(invalid)}"
+        "selected: " + ", ".join(selected) if not invalid else f"unknown: {', '.join(invalid)}"
     )
     checks = [
         Check("sources", not invalid, source_detail),

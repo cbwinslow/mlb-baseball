@@ -31,7 +31,7 @@ each completed plan gate.
   readiness plus the first narrow point-in-time game-feature family.
 - **Audit method:** Read-only static audit completed; no tests were run during the static audit, and no test pass is claimed.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
-- **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0062`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
+- **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#9 items 3/4, #10 SQL lint script, #15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 items 1/2/6 are fixed (items 3/4 remain open); #28/#29/#46 are fixed.
 
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
@@ -508,7 +508,7 @@ established for this project, not a formula trusted on citation alone.
 
 Added `mlb_baseball/model/age.py` (`compute()`/`health_check()`) and two
 new `gold.game_feature` columns (`home_starter_age`, `away_starter_age`,
-migration `0062`), wired into `enrich_feature_stage()` as the last
+migration `0064`), wired into `enrich_feature_stage()` as the last
 enrichment step. Exact age (day-count / 365.25, a continuous decimal) from
 two already-populated pieces -- `gold.game_feature`'s own
 `home_starter_id`/`away_starter_id` (resolved by `starter.py`) and
@@ -541,13 +541,23 @@ Same migration-number collision pattern already documented for
 also independently took `0059` off the same `main` tip. `BSR-01`
 (`0059`/`ADR-081`), `INT-01` (`0060`/`ADR-082`), `INT-02`
 (`0061`/`ADR-083`), and `experience.py` (`0063`/`ADR-085`) are all real
-and merged as of this final rebase -- this branch's own migration number
-(`0062`) was never actually claimed by anyone else, so only its own ADR
-number needed renumbering, from the anticipated `ADR-084` to `ADR-087`
-(`ADR-086` went to the `gbm-v1` retrain, a sibling PR that also had to
-renumber off the same original claim). `gold.game_export`'s view now
-extends from `experience_v1`'s own real merged tail, not the earlier
-anticipated state.
+and merged as of this final rebase -- this branch's ADR number needed
+renumbering, from the anticipated `ADR-084` to `ADR-087` (`ADR-086` went
+to the `gbm-v1` retrain, a sibling PR that also had to renumber off the
+same original claim). `gold.game_export`'s view now extends from
+`experience_v1`'s own real merged tail, not the earlier anticipated
+state.
+
+A second, real numbering bug, caught by CI rather than by review:
+migration number `0062` was numerically free, so it looked safe, but
+migrations run in filename order and `0062` sorts *before*
+`0063_starter_experience.sql`. On a fresh database `0062`'s view would
+run first and reference `experience_v1`'s columns before that migration
+creates them (`UndefinedColumn`), and `0063`'s own already-merged
+`CREATE OR REPLACE VIEW` would then silently drop this migration's age
+columns from the view when it ran second. "Numerically unclaimed" and
+"sorts after its dependency" are different properties. Renumbered again
+to `0064`, the first number that actually sorts after `0063`.
 
 PR review found one real, fixed test-coverage gap -- every existing
 `age.compute()` test seeded `home_starter_id`/`away_starter_id` directly,

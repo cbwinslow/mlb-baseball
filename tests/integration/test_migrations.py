@@ -28,7 +28,7 @@ def test_raw_index_migration_removes_only_an_exact_duplicate(db_conn):
                 "SELECT indexname FROM pg_indexes WHERE schemaname = 'raw' "
                 "AND tablename = 'mlb_schedule' ORDER BY indexname"
             )
-            assert cur.fetchall() == [("mlb_schedule__season_idx",)]
+            assert cur.fetchall() == [('mlb_schedule__season_idx',)]
         db_conn.commit()
     finally:
         db_conn.rollback()

@@ -27,7 +27,7 @@ CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION timescaledb; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION timescaledb; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION timescaledb IS 'Enables scalable inserts and complex queries for time-series data (Community Edition)';
@@ -59,7 +59,7 @@ CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
 
 
 --
--- Name: EXTENSION pg_cron; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION pg_cron; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION pg_cron IS 'Job scheduler for PostgreSQL';
@@ -100,7 +100,7 @@ CREATE EXTENSION IF NOT EXISTS plpython3u WITH SCHEMA pg_catalog;
 
 
 --
--- Name: EXTENSION plpython3u; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION plpython3u; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION plpython3u IS 'PL/Python3U untrusted procedural language';
@@ -114,7 +114,7 @@ CREATE EXTENSION IF NOT EXISTS age WITH SCHEMA ag_catalog;
 
 
 --
--- Name: EXTENSION age; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION age; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION age IS 'AGE database extension';
@@ -128,7 +128,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION btree_gist; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION btree_gist; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION btree_gist IS 'support for indexing common datatypes in GiST';
@@ -142,7 +142,7 @@ CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION citext; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION citext; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION citext IS 'data type for case-insensitive character strings';
@@ -156,7 +156,7 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION pg_stat_statements; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION pg_stat_statements; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION pg_stat_statements IS 'track planning and execution statistics of all SQL statements executed';
@@ -170,7 +170,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION pg_trgm; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION pg_trgm; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching based on trigrams';
@@ -184,7 +184,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
@@ -198,7 +198,7 @@ CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION postgis; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION postgis; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION postgis IS 'PostGIS geometry and geography spatial types and functions';
@@ -212,7 +212,7 @@ CREATE EXTENSION IF NOT EXISTS tablefunc WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION tablefunc; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION tablefunc; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION tablefunc IS 'functions that manipulate whole tables, including crosstab';
@@ -226,7 +226,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION "uuid-ossp"; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION "uuid-ossp"; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UUIDs)';
@@ -240,7 +240,7 @@ CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION vector; Type: COMMENT; Schema: -; Owner:
+-- Name: EXTENSION vector; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION vector IS 'vector data type and ivfflat and hnsw access methods';
@@ -274,7 +274,7 @@ CREATE FUNCTION public.predict_home_win_prob(inning integer, home_score_diff int
     BEGIN
         -- Logit Equation generated from Python Scikit-Learn
         logit := 0.13372018954110457 + (0.027800166189916594 * inning) + (8.453407323736172 * home_score_diff);
-
+        
         -- Sigmoid Activation
         RETURN 1.0 / (1.0 + exp(-logit));
     END;
@@ -304,26 +304,26 @@ BEGIN
         runs := 0;
         pa := 0;
         bases := ARRAY[0, 0, 0];
-
+        
         WHILE outs < 3 LOOP
             pa := pa + 1;
             rand := random();
-
-            -- Extremely simplified outcome generator based on global MLB averages
+            
+            -- Extremely simplified outcome generator based on global MLB averages 
             -- (Normally we'd SELECT this from gold.mart_woba_weights)
-            IF rand < 0.22 THEN
+            IF rand < 0.22 THEN 
                 event_outcome := 'strikeout';
-            ELSIF rand < 0.31 THEN
+            ELSIF rand < 0.31 THEN 
                 event_outcome := 'single';
-            ELSIF rand < 0.36 THEN
+            ELSIF rand < 0.36 THEN 
                 event_outcome := 'double';
-            ELSIF rand < 0.365 THEN
+            ELSIF rand < 0.365 THEN 
                 event_outcome := 'triple';
-            ELSIF rand < 0.395 THEN
+            ELSIF rand < 0.395 THEN 
                 event_outcome := 'home_run';
-            ELSIF rand < 0.485 THEN
+            ELSIF rand < 0.485 THEN 
                 event_outcome := 'walk';
-            ELSE
+            ELSE 
                 event_outcome := 'out';
             END IF;
 
@@ -347,13 +347,13 @@ BEGIN
                 runs := runs + bases[3] + bases[2] + bases[1];
                 bases := ARRAY[0, 0, 1];
             END IF;
-
+            
         END LOOP;
-
+        
         -- Save simulation result
         INSERT INTO simulations.monte_carlo_inning_results (runs_scored, plate_appearances)
         VALUES (runs, pa);
-
+        
     END LOOP;
 END;
 $$;
@@ -44231,3 +44231,4 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE ag_catalog.ag_label TO mlb;
 --
 
 \unrestrict RgMKfmjMmbfm2rZbUqiUWKuL9MFV1uUGhPbrExxnwPOY8rJrwcwqNuhz946vpOc
+

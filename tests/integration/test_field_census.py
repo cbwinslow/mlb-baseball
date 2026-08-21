@@ -41,26 +41,10 @@ def test_census_is_deterministic_and_does_not_mutate_raw(db_conn, tmp_path):
 
 
 def test_census_classification_keeps_raw_only_data_distinct_from_candidates():
-    assert (
-        field_census._classification("mlb_schedule", "game_id").classification == "canonical_core"
-    )
+    assert field_census._classification("mlb_schedule", "game_id").classification == "canonical_core"
     assert field_census._classification("bref_war_batting", "war").classification == "existing_gold"
-    assert (
-        field_census._classification("retrosheet_event", "_scope").classification
-        == "raw_only_by_design"
-    )
-    assert (
-        field_census._classification("bref_batting", "ops").classification == "raw_only_by_design"
-    )
-    assert (
-        field_census._classification("mlb_probable", "pitcher_id").classification
-        == "needs_research"
-    )
-    assert (
-        field_census._classification("mlb_team_history", "id").classification
-        == "unconformed_candidate"
-    )
-    assert (
-        field_census._classification("statcast_pitch", "spin_rate_deprecated").classification
-        == "invalid_or_low_value"
-    )
+    assert field_census._classification("retrosheet_event", "_scope").classification == "raw_only_by_design"
+    assert field_census._classification("bref_batting", "ops").classification == "raw_only_by_design"
+    assert field_census._classification("mlb_probable", "pitcher_id").classification == "needs_research"
+    assert field_census._classification("mlb_team_history", "id").classification == "unconformed_candidate"
+    assert field_census._classification("statcast_pitch", "spin_rate_deprecated").classification == "invalid_or_low_value"

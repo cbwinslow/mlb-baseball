@@ -44,9 +44,7 @@ _ROS_NAME_RE = re.compile(r"^([A-Z0-9]+)(\d{4})\.ROS$")
 
 
 def _rosters() -> pd.DataFrame:
-    path = manifest.download_required(
-        SOURCE, "rosters.zip", "https://www.retrosheet.org/rosters.zip"
-    )
+    path = manifest.download_required(SOURCE, "rosters.zip", "https://www.retrosheet.org/rosters.zip")
     frames = []
     with zipfile.ZipFile(path) as zf:
         for name in zf.namelist():

@@ -66,16 +66,12 @@ BIODATA_MEMBERS = {
 
 
 def _park_codes() -> pd.DataFrame:
-    path = manifest.download_required(
-        SOURCE, "parkcode.txt", "https://www.retrosheet.org/parkcode.txt"
-    )
+    path = manifest.download_required(SOURCE, "parkcode.txt", "https://www.retrosheet.org/parkcode.txt")
     return pd.read_csv(path)
 
 
 def _team_ids() -> pd.DataFrame:
-    path = manifest.download_required(
-        SOURCE, "TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT"
-    )
+    path = manifest.download_required(SOURCE, "TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT")
     return pd.read_csv(path, header=None, names=TEAM_FIELDS)
 
 

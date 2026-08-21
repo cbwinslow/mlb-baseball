@@ -255,7 +255,8 @@ def train(conn: psycopg.Connection) -> dict:
 
     def _xy(rows: list[tuple]) -> tuple[np.ndarray, np.ndarray]:
         X = [
-            feature_row(log5, elo, gbm, poly, kalshi) for _, _, log5, elo, gbm, poly, kalshi in rows
+            feature_row(log5, elo, gbm, poly, kalshi)
+            for _, _, log5, elo, gbm, poly, kalshi in rows
         ]
         y = [1.0 if actual else 0.0 for _, actual, *_ in rows]
         return np.array(X, dtype=np.float64), np.array(y, dtype=np.float64)

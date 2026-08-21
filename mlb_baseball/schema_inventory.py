@@ -73,7 +73,9 @@ def relations(*, partitions: bool = False) -> list[dict[str, str | int | None]]:
 def print_report(*, partitions: bool = False) -> None:
     for relation in relations(partitions=partitions):
         parent = (
-            f"; partition of {relation['partition_parent']}" if relation["partition_parent"] else ""
+            f"; partition of {relation['partition_parent']}"
+            if relation["partition_parent"]
+            else ""
         )
         print(
             f"{relation['schema_name']}.{relation['relname']} ({relation['kind']}{parent}): "

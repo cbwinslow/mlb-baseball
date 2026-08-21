@@ -193,7 +193,9 @@ def select_features(
             stage1_survived = [col for col in BASE_COLUMNS if importances1[col] > noise_importance1]
             stage2_survived = [col for col in BASE_COLUMNS if importances2[col] > noise_importance2]
             both_survived = [
-                col for col in BASE_COLUMNS if col in stage1_survived and col in stage2_survived
+                col
+                for col in BASE_COLUMNS
+                if col in stage1_survived and col in stage2_survived
             ]
 
             for col in BASE_COLUMNS:
@@ -294,3 +296,4 @@ def select_features(
             ),
         )
         raise
+

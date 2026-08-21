@@ -344,7 +344,9 @@ def main(argv: list[str] | None = None) -> None:
     experiment_stepwise.add_argument(
         "--fold-years", nargs="+", type=int, default=list(experiment.DEFAULT_FOLD_YEARS)
     )
-    experiment_stepwise.add_argument("--min-survival-fraction", type=float, default=0.70)
+    experiment_stepwise.add_argument(
+        "--min-survival-fraction", type=float, default=0.70
+    )
     evaluate_parser = subparsers.add_parser("evaluate")
     evaluate_parser.add_argument("--season", type=int, required=True)
     evaluate_parser.add_argument("--models", nargs="+", required=True)

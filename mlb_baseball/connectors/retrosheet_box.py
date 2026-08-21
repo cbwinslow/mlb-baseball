@@ -205,7 +205,10 @@ def _parse_archive(archive_path: Path, group: str) -> dict[int, dict[str, pd.Dat
             try:
                 tables = chadwick_tools.run_cwbox(year_dir, year)
             except RuntimeError as exc:
-                if group == "negro_league" and "Invalid integer value 'NA'" in str(exc):
+                if (
+                    group == "negro_league"
+                    and "Invalid integer value 'NA'" in str(exc)
+                ):
                     print(
                         f"retrosheet_box: skipping official {year} Negro League box file; "
                         "cwbox output is malformed after unattributable NA values"

@@ -151,13 +151,19 @@ def test_run_cwbox_raises_on_directory_with_no_box_files(tmp_path):
 
 def test_run_cwbox_retries_each_known_bad_game(tmp_path):
     box_file = tmp_path / "1900.EBN"
-    box_file.write_text("id,GAME1\nbox\nid,GAME2\nbox\nid,GAME3\nbox\n")
+    box_file.write_text(
+        "id,GAME1\nbox\n"
+        "id,GAME2\nbox\n"
+        "id,GAME3\nbox\n"
+    )
     failures_then_success = [
         CompletedProcess(
             [], 1, "", "ERROR: In GAME1, cannot find entry for player 'onea101' listed in dline."
         ),
-        CompletedProcess([], 1, "", "ERROR: In GAME2, invalid position 34 for player 'twob101'."),
-        CompletedProcess([], 0, '<boxscore game_id="GAME3"><players/></boxscore>', ""),
+        CompletedProcess(
+            [], 1, "", "ERROR: In GAME2, invalid position 34 for player 'twob101'."
+        ),
+        CompletedProcess([], 0, "<boxscore game_id=\"GAME3\"><players/></boxscore>", ""),
     ]
     with patch.object(chadwick_tools, "_run_cwbox", side_effect=failures_then_success):
         result = chadwick_tools.run_cwbox(tmp_path, 1900)
@@ -179,6 +185,8 @@ def test_run_cwbox_retries_a_warning_that_names_a_bad_game(tmp_path):
         result = chadwick_tools.run_cwbox(tmp_path, 1900)
 
     assert list(result["game"]["game_id"]) == ["GAME2"]
+
+
 
 
 def test_parse_cwbox_xml_handles_multiple_boxscore_elements():

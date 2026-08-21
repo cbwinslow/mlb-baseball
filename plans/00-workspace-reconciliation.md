@@ -44,3 +44,4 @@ reviewable.
 - `git diff --check`, Ruff, all unit tests, and relevant isolated-Postgres tests
   pass; production is read-only during verification.
 - A baseline report lists exact commit(s), unresolved risks, and deferred work.
+

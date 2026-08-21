@@ -42,7 +42,9 @@ from mlb_baseball.model.feature_select import (
 )
 
 
-def _named_matrix(rows: Sequence[SnapshotRow], feature_names: Sequence[str]) -> np.ndarray:
+def _named_matrix(
+    rows: Sequence[SnapshotRow], feature_names: Sequence[str]
+) -> np.ndarray:
     """Build a 2D float matrix of named feature values for the given rows."""
     if not feature_names:
         return np.empty((len(rows), 0), dtype=np.float64)
@@ -107,7 +109,10 @@ def select_features_stepwise(
     candidates = [
         col
         for col in BASE_COLUMNS
-        if (stage12_report["features"][col]["both_stages_survived_folds"] / total_s12_evaluated)
+        if (
+            stage12_report["features"][col]["both_stages_survived_folds"]
+            / total_s12_evaluated
+        )
         >= min_survival_fraction
     ]
 

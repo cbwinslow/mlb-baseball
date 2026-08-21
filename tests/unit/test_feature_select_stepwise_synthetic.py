@@ -78,7 +78,9 @@ def test_selection_id_is_deterministic():
     )
     assert id1 != id_diff_target
 
-    id_diff_thresh = _selection_id("snap-1", "home_win", folds, min_survival_fraction=0.50, seed=42)
+    id_diff_thresh = _selection_id(
+        "snap-1", "home_win", folds, min_survival_fraction=0.50, seed=42
+    )
     assert id1 != id_diff_thresh
 
 

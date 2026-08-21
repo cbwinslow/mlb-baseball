@@ -56,17 +56,8 @@ def _insert_feature(
             "(game_id, mlb_game_pk, game_instance_key, season, game_date, park_factor, "
             "home_win, home_woba, away_woba) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (
-                game_id,
-                mlb_game_pk,
-                f"test:{mlb_game_pk}",
-                season,
-                game_date,
-                park_factor,
-                home_win,
-                home_woba,
-                away_woba,
-            ),
+            (game_id, mlb_game_pk, f"test:{mlb_game_pk}", season, game_date, park_factor,
+             home_win, home_woba, away_woba),
         )
 
 
@@ -109,15 +100,9 @@ def _seed_learnable_seasons(db_conn, rng_seasons, start_pk):
                 game_pk=str(pk),
             )
             _insert_feature(
-                db_conn,
-                game_id,
-                str(pk),
-                season,
-                f"{season}-04-{(i % 27) + 1:02d}",
-                park_factor,
-                home_win=(home_score > away_score),
-                home_woba=woba,
-                away_woba=woba,
+                db_conn, game_id, str(pk), season, f"{season}-04-{(i % 27) + 1:02d}",
+                park_factor, home_win=(home_score > away_score),
+                home_woba=woba, away_woba=woba,
             )
             pk += 1
     db_conn.commit()
@@ -187,7 +172,9 @@ def test_predict_writes_baseline_matching_hand_computed_trailing_average(
     # The upcoming game itself -- no core.game row at all (matches
     # production shape: an upcoming game only ever exists in
     # gold.game_feature/raw.mlb_schedule until it's actually played).
-    _insert_feature(db_conn, None, "999999", 2021, "2021-04-01", park_factor=110, home_win=None)
+    _insert_feature(
+        db_conn, None, "999999", 2021, "2021-04-01", park_factor=110, home_win=None
+    )
     db_conn.commit()
 
     inserted = total.predict(db_conn)
@@ -306,7 +293,9 @@ def test_backfill_outcomes_fills_in_actual_total_once_game_is_final(db_conn):
 
     assert updated == 1
     with db_conn.cursor() as cur:
-        cur.execute("SELECT actual_total FROM gold.total_prediction WHERE mlb_game_pk = '999004'")
+        cur.execute(
+            "SELECT actual_total FROM gold.total_prediction WHERE mlb_game_pk = '999004'"
+        )
         (actual_total,) = cur.fetchone()
     assert actual_total == 8  # 5 + 3, hand-computed
 
@@ -327,7 +316,9 @@ def test_backfill_outcomes_leaves_undecided_games_alone(db_conn):
 
     assert updated == 0
     with db_conn.cursor() as cur:
-        cur.execute("SELECT actual_total FROM gold.total_prediction WHERE mlb_game_pk = '999005'")
+        cur.execute(
+            "SELECT actual_total FROM gold.total_prediction WHERE mlb_game_pk = '999005'"
+        )
         (actual_total,) = cur.fetchone()
     assert actual_total is None
 

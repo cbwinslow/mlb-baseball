@@ -155,7 +155,7 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 
 **Revisit if:** a future package wants the deferred "prior MLB PA/IP" career-experience half of `PLN-04` (now built separately, see `ADR-085`); wants team-level active-roster age once lineup resolution is unblocked elsewhere in the queue; or a `gbm-v1` retrain wants to actually test whether starter age improves held-out log-loss (not yet attempted here, same "build first, evaluate separately" posture as every other feature family).
 
-## ADR-088: Naming rule for future `*_bb_pct`/`*_k_pct`-shaped columns (issue #9 item 4)
+## ADR-089: Naming rule for future `*_bb_pct`/`*_k_pct`-shaped columns (issue #9 item 4)
 
 **Decision:** Documented, not renamed. Team-level rolling rate columns (`team_rate.py`'s `home_bb_pct`/`away_bb_pct`/`home_k_pct`/`away_k_pct`) stay unprefixed; a role-scoped variant (a specific kind of pitcher, not the whole team) carries an explicit role prefix -- `starter.py`'s `home_starter_bb_pct`/`home_starter_k_pct` and `bullpen.py`'s `home_bullpen_bb_pct`/`home_bullpen_k_pct` already follow this, unchanged. No columns renamed by this ADR; it records the rule a future family should follow before it adds its own `*_bb_pct`/`*_k_pct` column, so the choice isn't made ad hoc or missed entirely.
 

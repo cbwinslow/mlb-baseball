@@ -685,11 +685,14 @@ two-table-gate and both check away-side health, each with a comment
 citing "issue #9 item 2"/"item 3") but no PROGRESS.md entry had ever
 recorded it -- only items 4 and 5 were genuinely still open.
 
-**Item 4 (naming collision risk):** Added `docs/DECISIONS.md` ADR-088
-(originally drafted as ADR-081, renumbered during rebase -- `ADR-081`
-through `ADR-087` were all independently claimed by seven sibling
-branches off the same earlier `main` tip and merged first, the same
-ADR-number collision pattern documented throughout this session),
+**Item 4 (naming collision risk):** Added `docs/DECISIONS.md` ADR-089
+(originally drafted as ADR-081, renumbered twice during rebase -- first
+to `ADR-088` when `ADR-081` through `ADR-087` were all independently
+claimed by seven sibling branches off the same earlier `main` tip and
+merged first, then to `ADR-089` when a later, unrelated PR (#71,
+SQLMesh reactivation) also independently claimed `ADR-088` and merged
+first -- the same ADR-number collision pattern documented throughout
+this session, just recurring a second time on the same section),
 documenting the rule rather than renaming anything: team-level rate
 columns (`team_rate.py`'s `home_bb_pct`/`home_k_pct`) stay unprefixed;
 a future family adding its own `*_bb_pct`/`*_k_pct` column gets the

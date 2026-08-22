@@ -57,12 +57,13 @@ def test_enrich_feature_stage_populates_columns_from_multiple_real_modules(db_co
         # (issue #37's exact failure shape).
         cur.execute(
             "CREATE TABLE raw.retrosheet_event ("
-            "game_id text, bat_home_id text, resp_pit_id text, "
-            "resp_pit_start_fl text, event_cd text, ab_fl text, "
-            "sf_fl text, bat_event_fl text, event_outs_ct text, _season text, "
-            "run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
+            "game_id text, inn_ct integer, bat_home_id text, resp_pit_id text, "
+            "resp_pit_start_fl text, event_id integer, event_cd text, ab_fl text, "
+            "sf_fl text, bat_event_fl text, outs_ct text, event_outs_ct text, "
+            "event_runs_ct text, run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
             "run1_cs_fl text, run2_cs_fl text, run3_cs_fl text, pitch_seq_tx text, "
-            "battedball_cd text, h_cd text)"
+            "battedball_cd text, h_cd text, base1_run_id text, base2_run_id text, "
+            "base3_run_id text, _season text)"
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo "
@@ -183,12 +184,13 @@ def test_age_runs_after_starter_resolves_ids_through_the_real_dispatch(db_conn):
         # rows to work with.
         cur.execute(
             "CREATE TABLE raw.retrosheet_event ("
-            "game_id text, bat_home_id text, resp_pit_id text, "
-            "resp_pit_start_fl text, event_cd text, ab_fl text, "
-            "sf_fl text, bat_event_fl text, event_outs_ct text, _season text, "
-            "run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
+            "game_id text, inn_ct integer, bat_home_id text, resp_pit_id text, "
+            "resp_pit_start_fl text, event_id integer, event_cd text, ab_fl text, "
+            "sf_fl text, bat_event_fl text, outs_ct text, event_outs_ct text, "
+            "event_runs_ct text, run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
             "run1_cs_fl text, run2_cs_fl text, run3_cs_fl text, pitch_seq_tx text, "
-            "battedball_cd text, h_cd text)"
+            "battedball_cd text, h_cd text, base1_run_id text, base2_run_id text, "
+            "base3_run_id text, _season text)"
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo "

@@ -108,6 +108,27 @@ def _pg_stat_statements_enabled() -> Check:
     return Check("pg_stat_statements", True, f"tracking {count} distinct statements")
 
 
+def _analytics_extensions_enabled() -> Check:
+    """Confirms required analytics PostgreSQL extensions are installed."""
+    required = ["pg_trgm", "btree_gist", "vector", "tablefunc"]
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT extname, extversion FROM pg_extension WHERE extname = ANY(%s)",
+                (required,),
+            )
+            installed: dict[str, str] = dict(cur.fetchall())
+    missing = [ext for ext in required if ext not in installed]
+    if missing:
+        return Check(
+            "analytics extensions",
+            False,
+            f"missing extensions: {', '.join(missing)} — run `mlb migrate`",
+        )
+    details = ", ".join(f"{ext} {ver}" for ext, ver in sorted(installed.items()))
+    return Check("analytics extensions", True, f"installed ({details})")
+
+
 def _stale_ingestion_runs() -> Check:
     """Report stale runs without changing operational state.
 
@@ -178,6 +199,7 @@ _CORE_CHECKS = [
     ("migrations", _migrations_up_to_date),
     ("downloads directory", _downloads_directory_ok),
     ("pg_stat_statements", _pg_stat_statements_enabled),
+    ("analytics extensions", _analytics_extensions_enabled),
     ("stale ingestion runs", _stale_ingestion_runs),
     ("workflow lock", _workflow_lock_state),
     ("never-vacuumed tables", check_never_vacuumed),

@@ -63,7 +63,7 @@ def test_enrich_feature_stage_populates_columns_from_multiple_real_modules(db_co
             "event_runs_ct text, run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
             "run1_cs_fl text, run2_cs_fl text, run3_cs_fl text, pitch_seq_tx text, "
             "battedball_cd text, h_cd text, base1_run_id text, base2_run_id text, "
-            "base3_run_id text, _season text)"
+            "base3_run_id text, bat_hand_cd text, resp_bat_hand_cd text, _season text)"
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo "

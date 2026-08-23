@@ -239,6 +239,15 @@ All 8 feature families below implement the strict Formula and Cross-Reference Ve
   - $\text{Batting Heart Swing\%} = \frac{\text{Swings on Pitches in Zone 5}}{\text{Total Pitches Seen in Zone 5}}$
 - **Validation**: Hand-calculated deterministic test fixture in `tests/integration/test_model_pitch_movement.py`.
 
+### 11. Symmetric Matchup Difference Vectors (`INT-02`, ADR-099)
+- **Citations**: Bill James (1981), "The Pythagorean Expectation and Matchup Deltas"; Nate Silver (Baseball Prospectus, 2006), "PECOTA Matchup Discrepancy Modeling".
+- **Formulas**:
+  - $\Delta \text{Metric} = \text{Home Metric} - \text{Away Metric}$
+  - Starter Diffs: `starter_siera_diff`, `starter_xfip_diff`, `starter_csw_diff`, `starter_whiff_diff`, `starter_xwoba_diff`, `starter_fastball_velo_diff`, `starter_vert_sep_diff`
+  - Bullpen Diffs: `bullpen_siera_diff`, `bullpen_xfip_diff`, `bullpen_csw_diff`, `bullpen_whiff_diff`, `bullpen_xwoba_diff`
+  - Lineup / Defense Diffs: `offense_hard_hit_diff`, `offense_barrel_diff`, `offense_xwoba_diff`, `bsr_total_diff`, `catcher_framing_diff`
+- **Validation**: Strict algebraic parity assertion across all rows in `tests/integration/test_model_diff.py`.
+
 ## Further reading — found, not yet fully read
 
 - Retrosheet's own research collection (uses Retrosheet data specifically, updated regularly — 6 new articles added in 2025): [retrosheet.org/Research/Research.htm](https://retrosheet.org/Research/Research.htm). Flagged as directly relevant: Calzada, "Deepball: Modeling Expectation and Uncertainty in Baseball With Recurrent Neural Networks"; Soper, "Understanding the Value of the Next Run" (run expectancy); Nutaro, "Prospect Theory and the Favorite Long-Shot Bias in Baseball" (behavioral-economics angle on market/betting bias — relevant once `core.market` timing gap, issue #1, is fixed).

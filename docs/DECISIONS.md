@@ -2,6 +2,12 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-099: Matchup Difference Vectors (`INT-02`, Package 11)
+
+**Decision:** Updated `mlb_baseball/model/diff.py`, `migrations/0076_matchup_difference_vectors.sql`, and `mlb_baseball/sql/int_diff_update.sql`. Adds 17 new columns to `gold.game_feature` (`starter_siera_diff`, `starter_xfip_diff`, `starter_csw_diff`, `starter_whiff_diff`, `starter_xwoba_diff`, `starter_fastball_velo_diff`, `starter_vert_sep_diff`, `bullpen_siera_diff`, `bullpen_xfip_diff`, `bullpen_csw_diff`, `bullpen_whiff_diff`, `bullpen_xwoba_diff`, `offense_hard_hit_diff`, `offense_barrel_diff`, `offense_xwoba_diff`, `bsr_total_diff`, `catcher_framing_diff`) and updates `gold.game_export`.
+- **Methodology**: Computes symmetric home-minus-away difference terms for starting pitchers, bullpens, offenses, and catchers. Eliminates collinearity and provides single-split matchup signals to linear/logistic and gradient boosted models. Pure algebra over entering values.
+- **Verification**: Strict algebraic parity assertion across all rows in `tests/integration/test_model_diff.py`.
+
 ## ADR-098: Pitch Movement, Vertical Break & Batter Attack Zone Discipline (`SHP-01`, Package 10)
 
 **Decision:** Added `mlb_baseball/model/pitch_movement.py`, `migrations/0075_pitch_movement_shape.sql`, `mlb_baseball/sql/pitch_movement_update.sql`, `mlb_baseball/sql/pitch_movement_health_check.sql`, and SQLMesh model `transforms/models/pitch_movement.sql`. Adds 14 columns to `gold.game_feature` (`home_starter_fastball_ivb_in`, `away_starter_fastball_ivb_in`, `home_starter_curve_drop_in`, `away_starter_curve_drop_in`, `home_starter_vert_separation_in`, `away_starter_vert_separation_in`, `home_starter_spin_rate_rpm`, `away_starter_spin_rate_rpm`, `home_bullpen_vert_separation_in`, `away_bullpen_vert_separation_in`, `home_batting_chase_pct`, `away_batting_chase_pct`, `home_batting_heart_swing_pct`, `away_batting_heart_swing_pct`) and updates `gold.game_export`.

@@ -2,6 +2,16 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-102: Serving Layer Views (`SRV-01`, Package 14)
+
+**Decision:** Created schema `serve` with read-only analytical marts via migration `migrations/0078_serve_layer_views.sql`, SQLMesh models under `transforms/models/`, Python access module `mlb_baseball/serve.py`, and integration tests in `tests/integration/test_serve.py`.
+- **Marts Established**:
+  - `serve.daily_betting_grid`: Consolidates game metadata, starting pitchers, weather physics, model win probabilities (Log5, Elo, GBM), difference vectors, and actual scores into a high-performance web grid.
+  - `serve.pitcher_card`: Aggregates starting pitcher profiles across ERA, xFIP, SIERA, CSW%, Fastball IVB, Curve Drop, Vertical Separation ($\Delta \text{IVB}$), Spin Rate, Attack Zones (Heart/Shadow/Chase), and Platoon Splits vs LHB/RHB.
+  - `serve.matchup_preview`: Detailed pregame breakdown of head-to-head match vectors, park factors, air density index, wind vectors, starter vs starter, bullpen vs bullpen, and catcher framing.
+  - `serve.prediction_market_alpha`: Dedicated $+EV$ contract arbitrage screener matching model win probabilities against Polymarket and Kalshi implied contract prices ($\ge 2.5\%$ edge threshold).
+- **Verification**: Real Postgres integration test in `tests/integration/test_serve.py`.
+
 ## ADR-101: Platoon Splits & Handedness Matchups (`PLT-01`, Package 13)
 
 **Decision:** Added `mlb_baseball/model/platoon.py`, `migrations/0077_platoon_handedness_splits.sql`, `mlb_baseball/sql/platoon_splits_update.sql`, `mlb_baseball/sql/platoon_splits_health_check.sql`, and SQLMesh model `transforms/models/platoon_splits.sql`. Adds 16 columns to `gold.game_feature` (`home_starter_throws`, `away_starter_throws`, `home_offense_woba_vs_lhp`, `away_offense_woba_vs_lhp`, `home_offense_woba_vs_rhp`, `away_offense_woba_vs_rhp`, `home_platoon_matchup_woba_diff`, `away_platoon_matchup_woba_diff`, etc.) and updates `gold.game_export`.

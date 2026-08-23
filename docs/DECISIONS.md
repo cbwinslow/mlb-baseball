@@ -2,6 +2,54 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-096: Starting Catcher Framing & CSAE% (`CAT-02`, Package 7)
+
+**Decision:** Added `mlb_baseball/model/framing.py`, `migrations/0073_catcher_framing_csae.sql`, `mlb_baseball/sql/catcher_framing_csae_update.sql`, `mlb_baseball/sql/catcher_framing_csae_health_check.sql`, and SQLMesh model `transforms/models/catcher_framing_csae.sql`. Adds `home_catcher_csae_pct`, `away_catcher_csae_pct`, `home_catcher_framing_runs`, `away_catcher_framing_runs` to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Starting catcher identified per game half from `raw.retrosheet_event` (`pos2_fld_id` in inning 1). Rolling prior called strikes and taken pitches aggregated strictly entering-game. $\text{CSAE\%} = (\text{CS} / \text{Takes}) - 0.3300$, $\text{Framing Runs} = (\text{CS} - \text{Takes} \cdot 0.33) \cdot 0.125$. Sample-size gate at 25 takes.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_framing.py`.
+
+## ADR-095: Comprehensive Baserunning (BsR, XBT%, UBR, wGDP) (`RUN-01`, Package 8)
+
+**Decision:** Added `mlb_baseball/model/bsr.py`, `migrations/0072_comprehensive_bsr_xbt.sql`, `mlb_baseball/sql/team_bsr_comprehensive_retrosheet_update.sql`, `mlb_baseball/sql/team_bsr_comprehensive_health_check.sql`, and SQLMesh model `transforms/models/team_bsr_comprehensive.sql`. Adds `home_xbt_pct`, `away_xbt_pct`, `home_ubr_runs`, `away_ubr_runs`, `home_wgdp_runs`, `away_wgdp_runs`, `home_bsr_total`, `away_bsr_total` to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Computes extra-bases-taken rate (`XBT%`) on base hits, linear weight Ultimate Base Running (`UBR`), weighted double play avoidance (`wGDP`), and comprehensive `BsR Total` = $wSB + UBR + wGDP$. Entering-game rolling aggregation with doubleheader chronological tiebreak.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_bsr.py`.
+
+## ADR-094: Multi-Year Component Park Factors & Environmental Weather (`PARK-01`/`WEA-01`, Package 6)
+
+**Decision:** Added `mlb_baseball/model/park.py`, `migrations/0071_park_factors_weather.sql`, `mlb_baseball/sql/park_factors_weather_update.sql`, `mlb_baseball/sql/park_factors_weather_health_check.sql`, and SQLMesh model `transforms/models/park_factors_weather.sql`. Adds 11 columns to `gold.game_feature` (`park_factor_1yr`, `park_factor_3yr`, `park_factor_5yr`, `park_hr_factor_3yr`, `park_2b_factor_3yr`, `park_3b_factor_3yr`, `park_lhb_hr_factor_3yr`, `park_rhb_hr_factor_3yr`, `air_density_index`, `effective_wind_speed`, `wind_direction_label`) and updates `gold.game_export`.
+- **Methodology**: Trailing 1, 3, and 5-year venue splits regressed to league scoring environment; component factors for HR, 2B, 3B, and LHB/RHB HR splits. Atmospheric air density index ($ADI$) and effective center-field wind vector physics.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_park.py`.
+
+## ADR-093: Statcast Expected Metrics & Contact Quality (`STA-03`, Package 5)
+
+**Decision:** Added `mlb_baseball/model/statcast_expected.py`, `migrations/0070_statcast_expected_metrics.sql`, `mlb_baseball/sql/statcast_expected_retrosheet_update.sql`, `mlb_baseball/sql/statcast_expected_health_check.sql`, and SQLMesh model `transforms/models/statcast_expected.sql`. Adds 30 columns covering `hard_hit_pct`, `barrel_pct`, `xwoba`, `xba`, `xslg` across starter, bullpen, and batting grains to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Proxy contact quality and Statcast expected values from Retrosheet trajectory codes and outcome mappings. Entering-game rolling aggregation strictly prior to the scheduled game.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_statcast_expected.py`.
+
+## ADR-092: Defense-Independent Pitcher Estimators (xFIP, SIERA) & Platoon Splits (`PIT-06`/`PLN-03`, Package 4)
+
+**Decision:** Added `mlb_baseball/model/pitcher_estimators.py`, `migrations/0066_pitcher_estimators_and_platoon.sql`, `mlb_baseball/sql/pitcher_estimators_and_platoon_update.sql`, `mlb_baseball/sql/pitcher_estimators_and_platoon_health_check.sql`, and SQLMesh model `transforms/models/pitcher_estimators_and_platoon.sql`. Adds 16 columns to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Computes expected FIP ($xFIP$) normalizing home runs to league average HR/FB, Skill-Interactive ERA ($SIERA$) incorporating non-linear strikeout, walk, and batted-ball trajectory terms, and platoon splits (wOBA and K% vs LHB and RHB).
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_pitcher_estimators.py`.
+
+## ADR-091: 24-State Run Expectancy Matrix (RE24) & Leverage Index (`LEV-01`, Package 3)
+
+**Decision:** Added `mlb_baseball/model/leverage.py`, `migrations/0069_base_out_leverage_re24.sql`, `mlb_baseball/sql/base_out_leverage_retrosheet_update.sql`, `mlb_baseball/sql/base_out_leverage_health_check.sql`, and SQLMesh model `transforms/models/base_out_leverage_re24.sql`. Adds 8 columns to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Computes historical 24 base-out run expectancy matrix ($RE$) and Tom Tango's Leverage Index ($LI$). Entering-game rolling average LI and cumulative RE24 for starter, bullpen, and offense.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_leverage.py`.
+
+## ADR-090: Batted-Ball Profiles (GB%, FB%, LD%, HR/FB) (`BAT-01`, Package 2)
+
+**Decision:** Added `mlb_baseball/model/batted_ball.py`, `migrations/0068_batted_ball_profiles.sql`, `mlb_baseball/sql/team_batted_ball_retrosheet_update.sql`, `mlb_baseball/sql/team_batted_ball_health_check.sql`, and SQLMesh model `transforms/models/batted_ball_profiles.sql`. Adds 22 columns to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Computes entering-game rolling Ground Ball %, Fly Ball %, Line Drive %, and HR/FB across starter, bullpen, and team offense grains from Chadwick Retrosheet trajectory flags.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_batted_ball.py`.
+
+## ADR-089: Plate Discipline Metrics (CSW%, Whiff%, F-Strike%) (`PIT-07`, Package 1)
+
+**Decision:** Added `mlb_baseball/model/plate_discipline.py`, `migrations/0067_plate_discipline_csw_whiff.sql`, `mlb_baseball/sql/pitcher_plate_discipline_retrosheet_update.sql`, `mlb_baseball/sql/pitcher_plate_discipline_health_check.sql`, and SQLMesh model `transforms/models/plate_discipline_csw_whiff.sql`. Adds 10 columns to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Computes entering-game rolling Called Strikes + Whiffs % (`CSW%`), swinging strikes / swings (`Whiff%`), and first-pitch strikes / PA (`F-Strike%`) for starter and bullpen grains from Retrosheet pitch sequences.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_plate_discipline.py`.
+
 ## ADR-088: SQLMesh adoption reactivated for the `model/` gold-feature layer — resolves ADR-050's draft status
 
 **Status: ADOPTED.** This closes ADR-050's `DRAFT` status and the inconsistency it left standing: `AGENTS.md` ("Architecture decisions" > "SQLMesh is the preferred SQL transformation framework") has stated since it was written that SQLMesh is preferred and should be adopted incrementally, while ADR-050 itself — the spike that produced that recommendation — still read `DRAFT — spike output, not adopted, not decided`, deferred twice, most recently because its own stated revisit trigger ("`model/` grows by 5+ more feature modules") hadn't fired. Meanwhile, seven feature-admission PRs landed in `model/` between the spike and this entry (BSR-01, INT-01, INT-02, the PLN-04 age/experience halves, etc.), every one of them plain Python + package `.sql` resources, none as SQLMesh models — the trigger's premise (`model/` isn't growing) was already false in a different sense: it *is* growing, just not through the lens that would have counted toward the trigger. A policy that says "preferred" while the project keeps not doing it, with no one revisiting why, is exactly the kind of staleness `AGENTS.md` itself asks to be repaired on sight ("When an older document conflicts with verified current repository state, repair the stale document in the same change").

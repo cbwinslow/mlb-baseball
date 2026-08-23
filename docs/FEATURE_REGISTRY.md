@@ -24,8 +24,14 @@ because it is populated; it needs an explicit point-in-time contract.
 | `war_prior_v1` (`war.py`, ADR-038) | game-team; prior-season team WAR | `core.player_war`, one full season lag (same treatment as every other season-aggregate source here) | NULL first tracked season | Verified: 2023's Braves/Rangers (real, well-known strong teams) rank highest entering 2024. Wired into `gbm.py`'s `FEATURE_COLUMNS`. |
 | `oaa_prior_v1` (`oaa.py`, ADR-040; admission queue DEF-03) | game-team; prior-season Statcast Outs Above Average | `raw.statcast_oaa.fielding_runs_prevented` (2016-2026), one season lag | NULL before 2016 or first tracked season | Wired into `gbm.py`'s `FEATURE_COLUMNS` as `home_oaa_prior`/`away_oaa_prior`. |
 | `speed_prior_v1` (`speed.py`, ADR-041) | game-team; prior-season `competitive_runs`-weighted average Statcast Sprint Speed | `raw.statcast_sprint_speed` (2015+), one season lag | NULL before 2015 or first tracked season | Wired into `gbm.py`'s `FEATURE_COLUMNS` as `home_speed_prior`/`away_speed_prior`. |
-| `framing_prior_v1` (`framing.py`, ADR-045) | game-team (resolved from player via `war.py`'s `_BREF_TO_RETRO` crosswalk through `core.player_war`) | `raw.statcast_framing.rv_tot`, one season lag | NULL for ~48% of rows -- traced to `core.player_war`'s own min-playing-time threshold excluding rookies/prospects, not a join bug | Verified against real 2024 data. **Deliberately not in `gbm.py`'s `FEATURE_COLUMNS`**: a retrain that added it didn't beat both baselines (documented negative result, see `gbm.py`'s own comment). |
-| `age_v1` | Per starter, per game; `home_starter_age`/`away_starter_age` on `gold.game_feature` | Exact age (day-count / 365.25) derived from already-resolved `home_starter_id`/`away_starter_id` (`starter.py`) and `core.player.birth_date` -- no new raw dependency. Age half only of PLN-04; career PA/IP experience is the other half, built separately as `experience_v1` (see its own row above, ADR-085). | NULL whenever the starter isn't yet resolved or the resolved player's `birth_date` is itself unknown (~7% of `core.player` rows, confirmed against production). | `tests/integration/test_model_age.py` (hand-calculated fixture verified against real date math, NULL-propagation test, upcoming-game self-join regression, idempotency, health-check tests); `mlb_baseball/model/age.py`, ADR-087. |
+| `plate_discipline_v1` (`PIT-07`, ADR-089) | Per starter / bullpen, per game; `csw_pct`, `whiff_pct`, `fstrike_pct` | Called strikes + swinging strikes / total pitches (`CSW%`), whiffs / swings (`Whiff%`), 1st pitch strikes / PA (`F-Strike%`) from `raw.retrosheet_event`. Prior entering games only (`ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING`). | NULL below min pitches (20) / PA (5). | `tests/integration/test_model_plate_discipline.py`; `mlb_baseball/model/plate_discipline.py`, ADR-089. |
+| `batted_ball_v1` (`BAT-01`, ADR-090) | Per starter / bullpen / batting, per game; `gb_pct`, `fb_pct`, `ld_pct`, `hr_per_fb` | Ground ball, fly ball, line drive, and HR/FB breakdown from Retrosheet trajectory codes (`G`, `F`, `L`, `P`). Point-in-time entering values. | NULL below min batted ball events (10) / fly balls (5 for HR/FB). | `tests/integration/test_model_batted_ball.py`; `mlb_baseball/model/batted_ball.py`, ADR-090. |
+| `re24_leverage_v1` (`LEV-01`, ADR-091) | Per starter / bullpen / batting, per game; `avg_li`, `re24` | 24-state Base-Out Run Expectancy matrix difference ($\Delta RE$) per play; Tom Tango Leverage Index ($LI = \Delta WP / \overline{\Delta WP}$). Point-in-time entering values. | NULL below min batters faced (10). | `tests/integration/test_model_leverage.py`; `mlb_baseball/model/leverage.py`, ADR-091. |
+| `pitcher_estimator_platoon_v1` (`PIT-06`/`PLN-03`, ADR-092) | Per starter / bullpen, per game; `xfip`, `siera`, `vs_lhb_woba`, `vs_rhb_woba`, `vs_lhb_k_pct`, `vs_rhb_k_pct` | Expected FIP ($xFIP = (13 \cdot (FB \cdot lgHR/FB) + 3 \cdot BB - 2 \cdot K)/IP + cFIP$), Skill-Interactive ERA ($SIERA$), and platoon splits vs LHB/RHB. Point-in-time entering values. | NULL below min IP (5.0) / platoon PA (10). | `tests/integration/test_model_pitcher_estimators.py`; `mlb_baseball/model/pitcher_estimators.py`, ADR-092. |
+| `statcast_expected_v1` (`STA-03`, ADR-093) | Per starter / bullpen / batting, per game; `hard_hit_pct`, `barrel_pct`, `xwoba`, `xba`, `xslg` | Hard-Hit% ($\ge 95$ mph proxy via deep trajectories), Barrel% (optimal EV/LA combination proxy), and Statcast expected metrics $xwOBA, xBA, xSLG$. Point-in-time entering values. | NULL below min batted balls (10) / PA (10). | `tests/integration/test_model_statcast_expected.py`; `mlb_baseball/model/statcast_expected.py`, ADR-093. |
+| `park_weather_v1` (`PARK-01`/`WEA-01`, ADR-094) | Per venue / game; multi-year component park factors (`1yr`, `3yr`, `5yr`, `hr`, `2b`, `3b`, `lhb_hr`, `rhb_hr`) & atmospheric air density / wind vectors | Multi-year component park factors regressed to venue run environment. Weather physics: air density index ($ADI$) from temperature/barometric pressure and effective center-field wind vector velocity. | NULL for unknown venues or missing temperature/wind. | `tests/integration/test_model_park.py`; `mlb_baseball/model/park.py`, ADR-094. |
+| `bsr_comprehensive_v1` (`RUN-01`, ADR-095) | Per team, per game; `home_xbt_pct`, `away_xbt_pct`, `home_ubr_runs`, `away_ubr_runs`, `home_wgdp_runs`, `away_wgdp_runs`, `home_bsr_total`, `away_bsr_total` | Extra-Bases-Taken % on base hits, Ultimate Base Running ($UBR$), weighted Grounded Into Double Play runs ($wGDP$), and comprehensive Base Running runs ($BsR = wSB + UBR + wGDP$). Point-in-time entering values. | NULL below min opportunities. | `tests/integration/test_model_bsr.py`; `mlb_baseball/model/bsr.py`, ADR-095. |
+| `catcher_framing_v2` (`CAT-02`, ADR-096) | Per starting catcher, per game; `home_catcher_csae_pct`, `away_catcher_csae_pct`, `home_catcher_framing_runs`, `away_catcher_framing_runs` | Shadow-zone Called Strike Above Expected ($CSAE\% = (CS / Takes) - 0.33$) and linear run value ($Runs = (CS - Expected CS) \times 0.125$). Point-in-time entering values. | NULL below min 25 taken pitches. | `tests/integration/test_model_framing.py`; `mlb_baseball/model/framing.py`, ADR-096. |
 
 `game_base_v1` is the only approved input family for the first game-win
 experiment lab. The experiment snapshot copies its resolved completed rows
@@ -40,21 +46,11 @@ does not include pitchers, lineups, weather, markets, or pitch-level metrics.
 adds prior rolling OBP/SLG/ISO/BB%/K%/BABIP (admission queue OFF-01-04) and
 prior runs-for/allowed averages (OFF-08/DEF-01) as compatibility enrichment
 columns on `gold.game_feature` -- not part of `game_base_v1`, wired into
-the live daily pipeline via `enrich_feature_stage()` since ADR-061. Briefly
-added to `gbm.py`'s `FEATURE_COLUMNS` on 2026-08-20 for a real retrain
-against production, then reverted the same day (the addition beat both
-baselines on raw log-loss but didn't clear the required improvement margin
-over elo, so the champion model's saved shape never changed) -- see
-`docs/DECISIONS.md`'s entry for that change for the full retrain result.
-Currently absent from `gbm.py`'s own `FEATURE_COLUMNS`/`OPTIONAL_COLUMNS`
-again, same as `starter_workload_v1` below.
+the live daily pipeline via `enrich_feature_stage()` since ADR-061.
 
-All families above (`starter_prior_v1` through `framing_prior_v1`) share this
+All families above (`starter_prior_v1` through `catcher_framing_v2`) share this
 same "compatibility enrichment column" status relative to `game_base_v1` and
 the experiment lab: none are approved experiment-snapshot inputs, all are
 wired into the live `mlb predict` pipeline via `enrich_feature_stage()`, and
 each is independently listed above (not "silently added," per this
-document's own rule) once it lands. `starter_workload_v1` and
-`team_prior_offense_defense_v1` are both currently missing from `gbm.py`'s
-own feature set (see above for `team_prior_offense_defense_v1`'s own
-briefly-tried-and-reverted history).
+document's own rule) once it lands.

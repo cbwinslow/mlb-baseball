@@ -1,71 +1,106 @@
-"""Park factor: standard sabermetric methodology (FanGraphs, Baseball
-Prospectus, confirmed via research -- see docs/RESEARCH.md) -- ratio of a
-venue's home run-scoring rate to the same team(s)' road rate that season,
-scaled to 100 = league average, averaged over a trailing multi-year
-window to reduce single-season noise (3 years here, a commonly-cited
-middle ground; some sources use 1, some use 5).
+"""Park factors and Environmental Weather Adjustments (PARK-01, WEA-01).
 
-Point-in-time correct by construction: a season's park factor is computed
-only from the TRAILING window of seasons strictly before it (season-3
-through season-1), never the season itself or later -- no leakage risk,
-unlike starter quality/prior WAR, since this never needs to reach into a
-season's own still-accumulating games at all.
-
-Driven by whatever (venue_id, season) pairs gold.game_feature actually
-has, not by which seasons happen to already have completed home games at
-that venue -- an upcoming season's very first game at a park still needs
-a park factor from the trailing window, even though that season itself
-has no home data there yet.
+Computes multi-year trailing run park factors (1yr, 3yr, 5yr), component park factors
+(HR, 2B, 3B, LHB/RHB HR), air density index, and effective center-field wind vectors.
+Point-in-time correct by construction: trailing windows strictly precede the target season.
 """
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
 
 import psycopg
 
-from mlb_baseball.db import fetch_one, get_connection
+from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.sql import read_sql
+
+if TYPE_CHECKING:
+    pass
+
+logger = logging.getLogger(__name__)
 
 TRAILING_SEASONS = 3
 
 
 def compute(conn: psycopg.Connection) -> int:
+    """Compute multi-year component park factors and weather features in gold.game_feature."""
     with conn.cursor() as cur:
-        cur.execute(read_sql("park_factor_update.sql"), {"trailing_seasons": TRAILING_SEASONS})
-        return cur.rowcount
+        # Base park factor calculation
+        cur.execute(
+            read_sql("park_factors_weather_update.sql"),
+        )
+        rowcount = cur.rowcount
+
+    conn.commit()
+    logger.info("Updated %d rows with park factors and weather features", rowcount)
+    return rowcount
 
 
 def health_check() -> list[Check]:
-    """Modern-era MLB park factors have never been observed outside
-    roughly 80-130 (Coors Field, the most extreme modern hitter's park,
-    sits around 110-120), but this table also carries pre-integration-era
-    Negro League games, which real small-sample data pushes further --
-    checking gold.game_feature's own rows for a duplicate-table-has-rows
-    check would be redundant with features.py's own check, so this
-    instead sanity-bounds the actual computed values, which would catch a
-    real bug (e.g. an inverted home/road ratio, which would produce
-    values near 0 or in the thousands) that a mere presence check never
-    would.
-
-    Bounds are widened to 20-350, not the modern 80-130, because of a
-    confirmed real (not buggy) case: venue_id 1604 ("South Side Park
-    III") was the Chicago White Sox's park 1901-1910 (core.venue's own
-    first_year/last_year), then became the Chicago American Giants' home
-    park 1913-1940 -- a Negro League team, whose games at this venue ran
-    as few as 1-11 per season (vs. 70-82/season for the White Sox
-    tenancy). A 3-year trailing home/road run-rate ratio computed from
-    that few games is legitimately noisy, not a computation bug: verified
-    directly against production, the actual full range across all
-    207,279 non-null rows is exactly 33.33-290.00, all 4 outside the old
-    50-200 bound coming from this one venue's 1926-1929 American Giants
-    games. Confirmed by hand: the SQL formula (100 * home_rate /
-    road_rate) is directionally correct for both extremes -- 33.33 means
-    a real (if noisy) pitcher's-park signal, 290.00 a hitter's-park
-    signal, not a sign-flip or inverted ratio."""
+    """Validate Multi-Year Park Factors and Environmental Weather health in gold.game_feature."""
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT count(*) FROM gold.game_feature "
-            "WHERE park_factor IS NOT NULL AND (park_factor < 20 OR park_factor > 350)"
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        cur.execute(read_sql("park_factors_weather_health_check.sql"))
+        row = cur.fetchone()
+        if not row:
+            return [
+                Check(
+                    name="model.park_factors_weather",
+                    ok=False,
+                    detail="No rows returned by park_factors_weather_health_check.sql",
+                )
+            ]
+
+        (
+            total_rows,
+            park_factor_1yr_rows,
+            park_factor_3yr_rows,
+            park_factor_5yr_rows,
+            park_hr_factor_rows,
+            park_2b_factor_rows,
+            park_3b_factor_rows,
+            park_lhb_hr_factor_rows,
+            park_rhb_hr_factor_rows,
+            air_density_rows,
+            effective_wind_rows,
+            wind_direction_rows,
+            park_factor_oob_cnt,
+            weather_oob_cnt,
+        ) = row
+
+        checks = []
+        oob_total = (park_factor_oob_cnt or 0) + (weather_oob_cnt or 0)
+        if oob_total > 0:
+            checks.append(
+                Check(
+                    name="model.park_factors_weather.domain",
+                    ok=False,
+                    detail=(
+                        f"{oob_total} park factor or weather values "
+                        "were outside valid domain bounds"
+                    ),
+                )
+            )
+        else:
+            checks.append(
+                Check(
+                    name="model.park_factors_weather.domain",
+                    ok=True,
+                    detail="All park factor and environmental weather values within domain bounds",
+                )
+            )
+
+        checks.append(
+            Check(
+                name="model.park_factors_weather.coverage",
+                ok=True,
+                detail=(
+                    f"Coverage: park_factor_3yr={park_factor_3yr_rows}, "
+                    f"air_density={air_density_rows}, effective_wind={effective_wind_rows} "
+                    f"(total={total_rows})"
+                ),
+            )
         )
-        (bad,) = fetch_one(cur)
-    if bad:
-        return [Check("park_factor plausible range", False, f"{bad} rows outside 20-350")]
-    return [Check("park_factor plausible range", True, "all computed values within 20-350")]
+        return checks

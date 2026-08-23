@@ -738,3 +738,151 @@ def simulate_matchup_game(
         max_innings=max_innings,
         home_distribution=home_dist,
     )
+
+
+@dataclass(frozen=True)
+class InGameSimulationResult:
+    """Aggregated Monte Carlo results for an in-progress game forecast."""
+
+    home_win_prob: float
+    away_win_prob: float
+    home_cover_run_line_prob: float
+    away_cover_run_line_prob: float
+    expected_home_final_runs: float
+    expected_away_final_runs: float
+    expected_total_runs: float
+    simulations_run: int
+
+
+def _simulate_remainder_of_game(
+    distribution: dict[BaseOutState, dict[Outcome, float]],
+    home_dist: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    current_inning: int,
+    is_bottom_half: bool,
+    current_state: BaseOutState,
+    home_score: int,
+    away_score: int,
+    regulation_innings: int = 9,
+    max_innings: int = 30,
+) -> GameResult:
+    """Simulate the remaining plays of an in-progress game from its current state."""
+    home_runs = home_score
+    away_runs = away_score
+    inning = current_inning
+
+    # 1. Complete the current half-inning
+    if not is_bottom_half:
+        # Top half in progress
+        away_runs += sum(simulate_half_inning_steps(distribution, rng, start=current_state))
+        # Now play bottom of current inning
+        if not (inning >= regulation_innings and home_runs > away_runs):
+            if inning >= regulation_innings:
+                for runs in simulate_half_inning_steps(home_dist, rng):
+                    home_runs += runs
+                    if home_runs > away_runs:
+                        break
+            else:
+                home_runs += simulate_half_inning(home_dist, rng)
+    else:
+        # Bottom half in progress
+        if inning >= regulation_innings:
+            for runs in simulate_half_inning_steps(home_dist, rng, start=current_state):
+                home_runs += runs
+                if home_runs > away_runs:
+                    break
+        else:
+            home_runs += sum(simulate_half_inning_steps(home_dist, rng, start=current_state))
+
+    # Check if game is already decided
+    if inning >= regulation_innings and home_runs != away_runs:
+        return GameResult(away_runs=away_runs, home_runs=home_runs, innings=inning)
+
+    # 2. Continue to subsequent innings if tied or regulation not reached
+    while True:
+        inning += 1
+        if inning > max_innings:
+            raise MarkovError(f"game still tied after {max_innings} innings during in-game sim")
+
+        away_runs += simulate_half_inning(distribution, rng)
+        if inning >= regulation_innings and home_runs > away_runs:
+            break
+
+        if inning >= regulation_innings:
+            for runs in simulate_half_inning_steps(home_dist, rng):
+                home_runs += runs
+                if home_runs > away_runs:
+                    break
+        else:
+            home_runs += simulate_half_inning(home_dist, rng)
+
+        if inning >= regulation_innings and home_runs != away_runs:
+            break
+
+    return GameResult(away_runs=away_runs, home_runs=home_runs, innings=inning)
+
+
+def simulate_in_game_win_probability(
+    distribution: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    current_inning: int,
+    is_bottom_half: bool,
+    current_state: BaseOutState,
+    home_score: int,
+    away_score: int,
+    home_edge_runs_per_100: float = 0.0,
+    away_edge_runs_per_100: float = 0.0,
+    n_simulations: int = 5000,
+    regulation_innings: int = 9,
+    max_innings: int = 30,
+) -> InGameSimulationResult:
+    """Run massive Monte Carlo simulation of an in-progress game to calculate live win probability.
+
+    Returns empirical probability distribution of game winner, run lines, and projected total runs.
+    """
+    if n_simulations <= 0:
+        raise MarkovError("n_simulations must be positive")
+
+    home_dist = adjust_outcome_distribution_for_matchup(distribution, home_edge_runs_per_100)
+    away_dist = adjust_outcome_distribution_for_matchup(distribution, away_edge_runs_per_100)
+
+    home_wins = 0
+    home_covers = 0  # Home wins by 2+ (covers -1.5 run line)
+    total_home_runs = 0
+    total_away_runs = 0
+
+    for _ in range(n_simulations):
+        res = _simulate_remainder_of_game(
+            distribution=away_dist,
+            home_dist=home_dist,
+            rng=rng,
+            current_inning=current_inning,
+            is_bottom_half=is_bottom_half,
+            current_state=current_state,
+            home_score=home_score,
+            away_score=away_score,
+            regulation_innings=regulation_innings,
+            max_innings=max_innings,
+        )
+        if res.home_runs > res.away_runs:
+            home_wins += 1
+            if res.home_runs - res.away_runs >= 2:
+                home_covers += 1
+        total_home_runs += res.home_runs
+        total_away_runs += res.away_runs
+
+    home_win_prob = home_wins / n_simulations
+    away_win_prob = 1.0 - home_win_prob
+    home_cover_prob = home_covers / n_simulations
+    away_cover_prob = 1.0 - home_cover_prob
+
+    return InGameSimulationResult(
+        home_win_prob=home_win_prob,
+        away_win_prob=away_win_prob,
+        home_cover_run_line_prob=home_cover_prob,
+        away_cover_run_line_prob=away_cover_prob,
+        expected_home_final_runs=total_home_runs / n_simulations,
+        expected_away_final_runs=total_away_runs / n_simulations,
+        expected_total_runs=(total_home_runs + total_away_runs) / n_simulations,
+        simulations_run=n_simulations,
+    )

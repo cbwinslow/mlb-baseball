@@ -114,3 +114,38 @@ def test_simulate_matchup_game_deterministic_with_seed():
 
     assert res1 == res2
     assert res1.innings >= 9
+
+
+def test_simulate_in_game_win_probability():
+    state_1st_0 = BaseOutState(0, on1=True)
+    state_empty_1 = BaseOutState(1)
+    base_dist = {
+        EMPTY_ZERO_OUTS: {
+            Outcome(state_1st_0, 0): 0.30,
+            Outcome(state_empty_1, 0): 0.70,
+        },
+        state_1st_0: {
+            Outcome(TERMINAL, 0): 1.0,
+        },
+        state_empty_1: {
+            Outcome(TERMINAL, 0): 1.0,
+        },
+    }
+
+    rng = random.Random(42)
+    # Home team leading 5-0 in Bottom 8th with 0 outs
+    res = markov.simulate_in_game_win_probability(
+        distribution=base_dist,
+        rng=rng,
+        current_inning=8,
+        is_bottom_half=True,
+        current_state=EMPTY_ZERO_OUTS,
+        home_score=5,
+        away_score=0,
+        n_simulations=1000,
+    )
+
+    # Home win probability should be near 100% (>= 98%)
+    assert res.home_win_prob >= 0.98
+    assert res.simulations_run == 1000
+    assert res.expected_home_final_runs >= 5.0

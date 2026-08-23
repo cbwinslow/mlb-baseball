@@ -219,6 +219,16 @@ All 8 feature families below implement the strict Formula and Cross-Reference Ve
   - $\text{Framing Runs} = (\text{Called Strikes} - \text{Expected Strikes}) \cdot 0.125\text{ runs}$
 - **Validation**: Hand-calculated fixture in `tests/integration/test_model_framing.py`.
 
+### 9. Pitcher Strike Zone Command & Statcast Attack Zones (`COM-01`, ADR-097)
+- **Citations**: Tom Tango & MLB Advanced Media (2018), "Statcast Attack Zones: Heart, Shadow, Chase, Waste"; Jeff Long, Harry Pavlidis, Martin Alonso (Baseball Prospectus, 2017), "Pitch Tunneling and Velocity Differentials".
+- **Formulas**:
+  - $\text{Heart\%} = \frac{\text{Pitches in Zone 5 (or center box)}}{\text{Total Pitches}}$
+  - $\text{Shadow\%} = \frac{\text{Pitches on Zone Edges (1-4, 6-9)}}{\text{Total Pitches}}$
+  - $\text{Chase\%} = \frac{\text{Pitches in Outer Quadrants (11-14)}}{\text{Total Pitches}}$
+  - $\text{Fastball Velocity} = \overline{v}_{\text{FF, SI, FC}}$
+  - $\text{Velocity Delta} = \overline{v}_{\text{Fastball}} - \overline{v}_{\text{Offspeed}}$
+- **Validation**: Hand-calculated deterministic test fixture in `tests/integration/test_model_command.py`.
+
 ## Further reading — found, not yet fully read
 
 - Retrosheet's own research collection (uses Retrosheet data specifically, updated regularly — 6 new articles added in 2025): [retrosheet.org/Research/Research.htm](https://retrosheet.org/Research/Research.htm). Flagged as directly relevant: Calzada, "Deepball: Modeling Expectation and Uncertainty in Baseball With Recurrent Neural Networks"; Soper, "Understanding the Value of the Next Run" (run expectancy); Nutaro, "Prospect Theory and the Favorite Long-Shot Bias in Baseball" (behavioral-economics angle on market/betting bias — relevant once `core.market` timing gap, issue #1, is fixed).

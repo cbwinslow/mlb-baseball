@@ -2,6 +2,12 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-097: Pitcher Strike Zone Command & Attack Zones (`COM-01`, Package 9)
+
+**Decision:** Added `mlb_baseball/model/command.py`, `migrations/0074_strike_zone_command.sql`, `mlb_baseball/sql/pitcher_command_update.sql`, `mlb_baseball/sql/pitcher_command_health_check.sql`, and SQLMesh model `transforms/models/pitcher_command.sql`. Adds 16 columns to `gold.game_feature` (`home_starter_heart_pct`, `away_starter_heart_pct`, `home_starter_shadow_pct`, `away_starter_shadow_pct`, `home_starter_chase_pct`, `away_starter_chase_pct`, `home_starter_fastball_velo`, `away_starter_fastball_velo`, `home_starter_velo_delta`, `away_starter_velo_delta`, `home_bullpen_heart_pct`, `away_bullpen_heart_pct`, `home_bullpen_shadow_pct`, `away_bullpen_shadow_pct`, `home_bullpen_chase_pct`, `away_bullpen_chase_pct`) and updates `gold.game_export`.
+- **Methodology**: Aggregates pitch locations from `raw.statcast_pitch` into Statcast 13-zone attack zone categories (Heart, Shadow, Chase) and computes fastball velocity and velocity delta ($\Delta v = v_{\text{FB}} - v_{\text{Off}}$) for starting pitchers and bullpens. Point-in-time entering values strictly prior to each game.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_command.py`.
+
 ## ADR-096: Starting Catcher Framing & CSAE% (`CAT-02`, Package 7)
 
 **Decision:** Added `mlb_baseball/model/framing.py`, `migrations/0073_catcher_framing_csae.sql`, `mlb_baseball/sql/catcher_framing_csae_update.sql`, `mlb_baseball/sql/catcher_framing_csae_health_check.sql`, and SQLMesh model `transforms/models/catcher_framing_csae.sql`. Adds `home_catcher_csae_pct`, `away_catcher_csae_pct`, `home_catcher_framing_runs`, `away_catcher_framing_runs` to `gold.game_feature` and updates `gold.game_export`.

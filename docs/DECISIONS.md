@@ -2,6 +2,15 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-103: Multi-Model Benchmark & Holdout Evaluation Protocol (`EVAL-01`, Package 15)
+
+**Decision:** Verified and hardened the full multi-model evaluation framework across all 12 model families (`home_rate`, `log5`, `elo`, `logistic`, `hist_gradient_boosting`, `xgboost`, `random_forest`, `extra_trees`, `gam`, `svm`, `bayesian`, `neural`) and task types (classification: `home_win`, regression: `run_differential`). Implemented full test coverage in `tests/integration/test_model_evaluation.py` and `tests/integration/test_experiment.py`.
+- **Methodology**:
+  - Exact Common Intersection Sample: Every comparative evaluation between candidate models is strictly restricted to the exact same game sample shared by all models.
+  - Zero Point-in-Time Leakage: Cutoff selection enforcement (`open`, `24h`, `6h`, `close`) guarantees only snapshots generated strictly prior to game start timestamp are eligible, rejecting post-game records.
+  - Non-parametric Calibration & Uncertainty: 1,000-iteration bootstrap 95% confidence intervals on log loss and Brier score loss, with reliability diagram binning.
+- **Verification**: Real PostgreSQL integration tests in `tests/integration/test_model_evaluation.py` (100% passing in 112s) and `tests/integration/test_experiment.py` (56/56 passing in 198s).
+
 ## ADR-102: Serving Layer Views (`SRV-01`, Package 14)
 
 **Decision:** Created schema `serve` with read-only analytical marts via migration `migrations/0078_serve_layer_views.sql`, SQLMesh models under `transforms/models/`, Python access module `mlb_baseball/serve.py`, and integration tests in `tests/integration/test_serve.py`.

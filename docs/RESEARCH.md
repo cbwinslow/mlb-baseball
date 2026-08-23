@@ -248,6 +248,14 @@ All 8 feature families below implement the strict Formula and Cross-Reference Ve
   - Lineup / Defense Diffs: `offense_hard_hit_diff`, `offense_barrel_diff`, `offense_xwoba_diff`, `bsr_total_diff`, `catcher_framing_diff`
 - **Validation**: Strict algebraic parity assertion across all rows in `tests/integration/test_model_diff.py`.
 
+### 12. Pitch Arsenal Composition & Batter Pitch-Type Matchups in Markov Simulation (`PLN-04`, ADR-100)
+- **Citations**: Tom Tango, Mitchel Lichtman, Andrew Dolphin (2006), *The Book: Playing the Percentages in Baseball*; Russell Carleton (Baseball Prospectus, 2015), "Pitch Type Matchup Interaction and Run Expectancy".
+- **Formulas**:
+  - $\text{Matchup Edge (runs/100 pitches)} = \sum_{p \in \text{Arsenals}} u_p \times (\text{Batter } RV_{100, p} - \text{Pitcher } RV_{100, p})$
+  - Outcome odds multiplier: $M = \exp(\alpha \cdot \text{Edge})$ where $\alpha = 0.05$.
+  - Scoring & advancing transition probability: $P'(s \to \text{post}) = \frac{P(s \to \text{post}) \cdot M}{\sum_{\text{outcomes}} \tilde{w}}$.
+- **Validation**: Exact deterministic hand calculations in `tests/unit/test_markov_arsenal.py` and `tests/integration/test_model_markov_arsenal.py`.
+
 ## Further reading — found, not yet fully read
 
 - Retrosheet's own research collection (uses Retrosheet data specifically, updated regularly — 6 new articles added in 2025): [retrosheet.org/Research/Research.htm](https://retrosheet.org/Research/Research.htm). Flagged as directly relevant: Calzada, "Deepball: Modeling Expectation and Uncertainty in Baseball With Recurrent Neural Networks"; Soper, "Understanding the Value of the Next Run" (run expectancy); Nutaro, "Prospect Theory and the Favorite Long-Shot Bias in Baseball" (behavioral-economics angle on market/betting bias — relevant once `core.market` timing gap, issue #1, is fixed).

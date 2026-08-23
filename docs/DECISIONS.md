@@ -2,6 +2,12 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-100: Pitch Arsenal & Batter Pitch-Type Matchups in Markov Simulator (`PLN-04`, Package 12)
+
+**Decision:** Extended `mlb_baseball/model/markov.py`, added `mlb_baseball/sql/pitcher_arsenal_select.sql`, and `mlb_baseball/sql/batter_arsenal_select.sql`.
+- **Methodology**: Introduces `PitchArsenal` and `BatterArsenalProfile` data structures loaded from `raw.statcast_pitcher_arsenal_stat` and `raw.statcast_batter_arsenal`. Computes weighted pitch-type matchup run value differentials ($\text{Matchup Edge} = \sum u_p \times (\text{Batter } RV_{100, p} - \text{Pitcher } RV_{100, p})$). Dynamically adjusts base/out state transition odds and simulates player-specific game run distributions.
+- **Verification**: Hand-calculated deterministic unit and integration tests in `tests/unit/test_markov_arsenal.py` and `tests/integration/test_model_markov_arsenal.py`.
+
 ## ADR-099: Matchup Difference Vectors (`INT-02`, Package 11)
 
 **Decision:** Updated `mlb_baseball/model/diff.py`, `migrations/0076_matchup_difference_vectors.sql`, and `mlb_baseball/sql/int_diff_update.sql`. Adds 17 new columns to `gold.game_feature` (`starter_siera_diff`, `starter_xfip_diff`, `starter_csw_diff`, `starter_whiff_diff`, `starter_xwoba_diff`, `starter_fastball_velo_diff`, `starter_vert_sep_diff`, `bullpen_siera_diff`, `bullpen_xfip_diff`, `bullpen_csw_diff`, `bullpen_whiff_diff`, `bullpen_xwoba_diff`, `offense_hard_hit_diff`, `offense_barrel_diff`, `offense_xwoba_diff`, `bsr_total_diff`, `catcher_framing_diff`) and updates `gold.game_export`.

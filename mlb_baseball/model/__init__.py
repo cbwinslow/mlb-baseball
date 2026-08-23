@@ -49,6 +49,7 @@ from mlb_baseball.model import (
     pitch_discipline,
     pitch_movement,
     pitcher_estimators,
+    platoon,
     run_expectancy,
     speed,
     starter,
@@ -181,6 +182,7 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         "gold.game_feature (speed)": speed.compute(conn),
         "gold.game_feature (framing)": framing.compute(conn),
         "gold.game_feature (war)": war.compute(conn),
+        "gold.game_feature (platoon)": platoon.compute(conn),
         # age.compute() must run last -- it reads home_starter_id/
         # away_starter_id, which every starter.compute*() call above may
         # set (historical, live, or probable path).
@@ -321,5 +323,6 @@ def health_check() -> list[Check]:
         + statcast_expected.health_check()
         + command.health_check()
         + pitch_movement.health_check()
+        + platoon.health_check()
         + age.health_check()
     )

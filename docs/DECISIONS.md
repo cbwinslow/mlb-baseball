@@ -2,6 +2,12 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-101: Platoon Splits & Handedness Matchups (`PLT-01`, Package 13)
+
+**Decision:** Added `mlb_baseball/model/platoon.py`, `migrations/0077_platoon_handedness_splits.sql`, `mlb_baseball/sql/platoon_splits_update.sql`, `mlb_baseball/sql/platoon_splits_health_check.sql`, and SQLMesh model `transforms/models/platoon_splits.sql`. Adds 16 columns to `gold.game_feature` (`home_starter_throws`, `away_starter_throws`, `home_offense_woba_vs_lhp`, `away_offense_woba_vs_lhp`, `home_offense_woba_vs_rhp`, `away_offense_woba_vs_rhp`, `home_platoon_matchup_woba_diff`, `away_platoon_matchup_woba_diff`, etc.) and updates `gold.game_export`.
+- **Methodology**: Extracts pitcher throwing hand and computes platoon advantage deltas ($\Delta wOBA = Offense_{vs Hand} - Starter_{vs Hand}$) strictly point-in-time prior to each game.
+- **Verification**: Hand-calculated deterministic integration tests in `tests/integration/test_model_platoon.py`.
+
 ## ADR-100: Pitch Arsenal & Batter Pitch-Type Matchups in Markov Simulator (`PLN-04`, Package 12)
 
 **Decision:** Extended `mlb_baseball/model/markov.py`, added `mlb_baseball/sql/pitcher_arsenal_select.sql`, and `mlb_baseball/sql/batter_arsenal_select.sql`.

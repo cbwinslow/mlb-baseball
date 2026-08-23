@@ -2,6 +2,12 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-098: Pitch Movement, Vertical Break & Batter Attack Zone Discipline (`SHP-01`, Package 10)
+
+**Decision:** Added `mlb_baseball/model/pitch_movement.py`, `migrations/0075_pitch_movement_shape.sql`, `mlb_baseball/sql/pitch_movement_update.sql`, `mlb_baseball/sql/pitch_movement_health_check.sql`, and SQLMesh model `transforms/models/pitch_movement.sql`. Adds 14 columns to `gold.game_feature` (`home_starter_fastball_ivb_in`, `away_starter_fastball_ivb_in`, `home_starter_curve_drop_in`, `away_starter_curve_drop_in`, `home_starter_vert_separation_in`, `away_starter_vert_separation_in`, `home_starter_spin_rate_rpm`, `away_starter_spin_rate_rpm`, `home_bullpen_vert_separation_in`, `away_bullpen_vert_separation_in`, `home_batting_chase_pct`, `away_batting_chase_pct`, `home_batting_heart_swing_pct`, `away_batting_heart_swing_pct`) and updates `gold.game_export`.
+- **Methodology**: Computes Fastball Induced Vertical Break (IVB/ride in inches), Curveball downward break (inches), Vertical Movement Separation ($\Delta \text{IVB} = \text{IVB}_{\text{FB}} - \text{IVB}_{\text{CU}}$ in inches), breaking spin rate (RPM), bullpen vertical separation, and lineup attack zone discipline (Chase% and Heart Swing%) from `raw.statcast_pitch`. Point-in-time entering values strictly prior to each game.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_pitch_movement.py`.
+
 ## ADR-097: Pitcher Strike Zone Command & Attack Zones (`COM-01`, Package 9)
 
 **Decision:** Added `mlb_baseball/model/command.py`, `migrations/0074_strike_zone_command.sql`, `mlb_baseball/sql/pitcher_command_update.sql`, `mlb_baseball/sql/pitcher_command_health_check.sql`, and SQLMesh model `transforms/models/pitcher_command.sql`. Adds 16 columns to `gold.game_feature` (`home_starter_heart_pct`, `away_starter_heart_pct`, `home_starter_shadow_pct`, `away_starter_shadow_pct`, `home_starter_chase_pct`, `away_starter_chase_pct`, `home_starter_fastball_velo`, `away_starter_fastball_velo`, `home_starter_velo_delta`, `away_starter_velo_delta`, `home_bullpen_heart_pct`, `away_bullpen_heart_pct`, `home_bullpen_shadow_pct`, `away_bullpen_shadow_pct`, `home_bullpen_chase_pct`, `away_bullpen_chase_pct`) and updates `gold.game_export`.

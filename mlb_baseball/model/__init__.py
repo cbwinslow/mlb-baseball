@@ -47,6 +47,7 @@ from mlb_baseball.model import (
     offense,
     park,
     pitch_discipline,
+    pitch_movement,
     pitcher_estimators,
     run_expectancy,
     speed,
@@ -169,6 +170,7 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         "gold.game_feature (pitcher_estimators)": pitcher_estimators.compute(conn),
         "gold.game_feature (statcast_expected)": statcast_expected.compute(conn),
         "gold.game_feature (command)": command.compute(conn),
+        "gold.game_feature (pitch_movement)": pitch_movement.compute(conn),
         "gold.game_feature (starter workload)": starter_workload.compute(conn),
         "gold.game_feature (starter workload live)": starter_workload.compute_live(conn),
         "gold.game_feature (starter workload probable)": starter_workload.compute_probable(conn),
@@ -318,5 +320,6 @@ def health_check() -> list[Check]:
         + pitcher_estimators.health_check()
         + statcast_expected.health_check()
         + command.health_check()
+        + pitch_movement.health_check()
         + age.health_check()
     )

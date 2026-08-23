@@ -229,6 +229,16 @@ All 8 feature families below implement the strict Formula and Cross-Reference Ve
   - $\text{Velocity Delta} = \overline{v}_{\text{Fastball}} - \overline{v}_{\text{Offspeed}}$
 - **Validation**: Hand-calculated deterministic test fixture in `tests/integration/test_model_command.py`.
 
+### 10. Pitch Movement, Vertical Break & Tunneling Separation (`SHP-01`, ADR-098)
+- **Citations**: Alan Nathan (Physics of Baseball, 2016), "Magnus Force and Trajectory Analysis"; Jeff Long & Harry Pavlidis (Baseball Prospectus, 2017), "Pitch Tunneling and Vertical Separation".
+- **Formulas**:
+  - $\text{Fastball IVB (in)} = \overline{pfx\_z}_{\text{FF, SI, FC}} \times 12.0$ (Induced vertical break/ride)
+  - $\text{Curve Drop (in)} = \overline{pfx\_z}_{\text{CU, KC, SL, ST, SV}} \times 12.0$ (Downward Magnus break)
+  - $\text{Vertical Movement Separation (in)} = \text{IVB}_{\text{Fastball}} - \text{IVB}_{\text{Breaking}}$
+  - $\text{Batting Chase\%} = \frac{\text{Swings on Pitches in Zones 11-14}}{\text{Total Pitches Seen in Zones 11-14}}$
+  - $\text{Batting Heart Swing\%} = \frac{\text{Swings on Pitches in Zone 5}}{\text{Total Pitches Seen in Zone 5}}$
+- **Validation**: Hand-calculated deterministic test fixture in `tests/integration/test_model_pitch_movement.py`.
+
 ## Further reading — found, not yet fully read
 
 - Retrosheet's own research collection (uses Retrosheet data specifically, updated regularly — 6 new articles added in 2025): [retrosheet.org/Research/Research.htm](https://retrosheet.org/Research/Research.htm). Flagged as directly relevant: Calzada, "Deepball: Modeling Expectation and Uncertainty in Baseball With Recurrent Neural Networks"; Soper, "Understanding the Value of the Next Run" (run expectancy); Nutaro, "Prospect Theory and the Favorite Long-Shot Bias in Baseball" (behavioral-economics angle on market/betting bias — relevant once `core.market` timing gap, issue #1, is fixed).

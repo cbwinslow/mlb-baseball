@@ -435,3 +435,69 @@ def generate_balanced_schedule(teams: list[str]) -> list[ScheduledGame]:
                 schedule.append(ScheduledGame(home_team=t1, away_team=t2))
                 schedule.append(ScheduledGame(home_team=t2, away_team=t1))
     return schedule
+
+
+@dataclasses.dataclass(frozen=True)
+class MarcelPlayerProjection:
+    """Marcel / Empirical Bayes 3-year rate projection for an individual player (PROJ-02)."""
+
+    player_id: int | str
+    player_name: str
+    is_pitcher: bool
+    age: int
+    projected_rate: float  # wOBA for batters, FIP for pitchers
+    projected_war: float
+    confidence_sample_weight: float
+
+
+def marcel_project_rate(
+    metric_3yr: tuple[float, float, float],
+    sample_sizes_3yr: tuple[int, int, int],
+    player_age: int,
+    is_pitcher: bool = False,
+    league_mean: float = 0.315,
+    regression_n0: int = 1200,
+) -> float:
+    """Calculate Marcel rate projection with 3-year lookback and aging curves (PROJ-02).
+
+    Weighting: 5/12 * t-1 + 4/12 * t-2 + 3/12 * t-3 + N0 * league_mean.
+    Formula: (sum(w_i * metric_i * n_i) + N0 * league_mean) / (sum(w_i * n_i) + N0).
+    Aging curve: +0.003/yr for age < 27; -0.004/yr for age > 29.
+    """
+    weights = (5.0, 4.0, 3.0)
+    weighted_obs = sum(
+        w * m * n for w, m, n in zip(weights, metric_3yr, sample_sizes_3yr, strict=True)
+    )
+    weighted_n = sum(w * n for w, n in zip(weights, sample_sizes_3yr, strict=True))
+
+    denominator = weighted_n + regression_n0
+    if denominator <= 0:
+        base_rate = league_mean
+    else:
+        base_rate = (weighted_obs + (regression_n0 * league_mean)) / denominator
+
+    # Aging adjustment
+    if player_age < 27:
+        age_delta = 0.003 * (27 - player_age)
+    elif player_age > 29:
+        age_delta = -0.004 * (player_age - 29)
+    else:
+        age_delta = 0.0
+
+    # For pitchers, lower FIP is better, so aging adds to FIP (makes worse)
+    if is_pitcher:
+        return float(max(1.50, min(8.00, base_rate - age_delta * 10.0)))
+    return float(max(0.150, min(0.480, base_rate + age_delta)))
+
+
+def pythagorean_team_win_pct(
+    runs_scored_per_game: float,
+    runs_allowed_per_game: float,
+    exponent: float = 1.83,
+) -> float:
+    """Calculate true-talent win percentage using Pythagorean expectation with Smyth-Patel exp."""
+    rs_exp = runs_scored_per_game**exponent
+    ra_exp = runs_allowed_per_game**exponent
+    if (rs_exp + ra_exp) <= 0:
+        return 0.500
+    return float(np.clip(rs_exp / (rs_exp + ra_exp), 0.200, 0.800))

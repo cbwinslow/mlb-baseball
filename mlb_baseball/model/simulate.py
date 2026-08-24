@@ -359,6 +359,13 @@ def simulate_games_fast(
         # Update active games where still tied
         active_games = home_runs == away_runs
 
+    # Safety fallback: if still tied after max_innings (e.g. synthetic 0-run fixtures),
+    # coin-flip resolve to ensure proper 100% win/loss partition
+    if np.any(active_games):
+        tie_break_home = rng.random(int(np.sum(active_games))) < 0.5
+        home_runs[active_games] += tie_break_home.astype(np.int16)
+        away_runs[active_games] += (~tie_break_home).astype(np.int16)
+
     t1 = time.perf_counter()
     duration_ms = (t1 - t0) * 1000.0
     sims_per_sec = n_simulations / (t1 - t0) if (t1 - t0) > 0 else 0.0
@@ -510,6 +517,176 @@ def simulate_live_game_fast(
         expected_final_away_runs=float(np.mean(away_runs)),
         expected_final_total_runs=float(np.mean(total_runs)),
         over_under_probs=ou_probs,
+        simulations_run=n_simulations,
+        device=get_device(),
+        duration_ms=duration_ms,
+        simulations_per_sec=sims_per_sec,
+    )
+
+
+@dataclass(frozen=True)
+class TwoPhaseSimulationSummary:
+    """Detailed summary of a two-phase (starter + bullpen + TTO) game simulation (SIM-02)."""
+
+    # Full game
+    home_win_prob: float
+    away_win_prob: float
+    home_cover_run_line_prob: float
+    away_cover_run_line_prob: float
+    expected_home_runs: float
+    expected_away_runs: float
+    expected_total_runs: float
+    over_under_probs: dict[float, float]
+    # First 5 Innings (F5)
+    f5_home_win_prob: float
+    f5_tie_prob: float
+    f5_away_win_prob: float
+    f5_home_cover_half_prob: float
+    f5_expected_home_runs: float
+    f5_expected_away_runs: float
+    f5_expected_total_runs: float
+    f5_over_under_probs: dict[float, float]
+    # Diagnostics
+    simulations_run: int
+    device: str
+    duration_ms: float
+    simulations_per_sec: float
+
+
+def simulate_two_phase_game_fast(
+    home_starter_table: DenseOutcomeTable,
+    away_starter_table: DenseOutcomeTable,
+    home_bullpen_table: DenseOutcomeTable,
+    away_bullpen_table: DenseOutcomeTable,
+    n_simulations: int = 10000,
+    seed: int | None = 0,
+    starter_innings: int = 5,
+    regulation_innings: int = 9,
+    max_innings: int = 15,
+) -> TwoPhaseSimulationSummary:
+    """Simulate games with Starter Phase (TTO 1 & 2), F5 tracking, and Bullpen Phase (SIM-02)."""
+    t0 = time.perf_counter()
+    rng = np.random.default_rng(seed)
+
+    # Pre-adjust starter tables for Times-Through-The-Order penalty
+    # TTO2 (innings 4-5): +0.05 wOBA (~ +0.5 runs/100)
+    home_starter_tto2 = home_starter_table.adjust_for_matchup(0.5)
+    away_starter_tto2 = away_starter_table.adjust_for_matchup(0.5)
+
+    home_runs = np.zeros(n_simulations, dtype=np.int16)
+    away_runs = np.zeros(n_simulations, dtype=np.int16)
+
+    # 1. Starter Phase (Innings 1 through starter_innings)
+    for inning in range(1, starter_innings + 1):
+        seeds = rng.integers(0, 2**31 - 1, size=2)
+        h_table = home_starter_table if inning <= 3 else home_starter_tto2
+        a_table = away_starter_table if inning <= 3 else away_starter_tto2
+
+        # Top of inning (away batting)
+        away_runs += simulate_half_innings_fast(a_table, n_simulations, seed=int(seeds[0]))
+        # Bottom of inning (home batting)
+        home_runs += simulate_half_innings_fast(h_table, n_simulations, seed=int(seeds[1]))
+
+    # Record F5 snapshot
+    f5_home_runs = home_runs.copy()
+    f5_away_runs = away_runs.copy()
+    f5_total_runs = f5_home_runs + f5_away_runs
+    f5_home_wins = np.count_nonzero(f5_home_runs > f5_away_runs)
+    f5_ties = np.count_nonzero(f5_home_runs == f5_away_runs)
+    f5_away_wins = np.count_nonzero(f5_away_runs > f5_home_runs)
+    f5_home_covers = np.count_nonzero(
+        f5_home_runs > f5_away_runs
+    )  # F5 -0.5 is equivalent to outright win
+
+    f5_ou_lines = (3.5, 4.5, 5.5, 6.5)
+    f5_ou_probs = {line: float(np.mean(f5_total_runs > line)) for line in f5_ou_lines}
+
+    # 2. Bullpen Phase (Innings starter_innings + 1 through regulation)
+    for _inning in range(starter_innings + 1, regulation_innings):
+        seeds = rng.integers(0, 2**31 - 1, size=2)
+        away_runs += simulate_half_innings_fast(
+            away_bullpen_table, n_simulations, seed=int(seeds[0])
+        )
+        home_runs += simulate_half_innings_fast(
+            home_bullpen_table, n_simulations, seed=int(seeds[1])
+        )
+
+    # 9th inning regulation handling
+    seeds = rng.integers(0, 2**31 - 1, size=2)
+    away_runs += simulate_half_innings_fast(away_bullpen_table, n_simulations, seed=int(seeds[0]))
+
+    # Bottom 9th only if home team is not already leading
+    needs_bot_9 = home_runs <= away_runs
+    if np.any(needs_bot_9):
+        n_bot9 = int(np.sum(needs_bot_9))
+        home_runs[needs_bot_9] += simulate_half_innings_fast(
+            home_bullpen_table, n_bot9, seed=int(seeds[1])
+        )
+
+    # 3. Extra Innings (ghost runner on 2nd base, start_state_idx=2)
+    ghost_runner_state_idx = 2  # 0 outs, runner on 2nd base
+    inning = regulation_innings
+    active_games = home_runs == away_runs
+
+    while np.any(active_games) and inning < max_innings:
+        inning += 1
+        n_act = int(np.sum(active_games))
+        seeds = rng.integers(0, 2**31 - 1, size=2)
+
+        # Top half with ghost runner
+        away_runs[active_games] += simulate_half_innings_fast(
+            away_bullpen_table, n_act, seed=int(seeds[0]), start_state_idx=ghost_runner_state_idx
+        )
+
+        # Bottom half only if needed
+        needs_bottom = active_games & (home_runs <= away_runs)
+        if np.any(needs_bottom):
+            n_bot = int(np.sum(needs_bottom))
+            home_runs[needs_bottom] += simulate_half_innings_fast(
+                home_bullpen_table,
+                n_bot,
+                seed=int(seeds[1]),
+                start_state_idx=ghost_runner_state_idx,
+            )
+
+        active_games = home_runs == away_runs
+
+    # Safety fallback: if still tied after max_innings (e.g. synthetic 0-run fixtures),
+    # coin-flip resolve to ensure proper 100% win/loss partition
+    if np.any(active_games):
+        tie_break_home = rng.random(int(np.sum(active_games))) < 0.5
+        home_runs[active_games] += tie_break_home.astype(np.int16)
+        away_runs[active_games] += (~tie_break_home).astype(np.int16)
+
+    t1 = time.perf_counter()
+    duration_ms = (t1 - t0) * 1000.0
+    sims_per_sec = n_simulations / (t1 - t0) if (t1 - t0) > 0 else 0.0
+
+    home_wins = np.count_nonzero(home_runs > away_runs)
+    away_wins = np.count_nonzero(away_runs > home_runs)
+    home_covers = np.count_nonzero((home_runs - away_runs) >= 2)
+    total_runs = home_runs + away_runs
+
+    ou_lines = (5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5)
+    ou_probs = {line: float(np.mean(total_runs > line)) for line in ou_lines}
+
+    return TwoPhaseSimulationSummary(
+        home_win_prob=home_wins / n_simulations,
+        away_win_prob=away_wins / n_simulations,
+        home_cover_run_line_prob=home_covers / n_simulations,
+        away_cover_run_line_prob=1.0 - (home_covers / n_simulations),
+        expected_home_runs=float(np.mean(home_runs)),
+        expected_away_runs=float(np.mean(away_runs)),
+        expected_total_runs=float(np.mean(total_runs)),
+        over_under_probs=ou_probs,
+        f5_home_win_prob=f5_home_wins / n_simulations,
+        f5_tie_prob=f5_ties / n_simulations,
+        f5_away_win_prob=f5_away_wins / n_simulations,
+        f5_home_cover_half_prob=f5_home_covers / n_simulations,
+        f5_expected_home_runs=float(np.mean(f5_home_runs)),
+        f5_expected_away_runs=float(np.mean(f5_away_runs)),
+        f5_expected_total_runs=float(np.mean(f5_total_runs)),
+        f5_over_under_probs=f5_ou_probs,
         simulations_run=n_simulations,
         device=get_device(),
         duration_ms=duration_ms,

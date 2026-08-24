@@ -15,6 +15,7 @@ from mlb_baseball.model.simulate import (
     simulate_games_fast,
     simulate_half_innings_fast,
     simulate_live_game_fast,
+    simulate_two_phase_game_fast,
     state_to_index,
 )
 
@@ -171,3 +172,35 @@ def test_simulate_live_game_fast_from_late_inning_lead():
     assert live_res.expected_final_home_runs == pytest.approx(5.0)
     assert live_res.expected_final_away_runs == pytest.approx(1.0)
     assert live_res.expected_final_total_runs == pytest.approx(6.0)
+
+
+def test_simulate_two_phase_game_fast():
+    """Verify two-phase simulation with starter TTO and F5 metrics."""
+    s0 = BaseOutState(0, False, False, False)
+    s1 = BaseOutState(0, True, False, False)
+    s2 = BaseOutState(0, False, True, False)
+    dist = {
+        s0: {Outcome(s1, 0): 0.25, Outcome(s0, 1): 0.05, Outcome(TERMINAL, 0): 0.70},
+        s1: {Outcome(s1, 1): 0.20, Outcome(TERMINAL, 0): 0.80},
+        s2: {Outcome(s2, 1): 0.30, Outcome(TERMINAL, 0): 0.70},
+    }
+    table = DenseOutcomeTable.from_distribution(dist)
+
+    res = simulate_two_phase_game_fast(
+        home_starter_table=table,
+        away_starter_table=table,
+        home_bullpen_table=table,
+        away_bullpen_table=table,
+        n_simulations=500,
+        seed=42,
+        starter_innings=5,
+    )
+
+    assert res.simulations_run == 500
+    assert res.home_win_prob + res.away_win_prob == pytest.approx(1.0, abs=1e-5)
+    # F5 Conservation: Home Win + Tie + Away Win == 1.0
+    f5_sum = res.f5_home_win_prob + res.f5_tie_prob + res.f5_away_win_prob
+    assert pytest.approx(f5_sum, abs=1e-5) == 1.0
+    assert res.f5_expected_total_runs <= res.expected_total_runs
+    assert res.f5_expected_home_runs <= res.expected_home_runs
+    assert res.f5_expected_away_runs <= res.expected_away_runs

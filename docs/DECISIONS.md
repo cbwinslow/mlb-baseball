@@ -2,6 +2,24 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-112: Bottom-Up Marcel Empirical Bayes Projection Engine (`PROJ-02`, Package 24)
+
+**Decision:** Implemented bottom-up player and team talent projection system in `mlb_baseball/model/season.py` using Tom Tango / Bill James Marcel 3-year exponential weighting ($5/12 \cdot t_{-1} + 4/12 \cdot t_{-2} + 3/12 \cdot t_{-3}$), Empirical Bayes shrinkage to league mean ($N_0 = 1200$ PA / TBF), delta-method aging curves, and Pythagorean true-talent win expectations ($W\% = rac{RS^{1.83}}{RS^{1.83} + RA^{1.83}}$).
+- **Mathematical Formulations & Rigor**:
+  - Marcel Rate: $	ext{Rate}_{	ext{proj}} = rac{\sum w_i \cdot 	ext{Metric}_i \cdot N_i + N_0 \cdot \mu_{	ext{league}}}{\sum w_i \cdot N_i + N_0}$.
+  - Aging Curve: $+0.003/	ext{year}$ bonus for age $< 27$; $-0.004/	ext{year}$ degradation for age $> 29$.
+  - Pythagorean Team Win Probability: Computes true-talent win percentage from team runs scored ($RS$) and allowed ($RA$) with Smyth-Patel exponent $1.83$.
+- **Verification**: Unit tests in `tests/unit/test_season.py` verifying exact arithmetic and bounds passing.
+
+## ADR-111: Two-Phase Markov Simulator with TTO Penalties & F5 Markets (`SIM-02`, Package 23)
+
+**Decision:** Extended high-speed Monte Carlo game simulation in `mlb_baseball/model/simulate.py` with `simulate_two_phase_game_fast`, modeling distinct Starter Phase (innings 1–5 with Times-Through-The-Order penalty) and Bullpen Phase (innings 6–9 and extra innings with ghost runners).
+- **Simulation Capabilities**:
+  - Times-Through-The-Order (TTO) Progression: Applies $+0.05$ wOBA edge to batting orders on 2nd look (innings 4–5).
+  - First-5 (F5) Markets: Simultaneously outputs F5 home win, tie/draw, and away win probabilities, F5 -0.5 run-line cover, F5 expected run totals, and Over/Under distributions ($3.5 \dots 6.5$).
+  - Bullpen & Extra Innings Phase: Transitions cleanly to bullpen transition tables for late innings and implements modern MLB ghost runner extra-inning tie-breakers.
+- **Verification**: Unit tests in `tests/unit/test_simulate.py` passing.
+
 ## ADR-110: Real-Time In-Play Live Game Tracker & Prediction Market Screener (`LIVE-02`, Package 22)
 
 **Decision:** Created real-time in-play game evaluation and continuous live odds screener in `mlb_baseball/live.py`, CLI subcommand `mlb live`, and unit tests in `tests/unit/test_live.py`.

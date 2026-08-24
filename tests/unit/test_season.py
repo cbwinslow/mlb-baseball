@@ -8,6 +8,8 @@ from mlb_baseball.model.season import (
     MLB_DIVISIONS,
     generate_balanced_schedule,
     log5_game_win_prob,
+    marcel_project_rate,
+    pythagorean_team_win_pct,
     simulate_season_monte_carlo,
     simulate_series,
     team_league_and_division,
@@ -99,3 +101,55 @@ def test_season_monte_carlo_conservation_of_wins_and_titles():
     assert best_team.mean_wins > worst_team.mean_wins
     assert best_team.make_playoffs_prob > worst_team.make_playoffs_prob
     assert best_team.win_world_series_prob >= worst_team.win_world_series_prob
+
+
+def test_marcel_project_rate_arithmetic():
+    """Verify Marcel 3-year weighting, Empirical Bayes shrinkage, and aging curves (PROJ-02)."""
+    # 1. 3-year weighting: 5/12, 4/12, 3/12
+    # Player with (0.350, 0.340, 0.330) with large samples (600 PA/yr) at age 28 (peak)
+    # Weighted rate = (5*0.350 + 4*0.340 + 3*0.330)/12 = 4.10 / 12 = 0.34167
+    proj = marcel_project_rate(
+        metric_3yr=(0.350, 0.340, 0.330),
+        sample_sizes_3yr=(600, 600, 600),
+        player_age=28,
+        is_pitcher=False,
+        league_mean=0.315,
+        regression_n0=1200,
+    )
+    # Numerator = 600*(5*0.350 + 4*0.340 + 3*0.330) + 1200*0.315 = 2460 + 378 = 2838
+    # Denominator = 12*600 + 1200 = 8400 -> Rate = 2838 / 8400 = 0.33786
+    assert pytest.approx(proj, abs=1e-3) == 0.3379
+
+    # 2. Young player aging bonus (Age 23 -> +0.012 wOBA)
+    proj_young = marcel_project_rate(
+        metric_3yr=(0.350, 0.340, 0.330),
+        sample_sizes_3yr=(600, 600, 600),
+        player_age=23,
+        is_pitcher=False,
+        league_mean=0.315,
+        regression_n0=1200,
+    )
+    assert proj_young > proj
+    assert pytest.approx(proj_young - proj, abs=1e-4) == 0.012
+
+    # 3. Old player aging penalty (Age 34 -> -0.020 wOBA)
+    proj_old = marcel_project_rate(
+        metric_3yr=(0.350, 0.340, 0.330),
+        sample_sizes_3yr=(600, 600, 600),
+        player_age=34,
+        is_pitcher=False,
+        league_mean=0.315,
+        regression_n0=1200,
+    )
+    assert proj_old < proj
+    assert pytest.approx(proj - proj_old, abs=1e-4) == 0.020
+
+
+def test_pythagorean_team_win_pct():
+    """Verify Pythagorean win percentage formula with 1.83 exponent."""
+    # 1. Equal runs scored and allowed -> exactly 0.500
+    assert pythagorean_team_win_pct(4.5, 4.5) == 0.500
+
+    # 2. 5.0 RS vs 4.0 RA -> ~0.600
+    wpct = pythagorean_team_win_pct(5.0, 4.0)
+    assert 0.58 <= wpct <= 0.62

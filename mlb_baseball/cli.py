@@ -867,6 +867,58 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter sweet spot contact (SWEETSPOT-01)
+    sws_parser = subparsers.add_parser(
+        "sweetspot",
+        help="evaluate sweet-spot% and ideal contact rate (SWEETSPOT-01)",
+    )
+    sws_parser.add_argument("--sws", type=float, default=0.36, help="Sweet-Spot% (default: 0.36)")
+    sws_parser.add_argument("--hh", type=float, default=0.44, help="Hard-Hit% (default: 0.44)")
+    sws_parser.add_argument(
+        "--icr", type=float, default=39.5, help="Ideal Contact Rate (default: 39.5)"
+    )
+    sws_parser.add_argument("--std", type=float, default=23.0, help="LA Std Dev (default: 23.0)")
+    sws_parser.add_argument(
+        "--json", action="store_true", help="output sweet spot evaluation as JSON"
+    )
+
+    # Pitcher two-strike put-away (PUTAWAY-01)
+    put_parser = subparsers.add_parser(
+        "putaway",
+        help="evaluate two-strike put-away conversion rate (PUTAWAY-01)",
+    )
+    put_parser.add_argument("--putaway", type=float, default=0.22, help="Put-Away% (default: 0.22)")
+    put_parser.add_argument(
+        "--pitches", type=int, default=650, help="two-strike pitches (default: 650)"
+    )
+    put_parser.add_argument(
+        "--whiff", type=float, default=0.15, help="2-strike whiff% (default: 0.15)"
+    )
+    put_parser.add_argument("--json", action="store_true", help="output putaway evaluation as JSON")
+
+    # Outfield wall defense (WALL-01)
+    wall_parser = subparsers.add_parser(
+        "wall",
+        help="evaluate outfield wall collision catches and HR robberies (WALL-01)",
+    )
+    wall_parser.add_argument("--robberies", type=int, default=2, help="HR robberies (default: 2)")
+    wall_parser.add_argument(
+        "--wall-catches", type=int, default=5, help="wall extra-base catches (default: 5)"
+    )
+    wall_parser.add_argument("--fails", type=int, default=1, help="failed crashes (default: 1)")
+    wall_parser.add_argument("--opps", type=int, default=25, help="opportunities (default: 25)")
+    wall_parser.add_argument("--pos", type=str, default="CF", help="position (default: CF)")
+    wall_parser.add_argument("--json", action="store_true", help="output wall defense as JSON")
+
+    # Spatial strike zone hexbin map (HEXBIN-01)
+    hex_parser = subparsers.add_parser(
+        "hexbin",
+        help="generate vector SVG 2D strike zone hexbin attack map (HEXBIN-01)",
+    )
+    hex_parser.add_argument(
+        "--title", type=str, default="Shohei Ohtani Spatial Attack Zone", help="chart title"
+    )
+
     # Batter zone swing vulnerability (ZONE-SWING-01)
     zsw_parser = subparsers.add_parser(
         "zone-swing",
@@ -3257,6 +3309,149 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "sweetspot":
+        import json as json_lib
+
+        from mlb_baseball.model.sweetspot import (
+            BatterContactGeometry,
+            SweetSpotEngine,
+        )
+
+        sws_eng = SweetSpotEngine()
+        sws_m = BatterContactGeometry(
+            "b1",
+            "Target Hitter",
+            sweet_spot_pct=args.sws,
+            hard_hit_pct=args.hh,
+            ideal_contact_rate=args.icr,
+            la_std_dev=args.std,
+        )
+        sws_res = sws_eng.evaluate_contact(sws_m)
+
+        if args.json:
+            sws_out = {
+                "ideal_contact_rate": sws_res.ideal_contact_rate,
+                "contact_quality_score": sws_res.contact_quality_score,
+                "archetype": sws_res.launch_path_archetype,
+                "is_elite": sws_res.is_elite_ball_striker,
+            }
+            print(json_lib.dumps(sws_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     SWEET-SPOT CONTACT GEOMETRY [{sws_res.launch_path_archetype}]")
+            hdr_sw = (
+                f"     Ideal Contact Rate: {sws_res.ideal_contact_rate:.1f}% "
+                f"| Contact Quality Score: {sws_res.contact_quality_score:.1f}/100"
+            )
+            print(hdr_sw)
+            print(f"{'=' * 84}\n")
+            print(f"  • Launch Path Archetype : {sws_res.launch_path_archetype}")
+            print(
+                f"  • Elite Ball Striker    : {'YES' if sws_res.is_elite_ball_striker else 'NO'}\n"
+            )
+
+    elif args.command == "putaway":
+        import json as json_lib
+
+        from mlb_baseball.model.putaway import (
+            PitcherPutAwayEngine,
+            PitcherPutAwayMetrics,
+        )
+
+        put_eng = PitcherPutAwayEngine()
+        put_m = PitcherPutAwayMetrics(
+            "p1",
+            "Target Pitcher",
+            putaway_pct=args.putaway,
+            two_strike_pitches=args.pitches,
+            whiff_2strike_pct=args.whiff,
+        )
+        put_res = put_eng.evaluate_putaway(put_m)
+
+        if args.json:
+            put_out = {
+                "putaway_pct": put_res.putaway_pct,
+                "delta_league": put_res.putaway_delta_league,
+                "pasi_runs": put_res.pasi_runs_saved,
+                "tier": put_res.finisher_tier,
+                "is_elite": put_res.is_elite_putaway_arm,
+            }
+            print(json_lib.dumps(put_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     TWO-STRIKE PUT-AWAY CONVERSION [{put_res.finisher_tier}]")
+            hdr_pu = (
+                f"     Put-Away%: {put_res.putaway_pct * 100:.1f}% "
+                f"| Delta: {put_res.putaway_delta_league * 100:>+4.1f}% "
+                f"| PASI Runs Saved: {put_res.pasi_runs_saved:>+4.1f}"
+            )
+            print(hdr_pu)
+            print(f"{'=' * 84}\n")
+            print(f"  • Finisher Classification: {put_res.finisher_tier}")
+            print(
+                f"  • Elite Strikeout Arm    : {'YES' if put_res.is_elite_putaway_arm else 'NO'}\n"
+            )
+
+    elif args.command == "wall":
+        import json as json_lib
+
+        from mlb_baseball.model.wall import (
+            OutfielderWallMetrics,
+            OutfieldWallEngine,
+        )
+
+        wall_eng = OutfieldWallEngine()
+        wall_m = OutfielderWallMetrics(
+            "f1",
+            "Target Fielder",
+            position=args.pos,
+            hr_robberies=args.robberies,
+            extra_base_wall_catches=args.wall_catches,
+            wall_crashes_unsuccessful=args.fails,
+            opportunities=args.opps,
+        )
+        wall_res = wall_eng.evaluate_wall_defense(wall_m)
+
+        if args.json:
+            wall_out = {
+                "position": wall_res.position,
+                "hr_robberies": wall_res.hr_robberies,
+                "total_wall_runs": wall_res.total_wall_runs_saved,
+                "success_pct": wall_res.wall_catch_success_pct,
+                "tier": wall_res.wall_defense_tier,
+            }
+            print(json_lib.dumps(wall_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OUTFIELD WALL COLLISION & ROBBERY [{wall_res.wall_defense_tier}]")
+            hdr_wl = (
+                f"     HR Robberies: {wall_res.hr_robberies} "
+                f"| Success Rate: {wall_res.wall_catch_success_pct:.1f}% "
+                f"| Wall Runs Saved: {wall_res.total_wall_runs_saved:>+4.1f}"
+            )
+            print(hdr_wl)
+            print(f"{'=' * 84}\n")
+            print(f"  • Defense Classification : {wall_res.wall_defense_tier}")
+            print(f"  • Net Wall Run Prevention: {wall_res.total_wall_runs_saved:>+4.1f} runs\n")
+
+    elif args.command == "hexbin":
+        from mlb_baseball.visual import (
+            HexbinPitchObservation,
+            SpatialHexbinProfile,
+            SpatialHexbinVisualizerRenderer,
+        )
+
+        hex_renderer = SpatialHexbinVisualizerRenderer()
+        hex_pitches = [
+            HexbinPitchObservation(0.1, 2.6, "FF", True),
+            HexbinPitchObservation(-0.2, 2.2, "FF", True),
+            HexbinPitchObservation(0.4, 3.1, "SL", True),
+            HexbinPitchObservation(-0.7, 1.6, "CH", False),
+        ]
+        h_prof = SpatialHexbinProfile(args.title, "Shohei Ohtani", "Pitcher", hex_pitches)
+        chart = hex_renderer.render(h_prof)
+        print(f"Generated Vector SVG Hexbin Strike Zone Map ({len(chart.svg_content)} bytes)")
 
     elif args.command == "zone-swing":
         import json as json_lib

@@ -84,7 +84,11 @@ This document serves as the academic and theoretical reference manual for the ML
 58. [First-Pitch Strike (FPS) Count Leverage & Surplus Value](#58-first-pitch-strike-fps-count-leverage--surplus-value)
 59. [Catcher Pop Time & Caught Stealing Kinematics](#59-catcher-pop-time--caught-stealing-kinematics)
 60. [24-State Base/Out Run Expectancy Heatmap Architecture](#60-24-state-baseout-run-expectancy-heatmap-architecture)
-61. [Academic Bibliography & Literature Citations](#61-academic-bibliography--literature-citations)
+61. [Batter Sweet-Spot Geometry & Ideal Contact Rate](#61-batter-sweet-spot-geometry--ideal-contact-rate)
+62. [Pitcher Two-Strike Put-Away & Whiff Conversion](#62-pitcher-two-strike-put-away--whiff-conversion)
+63. [Outfield Wall Collision & HR Robbery Run Valuation](#63-outfield-wall-collision--hr-robbery-run-valuation)
+64. [2D Strike Zone Spatial Hexbin Geometry Architecture](#64-2d-strike-zone-spatial-hexbin-geometry-architecture)
+65. [Academic Bibliography & Literature Citations](#65-academic-bibliography--literature-citations)
 
 ---
 
@@ -752,7 +756,38 @@ $$(R, G, B) = \begin{cases} \text{lerp}(\text{Navy}, \text{Cyan}, 2 \cdot \text{
 
 ---
 
-## 61. Academic Bibliography & Literature Citations
+## 61. Batter Sweet-Spot Geometry & Ideal Contact Rate
+
+### 61.1 Ideal Contact Rate (ICR)
+$$\text{ICR} = \frac{N(\text{EV} \ge 95\text{ mph} \cap 8^\circ \le \text{LA} \le 32^\circ)}{N_{\text{BBE}}} \times 100\%$$
+$$\text{CQS} = \text{ICR} \cdot 0.70 + (\text{SweetSpot\%} \cdot 100) \cdot 0.30$$
+
+---
+
+## 62. Pitcher Two-Strike Put-Away & Whiff Conversion
+
+### 62.1 Put-Away Surplus Index (PASI)
+$$\text{PutAway\%} = \frac{\text{Strikeouts}}{\text{TwoStrikePitches}} \times 100\%$$
+$$\text{PASI}_{\text{runs}} = (\text{PutAway\%} - 19.5\%) \cdot \text{TwoStrikePitches} \cdot 0.11\text{ runs}$$
+
+---
+
+## 63. Outfield Wall Collision & HR Robbery Run Valuation
+
+### 63.1 Wall Defense Run Savings
+$$\text{WallDefenseRuns} = N_{\text{HR Robbed}} \cdot 1.65 + N_{\text{Wall ExtraBase}} \cdot 0.75 - N_{\text{Failed Crash}} \cdot 0.65$$
+$$\text{Success\%} = \frac{N_{\text{Catches}}}{\max(1, N_{\text{Opportunities}})} \times 100\%$$
+
+---
+
+## 64. 2D Strike Zone Spatial Hexbin Geometry Architecture
+
+### 64.1 Coordinate Normalization
+$$(x_{\text{svg}}, z_{\text{svg}}) = \left(M_x + \frac{p_x - x_{\min}}{x_{\max} - x_{\min}} W_{\text{plot}}, (M_y + H_{\text{plot}}) - \frac{p_z - z_{\min}}{z_{\max} - z_{\min}} H_{\text{plot}}\right)$$
+
+---
+
+## 65. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -794,3 +829,5 @@ $$(R, G, B) = \begin{cases} \text{lerp}(\text{Navy}, \text{Cyan}, 2 \cdot \text{
 38. **Simpson, Edward H.** (1949). "Measurement of Diversity". *Nature*.
 39. **Fast, Alex** (2019). "The Power of the First-Pitch Strike". *Pitcher List*.
 40. **Petriello, Mike** (2017). "Statcast Catcher Pop Time and Throw Dynamics". *MLB.com*.
+41. **Carleton, Russell A.** (2015). "The Physics of the Sweet Spot". *Baseball Prospectus*.
+42. **Fast, Alex** (2020). "Put-Away Percentage and 2-Strike Execution". *Pitcher List*.

@@ -288,6 +288,7 @@ def run() -> list[Check]:
         poptime,
         portfolio,
         props,
+        putaway,
         reliever,
         ros,
         season,
@@ -301,10 +302,12 @@ def run() -> list[Check]:
         stack,
         stuff,
         sub,
+        sweetspot,
         travel,
         tto,
         tunnel,
         umpire,
+        wall,
         weather,
         wpa,
         zone_swing,
@@ -424,6 +427,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(sweetspot.health_check())
+    except Exception as exc:
+        checks.append(Check("sweetspot", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(putaway.health_check())
+    except Exception as exc:
+        checks.append(Check("putaway", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(wall.health_check())
+    except Exception as exc:
+        checks.append(Check("wall", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(zone_swing.health_check())
     except Exception as exc:

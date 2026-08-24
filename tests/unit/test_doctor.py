@@ -255,3 +255,12 @@ def test_zone_swing_and_fstrike_and_poptime_health_checks():
     assert zone_swing.health_check()[0].ok is True
     assert fstrike.health_check()[0].ok is True
     assert poptime.health_check()[0].ok is True
+
+
+def test_sweetspot_and_putaway_and_wall_health_checks():
+    """Verify health checks for sweetspot, putaway, and wall modules."""
+    from mlb_baseball.model import putaway, sweetspot, wall
+
+    assert sweetspot.health_check()[0].ok is True
+    assert putaway.health_check()[0].ok is True
+    assert wall.health_check()[0].ok is True

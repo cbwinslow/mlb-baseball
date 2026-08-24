@@ -195,3 +195,28 @@ def test_re24_matrix_heatmap_svg_generation():
     assert "0 Outs" in chart.svg_content
     assert "Bases Loaded" in chart.svg_content
     assert "rect" in chart.svg_content
+
+
+def test_spatial_hexbin_strike_zone_svg_generation():
+    """Verify SpatialHexbinVisualizerRenderer generates 2D strike zone hexbin map."""
+    from mlb_baseball.visual import (
+        HexbinPitchObservation,
+        SpatialHexbinProfile,
+        SpatialHexbinVisualizerRenderer,
+    )
+
+    renderer = SpatialHexbinVisualizerRenderer()
+    pitches = [
+        HexbinPitchObservation(0.0, 2.4, "FF", True),
+        HexbinPitchObservation(0.3, 2.8, "SL", True),
+        HexbinPitchObservation(-0.9, 1.4, "CH", False),
+    ]
+    prof = SpatialHexbinProfile("Shohei Ohtani Spatial Map", "Ohtani", "Pitcher", pitches)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 500
+    assert chart.height_px == 500
+    assert "<svg" in chart.svg_content
+    assert "Shohei Ohtani Spatial Map" in chart.svg_content
+    assert "rect" in chart.svg_content
+    assert "polygon" in chart.svg_content

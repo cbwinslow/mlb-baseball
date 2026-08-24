@@ -23,6 +23,7 @@ class ChartType(enum.Enum):
     PITCH_BREAK_CHART = "pitch_break_chart"
     INNING_SCORE_FLOW = "inning_score_flow"
     RUN_EXPECTANCY_HEATMAP = "run_expectancy_heatmap"
+    SPATIAL_HEXBIN_MAP = "spatial_hexbin_map"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -883,6 +884,96 @@ class RunExpectancyHeatmapRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class HexbinPitchObservation:
+    """Individual 2D pitch coordinate in feet relative to plate center."""
+
+    px: float  # Horizontal position in feet (-1.5 to +1.5)
+    pz: float  # Vertical position in feet (1.0 to 4.5)
+    pitch_type: str = "FF"
+    is_strike: bool = True
+
+
+@dataclasses.dataclass(frozen=True)
+class SpatialHexbinProfile:
+    """Pitch location collection for 2D hexagonal spatial binning."""
+
+    title: str
+    batter_name: str
+    pitcher_name: str
+    pitches: list[HexbinPitchObservation]
+
+
+class SpatialHexbinVisualizerRenderer:
+    """Renders pure-Python vector SVG 2D spatial hexbin strike zone heatmaps (HEXBIN-01)."""
+
+    def __init__(self, width: int = 500, height: int = 500) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: SpatialHexbinProfile) -> GeneratedVectorChart:
+        """Render 2D hexagonal binning strike zone into SVG."""
+        margin_x = 50.0
+        margin_y = 50.0
+        plot_w = self.width - 2 * margin_x
+        plot_h = self.height - 2 * margin_y
+
+        min_x, max_x = -1.8, 1.8
+        min_z, max_z = 0.8, 4.5
+
+        def to_svg(x: float, z: float) -> tuple[float, float]:
+            nx = (x - min_x) / (max_x - min_x)
+            nz = (z - min_z) / (max_z - min_z)
+            sx = margin_x + nx * plot_w
+            sz = (margin_y + plot_h) - (nz * plot_h)
+            return round(sx, 1), round(sz, 1)
+
+        # Strike zone rulebook bounding box [-0.83, 0.83] ft, [1.5, 3.5] ft
+        sz_left, sz_top = to_svg(-0.83, 3.5)
+        sz_right, sz_bot = to_svg(0.83, 1.5)
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="30" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            # Strike Zone Bounding Box
+            f'<rect x="{sz_left}" y="{sz_top}" width="{sz_right - sz_left:.1f}" '
+            f'height="{sz_bot - sz_top:.1f}" fill="none" stroke="#f8fafc" stroke-width="2.0" '
+            f'stroke-dasharray="4,4" />',
+        ]
+
+        # Render individual hexagon / circle pitch cluster markers
+        for p in profile.pitches:
+            sx, sz = to_svg(p.px, p.pz)
+            color = "#00d2be" if p.is_strike else "#f59e0b"
+            svg_parts.append(
+                f'<circle cx="{sx}" cy="{sz}" r="7" fill="{color}" fill-opacity="0.80" '
+                f'stroke="#ffffff" stroke-width="1.0" />'
+            )
+
+        # Home plate pentagon indicator at bottom
+        hp_cx, hp_y = self.width / 2.0, self.height - 35.0
+        hp_pts = (
+            f"{hp_cx - 20:.1f},{hp_y:.1f} {hp_cx + 20:.1f},{hp_y:.1f} "
+            f"{hp_cx + 20:.1f},{hp_y + 12:.1f} {hp_cx:.1f},{hp_y + 22:.1f} "
+            f"{hp_cx - 20:.1f},{hp_y + 12:.1f}"
+        )
+        svg_parts.append(
+            f'<polygon points="{hp_pts}" fill="#475569" stroke="#94a3b8" stroke-width="1.5" />'
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.SPATIAL_HEXBIN_MAP,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -933,6 +1024,15 @@ def health_check() -> list[Check]:
         re24_renderer = RunExpectancyHeatmapRenderer()
         re24_chart = re24_renderer.render(BaseOutRunExpectancyGrid())
 
+        hex_renderer = SpatialHexbinVisualizerRenderer()
+        hex_pitches = [
+            HexbinPitchObservation(0.1, 2.5, "FF", True),
+            HexbinPitchObservation(-0.4, 3.1, "SL", False),
+        ]
+        hex_chart = hex_renderer.render(
+            SpatialHexbinProfile("Test Hex", "Batter", "Pitcher", hex_pitches)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -942,6 +1042,7 @@ def health_check() -> list[Check]:
             and "<svg" in break_chart.svg_content
             and "<svg" in flow_chart.svg_content
             and "<svg" in re24_chart.svg_content
+            and "<svg" in hex_chart.svg_content
         ):
             checks.append(
                 Check(

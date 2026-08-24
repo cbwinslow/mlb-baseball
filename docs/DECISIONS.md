@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-178: Pure-Python SVG Spatial Attack Zone Hexbin Visualizer (`HEXBIN-01`, Package 90)
+
+**Decision:** Built 2D strike zone pitch density and spatial hexbin visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb hexbin`.
+- **Operational Architecture & Geometry**:
+  - Strike Zone Coordinate Mapping: Translates 2D $(p_x, p_z)$ pitch coordinates into bounded SVG space with rulebook strike zone borders and home plate pentagon.
+  - Scatter & Density Shading: Renders pitch markers color-coded by strike/ball outcome or xwOBA density.
+  - CLI: `mlb hexbin --title "Shohei Ohtani Spatial Attack Zone"`.
+- **Verification**: 10/10 unit tests in `tests/unit/test_visual.py` passing; 649/649 full repository unit tests passing.
+
+## ADR-177: Outfield Wall Collision & HR Robbery Run Value Engine (`WALL-01`, Package 89)
+
+**Decision:** Built warning track kinematics, home run robbery, and wall collision defense modeling in `mlb_baseball/model/wall.py` and CLI subcommand `mlb wall`.
+- **Mathematical Formulations & Methodology**:
+  - Wall Catch Run Value: $\text{WallDefenseRuns} = N_{\text{HR Robbed}} \cdot 1.65 + N_{\text{Wall ExtraBase}} \cdot 0.75 - N_{\text{Failed Crash}} \cdot 0.65$.
+  - Conversion Success Rate: $\text{Success\%} = \frac{N_{\text{Catches}}}{\max(1, N_{\text{Opportunities}})} \times 100\%$.
+  - Tiers: `ELITE_WALL_THIEF` ($\text{WallRuns} \ge +5.0$), `FEARLESS_WALL_CRASHER`, `AVERAGE`, `WALL_TIMID_FIELDER`.
+  - CLI: `mlb wall --robberies 2 --wall-catches 5 --fails 1 --opps 25`, `mlb wall --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_wall.py` passing; 649/649 full repository unit tests passing.
+
+## ADR-176: Pitcher Two-Strike Put-Away & Whiff Conversion Engine (`PUTAWAY-01`, Package 88)
+
+**Decision:** Built 2-strike count conversion, terminal strikeout efficiency, and whiff modeling in `mlb_baseball/model/putaway.py` and CLI subcommand `mlb putaway`.
+- **Mathematical Formulations & Methodology**:
+  - Put-Away Rate: $\text{PutAway\%} = \frac{\text{Strikeouts}}{\text{TwoStrikePitches}} \times 100\%$.
+  - Put-Away Surplus Index: $\text{PASI}_{\text{runs}} = (\text{PutAway\%} - 19.5\%) \cdot \text{TwoStrikePitches} \cdot 0.11$.
+  - Tiers: `ELITE_STRIKEOUT_CLOSER` ($\text{PutAway\%} \ge 24.0\%$), `ABOVE_AVERAGE_FINISHER`, `FOUL_BALL_EXTENDER`, `AVERAGE`.
+  - CLI: `mlb putaway --putaway 0.22 --pitches 650 --whiff 0.15`, `mlb putaway --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_putaway.py` passing; 649/649 full repository unit tests passing.
+
+## ADR-175: Batter Sweet-Spot Concentration & Ideal Contact Rate Engine (`SWEETSPOT-01`, Package 87)
+
+**Decision:** Built launch angle consistency, ideal contact rate, and ball flight geometry modeling in `mlb_baseball/model/sweetspot.py` and CLI subcommand `mlb sweetspot`.
+- **Mathematical Formulations & Methodology**:
+  - Ideal Contact Rate: $\text{ICR} = \frac{N(\text{EV} \ge 95\text{ mph} \cap 8^\circ \le \text{LA} \le 32^\circ)}{N_{\text{BBE}}} \times 100\%$.
+  - Contact Quality Score: $\text{CQS} = \text{ICR} \cdot 0.70 + (\text{SweetSpot\%} \cdot 100) \cdot 0.30$.
+  - Tiers: `LINE_DRIVE_MACHINE` ($\text{ICR} \ge 40.0\%, \text{SweetSpot\%} \ge 38.0\%$), `HARD_HIT_GROUNDER`, `HIGH_VARIANCE_FLYBALL`, `AVERAGE`.
+  - CLI: `mlb sweetspot --sws 0.36 --hh 0.44 --icr 39.5 --std 23.0`, `mlb sweetspot --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_sweetspot.py` passing; 649/649 full repository unit tests passing.
+
 ## ADR-174: Pure-Python SVG 24-State Base/Out Run Expectancy Matrix Heatmap (`RE24-MAP-01`, Package 86)
 
 **Decision:** Built $8 \times 3$ grid base/out run expectancy matrix heatmap renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb re24-heatmap`.

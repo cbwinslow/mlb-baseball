@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### HEXBIN-01 pure-Python SVG spatial attack zone hexbin visualizer: implemented (ADR-178) — 2026-08-24
+Added `SpatialHexbinVisualizerRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb hexbin` CLI command.
+- Renders 2D strike zone pitch density and spatial cluster maps with rulebook strike zone borders and home plate pentagons.
+
+### WALL-01 outfield wall collision & HR robbery run value engine: implemented (ADR-177) — 2026-08-24
+Added `mlb_baseball/model/wall.py`, unit tests in `tests/unit/test_wall.py`, and `mlb wall` CLI command.
+- Evaluates home run robberies (+1.65 runs), warning track wall catches (+0.75 runs), and wall crash risk penalties.
+
+### PUTAWAY-01 pitcher two-strike put-away & whiff conversion engine: implemented (ADR-176) — 2026-08-24
+Added `mlb_baseball/model/putaway.py`, unit tests in `tests/unit/test_putaway.py`, and `mlb putaway` CLI command.
+- Models 2-strike count conversion efficiency into terminal strikeouts and evaluates Put-Away Surplus Index (PASI).
+
+### SWEETSPOT-01 batter sweet-spot concentration & ideal contact rate engine: implemented (ADR-175) — 2026-08-24
+Added `mlb_baseball/model/sweetspot.py`, unit tests in `tests/unit/test_sweetspot.py`, and `mlb sweetspot` CLI command.
+- Evaluates Sweet-Spot% ($8^\circ-32^\circ$), launch angle variance ($\sigma_{\text{LA}}$), and Ideal Contact Rate (ICR = Hard-Hit $\cap$ Sweet-Spot).
+
 ### RE24-MAP-01 pure-Python SVG 24-state base/out run expectancy heatmap: implemented (ADR-174) — 2026-08-24
 Added `RunExpectancyHeatmapRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb re24-heatmap` CLI command.
 - Renders an $8 \times 3$ grid vector SVG matrix heatmap visualizing base occupancy states across 0, 1, and 2 outs with dynamic color intensity.

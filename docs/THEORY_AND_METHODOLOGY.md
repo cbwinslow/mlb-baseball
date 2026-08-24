@@ -34,7 +34,13 @@ This document serves as the academic and theoretical reference manual for the ML
 9. [Forecasting, Valuation & Market Alpha Formulation](#9-forecasting-valuation--market-alpha-formulation)
    - [9.1 Model Calibration, Log-Loss & Brier Score Decomposition](#91-model-calibration-log-loss--brier-score-decomposition)
    - [9.2 Fair Price Derivation & Expected Value ($+EV$) Formulation](#92-fair-price-derivation--expected-value-ev-formulation)
-10. [Academic Bibliography & Literature Citations](#10-academic-bibliography--literature-citations)
+10. [In-Game Win Expectancy (WE), WPA & Leverage Index (288-State Markov)](#10-in-game-win-expectancy-we-wpa--leverage-index-288-state-markov)
+11. [Kelly Criterion Bankroll Allocation & Risk Management](#11-kelly-criterion-bankroll-allocation--risk-management)
+12. [Rest-of-Season (ROS) Monte Carlo & Playoff Magic Numbers](#12-rest-of-season-ros-monte-carlo--playoff-magic-numbers)
+13. [Bayesian Constrained Stacking & Convex Simplex Optimization](#13-bayesian-constrained-stacking--convex-simplex-optimization)
+14. [Continuous Model Drift, Reliability Diagnostics & Platt Slope Tracking](#14-continuous-model-drift-reliability-diagnostics--platt-slope-tracking)
+15. [Correlated Same-Game Parlays (SGPs) & Multivariate Copulas](#15-correlated-same-game-parlays-sgps--multivariate-copulas)
+16. [Academic Bibliography & Literature Citations](#16-academic-bibliography--literature-citations)
 
 ---
 
@@ -185,7 +191,98 @@ A wager possesses **positive alpha ($+EV$)** if and only if $\text{EV} > \text{V
 
 ---
 
-## 10. Academic Bibliography & Literature Citations
+## 10. In-Game Win Expectancy (WE), WPA & Leverage Index (288-State Markov)
+
+### 10.1 288-State In-Game State Vector
+Any point in an MLB game is defined by state tuple $S = (i, t, o, b_1, b_2, b_3, \Delta R)$ where:
+- Inning $i \in \{1, \dots, 9+\}$; Half-inning $t \in \{	ext{Top}, 	ext{Bottom}\}$; Outs $o \in \{0, 1, 2\}$; Base occupancy $(b_1, b_2, b_3) \in \{0, 1\}^3$; Score Differential $\Delta R = R_{	ext{home}} - R_{	ext{away}}$.
+
+### 10.2 Dynamic Win Expectancy Formulation
+Win Expectancy $WE(S)$ evaluates the probability that the home team wins the game from state $S$:
+$$WE(S) = \sigma\left( lpha \cdot rac{\Delta R + \Delta RE_{24}(o, b)}{\sqrt{\max(1, 9.5 - i + 0.5 \cdot \mathbb{I}(t = 	ext{Top}))}} + eta_{	ext{HFA}} ight)$$
+where $\Delta RE_{24}$ is the net expected run differential remaining in the half-inning, and $eta_{	ext{HFA}} = +0.1405$.
+
+### 10.3 Win Probability Added (WPA) & Leverage Index (LI)
+- **WPA**: $	ext{WPA}_k = WE(S_{k}) - WE(S_{k-1})$.
+- **Leverage Index (Tom Tango / The Book)**:
+  $$LI(S) = rac{\sigma_{	ext{swing}}(S)}{\overline{\sigma}_{	ext{swing}}}$$
+  Quantifies the critical importance of a plate appearance relative to an average MLB game state ($LI = 1.0$).
+
+---
+
+## 11. Kelly Criterion Bankroll Allocation & Risk Management
+
+### 11.1 Fractional Kelly Optimization
+For a wager with model probability $p$, decimal payout $b = O_{	ext{market}} - 1$, and edge $bp - q > 0$:
+$$f^* = c \cdot rac{bp - q}{b}$$
+where $c = 0.25$ (Quarter-Kelly) is the risk attenuation parameter protecting against parameter estimation error.
+
+### 11.2 Expected Geometric Growth Rate
+$$G(f) = p \ln(1 + f \cdot b) + (1 - p) \ln(1 - f)$$
+Single position allocations are strictly capped at $2.5\%$ of bankroll, with total portfolio exposure capped at $15\%$.
+
+---
+
+## 12. Rest-of-Season (ROS) Monte Carlo & Playoff Magic Numbers
+
+### 12.1 Empirical Bayes In-Season Talent Shrinkage
+To project remaining games without lookahead bias, team true talent win percentage $w_{	ext{proj}}$ is computed by regressing observed in-season Pythagorean win percentage $w_{	ext{obs}}$ toward league baseline ($0.500$):
+$$w_{	ext{proj}} = \left(rac{N}{N + 60}ight) w_{	ext{obs}} + \left(rac{60}{N + 60}ight) 0.500$$
+where $N = W + L$ is completed games played entering the forecast date.
+
+### 12.2 Division Clinch Magic Number Formulation
+$$	ext{Magic Number} = \max\left(0, 163 - W_{	ext{leader}} - L_{	ext{trailer}}ight)$$
+A Magic Number of 0 indicates mathematical division championship clinching.
+
+---
+
+## 13. Bayesian Constrained Stacking & Convex Simplex Optimization
+
+### 13.1 Simplex Optimization Formulation
+Given $K$ base models with out-of-fold predictions $P_{i,k}$ and binary outcomes $y_i \in \{0, 1\}$:
+$$\min_{\mathbf{w} \in \Delta^{K-1}} rac{1}{N} \sum_{i=1}^N \left( y_i - \sum_{k=1}^K w_k P_{i,k} ight)^2 + \lambda \sum_{k=1}^K \left(w_k - rac{1}{K}ight)^2$$
+subject to:
+$$w_k \ge 0 \quad orall k, \quad \sum_{k=1}^K w_k = 1.0$$
+
+### 13.2 Projected Gradient Descent on the Simplex
+Weights are iteratively updated via gradient step and projected onto the probability simplex:
+$$\mathbf{w}^{(t+1)} = \Pi_{\Delta}\left(\mathbf{w}^{(t)} - \eta
+abla \mathcal{L}(\mathbf{w}^{(t)})ight)$$
+Guarantees zero model leverage ($w_k \ge 0$) and strict calibration retention.
+
+---
+
+## 14. Continuous Model Drift, Reliability Diagnostics & Platt Slope Tracking
+
+### 14.1 Chronological Rolling Window Diagnostics
+Sliding $W$-game windows (step size $S$) evaluate rolling Expected Calibration Error (ECE) and Brier Skill Score (BSS):
+$$	ext{ECE} = \sum_{m=1}^M rac{|B_m|}{N} \left| \overline{y}_{B_m} - \overline{p}_{B_m} ight|$$
+
+### 14.2 Platt Confidence Slope ($lpha$) & Intercept ($eta$)
+Logistic calibration regression $P_{	ext{cal}} = \sigma(lpha \cdot 	ext{logit}(P) + eta)$ identifies:
+- **Overconfidence**: $lpha < 0.50$ (model outputs overly extreme probabilities).
+- **Underconfidence**: $lpha > 2.00$ (model outputs overly conservative probabilities).
+- **Home Field Drift**: Shifts in $eta$ away from $+0.1405$.
+
+---
+
+## 15. Correlated Same-Game Parlays (SGPs) & Multivariate Copulas
+
+### 15.1 Multivariate Gaussian Copula Formulation
+Captures non-linear dependencies across simultaneous game propositions:
+$$\mathcal{C}_R(u_1, u_2, \dots, u_D) = \Phi_R\left( \Phi^{-1}(u_1), \Phi^{-1}(u_2), \dots, \Phi^{-1}(u_D) ight)$$
+where $R$ is the empirical inter-event correlation matrix (e.g., Pitcher Dominance suppresses Opponent Runs with $r = -0.40$ and elevates Starter Ks with $r = +0.60$).
+
+### 15.2 Joint Simulation Probability & Correlation Multiplier
+$$\hat{P}_{	ext{joint}} = rac{1}{N} \sum_{i=1}^N \prod_{m=1}^M \mathbb{I}\left(	ext{Leg } m 	ext{ hits on path } iight)$$
+$$ho_{	ext{mult}} = rac{\hat{P}_{	ext{joint}}}{\prod_{m=1}^M P(	ext{Leg } m)}$$
+- $ho_{	ext{mult}} > 1.0$: Positive synergy parlay (underpriced by naive independent pricing).
+- True Zero-Vig Fair Odds: $O_{	ext{fair}} = rac{1}{\hat{P}_{	ext{joint}}}$.
+- Expected Value: $	ext{EV} = \left(\hat{P}_{	ext{joint}} \cdot O_{	ext{offered}}ight) - 1.0$.
+
+---
+
+## 16. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -197,3 +294,8 @@ A wager possesses **positive alpha ($+EV$)** if and only if $\text{EV} > \text{V
 8. **Carleton, Russell** (2015). "Pitch Type Interaction and True Talent Expectancies". *Baseball Prospectus*.
 9. **Petriello, Mike; Albert, Jim; Fast, Alex** (2018). "Statcast Strike Zone Geometry & Attack Zone Topologies". *MLB Advanced Media*.
 10. **Brier, Glenn W.** (1950). "Verification of Forecasts Expressed in Terms of Probability". *Monthly Weather Review*.
+11. **Kelly, J. L.** (1956). "A New Interpretation of Information Rate". *Bell System Technical Journal*, 35(4), 917–926.
+12. **Platt, John** (1999). "Probabilistic Outputs for Support Vector Machines and Comparisons to Regularized Likelihood Methods". *Advances in Large Margin Classifiers*.
+13. **Nelsen, Roger B.** (2006). *An Introduction to Copulas*. Springer Science & Business Media. (Multivariate copulas and dependency modeling in wagering).
+14. **Breiman, Leo** (1996). "Stacked Regressions". *Machine Learning*, 24(1), 49–64. (Convex non-negative ensemble meta-learning).
+15. **Efron, Bradley; Morris, Carl** (1975). "Data Analysis Using Stein's Estimator and Its Generalizations". *Journal of the American Statistical Association*. (Empirical Bayes shrinkage).

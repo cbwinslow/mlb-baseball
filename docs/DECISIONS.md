@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-246: Pure-Python SVG Pitcher Arsenal Movement & Spin Axis Polar Compass Plot (`POLAR-COMPASS-01`, Package 158)
+
+**Decision:** Built circular polar compass movement & clock spin chart in `mlb_baseball/visual.py` and CLI subcommand `mlb polar-compass`.
+- **Operational Architecture & Geometry**:
+  - Radial Range Rings: $6\text{ in}, 12\text{ in}, 18\text{ in}, 24\text{ in}$ concentric radius rings.
+  - Clock Hour Axes: $1\text{ to }12\text{ o'clock}$ directional guide rays with pitch vectors radiating from $(0, 0)$ to $(\text{HB}, \text{IVB})$.
+  - CLI: `mlb polar-compass --title "Paul Skenes Movement Polar Compass" --pitcher "Paul Skenes"`.
+- **Verification**: 27/27 unit tests in `tests/unit/test_visual.py` passing; 829/829 full repository unit tests passing.
+
+## ADR-245: Outfielder Throw Accuracy & Direct Line Target Efficiency Engine (`OUTFIELD-TARGET-01`, Package 157)
+
+**Decision:** Built outfield throw precision, arm velocity, and assist prevention modeling in `mlb_baseball/model/outfield_target.py` and CLI subcommand `mlb outfield-target`.
+- **Mathematical Formulations & Methodology**:
+  - Outfield Laser Target Accuracy Index: $\text{OLTAI} = \max\left(0, 100 + (\text{Acc\%} - 65.0) \cdot 2.2 + (\text{Conv\%} - 60.0) \cdot 1.6 + (v_{\text{arm}} - 88.0) \cdot 1.4\right)$.
+  - Outfield Assist Runs Prevented: $\text{OARP}_{\text{runs}} = (\text{OLTAI} - 100.0) \cdot (\text{Chances} \cdot 0.0035)$.
+  - Tiers: `LASER_ACCURATE_CANNON_SNIPER` ($\text{OLTAI} \ge 116.0, \text{Acc\%} \ge 78.0\%, v_{\text{arm}} \ge 93.0\text{ mph}$), `ERRATIC_WILD_HOSE_LIABILITY`, `SOLID_ON_TARGET_FIELDER`, `AVERAGE_OUTFIELD_ACCURACY`.
+  - CLI: `mlb outfield-target --pos RF --acc 86.0 --arm 98.0 --conv 84.0 --chances 55`, `mlb outfield-target --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_outfield_target.py` passing; 829/829 full repository unit tests passing.
+
+## ADR-244: Pitcher Secondary Pitch Whiff Escalation in 2-Strike Counts (`PUTAWAY-DEPTH-01`, Package 156)
+
+**Decision:** Built 2-strike secondary whiff surge, chase expansion, and PWEI modeling in `mlb_baseball/model/putaway_depth.py` and CLI subcommand `mlb putaway-depth`.
+- **Mathematical Formulations & Methodology**:
+  - Putaway Whiff Escalation Index: $\text{PWEI} = \max\left(0, 100 + (\text{TwoStrikeWhiff\%} - 38.0) \cdot 1.8 + (\Delta \text{Whiff} - 10.0) \cdot 1.4 + (\text{Chase\%} - 34.0) \cdot 1.2\right)$.
+  - Two-Strike Strikeouts Above Average: $\text{TSSAA} = (\text{TwoStrikeWhiff\%} - 38.0\%) \cdot \text{Pitches} \cdot 0.60, \text{TSSRV}_{\text{runs}} = \text{TSSAA} \cdot 0.28\text{ runs}$.
+  - Tiers: `LETHAL_TWO_STRIKE_EXECUTIONER` ($\text{PWEI} \ge 116.0, \text{TwoStrikeWhiff\%} \ge 45.0\%, \Delta \text{Whiff} \ge 13.0\%$), `BLUNT_WEAPON_NO_ESCALATION`, `SOLID_PUTAWAY_FINISHER`, `AVERAGE_PUTAWAY_ESCALATION`.
+  - CLI: `mlb putaway-depth --early 30.0 --two-strike 48.0 --chase 44.0 --pitches 200`, `mlb putaway-depth --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_putaway_depth.py` passing; 829/829 full repository unit tests passing.
+
+## ADR-243: Batter In-Zone Fastball Contact vs Whiff Vulnerability Engine (`HEAT-CHECK-01`, Package 155)
+
+**Decision:** Built in-zone fastball contact %, hard contact rate, and IZHSMI modeling in `mlb_baseball/model/heat_check.py` and CLI subcommand `mlb heat-check`.
+- **Mathematical Formulations & Methodology**:
+  - In-Zone Heat Vulnerability & Smash Index: $\text{IZHSMI} = \max\left(0, 100 + (20.0 - \text{Whiff\%}) \cdot 2.4 + (\text{HardHit\%} - 42.0) \cdot 1.8 + (\text{Contact\%} - 80.0) \cdot 1.2\right)$.
+  - In-Zone Fastball Production Runs: $\text{IZFPR}_{\text{runs}} = (\text{IZHSMI} - 100.0) \cdot (\text{Swings} \cdot 0.0028)$.
+  - Tiers: `HEAT_SEEKING_FASTBALL_PUNISHER` ($\text{IZHSMI} \ge 116.0, \text{Whiff\%} \le 13.0\%, \text{HardHit\%} \ge 48.0\%$), `HIGH_VELO_VULNERABLE_WHIFF_MACHINE`, `SOLID_FASTBALL_CRUSHER`, `AVERAGE_IN_ZONE_FASTBALL_HIT`.
+  - CLI: `mlb heat-check --contact 88.0 --hard 58.0 --whiff 11.0 --swings 250`, `mlb heat-check --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_heat_check.py` passing; 829/829 full repository unit tests passing.
+
 ## ADR-242: Pure-Python SVG Batter Batted Ball Launch Angle vs Exit Velocity Isochrone Grid Plot (`BARREL-GRID-01`, Package 154)
 
 **Decision:** Built vector SVG Statcast contact quality barrel grid chart in `mlb_baseball/visual.py` and CLI subcommand `mlb barrel-grid`.

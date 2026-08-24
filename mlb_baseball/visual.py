@@ -41,6 +41,7 @@ class ChartType(enum.Enum):
     TUNNEL_BOX_CHART = "tunnel_box_chart"
     FLOW_MIX_CHART = "flow_mix_chart"
     BARREL_GRID_CHART = "barrel_grid_chart"
+    POLAR_COMPASS_CHART = "polar_compass_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2939,6 +2940,119 @@ class BarrelGridPlotRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class PitchPolarCompassNode:
+    """Pitch polar compass point with IVB, HB, clock spin tilt, and active spin."""
+
+    pitch_name: str
+    ivb_in: float
+    hb_in: float
+    spin_axis_tilt_clock: str
+    velocity_mph: float
+    active_spin_pct: float
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitcherPolarCompassProfile:
+    """Pitcher repertoire polar compass profile."""
+
+    title: str
+    pitcher_name: str
+    pitches: list[PitchPolarCompassNode]
+
+
+class PolarCompassPlotRenderer:
+    """Renders pure-Python vector SVG polar movement & clock spin chart (POLAR-COMPASS-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitcherPolarCompassProfile) -> GeneratedVectorChart:
+        """Render circular polar break coordinate chart with clock axes."""
+        cx = self.width / 2
+        cy = (self.height / 2) + 10
+        max_break_in = 24.0
+        radius_px = 160.0
+
+        def to_px(hb: float, ivb: float) -> tuple[float, float]:
+            scale = radius_px / max_break_in
+            # HB > 0 is arm-side / right on plot, IVB > 0 is up
+            px = cx + (hb * scale)
+            py = cy - (ivb * scale)
+            return px, py
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="24" fill="#f8fafc" font-size="13" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="40" fill="#94a3b8" font-size="10" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} Movement Polar Compass</text>',
+        ]
+
+        # Draw concentric polar range rings (6, 12, 18, 24 in)
+        for r_in in [6.0, 12.0, 18.0, 24.0]:
+            r_px = (r_in / max_break_in) * radius_px
+            svg_parts.append(
+                f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r_px:.1f}" fill="none" '
+                f'stroke="#1e293b" stroke-width="1.0" />'
+            )
+            svg_parts.append(
+                f'<text x="{cx + r_px + 2:.1f}" y="{cy - 2:.1f}" fill="#64748b" font-size="7" '
+                f'font-family="sans-serif">{int(r_in)}"</text>'
+            )
+
+        # Draw clock hour radial guide lines (12 hours)
+        import math
+
+        for hr in range(1, 13):
+            ang_rad = math.radians((hr * 30.0) - 90.0)
+            lx = cx + math.cos(ang_rad) * (radius_px + 8)
+            ly = cy + math.sin(ang_rad) * (radius_px + 8)
+            tx = cx + math.cos(ang_rad) * (radius_px + 18)
+            ty = cy + math.sin(ang_rad) * (radius_px + 18)
+            svg_parts.append(
+                f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{lx:.1f}" y2="{ly:.1f}" '
+                f'stroke="#1e293b" stroke-width="0.8" stroke-dasharray="2,3" />'
+            )
+            svg_parts.append(
+                f'<text x="{tx:.1f}" y="{ty + 3:.1f}" fill="#64748b" font-size="8" '
+                f'text-anchor="middle" font-family="sans-serif">{hr}:00</text>'
+            )
+
+        # Plot Pitch Vectors
+        for p in profile.pitches:
+            px, py = to_px(p.hb_in, p.ivb_in)
+            # Arrow line
+            svg_parts.append(
+                f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{px:.1f}" y2="{py:.1f}" '
+                f'stroke="{p.color_hex}" stroke-width="2.5" opacity="0.9" />'
+            )
+            # Head circle
+            svg_parts.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="6.0" fill="{p.color_hex}" '
+                f'stroke="#0b1329" stroke-width="1.2" />'
+            )
+            # Label
+            lbl = f"{p.pitch_name} ({p.velocity_mph:.1f} mph | {p.spin_axis_tilt_clock})"
+            svg_parts.append(
+                f'<text x="{px:.1f}" y="{py - 9:.1f}" fill="#f8fafc" font-size="8" '
+                f'font-weight="bold" text-anchor="middle" font-family="sans-serif">{lbl}</text>'
+            )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.POLAR_COMPASS_CHART,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -3137,6 +3251,15 @@ def health_check() -> list[Check]:
             BatterBarrelGridProfile("Barrel Grid", "Ohtani", grid_events)
         )
 
+        compass_renderer = PolarCompassPlotRenderer()
+        compass_pitches = [
+            PitchPolarCompassNode("FF", 18.2, 8.4, "1:15", 98.4, 96.0, "#00d2be"),
+            PitchPolarCompassNode("SL", 2.1, -14.5, "9:30", 87.2, 42.0, "#f59e0b"),
+        ]
+        compass_chart = compass_renderer.render(
+            PitcherPolarCompassProfile("Polar Compass", "Skenes", compass_pitches)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -3163,6 +3286,7 @@ def health_check() -> list[Check]:
             and "<svg" in tunnel_chart.svg_content
             and "<svg" in count_flow_chart.svg_content
             and "<svg" in barrel_grid_chart.svg_content
+            and "<svg" in compass_chart.svg_content
         ):
             checks.append(
                 Check(

@@ -408,3 +408,12 @@ def test_oppo_gap_and_spin_align_and_dp_footwork_health_checks():
     assert oppo_gap.health_check()[0].ok is True
     assert spin_align.health_check()[0].ok is True
     assert dp_footwork.health_check()[0].ok is True
+
+
+def test_heat_check_and_putaway_depth_and_outfield_target_health_checks():
+    """Verify health checks for heat_check, putaway_depth, and outfield_target modules."""
+    from mlb_baseball.model import heat_check, outfield_target, putaway_depth
+
+    assert heat_check.health_check()[0].ok is True
+    assert putaway_depth.health_check()[0].ok is True
+    assert outfield_target.health_check()[0].ok is True

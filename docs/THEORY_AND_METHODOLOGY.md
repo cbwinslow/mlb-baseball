@@ -152,7 +152,11 @@ This document serves as the academic and theoretical reference manual for the ML
 126. [Pitcher Release Point Spin Angle Stability & Repertoire Deception](#126-pitcher-release-point-spin-angle-stability--repertoire-deception)
 127. [Middle Infield Double-Play Turn Speed & Footwork Timing](#127-middle-infield-double-play-turn-speed--footwork-timing)
 128. [Pure-Python SVG Statcast Contact Quality Isochrone Grid Architecture](#128-pure-python-svg-statcast-contact-quality-isochrone-grid-architecture)
-129. [Academic Bibliography & Literature Citations](#129-academic-bibliography--literature-citations)
+129. [Batter In-Zone Fastball Contact & Whiff Vulnerability Mechanics](#129-batter-in-zone-fastball-contact--whiff-vulnerability-mechanics)
+130. [Pitcher Secondary Pitch Whiff Escalation in 2-Strike Counts](#130-pitcher-secondary-pitch-whiff-escalation-in-2-strike-counts)
+131. [Outfielder Throw Accuracy & Direct Line Target Efficiency](#131-outfielder-throw-accuracy--direct-line-target-efficiency)
+132. [Pure-Python SVG Pitch Movement & Clock Spin Polar Compass Architecture](#132-pure-python-svg-pitch-movement--clock-spin-polar-compass-architecture)
+133. [Academic Bibliography & Literature Citations](#133-academic-bibliography--literature-citations)
 
 ---
 
@@ -1355,7 +1359,38 @@ $$\text{Barrel Zone} \subset \left\{(EV, LA) \mid EV \ge 98\text{ mph},\; LA \in
 
 ---
 
-## 129. Academic Bibliography & Literature Citations
+## 129. Batter In-Zone Fastball Contact & Whiff Vulnerability Mechanics
+
+### 129.1 In-Zone Heat Vulnerability & Smash Index (IZHSMI) & Run Production
+$$\text{IZHSMI} = \max\left(0, 100 + (20.0 - \text{Whiff\%}) \cdot 2.4 + (\text{HardHit\%} - 42.0) \cdot 1.8 + (\text{Contact\%} - 80.0) \cdot 1.2\right)$$
+$$\text{IZFPR}_{\text{runs}} = (\text{IZHSMI} - 100.0) \cdot (\text{Swings} \cdot 0.0028)$$
+
+---
+
+## 130. Pitcher Secondary Pitch Whiff Escalation in 2-Strike Counts
+
+### 130.1 Putaway Whiff Escalation Index (PWEI) & Strikeouts Above Average
+$$\text{PWEI} = \max\left(0, 100 + (\text{TwoStrikeWhiff\%} - 38.0) \cdot 1.8 + (\Delta \text{Whiff} - 10.0) \cdot 1.4 + (\text{Chase\%} - 34.0) \cdot 1.2\right)$$
+$$\text{TSSAA} = \left(\frac{\text{TwoStrikeWhiff\%} - 38.0\%}{100.0}\right) \cdot \text{Pitches} \cdot 0.60, \quad \text{TSSRV}_{\text{runs}} = \text{TSSAA} \cdot 0.28\text{ runs}$$
+
+---
+
+## 131. Outfielder Throw Accuracy & Direct Line Target Efficiency
+
+### 131.1 Outfield Laser Target Accuracy Index (OLTAI) & Runs Prevented
+$$\text{OLTAI} = \max\left(0, 100 + (\text{Acc\%} - 65.0) \cdot 2.2 + (\text{Conv\%} - 60.0) \cdot 1.6 + (v_{\text{arm}} - 88.0) \cdot 1.4\right)$$
+$$\text{OARP}_{\text{runs}} = (\text{OLTAI} - 100.0) \cdot (\text{Chances} \cdot 0.0035)$$
+
+---
+
+## 132. Pure-Python SVG Pitch Movement & Clock Spin Polar Compass Architecture
+
+### 132.1 Polar Coordinate Radius-Angle Mapping
+$$(r, \phi) = \left(\sqrt{\text{HB}^2 + \text{IVB}^2}, \; \text{atan2}(\text{HB}, \text{IVB})\right)$$
+
+---
+
+## 133. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1431,3 +1466,5 @@ $$\text{Barrel Zone} \subset \left\{(EV, LA) \mid EV \ge 98\text{ mph},\; LA \in
 72. **Albert, Jim** (2017). "Modeling Count-Dependent Pitch Selection Transitions in Major League Baseball". *Journal of Quantitative Analysis in Sports*.
 73. **Carleton, Russell A.** (2018). "The Shift and Opposite-Field Power Distributions". *Baseball Prospectus*.
 74. **Fast, Mike** (2010). "Quantifying Tunneling Deception and Arm Slot Clustering". *Hardball Times*.
+75. **Sawchik, Travis** (2015). "The High Fastball Revolution in Major League Baseball". *FanGraphs*.
+76. **Petti, Bill** (2014). "Evaluating Outfielder Throw Paths and Runner Hold Frequencies". *Hardball Times*.

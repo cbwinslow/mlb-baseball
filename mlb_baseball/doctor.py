@@ -302,6 +302,7 @@ def run() -> list[Check]:
         fstrike,
         gyro_spin,
         haa,
+        heat_check,
         heatmap,
         hedge,
         high_heat,
@@ -313,6 +314,7 @@ def run() -> list[Check]:
         neural,
         nrfi,
         oppo_gap,
+        outfield_target,
         parlay,
         pivot_dp,
         poptime,
@@ -323,6 +325,7 @@ def run() -> list[Check]:
         pull_gb,
         pull_slice,
         putaway,
+        putaway_depth,
         putaway_exec,
         rel_drift,
         reliever,
@@ -475,6 +478,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(heat_check.health_check())
+    except Exception as exc:
+        checks.append(Check("heat_check", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(putaway_depth.health_check())
+    except Exception as exc:
+        checks.append(Check("putaway_depth", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(outfield_target.health_check())
+    except Exception as exc:
+        checks.append(Check("outfield_target", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(oppo_gap.health_check())
     except Exception as exc:

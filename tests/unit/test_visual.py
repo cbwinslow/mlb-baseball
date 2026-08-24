@@ -636,3 +636,27 @@ def test_barrel_grid_plot_svg_generation():
     assert "<svg" in chart.svg_content
     assert "Ohtani Statcast Contact Grid" in chart.svg_content
     assert "100 mph" in chart.svg_content
+
+
+def test_polar_compass_plot_svg_generation():
+    """Verify PolarCompassPlotRenderer generates pitch movement and spin polar compass."""
+    from mlb_baseball.visual import (
+        PitcherPolarCompassProfile,
+        PitchPolarCompassNode,
+        PolarCompassPlotRenderer,
+    )
+
+    renderer = PolarCompassPlotRenderer()
+    pitches = [
+        PitchPolarCompassNode("FF", 18.2, 8.4, "1:15", 98.4, 96.0, "#00d2be"),
+        PitchPolarCompassNode("SL", 2.1, -14.5, "9:30", 87.2, 42.0, "#f59e0b"),
+    ]
+    prof = PitcherPolarCompassProfile("Skenes Movement Polar Compass", "Paul Skenes", pitches)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Skenes Movement Polar Compass" in chart.svg_content
+    assert "1:00" in chart.svg_content
+    assert "FF (98.4 mph | 1:15)" in chart.svg_content

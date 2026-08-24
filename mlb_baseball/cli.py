@@ -867,6 +867,74 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter in-zone fastball contact & whiff vulnerability (HEAT-CHECK-01)
+    hc_parser = subparsers.add_parser(
+        "heat-check",
+        help="evaluate in-zone fastball contact, whiff avoidance, and IZHSMI (HEAT-CHECK-01)",
+    )
+    hc_parser.add_argument(
+        "--contact", type=float, default=80.0, help="in-zone fb contact pct (default: 80.0)"
+    )
+    hc_parser.add_argument(
+        "--hard", type=float, default=42.0, help="in-zone fb hard hit pct (default: 42.0)"
+    )
+    hc_parser.add_argument(
+        "--whiff", type=float, default=20.0, help="in-zone fb whiff pct (default: 20.0)"
+    )
+    hc_parser.add_argument(
+        "--swings", type=int, default=150, help="in-zone fb swings (default: 150)"
+    )
+    hc_parser.add_argument(
+        "--json", action="store_true", help="output heat check evaluation as JSON"
+    )
+
+    # Pitcher secondary pitch whiff escalation in 2-strike counts (PUTAWAY-DEPTH-01)
+    pwd_parser = subparsers.add_parser(
+        "putaway-depth",
+        help="evaluate 2-strike secondary whiff surge, chase surge, and PWEI (PUTAWAY-DEPTH-01)",
+    )
+    pwd_parser.add_argument(
+        "--early", type=float, default=28.0, help="early count whiff pct (default: 28.0)"
+    )
+    pwd_parser.add_argument(
+        "--two-strike", type=float, default=38.0, help="2-strike whiff pct (default: 38.0)"
+    )
+    pwd_parser.add_argument(
+        "--chase", type=float, default=34.0, help="2-strike chase pct (default: 34.0)"
+    )
+    pwd_parser.add_argument(
+        "--pitches", type=int, default=150, help="2-strike secondary pitches (default: 150)"
+    )
+    pwd_parser.add_argument(
+        "--json", action="store_true", help="output putaway depth evaluation as JSON"
+    )
+
+    # Outfielder throw accuracy & direct line target efficiency (OUTFIELD-TARGET-01)
+    oft_parser = subparsers.add_parser(
+        "outfield-target",
+        help="evaluate outfield throw accuracy, assist conversion, and OLTAI (OUTFIELD-TARGET-01)",
+    )
+    oft_parser.add_argument("--pos", type=str, default="RF", help="position (default: RF)")
+    oft_parser.add_argument("--acc", type=float, default=65.0, help="accuracy pct (default: 65.0)")
+    oft_parser.add_argument("--arm", type=float, default=88.0, help="arm velo mph (default: 88.0)")
+    oft_parser.add_argument(
+        "--conv", type=float, default=60.0, help="assist conv pct (default: 60.0)"
+    )
+    oft_parser.add_argument("--chances", type=int, default=40, help="throw chances (default: 40)")
+    oft_parser.add_argument(
+        "--json", action="store_true", help="output outfield target evaluation as JSON"
+    )
+
+    # Pitcher arsenal movement & spin polar compass (POLAR-COMPASS-01)
+    pc_parser = subparsers.add_parser(
+        "polar-compass",
+        help="generate vector SVG pitcher arsenal movement & spin polar compass (POLAR-COMPASS-01)",
+    )
+    pc_parser.add_argument(
+        "--title", type=str, default="Paul Skenes Movement Polar Compass", help="chart title"
+    )
+    pc_parser.add_argument("--pitcher", type=str, default="Paul Skenes", help="pitcher name")
+
     # Batter opposite-field power & alley gap conversion (OPPO-GAP-01)
     og_parser = subparsers.add_parser(
         "oppo-gap",
@@ -4479,6 +4547,146 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "heat-check":
+        import json as json_lib
+
+        from mlb_baseball.model.heat_check import (
+            BatterHeatCheckEngine,
+            BatterHeatCheckMetrics,
+            HeatCheckEvaluationResult,
+        )
+
+        hc_eng = BatterHeatCheckEngine()
+        hc_m = BatterHeatCheckMetrics(
+            "b1",
+            "Target Batter",
+            in_zone_fb_contact_pct=args.contact,
+            in_zone_fb_hard_hit_pct=args.hard,
+            in_zone_fb_whiff_pct=args.whiff,
+            in_zone_fb_swings_count=args.swings,
+        )
+        hc_res: HeatCheckEvaluationResult = hc_eng.evaluate_heat_check(hc_m)
+
+        if args.json:
+            hc_out = {
+                "izhsmi_score": hc_res.izhsmi_score,
+                "izfpr_runs": hc_res.izfpr_runs_produced,
+                "tier": hc_res.smash_tier,
+                "is_punisher": hc_res.is_heat_punisher,
+            }
+            print(json_lib.dumps(hc_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     IN-ZONE FASTBALL CONTACT & SMASH [{hc_res.smash_tier}]")
+            hdr_hc = (
+                f"     IZHSMI Score: {hc_res.izhsmi_score:.1f}/160 "
+                f"| Runs Produced: {hc_res.izfpr_runs_produced:>+4.2f} "
+                f"| Heat Punisher: {'YES' if hc_res.is_heat_punisher else 'NO'}"
+            )
+            print(hdr_hc)
+            print(f"{'=' * 84}\n")
+            print(f"  • Smash Profile        : {hc_res.smash_tier}\n")
+
+    elif args.command == "putaway-depth":
+        import json as json_lib
+
+        from mlb_baseball.model.putaway_depth import (
+            PitcherPutawayDepthEngine,
+            PitcherPutawayDepthMetrics,
+            PutawayDepthEvaluationResult,
+        )
+
+        pwd_eng = PitcherPutawayDepthEngine()
+        pwd_m = PitcherPutawayDepthMetrics(
+            "p1",
+            "Target Pitcher",
+            early_count_whiff_pct=args.early,
+            two_strike_whiff_pct=args.two_strike,
+            two_strike_chase_pct=args.chase,
+            two_strike_secondaries_count=args.pitches,
+        )
+        pwd_res: PutawayDepthEvaluationResult = pwd_eng.evaluate_putaway_depth(pwd_m)
+
+        if args.json:
+            pwd_out = {
+                "pwei_score": pwd_res.pwei_score,
+                "whiff_delta": pwd_res.whiff_delta_pct,
+                "tssaa_strikeouts": pwd_res.tssaa_strikeouts,
+                "tssrv_runs": pwd_res.tssrv_runs_saved,
+                "tier": pwd_res.putaway_tier,
+                "is_executioner": pwd_res.is_executioner,
+            }
+            print(json_lib.dumps(pwd_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     SECONDARY PUTAWAY WHIFF ESCALATION [{pwd_res.putaway_tier}]")
+            hdr_pwd = (
+                f"     PWEI Score: {pwd_res.pwei_score:.1f}/160 "
+                f"| 2S Whiff Delta: {pwd_res.whiff_delta_pct:>+4.1f}% "
+                f"| TSSAA Strikeouts: {pwd_res.tssaa_strikeouts:>+4.1f}"
+            )
+            print(hdr_pwd)
+            print(f"{'=' * 84}\n")
+            print(f"  • Putaway Profile      : {pwd_res.putaway_tier}\n")
+
+    elif args.command == "outfield-target":
+        import json as json_lib
+
+        from mlb_baseball.model.outfield_target import (
+            OutfieldTargetEngine,
+            OutfieldTargetEvaluationResult,
+            OutfieldTargetMetrics,
+        )
+
+        oft_eng = OutfieldTargetEngine()
+        oft_m = OutfieldTargetMetrics(
+            "f1",
+            "Target Fielder",
+            position=args.pos,
+            throw_accuracy_pct=args.acc,
+            arm_strength_mph=args.arm,
+            assist_conversion_pct=args.conv,
+            competitive_throw_chances=args.chances,
+        )
+        oft_res: OutfieldTargetEvaluationResult = oft_eng.evaluate_outfield_target(oft_m)
+
+        if args.json:
+            oft_out = {
+                "oltai_score": oft_res.oltai_score,
+                "oarp_runs": oft_res.oarp_runs_prevented,
+                "tier": oft_res.target_tier,
+                "is_sniper": oft_res.is_cannon_sniper,
+            }
+            print(json_lib.dumps(oft_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OUTFIELD THROW TARGET ACCURACY [{oft_res.target_tier}]")
+            hdr_oft = (
+                f"     OLTAI Score: {oft_res.oltai_score:.1f}/160 "
+                f"| Runs Prevented: {oft_res.oarp_runs_prevented:>+4.2f} "
+                f"| Cannon Sniper: {'YES' if oft_res.is_cannon_sniper else 'NO'}"
+            )
+            print(hdr_oft)
+            print(f"{'=' * 84}\n")
+            print(f"  • Target Profile       : {oft_res.target_tier}\n")
+
+    elif args.command == "polar-compass":
+        from mlb_baseball.visual import (
+            PitcherPolarCompassProfile,
+            PitchPolarCompassNode,
+            PolarCompassPlotRenderer,
+        )
+
+        p_compass_renderer = PolarCompassPlotRenderer()
+        p_compass_pitches = [
+            PitchPolarCompassNode("FF", 18.2, 8.4, "1:15", 98.4, 96.0, "#00d2be"),
+            PitchPolarCompassNode("SL", 2.1, -14.5, "9:30", 87.2, 42.0, "#f59e0b"),
+            PitchPolarCompassNode("CH", -1.2, 16.0, "2:45", 89.0, 78.0, "#3b82f6"),
+        ]
+        p_compass_prof = PitcherPolarCompassProfile(args.title, args.pitcher, p_compass_pitches)
+        chart = p_compass_renderer.render(p_compass_prof)
+        print(f"Generated Vector SVG Pitch Polar Compass ({len(chart.svg_content)} bytes)")
 
     elif args.command == "oppo-gap":
         import json as json_lib

@@ -128,7 +128,11 @@ This document serves as the academic and theoretical reference manual for the ML
 102. [Batter Two-Strike Foul-Off Attrition & Pitcher Exhaustion Mechanics](#102-batter-two-strike-foul-off-attrition--pitcher-exhaustion-mechanics)
 103. [Catcher Wild Pitch & Passed Ball Wall Suppression Dynamics](#103-catcher-wild-pitch--passed-ball-wall-suppression-dynamics)
 104. [Pure-Python SVG Pitch Arsenal Break Diamond Architecture](#104-pure-python-svg-pitch-arsenal-break-diamond-architecture)
-105. [Academic Bibliography & Literature Citations](#105-academic-bibliography--literature-citations)
+105. [Batter Opposite Field Slash & Anti-Shift Resilience Dynamics](#105-batter-opposite-field-slash--anti-shift-resilience-dynamics)
+106. [Pitcher Arm Slot Stability Across Arsenal Pitches](#106-pitcher-arm-slot-stability-across-arsenal-pitches)
+107. [Outfielder Wall Crash Hazard & High-Impact Catch Dynamics](#107-outfielder-wall-crash-hazard--high-impact-catch-dynamics)
+108. [Pure-Python SVG Batter 3D Spray Distance Isochrone Architecture](#108-pure-python-svg-batter-3d-spray-distance-isochrone-architecture)
+109. [Academic Bibliography & Literature Citations](#109-academic-bibliography--literature-citations)
 
 ---
 
@@ -1145,7 +1149,38 @@ $$S_x = X_{\text{center}} + \left(\frac{\text{HB}_{\text{in}}}{25.0}\right) \cdo
 
 ---
 
-## 105. Academic Bibliography & Literature Citations
+## 105. Batter Opposite Field Slash & Anti-Shift Resilience Dynamics
+
+### 105.1 Opposite Field Slash Resilience Rating (OFSRR)
+$$\text{OFSRR} = \max\left(0, 100 + (\text{OppoContact\%} - 24.0) \cdot 2.6 + (\text{OppoLD\%} - 20.0) \cdot 2.2 + (65.0 - \text{PullGB\%}) \cdot 1.4\right)$$
+$$\Delta \text{BABIP}_{\text{oppo}} = (\text{OFSRR} - 100.0) \cdot 0.00065, \quad \text{OFSRV}_{\text{runs}} = \Delta \text{BABIP}_{\text{oppo}} \cdot \text{BBE} \cdot 0.45\text{ runs}$$
+
+---
+
+## 106. Pitcher Arm Slot Stability Across Arsenal Pitches
+
+### 106.1 Arsenal Arm Alignment Rating (AAAR) & Tipping Protection
+$$\text{AAAR} = \max\left(0, 100 + (3.5 - \Delta \theta_{\max}) \cdot 8.0 + (2.5 - \Delta Z_{\max}) \cdot 7.0\right)$$
+$$\text{Tipping Risk Multiplier} = 1.0 + \max(0, \Delta \theta_{\max} - 5.0) \cdot 0.06 + \max(0, \Delta Z_{\max} - 3.5) \cdot 0.04$$
+
+---
+
+## 107. Outfielder Wall Crash Hazard & High-Impact Catch Dynamics
+
+### 107.1 Wall Crash Fearlessness Index (WCFI) & WEBPR
+$$\text{WCFI} = \max\left(0, 100 + (\text{WallCatch\%} - 64.0) \cdot 2.8 + (\text{Collision\%} - 30.0) \cdot 1.2 + (4.8 - d_{\text{cushion}}) \cdot 12.0\right)$$
+$$\text{WEBPR}_{\text{runs}} = (\text{WallCatch\%} - 64.0\%) \cdot \text{Opps} \cdot 0.85\text{ runs}$$
+
+---
+
+## 108. Pure-Python SVG Batter 3D Spray Distance Isochrone Architecture
+
+### 108.1 Isochrone Coordinate Projection & Radial Scaling
+$$R_{\text{px}}(d) = d \cdot \left(\frac{340.0}{420.0}\right)\text{ px}, \quad P_x = X_{\text{plate}} + \text{hc}_x \cdot S, \quad P_y = Y_{\text{plate}} - \text{hc}_y \cdot S$$
+
+---
+
+## 109. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1209,3 +1244,5 @@ $$S_x = X_{\text{center}} + \left(\frac{\text{HB}_{\text{in}}}{25.0}\right) \cdo
 60. **Albert, Jim** (2017). "Exploring the Value of Pulling Flyballs in the Statcast Era". *Journal of Quantitative Analysis in Sports*.
 61. **Nathan, Alan M.** (2016). "Determining the Relationship Between Release Extension and Perceived Velocity in MLB". *The Physics of Baseball*.
 62. **Fast, Mike** (2011). "Spin and Movement: Evaluating Pitcher Movement Profiles via Pitch f/x". *Baseball Prospectus*.
+63. **Zimmerman, Jeff** (2017). "The Changing Value of Spray Angle and Opposite Field Hits". *Hardball Times*.
+64. **Slowinski, Steve** (2012). "Arm Slot and Release Point Consistency in Major League Pitchers". *FanGraphs Sabermetrics Library*.

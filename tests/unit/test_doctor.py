@@ -354,3 +354,12 @@ def test_ext_perceive_and_foul_attrition_and_block_suppress_health_checks():
     assert ext_perceive.health_check()[0].ok is True
     assert foul_attrition.health_check()[0].ok is True
     assert block_suppress.health_check()[0].ok is True
+
+
+def test_slash_oppo_and_arm_align_and_wall_crash_health_checks():
+    """Verify health checks for slash_oppo, arm_align, and wall_crash modules."""
+    from mlb_baseball.model import arm_align, slash_oppo, wall_crash
+
+    assert slash_oppo.health_check()[0].ok is True
+    assert arm_align.health_check()[0].ok is True
+    assert wall_crash.health_check()[0].ok is True

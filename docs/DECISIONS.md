@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-222: Pure-Python SVG Batter 3D Spray Chart with Distance & Exit Velocity Isochrones (`SPRAY-ISO-01`, Package 134)
+
+**Decision:** Built vector SVG baseball diamond field chart with distance isochrone arcs (200ft, 300ft, 400ft) and exit velocity color coding in `mlb_baseball/visual.py` and CLI subcommand `mlb spray-iso`.
+- **Operational Architecture & Geometry**:
+  - Distance Isochrones: Renders semi-circular arcs scaled at $\approx 0.81\text{ px/ft}$ from home plate $(240, 420)$.
+  - 4 Exit Velocity Color Bands: Soft Blue ($<80\text{ mph}$), Medium Amber ($80-95\text{ mph}$), Hard Red ($95-105\text{ mph}$), Barrel Purple ($>105\text{ mph}$).
+  - CLI: `mlb spray-iso --title "Aaron Judge Spray & Distance" --batter "Aaron Judge"`.
+- **Verification**: 21/21 unit tests in `tests/unit/test_visual.py` passing; 770/770 full repository unit tests passing.
+
+## ADR-221: Outfielder Wall Crash Hazard & High-Impact Catch Probability Engine (`WALL-CRASH-01`, Package 133)
+
+**Decision:** Built warning-track wall proximity, deceleration cushion, and extra-base prevention modeling in `mlb_baseball/model/wall_crash.py` and CLI subcommand `mlb wall-crash`.
+- **Mathematical Formulations & Methodology**:
+  - Wall Crash Fearlessness Index: $\text{WCFI} = \max\left(0, 100 + (\text{WallCatch\%} - 64.0) \cdot 2.8 + (\text{Collision\%} - 30.0) \cdot 1.2 + (4.8 - d_{\text{cushion}}) \cdot 12.0\right)$.
+  - Wall Extra-Base Prevention Runs: $\text{WEBPR}_{\text{runs}} = (\text{WallCatch\%} - 64.0\%) \cdot \text{Opps} \cdot 0.85\text{ runs}$.
+  - Tiers: `FEARLESS_WALL_CRASH_DEFENDER` ($\text{WCFI} \ge 118.0, \text{WallCatch\%} \ge 75.0\%, d_{\text{cushion}} \le 3.6\text{ ft}$), `TIMID_WARNING_TRACK_PULL_UP`, `SOLID_WALL_COMMITTED_FIELDER`, `AVERAGE_WALL_APPROACH`.
+  - CLI: `mlb wall-crash --pos CF --catch 80.0 --collision 45.0 --cushion 3.0 --opps 50`, `mlb wall-crash --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_wall_crash.py` passing; 770/770 full repository unit tests passing.
+
+## ADR-220: Pitcher Arm Slot Stability Across Arsenal Pitches Engine (`ARM-ALIGN-01`, Package 132)
+
+**Decision:** Built multi-pitch arm angle consistency, release height alignment, and pitch tipping defense in `mlb_baseball/model/arm_align.py` and CLI subcommand `mlb arm-align`.
+- **Mathematical Formulations & Methodology**:
+  - Arsenal Arm Alignment Rating: $\text{AAAR} = \max\left(0, 100 + (3.5 - \Delta \theta_{\max}) \cdot 8.0 + (2.5 - \Delta Z_{\max}) \cdot 7.0\right)$.
+  - Pitch Tipping Risk Multiplier: $1.0 + \max(0, \Delta \theta_{\max} - 5.0) \cdot 0.06 + \max(0, \Delta Z_{\max} - 3.5) \cdot 0.04$.
+  - Tiers: `DECEPTIVE_TUNNELED_ARM_SLOT_CLONE` ($\Delta \theta_{\max} \le 1.8^{\circ}, \Delta Z_{\max} \le 1.3\text{ in}, \text{AAAR} \ge 116.0$), `TELL_PRONE_DROPPED_ELBOW_ALERT`, `SOLID_CONSISTENT_ARM_SLOT`, `AVERAGE_ARM_SLOT_VARIANCE`.
+  - CLI: `mlb arm-align --fb-deg 42.0 --br-deg 42.6 --os-deg 41.8 --fb-z 68.0 --br-z 67.5 --os-z 68.2`, `mlb arm-align --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_arm_align.py` passing; 770/770 full repository unit tests passing.
+
+## ADR-219: Batter Pull-Side Infield Groundball vs Opposite Field Slash Engine (`SLASH-OPPO-01`, Package 131)
+
+**Decision:** Built opposite-field spray control, pull groundball avoidance, and anti-shift BABIP boost in `mlb_baseball/model/slash_oppo.py` and CLI subcommand `mlb slash-oppo`.
+- **Mathematical Formulations & Methodology**:
+  - Opposite Field Slash Resilience Rating: $\text{OFSRR} = \max\left(0, 100 + (\text{OppoContact\%} - 24.0) \cdot 2.6 + (\text{OppoLD\%} - 20.0) \cdot 2.2 + (65.0 - \text{PullGB\%}) \cdot 1.4\right)$.
+  - Anti-Shift BABIP Adjustment: $\Delta \text{BABIP}_{\text{oppo}} = (\text{OFSRR} - 100.0) \cdot 0.00065$, $\text{OFSRV}_{\text{runs}} = \Delta \text{BABIP}_{\text{oppo}} \cdot \text{BBE} \cdot 0.45\text{ runs}$.
+  - Tiers: `ELITE_ALL_FIELDS_SLASH_ARTIST` ($\text{OFSRR} \ge 116.0, \text{OppoContact} \ge 29.0\%, \text{PullGB} \le 56.0\%$), `EXTREME_PULL_SHIFT_BAIT`, `WEAK_OPPO_FLARE_SLAPPER`, `AVERAGE_SPRAY_DISPERSAL`.
+  - CLI: `mlb slash-oppo --oppo 32.0 --oppo-ld 28.0 --pull-gb 50.0 --bbe 280`, `mlb slash-oppo --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_slash_oppo.py` passing; 770/770 full repository unit tests passing.
+
 ## ADR-218: Pure-Python SVG Pitch Arsenal Horizontal & Vertical Break Movement Plot (`BREAK-DIAMOND-01`, Package 130)
 
 **Decision:** Built multi-pitch Cartesian horizontal vs vertical break vector SVG scatter chart with quadrant coordinate crosshairs in `mlb_baseball/visual.py` and CLI subcommand `mlb break-diamond`.

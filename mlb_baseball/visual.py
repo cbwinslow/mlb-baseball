@@ -35,6 +35,7 @@ class ChartType(enum.Enum):
     RELEASE_WINDOW_BOX = "release_window_box"
     ATTACK_ZONE_9X9_GRID = "attack_zone_9x9_grid"
     BREAK_DIAMOND_PLOT = "break_diamond_plot"
+    SPRAY_ISOCHRONE_CHART = "spray_isochrone_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2161,6 +2162,127 @@ class BreakDiamondPlotRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class BattedBallLandingPoint:
+    """Individual batted ball event coordinates, exit velo, and launch angle."""
+
+    hc_x: float  # Statcast coordinate or field ft (-250 to +250)
+    hc_y: float  # Distance from home plate in ft (0 to 450)
+    exit_velocity_mph: float
+    launch_angle_deg: float
+    distance_ft: float
+    event_type: str = "field_out"
+
+
+@dataclasses.dataclass(frozen=True)
+class BatterSprayIsochroneProfile:
+    """Batter spray chart profile with distance arcs and velocity markers."""
+
+    title: str
+    batter_name: str
+    points: list[BattedBallLandingPoint]
+
+
+class SprayIsochroneChartRenderer:
+    """Renders pure-Python vector SVG spray charts with distance arcs (SPRAY-ISO-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: BatterSprayIsochroneProfile) -> GeneratedVectorChart:
+        """Render baseball field, distance isochrones, and batted ball scatter."""
+        hp_x = self.width / 2  # 240
+        hp_y = 420.0
+        scale = 340.0 / 420.0  # ~0.81 px per ft
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{hp_x}" y="28" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{hp_x}" y="46" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.batter_name} Landing Distance & Velo</text>',
+        ]
+
+        # Infield & Outfield Distance Arcs: 200ft, 300ft, 400ft
+        for d in [200.0, 300.0, 400.0]:
+            r_px = d * scale
+            # Draw semi-circular arc
+            ax1 = hp_x - r_px * 0.707
+            ay1 = hp_y - r_px * 0.707
+            ax2 = hp_x + r_px * 0.707
+            ay2 = hp_y - r_px * 0.707
+            svg_parts.append(
+                f'<path d="M {ax1:.1f} {ay1:.1f} '
+                f'A {r_px:.1f} {r_px:.1f} 0 0 1 {ax2:.1f} {ay2:.1f}" '
+                f'fill="none" stroke="#1e293b" stroke-width="1.2" stroke-dasharray="4,4" />'
+            )
+            # Distance label
+            svg_parts.append(
+                f'<text x="{hp_x}" y="{hp_y - r_px - 3:.1f}" fill="#475569" font-size="8" '
+                f'text-anchor="middle" font-family="sans-serif">{int(d)} ft</text>'
+            )
+
+        # Foul lines extending 400ft at 45 deg
+        foul_len = 400.0 * scale
+        svg_parts.append(
+            f'<line x1="{hp_x}" y1="{hp_y}" x2="{hp_x - foul_len * 0.707:.1f}" '
+            f'y2="{hp_y - foul_len * 0.707:.1f}" stroke="#475569" stroke-width="1.5" />'
+        )
+        svg_parts.append(
+            f'<line x1="{hp_x}" y1="{hp_y}" x2="{hp_x + foul_len * 0.707:.1f}" '
+            f'y2="{hp_y - foul_len * 0.707:.1f}" stroke="#475569" stroke-width="1.5" />'
+        )
+
+        # Infield diamond
+        base_r = 90.0 * scale * 0.707
+        svg_parts.append(
+            f'<polygon points="{hp_x},{hp_y} {hp_x - base_r:.1f},{hp_y - base_r:.1f} '
+            f'{hp_x},{hp_y - 2 * base_r:.1f} {hp_x + base_r:.1f},{hp_y - base_r:.1f}" '
+            f'fill="#1e293b" stroke="#334155" stroke-width="1.2" opacity="0.6" />'
+        )
+
+        def get_ev_color(ev: float) -> str:
+            if ev < 80.0:
+                return "#3b82f6"  # Soft blue
+            elif ev < 95.0:
+                return "#f59e0b"  # Medium amber
+            elif ev < 105.0:
+                return "#ef4444"  # Hard red
+            return "#a855f7"  # Barrel purple
+
+        # Plot batted ball landing points
+        for p in profile.points:
+            # hc_x: horizontal offset in ft, hc_y: distance in ft
+            px = hp_x + p.hc_x * scale
+            py = hp_y - p.hc_y * scale
+            col = get_ev_color(p.exit_velocity_mph)
+            r_dot = 4.5 if p.exit_velocity_mph >= 95.0 else 3.5
+
+            svg_parts.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{r_dot}" '
+                f'fill="{col}" stroke="#0b1329" stroke-width="0.8" opacity="0.85" />'
+            )
+
+        # Legend
+        svg_parts.append(
+            f'<text x="{hp_x}" y="{self.height - 15}" fill="#94a3b8" font-size="9" '
+            f'text-anchor="middle" font-family="sans-serif">'
+            f"Blue &lt;80 | Amber 80-95 | Red 95-105 | Purple &gt;105 mph</text>"
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.SPRAY_ISOCHRONE_CHART,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -2290,6 +2412,22 @@ def health_check() -> list[Check]:
             BatterAttackZone9x9Profile("Grid", "Soto", "wOBA", grid_cells)
         )
 
+        bd_renderer = BreakDiamondPlotRenderer()
+        break_pitches = [
+            PitchBreakVector("4-Seam", 10.0, 18.0, 98.0, "#ef4444"),
+            PitchBreakVector("Slider", -6.0, 2.0, 88.0, "#3b82f6"),
+        ]
+        bd_chart = bd_renderer.render(PitchArsenalBreakProfile("Break", "Skenes", break_pitches))
+
+        spray_iso_renderer = SprayIsochroneChartRenderer()
+        iso_points = [
+            BattedBallLandingPoint(-80.0, 320.0, 104.0, 26.0, 360.0, "home_run"),
+            BattedBallLandingPoint(60.0, 240.0, 88.0, 14.0, 250.0, "single"),
+        ]
+        iso_chart = spray_iso_renderer.render(
+            BatterSprayIsochroneProfile("Spray Iso", "Judge", iso_points)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -2309,7 +2447,8 @@ def health_check() -> list[Check]:
             and "<svg" in rose_chart.svg_content
             and "<svg" in box_chart.svg_content
             and "<svg" in grid_chart.svg_content
-            and "<svg" in break_chart.svg_content
+            and "<svg" in bd_chart.svg_content
+            and "<svg" in iso_chart.svg_content
         ):
             checks.append(
                 Check(

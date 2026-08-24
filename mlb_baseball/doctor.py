@@ -262,6 +262,7 @@ def run() -> list[Check]:
         ambush,
         arm,
         arm_accuracy,
+        arm_align,
         arm_slot,
         babip,
         backtest,
@@ -319,6 +320,7 @@ def run() -> list[Check]:
         shift,
         shop,
         simulate,
+        slash_oppo,
         spin,
         splits,
         spray,
@@ -337,6 +339,7 @@ def run() -> list[Check]:
         velo_delta,
         velo_drift,
         wall,
+        wall_crash,
         weather,
         wpa,
         xslg,
@@ -457,6 +460,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(slash_oppo.health_check())
+    except Exception as exc:
+        checks.append(Check("slash_oppo", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(arm_align.health_check())
+    except Exception as exc:
+        checks.append(Check("arm_align", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(wall_crash.health_check())
+    except Exception as exc:
+        checks.append(Check("wall_crash", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(ext_perceive.health_check())
     except Exception as exc:

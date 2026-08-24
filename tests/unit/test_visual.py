@@ -475,3 +475,40 @@ def test_break_diamond_plot_svg_generation():
     assert "Skenes Arsenal Break" in chart.svg_content
     assert "Arm-Side Ride" in chart.svg_content
     assert "Sweeper" in chart.svg_content
+
+
+def test_spray_isochrone_chart_svg_generation():
+    """Verify SprayIsochroneChartRenderer generates distance arcs and batted ball points."""
+    from mlb_baseball.visual import (
+        BattedBallLandingPoint,
+        BatterSprayIsochroneProfile,
+        SprayIsochroneChartRenderer,
+    )
+
+    renderer = SprayIsochroneChartRenderer()
+    points = [
+        BattedBallLandingPoint(
+            hc_x=-90.0,
+            hc_y=340.0,
+            exit_velocity_mph=108.0,
+            launch_angle_deg=28.0,
+            distance_ft=385.0,
+            event_type="home_run",
+        ),
+        BattedBallLandingPoint(
+            hc_x=45.0,
+            hc_y=220.0,
+            exit_velocity_mph=92.0,
+            launch_angle_deg=12.0,
+            distance_ft=230.0,
+            event_type="single",
+        ),
+    ]
+    prof = BatterSprayIsochroneProfile("Judge Distance Isochrones", "Aaron Judge", points)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Judge Distance Isochrones" in chart.svg_content
+    assert "400 ft" in chart.svg_content

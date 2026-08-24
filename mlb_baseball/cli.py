@@ -867,6 +867,85 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter opposite field slash and anti-shift (SLASH-OPPO-01)
+    sl_opp_parser = subparsers.add_parser(
+        "slash-oppo",
+        help="evaluate batter opposite field spray, anti-shift BABIP, and OFSRR (SLASH-OPPO-01)",
+    )
+    sl_opp_parser.add_argument(
+        "--oppo", type=float, default=24.0, help="oppo contact pct (default: 24.0)"
+    )
+    sl_opp_parser.add_argument(
+        "--oppo-ld", type=float, default=20.0, help="oppo line drive pct (default: 20.0)"
+    )
+    sl_opp_parser.add_argument(
+        "--pull-gb", type=float, default=64.0, help="pull groundball pct (default: 64.0)"
+    )
+    sl_opp_parser.add_argument(
+        "--bbe", type=int, default=250, help="total BBE count (default: 250)"
+    )
+    sl_opp_parser.add_argument(
+        "--json", action="store_true", help="output slash oppo evaluation as JSON"
+    )
+
+    # Pitcher arm slot stability across arsenal (ARM-ALIGN-01)
+    arm_aln_parser = subparsers.add_parser(
+        "arm-align",
+        help="evaluate multi-pitch arm slot stability and AAAR rating (ARM-ALIGN-01)",
+    )
+    arm_aln_parser.add_argument(
+        "--fb-deg", type=float, default=42.0, help="fastball arm angle deg (default: 42.0)"
+    )
+    arm_aln_parser.add_argument(
+        "--br-deg", type=float, default=43.5, help="breaking arm angle deg (default: 43.5)"
+    )
+    arm_aln_parser.add_argument(
+        "--os-deg", type=float, default=41.0, help="offspeed arm angle deg (default: 41.0)"
+    )
+    arm_aln_parser.add_argument(
+        "--fb-z", type=float, default=68.0, help="fastball release z in (default: 68.0)"
+    )
+    arm_aln_parser.add_argument(
+        "--br-z", type=float, default=66.8, help="breaking release z in (default: 66.8)"
+    )
+    arm_aln_parser.add_argument(
+        "--os-z", type=float, default=68.5, help="offspeed release z in (default: 68.5)"
+    )
+    arm_aln_parser.add_argument(
+        "--pitches", type=int, default=250, help="pitch count (default: 250)"
+    )
+    arm_aln_parser.add_argument(
+        "--json", action="store_true", help="output arm align evaluation as JSON"
+    )
+
+    # Outfielder wall crash hazard catch efficiency (WALL-CRASH-01)
+    wcr_parser = subparsers.add_parser(
+        "wall-crash",
+        help="evaluate outfielder wall catch fearlessness and WEBPR runs (WALL-CRASH-01)",
+    )
+    wcr_parser.add_argument("--pos", type=str, default="CF", help="position (default: CF)")
+    wcr_parser.add_argument(
+        "--catch", type=float, default=65.0, help="wall catch pct (default: 65.0)"
+    )
+    wcr_parser.add_argument(
+        "--collision", type=float, default=30.0, help="collision rate pct (default: 30.0)"
+    )
+    wcr_parser.add_argument(
+        "--cushion", type=float, default=4.6, help="decel cushion ft (default: 4.6)"
+    )
+    wcr_parser.add_argument("--opps", type=int, default=40, help="wall opportunities (default: 40)")
+    wcr_parser.add_argument("--json", action="store_true", help="output wall crash as JSON")
+
+    # Batter spray isochrones chart (SPRAY-ISO-01)
+    sp_iso_parser = subparsers.add_parser(
+        "spray-iso",
+        help="generate vector SVG spray chart with distance isochrones (SPRAY-ISO-01)",
+    )
+    sp_iso_parser.add_argument(
+        "--title", type=str, default="Aaron Judge Spray & Distance", help="chart title"
+    )
+    sp_iso_parser.add_argument("--batter", type=str, default="Aaron Judge", help="batter name")
+
     # Pitcher release extension vs effective velocity (EXT-PERCEIVE-01)
     exp_p_parser = subparsers.add_parser(
         "ext-perceive",
@@ -4037,6 +4116,150 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "slash-oppo":
+        import json as json_lib
+
+        from mlb_baseball.model.slash_oppo import (
+            BatterSlashOppoEngine,
+            BatterSlashOppoMetrics,
+        )
+
+        slo_eng = BatterSlashOppoEngine()
+        slo_m = BatterSlashOppoMetrics(
+            "b1",
+            "Target Batter",
+            oppo_contact_pct=args.oppo,
+            oppo_line_drive_pct=args.oppo_ld,
+            pull_groundball_pct=args.pull_gb,
+            total_bbe_count=args.bbe,
+        )
+        slo_res = slo_eng.evaluate_slash(slo_m)
+
+        if args.json:
+            slo_out = {
+                "ofsrr_score": slo_res.ofsrr_score,
+                "delta_babip": slo_res.babip_adjustment,
+                "ofsrv_runs": slo_res.ofsrv_runs_saved,
+                "tier": slo_res.slash_tier,
+                "is_artist": slo_res.is_slash_artist,
+            }
+            print(json_lib.dumps(slo_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OPPOSITE FIELD SLASH & ANTI-SHIFT [{slo_res.slash_tier}]")
+            hdr_so = (
+                f"     OFSRR Score: {slo_res.ofsrr_score:.1f}/160 "
+                f"| Delta BABIP: {slo_res.babip_adjustment:>+5.3f} "
+                f"| Runs: {slo_res.ofsrv_runs_saved:>+4.2f}"
+            )
+            print(hdr_so)
+            print(f"{'=' * 84}\n")
+            print(f"  • Spray Profile        : {slo_res.slash_tier}")
+            print(f"  • Slash Artist         : {'YES' if slo_res.is_slash_artist else 'NO'}\n")
+
+    elif args.command == "arm-align":
+        import json as json_lib
+
+        from mlb_baseball.model.arm_align import (
+            PitcherArmAlignEngine,
+            PitcherArsenalArmSlotMetrics,
+        )
+
+        aal_eng = PitcherArmAlignEngine()
+        aal_m = PitcherArsenalArmSlotMetrics(
+            "p1",
+            "Target Pitcher",
+            fastball_arm_angle_deg=args.fb_deg,
+            breaking_arm_angle_deg=args.br_deg,
+            offspeed_arm_angle_deg=args.os_deg,
+            fastball_rel_z_in=args.fb_z,
+            breaking_rel_z_in=args.br_z,
+            offspeed_rel_z_in=args.os_z,
+            pitch_count_evaluated=args.pitches,
+        )
+        aal_res = aal_eng.evaluate_alignment(aal_m)
+
+        if args.json:
+            aal_out = {
+                "max_angle_gap": aal_res.max_arm_angle_gap_deg,
+                "max_z_gap": aal_res.max_rel_z_gap_in,
+                "aaar_score": aal_res.aaar_score,
+                "tipping_multiplier": aal_res.tipping_risk_multiplier,
+                "tier": aal_res.alignment_tier,
+                "is_clone": aal_res.is_slot_clone,
+            }
+            print(json_lib.dumps(aal_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     ARSENAL ARM SLOT STABILITY [{aal_res.alignment_tier}]")
+            hdr_aa = (
+                f"     AAAR Score: {aal_res.aaar_score:.1f}/160 "
+                f"| Max Angle Gap: {aal_res.max_arm_angle_gap_deg:.1f}° "
+                f"| Max Z Gap: {aal_res.max_rel_z_gap_in:.1f} in"
+            )
+            print(hdr_aa)
+            print(f"{'=' * 84}\n")
+            print(f"  • Tipping Risk         : {aal_res.tipping_risk_multiplier:.2f}x")
+            print(f"  • Deceptive Slot Clone : {'YES' if aal_res.is_slot_clone else 'NO'}\n")
+
+    elif args.command == "wall-crash":
+        import json as json_lib
+
+        from mlb_baseball.model.wall_crash import (
+            OutfielderWallCrashEngine,
+            OutfielderWallCrashMetrics,
+        )
+
+        wcr_eng = OutfielderWallCrashEngine()
+        wcr_m = OutfielderWallCrashMetrics(
+            "f1",
+            "Target Fielder",
+            position=args.pos,
+            wall_hazard_catch_pct=args.catch,
+            wall_collision_rate_pct=args.collision,
+            deceleration_cushion_ft=args.cushion,
+            wall_opportunities=args.opps,
+        )
+        wcr_res = wcr_eng.evaluate_wall_crash(wcr_m)
+
+        if args.json:
+            wcr_out = {
+                "wcfi_score": wcr_res.wcfi_score,
+                "surplus_catches": wcr_res.surplus_catches,
+                "webpr_runs": wcr_res.webpr_runs_saved,
+                "tier": wcr_res.hazard_tier,
+                "is_fearless": wcr_res.is_fearless_crasher,
+            }
+            print(json_lib.dumps(wcr_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OUTFIELD WALL CRASH HAZARD DEFENSE [{wcr_res.hazard_tier}]")
+            hdr_wc = (
+                f"     WCFI Score: {wcr_res.wcfi_score:.1f}/160 "
+                f"| Surplus Catches: {wcr_res.surplus_catches:>+4.1f} "
+                f"| WEBPR Runs: {wcr_res.webpr_runs_saved:>+4.2f}"
+            )
+            print(hdr_wc)
+            print(f"{'=' * 84}\n")
+            print(f"  • Wall Approach Profile: {wcr_res.hazard_tier}")
+            print(f"  • Fearless Crasher     : {'YES' if wcr_res.is_fearless_crasher else 'NO'}\n")
+
+    elif args.command == "spray-iso":
+        from mlb_baseball.visual import (
+            BattedBallLandingPoint,
+            BatterSprayIsochroneProfile,
+            SprayIsochroneChartRenderer,
+        )
+
+        sp_renderer = SprayIsochroneChartRenderer()
+        sp_points = [
+            BattedBallLandingPoint(-80.0, 320.0, 104.0, 26.0, 360.0, "home_run"),
+            BattedBallLandingPoint(60.0, 240.0, 88.0, 14.0, 250.0, "single"),
+        ]
+        sp_prof = BatterSprayIsochroneProfile(args.title, args.batter, sp_points)
+        chart = sp_renderer.render(sp_prof)
+        print(f"Generated Vector SVG Spray Isochrone Chart ({len(chart.svg_content)} bytes)")
 
     elif args.command == "ext-perceive":
         import json as json_lib

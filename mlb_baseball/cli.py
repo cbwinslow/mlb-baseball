@@ -631,6 +631,22 @@ def main(argv: list[str] | None = None) -> None:
     )
     stack_parser.add_argument("--json", action="store_true", help="output stacker results as JSON")
 
+    # Continuous model drift & calibration monitor (DRIFT-01)
+    drift_parser = subparsers.add_parser(
+        "drift",
+        help="monitor rolling model calibration error, Platt slope, and concept drift (DRIFT-01)",
+    )
+    drift_parser.add_argument(
+        "--model", type=str, default="gbm-v1", help="model version to evaluate (default: gbm-v1)"
+    )
+    drift_parser.add_argument(
+        "--window", type=int, default=40, help="rolling window size in games (default: 40)"
+    )
+    drift_parser.add_argument(
+        "--step", type=int, default=15, help="step size in games (default: 15)"
+    )
+    drift_parser.add_argument("--json", action="store_true", help="output drift report as JSON")
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -1669,6 +1685,89 @@ def main(argv: list[str] | None = None) -> None:
                         bar = "█" * int(round(w_val * 30))
                         print(f"{m_name:<15} | {bar:<30} | {w_val * 100:>5.1f}%")
                     print("")
+
+    elif args.command == "drift":
+        import json as json_lib
+
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.model.drift import ModelDriftMonitor
+
+        monitor = ModelDriftMonitor(
+            window_size_games=args.window,
+            step_size_games=args.step,
+        )
+        with get_connection() as conn:
+            drift_report = monitor.evaluate_model_from_db(
+                model_version=args.model,
+                conn=conn,
+            )
+
+        if args.json:
+            drift_out = {
+                "model_version": drift_report.model_version,
+                "total_evaluated_games": drift_report.total_evaluated_games,
+                "overall_brier_score": drift_report.overall_brier_score,
+                "overall_ece": drift_report.overall_ece,
+                "current_status": drift_report.current_status.value,
+                "alerts": drift_report.alerts,
+                "windows": [
+                    {
+                        "window_index": w.window_index,
+                        "start_date": w.start_date,
+                        "end_date": w.end_date,
+                        "sample_size": w.sample_size,
+                        "brier_score": w.brier_score,
+                        "log_loss_score": w.log_loss_score,
+                        "expected_calibration_error": w.expected_calibration_error,
+                        "platt_slope_w": w.platt_slope_w,
+                        "hfa_intercept_b": w.hfa_intercept_b,
+                        "brier_skill_score": w.brier_skill_score,
+                        "severity": w.severity.value,
+                        "warnings": w.warning_messages,
+                    }
+                    for w in drift_report.windows
+                ],
+            }
+            print(json_lib.dumps(drift_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     MODEL CALIBRATION MONITOR ({drift_report.model_version.upper()})")
+            print(
+                f"     Games: {drift_report.total_evaluated_games:,} | "
+                f"Overall ECE: {drift_report.overall_ece * 100:.1f}% | "
+                f"Brier: {drift_report.overall_brier_score:.4f}"
+            )
+            print(f"     Current Status : [{drift_report.current_status.value}]")
+            print(f"{'=' * 84}\n")
+
+            if drift_report.alerts:
+                for alert in drift_report.alerts:
+                    print(f">> ALERT: {alert}")
+                print("")
+
+            if not drift_report.windows:
+                print("No rolling windows could be formed with the specified game sample size.\n")
+            else:
+                hdr = (
+                    f"{'Window':<8} {'Period':<23} {'Games':<7} "
+                    f"{'Brier':<8} {'ECE%':<8} {'Slope α':<9} "
+                    f"{'Intercept β':<12} {'Status':<10}"
+                )
+                print(hdr)
+                print("-" * len(hdr))
+                for w_item in drift_report.windows:
+                    period = f"{w_item.start_date} -> {w_item.end_date}"
+                    print(
+                        f"#{w_item.window_index:<7} "
+                        f"{period:<23} "
+                        f"{w_item.sample_size:<7} "
+                        f"{w_item.brier_score:<8.4f} "
+                        f"{w_item.expected_calibration_error * 100:>5.1f}%  "
+                        f"{w_item.platt_slope_w:>6.2f}   "
+                        f"{w_item.hfa_intercept_b:>+8.2f}    "
+                        f"[{w_item.severity.value}]"
+                    )
+                print("")
 
     elif args.command == "daily":
         import json as json_lib

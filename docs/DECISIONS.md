@@ -2,6 +2,17 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-124: Continuous Model Drift, Calibration Tracking & Degradation Monitor (`DRIFT-01`, Package 36)
+
+**Decision:** Built continuous model drift and calibration tracking monitor in `mlb_baseball/model/drift.py` and CLI subcommand `mlb drift` to protect against non-stationarity and performance degradation.
+- **Mathematical Formulations & Methodology**:
+  - Chronological Rolling Window Diagnostics: Evaluates sliding $W$-game windows (step size $S$) computing Expected Calibration Error (ECE), Max Calibration Error (MCE), and Brier Skill Score (BSS).
+  - Platt Calibration Slope ($lpha$) & HFA Intercept ($eta$) Tracking: Quantifies model confidence scaling ($p_{\text{cal}} = \sigma(\alpha \cdot \text{logit}(p) + \beta)$) to detect overconfidence ($\alpha < 0.50$) or underconfidence ($\alpha > 2.00$).
+  - Degradation Severity Classification: Maps window metrics to `HEALTHY`, `WARNING`, `DEGRADED`, and `CRITICAL` statuses.
+  - Risk Management & Operational Health: Integrated into `mlb doctor` to block wagering allocation if a model suffers severe calibration drift.
+  - CLI: `mlb drift --model gbm-v1 --window 40 --step 15`, `mlb drift --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_drift.py` passing; 477/477 full repository unit tests passing.
+
 ## ADR-123: Serving Layer Marts for Standings & Pre-Joined Matchup Dossiers (`SERVE-02`, Package 35)
 
 **Decision:** Created migration `migrations/0080_ros_and_stacked_serving_views.sql` adding dedicated read-only analytical marts `serve.ros_team_standings` and `serve.matchup_dossier` for instant Astro web interface rendering.

@@ -93,3 +93,12 @@ def test_stack_health_check():
     s_checks = stack.health_check()
     assert len(s_checks) == 1
     assert s_checks[0].ok is True
+
+
+def test_drift_health_check():
+    """Verify model drift monitor health check returns clean pass."""
+    from mlb_baseball.model import drift
+
+    d_checks = drift.health_check()
+    assert len(d_checks) == 1
+    assert d_checks[0].ok is True

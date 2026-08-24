@@ -2,6 +2,18 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-122: Bayesian Constrained Stacking & Convex Simplex Meta-Learner (`STACK-02`, Package 34)
+
+**Decision:** Built Bayesian constrained stacking meta-learner in `mlb_baseball/model/stack.py` and CLI subcommand `mlb stack` to optimally combine base model predictions on the probability simplex.
+- **Mathematical Formulations & Methodology**:
+  - Simplex Optimization: Solves $\min_{w \in \Delta^{K-1}} \frac{1}{N} \sum (y_i - \sum w_k P_{i,k})^2 + \lambda \sum (w_k - 1/K)^2$ via projected gradient descent.
+  - Non-Negative Weights & Zero Leverage: Strictly guarantees $w_k \ge 0$ and $\sum w_k = 1.0$, preventing negative model betting and probability explosion.
+  - Bayesian Dirichlet Shrinkage: Shrinks weights towards equal prior weighting ($1/K$) when sample sizes are small.
+  - Dynamic Missing-Signal Normalization: Dynamically scales active model weights when prediction markets or specific base models are missing.
+  - Out-of-Fold Evaluation: Quantifies Brier Skill Score (BSS) and Log Loss against individual base models (Log5, Elo, GBM).
+  - CLI: `mlb stack --train`, `mlb stack --eval`, `mlb stack --json`.
+- **Verification**: 8/8 unit tests in `tests/unit/test_stack_formula.py` passing; 471/471 full repository unit tests passing.
+
 ## ADR-121: Polymorphic Research Dossier & Multi-Format Exporter (`EXPORT-01`, Package 33)
 
 **Decision:** Created component-based document generation and export system in `mlb_baseball/export.py` and CLI subcommand `mlb export` allowing arbitrary research dossiers to be rendered across Markdown, ANSI Terminal, Semantic HTML, and JSON.

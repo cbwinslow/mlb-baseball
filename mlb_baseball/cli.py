@@ -619,6 +619,18 @@ def main(argv: list[str] | None = None) -> None:
         "--output", type=str, help="optional output file path to write rendered dossier"
     )
 
+    # Bayesian constrained ensemble stacking meta-learner (STACK-02)
+    stack_parser = subparsers.add_parser(
+        "stack", help="train and evaluate Bayesian convex ensemble stacking meta-learner (STACK-02)"
+    )
+    stack_parser.add_argument(
+        "--train", action="store_true", help="train stacker on historical model predictions"
+    )
+    stack_parser.add_argument(
+        "--eval", action="store_true", help="evaluate out-of-fold Brier skill score"
+    )
+    stack_parser.add_argument("--json", action="store_true", help="output stacker results as JSON")
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -1600,6 +1612,63 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Dossier successfully exported to: {args.output}")
         else:
             print(rendered)
+
+    elif args.command == "stack":
+        import json as json_lib
+
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.model import stack
+
+        if args.train:
+            with get_connection() as conn:
+                stack_res = stack.train(conn)
+            if args.json:
+                print(json_lib.dumps(stack_res, indent=2))
+            else:
+                print(f"\n{'=' * 72}")
+                print("     BAYESIAN CONVEX STACKING META-LEARNER (STACK-02)")
+                print(f"{'=' * 72}\n")
+                print(f"Model Version     : {stack_res['model_version']}")
+                print(f"Train/Test Games: {stack_res['train_rows']} / {stack_res['test_rows']}")
+                print(f"Test Log Loss     : {stack_res['test_log_loss']:.4f}")
+                print(f"Test Brier Score  : {stack_res['test_brier']:.4f}")
+                print(
+                    f"Brier Skill Score : "
+                    f"{stack_res['brier_skill_score'] * 100:+.2f}% vs best base model\n"
+                )
+                print("--- ENSEMBLE MODEL WEIGHTS ---")
+                for m_name, w_val in stack_res["weights"].items():
+                    bar = "█" * int(round(w_val * 30))
+                    print(f"{m_name:<15} | {bar:<30} | {w_val * 100:>5.1f}%")
+                print("")
+        else:
+            if not stack.MODEL_PATH.exists():
+                print(f"No trained stack model found at {stack.MODEL_PATH}.")
+                print("Run 'mlb stack --train' to train the ensemble meta-learner.")
+            else:
+                with open(stack.MODEL_PATH) as f:
+                    saved = json_lib.load(f)
+                if args.json:
+                    print(json_lib.dumps(saved, indent=2))
+                else:
+                    print(f"\n{'=' * 72}")
+                    print("     BAYESIAN CONVEX STACKING META-LEARNER (STACK-02)")
+                    print(f"{'=' * 72}\n")
+                    print(f"Model Version     : {saved.get('model_version', 'stack-v2')}")
+                    print(
+                        f"Train / Test Games: {saved.get('train_rows', '-')} / "
+                        f"{saved.get('test_rows', '-')}"
+                    )
+                    print(f"Test Brier Score  : {saved.get('test_brier', '-'):.4f}")
+                    print(
+                        f"Brier Skill Score : "
+                        f"{saved.get('brier_skill_score', 0.0) * 100:+.2f}% vs best base\n"
+                    )
+                    print("--- CONVEX SIMPLEX WEIGHTS ---")
+                    for m_name, w_val in saved.get("weights", {}).items():
+                        bar = "█" * int(round(w_val * 30))
+                        print(f"{m_name:<15} | {bar:<30} | {w_val * 100:>5.1f}%")
+                    print("")
 
     elif args.command == "daily":
         import json as json_lib

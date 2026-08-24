@@ -84,3 +84,12 @@ def test_export_health_check():
     e_checks = export.health_check()
     assert len(e_checks) == 1
     assert e_checks[0].ok is True
+
+
+def test_stack_health_check():
+    """Verify stack meta-learner health check returns clean pass."""
+    from mlb_baseball.model import stack
+
+    s_checks = stack.health_check()
+    assert len(s_checks) == 1
+    assert s_checks[0].ok is True

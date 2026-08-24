@@ -462,6 +462,72 @@ def main(argv: list[str] | None = None) -> None:
     backfill_identity = subparsers.add_parser("backfill-game-identities")
     backfill_identity.add_argument("--batch-size", type=int, default=1000)
 
+    # Simulation engine command (SIM-01)
+    sim_parser = subparsers.add_parser("simulate", help="run Monte Carlo Markov game simulations")
+    sim_parser.add_argument("--sims", type=int, default=10000, help="number of game simulations")
+    sim_parser.add_argument("--seed", type=int, default=0, help="random seed for reproducibility")
+    sim_parser.add_argument(
+        "--seasons",
+        nargs="+",
+        type=int,
+        default=[2023, 2024],
+        help="historical seasons for transition matrix",
+    )
+    sim_parser.add_argument(
+        "--home-edge", type=float, default=0.0, help="home matchup run value edge per 100 pitches"
+    )
+    sim_parser.add_argument(
+        "--away-edge", type=float, default=0.0, help="away matchup run value edge per 100 pitches"
+    )
+    sim_parser.add_argument(
+        "--live", action="store_true", help="run in-game live simulation from state"
+    )
+    sim_parser.add_argument(
+        "--inning", type=int, default=1, help="current inning for live simulation"
+    )
+    sim_parser.add_argument(
+        "--bottom", action="store_true", help="bottom half of inning for live simulation"
+    )
+    sim_parser.add_argument(
+        "--outs", type=int, choices=[0, 1, 2], default=0, help="current outs for live simulation"
+    )
+    sim_parser.add_argument("--home-score", type=int, default=0, help="current home score")
+    sim_parser.add_argument("--away-score", type=int, default=0, help="current away score")
+
+    # Player props command (PROP-01)
+    props_parser = subparsers.add_parser(
+        "props", help="forecast player proposition markets (K%, outs, hits, HR)"
+    )
+    props_parser.add_argument("--game-pk", type=str, help="target MLB game PK to look up starters")
+    props_parser.add_argument("--pitcher-k", type=float, help="manual starter K% (e.g. 0.28)")
+    props_parser.add_argument(
+        "--opp-k", type=float, default=0.225, help="opposing lineup K% (default: 0.225)"
+    )
+    props_parser.add_argument(
+        "--pitcher-fip", type=float, default=3.80, help="starter FIP (default: 3.80)"
+    )
+    props_parser.add_argument(
+        "--opp-wrc", type=float, default=100.0, help="opposing team wRC+ (default: 100)"
+    )
+    props_parser.add_argument("--rest-days", type=int, default=5, help="pitcher rest days")
+
+    # Serving layer query command (SRV-01, LIVE-01)
+    serve_parser = subparsers.add_parser(
+        "serve", help="query analytical serving marts (daily-grid, props, live-tracker, alpha)"
+    )
+    serve_parser.add_argument(
+        "mart", choices=["daily-grid", "pitcher-card", "props", "live-tracker", "alpha"]
+    )
+    serve_parser.add_argument("--date", type=str, help="game date filter (YYYY-MM-DD)")
+    serve_parser.add_argument("--game-pk", type=str, help="MLB game PK filter")
+    serve_parser.add_argument(
+        "--player-id", type=int, help="internal player ID filter for pitcher card"
+    )
+    serve_parser.add_argument(
+        "--min-edge", type=float, default=0.025, help="minimum edge threshold for +EV screener"
+    )
+    serve_parser.add_argument("--json", action="store_true", help="output result as JSON")
+
     args = parser.parse_args(argv)
 
     try:
@@ -691,6 +757,184 @@ def main(argv: list[str] | None = None) -> None:
         with get_connection() as conn:
             counts = backfill_game_instance_keys(conn, args.batch_size)
         print(" ".join(f"{name}={count}" for name, count in counts.items()))
+    elif args.command == "simulate":
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.model import markov, simulate
+
+        with get_connection() as conn:
+            dist = markov.estimate_outcome_distribution(conn, seasons=args.seasons)
+            if not dist:
+                print(f"No Retrosheet transition data found for seasons {args.seasons}")
+                sys.exit(1)
+            table = simulate.DenseOutcomeTable.from_distribution(dist)
+            home_table = table.adjust_for_matchup(args.home_edge)
+            away_table = table.adjust_for_matchup(args.away_edge)
+
+            if args.live:
+                cur_state = markov.BaseOutState(outs=args.outs, on1=False, on2=False, on3=False)
+                live_res = simulate.simulate_live_game_fast(
+                    home_table=home_table,
+                    away_table=away_table,
+                    current_inning=args.inning,
+                    is_bottom_half=args.bottom,
+                    current_state=cur_state,
+                    home_score=args.home_score,
+                    away_score=args.away_score,
+                    n_simulations=args.sims,
+                    seed=args.seed,
+                )
+                print(
+                    f"Live Simulation [{live_res.device.upper()}] "
+                    f"({live_res.simulations_run:,} sims in {live_res.duration_ms:.1f}ms | "
+                    f"{live_res.simulations_per_sec:,.0f} sims/sec):"
+                )
+                half_str = "Bottom" if live_res.is_bottom_half else "Top"
+                print(
+                    f"  Inning: {half_str} {live_res.current_inning} ({args.outs} outs) | "
+                    f"Score: Away {live_res.away_score} - Home {live_res.home_score}"
+                )
+                print(
+                    f"  Home Win: {live_res.home_win_prob * 100:.1f}% | "
+                    f"Away Win: {live_res.away_win_prob * 100:.1f}%"
+                )
+                print(
+                    f"  Home -1.5 Cover: {live_res.home_cover_run_line_prob * 100:.1f}% | "
+                    f"Away +1.5 Cover: {live_res.away_cover_run_line_prob * 100:.1f}%"
+                )
+                print(
+                    f"  Expected Final: Away {live_res.expected_final_away_runs:.2f} - "
+                    f"Home {live_res.expected_final_home_runs:.2f} "
+                    f"(Total: {live_res.expected_final_total_runs:.2f})"
+                )
+                print("  Over / Under Probs:")
+                for line, prob in sorted(live_res.over_under_probs.items()):
+                    print(f"    Over {line}: {prob * 100:.1f}%")
+            else:
+                sim_res = simulate.simulate_games_fast(
+                    home_table=home_table,
+                    away_table=away_table,
+                    n_simulations=args.sims,
+                    seed=args.seed,
+                )
+                print(
+                    f"Monte Carlo Game Simulation [{sim_res.device.upper()}] "
+                    f"({sim_res.simulations_run:,} sims in {sim_res.duration_ms:.1f}ms | "
+                    f"{sim_res.simulations_per_sec:,.0f} sims/sec):"
+                )
+                print(
+                    f"  Home Win Prob: {sim_res.home_win_prob * 100:.1f}% | "
+                    f"Away Win Prob: {sim_res.away_win_prob * 100:.1f}%"
+                )
+                print(
+                    f"  Home -1.5 Cover: {sim_res.home_cover_run_line_prob * 100:.1f}% | "
+                    f"Away +1.5 Cover: {sim_res.away_cover_run_line_prob * 100:.1f}%"
+                )
+                print(
+                    f"  Expected Runs: Home {sim_res.expected_home_runs:.2f} | "
+                    f"Away {sim_res.expected_away_runs:.2f} | "
+                    f"Total {sim_res.expected_total_runs:.2f}"
+                )
+                print("  Totals Over/Under:")
+                for line, prob in sorted(sim_res.over_under_probs.items()):
+                    print(
+                        f"    Over {line}: {prob * 100:.1f}% | "
+                        f"Under {line}: {(1.0 - prob) * 100:.1f}%"
+                    )
+    elif args.command == "props":
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.model import props
+
+        if args.game_pk:
+            with get_connection() as conn:
+                game_props = props.fetch_game_pitcher_props(args.game_pk, conn=conn)
+                if not game_props:
+                    print(f"No starting pitcher data found for game_pk={args.game_pk}")
+                for p in game_props:
+                    print(f"Pitcher: {p.player_name} (ID {p.player_id})")
+                    print(
+                        f"  Projected K%: {p.projected_k_pct * 100:.1f}% | "
+                        f"Expected BF: {p.expected_bf:.1f} | Expected K: {p.expected_k:.2f}"
+                    )
+                    print("  Strikeout Lines:")
+                    for line, prob in sorted(p.over_under_probs.items()):
+                        print(
+                            f"    Over {line}: {prob * 100:.1f}% | "
+                            f"Under {line}: {(1.0 - prob) * 100:.1f}%"
+                        )
+        elif args.pitcher_k is not None:
+            k_prop = props.predict_pitcher_strikeouts(
+                player_id=1,
+                player_name="Target Pitcher",
+                mlb_game_pk="manual",
+                pitcher_k_pct=args.pitcher_k,
+                opponent_k_pct=args.opp_k,
+                pitcher_rest_days=args.rest_days,
+            )
+            outs_prop = props.predict_pitcher_outs(
+                player_id=1,
+                player_name="Target Pitcher",
+                mlb_game_pk="manual",
+                pitcher_fip=args.pitcher_fip,
+                opponent_wrc_plus=args.opp_wrc,
+                pitcher_rest_days=args.rest_days,
+            )
+            print(
+                f"Pitcher Prop Forecast (K%={args.pitcher_k * 100:.1f}%, "
+                f"Opp K%={args.opp_k * 100:.1f}%):"
+            )
+            print(
+                f"  Expected Strikeouts: {k_prop.expected_k:.2f} "
+                f"(Projected K%: {k_prop.projected_k_pct * 100:.1f}%, "
+                f"BF: {k_prop.expected_bf:.1f})"
+            )
+            print(
+                f"  Expected Outs Recorded: {outs_prop.expected_outs:.1f} "
+                f"({outs_prop.expected_ip:.1f} IP)"
+            )
+            print("  Strikeout Over/Under Probabilities:")
+            for line, prob in sorted(k_prop.over_under_probs.items()):
+                print(
+                    f"    Over {line}: {prob * 100:.1f}% | Under {line}: {(1.0 - prob) * 100:.1f}%"
+                )
+            print("  Outs Recorded Over/Under Probabilities:")
+            for line, prob in sorted(outs_prop.over_under_probs.items()):
+                print(
+                    f"    Over {line}: {prob * 100:.1f}% | Under {line}: {(1.0 - prob) * 100:.1f}%"
+                )
+        else:
+            print("Please provide --game-pk or --pitcher-k. Use mlb props --help for options.")
+    elif args.command == "serve":
+        import json
+
+        from mlb_baseball import serve
+        from mlb_baseball.db import get_connection
+
+        with get_connection() as conn:
+            if args.mart == "daily-grid":
+                data = serve.fetch_daily_betting_grid(game_date=args.date, conn=conn)
+            elif args.mart == "pitcher-card":
+                data = serve.fetch_pitcher_card(player_id=args.player_id, conn=conn)
+            elif args.mart == "props":
+                data = serve.fetch_pitcher_prop_market(
+                    game_date=args.date, mlb_game_pk=args.game_pk, conn=conn
+                )
+            elif args.mart == "live-tracker":
+                data = serve.fetch_live_game_tracker(
+                    game_date=args.date, mlb_game_pk=args.game_pk, conn=conn
+                )
+            elif args.mart == "alpha":
+                data = serve.fetch_prediction_market_alpha(min_edge=args.min_edge, conn=conn)
+            else:
+                data = []
+
+        if args.json:
+            print(json.dumps(data, default=str, indent=2))
+        else:
+            print(f"Serving Mart: serve.{args.mart} ({len(data)} rows):")
+            for row in data[:20]:
+                print(" ", row)
+            if len(data) > 20:
+                print(f"  ... and {len(data) - 20} more rows")
 
 
 if __name__ == "__main__":

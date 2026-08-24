@@ -2,6 +2,15 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-108: Unified CLI Subcommands for Simulation, Props, & Serving Marts (`CLI-01`, Package 20)
+
+**Decision:** Added first-class CLI subcommands `mlb simulate`, `mlb props`, and `mlb serve` in `mlb_baseball/cli.py` connecting the newly implemented high-throughput Monte Carlo Markov simulation engine, player-game proposition forecaster, and analytical serving marts into a unified developer and operational surface.
+- **Commands Added**:
+  - `mlb simulate`: High-throughput batch full-game simulation and in-game live simulation (`--live`, `--inning`, `--bottom`, `--outs`, `--home-score`, `--away-score`), producing win probabilities, -1.5 run-line cover rates, totals distributions, and throughput diagnostics across CPU / CUDA GPU.
+  - `mlb props`: Proposition market forecaster by `--game-pk` or manual parameter overrides (`--pitcher-k`, `--opp-k`, `--pitcher-fip`, `--opp-wrc`), outputting strikeout Poisson PMFs (lines 3.5 to 8.5) and expected outs / IP.
+  - `mlb serve`: Query and export analytical serving marts (`daily-grid`, `pitcher-card`, `props`, `live-tracker`, `alpha`) with `--date`, `--game-pk`, `--player-id`, and `--json` format flags.
+- **Verification**: End-to-end command-line integration tested across simulation, proposition, and serving queries.
+
 ## ADR-107: Live In-Play Game Tracking & Props Serving Marts (`LIVE-01`, Package 19)
 
 **Decision:** Created analytical serving marts in migration `migrations/0079_live_game_and_props_views.sql`, access module `mlb_baseball/serve.py`, and integration tests in `tests/integration/test_serve.py`.

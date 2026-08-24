@@ -2,6 +2,15 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-123: Serving Layer Marts for Standings & Pre-Joined Matchup Dossiers (`SERVE-02`, Package 35)
+
+**Decision:** Created migration `migrations/0080_ros_and_stacked_serving_views.sql` adding dedicated read-only analytical marts `serve.ros_team_standings` and `serve.matchup_dossier` for instant Astro web interface rendering.
+- **Architectural & Design Principles**:
+  - `serve.ros_team_standings`: Pre-computes in-season standings, win percentages, run differentials, and Pythagorean win expectations directly from `core.game` with zero lookahead leakage.
+  - `serve.matchup_dossier`: Pre-joins starting pitcher SIERA, xFIP, CSW%, pitch movement (IVB, curve drop), bullpen quality, park factors, air density index, and latest model ensemble predictions (`gbm-v2`, `log5-v2`, `elo-v1`).
+  - High-Performance Web Contract: Allows Astro static generation (SSG) and server-side rendering (SSR) to load rich quantitative game cards with sub-10ms query times.
+- **Verification**: `tests/unit/test_serve_views.py` passing; 472/472 full repository unit tests passing.
+
 ## ADR-122: Bayesian Constrained Stacking & Convex Simplex Meta-Learner (`STACK-02`, Package 34)
 
 **Decision:** Built Bayesian constrained stacking meta-learner in `mlb_baseball/model/stack.py` and CLI subcommand `mlb stack` to optimally combine base model predictions on the probability simplex.

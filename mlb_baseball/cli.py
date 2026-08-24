@@ -867,6 +867,66 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter clutch context (CLUTCH-01)
+    clutch_parser = subparsers.add_parser(
+        "clutch",
+        help="evaluate high-leverage WPA and clutch splits (CLUTCH-01)",
+    )
+    clutch_parser.add_argument(
+        "--overall", type=float, default=0.335, help="overall wOBA (default: 0.335)"
+    )
+    clutch_parser.add_argument(
+        "--pa-high", type=int, default=90, help="high LI PA count (default: 90)"
+    )
+    clutch_parser.add_argument(
+        "--woba-high", type=float, default=0.395, help="high LI wOBA (default: 0.395)"
+    )
+    clutch_parser.add_argument(
+        "--wpa", type=float, default=3.10, help="win probability added (default: 3.10)"
+    )
+    clutch_parser.add_argument(
+        "--pli", type=float, default=1.12, help="average leverage faced (default: 1.12)"
+    )
+    clutch_parser.add_argument(
+        "--json", action="store_true", help="output clutch evaluation as JSON"
+    )
+
+    # Defensive outfield arm (ARM-01)
+    arm_parser = subparsers.add_parser(
+        "arm",
+        help="evaluate outfield throw velocity and runner hold rate (ARM-01)",
+    )
+    arm_parser.add_argument(
+        "--velo", type=float, default=98.0, help="arm throw velocity mph (default: 98.0)"
+    )
+    arm_parser.add_argument(
+        "--exchange", type=float, default=0.70, help="exchange transfer time s (default: 0.70)"
+    )
+    arm_parser.add_argument("--pos", type=str, default="RF", help="outfield position (default: RF)")
+    arm_parser.add_argument("--json", action="store_true", help="output arm evaluation as JSON")
+
+    # Pitcher arsenal diversity (ARSENAL-01)
+    ars_parser = subparsers.add_parser(
+        "arsenal",
+        help="evaluate repertoire diversity and count predictability (ARSENAL-01)",
+    )
+    ars_parser.add_argument("--pitcher", type=str, default="Yu Darvish", help="pitcher name")
+    ars_parser.add_argument(
+        "--count", type=str, default="ALL_COUNTS", help="count state (default: ALL_COUNTS)"
+    )
+    ars_parser.add_argument("--json", action="store_true", help="output diversity as JSON")
+
+    # Game score flow chart (FLOW-01)
+    flow_parser = subparsers.add_parser(
+        "score-flow",
+        help="generate vector SVG game score progression chart (FLOW-01)",
+    )
+    flow_parser.add_argument(
+        "--title", type=str, default="LAD 5, SF 3 Live Score Flow", help="chart title"
+    )
+    flow_parser.add_argument("--home", type=str, default="LAD", help="home team (default: LAD)")
+    flow_parser.add_argument("--away", type=str, default="SF", help="away team (default: SF)")
+
     # Batter spray direction (SPRAY-01)
     spray_parser = subparsers.add_parser(
         "spray",
@@ -3148,6 +3208,158 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "clutch":
+        import json as json_lib
+
+        from mlb_baseball.model.clutch import (
+            BatterClutchEngine,
+            BatterClutchRawStats,
+        )
+
+        clutch_eng = BatterClutchEngine()
+        clutch_st = BatterClutchRawStats(
+            "b1",
+            "Target Hitter",
+            woba_overall=args.overall,
+            pa_high_li=args.pa_high,
+            woba_high_li=args.woba_high,
+            wpa=args.wpa,
+            pli=args.pli,
+        )
+        clutch_res = clutch_eng.evaluate_clutch(clutch_st)
+
+        if args.json:
+            clutch_out = {
+                "shrunk_high_li_woba": clutch_res.shrunk_high_li_woba,
+                "clutch_woba_delta": clutch_res.clutch_woba_delta,
+                "clutch_index": clutch_res.clutch_index,
+                "tier": clutch_res.clutch_tier,
+                "is_asset": clutch_res.is_high_leverage_asset,
+            }
+            print(json_lib.dumps(clutch_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     BATTER CLUTCH PERFORMANCE [{clutch_res.clutch_tier}]")
+            hdr_cl = (
+                f"     High-LI Shrunk wOBA: {clutch_res.shrunk_high_li_woba:.3f} "
+                f"| Delta: {clutch_res.clutch_woba_delta:>+5.3f} "
+                f"| Clutch Index: {clutch_res.clutch_index:>+5.2f}"
+            )
+            print(hdr_cl)
+            print(f"{'=' * 84}\n")
+            print(f"  • Clutch Classification : {clutch_res.clutch_tier}")
+            hl_asset = "YES" if clutch_res.is_high_leverage_asset else "NO"
+            print(f"  • High-Leverage Asset   : {hl_asset}\n")
+
+    elif args.command == "arm":
+        import json as json_lib
+
+        from mlb_baseball.model.arm import (
+            OutfieldArmEngine,
+            OutfielderArmMetrics,
+        )
+
+        arm_eng = OutfieldArmEngine()
+        arm_m = OutfielderArmMetrics(
+            "f1",
+            "Target Fielder",
+            position=args.pos,
+            arm_velocity_mph=args.velo,
+            exchange_time_s=args.exchange,
+        )
+        arm_res = arm_eng.evaluate_arm(arm_m)
+
+        if args.json:
+            arm_out = {
+                "position": arm_res.position,
+                "arm_velocity_mph": arm_res.arm_velocity_mph,
+                "throw_arrival_time_s": arm_res.throw_arrival_time_s,
+                "hold_rate_pct": arm_res.hold_rate_pct,
+                "arm_runs_saved_season": arm_res.arm_runs_saved_season,
+                "tier": arm_res.arm_tier,
+            }
+            print(json_lib.dumps(arm_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OUTFIELD ARM STRENGTH & RUNNER HOLD [{arm_res.arm_tier}]")
+            hdr_ar = (
+                f"     Velo: {arm_res.arm_velocity_mph:.1f}mph "
+                f"| Arrival: {arm_res.throw_arrival_time_s:.2f}s "
+                f"| Hold%: {arm_res.hold_rate_pct:.1f}% "
+                f"| ARM: {arm_res.arm_runs_saved_season:>+4.1f} runs"
+            )
+            print(hdr_ar)
+            print(f"{'=' * 84}\n")
+            print(f"  • Arm Classification : {arm_res.arm_tier}")
+            print(f"  • 162-Game Run Impact: {arm_res.arm_runs_saved_season:>+4.1f} runs\n")
+
+    elif args.command == "arsenal":
+        import json as json_lib
+
+        from mlb_baseball.model.diversity import (
+            ArsenalDiversityEngine,
+            DiversityArsenalMix,
+        )
+
+        div_eng = ArsenalDiversityEngine()
+        sample_mix = DiversityArsenalMix(
+            "p1",
+            args.pitcher,
+            args.count,
+            {"FF": 0.32, "SL": 0.26, "CH": 0.18, "CU": 0.14, "SI": 0.10},
+        )
+        div_res = div_eng.evaluate_diversity(sample_mix)
+
+        if args.json:
+            div_out = {
+                "pitcher": div_res.pitcher_name,
+                "pitch_count": div_res.pitch_count,
+                "diversity_index": div_res.diversity_index,
+                "entropy_bits": div_res.entropy_bits,
+                "tier": div_res.repertoire_tier,
+                "predictable": div_res.is_highly_predictable,
+            }
+            print(json_lib.dumps(div_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PITCH ARSENAL DIVERSITY [{div_res.repertoire_tier}]")
+            hdr_di = (
+                f"     Pitches: {div_res.pitch_count} "
+                f"| Diversity Index: {div_res.diversity_index:.2f}/1.00 "
+                f"| Entropy: {div_res.entropy_bits:.2f} bits"
+            )
+            print(hdr_di)
+            print(f"{'=' * 84}\n")
+            print(f"  • Repertoire Tier   : {div_res.repertoire_tier}")
+            print(
+                f"  • Predictability Risk: {'HIGH' if div_res.is_highly_predictable else 'LOW'}\n"
+            )
+
+    elif args.command == "score-flow":
+        from mlb_baseball.visual import (
+            GameScoreFlowProfile,
+            InningScoreFlowRenderer,
+            InningScoreStep,
+        )
+
+        flow_renderer = InningScoreFlowRenderer()
+        steps = [
+            InningScoreStep(1, 0, 1, 0, 1),
+            InningScoreStep(2, 0, 0, 0, 1),
+            InningScoreStep(3, 2, 0, 2, 1),
+            InningScoreStep(4, 0, 2, 2, 3),
+            InningScoreStep(5, 1, 1, 3, 4),
+            InningScoreStep(6, 0, 1, 3, 5),
+            InningScoreStep(7, 0, 0, 3, 5),
+            InningScoreStep(8, 0, 0, 3, 5),
+            InningScoreStep(9, 0, 0, 3, 5),
+        ]
+        flow_prof = GameScoreFlowProfile(args.title, args.home, args.away, steps)
+        chart = flow_renderer.render(flow_prof)
+        print(
+            f"Generated Vector SVG Score Flow for '{args.title}' ({len(chart.svg_content)} bytes)"
+        )
 
     elif args.command == "spray":
         import json as json_lib

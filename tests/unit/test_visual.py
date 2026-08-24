@@ -148,3 +148,30 @@ def test_pitch_break_chart_svg_generation():
     assert "Paul Skenes Arsenal Movement" in chart.svg_content
     assert "FF (98)" in chart.svg_content
     assert "Arm Side HB" in chart.svg_content
+
+
+def test_inning_score_flow_svg_generation():
+    """Verify InningScoreFlowRenderer generates stepped game score flow chart."""
+    from mlb_baseball.visual import (
+        GameScoreFlowProfile,
+        InningScoreFlowRenderer,
+        InningScoreStep,
+    )
+
+    renderer = InningScoreFlowRenderer()
+    innings = [
+        InningScoreStep(1, 0, 0, 0, 0),
+        InningScoreStep(2, 0, 2, 0, 2),
+        InningScoreStep(3, 1, 0, 1, 2),
+        InningScoreStep(4, 0, 1, 1, 3),
+        InningScoreStep(5, 2, 0, 3, 3),
+    ]
+    profile = GameScoreFlowProfile("LAD 3, SF 3 Live Game Flow", "LAD", "SF", innings)
+    chart = renderer.render(profile)
+
+    assert chart.width_px == 600
+    assert chart.height_px == 350
+    assert "<svg" in chart.svg_content
+    assert "LAD 3, SF 3 Live Game Flow" in chart.svg_content
+    assert "Inn 1" in chart.svg_content
+    assert "polyline" in chart.svg_content

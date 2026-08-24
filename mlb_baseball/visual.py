@@ -21,6 +21,7 @@ class ChartType(enum.Enum):
     SPIDER_RADAR_CHART = "spider_radar_chart"
     ODDS_MOVEMENT_TIMELINE = "odds_movement_timeline"
     PITCH_BREAK_CHART = "pitch_break_chart"
+    INNING_SCORE_FLOW = "inning_score_flow"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -648,6 +649,126 @@ class PitchBreakChartRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class InningScoreStep:
+    """Run scoring progression for a single inning."""
+
+    inning: int
+    away_runs_scored: int
+    home_runs_scored: int
+    away_cumulative: int
+    home_cumulative: int
+
+
+@dataclasses.dataclass(frozen=True)
+class GameScoreFlowProfile:
+    """Cumulative inning-by-inning score flow for a baseball game."""
+
+    title: str
+    home_team: str
+    away_team: str
+    innings: list[InningScoreStep]
+
+
+class InningScoreFlowRenderer:
+    """Renders pure-Python vector SVG stepped game score flow and lead changes (FLOW-01)."""
+
+    def __init__(self, width: int = 600, height: int = 350) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: GameScoreFlowProfile) -> GeneratedVectorChart:
+        """Render inning score flow into stepped SVG line chart."""
+        if not profile.innings:
+            raise ValueError("Innings profile cannot be empty")
+
+        margin_left = 60.0
+        margin_right = 40.0
+        margin_top = 50.0
+        margin_bottom = 50.0
+
+        plot_w = self.width - margin_left - margin_right
+        plot_h = self.height - margin_top - margin_bottom
+
+        max_runs = max(
+            [step.home_cumulative for step in profile.innings]
+            + [step.away_cumulative for step in profile.innings]
+            + [5]
+        )
+
+        n_inn = len(profile.innings)
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="30" fill="#f8fafc" font-size="15" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+        ]
+
+        # Horizontal Run Gridlines
+        for r in range(max_runs + 1):
+            norm_y = r / max_runs
+            y_px = (margin_top + plot_h) - (norm_y * plot_h)
+            svg_parts.append(
+                f'<line x1="{margin_left}" y1="{y_px:.1f}" x2="{self.width - margin_right}" '
+                f'y2="{y_px:.1f}" stroke="#1e293b" stroke-width="1.0" />'
+            )
+            svg_parts.append(
+                f'<text x="{margin_left - 10}" y="{y_px + 4:.1f}" fill="#64748b" font-size="11" '
+                f'text-anchor="end" font-family="monospace">{r}</text>'
+            )
+
+        home_pts: list[str] = [f"{margin_left:.1f},{(margin_top + plot_h):.1f}"]
+        away_pts: list[str] = [f"{margin_left:.1f},{(margin_top + plot_h):.1f}"]
+
+        for idx, step in enumerate(profile.innings):
+            x_left = margin_left + (idx / n_inn) * plot_w
+            x_right = margin_left + ((idx + 1) / n_inn) * plot_w
+
+            h_y = (margin_top + plot_h) - (step.home_cumulative / max_runs * plot_h)
+            a_y = (margin_top + plot_h) - (step.away_cumulative / max_runs * plot_h)
+
+            home_pts.extend([f"{x_left:.1f},{h_y:.1f}", f"{x_right:.1f},{h_y:.1f}"])
+            away_pts.extend([f"{x_left:.1f},{a_y:.1f}", f"{x_right:.1f},{a_y:.1f}"])
+
+            # Inning X labels
+            x_mid = (x_left + x_right) / 2.0
+            svg_parts.append(
+                f'<text x="{x_mid:.1f}" y="{self.height - 20}" fill="#94a3b8" font-size="11" '
+                f'text-anchor="middle" font-family="sans-serif">Inn {step.inning}</text>'
+            )
+
+        # Polylines for Home (Cyan) and Away (Purple)
+        svg_parts.append(
+            f'<polyline points="{" ".join(home_pts)}" fill="none" stroke="#00d2be" '
+            f'stroke-width="2.5" />'
+        )
+        svg_parts.append(
+            f'<polyline points="{" ".join(away_pts)}" fill="none" stroke="#a855f7" '
+            f'stroke-width="2.5" />'
+        )
+
+        # Legend
+        svg_parts.append(
+            f'<text x="{margin_left + 10}" y="{margin_top + 15}" fill="#00d2be" font-size="12" '
+            f'font-weight="bold" font-family="sans-serif">{profile.home_team} (Home)</text>'
+        )
+        svg_parts.append(
+            f'<text x="{margin_left + 130}" y="{margin_top + 15}" fill="#a855f7" font-size="12" '
+            f'font-weight="bold" font-family="sans-serif">{profile.away_team} (Away)</text>'
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.INNING_SCORE_FLOW,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -691,6 +812,10 @@ def health_check() -> list[Check]:
         ]
         break_chart = break_renderer.render(PitcherArsenalBreakProfile("Test Pitcher", pitches))
 
+        flow_renderer = InningScoreFlowRenderer()
+        steps = [InningScoreStep(1, 0, 1, 0, 1), InningScoreStep(2, 0, 0, 0, 1)]
+        flow_chart = flow_renderer.render(GameScoreFlowProfile("Test Flow", "LAD", "SF", steps))
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -698,6 +823,7 @@ def health_check() -> list[Check]:
             and "<svg" in radar_chart.svg_content
             and "<svg" in odds_chart.svg_content
             and "<svg" in break_chart.svg_content
+            and "<svg" in flow_chart.svg_content
         ):
             checks.append(
                 Check(

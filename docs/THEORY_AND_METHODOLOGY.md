@@ -76,7 +76,11 @@ This document serves as the academic and theoretical reference manual for the ML
 50. [Starting Pitcher Times-Through-the-Order (TTO) Degradation](#50-starting-pitcher-times-through-the-order-tto-degradation)
 51. [30-Ballpark Environmental Carry & Fence Geometry Simulation](#51-30-ballpark-environmental-carry--fence-geometry-simulation)
 52. [2D Cartesian Pitch Break & Movement Visualizer Architecture](#52-2d-cartesian-pitch-break--movement-visualizer-architecture)
-53. [Academic Bibliography & Literature Citations](#53-academic-bibliography--literature-citations)
+53. [Batter Clutch Performance & High-Leverage Shrinkage](#53-batter-clutch-performance--high-leverage-shrinkage)
+54. [Outfield Throw Kinematics & Runner Hold Dynamics](#54-outfield-throw-kinematics--runner-hold-dynamics)
+55. [Gini-Simpson Pitch Arsenal Diversity Index & Entropy](#55-gini-simpson-pitch-arsenal-diversity-index--entropy)
+56. [Pure-Python SVG Inning Score Flow Architecture](#56-pure-python-svg-inning-score-flow-architecture)
+57. [Academic Bibliography & Literature Citations](#57-academic-bibliography--literature-citations)
 
 ---
 
@@ -681,7 +685,39 @@ $$(x_{\text{svg}}, y_{\text{svg}}) = \left(M_x + \frac{\text{HB} - \text{HB}_{\m
 
 ---
 
-## 53. Academic Bibliography & Literature Citations
+## 53. Batter Clutch Performance & High-Leverage Shrinkage
+
+### 53.1 Empirical Bayes High-LI Shrinkage
+$$\text{wOBA}^*_{\text{high\_li}} = \frac{\text{PA}_{\text{high}} \cdot \text{wOBA}_{\text{high}} + M \cdot \text{wOBA}_{\text{overall}}}{\text{PA}_{\text{high}} + M} \quad (M = 600\text{ PA})$$
+$$\text{Clutch Score} = \frac{\text{WPA}}{\text{pLI}} - \text{ContextNeutralWPA}$$
+
+---
+
+## 54. Outfield Throw Kinematics & Runner Hold Dynamics
+
+### 54.1 Time-to-Target & Runner Suppression
+$$t_{\text{arrival}} = t_{\text{exchange}} + \frac{d_{\text{throw}}}{v_{\text{arm}} \cdot 1.4667 \times 0.92}$$
+$$\text{Hold\%} = \frac{1}{1 + e^{-8.0 \cdot (2.55 - t_{\text{arrival}})}} \times 100\%$$
+$$\text{ARM}_{\text{runs}} = (\text{Hold\%} - 60.0\%) \cdot \text{Opportunities} \cdot 0.28$$
+
+---
+
+## 55. Gini-Simpson Pitch Arsenal Diversity Index & Entropy
+
+### 55.1 Normalized Gini-Simpson Index (ADI)
+$$\text{ADI} = \frac{K}{K - 1} \cdot \left(1.0 - \sum_{i=1}^K p_i^2\right) \quad (\text{for } K \ge 2)$$
+$$H = -\sum_{i=1}^K p_i \log_2(p_i) \quad (\text{bits})$$
+
+---
+
+## 56. Pure-Python SVG Inning Score Flow Architecture
+
+### 56.1 Dual-Team Stepped Cumulative Flow Geometry
+$$(x_{\text{left}, i}, y_i) = \left(M_x + \frac{i}{N_{\text{inn}}} W_{\text{plot}}, (M_y + H_{\text{plot}}) - \frac{R_{\text{cum}, i}}{R_{\max}} H_{\text{plot}}\right)$$
+
+---
+
+## 57. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -719,3 +755,5 @@ $$(x_{\text{svg}}, y_{\text{svg}}) = \left(M_x + \frac{\text{HB} - \text{HB}_{\m
 34. **Carleton, Russell A.** (2018). *The Shift: The Next Evolution in Baseball Thinking*.
 35. **Silver, Nate** (2006). "The Times Through the Order Penalty". *Baseball Prospectus*.
 36. **Nathan, Alan M.** (2015). "Fly Ball Aerodynamics and Carry in Major League Baseball Stadiums".
+37. **Cramer, Richard D.** (1977). "Do Clutch Hitters Exist?". *Baseball Research Journal*.
+38. **Simpson, Edward H.** (1949). "Measurement of Diversity". *Nature*.

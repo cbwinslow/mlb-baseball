@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### FLOW-01 pure-Python SVG inning score flow & lead matrix renderer: implemented (ADR-170) — 2026-08-24
+Added `InningScoreFlowRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb score-flow` CLI command.
+- Renders stepped dual-team cumulative game score progressions with lead change dynamics and inning run callouts.
+
+### ARSENAL-01 pitcher arsenal diversity & count-state game theory optimizer: implemented (ADR-169) — 2026-08-24
+Added `mlb_baseball/model/diversity.py`, unit tests in `tests/unit/test_diversity.py`, and `mlb arsenal` CLI command.
+- Quantifies Gini-Simpson arsenal diversity (ADI) and Shannon entropy across count states to detect pitch predictability.
+
+### ARM-01 defensive outfield arm strength & runner hold engine: implemented (ADR-168) — 2026-08-24
+Added `mlb_baseball/model/arm.py`, unit tests in `tests/unit/test_arm.py`, and `mlb arm` CLI command.
+- Evaluates Statcast throw velocity, transfer exchange kinematics, and extra-base runner hold rates for ARM runs saved.
+
+### CLUTCH-01 batter clutch context & high-leverage split engine: implemented (ADR-167) — 2026-08-24
+Added `mlb_baseball/model/clutch.py`, unit tests in `tests/unit/test_clutch.py`, and `mlb clutch` CLI command.
+- Applies Empirical Bayes regression ($M=600$ PA) to evaluate true-talent high-leverage wOBA deltas and WPA/pLI clutch scores.
+
 ### BREAK-PLOT-01 pure-Python SVG pitch arsenal break & movement plotter: implemented (ADR-166) — 2026-08-24
 Added `PitchBreakChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb break-plot` CLI command.
 - Renders 2D Cartesian pitch movement plots (IVB vs HB) with pitch speed tags, crosshairs, and color-coded scatter markers.

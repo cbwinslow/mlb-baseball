@@ -2,6 +2,47 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-170: Pure-Python SVG Inning Score Flow & Lead Matrix Renderer (`FLOW-01`, Package 82)
+
+**Decision:** Built stepped game score progression and lead transition chart renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb score-flow`.
+- **Operational Architecture & Geometry**:
+  - Stepped Cumulative Progression: Plots Home vs Away run accumulation across innings 1 through 9+.
+  - Inning Gridlines & Run Markers: Renders dual-color cyan/purple stepped polylines with inning callouts.
+  - CLI: `mlb score-flow --title "LAD 5, SF 3 Live Score Flow" --home LAD --away SF`.
+- **Verification**: 8/8 unit tests in `tests/unit/test_visual.py` passing; 627/627 full repository unit tests passing.
+
+## ADR-169: Pitcher Arsenal Diversity & Count-State Game Theory Optimizer (`ARSENAL-01`, Package 81)
+
+**Decision:** Built repertoire depth, Gini-Simpson diversity, and count predictability modeling in `mlb_baseball/model/diversity.py` and CLI subcommand `mlb arsenal`.
+- **Mathematical Formulations & Methodology**:
+  - Gini-Simpson Arsenal Diversity Index: $\text{ADI} = \frac{K}{K - 1} \cdot \left(1.0 - \sum p_i^2\right)$.
+  - Shannon Entropy: $H = -\sum p_i \log_2(p_i)$ in bits.
+  - Predictability: Flags single-pitch dominance ($\ge 62\%$) in 2-strike counts.
+  - Tiers: `FIVE_PITCH_CHAMELEON` ($K \ge 4, \text{ADI} \ge 0.80$), `BALANCED_MIX`, `TWO_PITCH_PREDICTABLE`.
+  - CLI: `mlb arsenal --pitcher "Yu Darvish" --count ALL_COUNTS`, `mlb arsenal --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_diversity.py` passing; 627/627 full repository unit tests passing.
+
+## ADR-168: Defensive Outfield Arm Strength & Runner Hold Engine (`ARM-01`, Package 80)
+
+**Decision:** Built Statcast throw kinematics, base advancement suppression, and arm run value modeling in `mlb_baseball/model/arm.py` and CLI subcommand `mlb arm`.
+- **Mathematical Formulations & Methodology**:
+  - Throw Arrival Kinematics: $t_{\text{arrival}} = t_{\text{exchange}} + \frac{d_{\text{throw}}}{v_{\text{arm}} \cdot 1.4667 \times 0.92}$.
+  - Hold Probability: $\text{Hold\%} = \frac{1}{1 + e^{-8.0 \cdot (2.55 - t_{\text{arrival}})}} \times 100\%$.
+  - ARM Runs Saved: $\text{ARM}_{\text{runs}} = (\text{Hold\%} - 60\%) \cdot \text{Opportunities} \cdot 0.28$.
+  - Tiers: `CANNON_ELITE` ($v_{\text{arm}} \ge 96.0\text{ mph}$), `ABOVE_AVERAGE`, `AVERAGE`, `WEAK_ARM_TARGET`.
+  - CLI: `mlb arm --velo 98.0 --exchange 0.70 --pos RF`, `mlb arm --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_arm.py` passing; 627/627 full repository unit tests passing.
+
+## ADR-167: Batter Clutch Context & High-Leverage Split Engine (`CLUTCH-01`, Package 79)
+
+**Decision:** Built leverage-adjusted performance modeling and Empirical Bayes clutch regression in `mlb_baseball/model/clutch.py` and CLI subcommand `mlb clutch`.
+- **Mathematical Formulations & Methodology**:
+  - Empirical Bayes High-LI Shrinkage: $\text{wOBA}^*_{\text{high\_li}} = \frac{\text{PA}_{\text{high}} \cdot \text{wOBA}_{\text{high}} + M \cdot \text{wOBA}_{\text{overall}}}{\text{PA}_{\text{high}} + M} \quad (M = 600\text{ PA})$.
+  - Sabermetric Clutch Score: $\text{Clutch} = \frac{\text{WPA}}{\text{pLI}} - \text{ContextNeutralWPA}$.
+  - Tiers: `CLUTCH_PERFORMER` ($\Delta \text{wOBA} \ge +0.010$), `NEUTRAL_PRODUCER`, `LEVERAGE_COLLAPSE`.
+  - CLI: `mlb clutch --overall 0.335 --pa-high 90 --woba-high 0.395 --wpa 3.10 --pli 1.12`, `mlb clutch --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_clutch.py` passing; 627/627 full repository unit tests passing.
+
 ## ADR-166: Pure-Python SVG Pitch Arsenal Break & Movement Plotter (`BREAK-PLOT-01`, Package 78)
 
 **Decision:** Built 2D Cartesian pitch break chart renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb break-plot`.

@@ -259,6 +259,7 @@ def run() -> list[Check]:
     from mlb_baseball import serve
     from mlb_baseball.model import (
         aging,
+        arm,
         backtest,
         baserunning,
         blocking,
@@ -268,9 +269,11 @@ def run() -> list[Check]:
         calibration,
         carry,
         cluster,
+        clutch,
         count,
         damage,
         decision,
+        diversity,
         drift,
         entropy,
         extension,
@@ -418,6 +421,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(clutch.health_check())
+    except Exception as exc:
+        checks.append(Check("clutch", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(arm.health_check())
+    except Exception as exc:
+        checks.append(Check("arm", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(diversity.health_check())
+    except Exception as exc:
+        checks.append(Check("diversity", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(spray.health_check())
     except Exception as exc:

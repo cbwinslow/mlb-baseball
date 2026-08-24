@@ -237,3 +237,12 @@ def test_spray_and_tto_and_carry_health_checks():
     assert spray.health_check()[0].ok is True
     assert tto.health_check()[0].ok is True
     assert carry.health_check()[0].ok is True
+
+
+def test_clutch_and_arm_and_diversity_health_checks():
+    """Verify health checks for clutch, arm, and diversity modules."""
+    from mlb_baseball.model import arm, clutch, diversity
+
+    assert clutch.health_check()[0].ok is True
+    assert arm.health_check()[0].ok is True
+    assert diversity.health_check()[0].ok is True

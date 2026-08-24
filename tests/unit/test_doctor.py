@@ -282,3 +282,12 @@ def test_pull_air_and_haa_and_bunt_health_checks():
     assert pull_air.health_check()[0].ok is True
     assert haa.health_check()[0].ok is True
     assert bunt.health_check()[0].ok is True
+
+
+def test_xslg_and_velo_drift_and_catch_prob_health_checks():
+    """Verify health checks for xslg, velo_drift, and catch_prob modules."""
+    from mlb_baseball.model import catch_prob, velo_drift, xslg
+
+    assert xslg.health_check()[0].ok is True
+    assert velo_drift.health_check()[0].ok is True
+    assert catch_prob.health_check()[0].ok is True

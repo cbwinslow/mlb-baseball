@@ -26,6 +26,7 @@ class ChartType(enum.Enum):
     SPATIAL_HEXBIN_MAP = "spatial_hexbin_map"
     MATCHUP_COMPARISON_CARD = "matchup_comparison_card"
     WIN_PROBABILITY_REPLAY = "win_probability_replay"
+    PITCH_TRAJECTORY_3D = "pitch_trajectory_3d"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1183,6 +1184,140 @@ class WinProbabilityReplayRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class PitchTrajectory3DSpec:
+    """Aerodynamic flight parameters for a single pitch in 3D space."""
+
+    pitch_type: str  # "FF", "SL", "CH", "CU", "SI"
+    pitch_name: str
+    release_x: float  # Feet (-2.5 to +2.5)
+    release_z: float  # Feet (5.0 to 6.5)
+    plate_x: float  # Feet (-1.2 to +1.2)
+    plate_z: float  # Feet (1.2 to 3.8)
+    pfx_x: float  # Horizontal movement in inches
+    pfx_z: float  # Induced vertical break in inches
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitchTunnel3DProfile:
+    """Multi-pitch 3D trajectory tunnel profile."""
+
+    title: str
+    pitcher_name: str
+    pitches: list[PitchTrajectory3DSpec]
+
+
+class PitchTrajectory3DVisualizerRenderer:
+    """Renders pure-Python vector SVG 3D isometric pitch flight trajectories (FLIGHT-3D-01)."""
+
+    def __init__(self, width: int = 650, height: int = 380) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitchTunnel3DProfile) -> GeneratedVectorChart:
+        """Render 3D isometric flight trajectories into vector SVG."""
+        # Mound rubber at y=54.5 ft; Home plate at y=0.0 ft
+        # Isometric projection mapping:
+        # Screen origin (center):
+        cx = self.width / 2.0
+        cy = self.height / 2.0 + 40.0
+
+        def project(x_ft: float, y_ft: float, z_ft: float) -> tuple[float, float]:
+            # y goes from 54.5 (mound, high up/back) to 0.0 (plate, low/front)
+            # x goes from left (-) to right (+)
+            # z goes from ground (0) up
+            sx = cx + (x_ft * 26.0) + ((54.5 - y_ft) * 4.2)
+            sy = cy - (z_ft * 32.0) - (y_ft * 2.8)
+            return round(sx, 1), round(sy, 1)
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="28" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="45" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} 3D Pitch Flight & Tunneling</text>',
+        ]
+
+        # 1. Home Plate Wireframe at y=0.0
+        hp_l, hp_b = project(-0.71, 0.0, 0.0)
+        hp_r, _ = project(0.71, 0.0, 0.0)
+        hp_c, hp_t = project(0.0, 0.0, 0.0)
+        svg_parts.append(
+            f'<polygon points="{hp_l:.1f},{hp_b:.1f} {hp_r:.1f},{hp_b:.1f} '
+            f'{hp_c:.1f},{hp_t + 10:.1f}" fill="#334155" stroke="#64748b" stroke-width="1.5" />'
+        )
+
+        # 2. Strike Zone Wireframe at Plate (y=0.0, z in [1.5, 3.5], x in [-0.83, 0.83])
+        sz_bl = project(-0.83, 0.0, 1.5)
+        sz_br = project(0.83, 0.0, 1.5)
+        sz_tr = project(0.83, 0.0, 3.5)
+        sz_tl = project(-0.83, 0.0, 3.5)
+        sz_pts = (
+            f"{sz_bl[0]},{sz_bl[1]} {sz_br[0]},{sz_br[1]} "
+            f"{sz_tr[0]},{sz_tr[1]} {sz_tl[0]},{sz_tl[1]}"
+        )
+        svg_parts.append(
+            f'<polygon points="{sz_pts}" fill="#00d2be" fill-opacity="0.08" '
+            f'stroke="#f8fafc" stroke-width="1.5" stroke-dasharray="3,3" />'
+        )
+
+        # 3. Mound Rubber at y=54.5
+        mr_l = project(-1.0, 54.5, 0.8)
+        mr_r = project(1.0, 54.5, 0.8)
+        svg_parts.append(
+            f'<line x1="{mr_l[0]}" y1="{mr_l[1]}" x2="{mr_r[0]}" y2="{mr_r[1]}" '
+            f'stroke="#94a3b8" stroke-width="2.5" />'
+        )
+
+        # 4. Multi-Pitch Trajectory Curves (sampled across 12 flight points)
+        for p in profile.pitches:
+            pts = []
+            for i in range(13):
+                frac = i / 12.0
+                curr_y = 54.5 * (1.0 - frac)
+                curr_x = (
+                    p.release_x
+                    + (p.plate_x - p.release_x) * frac
+                    + (p.pfx_x / 12.0) * (frac**2 - frac)
+                )
+                curr_z = (
+                    p.release_z
+                    + (p.plate_z - p.release_z) * frac
+                    + (p.pfx_z / 12.0) * (frac**2 - frac)
+                )
+                sx, sy = project(curr_x, curr_y, curr_z)
+                pts.append(f"{sx},{sy}")
+
+            svg_parts.append(
+                f'<polyline points="{" ".join(pts)}" fill="none" stroke="{p.color_hex}" '
+                f'stroke-width="2.5" stroke-linecap="round" />'
+            )
+
+            # Start & End markers
+            start_x, start_y = project(p.release_x, 54.5, p.release_z)
+            end_x, end_y = project(p.plate_x, 0.0, p.plate_z)
+            svg_parts.append(
+                f'<circle cx="{start_x}" cy="{start_y}" r="4.0" fill="{p.color_hex}" '
+                f'stroke="#ffffff" stroke-width="1.0" />'
+            )
+            svg_parts.append(
+                f'<circle cx="{end_x}" cy="{end_y}" r="5.0" fill="{p.color_hex}" '
+                f'stroke="#ffffff" stroke-width="1.5" />'
+            )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.PITCH_TRAJECTORY_3D,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -1257,6 +1392,13 @@ def health_check() -> list[Check]:
             GameWPAReplayProfile("Replay", "LAD", "NYY", "6-3", r_steps)
         )
 
+        f3d_renderer = PitchTrajectory3DVisualizerRenderer()
+        f3d_pitches = [
+            PitchTrajectory3DSpec("FF", "4-Seam", -2.2, 5.8, 0.2, 3.2, 8.0, 18.0, "#00d2be"),
+            PitchTrajectory3DSpec("SL", "Slider", -2.3, 5.7, 0.6, 2.1, -6.0, 2.0, "#f59e0b"),
+        ]
+        f3d_chart = f3d_renderer.render(PitchTunnel3DProfile("3D Flight", "Skubal", f3d_pitches))
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -1269,6 +1411,7 @@ def health_check() -> list[Check]:
             and "<svg" in hex_chart.svg_content
             and "<svg" in card_chart.svg_content
             and "<svg" in replay_chart.svg_content
+            and "<svg" in f3d_chart.svg_content
         ):
             checks.append(
                 Check(

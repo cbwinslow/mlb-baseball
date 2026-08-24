@@ -96,7 +96,11 @@ This document serves as the academic and theoretical reference manual for the ML
 70. [Pitcher Horizontal Approach Angle (HAA) & Cross-Fire Deception](#70-pitcher-horizontal-approach-angle-haa--cross-fire-deception)
 71. [Infield Bunt Defense & Lead Runner Elimination Kinematics](#71-infield-bunt-defense--lead-runner-elimination-kinematics)
 72. [Pure-Python SVG Game Win Probability Replay Architecture](#72-pure-python-svg-game-win-probability-replay-architecture)
-73. [Academic Bibliography & Literature Citations](#73-academic-bibliography--literature-citations)
+73. [Batter Contact Quality Expected Slugging (xSLG) & True Power Conversion Efficiency](#73-batter-contact-quality-expected-slugging-xslg--true-power-conversion-efficiency)
+74. [Pitcher Fastball Velocity Drift & Arm Fatigue Decline](#74-pitcher-fastball-velocity-drift--arm-fatigue-decline)
+75. [Statcast 5-Star Outfield Catch Probability & Spatial Opportunity Kinematics](#75-statcast-5-star-outfield-catch-probability--spatial-opportunity-kinematics)
+76. [Pure-Python SVG 3D Isometric Pitch Flight & Tunneling Geometry](#76-pure-python-svg-3d-isometric-pitch-flight--tunneling-geometry)
+77. [Academic Bibliography & Literature Citations](#77-academic-bibliography--literature-citations)
 
 ---
 
@@ -857,7 +861,41 @@ $$(x_i, y_i) = \left(M_x + \frac{i}{N_{\text{steps}} - 1} W_{\text{plot}}, (M_y 
 
 ---
 
-## 73. Academic Bibliography & Literature Citations
+## 73. Batter Contact Quality Expected Slugging (xSLG) & True Power Conversion Efficiency
+
+### 73.1 Expected Slugging & ISO Formulations
+$$x\text{SLG}_{\text{bbe}} = \frac{2.50 \cdot N_{\text{barrel}} + 1.25 \cdot N_{\text{solid}} + 0.65 \cdot N_{\text{flare}} + 0.18 \cdot N_{\text{under}} + 0.15 \cdot N_{\text{topped}} + 0.10 \cdot N_{\text{weak}}}{N_{\text{BBE}}}$$
+$$x\text{ISO} = (x\text{SLG}_{\text{bbe}} - x\text{BA}_{\text{bbe}}) \cdot 0.68$$
+$$\text{TPCE} = \frac{\text{Actual ISO}}{\max(0.05, x\text{ISO})} \times 100\%$$
+
+---
+
+## 74. Pitcher Fastball Velocity Drift & Arm Fatigue Decline
+
+### 74.1 Velocity Retention Index (FVRI)
+$$\Delta v = v_{\text{late}} - v_{\text{early}} \quad (\text{mph})$$
+$$\text{FVRI} = \max\left(0, 100 - \left(\frac{\max(0, -\Delta v)}{0.5}\right) \cdot 12 - \left(\frac{\max(0, -\Delta \text{Spin})}{50}\right) \cdot 6\right)$$
+$$\text{HR Mult} = 1.0 + \max(0, -\Delta v) \cdot 0.20$$
+
+---
+
+## 75. Statcast 5-Star Outfield Catch Probability & Spatial Opportunity Kinematics
+
+### 75.1 Logistic Opportunity Probability
+$$t_{\text{needed}} = 0.60\text{s} + \frac{d}{v_{\text{sprint}} \cdot 0.92} + \left(\frac{\theta}{180^\circ}\right) \cdot 0.70\text{s}$$
+$$P(\text{Catch}) = \frac{1}{1 + e^{-6.5 \cdot (t_{\text{hang}} - t_{\text{needed}})}} \times 100\%$$
+$$\text{OAA}_{\text{play}} = \mathbf{1}_{\text{caught}} - \frac{P(\text{Catch})}{100.0}$$
+
+---
+
+## 76. Pure-Python SVG 3D Isometric Pitch Flight & Tunneling Geometry
+
+### 76.1 Isometric Coordinate Projection
+$$(x_{\text{iso}}, y_{\text{iso}}) = \left(x_{\text{center}} + 26.0 \cdot x + 4.2 \cdot (54.5 - y), y_{\text{center}} - 32.0 \cdot z - 2.8 \cdot y\right)$$
+
+---
+
+## 77. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -905,3 +943,5 @@ $$(x_i, y_i) = \left(M_x + \frac{i}{N_{\text{steps}} - 1} W_{\text{plot}}, (M_y 
 44. **McCracken, Voros** (2001). "Pitching and Defense: How Much Control Do Pitchers Have?". *Baseball Prospectus*.
 45. **Carleton, Russell A.** (2018). "The Shift and Bunt Defense Dynamics". *Baseball Prospectus*.
 46. **Arthur, Rob** (2019). "The Geometry of the Pulled Fly Ball". *Baseball Prospectus*.
+47. **Fast, Mike** (2011). "How Velocity Decay Affects Pitcher Aging and In-Game Performance". *Baseball Prospectus*.
+48. **Petriello, Mike** (2017). "Introduction to Statcast Catch Probability". *MLB.com / Statcast*.

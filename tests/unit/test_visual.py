@@ -274,3 +274,28 @@ def test_win_probability_replay_svg_generation():
     assert "2024 WS Game 1 Replay" in chart.svg_content
     assert "polyline" in chart.svg_content
     assert "circle" in chart.svg_content
+
+
+def test_pitch_trajectory_3d_svg_generation():
+    """Verify PitchTrajectory3DVisualizerRenderer generates 3D flight tunnel chart."""
+    from mlb_baseball.visual import (
+        PitchTrajectory3DSpec,
+        PitchTrajectory3DVisualizerRenderer,
+        PitchTunnel3DProfile,
+    )
+
+    renderer = PitchTrajectory3DVisualizerRenderer()
+    pitches = [
+        PitchTrajectory3DSpec("FF", "4-Seam Fastball", -2.2, 5.8, 0.2, 3.2, 8.0, 18.0, "#00d2be"),
+        PitchTrajectory3DSpec("SL", "Sweeper", -2.4, 5.6, 0.8, 2.0, -8.0, 2.0, "#f59e0b"),
+        PitchTrajectory3DSpec("CH", "Changeup", -2.1, 5.7, -0.4, 1.8, 14.0, 6.0, "#a855f7"),
+    ]
+    prof = PitchTunnel3DProfile("Skubal 3D Pitch Tunnel", "Tarik Skubal", pitches)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 650
+    assert chart.height_px == 380
+    assert "<svg" in chart.svg_content
+    assert "Skubal 3D Pitch Tunnel" in chart.svg_content
+    assert "polyline" in chart.svg_content
+    assert "polygon" in chart.svg_content

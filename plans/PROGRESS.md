@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### FLIGHT-3D-01 pure-Python SVG 3D isometric pitch flight trajectory visualizer: implemented (ADR-190) — 2026-08-24
+Added `PitchTrajectory3DVisualizerRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb flight-3d` CLI command.
+- Renders 3D isometric pitch flight curves from release rubber to plate crossing plane with multi-pitch tunneling.
+
+### CATCH-PROB-01 defensive outfield 5-star catch probability & OAA: implemented (ADR-189) — 2026-08-24
+Added `mlb_baseball/model/catch_prob.py`, unit tests in `tests/unit/test_catch_prob.py`, and `mlb catch-prob` CLI command.
+- Computes logistic catch probability from opportunity distance, hang time, chase angle, and runner sprint speed.
+
+### VELO-DRIFT-01 starting pitcher fastball velocity drift & arm fatigue: implemented (ADR-188) — 2026-08-24
+Added `mlb_baseball/model/velo_drift.py`, unit tests in `tests/unit/test_velo_drift.py`, and `mlb velo-drift` CLI command.
+- Computes intra-game velocity degradation, FVRI retention index, and late-game HR vulnerability multiplier.
+
+### XSLG-01 batter contact expected slugging & ISO power decomposition: implemented (ADR-187) — 2026-08-24
+Added `mlb_baseball/model/xslg.py`, unit tests in `tests/unit/test_xslg.py`, and `mlb xslg` CLI command.
+- Evaluates 6 Statcast contact quality bins to derive expected slugging ($x\text{SLG}$) and power conversion efficiency (TPCE).
+
 ### WPA-REPLAY-01 pure-Python SVG game win probability replay visualizer: implemented (ADR-186) — 2026-08-24
 Added `WinProbabilityReplayRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb wpa-replay` CLI command.
 - Renders full game win expectancy flow charts with highlighted pivotal turning points ($|\Delta \text{WE}| \ge 0.15$).

@@ -867,6 +867,76 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter contact expected slugging & ISO (XSLG-01)
+    xslg_parser = subparsers.add_parser(
+        "xslg",
+        help="evaluate contact-binned expected slugging and ISO power (XSLG-01)",
+    )
+    xslg_parser.add_argument("--barrels", type=int, default=25, help="barrel count (default: 25)")
+    xslg_parser.add_argument("--solid", type=int, default=18, help="solid contact (default: 18)")
+    xslg_parser.add_argument("--flares", type=int, default=32, help="flares/burners (default: 32)")
+    xslg_parser.add_argument("--under", type=int, default=22, help="under flyouts (default: 22)")
+    xslg_parser.add_argument(
+        "--topped", type=int, default=38, help="topped grounders (default: 38)"
+    )
+    xslg_parser.add_argument("--weak", type=int, default=15, help="weak contact (default: 15)")
+    xslg_parser.add_argument("--iso", type=float, default=0.220, help="actual ISO (default: 0.220)")
+    xslg_parser.add_argument("--json", action="store_true", help="output xSLG evaluation as JSON")
+
+    # Pitcher fastball velocity drift (VELO-DRIFT-01)
+    vdr_parser = subparsers.add_parser(
+        "velo-drift",
+        help="evaluate intra-game fastball velocity decay and FVRI (VELO-DRIFT-01)",
+    )
+    vdr_parser.add_argument(
+        "--early", type=float, default=96.5, help="early inn velo mph (default: 96.5)"
+    )
+    vdr_parser.add_argument(
+        "--late", type=float, default=94.5, help="late inn velo mph (default: 94.5)"
+    )
+    vdr_parser.add_argument("--pitches", type=int, default=90, help="total pitches (default: 90)")
+    vdr_parser.add_argument(
+        "--early-spin", type=float, default=2400.0, help="early spin rpm (default: 2400)"
+    )
+    vdr_parser.add_argument(
+        "--late-spin", type=float, default=2320.0, help="late spin rpm (default: 2320)"
+    )
+    vdr_parser.add_argument(
+        "--json", action="store_true", help="output velo drift evaluation as JSON"
+    )
+
+    # Defensive outfield catch probability (CATCH-PROB-01)
+    cp_parser = subparsers.add_parser(
+        "catch-prob",
+        help="evaluate Statcast 5-star outfield catch probability and OAA (CATCH-PROB-01)",
+    )
+    cp_parser.add_argument(
+        "--dist", type=float, default=65.0, help="distance needed ft (default: 65.0)"
+    )
+    cp_parser.add_argument(
+        "--hang", type=float, default=4.2, help="hang time seconds (default: 4.2)"
+    )
+    cp_parser.add_argument(
+        "--angle", type=float, default=90.0, help="direction angle deg (default: 90.0)"
+    )
+    cp_parser.add_argument(
+        "--speed", type=float, default=28.5, help="sprint speed ft/s (default: 28.5)"
+    )
+    cp_parser.add_argument("--caught", action="store_true", default=True, help="was caught flag")
+    cp_parser.add_argument(
+        "--json", action="store_true", help="output catch prob evaluation as JSON"
+    )
+
+    # 3D isometric pitch trajectory flight (FLIGHT-3D-01)
+    f3d_parser = subparsers.add_parser(
+        "flight-3d",
+        help="generate vector SVG 3D isometric pitch flight and tunnel chart (FLIGHT-3D-01)",
+    )
+    f3d_parser.add_argument(
+        "--title", type=str, default="Tarik Skubal 3D Pitch Tunnel", help="chart title"
+    )
+    f3d_parser.add_argument("--pitcher", type=str, default="Tarik Skubal", help="pitcher name")
+
     # Batter pull-air power (PULL-AIR-01)
     pair_parser = subparsers.add_parser(
         "pull-air",
@@ -3426,6 +3496,155 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "xslg":
+        import json as json_lib
+
+        from mlb_baseball.model.xslg import (
+            BatterContactBins,
+            XSLGPowerEngine,
+        )
+
+        xslg_eng = XSLGPowerEngine()
+        xslg_m = BatterContactBins(
+            "b1",
+            "Target Hitter",
+            barrel_count=args.barrels,
+            solid_contact_count=args.solid,
+            flare_burner_count=args.flares,
+            under_count=args.under,
+            topped_count=args.topped,
+            weak_count=args.weak,
+            actual_iso=args.iso,
+        )
+        xslg_res = xslg_eng.evaluate_power(xslg_m)
+
+        if args.json:
+            xslg_out = {
+                "expected_xslg": xslg_res.expected_xslg,
+                "expected_xiso": xslg_res.expected_xiso,
+                "actual_iso": xslg_res.actual_iso,
+                "tpce_pct": xslg_res.tpce_efficiency_pct,
+                "tier": xslg_res.power_tier,
+                "is_elite": xslg_res.is_elite_slugger,
+            }
+            print(json_lib.dumps(xslg_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     EXPECTED SLUGGING & ISO POWER [{xslg_res.power_tier}]")
+            hdr_xs = (
+                f"     xSLG: {xslg_res.expected_xslg:.3f} "
+                f"| xISO: {xslg_res.expected_xiso:.3f} "
+                f"| Actual ISO: {xslg_res.actual_iso:.3f} "
+                f"| TPCE: {xslg_res.tpce_efficiency_pct:.1f}%"
+            )
+            print(hdr_xs)
+            print(f"{'=' * 84}\n")
+            print(f"  • Power Profile Tier   : {xslg_res.power_tier}")
+            print(f"  • Elite Barrel Slugger : {'YES' if xslg_res.is_elite_slugger else 'NO'}\n")
+
+    elif args.command == "velo-drift":
+        import json as json_lib
+
+        from mlb_baseball.model.velo_drift import (
+            FastballVeloDriftEngine,
+            PitcherVeloProfile,
+        )
+
+        vdr_eng = FastballVeloDriftEngine()
+        vdr_m = PitcherVeloProfile(
+            "p1",
+            "Target Pitcher",
+            early_game_velo_mph=args.early,
+            late_game_velo_mph=args.late,
+            pitch_count_total=args.pitches,
+            early_spin_rpm=args.early_spin,
+            late_spin_rpm=args.late_spin,
+        )
+        vdr_res = vdr_eng.evaluate_velo_drift(vdr_m)
+
+        if args.json:
+            vdr_out = {
+                "velo_drift_mph": vdr_res.velo_drift_mph,
+                "fvri_score": vdr_res.fvri_score,
+                "hr_multiplier": vdr_res.hr_vulnerability_multiplier,
+                "tier": vdr_res.fatigue_tier,
+                "is_hook": vdr_res.is_severe_hook_candidate,
+            }
+            print(json_lib.dumps(vdr_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     FASTBALL VELOCITY DRIFT [{vdr_res.fatigue_tier}]")
+            hdr_vd = (
+                f"     Velo Drift: {vdr_res.velo_drift_mph:>+4.2f} mph "
+                f"| FVRI Retention: {vdr_res.fvri_score:.1f}/100 "
+                f"| HR Mult: {vdr_res.hr_vulnerability_multiplier:.2f}x"
+            )
+            print(hdr_vd)
+            print(f"{'=' * 84}\n")
+            print(f"  • Fatigue Classification : {vdr_res.fatigue_tier}")
+            hook_txt = "YES" if vdr_res.is_severe_hook_candidate else "NO"
+            print(f"  • Severe Hook Candidate  : {hook_txt}")
+
+    elif args.command == "catch-prob":
+        import json as json_lib
+
+        from mlb_baseball.model.catch_prob import (
+            OutfieldCatchProbEngine,
+            OutfieldPlayOpportunity,
+        )
+
+        cp_eng = OutfieldCatchProbEngine()
+        cp_m = OutfieldPlayOpportunity(
+            "f1",
+            "Target Fielder",
+            distance_needed_ft=args.dist,
+            hang_time_s=args.hang,
+            direction_angle_deg=args.angle,
+            sprint_speed_fps=args.speed,
+            was_caught=args.caught,
+        )
+        cp_res = cp_eng.evaluate_opportunity(cp_m)
+
+        if args.json:
+            cp_out = {
+                "catch_prob_pct": cp_res.catch_probability_pct,
+                "star_rating": cp_res.star_rating,
+                "oaa_added": cp_res.oaa_added,
+                "is_highlight": cp_res.is_highlight_catch,
+            }
+            print(json_lib.dumps(cp_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OUTFIELD CATCH PROBABILITY [{cp_res.star_rating}]")
+            hdr_cp = (
+                f"     Catch Probability: {cp_res.catch_probability_pct:.1f}% "
+                f"| Star Rating: {cp_res.star_rating} "
+                f"| OAA Added: {cp_res.oaa_added:>+5.3f}"
+            )
+            print(hdr_cp)
+            print(f"{'=' * 84}\n")
+            print(f"  • Star Classification  : {cp_res.star_rating}")
+            print(f"  • Highlight Play       : {'YES' if cp_res.is_highlight_catch else 'NO'}\n")
+
+    elif args.command == "flight-3d":
+        from mlb_baseball.visual import (
+            PitchTrajectory3DSpec,
+            PitchTrajectory3DVisualizerRenderer,
+            PitchTunnel3DProfile,
+        )
+
+        f3d_renderer = PitchTrajectory3DVisualizerRenderer()
+        f3d_pitches = [
+            PitchTrajectory3DSpec(
+                "FF", "4-Seam Fastball", -2.2, 5.8, 0.2, 3.2, 8.0, 18.0, "#00d2be"
+            ),
+            PitchTrajectory3DSpec("SL", "Sweeper", -2.4, 5.6, 0.8, 2.0, -8.0, 2.0, "#f59e0b"),
+            PitchTrajectory3DSpec("CH", "Changeup", -2.1, 5.7, -0.4, 1.8, 14.0, 6.0, "#a855f7"),
+        ]
+        f3d_prof = PitchTunnel3DProfile(args.title, args.pitcher, f3d_pitches)
+        chart = f3d_renderer.render(f3d_prof)
+        print(f"Generated Vector SVG 3D Isometric Pitch Flight ({len(chart.svg_content)} bytes)")
 
     elif args.command == "pull-air":
         import json as json_lib

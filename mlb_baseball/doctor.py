@@ -270,6 +270,7 @@ def run() -> list[Check]:
         bvp,
         calibration,
         carry,
+        catch_prob,
         cluster,
         clutch,
         count,
@@ -313,9 +314,11 @@ def run() -> list[Check]:
         tunnel,
         umpire,
         vaa,
+        velo_drift,
         wall,
         weather,
         wpa,
+        xslg,
         zone_swing,
     )
 
@@ -433,6 +436,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(xslg.health_check())
+    except Exception as exc:
+        checks.append(Check("xslg", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(velo_drift.health_check())
+    except Exception as exc:
+        checks.append(Check("velo_drift", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(catch_prob.health_check())
+    except Exception as exc:
+        checks.append(Check("catch_prob", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(pull_air.health_check())
     except Exception as exc:

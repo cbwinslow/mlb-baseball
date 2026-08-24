@@ -2,6 +2,49 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-190: Pure-Python SVG 3D Isometric Pitch Flight Trajectory Visualizer (`FLIGHT-3D-01`, Package 102)
+
+**Decision:** Built 3D isometric pitch flight and tunneling trajectory visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb flight-3d`.
+- **Operational Architecture & Geometry**:
+  - Isometric 3D Space Projection: Projects continuous pitch flight curves from pitcher release $(x_{\text{rel}}, 54.5, z_{\text{rel}})$ to home plate $(x_{\text{plate}}, 0.0, z_{\text{plate}})$.
+  - Plate & Zone Wireframe: Renders home plate polygon, 3D strike zone box at plate crossing plane, and mound rubber.
+  - Multi-Pitch Tunneling: Overlays distinct pitch trajectories (e.g. 4-Seam vs Sweeper vs Changeup) with aerodynamic break deflection vectors.
+  - CLI: `mlb flight-3d --title "Tarik Skubal 3D Pitch Tunnel" --pitcher "Tarik Skubal"`.
+- **Verification**: 13/13 unit tests in `tests/unit/test_visual.py` passing; 682/682 full repository unit tests passing.
+
+## ADR-189: Defensive Outfield Catch Probability & 5-Star Opportunity Engine (`CATCH-PROB-01`, Package 101)
+
+**Decision:** Built opportunity distance, hang time, directional difficulty, and 5-Star catch probability modeling in `mlb_baseball/model/catch_prob.py` and CLI subcommand `mlb catch-prob`.
+- **Mathematical Formulations & Methodology**:
+  - Required Arrival Time: $t_{\text{needed}} = 0.60\text{s} + \frac{d}{v_{\text{sprint}} \cdot 0.92} + \left(\frac{\theta}{180^\circ}\right) \cdot 0.70\text{s}$.
+  - Logistic Catch Probability: $P(\text{Catch}) = \frac{1}{1 + e^{-6.5 \cdot (t_{\text{hang}} - t_{\text{needed}})}} \times 100\%$.
+  - Outs Above Average Added: $\text{OAA} = \mathbf{1}_{\text{caught}} - \frac{P(\text{Catch})}{100.0}$.
+  - Statcast Star Ratings: `5_STAR` ($\le 25\%$), `4_STAR` ($26-50\%$), `3_STAR` ($51-75\%$), `2_STAR` ($76-90\%$), `1_STAR` ($91-95\%$), `ROUTINE` ($>95\%$).
+  - CLI: `mlb catch-prob --dist 84 --hang 3.9 --angle 165 --speed 29.8 --caught`, `mlb catch-prob --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_catch_prob.py` passing; 682/682 full repository unit tests passing.
+
+## ADR-188: Starting Pitcher Fastball Velocity Drift & Arm Fatigue Engine (`VELO-DRIFT-01`, Package 100)
+
+**Decision:** Built intra-game velocity decay, spin loss, and late-game fatigue modeling in `mlb_baseball/model/velo_drift.py` and CLI subcommand `mlb velo-drift`.
+- **Mathematical Formulations & Methodology**:
+  - Fastball Velocity Drift: $\Delta v = v_{\text{late}} - v_{\text{early}} \quad (\text{mph})$.
+  - Fastball Velocity Retention Index: $\text{FVRI} = \max\left(0, 100 - \left(\frac{\max(0, -\Delta v)}{0.5}\right) \cdot 12 - \left(\frac{\max(0, -\Delta \text{Spin})}{50}\right) \cdot 6\right)$.
+  - Late-Game Home Run Multiplier: $\text{HR Mult} = 1.0 + \max(0, -\Delta v) \cdot 0.20$.
+  - Tiers: `ELITE_VELO_PRESERVATION` ($\Delta v \ge -0.70\text{ mph}, \text{FVRI} \ge 85.0$), `MODERATE_VELO_FADE`, `SEVERE_VELO_CLIFF` ($\Delta v \le -2.0\text{ mph}$).
+  - CLI: `mlb velo-drift --early 96.8 --late 96.4 --pitches 105 --early-spin 2480 --late-spin 2460`, `mlb velo-drift --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_velo_drift.py` passing; 682/682 full repository unit tests passing.
+
+## ADR-187: Batter Contact-Type Expected Slugging & ISO Power Engine (`XSLG-01`, Package 99)
+
+**Decision:** Built contact quality binning, expected slugging ($x\text{SLG}$), expected ISO ($x\text{ISO}$), and true power conversion efficiency in `mlb_baseball/model/xslg.py` and CLI subcommand `mlb xslg`.
+- **Mathematical Formulations & Methodology**:
+  - Contact Expected Slugging: $x\text{SLG}_{\text{bbe}} = \frac{2.50 \cdot N_{\text{barrel}} + 1.25 \cdot N_{\text{solid}} + 0.65 \cdot N_{\text{flare}} + 0.18 \cdot N_{\text{under}} + 0.15 \cdot N_{\text{topped}} + 0.10 \cdot N_{\text{weak}}}{N_{\text{BBE}}}$.
+  - Expected ISO per Plate Appearance: $x\text{ISO} = (x\text{SLG}_{\text{bbe}} - x\text{BA}_{\text{bbe}}) \cdot 0.68$.
+  - True Power Conversion Efficiency: $\text{TPCE} = \frac{\text{Actual ISO}}{\max(0.05, x\text{ISO})} \times 100\%$.
+  - Tiers: `UNDERVALUED_POWER_CEILING` ($x\text{ISO} \ge 0.220, \text{TPCE} \le 80.0\%$), `ELITE_BARREL_SLUGGER` ($x\text{ISO} \ge 0.250, \text{TPCE} \ge 80.0\%$), `CONTACT_OVERACHIEVER` ($\text{TPCE} \ge 125\%$), `AVERAGE`.
+  - CLI: `mlb xslg --barrels 36 --solid 20 --flares 26 --under 16 --topped 28 --weak 10 --iso 0.360`, `mlb xslg --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_xslg.py` passing; 682/682 full repository unit tests passing.
+
 ## ADR-186: Pure-Python SVG Game Win Probability Replay Visualizer (`WPA-REPLAY-01`, Package 98)
 
 **Decision:** Built continuous game win probability flow chart visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb wpa-replay`.

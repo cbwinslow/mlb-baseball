@@ -374,3 +374,30 @@ def test_separation_diamond_plot_svg_generation():
     assert "Skubal Arsenal Separation" in chart.svg_content
     assert "circle" in chart.svg_content
     assert "line" in chart.svg_content
+
+
+def test_spray_elevation_rose_svg_generation():
+    """Verify SprayElevationRoseRenderer generates polar rose chart with elevation wedges."""
+    from mlb_baseball.visual import (
+        BatterSprayElevationRoseProfile,
+        SprayElevationRoseRenderer,
+        SpraySectorData,
+    )
+
+    renderer = SprayElevationRoseRenderer()
+    sectors = [
+        SpraySectorData("Dead Pull", -36.0, 35.0, 25.0, 35.0, 5.0, 94.0),
+        SpraySectorData("Pull", -18.0, 25.0, 40.0, 30.0, 5.0, 98.5),
+        SpraySectorData("Center", 0.0, 20.0, 50.0, 25.0, 5.0, 102.0),
+        SpraySectorData("Oppo", 18.0, 30.0, 40.0, 25.0, 5.0, 92.0),
+        SpraySectorData("Dead Oppo", 36.0, 40.0, 30.0, 25.0, 5.0, 88.0),
+    ]
+    prof = BatterSprayElevationRoseProfile("Ohtani Spray Rose", "Shohei Ohtani", sectors)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Ohtani Spray Rose" in chart.svg_content
+    assert "path" in chart.svg_content
+    assert "polygon" in chart.svg_content

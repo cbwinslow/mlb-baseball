@@ -867,6 +867,79 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter pull-side groundball defense (PULL-GB-01)
+    pgb_parser = subparsers.add_parser(
+        "pull-gb",
+        help="evaluate pull-side groundball defense and optimal infield positioning (PULL-GB-01)",
+    )
+    pgb_parser.add_argument("--side", type=str, default="L", help="batter side L/R (default: L)")
+    pgb_parser.add_argument(
+        "--gb-pct", type=float, default=48.0, help="groundball rate pct (default: 48.0)"
+    )
+    pgb_parser.add_argument(
+        "--pull-gb", type=float, default=62.0, help="pull groundball pct (default: 62.0)"
+    )
+    pgb_parser.add_argument(
+        "--oppo-gb", type=float, default=16.0, help="oppo groundball pct (default: 16.0)"
+    )
+    pgb_parser.add_argument(
+        "--hard-pull", type=float, default=38.0, help="hard pull GB pct (default: 38.0)"
+    )
+    pgb_parser.add_argument(
+        "--gb-count", type=int, default=120, help="groundball count (default: 120)"
+    )
+    pgb_parser.add_argument("--json", action="store_true", help="output pull GB evaluation as JSON")
+
+    # Pitcher top-of-zone VAA deception (VAA-TOZ-01)
+    vtz_parser = subparsers.add_parser(
+        "vaa-toz",
+        help="evaluate top-of-zone VAA angle and rising fastball deception (VAA-TOZ-01)",
+    )
+    vtz_parser.add_argument("--rel-z", type=float, default=5.6, help="release Z ft (default: 5.6)")
+    vtz_parser.add_argument(
+        "--velo", type=float, default=96.0, help="pitch velo mph (default: 96.0)"
+    )
+    vtz_parser.add_argument(
+        "--ivb", type=float, default=18.5, help="induced vert break in (default: 18.5)"
+    )
+    vtz_parser.add_argument(
+        "--plate-z", type=float, default=3.35, help="plate crossing Z ft (default: 3.35)"
+    )
+    vtz_parser.add_argument("--ext", type=float, default=6.8, help="extension ft (default: 6.8)")
+    vtz_parser.add_argument("--pitch", type=str, default="FF", help="pitch type (default: FF)")
+    vtz_parser.add_argument("--json", action="store_true", help="output VAA TOZ evaluation as JSON")
+
+    # Batter first-pitch ambush damage (AMBUSH-01)
+    amb_parser = subparsers.add_parser(
+        "ambush",
+        help="evaluate batter 0-0 first-pitch aggression and ambush damage (AMBUSH-01)",
+    )
+    amb_parser.add_argument(
+        "--swing", type=float, default=32.0, help="0-0 swing pct (default: 32.0)"
+    )
+    amb_parser.add_argument(
+        "--z-swing", type=float, default=52.0, help="0-0 zone swing pct (default: 52.0)"
+    )
+    amb_parser.add_argument(
+        "--chase", type=float, default=16.0, help="0-0 chase pct (default: 16.0)"
+    )
+    amb_parser.add_argument(
+        "--hard-hit", type=float, default=44.0, help="0-0 hard hit pct (default: 44.0)"
+    )
+    amb_parser.add_argument("--slg", type=float, default=0.580, help="0-0 SLG (default: 0.580)")
+    amb_parser.add_argument("--pa", type=int, default=500, help="total PAs (default: 500)")
+    amb_parser.add_argument("--json", action="store_true", help="output ambush evaluation as JSON")
+
+    # Batter spray & elevation rose chart (SPRAY-ROSE-01)
+    rose_parser = subparsers.add_parser(
+        "spray-rose",
+        help="generate vector SVG 3D spray and elevation polar rose chart (SPRAY-ROSE-01)",
+    )
+    rose_parser.add_argument(
+        "--title", type=str, default="Shohei Ohtani Spray & Elevation Rose", help="chart title"
+    )
+    rose_parser.add_argument("--batter", type=str, default="Shohei Ohtani", help="batter name")
+
     # Batter contact blast angle & launch window (BLAST-ANGLE-01)
     bla_parser = subparsers.add_parser(
         "blast-angle",
@@ -3747,6 +3820,158 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "pull-gb":
+        import json as json_lib
+
+        from mlb_baseball.model.pull_gb import (
+            BatterPullGBMetrics,
+            InfieldPositioningGBEngine,
+        )
+
+        pgb_eng = InfieldPositioningGBEngine()
+        pgb_m = BatterPullGBMetrics(
+            "b1",
+            "Target Batter",
+            batter_side=args.side,
+            groundball_rate_pct=args.gb_pct,
+            pull_groundball_pct=args.pull_gb,
+            oppo_groundball_pct=args.oppo_gb,
+            hard_pull_gb_pct=args.hard_pull,
+            groundball_count=args.gb_count,
+        )
+        pgb_res = pgb_eng.evaluate_positioning(pgb_m)
+
+        if args.json:
+            pgb_out = {
+                "depth_ft": pgb_res.optimal_depth_ft,
+                "gbti_score": pgb_res.gbti_score,
+                "pdrs_runs": pgb_res.pdrs_runs_saved,
+                "tier": pgb_res.positioning_tier,
+                "is_extreme": pgb_res.requires_extreme_shading,
+            }
+            print(json_lib.dumps(pgb_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PULL GROUNDBALL DEFENSE & POSITIONING [{pgb_res.positioning_tier}]")
+            hdr_pg = (
+                f"     Depth: {pgb_res.optimal_depth_ft:.1f} ft "
+                f"| GBTI Score: {pgb_res.gbti_score:.1f} "
+                f"| Runs Saved: {pgb_res.pdrs_runs_saved:>+4.2f}"
+            )
+            print(hdr_pg)
+            print(f"{'=' * 84}\n")
+            print(f"  • Positioning Strategy : {pgb_res.positioning_tier}")
+            ext_txt = "YES" if pgb_res.requires_extreme_shading else "NO"
+            print(f"  • Extreme Pull Shading : {ext_txt}\n")
+
+    elif args.command == "vaa-toz":
+        import json as json_lib
+
+        from mlb_baseball.model.vaa_toz import (
+            PitcherTOZVAAEngine,
+            PitcherTOZVAAMetrics,
+        )
+
+        vtz_eng = PitcherTOZVAAEngine()
+        vtz_m = PitcherTOZVAAMetrics(
+            "p1",
+            "Target Pitcher",
+            pitch_type=args.pitch,
+            release_z_ft=args.rel_z,
+            release_velo_mph=args.velo,
+            induced_vert_break_in=args.ivb,
+            plate_crossing_z_ft=args.plate_z,
+            extension_ft=args.ext,
+        )
+        vtz_res = vtz_eng.evaluate_toz_vaa(vtz_m)
+
+        if args.json:
+            vtz_out = {
+                "vaa_toz_deg": vtz_res.vaa_toz_deg,
+                "toz_flatness_index": vtz_res.toz_flatness_index,
+                "whiff_boost_multiplier": vtz_res.whiff_boost_multiplier,
+                "tier": vtz_res.vaa_tier,
+                "is_deadly": vtz_res.is_deadly_flat_heater,
+            }
+            print(json_lib.dumps(vtz_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     TOP-OF-ZONE VAA DECEPTION [{vtz_res.vaa_tier}]")
+            hdr_vt = (
+                f"     VAA TOZ: {vtz_res.vaa_toz_deg:>+4.2f}° "
+                f"| Flatness Index: {vtz_res.toz_flatness_index:.1f} "
+                f"| Whiff Boost: {vtz_res.whiff_boost_multiplier:.3f}x"
+            )
+            print(hdr_vt)
+            print(f"{'=' * 84}\n")
+            print(f"  • Approach Angle Tier  : {vtz_res.vaa_tier}")
+            print(
+                f"  • Deadly Flat Rising   : {'YES' if vtz_res.is_deadly_flat_heater else 'NO'}\n"
+            )
+
+    elif args.command == "ambush":
+        import json as json_lib
+
+        from mlb_baseball.model.ambush import (
+            BatterAmbushEngine,
+            BatterAmbushMetrics,
+        )
+
+        amb_eng = BatterAmbushEngine()
+        amb_m = BatterAmbushMetrics(
+            "b1",
+            "Target Batter",
+            first_pitch_swing_pct=args.swing,
+            first_pitch_zone_swing_pct=args.z_swing,
+            first_pitch_chase_pct=args.chase,
+            first_pitch_hard_hit_pct=args.hard_hit,
+            first_pitch_slugging=args.slg,
+            first_pitch_pa_count=args.pa,
+        )
+        amb_res = amb_eng.evaluate_ambush(amb_m)
+
+        if args.json:
+            amb_out = {
+                "fpav_score": amb_res.fpav_score,
+                "fpsv_runs": amb_res.fpsv_runs_saved,
+                "tier": amb_res.ambush_tier,
+                "is_lethal": amb_res.is_lethal_ambusher,
+            }
+            print(json_lib.dumps(amb_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     FIRST-PITCH AMBUSH DAMAGE [{amb_res.ambush_tier}]")
+            hdr_am = (
+                f"     FPAV Score: {amb_res.fpav_score:.1f}/160 "
+                f"| Runs Produced: {amb_res.fpsv_runs_saved:>+4.2f} "
+                f"| Tier: {amb_res.ambush_tier}"
+            )
+            print(hdr_am)
+            print(f"{'=' * 84}\n")
+            print(f"  • Early-Count Strategy : {amb_res.ambush_tier}")
+            print(f"  • Lethal 0-0 Ambusher  : {'YES' if amb_res.is_lethal_ambusher else 'NO'}\n")
+
+    elif args.command == "spray-rose":
+        from mlb_baseball.visual import (
+            BatterSprayElevationRoseProfile,
+            SprayElevationRoseRenderer,
+            SpraySectorData,
+        )
+
+        rose_renderer = SprayElevationRoseRenderer()
+        rose_sectors = [
+            SpraySectorData("Dead Pull", -36.0, 35.0, 25.0, 35.0, 5.0, 94.0),
+            SpraySectorData("Pull", -18.0, 25.0, 40.0, 30.0, 5.0, 98.5),
+            SpraySectorData("Center", 0.0, 20.0, 50.0, 25.0, 5.0, 102.0),
+            SpraySectorData("Oppo", 18.0, 30.0, 40.0, 25.0, 5.0, 92.0),
+            SpraySectorData("Dead Oppo", 36.0, 40.0, 30.0, 25.0, 5.0, 88.0),
+        ]
+        rose_prof = BatterSprayElevationRoseProfile(args.title, args.batter, rose_sectors)
+        chart = rose_renderer.render(rose_prof)
+        print(
+            f"Generated Vector SVG Batter Spray & Elevation Rose ({len(chart.svg_content)} bytes)"
+        )
 
     elif args.command == "blast-angle":
         import json as json_lib

@@ -2,6 +2,46 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-206: Pure-Python SVG Batter 3D Spray & Elevation Polar Rose Visualizer (`SPRAY-ROSE-01`, Package 118)
+
+**Decision:** Built multi-sector polar rose chart vector SVG visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb spray-rose`.
+- **Operational Architecture & Geometry**:
+  - Directional Polar Rose Wedges: Maps Dead Pull, Pull, Center, Oppo, Dead Oppo spray sectors from $-45^\circ$ to $+45^\circ$.
+  - Stacked Elevation Breakdown: Renders stacked annular wedges for Groundball, Line Drive, Flyball, and Popup distributions, scaled by sector Exit Velocity.
+  - CLI: `mlb spray-rose --title "Shohei Ohtani Spray & Elevation Rose" --batter "Shohei Ohtani"`.
+- **Verification**: 17/17 unit tests in `tests/unit/test_visual.py` passing; 725/725 full repository unit tests passing.
+
+## ADR-205: Batter First-Pitch Aggressiveness & Early-Count Ambush Value Engine (`AMBUSH-01`, Package 117)
+
+**Decision:** Built 0-0 count decision making, first-pitch damage, and ambush surplus modeling in `mlb_baseball/model/ambush.py` and CLI subcommand `mlb ambush`.
+- **Mathematical Formulations & Methodology**:
+  - First-Pitch Ambush Value Index: $\text{FPAV} = \max\left(0, 100 + (\text{SLG}_{00} - 0.520) \cdot 58 + (\Delta \text{Selectivity} - 35.0) \cdot 1.2 + (\text{HardHit\%} - 40.0) \cdot 0.8\right)$.
+  - Surplus Value: $\text{FPSV}_{\text{runs}} = (\text{SLG}_{00} - 0.520) \cdot (\text{PAs} \cdot 0.12) \cdot 0.44\text{ runs}$.
+  - Tiers: `LETHAL_FIRST_PITCH_AMBUSHER` ($\text{FPAV} \ge 118.0, \text{SLG}_{00} \ge 0.700, \text{Swing}_{00} \ge 34.0\%$), `PASSIVE_FIRST_PITCH_TAKER`, `WILD_EARLY_COUNT_HACKER`, `AVERAGE_EARLY_COUNT_APPROACH`.
+  - CLI: `mlb ambush --swing 42.0 --z-swing 68.0 --chase 12.0 --hard-hit 58.0 --slg 0.840 --pa 600`, `mlb ambush --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_ambush.py` passing; 725/725 full repository unit tests passing.
+
+## ADR-204: Pitcher Vertical Approach Angle vs Top-of-Zone Whiff Engine (`VAA-TOZ-01`, Package 116)
+
+**Decision:** Built top-of-strike-zone entry angle trigonometry, flatness indexing, and whiff prediction in `mlb_baseball/model/vaa_toz.py` and CLI subcommand `mlb vaa-toz`.
+- **Mathematical Formulations & Methodology**:
+  - Top-of-Zone VAA: $\text{VAA}_{\text{TOZ}} \approx -4.90^\circ - 0.90 \cdot (z_{\text{rel}} - 5.8) + 0.12 \cdot (\text{IVB} - 16.0) + 0.04 \cdot (v_{\text{rel}} - 93.5)$.
+  - Flatness Index & Whiff Boost: $\text{TOZ-FI} = \max\left(0, 100 + (\text{VAA} - (-4.8)) \cdot 18.0 + (\text{IVB} - 16.0) \cdot 2.2 + (v_{\text{rel}} - 94.0) \cdot 1.2\right)$, $\text{Boost} = 1.0 + \frac{\max(0, \text{TOZ-FI} - 100)}{250}$.
+  - Tiers: `DEADLY_FLAT_RISING_HEATER` ($\text{VAA}_{\text{TOZ}} \ge -4.20^\circ, \text{TOZ-FI} \ge 115.0$), `ABOVE_AVERAGE_FLAT_PROFILE`, `STEEP_DOWNHILL_FASTBALL`, `AVERAGE_APPROACH_FASTBALL`.
+  - CLI: `mlb vaa-toz --rel-z 5.5 --velo 97.0 --ivb 20.0 --plate-z 3.4 --ext 7.0`, `mlb vaa-toz --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_vaa_toz.py` passing; 725/725 full repository unit tests passing.
+
+## ADR-203: Batter Pull-Side Groundball Defense & Infield Positioning Engine (`PULL-GB-01`, Package 115)
+
+**Decision:** Built infield positioning depth, pull-side groundball trapping, and defensive run savings in `mlb_baseball/model/pull_gb.py` and CLI subcommand `mlb pull-gb`.
+- **Mathematical Formulations & Methodology**:
+  - Optimal Infield Depth: $\text{Depth} = 150.0\text{ ft} + (\text{HardPullGB\%} - 35.0) \cdot 0.55\text{ ft}$.
+  - Groundball Trap Index: $\text{GBTI} = \max\left(0, 100 + (\text{PullGB\%} - 48.0) \cdot 2.4 + (\text{GB\%} - 42.0) \cdot 1.5 + (\text{HardPull\%} - 35.0) \cdot 1.1\right)$.
+  - Positioning Run Savings: $\text{PDRS}_{\text{runs}} = (\text{PullGB\%} - 45.0\%) \cdot N_{\text{GB}} \cdot 0.26\text{ runs}$.
+  - Tiers: `EXTREME_PULL_SHADING_REQUIRED` ($\text{GBTI} \ge 118.0, \text{PullGB} \ge 64.0\%$), `STRAIGHT_UP_NEUTRAL_POSITIONING`, `OPPOSITE_FIELD_GB_ALERT`, `MODERATE_PULL_SHADING`.
+  - CLI: `mlb pull-gb --side L --gb-pct 52.0 --pull-gb 72.0 --oppo-gb 10.0 --hard-pull 45.0 --gb-count 140`, `mlb pull-gb --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_pull_gb.py` passing; 725/725 full repository unit tests passing.
+
 ## ADR-202: Pure-Python SVG Pitch Arsenal Velocity & Movement Separation Plot (`SEPARATION-PLOT-01`, Package 114)
 
 **Decision:** Built multi-pitch Cartesian scatter vector SVG visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb separation-plot`.

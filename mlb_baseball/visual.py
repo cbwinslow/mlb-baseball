@@ -31,6 +31,7 @@ class ChartType(enum.Enum):
     ZONE_SURFACE_CONTOUR = "zone_surface_contour"
     SPIN_AXIS_CLOCK = "spin_axis_clock"
     SEPARATION_DIAMOND_PLOT = "separation_diamond_plot"
+    SPRAY_ELEVATION_ROSE = "spray_elevation_rose"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1685,6 +1686,141 @@ class SeparationDiamondPlotRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class SpraySectorData:
+    """Batted ball trajectory elevation mix across directional spray sectors."""
+
+    sector_name: str  # "Dead Pull", "Pull", "Center", "Oppo", "Dead Oppo"
+    spray_angle_center_deg: float  # -45° to +45° (0° is CF, negative is pull for RHB)
+    groundball_pct: float
+    linedrive_pct: float
+    flyball_pct: float
+    popup_pct: float
+    avg_ev_mph: float
+
+
+@dataclasses.dataclass(frozen=True)
+class BatterSprayElevationRoseProfile:
+    """Batter spray and elevation rose chart profile."""
+
+    title: str
+    batter_name: str
+    sectors: list[SpraySectorData]
+
+
+class SprayElevationRoseRenderer:
+    """Renders pure-Python vector SVG spray and elevation polar rose charts (SPRAY-ROSE-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: BatterSprayElevationRoseProfile) -> GeneratedVectorChart:
+        """Render directional polar rose wedges with elevation breakdown into vector SVG."""
+        cx = self.width / 2.0
+        cy = self.height - 75.0
+        r_max = 240.0
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="28" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="46" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.batter_name} Directional Trajectory Rose</text>',
+        ]
+
+        # Draw Outfield Arc Boundaries (Polar grid)
+        for r_step in (80.0, 160.0, 240.0):
+            svg_parts.append(
+                f'<path d="M {cx - r_step * 0.707:.1f} {cy - r_step * 0.707:.1f} '
+                f'A {r_step} {r_step} 0 0 1 {cx + r_step * 0.707:.1f} {cy - r_step * 0.707:.1f}" '
+                f'fill="none" stroke="#1e293b" stroke-width="1.0" stroke-dasharray="3,3" />'
+            )
+
+        # Foul lines (-45° and +45°)
+        fl_len = r_max * 1.05
+        fl_lx = cx - fl_len * 0.707
+        fl_ly = cy - fl_len * 0.707
+        fl_rx = cx + fl_len * 0.707
+        fl_ry = cy - fl_len * 0.707
+        svg_parts.append(
+            f'<line x1="{cx}" y1="{cy}" x2="{fl_lx:.1f}" y2="{fl_ly:.1f}" '
+            f'stroke="#475569" stroke-width="1.5" />'
+        )
+        svg_parts.append(
+            f'<line x1="{cx}" y1="{cy}" x2="{fl_rx:.1f}" y2="{fl_ry:.1f}" '
+            f'stroke="#475569" stroke-width="1.5" />'
+        )
+
+        # Render Rose Sectors
+        for sec in profile.sectors:
+            # 0° is straight up (-90° in standard SVG screen space)
+            base_angle_deg = -90.0 + sec.spray_angle_center_deg
+            half_w_deg = 8.5  # wedge width
+            a1_rad = math.radians(base_angle_deg - half_w_deg)
+            a2_rad = math.radians(base_angle_deg + half_w_deg)
+
+            # Stacked Elevation Wedges: GB (inner) -> LD -> FB -> PU (outer)
+            r_ev_scale = max(0.5, min(1.0, sec.avg_ev_mph / 100.0))
+            tot_len = r_max * 0.95 * r_ev_scale
+
+            r_gb = tot_len * (sec.groundball_pct / 100.0)
+            r_ld = r_gb + tot_len * (sec.linedrive_pct / 100.0)
+            r_fb = r_ld + tot_len * (sec.flyball_pct / 100.0)
+            r_pu = tot_len
+
+            def make_arc(r_inner: float, r_outer: float, a1: float, a2: float, color: str) -> str:
+                x1_in = cx + r_inner * math.cos(a1)
+                y1_in = cy + r_inner * math.sin(a1)
+                x2_in = cx + r_inner * math.cos(a2)
+                y2_in = cy + r_inner * math.sin(a2)
+
+                x1_out = cx + r_outer * math.cos(a1)
+                y1_out = cy + r_outer * math.sin(a1)
+                x2_out = cx + r_outer * math.cos(a2)
+                y2_out = cy + r_outer * math.sin(a2)
+
+                return (
+                    f'<path d="M {x1_in:.1f} {y1_in:.1f} L {x1_out:.1f} {y1_out:.1f} '
+                    f"A {r_outer:.1f} {r_outer:.1f} 0 0 1 {x2_out:.1f} {y2_out:.1f} "
+                    f"L {x2_in:.1f} {y2_in:.1f} "
+                    f'A {r_inner:.1f} {r_inner:.1f} 0 0 0 {x1_in:.1f} {y1_in:.1f} Z" '
+                    f'fill="{color}" stroke="#0b1329" stroke-width="0.8" />'
+                )
+
+            svg_parts.append(make_arc(10.0, r_gb, a1_rad, a2_rad, "#475569"))  # Groundball
+            svg_parts.append(make_arc(r_gb, r_ld, a1_rad, a2_rad, "#10b981"))  # Line Drive
+            svg_parts.append(make_arc(r_ld, r_fb, a1_rad, a2_rad, "#f59e0b"))  # Flyball
+            svg_parts.append(make_arc(r_fb, r_pu, a1_rad, a2_rad, "#6366f1"))  # Popup
+
+            # Label sector tip
+            tx = cx + (r_pu + 14.0) * math.cos(math.radians(base_angle_deg))
+            ty = cy + (r_pu + 14.0) * math.sin(math.radians(base_angle_deg))
+            svg_parts.append(
+                f'<text x="{tx:.1f}" y="{ty:.1f}" fill="#94a3b8" font-size="9" font-weight="bold" '
+                f'text-anchor="middle" font-family="sans-serif">{sec.sector_name}</text>'
+            )
+
+        # Home Plate polygon at origin
+        svg_parts.append(
+            f'<polygon points="{cx - 8.0:.1f},{cy:.1f} {cx + 8.0:.1f},{cy:.1f} '
+            f"{cx + 8.0:.1f},{cy + 6.0:.1f} "
+            f'{cx:.1f},{cy + 12.0:.1f} {cx - 8.0:.1f},{cy + 6.0:.1f}" '
+            f'fill="#f8fafc" stroke="#94a3b8" stroke-width="1.0" />'
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.SPRAY_ELEVATION_ROSE,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -1788,6 +1924,15 @@ def health_check() -> list[Check]:
             PitchSeparationArsenalProfile("Separation", "Skubal", sep_pitches)
         )
 
+        rose_renderer = SprayElevationRoseRenderer()
+        rose_sectors = [
+            SpraySectorData("Pull", -22.0, 30.0, 35.0, 30.0, 5.0, 95.0),
+            SpraySectorData("Center", 0.0, 20.0, 45.0, 30.0, 5.0, 98.0),
+        ]
+        rose_chart = rose_renderer.render(
+            BatterSprayElevationRoseProfile("Rose", "Ohtani", rose_sectors)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -1804,6 +1949,7 @@ def health_check() -> list[Check]:
             and "<svg" in zs_chart.svg_content
             and "<svg" in clk_chart.svg_content
             and "<svg" in sep_chart.svg_content
+            and "<svg" in rose_chart.svg_content
         ):
             checks.append(
                 Check(

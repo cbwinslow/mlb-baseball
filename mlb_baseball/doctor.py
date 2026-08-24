@@ -259,6 +259,7 @@ def run() -> list[Check]:
     from mlb_baseball import serve
     from mlb_baseball.model import (
         aging,
+        ambush,
         arm,
         arm_accuracy,
         arm_slot,
@@ -301,6 +302,7 @@ def run() -> list[Check]:
         portfolio,
         props,
         pull_air,
+        pull_gb,
         putaway,
         reliever,
         ros,
@@ -322,6 +324,7 @@ def run() -> list[Check]:
         two_strike,
         umpire,
         vaa,
+        vaa_toz,
         velo_delta,
         velo_drift,
         wall,
@@ -445,6 +448,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(pull_gb.health_check())
+    except Exception as exc:
+        checks.append(Check("pull_gb", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(vaa_toz.health_check())
+    except Exception as exc:
+        checks.append(Check("vaa_toz", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(ambush.health_check())
+    except Exception as exc:
+        checks.append(Check("ambush", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(blast_angle.health_check())
     except Exception as exc:

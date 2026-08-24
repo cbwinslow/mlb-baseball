@@ -112,7 +112,11 @@ This document serves as the academic and theoretical reference manual for the ML
 86. [Pitcher Arsenals Separation & Velocity Delta Disruption](#86-pitcher-arsenals-separation--velocity-delta-disruption)
 87. [Outfielder Throwing Arm Accuracy & Base-Runner Freeze Dynamics](#87-outfielder-throwing-arm-accuracy--base-runner-freeze-dynamics)
 88. [Pure-Python SVG Arsenal Velocity & Movement Separation Plot Architecture](#88-pure-python-svg-arsenal-velocity--movement-separation-plot-architecture)
-89. [Academic Bibliography & Literature Citations](#89-academic-bibliography--literature-citations)
+89. [Batter Pull-Side Groundball Defense & Infield Positioning](#89-batter-pull-side-groundball-defense--infield-positioning)
+90. [Pitcher Vertical Approach Angle vs Top-of-Zone Whiff Dynamics](#90-pitcher-vertical-approach-angle-vs-top-of-zone-whiff-dynamics)
+91. [Batter First-Pitch Aggressiveness & Early-Count Ambush Value](#91-batter-first-pitch-aggressiveness--early-count-ambush-value)
+92. [Pure-Python SVG Batter 3D Spray & Elevation Rose Architecture](#92-pure-python-svg-batter-3d-spray--elevation-rose-architecture)
+93. [Academic Bibliography & Literature Citations](#93-academic-bibliography--literature-citations)
 
 ---
 
@@ -1002,7 +1006,40 @@ $$x_{\text{screen}} = M_{\text{left}} + \left(\frac{v - v_{\min}}{v_{\max} - v_{
 
 ---
 
-## 89. Academic Bibliography & Literature Citations
+## 89. Batter Pull-Side Groundball Defense & Infield Positioning
+
+### 89.1 Infield Depth Optimization & Groundball Trap Index
+$$\text{Depth} = 150.0\text{ ft} + (\text{HardPullGB\%} - 35.0) \cdot 0.55\text{ ft}$$
+$$\text{GBTI} = \max\left(0, 100 + (\text{PullGB\%} - 48.0) \cdot 2.4 + (\text{GB\%} - 42.0) \cdot 1.5 + (\text{HardPull\%} - 35.0) \cdot 1.1\right)$$
+$$\text{PDRS}_{\text{runs}} = (\text{PullGB\%} - 45.0\%) \cdot N_{\text{GB}} \cdot 0.26\text{ runs}$$
+
+---
+
+## 90. Pitcher Vertical Approach Angle vs Top-of-Zone Whiff Dynamics
+
+### 90.1 Top-of-Zone VAA Kinematics
+$$\text{VAA}_{\text{TOZ}} \approx -4.90^\circ - 0.90 \cdot (z_{\text{rel}} - 5.8) + 0.12 \cdot (\text{IVB} - 16.0) + 0.04 \cdot (v_{\text{rel}} - 93.5)$$
+$$\text{TOZ-FI} = \max\left(0, 100 + (\text{VAA} - (-4.8)) \cdot 18.0 + (\text{IVB} - 16.0) \cdot 2.2 + (v_{\text{rel}} - 94.0) \cdot 1.2\right)$$
+$$\text{Whiff Multiplier} = 1.0 + \frac{\max(0, \text{TOZ-FI} - 100)}{250}$$
+
+---
+
+## 91. Batter First-Pitch Aggressiveness & Early-Count Ambush Value
+
+### 91.1 First-Pitch Ambush Value (FPAV)
+$$\text{FPAV} = \max\left(0, 100 + (\text{SLG}_{00} - 0.520) \cdot 58 + (\Delta \text{Selectivity} - 35.0) \cdot 1.2 + (\text{HardHit\%} - 40.0) \cdot 0.8\right)$$
+$$\text{FPSV}_{\text{runs}} = (\text{SLG}_{00} - 0.520) \cdot (\text{PAs} \cdot 0.12) \cdot 0.44\text{ runs}$$
+
+---
+
+## 92. Pure-Python SVG Batter 3D Spray & Elevation Rose Architecture
+
+### 92.1 Polar Wedges with Stacked Trajectory Elevation
+$$\theta_{\text{sector}} = -90^\circ + \theta_{\text{spray}}, \quad R_{\text{batted}} = R_{\max} \cdot \left(\frac{\text{EV}_{\text{avg}}}{100\text{ mph}}\right)$$
+
+---
+
+## 93. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1058,3 +1095,5 @@ $$x_{\text{screen}} = M_{\text{left}} + \left(\frac{v - v_{\min}}{v_{\max} - v_{
 52. **Slowinski, Steve** (2014). "The Value of Turning the Double Play". *FanGraphs Sabermetric Library*.
 53. **Fast, Mike** (2011). "Spin and Speed: Deception Through Arsenal Velocity Differentials". *Baseball Prospectus*.
 54. **Zimmerman, Jeff** (2017). "Outfield Arm Strength, Throwing Accuracy, and Runner Holds". *The Hardball Times*.
+55. **Petti, Bill** (2014). "The Shift and Defensive Positioning in Major League Baseball". *The Hardball Times*.
+56. **Bannister, Brian** (2018). "The Physics and Visual Perception of Flat Vertical Approach Angle". *Pitching Design Insights*.

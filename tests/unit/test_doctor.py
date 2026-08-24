@@ -318,3 +318,12 @@ def test_blast_angle_and_velo_delta_and_arm_accuracy_health_checks():
     assert blast_angle.health_check()[0].ok is True
     assert velo_delta.health_check()[0].ok is True
     assert arm_accuracy.health_check()[0].ok is True
+
+
+def test_pull_gb_and_vaa_toz_and_ambush_health_checks():
+    """Verify health checks for pull_gb, vaa_toz, and ambush modules."""
+    from mlb_baseball.model import ambush, pull_gb, vaa_toz
+
+    assert pull_gb.health_check()[0].ok is True
+    assert vaa_toz.health_check()[0].ok is True
+    assert ambush.health_check()[0].ok is True

@@ -867,6 +867,55 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter zone swing vulnerability (ZONE-SWING-01)
+    zsw_parser = subparsers.add_parser(
+        "zone-swing",
+        help="evaluate in-zone contact deficit and chase efficiency (ZONE-SWING-01)",
+    )
+    zsw_parser.add_argument("--z-swing", type=float, default=0.68, help="Z-Swing% (default: 0.68)")
+    zsw_parser.add_argument(
+        "--z-contact", type=float, default=0.84, help="Z-Contact% (default: 0.84)"
+    )
+    zsw_parser.add_argument("--o-swing", type=float, default=0.28, help="O-Swing% (default: 0.28)")
+    zsw_parser.add_argument(
+        "--o-contact", type=float, default=0.58, help="O-Contact% (default: 0.58)"
+    )
+    zsw_parser.add_argument(
+        "--json", action="store_true", help="output zone swing evaluation as JSON"
+    )
+
+    # Starting pitcher first-pitch strike (FSTRIKE-01)
+    fps_parser = subparsers.add_parser(
+        "fstrike",
+        help="evaluate first-pitch strike surplus run value (FSTRIKE-01)",
+    )
+    fps_parser.add_argument("--fps", type=float, default=0.65, help="F-Strike% (default: 0.65)")
+    fps_parser.add_argument("--bf", type=int, default=700, help="batters faced (default: 700)")
+    fps_parser.add_argument("--json", action="store_true", help="output FPS evaluation as JSON")
+
+    # Catcher pop time (POPTIME-01)
+    pop_parser = subparsers.add_parser(
+        "pop-time",
+        help="evaluate catcher pop time and caught stealing above average (POPTIME-01)",
+    )
+    pop_parser.add_argument("--pop", type=float, default=1.92, help="pop time s (default: 1.92)")
+    pop_parser.add_argument(
+        "--arm", type=float, default=86.5, help="arm velocity mph (default: 86.5)"
+    )
+    pop_parser.add_argument("--att", type=int, default=65, help="attempts faced (default: 65)")
+    pop_parser.add_argument(
+        "--json", action="store_true", help="output pop time evaluation as JSON"
+    )
+
+    # RE24 Matrix Heatmap (RE24-MAP-01)
+    re24_parser = subparsers.add_parser(
+        "re24-heatmap",
+        help="generate vector SVG 24-state run expectancy matrix heatmap (RE24-MAP-01)",
+    )
+    re24_parser.add_argument(
+        "--title", type=str, default="MLB 24-State Run Expectancy Matrix", help="chart title"
+    )
+
     # Batter clutch context (CLUTCH-01)
     clutch_parser = subparsers.add_parser(
         "clutch",
@@ -3208,6 +3257,136 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "zone-swing":
+        import json as json_lib
+
+        from mlb_baseball.model.zone_swing import (
+            BatterZoneSwingMetrics,
+            ZoneSwingVulnerabilityEngine,
+        )
+
+        zsw_eng = ZoneSwingVulnerabilityEngine()
+        zsw_m = BatterZoneSwingMetrics(
+            "b1",
+            "Target Hitter",
+            z_swing_pct=args.z_swing,
+            z_contact_pct=args.z_contact,
+            o_swing_pct=args.o_swing,
+            o_contact_pct=args.o_contact,
+        )
+        zsw_res = zsw_eng.evaluate_discipline(zsw_m)
+
+        if args.json:
+            zsw_out = {
+                "zone_contact_deficit": zsw_res.zone_contact_deficit,
+                "chase_efficiency_ratio": zsw_res.chase_efficiency_ratio,
+                "archetype": zsw_res.vulnerability_archetype,
+                "is_target": zsw_res.is_exploitable_whiff_target,
+            }
+            print(json_lib.dumps(zsw_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     ZONE SWING & CHASE DISCIPLINE [{zsw_res.vulnerability_archetype}]")
+            hdr_zs = (
+                f"     Zone Contact Deficit: {zsw_res.zone_contact_deficit:>+5.3f} "
+                f"| Chase Efficiency Ratio: {zsw_res.chase_efficiency_ratio:.2f}"
+            )
+            print(hdr_zs)
+            print(f"{'=' * 84}\n")
+            print(f"  • Vulnerability Archetype: {zsw_res.vulnerability_archetype}")
+            exp_whiff = "YES" if zsw_res.is_exploitable_whiff_target else "NO"
+            print(f"  • Exploitable Whiff Target: {exp_whiff}\n")
+
+    elif args.command == "fstrike":
+        import json as json_lib
+
+        from mlb_baseball.model.fstrike import (
+            FirstPitchStrikeEngine,
+            PitcherFStrikeMetrics,
+        )
+
+        fps_eng = FirstPitchStrikeEngine()
+        fps_m = PitcherFStrikeMetrics(
+            "p1",
+            "Target Pitcher",
+            fstrike_pct=args.fps,
+            batters_faced=args.bf,
+        )
+        fps_res = fps_eng.evaluate_fstrike(fps_m)
+
+        if args.json:
+            fps_out = {
+                "fstrike_pct": fps_res.fstrike_pct,
+                "delta_league": fps_res.fps_delta_league,
+                "fpsv_season": fps_res.fpsv_runs_seasonal,
+                "fpsv_100": fps_res.fpsv_per_100_bf,
+                "tier": fps_res.command_tier,
+            }
+            print(json_lib.dumps(fps_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     FIRST-PITCH STRIKE SURPLUS VALUE [{fps_res.command_tier}]")
+            hdr_fp = (
+                f"     F-Strike%: {fps_res.fstrike_pct * 100:.1f}% "
+                f"| Delta: {fps_res.fps_delta_league * 100:>+4.1f}% "
+                f"| Seasonal Surplus: {fps_res.fpsv_runs_seasonal:>+4.1f} runs"
+            )
+            print(hdr_fp)
+            print(f"{'=' * 84}\n")
+            print(f"  • Command Classification : {fps_res.command_tier}")
+            print(f"  • FPSV Per 100 Batters  : {fps_res.fpsv_per_100_bf:>+4.2f} runs\n")
+
+    elif args.command == "pop-time":
+        import json as json_lib
+
+        from mlb_baseball.model.poptime import (
+            CatcherPopTimeEngine,
+            CatcherPopTimeMetrics,
+        )
+
+        pop_eng = CatcherPopTimeEngine()
+        pop_m = CatcherPopTimeMetrics(
+            "c1",
+            "Target Catcher",
+            pop_time_s=args.pop,
+            arm_velocity_mph=args.arm,
+            attempts_faced=args.att,
+        )
+        pop_res = pop_eng.evaluate_pop_time(pop_m)
+
+        if args.json:
+            pop_out = {
+                "pop_time_s": pop_res.pop_time_s,
+                "arm_velocity_mph": pop_res.arm_velocity_mph,
+                "expected_cs_pct": pop_res.expected_cs_pct,
+                "csaa_runs": pop_res.csaa_runs_saved,
+                "tier": pop_res.catcher_tier,
+            }
+            print(json_lib.dumps(pop_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     CATCHER POP TIME & CAUGHT STEALING [{pop_res.catcher_tier}]")
+            hdr_pt = (
+                f"     Pop Time: {pop_res.pop_time_s:.2f}s "
+                f"| Expected CS%: {pop_res.expected_cs_pct:.1f}% "
+                f"| CSAA Runs: {pop_res.csaa_runs_saved:>+4.1f}"
+            )
+            print(hdr_pt)
+            print(f"{'=' * 84}\n")
+            print(f"  • Throwing Classification: {pop_res.catcher_tier}")
+            print(f"  • Seasonal Run Value     : {pop_res.csaa_runs_saved:>+4.1f} runs\n")
+
+    elif args.command == "re24-heatmap":
+        from mlb_baseball.visual import (
+            BaseOutRunExpectancyGrid,
+            RunExpectancyHeatmapRenderer,
+        )
+
+        re24_renderer = RunExpectancyHeatmapRenderer()
+        grid = BaseOutRunExpectancyGrid(args.title)
+        chart = re24_renderer.render(grid)
+        print(f"Generated Vector SVG RE24 Matrix Heatmap ({len(chart.svg_content)} bytes)")
 
     elif args.command == "clutch":
         import json as json_lib

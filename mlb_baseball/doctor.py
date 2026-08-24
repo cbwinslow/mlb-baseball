@@ -278,12 +278,14 @@ def run() -> list[Check]:
         entropy,
         extension,
         fatigue,
+        fstrike,
         heatmap,
         hedge,
         leverage,
         neural,
         nrfi,
         parlay,
+        poptime,
         portfolio,
         props,
         reliever,
@@ -305,6 +307,7 @@ def run() -> list[Check]:
         umpire,
         weather,
         wpa,
+        zone_swing,
     )
 
     try:
@@ -421,6 +424,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(zone_swing.health_check())
+    except Exception as exc:
+        checks.append(Check("zone_swing", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(fstrike.health_check())
+    except Exception as exc:
+        checks.append(Check("fstrike", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(poptime.health_check())
+    except Exception as exc:
+        checks.append(Check("poptime", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(clutch.health_check())
     except Exception as exc:

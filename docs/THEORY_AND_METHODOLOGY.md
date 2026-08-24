@@ -80,7 +80,11 @@ This document serves as the academic and theoretical reference manual for the ML
 54. [Outfield Throw Kinematics & Runner Hold Dynamics](#54-outfield-throw-kinematics--runner-hold-dynamics)
 55. [Gini-Simpson Pitch Arsenal Diversity Index & Entropy](#55-gini-simpson-pitch-arsenal-diversity-index--entropy)
 56. [Pure-Python SVG Inning Score Flow Architecture](#56-pure-python-svg-inning-score-flow-architecture)
-57. [Academic Bibliography & Literature Citations](#57-academic-bibliography--literature-citations)
+57. [Batter In-Zone Whiff Deficit & Chase Efficiency](#57-batter-in-zone-whiff-deficit--chase-efficiency)
+58. [First-Pitch Strike (FPS) Count Leverage & Surplus Value](#58-first-pitch-strike-fps-count-leverage--surplus-value)
+59. [Catcher Pop Time & Caught Stealing Kinematics](#59-catcher-pop-time--caught-stealing-kinematics)
+60. [24-State Base/Out Run Expectancy Heatmap Architecture](#60-24-state-baseout-run-expectancy-heatmap-architecture)
+61. [Academic Bibliography & Literature Citations](#61-academic-bibliography--literature-citations)
 
 ---
 
@@ -717,7 +721,38 @@ $$(x_{\text{left}, i}, y_i) = \left(M_x + \frac{i}{N_{\text{inn}}} W_{\text{plot
 
 ---
 
-## 57. Academic Bibliography & Literature Citations
+## 57. Batter In-Zone Whiff Deficit & Chase Efficiency
+
+### 57.1 Zone Contact Deficit (ZCD) & Chase Efficiency Ratio (CER)
+$$\text{ZCD} = \text{Z-Contact\%}_{\text{league baseline}} - \text{Z-Contact\%}_{\text{batter}} \quad (0.820 - \text{Z-Contact})$$
+$$\text{CER} = \frac{\text{O-Swing\%}}{\max(0.01, \text{Z-Swing\%})}$$
+
+---
+
+## 58. First-Pitch Strike (FPS) Count Leverage & Surplus Value
+
+### 58.1 First-Pitch Strike Surplus Value (FPSV)
+$$\text{FPSV}_{\text{runs}} = (\text{FPS\%} - \text{FPS\%}_{\text{league}}) \cdot \text{BF} \cdot |\Delta \text{RE}_{\text{0-1 vs 1-0}}| \quad (|\Delta \text{RE}| \approx 0.068\text{ runs})$$
+
+---
+
+## 59. Catcher Pop Time & Caught Stealing Kinematics
+
+### 59.1 Pop Time CS Probability & CSAA Runs
+$$P(\text{CS}) = \frac{1}{1 + e^{-12.0 \cdot (1.98 - t_{\text{pop}})}} \times 100\%$$
+$$\text{CSAA}_{\text{runs}} = (\text{CS\%} - 21.0\%) \cdot \text{Attempts} \cdot 0.22$$
+
+---
+
+## 60. 24-State Base/Out Run Expectancy Heatmap Architecture
+
+### 60.1 Color Density Interpolation
+$$\text{NormRE}_{r, c} = \text{clip}\left(\frac{\text{RE}_{r, c} - 0.10}{2.20}, 0.0, 1.0\right)$$
+$$(R, G, B) = \begin{cases} \text{lerp}(\text{Navy}, \text{Cyan}, 2 \cdot \text{NormRE}) & \text{if } \text{NormRE} < 0.5 \\ \text{lerp}(\text{Cyan}, \text{Gold}, 2 \cdot (\text{NormRE} - 0.5)) & \text{if } \text{NormRE} \ge 0.5 \end{cases}$$
+
+---
+
+## 61. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -757,3 +792,5 @@ $$(x_{\text{left}, i}, y_i) = \left(M_x + \frac{i}{N_{\text{inn}}} W_{\text{plot
 36. **Nathan, Alan M.** (2015). "Fly Ball Aerodynamics and Carry in Major League Baseball Stadiums".
 37. **Cramer, Richard D.** (1977). "Do Clutch Hitters Exist?". *Baseball Research Journal*.
 38. **Simpson, Edward H.** (1949). "Measurement of Diversity". *Nature*.
+39. **Fast, Alex** (2019). "The Power of the First-Pitch Strike". *Pitcher List*.
+40. **Petriello, Mike** (2017). "Statcast Catcher Pop Time and Throw Dynamics". *MLB.com*.

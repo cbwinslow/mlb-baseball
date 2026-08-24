@@ -22,6 +22,7 @@ class ChartType(enum.Enum):
     ODDS_MOVEMENT_TIMELINE = "odds_movement_timeline"
     PITCH_BREAK_CHART = "pitch_break_chart"
     INNING_SCORE_FLOW = "inning_score_flow"
+    RUN_EXPECTANCY_HEATMAP = "run_expectancy_heatmap"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -769,6 +770,119 @@ class InningScoreFlowRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class BaseOutRunExpectancyGrid:
+    """Standard 24-state empirical run expectancy matrix across base/out configurations."""
+
+    title: str = "MLB 24-State Run Expectancy Matrix (RE24)"
+    era_label: str = "Modern MLB Run Environment"
+    matrix: dict[str, list[float]] = dataclasses.field(
+        default_factory=lambda: {
+            "Empty": [0.48, 0.26, 0.10],
+            "1st": [0.86, 0.51, 0.22],
+            "2nd": [1.10, 0.67, 0.32],
+            "3rd": [1.35, 0.95, 0.36],
+            "1st & 2nd": [1.44, 0.90, 0.43],
+            "1st & 3rd": [1.79, 1.14, 0.48],
+            "2nd & 3rd": [1.96, 1.38, 0.58],
+            "Bases Loaded": [2.29, 1.54, 0.75],
+        }
+    )
+
+
+class RunExpectancyHeatmapRenderer:
+    """Renders SVG 24-state base/out run expectancy matrix heatmaps (RE24-MAP-01)."""
+
+    def __init__(self, width: int = 560, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, grid: BaseOutRunExpectancyGrid) -> GeneratedVectorChart:
+        """Render 8x3 base/out matrix heatmap into SVG."""
+        margin_left = 110.0
+        margin_right = 30.0
+        margin_top = 60.0
+        margin_bottom = 40.0
+
+        plot_w = self.width - margin_left - margin_right
+        plot_h = self.height - margin_top - margin_bottom
+
+        base_states = list(grid.matrix.keys())
+        n_rows = len(base_states)
+        n_cols = 3  # 0, 1, 2 Outs
+
+        cell_w = plot_w / n_cols
+        cell_h = plot_h / n_rows
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="32" fill="#f8fafc" font-size="15" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{grid.title}</text>',
+        ]
+
+        # X-Axis Out Column Headers
+        out_labels = ["0 Outs", "1 Out", "2 Outs"]
+        for c_idx, label in enumerate(out_labels):
+            cx = margin_left + (c_idx + 0.5) * cell_w
+            svg_parts.append(
+                f'<text x="{cx:.1f}" y="{margin_top - 12}" fill="#94a3b8" font-size="12" '
+                f'font-weight="bold" text-anchor="middle" font-family="sans-serif">{label}</text>'
+            )
+
+        # Draw Cells
+        for r_idx, state in enumerate(base_states):
+            ry = margin_top + r_idx * cell_h
+            # Y-Axis Row Label
+            svg_parts.append(
+                f'<text x="{margin_left - 12}" y="{ry + cell_h * 0.65:.1f}" fill="#cbd5e1" '
+                f'font-size="11" font-weight="bold" text-anchor="end" '
+                f'font-family="sans-serif">{state}</text>'
+            )
+
+            values = grid.matrix[state]
+            for c_idx in range(n_cols):
+                val = values[c_idx] if c_idx < len(values) else 0.0
+                rx = margin_left + c_idx * cell_w
+
+                # Intensity color mapping (0.10 to 2.30)
+                norm_v = min(1.0, max(0.0, (val - 0.10) / 2.20))
+                # Interpolate from Navy #1e293b to Cyan #00d2be to Gold #eab308
+                if norm_v < 0.5:
+                    t = norm_v / 0.5
+                    r_val = int(30 + t * (0 - 30))
+                    g_val = int(41 + t * (210 - 41))
+                    b_val = int(59 + t * (190 - 59))
+                else:
+                    t = (norm_v - 0.5) / 0.5
+                    r_val = int(0 + t * (234 - 0))
+                    g_val = int(210 + t * (179 - 210))
+                    b_val = int(190 + t * (8 - 190))
+
+                fill_hex = f"#{r_val:02x}{g_val:02x}{b_val:02x}"
+
+                svg_parts.append(
+                    f'<rect x="{rx + 2:.1f}" y="{ry + 2:.1f}" width="{cell_w - 4:.1f}" '
+                    f'height="{cell_h - 4:.1f}" rx="4" fill="{fill_hex}" fill-opacity="0.85" '
+                    f'stroke="#334155" stroke-width="1.0" />'
+                )
+                svg_parts.append(
+                    f'<text x="{rx + cell_w / 2:.1f}" y="{ry + cell_h * 0.62:.1f}" fill="#ffffff" '
+                    f'font-size="12" font-weight="bold" '
+                    f'text-anchor="middle" font-family="monospace">{val:.2f}</text>'
+                )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.RUN_EXPECTANCY_HEATMAP,
+            title=grid.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -816,6 +930,9 @@ def health_check() -> list[Check]:
         steps = [InningScoreStep(1, 0, 1, 0, 1), InningScoreStep(2, 0, 0, 0, 1)]
         flow_chart = flow_renderer.render(GameScoreFlowProfile("Test Flow", "LAD", "SF", steps))
 
+        re24_renderer = RunExpectancyHeatmapRenderer()
+        re24_chart = re24_renderer.render(BaseOutRunExpectancyGrid())
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -824,6 +941,7 @@ def health_check() -> list[Check]:
             and "<svg" in odds_chart.svg_content
             and "<svg" in break_chart.svg_content
             and "<svg" in flow_chart.svg_content
+            and "<svg" in re24_chart.svg_content
         ):
             checks.append(
                 Check(

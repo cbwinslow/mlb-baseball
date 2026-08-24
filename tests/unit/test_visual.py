@@ -175,3 +175,23 @@ def test_inning_score_flow_svg_generation():
     assert "LAD 3, SF 3 Live Game Flow" in chart.svg_content
     assert "Inn 1" in chart.svg_content
     assert "polyline" in chart.svg_content
+
+
+def test_re24_matrix_heatmap_svg_generation():
+    """Verify RunExpectancyHeatmapRenderer generates 24-state SVG matrix heatmap."""
+    from mlb_baseball.visual import (
+        BaseOutRunExpectancyGrid,
+        RunExpectancyHeatmapRenderer,
+    )
+
+    renderer = RunExpectancyHeatmapRenderer()
+    grid = BaseOutRunExpectancyGrid("2024 MLB Run Expectancy Matrix (RE24)")
+    chart = renderer.render(grid)
+
+    assert chart.width_px == 560
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "2024 MLB Run Expectancy Matrix (RE24)" in chart.svg_content
+    assert "0 Outs" in chart.svg_content
+    assert "Bases Loaded" in chart.svg_content
+    assert "rect" in chart.svg_content

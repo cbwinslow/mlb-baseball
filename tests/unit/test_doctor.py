@@ -246,3 +246,12 @@ def test_clutch_and_arm_and_diversity_health_checks():
     assert clutch.health_check()[0].ok is True
     assert arm.health_check()[0].ok is True
     assert diversity.health_check()[0].ok is True
+
+
+def test_zone_swing_and_fstrike_and_poptime_health_checks():
+    """Verify health checks for zone_swing, fstrike, and poptime modules."""
+    from mlb_baseball.model import fstrike, poptime, zone_swing
+
+    assert zone_swing.health_check()[0].ok is True
+    assert fstrike.health_check()[0].ok is True
+    assert poptime.health_check()[0].ok is True

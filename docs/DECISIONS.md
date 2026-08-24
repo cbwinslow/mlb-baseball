@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-174: Pure-Python SVG 24-State Base/Out Run Expectancy Matrix Heatmap (`RE24-MAP-01`, Package 86)
+
+**Decision:** Built $8 \times 3$ grid base/out run expectancy matrix heatmap renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb re24-heatmap`.
+- **Operational Architecture & Geometry**:
+  - 24-State Matrix Layout: 8 Base States $\times$ 3 Out States with calibrated run values ($\text{RE} \in [0.10, 2.30]$).
+  - Dynamic Color Density: Gradient shading from deep Navy (`#1e293b`) to Cyan (`#00d2be`) to Gold (`#eab308`).
+  - CLI: `mlb re24-heatmap --title "MLB 24-State Run Expectancy Matrix"`.
+- **Verification**: 9/9 unit tests in `tests/unit/test_visual.py` passing; 638/638 full repository unit tests passing.
+
+## ADR-173: Catcher Pop Time & Caught Stealing Above Average Engine (`POPTIME-01`, Package 85)
+
+**Decision:** Built Statcast catcher throwing physics, pop time, and runner elimination modeling in `mlb_baseball/model/poptime.py` and CLI subcommand `mlb pop-time`.
+- **Mathematical Formulations & Methodology**:
+  - Pop Time CS Probability: $P(\text{CS}) = \frac{1}{1 + e^{-12.0 \cdot (1.98 - t_{\text{pop}})}} \times 100\%$.
+  - Caught Stealing Above Average: $\text{CSAA}_{\text{runs}} = (\text{CS\%} - 21.0\%) \cdot \text{Attempts} \cdot 0.22$.
+  - Tiers: `ELITE_POP_TIME` ($t_{\text{pop}} \le 1.89\text{s}$), `ABOVE_AVERAGE`, `AVERAGE`, `SLOW_RELEASE_LIABILITY`.
+  - CLI: `mlb pop-time --pop 1.92 --arm 86.5 --att 65`, `mlb pop-time --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_poptime.py` passing; 638/638 full repository unit tests passing.
+
+## ADR-172: Starting Pitcher First-Pitch Strike Surplus Valuation Engine (`FSTRIKE-01`, Package 84)
+
+**Decision:** Built first-pitch strike count leverage and run expectancy surplus modeling in `mlb_baseball/model/fstrike.py` and CLI subcommand `mlb fstrike`.
+- **Mathematical Formulations & Methodology**:
+  - Count Delta Leverage: $\Delta \text{RE}_{\text{0-1 vs 1-0}} \approx -0.068\text{ runs/PA}$.
+  - First-Pitch Strike Surplus Value: $\text{FPSV}_{\text{runs}} = (\text{FPS\%} - 60.5\%) \cdot \text{BF} \cdot 0.068$.
+  - Tiers: `ELITE_ZONE_POUNDER` ($\text{FPS\%} \ge 66.0\%$), `ABOVE_AVERAGE`, `AVERAGE`, `PASSIVE_BEHIND_COUNT`.
+  - CLI: `mlb fstrike --fps 0.65 --bf 700`, `mlb fstrike --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_fstrike.py` passing; 638/638 full repository unit tests passing.
+
+## ADR-171: Batter In-Zone Whiff vs Chase Swing Vulnerability Matrix (`ZONE-SWING-01`, Package 83)
+
+**Decision:** Built 4-zone plate discipline decomposition and swing efficiency modeling in `mlb_baseball/model/zone_swing.py` and CLI subcommand `mlb zone-swing`.
+- **Mathematical Formulations & Methodology**:
+  - Zone Contact Deficit: $\text{ZCD} = \text{Z-Contact\%}_{\text{league}} - \text{Z-Contact\%}_{\text{batter}} \quad (0.820 - \text{Z-Contact})$.
+  - Chase Efficiency Ratio: $\text{CER} = \frac{\text{O-Swing\%}}{\max(0.01, \text{Z-Swing\%})}$.
+  - Tiers: `IN_ZONE_PUNISHER` ($\text{ZCD} \le -0.035, \text{CER} \le 0.42$), `CHASE_VULNERABLE`, `ZONE_WHIFF_PRONE`, `BALANCED`.
+  - CLI: `mlb zone-swing --z-swing 0.68 --z-contact 0.84 --o-swing 0.28 --o-contact 0.58`, `mlb zone-swing --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_zone_swing.py` passing; 638/638 full repository unit tests passing.
+
 ## ADR-170: Pure-Python SVG Inning Score Flow & Lead Matrix Renderer (`FLOW-01`, Package 82)
 
 **Decision:** Built stepped game score progression and lead transition chart renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb score-flow`.

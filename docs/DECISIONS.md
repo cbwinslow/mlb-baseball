@@ -8,7 +8,7 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 - **Mathematical Formulations & Methodology**:
   - Multivariate Gaussian Copula Simulation: $\mathcal{C}_R(u_1, u_2, ...) = \Phi_R(\Phi^{-1}(u_1), \Phi^{-1}(u_2), ...)$ over latent home/away offensive strength and pitcher strikeout dominance.
   - Inter-Event Correlation Matrix: Models empirical correlations (e.g., Pitcher Strikeout Dominance suppresses Opponent Team Total with $r \approx -0.40$ and boosts Pitcher Strikeouts with $r \approx +0.60$).
-  - Correlation Multiplier ($ho_{\text{mult}}$): Quantifies correlation boost $ho_{\text{mult}} = rac{\hat{P}_{\text{joint}}}{\prod P(L_m)}$. Multipliers $> 1.0$ indicate synergistic positive correlation.
+  - Correlation Multiplier ($\rho_{\text{mult}}$): Quantifies correlation boost $\rho_{\text{mult}} = \frac{\hat{P}_{\text{joint}}}{\prod P(L_m)}$. Multipliers $> 1.0$ indicate synergistic positive correlation.
   - Fair Decimal Odds & Edge: Computes fair zero-vig price $O_{\text{fair}} = 1 / \hat{P}_{\text{joint}}$ and evaluates $\text{EV} = (\hat{P}_{\text{joint}} \cdot O_{\text{book}}) - 1.0$.
   - Combinatorial SGP Search: Discovers optimal $K$-leg parlay structures from candidate market legs.
   - CLI: `mlb parlay --sims 10000 --legs 2 --min-boost 1.10`, `mlb parlay --json`.
@@ -19,7 +19,7 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 **Decision:** Built continuous model drift and calibration tracking monitor in `mlb_baseball/model/drift.py` and CLI subcommand `mlb drift` to protect against non-stationarity and performance degradation.
 - **Mathematical Formulations & Methodology**:
   - Chronological Rolling Window Diagnostics: Evaluates sliding $W$-game windows (step size $S$) computing Expected Calibration Error (ECE), Max Calibration Error (MCE), and Brier Skill Score (BSS).
-  - Platt Calibration Slope ($lpha$) & HFA Intercept ($eta$) Tracking: Quantifies model confidence scaling ($p_{\text{cal}} = \sigma(\alpha \cdot \text{logit}(p) + \beta)$) to detect overconfidence ($\alpha < 0.50$) or underconfidence ($\alpha > 2.00$).
+  - Platt Calibration Slope ($\alpha$) & HFA Intercept ($\beta$) Tracking: Quantifies model confidence scaling ($p_{\text{cal}} = \sigma(\alpha \cdot \text{logit}(p) + \beta)$) to detect overconfidence ($\alpha < 0.50$) or underconfidence ($\alpha > 2.00$).
   - Degradation Severity Classification: Maps window metrics to `HEALTHY`, `WARNING`, `DEGRADED`, and `CRITICAL` statuses.
   - Risk Management & Operational Health: Integrated into `mlb doctor` to block wagering allocation if a model suffers severe calibration drift.
   - CLI: `mlb drift --model gbm-v1 --window 40 --step 15`, `mlb drift --json`.

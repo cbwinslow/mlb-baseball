@@ -33,6 +33,36 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### PARLAY-01 correlated same-game parlay copula engine & joint simulation: implemented (ADR-125) — 2026-08-24
+Added `mlb_baseball/model/parlay.py`, unit tests in `tests/unit/test_parlay.py`, and `mlb parlay` CLI command.
+- Evaluates multi-level correlations across moneylines, totals, team totals, and pitcher strikeout props via multivariate Gaussian copula Monte Carlo simulation.
+- Quantifies joint probability $\hat{P}_{\text{joint}}$, independent probability $\prod P(L_m)$, and correlation multiplier $ho_{\text{mult}} = \hat{P}_{\text{joint}} / \prod P(L_m)$.
+- Identifies +EV parlay structures where sportsbooks underprice positive correlation synergies.
+
+### DRIFT-01 continuous model drift & calibration tracking monitor: implemented (ADR-124) — 2026-08-24
+Added `mlb_baseball/model/drift.py`, unit tests in `tests/unit/test_drift.py`, and `mlb drift` CLI command.
+- Evaluates sliding $W$-game chronological windows computing Expected Calibration Error (ECE), Max Calibration Error (MCE), and Brier Skill Score (BSS).
+- Tracks Platt confidence slope ($lpha$) and HFA intercept ($eta$) to detect model overconfidence ($lpha < 0.50$), underconfidence ($lpha > 2.00$), and home-field bias shifts.
+- Integrated into `mlb doctor` preflight checks.
+
+### SERVE-02 analytical serving marts for standings & matchup dossiers: implemented (ADR-123) — 2026-08-24
+Added migration `migrations/0080_ros_and_stacked_serving_views.sql` and unit tests in `tests/unit/test_serve_views.py`.
+- Created read-only analytical marts `serve.ros_team_standings` and `serve.matchup_dossier` pre-joining pitcher pitch movement, attack zones, park factors, air density index, and latest model ensemble predictions.
+- Enables sub-10ms web and API rendering with strict point-in-time temporal correctness.
+
+### STACK-02 Bayesian constrained ensemble stacking & convex simplex meta-learner: implemented (ADR-122) — 2026-08-24
+Added `mlb_baseball/model/stack.py`, unit tests in `tests/unit/test_stack_formula.py`, and `mlb stack` CLI command.
+- Implements non-negative quadratic programming on the probability simplex ($w_k \ge 0, \sum w_k = 1.0$) with Dirichlet shrinkage ($\lambda = 0.05$).
+- Blends Log5, Elo, GBM-v2, and prediction market probabilities with zero negative model leverage and dynamic missing-signal re-normalization.
+
+### EXPORT-01 polymorphic research dossier & multi-format document exporter: implemented (ADR-121) — 2026-08-24
+Added `mlb_baseball/export.py`, unit tests in `tests/unit/test_export.py`, and `mlb export` CLI command.
+- Open-closed component architecture with `BaseDocumentRenderer` protocol rendering across Markdown, ANSI Terminal, Semantic HTML, and JSON.
+
+### ROS-01 dynamic rest-of-season Monte Carlo & playoff odds engine: implemented (ADR-120) — 2026-08-24
+Added `mlb_baseball/model/ros.py`, unit tests in `tests/unit/test_ros.py`, and `mlb ros` CLI command.
+- Point-in-time in-season standings ingestion, Empirical Bayes shrinkage ($w = \frac{N}{N+60}$), division clinch Magic Number calculation ($	ext{MN} = \max(0, 163 - W_{\text{leader}} - L_{\text{trailer}})$), and 12-team postseason tournament simulation.
+
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
 Added `mlb_baseball/model/bsr.py` (`compute()`/`health_check()`),

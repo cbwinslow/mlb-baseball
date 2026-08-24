@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### ODDS-CHART-01 interactive SVG market odds movement & steam visualizer: implemented (ADR-162) — 2026-08-24
+Added `OddsMovementChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb odds-chart` CLI command.
+- Renders pure-Python vector SVG time-series charts visualizing line movement trajectories and sharp steam action markers.
+
+### FATIGUE-01 pitcher acute-to-chronic workload & fatigue risk engine: implemented (ADR-161) — 2026-08-24
+Added `mlb_baseball/model/fatigue.py`, unit tests in `tests/unit/test_fatigue.py`, and `mlb fatigue` CLI command.
+- Models 7d/28d ACWR workload ratios, radar fastball velocity decay, and release point vertical sagging into a composite fatigue risk index.
+
+### BULLPEN-OPT-01 live in-game bullpen managerial optimizer: implemented (ADR-160) — 2026-08-24
+Added `mlb_baseball/model/bullpen_opt.py`, unit tests in `tests/unit/test_bullpen_opt.py`, and `mlb bullpen-opt` CLI command.
+- Optimizes situational bullpen insertion based on leverage index, upcoming batter handedness, and 3-day stamina penalties.
+
+### DAMAGE-01 batter contact quality & damage probability engine: implemented (ADR-159) — 2026-08-24
+Added `mlb_baseball/model/damage.py`, unit tests in `tests/unit/test_damage.py`, and `mlb damage` CLI command.
+- Classifies Statcast launch speed/angle into barrels vs solid contact and computes damage rate and expected damage value.
+
 ### RADAR-01 interactive SVG visual radar & arsenal polygon renderer: implemented (ADR-158) — 2026-08-24
 Added `RadarChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb radar` CLI command.
 - Renders pure-Python vector SVG multi-axis spider radar charts for player 5-tool evaluations and pitch arsenals.

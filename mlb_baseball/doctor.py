@@ -263,14 +263,17 @@ def run() -> list[Check]:
         baserunning,
         blocking,
         bullpen,
+        bullpen_opt,
         bvp,
         calibration,
         cluster,
         count,
+        damage,
         decision,
         drift,
         entropy,
         extension,
+        fatigue,
         heatmap,
         hedge,
         leverage,
@@ -412,6 +415,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(damage.health_check())
+    except Exception as exc:
+        checks.append(Check("damage", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(bullpen_opt.health_check())
+    except Exception as exc:
+        checks.append(Check("bullpen_opt", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(fatigue.health_check())
+    except Exception as exc:
+        checks.append(Check("fatigue", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(splits.health_check())
     except Exception as exc:

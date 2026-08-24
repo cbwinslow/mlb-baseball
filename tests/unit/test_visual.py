@@ -97,3 +97,29 @@ def test_radar_chart_svg_generation():
     assert "<svg" in chart.svg_content
     assert "Juan Soto Scouting Radar" in chart.svg_content
     assert "Contact (85)" in chart.svg_content
+
+
+def test_odds_movement_chart_svg_generation():
+    """Verify OddsMovementChartRenderer creates time-series line chart with steam markers."""
+    from mlb_baseball.visual import (
+        MarketOddsTimeline,
+        OddsMovementChartRenderer,
+        OddsMovementPoint,
+    )
+
+    renderer = OddsMovementChartRenderer()
+    pts = [
+        OddsMovementPoint("09:00", 1.95, 1.95),
+        OddsMovementPoint("12:00", 1.85, 2.05),
+        OddsMovementPoint("16:00", 1.70, 2.25, is_steam_move=True),
+        OddsMovementPoint("19:00", 1.68, 2.30),
+    ]
+    timeline = MarketOddsTimeline("NYY vs BOS Odds Movement", "NYY", "BOS", pts)
+    chart = renderer.render(timeline)
+
+    assert chart.width_px == 600
+    assert chart.height_px == 350
+    assert "<svg" in chart.svg_content
+    assert "NYY vs BOS Odds Movement" in chart.svg_content
+    assert "polyline" in chart.svg_content
+    assert "circle" in chart.svg_content  # Steam marker

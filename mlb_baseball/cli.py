@@ -867,6 +867,68 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter contact damage (DAMAGE-01)
+    dmg_parser = subparsers.add_parser(
+        "damage",
+        help="evaluate Statcast exit velo and damage rate (DAMAGE-01)",
+    )
+    dmg_parser.add_argument(
+        "--ev", type=float, default=104.5, help="exit velocity mph (default: 104.5)"
+    )
+    dmg_parser.add_argument(
+        "--la", type=float, default=26.0, help="launch angle deg (default: 26.0)"
+    )
+    dmg_parser.add_argument("--json", action="store_true", help="output damage result as JSON")
+
+    # Live bullpen optimizer (BULLPEN-OPT-01)
+    bopt_parser = subparsers.add_parser(
+        "bullpen-opt",
+        help="optimize live in-game reliever insertion (BULLPEN-OPT-01)",
+    )
+    bopt_parser.add_argument("--inning", type=int, default=8, help="current inning (default: 8)")
+    bopt_parser.add_argument(
+        "--score-diff", type=int, default=1, help="score differential (default: 1)"
+    )
+    bopt_parser.add_argument(
+        "--li", type=float, default=2.40, help="leverage index (default: 2.40)"
+    )
+    bopt_parser.add_argument(
+        "--batters", type=str, default="L,L,R", help="upcoming batters hand (default: L,L,R)"
+    )
+    bopt_parser.add_argument(
+        "--json", action="store_true", help="output bullpen optimization as JSON"
+    )
+
+    # Pitcher workload fatigue (FATIGUE-01)
+    fat_parser = subparsers.add_parser(
+        "fatigue",
+        help="evaluate acute-to-chronic workload and fatigue risk (FATIGUE-01)",
+    )
+    fat_parser.add_argument(
+        "--pitches-7d", type=int, default=120, help="pitches last 7d (default: 120)"
+    )
+    fat_parser.add_argument(
+        "--pitches-28d", type=int, default=320, help="pitches last 28d (default: 320)"
+    )
+    fat_parser.add_argument(
+        "--velo-delta", type=float, default=-1.4, help="fastball velo delta mph (default: -1.4)"
+    )
+    fat_parser.add_argument(
+        "--release-drop", type=float, default=-1.6, help="release drop in (default: -1.6)"
+    )
+    fat_parser.add_argument("--json", action="store_true", help="output fatigue evaluation as JSON")
+
+    # Odds movement chart (ODDS-CHART-01)
+    ochart_parser = subparsers.add_parser(
+        "odds-chart",
+        help="generate vector SVG market line movement chart (ODDS-CHART-01)",
+    )
+    ochart_parser.add_argument(
+        "--title", type=str, default="NYY vs BOS Odds Movement", help="chart title"
+    )
+    ochart_parser.add_argument("--home", type=str, default="NYY", help="home team (default: NYY)")
+    ochart_parser.add_argument("--away", type=str, default="BOS", help="away team (default: BOS)")
+
     # Batter platoon split shrinkage (PLATOON-01)
     plat_parser = subparsers.add_parser(
         "platoon",
@@ -3020,6 +3082,164 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "damage":
+        import json as json_lib
+
+        from mlb_baseball.model.damage import (
+            BattedBallContact,
+            BatterContactProfile,
+            ContactDamageEngine,
+        )
+
+        dmg_eng = ContactDamageEngine()
+        hits = [
+            BattedBallContact("c1", args.ev, args.la),
+            BattedBallContact("c2", 98.0, 24.0),
+            BattedBallContact("c3", 92.0, 15.0),
+        ]
+        profile = BatterContactProfile("b1", "Sample Batter", hits)
+        dmg_res = dmg_eng.evaluate_damage(profile)
+
+        if args.json:
+            dmg_out = {
+                "damage_rate_pct": dmg_res.damage_rate_pct,
+                "expected_damage_value": dmg_res.expected_damage_value,
+                "tier": dmg_res.damage_tier,
+                "barrel_count": dmg_res.barrel_count,
+            }
+            print(json_lib.dumps(dmg_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     BATTER CONTACT DAMAGE EVALUATION [{dmg_res.damage_tier}]")
+            hdr_dm = (
+                f"     Damage Rate: {dmg_res.damage_rate_pct:.1f}% "
+                f"| EDV: {dmg_res.expected_damage_value:.3f} RV/BBE "
+                f"| Barrels: {dmg_res.barrel_count}/{dmg_res.total_bbe}"
+            )
+            print(hdr_dm)
+            print(f"{'=' * 84}\n")
+            print(f"  • Damage Tier        : {dmg_res.damage_tier}")
+            print(f"  • Expected Run Value : {dmg_res.expected_damage_value:.3f}\n")
+
+    elif args.command == "bullpen-opt":
+        import json as json_lib
+
+        from mlb_baseball.model.bullpen_opt import (
+            BullpenOptimizerEngine,
+            InGameLeverageSituation,
+            RelieverCandidate,
+        )
+
+        bopt_eng = BullpenOptimizerEngine()
+        batters_list = [b.strip() for b in args.batters.split(",")]
+        sit = InGameLeverageSituation(
+            inning=args.inning,
+            score_diff=args.score_diff,
+            leverage_index=args.li,
+            upcoming_batters_hand=batters_list,
+        )
+        bopt_sample_arms = [
+            RelieverCandidate(
+                "r1", "Lefty Specialist", "L", rest_days=2, pitches_last_3d=10, fip=2.80
+            ),
+            RelieverCandidate("r2", "Righty Setup", "R", rest_days=0, pitches_last_3d=40, fip=3.40),
+            RelieverCandidate("r3", "Closer", "R", rest_days=1, pitches_last_3d=15, fip=2.20),
+        ]
+        bopt_res = bopt_eng.optimize_bullpen(sit, bopt_sample_arms)
+
+        if args.json:
+            bopt_out = {
+                "top_recommendation": bopt_res.top_recommendation.name,
+                "score": bopt_res.top_recommendation.net_score,
+                "label": bopt_res.top_recommendation.recommendation_label,
+            }
+            print(json_lib.dumps(bopt_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(
+                f"     LIVE BULLPEN OPTIMIZER [Inn: {bopt_res.inning} "
+                f"| LI: {bopt_res.leverage_index:.2f}]"
+            )
+            hdr_bo = (
+                f"     TOP INSERTION: {bopt_res.top_recommendation.name} "
+                f"({bopt_res.top_recommendation.recommendation_label}) "
+                f"| Net Score: {bopt_res.top_recommendation.net_score:.3f}"
+            )
+            print(hdr_bo)
+            print(f"{'=' * 84}\n")
+            for arm_rank in bopt_res.all_rankings:
+                print(
+                    f"  #{arm_rank.rank} {arm_rank.name:<20} "
+                    f"Score: {arm_rank.net_score:>+6.3f} "
+                    f"| Matchup: {arm_rank.matchup_advantage:>+5.2f} "
+                    f"| Fatigue: {arm_rank.fatigue_penalty:>5.2f} "
+                    f"[{arm_rank.recommendation_label}]"
+                )
+            print()
+
+    elif args.command == "fatigue":
+        import json as json_lib
+
+        from mlb_baseball.model.fatigue import (
+            PitcherFatigueEngine,
+            PitcherWorkloadMetrics,
+        )
+
+        fat_eng = PitcherFatigueEngine()
+        fat_metrics = PitcherWorkloadMetrics(
+            "p1",
+            "Target Pitcher",
+            pitches_7d=args.pitches_7d,
+            pitches_28d=args.pitches_28d,
+            velo_delta_mph=args.velo_delta,
+            release_drop_in=args.release_drop,
+        )
+        fat_res = fat_eng.evaluate_fatigue(fat_metrics)
+
+        if args.json:
+            fat_out = {
+                "acwr": fat_res.acwr_ratio,
+                "fatigue_risk_index": fat_res.fatigue_risk_index,
+                "tier": fat_res.fatigue_tier,
+                "velo_flag": fat_res.is_velocity_flagged,
+                "mech_flag": fat_res.is_biomechanics_flagged,
+            }
+            print(json_lib.dumps(fat_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PITCHER WORKLOAD FATIGUE RISK [{fat_res.fatigue_tier}]")
+            hdr_fa = (
+                f"     ACWR: {fat_res.acwr_ratio:.2f} "
+                f"| Fatigue Index: {fat_res.fatigue_risk_index:.1f}/100 "
+                f"| Velo Flag: {'YES' if fat_res.is_velocity_flagged else 'NO'}"
+            )
+            print(hdr_fa)
+            print(f"{'=' * 84}\n")
+            print(
+                f"  • Biomechanics Sag Flag : {'YES' if fat_res.is_biomechanics_flagged else 'NO'}"
+            )
+            print(f"  • Fatigue Classification : {fat_res.fatigue_tier}\n")
+
+    elif args.command == "odds-chart":
+        from mlb_baseball.visual import (
+            MarketOddsTimeline,
+            OddsMovementChartRenderer,
+            OddsMovementPoint,
+        )
+
+        ochart_renderer = OddsMovementChartRenderer()
+        pts = [
+            OddsMovementPoint("09:00", 1.90, 1.90),
+            OddsMovementPoint("12:00", 1.82, 2.08),
+            OddsMovementPoint("15:30", 1.74, 2.20, is_steam_move=True),
+            OddsMovementPoint("18:45", 1.70, 2.25),
+        ]
+        timeline = MarketOddsTimeline(args.title, args.home, args.away, pts)
+        chart = ochart_renderer.render(timeline)
+        print(
+            f"Generated Vector SVG Odds Chart for '{args.title}' ({len(chart.svg_content)} bytes)"
+        )
 
     elif args.command == "platoon":
         import json as json_lib

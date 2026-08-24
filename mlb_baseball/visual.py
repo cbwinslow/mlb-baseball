@@ -19,6 +19,7 @@ class ChartType(enum.Enum):
     WIN_EXPECTANCY_WORM = "win_expectancy_worm"
     PITCH_MOVEMENT_PLOT = "pitch_movement_plot"
     SPIDER_RADAR_CHART = "spider_radar_chart"
+    ODDS_MOVEMENT_TIMELINE = "odds_movement_timeline"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -422,6 +423,139 @@ class RadarChartRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class OddsMovementPoint:
+    """Snapshot of market odds at a specific point in time before game start."""
+
+    timestamp_label: str  # e.g. "09:00", "12:00", "15:30", "18:45"
+    home_decimal_odds: float  # e.g. 1.85
+    away_decimal_odds: float  # e.g. 2.05
+    total_line: float = 8.5
+    is_steam_move: bool = False
+
+
+@dataclasses.dataclass(frozen=True)
+class MarketOddsTimeline:
+    """Complete pre-game line movement sequence across betting books."""
+
+    title: str
+    home_team: str
+    away_team: str
+    points: list[OddsMovementPoint]
+
+
+class OddsMovementChartRenderer:
+    """Renders pure-Python vector SVG market line movement and steam move charts (ODDS-CHART-01)."""
+
+    def __init__(self, width: int = 600, height: int = 350) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, timeline: MarketOddsTimeline) -> GeneratedVectorChart:
+        """Render odds movement timeline into SVG chart."""
+        if not timeline.points:
+            raise ValueError("Timeline must contain at least one point")
+
+        margin_left = 60.0
+        margin_right = 40.0
+        margin_top = 50.0
+        margin_bottom = 50.0
+
+        plot_w = self.width - margin_left - margin_right
+        plot_h = self.height - margin_top - margin_bottom
+
+        # Determine y scale (odds range 1.40 to 2.60 or dynamic)
+        all_odds = [p.home_decimal_odds for p in timeline.points] + [
+            p.away_decimal_odds for p in timeline.points
+        ]
+        min_y = max(1.10, min(all_odds) - 0.10)
+        max_y = max(all_odds) + 0.10
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="30" fill="#f8fafc" font-size="15" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{timeline.title}</text>',
+        ]
+
+        # Horizontal gridlines
+        y_ticks = 5
+        for i in range(y_ticks):
+            val = min_y + (max_y - min_y) * (i / (y_ticks - 1))
+            norm = (val - min_y) / (max_y - min_y)
+            y_px = (margin_top + plot_h) - (norm * plot_h)
+
+            svg_parts.append(
+                f'<line x1="{margin_left}" y1="{y_px:.1f}" x2="{self.width - margin_right}" '
+                f'y2="{y_px:.1f}" stroke="#1e293b" stroke-width="1.0" />'
+            )
+            svg_parts.append(
+                f'<text x="{margin_left - 10}" y="{y_px + 4:.1f}" fill="#64748b" font-size="11" '
+                f'text-anchor="end" font-family="monospace">{val:.2f}</text>'
+            )
+
+        n_pts = len(timeline.points)
+        home_poly: list[str] = []
+        away_poly: list[str] = []
+
+        for idx, pt in enumerate(timeline.points):
+            x_norm = idx / max(1, n_pts - 1) if n_pts > 1 else 0.5
+            x_px = margin_left + x_norm * plot_w
+
+            # Home point
+            h_norm = (pt.home_decimal_odds - min_y) / (max_y - min_y)
+            h_y = (margin_top + plot_h) - (h_norm * plot_h)
+            home_poly.append(f"{x_px:.1f},{h_y:.1f}")
+
+            # Away point
+            a_norm = (pt.away_decimal_odds - min_y) / (max_y - min_y)
+            a_y = (margin_top + plot_h) - (a_norm * plot_h)
+            away_poly.append(f"{x_px:.1f},{a_y:.1f}")
+
+            # X-axis timestamp
+            svg_parts.append(
+                f'<text x="{x_px:.1f}" y="{self.height - 20}" fill="#94a3b8" font-size="11" '
+                f'text-anchor="middle" font-family="sans-serif">{pt.timestamp_label}</text>'
+            )
+
+            # Steam move indicator
+            if pt.is_steam_move:
+                svg_parts.append(
+                    f'<circle cx="{x_px:.1f}" cy="{h_y:.1f}" r="6" fill="#f59e0b" '
+                    f'stroke="#ffffff" stroke-width="1.5" />'
+                )
+
+        # Polylines for Home (Cyan) and Away (Purple)
+        svg_parts.append(
+            f'<polyline points="{" ".join(home_poly)}" fill="none" stroke="#00d2be" '
+            f'stroke-width="2.5" stroke-linejoin="round" />'
+        )
+        svg_parts.append(
+            f'<polyline points="{" ".join(away_poly)}" fill="none" stroke="#a855f7" '
+            f'stroke-width="2.5" stroke-linejoin="round" />'
+        )
+
+        # Legend
+        svg_parts.append(
+            f'<text x="{margin_left + 10}" y="{margin_top + 15}" fill="#00d2be" font-size="12" '
+            f'font-weight="bold" font-family="sans-serif">{timeline.home_team} (Home)</text>'
+        )
+        svg_parts.append(
+            f'<text x="{margin_left + 130}" y="{margin_top + 15}" fill="#a855f7" font-size="12" '
+            f'font-weight="bold" font-family="sans-serif">{timeline.away_team} (Away)</text>'
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.ODDS_MOVEMENT_TIMELINE,
+            title=timeline.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -451,11 +585,19 @@ def health_check() -> list[Check]:
         ]
         radar_chart = radar_renderer.render(PlayerRadarProfile("Test Radar", dims))
 
+        odds_renderer = OddsMovementChartRenderer()
+        pts = [
+            OddsMovementPoint("Open", 1.85, 2.05),
+            OddsMovementPoint("Close", 1.75, 2.20, is_steam_move=True),
+        ]
+        odds_chart = odds_renderer.render(MarketOddsTimeline("Test Odds", "LAD", "SF", pts))
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
             and "<svg" in we_chart.svg_content
             and "<svg" in radar_chart.svg_content
+            and "<svg" in odds_chart.svg_content
         ):
             checks.append(
                 Check(

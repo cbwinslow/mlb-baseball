@@ -68,7 +68,11 @@ This document serves as the academic and theoretical reference manual for the ML
 42. [No-Run-First-Inning (NRFI/YRFI) Derivative Valuation](#42-no-run-first-inning-nrfiyrfi-derivative-valuation)
 43. [Pitched Ball Gyro Spin & Spin Efficiency Aerodynamics](#43-pitched-ball-gyro-spin--spin-efficiency-aerodynamics)
 44. [Multi-Axis Polar SVG Radar Visualizer Architecture](#44-multi-axis-polar-svg-radar-visualizer-architecture)
-45. [Academic Bibliography & Literature Citations](#45-academic-bibliography--literature-citations)
+45. [Batter Contact Quality & Damage Probability Formulation](#45-batter-contact-quality--damage-probability-formulation)
+46. [Live Managerial Bullpen Leverage Optimization](#46-live-managerial-bullpen-leverage-optimization)
+47. [Pitcher Acute-to-Chronic Workload Ratio (ACWR) & Fatigue Mechanics](#47-pitcher-acute-to-chronic-workload-ratio-acwr--fatigue-mechanics)
+48. [Pure-Python SVG Odds Movement & Steam Visualizer Architecture](#48-pure-python-svg-odds-movement--steam-visualizer-architecture)
+49. [Academic Bibliography & Literature Citations](#49-academic-bibliography--literature-citations)
 
 ---
 
@@ -612,7 +616,38 @@ $$(x_k, y_k) = \left(x_c + R \cdot \frac{v_k}{100.0} \cos\left(-\frac{\pi}{2} + 
 
 ---
 
-## 45. Academic Bibliography & Literature Citations
+## 45. Batter Contact Quality & Damage Probability Formulation
+
+### 45.1 Damage Rate & Expected Damage Value (EDV)
+$$\text{Damage\%} = \frac{N_{\text{Barrel}} + 0.6 \cdot N_{\text{Solid}}}{N_{\text{BBE}}} \times 100\%$$
+$$\text{EDV} = \frac{\sum_{i=1}^N \text{DamageRunValue}_i}{N_{\text{BBE}}}$$
+
+---
+
+## 46. Live Managerial Bullpen Leverage Optimization
+
+### 46.1 Situational Reliever Objective Function
+$$\text{Score}_i = (\text{MatchupAdv}_i + \text{TalentQuality}_i) \times \text{LI} - \text{FatiguePenalty}_i$$
+$$\text{FatiguePenalty}_i = \left(\frac{\text{Pitches}_{\text{3d}}}{40.0}\right) \times 0.08 + \mathbf{1}_{\{\text{RestDays} = 0\}} \times 0.06$$
+
+---
+
+## 47. Pitcher Acute-to-Chronic Workload Ratio (ACWR) & Fatigue Mechanics
+
+### 47.1 ACWR & Composite Fatigue Risk Index (FRI)
+$$\text{ACWR} = \frac{\text{Pitches}_{\text{7d}} / 7.0}{\text{Pitches}_{\text{28d}} / 28.0}$$
+$$\text{FRI} = \min\left(100, \max\left(0, \left(\frac{\text{ACWR} - 1.0}{0.5}\right) \times 35.0 + (-\Delta v) \times 20.0 + (-\Delta z_{\text{rel}}) \times 6.0 + \text{StressInnings} \times 5.0\right)\right)$$
+
+---
+
+## 48. Pure-Python SVG Odds Movement & Steam Visualizer Architecture
+
+### 48.1 Multi-Line Market Trajectory Time-Series
+$$y_i = (y_{\text{top}} + H) - \left(\frac{\text{Odds}_i - \text{Odds}_{\min}}{\text{Odds}_{\max} - \text{Odds}_{\min}}\right) \times H$$
+
+---
+
+## 49. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -646,3 +681,5 @@ $$(x_k, y_k) = \left(x_c + R \cdot \frac{v_k}{100.0} \cos\left(-\frac{\pi}{2} + 
 30. **Roegele, Jon** (2017). "The Hardball Times: Pitch Tunneling and Batter Perception".
 31. **Nathan, Alan M.** (2018). "Determining the 3D Spin Axis of a Baseball from TrackMan Data".
 32. **Tango, Tom** (2008). "Platoon Splits and the Rule of 1000 PAs". *Inside The Book*.
+33. **Gabbett, Tim J.** (2016). "The training-injury prevention paradox: should athletes be training smarter and harder?". *British Journal of Sports Medicine*.
+34. **Carleton, Russell A.** (2018). *The Shift: The Next Evolution in Baseball Thinking*.

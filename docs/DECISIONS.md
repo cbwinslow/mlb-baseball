@@ -2,6 +2,47 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-162: Interactive SVG Market Odds Movement & Steam Visualizer (`ODDS-CHART-01`, Package 74)
+
+**Decision:** Built pure-Python vector SVG market line movement and steam action visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb odds-chart`.
+- **Operational Architecture & Features**:
+  - Time-Series Geometry: Renders pre-game open-to-close moneyline trajectories across sportsbooks with dynamic Y-scaling.
+  - Sharp Steam Markers: Highlights sudden line movements and reverse line movement (RLM) with high-visibility markers.
+  - CLI: `mlb odds-chart --title "NYY vs BOS Odds Movement" --home NYY --away BOS`.
+- **Verification**: 6/6 unit tests in `tests/unit/test_visual.py` passing; 605/605 full repository unit tests passing.
+
+## ADR-161: Pitcher Acute-to-Chronic Workload & Fatigue Risk Engine (`FATIGUE-01`, Package 73)
+
+**Decision:** Built multi-week pitch workload tracking, Acute-to-Chronic Workload Ratio (ACWR), and biomechanical fatigue index modeling in `mlb_baseball/model/fatigue.py` and CLI subcommand `mlb fatigue`.
+- **Mathematical Formulations & Methodology**:
+  - Acute-to-Chronic Workload: $\text{ACWR} = \frac{\text{Pitches}_{\text{7d}} / 7.0}{\text{Pitches}_{\text{28d}} / 28.0}$.
+  - Fatigue Triggers: Fastball velocity decay ($\Delta v \le -1.2\text{ mph}$) and vertical arm slot drop ($\Delta z \le -1.5\text{ in}$).
+  - Composite Fatigue Risk: $\text{FRI} = \text{clip}\left(\text{ACWR}_{\text{pen}} + \Delta v_{\text{pen}} + \Delta z_{\text{pen}} + \text{Stress}_{\text{pen}}, 0, 100\right)$.
+  - Tiers: `HIGH_FATIGUE_OVERLOAD` ($\text{FRI} \ge 60$), `MODERATE_FATIGUE`, `OPTIMAL_FITNESS`.
+  - CLI: `mlb fatigue --pitches-7d 120 --pitches-28d 320 --velo-delta -1.4 --release-drop -1.6`, `mlb fatigue --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_fatigue.py` passing; 605/605 full repository unit tests passing.
+
+## ADR-160: Live In-Game Bullpen Managerial Optimizer (`BULLPEN-OPT-01`, Package 72)
+
+**Decision:** Built live bullpen leverage matching, batter handedness suppression, and stamina preservation modeling in `mlb_baseball/model/bullpen_opt.py` and CLI subcommand `mlb bullpen-opt`.
+- **Mathematical Formulations & Methodology**:
+  - Marginal Insertion Value: $\text{Score}_i = (\text{MatchupAdv}_i + \text{TalentQuality}_i) \times \text{LI} - \text{FatiguePenalty}_i$.
+  - Matchup Advantage: $+0.05$ per same-handed batter in upcoming 3-batter sequence.
+  - Tactical Tiers: `PRIMARY_INSERTION`, `SECONDARY_BACKUP`, `AVOID_FATIGUED`.
+  - CLI: `mlb bullpen-opt --inning 8 --score-diff 1 --li 2.4 --batters L,L,R`, `mlb bullpen-opt --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_bullpen_opt.py` passing; 605/605 full repository unit tests passing.
+
+## ADR-159: Batter Contact Quality & Damage Probability Engine (`DAMAGE-01`, Package 71)
+
+**Decision:** Built Statcast launch ballistics classification and true extra-base damage modeling in `mlb_baseball/model/damage.py` and CLI subcommand `mlb damage`.
+- **Mathematical Formulations & Methodology**:
+  - Contact Categories: `BARREL_BLAST` ($\text{EV} \ge 98.0, \text{LA} \in [22^\circ, 32^\circ]$), `SOLID_CONTACT`, `FLARE_BURNER`, `WEAK_TOPPER`, `POPUP`.
+  - Damage Rate: $\text{Damage\%} = \frac{N_{\text{Barrel}} + 0.6 \cdot N_{\text{Solid}}}{N_{\text{BBE}}} \times 100\%$.
+  - Expected Damage Value: $\text{EDV} = \frac{\sum \text{RV}_i}{N_{\text{BBE}}}$.
+  - Tiers: `ELITE_SLUGGER` ($\text{Damage\%} \ge 18\%$), `SOLID_THREAT`, `CONTACT_SLAP_HITTER`.
+  - CLI: `mlb damage --ev 104.5 --la 26.0`, `mlb damage --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_damage.py` passing; 605/605 full repository unit tests passing.
+
 ## ADR-158: Interactive SVG Visual Radar & Arsenal Polygon Renderer (`RADAR-01`, Package 70)
 
 **Decision:** Built pure-Python vector SVG multi-axis spider radar chart renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb radar`.

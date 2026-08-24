@@ -219,3 +219,12 @@ def test_splits_and_nrfi_and_spin_health_checks():
     assert splits.health_check()[0].ok is True
     assert nrfi.health_check()[0].ok is True
     assert spin.health_check()[0].ok is True
+
+
+def test_damage_and_bullpen_opt_and_fatigue_health_checks():
+    """Verify health checks for damage, bullpen_opt, and fatigue modules."""
+    from mlb_baseball.model import bullpen_opt, damage, fatigue
+
+    assert damage.health_check()[0].ok is True
+    assert bullpen_opt.health_check()[0].ok is True
+    assert fatigue.health_check()[0].ok is True

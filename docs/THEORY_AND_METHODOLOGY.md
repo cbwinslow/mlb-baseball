@@ -108,7 +108,11 @@ This document serves as the academic and theoretical reference manual for the ML
 82. [Batter Two-Strike Approach Shortening & Choke-Up Kinematics](#82-batter-two-strike-approach-shortening--choke-up-kinematics)
 83. [Infield Double Play Pivot Kinematics & Turn Time Mechanics](#83-infield-double-play-pivot-kinematics--turn-time-mechanics)
 84. [Pure-Python SVG Pitch Arsenal 12-Hour Spin Clock Visualizer Architecture](#84-pure-python-svg-pitch-arsenal-12-hour-spin-clock-visualizer-architecture)
-85. [Academic Bibliography & Literature Citations](#85-academic-bibliography--literature-citations)
+85. [Batter Contact Blast Angle & Launch Window Compression](#85-batter-contact-blast-angle--launch-window-compression)
+86. [Pitcher Arsenals Separation & Velocity Delta Disruption](#86-pitcher-arsenals-separation--velocity-delta-disruption)
+87. [Outfielder Throwing Arm Accuracy & Base-Runner Freeze Dynamics](#87-outfielder-throwing-arm-accuracy--base-runner-freeze-dynamics)
+88. [Pure-Python SVG Arsenal Velocity & Movement Separation Plot Architecture](#88-pure-python-svg-arsenal-velocity--movement-separation-plot-architecture)
+89. [Academic Bibliography & Literature Citations](#89-academic-bibliography--literature-citations)
 
 ---
 
@@ -966,7 +970,39 @@ $$L_{\text{vector}} = 30\text{px} + \text{Efficiency}_{\text{frac}} \cdot 105\te
 
 ---
 
-## 85. Academic Bibliography & Literature Citations
+## 85. Batter Contact Blast Angle & Launch Window Compression
+
+### 85.1 Launch Window Tightness Score (LWTS)
+$$\text{LWTS} = \max\left(0, 100 + (28.0 - \sigma_{\text{LA}}) \cdot 2.6 + (\text{PowerBlast\%} - 18.0) \cdot 3.0 + (\text{HardHit\%} - 38.0) \cdot 1.1\right)$$
+$$\text{BASD}_{\text{runs}} = (\text{PowerBlast\%} - 18.0\%) \cdot \text{BBE} \cdot 0.44 + (\text{SweetSpot\%} - 34.0\%) \cdot \text{BBE} \cdot 0.18$$
+
+---
+
+## 86. Pitcher Arsenals Separation & Velocity Delta Disruption
+
+### 86.1 Velocity Delta Disruption Index (VDDI)
+$$\Delta v = v_{\text{FB}} - v_{\text{CH}}, \quad \Delta \text{IVB} = \text{IVB}_{\text{FB}} - \text{IVB}_{\text{CH}}$$
+$$\text{VDDI} = \max\left(0, 100 + (\Delta v - 8.5) \cdot 3.8 + (\Delta \text{IVB} - 10.0) \cdot 2.8 + (v_{\text{FB}} - 93.5) \cdot 1.8\right)$$
+$$\text{Whiff Multiplier} = 1.0 + \frac{\max(0, \text{VDDI} - 100.0)}{300.0}$$
+
+---
+
+## 87. Outfielder Throwing Arm Accuracy & Base-Runner Freeze Dynamics
+
+### 87.1 Arm Sniper Index & Runner Freeze Surplus Value
+$$\text{ASI} = \max\left(0, 100 + (\text{Acc\%} - 65.0) \cdot 2.2 + (\text{Velo} - 90.0) \cdot 1.8 + (\text{Hold\%} - 50.0) \cdot 1.4\right)$$
+$$\text{RFSV}_{\text{runs}} = (\text{Hold\%} - 50.0\%) \cdot \text{Opps} \cdot 0.18 + N_{\text{Assists}} \cdot 0.44 - N_{\text{Overthrows}} \cdot 0.35$$
+
+---
+
+## 88. Pure-Python SVG Arsenal Velocity & Movement Separation Plot Architecture
+
+### 88.1 2D Cartesian Multi-Pitch Coordinate Projection
+$$x_{\text{screen}} = M_{\text{left}} + \left(\frac{v - v_{\min}}{v_{\max} - v_{\min}}\right) \cdot W_{\text{plot}}, \quad y_{\text{screen}} = M_{\text{top}} + \left(\frac{z_{\max} - z}{z_{\max} - z_{\min}}\right) \cdot H_{\text{plot}}$$
+
+---
+
+## 89. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1020,3 +1056,5 @@ $$L_{\text{vector}} = 30\text{px} + \text{Efficiency}_{\text{frac}} \cdot 105\te
 50. **Aucoin, Dan** (2020). "Classifying Pitcher Arm Slots Using Biomechanical Landmarks". *Driveline Baseball Research*.
 51. **Nathan, Alan M.** (2018). "Determining the 3D Spin Axis and Gyro Angle of a Baseball". *The Physics of Baseball*.
 52. **Slowinski, Steve** (2014). "The Value of Turning the Double Play". *FanGraphs Sabermetric Library*.
+53. **Fast, Mike** (2011). "Spin and Speed: Deception Through Arsenal Velocity Differentials". *Baseball Prospectus*.
+54. **Zimmerman, Jeff** (2017). "Outfield Arm Strength, Throwing Accuracy, and Runner Holds". *The Hardball Times*.

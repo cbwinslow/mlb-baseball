@@ -348,3 +348,29 @@ def test_spin_axis_clock_svg_generation():
     assert "Skenes Arsenal Spin Clock" in chart.svg_content
     assert "circle" in chart.svg_content
     assert "line" in chart.svg_content
+
+
+def test_separation_diamond_plot_svg_generation():
+    """Verify SeparationDiamondPlotRenderer generates Cartesian scatter chart with delta lines."""
+    from mlb_baseball.visual import (
+        PitchSeparationArsenalProfile,
+        PitchSeparationPoint,
+        SeparationDiamondPlotRenderer,
+    )
+
+    renderer = SeparationDiamondPlotRenderer()
+    pitches = [
+        PitchSeparationPoint("FF", "4-Seam Fastball", 97.5, 18.2, -6.5, "#00d2be"),
+        PitchSeparationPoint("SL", "Slider", 88.0, 2.5, 5.0, "#f59e0b"),
+        PitchSeparationPoint("CH", "Changeup", 86.5, 4.0, 14.5, "#a855f7"),
+        PitchSeparationPoint("CU", "Curveball", 79.0, -11.0, 8.0, "#3b82f6"),
+    ]
+    prof = PitchSeparationArsenalProfile("Skubal Arsenal Separation", "Tarik Skubal", pitches)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 520
+    assert chart.height_px == 460
+    assert "<svg" in chart.svg_content
+    assert "Skubal Arsenal Separation" in chart.svg_content
+    assert "circle" in chart.svg_content
+    assert "line" in chart.svg_content

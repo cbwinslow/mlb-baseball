@@ -2,6 +2,46 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-202: Pure-Python SVG Pitch Arsenal Velocity & Movement Separation Plot (`SEPARATION-PLOT-01`, Package 114)
+
+**Decision:** Built multi-pitch Cartesian scatter vector SVG visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb separation-plot`.
+- **Operational Architecture & Geometry**:
+  - Velocity vs IVB Scatter Grid: Maps pitch velocities on the X-axis ($75-102\text{ mph}$) against induced vertical break on the Y-axis ($-15\text{ to }+25\text{ in}$).
+  - Tunneling & Separation Connection Deltas: Draws connecting dashed lines from primary anchor fastball to secondary pitches annotated with velocity deltas ($\Delta v$).
+  - CLI: `mlb separation-plot --title "Tarik Skubal Arsenal Separation" --pitcher "Tarik Skubal"`.
+- **Verification**: 16/16 unit tests in `tests/unit/test_visual.py` passing; 714/714 full repository unit tests passing.
+
+## ADR-201: Outfielder Throwing Arm Accuracy & Base-Runner Freeze Index (`ARM-ACCURACY-01`, Package 113)
+
+**Decision:** Built outfield throwing accuracy, runner kill rates, and extra-base deterrence modeling in `mlb_baseball/model/arm_accuracy.py` and CLI subcommand `mlb arm-accuracy`.
+- **Mathematical Formulations & Methodology**:
+  - Arm Sniper Index: $\text{ASI} = \max\left(0, 100 + (\text{Acc\%} - 65.0) \cdot 2.2 + (\text{Velo} - 90.0) \cdot 1.8 + (\text{Hold\%} - 50.0) \cdot 1.4\right)$.
+  - Runner Freeze Surplus Value: $\text{RFSV}_{\text{runs}} = (\text{Hold\%} - 50.0\%) \cdot \text{Opps} \cdot 0.18 + N_{\text{Assists}} \cdot 0.44 - N_{\text{Overthrows}} \cdot 0.35$.
+  - Tiers: `DREADED_SNIPER_ARM` ($\text{ASI} \ge 118.0, \text{Acc} \ge 74.0\%, \text{Velo} \ge 93.0\text{ mph}$), `RAW_ERRATIC_CANNON`, `NARROW_RANGE_WEAK_ARM`, `AVERAGE_OUTFIELD_ARM`.
+  - CLI: `mlb arm-accuracy --velo 99.0 --accuracy 82.0 --assists 14 --hold 70.0 --overthrows 1 --opps 160`, `mlb arm-accuracy --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_arm_accuracy.py` passing; 714/714 full repository unit tests passing.
+
+## ADR-200: Pitcher Arsenals Separation & Velocity Delta Disruption Engine (`VELO-DELTA-01`, Package 112)
+
+**Decision:** Built pitch velocity differentials, speed banding, and vertical drop disruption modeling in `mlb_baseball/model/velo_delta.py` and CLI subcommand `mlb velo-delta`.
+- **Mathematical Formulations & Methodology**:
+  - Velo & Drop Gaps: $\Delta v = v_{\text{FB}} - v_{\text{CH}}$, $\Delta \text{IVB} = \text{IVB}_{\text{FB}} - \text{IVB}_{\text{CH}}$.
+  - Velocity Delta Disruption Index: $\text{VDDI} = \max\left(0, 100 + (\Delta v - 8.5) \cdot 3.8 + (\Delta \text{IVB} - 10.0) \cdot 2.8 + (v_{\text{FB}} - 93.5) \cdot 1.8\right)$.
+  - Whiff Boost Multiplier: $\text{Whiff Multiplier} = 1.0 + \frac{\max(0, \text{VDDI} - 100.0)}{300.0}$.
+  - Tiers: `ELITE_VELO_BAND_DISRUPTOR` ($\text{VDDI} \ge 115.0, \Delta v \ge 9.5\text{ mph}$), `TIGHT_BAND_POWER_PITCHER`, `DANGEROUS_FLAT_HOMOGENEOUS_ARSENAL`, `AVERAGE_ARSENAL_SEPARATION`.
+  - CLI: `mlb velo-delta --fb-velo 97.0 --ch-velo 86.5 --sl-velo 89.0 --cb-velo 81.0 --fb-ivb 18.0 --ch-ivb 5.5`, `mlb velo-delta --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_velo_delta.py` passing; 714/714 full repository unit tests passing.
+
+## ADR-199: Batter Contact Blast Angle & Launch Window Compression Engine (`BLAST-ANGLE-01`, Package 111)
+
+**Decision:** Built launch angle consistency, power corridor compression, and damage optimization modeling in `mlb_baseball/model/blast_angle.py` and CLI subcommand `mlb blast-angle`.
+- **Mathematical Formulations & Methodology**:
+  - Launch Window Tightness Score: $\text{LWTS} = \max\left(0, 100 + (28.0 - \sigma_{\text{LA}}) \cdot 2.6 + (\text{PowerBlast\%} - 18.0) \cdot 3.0 + (\text{HardHit\%} - 38.0) \cdot 1.1\right)$.
+  - Blast Angle Surplus Damage: $\text{BASD}_{\text{runs}} = (\text{PowerBlast\%} - 18.0\%) \cdot \text{BBE} \cdot 0.44 + (\text{SweetSpot\%} - 34.0\%) \cdot \text{BBE} \cdot 0.18$.
+  - Tiers: `PRECISION_POWER_BLASTER` ($\text{LWTS} \ge 118.0, \sigma_{\text{LA}} \le 22.0^\circ, \text{PowerBlast} \ge 24.0\%$), `FLAT_TRAJECTORY_LINE_DRIVE_ARTISAN`, `ERRATIC_FLYBALL_POPUP_RISK`, `AVERAGE_LAUNCH_PROFILE`.
+  - CLI: `mlb blast-angle --mean-la 15.0 --std-la 20.5 --sweet-spot 44.0 --blast 27.0 --hard-hit 52.0 --bbe 250`, `mlb blast-angle --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_blast_angle.py` passing; 714/714 full repository unit tests passing.
+
 ## ADR-198: Pure-Python SVG Pitch Arsenal 3D Spin Axis Clock Vector Visualizer (`SPIN-CLOCK-01`, Package 110)
 
 **Decision:** Built 12-hour analog clock dial vector SVG visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb spin-clock`.

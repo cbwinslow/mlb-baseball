@@ -867,6 +867,96 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter contact blast angle & launch window (BLAST-ANGLE-01)
+    bla_parser = subparsers.add_parser(
+        "blast-angle",
+        help="evaluate launch angle window compression and power damage (BLAST-ANGLE-01)",
+    )
+    bla_parser.add_argument(
+        "--mean-la", type=float, default=14.5, help="mean launch angle deg (default: 14.5)"
+    )
+    bla_parser.add_argument(
+        "--std-la", type=float, default=24.0, help="launch angle std deg (default: 24.0)"
+    )
+    bla_parser.add_argument(
+        "--sweet-spot", type=float, default=38.0, help="sweet spot pct (default: 38.0)"
+    )
+    bla_parser.add_argument(
+        "--blast", type=float, default=22.0, help="power blast window pct (default: 22.0)"
+    )
+    bla_parser.add_argument(
+        "--hard-hit", type=float, default=42.0, help="hard hit pct (default: 42.0)"
+    )
+    bla_parser.add_argument("--bbe", type=int, default=220, help="BBE count (default: 220)")
+    bla_parser.add_argument(
+        "--json", action="store_true", help="output blast angle evaluation as JSON"
+    )
+
+    # Pitcher arsenal velo delta & separation (VELO-DELTA-01)
+    vdl_parser = subparsers.add_parser(
+        "velo-delta",
+        help="evaluate pitcher multi-pitch velocity deltas and disruption (VELO-DELTA-01)",
+    )
+    vdl_parser.add_argument(
+        "--fb-velo", type=float, default=95.0, help="fastball velo mph (default: 95.0)"
+    )
+    vdl_parser.add_argument(
+        "--ch-velo", type=float, default=86.5, help="changeup velo mph (default: 86.5)"
+    )
+    vdl_parser.add_argument(
+        "--sl-velo", type=float, default=87.0, help="slider velo mph (default: 87.0)"
+    )
+    vdl_parser.add_argument(
+        "--cb-velo", type=float, default=79.5, help="curveball velo mph (default: 79.5)"
+    )
+    vdl_parser.add_argument(
+        "--fb-ivb", type=float, default=16.5, help="fastball IVB in (default: 16.5)"
+    )
+    vdl_parser.add_argument(
+        "--ch-ivb", type=float, default=6.0, help="changeup IVB in (default: 6.0)"
+    )
+    vdl_parser.add_argument(
+        "--json", action="store_true", help="output velo delta evaluation as JSON"
+    )
+
+    # Outfield throwing arm accuracy & hold rate (ARM-ACCURACY-01)
+    arm_acc_parser = subparsers.add_parser(
+        "arm-accuracy",
+        help="evaluate outfield throwing arm accuracy and runner freeze (ARM-ACCURACY-01)",
+    )
+    arm_acc_parser.add_argument(
+        "--velo", type=float, default=93.0, help="max throw velo mph (default: 93.0)"
+    )
+    arm_acc_parser.add_argument(
+        "--accuracy", type=float, default=68.0, help="on-target throw pct (default: 68.0)"
+    )
+    arm_acc_parser.add_argument(
+        "--assists", type=int, default=8, help="outfield assists (default: 8)"
+    )
+    arm_acc_parser.add_argument(
+        "--hold", type=float, default=54.0, help="runner hold pct (default: 54.0)"
+    )
+    arm_acc_parser.add_argument(
+        "--overthrows", type=int, default=1, help="erratic overthrows (default: 1)"
+    )
+    arm_acc_parser.add_argument(
+        "--opps", type=int, default=140, help="opportunities (default: 140)"
+    )
+    arm_acc_parser.add_argument("--pos", type=str, default="RF", help="position (default: RF)")
+    arm_acc_parser.add_argument(
+        "--json", action="store_true", help="output arm accuracy evaluation as JSON"
+    )
+
+    # Pitch arsenal separation diamond plot (SEPARATION-PLOT-01)
+    sep_parser = subparsers.add_parser(
+        "separation-plot",
+        help="generate vector SVG arsenal velocity vs movement plot (SEPARATION-PLOT-01)",
+    )
+    sep_parser.add_argument(
+        "--title", type=str, default="Tarik Skubal Arsenal Separation", help="chart title"
+    )
+    sep_parser.add_argument("--pitcher", type=str, default="Tarik Skubal", help="pitcher name")
+
     # Pitcher gyro degree & spin axis (GYRO-SPIN-01)
     gyro_parser = subparsers.add_parser(
         "gyro-spin",
@@ -3657,6 +3747,159 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "blast-angle":
+        import json as json_lib
+
+        from mlb_baseball.model.blast_angle import (
+            BatterBlastAngleEngine,
+            BatterBlastAngleMetrics,
+        )
+
+        bla_eng = BatterBlastAngleEngine()
+        bla_m = BatterBlastAngleMetrics(
+            "b1",
+            "Target Batter",
+            mean_launch_angle_deg=args.mean_la,
+            launch_angle_std_deg=args.std_la,
+            sweet_spot_pct=args.sweet_spot,
+            power_blast_window_pct=args.blast,
+            hard_hit_pct=args.hard_hit,
+            bbe_count=args.bbe,
+        )
+        bla_res = bla_eng.evaluate_blast_angle(bla_m)
+
+        if args.json:
+            bla_out = {
+                "lwts_score": bla_res.lwts_score,
+                "basd_runs": bla_res.basd_runs_saved,
+                "tier": bla_res.launch_tier,
+                "is_precision": bla_res.is_precision_blaster,
+            }
+            print(json_lib.dumps(bla_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     LAUNCH WINDOW COMPRESSION & BLAST ANGLE [{bla_res.launch_tier}]")
+            hdr_ba = (
+                f"     LWTS Score: {bla_res.lwts_score:.1f}/160 "
+                f"| Runs Produced: {bla_res.basd_runs_saved:>+4.2f} "
+                f"| Tier: {bla_res.launch_tier}"
+            )
+            print(hdr_ba)
+            print(f"{'=' * 84}\n")
+            print(f"  • Launch Trajectory Tier : {bla_res.launch_tier}")
+            print(
+                f"  • Precision Power Blaster: {'YES' if bla_res.is_precision_blaster else 'NO'}\n"
+            )
+
+    elif args.command == "velo-delta":
+        import json as json_lib
+
+        from mlb_baseball.model.velo_delta import (
+            PitcherArsenalSeparationMetrics,
+            PitcherVeloDeltaEngine,
+        )
+
+        vdl_eng = PitcherVeloDeltaEngine()
+        vdl_m = PitcherArsenalSeparationMetrics(
+            "p1",
+            "Target Pitcher",
+            fastball_velo_mph=args.fb_velo,
+            changeup_velo_mph=args.ch_velo,
+            slider_velo_mph=args.sl_velo,
+            curveball_velo_mph=args.cb_velo,
+            fastball_ivb_in=args.fb_ivb,
+            changeup_ivb_in=args.ch_ivb,
+        )
+        vdl_res = vdl_eng.evaluate_separation(vdl_m)
+
+        if args.json:
+            vdl_out = {
+                "fb_ch_velo_delta_mph": vdl_res.fb_ch_velo_delta_mph,
+                "fb_ch_ivb_delta_in": vdl_res.fb_ch_ivb_delta_in,
+                "vddi_score": vdl_res.vddi_score,
+                "whiff_multiplier": vdl_res.whiff_boost_multiplier,
+                "tier": vdl_res.separation_tier,
+                "is_elite": vdl_res.is_elite_disruptor,
+            }
+            print(json_lib.dumps(vdl_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     ARSENAL VELO DELTA & SEPARATION [{vdl_res.separation_tier}]")
+            hdr_vd = (
+                f"     Velo Gap: {vdl_res.fb_ch_velo_delta_mph:>+4.1f} mph "
+                f"| Drop Gap: {vdl_res.fb_ch_ivb_delta_in:>+4.1f} in "
+                f"| VDDI: {vdl_res.vddi_score:.1f} "
+                f"| Whiff: {vdl_res.whiff_boost_multiplier:.3f}x"
+            )
+            print(hdr_vd)
+            print(f"{'=' * 84}\n")
+            print(f"  • Arsenal Banding Tier : {vdl_res.separation_tier}")
+            print(f"  • Elite Velo Disruptor : {'YES' if vdl_res.is_elite_disruptor else 'NO'}\n")
+
+    elif args.command == "arm-accuracy":
+        import json as json_lib
+
+        from mlb_baseball.model.arm_accuracy import (
+            OutfieldArmAccuracyEngine,
+            OutfieldArmAccuracyMetrics,
+        )
+
+        arm_acc_eng = OutfieldArmAccuracyEngine()
+        arm_acc_m = OutfieldArmAccuracyMetrics(
+            "f1",
+            "Target Outfielder",
+            position=args.pos,
+            max_throw_velo_mph=args.velo,
+            on_target_throw_pct=args.accuracy,
+            outfield_assists=args.assists,
+            runner_hold_pct=args.hold,
+            erratic_overthrows=args.overthrows,
+            opportunities_count=args.opps,
+        )
+        arm_acc_res = arm_acc_eng.evaluate_arm(arm_acc_m)
+
+        if args.json:
+            arm_acc_out = {
+                "position": arm_acc_res.position,
+                "asi_score": arm_acc_res.asi_score,
+                "rfsv_runs": arm_acc_res.rfsv_runs_saved,
+                "tier": arm_acc_res.arm_tier,
+                "is_sniper": arm_acc_res.is_dreaded_sniper,
+            }
+            print(json_lib.dumps(arm_acc_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OUTFIELD ARM ACCURACY & RUNNER FREEZE [{arm_acc_res.arm_tier}]")
+            hdr_aa = (
+                f"     ASI Score: {arm_acc_res.asi_score:.1f}/160 "
+                f"| Runs Saved: {arm_acc_res.rfsv_runs_saved:>+4.2f} "
+                f"| Tier: {arm_acc_res.arm_tier}"
+            )
+            print(hdr_aa)
+            print(f"{'=' * 84}\n")
+            print(f"  • Arm Classification   : {arm_acc_res.arm_tier}")
+            print(
+                f"  • Dreaded Sniper Arm   : {'YES' if arm_acc_res.is_dreaded_sniper else 'NO'}\n"
+            )
+
+    elif args.command == "separation-plot":
+        from mlb_baseball.visual import (
+            PitchSeparationArsenalProfile,
+            PitchSeparationPoint,
+            SeparationDiamondPlotRenderer,
+        )
+
+        sep_renderer = SeparationDiamondPlotRenderer()
+        sep_pitches = [
+            PitchSeparationPoint("FF", "4-Seam Fastball", 97.5, 18.2, -6.5, "#00d2be"),
+            PitchSeparationPoint("SL", "Slider", 88.0, 2.5, 5.0, "#f59e0b"),
+            PitchSeparationPoint("CH", "Changeup", 86.5, 4.0, 14.5, "#a855f7"),
+            PitchSeparationPoint("CU", "Curveball", 79.0, -11.0, 8.0, "#3b82f6"),
+        ]
+        sep_prof = PitchSeparationArsenalProfile(args.title, args.pitcher, sep_pitches)
+        chart = sep_renderer.render(sep_prof)
+        print(f"Generated Vector SVG Arsenal Separation Plot ({len(chart.svg_content)} bytes)")
 
     elif args.command == "gyro-spin":
         import json as json_lib

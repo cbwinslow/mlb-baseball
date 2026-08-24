@@ -260,10 +260,12 @@ def run() -> list[Check]:
     from mlb_baseball.model import (
         aging,
         arm,
+        arm_accuracy,
         arm_slot,
         babip,
         backtest,
         baserunning,
+        blast_angle,
         blocking,
         bullpen,
         bullpen_opt,
@@ -320,6 +322,7 @@ def run() -> list[Check]:
         two_strike,
         umpire,
         vaa,
+        velo_delta,
         velo_drift,
         wall,
         weather,
@@ -442,6 +445,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(blast_angle.health_check())
+    except Exception as exc:
+        checks.append(Check("blast_angle", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(velo_delta.health_check())
+    except Exception as exc:
+        checks.append(Check("velo_delta", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(arm_accuracy.health_check())
+    except Exception as exc:
+        checks.append(Check("arm_accuracy", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(gyro_spin.health_check())
     except Exception as exc:

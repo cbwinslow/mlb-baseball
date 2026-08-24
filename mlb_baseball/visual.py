@@ -30,6 +30,7 @@ class ChartType(enum.Enum):
     PITCH_TRAJECTORY_3D = "pitch_trajectory_3d"
     ZONE_SURFACE_CONTOUR = "zone_surface_contour"
     SPIN_AXIS_CLOCK = "spin_axis_clock"
+    SEPARATION_DIAMOND_PLOT = "separation_diamond_plot"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1541,6 +1542,149 @@ class SpinAxisClockVisualizerRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class PitchSeparationPoint:
+    """Individual pitch velocity and movement coordinates for arsenal separation plot."""
+
+    pitch_type: str  # "FF", "SL", "CH", "SI", "CU"
+    pitch_name: str
+    velo_mph: float
+    pfx_z_in: float  # Induced vertical break
+    pfx_x_in: float  # Horizontal break
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitchSeparationArsenalProfile:
+    """Arsenal velocity and movement separation profile."""
+
+    title: str
+    pitcher_name: str
+    pitches: list[PitchSeparationPoint]
+
+
+class SeparationDiamondPlotRenderer:
+    """Renders pure-Python vector SVG arsenal separation plots (SEPARATION-PLOT-01)."""
+
+    def __init__(self, width: int = 520, height: int = 460) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitchSeparationArsenalProfile) -> GeneratedVectorChart:
+        """Render multi-pitch velocity vs IVB Cartesian plot with separation deltas."""
+        margin_left = 65.0
+        margin_right = 40.0
+        margin_top = 60.0
+        margin_bottom = 60.0
+
+        plot_w = self.width - margin_left - margin_right
+        plot_h = self.height - margin_top - margin_bottom
+
+        v_min, v_max = 75.0, 102.0
+        z_min, z_max = -15.0, 25.0
+
+        def to_screen_x(v: float) -> float:
+            return margin_left + ((v - v_min) / (v_max - v_min)) * plot_w
+
+        def to_screen_y(z: float) -> float:
+            return margin_top + ((z_max - z) / (z_max - z_min)) * plot_h
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="26" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="44" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} Velocity & Movement Banding</text>',
+            # Plot Background and Grid
+            f'<rect x="{margin_left}" y="{margin_top}" width="{plot_w}" height="{plot_h}" '
+            f'fill="#0f172a" stroke="#334155" stroke-width="1.2" rx="4" />',
+        ]
+
+        # Horizontal Gridlines (IVB)
+        for ivb in range(-10, 25, 10):
+            gy = to_screen_y(float(ivb))
+            svg_parts.append(
+                f'<line x1="{margin_left}" y1="{gy:.1f}" x2="{margin_left + plot_w}" y2="{gy:.1f}" '
+                f'stroke="#1e293b" stroke-width="1.0" stroke-dasharray="3,3" />'
+            )
+            svg_parts.append(
+                f'<text x="{margin_left - 8}" y="{gy + 4:.1f}" fill="#64748b" font-size="10" '
+                f'text-anchor="end" font-family="sans-serif">{ivb:+}in</text>'
+            )
+
+        # Vertical Gridlines (Velo)
+        for v in range(80, 105, 5):
+            gx = to_screen_x(float(v))
+            svg_parts.append(
+                f'<line x1="{gx:.1f}" y1="{margin_top}" x2="{gx:.1f}" y2="{margin_top + plot_h}" '
+                f'stroke="#1e293b" stroke-width="1.0" stroke-dasharray="3,3" />'
+            )
+            svg_parts.append(
+                f'<text x="{gx:.1f}" y="{margin_top + plot_h + 16}" fill="#64748b" font-size="10" '
+                f'text-anchor="middle" font-family="sans-serif">{v}mph</text>'
+            )
+
+        # Find primary fastball for separation delta lines
+        fastballs = [p for p in profile.pitches if "FF" in p.pitch_type or "SI" in p.pitch_type]
+        anchor = (
+            max(fastballs, key=lambda p: p.velo_mph)
+            if fastballs
+            else (profile.pitches[0] if profile.pitches else None)
+        )
+
+        if anchor:
+            ax = to_screen_x(anchor.velo_mph)
+            ay = to_screen_y(anchor.pfx_z_in)
+
+            # Draw delta connection lines
+            for p in profile.pitches:
+                if p == anchor:
+                    continue
+                px = to_screen_x(p.velo_mph)
+                py = to_screen_y(p.pfx_z_in)
+                svg_parts.append(
+                    f'<line x1="{ax:.1f}" y1="{ay:.1f}" x2="{px:.1f}" y2="{py:.1f}" '
+                    f'stroke="#475569" stroke-width="1.2" stroke-dasharray="4,4" />'
+                )
+                # Label midpoint with delta velo
+                mx = (ax + px) / 2.0
+                my = (ay + py) / 2.0 - 4.0
+                dv = round(p.velo_mph - anchor.velo_mph, 1)
+                svg_parts.append(
+                    f'<text x="{mx:.1f}" y="{my:.1f}" fill="#94a3b8" font-size="9" '
+                    f'text-anchor="middle" font-family="sans-serif">{dv:+.1f}mph</text>'
+                )
+
+        # Draw Pitch Nodes
+        for p in profile.pitches:
+            sx = to_screen_x(p.velo_mph)
+            sy = to_screen_y(p.pfx_z_in)
+            svg_parts.append(
+                f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="8.0" fill="{p.color_hex}" '
+                f'stroke="#ffffff" stroke-width="1.5" />'
+            )
+            svg_parts.append(
+                f'<text x="{sx:.1f}" y="{sy - 12.0:.1f}" fill="{p.color_hex}" font-size="11" '
+                f'font-weight="bold" text-anchor="middle" '
+                f'font-family="sans-serif">{p.pitch_type}</text>'
+            )
+            svg_parts.append(
+                f'<text x="{sx:.1f}" y="{sy + 18.0:.1f}" fill="#f8fafc" font-size="9" '
+                f'text-anchor="middle" font-family="sans-serif">{p.velo_mph:.1f}</text>'
+            )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.SEPARATION_DIAMOND_PLOT,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -1635,6 +1779,15 @@ def health_check() -> list[Check]:
             PitcherSpinClockArsenalProfile("Spin Clock", "Skenes", clk_pitches)
         )
 
+        sep_renderer = SeparationDiamondPlotRenderer()
+        sep_pitches = [
+            PitchSeparationPoint("FF", "4-Seam", 98.0, 18.0, -8.0, "#00d2be"),
+            PitchSeparationPoint("CH", "Changeup", 87.0, 4.0, 14.0, "#a855f7"),
+        ]
+        sep_chart = sep_renderer.render(
+            PitchSeparationArsenalProfile("Separation", "Skubal", sep_pitches)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -1650,6 +1803,7 @@ def health_check() -> list[Check]:
             and "<svg" in f3d_chart.svg_content
             and "<svg" in zs_chart.svg_content
             and "<svg" in clk_chart.svg_content
+            and "<svg" in sep_chart.svg_content
         ):
             checks.append(
                 Check(

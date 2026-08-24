@@ -309,3 +309,12 @@ def test_gyro_spin_and_two_strike_and_pivot_dp_health_checks():
     assert gyro_spin.health_check()[0].ok is True
     assert two_strike.health_check()[0].ok is True
     assert pivot_dp.health_check()[0].ok is True
+
+
+def test_blast_angle_and_velo_delta_and_arm_accuracy_health_checks():
+    """Verify health checks for blast_angle, velo_delta, and arm_accuracy modules."""
+    from mlb_baseball.model import arm_accuracy, blast_angle, velo_delta
+
+    assert blast_angle.health_check()[0].ok is True
+    assert velo_delta.health_check()[0].ok is True
+    assert arm_accuracy.health_check()[0].ok is True

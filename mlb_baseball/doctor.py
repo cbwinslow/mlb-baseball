@@ -16,7 +16,18 @@ directly, not just a status light.
 
 import psycopg
 
-from mlb_baseball import backup, conform, ingest, manifest, migrate, model, pipeline, report
+from mlb_baseball import (
+    backup,
+    conform,
+    dump,
+    ingest,
+    manifest,
+    migrate,
+    model,
+    pipeline,
+    report,
+    visual,
+)
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check, check_never_vacuumed
 from mlb_baseball.model import experiment, feature_select_stepwise
@@ -247,8 +258,10 @@ def run() -> list[Check]:
     from mlb_baseball.model import (
         backtest,
         calibration,
+        cluster,
         drift,
         heatmap,
+        hedge,
         neural,
         parlay,
         portfolio,
@@ -339,6 +352,22 @@ def run() -> list[Check]:
         checks.extend(pipeline.health_check())
     except Exception as exc:
         checks.append(Check("pipeline", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(visual.health_check())
+    except Exception as exc:
+        checks.append(Check("visual", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(cluster.health_check())
+    except Exception as exc:
+        checks.append(Check("cluster", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(dump.health_check())
+    except Exception as exc:
+        checks.append(Check("dump", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(hedge.health_check())
+    except Exception as exc:
+        checks.append(Check("hedge", False, f"health_check() raised: {exc}"))
 
     # backup.py has no bootstrap()/update() either -- it's an operational
     # tool, not a data source, but a missing pg_dump/psql should still show

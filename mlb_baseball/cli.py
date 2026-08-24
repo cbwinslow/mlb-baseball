@@ -740,6 +740,58 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output pipeline report as JSON"
     )
 
+    # Visual asset & chart generator (VISUAL-01)
+    visual_parser = subparsers.add_parser(
+        "visual",
+        help="generate SVG vector charts for strike zones, spray maps, and WE graphs (VISUAL-01)",
+    )
+    visual_parser.add_argument(
+        "--type", choices=["strikezone", "spray", "we"], default="spray", help="chart type"
+    )
+    visual_parser.add_argument("--output", type=str, help="output SVG file path")
+    visual_parser.add_argument("--json", action="store_true", help="output chart metadata as JSON")
+
+    # Player archetype & pitcher similarity comps (CLUSTER-01)
+    cluster_parser = subparsers.add_parser(
+        "cluster",
+        help="find historical pitcher twins and batter whiff vulnerability profiles (CLUSTER-01)",
+    )
+    cluster_parser.add_argument(
+        "--velo", type=float, default=96.5, help="target fastball velocity (default: 96.5)"
+    )
+    cluster_parser.add_argument(
+        "--ivb", type=float, default=18.5, help="target fastball IVB (default: 18.5)"
+    )
+    cluster_parser.add_argument("--json", action="store_true", help="output comps as JSON")
+
+    # Comprehensive player dossier & data dump (DUMP-01)
+    dump_parser = subparsers.add_parser(
+        "dump",
+        help="export multi-table player analytical dossiers to JSON or CSV (DUMP-01)",
+    )
+    dump_parser.add_argument(
+        "--format", choices=["json", "csv"], default="json", help="export format (default: json)"
+    )
+
+    # Live in-game hedging and middle bet calculator (HEDGE-01)
+    hedge_parser = subparsers.add_parser(
+        "hedge",
+        help="calculate guaranteed-profit live in-play hedges and middle bets (HEDGE-01)",
+    )
+    hedge_parser.add_argument(
+        "--stake", type=float, default=100.0, help="initial wager stake USD (default: 100.0)"
+    )
+    hedge_parser.add_argument(
+        "--initial-odds", type=float, default=2.50, help="initial decimal odds (default: 2.50)"
+    )
+    hedge_parser.add_argument(
+        "--hedge-odds",
+        type=float,
+        default=2.20,
+        help="current opposite decimal odds (default: 2.20)",
+    )
+    hedge_parser.add_argument("--json", action="store_true", help="output hedge plan as JSON")
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -2204,6 +2256,160 @@ def main(argv: list[str] | None = None) -> None:
                     f"({ph_res.duration_seconds:>5.2f}s) | {ph_res.summary}"
                 )
             print("")
+
+    elif args.command == "visual":
+        import json as json_lib
+
+        from mlb_baseball.model.heatmap import BattedBallBallisticsEngine, StrikeZoneKDEMonitor
+        from mlb_baseball.visual import (
+            DiamondSprayChartRenderer,
+            StrikeZoneHeatmapRenderer,
+            WinExpectancyGraphRenderer,
+        )
+
+        if args.type == "strikezone":
+            sz_r = StrikeZoneHeatmapRenderer()
+            kde_m = StrikeZoneKDEMonitor()
+            grid_res = kde_m.compute_density_grid([0.1, 0.3, -0.2], [2.5, 3.1, 2.0])
+            v_chart = sz_r.render(grid_res, title="MLB Strike Zone Density")
+        elif args.type == "we":
+            we_r = WinExpectancyGraphRenderer()
+            v_chart = we_r.render(
+                [(0, 0.5, 1.0), (1, 0.65, 2.0), (2, 0.95, 3.5)], title="Live WE Worm"
+            )
+        else:
+            sp_r = DiamondSprayChartRenderer()
+            ball_eng = BattedBallBallisticsEngine()
+            hits_sample = [ball_eng.compute_field_coordinates("h1", 104.0, 27.0, 0.0)]
+            v_chart = sp_r.render(hits_sample, title="MLB Diamond Spray Chart")
+
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f_out:
+                f_out.write(v_chart.svg_content)
+
+        if args.json:
+            v_out = {
+                "chart_type": v_chart.chart_type.value,
+                "title": v_chart.title,
+                "width_px": v_chart.width_px,
+                "height_px": v_chart.height_px,
+                "svg_bytes": len(v_chart.svg_content),
+            }
+            print(json_lib.dumps(v_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     VECTOR CHART GENERATION ({v_chart.chart_type.value.upper()})")
+            print(f"     Title: {v_chart.title} | Size: {v_chart.width_px}x{v_chart.height_px}px")
+            print(f"{'=' * 84}\n")
+            print(f"  • SVG Markup Size : {len(v_chart.svg_content):,} bytes")
+            if args.output:
+                print(f"  • Exported to     : {args.output}")
+            print("")
+
+    elif args.command == "cluster":
+        import json as json_lib
+
+        from mlb_baseball.model.cluster import PitcherRepertoireVector, PitcherSimilarityEngine
+
+        sim_eng = PitcherSimilarityEngine()
+        tgt_p = PitcherRepertoireVector(
+            "t1", "Target Pitcher", 2024, args.velo, args.ivb, -7.5, -9.0, 6.4
+        )
+        cand_lib = [
+            PitcherRepertoireVector(
+                "c1", "Ace Comps 1", 2023, args.velo - 0.3, args.ivb - 0.2, -7.2, -8.8, 6.3
+            ),
+            PitcherRepertoireVector(
+                "c2", "Ace Comps 2", 2022, args.velo + 0.8, args.ivb + 0.5, -8.0, -9.5, 6.6
+            ),
+        ]
+        top_comps = sim_eng.find_pitcher_comps(tgt_p, cand_lib, top_k=2)
+
+        if args.json:
+            c_out = [
+                {
+                    "pitcher_name": m.matched_pitcher_name,
+                    "season": m.matched_season,
+                    "similarity_pct": m.similarity_score_pct,
+                    "distance": m.distance,
+                    "deltas": m.feature_deltas,
+                }
+                for m in top_comps
+            ]
+            print(json_lib.dumps(c_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print("     HISTORICAL PITCHER SIMILARITY COMPS")
+            print(f"     Target: {args.velo:.1f} mph | IVB: {args.ivb:+.1f} in")
+            print(f"{'=' * 84}\n")
+            for idx, c in enumerate(top_comps, 1):
+                pname = c.matched_pitcher_name
+                print(f"  #{idx} {pname} ({c.matched_season}): {c.similarity_score_pct:.1f}%")
+            print("")
+
+    elif args.command == "dump":
+        from mlb_baseball.dump import PlayerDataDumpEngine, PlayerDossierDump
+
+        dump_engine = PlayerDataDumpEngine()
+        sample_dossier = PlayerDossierDump(
+            player_id="660271",
+            player_name="Shohei Ohtani",
+            season=2024,
+            position_type="batter",
+            team_abbrev="LAD",
+            primary_metrics={"woba": 0.425, "wrc_plus": 182.0, "barrel_pct": 0.198},
+            stuff_arsenal={"stuff_plus": 115.0, "pitching_plus": 112.0},
+            projection={"projected_woba": 0.405},
+            zone_whiff_rates={1: 0.15, 2: 0.12, 3: 0.28},
+        )
+        if args.format == "csv":
+            print(dump_engine.export_csv([sample_dossier]))
+        else:
+            print(dump_engine.export_json([sample_dossier]))
+
+    elif args.command == "hedge":
+        import json as json_lib
+
+        from mlb_baseball.model.hedge import HedgeStrategy, LiveHedgingEngine
+
+        h_engine = LiveHedgingEngine()
+        h_plan = h_engine.calculate_hedge(
+            initial_stake=args.stake,
+            initial_odds=args.initial_odds,
+            hedge_odds=args.hedge_odds,
+            strategy=HedgeStrategy.EQUAL_PROFIT,
+        )
+
+        if args.json:
+            h_out = {
+                "initial_stake_usd": h_plan.initial_stake_usd,
+                "initial_odds": h_plan.initial_decimal_odds,
+                "hedge_odds": h_plan.hedge_decimal_odds,
+                "recommended_hedge_stake_usd": h_plan.recommended_hedge_stake_usd,
+                "total_staked_usd": h_plan.total_capital_committed_usd,
+                "net_profit_if_initial_wins": h_plan.net_profit_if_initial_wins_usd,
+                "net_profit_if_hedge_wins": h_plan.net_profit_if_hedge_wins_usd,
+                "is_guaranteed_profit": h_plan.is_arbitrage_guaranteed_profit,
+                "guaranteed_profit_margin_pct": h_plan.guaranteed_profit_margin_pct,
+            }
+            print(json_lib.dumps(h_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print("     LIVE IN-GAME HEDGING & ARBITRAGE CALCULATOR")
+            print(
+                f"  Init: ${args.stake:.0f}@{args.initial_odds:.2f} | Hedge: {args.hedge_odds:.2f}"
+            )
+            print(f"{'=' * 84}\n")
+            print(f"  • Recommended Hedge Stake : ${h_plan.recommended_hedge_stake_usd:.2f}")
+            print(f"  • Total Capital Committed : ${h_plan.total_capital_committed_usd:.2f}")
+            print(f"  • Profit if Initial Wins  : ${h_plan.net_profit_if_initial_wins_usd:+.2f}")
+            print(f"  • Profit if Hedge Wins    : ${h_plan.net_profit_if_hedge_wins_usd:+.2f}")
+            arb_tag = "YES (LOCKED-IN GAIN)" if h_plan.is_arbitrage_guaranteed_profit else "NO"
+            print(f"  • Guaranteed Arbitrage    : [{arb_tag}]")
+            if h_plan.is_arbitrage_guaranteed_profit:
+                print(
+                    f"  • Profit Margin           : {h_plan.guaranteed_profit_margin_pct:+.1f}%\n"
+                )
 
     elif args.command == "daily":
         import json as json_lib

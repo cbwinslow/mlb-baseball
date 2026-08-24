@@ -2,6 +2,44 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-134: Live In-Game Hedging, Middle Betting & Arbitrage Engine (`HEDGE-01`, Package 46)
+
+**Decision:** Built dynamic in-play risk hedging and middle-bet calculator in `mlb_baseball/model/hedge.py` and CLI subcommand `mlb hedge` to evaluate guaranteed-profit hedge allocations and middle corridors.
+- **Mathematical Formulations & Methodology**:
+  - Equal Profit Live Hedge: Calculates optimal hedge stake $S_2 = (S_1 \cdot O_1) / O_2$ locking in equal profit across outcomes.
+  - Risk-Free Free Roll Strategy: Stakes $S_2 = S_1 / (O_2 - 1.0)$ to recover original capital and freeroll remaining upside.
+  - Middle-Bet Corridor Evaluation: Discovers overlapping integer score gaps (e.g. Over 7.5 / Under 9.5) paying out double wins.
+  - CLI: `mlb hedge --stake 100 --initial-odds 2.50 --hedge-odds 2.20`, `mlb hedge --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_hedge.py` passing; 511/511 full repository unit tests passing.
+
+## ADR-133: Comprehensive Player Dossier & Data Dump Exporter (`DUMP-01`, Package 45)
+
+**Decision:** Built multi-table player data packaging and export engine in `mlb_baseball/dump.py` and CLI subcommand `mlb dump` to serialize full player intelligence dossiers into hierarchical JSON and tabular CSV.
+- **Data Packaging**:
+  - Encapsulates player biography, season rate statistics, Marcel talent projections, Stuff+/Location+ physical arsenal metrics, and 9-quadrant strike zone whiff maps.
+  - CLI: `mlb dump --format json`, `mlb dump --format csv`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_dump.py` passing; 511/511 full repository unit tests passing.
+
+## ADR-132: Player Archetype, Pitcher Similarity & Whiff Clustering Engine (`CLUSTER-01`, Package 44)
+
+**Decision:** Built unsupervised player archetype clustering and pitcher comp engine in `mlb_baseball/model/cluster.py` and CLI subcommand `mlb cluster`.
+- **Mathematical Formulations & Methodology**:
+  - Pitcher Physical Fingerprinting: Multi-dimensional physical vectors (Velo, IVB, Sweep, Drop, Extension).
+  - Weighted Distance Comps: Matches statistical twins using normalized Mahalanobis distances: $\text{Sim} = 100 \cdot \exp(-d / 1.5)$.
+  - Batter 9-Quadrant Zone Whiff Matrix: Quantifies spatial whiff rates across 3x3 plate quadrants to identify extreme zone vulnerabilities.
+  - CLI: `mlb cluster --velo 96.5 --ivb 18.5`, `mlb cluster --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_cluster.py` passing; 511/511 full repository unit tests passing.
+
+## ADR-131: Visual Asset & Vector Chart Generation Engine (`VISUAL-01`, Package 43)
+
+**Decision:** Built pure-Python, zero-dependency SVG vector chart generator in `mlb_baseball/visual.py` and CLI subcommand `mlb visual` to generate visual analytics for research dossiers and web rendering.
+- **Rendered Chart Types**:
+  - Strike Zone Heatmap SVG (`StrikeZoneHeatmapRenderer`): Thermal color-mapped 2D KDE probability density contours and rule-book attack zone boundaries.
+  - Diamond Spray Chart SVG (`DiamondSprayChartRenderer`): Ballistic diamond trajectory landing plots color-coded by exit velocity and Statcast barrel classification.
+  - Win Expectancy Worm Graph SVG (`WinExpectancyGraphRenderer`): Play-by-play line charts from 0% to 100% with 50% neutral baseline.
+  - CLI: `mlb visual --type strikezone --output sz.svg`, `mlb visual --type spray`, `mlb visual --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_visual.py` passing; 511/511 full repository unit tests passing.
+
 ## ADR-130: Master End-to-End Quantitative Daily Pipeline (`PIPE-02`, Package 42)
 
 **Decision:** Built master daily pipeline orchestrator in `mlb_baseball/pipeline.py` and CLI subcommand `mlb pipeline` unifying the full 8-phase quantitative daily research and forecasting cycle.

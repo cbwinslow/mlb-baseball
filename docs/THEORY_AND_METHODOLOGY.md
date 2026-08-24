@@ -43,7 +43,9 @@ This document serves as the academic and theoretical reference manual for the ML
 17. [Pitch Physics, Trajectory Aerodynamics & Stuff+/Location+ Models](#17-pitch-physics-trajectory-aerodynamics--stufflocation-models)
 18. [2D Strike Zone Kernel Density Estimation & Ballistic Spray Kinematics](#18-2d-strike-zone-kernel-density-estimation--ballistic-spray-kinematics)
 19. [Hierarchical Neural Embeddings & Tree-Residual Combiners](#19-hierarchical-neural-embeddings--tree-residual-combiners)
-20. [Academic Bibliography & Literature Citations](#20-academic-bibliography--literature-citations)
+20. [Unsupervised Player Archetypes & Mahalanobis Pitcher Similarity](#20-unsupervised-player-archetypes--mahalanobis-pitcher-similarity)
+21. [Live In-Game Hedging & Middle Corridor Arbitrage](#21-live-in-game-hedging--middle-corridor-arbitrage)
+22. [Academic Bibliography & Literature Citations](#22-academic-bibliography--literature-citations)
 
 ---
 
@@ -302,7 +304,8 @@ ight) - 1.0$.
 
 ### 17.1 Physical Stuff+ Formulation
 Isolates intrinsic physical pitch quality from defensive context and batter quality:
-$$	ext{Stuff+} = 100 + 15 \cdot \left( w_v \cdot z_{	ext{velo}} + w_m \cdot z_{	ext{movement}} + w_e \cdot z_{	ext{extension}} ight)$$
+$$	ext{Stuff+} = 100 + 15 \cdot \left( w_v \cdot z_{	ext{velo}} + w_m \cdot z_{	ext{movement}} + w_e \cdot z_{	ext{extension}}
+ight)$$
 where $z_{	ext{velo}} = (v - \mu_v) / \sigma_v$, $z_{	ext{movement}}$ measures IVB / sweep relative to pitch-type baselines, and $100$ represents MLB average.
 
 ### 17.2 Location+ Command Formulation
@@ -316,12 +319,17 @@ $$	ext{Pitching+} = 0.60 \cdot 	ext{Stuff+} + 0.40 \cdot 	ext{Location+}$$
 ## 18. 2D Strike Zone Kernel Density Estimation & Ballistic Spray Kinematics
 
 ### 18.1 Bivariate Gaussian KDE Surface
-$$\hat{f}(x, z) = rac{1}{2\pi N h_x h_z} \sum_{i=1}^N \exp\left( -rac{1}{2}\left[ \left(rac{x - x_i}{h_x}ight)^2 + \left(rac{z - z_i}{h_z}ight)^2 ight] ight)$$
+$$\hat{f}(x, z) = rac{1}{2\pi N h_x h_z} \sum_{i=1}^N \exp\left( -rac{1}{2}\left[ \left(rac{x - x_i}{h_x}
+ight)^2 + \left(rac{z - z_i}{h_z}
+ight)^2
+ight]
+ight)$$
 with bandwidths $h_x, h_z$ computed via Silverman's adaptive rule ($h = 1.06 \sigma N^{-1/5}$).
 
 ### 18.2 Ballistic Spray Kinematics
 Translates exit velocity ($v_0$), launch angle ($	heta$), spray angle ($\phi$), and Air Density Index ($ADI$) into diamond coordinates:
-$$d = \left(rac{v_0^2 \sin(2	heta)}{g}ight) \cdot \eta_{	ext{aero}}(ADI, 	heta)$$
+$$d = \left(rac{v_0^2 \sin(2	heta)}{g}
+ight) \cdot \eta_{	ext{aero}}(ADI, 	heta)$$
 $$(x_{	ext{field}}, y_{	ext{field}}) = (d \sin \phi, d \cos \phi)$$
 
 ---
@@ -333,12 +341,38 @@ Entities are mapped to dense latent vectors: $\mathbf{e}_p \in \mathbb{R}^{d_p},
 
 ### 19.2 Staged Boosting Residual Fusion
 Combines baseline tree logit predictions with neural non-linear interaction residuals:
-$$P_{	ext{composite}} = \sigma\left( 	ext{logit}(P_{	ext{tree}}) + 	ext{MLP}(\mathbf{x}_{	ext{cont}}, \mathbf{e}_{p,H}, \mathbf{e}_{p,A}, \mathbf{e}_{t,H}, \mathbf{e}_{t,A}) ight)$$
+$$P_{	ext{composite}} = \sigma\left( 	ext{logit}(P_{	ext{tree}}) + 	ext{MLP}(\mathbf{x}_{	ext{cont}}, \mathbf{e}_{p,H}, \mathbf{e}_{p,A}, \mathbf{e}_{t,H}, \mathbf{e}_{t,A})
+ight)$$
 Bounded residual log-odds $\Delta \in [-1.5, +1.5]$ ensure numerical stability and preserve base tree calibration.
 
 ---
 
-## 20. Academic Bibliography & Literature Citations
+## 20. Unsupervised Player Archetypes & Mahalanobis Pitcher Similarity
+
+### 20.1 Pitcher Physical Signature
+Represents a pitcher by physical vector $\mathbf{x} = [v_{\text{FB}}, \text{IVB}_{\text{FB}}, \text{Sweep}_{\text{SL}}, \text{Drop}_{\text{CU}}, \text{Ext}]$.
+
+### 20.2 Weighted Normalized Distance & Similarity
+$$D(\mathbf{x}_{\text{target}}, \mathbf{x}_i) = \sqrt{ \sum_{j=1}^D w_j \left(\frac{x_{\text{target},j} - x_{i,j}}{\sigma_j}\right)^2 }$$
+$$\text{Similarity}(\mathbf{x}_{\text{target}}, \mathbf{x}_i) = 100 \cdot \exp\left( -\frac{D(\mathbf{x}_{\text{target}}, \mathbf{x}_i)}{1.5} \right)$$
+
+---
+
+## 21. Live In-Game Hedging & Middle Corridor Arbitrage
+
+### 21.1 Equal-Profit Live Hedging
+Given initial stake $S_1$ at odds $O_1$ and current live opponent odds $O_2$:
+$$S_2 = \frac{S_1 \cdot O_1}{O_2}$$
+$$\text{Net Profit} = S_1 \cdot O_1 \left(1 - \frac{1}{O_2}\right) - S_1$$
+Guaranteed positive profit exists whenever $O_2 > \frac{S_1 \cdot O_1}{S_1 \cdot O_1 - S_1} = \frac{O_1}{O_1 - 1}$.
+
+### 21.2 Middle Corridor Discovery
+For initial line $L_1$ and live opposite line $L_2$ where $L_2 > L_1$:
+The discrete integer interval $\{k \in \mathbb{Z} : L_1 < k < L_2\}$ represents the middle corridor where both wagers win simultaneously.
+
+---
+
+## 22. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -358,3 +392,5 @@ Bounded residual log-odds $\Delta \in [-1.5, +1.5]$ ensure numerical stability a
 16. **Fast, Mike** (2011). "Spin and Pitch Movement in PITCHf/x". *Baseball Prospectus*.
 17. **Silverman, B. W.** (1986). *Density Estimation for Statistics and Data Analysis*. Chapman and Hall.
 18. **Guo, Cheng; Berkhahn, Felix** (2016). "Entity Embeddings of Categorical Variables". *arXiv:1604.06737*.
+19. **Mahalanobis, Prasanta Chandra** (1936). "On the Generalised Distance in Statistics". *Proceedings of the National Institute of Sciences of India*.
+20. **Thorp, Edward O.** (2006). "The Kelly Criterion in Blackjack, Sports Betting, and the Stock Market". *Handbook of Asset and Liability Management*.

@@ -147,3 +147,14 @@ def test_pipeline_health_check():
     p_checks = pipeline.health_check()
     assert len(p_checks) == 1
     assert p_checks[0].ok is True
+
+
+def test_visual_and_cluster_and_dump_and_hedge_health_checks():
+    """Verify health checks for visual, cluster, dump, and hedge modules."""
+    from mlb_baseball import dump, visual
+    from mlb_baseball.model import cluster, hedge
+
+    assert visual.health_check()[0].ok is True
+    assert cluster.health_check()[0].ok is True
+    assert dump.health_check()[0].ok is True
+    assert hedge.health_check()[0].ok is True

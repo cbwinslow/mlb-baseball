@@ -33,6 +33,23 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### HEDGE-01 live in-game hedging & middle betting engine: implemented (ADR-134) — 2026-08-24
+Added `mlb_baseball/model/hedge.py`, unit tests in `tests/unit/test_hedge.py`, and `mlb hedge` CLI command.
+- Quantifies guaranteed-profit live hedging ($S_2 = S_1 \cdot O_1 / O_2$), free-roll upside locks, and spread/total middle corridors.
+
+### DUMP-01 player analytical dossier & JSON/CSV data dump engine: implemented (ADR-133) — 2026-08-24
+Added `mlb_baseball/dump.py`, unit tests in `tests/unit/test_dump.py`, and `mlb dump` CLI command.
+- Serializes complete multi-table player dossiers (stats, projections, Stuff+, 9-grid whiff maps) into JSON and flat CSV tables.
+
+### CLUSTER-01 player archetype, pitcher similarity & whiff clustering: implemented (ADR-132) — 2026-08-24
+Added `mlb_baseball/model/cluster.py`, unit tests in `tests/unit/test_cluster.py`, and `mlb cluster` CLI command.
+- Pitcher physical fingerprinting and weighted similarity comps: $	ext{Sim} = 100 \cdot \exp(-d / 1.5)$.
+- Batter 9-quadrant zone whiff vulnerability profiler.
+
+### VISUAL-01 visual asset & vector chart generation engine: implemented (ADR-131) — 2026-08-24
+Added `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb visual` CLI command.
+- Pure-Python zero-dependency SVG vector chart renderers: Strike Zone KDE Heatmaps, Diamond Spray Charts, and Win Expectancy Worm Graphs.
+
 ### PIPE-02 master end-to-end quantitative daily pipeline: implemented (ADR-130) — 2026-08-24
 Added `mlb_baseball/pipeline.py`, unit tests in `tests/unit/test_pipeline.py`, and `mlb pipeline` CLI command.
 - Orchestrates full 8-phase daily forecasting cycle: Health Preflight, Stacking, Stuff+, KDE Heatmaps, SGP Copula, Drift Verification, Kelly Risk Allocation, and Dossier Export.

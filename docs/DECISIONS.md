@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-182: Pure-Python SVG Batter vs Pitcher Matchup Head-to-Head Comparison Card (`COMPARE-CARD-01`, Package 94)
+
+**Decision:** Built side-by-side scouting matchup comparison card visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb matchup-card`.
+- **Operational Architecture & Geometry**:
+  - Dual Comparison Bars: Side-by-side opposing horizontal bars displaying normalized rate stats (wOBA vs wOBA, Hard-Hit% vs Allowed, K% vs K%, Whiff% vs Whiff%).
+  - Advantage Badge: Highlights overall tactical matchup advantage (`BATTER_ADVANTAGE`, `PITCHER_ADVANTAGE`, `NEUTRAL`).
+  - CLI: `mlb matchup-card --batter "Aaron Judge" --pitcher "Gerrit Cole"`.
+- **Verification**: 11/11 unit tests in `tests/unit/test_visual.py` passing; 660/660 full repository unit tests passing.
+
+## ADR-181: Pitcher Infield Fly Ball (IFFB) & Automatic Out Run Value Engine (`IFFB-01`, Package 93)
+
+**Decision:** Built infield popup infliction, automatic out conversion, and run suppression modeling in `mlb_baseball/model/iffb.py` and CLI subcommand `mlb iffb`.
+- **Mathematical Formulations & Methodology**:
+  - Infield Fly Ball Rate: $\text{IFFB\%} = \frac{N_{\text{IFFB}}}{N_{\text{FB}}} \times 100\%$.
+  - Pop-Up Surplus Value: $\text{SurplusRuns} = (\text{IFFB\%} - 9.5\%) \cdot N_{\text{FB}} \cdot 0.22\text{ runs}$.
+  - Tiers: `ELITE_POPUP_INDUCER` ($\text{IFFB\%} \ge 14.0\%$), `ABOVE_AVERAGE_INDUCER`, `AVERAGE`, `WARNING_TRACK_VULNERABLE`.
+  - CLI: `mlb iffb --iffb 20 --fb 165 --pa 620`, `mlb iffb --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_iffb.py` passing; 660/660 full repository unit tests passing.
+
+## ADR-180: Pitcher Vertical Approach Angle (VAA) & Flatness Whiff Engine (`VAA-01`, Package 92)
+
+**Decision:** Built pitch flight trajectory modeling, vertical approach angle, and flatness whiff boosts in `mlb_baseball/model/vaa.py` and CLI subcommand `mlb vaa`.
+- **Mathematical Formulations & Methodology**:
+  - Vertical Approach Angle: $\text{VAA} = \arctan\left(\frac{v_{z, \text{plate}}}{v_{\text{plate}}}\right) \times \left(\frac{180^\circ}{\pi}\right)$.
+  - Flat Fastball Whiff Multiplier: $\Delta \text{Whiff\%} = (\text{VAA} - (-4.50^\circ)) \cdot 2.2 + 2.0\%$ for 4-seamers at upper zone.
+  - Tiers: `ELITE_FLAT_RISING_VAA` ($\text{VAA} \ge -4.30^\circ$), `ABOVE_AVERAGE_FLAT`, `STANDARD`, `STEEP_DOWNHILL`.
+  - CLI: `mlb vaa --pitch FF --rel-z 5.6 --plate-z 3.2 --ivb 18.5 --velo 96.0`, `mlb vaa --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_vaa.py` passing; 660/660 full repository unit tests passing.
+
+## ADR-179: Batter BABIP Expected Luck Deficit & Regression Scanner (`BABIP-LUCK-01`, Package 91)
+
+**Decision:** Built batted ball trajectory modeling, expected BABIP (xBABIP), and luck deficit evaluation in `mlb_baseball/model/babip.py` and CLI subcommand `mlb babip`.
+- **Mathematical Formulations & Methodology**:
+  - Expected BABIP: $x\text{BABIP} = 0.220 + 0.380 \cdot \text{LD\%} + 0.120 \cdot \text{HardHit\%} + 0.006 \cdot (v_{\text{sprint}} - 27.0) - 0.140 \cdot \text{IFFB\%} + 0.040 \cdot \text{GB\%}$.
+  - BABIP Luck Deficit: $\Delta \text{BABIP} = \text{BABIP}_{\text{actual}} - x\text{BABIP}$.
+  - Tiers: `SEVERE_POSITIVE_REGRESSION` ($\Delta \text{BABIP} \le -0.045$, Buy-Low), `MODERATE_UNDERPERFORMER`, `FAIR_VALUE_NEUTRAL`, `MODERATE_OVERPERFORMER`, `SEVERE_NEGATIVE_REGRESSION`.
+  - CLI: `mlb babip --actual 0.320 --ld 0.21 --hard-hit 0.42 --speed 27.5`, `mlb babip --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_babip.py` passing; 660/660 full repository unit tests passing.
+
 ## ADR-178: Pure-Python SVG Spatial Attack Zone Hexbin Visualizer (`HEXBIN-01`, Package 90)
 
 **Decision:** Built 2D strike zone pitch density and spatial hexbin visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb hexbin`.

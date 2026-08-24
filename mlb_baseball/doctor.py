@@ -260,6 +260,7 @@ def run() -> list[Check]:
     from mlb_baseball.model import (
         aging,
         arm,
+        babip,
         backtest,
         baserunning,
         blocking,
@@ -281,6 +282,7 @@ def run() -> list[Check]:
         fstrike,
         heatmap,
         hedge,
+        iffb,
         leverage,
         neural,
         nrfi,
@@ -307,6 +309,7 @@ def run() -> list[Check]:
         tto,
         tunnel,
         umpire,
+        vaa,
         wall,
         weather,
         wpa,
@@ -427,6 +430,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(babip.health_check())
+    except Exception as exc:
+        checks.append(Check("babip", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(vaa.health_check())
+    except Exception as exc:
+        checks.append(Check("vaa", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(iffb.health_check())
+    except Exception as exc:
+        checks.append(Check("iffb", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(sweetspot.health_check())
     except Exception as exc:

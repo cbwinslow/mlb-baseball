@@ -867,6 +867,59 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter BABIP luck deficit (BABIP-LUCK-01)
+    babip_parser = subparsers.add_parser(
+        "babip",
+        help="evaluate BABIP luck deficit and xBABIP regression (BABIP-LUCK-01)",
+    )
+    babip_parser.add_argument(
+        "--actual", type=float, default=0.320, help="Actual BABIP (default: 0.320)"
+    )
+    babip_parser.add_argument("--ld", type=float, default=0.21, help="Line Drive% (default: 0.21)")
+    babip_parser.add_argument(
+        "--hard-hit", type=float, default=0.42, help="Hard-Hit% (default: 0.42)"
+    )
+    babip_parser.add_argument(
+        "--speed", type=float, default=27.5, help="Sprint Speed ft/s (default: 27.5)"
+    )
+    babip_parser.add_argument("--json", action="store_true", help="output BABIP evaluation as JSON")
+
+    # Pitcher vertical approach angle (VAA-01)
+    vaa_parser = subparsers.add_parser(
+        "vaa",
+        help="calculate pitch vertical approach angle and flatness boost (VAA-01)",
+    )
+    vaa_parser.add_argument("--pitch", type=str, default="FF", help="pitch type (default: FF)")
+    vaa_parser.add_argument(
+        "--rel-z", type=float, default=5.6, help="release height ft (default: 5.6)"
+    )
+    vaa_parser.add_argument(
+        "--plate-z", type=float, default=3.2, help="plate height ft (default: 3.2)"
+    )
+    vaa_parser.add_argument("--ivb", type=float, default=18.5, help="IVB inches (default: 18.5)")
+    vaa_parser.add_argument(
+        "--velo", type=float, default=96.0, help="release velocity mph (default: 96.0)"
+    )
+    vaa_parser.add_argument("--json", action="store_true", help="output VAA evaluation as JSON")
+
+    # Infield fly ball popup run value (IFFB-01)
+    iffb_parser = subparsers.add_parser(
+        "iffb",
+        help="evaluate pitcher popup induction and automatic out savings (IFFB-01)",
+    )
+    iffb_parser.add_argument("--iffb", type=int, default=20, help="IFFB count (default: 20)")
+    iffb_parser.add_argument("--fb", type=int, default=165, help="total flyballs (default: 165)")
+    iffb_parser.add_argument("--pa", type=int, default=620, help="plate appearances (default: 620)")
+    iffb_parser.add_argument("--json", action="store_true", help="output IFFB evaluation as JSON")
+
+    # Matchup comparison scouting card (COMPARE-CARD-01)
+    card_parser = subparsers.add_parser(
+        "matchup-card",
+        help="generate vector SVG side-by-side player matchup scouting card (COMPARE-CARD-01)",
+    )
+    card_parser.add_argument("--batter", type=str, default="Aaron Judge", help="batter name")
+    card_parser.add_argument("--pitcher", type=str, default="Gerrit Cole", help="pitcher name")
+
     # Batter sweet spot contact (SWEETSPOT-01)
     sws_parser = subparsers.add_parser(
         "sweetspot",
@@ -3309,6 +3362,151 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "babip":
+        import json as json_lib
+
+        from mlb_baseball.model.babip import (
+            BABIPRegressionEngine,
+            BatterBABIPInputs,
+        )
+
+        babip_eng = BABIPRegressionEngine()
+        babip_m = BatterBABIPInputs(
+            "b1",
+            "Target Hitter",
+            actual_babip=args.actual,
+            ld_pct=args.ld,
+            hard_hit_pct=args.hard_hit,
+            sprint_speed_fps=args.speed,
+        )
+        babip_res = babip_eng.evaluate_babip(babip_m)
+
+        if args.json:
+            babip_out = {
+                "actual_babip": babip_res.actual_babip,
+                "expected_xbabip": babip_res.expected_xbabip,
+                "luck_delta": babip_res.babip_luck_delta,
+                "tier": babip_res.regression_tier,
+                "is_buy_low": babip_res.is_buy_low_candidate,
+            }
+            print(json_lib.dumps(babip_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     BABIP EXPECTED LUCK SCANNER [{babip_res.regression_tier}]")
+            hdr_ba = (
+                f"     Actual BABIP: {babip_res.actual_babip:.3f} "
+                f"| Expected xBABIP: {babip_res.expected_xbabip:.3f} "
+                f"| Luck Delta: {babip_res.babip_luck_delta:>+5.3f}"
+            )
+            print(hdr_ba)
+            print(f"{'=' * 84}\n")
+            print(f"  • Regression Tier    : {babip_res.regression_tier}")
+            print(f"  • Buy-Low Candidate  : {'YES' if babip_res.is_buy_low_candidate else 'NO'}\n")
+
+    elif args.command == "vaa":
+        import json as json_lib
+
+        from mlb_baseball.model.vaa import (
+            PitchApproachKinematics,
+            VerticalApproachAngleEngine,
+        )
+
+        vaa_eng = VerticalApproachAngleEngine()
+        vaa_m = PitchApproachKinematics(
+            "p1",
+            "Target Pitcher",
+            pitch_type=args.pitch,
+            release_height_ft=args.rel_z,
+            plate_z_ft=args.plate_z,
+            pfx_z_in=args.ivb,
+            release_velo_mph=args.velo,
+        )
+        vaa_res = vaa_eng.evaluate_vaa(vaa_m)
+
+        if args.json:
+            vaa_out = {
+                "pitch_type": vaa_res.pitch_type,
+                "vaa_deg": vaa_res.calculated_vaa_deg,
+                "whiff_boost_pct": vaa_res.whiff_boost_pct,
+                "tier": vaa_res.approach_tier,
+            }
+            print(json_lib.dumps(vaa_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     VERTICAL APPROACH ANGLE [{vaa_res.approach_tier}]")
+            hdr_va = (
+                f"     Pitch: {vaa_res.pitch_type} "
+                f"| VAA: {vaa_res.calculated_vaa_deg:>+4.2f}° "
+                f"| Whiff Boost: +{vaa_res.whiff_boost_pct:.1f}%"
+            )
+            print(hdr_va)
+            print(f"{'=' * 84}\n")
+            print(f"  • Approach Classification: {vaa_res.approach_tier}\n")
+
+    elif args.command == "iffb":
+        import json as json_lib
+
+        from mlb_baseball.model.iffb import (
+            InfieldFlyBallEngine,
+            PitcherIFFBMetrics,
+        )
+
+        iffb_eng = InfieldFlyBallEngine()
+        iffb_m = PitcherIFFBMetrics(
+            "p1",
+            "Target Pitcher",
+            iffb_count=args.iffb,
+            fb_count=args.fb,
+            pa_faced=args.pa,
+        )
+        iffb_res = iffb_eng.evaluate_iffb(iffb_m)
+
+        if args.json:
+            iffb_out = {
+                "iffb_pct": iffb_res.iffb_pct,
+                "delta_league": iffb_res.iffb_delta_league,
+                "surplus_runs": iffb_res.popup_surplus_runs,
+                "tier": iffb_res.popup_tier,
+                "is_elite": iffb_res.is_elite_popup_artist,
+            }
+            print(json_lib.dumps(iffb_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     INFIELD FLY BALL INDUCTION [{iffb_res.popup_tier}]")
+            hdr_if = (
+                f"     IFFB%: {iffb_res.iffb_pct:.1f}% "
+                f"| Delta: {iffb_res.iffb_delta_league:>+4.1f}% "
+                f"| Surplus Runs Saved: {iffb_res.popup_surplus_runs:>+4.1f}"
+            )
+            print(hdr_if)
+            print(f"{'=' * 84}\n")
+            print(f"  • Induction Tier   : {iffb_res.popup_tier}")
+            print(f"  • Elite Popup Arm  : {'YES' if iffb_res.is_elite_popup_artist else 'NO'}\n")
+
+    elif args.command == "matchup-card":
+        from mlb_baseball.visual import (
+            MatchupCardProfile,
+            MatchupComparisonCardRenderer,
+            MatchupMetricComparison,
+        )
+
+        card_renderer = MatchupComparisonCardRenderer()
+        m_comps = [
+            MatchupMetricComparison("wOBA", 0.90, 0.60, ".410", ".305"),
+            MatchupMetricComparison("Hard-Hit%", 0.85, 0.45, "52.0%", "36.0%"),
+            MatchupMetricComparison("K%", 0.30, 0.80, "18.0%", "32.0%"),
+            MatchupMetricComparison("Whiff%", 0.35, 0.75, "22.0%", "34.0%"),
+        ]
+        card_prof = MatchupCardProfile(
+            f"{args.batter} vs {args.pitcher} Scouting Card",
+            args.batter,
+            args.pitcher,
+            "BATTER_ADVANTAGE",
+            m_comps,
+        )
+        chart = card_renderer.render(card_prof)
+        print(f"Generated Vector SVG Matchup Scouting Card ({len(chart.svg_content)} bytes)")
 
     elif args.command == "sweetspot":
         import json as json_lib

@@ -264,3 +264,12 @@ def test_sweetspot_and_putaway_and_wall_health_checks():
     assert sweetspot.health_check()[0].ok is True
     assert putaway.health_check()[0].ok is True
     assert wall.health_check()[0].ok is True
+
+
+def test_babip_and_vaa_and_iffb_health_checks():
+    """Verify health checks for babip, vaa, and iffb modules."""
+    from mlb_baseball.model import babip, iffb, vaa
+
+    assert babip.health_check()[0].ok is True
+    assert vaa.health_check()[0].ok is True
+    assert iffb.health_check()[0].ok is True

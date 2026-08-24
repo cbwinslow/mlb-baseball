@@ -88,7 +88,11 @@ This document serves as the academic and theoretical reference manual for the ML
 62. [Pitcher Two-Strike Put-Away & Whiff Conversion](#62-pitcher-two-strike-put-away--whiff-conversion)
 63. [Outfield Wall Collision & HR Robbery Run Valuation](#63-outfield-wall-collision--hr-robbery-run-valuation)
 64. [2D Strike Zone Spatial Hexbin Geometry Architecture](#64-2d-strike-zone-spatial-hexbin-geometry-architecture)
-65. [Academic Bibliography & Literature Citations](#65-academic-bibliography--literature-citations)
+65. [Batter Trajectory Expected BABIP & Luck Deficit](#65-batter-trajectory-expected-babip--luck-deficit)
+66. [Pitcher Vertical Approach Angle (VAA) & Entry Aerodynamics](#66-pitcher-vertical-approach-angle-vaa--entry-aerodynamics)
+67. [Infield Fly Ball (IFFB) Non-Contact Strikeout Equivalency](#67-infield-fly-ball-iffb-non-contact-strikeout-equivalency)
+68. [Pure-Python SVG Side-by-Side Matchup Scouting Card Architecture](#68-pure-python-svg-side-by-side-matchup-scouting-card-architecture)
+69. [Academic Bibliography & Literature Citations](#69-academic-bibliography--literature-citations)
 
 ---
 
@@ -787,7 +791,38 @@ $$(x_{\text{svg}}, z_{\text{svg}}) = \left(M_x + \frac{p_x - x_{\min}}{x_{\max} 
 
 ---
 
-## 65. Academic Bibliography & Literature Citations
+## 65. Batter Trajectory Expected BABIP & Luck Deficit
+
+### 65.1 Trajectory-Based Expected xBABIP Model
+$$x\text{BABIP} = 0.220 + 0.380 \cdot \text{LD\%} + 0.120 \cdot \text{HardHit\%} + 0.006 \cdot (v_{\text{sprint}} - 27.0) - 0.140 \cdot \text{IFFB\%} + 0.040 \cdot \text{GB\%}$$
+$$\Delta \text{BABIP} = \text{BABIP}_{\text{actual}} - x\text{BABIP}$$
+
+---
+
+## 66. Pitcher Vertical Approach Angle (VAA) & Entry Aerodynamics
+
+### 66.1 Plate-Boundary Approach Angle Formulation
+$$\text{VAA} = \arctan\left(\frac{v_{z, \text{plate}}}{v_{\text{plate}}}\right) \times \left(\frac{180^\circ}{\pi}\right) \quad (\text{degrees})$$
+$$\Delta \text{Whiff\%}_{\text{vaa}} = \begin{cases} (\text{VAA} - (-4.50^\circ)) \cdot 2.2 + 2.0\% & \text{if } \text{Pitch}=\text{FF and } \text{VAA} \ge -4.50^\circ \\ (|\text{VAA} - (-7.50^\circ)|) \cdot 1.5 + 2.0\% & \text{if } \text{Pitch}\in\{\text{FS}, \text{CU}\} \text{ and } \text{VAA} \le -7.50^\circ \\ 0.0 & \text{otherwise} \end{cases}$$
+
+---
+
+## 67. Infield Fly Ball (IFFB) Non-Contact Strikeout Equivalency
+
+### 67.1 Popup Automatic Out Run Savings
+$$\text{PopUpSurplusRuns} = (\text{IFFB\%} - \text{IFFB\%}_{\text{league}}) \cdot N_{\text{FB}} \cdot 0.22\text{ runs} \quad (\text{IFFB\%}_{\text{league}} = 9.5\%)$$
+
+---
+
+## 68. Pure-Python SVG Side-by-Side Matchup Scouting Card Architecture
+
+### 68.1 Dual Opposing Metric Bar Geometry
+$$(x_{\text{left}}, y_i) = \left((x_{\text{mid}} - 55.0) - W_{\text{bar}} \cdot \text{Val}_{\text{batter}}, y_0 + i \cdot H_{\text{row}}\right)$$
+$$(x_{\text{right}}, y_i) = \left(x_{\text{mid}} + 55.0, y_0 + i \cdot H_{\text{row}}\right)$$
+
+---
+
+## 69. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -831,3 +866,5 @@ $$(x_{\text{svg}}, z_{\text{svg}}) = \left(M_x + \frac{p_x - x_{\min}}{x_{\max} 
 40. **Petriello, Mike** (2017). "Statcast Catcher Pop Time and Throw Dynamics". *MLB.com*.
 41. **Carleton, Russell A.** (2015). "The Physics of the Sweet Spot". *Baseball Prospectus*.
 42. **Fast, Alex** (2020). "Put-Away Percentage and 2-Strike Execution". *Pitcher List*.
+43. **Petti, Bill** (2014). "Researching Vertical Approach Angle and Induced Movement". *The Hardball Times*.
+44. **McCracken, Voros** (2001). "Pitching and Defense: How Much Control Do Pitchers Have?". *Baseball Prospectus*.

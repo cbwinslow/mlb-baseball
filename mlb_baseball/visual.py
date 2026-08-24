@@ -24,6 +24,7 @@ class ChartType(enum.Enum):
     INNING_SCORE_FLOW = "inning_score_flow"
     RUN_EXPECTANCY_HEATMAP = "run_expectancy_heatmap"
     SPATIAL_HEXBIN_MAP = "spatial_hexbin_map"
+    MATCHUP_COMPARISON_CARD = "matchup_comparison_card"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -974,6 +975,112 @@ class SpatialHexbinVisualizerRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class MatchupMetricComparison:
+    """Individual rate metric comparison between batter and pitcher."""
+
+    label: str
+    batter_val: float  # Normalized 0.0 to 1.0 for bar length
+    pitcher_val: float  # Normalized 0.0 to 1.0 for bar length
+    batter_text: str
+    pitcher_text: str
+    higher_is_better_for_batter: bool = True
+
+
+@dataclasses.dataclass(frozen=True)
+class MatchupCardProfile:
+    """Side-by-side player scouting head-to-head card profile."""
+
+    title: str
+    batter_name: str
+    pitcher_name: str
+    overall_edge: str  # "BATTER_ADVANTAGE", "PITCHER_ADVANTAGE", "NEUTRAL"
+    metrics: list[MatchupMetricComparison]
+
+
+class MatchupComparisonCardRenderer:
+    """Renders pure-Python vector SVG head-to-head matchup scouting cards (COMPARE-CARD-01)."""
+
+    def __init__(self, width: int = 580, height: int = 380) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: MatchupCardProfile) -> GeneratedVectorChart:
+        """Render side-by-side dual-bar matchup card into SVG."""
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="32" fill="#f8fafc" font-size="15" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            # Batter / Pitcher Column Headers
+            f'<text x="80" y="65" fill="#00d2be" font-size="13" font-weight="bold" '
+            f'font-family="sans-serif">{profile.batter_name} (Hitter)</text>',
+            f'<text x="{self.width - 80}" y="65" fill="#f59e0b" font-size="13" font-weight="bold" '
+            f'text-anchor="end" font-family="sans-serif">{profile.pitcher_name} (Pitcher)</text>',
+        ]
+
+        mid_x = self.width / 2.0
+        bar_max_w = 160.0
+        start_y = 100.0
+        row_h = 48.0
+
+        for i, m in enumerate(profile.metrics):
+            curr_y = start_y + i * row_h
+            b_w = max(4.0, m.batter_val * bar_max_w)
+            p_w = max(4.0, m.pitcher_val * bar_max_w)
+
+            # Metric central label
+            svg_parts.append(
+                f'<text x="{mid_x}" y="{curr_y + 12}" fill="#cbd5e1" font-size="11" '
+                f'font-weight="bold" text-anchor="middle" font-family="sans-serif">{m.label}</text>'
+            )
+
+            # Batter Bar (growing left from mid_x - 60)
+            b_x = (mid_x - 55.0) - b_w
+            svg_parts.append(
+                f'<rect x="{b_x:.1f}" y="{curr_y}" width="{b_w:.1f}" height="16" '
+                f'fill="#00d2be" rx="3" />'
+            )
+            svg_parts.append(
+                f'<text x="{b_x - 10:.1f}" y="{curr_y + 13}" fill="#f8fafc" font-size="11" '
+                f'text-anchor="end" font-family="sans-serif">{m.batter_text}</text>'
+            )
+
+            # Pitcher Bar (growing right from mid_x + 55)
+            p_x = mid_x + 55.0
+            svg_parts.append(
+                f'<rect x="{p_x:.1f}" y="{curr_y}" width="{p_w:.1f}" height="16" '
+                f'fill="#f59e0b" rx="3" />'
+            )
+            svg_parts.append(
+                f'<text x="{p_x + p_w + 10:.1f}" y="{curr_y + 13}" fill="#f8fafc" font-size="11" '
+                f'text-anchor="start" font-family="sans-serif">{m.pitcher_text}</text>'
+            )
+
+        # Overall Edge Badge
+        badge_y = self.height - 30.0
+        edge_col = "#00d2be" if "BATTER" in profile.overall_edge else "#f59e0b"
+        svg_parts.append(
+            f'<rect x="{mid_x - 90}" y="{badge_y - 18}" width="180" height="26" rx="4" '
+            f'fill="#1e293b" stroke="{edge_col}" stroke-width="1.5" />'
+        )
+        svg_parts.append(
+            f'<text x="{mid_x}" y="{badge_y}" fill="{edge_col}" font-size="11" '
+            f'font-weight="bold" text-anchor="middle" font-family="sans-serif">'
+            f"{profile.overall_edge.replace('_', ' ')}</text>"
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.MATCHUP_COMPARISON_CARD,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -1033,6 +1140,12 @@ def health_check() -> list[Check]:
             SpatialHexbinProfile("Test Hex", "Batter", "Pitcher", hex_pitches)
         )
 
+        card_renderer = MatchupComparisonCardRenderer()
+        m_comps = [MatchupMetricComparison("wOBA", 0.85, 0.65, ".395", ".310")]
+        card_chart = card_renderer.render(
+            MatchupCardProfile("Matchup", "Hitter", "Pitcher", "BATTER_ADVANTAGE", m_comps)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -1043,6 +1156,7 @@ def health_check() -> list[Check]:
             and "<svg" in flow_chart.svg_content
             and "<svg" in re24_chart.svg_content
             and "<svg" in hex_chart.svg_content
+            and "<svg" in card_chart.svg_content
         ):
             checks.append(
                 Check(

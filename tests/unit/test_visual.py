@@ -220,3 +220,31 @@ def test_spatial_hexbin_strike_zone_svg_generation():
     assert "Shohei Ohtani Spatial Map" in chart.svg_content
     assert "rect" in chart.svg_content
     assert "polygon" in chart.svg_content
+
+
+def test_matchup_comparison_card_svg_generation():
+    """Verify MatchupComparisonCardRenderer generates side-by-side scouting card."""
+    from mlb_baseball.visual import (
+        MatchupCardProfile,
+        MatchupComparisonCardRenderer,
+        MatchupMetricComparison,
+    )
+
+    renderer = MatchupComparisonCardRenderer()
+    comps = [
+        MatchupMetricComparison("wOBA", 0.90, 0.60, ".410", ".305"),
+        MatchupMetricComparison("Hard-Hit%", 0.85, 0.45, "52.0%", "36.0%"),
+        MatchupMetricComparison("K%", 0.30, 0.80, "18.0%", "32.0%"),
+    ]
+    prof = MatchupCardProfile(
+        "Judge vs Cole Scouting Card", "Aaron Judge", "Gerrit Cole", "BATTER_ADVANTAGE", comps
+    )
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 580
+    assert chart.height_px == 380
+    assert "<svg" in chart.svg_content
+    assert "Judge vs Cole Scouting Card" in chart.svg_content
+    assert "BATTER ADVANTAGE" in chart.svg_content
+    assert "Aaron Judge" in chart.svg_content
+    assert "Gerrit Cole" in chart.svg_content

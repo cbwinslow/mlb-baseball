@@ -600,6 +600,25 @@ def main(argv: list[str] | None = None) -> None:
     )
     ros_parser.add_argument("--json", action="store_true", help="output ROS projections as JSON")
 
+    # Polymorphic research dossier and report exporter (EXPORT-01)
+    export_parser = subparsers.add_parser(
+        "export",
+        help="export publication-ready research dossiers in Markdown, Terminal, HTML, or JSON",
+    )
+    export_parser.add_argument(
+        "--date", type=str, help="target game date (YYYY-MM-DD, default: today)"
+    )
+    export_parser.add_argument(
+        "--format",
+        type=str,
+        choices=["markdown", "terminal", "html", "json"],
+        default="markdown",
+        help="output format (default: markdown)",
+    )
+    export_parser.add_argument(
+        "--output", type=str, help="optional output file path to write rendered dossier"
+    )
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -1482,6 +1501,105 @@ def main(argv: list[str] | None = None) -> None:
                     f"{mn_str:>5}"
                 )
             print("")
+
+    elif args.command == "export":
+        from mlb_baseball.daily import generate_daily_briefing
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.export import (
+            ChartSectionBuilder,
+            KeyValueSectionBuilder,
+            ResearchDossier,
+            TableSectionBuilder,
+            get_renderer,
+        )
+
+        with get_connection() as conn:
+            d_report = generate_daily_briefing(target_date=args.date, conn=conn)
+
+        dossier = ResearchDossier(
+            title="MLB Quantitative Research & Matchup Dossier",
+            subtitle=(
+                f"Target Date: {d_report.target_date} (Generated UTC: {d_report.generated_at})"
+            ),
+        )
+
+        # 1. Health Status Section
+        health_pairs = [
+            (c.name, "PASS" if c.ok else f"FAIL ({c.detail})") for c in d_report.health_status
+        ]
+        dossier.add_section(KeyValueSectionBuilder("Operational Health Verification", health_pairs))
+
+        # 2. Matchup Forecasts Section
+        if d_report.matchups:
+            m_headers = ["Matchup", "Home Win%", "Away Win%", "Home Starter", "Away Starter"]
+            m_rows = [
+                [
+                    f"{m.away_team} @ {m.home_team}",
+                    f"{m.model_home_win_prob * 100:.1f}%",
+                    f"{m.model_away_win_prob * 100:.1f}%",
+                    m.home_starter or "TBD",
+                    m.away_starter or "TBD",
+                ]
+                for m in d_report.matchups
+            ]
+            dossier.add_section(
+                TableSectionBuilder("Today's Matchup Forecasts (GBM-v2 + Log5)", m_headers, m_rows)
+            )
+
+        # 3. Pitcher Strikeout Props Chart Section
+        if d_report.pitcher_props:
+            chart_items = [
+                (f"{p.pitcher_name} ({p.team})", round(p.projected_k_pct * 100.0, 1))
+                for p in d_report.pitcher_props
+            ]
+            dossier.add_section(
+                ChartSectionBuilder("Projected Pitcher Strikeout Rates (K%)", chart_items, unit="%")
+            )
+
+        # 4. Kelly Allocations Section
+        if d_report.portfolio_plan and d_report.portfolio_plan.recommendations:
+            k_headers = [
+                "Market / Matchup",
+                "Model%",
+                "Market%",
+                "Edge%",
+                "Kelly%",
+                "Wager ($)",
+                "+EV%",
+            ]
+            k_rows = [
+                [
+                    r.opportunity.description,
+                    f"{r.opportunity.model_probability * 100:.1f}%",
+                    f"{r.opportunity.market_implied_probability * 100:.1f}%",
+                    f"{r.opportunity.edge * 100:+.1f}%",
+                    f"{r.kelly_fraction * 100:.2f}%",
+                    f"${r.wager_amount_usd:,.2f}",
+                    f"{r.expected_value_pct * 100:+.1f}%",
+                ]
+                for r in d_report.portfolio_plan.recommendations
+            ]
+            dossier.add_section(
+                TableSectionBuilder(
+                    f"Kelly Criterion Capital Allocation "
+                    f"(Bankroll: ${d_report.portfolio_plan.total_bankroll_usd:,.2f})",
+                    k_headers,
+                    k_rows,
+                )
+            )
+
+        if args.format == "json":
+            rendered = dossier.to_json()
+        else:
+            renderer = get_renderer(args.format)
+            rendered = dossier.export(renderer)
+
+        if args.output:
+            with open(args.output, "w") as out_f:
+                out_f.write(rendered)
+            print(f"Dossier successfully exported to: {args.output}")
+        else:
+            print(rendered)
 
     elif args.command == "daily":
         import json as json_lib

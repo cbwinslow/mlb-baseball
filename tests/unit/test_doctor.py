@@ -75,3 +75,12 @@ def test_ros_health_check():
     r_checks = ros.health_check()
     assert len(r_checks) == 1
     assert r_checks[0].ok is True
+
+
+def test_export_health_check():
+    """Verify export engine health check returns clean pass."""
+    from mlb_baseball import export
+
+    e_checks = export.health_check()
+    assert len(e_checks) == 1
+    assert e_checks[0].ok is True

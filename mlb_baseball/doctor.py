@@ -283,12 +283,16 @@ def run() -> list[Check]:
         checks.extend(wpa.health_check())
     except Exception as exc:
         checks.append(Check("wpa", False, f"health_check() raised: {exc}"))
-    from mlb_baseball import research
+    from mlb_baseball import export, research
 
     try:
         checks.extend(research.health_check())
     except Exception as exc:
         checks.append(Check("research", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(export.health_check())
+    except Exception as exc:
+        checks.append(Check("export", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(calibration.health_check())
     except Exception as exc:

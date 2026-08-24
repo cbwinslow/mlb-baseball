@@ -2,6 +2,16 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-121: Polymorphic Research Dossier & Multi-Format Exporter (`EXPORT-01`, Package 33)
+
+**Decision:** Created component-based document generation and export system in `mlb_baseball/export.py` and CLI subcommand `mlb export` allowing arbitrary research dossiers to be rendered across Markdown, ANSI Terminal, Semantic HTML, and JSON.
+- **Architectural & Design Principles**:
+  - Open-Closed Polymorphic Protocol: `BaseDocumentRenderer` abstracts formatting primitives (`render_title`, `render_table`, `render_ascii_bar_chart`, `render_alert`), allowing new output targets (e.g. PDF/LaTeX) without editing business logic.
+  - Composable Section Builders: `KeyValueSectionBuilder`, `TableSectionBuilder`, `ChartSectionBuilder`, and `ResearchDossier` decouple quantitative data structures from presentation.
+  - Future-Proof Extensibility: Adding a new model, metric family, or research report requires only plugging in a new `BaseSectionBuilder` without modifying existing renderers.
+  - CLI: `mlb export --date 2026-08-24 --format markdown --output dossier.md` or `mlb export --format terminal`.
+- **Verification**: 5/5 unit tests in `tests/unit/test_export.py` passing; 468/468 full repository unit tests passing.
+
 ## ADR-120: Dynamic Rest-of-Season (ROS) Simulation & Playoff Odds Engine (`ROS-01`, Package 32)
 
 **Decision:** Built in-season Rest-of-Season Monte Carlo simulation engine in `mlb_baseball/model/ros.py` and CLI subcommand `mlb ros` to simulate forward from actual historical/live standings.

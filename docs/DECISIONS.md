@@ -2,6 +2,18 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-120: Dynamic Rest-of-Season (ROS) Simulation & Playoff Odds Engine (`ROS-01`, Package 32)
+
+**Decision:** Built in-season Rest-of-Season Monte Carlo simulation engine in `mlb_baseball/model/ros.py` and CLI subcommand `mlb ros` to simulate forward from actual historical/live standings.
+- **Mathematical Formulations & Methodology**:
+  - In-Season State Ingestion: Queries actual completed game records up to `as_of_date` (wins, losses, runs scored, runs against) to establish authoritative current standings.
+  - Empirical Bayes True Talent: Regresses team Pythagorean win percentage ($w = rac{N}{N + 60}$) against 0.500 baseline.
+  - Monte Carlo Remainder Simulation: Simulates unplayed remaining schedule $N_{\text{sims}}$ times (vectorized Log5 with HFA), resolving division winners and 12-team postseason brackets (`simulate_postseason_bracket`).
+  - Magic Number Calculation: $\text{MN} = \max(0, 163 - W_{\text{leader}} - L_{\text{trailer}})$.
+  - Multi-Modal Reporting: Terminal division-by-division leaderboard with 90% Win CIs, Playoff%, Pennant%, WS%, and JSON export.
+  - CLI: `mlb ros --season 2024 --as-of 2024-08-01 --sims 1000`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_ros.py` passing; 462/462 full repository unit tests passing.
+
 ## ADR-119: Historical Walk-Forward Backtesting Engine & Risk Metrics (`BACKTEST-01`, Package 31)
 
 **Decision:** Implemented point-in-time walk-forward backtesting simulator in `mlb_baseball/model/backtest.py` and CLI subcommand `mlb backtest` to benchmark predictive models against historical closing lines with zero retroactive lookahead leakage.

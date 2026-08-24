@@ -66,3 +66,12 @@ def test_backtest_health_check():
     b_checks = backtest.health_check()
     assert len(b_checks) == 1
     assert b_checks[0].ok is True
+
+
+def test_ros_health_check():
+    """Verify rest-of-season health check returns clean pass."""
+    from mlb_baseball.model import ros
+
+    r_checks = ros.health_check()
+    assert len(r_checks) == 1
+    assert r_checks[0].ok is True

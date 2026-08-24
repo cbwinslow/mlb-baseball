@@ -582,6 +582,24 @@ def main(argv: list[str] | None = None) -> None:
     )
     bt_parser.add_argument("--json", action="store_true", help="output backtest summary as JSON")
 
+    # Dynamic Rest-of-Season simulation and playoff odds (ROS-01)
+    ros_parser = subparsers.add_parser(
+        "ros", help="run dynamic rest-of-season Monte Carlo simulation from current standings"
+    )
+    ros_parser.add_argument(
+        "--season", type=int, default=2024, help="target MLB season (default: 2024)"
+    )
+    ros_parser.add_argument(
+        "--as-of",
+        type=str,
+        default="2024-08-01",
+        help="standings cutoff date (default: 2024-08-01)",
+    )
+    ros_parser.add_argument(
+        "--sims", type=int, default=1000, help="number of Monte Carlo simulations (default: 1000)"
+    )
+    ros_parser.add_argument("--json", action="store_true", help="output ROS projections as JSON")
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -1384,6 +1402,86 @@ def main(argv: list[str] | None = None) -> None:
                         f"${w.bankroll_after_usd:>10.2f}"
                     )
                 print("")
+
+    elif args.command == "ros":
+        import json as json_lib
+
+        from mlb_baseball.model.ros import RestOfSeasonSimulator
+
+        ros_sim = RestOfSeasonSimulator(random_seed=42)
+        ros_report = ros_sim.simulate_ros(
+            season=args.season,
+            as_of_date=args.as_of,
+            n_sims=args.sims,
+        )
+
+        if args.json:
+            ros_out = {
+                "season": ros_report.season,
+                "as_of_date": ros_report.as_of_date,
+                "simulations_count": ros_report.simulations_count,
+                "projections": [
+                    {
+                        "team": ros_item.retro_team_id,
+                        "league": ros_item.league,
+                        "division": ros_item.division,
+                        "current_record": f"{ros_item.current_wins}-{ros_item.current_losses}",
+                        "proj_ros_wins": ros_item.proj_ros_wins,
+                        "proj_total_wins_mean": ros_item.proj_total_wins_mean,
+                        "proj_total_wins_p10": ros_item.proj_total_wins_p10,
+                        "proj_total_wins_p90": ros_item.proj_total_wins_p90,
+                        "division_title_prob": ros_item.division_title_prob,
+                        "wild_card_prob": ros_item.wild_card_prob,
+                        "make_playoffs_prob": ros_item.make_playoffs_prob,
+                        "pennant_prob": ros_item.pennant_prob,
+                        "world_series_prob": ros_item.world_series_prob,
+                        "magic_number": ros_item.magic_number,
+                    }
+                    for ros_item in ros_report.team_projections
+                ],
+            }
+            print(json_lib.dumps(ros_out, indent=2))
+        else:
+            print(f"\n{'=' * 88}")
+            print(
+                f"     REST-OF-SEASON (ROS) PROJECTIONS & PLAYOFF ODDS (SEASON {ros_report.season})"
+            )
+            print(
+                f"     As Of: {ros_report.as_of_date} | "
+                f"Monte Carlo Simulations: {ros_report.simulations_count:,}"
+            )
+            print(f"{'=' * 88}\n")
+
+            current_div = ""
+            for ros_item in ros_report.team_projections:
+                if ros_item.division != current_div:
+                    current_div = ros_item.division
+                    print(f"--- {current_div.upper()} ---")
+                    hdr = (
+                        f"{'Team':<6} {'Record':<9} {'ROS W':<8} {'Proj W':<8} "
+                        f"{'90% CI':<12} {'Div%':<8} {'WC%':<8} {'Playoffs%':<10} "
+                        f"{'Pennant%':<10} {'WS%':<8} {'Magic#':<6}"
+                    )
+                    print(hdr)
+                    print("-" * len(hdr))
+
+                mn_str = str(ros_item.magic_number) if ros_item.magic_number is not None else "-"
+                ci_str = f"[{ros_item.proj_total_wins_p10:.0f}-{ros_item.proj_total_wins_p90:.0f}]"
+                rec_str = f"{ros_item.current_wins}-{ros_item.current_losses}"
+                print(
+                    f"{ros_item.retro_team_id:<6} "
+                    f"{rec_str:<9} "
+                    f"{ros_item.proj_ros_wins:>6.1f}   "
+                    f"{ros_item.proj_total_wins_mean:>6.1f}   "
+                    f"{ci_str:<12} "
+                    f"{ros_item.division_title_prob * 100:>6.1f}% "
+                    f"{ros_item.wild_card_prob * 100:>6.1f}% "
+                    f"{ros_item.make_playoffs_prob * 100:>8.1f}%  "
+                    f"{ros_item.pennant_prob * 100:>8.1f}%  "
+                    f"{ros_item.world_series_prob * 100:>6.1f}% "
+                    f"{mn_str:>5}"
+                )
+            print("")
 
     elif args.command == "daily":
         import json as json_lib

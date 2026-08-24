@@ -136,7 +136,11 @@ This document serves as the academic and theoretical reference manual for the ML
 110. [Pitcher Spin Axis Gyro Efficiency & Transverse Magnus Kinematics](#110-pitcher-spin-axis-gyro-efficiency--transverse-magnus-kinematics)
 111. [Catcher Low-Pitch Scoop & Bottom-Zone Framing Lift Dynamics](#111-catcher-low-pitch-scoop--bottom-zone-framing-lift-dynamics)
 112. [Pure-Python SVG Pitcher Polar Spin Clock Architecture](#112-pure-python-svg-pitcher-polar-spin-clock-architecture)
-113. [Academic Bibliography & Literature Citations](#113-academic-bibliography--literature-citations)
+113. [Batter Pull-Side Air Contact vs Warning Track Trap Dynamics](#113-batter-pull-side-air-contact-vs-warning-track-trap-dynamics)
+114. [Pitcher Two-Strike Putaway Intent vs Heart Zone Waste Leakage](#114-pitcher-two-strike-putaway-intent-vs-heart-zone-waste-leakage)
+115. [Baserunner Secondary Lead Distance & Advance Jump Dynamics](#115-baserunner-secondary-lead-distance--advance-jump-dynamics)
+116. [Pure-Python SVG Launch Angle vs Exit Velocity Contour Architecture](#116-pure-python-svg-launch-angle-vs-exit-velocity-contour-architecture)
+117. [Academic Bibliography & Literature Citations](#117-academic-bibliography--literature-citations)
 
 ---
 
@@ -1215,7 +1219,38 @@ $$\theta = \left(\frac{(H \cdot 60 + M)}{720}\right) \cdot 360^{\circ} - 90^{\ci
 
 ---
 
-## 113. Academic Bibliography & Literature Citations
+## 113. Batter Pull-Side Air Contact vs Warning Track Trap Dynamics
+
+### 113.1 Pull-Air Conversion vs Dead-Zone Trap Rating (PACDTR)
+$$\text{PACDTR} = \max\left(0, 100 + (\text{Clearance\%} - 18.0) \cdot 3.2 + (22.0 - \text{Trap\%}) \cdot 2.4 + (\text{PullFB\%} - 32.0) \cdot 0.8\right)$$
+$$\text{TTHRD}_{\text{runs}} = -(\text{Trap\%} - 22.0\%) \cdot \text{Flyballs} \cdot 1.25\text{ runs}$$
+
+---
+
+## 114. Pitcher Two-Strike Putaway Intent vs Heart Zone Waste Leakage
+
+### 114.1 Two-Strike Putaway Intent Execution Index (TSPIEI) & HPCR
+$$\text{TSPIEI} = \max\left(0, 100 + (\text{ChaseIntent\%} - 52.0) \cdot 1.8 + (19.0 - \text{HeartLeak\%}) \cdot 3.2 + (\text{K\%} - 38.0) \cdot 1.4\right)$$
+$$\text{HPCR}_{\text{runs}} = (19.0\% - \text{HeartLeak\%}) \cdot \text{Pitches} \cdot 0.28\text{ runs}$$
+
+---
+
+## 115. Baserunner Secondary Lead Distance & Advance Jump Dynamics
+
+### 115.1 Aggressive Secondary Lead Index (ASLI) & Extra-Base Boost
+$$\text{ASLI} = \max\left(0, 100 + (d_{\text{sec}} - 20.5) \cdot 4.2 + (d_{\text{prim}} - 10.5) \cdot 3.0 + (t_{\text{move}} - 1.35) \cdot 25.0\right)$$
+$$\Delta P_{\text{advance}} = (d_{\text{sec}} - 20.5) \cdot 3.5\%, \quad \text{ASLRV}_{\text{runs}} = (\text{ASLI} - 100.0) \cdot (\text{Opps} \cdot 0.0018)$$
+
+---
+
+## 116. Pure-Python SVG Launch Angle vs Exit Velocity Contour Architecture
+
+### 116.1 Cartesian Bounded Projection & Zone Polygon Mapping
+$$P_x = X_{\text{orig}} + \left(\frac{\text{EV} - 60}{60}\right) \cdot W_{\text{plot}}, \quad P_y = Y_{\text{orig}} - \left(\frac{\text{LA} - (-30)}{90}\right) \cdot H_{\text{plot}}$$
+
+---
+
+## 117. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1283,3 +1318,5 @@ $$\theta = \left(\frac{(H \cdot 60 + M)}{720}\right) \cdot 360^{\circ} - 90^{\ci
 64. **Slowinski, Steve** (2012). "Arm Slot and Release Point Consistency in Major League Pitchers". *FanGraphs Sabermetrics Library*.
 65. **Cross, Rod** (2014). "Aerodynamics of Pitching: Spin Axes and Magnus Forces". *American Journal of Physics*.
 66. **Kagan, David** (2017). "The Physics of Catcher Framing and Glove Receiving Speed". *The Physics Teacher*.
+67. **Carleton, Russell A.** (2018). "The Shift, Warning Track Power, and the Economics of Flyballs". *Baseball Prospectus*.
+68. **Baumer, Benjamin S.** (2015). "Baserunning Leads, Jumps, and Stolen Base Optimization in Modern Baseball". *Journal of Quantitative Analysis in Sports*.

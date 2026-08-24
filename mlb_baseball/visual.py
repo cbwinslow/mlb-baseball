@@ -37,6 +37,7 @@ class ChartType(enum.Enum):
     BREAK_DIAMOND_PLOT = "break_diamond_plot"
     SPRAY_ISOCHRONE_CHART = "spray_isochrone_chart"
     SPIN_POLAR_CLOCK_CHART = "spin_polar_clock_chart"
+    LA_EV_CONTOUR_HEATMAP = "la_ev_contour_heatmap"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2398,6 +2399,153 @@ class SpinPolarClockRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class BattedBallContactEvent:
+    """Individual contact event with exit velocity, launch angle, and distance."""
+
+    exit_velocity_mph: float
+    launch_angle_deg: float
+    event_type: str = "field_out"
+    distance_ft: float = 250.0
+
+
+@dataclasses.dataclass(frozen=True)
+class BatterLaEvContourProfile:
+    """Batter contact quality profile with LA vs EV events."""
+
+    title: str
+    batter_name: str
+    events: list[BattedBallContactEvent]
+
+
+class LaEvContourHeatmapRenderer:
+    """Renders pure-Python vector SVG Launch Angle vs Exit Velocity scatter (LA-EV-CONTOUR-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: BatterLaEvContourProfile) -> GeneratedVectorChart:
+        """Render Cartesian LA vs EV heatmap with Statcast Barrel & Sweetspot zones."""
+        x_min, x_max = 60.0, 120.0
+        y_min, y_max = -30.0, 60.0
+        origin_x = 60.0
+        origin_y = 420.0
+        plot_w = 360.0
+        plot_h = 360.0
+
+        def to_px(ev: float, la: float) -> tuple[float, float]:
+            clamped_ev = max(x_min, min(x_max, ev))
+            clamped_la = max(y_min, min(y_max, la))
+            px = origin_x + ((clamped_ev - x_min) / (x_max - x_min)) * plot_w
+            py = origin_y - ((clamped_la - y_min) / (y_max - y_min)) * plot_h
+            return px, py
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="26" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="44" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.batter_name} LA vs EV Distribution</text>',
+        ]
+
+        # Sweetspot Zone: LA 8 to 32 deg
+        sw_p1 = to_px(60.0, 32.0)
+        sw_p2 = to_px(120.0, 32.0)
+        sw_p3 = to_px(120.0, 8.0)
+        sw_p4 = to_px(60.0, 8.0)
+        svg_parts.append(
+            f'<polygon points="{sw_p1[0]:.1f},{sw_p1[1]:.1f} {sw_p2[0]:.1f},{sw_p2[1]:.1f} '
+            f'{sw_p3[0]:.1f},{sw_p3[1]:.1f} {sw_p4[0]:.1f},{sw_p4[1]:.1f}" '
+            f'fill="#3b82f6" opacity="0.15" />'
+        )
+
+        # Statcast Barrel Zone: EV >= 98 mph, expanding LA
+        b_p1 = to_px(98.0, 26.0)
+        b_p2 = to_px(120.0, 45.0)
+        b_p3 = to_px(120.0, 10.0)
+        b_p4 = to_px(98.0, 26.0)
+        svg_parts.append(
+            f'<polygon points="{b_p1[0]:.1f},{b_p1[1]:.1f} {b_p2[0]:.1f},{b_p2[1]:.1f} '
+            f'{b_p3[0]:.1f},{b_p3[1]:.1f} {b_p4[0]:.1f},{b_p4[1]:.1f}" '
+            f'fill="#a855f7" opacity="0.30" stroke="#c084fc" '
+            f'stroke-width="1.2" stroke-dasharray="3,3" />'
+        )
+        b_x, b_y = to_px(108.0, 28.0)
+        svg_parts.append(
+            f'<text x="{b_x:.1f}" y="{b_y:.1f}" fill="#c084fc" '
+            f'font-size="9" font-weight="bold" text-anchor="middle" '
+            f'font-family="sans-serif">BARREL</text>'
+        )
+
+        # Grid lines: EV (80, 100, 120 mph) and LA (0, 30, 60 deg)
+        for ev_val in [80.0, 100.0, 120.0]:
+            p_top = to_px(ev_val, y_max)
+            p_bot = to_px(ev_val, y_min)
+            svg_parts.append(
+                f'<line x1="{p_top[0]:.1f}" y1="{p_top[1]:.1f}" '
+                f'x2="{p_bot[0]:.1f}" y2="{p_bot[1]:.1f}" '
+                f'stroke="#1e293b" stroke-width="1.0" />'
+            )
+            svg_parts.append(
+                f'<text x="{p_bot[0]:.1f}" y="{p_bot[1] + 14:.1f}" fill="#64748b" font-size="8" '
+                f'text-anchor="middle" font-family="sans-serif">{int(ev_val)} mph</text>'
+            )
+
+        for la_val in [-20.0, 0.0, 20.0, 40.0, 60.0]:
+            p_lft = to_px(x_min, la_val)
+            p_rgt = to_px(x_max, la_val)
+            svg_parts.append(
+                f'<line x1="{p_lft[0]:.1f}" y1="{p_lft[1]:.1f}" '
+                f'x2="{p_rgt[0]:.1f}" y2="{p_rgt[1]:.1f}" '
+                f'stroke="#1e293b" stroke-width="1.0" />'
+            )
+            svg_parts.append(
+                f'<text x="{p_lft[0] - 6:.1f}" y="{p_lft[1] + 3:.1f}" fill="#64748b" font-size="8" '
+                f'text-anchor="end" font-family="sans-serif">{int(la_val)}°</text>'
+            )
+
+        # Plot contact points
+        for ev in profile.events:
+            px, py = to_px(ev.exit_velocity_mph, ev.launch_angle_deg)
+            is_barrel = ev.exit_velocity_mph >= 98.0 and 10.0 <= ev.launch_angle_deg <= 45.0
+            if is_barrel:
+                col = "#a855f7"  # Barrel Purple
+                r_dot = 4.5
+            elif ev.exit_velocity_mph >= 95.0:
+                col = "#ef4444"  # Hard Hit Red
+                r_dot = 4.0
+            elif ev.exit_velocity_mph >= 80.0:
+                col = "#f59e0b"  # Medium Amber
+                r_dot = 3.5
+            else:
+                col = "#3b82f6"  # Soft Blue
+                r_dot = 3.0
+
+            svg_parts.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{r_dot}" fill="{col}" '
+                f'stroke="#0b1329" stroke-width="0.8" opacity="0.85" />'
+            )
+
+        # Legend
+        svg_parts.append(
+            f'<text x="{self.width / 2}" y="{self.height - 12}" fill="#94a3b8" font-size="9" '
+            f'text-anchor="middle" font-family="sans-serif">'
+            f"Purple: Barrel | Red: Hard Hit 95+ | Amber: Medium | Blue: Soft &lt;80</text>"
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.LA_EV_CONTOUR_HEATMAP,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -2552,6 +2700,15 @@ def health_check() -> list[Check]:
             PitcherSpinPolarClockProfile("Polar Clock", "Skenes", polar_pitches)
         )
 
+        contour_renderer = LaEvContourHeatmapRenderer()
+        la_ev_events = [
+            BattedBallContactEvent(108.0, 28.0, "home_run", 420.0),
+            BattedBallContactEvent(92.0, 14.0, "single", 240.0),
+        ]
+        contour_chart = contour_renderer.render(
+            BatterLaEvContourProfile("LA EV Heatmap", "Judge", la_ev_events)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -2574,6 +2731,7 @@ def health_check() -> list[Check]:
             and "<svg" in bd_chart.svg_content
             and "<svg" in iso_chart.svg_content
             and "<svg" in polar_chart.svg_content
+            and "<svg" in contour_chart.svg_content
         ):
             checks.append(
                 Check(

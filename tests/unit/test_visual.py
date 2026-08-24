@@ -535,3 +535,27 @@ def test_spin_polar_clock_chart_svg_generation():
     assert "<svg" in chart.svg_content
     assert "Skenes Spin Polar Clock" in chart.svg_content
     assert "100%" in chart.svg_content
+
+
+def test_la_ev_contour_heatmap_svg_generation():
+    """Verify LaEvContourHeatmapRenderer generates barrel polygons and contact points."""
+    from mlb_baseball.visual import (
+        BattedBallContactEvent,
+        BatterLaEvContourProfile,
+        LaEvContourHeatmapRenderer,
+    )
+
+    renderer = LaEvContourHeatmapRenderer()
+    events = [
+        BattedBallContactEvent(108.0, 28.0, "home_run", 425.0),
+        BattedBallContactEvent(96.0, 14.0, "single", 260.0),
+        BattedBallContactEvent(74.0, -12.0, "groundout", 120.0),
+    ]
+    prof = BatterLaEvContourProfile("Judge LA vs EV Heatmap", "Aaron Judge", events)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Judge LA vs EV Heatmap" in chart.svg_content
+    assert "BARREL" in chart.svg_content

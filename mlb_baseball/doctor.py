@@ -260,6 +260,7 @@ def run() -> list[Check]:
     from mlb_baseball.model import (
         active_spin,
         aging,
+        air_trap,
         ambush,
         arm,
         arm_accuracy,
@@ -300,6 +301,8 @@ def run() -> list[Check]:
         heatmap,
         hedge,
         iffb,
+        intent_leak,
+        lead_snap,
         leverage,
         low_scoop,
         neural,
@@ -463,6 +466,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(air_trap.health_check())
+    except Exception as exc:
+        checks.append(Check("air_trap", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(intent_leak.health_check())
+    except Exception as exc:
+        checks.append(Check("intent_leak", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(lead_snap.health_check())
+    except Exception as exc:
+        checks.append(Check("lead_snap", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(zone_whiff.health_check())
     except Exception as exc:

@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-230: Pure-Python SVG Batter 3D Launch Angle vs Exit Velocity Density Contour Heatmap (`LA-EV-CONTOUR-01`, Package 142)
+
+**Decision:** Built vector SVG Cartesian 2D density contour chart with Statcast Barrel & Sweetspot polygon zones in `mlb_baseball/visual.py` and CLI subcommand `mlb la-ev-contour`.
+- **Operational Architecture & Geometry**:
+  - Coordinate Mapping: EV $60-120\text{ mph}$, LA $-30^{\circ}\text{ to }+60^{\circ}$.
+  - Polygon Shading: Barrel Zone ($EV \ge 98, LA \in [10^{\circ}, 45^{\circ}]$) shaded in purple opacity $0.30$, Sweetspot in blue opacity $0.15$.
+  - CLI: `mlb la-ev-contour --title "Aaron Judge LA vs EV Heatmap" --batter "Aaron Judge"`.
+- **Verification**: 23/23 unit tests in `tests/unit/test_visual.py` passing; 792/792 full repository unit tests passing.
+
+## ADR-229: Baserunner Secondary Lead Distance vs Pitcher Pickoff Threat Engine (`LEAD-SNAP-01`, Package 141)
+
+**Decision:** Built primary lead extension, secondary jump distance, and extra-base advance modeling in `mlb_baseball/model/lead_snap.py` and CLI subcommand `mlb lead-snap`.
+- **Mathematical Formulations & Methodology**:
+  - Aggressive Secondary Lead Index: $\text{ASLI} = \max\left(0, 100 + (d_{\text{sec}} - 20.5) \cdot 4.2 + (d_{\text{prim}} - 10.5) \cdot 3.0 + (t_{\text{move}} - 1.35) \cdot 25.0\right)$.
+  - Extra-Base Advance Boost: $\Delta P_{\text{advance}} = (d_{\text{sec}} - 20.5) \cdot 3.5\%$, $\text{ASLRV}_{\text{runs}} = (\text{ASLI} - 100.0) \cdot (\text{Opps} \cdot 0.0018)$.
+  - Tiers: `AGGRESSIVE_TERROR_ON_BASEPATHS` ($\text{ASLI} \ge 116.0, d_{\text{sec}} \ge 23.0\text{ ft}, d_{\text{prim}} \ge 11.5\text{ ft}$), `OVEREXTENDED_PICKOFF_RISK`, `CAUTIOUS_ANCHORED_STATIONARY_RUNNER`, `AVERAGE_BASE_LEAD_PROFILE`.
+  - CLI: `mlb lead-snap --prim 12.8 --sec 25.0 --move 1.30 --opps 90`, `mlb lead-snap --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_lead_snap.py` passing; 792/792 full repository unit tests passing.
+
+## ADR-228: Pitcher Two-Strike Putaway Intent vs Heart Zone Waste Leakage Engine (`INTENT-LEAK-01`, Package 140)
+
+**Decision:** Built two-strike chase zone expansion, middle-middle heart mistake leakage, and run value in `mlb_baseball/model/intent_leak.py` and CLI subcommand `mlb intent-leak`.
+- **Mathematical Formulations & Methodology**:
+  - Two-Strike Putaway Intent Execution Index: $\text{TSPIEI} = \max\left(0, 100 + (\text{ChaseIntent\%} - 52.0) \cdot 1.8 + (19.0 - \text{HeartLeak\%}) \cdot 3.2 + (\text{K\%} - 38.0) \cdot 1.4\right)$.
+  - Heart-Zone Putaway Catastrophe Runs: $\text{HPCR}_{\text{runs}} = (19.0\% - \text{HeartLeak\%}) \cdot \text{Pitches} \cdot 0.28\text{ runs}$.
+  - Tiers: `SURGICAL_PUTAWAY_COMMAND_SNIPER` ($\text{TSPIEI} \ge 116.0, \text{HeartLeak\%} \le 12.0\%, \text{ChaseIntent\%} \ge 58.0\%$), `FATAL_TWO_STRIKE_MEATBALL_LEAKER`, `ERRATIC_WILD_WASTER`, `AVERAGE_PUTAWAY_COMMAND`.
+  - CLI: `mlb intent-leak --chase 66.0 --heart 8.5 --k-pct 50.0 --pitches 500`, `mlb intent-leak --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_intent_leak.py` passing; 792/792 full repository unit tests passing.
+
+## ADR-227: Batter Pull-Side Air Contact vs Warning Track Trap Engine (`AIR-TRAP-01`, Package 139)
+
+**Decision:** Built pull flyball fence clearance, warning track dead zone trap, and HR conversion in `mlb_baseball/model/air_trap.py` and CLI subcommand `mlb air-trap`.
+- **Mathematical Formulations & Methodology**:
+  - Pull-Air Conversion vs Dead-Zone Trap Rating: $\text{PACDTR} = \max\left(0, 100 + (\text{Clearance\%} - 18.0) \cdot 3.2 + (22.0 - \text{Trap\%}) \cdot 2.4 + (\text{PullFB\%} - 32.0) \cdot 0.8\right)$.
+  - Trap-To-HR Deficit Runs: $\text{TTHRD}_{\text{runs}} = -(\text{Trap\%} - 22.0\%) \cdot \text{Flyballs} \cdot 1.25\text{ runs}$.
+  - Tiers: `ELITE_WALL_CLEARING_PULL_CRUSHER` ($\text{PACDTR} \ge 116.0, \text{Clearance\%} \ge 24.0\%, \text{Trap\%} \le 17.0\%$), `WARNING_TRACK_POWER_TRAPPED_VICTIM`, `UNDER_POWERED_PULL_AIR_TRAPPER`, `AVERAGE_PULL_AIR_CONVERSION`.
+  - CLI: `mlb air-trap --pull-fb 44.0 --trap 14.0 --clear 28.0 --fb 150`, `mlb air-trap --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_air_trap.py` passing; 792/792 full repository unit tests passing.
+
 ## ADR-226: Pure-Python SVG Pitcher Arsenal Active Spin vs Gyro Polar Clock Chart (`SPIN-POLAR-01`, Package 138)
 
 **Decision:** Built vector SVG polar spin clock chart with tilt radial rays and active spin concentric rings in `mlb_baseball/visual.py` and CLI subcommand `mlb spin-polar`.

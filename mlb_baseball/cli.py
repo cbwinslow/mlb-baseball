@@ -867,6 +867,76 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter pull-side air contact vs warning track trap (AIR-TRAP-01)
+    at_parser = subparsers.add_parser(
+        "air-trap",
+        help="evaluate pull-air fence clearance vs warning track trap and PACDTR (AIR-TRAP-01)",
+    )
+    at_parser.add_argument(
+        "--pull-fb", type=float, default=32.0, help="pull flyball pct (default: 32.0)"
+    )
+    at_parser.add_argument(
+        "--trap", type=float, default=22.0, help="warning track trap pct (default: 22.0)"
+    )
+    at_parser.add_argument(
+        "--clear", type=float, default=18.0, help="wall clearance HR pct (default: 18.0)"
+    )
+    at_parser.add_argument("--fb", type=int, default=120, help="total flyballs hit (default: 120)")
+    at_parser.add_argument("--json", action="store_true", help="output air trap evaluation as JSON")
+
+    # Pitcher two-strike putaway intent vs heart zone waste leakage (INTENT-LEAK-01)
+    il_parser = subparsers.add_parser(
+        "intent-leak",
+        help="evaluate two-strike chase vs heart mistake leakage and TSPIEI (INTENT-LEAK-01)",
+    )
+    il_parser.add_argument(
+        "--chase", type=float, default=52.0, help="chase dirt intent pct (default: 52.0)"
+    )
+    il_parser.add_argument(
+        "--heart", type=float, default=19.0, help="heart zone leak pct (default: 19.0)"
+    )
+    il_parser.add_argument(
+        "--k-pct", type=float, default=38.0, help="2-strike K pct (default: 38.0)"
+    )
+    il_parser.add_argument(
+        "--pitches", type=int, default=400, help="two-strike pitch count (default: 400)"
+    )
+    il_parser.add_argument(
+        "--json", action="store_true", help="output intent leak evaluation as JSON"
+    )
+
+    # Baserunner secondary lead distance vs pitcher pickoff threat (LEAD-SNAP-01)
+    lsn_parser = subparsers.add_parser(
+        "lead-snap",
+        help="evaluate baserunner secondary lead distance, advance boost, and ASLI (LEAD-SNAP-01)",
+    )
+    lsn_parser.add_argument(
+        "--prim", type=float, default=10.5, help="primary lead ft (default: 10.5)"
+    )
+    lsn_parser.add_argument(
+        "--sec", type=float, default=20.5, help="secondary lead ft (default: 20.5)"
+    )
+    lsn_parser.add_argument(
+        "--move", type=float, default=1.35, help="pitcher move sec (default: 1.35)"
+    )
+    lsn_parser.add_argument(
+        "--pickoff", type=float, default=10.0, help="pickoff rate pct (default: 10.0)"
+    )
+    lsn_parser.add_argument("--opps", type=int, default=75, help="baserunning opps (default: 75)")
+    lsn_parser.add_argument(
+        "--json", action="store_true", help="output lead snap evaluation as JSON"
+    )
+
+    # Batter LA vs EV contour heatmap (LA-EV-CONTOUR-01)
+    la_ev_parser = subparsers.add_parser(
+        "la-ev-contour",
+        help="generate vector SVG launch angle vs exit velocity contour heatmap (LA-EV-CONTOUR-01)",
+    )
+    la_ev_parser.add_argument(
+        "--title", type=str, default="Aaron Judge LA vs EV Heatmap", help="chart title"
+    )
+    la_ev_parser.add_argument("--batter", type=str, default="Aaron Judge", help="batter name")
+
     # Batter in-zone whiff vs contact quality tradeoff (ZONE-WHIFF-01)
     zw_parser = subparsers.add_parser(
         "zone-whiff",
@@ -4191,6 +4261,145 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "air-trap":
+        import json as json_lib
+
+        from mlb_baseball.model.air_trap import (
+            AirTrapEvaluationResult,
+            BatterAirTrapEngine,
+            BatterAirTrapMetrics,
+        )
+
+        at_eng = BatterAirTrapEngine()
+        at_m = BatterAirTrapMetrics(
+            "b1",
+            "Target Batter",
+            pull_flyball_rate_pct=args.pull_fb,
+            warning_track_trap_pct=args.trap,
+            wall_clearance_hr_pct=args.clear,
+            flyball_count=args.fb,
+        )
+        at_res: AirTrapEvaluationResult = at_eng.evaluate_air_trap(at_m)
+
+        if args.json:
+            at_out = {
+                "pacdtr_score": at_res.pacdtr_score,
+                "tthrd_runs": at_res.tthrd_runs_lost,
+                "tier": at_res.trap_tier,
+                "is_clearer": at_res.is_elite_clearer,
+            }
+            print(json_lib.dumps(at_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PULL-AIR CONVERSION VS WARNING TRACK TRAP [{at_res.trap_tier}]")
+            hdr_at = (
+                f"     PACDTR Score: {at_res.pacdtr_score:.1f}/160 "
+                f"| Runs Deficit: {at_res.tthrd_runs_lost:>+4.2f} "
+                f"| Elite Clearer: {'YES' if at_res.is_elite_clearer else 'NO'}"
+            )
+            print(hdr_at)
+            print(f"{'=' * 84}\n")
+            print(f"  • Clearance Profile    : {at_res.trap_tier}\n")
+
+    elif args.command == "intent-leak":
+        import json as json_lib
+
+        from mlb_baseball.model.intent_leak import (
+            IntentLeakEvaluationResult,
+            PitcherIntentLeakEngine,
+            PitcherPutawayIntentMetrics,
+        )
+
+        il_eng = PitcherIntentLeakEngine()
+        il_m = PitcherPutawayIntentMetrics(
+            "p1",
+            "Target Pitcher",
+            chase_dirt_intent_pct=args.chase,
+            heart_zone_leak_pct=args.heart,
+            two_strike_k_pct=args.k_pct,
+            two_strike_pitches_count=args.pitches,
+        )
+        il_res: IntentLeakEvaluationResult = il_eng.evaluate_intent_leak(il_m)
+
+        if args.json:
+            il_out = {
+                "tspiei_score": il_res.tspiei_score,
+                "hpcr_runs": il_res.hpcr_runs_prevented,
+                "tier": il_res.intent_tier,
+                "is_sniper": il_res.is_surgical_sniper,
+            }
+            print(json_lib.dumps(il_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     TWO-STRIKE PUTAWAY INTENT EXECUTION [{il_res.intent_tier}]")
+            hdr_il = (
+                f"     TSPIEI Score: {il_res.tspiei_score:.1f}/160 "
+                f"| Mistake Runs Prevented: {il_res.hpcr_runs_prevented:>+4.2f} "
+                f"| Sniper: {'YES' if il_res.is_surgical_sniper else 'NO'}"
+            )
+            print(hdr_il)
+            print(f"{'=' * 84}\n")
+            print(f"  • Command Profile      : {il_res.intent_tier}\n")
+
+    elif args.command == "lead-snap":
+        import json as json_lib
+
+        from mlb_baseball.model.lead_snap import (
+            LeadSnapEvaluationResult,
+            RunnerLeadSnapEngine,
+            RunnerLeadSnapMetrics,
+        )
+
+        lsn_eng = RunnerLeadSnapEngine()
+        lsn_m = RunnerLeadSnapMetrics(
+            "r1",
+            "Target Runner",
+            primary_lead_distance_ft=args.prim,
+            secondary_jump_distance_ft=args.sec,
+            pitcher_move_time_sec=args.move,
+            pickoff_throw_rate_pct=args.pickoff,
+            baserunning_opportunities=args.opps,
+        )
+        lsn_res: LeadSnapEvaluationResult = lsn_eng.evaluate_lead_snap(lsn_m)
+
+        if args.json:
+            lsn_out = {
+                "asli_score": lsn_res.asli_score,
+                "advance_boost": lsn_res.advance_prob_boost_pct,
+                "aslrv_runs": lsn_res.aslrv_runs_produced,
+                "tier": lsn_res.lead_tier,
+                "is_terror": lsn_res.is_aggressive_terror,
+            }
+            print(json_lib.dumps(lsn_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     SECONDARY LEAD DISTANCE & ADVANCE JUMP [{lsn_res.lead_tier}]")
+            hdr_lsn = (
+                f"     ASLI Score: {lsn_res.asli_score:.1f}/160 "
+                f"| Advance Boost: +{lsn_res.advance_prob_boost_pct:.1f}% "
+                f"| Runs: {lsn_res.aslrv_runs_produced:>+4.2f}"
+            )
+            print(hdr_lsn)
+            print(f"{'=' * 84}\n")
+            print(f"  • Lead Profile         : {lsn_res.lead_tier}\n")
+
+    elif args.command == "la-ev-contour":
+        from mlb_baseball.visual import (
+            BattedBallContactEvent,
+            BatterLaEvContourProfile,
+            LaEvContourHeatmapRenderer,
+        )
+
+        la_renderer = LaEvContourHeatmapRenderer()
+        la_events = [
+            BattedBallContactEvent(108.0, 28.0, "home_run", 425.0),
+            BattedBallContactEvent(96.0, 14.0, "single", 260.0),
+            BattedBallContactEvent(74.0, -12.0, "groundout", 120.0),
+        ]
+        la_prof = BatterLaEvContourProfile(args.title, args.batter, la_events)
+        chart = la_renderer.render(la_prof)
+        print(f"Generated Vector SVG LA vs EV Heatmap ({len(chart.svg_content)} bytes)")
 
     elif args.command == "zone-whiff":
         import json as json_lib

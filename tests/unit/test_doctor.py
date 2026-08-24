@@ -372,3 +372,12 @@ def test_zone_whiff_and_active_spin_and_low_scoop_health_checks():
     assert zone_whiff.health_check()[0].ok is True
     assert active_spin.health_check()[0].ok is True
     assert low_scoop.health_check()[0].ok is True
+
+
+def test_air_trap_and_intent_leak_and_lead_snap_health_checks():
+    """Verify health checks for air_trap, intent_leak, and lead_snap modules."""
+    from mlb_baseball.model import air_trap, intent_leak, lead_snap
+
+    assert air_trap.health_check()[0].ok is True
+    assert intent_leak.health_check()[0].ok is True
+    assert lead_snap.health_check()[0].ok is True

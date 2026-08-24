@@ -179,3 +179,13 @@ def test_count_and_shift_and_sub_and_daemon_health_checks():
     assert shift.health_check()[0].ok is True
     assert sub.health_check()[0].ok is True
     assert daemon.health_check()[0].ok is True
+
+
+def test_baserunning_and_entropy_and_aging_and_shop_health_checks():
+    """Verify health checks for baserunning, entropy, aging, and shop modules."""
+    from mlb_baseball.model import aging, baserunning, entropy, shop
+
+    assert baserunning.health_check()[0].ok is True
+    assert entropy.health_check()[0].ok is True
+    assert aging.health_check()[0].ok is True
+    assert shop.health_check()[0].ok is True

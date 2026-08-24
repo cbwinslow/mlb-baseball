@@ -867,6 +867,69 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Base stealing kinematics and disengagement physics (SB-01)
+    steal_parser = subparsers.add_parser(
+        "steal",
+        help="evaluate base stealing kinematics and disengagements (SB-01)",
+    )
+    steal_parser.add_argument(
+        "--sprint", type=float, default=28.5, help="runner sprint speed ft/s (default: 28.5)"
+    )
+    steal_parser.add_argument(
+        "--delivery", type=float, default=1.30, help="pitcher delivery time s (default: 1.30)"
+    )
+    steal_parser.add_argument(
+        "--pop-time", type=float, default=1.95, help="catcher pop time s (default: 1.95)"
+    )
+    steal_parser.add_argument(
+        "--disengagements", type=int, default=0, help="pitcher disengagements (0, 1, 2)"
+    )
+    steal_parser.add_argument("--outs", type=int, default=1, help="outs (default: 1)")
+    steal_parser.add_argument("--json", action="store_true", help="output steal result as JSON")
+
+    # Pitch sequencing Shannon entropy (ENTROPY-01)
+    entropy_parser = subparsers.add_parser(
+        "entropy",
+        help="calculate pitch sequencing Shannon entropy (ENTROPY-01)",
+    )
+    entropy_parser.add_argument(
+        "--fastball", type=float, default=0.50, help="fastball share (default: 0.50)"
+    )
+    entropy_parser.add_argument(
+        "--slider", type=float, default=0.30, help="slider share (default: 0.30)"
+    )
+    entropy_parser.add_argument(
+        "--changeup", type=float, default=0.20, help="changeup share (default: 0.20)"
+    )
+    entropy_parser.add_argument("--json", action="store_true", help="output entropy as JSON")
+
+    # Skill component aging projections (AGE-02)
+    aging_parser = subparsers.add_parser(
+        "aging",
+        help="project multi-year skill component aging trajectories (AGE-02)",
+    )
+    aging_parser.add_argument("--age", type=float, default=27.0, help="current age (default: 27.0)")
+    aging_parser.add_argument("--is-pitcher", action="store_true", help="player is pitcher")
+    aging_parser.add_argument(
+        "--velo", type=float, default=95.0, help="fastball velo mph (default: 95.0)"
+    )
+    aging_parser.add_argument(
+        "--woba", type=float, default=0.340, help="wOBA / FIP baseline (default: 0.340)"
+    )
+    aging_parser.add_argument("--json", action="store_true", help="output aging projection as JSON")
+
+    # Multi-book odds line shopping (SHOP-01)
+    shop_parser = subparsers.add_parser(
+        "shop",
+        help="scan multi-book market offerings for best prices and +EV (SHOP-01)",
+    )
+    shop_parser.add_argument("--home", type=str, default="LAD", help="home team")
+    shop_parser.add_argument("--away", type=str, default="SF", help="away team")
+    shop_parser.add_argument(
+        "--model-prob", type=float, default=0.56, help="model home win prob (default: 0.56)"
+    )
+    shop_parser.add_argument("--json", action="store_true", help="output line shopping as JSON")
+
     # Count state Markov simulation (COUNT-01)
     count_parser = subparsers.add_parser(
         "count",
@@ -2756,6 +2819,182 @@ def main(argv: list[str] | None = None) -> None:
             )
             print(fip_str)
 
+    elif args.command == "steal":
+        import json as json_lib
+
+        from mlb_baseball.model.baserunning import (
+            BaseStealingPhysicsEngine,
+            CatcherArmProfile,
+            PitcherDeliveryProfile,
+            RunnerStealProfile,
+        )
+
+        st_eng = BaseStealingPhysicsEngine()
+        r_prof = RunnerStealProfile("r1", "Target Runner", sprint_speed_ft_s=args.sprint)
+        p_prof = PitcherDeliveryProfile(
+            "p1",
+            "Target Pitcher",
+            delivery_time_s=args.delivery,
+            disengagements_used=args.disengagements,
+        )
+        c_prof = CatcherArmProfile("c1", "Target Catcher", pop_time_s=args.pop_time)
+
+        st_res = st_eng.evaluate_steal_attempt(r_prof, p_prof, c_prof, outs=args.outs)
+
+        if args.json:
+            st_out = {
+                "success_probability": st_res.success_probability,
+                "timing_margin_s": st_res.timing_margin_s,
+                "breakeven_rate": st_res.breakeven_success_rate,
+                "run_value_delta": st_res.expected_run_value_delta,
+                "is_green_light": st_res.is_green_light,
+            }
+            print(json_lib.dumps(st_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            gl_tag = "GREEN LIGHT" if st_res.is_green_light else "RED LIGHT"
+            hdr_st = (
+                f"     P(SB): {st_res.success_probability * 100:.1f}% "
+                f"| Margin: {st_res.timing_margin_s:+.2f}s"
+            )
+            print(f"     BASE STEAL DECISION [{gl_tag}]")
+            print(hdr_st)
+            print(f"{'=' * 84}\n")
+            print(f"  • Runner Time to Bag   : {st_res.runner_time_to_bag_s:.2f}s")
+            print(f"  • Defense Time to Bag  : {st_res.defense_time_to_bag_s:.2f}s")
+            print(f"  • Breakeven Win Rate   : {st_res.breakeven_success_rate * 100:.1f}%")
+            print(f"  • Expected Run Delta   : {st_res.expected_run_value_delta:+.3f} runs\n")
+
+    elif args.command == "entropy":
+        import json as json_lib
+
+        from mlb_baseball.model.entropy import (
+            PitchArsenalDistribution,
+            PitchSequencingEntropyEngine,
+        )
+
+        ent_eng = PitchSequencingEntropyEngine()
+        ars = PitchArsenalDistribution(
+            "p1",
+            "Target Pitcher",
+            {"FF": args.fastball, "SL": args.slider, "CH": args.changeup},
+        )
+        ent_res = ent_eng.evaluate_arsenal_entropy(ars)
+
+        if args.json:
+            ent_out = {
+                "shannon_entropy_bits": ent_res.shannon_entropy_bits,
+                "normalized_entropy": ent_res.normalized_entropy,
+                "predictability_score": ent_res.predictability_score,
+                "repetition_penalty": ent_res.repetition_contact_penalty_pct,
+            }
+            print(json_lib.dumps(ent_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            ent_hdr = (
+                f"     H: {ent_res.shannon_entropy_bits:.2f} "
+                f"| Norm: {ent_res.normalized_entropy:.2f}"
+            )
+            print(f"     PITCH ENTROPY (Pred: {ent_res.predictability_score:.1f}/100)")
+            print(ent_hdr)
+            print(f"{'=' * 84}\n")
+            print(f"  • Contact Boost: +{ent_res.repetition_contact_penalty_pct:.1f}% on repeat\n")
+
+    elif args.command == "aging":
+        import json as json_lib
+
+        from mlb_baseball.model.aging import (
+            PlayerTalentBaseline,
+            SkillAgingProjectionEngine,
+        )
+
+        ag_eng = SkillAgingProjectionEngine()
+        p_card = PlayerTalentBaseline(
+            "p1",
+            "Target Player",
+            current_age=args.age,
+            is_pitcher=args.is_pitcher,
+            fastball_velo_mph=args.velo,
+            woba_or_fip=args.woba,
+        )
+        ag_proj = ag_eng.project_multi_year_trajectory(p_card, horizon_years=3)
+
+        if args.json:
+            ag_out = [
+                {
+                    "year": p.year_offset,
+                    "age": p.projected_age,
+                    "primary_metric": p.projected_woba_or_fip,
+                    "velo": p.projected_fastball_velo_mph,
+                    "sprint": p.projected_sprint_speed_ft_s,
+                }
+                for p in ag_proj
+            ]
+            print(json_lib.dumps(ag_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            role_lbl = "Pitcher" if args.is_pitcher else "Hitter"
+            print(f"     SKILL COMPONENT AGING TRAJECTORY ({role_lbl} Age {args.age:.0f})")
+            print(f"{'=' * 84}\n")
+            for ag_p in ag_proj:
+                row_str = (
+                    f"  • +{ag_p.year_offset} Yr: {ag_p.projected_woba_or_fip:.3f} "
+                    f"| Velo: {ag_p.projected_fastball_velo_mph:.1f}"
+                )
+                print(row_str)
+            print()
+
+    elif args.command == "shop":
+        import json as json_lib
+
+        from mlb_baseball.model.shop import (
+            OddsLineShoppingEngine,
+            SportsbookQuote,
+        )
+
+        shop_eng = OddsLineShoppingEngine()
+        sample_quotes = [
+            SportsbookQuote(
+                "DraftKings", home_decimal_odds=2.25, away_decimal_odds=1.70, vig_pct=4.2
+            ),
+            SportsbookQuote("FanDuel", home_decimal_odds=2.10, away_decimal_odds=1.80, vig_pct=4.1),
+            SportsbookQuote(
+                "Pinnacle", home_decimal_odds=2.18, away_decimal_odds=1.77, vig_pct=2.4
+            ),
+        ]
+        shop_res = shop_eng.find_best_lines(
+            "g1", args.home, args.away, sample_quotes, model_home_prob=args.model_prob
+        )
+
+        if args.json:
+            shop_out = {
+                "best_home_book": shop_res.best_home_sportsbook,
+                "best_home_odds": shop_res.best_home_odds,
+                "best_away_book": shop_res.best_away_sportsbook,
+                "best_away_odds": shop_res.best_away_odds,
+                "synthetic_hold": shop_res.synthetic_market_hold_pct,
+                "home_ev": shop_res.home_ev_pct,
+                "away_ev": shop_res.away_ev_pct,
+                "best_side": shop_res.best_value_side,
+            }
+            print(json_lib.dumps(shop_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     MULTI-BOOK LINE SHOPPING ({args.home} vs {args.away})")
+            best_sd = shop_res.best_value_side or "NO BET"
+            print(f"     Hold: {shop_res.synthetic_market_hold_pct:.2f}% | Best Side: {best_sd}")
+            print(f"{'=' * 84}\n")
+            bh_str = (
+                f"  • Best Home: {shop_res.best_home_sportsbook} "
+                f"@ {shop_res.best_home_odds} ({shop_res.home_ev_pct:+.1f}%)"
+            )
+            print(bh_str)
+            ba_str = (
+                f"  • Best Away: {shop_res.best_away_sportsbook} "
+                f"@ {shop_res.best_away_odds} ({shop_res.away_ev_pct:+.1f}%)\n"
+            )
+            print(ba_str)
+
     elif args.command == "count":
         import json as json_lib
 
@@ -2806,14 +3045,14 @@ def main(argv: list[str] | None = None) -> None:
         sh_res = sh_eng.evaluate_defensive_matchup(def_prof, bat_tend)
 
         if args.json:
-            sh_out = {
+            shop_out = {
                 "alignment": sh_res.alignment.value,
                 "expected_babip": sh_res.expected_babip,
                 "babip_delta": sh_res.babip_delta_vs_league,
                 "ground_ball_out_rate": sh_res.ground_ball_out_rate,
                 "run_prevention": sh_res.expected_run_prevention_per_game,
             }
-            print(json_lib.dumps(sh_out, indent=2))
+            print(json_lib.dumps(shop_out, indent=2))
         else:
             print(f"\n{'=' * 84}")
             print(

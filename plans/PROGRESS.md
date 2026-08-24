@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### SHOP-01 multi-book odds line shopping & value scanner: implemented (ADR-146) — 2026-08-24
+Added `mlb_baseball/model/shop.py`, unit tests in `tests/unit/test_shop.py`, and `mlb shop` CLI command.
+- Scans multi-book market offerings to isolate best-available price execution, calculate synthetic hold, and flag model +EV opportunities.
+
+### AGE-02 skill-specific aging trajectories & multi-year projections: implemented (ADR-145) — 2026-08-24
+Added `mlb_baseball/model/aging.py`, unit tests in `tests/unit/test_aging.py`, and `mlb aging` CLI command.
+- Models component aging curves (sprint speed, fastball velo decay, power peak, plate wisdom) for 3-year forward forecasting.
+
+### ENTROPY-01 pitch sequencing Shannon entropy & predictability index: implemented (ADR-144) — 2026-08-24
+Added `mlb_baseball/model/entropy.py`, unit tests in `tests/unit/test_entropy.py`, and `mlb entropy` CLI command.
+- Calculates repertoire Shannon entropy $H(X)$ and repetition contact rate penalties for predictable sequence patterns.
+
+### SB-01 dynamic base stealing & pitcher disengagement physics engine: implemented (ADR-143) — 2026-08-24
+Added `mlb_baseball/model/baserunning.py`, unit tests in `tests/unit/test_baserunning.py`, and `mlb steal` CLI command.
+- Evaluates physical race timing (sprint speed & jump vs delivery & pop time), disengagement rules, and 24-state run expectancy breakeven.
+
 ### CRON-01 scheduled daily automation daemon & cache warmer: implemented (ADR-142) — 2026-08-24
 Added `mlb_baseball/daemon.py`, unit tests in `tests/unit/test_daemon.py`, and `mlb daemon` CLI command.
 - Orchestrates daily 8-phase forecasting cycle, warms PostgreSQL analytical serving views, and bakes static vector SVG charts.

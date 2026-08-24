@@ -257,13 +257,16 @@ def run() -> list[Check]:
 
     from mlb_baseball import serve
     from mlb_baseball.model import (
+        aging,
         backtest,
+        baserunning,
         bullpen,
         bvp,
         calibration,
         cluster,
         count,
         drift,
+        entropy,
         heatmap,
         hedge,
         neural,
@@ -274,6 +277,7 @@ def run() -> list[Check]:
         ros,
         season,
         shift,
+        shop,
         simulate,
         stack,
         stuff,
@@ -397,6 +401,22 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(baserunning.health_check())
+    except Exception as exc:
+        checks.append(Check("baserunning", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(entropy.health_check())
+    except Exception as exc:
+        checks.append(Check("entropy", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(aging.health_check())
+    except Exception as exc:
+        checks.append(Check("aging", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(shop.health_check())
+    except Exception as exc:
+        checks.append(Check("shop", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(count.health_check())
     except Exception as exc:

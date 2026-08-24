@@ -52,7 +52,11 @@ This document serves as the academic and theoretical reference manual for the ML
 26. [Pitch-by-Pitch Count State Markov Transitions](#26-pitch-by-pitch-count-state-markov-transitions)
 27. [Defensive Alignment & Batted Ball Spray Suppression](#27-defensive-alignment--batted-ball-spray-suppression)
 28. [Late-Inning Tactical Substitution & Leverage Optimization](#28-late-inning-tactical-substitution--leverage-optimization)
-29. [Academic Bibliography & Literature Citations](#29-academic-bibliography--literature-citations)
+29. [Dynamic Base Stealing Kinematics & Disengagement Rules](#29-dynamic-base-stealing-kinematics--disengagement-rules)
+30. [Pitch Sequencing Shannon Entropy & Predictability](#30-pitch-sequencing-shannon-entropy--predictability)
+31. [Skill-Specific Component Aging Curves](#31-skill-specific-component-aging-curves)
+32. [Multi-Book Synthetic Hold & Odds Line Shopping](#32-multi-book-synthetic-hold--odds-line-shopping)
+33. [Academic Bibliography & Literature Citations](#33-academic-bibliography--literature-citations)
 
 ---
 
@@ -452,7 +456,49 @@ where $\tau_{\text{gain}} = 0.020$ if $LI \ge 2.0$, else $0.045$.
 
 ---
 
-## 29. Academic Bibliography & Literature Citations
+## 29. Dynamic Base Stealing Kinematics & Disengagement Rules
+
+### 29.1 Kinematic Race Formulation
+$$\Delta t = (t_{\text{delivery}} + t_{\text{pop}} + t_{\text{tag}}) - \left(t_{\text{jump}} + \frac{90.0 - \text{Lead}}{v_{\text{sprint}}} + 0.25\right)$$
+$$P(\text{SB}) = \frac{1}{1 + \exp(-11.5 \cdot \Delta t)}$$
+After 2 pitcher disengagements: $\text{Lead} \leftarrow \text{Lead} + 2.0\text{ ft}, t_{\text{jump}} \leftarrow t_{\text{jump}} - 0.08\text{s}$.
+
+### 29.2 24-State Run Expectancy Breakeven
+$$P^* = \frac{\text{RE}_{\text{current}} - \text{RE}_{\text{fail}}}{\text{RE}_{\text{success}} - \text{RE}_{\text{fail}}}$$
+
+---
+
+## 30. Pitch Sequencing Shannon Entropy & Predictability
+
+### 30.1 Repertoire Shannon Entropy
+$$H(\mathbf{p}) = -\sum_{i=1}^K p_i \log_2(p_i), \quad \tilde{H} = \frac{H(\mathbf{p})}{\log_2(K)}$$
+$$\text{Predictability Index} = (1.0 - \tilde{H}) \times 100$$
+$$\Delta \text{Contact\%}_{\text{repeat}} = +5.0\% + (\text{Predictability} \cdot 0.12)$$
+
+---
+
+## 31. Skill-Specific Component Aging Curves
+
+### 31.1 Decoupled Component Trajectories
+- **Sprint Speed ($v_{\text{sprint}}$):** Peaks at age 23.5; $\Delta v = -0.15\text{ ft/s per year}$ from 24 to 28; $-0.30\text{ ft/s per year}$ post 28.
+- **Fastball Velocity ($v_{\text{fastball}}$):** Peaks at age 25.5; $\Delta v = -0.35\text{ mph per year}$ from 26 to 30; $-0.60\text{ mph per year}$ post 30.
+- **Hitter wOBA:** Peaks at age 27.5; $\Delta wOBA = -0.008\text{ per year}$ from 28 to 32; $-0.018\text{ per year}$ post 32.
+- **Pitcher FIP:** Peaks at age 26.5; $\Delta FIP = +0.12\text{ per year}$ from 27 to 31; $+0.25\text{ per year}$ post 31.
+
+---
+
+## 32. Multi-Book Synthetic Hold & Odds Line Shopping
+
+### 32.1 Best Available Price & Synthetic Margin
+Given decimal quotes across $M$ sportsbooks $\{O_{m, \text{home}}, O_{m, \text{away}}\}$:
+$$O^*_{\text{home}} = \max_{m} O_{m, \text{home}}, \quad O^*_{\text{away}} = \max_{m} O_{m, \text{away}}$$
+$$S_{\text{synthetic}} = \left(\frac{1}{O^*_{\text{home}}} + \frac{1}{O^*_{\text{away}}}\right) - 1.0$$
+If $S_{\text{synthetic}} < 0$, a pure arbitrage opportunity exists.
+$$\text{EV}_{\text{home}} = p_{\text{model}} \cdot O^*_{\text{home}} - 1.0$$
+
+---
+
+## 33. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -478,3 +524,5 @@ where $\tau_{\text{gain}} = 0.020$ if $LI \ge 2.0$, else $0.045$.
 22. **Nathan, Alan M.** (2008). "The Effect of Wind and Air Density on the Trajectory of a Baseball". *American Journal of Physics*.
 23. **Kemeny, John G.; Snell, J. Laurie** (1976). *Finite Markov Chains*. Springer-Verlag.
 24. **Albert, Jim** (2017). *Visualizing Baseball*. CRC Press.
+25. **Shannon, Claude E.** (1948). "A Mathematical Theory of Communication". *Bell System Technical Journal*, 27(3), 379–423.
+26. **Lichtman, Mitchel** (2009). "Aging Curves in Major League Baseball". *The Hardball Times*.

@@ -2,6 +2,46 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-146: Multi-Book Odds Line Shopping & Value Scanner (`SHOP-01`, Package 58)
+
+**Decision:** Built cross-sportsbook line comparison, best-price discovery, and synthetic hold calculation in `mlb_baseball/model/shop.py` and CLI subcommand `mlb shop`.
+- **Mathematical Formulations & Methodology**:
+  - Best Price Discovery: Scans sportsbooks (DraftKings, FanDuel, Pinnacle, BetMGM, Kalshi) to extract maximal odds.
+  - Synthetic Market Hold: $S_{\text{synthetic}} = \frac{1}{O_{\text{home, best}}} + \frac{1}{O_{\text{away, best}}} - 1.0$. Detects pure arbitrage when $S_{\text{synthetic}} < 0.0$.
+  - Model $+EV$ Edge: $\text{EV} = p_{\text{model}} \cdot O_{\text{best}} - 1.0$.
+  - CLI: `mlb shop --home LAD --away SF --model-prob 0.56`, `mlb shop --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_shop.py` passing; 555/555 full repository unit tests passing.
+
+## ADR-145: Skill-Specific Aging Trajectories & Multi-Year Projections (`AGE-02`, Package 57)
+
+**Decision:** Built component-based biological aging curves and forward career trajectories in `mlb_baseball/model/aging.py` and CLI subcommand `mlb aging`.
+- **Mathematical Formulations & Methodology**:
+  - Decoupled Component Trajectories: Sprint speed peaks at 23.5; Pitcher fastball velo peaks at 25.5 (decays $-0.35\text{ mph/yr}$ post 26); Hitter wOBA peaks at 27.5; Plate discipline peaks at 29.0.
+  - Multi-Year Bayesian Career Forecasting: Year-by-year forward projection of primary performance metrics.
+  - CLI: `mlb aging --age 28 --is-pitcher --velo 96.0`, `mlb aging --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_aging.py` passing; 555/555 full repository unit tests passing.
+
+## ADR-144: Pitch Sequencing Shannon Entropy & Predictability Index (`ENTROPY-01`, Package 56)
+
+**Decision:** Built information theory pitch sequencing entropy and predictability modeling in `mlb_baseball/model/entropy.py` and CLI subcommand `mlb entropy`.
+- **Mathematical Formulations & Methodology**:
+  - Shannon Entropy: $H(X) = -\sum_{i=1}^K p_i \log_2 p_i$. Normalized $\tilde{H} = H(X) / \log_2(K)$.
+  - Predictability Score: $(1.0 - \tilde{H}) \times 100$.
+  - Repetition Contact Penalty: Batters gain $+12\%\dots+18\%$ contact rate boost when pitchers repeat same pitch in same zone.
+  - CLI: `mlb entropy --fastball 0.60 --slider 0.30 --changeup 0.10`, `mlb entropy --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_entropy.py` passing; 555/555 full repository unit tests passing.
+
+## ADR-143: Dynamic Base Stealing & Pitcher Disengagement Physics Engine (`SB-01`, Package 55)
+
+**Decision:** Built physical timing race kinematics and pitcher disengagement tracking in `mlb_baseball/model/baserunning.py` and CLI subcommand `mlb steal`.
+- **Mathematical Formulations & Methodology**:
+  - Kinematic Race: Margin $\Delta t = (t_{\text{delivery}} + t_{\text{pop}} + t_{\text{tag}}) - (t_{\text{jump}} + \frac{90 - \text{Lead}}{v_{\text{sprint}}} + 0.25)$.
+  - Pitcher Disengagement Rule: After 2 disengagements, lead extends by $+2.0\text{ ft}$ and jump improves by $0.08\text{s}$.
+  - Logistic Success Probability: $P(\text{SB}) = \frac{1}{1 + \exp(-11.5 \cdot \Delta t)}$.
+  - 24-State Run Expectancy Breakeven: Evaluates $\Delta \text{RE} = P(\text{SB}) \cdot \text{Gain} - (1 - P(\text{SB})) \cdot \text{Loss} > 0$.
+  - CLI: `mlb steal --sprint 29.5 --pop-time 1.90 --delivery 1.30 --disengagements 2`, `mlb steal --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_baserunning.py` passing; 555/555 full repository unit tests passing.
+
 ## ADR-142: Scheduled Daily Automation Daemon & Cache Warmer (`CRON-01`, Package 54)
 
 **Decision:** Built automated scheduled daily forecasting runner and PostgreSQL buffer cache warmer in `mlb_baseball/daemon.py` and CLI subcommand `mlb daemon`.

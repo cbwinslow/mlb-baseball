@@ -666,6 +666,59 @@ def main(argv: list[str] | None = None) -> None:
     )
     parlay_parser.add_argument("--json", action="store_true", help="output parlay analysis as JSON")
 
+    # Pitch physics, repertoire & Stuff+ / Location+ rating (STUFF-01)
+    stuff_parser = subparsers.add_parser(
+        "stuff",
+        help="evaluate pitch trajectory aerodynamics and Stuff+/Location+ (STUFF-01)",
+    )
+    stuff_parser.add_argument(
+        "--velo", type=float, default=95.0, help="release velocity in mph (default: 95.0)"
+    )
+    stuff_parser.add_argument(
+        "--ivb", type=float, default=16.5, help="induced vertical break in inches (default: 16.5)"
+    )
+    stuff_parser.add_argument(
+        "--hb", type=float, default=7.0, help="horizontal break in inches (default: 7.0)"
+    )
+    stuff_parser.add_argument(
+        "--pitch-type",
+        type=str,
+        default="FF",
+        help="pitch type code FF/SL/ST/CU/CH/SI (default: FF)",
+    )
+    stuff_parser.add_argument("--json", action="store_true", help="output pitch grade as JSON")
+
+    # 2D strike zone KDE and spatial coordinates (HEATMAP-01)
+    heatmap_parser = subparsers.add_parser(
+        "heatmap",
+        help="generate 2D strike zone KDE density surfaces and spray coordinates (HEATMAP-01)",
+    )
+    heatmap_parser.add_argument(
+        "--ev", type=float, default=105.0, help="exit velocity mph for trajectory (default: 105.0)"
+    )
+    heatmap_parser.add_argument(
+        "--la", type=float, default=28.0, help="launch angle degrees (default: 28.0)"
+    )
+    heatmap_parser.add_argument(
+        "--spray", type=float, default=0.0, help="spray angle degrees (default: 0.0)"
+    )
+    heatmap_parser.add_argument("--json", action="store_true", help="output spatial data as JSON")
+
+    # Hierarchical neural combiner and entity embeddings (NEURAL-01)
+    neural_parser = subparsers.add_parser(
+        "neural",
+        help="evaluate hierarchical neural network with entity embeddings (NEURAL-01)",
+    )
+    neural_parser.add_argument(
+        "--tree-prob",
+        type=float,
+        default=0.58,
+        help="baseline tree win probability (default: 0.58)",
+    )
+    neural_parser.add_argument(
+        "--json", action="store_true", help="output neural inference as JSON"
+    )
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -1930,6 +1983,153 @@ def main(argv: list[str] | None = None) -> None:
                     )
                     print("-" * 92)
                 print("")
+
+    elif args.command == "stuff":
+        import json as json_lib
+
+        from mlb_baseball.model.stuff import (
+            PhysicalPitchRatingEngine,
+            PitchPhysicsVector,
+            PitchType,
+        )
+
+        pt_map = {
+            "FF": PitchType.FOUR_SEAM,
+            "SI": PitchType.SINKER,
+            "FC": PitchType.CUTTER,
+            "SL": PitchType.SLIDER,
+            "ST": PitchType.SWEEPER,
+            "CU": PitchType.CURVEBALL,
+            "CH": PitchType.CHANGEUP,
+            "FS": PitchType.SPLITTER,
+            "KC": PitchType.KNUCKLE_CURVE,
+        }
+        pt = pt_map.get(args.pitch_type.upper(), PitchType.FOUR_SEAM)
+        p_engine = PhysicalPitchRatingEngine()
+
+        pitch_vec = PitchPhysicsVector(
+            pitch_type=pt,
+            release_speed_mph=args.velo,
+            induced_vert_break_in=args.ivb,
+            horizontal_break_in=args.hb,
+            release_height_ft=6.0,
+            release_side_ft=-1.8,
+            release_extension_ft=6.3,
+            plate_x_ft=0.2,
+            plate_z_ft=2.8,
+        )
+
+        grade = p_engine.evaluate_pitch(pitch_vec, count=(0, 0))
+
+        if args.json:
+            stuff_out = {
+                "pitch_type": grade.pitch_type.value,
+                "velocity_mph": args.velo,
+                "ivb_inches": args.ivb,
+                "hb_inches": args.hb,
+                "stuff_plus": grade.stuff_plus,
+                "location_plus": grade.location_plus,
+                "pitching_plus": grade.pitching_plus,
+                "expected_whiff_rate": grade.expected_whiff_rate,
+                "expected_run_value_per_100": grade.expected_run_value_per_100,
+            }
+            print(json_lib.dumps(stuff_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PITCH TRAJECTORY & PHYSICAL ARSENAL RATING ({grade.pitch_type.value})")
+            print(
+                f'     Velocity: {args.velo:.1f} mph | IVB: {args.ivb:+.1f}" | HB: {args.hb:+.1f}"'
+            )
+            print(f"{'=' * 84}\n")
+            print(f"  • Stuff+       : {grade.stuff_plus:>5.1f}  (100 = Avg, >115 = Elite)")
+            print(f"  • Location+    : {grade.location_plus:>5.1f}")
+            print(f"  • Pitching+    : {grade.pitching_plus:>5.1f}  (Composite Physical + Command)")
+            print(f"  • Exp Whiff%   : {grade.expected_whiff_rate * 100:>5.1f}%")
+            print(f"  • Exp RV / 100 : {grade.expected_run_value_per_100:>+5.2f} runs\n")
+
+    elif args.command == "heatmap":
+        import json as json_lib
+
+        from mlb_baseball.model.heatmap import BattedBallBallisticsEngine
+
+        ballistics = BattedBallBallisticsEngine()
+        hit = ballistics.compute_field_coordinates(
+            hit_id="cli_hit",
+            exit_velocity_mph=args.ev,
+            launch_angle_deg=args.la,
+            spray_angle_deg=args.spray,
+        )
+
+        if args.json:
+            heat_out = {
+                "exit_velocity_mph": hit.exit_velocity_mph,
+                "launch_angle_deg": hit.launch_angle_deg,
+                "spray_angle_deg": hit.spray_angle_deg,
+                "distance_feet": hit.distance_feet,
+                "field_x_ft": hit.field_x_ft,
+                "field_y_ft": hit.field_y_ft,
+                "is_barrel": hit.is_barrel,
+                "is_hard_hit": hit.is_hard_hit,
+            }
+            print(json_lib.dumps(heat_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print("     BATTED BALL BALLISTIC SPATIAL TRAJECTORY")
+            print(f"     EV: {args.ev:.1f} mph | LA: {args.la:+.1f}° | Spray: {args.spray:+.1f}°")
+            print(f"{'=' * 84}\n")
+            print(f"  • Projected Distance : {hit.distance_feet:>5.1f} ft")
+            print(
+                f"  • Landing Field (X,Y): ({hit.field_x_ft:>+5.1f} ft, {hit.field_y_ft:>5.1f} ft)"
+            )
+            print(f"  • Statcast Barrel    : [{'YES' if hit.is_barrel else 'NO'}]")
+            print(f"  • Hard Hit (>=95mph) : [{'YES' if hit.is_hard_hit else 'NO'}]\n")
+
+    elif args.command == "neural":
+        import json as json_lib
+
+        import numpy as np
+
+        from mlb_baseball.model.neural import (
+            HierarchicalTreeResidualCombiner,
+            NeuralEntityIndices,
+        )
+
+        combiner = HierarchicalTreeResidualCombiner(
+            continuous_dim=5,
+            pitcher_vocab_size=100,
+            team_vocab_size=32,
+            venue_vocab_size=30,
+            embedding_dim=8,
+        )
+
+        cont = np.array([[0.2, -0.4, 0.8, 0.1, -0.3]])
+        entities = [NeuralEntityIndices(15, 25, 5, 12, 8)]
+        n_res = combiner.forward(cont, entities, [args.tree_prob], game_keys=["sample_game"])[0]
+
+        if args.json:
+            neural_out = {
+                "game_key": n_res.game_key,
+                "tree_prior_prob": n_res.tree_prior_prob,
+                "neural_residual_delta": n_res.neural_residual_delta,
+                "composite_win_prob": n_res.composite_win_prob,
+                "embedding_norms": n_res.embedding_norms,
+            }
+            print(json_lib.dumps(neural_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print("     HIERARCHICAL NEURAL + TREE RESIDUAL COMBINER")
+            print(
+                f"     Tree Baseline: {n_res.tree_prior_prob * 100:.1f}% | "
+                f"Neural Delta: {n_res.neural_residual_delta:+.3f}"
+            )
+            print(f"{'=' * 84}\n")
+            print(f"  • Tree Prior Prob    : {n_res.tree_prior_prob * 100:>5.1f}%")
+            print(f"  • Neural Residual (Δ): {n_res.neural_residual_delta:>+5.3f} log-odds")
+            print(f"  • Composite Win Prob : {n_res.composite_win_prob * 100:>5.1f}%")
+            hnorm = n_res.embedding_norms.get("home_starter_norm", 0.0)
+            anorm = n_res.embedding_norms.get("away_starter_norm", 0.0)
+            print(f"  • Starter Norm (H)   : {hnorm:.2f}")
+            print(f"  • Starter Norm (A)   : {anorm:.2f}\n")
 
     elif args.command == "daily":
         import json as json_lib

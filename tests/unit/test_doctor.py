@@ -111,3 +111,30 @@ def test_parlay_health_check():
     p_checks = parlay.health_check()
     assert len(p_checks) == 1
     assert p_checks[0].ok is True
+
+
+def test_stuff_health_check():
+    """Verify pitch physics rating engine health check returns clean pass."""
+    from mlb_baseball.model import stuff
+
+    s_checks = stuff.health_check()
+    assert len(s_checks) == 1
+    assert s_checks[0].ok is True
+
+
+def test_heatmap_health_check():
+    """Verify spatial heatmap engine health check returns clean pass."""
+    from mlb_baseball.model import heatmap
+
+    h_checks = heatmap.health_check()
+    assert len(h_checks) == 1
+    assert h_checks[0].ok is True
+
+
+def test_neural_health_check():
+    """Verify hierarchical neural combiner health check returns clean pass."""
+    from mlb_baseball.model import neural
+
+    n_checks = neural.health_check()
+    assert len(n_checks) == 1
+    assert n_checks[0].ok is True

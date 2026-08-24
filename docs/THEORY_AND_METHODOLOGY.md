@@ -40,7 +40,10 @@ This document serves as the academic and theoretical reference manual for the ML
 13. [Bayesian Constrained Stacking & Convex Simplex Optimization](#13-bayesian-constrained-stacking--convex-simplex-optimization)
 14. [Continuous Model Drift, Reliability Diagnostics & Platt Slope Tracking](#14-continuous-model-drift-reliability-diagnostics--platt-slope-tracking)
 15. [Correlated Same-Game Parlays (SGPs) & Multivariate Copulas](#15-correlated-same-game-parlays-sgps--multivariate-copulas)
-16. [Academic Bibliography & Literature Citations](#16-academic-bibliography--literature-citations)
+17. [Pitch Physics, Trajectory Aerodynamics & Stuff+/Location+ Models](#17-pitch-physics-trajectory-aerodynamics--stufflocation-models)
+18. [2D Strike Zone Kernel Density Estimation & Ballistic Spray Kinematics](#18-2d-strike-zone-kernel-density-estimation--ballistic-spray-kinematics)
+19. [Hierarchical Neural Embeddings & Tree-Residual Combiners](#19-hierarchical-neural-embeddings--tree-residual-combiners)
+20. [Academic Bibliography & Literature Citations](#20-academic-bibliography--literature-citations)
 
 ---
 
@@ -199,7 +202,8 @@ Any point in an MLB game is defined by state tuple $S = (i, t, o, b_1, b_2, b_3,
 
 ### 10.2 Dynamic Win Expectancy Formulation
 Win Expectancy $WE(S)$ evaluates the probability that the home team wins the game from state $S$:
-$$WE(S) = \sigma\left( lpha \cdot rac{\Delta R + \Delta RE_{24}(o, b)}{\sqrt{\max(1, 9.5 - i + 0.5 \cdot \mathbb{I}(t = 	ext{Top}))}} + eta_{	ext{HFA}} ight)$$
+$$WE(S) = \sigma\left( lpha \cdot rac{\Delta R + \Delta RE_{24}(o, b)}{\sqrt{\max(1, 9.5 - i + 0.5 \cdot \mathbb{I}(t = 	ext{Top}))}} + eta_{	ext{HFA}}
+ight)$$
 where $\Delta RE_{24}$ is the net expected run differential remaining in the half-inning, and $eta_{	ext{HFA}} = +0.1405$.
 
 ### 10.3 Win Probability Added (WPA) & Leverage Index (LI)
@@ -227,11 +231,14 @@ Single position allocations are strictly capped at $2.5\%$ of bankroll, with tot
 
 ### 12.1 Empirical Bayes In-Season Talent Shrinkage
 To project remaining games without lookahead bias, team true talent win percentage $w_{	ext{proj}}$ is computed by regressing observed in-season Pythagorean win percentage $w_{	ext{obs}}$ toward league baseline ($0.500$):
-$$w_{	ext{proj}} = \left(rac{N}{N + 60}ight) w_{	ext{obs}} + \left(rac{60}{N + 60}ight) 0.500$$
+$$w_{	ext{proj}} = \left(rac{N}{N + 60}
+ight) w_{	ext{obs}} + \left(rac{60}{N + 60}
+ight) 0.500$$
 where $N = W + L$ is completed games played entering the forecast date.
 
 ### 12.2 Division Clinch Magic Number Formulation
-$$	ext{Magic Number} = \max\left(0, 163 - W_{	ext{leader}} - L_{	ext{trailer}}ight)$$
+$$	ext{Magic Number} = \max\left(0, 163 - W_{	ext{leader}} - L_{	ext{trailer}}
+ight)$$
 A Magic Number of 0 indicates mathematical division championship clinching.
 
 ---
@@ -240,14 +247,17 @@ A Magic Number of 0 indicates mathematical division championship clinching.
 
 ### 13.1 Simplex Optimization Formulation
 Given $K$ base models with out-of-fold predictions $P_{i,k}$ and binary outcomes $y_i \in \{0, 1\}$:
-$$\min_{\mathbf{w} \in \Delta^{K-1}} rac{1}{N} \sum_{i=1}^N \left( y_i - \sum_{k=1}^K w_k P_{i,k} ight)^2 + \lambda \sum_{k=1}^K \left(w_k - rac{1}{K}ight)^2$$
+$$\min_{\mathbf{w} \in \Delta^{K-1}} rac{1}{N} \sum_{i=1}^N \left( y_i - \sum_{k=1}^K w_k P_{i,k}
+ight)^2 + \lambda \sum_{k=1}^K \left(w_k - rac{1}{K}
+ight)^2$$
 subject to:
 $$w_k \ge 0 \quad orall k, \quad \sum_{k=1}^K w_k = 1.0$$
 
 ### 13.2 Projected Gradient Descent on the Simplex
 Weights are iteratively updated via gradient step and projected onto the probability simplex:
 $$\mathbf{w}^{(t+1)} = \Pi_{\Delta}\left(\mathbf{w}^{(t)} - \eta
-abla \mathcal{L}(\mathbf{w}^{(t)})ight)$$
+abla \mathcal{L}(\mathbf{w}^{(t)})
+ight)$$
 Guarantees zero model leverage ($w_k \ge 0$) and strict calibration retention.
 
 ---
@@ -256,7 +266,8 @@ Guarantees zero model leverage ($w_k \ge 0$) and strict calibration retention.
 
 ### 14.1 Chronological Rolling Window Diagnostics
 Sliding $W$-game windows (step size $S$) evaluate rolling Expected Calibration Error (ECE) and Brier Skill Score (BSS):
-$$	ext{ECE} = \sum_{m=1}^M rac{|B_m|}{N} \left| \overline{y}_{B_m} - \overline{p}_{B_m} ight|$$
+$$	ext{ECE} = \sum_{m=1}^M rac{|B_m|}{N} \left| \overline{y}_{B_m} - \overline{p}_{B_m}
+ight|$$
 
 ### 14.2 Platt Confidence Slope ($lpha$) & Intercept ($eta$)
 Logistic calibration regression $P_{	ext{cal}} = \sigma(lpha \cdot 	ext{logit}(P) + eta)$ identifies:
@@ -270,19 +281,64 @@ Logistic calibration regression $P_{	ext{cal}} = \sigma(lpha \cdot 	ext{logit}(
 
 ### 15.1 Multivariate Gaussian Copula Formulation
 Captures non-linear dependencies across simultaneous game propositions:
-$$\mathcal{C}_R(u_1, u_2, \dots, u_D) = \Phi_R\left( \Phi^{-1}(u_1), \Phi^{-1}(u_2), \dots, \Phi^{-1}(u_D) ight)$$
+$$\mathcal{C}_R(u_1, u_2, \dots, u_D) = \Phi_R\left( \Phi^{-1}(u_1), \Phi^{-1}(u_2), \dots, \Phi^{-1}(u_D)
+ight)$$
 where $R$ is the empirical inter-event correlation matrix (e.g., Pitcher Dominance suppresses Opponent Runs with $r = -0.40$ and elevates Starter Ks with $r = +0.60$).
 
 ### 15.2 Joint Simulation Probability & Correlation Multiplier
-$$\hat{P}_{	ext{joint}} = rac{1}{N} \sum_{i=1}^N \prod_{m=1}^M \mathbb{I}\left(	ext{Leg } m 	ext{ hits on path } iight)$$
-$$ho_{	ext{mult}} = rac{\hat{P}_{	ext{joint}}}{\prod_{m=1}^M P(	ext{Leg } m)}$$
-- $ho_{	ext{mult}} > 1.0$: Positive synergy parlay (underpriced by naive independent pricing).
+$$\hat{P}_{	ext{joint}} = rac{1}{N} \sum_{i=1}^N \prod_{m=1}^M \mathbb{I}\left(	ext{Leg } m 	ext{ hits on path } i
+ight)$$
+$$
+ho_{	ext{mult}} = rac{\hat{P}_{	ext{joint}}}{\prod_{m=1}^M P(	ext{Leg } m)}$$
+- $
+ho_{	ext{mult}} > 1.0$: Positive synergy parlay (underpriced by naive independent pricing).
 - True Zero-Vig Fair Odds: $O_{	ext{fair}} = rac{1}{\hat{P}_{	ext{joint}}}$.
-- Expected Value: $	ext{EV} = \left(\hat{P}_{	ext{joint}} \cdot O_{	ext{offered}}ight) - 1.0$.
+- Expected Value: $	ext{EV} = \left(\hat{P}_{	ext{joint}} \cdot O_{	ext{offered}}
+ight) - 1.0$.
 
 ---
 
-## 16. Academic Bibliography & Literature Citations
+## 17. Pitch Physics, Trajectory Aerodynamics & Stuff+/Location+ Models
+
+### 17.1 Physical Stuff+ Formulation
+Isolates intrinsic physical pitch quality from defensive context and batter quality:
+$$	ext{Stuff+} = 100 + 15 \cdot \left( w_v \cdot z_{	ext{velo}} + w_m \cdot z_{	ext{movement}} + w_e \cdot z_{	ext{extension}} ight)$$
+where $z_{	ext{velo}} = (v - \mu_v) / \sigma_v$, $z_{	ext{movement}}$ measures IVB / sweep relative to pitch-type baselines, and $100$ represents MLB average.
+
+### 17.2 Location+ Command Formulation
+Evaluates plate crossing coordinates $(p_x, p_z)$ relative to count-specific strategic objectives (e.g., shadow chase execution on 2-strikes vs zone competitiveness when behind).
+
+### 17.3 Pitching+ Composite
+$$	ext{Pitching+} = 0.60 \cdot 	ext{Stuff+} + 0.40 \cdot 	ext{Location+}$$
+
+---
+
+## 18. 2D Strike Zone Kernel Density Estimation & Ballistic Spray Kinematics
+
+### 18.1 Bivariate Gaussian KDE Surface
+$$\hat{f}(x, z) = rac{1}{2\pi N h_x h_z} \sum_{i=1}^N \exp\left( -rac{1}{2}\left[ \left(rac{x - x_i}{h_x}ight)^2 + \left(rac{z - z_i}{h_z}ight)^2 ight] ight)$$
+with bandwidths $h_x, h_z$ computed via Silverman's adaptive rule ($h = 1.06 \sigma N^{-1/5}$).
+
+### 18.2 Ballistic Spray Kinematics
+Translates exit velocity ($v_0$), launch angle ($	heta$), spray angle ($\phi$), and Air Density Index ($ADI$) into diamond coordinates:
+$$d = \left(rac{v_0^2 \sin(2	heta)}{g}ight) \cdot \eta_{	ext{aero}}(ADI, 	heta)$$
+$$(x_{	ext{field}}, y_{	ext{field}}) = (d \sin \phi, d \cos \phi)$$
+
+---
+
+## 19. Hierarchical Neural Embeddings & Tree-Residual Combiners
+
+### 19.1 Low-Dimensional Categorical Embeddings
+Entities are mapped to dense latent vectors: $\mathbf{e}_p \in \mathbb{R}^{d_p}, \mathbf{e}_t \in \mathbb{R}^{d_t}, \mathbf{e}_v \in \mathbb{R}^{d_v}$.
+
+### 19.2 Staged Boosting Residual Fusion
+Combines baseline tree logit predictions with neural non-linear interaction residuals:
+$$P_{	ext{composite}} = \sigma\left( 	ext{logit}(P_{	ext{tree}}) + 	ext{MLP}(\mathbf{x}_{	ext{cont}}, \mathbf{e}_{p,H}, \mathbf{e}_{p,A}, \mathbf{e}_{t,H}, \mathbf{e}_{t,A}) ight)$$
+Bounded residual log-odds $\Delta \in [-1.5, +1.5]$ ensure numerical stability and preserve base tree calibration.
+
+---
+
+## 20. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -299,3 +355,6 @@ $$ho_{	ext{mult}} = rac{\hat{P}_{	ext{joint}}}{\prod_{m=1}^M P(	ext{Leg } m)}$
 13. **Nelsen, Roger B.** (2006). *An Introduction to Copulas*. Springer Science & Business Media. (Multivariate copulas and dependency modeling in wagering).
 14. **Breiman, Leo** (1996). "Stacked Regressions". *Machine Learning*, 24(1), 49–64. (Convex non-negative ensemble meta-learning).
 15. **Efron, Bradley; Morris, Carl** (1975). "Data Analysis Using Stein's Estimator and Its Generalizations". *Journal of the American Statistical Association*. (Empirical Bayes shrinkage).
+16. **Fast, Mike** (2011). "Spin and Pitch Movement in PITCHf/x". *Baseball Prospectus*.
+17. **Silverman, B. W.** (1986). *Density Estimation for Statistics and Data Analysis*. Chapman and Hall.
+18. **Guo, Cheng; Berkhahn, Felix** (2016). "Entity Embeddings of Categorical Variables". *arXiv:1604.06737*.

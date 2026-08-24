@@ -33,10 +33,26 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### NEURAL-01 hierarchical neural sequence & tree-residual combiner: implemented (ADR-128) — 2026-08-24
+Added `mlb_baseball/model/neural.py`, unit tests in `tests/unit/test_neural.py`, and `mlb neural` CLI command.
+- Low-dimensional categorical entity embeddings for Pitchers, Teams, and Venues combined with tree priors: $P = \sigma(	ext{logit}(P_{\text{tree}}) + \Delta_{\text{MLP}})$.
+- High-performance vectorized tensor execution with zero external runtime crash risk.
+
+### HEATMAP-01 2D strike zone KDE & spatial spray coordinate engine: implemented (ADR-127) — 2026-08-24
+Added `mlb_baseball/model/heatmap.py`, unit tests in `tests/unit/test_heatmap.py`, and `mlb heatmap` CLI command.
+- Bivariate Gaussian Kernel Density Estimation over plate $(x, z)$ coordinates with Silverman's adaptive bandwidth rule.
+- Statcast 4-region attack zone partitioning (Heart, Shadow, Chase, Waste) and ballistic diamond field landing kinematics.
+
+### STUFF-01 pitch physics & Stuff+/Location+/Pitching+ rating engine: implemented (ADR-126) — 2026-08-24
+Added `mlb_baseball/model/stuff.py`, unit tests in `tests/unit/test_stuff.py`, and `mlb stuff` CLI command.
+- Aerodynamic trajectory physics modeling velocity delta ($\Delta v$), Induced Vertical Break (IVB), horizontal break, release extension, and approach angles.
+- 100-indexed Stuff+, Location+, and composite Pitching+ scores with usage-weighted repertoire aggregation.
+
 ### PARLAY-01 correlated same-game parlay copula engine & joint simulation: implemented (ADR-125) — 2026-08-24
 Added `mlb_baseball/model/parlay.py`, unit tests in `tests/unit/test_parlay.py`, and `mlb parlay` CLI command.
 - Evaluates multi-level correlations across moneylines, totals, team totals, and pitcher strikeout props via multivariate Gaussian copula Monte Carlo simulation.
-- Quantifies joint probability $\hat{P}_{\text{joint}}$, independent probability $\prod P(L_m)$, and correlation multiplier $ho_{\text{mult}} = \hat{P}_{\text{joint}} / \prod P(L_m)$.
+- Quantifies joint probability $\hat{P}_{\text{joint}}$, independent probability $\prod P(L_m)$, and correlation multiplier $
+ho_{\text{mult}} = \hat{P}_{\text{joint}} / \prod P(L_m)$.
 - Identifies +EV parlay structures where sportsbooks underprice positive correlation synergies.
 
 ### DRIFT-01 continuous model drift & calibration tracking monitor: implemented (ADR-124) — 2026-08-24

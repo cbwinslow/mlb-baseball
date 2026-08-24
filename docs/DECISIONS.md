@@ -2,6 +2,38 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-128: Hierarchical Neural Sequence & Tree-Residual Embedding Combiner (`NEURAL-01`, Package 40)
+
+**Decision:** Built hierarchical neural network combiner in `mlb_baseball/model/neural.py` and CLI subcommand `mlb neural` incorporating low-dimensional categorical entity embeddings (Pitchers, Teams, Venues) with tree gradient residuals.
+- **Architectural & Mathematical Methodology**:
+  - Entity Embedding Layers: Dense $D$-dimensional learned representations for Pitchers, Teams, and Stadiums ($\mathbf{e}_p, \mathbf{e}_t, \mathbf{e}_v$).
+  - Staged Boosting + Neural Residual Stacking: Combines tree baseline win probability prior with neural interaction residuals:
+    $$P_{\text{composite}} = \sigma\left(\text{logit}(P_{\text{tree}}) + \text{MLP}(\mathbf{x}_{\text{cont}}, \mathbf{e}_{p,H}, \mathbf{e}_{p,A}, \mathbf{e}_{t,H}, \mathbf{e}_{t,A})\right)$$
+  - High-Performance Vectorization: Pure NumPy/SciPy tensor execution ensuring zero runtime crash risk.
+  - CLI: `mlb neural --tree-prob 0.58`, `mlb neural --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_neural.py` passing; 496/496 full repository unit tests passing.
+
+## ADR-127: 2D Strike Zone Kernel Density Estimation & Spatial Spray Coordinate Engine (`HEATMAP-01`, Package 39)
+
+**Decision:** Built 2D spatial probability density engine and ballistic spray coordinate simulator in `mlb_baseball/model/heatmap.py` and CLI subcommand `mlb heatmap` for visual analytics, heatmaps, and spray charts.
+- **Mathematical Formulations & Methodology**:
+  - Bivariate Gaussian KDE: Computes 2D probability density surfaces $\hat{f}(x, z)$ over plate coordinates using Silverman's adaptive bandwidth rule.
+  - Statcast Attack Zone Partitioning: Exact area categorization across Heart, Shadow, Chase, and Waste regions.
+  - Ballistic Batted Ball Physics: Translates Exit Velocity, Launch Angle, Spray Angle, and Air Density Index into exact field landing coordinates $(x, y)$ with Magnus lift modeling.
+  - CLI: `mlb heatmap --ev 105.0 --la 28.0 --spray 0.0`, `mlb heatmap --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_heatmap.py` passing; 496/496 full repository unit tests passing.
+
+## ADR-126: Pitch Physics, Physical Repertoire & Stuff+/Location+/Pitching+ Rating Engine (`STUFF-01`, Package 38)
+
+**Decision:** Built physics-based pitch trajectory and arsenal evaluation engine in `mlb_baseball/model/stuff.py` and CLI subcommand `mlb stuff` to evaluate raw pitch aerodynamics and command quality.
+- **Mathematical Formulations & Methodology**:
+  - Stuff+ Physical Quality: Evaluates velocity delta ($\Delta v$), Induced Vertical Break ($\text{IVB}$), and horizontal sweep/drop normalized against pitch-type baselines and release extension ($100$ = MLB Average).
+  - Location+ Command Quality: Evaluates Euclidean distance from optimal count-dependent attack zone targets (edge execution on 2-strikes vs zone competitiveness when behind).
+  - Pitching+ Composite: Synthesizes physical stuff ($60\%$) and command execution ($40\%$).
+  - Pitcher Arsenal Aggregation: Computes usage-weighted composite ratings across all pitch types.
+  - CLI: `mlb stuff --velo 95.0 --ivb 16.5 --hb 7.0 --pitch-type FF`, `mlb stuff --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_stuff.py` passing; 496/496 full repository unit tests passing.
+
 ## ADR-125: Correlated Same-Game Parlay (SGP) Engine & Copula Simulation (`PARLAY-01`, Package 37)
 
 **Decision:** Built correlated Same-Game Parlay (SGP) engine and multivariate Gaussian Copula Monte Carlo simulator in `mlb_baseball/model/parlay.py` and CLI subcommand `mlb parlay` to evaluate inter-event dependencies, true joint probabilities, and mispriced +EV parlays.

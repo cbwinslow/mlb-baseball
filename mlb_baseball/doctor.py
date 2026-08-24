@@ -248,6 +248,8 @@ def run() -> list[Check]:
         backtest,
         calibration,
         drift,
+        heatmap,
+        neural,
         parlay,
         portfolio,
         props,
@@ -255,6 +257,7 @@ def run() -> list[Check]:
         season,
         simulate,
         stack,
+        stuff,
         wpa,
     )
 
@@ -320,6 +323,18 @@ def run() -> list[Check]:
         checks.extend(parlay.health_check())
     except Exception as exc:
         checks.append(Check("parlay", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(stuff.health_check())
+    except Exception as exc:
+        checks.append(Check("stuff", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(heatmap.health_check())
+    except Exception as exc:
+        checks.append(Check("heatmap", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(neural.health_check())
+    except Exception as exc:
+        checks.append(Check("neural", False, f"health_check() raised: {exc}"))
 
     # backup.py has no bootstrap()/update() either -- it's an operational
     # tool, not a data source, but a missing pg_dump/psql should still show

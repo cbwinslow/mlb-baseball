@@ -285,6 +285,7 @@ def run() -> list[Check]:
         extension,
         fatigue,
         fstrike,
+        gyro_spin,
         haa,
         heatmap,
         hedge,
@@ -293,6 +294,7 @@ def run() -> list[Check]:
         neural,
         nrfi,
         parlay,
+        pivot_dp,
         poptime,
         portfolio,
         props,
@@ -315,6 +317,7 @@ def run() -> list[Check]:
         travel,
         tto,
         tunnel,
+        two_strike,
         umpire,
         vaa,
         velo_drift,
@@ -439,6 +442,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(gyro_spin.health_check())
+    except Exception as exc:
+        checks.append(Check("gyro_spin", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(two_strike.health_check())
+    except Exception as exc:
+        checks.append(Check("two_strike", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(pivot_dp.health_check())
+    except Exception as exc:
+        checks.append(Check("pivot_dp", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(contact_depth.health_check())
     except Exception as exc:

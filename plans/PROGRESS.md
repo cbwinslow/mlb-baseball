@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### SPIN-CLOCK-01 pure-Python SVG 12-hour pitch arsenal spin axis clock visualizer: implemented (ADR-198) — 2026-08-24
+Added `SpinAxisClockVisualizerRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb spin-clock` CLI command.
+- Renders 12-hour analog clock dial vector SVG with pitch release tilt vectors and efficiency-scaled rays.
+
+### PIVOT-DP-01 infield double play pivot kinematics & turn efficiency: implemented (ADR-197) — 2026-08-24
+Added `mlb_baseball/model/pivot_dp.py`, unit tests in `tests/unit/test_pivot_dp.py`, and `mlb pivot-dp` CLI command.
+- Models second base pivot turn duration ($t_{\text{turn}}$), relay velocity, DPTI index, and DPTS runs saved.
+
+### TWO-STRIKE-01 batter two-strike approach shortening & choke-up contact: implemented (ADR-196) — 2026-08-24
+Added `mlb_baseball/model/two_strike.py`, unit tests in `tests/unit/test_two_strike.py`, and `mlb two-strike` CLI command.
+- Evaluates two-strike swing shortening ($\Delta L$), whiff suppression ($\Delta \text{Whiff}$), and TSBE index.
+
+### GYRO-SPIN-01 pitcher gyro degree & true spin axis 3D aerodynamics: implemented (ADR-195) — 2026-08-24
+Added `mlb_baseball/model/gyro_spin.py`, unit tests in `tests/unit/test_gyro_spin.py`, and `mlb gyro-spin` CLI command.
+- Evaluates 3D spin vector, gyro angle ($\theta_{\text{gyro}}$), active transverse spin, and bullet slider classification.
+
 ### ZONE-SURFACE-01 pure-Python SVG 5x5 strike zone iso-contour heat surface visualizer: implemented (ADR-194) — 2026-08-24
 Added `ZoneSurfaceContourRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb zone-surface` CLI command.
 - Renders 5x5 bilinear gradient heat surfaces of batter slugging, whiff rate, or contact quality across the strike zone.

@@ -104,7 +104,11 @@ This document serves as the academic and theoretical reference manual for the ML
 78. [Pitcher Arm Slot Angle & Release Point Dispersion](#78-pitcher-arm-slot-angle--release-point-dispersion)
 79. [Catcher Block-to-Throw & Secondary Pop Kinematics](#79-catcher-block-to-throw--secondary-pop-kinematics)
 80. [Pure-Python SVG Strike Zone 5x5 Iso-Contour Heat Surface Architecture](#80-pure-python-svg-strike-zone-5x5-iso-contour-heat-surface-architecture)
-81. [Academic Bibliography & Literature Citations](#81-academic-bibliography--literature-citations)
+81. [Pitcher Gyro Degree & True Spin Axis 3D Aerodynamics](#81-pitcher-gyro-degree--true-spin-axis-3d-aerodynamics)
+82. [Batter Two-Strike Approach Shortening & Choke-Up Kinematics](#82-batter-two-strike-approach-shortening--choke-up-kinematics)
+83. [Infield Double Play Pivot Kinematics & Turn Time Mechanics](#83-infield-double-play-pivot-kinematics--turn-time-mechanics)
+84. [Pure-Python SVG Pitch Arsenal 12-Hour Spin Clock Visualizer Architecture](#84-pure-python-svg-pitch-arsenal-12-hour-spin-clock-visualizer-architecture)
+85. [Academic Bibliography & Literature Citations](#85-academic-bibliography--literature-citations)
 
 ---
 
@@ -930,7 +934,39 @@ $$(x_j, y_i) = \left(M_x + j \cdot \frac{W_{\text{grid}}}{5}, M_y + i \cdot \fra
 
 ---
 
-## 81. Academic Bibliography & Literature Citations
+## 81. Pitcher Gyro Degree & True Spin Axis 3D Aerodynamics
+
+### 81.1 Gyro Degree & Active Spin Decomposition
+$$\theta_{\text{gyro}} = \arccos\left(\frac{\text{Spin Efficiency}}{100.0}\right) \times \left(\frac{180^\circ}{\pi}\right)$$
+$$\text{Active Spin} = \text{Total Spin} \times \left(\frac{\text{Spin Efficiency}}{100.0}\right), \quad \text{Gyro Spin} = \text{Total Spin} \times \sin(\theta_{\text{gyro}})$$
+
+---
+
+## 82. Batter Two-Strike Approach Shortening & Choke-Up Kinematics
+
+### 82.1 Two-Strike Battle Efficiency (TSBE)
+$$\Delta L = L_{\text{early}} - L_{\text{two-strike}}, \quad \Delta \text{Whiff} = \text{Whiff}_{\text{early}} - \text{Whiff}_{\text{two-strike}}$$
+$$\text{TSBE} = \max\left(0, 100 + \Delta \text{Whiff} \cdot 2.5 + \Delta L \cdot 18.0 - (\text{K\%} - 40.0) \cdot 1.5\right)$$
+
+---
+
+## 83. Infield Double Play Pivot Kinematics & Turn Time Mechanics
+
+### 83.1 Double Play Turn Surplus Value (DPTS)
+$$\text{DPTI} = \max\left(0, 100 + \left(\frac{0.78 - t_{\text{turn}}}{0.10}\right) \cdot 18 + \left(\frac{v_{\text{relay}} - 82.0}{5.0}\right) \cdot 8\right)$$
+$$\text{DPTS}_{\text{runs}} = (N_{\text{Turned}} - N_{\text{Opps}} \cdot 0.68) \cdot 0.48 - N_{\text{Wild Throws}} \cdot 0.38$$
+
+---
+
+## 84. Pure-Python SVG Pitch Arsenal 12-Hour Spin Clock Visualizer Architecture
+
+### 84.1 Analog Dial Radial Pitch Vectors
+$$\theta_{\text{clock}} = \left(\text{Hours} + \frac{\text{Minutes}}{60}\right) \times 30^\circ - 90^\circ$$
+$$L_{\text{vector}} = 30\text{px} + \text{Efficiency}_{\text{frac}} \cdot 105\text{px}$$
+
+---
+
+## 85. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -982,3 +1018,5 @@ $$(x_j, y_i) = \left(M_x + j \cdot \frac{W_{\text{grid}}}{5}, M_y + i \cdot \fra
 48. **Petriello, Mike** (2017). "Introduction to Statcast Catch Probability". *MLB.com / Statcast*.
 49. **Carleton, Russell A.** (2015). "The Anatomy of Catcher Blocking and Throwing". *Baseball Prospectus*.
 50. **Aucoin, Dan** (2020). "Classifying Pitcher Arm Slots Using Biomechanical Landmarks". *Driveline Baseball Research*.
+51. **Nathan, Alan M.** (2018). "Determining the 3D Spin Axis and Gyro Angle of a Baseball". *The Physics of Baseball*.
+52. **Slowinski, Steve** (2014). "The Value of Turning the Double Play". *FanGraphs Sabermetric Library*.

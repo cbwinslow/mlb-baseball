@@ -300,3 +300,12 @@ def test_contact_depth_and_arm_slot_and_catcher_pop_health_checks():
     assert contact_depth.health_check()[0].ok is True
     assert arm_slot.health_check()[0].ok is True
     assert catcher_pop.health_check()[0].ok is True
+
+
+def test_gyro_spin_and_two_strike_and_pivot_dp_health_checks():
+    """Verify health checks for gyro_spin, two_strike, and pivot_dp modules."""
+    from mlb_baseball.model import gyro_spin, pivot_dp, two_strike
+
+    assert gyro_spin.health_check()[0].ok is True
+    assert two_strike.health_check()[0].ok is True
+    assert pivot_dp.health_check()[0].ok is True

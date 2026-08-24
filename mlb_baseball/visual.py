@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import math
 from collections.abc import Sequence
 from typing import Any, Protocol
 
@@ -28,6 +29,7 @@ class ChartType(enum.Enum):
     WIN_PROBABILITY_REPLAY = "win_probability_replay"
     PITCH_TRAJECTORY_3D = "pitch_trajectory_3d"
     ZONE_SURFACE_CONTOUR = "zone_surface_contour"
+    SPIN_AXIS_CLOCK = "spin_axis_clock"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1429,6 +1431,116 @@ class ZoneSurfaceContourRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class PitchSpinClockSpec:
+    """Pitch spin axis tilt and efficiency parameters for clock dial representation."""
+
+    pitch_type: str  # "FF", "SL", "CH", "SI", "CU"
+    pitch_name: str
+    tilt_hours: int  # 1 to 12
+    tilt_minutes: int  # 0 to 59
+    spin_efficiency_pct: float  # 0.0 to 100.0%
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitcherSpinClockArsenalProfile:
+    """Complete arsenal spin axis profile for 12-hour clock visualizer."""
+
+    title: str
+    pitcher_name: str
+    pitches: list[PitchSpinClockSpec]
+
+
+class SpinAxisClockVisualizerRenderer:
+    """Renders pure-Python vector SVG 12-hour pitch spin axis clock dials (SPIN-CLOCK-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitcherSpinClockArsenalProfile) -> GeneratedVectorChart:
+        """Render analog clock dial with pitch tilt vectors into vector SVG."""
+        cx = self.width / 2.0
+        cy = self.height / 2.0 + 15.0
+        r_dial = 160.0
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="28" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="45" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} Spin Tilt Vectors</text>',
+            # Clock Dial Outlines
+            f'<circle cx="{cx}" cy="{cy}" r="{r_dial}" fill="#0f172a" '
+            f'stroke="#334155" stroke-width="2.0" />',
+            f'<circle cx="{cx}" cy="{cy}" r="{r_dial * 0.5}" fill="none" '
+            f'stroke="#1e293b" stroke-width="1.0" '
+            f'stroke-dasharray="3,3" />',
+        ]
+
+        # 12-Hour Numerals & Tick Marks
+        for hr in range(1, 13):
+            # 12 is top (270° or -90°), each hour is 30°
+            angle_deg = hr * 30.0 - 90.0
+            rad = math.radians(angle_deg)
+            tx = cx + (r_dial - 18.0) * math.cos(rad)
+            ty = cy + (r_dial - 18.0) * math.sin(rad) + 4.0
+            svg_parts.append(
+                f'<text x="{tx:.1f}" y="{ty:.1f}" fill="#64748b" font-size="11" font-weight="bold" '
+                f'text-anchor="middle" font-family="sans-serif">{hr}</text>'
+            )
+
+        # Center Pivot Dot
+        svg_parts.append(f'<circle cx="{cx}" cy="{cy}" r="4.5" fill="#f8fafc" />')
+
+        # Pitch Spin Tilt Vectors
+        for p in profile.pitches:
+            # Calculate total angle in degrees
+            tot_hrs = (p.tilt_hours % 12) + (p.tilt_minutes / 60.0)
+            angle_deg = tot_hrs * 30.0 - 90.0
+            rad = math.radians(angle_deg)
+
+            # Vector length scaled by spin efficiency
+            eff_frac = max(0.15, min(1.0, p.spin_efficiency_pct / 100.0))
+            v_len = 30.0 + eff_frac * 105.0
+
+            vx = cx + v_len * math.cos(rad)
+            vy = cy + v_len * math.sin(rad)
+
+            # Draw vector ray
+            svg_parts.append(
+                f'<line x1="{cx}" y1="{cy}" x2="{vx:.1f}" y2="{vy:.1f}" stroke="{p.color_hex}" '
+                f'stroke-width="3.0" stroke-linecap="round" />'
+            )
+            # Arrowhead / tip circle
+            svg_parts.append(
+                f'<circle cx="{vx:.1f}" cy="{vy:.1f}" r="5.0" '
+                f'fill="{p.color_hex}" stroke="#ffffff" '
+                f'stroke-width="1.2" />'
+            )
+
+            # Pitch Tag
+            lx = cx + (v_len + 16.0) * math.cos(rad)
+            ly = cy + (v_len + 16.0) * math.sin(rad) + 3.5
+            svg_parts.append(
+                f'<text x="{lx:.1f}" y="{ly:.1f}" fill="{p.color_hex}" '
+                f'font-size="10" font-weight="bold" '
+                f'text-anchor="middle" font-family="sans-serif">{p.pitch_type}</text>'
+            )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.SPIN_AXIS_CLOCK,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -1514,6 +1626,15 @@ def health_check() -> list[Check]:
         zs_cells = [ZoneGridValue(r, c, (r + c) / 8.0) for r in range(5) for c in range(5)]
         zs_chart = zs_renderer.render(ZoneSurfaceContourProfile("Surface", "Soto", "SLG", zs_cells))
 
+        clk_renderer = SpinAxisClockVisualizerRenderer()
+        clk_pitches = [
+            PitchSpinClockSpec("FF", "4-Seam", 1, 15, 98.0, "#00d2be"),
+            PitchSpinClockSpec("SL", "Slider", 9, 30, 22.0, "#f59e0b"),
+        ]
+        clk_chart = clk_renderer.render(
+            PitcherSpinClockArsenalProfile("Spin Clock", "Skenes", clk_pitches)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -1528,6 +1649,7 @@ def health_check() -> list[Check]:
             and "<svg" in replay_chart.svg_content
             and "<svg" in f3d_chart.svg_content
             and "<svg" in zs_chart.svg_content
+            and "<svg" in clk_chart.svg_content
         ):
             checks.append(
                 Check(

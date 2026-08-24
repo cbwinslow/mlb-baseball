@@ -2,6 +2,46 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-198: Pure-Python SVG Pitch Arsenal 3D Spin Axis Clock Vector Visualizer (`SPIN-CLOCK-01`, Package 110)
+
+**Decision:** Built 12-hour analog clock dial vector SVG visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb spin-clock`.
+- **Operational Architecture & Geometry**:
+  - 12-Hour Analog Clock Dial: Maps pitch release tilt angles into radial vector rays ($\theta_{\text{clock}} = (\text{Hours} + \frac{\text{Minutes}}{60}) \times 30^\circ - 90^\circ$).
+  - Spin Efficiency Scaling: Modulates vector ray lengths proportionally to active spin efficiency (bullet gyro slider near center pivot, 98% efficient fastball extending to outer perimeter).
+  - CLI: `mlb spin-clock --title "Paul Skenes Arsenal Spin Clock" --pitcher "Paul Skenes"`.
+- **Verification**: 15/15 unit tests in `tests/unit/test_visual.py` passing; 703/703 full repository unit tests passing.
+
+## ADR-197: Infield Double Play Conversion Pivot Kinematics Engine (`PIVOT-DP-01`, Package 109)
+
+**Decision:** Built middle infielder (2B/SS) pivot mechanics, turn time, and GDP conversion modeling in `mlb_baseball/model/pivot_dp.py` and CLI subcommand `mlb pivot-dp`.
+- **Mathematical Formulations & Methodology**:
+  - Double Play Turn Index: $\text{DPTI} = \max\left(0, 100 + \left(\frac{0.78 - t_{\text{turn}}}{0.10}\right) \cdot 18 + \left(\frac{v_{\text{relay}} - 82.0}{5.0}\right) \cdot 8\right)$.
+  - Turn Surplus Value: $\text{DPTS}_{\text{runs}} = (N_{\text{Turned}} - N_{\text{Opps}} \cdot 0.68) \cdot 0.48 - N_{\text{Wild Throws}} \cdot 0.38$.
+  - Tiers: `LIGHTNING_PIVOT_TURNER` ($\text{DPTI} \ge 115.0, t_{\text{turn}} \le 0.72\text{s}$), `ABOVE_AVERAGE_MIDDLE_INFIELDER`, `SLOW_PIVOT_LIABILITY`, `AVERAGE_PIVOT_DEFENDER`.
+  - CLI: `mlb pivot-dp --turn 0.67 --throw 87.0 --turned 68 --opps 82 --pos 2B`, `mlb pivot-dp --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_pivot_dp.py` passing; 703/703 full repository unit tests passing.
+
+## ADR-196: Batter Two-Strike Approach Shortening & Choke-Up Contact Engine (`TWO-STRIKE-01`, Package 108)
+
+**Decision:** Built two-strike count swing adjustments, contact rate defense, and K suppression modeling in `mlb_baseball/model/two_strike.py` and CLI subcommand `mlb two-strike`.
+- **Mathematical Formulations & Methodology**:
+  - Swing Shortening & Whiff Reduction: $\Delta L = L_{\text{early}} - L_{\text{two-strike}}$, $\Delta \text{Whiff} = \text{Whiff}_{\text{early}} - \text{Whiff}_{\text{two-strike}}$.
+  - Two-Strike Battle Efficiency Index: $\text{TSBE} = \max\left(0, 100 + \Delta \text{Whiff} \cdot 2.5 + \Delta L \cdot 18.0 - (\text{K\%} - 40.0) \cdot 1.5\right)$.
+  - Surplus Runs: $\text{Surplus}_{\text{runs}} = \left(\frac{40.0 - \text{K\%}}{100}\right) \cdot \text{PAs} \cdot 0.32\text{ runs}$.
+  - Tiers: `ELITE_TWO_STRIKE_BATTLER` ($\text{TSBE} \ge 120.0, \text{Surplus} \ge +3.5$), `TACTICAL_CHOKE_UP_SPECIALIST`, `VULNERABLE_LONG_SWING_PULLER`, `AVERAGE_TWO_STRIKE_APPROACH`.
+  - CLI: `mlb two-strike --early-whiff 24 --two-whiff 16 --early-len 7.4 --two-len 6.6 --k-pct 32.0 --pa 220`, `mlb two-strike --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_two_strike.py` passing; 703/703 full repository unit tests passing.
+
+## ADR-195: Pitcher Gyro Degree & True Spin Axis 3D Aerodynamic Engine (`GYRO-SPIN-01`, Package 107)
+
+**Decision:** Built 3D spin decomposition, gyro degree trigonometry, and aerodynamic classification in `mlb_baseball/model/gyro_spin.py` and CLI subcommand `mlb gyro-spin`.
+- **Mathematical Formulations & Methodology**:
+  - Gyro Angle: $\theta_{\text{gyro}} = \arccos\left(\frac{\text{Eff\%}}{100}\right) \times \left(\frac{180^\circ}{\pi}\right)$.
+  - Active vs Gyro Spin: $\text{Spin}_{\text{active}} = \text{Spin}_{\text{total}} \cdot \text{Eff}$, $\text{Spin}_{\text{gyro}} = \text{Spin}_{\text{total}} \cdot \sin(\theta_{\text{gyro}})$.
+  - Tiers: `PURE_BULLET_GYRO` ($\theta_{\text{gyro}} \ge 70.0^\circ$, zero Magnus movement), `HYBRID_GYRO_SWEEPER`, `HIGH_EFFICIENCY_MAGNUS` ($\theta_{\text{gyro}} \le 25.0^\circ$), `BALANCED_SPIN_PROFILE`.
+  - CLI: `mlb gyro-spin --pitch SL --spin 2700 --eff 18.0 --velo 88.0 --pfx-x 2.5 --pfx-z -1.5`, `mlb gyro-spin --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_gyro_spin.py` passing; 703/703 full repository unit tests passing.
+
 ## ADR-194: Pure-Python SVG Strike Zone 5x5 Iso-Contour Heat Surface Visualizer (`ZONE-SURFACE-01`, Package 106)
 
 **Decision:** Built 5x5 interpolated contour heat surface visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb zone-surface`.

@@ -867,6 +867,84 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Pitcher gyro degree & spin axis (GYRO-SPIN-01)
+    gyro_parser = subparsers.add_parser(
+        "gyro-spin",
+        help="calculate pitcher 3D gyro degree and active spin components (GYRO-SPIN-01)",
+    )
+    gyro_parser.add_argument("--pitch", type=str, default="SL", help="pitch type (default: SL)")
+    gyro_parser.add_argument(
+        "--spin", type=float, default=2650.0, help="total spin rpm (default: 2650)"
+    )
+    gyro_parser.add_argument(
+        "--eff", type=float, default=22.0, help="spin efficiency pct (default: 22.0)"
+    )
+    gyro_parser.add_argument(
+        "--velo", type=float, default=88.5, help="release velo mph (default: 88.5)"
+    )
+    gyro_parser.add_argument(
+        "--pfx-x", type=float, default=2.0, help="horizontal break inches (default: 2.0)"
+    )
+    gyro_parser.add_argument(
+        "--pfx-z", type=float, default=-1.5, help="induced vert break inches (default: -1.5)"
+    )
+    gyro_parser.add_argument(
+        "--json", action="store_true", help="output gyro spin evaluation as JSON"
+    )
+
+    # Batter two-strike approach shortening (TWO-STRIKE-01)
+    two_s_parser = subparsers.add_parser(
+        "two-strike",
+        help="evaluate two-strike swing shortening and contact battle efficiency (TWO-STRIKE-01)",
+    )
+    two_s_parser.add_argument(
+        "--early-whiff", type=float, default=24.0, help="early count whiff pct (default: 24.0)"
+    )
+    two_s_parser.add_argument(
+        "--two-whiff", type=float, default=16.5, help="two strike whiff pct (default: 16.5)"
+    )
+    two_s_parser.add_argument(
+        "--early-len", type=float, default=7.4, help="early swing length ft (default: 7.4)"
+    )
+    two_s_parser.add_argument(
+        "--two-len", type=float, default=6.6, help="two strike swing length ft (default: 6.6)"
+    )
+    two_s_parser.add_argument(
+        "--k-pct", type=float, default=33.0, help="two strike K pct (default: 33.0)"
+    )
+    two_s_parser.add_argument("--pa", type=int, default=220, help="two strike PAs (default: 220)")
+    two_s_parser.add_argument(
+        "--json", action="store_true", help="output two-strike evaluation as JSON"
+    )
+
+    # Infield double play pivot kinematics (PIVOT-DP-01)
+    piv_parser = subparsers.add_parser(
+        "pivot-dp",
+        help="evaluate middle infield double play pivot turn kinematics (PIVOT-DP-01)",
+    )
+    piv_parser.add_argument(
+        "--turn", type=float, default=0.72, help="pivot turn time seconds (default: 0.72)"
+    )
+    piv_parser.add_argument(
+        "--throw-velo", type=float, default=85.0, help="relay throw velo mph (default: 85.0)"
+    )
+    piv_parser.add_argument("--turned", type=int, default=60, help="DPs turned (default: 60)")
+    piv_parser.add_argument("--opps", type=int, default=80, help="DP opportunities (default: 80)")
+    piv_parser.add_argument("--pos", type=str, default="2B", help="position 2B/SS (default: 2B)")
+    piv_parser.add_argument(
+        "--json", action="store_true", help="output pivot DP evaluation as JSON"
+    )
+
+    # Pitch arsenal spin axis clock (SPIN-CLOCK-01)
+    clk_parser = subparsers.add_parser(
+        "spin-clock",
+        help="generate vector SVG 12-hour pitch spin axis clock dial chart (SPIN-CLOCK-01)",
+    )
+    clk_parser.add_argument(
+        "--title", type=str, default="Paul Skenes Arsenal Spin Clock", help="chart title"
+    )
+    clk_parser.add_argument("--pitcher", type=str, default="Paul Skenes", help="pitcher name")
+
     # Batter contact depth kinematics (CONTACT-DEPTH-01)
     cdp_parser = subparsers.add_parser(
         "contact-depth",
@@ -3579,6 +3657,157 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "gyro-spin":
+        import json as json_lib
+
+        from mlb_baseball.model.gyro_spin import (
+            PitchGyroSpinEngine,
+            PitchGyroSpinMetrics,
+        )
+
+        gyro_eng = PitchGyroSpinEngine()
+        gyro_m = PitchGyroSpinMetrics(
+            "p1",
+            "Target Pitcher",
+            pitch_type=args.pitch,
+            total_spin_rpm=args.spin,
+            spin_efficiency_pct=args.eff,
+            release_velo_mph=args.velo,
+            pfx_x_in=args.pfx_x,
+            pfx_z_in=args.pfx_z,
+        )
+        gyro_res = gyro_eng.evaluate_gyro_spin(gyro_m)
+
+        if args.json:
+            gyro_out = {
+                "pitch_type": gyro_res.pitch_type,
+                "gyro_angle_deg": gyro_res.gyro_angle_deg,
+                "active_spin_rpm": gyro_res.active_spin_rpm,
+                "gyro_spin_rpm": gyro_res.gyro_spin_rpm,
+                "tier": gyro_res.aerodynamic_tier,
+                "is_bullet": gyro_res.is_pure_bullet_gyro,
+            }
+            print(json_lib.dumps(gyro_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     3D GYRO SPIN & AERODYNAMICS [{gyro_res.aerodynamic_tier}]")
+            hdr_gy = (
+                f"     Pitch: {gyro_res.pitch_type} "
+                f"| Gyro Angle: {gyro_res.gyro_angle_deg:.1f}° "
+                f"| Active Spin: {gyro_res.active_spin_rpm:.0f} rpm "
+                f"| Gyro Spin: {gyro_res.gyro_spin_rpm:.0f} rpm"
+            )
+            print(hdr_gy)
+            print(f"{'=' * 84}\n")
+            print(f"  • Aerodynamic Tier   : {gyro_res.aerodynamic_tier}")
+            print(f"  • Pure Bullet Gyro   : {'YES' if gyro_res.is_pure_bullet_gyro else 'NO'}\n")
+
+    elif args.command == "two-strike":
+        import json as json_lib
+
+        from mlb_baseball.model.two_strike import (
+            BatterTwoStrikeMetrics,
+            TwoStrikeApproachEngine,
+        )
+
+        two_s_eng = TwoStrikeApproachEngine()
+        two_s_m = BatterTwoStrikeMetrics(
+            "b1",
+            "Target Batter",
+            early_count_whiff_pct=args.early_whiff,
+            two_strike_whiff_pct=args.two_whiff,
+            early_count_swing_length_ft=args.early_len,
+            two_strike_swing_length_ft=args.two_len,
+            two_strike_k_pct=args.k_pct,
+            two_strike_pa_count=args.pa,
+        )
+        two_s_res = two_s_eng.evaluate_two_strike(two_s_m)
+
+        if args.json:
+            two_s_out = {
+                "whiff_reduction_pct": two_s_res.whiff_reduction_pct,
+                "swing_shortened_ft": two_s_res.swing_shortened_ft,
+                "tsbe_score": two_s_res.tsbe_score,
+                "surplus_runs": two_s_res.surplus_runs,
+                "tier": two_s_res.approach_tier,
+                "is_elite": two_s_res.is_elite_battler,
+            }
+            print(json_lib.dumps(two_s_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     TWO-STRIKE APPROACH & SHORTENING [{two_s_res.approach_tier}]")
+            hdr_ts = (
+                f"     Whiff Cut: {two_s_res.whiff_reduction_pct:>+4.1f}% "
+                f"| Shortened: {two_s_res.swing_shortened_ft:>+4.2f} ft "
+                f"| TSBE Index: {two_s_res.tsbe_score:.1f} "
+                f"| Runs Saved: {two_s_res.surplus_runs:>+4.2f}"
+            )
+            print(hdr_ts)
+            print(f"{'=' * 84}\n")
+            print(f"  • Approach Archetype   : {two_s_res.approach_tier}")
+            print(f"  • Elite 2-Strike Batter: {'YES' if two_s_res.is_elite_battler else 'NO'}\n")
+
+    elif args.command == "pivot-dp":
+        import json as json_lib
+
+        from mlb_baseball.model.pivot_dp import (
+            InfieldPivotDPEngine,
+            InfieldPivotMetrics,
+        )
+
+        piv_eng = InfieldPivotDPEngine()
+        piv_m = InfieldPivotMetrics(
+            "f1",
+            "Target Infielder",
+            position=args.pos,
+            pivot_turn_time_s=args.turn,
+            relay_throw_velo_mph=args.throw_velo,
+            double_plays_turned=args.turned,
+            double_play_opportunities=args.opps,
+        )
+        piv_res = piv_eng.evaluate_pivot(piv_m)
+
+        if args.json:
+            piv_out = {
+                "position": piv_res.position,
+                "conversion_pct": piv_res.dp_conversion_pct,
+                "dpti_score": piv_res.dpti_score,
+                "dpts_runs": piv_res.dpts_runs_saved,
+                "tier": piv_res.pivot_tier,
+                "is_lightning": piv_res.is_lightning_turner,
+            }
+            print(json_lib.dumps(piv_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     INFIELD DOUBLE PLAY PIVOT KINEMATICS [{piv_res.pivot_tier}]")
+            hdr_pv = (
+                f"     DP Conv%: {piv_res.dp_conversion_pct:.1f}% "
+                f"| DPTI Score: {piv_res.dpti_score:.1f} "
+                f"| Runs Saved: {piv_res.dpts_runs_saved:>+4.2f}"
+            )
+            print(hdr_pv)
+            print(f"{'=' * 84}\n")
+            print(f"  • Pivot Classification : {piv_res.pivot_tier}")
+            print(f"  • Lightning Pivot Turn : {'YES' if piv_res.is_lightning_turner else 'NO'}\n")
+
+    elif args.command == "spin-clock":
+        from mlb_baseball.visual import (
+            PitcherSpinClockArsenalProfile,
+            PitchSpinClockSpec,
+            SpinAxisClockVisualizerRenderer,
+        )
+
+        clk_renderer = SpinAxisClockVisualizerRenderer()
+        clk_pitches = [
+            PitchSpinClockSpec("FF", "4-Seam Fastball", 1, 15, 98.0, "#00d2be"),
+            PitchSpinClockSpec("SL", "Sweeper", 9, 0, 35.0, "#f59e0b"),
+            PitchSpinClockSpec("CH", "Changeup", 10, 45, 88.0, "#a855f7"),
+            PitchSpinClockSpec("CU", "Curveball", 6, 30, 92.0, "#3b82f6"),
+        ]
+        clk_prof = PitcherSpinClockArsenalProfile(args.title, args.pitcher, clk_pitches)
+        chart = clk_renderer.render(clk_prof)
+        print(f"Generated Vector SVG 12-Hour Spin Clock Dial ({len(chart.svg_content)} bytes)")
 
     elif args.command == "contact-depth":
         import json as json_lib

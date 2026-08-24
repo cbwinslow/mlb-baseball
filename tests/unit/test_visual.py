@@ -322,3 +322,29 @@ def test_zone_surface_contour_svg_generation():
     assert "Soto Zone Slugging Surface" in chart.svg_content
     assert "rect" in chart.svg_content
     assert "polygon" in chart.svg_content
+
+
+def test_spin_axis_clock_svg_generation():
+    """Verify SpinAxisClockVisualizerRenderer generates 12-hour analog clock chart."""
+    from mlb_baseball.visual import (
+        PitcherSpinClockArsenalProfile,
+        PitchSpinClockSpec,
+        SpinAxisClockVisualizerRenderer,
+    )
+
+    renderer = SpinAxisClockVisualizerRenderer()
+    pitches = [
+        PitchSpinClockSpec("FF", "4-Seam Fastball", 1, 15, 98.0, "#00d2be"),
+        PitchSpinClockSpec("SL", "Sweeper", 9, 0, 35.0, "#f59e0b"),
+        PitchSpinClockSpec("CH", "Changeup", 10, 45, 88.0, "#a855f7"),
+        PitchSpinClockSpec("CU", "Curveball", 6, 30, 92.0, "#3b82f6"),
+    ]
+    prof = PitcherSpinClockArsenalProfile("Skenes Arsenal Spin Clock", "Paul Skenes", pitches)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Skenes Arsenal Spin Clock" in chart.svg_content
+    assert "circle" in chart.svg_content
+    assert "line" in chart.svg_content

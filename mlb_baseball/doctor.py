@@ -260,6 +260,7 @@ def run() -> list[Check]:
     from mlb_baseball.model import (
         aging,
         arm,
+        arm_slot,
         babip,
         backtest,
         baserunning,
@@ -271,8 +272,10 @@ def run() -> list[Check]:
         calibration,
         carry,
         catch_prob,
+        catcher_pop,
         cluster,
         clutch,
+        contact_depth,
         count,
         damage,
         decision,
@@ -436,6 +439,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(contact_depth.health_check())
+    except Exception as exc:
+        checks.append(Check("contact_depth", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(arm_slot.health_check())
+    except Exception as exc:
+        checks.append(Check("arm_slot", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(catcher_pop.health_check())
+    except Exception as exc:
+        checks.append(Check("catcher_pop", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(xslg.health_check())
     except Exception as exc:

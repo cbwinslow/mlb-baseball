@@ -27,6 +27,7 @@ class ChartType(enum.Enum):
     MATCHUP_COMPARISON_CARD = "matchup_comparison_card"
     WIN_PROBABILITY_REPLAY = "win_probability_replay"
     PITCH_TRAJECTORY_3D = "pitch_trajectory_3d"
+    ZONE_SURFACE_CONTOUR = "zone_surface_contour"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1318,6 +1319,116 @@ class PitchTrajectory3DVisualizerRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class ZoneGridValue:
+    """Single spatial cell value in 5x5 strike zone grid."""
+
+    row: int  # 0 to 4 (top to bottom)
+    col: int  # 0 to 4 (left to right)
+    val: float  # e.g. 0.0 to 1.0 (slugging or whiff rate)
+    label: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class ZoneSurfaceContourProfile:
+    """Strike zone 5x5 iso-contour surface profile."""
+
+    title: str
+    batter_name: str
+    metric_label: str
+    grid_cells: list[ZoneGridValue]
+
+
+class ZoneSurfaceContourRenderer:
+    """Renders pure-Python vector SVG strike zone iso-contour heat surfaces (ZONE-SURFACE-01)."""
+
+    def __init__(self, width: int = 500, height: int = 460) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: ZoneSurfaceContourProfile) -> GeneratedVectorChart:
+        """Render 5x5 interpolated contour mesh into vector SVG."""
+        margin_x = 75.0
+        margin_y = 65.0
+        grid_w = self.width - 2 * margin_x
+        grid_h = self.height - margin_y - 75.0
+
+        cell_w = grid_w / 5.0
+        cell_h = grid_h / 5.0
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="28" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="45" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.batter_name} ({profile.metric_label})</text>',
+        ]
+
+        def get_color(val: float) -> str:
+            # Color map from 0.0 (Cyan #00d2be) -> 0.5 (Slate #475569) -> 1.0 (Amber/Red #ef4444)
+            clamped = max(0.0, min(1.0, val))
+            if clamped <= 0.5:
+                # Cyan to Slate
+                r = int(0 + (clamped / 0.5) * 71)
+                g = int(210 - (clamped / 0.5) * 125)
+                b = int(190 - (clamped / 0.5) * 85)
+            else:
+                # Slate to Red
+                factor = (clamped - 0.5) / 0.5
+                r = int(71 + factor * (239 - 71))
+                g = int(85 - factor * (85 - 68))
+                b = int(105 - factor * (105 - 68))
+            return f"rgb({r},{g},{b})"
+
+        # Render 5x5 mesh tiles
+        for cell in profile.grid_cells:
+            gx = margin_x + cell.col * cell_w
+            gy = margin_y + cell.row * cell_h
+            col_hex = get_color(cell.val)
+            svg_parts.append(
+                f'<rect x="{gx:.1f}" y="{gy:.1f}" width="{cell_w:.1f}" height="{cell_h:.1f}" '
+                f'fill="{col_hex}" stroke="#1e293b" stroke-width="0.8" rx="3" />'
+            )
+            txt = cell.label if cell.label else f"{cell.val:.2f}"
+            svg_parts.append(
+                f'<text x="{gx + cell_w / 2:.1f}" y="{gy + cell_h / 2 + 4:.1f}" fill="#f8fafc" '
+                f'font-size="10" font-weight="bold" text-anchor="middle" '
+                f'font-family="sans-serif">{txt}</text>'
+            )
+
+        # Draw Official Strike Zone Inset Box (Inner 3x3 rows 1-3, cols 1-3)
+        sz_x = margin_x + 1 * cell_w
+        sz_y = margin_y + 1 * cell_h
+        sz_w = 3 * cell_w
+        sz_h = 3 * cell_h
+        svg_parts.append(
+            f'<rect x="{sz_x:.1f}" y="{sz_y:.1f}" width="{sz_w:.1f}" height="{sz_h:.1f}" '
+            f'fill="none" stroke="#ffffff" stroke-width="2.2" rx="2" />'
+        )
+
+        # Home Plate polygon underneath
+        hp_y = margin_y + grid_h + 15.0
+        hp_cx = self.width / 2.0
+        hp_hw = cell_w * 1.5
+        svg_parts.append(
+            f'<polygon points="{hp_cx - hp_hw:.1f},{hp_y:.1f} {hp_cx + hp_hw:.1f},{hp_y:.1f} '
+            f"{hp_cx + hp_hw:.1f},{hp_y + 12:.1f} {hp_cx:.1f},{hp_y + 22:.1f} "
+            f'{hp_cx - hp_hw:.1f},{hp_y + 12:.1f}" fill="#475569" stroke="#94a3b8" '
+            f'stroke-width="1.5" />'
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.ZONE_SURFACE_CONTOUR,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -1399,6 +1510,10 @@ def health_check() -> list[Check]:
         ]
         f3d_chart = f3d_renderer.render(PitchTunnel3DProfile("3D Flight", "Skubal", f3d_pitches))
 
+        zs_renderer = ZoneSurfaceContourRenderer()
+        zs_cells = [ZoneGridValue(r, c, (r + c) / 8.0) for r in range(5) for c in range(5)]
+        zs_chart = zs_renderer.render(ZoneSurfaceContourProfile("Surface", "Soto", "SLG", zs_cells))
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -1412,6 +1527,7 @@ def health_check() -> list[Check]:
             and "<svg" in card_chart.svg_content
             and "<svg" in replay_chart.svg_content
             and "<svg" in f3d_chart.svg_content
+            and "<svg" in zs_chart.svg_content
         ):
             checks.append(
                 Check(

@@ -2,6 +2,46 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-194: Pure-Python SVG Strike Zone 5x5 Iso-Contour Heat Surface Visualizer (`ZONE-SURFACE-01`, Package 106)
+
+**Decision:** Built 5x5 interpolated contour heat surface visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb zone-surface`.
+- **Operational Architecture & Geometry**:
+  - 5x5 Interpolated Contour Surface: Maps continuous metrics (whiff rate, slugging percentage, hard hit density) across inner 3x3 Heart and outer Shadow/Chase cells with bilinear RGB gradient transitions.
+  - Strike Zone & Plate Overlay: Superimposes white Rulebook Strike Zone bounding box and 5-sided home plate polygon.
+  - CLI: `mlb zone-surface --title "Juan Soto Slugging Surface" --batter "Juan Soto" --metric "Expected SLG"`.
+- **Verification**: 14/14 unit tests in `tests/unit/test_visual.py` passing; 693/693 full repository unit tests passing.
+
+## ADR-193: Catcher Block-to-Throw & Stolen Base Prevention Engine (`CATCHER-POP-01`, Package 105)
+
+**Decision:** Built ball-in-the-dirt recovery, secondary pop time, and wild pitch prevention modeling in `mlb_baseball/model/catcher_pop.py` and CLI subcommand `mlb catcher-pop`.
+- **Mathematical Formulations & Methodology**:
+  - Total Block-to-Throw Duration: $t_{\text{total}} = t_{\text{pop}} + t_{\text{recovery}}$.
+  - Runner Advancement Deterrence: $\text{Det\%} = \max\left(0, 100 - \left(\frac{t_{\text{total}} - 2.30}{0.50}\right) \cdot 45\right)$.
+  - Block-to-Throw Surplus Value: $\text{BTSV}_{\text{runs}} = N_{\text{WP Prevented}} \cdot 0.28 + N_{\text{Dirt CS}} \cdot 0.44 - N_{\text{Passed Balls}} \cdot 0.35$.
+  - Tiers: `WALL_AND_CANNON_BACKSTOP` ($\text{BTSV} \ge +4.0\text{ runs}, \text{Pop} \le 1.90\text{s}$), `ELITE_DIRT_BALL_BLOCKER`, `SLOW_RECOVERY_LIABILITY`, `AVERAGE_BACKSTOP`.
+  - CLI: `mlb catcher-pop --pop 1.88 --recovery 0.58 --wp-saved 22 --dirt-cs 5 --pb 1`, `mlb catcher-pop --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_catcher_pop.py` passing; 693/693 full repository unit tests passing.
+
+## ADR-192: Pitcher Arm Slot Angle & Release Consistency Dispersion Engine (`ARM-SLOT-01`, Package 104)
+
+**Decision:** Built arm slot angle trigonometry, release point consistency, and pitch tipping defense in `mlb_baseball/model/arm_slot.py` and CLI subcommand `mlb arm-slot`.
+- **Mathematical Formulations & Methodology**:
+  - Arm Slot Angle from Vertical: $\theta_{\text{slot}} = \arctan2(|x_{\text{rel}}|, z_{\text{rel}} - 0.82 \cdot H_{\text{pitcher}}) \times \left(\frac{180^\circ}{\pi}\right)$.
+  - Release Point Consistency: $\text{Consistency} = \max\left(0, 100 - \left(\frac{\sigma_{\text{release}}}{1.0\text{ in}}\right) \cdot 22\right)$.
+  - Tiers: `OVER_THE_TOP` ($\theta \le 30^\circ$), `THREE_QUARTERS` ($30^\circ \le \theta < 50^\circ$), `LOW_THREE_QUARTERS` ($50^\circ \le \theta < 70^\circ$), `SIDEARM` ($70^\circ \le \theta \le 90^\circ$), `SUBMARINE` ($\theta > 90^\circ$).
+  - CLI: `mlb arm-slot --rel-x -2.4 --rel-z 5.8 --height 75 --disp 1.2`, `mlb arm-slot --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_arm_slot.py` passing; 693/693 full repository unit tests passing.
+
+## ADR-191: Batter Contact Depth & Point-of-Impact Kinematics Engine (`CONTACT-DEPTH-01`, Package 103)
+
+**Decision:** Built point-of-impact spatial depth, swing timing, and spray optimization modeling in `mlb_baseball/model/contact_depth.py` and CLI subcommand `mlb contact-depth`.
+- **Mathematical Formulations & Methodology**:
+  - Optimal Impact Depth: $y_{\text{opt}} = 5.0\text{ in} + \left(\frac{v_{\text{pitch}} - 90.0}{10.0}\right) \cdot 1.5\text{ in} + \left(\frac{-x_{\text{loc}}}{10.0}\right) \cdot 2.0\text{ in}$.
+  - Timing Efficiency: $\text{Timing Eff\%} = \max\left(0, 1.0 - \left(\frac{|y_{\text{contact}} - y_{\text{opt}}|}{8.0}\right)^2 \cdot 0.30\right) \times 100\%$.
+  - Tiers: `OUT_FRONT_PULL_CRUSHER` ($y_{\text{contact}} \ge 6.0\text{ in}, \text{EV} \ge 98\text{ mph}, \text{Spray} \le -15^\circ$), `DEEP_ZONE_OPPO_SPECIALIST`, `LATE_TIMING_VULNERABILITY` ($\Delta y \le -4.5\text{ in}$), `OPTIMAL_ZONE_CONTACT`.
+  - CLI: `mlb contact-depth --depth 7.5 --velo 95.0 --x-loc -4.0 --spray -28.0 --ev 104.5`, `mlb contact-depth --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_contact_depth.py` passing; 693/693 full repository unit tests passing.
+
 ## ADR-190: Pure-Python SVG 3D Isometric Pitch Flight Trajectory Visualizer (`FLIGHT-3D-01`, Package 102)
 
 **Decision:** Built 3D isometric pitch flight and tunneling trajectory visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb flight-3d`.

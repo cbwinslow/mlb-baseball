@@ -299,3 +299,26 @@ def test_pitch_trajectory_3d_svg_generation():
     assert "Skubal 3D Pitch Tunnel" in chart.svg_content
     assert "polyline" in chart.svg_content
     assert "polygon" in chart.svg_content
+
+
+def test_zone_surface_contour_svg_generation():
+    """Verify ZoneSurfaceContourRenderer generates 5x5 gradient surface chart."""
+    from mlb_baseball.visual import (
+        ZoneGridValue,
+        ZoneSurfaceContourProfile,
+        ZoneSurfaceContourRenderer,
+    )
+
+    renderer = ZoneSurfaceContourRenderer()
+    cells = [ZoneGridValue(r, c, round((r + c) / 8.0, 2)) for r in range(5) for c in range(5)]
+    prof = ZoneSurfaceContourProfile(
+        "Soto Zone Slugging Surface", "Juan Soto", "Expected SLG", cells
+    )
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 500
+    assert chart.height_px == 460
+    assert "<svg" in chart.svg_content
+    assert "Soto Zone Slugging Surface" in chart.svg_content
+    assert "rect" in chart.svg_content
+    assert "polygon" in chart.svg_content

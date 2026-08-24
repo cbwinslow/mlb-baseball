@@ -100,7 +100,11 @@ This document serves as the academic and theoretical reference manual for the ML
 74. [Pitcher Fastball Velocity Drift & Arm Fatigue Decline](#74-pitcher-fastball-velocity-drift--arm-fatigue-decline)
 75. [Statcast 5-Star Outfield Catch Probability & Spatial Opportunity Kinematics](#75-statcast-5-star-outfield-catch-probability--spatial-opportunity-kinematics)
 76. [Pure-Python SVG 3D Isometric Pitch Flight & Tunneling Geometry](#76-pure-python-svg-3d-isometric-pitch-flight--tunneling-geometry)
-77. [Academic Bibliography & Literature Citations](#77-academic-bibliography--literature-citations)
+77. [Batter Contact Depth & Point-of-Impact Kinematics](#77-batter-contact-depth--point-of-impact-kinematics)
+78. [Pitcher Arm Slot Angle & Release Point Dispersion](#78-pitcher-arm-slot-angle--release-point-dispersion)
+79. [Catcher Block-to-Throw & Secondary Pop Kinematics](#79-catcher-block-to-throw--secondary-pop-kinematics)
+80. [Pure-Python SVG Strike Zone 5x5 Iso-Contour Heat Surface Architecture](#80-pure-python-svg-strike-zone-5x5-iso-contour-heat-surface-architecture)
+81. [Academic Bibliography & Literature Citations](#81-academic-bibliography--literature-citations)
 
 ---
 
@@ -895,7 +899,38 @@ $$(x_{\text{iso}}, y_{\text{iso}}) = \left(x_{\text{center}} + 26.0 \cdot x + 4.
 
 ---
 
-## 77. Academic Bibliography & Literature Citations
+## 77. Batter Contact Depth & Point-of-Impact Kinematics
+
+### 77.1 Impact Depth & Timing Optimization
+$$y_{\text{opt}} = 5.0\text{ in} + \left(\frac{v_{\text{pitch}} - 90.0}{10.0}\right) \cdot 1.5\text{ in} + \left(\frac{-x_{\text{loc}}}{10.0}\right) \cdot 2.0\text{ in}$$
+$$\text{Timing Eff\%} = \max\left(0, 1.0 - \left(\frac{|y_{\text{contact}} - y_{\text{opt}}|}{8.0}\right)^2 \cdot 0.30\right) \times 100\%$$
+
+---
+
+## 78. Pitcher Arm Slot Angle & Release Point Dispersion
+
+### 78.1 Angle from Vertical & Release Consistency
+$$\theta_{\text{slot}} = \arctan2(|x_{\text{rel}}|, z_{\text{rel}} - 0.82 \cdot H_{\text{pitcher}}) \times \left(\frac{180^\circ}{\pi}\right)$$
+$$\text{Consistency} = \max\left(0, 100 - \left(\frac{\sigma_{\text{release}}}{1.0\text{ in}}\right) \cdot 22\right)$$
+
+---
+
+## 79. Catcher Block-to-Throw & Secondary Pop Kinematics
+
+### 79.1 Block-to-Throw Surplus Value (BTSV)
+$$t_{\text{total}} = t_{\text{pop}} + t_{\text{recovery}}$$
+$$\text{BTSV}_{\text{runs}} = N_{\text{WP Prevented}} \cdot 0.28 + N_{\text{Dirt CS}} \cdot 0.44 - N_{\text{Passed Balls}} \cdot 0.35$$
+
+---
+
+## 80. Pure-Python SVG Strike Zone 5x5 Iso-Contour Heat Surface Architecture
+
+### 80.1 5x5 Mesh Tile Geometry
+$$(x_j, y_i) = \left(M_x + j \cdot \frac{W_{\text{grid}}}{5}, M_y + i \cdot \frac{H_{\text{grid}}}{5}\right)$$
+
+---
+
+## 81. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -945,3 +980,5 @@ $$(x_{\text{iso}}, y_{\text{iso}}) = \left(x_{\text{center}} + 26.0 \cdot x + 4.
 46. **Arthur, Rob** (2019). "The Geometry of the Pulled Fly Ball". *Baseball Prospectus*.
 47. **Fast, Mike** (2011). "How Velocity Decay Affects Pitcher Aging and In-Game Performance". *Baseball Prospectus*.
 48. **Petriello, Mike** (2017). "Introduction to Statcast Catch Probability". *MLB.com / Statcast*.
+49. **Carleton, Russell A.** (2015). "The Anatomy of Catcher Blocking and Throwing". *Baseball Prospectus*.
+50. **Aucoin, Dan** (2020). "Classifying Pitcher Arm Slots Using Biomechanical Landmarks". *Driveline Baseball Research*.

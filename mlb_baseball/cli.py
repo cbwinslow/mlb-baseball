@@ -867,6 +867,89 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter contact depth kinematics (CONTACT-DEPTH-01)
+    cdp_parser = subparsers.add_parser(
+        "contact-depth",
+        help="evaluate batter point-of-impact depth and swing timing (CONTACT-DEPTH-01)",
+    )
+    cdp_parser.add_argument(
+        "--depth",
+        type=float,
+        default=6.5,
+        help="contact depth inches relative to plate front (default: 6.5)",
+    )
+    cdp_parser.add_argument(
+        "--velo", type=float, default=94.0, help="pitch velo mph (default: 94.0)"
+    )
+    cdp_parser.add_argument(
+        "--x-loc", type=float, default=-3.0, help="horizontal pitch location inches (default: -3.0)"
+    )
+    cdp_parser.add_argument(
+        "--spray", type=float, default=-25.0, help="batted ball spray angle deg (default: -25.0)"
+    )
+    cdp_parser.add_argument(
+        "--ev", type=float, default=102.0, help="exit velo mph (default: 102.0)"
+    )
+    cdp_parser.add_argument("--side", type=str, default="R", help="batter side R/L (default: R)")
+    cdp_parser.add_argument(
+        "--json", action="store_true", help="output contact depth evaluation as JSON"
+    )
+
+    # Pitcher arm slot angle & release consistency (ARM-SLOT-01)
+    asl_parser = subparsers.add_parser(
+        "arm-slot",
+        help="calculate pitcher arm slot angle and release point consistency (ARM-SLOT-01)",
+    )
+    asl_parser.add_argument(
+        "--rel-x", type=float, default=-2.2, help="release X ft (default: -2.2)"
+    )
+    asl_parser.add_argument("--rel-z", type=float, default=5.8, help="release Z ft (default: 5.8)")
+    asl_parser.add_argument(
+        "--height", type=float, default=75.0, help="pitcher height inches (default: 75.0)"
+    )
+    asl_parser.add_argument(
+        "--disp", type=float, default=1.3, help="release dispersion std inches (default: 1.3)"
+    )
+    asl_parser.add_argument(
+        "--json", action="store_true", help="output arm slot evaluation as JSON"
+    )
+
+    # Catcher block-to-throw & secondary pop (CATCHER-POP-01)
+    cpop_parser = subparsers.add_parser(
+        "catcher-pop",
+        help="evaluate catcher dirt-ball recovery and BTSV run savings (CATCHER-POP-01)",
+    )
+    cpop_parser.add_argument(
+        "--pop", type=float, default=1.94, help="clean pop time seconds (default: 1.94)"
+    )
+    cpop_parser.add_argument(
+        "--recovery", type=float, default=0.62, help="block recovery time seconds (default: 0.62)"
+    )
+    cpop_parser.add_argument(
+        "--throw-velo", type=float, default=83.5, help="dirt throw velo mph (default: 83.5)"
+    )
+    cpop_parser.add_argument(
+        "--wp-saved", type=int, default=16, help="wild pitches prevented (default: 16)"
+    )
+    cpop_parser.add_argument(
+        "--dirt-cs", type=int, default=3, help="dirt caught stealing (default: 3)"
+    )
+    cpop_parser.add_argument("--pb", type=int, default=1, help="passed balls (default: 1)")
+    cpop_parser.add_argument(
+        "--json", action="store_true", help="output catcher pop evaluation as JSON"
+    )
+
+    # Strike zone 5x5 iso-contour surface (ZONE-SURFACE-01)
+    zsf_parser = subparsers.add_parser(
+        "zone-surface",
+        help="generate vector SVG 5x5 strike zone iso-contour heat surface chart (ZONE-SURFACE-01)",
+    )
+    zsf_parser.add_argument(
+        "--title", type=str, default="Juan Soto Slugging Surface", help="chart title"
+    )
+    zsf_parser.add_argument("--batter", type=str, default="Juan Soto", help="batter name")
+    zsf_parser.add_argument("--metric", type=str, default="Expected SLG", help="metric label")
+
     # Batter contact expected slugging & ISO (XSLG-01)
     xslg_parser = subparsers.add_parser(
         "xslg",
@@ -3496,6 +3579,152 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "contact-depth":
+        import json as json_lib
+
+        from mlb_baseball.model.contact_depth import (
+            ContactDepthEngine,
+            ContactKinematicsInput,
+        )
+
+        cdp_eng = ContactDepthEngine()
+        cdp_m = ContactKinematicsInput(
+            "b1",
+            "Target Hitter",
+            contact_y_inches=args.depth,
+            pitch_velo_mph=args.velo,
+            pitch_location_x_inches=args.x_loc,
+            spray_angle_deg=args.spray,
+            exit_velo_mph=args.ev,
+            batter_side=args.side,
+        )
+        cdp_res = cdp_eng.evaluate_contact(cdp_m)
+
+        if args.json:
+            cdp_out = {
+                "contact_depth_in": cdp_res.contact_depth_in,
+                "optimal_depth_in": cdp_res.optimal_depth_in,
+                "depth_margin_in": cdp_res.depth_margin_in,
+                "timing_efficiency_pct": cdp_res.timing_efficiency_pct,
+                "tier": cdp_res.depth_tier,
+                "is_out_front": cdp_res.is_out_front_slugger,
+            }
+            print(json_lib.dumps(cdp_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     POINT OF IMPACT CONTACT DEPTH [{cdp_res.depth_tier}]")
+            hdr_cd = (
+                f"     Contact Depth: {cdp_res.contact_depth_in:>+4.1f} in "
+                f"| Optimal: {cdp_res.optimal_depth_in:>+4.1f} in "
+                f"| Margin: {cdp_res.depth_margin_in:>+4.1f} in "
+                f"| Timing Eff: {cdp_res.timing_efficiency_pct:.1f}%"
+            )
+            print(hdr_cd)
+            print(f"{'=' * 84}\n")
+            print(f"  • Contact Archetype  : {cdp_res.depth_tier}")
+            print(f"  • Out-Front Slugger  : {'YES' if cdp_res.is_out_front_slugger else 'NO'}\n")
+
+    elif args.command == "arm-slot":
+        import json as json_lib
+
+        from mlb_baseball.model.arm_slot import (
+            PitcherArmSlotEngine,
+            PitcherArmSlotMetrics,
+        )
+
+        asl_eng = PitcherArmSlotEngine()
+        asl_m = PitcherArmSlotMetrics(
+            "p1",
+            "Target Pitcher",
+            release_x_ft=args.rel_x,
+            release_z_ft=args.rel_z,
+            pitcher_height_in=args.height,
+            release_dispersion_std_in=args.disp,
+        )
+        asl_res = asl_eng.evaluate_arm_slot(asl_m)
+
+        if args.json:
+            asl_out = {
+                "arm_slot_angle_deg": asl_res.arm_slot_angle_deg,
+                "tier": asl_res.arm_slot_tier,
+                "consistency_score": asl_res.release_consistency_score,
+                "is_elite_tunnel": asl_res.is_elite_release_tunnel,
+            }
+            print(json_lib.dumps(asl_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PITCHER ARM SLOT & RELEASE CONSISTENCY [{asl_res.arm_slot_tier}]")
+            hdr_as = (
+                f"     Arm Slot Angle: {asl_res.arm_slot_angle_deg:.1f}° "
+                f"| Release Consistency: {asl_res.release_consistency_score:.1f}/100 "
+                f"| Tier: {asl_res.arm_slot_tier}"
+            )
+            print(hdr_as)
+            print(f"{'=' * 84}\n")
+            print(f"  • Arm Slot Classification : {asl_res.arm_slot_tier}")
+            tunnel_txt = "YES" if asl_res.is_elite_release_tunnel else "NO"
+            print(f"  • Elite Release Tunnel    : {tunnel_txt}")
+
+    elif args.command == "catcher-pop":
+        import json as json_lib
+
+        from mlb_baseball.model.catcher_pop import (
+            CatcherPopAndBlockEngine,
+            CatcherPopAndBlockMetrics,
+        )
+
+        cpop_eng = CatcherPopAndBlockEngine()
+        cpop_m = CatcherPopAndBlockMetrics(
+            "c1",
+            "Target Catcher",
+            clean_pop_time_s=args.pop,
+            block_recovery_time_s=args.recovery,
+            dirt_throw_velo_mph=args.throw_velo,
+            wild_pitches_prevented=args.wp_saved,
+            dirt_caught_stealing=args.dirt_cs,
+            passed_balls=args.pb,
+        )
+        cpop_res = cpop_eng.evaluate_catcher(cpop_m)
+
+        if args.json:
+            cpop_out = {
+                "total_time_s": cpop_res.total_block_throw_time_s,
+                "deterrence_pct": cpop_res.advancement_deterrence_pct,
+                "btsv_runs": cpop_res.btsv_runs_saved,
+                "tier": cpop_res.catcher_tier,
+                "is_elite": cpop_res.is_elite_backstop,
+            }
+            print(json_lib.dumps(cpop_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     CATCHER BLOCK-TO-THROW & POP [{cpop_res.catcher_tier}]")
+            hdr_cp = (
+                f"     Block+Throw Time: {cpop_res.total_block_throw_time_s:.2f}s "
+                f"| Deterrence: {cpop_res.advancement_deterrence_pct:.1f}% "
+                f"| BTSV Runs: {cpop_res.btsv_runs_saved:>+4.2f}"
+            )
+            print(hdr_cp)
+            print(f"{'=' * 84}\n")
+            print(f"  • Backstop Archetype   : {cpop_res.catcher_tier}")
+            print(f"  • Elite Defense Cannon : {'YES' if cpop_res.is_elite_backstop else 'NO'}\n")
+
+    elif args.command == "zone-surface":
+        from mlb_baseball.visual import (
+            ZoneGridValue,
+            ZoneSurfaceContourProfile,
+            ZoneSurfaceContourRenderer,
+        )
+
+        zs_renderer = ZoneSurfaceContourRenderer()
+        zs_cells = [
+            ZoneGridValue(r, c, round(0.20 + (4 - r) * 0.15 + (2 - abs(c - 2)) * 0.10, 2))
+            for r in range(5)
+            for c in range(5)
+        ]
+        zs_prof = ZoneSurfaceContourProfile(args.title, args.batter, args.metric, zs_cells)
+        chart = zs_renderer.render(zs_prof)
+        print(f"Generated Vector SVG 5x5 Strike Zone Surface ({len(chart.svg_content)} bytes)")
 
     elif args.command == "xslg":
         import json as json_lib

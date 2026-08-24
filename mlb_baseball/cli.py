@@ -647,6 +647,25 @@ def main(argv: list[str] | None = None) -> None:
     )
     drift_parser.add_argument("--json", action="store_true", help="output drift report as JSON")
 
+    # Correlated same-game parlay (SGP) engine & joint simulation (PARLAY-01)
+    parlay_parser = subparsers.add_parser(
+        "parlay",
+        help="evaluate correlated same-game parlays (SGPs) via copula simulation (PARLAY-01)",
+    )
+    parlay_parser.add_argument(
+        "--sims", type=int, default=10000, help="number of Monte Carlo simulations (default: 10000)"
+    )
+    parlay_parser.add_argument(
+        "--legs", type=int, default=2, help="number of legs to optimize (default: 2)"
+    )
+    parlay_parser.add_argument(
+        "--min-boost",
+        type=float,
+        default=1.10,
+        help="minimum correlation multiplier boost (default: 1.10)",
+    )
+    parlay_parser.add_argument("--json", action="store_true", help="output parlay analysis as JSON")
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -1767,6 +1786,149 @@ def main(argv: list[str] | None = None) -> None:
                         f"{w_item.hfa_intercept_b:>+8.2f}    "
                         f"[{w_item.severity.value}]"
                     )
+                print("")
+
+    elif args.command == "parlay":
+        import json as json_lib
+
+        from mlb_baseball.model.parlay import (
+            CorrelatedParlayEvaluator,
+            ParlayLeg,
+            ParlayLegType,
+            SyntheticGaussianCopulaSampler,
+        )
+
+        sampler = SyntheticGaussianCopulaSampler(
+            exp_home_runs=4.8,
+            exp_away_runs=3.8,
+            exp_home_ks=6.8,
+            exp_away_ks=5.2,
+        )
+        evaluator = CorrelatedParlayEvaluator(sampler, n_sims=args.sims)
+
+        candidate_legs = [
+            ParlayLeg(
+                "l1",
+                ParlayLegType.MONEYLINE_HOME,
+                "Home Team Moneyline (Win)",
+                individual_probability=0.58,
+                decimal_odds=1.72,
+            ),
+            ParlayLeg(
+                "l2",
+                ParlayLegType.RUN_LINE_HOME,
+                "Home Run Line -1.5",
+                line=1.5,
+                individual_probability=0.42,
+                decimal_odds=2.38,
+            ),
+            ParlayLeg(
+                "l3",
+                ParlayLegType.TOTAL_UNDER,
+                "Game Total Under 8.5",
+                line=8.5,
+                individual_probability=0.52,
+                decimal_odds=1.92,
+            ),
+            ParlayLeg(
+                "l4",
+                ParlayLegType.TOTAL_OVER,
+                "Game Total Over 8.5",
+                line=8.5,
+                individual_probability=0.48,
+                decimal_odds=2.08,
+            ),
+            ParlayLeg(
+                "l5",
+                ParlayLegType.TEAM_TOTAL_AWAY_UNDER,
+                "Away Team Total Under 3.5",
+                line=3.5,
+                individual_probability=0.54,
+                decimal_odds=1.85,
+            ),
+            ParlayLeg(
+                "l6",
+                ParlayLegType.TEAM_TOTAL_HOME_OVER,
+                "Home Team Total Over 4.5",
+                line=4.5,
+                individual_probability=0.50,
+                decimal_odds=2.00,
+            ),
+            ParlayLeg(
+                "l7",
+                ParlayLegType.PITCHER_K_HOME_OVER,
+                "Home Starter Over 6.5 Ks",
+                line=6.5,
+                individual_probability=0.55,
+                decimal_odds=1.82,
+            ),
+            ParlayLeg(
+                "l8",
+                ParlayLegType.F5_MONEYLINE_HOME,
+                "Home First-5 (F5) Moneyline",
+                individual_probability=0.57,
+                decimal_odds=1.75,
+            ),
+        ]
+
+        best_parlays = evaluator.find_best_correlated_parlays(
+            game_instance_key="sample_game",
+            candidate_legs=candidate_legs,
+            leg_count=args.legs,
+            min_correlation_boost=args.min_boost,
+        )
+
+        if args.json:
+            parlay_out = [
+                {
+                    "parlay_id": parlay_obj.parlay_id,
+                    "leg_count": parlay_obj.leg_count,
+                    "legs": [
+                        {
+                            "leg_id": leg.leg_id,
+                            "type": leg.leg_type.value,
+                            "description": leg.description,
+                            "indiv_prob": leg.individual_probability,
+                            "decimal_odds": leg.decimal_odds,
+                        }
+                        for leg in parlay_obj.legs
+                    ],
+                    "independent_prob": parlay_obj.independent_prob,
+                    "joint_prob": parlay_obj.joint_prob,
+                    "correlation_multiplier": parlay_obj.correlation_multiplier,
+                    "fair_decimal_odds": parlay_obj.fair_decimal_odds,
+                    "sportsbook_offered_odds": parlay_obj.sportsbook_offered_odds,
+                    "expected_value_pct": parlay_obj.expected_value_pct,
+                }
+                for parlay_obj in best_parlays
+            ]
+            print(json_lib.dumps(parlay_out, indent=2))
+        else:
+            print(f"\n{'=' * 92}")
+            print(f"     CORRELATED SGP COPULA OPTIMIZER ({args.legs}-Leg Combinations)")
+            print(f"     Paths: {args.sims:,} | Min Boost: {args.min_boost:.2f}x")
+            print(f"{'=' * 92}\n")
+
+            if not best_parlays:
+                print("No parlay combinations met the specified correlation boost threshold.\n")
+            else:
+                for idx, parlay_item in enumerate(best_parlays[:8]):
+                    leg_descs = " + ".join([leg.description for leg in parlay_item.legs])
+                    ev_str = (
+                        f"{parlay_item.expected_value_pct * 100:+.1f}%"
+                        if parlay_item.expected_value_pct is not None
+                        else "N/A"
+                    )
+                    print(f"#{idx + 1:<2} | {leg_descs}")
+                    print(
+                        f"    Joint Prob: {parlay_item.joint_prob * 100:>5.1f}% "
+                        f"(vs Indep: {parlay_item.independent_prob * 100:>5.1f}%) | "
+                        f"Boost: {parlay_item.correlation_multiplier:>4.2f}x | "
+                        f"Fair: {parlay_item.fair_decimal_odds:>5.2f} | "
+                        f"Book: {parlay_item.sportsbook_offered_odds or 0.0:>5.2f} | "
+                        f"EV: {ev_str}"
+                    )
+                    print("-" * 92)
                 print("")
 
     elif args.command == "daily":

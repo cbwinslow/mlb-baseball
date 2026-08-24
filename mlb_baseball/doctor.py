@@ -248,6 +248,7 @@ def run() -> list[Check]:
         backtest,
         calibration,
         drift,
+        parlay,
         portfolio,
         props,
         ros,
@@ -315,6 +316,10 @@ def run() -> list[Check]:
         checks.extend(stack.health_check())
     except Exception as exc:
         checks.append(Check("stack", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(parlay.health_check())
+    except Exception as exc:
+        checks.append(Check("parlay", False, f"health_check() raised: {exc}"))
 
     # backup.py has no bootstrap()/update() either -- it's an operational
     # tool, not a data source, but a missing pg_dump/psql should still show

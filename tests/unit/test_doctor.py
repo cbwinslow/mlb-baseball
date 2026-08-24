@@ -102,3 +102,12 @@ def test_drift_health_check():
     d_checks = drift.health_check()
     assert len(d_checks) == 1
     assert d_checks[0].ok is True
+
+
+def test_parlay_health_check():
+    """Verify correlated parlay engine health check returns clean pass."""
+    from mlb_baseball.model import parlay
+
+    p_checks = parlay.health_check()
+    assert len(p_checks) == 1
+    assert p_checks[0].ok is True

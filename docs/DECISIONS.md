@@ -2,6 +2,18 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-125: Correlated Same-Game Parlay (SGP) Engine & Copula Simulation (`PARLAY-01`, Package 37)
+
+**Decision:** Built correlated Same-Game Parlay (SGP) engine and multivariate Gaussian Copula Monte Carlo simulator in `mlb_baseball/model/parlay.py` and CLI subcommand `mlb parlay` to evaluate inter-event dependencies, true joint probabilities, and mispriced +EV parlays.
+- **Mathematical Formulations & Methodology**:
+  - Multivariate Gaussian Copula Simulation: $\mathcal{C}_R(u_1, u_2, ...) = \Phi_R(\Phi^{-1}(u_1), \Phi^{-1}(u_2), ...)$ over latent home/away offensive strength and pitcher strikeout dominance.
+  - Inter-Event Correlation Matrix: Models empirical correlations (e.g., Pitcher Strikeout Dominance suppresses Opponent Team Total with $r \approx -0.40$ and boosts Pitcher Strikeouts with $r \approx +0.60$).
+  - Correlation Multiplier ($ho_{\text{mult}}$): Quantifies correlation boost $ho_{\text{mult}} = rac{\hat{P}_{\text{joint}}}{\prod P(L_m)}$. Multipliers $> 1.0$ indicate synergistic positive correlation.
+  - Fair Decimal Odds & Edge: Computes fair zero-vig price $O_{\text{fair}} = 1 / \hat{P}_{\text{joint}}$ and evaluates $\text{EV} = (\hat{P}_{\text{joint}} \cdot O_{\text{book}}) - 1.0$.
+  - Combinatorial SGP Search: Discovers optimal $K$-leg parlay structures from candidate market legs.
+  - CLI: `mlb parlay --sims 10000 --legs 2 --min-boost 1.10`, `mlb parlay --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_parlay.py` passing; 482/482 full repository unit tests passing.
+
 ## ADR-124: Continuous Model Drift, Calibration Tracking & Degradation Monitor (`DRIFT-01`, Package 36)
 
 **Decision:** Built continuous model drift and calibration tracking monitor in `mlb_baseball/model/drift.py` and CLI subcommand `mlb drift` to protect against non-stationarity and performance degradation.

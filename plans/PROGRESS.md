@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### CRON-01 scheduled daily automation daemon & cache warmer: implemented (ADR-142) — 2026-08-24
+Added `mlb_baseball/daemon.py`, unit tests in `tests/unit/test_daemon.py`, and `mlb daemon` CLI command.
+- Orchestrates daily 8-phase forecasting cycle, warms PostgreSQL analytical serving views, and bakes static vector SVG charts.
+
+### SUB-01 late-inning tactical pinch-hit & substitution simulator: implemented (ADR-141) — 2026-08-24
+Added `mlb_baseball/model/sub.py`, unit tests in `tests/unit/test_sub.py`, and `mlb sub` CLI command.
+- Simulates manager late-inning pinch-hit decisions ($Inning \ge 7, LI \ge 1.2$) to optimize platoon wOBA gains from the bench.
+
+### SHIFT-01 defensive alignment & batted ball spray suppression: implemented (ADR-140) — 2026-08-24
+Added `mlb_baseball/model/shift.py`, unit tests in `tests/unit/test_shift.py`, and `mlb shift` CLI command.
+- Evaluates batter pull-rate distributions against defensive schemes (Standard, Shaded Pull, Infield In, Outfield Deep) and team OAA BABIP suppression.
+
+### COUNT-01 pitch sequencing & count state Markov engine: implemented (ADR-139) — 2026-08-24
+Added `mlb_baseball/model/count.py`, unit tests in `tests/unit/test_count.py`, and `mlb count` CLI command.
+- Models 12 count states ($0\text{-}0 \rightarrow 3\text{-}2$) with count-dependent pitch selection shifts, whiff jumps, and terminal absorption.
+
 ### BULLPEN-01 dynamic bullpen fatigue decay & hierarchy simulator: implemented (ADR-138) — 2026-08-24
 Added `mlb_baseball/model/reliever.py`, unit tests in `tests/unit/test_reliever.py`, and `mlb bullpen` CLI command.
 - Tracks 3-day pitch fatigue accumulation with back-to-back penalties, classifies arm availability (Fresh/Fatigued/Unavailable), and models manager leverage hierarchies.

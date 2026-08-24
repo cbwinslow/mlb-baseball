@@ -867,6 +867,66 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Count state Markov simulation (COUNT-01)
+    count_parser = subparsers.add_parser(
+        "count",
+        help="simulate pitch-by-pitch count state progression (COUNT-01)",
+    )
+    count_parser.add_argument("--balls", type=int, default=0, help="starting balls (default: 0)")
+    count_parser.add_argument(
+        "--strikes", type=int, default=0, help="starting strikes (default: 0)"
+    )
+    count_parser.add_argument(
+        "--whiff-rate", type=float, default=0.25, help="whiff rate (default: 0.25)"
+    )
+    count_parser.add_argument("--json", action="store_true", help="output count simulation as JSON")
+
+    # Defensive alignment and BABIP suppression (SHIFT-01)
+    shift_parser = subparsers.add_parser(
+        "shift",
+        help="evaluate defensive alignment and spray suppression (SHIFT-01)",
+    )
+    shift_parser.add_argument(
+        "--alignment",
+        choices=["standard", "shaded_pull", "infield_in", "outfield_deep"],
+        default="shaded_pull",
+        help="alignment",
+    )
+    shift_parser.add_argument(
+        "--pull-pct", type=float, default=0.52, help="batter ground ball pull pct (default: 0.52)"
+    )
+    shift_parser.add_argument(
+        "--team-oaa", type=float, default=6.0, help="team infield OAA (default: 6.0)"
+    )
+    shift_parser.add_argument("--json", action="store_true", help="output shift evaluation as JSON")
+
+    # Late-inning tactical substitution simulator (SUB-01)
+    sub_parser = subparsers.add_parser(
+        "sub",
+        help="simulate manager late-inning pinch-hit decisions (SUB-01)",
+    )
+    sub_parser.add_argument("--inning", type=int, default=8, help="game inning (default: 8)")
+    sub_parser.add_argument(
+        "--leverage", type=float, default=1.8, help="leverage index (default: 1.8)"
+    )
+    sub_parser.add_argument(
+        "--pitcher-hand", choices=["R", "L"], default="L", help="opposing pitcher hand (default: L)"
+    )
+    sub_parser.add_argument("--json", action="store_true", help="output pinch hit decision as JSON")
+
+    # Scheduled daily automation daemon (CRON-01)
+    daemon_parser = subparsers.add_parser(
+        "daemon",
+        help="run daily automation cycle and warm serving cache (CRON-01)",
+    )
+    daemon_parser.add_argument(
+        "--date", type=str, default="2026-08-24", help="forecast date (YYYY-MM-DD)"
+    )
+    daemon_parser.add_argument(
+        "--skip-doctor", action="store_true", help="skip doctor preflight checks"
+    )
+    daemon_parser.add_argument("--json", action="store_true", help="output daemon summary as JSON")
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -2695,6 +2755,153 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "count":
+        import json as json_lib
+
+        from mlb_baseball.model.count import PitchCountMarkovEngine
+
+        c_eng = PitchCountMarkovEngine()
+        c_res = c_eng.simulate_plate_appearance(
+            starting_balls=args.balls,
+            starting_strikes=args.strikes,
+            whiff_base_rate=args.whiff_rate,
+        )
+
+        if args.json:
+            cnt_out = {
+                "terminal_outcome": c_res.terminal_outcome.value,
+                "total_pitches": c_res.total_pitches,
+                "count_history": c_res.count_history,
+                "pitch_outcomes": c_res.pitch_outcomes,
+            }
+            print(json_lib.dumps(cnt_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PITCH COUNT MARKOV AT-BAT SIMULATION ({args.balls}-{args.strikes} Start)")
+            out_str = (
+                f"     [{c_res.terminal_outcome.value.upper()}] | Pitches: {c_res.total_pitches}"
+            )
+            print(out_str)
+            print(f"{'=' * 84}\n")
+            print(f"  • Count Sequence       : {' -> '.join(c_res.count_history)}")
+            print(f"  • Pitch Outcomes       : {', '.join(c_res.pitch_outcomes)}\n")
+
+    elif args.command == "shift":
+        import json as json_lib
+
+        from mlb_baseball.model.shift import (
+            AlignmentType,
+            BatterBattedBallTendencies,
+            DefensiveAlignmentEngine,
+            DefensiveAlignmentProfile,
+        )
+
+        sh_eng = DefensiveAlignmentEngine()
+        align_enum = AlignmentType(args.alignment)
+        def_prof = DefensiveAlignmentProfile("team1", align_enum, infield_oaa_season=args.team_oaa)
+        bat_tend = BatterBattedBallTendencies(
+            "b1", "Target Batter", pull_pct_ground_balls=args.pull_pct
+        )
+        sh_res = sh_eng.evaluate_defensive_matchup(def_prof, bat_tend)
+
+        if args.json:
+            sh_out = {
+                "alignment": sh_res.alignment.value,
+                "expected_babip": sh_res.expected_babip,
+                "babip_delta": sh_res.babip_delta_vs_league,
+                "ground_ball_out_rate": sh_res.ground_ball_out_rate,
+                "run_prevention": sh_res.expected_run_prevention_per_game,
+            }
+            print(json_lib.dumps(sh_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(
+                f"     DEFENSIVE ALIGNMENT & SPRAY SUPPRESSION ({sh_res.alignment.value.upper()})"
+            )
+            print(
+                f"     Batter Pull%: {args.pull_pct * 100:.0f}% | Infield OAA: {args.team_oaa:+.1f}"
+            )
+            print(f"{'=' * 84}\n")
+            babip_str = (
+                f"  • BABIP: {sh_res.expected_babip:.3f} ({sh_res.babip_delta_vs_league:+.2f})"
+            )
+            print(babip_str)
+            print(f"  • Ground Ball Out Rate : {sh_res.ground_ball_out_rate * 100:.1f}%")
+            print(
+                f"  • Run Prevention       : {sh_res.expected_run_prevention_per_game:+.2f} runs\n"
+            )
+
+    elif args.command == "sub":
+        import json as json_lib
+
+        from mlb_baseball.model.sub import (
+            BatterCard,
+            TacticalSubstitutionEngine,
+        )
+
+        sub_eng = TacticalSubstitutionEngine()
+        weak_starter = BatterCard("b1", "Starter", bats="L", woba_vs_rhp=0.315, woba_vs_lhp=0.230)
+        power_bench = BatterCard(
+            "b2", "Power Bench", bats="R", woba_vs_rhp=0.320, woba_vs_lhp=0.375
+        )
+
+        sub_rec = sub_eng.evaluate_pinch_hit(
+            current_batter=weak_starter,
+            opposing_pitcher_hand=args.pitcher_hand,
+            bench_players=[power_bench],
+            inning=args.inning,
+            leverage_index=args.leverage,
+        )
+
+        if args.json:
+            sub_out = {
+                "should_substitute": sub_rec.should_substitute,
+                "substitute_name": sub_rec.recommended_substitute_name,
+                "expected_gain": sub_rec.expected_woba_gain,
+                "rationale": sub_rec.rationale,
+            }
+            print(json_lib.dumps(sub_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     TACTICAL PINCH-HIT SIMULATOR (INNING {args.inning})")
+            sub_tag = "YES (RECOMMENDED)" if sub_rec.should_substitute else "NO"
+            print(f"     Should Pinch Hit: [{sub_tag}] | Leverage: {args.leverage:.1f}")
+            print(f"{'=' * 84}\n")
+            if sub_rec.should_substitute:
+                print(f"  • Recommended Sub      : {sub_rec.recommended_substitute_name}")
+                print(f"  • Expected wOBA Gain   : +{sub_rec.expected_woba_gain:.3f}")
+            print(f"  • Rationale            : {sub_rec.rationale}\n")
+
+    elif args.command == "daemon":
+        import json as json_lib
+
+        from mlb_baseball.daemon import DailyAutomationDaemon
+
+        d_eng = DailyAutomationDaemon()
+        d_summary = d_eng.execute_daily_cycle(date_str=args.date, skip_doctor=args.skip_doctor)
+
+        if args.json:
+            d_out = {
+                "timestamp": d_summary.execution_timestamp,
+                "pipeline_status": d_summary.pipeline_status,
+                "pipeline_duration_s": d_summary.pipeline_duration_s,
+                "cache_warming_time_ms": d_summary.cache_warming_time_ms,
+                "assets_baked": d_summary.visual_assets_baked,
+                "alerts": d_summary.alerts,
+            }
+            print(json_lib.dumps(d_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     DAILY AUTOMATION DAEMON RUN ({d_summary.execution_timestamp})")
+            p_hdr = (
+                f"     Status: [{d_summary.pipeline_status}] | {d_summary.pipeline_duration_s:.2f}s"
+            )
+            print(p_hdr)
+            print(f"{'=' * 84}\n")
+            print(f"  • Cache Warming        : {d_summary.cache_warming_time_ms:.1f}ms (5 Marts)")
+            print(f"  • Visual Assets Baked  : {d_summary.visual_assets_baked} vector charts")
+            print(f"  • Active Alerts        : {len(d_summary.alerts)} registered\n")
 
     elif args.command == "daily":
         import json as json_lib

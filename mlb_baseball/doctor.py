@@ -19,6 +19,7 @@ import psycopg
 from mlb_baseball import (
     backup,
     conform,
+    daemon,
     dump,
     ingest,
     manifest,
@@ -261,6 +262,7 @@ def run() -> list[Check]:
         bvp,
         calibration,
         cluster,
+        count,
         drift,
         heatmap,
         hedge,
@@ -271,9 +273,11 @@ def run() -> list[Check]:
         reliever,
         ros,
         season,
+        shift,
         simulate,
         stack,
         stuff,
+        sub,
         umpire,
         weather,
         wpa,
@@ -393,6 +397,22 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(count.health_check())
+    except Exception as exc:
+        checks.append(Check("count", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(shift.health_check())
+    except Exception as exc:
+        checks.append(Check("shift", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(sub.health_check())
+    except Exception as exc:
+        checks.append(Check("sub", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(daemon.health_check())
+    except Exception as exc:
+        checks.append(Check("daemon", False, f"health_check() raised: {exc}"))
 
     # backup.py has no bootstrap()/update() either -- it's an operational
     # tool, not a data source, but a missing pg_dump/psql should still show

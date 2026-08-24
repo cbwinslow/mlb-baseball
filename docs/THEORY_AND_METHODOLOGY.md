@@ -49,7 +49,10 @@ This document serves as the academic and theoretical reference manual for the ML
 23. [Umpire Strike Zone Spatial Bias & Totals Effect](#23-umpire-strike-zone-spatial-bias--totals-effect)
 24. [Stadium 3D Vector Wind Kinematics & Air Density Physics](#24-stadium-3d-vector-wind-kinematics--air-density-physics)
 25. [Reliever Fatigue Decay & Bullpen Leverage Hierarchy](#25-reliever-fatigue-decay--bullpen-leverage-hierarchy)
-26. [Academic Bibliography & Literature Citations](#26-academic-bibliography--literature-citations)
+26. [Pitch-by-Pitch Count State Markov Transitions](#26-pitch-by-pitch-count-state-markov-transitions)
+27. [Defensive Alignment & Batted Ball Spray Suppression](#27-defensive-alignment--batted-ball-spray-suppression)
+28. [Late-Inning Tactical Substitution & Leverage Optimization](#28-late-inning-tactical-substitution--leverage-optimization)
+29. [Academic Bibliography & Literature Citations](#29-academic-bibliography--literature-citations)
 
 ---
 
@@ -423,7 +426,33 @@ $$\text{Fatigue Index} = (1.00 \cdot P_{d-1}) + (0.50 \cdot P_{d-2}) + (0.25 \cd
 
 ---
 
-## 26. Academic Bibliography & Literature Citations
+## 26. Pitch-by-Pitch Count State Markov Transitions
+
+### 26.1 Absorbing Markov Chain At-Bat Formulation
+Count states: $S = \{(b, s) \mid b \in \{0,1,2,3\}, s \in \{0,1,2\}\}$ with absorbing terminal states $\mathcal{T} = \{K, BB, BIP, HBP\}$.
+Transition matrix $T(s, s')$ models count-dependent shifts in strike-zone frequency and whiff probability:
+- **Pitcher Counts ($0\text{-}2, 1\text{-}2$):** $P(\text{Whiff}) = w_{\text{base}} \times 1.35$.
+- **Hitter Counts ($3\text{-}0, 3\text{-}1$):** $P(\text{Called Strike / Fastball}) = 0.28, P(\text{Whiff}) = w_{\text{base}} \times 0.70$.
+
+---
+
+## 27. Defensive Alignment & Batted Ball Spray Suppression
+
+### 27.1 Directional Spray & Shift Filtering
+$$\text{BABIP}_{\text{expected}} = \text{BABIP}_{\text{league}} + \Delta_{\text{speed}} + \Delta_{\text{hard\_hit}} + \Delta_{\text{alignment}} - \left(0.012 \cdot \frac{\text{OAA}_{\text{team}}}{10.0}\right)$$
+For pull-heavy hitters ($\text{Pull\%}_{\text{GB}} \ge 48\%$) facing shaded defense: $\Delta_{\text{alignment}} = -0.022\text{ BABIP}$.
+
+---
+
+## 28. Late-Inning Tactical Substitution & Leverage Optimization
+
+### 28.1 High-Leverage Pinch-Hit Trigger
+$$\text{Substitute Trigger} = (Inning \ge 7) \land (LI \ge 1.2) \land (\Delta \text{wOBA}_{\text{bench}} > \tau_{\text{gain}})$$
+where $\tau_{\text{gain}} = 0.020$ if $LI \ge 2.0$, else $0.045$.
+
+---
+
+## 29. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -447,3 +476,5 @@ $$\text{Fatigue Index} = (1.00 \cdot P_{d-1}) + (0.50 \cdot P_{d-2}) + (0.25 \cd
 20. **Thorp, Edward O.** (2006). "The Kelly Criterion in Blackjack, Sports Betting, and the Stock Market". *Handbook of Asset and Liability Management*.
 21. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books.
 22. **Nathan, Alan M.** (2008). "The Effect of Wind and Air Density on the Trajectory of a Baseball". *American Journal of Physics*.
+23. **Kemeny, John G.; Snell, J. Laurie** (1976). *Finite Markov Chains*. Springer-Verlag.
+24. **Albert, Jim** (2017). *Visualizing Baseball*. CRC Press.

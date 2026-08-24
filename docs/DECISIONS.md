@@ -2,6 +2,42 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-142: Scheduled Daily Automation Daemon & Cache Warmer (`CRON-01`, Package 54)
+
+**Decision:** Built automated scheduled daily forecasting runner and PostgreSQL buffer cache warmer in `mlb_baseball/daemon.py` and CLI subcommand `mlb daemon`.
+- **Operational Lifecycle**:
+  - Automatically executes the 8-phase `MasterDailyPipeline`, warms analytical serving views (`serve.ros_team_standings`, `serve.pitcher_arsenal`, `serve.sgp_matchup_grid`, etc.) to achieve sub-5ms query latency, and bakes static vector SVG assets (heatmaps, spray charts).
+  - CLI: `mlb daemon --date 2026-08-24 --skip-doctor`, `mlb daemon --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_daemon.py` passing; 542/542 full repository unit tests passing.
+
+## ADR-141: Late-Inning Pinch-Hit & Substitution Tactical Simulator (`SUB-01`, Package 53)
+
+**Decision:** Built manager late-inning tactical decision tree simulation and bench optimization in `mlb_baseball/model/sub.py` and CLI subcommand `mlb sub`.
+- **Mathematical Formulations & Methodology**:
+  - Substitution Trigger: Evaluates high leverage ($LI \ge 1.2$), late innings ($Inning \ge 7$), and platoon disadvantage.
+  - Bench wOBA Optimization: Selects bench batter with highest net platoon advantage ($\Delta \text{wOBA} > +0.025$).
+  - CLI: `mlb sub --inning 8 --leverage 2.0 --pitcher-hand L`, `mlb sub --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_sub.py` passing; 542/542 full repository unit tests passing.
+
+## ADR-140: Defensive Alignment & Batted Ball Spray Suppression Engine (`SHIFT-01`, Package 52)
+
+**Decision:** Built defensive positioning evaluation, spray-angle directional filtering, and team OAA BABIP suppression in `mlb_baseball/model/shift.py` and CLI subcommand `mlb shift`.
+- **Mathematical Formulations & Methodology**:
+  - Alignments: Standard, Shaded Pull, Infield In, Outfield Deep.
+  - Spray Suppression: Heavy pull hitters ($\text{Pull\%} \ge 48\%$) on ground balls face $-0.022\text{ BABIP}$ suppression and $+5.0\%$ out conversion under shaded defense.
+  - Team OAA Scaling: Every $+10\text{ OAA}$ suppresses $-0.012\text{ BABIP}$ and prevents $\approx 0.22\text{ runs/game}$.
+  - CLI: `mlb shift --alignment shaded_pull --pull-pct 0.52 --team-oaa 6.0`, `mlb shift --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_shift.py` passing; 542/542 full repository unit tests passing.
+
+## ADR-139: Dynamic In-Game Pitch Sequencing & Count State Markov Engine (`COUNT-01`, Package 51)
+
+**Decision:** Built pitch-by-pitch 12 count state Markov progression simulator in `mlb_baseball/model/count.py` and CLI subcommand `mlb count`.
+- **Mathematical Formulations & Methodology**:
+  - 12 Count States ($0\text{-}0 \rightarrow 3\text{-}2$) with absorbing terminal states (K, BB, BIP, HBP).
+  - Count-Dependent Transitions: Hitter counts ($3\text{-}1, 2\text{-}0$) boost zone fastballs; pitcher counts ($0\text{-}2, 1\text{-}2$) boost chase and swinging strikes by $+35\%$.
+  - CLI: `mlb count --balls 0 --strikes 2 --whiff-rate 0.25`, `mlb count --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_count.py` passing; 542/542 full repository unit tests passing.
+
 ## ADR-138: Dynamic Bullpen Fatigue Decay & Manager Hierarchy Simulator (`BULLPEN-01`, Package 50)
 
 **Decision:** Built individual reliever fatigue decay tracking and manager leverage hierarchy modeling in `mlb_baseball/model/bullpen.py` and CLI subcommand `mlb bullpen`.

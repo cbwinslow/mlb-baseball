@@ -168,3 +168,14 @@ def test_bvp_and_umpire_and_weather_and_reliever_health_checks():
     assert umpire.health_check()[0].ok is True
     assert weather.health_check()[0].ok is True
     assert reliever.health_check()[0].ok is True
+
+
+def test_count_and_shift_and_sub_and_daemon_health_checks():
+    """Verify health checks for count, shift, sub, and daemon modules."""
+    from mlb_baseball import daemon
+    from mlb_baseball.model import count, shift, sub
+
+    assert count.health_check()[0].ok is True
+    assert shift.health_check()[0].ok is True
+    assert sub.health_check()[0].ok is True
+    assert daemon.health_check()[0].ok is True

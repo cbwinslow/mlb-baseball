@@ -156,7 +156,11 @@ This document serves as the academic and theoretical reference manual for the ML
 130. [Pitcher Secondary Pitch Whiff Escalation in 2-Strike Counts](#130-pitcher-secondary-pitch-whiff-escalation-in-2-strike-counts)
 131. [Outfielder Throw Accuracy & Direct Line Target Efficiency](#131-outfielder-throw-accuracy--direct-line-target-efficiency)
 132. [Pure-Python SVG Pitch Movement & Clock Spin Polar Compass Architecture](#132-pure-python-svg-pitch-movement--clock-spin-polar-compass-architecture)
-133. [Academic Bibliography & Literature Citations](#133-academic-bibliography--literature-citations)
+133. [Batter Breaking Ball Chase Recognition Dynamics](#133-batter-breaking-ball-chase-recognition-dynamics)
+134. [Pitcher First-Pitch Strike Aggression vs Ambush Penalty Mechanics](#134-pitcher-first-pitch-strike-aggression-vs-ambush-penalty-mechanics)
+135. [Catcher Wild Pitch & Passed Ball Wall Blocking Value](#135-catcher-wild-pitch--passed-ball-wall-blocking-value)
+136. [Pure-Python SVG Pitch Tunnel Decision Separation Architecture](#136-pure-python-svg-pitch-tunnel-decision-separation-architecture)
+137. [Academic Bibliography & Literature Citations](#137-academic-bibliography--literature-citations)
 
 ---
 
@@ -1390,7 +1394,38 @@ $$(r, \phi) = \left(\sqrt{\text{HB}^2 + \text{IVB}^2}, \; \text{atan2}(\text{HB}
 
 ---
 
-## 133. Academic Bibliography & Literature Citations
+## 133. Batter Breaking Ball Chase Recognition Dynamics
+
+### 133.1 Breaking Ball Chase Recognition Index (BBCRI) & Chase Runs
+$$\text{BBCRI} = \max\left(0, 100 + (32.0 - \text{Chase\%}) \cdot 2.2 + (\text{Take\%} - 68.0) \cdot 1.6 + (58.0 - \text{Whiff\%}) \cdot 0.8\right)$$
+$$\text{CDRA}_{\text{runs}} = (\text{BBCRI} - 100.0) \cdot (\text{Pitches} \cdot 0.0022)$$
+
+---
+
+## 134. Pitcher First-Pitch Strike Aggression vs Ambush Penalty Mechanics
+
+### 134.1 First-Pitch Command & Ambush Resistance Index (FPCARI) & Leverage Runs
+$$\text{FPCARI} = \max\left(0, 100 + (\text{F-Strike\%} - 60.0) \cdot 1.8 + (44.0 - \text{HardHit\%}) \cdot 1.2 + (0.520 - \text{SLG}) \cdot 45.0\right)$$
+$$\text{FPLRS}_{\text{runs}} = (\text{FPCARI} - 100.0) \cdot (\text{BF} \cdot 0.0025)$$
+
+---
+
+## 135. Catcher Wild Pitch & Passed Ball Wall Blocking Value
+
+### 135.1 Catcher Wall Blocking Efficiency Index (CWBEI) & Runs Saved
+$$\text{CWBEI} = \max\left(0, 100 + (\text{Block\%} - 82.0) \cdot 2.2 + (\text{Suppress\%} - 86.0) \cdot 1.6 + (3.5 - \text{PB}_{1000}) \cdot 4.5\right)$$
+$$\text{BRSAA}_{\text{runs}} = (\text{CWBEI} - 100.0) \cdot (\text{Opps} \cdot 0.0036)$$
+
+---
+
+## 136. Pure-Python SVG Pitch Tunnel Decision Separation Architecture
+
+### 136.1 Trajectory Divergence at 23.8 ft Commitment Gate
+$$\Delta_{\text{tunnel}} = \sqrt{(X_1(23.8) - X_2(23.8))^2 + (Z_1(23.8) - Z_2(23.8))^2}$$
+
+---
+
+## 137. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1468,3 +1503,5 @@ $$(r, \phi) = \left(\sqrt{\text{HB}^2 + \text{IVB}^2}, \; \text{atan2}(\text{HB}
 74. **Fast, Mike** (2010). "Quantifying Tunneling Deception and Arm Slot Clustering". *Hardball Times*.
 75. **Sawchik, Travis** (2015). "The High Fastball Revolution in Major League Baseball". *FanGraphs*.
 76. **Petti, Bill** (2014). "Evaluating Outfielder Throw Paths and Runner Hold Frequencies". *Hardball Times*.
+77. **Roegele, Jon** (2013). "The True Value of First Pitch Strikes". *Hardball Times*.
+78. **Pavitt, Colin** (2017). "Catcher Blocking Metrics and Ball-in-Dirt Recovery Dynamics". *Journal of Sports Analytics*.

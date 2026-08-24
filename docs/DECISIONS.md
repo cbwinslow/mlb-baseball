@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-250: Pure-Python SVG Pitcher Pitch Tunnel Decision Separation Chart (`TUNNEL-DECISION-01`, Package 162)
+
+**Decision:** Built vector SVG pitch trajectory divergence chart in `mlb_baseball/visual.py` and CLI subcommand `mlb tunnel-decision`.
+- **Operational Architecture & Geometry**:
+  - Distance Geometry: Release ($50\text{ ft}$), Decision Point ($23.8\text{ ft}$, $t \approx 175\text{ ms}$), Home Plate ($1.4\text{ ft}$).
+  - Shaded Tunnel Tube: Amber dashed boundary tube indicating commitment decision window.
+  - CLI: `mlb tunnel-decision --title "Skenes Fastball-Splinker Tunnel" --pitcher "Paul Skenes"`.
+- **Verification**: 28/28 unit tests in `tests/unit/test_visual.py` passing; 834/834 full repository unit tests passing.
+
+## ADR-249: Catcher Wild Pitch & Passed Ball Wall Blocking Value Engine (`WALL-BLOCK-01`, Package 161)
+
+**Decision:** Built dirt ball smother rate, runner advance suppression, and CWBEI modeling in `mlb_baseball/model/wall_block.py` and CLI subcommand `mlb wall-block`.
+- **Mathematical Formulations & Methodology**:
+  - Catcher Wall Blocking Efficiency Index: $\text{CWBEI} = \max\left(0, 100 + (\text{Block\%} - 82.0) \cdot 2.2 + (\text{Suppress\%} - 86.0) \cdot 1.6 + (3.5 - \text{PB}_{1000}) \cdot 4.5\right)$.
+  - Blocked Runs Saved Above Average: $\text{BRSAA}_{\text{runs}} = (\text{CWBEI} - 100.0) \cdot (\text{Opps} \cdot 0.0036)$.
+  - Tiers: `BRICK_WALL_DIRT_BALL_BLOCKER` ($\text{CWBEI} \ge 116.0, \text{Block\%} \ge 89.0\%, \text{Suppress\%} \ge 92.0\%$), `OLE_OLE_DIRT_BALL_LEAK_LIABILITY`, `SOLID_DIRT_BALL_SMOTHERER`, `AVERAGE_CATCHER_BLOCKING`.
+  - CLI: `mlb wall-block --block 93.0 --suppress 96.0 --pb 1.2 --opps 180`, `mlb wall-block --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_wall_block.py` passing; 834/834 full repository unit tests passing.
+
+## ADR-248: Pitcher First-Pitch Strike Aggression vs Ambush Penalty Engine (`FIRST-PITCH-AMBUSH-01`, Package 160)
+
+**Decision:** Built 0-0 count strike rate, damage suppression, and FPCARI modeling in `mlb_baseball/model/first_pitch_ambush.py` and CLI subcommand `mlb first-pitch-ambush`.
+- **Mathematical Formulations & Methodology**:
+  - First-Pitch Command & Ambush Resistance Index: $\text{FPCARI} = \max\left(0, 100 + (\text{F-Strike\%} - 60.0) \cdot 1.8 + (44.0 - \text{HardHit\%}) \cdot 1.2 + (0.520 - \text{SLG}) \cdot 45.0\right)$.
+  - First-Pitch Count Leverage Runs Saved: $\text{FPLRS}_{\text{runs}} = (\text{FPCARI} - 100.0) \cdot (\text{BF} \cdot 0.0025)$.
+  - Tiers: `SURGICAL_FIRST_STRIKE_COMMANDER` ($\text{FPCARI} \ge 116.0, \text{F-Strike\%} \ge 66.0\%, \text{HardHit\%} \le 36.0\%$), `MEATBALL_AMBUSH_LIABILITY`, `SOLID_FIRST_PITCH_STRIKER`, `AVERAGE_FIRST_PITCH_PROFILE`.
+  - CLI: `mlb first-pitch-ambush --f-strike 68.0 --hard 34.0 --slg 0.380 --bf 240`, `mlb first-pitch-ambush --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_first_pitch_ambush.py` passing; 834/834 full repository unit tests passing.
+
+## ADR-247: Batter Offspeed / Breaking Ball Chase Recognition Engine (`CHASE-RECOG-01`, Package 159)
+
+**Decision:** Built out-of-zone breaking ball chase discipline, take %, and BBCRI modeling in `mlb_baseball/model/chase_recog.py` and CLI subcommand `mlb chase-recog`.
+- **Mathematical Formulations & Methodology**:
+  - Breaking Ball Chase Recognition Index: $\text{BBCRI} = \max\left(0, 100 + (32.0 - \text{Chase\%}) \cdot 2.2 + (\text{Take\%} - 68.0) \cdot 1.6 + (58.0 - \text{Whiff\%}) \cdot 0.8\right)$.
+  - Chase Discipline Runs: $\text{CDRA}_{\text{runs}} = (\text{BBCRI} - 100.0) \cdot (\text{Pitches} \cdot 0.0022)$.
+  - Tiers: `ELITE_BREAKING_BALL_DISCIPLINE_HAWK` ($\text{BBCRI} \ge 116.0, \text{Chase\%} \le 22.0\%, \text{Take\%} \ge 78.0\%$), `FREE_SWINGING_SLIDER_BAIT_LIABILITY`, `SOLID_DISCIPLINED_TAKER`, `AVERAGE_CHASE_RECOGNITION`.
+  - CLI: `mlb chase-recog --chase 18.0 --take 82.0 --whiff 36.0 --pitches 320`, `mlb chase-recog --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_chase_recog.py` passing; 834/834 full repository unit tests passing.
+
 ## ADR-246: Pure-Python SVG Pitcher Arsenal Movement & Spin Axis Polar Compass Plot (`POLAR-COMPASS-01`, Package 158)
 
 **Decision:** Built circular polar compass movement & clock spin chart in `mlb_baseball/visual.py` and CLI subcommand `mlb polar-compass`.

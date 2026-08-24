@@ -660,3 +660,27 @@ def test_polar_compass_plot_svg_generation():
     assert "Skenes Movement Polar Compass" in chart.svg_content
     assert "1:00" in chart.svg_content
     assert "FF (98.4 mph | 1:15)" in chart.svg_content
+
+
+def test_tunnel_decision_chart_svg_generation():
+    """Verify TunnelDecisionChartRenderer generates pitch trajectory tunnel divergence."""
+    from mlb_baseball.visual import (
+        PitcherTunnelDecisionProfile,
+        TunnelDecisionChartRenderer,
+        TunnelTrajectoryPitch,
+    )
+
+    renderer = TunnelDecisionChartRenderer()
+    p1 = TunnelTrajectoryPitch("FF", 99.2, 2.0, 36.0, "#00d2be")
+    p2 = TunnelTrajectoryPitch("SPL", 89.0, 6.0, 16.0, "#f59e0b")
+    prof = PitcherTunnelDecisionProfile(
+        "Skenes Fastball-Splinker Tunnel", "Paul Skenes", p1, p2, 1.8, 18.2
+    )
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 520
+    assert chart.height_px == 360
+    assert "<svg" in chart.svg_content
+    assert "Skenes Fastball-Splinker Tunnel" in chart.svg_content
+    assert "Decision Point (23.8 ft)" in chart.svg_content
+    assert "FF (99.2)" in chart.svg_content

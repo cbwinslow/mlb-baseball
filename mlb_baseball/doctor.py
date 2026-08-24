@@ -282,6 +282,7 @@ def run() -> list[Check]:
         catch_prob,
         catch_xchg,
         catcher_pop,
+        chase_recog,
         cluster,
         clutch,
         contact_depth,
@@ -297,6 +298,7 @@ def run() -> list[Check]:
         extension,
         fatigue,
         fatigue_drop,
+        first_pitch_ambush,
         first_step,
         foul_attrition,
         fstrike,
@@ -356,6 +358,7 @@ def run() -> list[Check]:
         velo_delta,
         velo_drift,
         wall,
+        wall_block,
         wall_crash,
         weather,
         wpa,
@@ -478,6 +481,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(chase_recog.health_check())
+    except Exception as exc:
+        checks.append(Check("chase_recog", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(first_pitch_ambush.health_check())
+    except Exception as exc:
+        checks.append(Check("first_pitch_ambush", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(wall_block.health_check())
+    except Exception as exc:
+        checks.append(Check("wall_block", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(heat_check.health_check())
     except Exception as exc:

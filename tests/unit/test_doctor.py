@@ -417,3 +417,12 @@ def test_heat_check_and_putaway_depth_and_outfield_target_health_checks():
     assert heat_check.health_check()[0].ok is True
     assert putaway_depth.health_check()[0].ok is True
     assert outfield_target.health_check()[0].ok is True
+
+
+def test_chase_recog_and_first_pitch_ambush_and_wall_block_health_checks():
+    """Verify health checks for chase_recog, first_pitch_ambush, and wall_block modules."""
+    from mlb_baseball.model import chase_recog, first_pitch_ambush, wall_block
+
+    assert chase_recog.health_check()[0].ok is True
+    assert first_pitch_ambush.health_check()[0].ok is True
+    assert wall_block.health_check()[0].ok is True

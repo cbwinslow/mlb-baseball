@@ -42,6 +42,7 @@ class ChartType(enum.Enum):
     FLOW_MIX_CHART = "flow_mix_chart"
     BARREL_GRID_CHART = "barrel_grid_chart"
     POLAR_COMPASS_CHART = "polar_compass_chart"
+    TUNNEL_DECISION_CHART = "tunnel_decision_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -3053,6 +3054,150 @@ class PolarCompassPlotRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class TunnelTrajectoryPitch:
+    """Pitch trajectory profile for tunneling decision convergence."""
+
+    pitch_name: str
+    velocity_mph: float
+    plate_x_in: float  # Horizontal offset from plate center in inches
+    plate_z_in: float  # Vertical height at plate in inches
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitcherTunnelDecisionProfile:
+    """Tunnel decision trajectory comparison profile between pitch pairs."""
+
+    title: str
+    pitcher_name: str
+    primary_pitch: TunnelTrajectoryPitch
+    secondary_pitch: TunnelTrajectoryPitch
+    separation_decision_in: float = 1.8  # Trajectory separation at 23.8ft decision point
+    separation_plate_in: float = 16.4  # Trajectory separation at plate
+
+
+class TunnelDecisionChartRenderer:
+    """Renders vector SVG pitch tunnel decision separation chart (TUNNEL-DECISION-01)."""
+
+    def __init__(self, width: int = 520, height: int = 360) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitcherTunnelDecisionProfile) -> GeneratedVectorChart:
+        """Render trajectory divergence from release to decision to plate."""
+        origin_x = 55.0  # Plate x in px
+        release_px = 460.0  # Release x in px (50ft)
+        decision_px = origin_x + (release_px - origin_x) * (23.8 / 50.0)
+
+        cy = 185.0  # Center vertical trajectory line in px
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="24" fill="#f8fafc" font-size="13" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="40" fill="#94a3b8" font-size="10" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} Trajectory Tunnel Separation</text>',
+        ]
+
+        # Decision Line at 23.8 ft
+        svg_parts.append(
+            f'<line x1="{decision_px:.1f}" y1="55" x2="{decision_px:.1f}" y2="310" '
+            f'stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4,4" />'
+        )
+        svg_parts.append(
+            f'<text x="{decision_px:.1f}" y="325" fill="#f59e0b" font-size="9" '
+            f'font-weight="bold" text-anchor="middle" font-family="sans-serif">'
+            f"Decision Point (23.8 ft)</text>"
+        )
+
+        # Plate Line at 1.4 ft
+        svg_parts.append(
+            f'<line x1="{origin_x:.1f}" y1="55" x2="{origin_x:.1f}" y2="310" '
+            f'stroke="#64748b" stroke-width="1.0" />'
+        )
+        svg_parts.append(
+            f'<text x="{origin_x:.1f}" y="325" fill="#64748b" font-size="9" '
+            f'text-anchor="middle" font-family="sans-serif">Home Plate</text>'
+        )
+
+        # Release Line at 50 ft
+        svg_parts.append(
+            f'<line x1="{release_px:.1f}" y1="55" x2="{release_px:.1f}" y2="310" '
+            f'stroke="#64748b" stroke-width="1.0" />'
+        )
+        svg_parts.append(
+            f'<text x="{release_px:.1f}" y="325" fill="#64748b" font-size="9" '
+            f'text-anchor="middle" font-family="sans-serif">Release (50 ft)</text>'
+        )
+
+        # Shaded Tunnel Tube (Release to Decision)
+        svg_parts.append(
+            f'<polygon points="{release_px:.1f},{cy - 12:.1f} {decision_px:.1f},{cy - 18:.1f} '
+            f'{decision_px:.1f},{cy + 18:.1f} {release_px:.1f},{cy + 12:.1f}" '
+            f'fill="#f59e0b" opacity="0.08" />'
+        )
+
+        # Pitch 1 Path (Primary)
+        p1 = profile.primary_pitch
+        p1_plate_y = cy - (p1.plate_z_in - 30.0) * 2.2
+        svg_parts.append(
+            f'<path d="M {release_px:.1f} {cy:.1f} Q {decision_px:.1f} {cy - 4:.1f} '
+            f'{origin_x:.1f} {p1_plate_y:.1f}" fill="none" '
+            f'stroke="{p1.color_hex}" stroke-width="3.0" opacity="0.9" />'
+        )
+        svg_parts.append(
+            f'<circle cx="{origin_x:.1f}" cy="{p1_plate_y:.1f}" r="5.5" '
+            f'fill="{p1.color_hex}" stroke="#0b1329" />'
+        )
+        svg_parts.append(
+            f'<text x="{origin_x - 8:.1f}" y="{p1_plate_y + 3:.1f}" fill="{p1.color_hex}" '
+            f'font-size="8" font-weight="bold" text-anchor="end" font-family="sans-serif">'
+            f"{p1.pitch_name} ({p1.velocity_mph:.1f})</text>"
+        )
+
+        # Pitch 2 Path (Secondary)
+        p2 = profile.secondary_pitch
+        p2_plate_y = cy - (p2.plate_z_in - 30.0) * 2.2
+        svg_parts.append(
+            f'<path d="M {release_px:.1f} {cy:.1f} Q {decision_px:.1f} {cy + 6:.1f} '
+            f'{origin_x:.1f} {p2_plate_y:.1f}" fill="none" '
+            f'stroke="{p2.color_hex}" stroke-width="3.0" opacity="0.9" />'
+        )
+        svg_parts.append(
+            f'<circle cx="{origin_x:.1f}" cy="{p2_plate_y:.1f}" r="5.5" '
+            f'fill="{p2.color_hex}" stroke="#0b1329" />'
+        )
+        svg_parts.append(
+            f'<text x="{origin_x - 8:.1f}" y="{p2_plate_y + 3:.1f}" fill="{p2.color_hex}" '
+            f'font-size="8" font-weight="bold" text-anchor="end" font-family="sans-serif">'
+            f"{p2.pitch_name} ({p2.velocity_mph:.1f})</text>"
+        )
+
+        # Separation Badges
+        svg_parts.append(
+            f'<text x="{decision_px:.1f}" y="75" fill="#f59e0b" font-size="10" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">'
+            f'Δ Tunnel: {profile.separation_decision_in:.1f}"</text>'
+        )
+        svg_parts.append(
+            f'<text x="{(origin_x + decision_px) / 2:.1f}" y="75" fill="#f8fafc" font-size="10" '
+            f'font-weight="bold" text-anchor="middle" font-family="sans-serif">'
+            f'Δ Plate: {profile.separation_plate_in:.1f}"</text>'
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.TUNNEL_DECISION_CHART,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -3260,6 +3405,13 @@ def health_check() -> list[Check]:
             PitcherPolarCompassProfile("Polar Compass", "Skenes", compass_pitches)
         )
 
+        tunnel_dec_renderer = TunnelDecisionChartRenderer()
+        p1 = TunnelTrajectoryPitch("FF", 99.2, 2.0, 36.0, "#00d2be")
+        p2 = TunnelTrajectoryPitch("SPL", 89.0, 6.0, 16.0, "#f59e0b")
+        tunnel_dec_chart = tunnel_dec_renderer.render(
+            PitcherTunnelDecisionProfile("Tunnel Decision", "Skenes", p1, p2, 1.8, 18.2)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -3287,6 +3439,7 @@ def health_check() -> list[Check]:
             and "<svg" in count_flow_chart.svg_content
             and "<svg" in barrel_grid_chart.svg_content
             and "<svg" in compass_chart.svg_content
+            and "<svg" in tunnel_dec_chart.svg_content
         ):
             checks.append(
                 Check(

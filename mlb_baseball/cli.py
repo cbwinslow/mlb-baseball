@@ -867,6 +867,75 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter breaking ball chase recognition (CHASE-RECOG-01)
+    cr_parser = subparsers.add_parser(
+        "chase-recog",
+        help="evaluate breaking ball chase avoidance, take discipline, and BBCRI (CHASE-RECOG-01)",
+    )
+    cr_parser.add_argument(
+        "--chase", type=float, default=32.0, help="breaking ball chase pct (default: 32.0)"
+    )
+    cr_parser.add_argument(
+        "--take", type=float, default=68.0, help="breaking ball take pct (default: 68.0)"
+    )
+    cr_parser.add_argument(
+        "--whiff", type=float, default=58.0, help="breaking ball whiff pct (default: 58.0)"
+    )
+    cr_parser.add_argument(
+        "--pitches", type=int, default=200, help="breaking balls seen (default: 200)"
+    )
+    cr_parser.add_argument(
+        "--json", action="store_true", help="output chase recog evaluation as JSON"
+    )
+
+    # Pitcher first-pitch strike command vs ambush (FIRST-PITCH-AMBUSH-01)
+    fpa_parser = subparsers.add_parser(
+        "first-pitch-ambush",
+        help="evaluate 0-0 strike command, damage suppression, and FPCARI (FIRST-PITCH-AMBUSH-01)",
+    )
+    fpa_parser.add_argument(
+        "--f-strike", type=float, default=60.0, help="0-0 strike pct (default: 60.0)"
+    )
+    fpa_parser.add_argument(
+        "--hard", type=float, default=44.0, help="0-0 hard hit pct (default: 44.0)"
+    )
+    fpa_parser.add_argument(
+        "--slg", type=float, default=0.520, help="0-0 slugging pct (default: 0.520)"
+    )
+    fpa_parser.add_argument("--bf", type=int, default=180, help="batters faced (default: 180)")
+    fpa_parser.add_argument("--json", action="store_true", help="output first pitch ambush as JSON")
+
+    # Catcher wild pitch & passed ball wall blocking (WALL-BLOCK-01)
+    wb_parser = subparsers.add_parser(
+        "wall-block",
+        help="evaluate dirt pitch blocking, advance suppression, and CWBEI (WALL-BLOCK-01)",
+    )
+    wb_parser.add_argument(
+        "--block", type=float, default=82.0, help="dirt ball block pct (default: 82.0)"
+    )
+    wb_parser.add_argument(
+        "--suppress", type=float, default=86.0, help="runner advance suppress pct (default: 86.0)"
+    )
+    wb_parser.add_argument(
+        "--pb", type=float, default=3.5, help="passed ball rate per 1000 (default: 3.5)"
+    )
+    wb_parser.add_argument(
+        "--opps", type=int, default=120, help="dirt pitches with runners (default: 120)"
+    )
+    wb_parser.add_argument(
+        "--json", action="store_true", help="output wall block evaluation as JSON"
+    )
+
+    # Pitcher pitch tunnel decision separation chart (TUNNEL-DECISION-01)
+    td_parser = subparsers.add_parser(
+        "tunnel-decision",
+        help="generate vector SVG pitch tunnel decision separation chart (TUNNEL-DECISION-01)",
+    )
+    td_parser.add_argument(
+        "--title", type=str, default="Skenes Fastball-Splinker Tunnel", help="chart title"
+    )
+    td_parser.add_argument("--pitcher", type=str, default="Paul Skenes", help="pitcher name")
+
     # Batter in-zone fastball contact & whiff vulnerability (HEAT-CHECK-01)
     hc_parser = subparsers.add_parser(
         "heat-check",
@@ -4547,6 +4616,140 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "chase-recog":
+        import json as json_lib
+
+        from mlb_baseball.model.chase_recog import (
+            BatterChaseRecogEngine,
+            BatterChaseRecogMetrics,
+            ChaseRecogEvaluationResult,
+        )
+
+        cr_eng = BatterChaseRecogEngine()
+        cr_m = BatterChaseRecogMetrics(
+            "b1",
+            "Target Batter",
+            breaking_ball_chase_pct=args.chase,
+            breaking_ball_take_correct_pct=args.take,
+            breaking_ball_waste_whiff_pct=args.whiff,
+            out_of_zone_breaking_pitches=args.pitches,
+        )
+        cr_res: ChaseRecogEvaluationResult = cr_eng.evaluate_chase_recog(cr_m)
+
+        if args.json:
+            cr_out = {
+                "bbcri_score": cr_res.bbcri_score,
+                "cdra_runs": cr_res.cdra_runs_produced,
+                "tier": cr_res.recognition_tier,
+                "is_hawk": cr_res.is_discipline_hawk,
+            }
+            print(json_lib.dumps(cr_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     BREAKING BALL CHASE DISCIPLINE [{cr_res.recognition_tier}]")
+            hdr_cr = (
+                f"     BBCRI Score: {cr_res.bbcri_score:.1f}/160 "
+                f"| Runs Produced: {cr_res.cdra_runs_produced:>+4.2f} "
+                f"| Discipline Hawk: {'YES' if cr_res.is_discipline_hawk else 'NO'}"
+            )
+            print(hdr_cr)
+            print(f"{'=' * 84}\n")
+            print(f"  • Recognition Profile  : {cr_res.recognition_tier}\n")
+
+    elif args.command == "first-pitch-ambush":
+        import json as json_lib
+
+        from mlb_baseball.model.first_pitch_ambush import (
+            FirstPitchAmbushEvaluationResult,
+            PitcherFirstPitchAmbushEngine,
+            PitcherFirstPitchAmbushMetrics,
+        )
+
+        fpa_eng = PitcherFirstPitchAmbushEngine()
+        fpa_m = PitcherFirstPitchAmbushMetrics(
+            "p1",
+            "Target Pitcher",
+            first_pitch_strike_pct=args.f_strike,
+            first_pitch_opponent_hard_hit_pct=args.hard,
+            first_pitch_opponent_slug_pct=args.slg,
+            total_batters_faced=args.bf,
+        )
+        fpa_res: FirstPitchAmbushEvaluationResult = fpa_eng.evaluate_first_pitch_ambush(fpa_m)
+
+        if args.json:
+            fpa_out = {
+                "fpcari_score": fpa_res.fpcari_score,
+                "fplrs_runs": fpa_res.fplrs_runs_saved,
+                "tier": fpa_res.ambush_tier,
+                "is_commander": fpa_res.is_commander,
+            }
+            print(json_lib.dumps(fpa_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     FIRST-PITCH COMMAND & AMBUSH SUPPRESSION [{fpa_res.ambush_tier}]")
+            hdr_fpa = (
+                f"     FPCARI Score: {fpa_res.fpcari_score:.1f}/160 "
+                f"| Runs Saved: {fpa_res.fplrs_runs_saved:>+4.2f} "
+                f"| Commander: {'YES' if fpa_res.is_commander else 'NO'}"
+            )
+            print(hdr_fpa)
+            print(f"{'=' * 84}\n")
+            print(f"  • Command Profile      : {fpa_res.ambush_tier}\n")
+
+    elif args.command == "wall-block":
+        import json as json_lib
+
+        from mlb_baseball.model.wall_block import (
+            CatcherWallBlockEngine,
+            CatcherWallBlockMetrics,
+            WallBlockEvaluationResult,
+        )
+
+        wb_eng = CatcherWallBlockEngine()
+        wb_m = CatcherWallBlockMetrics(
+            "c1",
+            "Target Catcher",
+            dirt_pitch_block_pct=args.block,
+            runner_advance_suppress_pct=args.suppress,
+            passed_ball_rate_per_1000=args.pb,
+            dirt_pitches_with_runners=args.opps,
+        )
+        wb_res: WallBlockEvaluationResult = wb_eng.evaluate_wall_block(wb_m)
+
+        if args.json:
+            wb_out = {
+                "cwbei_score": wb_res.cwbei_score,
+                "brsaa_runs": wb_res.brsaa_runs_saved,
+                "tier": wb_res.blocking_tier,
+                "is_wall": wb_res.is_brick_wall,
+            }
+            print(json_lib.dumps(wb_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     CATCHER DIRT BALL WALL BLOCKING [{wb_res.blocking_tier}]")
+            hdr_wb = (
+                f"     CWBEI Score: {wb_res.cwbei_score:.1f}/160 "
+                f"| Runs Saved: {wb_res.brsaa_runs_saved:>+4.2f} "
+                f"| Brick Wall: {'YES' if wb_res.is_brick_wall else 'NO'}"
+            )
+            print(hdr_wb)
+            print(f"{'=' * 84}\n")
+            print(f"  • Blocking Profile     : {wb_res.blocking_tier}\n")
+
+    elif args.command == "tunnel-decision":
+        from mlb_baseball.visual import (
+            PitcherTunnelDecisionProfile,
+            TunnelDecisionChartRenderer,
+            TunnelTrajectoryPitch,
+        )
+
+        t_dec_renderer = TunnelDecisionChartRenderer()
+        p1 = TunnelTrajectoryPitch("FF", 99.2, 2.0, 36.0, "#00d2be")
+        p2 = TunnelTrajectoryPitch("SPL", 89.0, 6.0, 16.0, "#f59e0b")
+        t_dec_prof = PitcherTunnelDecisionProfile(args.title, args.pitcher, p1, p2, 1.8, 18.2)
+        chart = t_dec_renderer.render(t_dec_prof)
+        print(f"Generated Vector SVG Tunnel Decision Separation ({len(chart.svg_content)} bytes)")
 
     elif args.command == "heat-check":
         import json as json_lib

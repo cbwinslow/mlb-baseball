@@ -2,6 +2,17 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-105: Vectorized Monte Carlo Markov Game Simulation Engine (`SIM-01`, Package 17)
+
+**Decision:** Implemented high-throughput vectorized and GPU-accelerated Monte Carlo game simulation in `mlb_baseball/model/simulate.py` with dense array representations (`DenseOutcomeTable`), authentic baseball game rules (walk-off, bottom-9th skip, tie-breaking extra innings), in-progress live game forecasting, and integration tests in `tests/integration/test_model_simulate.py`.
+- **Architecture & Capabilities**:
+  - Dense State Indexing: Bijective mapping between 24 transient base/out states + 1 terminal state (indices 0..24).
+  - High-Throughput Vectorized Sampling: `DenseOutcomeTable` packs sparse transition outcome distributions into dense `next_states`, `runs`, and cumulative `cum_probs` arrays, enabling 250,000+ half-innings per second on CPU and millions/sec via Numba CUDA GPU kernels.
+  - Authentic Game Simulation (`simulate_games_fast`): Simulates full 9-inning games, evaluates walk-offs, home -1.5 run lines, totals over/under probabilities (5.5 to 12.5), and full 2D score grid distributions.
+  - Live In-Play Game Simulation (`simulate_live_game_fast`): Simulates remainder of in-progress games from any inning, half, base/out state, and score.
+  - Matchup Scaling (`DenseOutcomeTable.adjust_for_matchup`): Seamlessly scales scoring and advancing transition probabilities based on pitcher/batter arsenal edges and team differentials.
+- **Verification**: 7/7 unit tests in `tests/unit/test_simulate.py` and 2/2 real-PostgreSQL integration tests in `tests/integration/test_model_simulate.py` passing.
+
 ## ADR-104: GBM-v2 Full Feature Set Expansion & GPU Compute Module (`FEAT-01`, Package 16)
 
 **Decision:** Expanded the production GBM model from 37 features (`gbm-v1`, `game-feature-v1`) to 257 features (`gbm-v2`, `game-feature-v2`), wiring in all 19 previously unused feature families. Expanded the experiment framework's snapshot SQL from 13 to 261 feature columns (`game_full_v2`). Added `mlb_baseball/compute.py` for GPU device detection with CPU fallback.

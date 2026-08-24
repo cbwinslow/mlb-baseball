@@ -2,6 +2,30 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-118: Probability Calibration, Symmetric Mirror Training, & HFA Decomposition (`CALIB-01`, Package 30)
+
+**Decision:** Built comprehensive probability calibration, symmetric mirror-game data augmentation, and empirical Home Field Advantage (HFA) decomposition in `mlb_baseball/model/calibration.py` and CLI subcommand `mlb calibrate`.
+- **Mathematical Formulations & Methodology**:
+  - HFA Log-Odds Decomposition: $	ext{logit}(P_{	ext{home}}) = eta_0 + \Delta 	ext{strength}$ where baseline MLB HFA constant $eta_0 = \ln(0.535 / 0.465) pprox +0.1405$. Corrects systemic over-prediction of home teams and guarantees true road favorite detection when $\Delta 	ext{strength} < -0.1405$.
+  - Symmetric Mirror-Game Augmentation: `create_symmetric_mirror_dataset` appends inverted matchup perspectives $(X_{	ext{away}} - X_{	ext{home}}, 1 - y)$ ensuring tree algorithms learn zero spurious positional bias.
+  - Platt Sigmoid Scaling: Logistic parameter fitting on validation logits to minimize cross-entropy.
+  - Reliability Metrics: Calculates Expected Calibration Error ($ECE$), Maximum Calibration Error ($MCE$), and 10-bin reliability diagrams.
+  - CLI: `mlb calibrate --prob 0.5576` and `mlb calibrate --eval`.
+- **Verification**: 5/5 unit tests in `tests/unit/test_calibration.py` passing.
+
+## ADR-117: Sabermetric Research Literature Catalog & Citation Registry (`RESEARCH-01`, Package 29)
+
+**Decision:** Created searchable sabermetric research catalog in `mlb_baseball/research.py` and CLI subcommand `mlb research`, formally indexing foundational books, monographs, and peer-reviewed papers.
+- **Indexed Research Foundations**:
+  - Tom Tango, Mitchel Lichtman, Andrew Dolphin (2006) — *The Book: Playing the Percentages in Baseball* (RE24, wOBA, FIP, TTO penalty).
+  - Bill James (1981) — *Baseball Abstract & Log5 Method* (Pythagorean 1.83, Log5 matchup ratio, Marcel 3-year regression).
+  - Pete Palmer & John Thorn (1984) — *The Hidden Game of Baseball* (Linear weights, Batting Runs, Park Factors).
+  - John C. Platt (1999) — *Probabilistic Outputs for SVMs and Probability Calibration* (Platt Scaling, ECE).
+  - Tobias Moskowitz & L. Jon Wertheim (2011) — *Scorecasting* (Home Field Advantage decomposition).
+  - John L. Kelly Jr. (1956) — *A New Interpretation of Information Rate* (Kelly Criterion).
+  - CLI: `mlb research --query "Tango"` or `mlb research --json`.
+- **Verification**: 2/2 unit tests in `tests/unit/test_research.py` passing.
+
 ## ADR-116: Unified Daily Quantitative Research & Wagering Pipeline (`PIPE-01`, Package 28)
 
 **Decision:** Implemented master daily briefing pipeline in `mlb_baseball/daily.py` and CLI subcommand `mlb daily` unifying preflight health, matchup forecasting, player props, prediction market screening, and Kelly portfolio optimization.

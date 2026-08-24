@@ -526,6 +526,32 @@ def main(argv: list[str] | None = None) -> None:
         "--watch", action="store_true", help="refresh continuously until Ctrl-C"
     )
 
+    # Sabermetric research and citation catalog (RESEARCH-01)
+    res_parser = subparsers.add_parser(
+        "research", help="search sabermetric publications, books, and mathematical formulas"
+    )
+    res_parser.add_argument(
+        "--query", type=str, default="", help="keyword search across titles, authors, and abstracts"
+    )
+    res_parser.add_argument(
+        "--citation", type=str, help="lookup specific citation key (e.g. tango2006thebook)"
+    )
+    res_parser.add_argument("--json", action="store_true", help="output result as JSON")
+
+    # Probability calibration and HFA decomposition (CALIB-01)
+    cal_parser = subparsers.add_parser(
+        "calibrate", help="evaluate probability calibration, reliability diagrams, and HFA metrics"
+    )
+    cal_parser.add_argument(
+        "--prob", type=float, help="recalibrate a raw home win probability against MLB HFA baseline"
+    )
+    cal_parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="evaluate calibration error across historical DB predictions",
+    )
+    cal_parser.add_argument("--json", action="store_true", help="output result as JSON")
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -1092,6 +1118,140 @@ def main(argv: list[str] | None = None) -> None:
                 )
         else:
             print("Please provide --game-pk or --pitcher-k. Use mlb props --help for options.")
+    elif args.command == "research":
+        import json as json_lib
+
+        from mlb_baseball.research import LiteratureCatalog
+
+        catalog = LiteratureCatalog()
+        if args.citation:
+            single_pub = catalog.get_by_citation_id(args.citation)
+            found_pubs = [single_pub] if single_pub else []
+        elif args.query:
+            found_pubs = catalog.search(args.query)
+        else:
+            found_pubs = catalog.list_all()
+
+        if args.json:
+            res_out = [
+                {
+                    "citation_id": r_pub.citation_id,
+                    "title": r_pub.title,
+                    "authors": list(r_pub.authors),
+                    "year": r_pub.year,
+                    "publisher": r_pub.publisher_or_journal,
+                    "domain": r_pub.domain.value,
+                    "abstract": r_pub.abstract,
+                    "key_formulas": list(r_pub.key_formulas),
+                    "project_implementations": list(r_pub.project_implementations),
+                }
+                for r_pub in found_pubs
+            ]
+            print(json_lib.dumps(res_out, indent=2))
+        else:
+            print(
+                f"\n=== SABERMETRIC RESEARCH & CITATION CATALOG "
+                f"({len(found_pubs)} publications) ===\n"
+            )
+            for r_pub in found_pubs:
+                print(f"[{r_pub.citation_id}] {r_pub.title} ({r_pub.year})")
+                print(f"  Authors: {', '.join(r_pub.authors)} | Domain: {r_pub.domain.value}")
+                print(f"  Abstract: {r_pub.abstract}")
+                print("  Key Formulas:")
+                for f_line in r_pub.key_formulas:
+                    print(f"    • {f_line}")
+                print(f"  Implemented In: {', '.join(r_pub.project_implementations)}\n")
+
+    elif args.command == "calibrate":
+        import json as json_lib
+
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.model.calibration import HomeAdvantageCalibrator, evaluate_calibration
+
+        hfa_cal = HomeAdvantageCalibrator()
+
+        if args.prob is not None:
+            adj = hfa_cal.adjust_home_win_prob(args.prob)
+            if args.json:
+                print(json_lib.dumps({"raw_prob": args.prob, "calibrated_prob": round(adj, 4)}))
+            else:
+                print("\n=== HOME FIELD ADVANTAGE RECALIBRATION ===")
+                print(f"Raw Input Win Prob:        {args.prob * 100:.2f}%")
+                print(f"Calibrated (True MLB HFA): {adj * 100:.2f}%\n")
+        else:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT g.home_score > g.away_score, p.home_win_prob "
+                        "FROM gold.prediction p "
+                        "JOIN gold.game_feature f ON f.game_instance_key = p.game_instance_key "
+                        "JOIN core.game g ON g.id = f.game_id "
+                        "WHERE p.model_version = 'gbm-v1' AND g.home_score IS NOT NULL "
+                        "LIMIT 5000"
+                    )
+                    rows = cur.fetchall()
+
+            if not rows:
+                print("No completed evaluated predictions found for calibration analysis.")
+            else:
+                y_true = [1 if r[0] else 0 for r in rows]
+                y_prob = [float(r[1]) for r in rows]
+                rep = evaluate_calibration(y_true, y_prob, n_bins=10)
+
+                if args.json:
+                    cal_out = {
+                        "sample_size": rep.sample_size,
+                        "expected_calibration_error": rep.expected_calibration_error,
+                        "max_calibration_error": rep.max_calibration_error,
+                        "brier_score": rep.brier_score,
+                        "brier_skill_score": rep.brier_skill_score,
+                        "bins": [
+                            {
+                                "bin_index": b.bin_index,
+                                "min_prob": b.min_prob,
+                                "max_prob": b.max_prob,
+                                "mean_predicted_prob": b.mean_predicted_prob,
+                                "empirical_win_rate": b.empirical_win_rate,
+                                "sample_count": b.sample_count,
+                                "calibration_error": b.calibration_error,
+                            }
+                            for b in rep.bins
+                        ],
+                    }
+                    print(json_lib.dumps(cal_out, indent=2))
+                else:
+                    print(
+                        f"\n=== PROBABILITY CALIBRATION & RELIABILITY DIAGRAM "
+                        f"(N={rep.sample_size}) ==="
+                    )
+                    print(
+                        f"Expected Calibration Error (ECE): "
+                        f"{rep.expected_calibration_error * 100:.2f}%"
+                    )
+                    print(
+                        f"Max Calibration Error (MCE):      {rep.max_calibration_error * 100:.2f}%"
+                    )
+                    print(
+                        f"Brier Score:                      {rep.brier_score:.4f} "
+                        f"(Skill: {rep.brier_skill_score * 100:.2f}%)\n"
+                    )
+                    b_hdr = (
+                        f"{'Bin':<6} {'Range':<14} {'Mean Pred':<12} "
+                        f"{'Empirical Win%':<16} {'Count':<8} {'Error':<8}"
+                    )
+                    print(b_hdr)
+                    print("-" * len(b_hdr))
+                    for b in rep.bins:
+                        print(
+                            f"{b.bin_index:<6} "
+                            f"[{b.min_prob:.2f}, {b.max_prob:.2f})   "
+                            f"{b.mean_predicted_prob * 100:>7.1f}%     "
+                            f"{b.empirical_win_rate * 100:>10.1f}%       "
+                            f"{b.sample_count:>5}   "
+                            f"{b.calibration_error * 100:>6.2f}%"
+                        )
+                    print("")
+
     elif args.command == "daily":
         import json as json_lib
 

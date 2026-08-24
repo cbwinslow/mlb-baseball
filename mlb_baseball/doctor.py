@@ -244,7 +244,7 @@ def run() -> list[Check]:
         checks.append(Check("feature_select_stepwise", False, f"health_check() raised: {exc}"))
 
     from mlb_baseball import serve
-    from mlb_baseball.model import portfolio, props, season, simulate, wpa
+    from mlb_baseball.model import calibration, portfolio, props, season, simulate, wpa
 
     try:
         checks.extend(serve.health_check())
@@ -274,6 +274,16 @@ def run() -> list[Check]:
         checks.extend(wpa.health_check())
     except Exception as exc:
         checks.append(Check("wpa", False, f"health_check() raised: {exc}"))
+    from mlb_baseball import research
+
+    try:
+        checks.extend(research.health_check())
+    except Exception as exc:
+        checks.append(Check("research", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(calibration.health_check())
+    except Exception as exc:
+        checks.append(Check("calibration", False, f"health_check() raised: {exc}"))
 
     # backup.py has no bootstrap()/update() either -- it's an operational
     # tool, not a data source, but a missing pg_dump/psql should still show

@@ -43,3 +43,17 @@ def test_wpa_health_check():
     assert len(checks) == 1
     assert checks[0].ok is True
     assert "wpa engine" in checks[0].name
+
+
+def test_research_and_calibration_health_checks():
+    """Verify research catalog and calibration engine health checks return clean pass."""
+    from mlb_baseball import research
+    from mlb_baseball.model import calibration
+
+    r_checks = research.health_check()
+    assert len(r_checks) == 1
+    assert r_checks[0].ok is True
+
+    c_checks = calibration.health_check()
+    assert len(c_checks) == 1
+    assert c_checks[0].ok is True

@@ -526,6 +526,22 @@ def main(argv: list[str] | None = None) -> None:
         "--watch", action="store_true", help="refresh continuously until Ctrl-C"
     )
 
+    # Unified daily research and wagering briefing (PIPE-01)
+    daily_parser = subparsers.add_parser(
+        "daily",
+        help="generate unified daily quantitative research, forecasting, and wagering briefing",
+    )
+    daily_parser.add_argument(
+        "--date", type=str, help="target game date (YYYY-MM-DD, default: today)"
+    )
+    daily_parser.add_argument(
+        "--bankroll", type=float, default=10000.0, help="total bankroll in USD (default: 10000)"
+    )
+    daily_parser.add_argument(
+        "--min-edge", type=float, default=0.020, help="min edge threshold (default: 0.020)"
+    )
+    daily_parser.add_argument("--json", action="store_true", help="output result as JSON")
+
     # Win Expectancy and WPA calculator (MATH-01)
     wpa_parser = subparsers.add_parser(
         "wpa", help="calculate in-game Win Expectancy and Leverage Index for any game state"
@@ -1076,6 +1092,75 @@ def main(argv: list[str] | None = None) -> None:
                 )
         else:
             print("Please provide --game-pk or --pitcher-k. Use mlb props --help for options.")
+    elif args.command == "daily":
+        import json as json_lib
+
+        from mlb_baseball.daily import format_daily_briefing_terminal, generate_daily_briefing
+        from mlb_baseball.db import get_connection
+
+        with get_connection() as conn:
+            daily_report = generate_daily_briefing(
+                target_date=args.date,
+                bankroll=args.bankroll,
+                min_edge=args.min_edge,
+                conn=conn,
+            )
+
+        if args.json:
+            out_dict = {
+                "target_date": daily_report.target_date,
+                "generated_at": daily_report.generated_at,
+                "health_status": [
+                    {"name": chk.name, "ok": chk.ok, "detail": chk.detail}
+                    for chk in daily_report.health_status
+                ],
+                "matchups": [
+                    {
+                        "game_key": m.game_instance_key,
+                        "away_team": m.away_team,
+                        "home_team": m.home_team,
+                        "model_home_win_prob": m.model_home_win_prob,
+                        "model_away_win_prob": m.model_away_win_prob,
+                        "home_starter": m.home_starter,
+                        "away_starter": m.away_starter,
+                    }
+                    for m in daily_report.matchups
+                ],
+                "pitcher_props": [
+                    {
+                        "pitcher_name": p.pitcher_name,
+                        "team": p.team,
+                        "projected_k_pct": p.projected_k_pct,
+                        "expected_k": p.expected_k,
+                        "prob_over_5_5_k": p.prob_over_5_5_k,
+                        "prob_over_6_5_k": p.prob_over_6_5_k,
+                    }
+                    for p in daily_report.pitcher_props
+                ],
+                "portfolio_plan": {
+                    "total_bankroll_usd": daily_report.portfolio_plan.total_bankroll_usd,
+                    "total_allocated_usd": daily_report.portfolio_plan.total_allocated_usd,
+                    "total_exposure_pct": daily_report.portfolio_plan.total_exposure_pct,
+                    "expected_growth_rate": (
+                        daily_report.portfolio_plan.expected_portfolio_growth_rate
+                    ),
+                    "recommendations": [
+                        {
+                            "description": r.opportunity.description,
+                            "model_prob": r.opportunity.model_probability,
+                            "market_prob": r.opportunity.market_implied_probability,
+                            "edge_pct": r.opportunity.edge,
+                            "kelly_fraction": r.kelly_fraction,
+                            "wager_usd": r.wager_amount_usd,
+                            "expected_value_pct": r.expected_value_pct,
+                        }
+                        for r in daily_report.portfolio_plan.recommendations
+                    ],
+                },
+            }
+            print(json_lib.dumps(out_dict, indent=2))
+        else:
+            print(format_daily_briefing_terminal(daily_report))
     elif args.command == "wpa":
         import json as json_lib
 

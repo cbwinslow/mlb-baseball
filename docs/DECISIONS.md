@@ -2,6 +2,16 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-116: Unified Daily Quantitative Research & Wagering Pipeline (`PIPE-01`, Package 28)
+
+**Decision:** Implemented master daily briefing pipeline in `mlb_baseball/daily.py` and CLI subcommand `mlb daily` unifying preflight health, matchup forecasting, player props, prediction market screening, and Kelly portfolio optimization.
+- **Orchestration Architecture**:
+  - `generate_daily_briefing`: End-to-end execution function querying operational health (`doctor.run()`), scheduled matchup probabilities (`serve.daily_betting_grid`), starting pitcher strikeout PMFs (`props.predict_pitcher_strikeouts`), prediction market alpha (`serve.prediction_market_alpha`), and Kelly portfolio allocation (`KellyAllocator`).
+  - Strict Encapsulation: Encapsulated in `DailyBriefingReport`, `DailyMatchupForecast`, and `DailyPitcherPropCard` dataclasses.
+  - Multi-Modal Output: Provides high-density terminal dashboard (`format_daily_briefing_terminal`) and structured JSON export for downstream web APIs.
+  - CLI: `mlb daily --date 2026-08-24 --bankroll 10000 --min-edge 0.020`.
+- **Verification**: Unit test in `tests/unit/test_daily.py` passing.
+
 ## ADR-115: 288-State Analytical Win Expectancy (WE), WPA, and Leverage Index Engine (`MATH-01`, Package 27)
 
 **Decision:** Created closed-form analytical Win Expectancy (WE), Win Probability Added (WPA), and Leverage Index (LI) calculation engine in `mlb_baseball/model/wpa.py` and CLI subcommand `mlb wpa`.

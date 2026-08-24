@@ -559,3 +559,27 @@ def test_la_ev_contour_heatmap_svg_generation():
     assert "<svg" in chart.svg_content
     assert "Judge LA vs EV Heatmap" in chart.svg_content
     assert "BARREL" in chart.svg_content
+
+
+def test_tunnel_box_chart_svg_generation():
+    """Verify TunnelBoxChartRenderer generates dual release and tunnel cross-section panels."""
+    from mlb_baseball.visual import (
+        PitcherTunnelBoxProfile,
+        PitchTunnelPoint,
+        TunnelBoxChartRenderer,
+    )
+
+    renderer = TunnelBoxChartRenderer()
+    pitches = [
+        PitchTunnelPoint("FF", -2.15, 5.85, 1.2, 34.0, "#00d2be"),
+        PitchTunnelPoint("SL", -2.18, 5.80, 2.0, 32.5, "#f59e0b"),
+    ]
+    prof = PitcherTunnelBoxProfile("Skenes Release & Tunnel Box", "Paul Skenes", pitches)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Skenes Release & Tunnel Box" in chart.svg_content
+    assert "RELEASE WINDOW" in chart.svg_content
+    assert "TUNNEL DECISION" in chart.svg_content

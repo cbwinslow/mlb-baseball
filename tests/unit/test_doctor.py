@@ -381,3 +381,12 @@ def test_air_trap_and_intent_leak_and_lead_snap_health_checks():
     assert air_trap.health_check()[0].ok is True
     assert intent_leak.health_check()[0].ok is True
     assert lead_snap.health_check()[0].ok is True
+
+
+def test_high_heat_and_ssw_latent_and_bunt_charge_health_checks():
+    """Verify health checks for high_heat, ssw_latent, and bunt_charge modules."""
+    from mlb_baseball.model import bunt_charge, high_heat, ssw_latent
+
+    assert high_heat.health_check()[0].ok is True
+    assert ssw_latent.health_check()[0].ok is True
+    assert bunt_charge.health_check()[0].ok is True

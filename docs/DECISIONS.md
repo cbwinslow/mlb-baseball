@@ -2,6 +2,44 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-234: Pure-Python SVG Pitcher Arsenal Release Point Ellipse & Tunnel Box Chart (`TUNNEL-BOX-01`, Package 146)
+
+**Decision:** Built vector SVG dual release window & decision tunnel cross-section chart in `mlb_baseball/visual.py` and CLI subcommand `mlb tunnel-box`.
+- **Operational Architecture & Geometry**:
+  - Dual Panels: Top Release Window ($X_{\text{rel}} \in [-3, +3]\text{ ft}$, $Z_{\text{rel}} \in [4.5, 7.0]\text{ ft}$) and Bottom Tunnel Decision Box at $23.8\text{ ft}$ from plate with 6-inch tunnel reference cylinder.
+  - CLI: `mlb tunnel-box --title "Paul Skenes Release & Tunnel Box" --pitcher "Paul Skenes"`.
+- **Verification**: 24/24 unit tests in `tests/unit/test_visual.py` passing; 803/803 full repository unit tests passing.
+
+## ADR-233: Infield Bunt Defense Charging Speed & Barehand Conversion Engine (`BUNT-CHARGE-01`, Package 145)
+
+**Decision:** Built infield charge sprint speed, barehand transfer time, and BOAA modeling in `mlb_baseball/model/bunt_charge.py` and CLI subcommand `mlb bunt-charge`.
+- **Mathematical Formulations & Methodology**:
+  - Infield Bunt Charge Defense Index: $\text{IBCDI} = \max\left(0, 100 + (\text{Conv\%} - 74.0) \cdot 2.2 + (v_{\text{charge}} - 24.0) \cdot 3.0 + (0.58 - t_{\text{barehand}}) \cdot 55.0\right)$.
+  - Bunt Outs Above Average: $\text{BOAA} = (\text{Conv\%} - 74.0\%) \cdot \text{Chances}, \text{BCDRV}_{\text{runs}} = \text{BOAA} \cdot 0.42\text{ runs}$.
+  - Tiers: `ELITE_BAREHAND_BUNT_ERASER` ($\text{IBCDI} \ge 116.0, \text{Conv\%} \ge 84.0\%, t_{\text{barehand}} \le 0.48\text{ s}$), `SLOW_FOOTWORK_BUNT_VULNERABLE`, `SOLID_BUNT_DEFENDER`, `AVERAGE_BUNT_DEFENDER`.
+  - CLI: `mlb bunt-charge --pos 3B --speed 28.0 --barehand 0.40 --conv 90.0 --chances 40`, `mlb bunt-charge --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_bunt_charge.py` passing; 803/803 full repository unit tests passing.
+
+## ADR-232: Pitcher Seam-Shifted Wake Latent Movement Engine (`SSW-LATENT-01`, Package 144)
+
+**Decision:** Built optical vs inferred spin axis deviation, non-Magnus boundary layer break, and SSWLMR in `mlb_baseball/model/ssw_latent.py` and CLI subcommand `mlb ssw-latent`.
+- **Mathematical Formulations & Methodology**:
+  - Seam-Shifted Wake Latent Movement Rating: $\text{SSWLMR} = \max\left(0, 100 + (\Delta \text{Axis}_{\text{mins}} - 30.0) \cdot 0.9 + (\Delta \text{Break}_{\text{SSW}} - 2.5) \cdot 8.0\right)$.
+  - Latent Boundary Layer Break: $\Delta \text{Break}_{\text{SSW}} = \text{ObservedBreak} - \text{PureMagnusBreak}\text{ in}$.
+  - Tiers: `ELITE_SEAM_SHIFTED_WAKE_MANIPULATOR` ($\text{SSWLMR} \ge 116.0, \Delta \text{Break}_{\text{SSW}} \ge 3.8\text{ in}, \Delta \text{Axis}_{\text{mins}} \ge 38\text{ mins}$), `PURE_SYMMETRICAL_MAGNUS_DELIVERY`, `SOLID_SEAM_ORIENTED_ARSENAL`, `AVERAGE_SSW_EFFECT`.
+  - CLI: `mlb ssw-latent --pitch SI --optical 75 --inferred 125 --obs 19.0 --mag 13.5`, `mlb ssw-latent --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_ssw_latent.py` passing; 803/803 full repository unit tests passing.
+
+## ADR-231: Batter High-Fastball Top-of-Zone Whiff vs Elevate Engine (`HIGH-HEAT-01`, Package 143)
+
+**Decision:** Built high-velocity four-seam elevation vulnerability, whiff avoidance, and run value in `mlb_baseball/model/high_heat.py` and CLI subcommand `mlb high-heat`.
+- **Mathematical Formulations & Methodology**:
+  - High-Heat Elevation Vulnerability Index: $\text{HHEVI} = \max\left(0, 100 + (26.0 - \text{Whiff\%}) \cdot 2.5 + (\text{HardHit\%} - 36.0) \cdot 1.8 + (\text{Swing\%} - 60.0) \cdot 0.6\right)$.
+  - High-Fastball Production Runs: $\text{HFPR}_{\text{runs}} = (\text{HHEVI} - 100.0) \cdot (\text{Opps} \cdot 0.0022)$.
+  - Tiers: `ELITE_HIGH_FASTBALL_CRUSHER` ($\text{HHEVI} \ge 116.0, \text{Whiff\%} \le 17.0\%, \text{HardHit\%} \ge 45.0\%$), `TOP_ZONE_ELEVATION_VULNERABLE`, `SOLID_HIGH_HEAT_SLUGGER`, `AVERAGE_HIGH_HEAT_HITTER`.
+  - CLI: `mlb high-heat --swing 66.0 --whiff 14.0 --hard 50.0 --opps 250`, `mlb high-heat --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_high_heat.py` passing; 803/803 full repository unit tests passing.
+
 ## ADR-230: Pure-Python SVG Batter 3D Launch Angle vs Exit Velocity Density Contour Heatmap (`LA-EV-CONTOUR-01`, Package 142)
 
 **Decision:** Built vector SVG Cartesian 2D density contour chart with Statcast Barrel & Sweetspot polygon zones in `mlb_baseball/visual.py` and CLI subcommand `mlb la-ev-contour`.

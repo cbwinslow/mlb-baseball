@@ -38,6 +38,7 @@ class ChartType(enum.Enum):
     SPRAY_ISOCHRONE_CHART = "spray_isochrone_chart"
     SPIN_POLAR_CLOCK_CHART = "spin_polar_clock_chart"
     LA_EV_CONTOUR_HEATMAP = "la_ev_contour_heatmap"
+    TUNNEL_BOX_CHART = "tunnel_box_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2546,6 +2547,125 @@ class LaEvContourHeatmapRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class PitchTunnelPoint:
+    """Pitch release coordinates and decision point tunnel coordinates at 23.8 ft."""
+
+    pitch_name: str
+    rel_x_ft: float  # Release X in ft (-3.0 to +3.0)
+    rel_z_ft: float  # Release Z in ft (4.5 to 7.0)
+    tunnel_x_in: float  # Cross-section X at decision point in inches (-12 to +12)
+    tunnel_z_in: float  # Cross-section Z at decision point in inches (20 to 45)
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitcherTunnelBoxProfile:
+    """Pitcher arsenal release point and tunnel commitment box profile."""
+
+    title: str
+    pitcher_name: str
+    pitches: list[PitchTunnelPoint]
+
+
+class TunnelBoxChartRenderer:
+    """Renders pure-Python vector SVG dual release window & tunnel cross-section (TUNNEL-BOX-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitcherTunnelBoxProfile) -> GeneratedVectorChart:
+        """Render top release panel and bottom decision tunnel cross-section."""
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="24" fill="#f8fafc" font-size="13" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="40" fill="#94a3b8" font-size="10" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} Tunnel Box (23.8 ft)</text>',
+        ]
+
+        # Top Panel: Release Window (Y: 55 to 225)
+        svg_parts.append(
+            '<rect x="40" y="55" width="400" height="170" fill="#111c38" '
+            'stroke="#1e293b" stroke-width="1.2" rx="6" />'
+        )
+        svg_parts.append(
+            '<text x="50" y="72" fill="#64748b" font-size="9" font-weight="bold" '
+            'font-family="sans-serif">RELEASE WINDOW (50 ft)</text>'
+        )
+
+        # Bottom Panel: Tunnel Box at Decision Point (Y: 245 to 445)
+        svg_parts.append(
+            '<rect x="40" y="245" width="400" height="200" fill="#111c38" '
+            'stroke="#1e293b" stroke-width="1.2" rx="6" />'
+        )
+        svg_parts.append(
+            '<text x="50" y="262" fill="#64748b" font-size="9" font-weight="bold" '
+            'font-family="sans-serif">TUNNEL DECISION CROSS-SECTION (23.8 ft)</text>'
+        )
+
+        def to_rel_px(rx: float, rz: float) -> tuple[float, float]:
+            # rx: -3 to +3 ft -> px: 60 to 420 (center 240)
+            # rz: 4.5 to 7.0 ft -> py: 210 to 75
+            px = 240.0 + (rx / 3.0) * 180.0
+            py = 210.0 - ((rz - 4.5) / 2.5) * 135.0
+            return px, py
+
+        def to_tun_px(tx: float, tz: float) -> tuple[float, float]:
+            # tx: -12 to +12 in -> px: 60 to 420 (center 240)
+            # tz: 20 to 45 in -> py: 430 to 275
+            px = 240.0 + (tx / 12.0) * 180.0
+            py = 430.0 - ((tz - 20.0) / 25.0) * 155.0
+            return px, py
+
+        # Plot Release Points & Tunnel Points
+        for p in profile.pitches:
+            rpx, rpy = to_rel_px(p.rel_x_ft, p.rel_z_ft)
+            tpx, tpy = to_tun_px(p.tunnel_x_in, p.tunnel_z_in)
+
+            # Top Release Dot
+            svg_parts.append(
+                f'<circle cx="{rpx:.1f}" cy="{rpy:.1f}" r="5.0" fill="{p.color_hex}" '
+                f'stroke="#0b1329" stroke-width="1.2" />'
+            )
+            svg_parts.append(
+                f'<text x="{rpx:.1f}" y="{rpy - 7:.1f}" fill="{p.color_hex}" font-size="8" '
+                f'text-anchor="middle" font-family="sans-serif">{p.pitch_name}</text>'
+            )
+
+            # Bottom Tunnel Dot
+            svg_parts.append(
+                f'<circle cx="{tpx:.1f}" cy="{tpy:.1f}" r="6.0" fill="{p.color_hex}" '
+                f'stroke="#0b1329" stroke-width="1.2" />'
+            )
+            svg_parts.append(
+                f'<text x="{tpx:.1f}" y="{tpy - 8:.1f}" fill="{p.color_hex}" font-size="9" '
+                f'text-anchor="middle" font-family="sans-serif">{p.pitch_name}</text>'
+            )
+
+        # Decision tunnel reference circle (radius 6 inches = 45 px)
+        svg_parts.append(
+            '<circle cx="240" cy="350" r="45" fill="none" stroke="#38bdf8" '
+            'stroke-width="1.2" stroke-dasharray="4,4" opacity="0.6" />'
+        )
+        svg_parts.append(
+            '<text x="240" y="405" fill="#38bdf8" font-size="8" text-anchor="middle" '
+            'font-family="sans-serif">6-Inch Tunnel Cylinder</text>'
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.TUNNEL_BOX_CHART,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -2709,6 +2829,15 @@ def health_check() -> list[Check]:
             BatterLaEvContourProfile("LA EV Heatmap", "Judge", la_ev_events)
         )
 
+        tunnel_renderer = TunnelBoxChartRenderer()
+        tunnel_pitches = [
+            PitchTunnelPoint("FF", -2.15, 5.85, 1.2, 34.0, "#00d2be"),
+            PitchTunnelPoint("SL", -2.18, 5.80, 2.0, 32.5, "#f59e0b"),
+        ]
+        tunnel_chart = tunnel_renderer.render(
+            PitcherTunnelBoxProfile("Tunnel Box", "Skenes", tunnel_pitches)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -2732,6 +2861,7 @@ def health_check() -> list[Check]:
             and "<svg" in iso_chart.svg_content
             and "<svg" in polar_chart.svg_content
             and "<svg" in contour_chart.svg_content
+            and "<svg" in tunnel_chart.svg_content
         ):
             checks.append(
                 Check(

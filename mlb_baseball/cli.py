@@ -867,6 +867,82 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter high-fastball top-of-zone whiff vs damage (HIGH-HEAT-01)
+    hh_parser = subparsers.add_parser(
+        "high-heat",
+        help="evaluate high-fastball top-of-zone whiff, damage, and HHEVI (HIGH-HEAT-01)",
+    )
+    hh_parser.add_argument(
+        "--swing", type=float, default=60.0, help="high FB swing pct (default: 60.0)"
+    )
+    hh_parser.add_argument(
+        "--whiff", type=float, default=26.0, help="high FB whiff pct (default: 26.0)"
+    )
+    hh_parser.add_argument(
+        "--hard", type=float, default=36.0, help="high FB hard hit pct (default: 36.0)"
+    )
+    hh_parser.add_argument(
+        "--opps", type=int, default=200, help="high FB opportunities (default: 200)"
+    )
+    hh_parser.add_argument(
+        "--json", action="store_true", help="output high heat evaluation as JSON"
+    )
+
+    # Pitcher seam-shifted wake latent movement (SSW-LATENT-01)
+    ssw_l_parser = subparsers.add_parser(
+        "ssw-latent",
+        help="evaluate seam-shifted wake non-Magnus break and SSWLMR (SSW-LATENT-01)",
+    )
+    ssw_l_parser.add_argument(
+        "--pitch", type=str, default="Sinker", help="pitch type (default: Sinker)"
+    )
+    ssw_l_parser.add_argument(
+        "--optical", type=int, default=75, help="optical axis minutes (default: 75)"
+    )
+    ssw_l_parser.add_argument(
+        "--inferred", type=int, default=110, help="inferred axis minutes (default: 110)"
+    )
+    ssw_l_parser.add_argument(
+        "--obs", type=float, default=17.5, help="observed break in (default: 17.5)"
+    )
+    ssw_l_parser.add_argument(
+        "--mag", type=float, default=14.0, help="pure Magnus break in (default: 14.0)"
+    )
+    ssw_l_parser.add_argument("--pitches", type=int, default=220, help="pitch count (default: 220)")
+    ssw_l_parser.add_argument(
+        "--json", action="store_true", help="output ssw latent evaluation as JSON"
+    )
+
+    # Infield bunt defense charging speed & barehand (BUNT-CHARGE-01)
+    bc_parser = subparsers.add_parser(
+        "bunt-charge",
+        help="evaluate infield bunt defense charge speed, barehand, and IBCDI (BUNT-CHARGE-01)",
+    )
+    bc_parser.add_argument("--pos", type=str, default="3B", help="position (default: 3B)")
+    bc_parser.add_argument(
+        "--speed", type=float, default=24.0, help="sprint speed fps (default: 24.0)"
+    )
+    bc_parser.add_argument(
+        "--barehand", type=float, default=0.58, help="barehand transfer sec (default: 0.58)"
+    )
+    bc_parser.add_argument(
+        "--conv", type=float, default=74.0, help="bunt out conversion pct (default: 74.0)"
+    )
+    bc_parser.add_argument("--chances", type=int, default=30, help="bunt chances (default: 30)")
+    bc_parser.add_argument(
+        "--json", action="store_true", help="output bunt charge evaluation as JSON"
+    )
+
+    # Pitcher release point & tunnel box chart (TUNNEL-BOX-01)
+    tb_parser = subparsers.add_parser(
+        "tunnel-box",
+        help="generate vector SVG release window & tunnel box chart (TUNNEL-BOX-01)",
+    )
+    tb_parser.add_argument(
+        "--title", type=str, default="Paul Skenes Release & Tunnel Box", help="chart title"
+    )
+    tb_parser.add_argument("--pitcher", type=str, default="Paul Skenes", help="pitcher name")
+
     # Batter pull-side air contact vs warning track trap (AIR-TRAP-01)
     at_parser = subparsers.add_parser(
         "air-trap",
@@ -4261,6 +4337,147 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "high-heat":
+        import json as json_lib
+
+        from mlb_baseball.model.high_heat import (
+            BatterHighHeatEngine,
+            BatterHighHeatMetrics,
+            HighHeatEvaluationResult,
+        )
+
+        hh_eng = BatterHighHeatEngine()
+        hh_m = BatterHighHeatMetrics(
+            "b1",
+            "Target Batter",
+            high_fb_swing_rate_pct=args.swing,
+            high_fb_whiff_rate_pct=args.whiff,
+            high_fb_hard_hit_pct=args.hard,
+            high_fb_opportunities=args.opps,
+        )
+        hh_res: HighHeatEvaluationResult = hh_eng.evaluate_high_heat(hh_m)
+
+        if args.json:
+            hh_out = {
+                "hhevi_score": hh_res.hhevi_score,
+                "hfpr_runs": hh_res.hfpr_runs_produced,
+                "tier": hh_res.heat_tier,
+                "is_crusher": hh_res.is_elite_crusher,
+            }
+            print(json_lib.dumps(hh_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     HIGH-FASTBALL ELEVATION MASTERY [{hh_res.heat_tier}]")
+            hdr_hh = (
+                f"     HHEVI Score: {hh_res.hhevi_score:.1f}/160 "
+                f"| Runs Produced: {hh_res.hfpr_runs_produced:>+4.2f} "
+                f"| Elite Crusher: {'YES' if hh_res.is_elite_crusher else 'NO'}"
+            )
+            print(hdr_hh)
+            print(f"{'=' * 84}\n")
+            print(f"  • Elevation Profile    : {hh_res.heat_tier}\n")
+
+    elif args.command == "ssw-latent":
+        import json as json_lib
+
+        from mlb_baseball.model.ssw_latent import (
+            PitcherSswLatentEngine,
+            PitcherSswLatentMetrics,
+            SswLatentEvaluationResult,
+        )
+
+        ssw_l_eng = PitcherSswLatentEngine()
+        ssw_l_m = PitcherSswLatentMetrics(
+            "p1",
+            "Target Pitcher",
+            pitch_type=args.pitch,
+            optical_axis_minutes=args.optical,
+            inferred_axis_minutes=args.inferred,
+            observed_break_in=args.obs,
+            pure_magnus_break_in=args.mag,
+            pitch_count_evaluated=args.pitches,
+        )
+        ssw_l_res: SswLatentEvaluationResult = ssw_l_eng.evaluate_ssw(ssw_l_m)
+
+        if args.json:
+            ssw_l_out = {
+                "axis_deviation_mins": ssw_l_res.axis_deviation_mins,
+                "latent_break_in": ssw_l_res.latent_ssw_break_in,
+                "sswlmr_score": ssw_l_res.sswlmr_score,
+                "tier": ssw_l_res.ssw_tier,
+                "is_manipulator": ssw_l_res.is_elite_manipulator,
+            }
+            print(json_lib.dumps(ssw_l_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     SEAM-SHIFTED WAKE LATENT MOVEMENT [{ssw_l_res.ssw_tier}]")
+            hdr_ssw = (
+                f"     SSWLMR Score: {ssw_l_res.sswlmr_score:.1f}/160 "
+                f"| Axis Gap: {ssw_l_res.axis_deviation_mins}m "
+                f"| Latent Break: +{ssw_l_res.latent_ssw_break_in:.1f} in"
+            )
+            print(hdr_ssw)
+            print(f"{'=' * 84}\n")
+            print(f"  • Aerodynamic Profile  : {ssw_l_res.ssw_tier}\n")
+
+    elif args.command == "bunt-charge":
+        import json as json_lib
+
+        from mlb_baseball.model.bunt_charge import (
+            BuntChargeEvaluationResult,
+            InfieldBuntChargeEngine,
+            InfieldBuntChargeMetrics,
+        )
+
+        bc_eng = InfieldBuntChargeEngine()
+        bc_m = InfieldBuntChargeMetrics(
+            "f1",
+            "Target Fielder",
+            position=args.pos,
+            charge_sprint_speed_fps=args.speed,
+            barehand_transfer_sec=args.barehand,
+            bunt_out_conversion_pct=args.conv,
+            bunt_chances_count=args.chances,
+        )
+        bc_res: BuntChargeEvaluationResult = bc_eng.evaluate_bunt_charge(bc_m)
+
+        if args.json:
+            bc_out = {
+                "ibcdi_score": bc_res.ibcdi_score,
+                "boaa_outs": bc_res.boaa_outs_saved,
+                "bcdrv_runs": bc_res.bcdrv_runs_saved,
+                "tier": bc_res.defense_tier,
+                "is_eraser": bc_res.is_elite_eraser,
+            }
+            print(json_lib.dumps(bc_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     INFIELD BUNT CHARGE & BAREHAND DEFENSE [{bc_res.defense_tier}]")
+            hdr_bc = (
+                f"     IBCDI Score: {bc_res.ibcdi_score:.1f}/160 "
+                f"| BOAA Outs: {bc_res.boaa_outs_saved:>+4.1f} "
+                f"| BCDRV Runs: {bc_res.bcdrv_runs_saved:>+4.2f}"
+            )
+            print(hdr_bc)
+            print(f"{'=' * 84}\n")
+            print(f"  • Defense Profile      : {bc_res.defense_tier}\n")
+
+    elif args.command == "tunnel-box":
+        from mlb_baseball.visual import (
+            PitcherTunnelBoxProfile,
+            PitchTunnelPoint,
+            TunnelBoxChartRenderer,
+        )
+
+        tb_renderer = TunnelBoxChartRenderer()
+        tb_pitches = [
+            PitchTunnelPoint("FF", -2.15, 5.85, 1.2, 34.0, "#00d2be"),
+            PitchTunnelPoint("SL", -2.18, 5.80, 2.0, 32.5, "#f59e0b"),
+        ]
+        tb_prof = PitcherTunnelBoxProfile(args.title, args.pitcher, tb_pitches)
+        chart = tb_renderer.render(tb_prof)
+        print(f"Generated Vector SVG Release Window & Tunnel Box ({len(chart.svg_content)} bytes)")
 
     elif args.command == "air-trap":
         import json as json_lib

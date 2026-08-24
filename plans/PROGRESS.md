@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### TUNNEL-BOX-01 pure-Python SVG release point & tunnel box chart: implemented (ADR-234) — 2026-08-24
+Added `TunnelBoxChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb tunnel-box` CLI command.
+- Renders dual-panel vector SVG with release window ($X_{	ext{rel}}, Z_{	ext{rel}}$) and 23.8 ft decision tunnel cross-section.
+
+### BUNT-CHARGE-01 infield bunt defense charging speed & barehand: implemented (ADR-233) — 2026-08-24
+Added `mlb_baseball/model/bunt_charge.py`, unit tests in `tests/unit/test_bunt_charge.py`, and `mlb bunt-charge` CLI command.
+- Evaluates charging sprint speed, barehand scoop-to-throw time, IBCDI score, and BOAA outs saved.
+
+### SSW-LATENT-01 pitcher seam-shifted wake latent movement: implemented (ADR-232) — 2026-08-24
+Added `mlb_baseball/model/ssw_latent.py`, unit tests in `tests/unit/test_ssw_latent.py`, and `mlb ssw-latent` CLI command.
+- Measures optical vs inferred spin axis tilt deviation, boundary layer non-Magnus break, and SSWLMR score.
+
+### HIGH-HEAT-01 batter high-fastball top-of-zone whiff vs damage: implemented (ADR-231) — 2026-08-24
+Added `mlb_baseball/model/high_heat.py`, unit tests in `tests/unit/test_high_heat.py`, and `mlb high-heat` CLI command.
+- Evaluates high-velocity four-seam elevation vulnerability, whiff avoidance, HHEVI score, and HFPR runs.
+
 ### LA-EV-CONTOUR-01 pure-Python SVG launch angle vs exit velocity contour: implemented (ADR-230) — 2026-08-24
 Added `LaEvContourHeatmapRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb la-ev-contour` CLI command.
 - Renders vector SVG Cartesian 2D density chart with Statcast Barrel & Sweetspot polygon zones.

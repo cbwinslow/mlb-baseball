@@ -140,7 +140,11 @@ This document serves as the academic and theoretical reference manual for the ML
 114. [Pitcher Two-Strike Putaway Intent vs Heart Zone Waste Leakage](#114-pitcher-two-strike-putaway-intent-vs-heart-zone-waste-leakage)
 115. [Baserunner Secondary Lead Distance & Advance Jump Dynamics](#115-baserunner-secondary-lead-distance--advance-jump-dynamics)
 116. [Pure-Python SVG Launch Angle vs Exit Velocity Contour Architecture](#116-pure-python-svg-launch-angle-vs-exit-velocity-contour-architecture)
-117. [Academic Bibliography & Literature Citations](#117-academic-bibliography--literature-citations)
+117. [Batter High-Fastball Top-of-Zone Whiff vs Elevation Dynamics](#117-batter-high-fastball-top-of-zone-whiff-vs-elevation-dynamics)
+118. [Pitcher Seam-Shifted Wake Latent Movement Aerodynamics](#118-pitcher-seam-shifted-wake-latent-movement-aerodynamics)
+119. [Infield Bunt Defense Charging Speed & Barehand Transfer Mechanics](#119-infield-bunt-defense-charging-speed--barehand-transfer-mechanics)
+120. [Pure-Python SVG Dual-Panel Release Point & Tunnel Box Architecture](#120-pure-python-svg-dual-panel-release-point--tunnel-box-architecture)
+121. [Academic Bibliography & Literature Citations](#121-academic-bibliography--literature-citations)
 
 ---
 
@@ -1250,7 +1254,38 @@ $$P_x = X_{\text{orig}} + \left(\frac{\text{EV} - 60}{60}\right) \cdot W_{\text{
 
 ---
 
-## 117. Academic Bibliography & Literature Citations
+## 117. Batter High-Fastball Top-of-Zone Whiff vs Elevation Dynamics
+
+### 117.1 High-Heat Elevation Vulnerability Index (HHEVI) & Production
+$$\text{HHEVI} = \max\left(0, 100 + (26.0 - \text{Whiff\%}) \cdot 2.5 + (\text{HardHit\%} - 36.0) \cdot 1.8 + (\text{Swing\%} - 60.0) \cdot 0.6\right)$$
+$$\text{HFPR}_{\text{runs}} = (\text{HHEVI} - 100.0) \cdot (\text{Opps} \cdot 0.0022)$$
+
+---
+
+## 118. Pitcher Seam-Shifted Wake Latent Movement Aerodynamics
+
+### 118.1 Spin Axis Deviation & Seam-Shifted Wake Rating (SSWLMR)
+$$\Delta \text{Axis}_{\text{mins}} = |\text{Axis}_{\text{inferred}} - \text{Axis}_{\text{optical}}|, \quad \Delta \text{Break}_{\text{SSW}} = \text{ObservedBreak} - \text{PureMagnusBreak}\text{ in}$$
+$$\text{SSWLMR} = \max\left(0, 100 + (\Delta \text{Axis}_{\text{mins}} - 30.0) \cdot 0.9 + (\Delta \text{Break}_{\text{SSW}} - 2.5) \cdot 8.0\right)$$
+
+---
+
+## 119. Infield Bunt Defense Charging Speed & Barehand Transfer Mechanics
+
+### 119.1 Infield Bunt Charge Defense Index (IBCDI) & BOAA
+$$\text{IBCDI} = \max\left(0, 100 + (\text{Conv\%} - 74.0) \cdot 2.2 + (v_{\text{charge}} - 24.0) \cdot 3.0 + (0.58 - t_{\text{barehand}}) \cdot 55.0\right)$$
+$$\text{BOAA} = (\text{Conv\%} - 74.0\%) \cdot \text{Chances}, \quad \text{BCDRV}_{\text{runs}} = \text{BOAA} \cdot 0.42\text{ runs}$$
+
+---
+
+## 120. Pure-Python SVG Dual-Panel Release Point & Tunnel Box Architecture
+
+### 120.1 Multi-Panel Geometry & 23.8 ft Tunnel Cross-Section
+$$P_{\text{rel},x} = 240 + \left(\frac{X_{\text{rel}}}{3.0}\right) \cdot 180, \quad P_{\text{tun},x} = 240 + \left(\frac{X_{\text{tun}}}{12.0}\right) \cdot 180$$
+
+---
+
+## 121. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1320,3 +1355,5 @@ $$P_x = X_{\text{orig}} + \left(\frac{\text{EV} - 60}{60}\right) \cdot W_{\text{
 66. **Kagan, David** (2017). "The Physics of Catcher Framing and Glove Receiving Speed". *The Physics Teacher*.
 67. **Carleton, Russell A.** (2018). "The Shift, Warning Track Power, and the Economics of Flyballs". *Baseball Prospectus*.
 68. **Baumer, Benjamin S.** (2015). "Baserunning Leads, Jumps, and Stolen Base Optimization in Modern Baseball". *Journal of Quantitative Analysis in Sports*.
+69. **Smith, Barton L.** (2021). "Aerodynamic Forces on a Baseball with Seam-Shifted Wake". *Experiments in Fluids*.
+70. **Cross, Rod** (2014). "Physics of Bunt Fielding, Reaction Time, and Barehand Transfers in Baseball". *Sports Engineering*.

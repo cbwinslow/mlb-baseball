@@ -275,6 +275,7 @@ def run() -> list[Check]:
         bullpen,
         bullpen_opt,
         bunt,
+        bunt_charge,
         bvp,
         calibration,
         carry,
@@ -300,6 +301,7 @@ def run() -> list[Check]:
         haa,
         heatmap,
         hedge,
+        high_heat,
         iffb,
         intent_leak,
         lead_snap,
@@ -330,6 +332,7 @@ def run() -> list[Check]:
         splits,
         spray,
         ssw,
+        ssw_latent,
         stack,
         stuff,
         sub,
@@ -466,6 +469,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(high_heat.health_check())
+    except Exception as exc:
+        checks.append(Check("high_heat", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(ssw_latent.health_check())
+    except Exception as exc:
+        checks.append(Check("ssw_latent", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(bunt_charge.health_check())
+    except Exception as exc:
+        checks.append(Check("bunt_charge", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(air_trap.health_check())
     except Exception as exc:

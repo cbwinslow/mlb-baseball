@@ -17,6 +17,7 @@ directly, not just a status light.
 import psycopg
 
 from mlb_baseball import (
+    api,
     backup,
     conform,
     daemon,
@@ -260,6 +261,7 @@ def run() -> list[Check]:
         aging,
         backtest,
         baserunning,
+        blocking,
         bullpen,
         bvp,
         calibration,
@@ -279,9 +281,11 @@ def run() -> list[Check]:
         shift,
         shop,
         simulate,
+        ssw,
         stack,
         stuff,
         sub,
+        travel,
         umpire,
         weather,
         wpa,
@@ -401,6 +405,22 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(ssw.health_check())
+    except Exception as exc:
+        checks.append(Check("ssw", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(blocking.health_check())
+    except Exception as exc:
+        checks.append(Check("blocking", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(travel.health_check())
+    except Exception as exc:
+        checks.append(Check("travel", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(api.health_check())
+    except Exception as exc:
+        checks.append(Check("api", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(baserunning.health_check())
     except Exception as exc:

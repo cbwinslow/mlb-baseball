@@ -56,7 +56,11 @@ This document serves as the academic and theoretical reference manual for the ML
 30. [Pitch Sequencing Shannon Entropy & Predictability](#30-pitch-sequencing-shannon-entropy--predictability)
 31. [Skill-Specific Component Aging Curves](#31-skill-specific-component-aging-curves)
 32. [Multi-Book Synthetic Hold & Odds Line Shopping](#32-multi-book-synthetic-hold--odds-line-shopping)
-33. [Academic Bibliography & Literature Citations](#33-academic-bibliography--literature-citations)
+33. [Seam-Shifted Wake (SSW) Non-Magnus Aerodynamics](#33-seam-shifted-wake-ssw-non-magnus-aerodynamics)
+34. [Catcher Blocking & Passed Ball Run Prevention](#34-catcher-blocking--passed-ball-run-prevention)
+35. [Circadian Travel & Doubleheader Fatigue Dynamics](#35-circadian-travel--doubleheader-fatigue-dynamics)
+36. [Standardized REST Query API Architecture](#36-standardized-rest-query-api-architecture)
+37. [Academic Bibliography & Literature Citations](#37-academic-bibliography--literature-citations)
 
 ---
 
@@ -498,7 +502,43 @@ $$\text{EV}_{\text{home}} = p_{\text{model}} \cdot O^*_{\text{home}} - 1.0$$
 
 ---
 
-## 33. Academic Bibliography & Literature Citations
+## 33. Seam-Shifted Wake (SSW) Non-Magnus Aerodynamics
+
+### 33.1 Non-Magnus Boundary Layer Deviation Vector
+$$\vec{\Delta}_{\text{SSW}} = (\text{IVB}_{\text{obs}} - \text{IVB}_{\text{magnus}}, \text{HB}_{\text{obs}} - \text{HB}_{\text{magnus}})$$
+$$\text{SSW Magnitude} = \sqrt{(\Delta \text{IVB}_{\text{SSW}})^2 + (\Delta \text{HB}_{\text{SSW}})^2}$$
+$$\Delta \text{Whiff\%} = +1.4\% \cdot (\text{SSW Magnitude / 1.0 in})$$
+
+---
+
+## 34. Catcher Blocking & Passed Ball Run Prevention
+
+### 34.1 Blocking Efficiency & Advance Cost
+$$\text{Miss Rate} = 1.0 - \left(0.940 + \frac{\text{Blocking Runs}}{10.0} \times 0.070\right)$$
+$$\Delta \text{Run Cost} = (N_{\text{dirt}} \cdot \text{Miss Rate} - N_{\text{dirt}} \cdot 0.060) \cdot 0.40 \cdot 0.26\text{ runs}$$
+
+---
+
+## 35. Circadian Travel & Doubleheader Fatigue Dynamics
+
+### 35.1 Composite Fatigue Index Score
+$$\text{Fatigue Score} = \min(100.0, 6.0 \cdot \Delta \text{TZ} + \text{Penalty}_{\text{rest}} + \text{Penalty}_{\text{DH2}} + \text{Penalty}_{\text{stretch}})$$
+$$\text{wOBA Drag} = -\left(\frac{\text{Fatigue Score}}{100.0}\right) \times 5.0\%$$
+$$\text{Pitcher FIP Penalty} = +\left(\frac{\text{Fatigue Score}}{100.0}\right) \times 0.45\text{ FIP}$$
+
+---
+
+## 36. Standardized REST Query API Architecture
+
+### 36.1 Zero-Dependency Pure HTTP Interface
+- `GET /api/v1/health` (Doctor operational diagnostics)
+- `GET /api/v1/forecasts/daily` (Daily probabilities, totals, fair moneylines)
+- `GET /api/v1/visual/chart` (Pure SVG vector rendering)
+- `POST /api/v1/tools/hedge` (Real-time live hedging optimization)
+
+---
+
+## 37. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -526,3 +566,5 @@ $$\text{EV}_{\text{home}} = p_{\text{model}} \cdot O^*_{\text{home}} - 1.0$$
 24. **Albert, Jim** (2017). *Visualizing Baseball*. CRC Press.
 25. **Shannon, Claude E.** (1948). "A Mathematical Theory of Communication". *Bell System Technical Journal*, 27(3), 379–423.
 26. **Lichtman, Mitchel** (2009). "Aging Curves in Major League Baseball". *The Hardball Times*.
+27. **Smith, Barton** (2020). "Seam-Shifted Wake: An Introduction". *Utah State Experimental Fluid Dynamics Laboratory*.
+28. **Nathan, Alan M.; Smith, Barton** (2021). "The Physics of Seam-Shifted Wake in Baseball". *Baseball Prospectus*.

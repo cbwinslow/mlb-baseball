@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### API-01 interactive REST/JSON query API gateway & endpoint handler: implemented (ADR-150) — 2026-08-24
+Added `mlb_baseball/api.py`, unit tests in `tests/unit/test_api.py`, and `mlb serve-api` CLI command.
+- Standardized REST API endpoints for daily forecasts, doctor health diagnostics, vector SVG charts, and live hedging calculators.
+
+### TRAVEL-01 doubleheader & travel fatigue decay modeler: implemented (ADR-149) — 2026-08-24
+Added `mlb_baseball/model/travel.py`, unit tests in `tests/unit/test_travel.py`, and `mlb travel` CLI command.
+- Models time zone crossing, short rest turnarounds (<14h), and doubleheader Game 2 fatigue degradation on team wOBA and pitching FIP.
+
+### BLOCK-01 catcher blocking, passed ball & wild pitch run value modeler: implemented (ADR-148) — 2026-08-24
+Added `mlb_baseball/model/blocking.py`, unit tests in `tests/unit/test_blocking.py`, and `mlb block` CLI command.
+- Evaluates catcher lateral reach and blocking runs against pitcher dirt-ball frequencies to project passed ball and runner advance costs.
+
+### SSW-01 seam-shifted wake aerodynamic non-Magnus deviation engine: implemented (ADR-147) — 2026-08-24
+Added `mlb_baseball/model/ssw.py`, unit tests in `tests/unit/test_ssw.py`, and `mlb ssw` CLI command.
+- Quantifies seam-shifted wake movement deviations $(\vec{\Delta}_{\text{SSW}})$ from pure spin-based Magnus predictions to model batter visual deception.
+
 ### SHOP-01 multi-book odds line shopping & value scanner: implemented (ADR-146) — 2026-08-24
 Added `mlb_baseball/model/shop.py`, unit tests in `tests/unit/test_shop.py`, and `mlb shop` CLI command.
 - Scans multi-book market offerings to isolate best-available price execution, calculate synthetic hold, and flag model +EV opportunities.

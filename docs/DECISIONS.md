@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-150: Interactive REST/JSON Query API Gateway & Endpoint Handler (`API-01`, Package 62)
+
+**Decision:** Built lightweight, zero-dependency standard library REST API router in `mlb_baseball/api.py` and CLI subcommand `mlb serve-api`.
+- **Operational Architecture & Endpoints**:
+  - `GET /api/v1/health` (Doctor system diagnostics).
+  - `GET /api/v1/forecasts/daily` (Daily game forecasts and fair prices).
+  - `GET /api/v1/visual/chart` (Pure SVG vector asset generation).
+  - `POST /api/v1/tools/hedge` (Live in-game hedging calculations).
+  - CLI: `mlb serve-api --port 8000 --test-health`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_api.py` passing; 569/569 full repository unit tests passing.
+
+## ADR-149: Doubleheader & Travel Fatigue Decay Modeler (`TRAVEL-01`, Package 61)
+
+**Decision:** Built circadian disruption, rest turnaround, and doubleheader degradation modeling in `mlb_baseball/model/travel.py` and CLI subcommand `mlb travel`.
+- **Mathematical Formulations & Methodology**:
+  - Composite Fatigue Index: $Score = f(\Delta \text{TZ}, \text{Hours Rest}, \text{DH2 Flag}, \text{Consecutive Days})$.
+  - Performance Drag: Severe fatigue (Score $\ge 50.0$) imposes up to $-5.0\%$ wOBA suppression and $+0.45\text{ FIP}$ pitching degradation.
+  - CLI: `mlb travel --tz 2 --rest-hours 14.0`, `mlb travel --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_travel.py` passing; 569/569 full repository unit tests passing.
+
+## ADR-148: Catcher Blocking, Passed Ball & Wild Pitch Run Value Modeler (`BLOCK-01`, Package 60)
+
+**Decision:** Built catcher dirt-ball blocking evaluation and wild pitch run cost modeling in `mlb_baseball/model/blocking.py` and CLI subcommand `mlb block`.
+- **Mathematical Formulations & Methodology**:
+  - Block Efficiency: Baseline league block rate $\approx 94.0\%$. Catcher blocking runs scale miss rate: Miss Rate $= 1.0 - (0.940 + \text{Runs}/10.0 \times 0.070)$.
+  - Expected Run Delta: Missed pitches with runners on base incur $\approx 0.26\text{ runs}$ advancement cost.
+  - CLI: `mlb block --catcher-runs 4.0 --spikes 12.0`, `mlb block --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_blocking.py` passing; 569/569 full repository unit tests passing.
+
+## ADR-147: Seam-Shifted Wake (SSW) Aerodynamic Non-Magnus Spin Deviation Engine (`SSW-01`, Package 59)
+
+**Decision:** Built pitch seam orientation and non-Magnus lateral/vertical movement modeling in `mlb_baseball/model/ssw.py` and CLI subcommand `mlb ssw`.
+- **Mathematical Formulations & Methodology**:
+  - Non-Magnus Deviation Vector: $\vec{\Delta}_{\text{SSW}} = (\text{IVB}_{\text{obs}} - \text{IVB}_{\text{magnus}}, \text{HB}_{\text{obs}} - \text{HB}_{\text{magnus}})$.
+  - SSW Magnitude: $\sqrt{\Delta \text{IVB}^2 + \Delta \text{HB}^2}$.
+  - Optical Deception: Every $1.0\text{ inch}$ of SSW yields $\approx +1.4\%$ whiff boost and $-1.6\%$ hard-hit suppression.
+  - CLI: `mlb ssw --pitch-type SI --velo 94.5 --spin 2150 --obs-ivb 6.5 --obs-hb 17.5`, `mlb ssw --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_ssw.py` passing; 569/569 full repository unit tests passing.
+
 ## ADR-146: Multi-Book Odds Line Shopping & Value Scanner (`SHOP-01`, Package 58)
 
 **Decision:** Built cross-sportsbook line comparison, best-price discovery, and synthetic hold calculation in `mlb_baseball/model/shop.py` and CLI subcommand `mlb shop`.

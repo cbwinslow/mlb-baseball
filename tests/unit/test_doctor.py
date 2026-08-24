@@ -189,3 +189,14 @@ def test_baserunning_and_entropy_and_aging_and_shop_health_checks():
     assert entropy.health_check()[0].ok is True
     assert aging.health_check()[0].ok is True
     assert shop.health_check()[0].ok is True
+
+
+def test_ssw_and_blocking_and_travel_and_api_health_checks():
+    """Verify health checks for ssw, blocking, travel, and api modules."""
+    from mlb_baseball import api
+    from mlb_baseball.model import blocking, ssw, travel
+
+    assert ssw.health_check()[0].ok is True
+    assert blocking.health_check()[0].ok is True
+    assert travel.health_check()[0].ok is True
+    assert api.health_check()[0].ok is True

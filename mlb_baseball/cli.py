@@ -867,6 +867,71 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Seam-shifted wake aerodynamics (SSW-01)
+    ssw_parser = subparsers.add_parser(
+        "ssw",
+        help="evaluate pitch seam-shifted wake aerodynamics (SSW-01)",
+    )
+    ssw_parser.add_argument(
+        "--pitch-type", type=str, default="SI", help="pitch type (SI, SL, FF, CH)"
+    )
+    ssw_parser.add_argument("--velo", type=float, default=94.5, help="velocity mph (default: 94.5)")
+    ssw_parser.add_argument(
+        "--spin", type=float, default=2150, help="spin rate rpm (default: 2150)"
+    )
+    ssw_parser.add_argument(
+        "--obs-ivb", type=float, default=6.5, help="observed IVB in (default: 6.5)"
+    )
+    ssw_parser.add_argument(
+        "--obs-hb", type=float, default=17.5, help="observed HB in (default: 17.5)"
+    )
+    ssw_parser.add_argument(
+        "--axis", type=float, default=45.0, help="spin axis degrees (default: 45.0)"
+    )
+    ssw_parser.add_argument("--json", action="store_true", help="output SSW result as JSON")
+
+    # Catcher blocking and passed ball run value (BLOCK-01)
+    block_parser = subparsers.add_parser(
+        "block",
+        help="evaluate catcher blocking and wild pitch run cost (BLOCK-01)",
+    )
+    block_parser.add_argument(
+        "--catcher-runs", type=float, default=4.0, help="catcher blocking runs (default: 4.0)"
+    )
+    block_parser.add_argument(
+        "--spikes", type=float, default=12.0, help="pitcher dirt pitches per game (default: 12.0)"
+    )
+    block_parser.add_argument(
+        "--json", action="store_true", help="output blocking evaluation as JSON"
+    )
+
+    # Doubleheader and travel fatigue decay (TRAVEL-01)
+    travel_parser = subparsers.add_parser(
+        "travel",
+        help="assess team travel fatigue and doubleheader drag (TRAVEL-01)",
+    )
+    travel_parser.add_argument("--tz", type=int, default=2, help="time zones crossed (default: 2)")
+    travel_parser.add_argument(
+        "--rest-hours", type=float, default=14.0, help="hours rest (default: 14.0)"
+    )
+    travel_parser.add_argument("--is-dh2", action="store_true", help="is doubleheader game 2")
+    travel_parser.add_argument(
+        "--consecutive-days", type=int, default=10, help="consecutive game days (default: 10)"
+    )
+    travel_parser.add_argument("--json", action="store_true", help="output travel fatigue as JSON")
+
+    # REST API server (API-01)
+    api_parser = subparsers.add_parser(
+        "serve-api",
+        help="run lightweight local REST API gateway (API-01)",
+    )
+    api_parser.add_argument(
+        "--port", type=int, default=8000, help="API server port (default: 8000)"
+    )
+    api_parser.add_argument(
+        "--test-health", action="store_true", help="test route /api/v1/health and exit"
+    )
+
     # Base stealing kinematics and disengagement physics (SB-01)
     steal_parser = subparsers.add_parser(
         "steal",
@@ -2818,6 +2883,144 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "ssw":
+        import json as json_lib
+
+        from mlb_baseball.model.ssw import (
+            PitchSpinKinematics,
+            SeamShiftedWakeEngine,
+        )
+
+        ssw_eng = SeamShiftedWakeEngine()
+        kin = PitchSpinKinematics(
+            "p1",
+            args.pitch_type,
+            velocity_mph=args.velo,
+            spin_rate_rpm=args.spin,
+            observed_ivb_in=args.obs_ivb,
+            observed_hb_in=args.obs_hb,
+            spin_axis_deg=args.axis,
+        )
+        ssw_res = ssw_eng.evaluate_pitch_ssw(kin)
+
+        if args.json:
+            ssw_out = {
+                "pitch_type": ssw_res.pitch_type,
+                "magnus_ivb": ssw_res.magnus_ivb_in,
+                "magnus_hb": ssw_res.magnus_hb_in,
+                "ssw_magnitude": ssw_res.ssw_total_magnitude_in,
+                "whiff_boost": ssw_res.whiff_boost_pct,
+                "has_ssw": ssw_res.has_pronounced_ssw,
+            }
+            print(json_lib.dumps(ssw_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            ssw_tag = "PRONOUNCED SSW" if ssw_res.has_pronounced_ssw else "MAGNUS DOMINATED"
+            print(f"     SEAM-SHIFTED WAKE AERODYNAMICS [{ssw_tag}]")
+            hdr_ssw = (
+                f"     Pitch: {args.pitch_type} @ {args.velo:.1f}mph "
+                f"| SSW: {ssw_res.ssw_total_magnitude_in:.2f}in"
+            )
+            print(hdr_ssw)
+            print(f"{'=' * 84}\n")
+            print(f"  • Magnus: IVB {ssw_res.magnus_ivb_in:+.1f} | HB {ssw_res.magnus_hb_in:+.1f}")
+            print(f"  • Observed Trajectory  : IVB {args.obs_ivb:+.1f}in | HB {args.obs_hb:+.1f}in")
+            print(f"  • SSW Whiff Boost      : +{ssw_res.whiff_boost_pct:.1f}%")
+            print(f"  • Hard-Hit Suppression : -{ssw_res.hard_hit_suppression_pct:.1f}%\n")
+
+    elif args.command == "block":
+        import json as json_lib
+
+        from mlb_baseball.model.blocking import (
+            CatcherBlockingEngine,
+            CatcherBlockProfile,
+            PitcherSpikeProfile,
+        )
+
+        blk_eng = CatcherBlockingEngine()
+        cat_prof = CatcherBlockProfile(
+            "c1", "Target Catcher", blocking_runs_above_avg=args.catcher_runs
+        )
+        pit_prof = PitcherSpikeProfile("p1", "Target Pitcher", dirt_pitches_per_game=args.spikes)
+        blk_res = blk_eng.evaluate_blocking_matchup(cat_prof, pit_prof)
+
+        if args.json:
+            blk_out = {
+                "blocking_tier": blk_res.blocking_tier,
+                "expected_blocks": blk_res.expected_blocks_per_game,
+                "passed_balls": blk_res.expected_passed_balls_per_game,
+                "wild_pitches": blk_res.expected_wild_pitches_per_game,
+                "run_cost_delta": blk_res.run_cost_delta_per_game,
+            }
+            print(json_lib.dumps(blk_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     CATCHER BLOCKING & RUN PREVENTION [{blk_res.blocking_tier}]")
+            print(f"     Dirt Pitches: {args.spikes:.1f} | Catcher Runs: {args.catcher_runs:+.1f}")
+            print(f"{'=' * 84}\n")
+            print(f"  • Expected Blocks/Game : {blk_res.expected_blocks_per_game:.1f}")
+            print(f"  • Passed Balls/Game    : {blk_res.expected_passed_balls_per_game:.3f}")
+            print(f"  • Wild Pitches/Game    : {blk_res.expected_wild_pitches_per_game:.3f}")
+            print(f"  • Run Cost Delta       : {blk_res.run_cost_delta_per_game:+.3f} runs/game\n")
+
+    elif args.command == "travel":
+        import json as json_lib
+
+        from mlb_baseball.model.travel import (
+            TeamTravelScheduleState,
+            TravelFatigueEngine,
+        )
+
+        trv_eng = TravelFatigueEngine()
+        trv_state = TeamTravelScheduleState(
+            "t1",
+            "TEAM",
+            time_zones_crossed=args.tz,
+            hours_of_rest_between_games=args.rest_hours,
+            is_doubleheader_game_2=args.is_dh2,
+            consecutive_game_days=args.consecutive_days,
+        )
+        trv_res = trv_eng.assess_travel_fatigue(trv_state)
+
+        if args.json:
+            trv_out = {
+                "fatigue_tier": trv_res.fatigue_tier,
+                "fatigue_index": trv_res.fatigue_index,
+                "woba_drag_pct": trv_res.woba_drag_pct,
+                "pitcher_fip_penalty": trv_res.pitcher_fip_penalty,
+            }
+            print(json_lib.dumps(trv_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     TRAVEL & DOUBLEHEADER FATIGUE [{trv_res.fatigue_tier}]")
+            fat_str = (
+                f"     Fatigue: {trv_res.fatigue_index:.1f}/100 "
+                f"| TZ: {args.tz} | Rest: {args.rest_hours:.1f}h"
+            )
+            print(fat_str)
+            print(f"{'=' * 84}\n")
+            print(f"  • Offensive wOBA Drag  : {trv_res.woba_drag_pct:+.1f}%")
+            print(f"  • Pitching FIP Penalty : {trv_res.pitcher_fip_penalty:+.2f}\n")
+
+    elif args.command == "serve-api":
+        import json as json_lib
+
+        from mlb_baseball.api import MLBApiRouter
+
+        router = MLBApiRouter()
+        if args.test_health:
+            api_res = router.route_request("/api/v1/health", "GET")
+            b_str = (
+                api_res.body_data.decode("utf-8")
+                if isinstance(api_res.body_data, bytes)
+                else str(api_res.body_data)
+            )
+            print(f"API Health Test: Status {api_res.status_code} | Body: {b_str}")
+        else:
+            print(
+                f"REST API Gateway ready on port {args.port} (Use --test-health for CLI inspection)"
+            )
 
     elif args.command == "steal":
         import json as json_lib

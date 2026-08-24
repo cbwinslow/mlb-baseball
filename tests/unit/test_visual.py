@@ -248,3 +248,29 @@ def test_matchup_comparison_card_svg_generation():
     assert "BATTER ADVANTAGE" in chart.svg_content
     assert "Aaron Judge" in chart.svg_content
     assert "Gerrit Cole" in chart.svg_content
+
+
+def test_win_probability_replay_svg_generation():
+    """Verify WinProbabilityReplayRenderer generates full game win expectancy chart."""
+    from mlb_baseball.visual import (
+        GameWPAReplayProfile,
+        WinProbabilityReplayRenderer,
+        WinProbabilityReplayStep,
+    )
+
+    renderer = WinProbabilityReplayRenderer()
+    steps = [
+        WinProbabilityReplayStep(0, 1, True, 0.50, "Pregame"),
+        WinProbabilityReplayStep(1, 3, False, 0.65, "2-Run Double", 0.15, True),
+        WinProbabilityReplayStep(2, 7, True, 0.35, "3-Run HR", -0.30, True),
+        WinProbabilityReplayStep(3, 9, False, 0.95, "Walkoff Grand Slam", 0.60, True),
+    ]
+    prof = GameWPAReplayProfile("2024 WS Game 1 Replay", "LAD", "NYY", "6-3", steps)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 680
+    assert chart.height_px == 340
+    assert "<svg" in chart.svg_content
+    assert "2024 WS Game 1 Replay" in chart.svg_content
+    assert "polyline" in chart.svg_content
+    assert "circle" in chart.svg_content

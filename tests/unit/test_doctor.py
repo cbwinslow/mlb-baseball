@@ -273,3 +273,12 @@ def test_babip_and_vaa_and_iffb_health_checks():
     assert babip.health_check()[0].ok is True
     assert vaa.health_check()[0].ok is True
     assert iffb.health_check()[0].ok is True
+
+
+def test_pull_air_and_haa_and_bunt_health_checks():
+    """Verify health checks for pull_air, haa, and bunt modules."""
+    from mlb_baseball.model import bunt, haa, pull_air
+
+    assert pull_air.health_check()[0].ok is True
+    assert haa.health_check()[0].ok is True
+    assert bunt.health_check()[0].ok is True

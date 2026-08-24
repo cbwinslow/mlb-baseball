@@ -92,7 +92,11 @@ This document serves as the academic and theoretical reference manual for the ML
 66. [Pitcher Vertical Approach Angle (VAA) & Entry Aerodynamics](#66-pitcher-vertical-approach-angle-vaa--entry-aerodynamics)
 67. [Infield Fly Ball (IFFB) Non-Contact Strikeout Equivalency](#67-infield-fly-ball-iffb-non-contact-strikeout-equivalency)
 68. [Pure-Python SVG Side-by-Side Matchup Scouting Card Architecture](#68-pure-python-svg-side-by-side-matchup-scouting-card-architecture)
-69. [Academic Bibliography & Literature Citations](#69-academic-bibliography--literature-citations)
+69. [Batter Pulled-Air (FB/LD) Power Polarization](#69-batter-pulled-air-fbld-power-polarization)
+70. [Pitcher Horizontal Approach Angle (HAA) & Cross-Fire Deception](#70-pitcher-horizontal-approach-angle-haa--cross-fire-deception)
+71. [Infield Bunt Defense & Lead Runner Elimination Kinematics](#71-infield-bunt-defense--lead-runner-elimination-kinematics)
+72. [Pure-Python SVG Game Win Probability Replay Architecture](#72-pure-python-svg-game-win-probability-replay-architecture)
+73. [Academic Bibliography & Literature Citations](#73-academic-bibliography--literature-citations)
 
 ---
 
@@ -822,7 +826,38 @@ $$(x_{\text{right}}, y_i) = \left(x_{\text{mid}} + 55.0, y_0 + i \cdot H_{\text{
 
 ---
 
-## 69. Academic Bibliography & Literature Citations
+## 69. Batter Pulled-Air (FB/LD) Power Polarization
+
+### 69.1 Pulled-Air Contact & PADM Multiplier
+$$\text{PullAir\%} = \frac{N(\text{BBE} \in \{\text{FB}, \text{LD}\} \cap \text{Pull})}{N(\text{BBE} \in \{\text{FB}, \text{LD}\})} \times 100\%$$
+$$\text{PADM} = \left(\frac{\text{PullAir\%}}{28.5\%}\right) \times \left(1.0 + \frac{\text{PulledHR}}{\max(1, \text{TotalHR})} \cdot 0.5\right)$$
+
+---
+
+## 70. Pitcher Horizontal Approach Angle (HAA) & Cross-Fire Deception
+
+### 70.1 Horizontal Entry Angle & Deception Score
+$$\text{HAA} = \arctan\left(\frac{v_{x, \text{plate}}}{v_{\text{plate}}}\right) \times \left(\frac{180^\circ}{\pi}\right) \quad (\text{degrees})$$
+$$\text{Deception} = \min(100, |x_{\text{rel}}| \cdot 18.0 + |\text{HAA}| \cdot 12.0)$$
+
+---
+
+## 71. Infield Bunt Defense & Lead Runner Elimination Kinematics
+
+### 71.1 Net Bunt Run Prevention
+$$\text{BuntDefenseRuns} = N_{\text{Lead Runner Outs}} \cdot 0.38 + N_{\text{Bunt Popups}} \cdot 0.28 - N_{\text{Bunt Hits Allowed}} \cdot 0.45$$
+$$\text{Kill\%} = \frac{N_{\text{Lead Outs}}}{\max(1, N_{\text{Attempts}})} \times 100\%$$
+
+---
+
+## 72. Pure-Python SVG Game Win Probability Replay Architecture
+
+### 72.1 Event Progression Coordinate Mapping
+$$(x_i, y_i) = \left(M_x + \frac{i}{N_{\text{steps}} - 1} W_{\text{plot}}, (M_y + H_{\text{plot}}) - \text{WE}_i \cdot H_{\text{plot}}\right)$$
+
+---
+
+## 73. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -868,3 +903,5 @@ $$(x_{\text{right}}, y_i) = \left(x_{\text{mid}} + 55.0, y_0 + i \cdot H_{\text{
 42. **Fast, Alex** (2020). "Put-Away Percentage and 2-Strike Execution". *Pitcher List*.
 43. **Petti, Bill** (2014). "Researching Vertical Approach Angle and Induced Movement". *The Hardball Times*.
 44. **McCracken, Voros** (2001). "Pitching and Defense: How Much Control Do Pitchers Have?". *Baseball Prospectus*.
+45. **Carleton, Russell A.** (2018). "The Shift and Bunt Defense Dynamics". *Baseball Prospectus*.
+46. **Arthur, Rob** (2019). "The Geometry of the Pulled Fly Ball". *Baseball Prospectus*.

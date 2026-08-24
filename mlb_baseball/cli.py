@@ -867,6 +867,70 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter pull-air power (PULL-AIR-01)
+    pair_parser = subparsers.add_parser(
+        "pull-air",
+        help="evaluate pulled-air (FB/LD) power damage multiplier (PULL-AIR-01)",
+    )
+    pair_parser.add_argument(
+        "--pull-air", type=int, default=45, help="pulled air count (default: 45)"
+    )
+    pair_parser.add_argument(
+        "--total-air", type=int, default=110, help="total air count (default: 110)"
+    )
+    pair_parser.add_argument("--pull-hr", type=int, default=22, help="pulled HRs (default: 22)")
+    pair_parser.add_argument("--hr", type=int, default=25, help="total HRs (default: 25)")
+    pair_parser.add_argument(
+        "--json", action="store_true", help="output pull-air evaluation as JSON"
+    )
+
+    # Pitcher horizontal approach angle (HAA-01)
+    haa_parser = subparsers.add_parser(
+        "haa",
+        help="calculate pitch horizontal approach angle and cross-body deception (HAA-01)",
+    )
+    haa_parser.add_argument("--pitch", type=str, default="ST", help="pitch type (default: ST)")
+    haa_parser.add_argument(
+        "--rel-x", type=float, default=-2.6, help="release X ft (default: -2.6)"
+    )
+    haa_parser.add_argument("--plate-x", type=float, default=0.8, help="plate X ft (default: 0.8)")
+    haa_parser.add_argument(
+        "--hb", type=float, default=17.0, help="horizontal break inches (default: 17.0)"
+    )
+    haa_parser.add_argument(
+        "--velo", type=float, default=83.5, help="release velo mph (default: 83.5)"
+    )
+    haa_parser.add_argument("--json", action="store_true", help="output HAA evaluation as JSON")
+
+    # Infield bunt defense (BUNT-01)
+    bunt_parser = subparsers.add_parser(
+        "bunt",
+        help="evaluate infield bunt defense and lead runner elimination (BUNT-01)",
+    )
+    bunt_parser.add_argument(
+        "--lead-outs", type=int, default=4, help="lead runner outs (default: 4)"
+    )
+    bunt_parser.add_argument(
+        "--popups", type=int, default=3, help="bunt popups caught (default: 3)"
+    )
+    bunt_parser.add_argument("--hits", type=int, default=1, help="bunt hits allowed (default: 1)")
+    bunt_parser.add_argument(
+        "--attempts", type=int, default=22, help="total attempts (default: 22)"
+    )
+    bunt_parser.add_argument("--pos", type=str, default="3B", help="position (default: 3B)")
+    bunt_parser.add_argument("--json", action="store_true", help="output bunt defense as JSON")
+
+    # Win probability replay visualizer (WPA-REPLAY-01)
+    wpa_rep_parser = subparsers.add_parser(
+        "wpa-replay",
+        help="generate vector SVG game win probability replay flow chart (WPA-REPLAY-01)",
+    )
+    wpa_rep_parser.add_argument(
+        "--title", type=str, default="2024 WS Game 1 Replay", help="chart title"
+    )
+    wpa_rep_parser.add_argument("--home", type=str, default="LAD", help="home team code")
+    wpa_rep_parser.add_argument("--away", type=str, default="NYY", help="away team code")
+
     # Batter BABIP luck deficit (BABIP-LUCK-01)
     babip_parser = subparsers.add_parser(
         "babip",
@@ -3362,6 +3426,157 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "pull-air":
+        import json as json_lib
+
+        from mlb_baseball.model.pull_air import (
+            BatterPullAirMetrics,
+            PullAirPowerEngine,
+        )
+
+        pair_eng = PullAirPowerEngine()
+        pair_m = BatterPullAirMetrics(
+            "b1",
+            "Target Hitter",
+            pulled_air_count=args.pull_air,
+            total_air_count=args.total_air,
+            pulled_air_hr=args.pull_hr,
+            total_hr=args.hr,
+        )
+        pair_res = pair_eng.evaluate_pull_air(pair_m)
+
+        if args.json:
+            pair_out = {
+                "pull_air_pct": pair_res.pull_air_pct,
+                "delta_league": pair_res.pulled_air_delta_league,
+                "padm_multiplier": pair_res.padm_multiplier,
+                "archetype": pair_res.strategy_archetype,
+                "is_elite": pair_res.is_elite_pull_air_hitter,
+            }
+            print(json_lib.dumps(pair_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PULLED-AIR POWER POLARIZATION [{pair_res.strategy_archetype}]")
+            hdr_pa = (
+                f"     Pull-Air%: {pair_res.pull_air_pct:.1f}% "
+                f"| Delta: {pair_res.pulled_air_delta_league:>+4.1f}% "
+                f"| PADM: {pair_res.padm_multiplier:.2f}x"
+            )
+            print(hdr_pa)
+            print(f"{'=' * 84}\n")
+            print(f"  • Strategy Archetype   : {pair_res.strategy_archetype}")
+            print(
+                f"  • Elite Pull-Air Hitter: {'YES' if pair_res.is_elite_pull_air_hitter else 'NO'}"
+            )
+
+    elif args.command == "haa":
+        import json as json_lib
+
+        from mlb_baseball.model.haa import (
+            HorizontalApproachAngleEngine,
+            PitchHorizontalKinematics,
+        )
+
+        haa_eng = HorizontalApproachAngleEngine()
+        haa_m = PitchHorizontalKinematics(
+            "p1",
+            "Target Pitcher",
+            pitch_type=args.pitch,
+            release_x_ft=args.rel_x,
+            plate_x_ft=args.plate_x,
+            pfx_x_in=args.hb,
+            release_velo_mph=args.velo,
+        )
+        haa_res = haa_eng.evaluate_haa(haa_m)
+
+        if args.json:
+            haa_out = {
+                "pitch_type": haa_res.pitch_type,
+                "haa_deg": haa_res.calculated_haa_deg,
+                "deception_score": haa_res.cross_body_deception_score,
+                "tier": haa_res.haa_tier,
+            }
+            print(json_lib.dumps(haa_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     HORIZONTAL APPROACH ANGLE [{haa_res.haa_tier}]")
+            hdr_ha = (
+                f"     Pitch: {haa_res.pitch_type} "
+                f"| HAA: {haa_res.calculated_haa_deg:>+4.2f}° "
+                f"| Cross-Body Deception: {haa_res.cross_body_deception_score:.1f}/100"
+            )
+            print(hdr_ha)
+            print(f"{'=' * 84}\n")
+            print(f"  • Approach Classification: {haa_res.haa_tier}\n")
+
+    elif args.command == "bunt":
+        import json as json_lib
+
+        from mlb_baseball.model.bunt import (
+            InfieldBuntDefenseEngine,
+            InfieldBuntDefenseMetrics,
+        )
+
+        bunt_eng = InfieldBuntDefenseEngine()
+        bunt_m = InfieldBuntDefenseMetrics(
+            "f1",
+            "Target Fielder",
+            position=args.pos,
+            lead_runner_outs=args.lead_outs,
+            bunt_popups_caught=args.popups,
+            bunt_hits_allowed=args.hits,
+            total_bunt_attempts=args.attempts,
+        )
+        bunt_res = bunt_eng.evaluate_bunt_defense(bunt_m)
+
+        if args.json:
+            bunt_out = {
+                "position": bunt_res.position,
+                "total_bunt_runs": bunt_res.total_bunt_runs_saved,
+                "lead_kill_pct": bunt_res.lead_runner_kill_pct,
+                "tier": bunt_res.defense_tier,
+                "is_elite": bunt_res.is_elite_bunt_defender,
+            }
+            print(json_lib.dumps(bunt_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     INFIELD BUNT DEFENSE [{bunt_res.defense_tier}]")
+            hdr_bu = (
+                f"     Lead Out Kill%: {bunt_res.lead_runner_kill_pct:.1f}% "
+                f"| Bunt Runs Saved: {bunt_res.total_bunt_runs_saved:>+4.2f} "
+                f"| Position: {bunt_res.position}"
+            )
+            print(hdr_bu)
+            print(f"{'=' * 84}\n")
+            print(f"  • Defense Classification : {bunt_res.defense_tier}")
+            print(
+                f"  • Elite Bunt Eraser      : {'YES' if bunt_res.is_elite_bunt_defender else 'NO'}"
+            )
+
+    elif args.command == "wpa-replay":
+        from mlb_baseball.visual import (
+            GameWPAReplayProfile,
+            WinProbabilityReplayRenderer,
+            WinProbabilityReplayStep,
+        )
+
+        replay_renderer = WinProbabilityReplayRenderer()
+        wpa_replay_steps = [
+            WinProbabilityReplayStep(0, 1, True, 0.50, "Pregame", 0.0),
+            WinProbabilityReplayStep(1, 3, False, 0.65, "2-Run Double", 0.15, True),
+            WinProbabilityReplayStep(2, 7, True, 0.35, "3-Run HR", -0.30, True),
+            WinProbabilityReplayStep(3, 9, False, 0.95, "Walkoff Grand Slam", 0.60, True),
+        ]
+        wpa_game_prof = GameWPAReplayProfile(
+            args.title,
+            args.home,
+            args.away,
+            "6-3 Final",
+            wpa_replay_steps,
+        )
+        chart = replay_renderer.render(wpa_game_prof)
+        print(f"Generated Vector SVG Game WPA Replay Flow ({len(chart.svg_content)} bytes)")
 
     elif args.command == "babip":
         import json as json_lib

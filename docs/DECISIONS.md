@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-186: Pure-Python SVG Game Win Probability Replay Visualizer (`WPA-REPLAY-01`, Package 98)
+
+**Decision:** Built continuous game win probability flow chart visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb wpa-replay`.
+- **Operational Architecture & Geometry**:
+  - Continuous Event Step Flow: Maps full game step-by-step Home Team Win Expectancy ($0.0\%$ to $100.0\%$) with 50% baseline center guideline.
+  - Pivotal Turning Point Annotation: Detects high-leverage game swings ($|\Delta \text{WE}| \ge 0.15$) and overlays glowing point markers and event summaries.
+  - CLI: `mlb wpa-replay --title "2024 WS Game 1 Replay" --home LAD --away NYY`.
+- **Verification**: 12/12 unit tests in `tests/unit/test_visual.py` passing; 671/671 full repository unit tests passing.
+
+## ADR-185: Infield Bunt Defense & Short Game Run Prevention Engine (`BUNT-01`, Package 97)
+
+**Decision:** Built corner infielder charging kinematics, sacrifice defense, and short game modeling in `mlb_baseball/model/bunt.py` and CLI subcommand `mlb bunt`.
+- **Mathematical Formulations & Methodology**:
+  - Net Bunt Run Savings: $\text{BuntDefenseRuns} = N_{\text{Lead Runner Outs}} \cdot 0.38 + N_{\text{Bunt Popups}} \cdot 0.28 - N_{\text{Bunt Hits Allowed}} \cdot 0.45$.
+  - Lead Runner Kill Rate: $\text{Kill\%} = \frac{N_{\text{Lead Outs}}}{\max(1, N_{\text{Attempts}})} \times 100\%$.
+  - Tiers: `ELITE_BUNT_ERASER` ($\text{BuntRuns} \ge +1.60$), `AGGRESSIVE_CHARGER`, `AVERAGE`, `SHORT_GAME_LIABILITY`.
+  - CLI: `mlb bunt --lead-outs 4 --popups 3 --hits 1 --attempts 22`, `mlb bunt --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_bunt.py` passing; 671/671 full repository unit tests passing.
+
+## ADR-184: Pitcher Horizontal Approach Angle (HAA) & Cross-Body Deception Engine (`HAA-01`, Package 96)
+
+**Decision:** Built horizontal plate entry trajectory, cross-body release, and east-west movement modeling in `mlb_baseball/model/haa.py` and CLI subcommand `mlb haa`.
+- **Mathematical Formulations & Methodology**:
+  - Horizontal Approach Angle: $\text{HAA} = \arctan\left(\frac{v_{x, \text{plate}}}{v_{\text{plate}}}\right) \times \left(\frac{180^\circ}{\pi}\right)$.
+  - Cross-Body Deception Score: $\text{Deception} = \min(100, |x_{\text{rel}}| \cdot 18.0 + |\text{HAA}| \cdot 12.0)$.
+  - Tiers: `EXTREME_CROSS_FIRE_SWEEP` ($|\text{HAA}| \ge 3.0^\circ, |x_{\text{rel}}| \ge 2.0\text{ ft}$), `ABOVE_AVERAGE_EAST_WEST`, `STANDARD`.
+  - CLI: `mlb haa --pitch ST --rel-x -2.6 --plate-x 0.8 --hb 17.0 --velo 83.5`, `mlb haa --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_haa.py` passing; 671/671 full repository unit tests passing.
+
+## ADR-183: Batter Pulled-Air (FB/LD) Power Polarization Engine (`PULL-AIR-01`, Package 95)
+
+**Decision:** Built pulled fly ball and line drive power optimization modeling in `mlb_baseball/model/pull_air.py` and CLI subcommand `mlb pull-air`.
+- **Mathematical Formulations & Methodology**:
+  - Pulled-Air Contact Rate: $\text{PullAir\%} = \frac{N(\text{BBE} \in \{\text{FB}, \text{LD}\} \cap \text{Pull})}{N(\text{BBE} \in \{\text{FB}, \text{LD}\})} \times 100\%$.
+  - Pulled-Air Damage Multiplier: $\text{PADM} = \left(\frac{\text{PullAir\%}}{28.5\%}\right) \times \left(1.0 + \frac{\text{PulledHR}}{\max(1, \text{TotalHR})} \cdot 0.5\right)$.
+  - Tiers: `ELITE_PULL_AIR_PUNISHER` ($\text{PullAir\%} \ge 38.0\%, \text{PADM} \ge 1.60$), `ABOVE_AVERAGE_PULL_AIR`, `AVERAGE`, `ALL_FIELDS_AIR_SPRAY`.
+  - CLI: `mlb pull-air --pull-air 45 --total-air 110 --pull-hr 22 --hr 25`, `mlb pull-air --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_pull_air.py` passing; 671/671 full repository unit tests passing.
+
 ## ADR-182: Pure-Python SVG Batter vs Pitcher Matchup Head-to-Head Comparison Card (`COMPARE-CARD-01`, Package 94)
 
 **Decision:** Built side-by-side scouting matchup comparison card visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb matchup-card`.

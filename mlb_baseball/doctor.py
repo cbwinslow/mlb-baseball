@@ -266,6 +266,7 @@ def run() -> list[Check]:
         blocking,
         bullpen,
         bullpen_opt,
+        bunt,
         bvp,
         calibration,
         carry,
@@ -280,6 +281,7 @@ def run() -> list[Check]:
         extension,
         fatigue,
         fstrike,
+        haa,
         heatmap,
         hedge,
         iffb,
@@ -290,6 +292,7 @@ def run() -> list[Check]:
         poptime,
         portfolio,
         props,
+        pull_air,
         putaway,
         reliever,
         ros,
@@ -430,6 +433,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(pull_air.health_check())
+    except Exception as exc:
+        checks.append(Check("pull_air", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(haa.health_check())
+    except Exception as exc:
+        checks.append(Check("haa", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(bunt.health_check())
+    except Exception as exc:
+        checks.append(Check("bunt", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(babip.health_check())
     except Exception as exc:

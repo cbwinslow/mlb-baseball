@@ -25,6 +25,7 @@ class ChartType(enum.Enum):
     RUN_EXPECTANCY_HEATMAP = "run_expectancy_heatmap"
     SPATIAL_HEXBIN_MAP = "spatial_hexbin_map"
     MATCHUP_COMPARISON_CARD = "matchup_comparison_card"
+    WIN_PROBABILITY_REPLAY = "win_probability_replay"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1081,6 +1082,107 @@ class MatchupComparisonCardRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class WinProbabilityReplayStep:
+    """Individual game event step recording win expectancy and narrative context."""
+
+    step_index: int
+    inning: int
+    is_top_inning: bool
+    home_we: float  # 0.0 to 1.0
+    play_description: str
+    we_delta: float = 0.0  # Change in win expectancy from prior step
+    is_pivotal_swing: bool = False  # Set true if |we_delta| >= 0.15
+
+
+@dataclasses.dataclass(frozen=True)
+class GameWPAReplayProfile:
+    """Complete game event progression for SVG win probability replay rendering."""
+
+    title: str
+    home_team: str
+    away_team: str
+    final_score_text: str
+    steps: list[WinProbabilityReplayStep]
+
+
+class WinProbabilityReplayRenderer:
+    """Renders pure-Python vector SVG game win probability replay flow charts (WPA-REPLAY-01)."""
+
+    def __init__(self, width: int = 680, height: int = 340) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: GameWPAReplayProfile) -> GeneratedVectorChart:
+        """Render multi-step win probability replay into vector SVG."""
+        margin_x = 60.0
+        margin_y = 55.0
+        plot_w = self.width - 2 * margin_x
+        plot_h = self.height - 2 * margin_y
+
+        n_steps = max(1, len(profile.steps) - 1)
+
+        def to_svg(step_idx: int, we: float) -> tuple[float, float]:
+            sx = margin_x + (step_idx / n_steps) * plot_w
+            sy = (margin_y + plot_h) - (we * plot_h)
+            return round(sx, 1), round(sy, 1)
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="28" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="45" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.home_team} vs {profile.away_team} '
+            f"({profile.final_score_text})</text>",
+            # 50% Win Expectancy Center Guideline
+            f'<line x1="{margin_x}" y1="{margin_y + plot_h / 2:.1f}" x2="{margin_x + plot_w}" '
+            f'y2="{margin_y + plot_h / 2:.1f}" stroke="#334155" stroke-width="1.5" '
+            f'stroke-dasharray="4,4" />',
+            # 100% Home & 100% Away Bounds
+            f'<text x="{margin_x - 10}" y="{margin_y + 4}" fill="#00d2be" font-size="10" '
+            f'text-anchor="end" font-family="sans-serif">100% {profile.home_team}</text>',
+            f'<text x="{margin_x - 10}" y="{margin_y + plot_h / 2 + 3:.1f}" '
+            f'fill="#64748b" font-size="10" '
+            f'text-anchor="end" font-family="sans-serif">50%</text>',
+            f'<text x="{margin_x - 10}" y="{margin_y + plot_h}" fill="#f59e0b" font-size="10" '
+            f'text-anchor="end" font-family="sans-serif">100% {profile.away_team}</text>',
+        ]
+
+        # Polyline Coordinates
+        pts = []
+        pivotal_markers = []
+
+        for s in profile.steps:
+            sx, sy = to_svg(s.step_index, s.home_we)
+            pts.append(f"{sx},{sy}")
+
+            if s.is_pivotal_swing or abs(s.we_delta) >= 0.15:
+                marker_col = "#00d2be" if s.we_delta > 0 else "#f59e0b"
+                pivotal_markers.append(
+                    f'<circle cx="{sx}" cy="{sy}" r="5.5" fill="{marker_col}" '
+                    f'stroke="#ffffff" stroke-width="1.5" />'
+                )
+
+        if pts:
+            svg_parts.append(
+                f'<polyline points="{" ".join(pts)}" fill="none" stroke="#00d2be" '
+                f'stroke-width="2.5" stroke-linejoin="round" />'
+            )
+
+        svg_parts.extend(pivotal_markers)
+        svg_parts.append("</svg>")
+
+        return GeneratedVectorChart(
+            chart_type=ChartType.WIN_PROBABILITY_REPLAY,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -1146,6 +1248,15 @@ def health_check() -> list[Check]:
             MatchupCardProfile("Matchup", "Hitter", "Pitcher", "BATTER_ADVANTAGE", m_comps)
         )
 
+        replay_renderer = WinProbabilityReplayRenderer()
+        r_steps = [
+            WinProbabilityReplayStep(0, 1, True, 0.50, "Start"),
+            WinProbabilityReplayStep(1, 9, False, 0.95, "Walkoff HR", 0.45, True),
+        ]
+        replay_chart = replay_renderer.render(
+            GameWPAReplayProfile("Replay", "LAD", "NYY", "6-3", r_steps)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -1157,6 +1268,7 @@ def health_check() -> list[Check]:
             and "<svg" in re24_chart.svg_content
             and "<svg" in hex_chart.svg_content
             and "<svg" in card_chart.svg_content
+            and "<svg" in replay_chart.svg_content
         ):
             checks.append(
                 Check(

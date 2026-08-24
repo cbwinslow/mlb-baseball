@@ -2,6 +2,16 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-106: Player-Game Props Prediction System (`PROP-01`, Package 18)
+
+**Decision:** Created the player proposition forecasting system in `mlb_baseball/model/props.py` supporting starting pitcher strikeouts, outs recorded / innings pitched, batter hits, total bases, and anytime home run probabilities. Integrated with PostgreSQL `gold.game_feature` and `core.player`.
+- **Methodology & Mathematical Formulations**:
+  - Log5 Matchup Odds Composition: Combines point-in-time pitcher rates (K%, FIP, HR%) and opposing lineup rates (K%, wRC+, wOBA) relative to league average.
+  - Workload & Fatigue Adjustment: Adjusts projected starter batters faced ($	ext{BF}_{	ext{proj}}$) based on rest days (>=5 days vs <=3 days) and trailing 7-day workload.
+  - Discrete Probability Distributions: Evaluates strikeout counts ($k \in [0, 20]$), outs recorded, and total bases via Poisson PMF and CDF ($P(X \le k)$ and $P(X > L)$ over lines 3.5 to 8.5).
+  - Batter Power & Contact Quality: Projects hit rates and anytime HR probabilities using batter OBP/SLG/ISO, opposing pitcher FIP, and 3-year park HR component factors.
+- **Verification**: 5/5 unit tests in `tests/unit/test_props.py` and 2/2 real-PostgreSQL integration tests in `tests/integration/test_model_props.py` passing.
+
 ## ADR-105: Vectorized Monte Carlo Markov Game Simulation Engine (`SIM-01`, Package 17)
 
 **Decision:** Implemented high-throughput vectorized and GPU-accelerated Monte Carlo game simulation in `mlb_baseball/model/simulate.py` with dense array representations (`DenseOutcomeTable`), authentic baseball game rules (walk-off, bottom-9th skip, tie-breaking extra innings), in-progress live game forecasting, and integration tests in `tests/integration/test_model_simulate.py`.

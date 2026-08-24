@@ -16,7 +16,7 @@ directly, not just a status light.
 
 import psycopg
 
-from mlb_baseball import backup, conform, ingest, manifest, migrate, model, report
+from mlb_baseball import backup, conform, ingest, manifest, migrate, model, pipeline, report
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check, check_never_vacuumed
 from mlb_baseball.model import experiment, feature_select_stepwise
@@ -335,6 +335,10 @@ def run() -> list[Check]:
         checks.extend(neural.health_check())
     except Exception as exc:
         checks.append(Check("neural", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(pipeline.health_check())
+    except Exception as exc:
+        checks.append(Check("pipeline", False, f"health_check() raised: {exc}"))
 
     # backup.py has no bootstrap()/update() either -- it's an operational
     # tool, not a data source, but a missing pg_dump/psql should still show

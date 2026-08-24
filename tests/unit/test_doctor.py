@@ -138,3 +138,12 @@ def test_neural_health_check():
     n_checks = neural.health_check()
     assert len(n_checks) == 1
     assert n_checks[0].ok is True
+
+
+def test_pipeline_health_check():
+    """Verify master daily pipeline health check returns clean pass."""
+    from mlb_baseball import pipeline
+
+    p_checks = pipeline.health_check()
+    assert len(p_checks) == 1
+    assert p_checks[0].ok is True

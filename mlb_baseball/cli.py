@@ -719,6 +719,27 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output neural inference as JSON"
     )
 
+    # Master end-to-end quantitative daily pipeline (PIPE-02)
+    pipeline_parser = subparsers.add_parser(
+        "pipeline",
+        help="execute complete 8-phase end-to-end daily quantitative pipeline (PIPE-02)",
+    )
+    pipeline_parser.add_argument(
+        "--date", type=str, help="target game date (YYYY-MM-DD, default: today)"
+    )
+    pipeline_parser.add_argument(
+        "--sims", type=int, default=5000, help="number of Monte Carlo simulations (default: 5000)"
+    )
+    pipeline_parser.add_argument(
+        "--bankroll", type=float, default=10000.0, help="bankroll in USD (default: 10000.0)"
+    )
+    pipeline_parser.add_argument(
+        "--skip-doctor", action="store_true", help="skip preflight doctor health checks"
+    )
+    pipeline_parser.add_argument(
+        "--json", action="store_true", help="output pipeline report as JSON"
+    )
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -2131,6 +2152,59 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  • Starter Norm (H)   : {hnorm:.2f}")
             print(f"  • Starter Norm (A)   : {anorm:.2f}\n")
 
+    elif args.command == "pipeline":
+        import json as json_lib
+
+        from mlb_baseball.pipeline import MasterDailyPipeline
+
+        pipe = MasterDailyPipeline(run_preflight_doctor=not args.skip_doctor)
+        pipe_report = pipe.execute_daily_cycle(
+            target_date=args.date,
+            n_sims=args.sims,
+            bankroll_usd=args.bankroll,
+        )
+
+        if args.json:
+            pipe_out = {
+                "run_id": pipe_report.run_id,
+                "target_date": pipe_report.target_date,
+                "overall_success": pipe_report.overall_success,
+                "total_duration_seconds": pipe_report.total_duration_seconds,
+                "alerts": pipe_report.alerts,
+                "phases": [
+                    {
+                        "phase_name": p.phase_name,
+                        "status": p.status,
+                        "duration_seconds": p.duration_seconds,
+                        "summary": p.summary,
+                        "metrics": p.metrics,
+                    }
+                    for p in pipe_report.phases
+                ],
+            }
+            print(json_lib.dumps(pipe_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     MASTER END-TO-END QUANTITATIVE DAILY PIPELINE ({pipe_report.target_date})")
+            print(
+                f"     Run: {pipe_report.run_id} | Time: {pipe_report.total_duration_seconds:.2f}s"
+            )
+            status_tag = "SUCCESS" if pipe_report.overall_success else "FAILED"
+            print(f"     Overall Status: [{status_tag}]")
+            print(f"{'=' * 84}\n")
+
+            if pipe_report.alerts:
+                for a in pipe_report.alerts:
+                    print(f">> ALERT: {a}")
+                print("")
+
+            for ph_res in pipe_report.phases:
+                print(
+                    f"[{ph_res.status:^7}] {ph_res.phase_name:<34} "
+                    f"({ph_res.duration_seconds:>5.2f}s) | {ph_res.summary}"
+                )
+            print("")
+
     elif args.command == "daily":
         import json as json_lib
 
@@ -2281,20 +2355,20 @@ def main(argv: list[str] | None = None) -> None:
             raw_alphas = serve.fetch_prediction_market_alpha(min_edge=args.min_edge, conn=conn)
 
         opportunities = []
-        for i, a in enumerate(raw_alphas):
-            m_prob = float(a.get("model_home_win_prob") or 0.50)
-            mkt_prob = float(a.get("market_home_prob") or 0.50)
+        for i, alpha_item in enumerate(raw_alphas):
+            m_prob = float(alpha_item.get("model_home_win_prob") or 0.50)
+            mkt_prob = float(alpha_item.get("market_home_prob") or 0.50)
             if mkt_prob <= 0 or mkt_prob >= 1:
                 continue
             opp = BetOpportunity(
                 opportunity_id=f"alpha_{i}",
-                game_instance_key=str(a.get("game_instance_key", "")),
-                market_source=str(a.get("market_source", "market")),
+                game_instance_key=str(alpha_item.get("game_instance_key", "")),
+                market_source=str(alpha_item.get("market_source", "market")),
                 position_type=PositionType.MONEYLINE,
                 description=(
-                    f"{a.get('away_team', 'AWAY')} @ "
-                    f"{a.get('home_team', 'HOME')} "
-                    f"({a.get('recommendation', 'Win')})"
+                    f"{alpha_item.get('away_team', 'AWAY')} @ "
+                    f"{alpha_item.get('home_team', 'HOME')} "
+                    f"({alpha_item.get('recommendation', 'Win')})"
                 ),
                 model_probability=m_prob,
                 market_implied_probability=mkt_prob,

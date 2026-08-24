@@ -2,6 +2,30 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-130: Master End-to-End Quantitative Daily Pipeline (`PIPE-02`, Package 42)
+
+**Decision:** Built master daily pipeline orchestrator in `mlb_baseball/pipeline.py` and CLI subcommand `mlb pipeline` unifying the full 8-phase quantitative daily research and forecasting cycle.
+- **Orchestrated Daily Phases**:
+  1. Operational Health Preflight (`mlb doctor`)
+  2. Model Ladder Inference & Bayesian Simplex Stacking (`STACK-02`)
+  3. Pitch Physics & Repertoire Stuff+/Location+ Rating (`STUFF-01`)
+  4. Spatial 2D Strike Zone KDE & Batted Ball Ballistics (`HEATMAP-01`)
+  5. Correlated Same-Game Parlay (SGP) Copula Simulation (`PARLAY-01`)
+  6. Continuous Drift & Calibration Tracking (`DRIFT-01`)
+  7. Fractional Kelly Capital Allocation (`PORT-01`)
+  8. Multi-Format Publication Dossier Generation (`EXPORT-01`)
+- **CLI**: `mlb pipeline --date 2026-08-24 --sims 5000 --bankroll 10000.0`, `mlb pipeline --json`.
+- **Verification**: 2/2 unit tests in `tests/unit/test_pipeline.py` passing; 498/498 full repository unit tests passing.
+
+## ADR-129: Deep Modeling Analytical Serving Views (`SERVE-03`, Package 41)
+
+**Decision:** Added migration `0081_deep_modeling_serving_views.sql` defining fast, read-only analytical serving marts in the `serve` schema pre-joining pitch physics, SGP candidate legs, and batted ball contact metrics.
+- **Analytical Serving Marts**:
+  - `serve.pitcher_arsenal`: Pre-computes fastball velocity, IVB, curve drop, vertical separation, CSW%, and estimated Stuff+/Location+ scores per pitcher.
+  - `serve.sgp_matchup_grid`: Pre-joins home/away moneyline probabilities, pitcher strikeout benchmarks, expected total runs, park factors, and air density index.
+  - `serve.batted_ball_profile`: Pre-computes team and player hard hit percentages, barrel rates, and expected Statcast metrics (xwOBA, xBA).
+- **Verification**: 2/2 unit tests in `tests/unit/test_serve_views.py` passing; 498/498 full repository unit tests passing.
+
 ## ADR-128: Hierarchical Neural Sequence & Tree-Residual Embedding Combiner (`NEURAL-01`, Package 40)
 
 **Decision:** Built hierarchical neural network combiner in `mlb_baseball/model/neural.py` and CLI subcommand `mlb neural` incorporating low-dimensional categorical entity embeddings (Pitchers, Teams, Venues) with tree gradient residuals.

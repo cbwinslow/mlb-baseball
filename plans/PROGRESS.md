@@ -33,6 +33,14 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### PIPE-02 master end-to-end quantitative daily pipeline: implemented (ADR-130) — 2026-08-24
+Added `mlb_baseball/pipeline.py`, unit tests in `tests/unit/test_pipeline.py`, and `mlb pipeline` CLI command.
+- Orchestrates full 8-phase daily forecasting cycle: Health Preflight, Stacking, Stuff+, KDE Heatmaps, SGP Copula, Drift Verification, Kelly Risk Allocation, and Dossier Export.
+
+### SERVE-03 deep modeling analytical serving views: implemented (ADR-129) — 2026-08-24
+Added migration `migrations/0081_deep_modeling_serving_views.sql` and unit tests in `tests/unit/test_serve_views.py`.
+- Fast, read-only analytical marts (`serve.pitcher_arsenal`, `serve.sgp_matchup_grid`, `serve.batted_ball_profile`) pre-joining pitch physics, SGP candidates, and Statcast contact metrics.
+
 ### NEURAL-01 hierarchical neural sequence & tree-residual combiner: implemented (ADR-128) — 2026-08-24
 Added `mlb_baseball/model/neural.py`, unit tests in `tests/unit/test_neural.py`, and `mlb neural` CLI command.
 - Low-dimensional categorical entity embeddings for Pitchers, Teams, and Venues combined with tree priors: $P = \sigma(	ext{logit}(P_{\text{tree}}) + \Delta_{\text{MLP}})$.

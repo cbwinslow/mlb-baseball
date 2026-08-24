@@ -267,6 +267,7 @@ def run() -> list[Check]:
         backtest,
         baserunning,
         blast_angle,
+        block_suppress,
         blocking,
         bullpen,
         bullpen_opt,
@@ -287,8 +288,10 @@ def run() -> list[Check]:
         drift,
         entropy,
         exp_resist,
+        ext_perceive,
         extension,
         fatigue,
+        foul_attrition,
         fstrike,
         gyro_spin,
         haa,
@@ -454,6 +457,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(ext_perceive.health_check())
+    except Exception as exc:
+        checks.append(Check("ext_perceive", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(foul_attrition.health_check())
+    except Exception as exc:
+        checks.append(Check("foul_attrition", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(block_suppress.health_check())
+    except Exception as exc:
+        checks.append(Check("block_suppress", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(pull_barrel.health_check())
     except Exception as exc:

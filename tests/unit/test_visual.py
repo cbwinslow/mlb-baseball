@@ -450,3 +450,28 @@ def test_attack_zone_9x9_grid_svg_generation():
     assert "<svg" in chart.svg_content
     assert "Soto 9x9 Attack Zone" in chart.svg_content
     assert "rect" in chart.svg_content
+
+
+def test_break_diamond_plot_svg_generation():
+    """Verify BreakDiamondPlotRenderer generates break scatter and quadrants."""
+    from mlb_baseball.visual import (
+        BreakDiamondPlotRenderer,
+        PitchArsenalBreakProfile,
+        PitchBreakVector,
+    )
+
+    renderer = BreakDiamondPlotRenderer()
+    pitches = [
+        PitchBreakVector("4-Seam", 10.0, 18.0, 98.0, "#ef4444"),
+        PitchBreakVector("Sweeper", -14.0, -1.0, 84.0, "#3b82f6"),
+        PitchBreakVector("Changeup", 15.0, 6.0, 89.0, "#10b981"),
+    ]
+    prof = PitchArsenalBreakProfile("Skenes Arsenal Break", "Paul Skenes", pitches)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Skenes Arsenal Break" in chart.svg_content
+    assert "Arm-Side Ride" in chart.svg_content
+    assert "Sweeper" in chart.svg_content

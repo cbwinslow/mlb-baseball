@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### BREAK-DIAMOND-01 pure-Python SVG pitch arsenal break movement plot: implemented (ADR-218) — 2026-08-24
+Added `BreakDiamondPlotRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb break-diamond` CLI command.
+- Renders multi-pitch Cartesian HB vs IVB scatter chart with concentric 10/20 in break circles and movement quadrants.
+
+### BLOCK-SUPPRESS-01 catcher wild pitch & dirt ball wall suppression: implemented (ADR-217) — 2026-08-24
+Added `mlb_baseball/model/block_suppress.py`, unit tests in `tests/unit/test_block_suppress.py`, and `mlb block-suppress` CLI command.
+- Evaluates dirt-ball blocking percentage, recovery time, runner advance prevention, and DBWR rating.
+
+### FOUL-ATTRITION-01 batter two-strike foul-off attrition & starter exhaustion: implemented (ADR-216) — 2026-08-24
+Added `mlb_baseball/model/foul_attrition.py`, unit tests in `tests/unit/test_foul_attrition.py`, and `mlb foul-attrition` CLI command.
+- Models multi-foul battle endurance, pitch count escalation per PA, BFAI index, and starter removal acceleration.
+
+### EXT-PERCEIVE-01 pitcher release extension vs plate velocity differential: implemented (ADR-215) — 2026-08-24
+Added `mlb_baseball/model/ext_perceive.py`, unit tests in `tests/unit/test_ext_perceive.py`, and `mlb ext-perceive` CLI command.
+- Evaluates release extension depth, effective perceived velocity boost, reaction compression, and EVER score.
+
 ### ATTACK-9X9-01 pure-Python SVG batter 3D attack zone 9x9 matrix: implemented (ADR-214) — 2026-08-24
 Added `AttackZone9x9GridRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb attack-9x9` CLI command.
 - Renders 9x9 fine-grained grid cells (Waste, Chase, Shadow, Heart) with wOBA/Swing/Whiff heatmaps and zone borders.

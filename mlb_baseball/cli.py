@@ -867,6 +867,72 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Pitcher release extension vs effective velocity (EXT-PERCEIVE-01)
+    exp_p_parser = subparsers.add_parser(
+        "ext-perceive",
+        help="evaluate pitcher extension kinematics and effective velocity (EXT-PERCEIVE-01)",
+    )
+    exp_p_parser.add_argument("--ext", type=float, default=6.4, help="extension ft (default: 6.4)")
+    exp_p_parser.add_argument(
+        "--velo", type=float, default=94.0, help="radar velocity mph (default: 94.0)"
+    )
+    exp_p_parser.add_argument(
+        "--ivb", type=float, default=16.5, help="induced vert break in (default: 16.5)"
+    )
+    exp_p_parser.add_argument(
+        "--rel-z", type=float, default=5.85, help="release height ft (default: 5.85)"
+    )
+    exp_p_parser.add_argument("--pitches", type=int, default=200, help="pitch count (default: 200)")
+    exp_p_parser.add_argument(
+        "--json", action="store_true", help="output extension evaluation as JSON"
+    )
+
+    # Batter two-strike foul attrition (FOUL-ATTRITION-01)
+    fat_parser = subparsers.add_parser(
+        "foul-attrition",
+        help="evaluate batter multi-foul endurance and starter exhaustion (FOUL-ATTRITION-01)",
+    )
+    fat_parser.add_argument(
+        "--multi-foul", type=float, default=11.0, help="multi-foul PA pct (default: 11.0)"
+    )
+    fat_parser.add_argument(
+        "--ppa", type=float, default=3.95, help="pitches per PA (default: 3.95)"
+    )
+    fat_parser.add_argument(
+        "--foul", type=float, default=42.0, help="2-strike foul pct (default: 42.0)"
+    )
+    fat_parser.add_argument("--pa", type=int, default=500, help="total PA count (default: 500)")
+    fat_parser.add_argument("--json", action="store_true", help="output foul attrition as JSON")
+
+    # Catcher dirt ball wall suppression (BLOCK-SUPPRESS-01)
+    bsp_parser = subparsers.add_parser(
+        "block-suppress",
+        help="evaluate catcher dirt-ball blocking, recovery speed, and DBWR (BLOCK-SUPPRESS-01)",
+    )
+    bsp_parser.add_argument(
+        "--block", type=float, default=89.0, help="dirt ball block pct (default: 89.0)"
+    )
+    bsp_parser.add_argument(
+        "--recov", type=float, default=0.82, help="recovery time sec (default: 0.82)"
+    )
+    bsp_parser.add_argument(
+        "--prev", type=float, default=78.0, help="advance prev pct (default: 78.0)"
+    )
+    bsp_parser.add_argument(
+        "--opps", type=int, default=150, help="dirt opportunities (default: 150)"
+    )
+    bsp_parser.add_argument("--json", action="store_true", help="output block suppress as JSON")
+
+    # Pitch arsenal break diamond (BREAK-DIAMOND-01)
+    bd_parser = subparsers.add_parser(
+        "break-diamond",
+        help="generate vector SVG horizontal vs vertical pitch break scatter (BREAK-DIAMOND-01)",
+    )
+    bd_parser.add_argument(
+        "--title", type=str, default="Paul Skenes Arsenal Break", help="chart title"
+    )
+    bd_parser.add_argument("--pitcher", type=str, default="Paul Skenes", help="pitcher name")
+
     # Batter pull-air barrel conversion (PULL-BARREL-01)
     pbr_parser = subparsers.add_parser(
         "pull-barrel",
@@ -3971,6 +4037,149 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "ext-perceive":
+        import json as json_lib
+
+        from mlb_baseball.model.ext_perceive import (
+            PitcherExtensionKinematicsMetrics,
+            PitcherExtPerceiveEngine,
+        )
+
+        ext_p_eng = PitcherExtPerceiveEngine()
+        ext_p_m = PitcherExtensionKinematicsMetrics(
+            "p1",
+            "Target Pitcher",
+            extension_ft=args.ext,
+            radar_velocity_mph=args.velo,
+            induced_vert_break_in=args.ivb,
+            release_z_ft=args.rel_z,
+            pitch_count_evaluated=args.pitches,
+        )
+        ext_p_res = ext_p_eng.evaluate_extension(ext_p_m)
+
+        if args.json:
+            ext_p_out = {
+                "effective_velo": ext_p_res.effective_velocity_mph,
+                "reaction_compression_ms": ext_p_res.reaction_time_compression_ms,
+                "ever_score": ext_p_res.ever_score,
+                "whiff_multiplier": ext_p_res.whiff_boost_multiplier,
+                "tier": ext_p_res.extension_tier,
+                "is_deceiver": ext_p_res.is_elite_deceiver,
+            }
+            print(json_lib.dumps(ext_p_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PITCHER EXTENSION & EFFECTIVE VELO [{ext_p_res.extension_tier}]")
+            hdr_ep = (
+                f"     EVER Score: {ext_p_res.ever_score:.1f}/160 "
+                f"| Effective Velo: {ext_p_res.effective_velocity_mph:.1f} mph "
+                f"| Whiff Boost: {ext_p_res.whiff_boost_multiplier:.3f}x"
+            )
+            print(hdr_ep)
+            print(f"{'=' * 84}\n")
+            print(f"  • Reaction Compression : {ext_p_res.reaction_time_compression_ms:>+4.1f} ms")
+            print(f"  • Elite Deceiver       : {'YES' if ext_p_res.is_elite_deceiver else 'NO'}\n")
+
+    elif args.command == "foul-attrition":
+        import json as json_lib
+
+        from mlb_baseball.model.foul_attrition import (
+            BatterFoulAttritionEngine,
+            BatterFoulAttritionMetrics,
+        )
+
+        fatr_eng = BatterFoulAttritionEngine()
+        fatr_m = BatterFoulAttritionMetrics(
+            "b1",
+            "Target Batter",
+            multi_foul_pa_rate_pct=args.multi_foul,
+            pitches_per_pa=args.ppa,
+            two_strike_foul_rate_pct=args.foul,
+            total_pa_count=args.pa,
+        )
+        fatr_res = fatr_eng.evaluate_attrition(fatr_m)
+
+        if args.json:
+            fatr_out = {
+                "bfai_score": fatr_res.bfai_score,
+                "surplus_pitches": fatr_res.surplus_pitches_extracted,
+                "srar_runs": fatr_res.srar_runs_saved,
+                "tier": fatr_res.attrition_tier,
+                "is_grinder": fatr_res.is_exhausting_grinder,
+            }
+            print(json_lib.dumps(fatr_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     BATTER FOUL ATTRITION [{fatr_res.attrition_tier}]")
+            hdr_fa = (
+                f"     BFAI Score: {fatr_res.bfai_score:.1f}/160 "
+                f"| Extra Pitches: {fatr_res.surplus_pitches_extracted:>+5.1f} "
+                f"| SRAR Runs: {fatr_res.srar_runs_saved:>+4.2f}"
+            )
+            print(hdr_fa)
+            print(f"{'=' * 84}\n")
+            print(f"  • Attrition Profile    : {fatr_res.attrition_tier}")
+            print(
+                f"  • Exhausting Grinder   : {'YES' if fatr_res.is_exhausting_grinder else 'NO'}\n"
+            )
+
+    elif args.command == "block-suppress":
+        import json as json_lib
+
+        from mlb_baseball.model.block_suppress import (
+            CatcherBlockSuppressEngine,
+            CatcherDirtBlockMetrics,
+        )
+
+        bsp_eng = CatcherBlockSuppressEngine()
+        bsp_m = CatcherDirtBlockMetrics(
+            "c1",
+            "Target Catcher",
+            dirt_ball_block_pct=args.block,
+            recovery_time_sec=args.recov,
+            runner_advance_prevention_pct=args.prev,
+            dirt_ball_opportunities=args.opps,
+        )
+        bsp_res = bsp_eng.evaluate_blocking(bsp_m)
+
+        if args.json:
+            bsp_out = {
+                "dbwr_score": bsp_res.dbwr_score,
+                "bapr_runs": bsp_res.bapr_runs_saved,
+                "tier": bsp_res.blocking_tier,
+                "is_brick_wall": bsp_res.is_brick_wall,
+            }
+            print(json_lib.dumps(bsp_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     CATCHER DIRT-BALL WALL SUPPRESSION [{bsp_res.blocking_tier}]")
+            hdr_bs = (
+                f"     DBWR Score: {bsp_res.dbwr_score:.1f}/160 "
+                f"| BAPR Runs Saved: {bsp_res.bapr_runs_saved:>+4.2f} "
+                f"| Tier: {bsp_res.blocking_tier}"
+            )
+            print(hdr_bs)
+            print(f"{'=' * 84}\n")
+            print(f"  • Blocking Profile     : {bsp_res.blocking_tier}")
+            print(f"  • Brick Wall Specialist: {'YES' if bsp_res.is_brick_wall else 'NO'}\n")
+
+    elif args.command == "break-diamond":
+        from mlb_baseball.visual import (
+            BreakDiamondPlotRenderer,
+            PitchArsenalBreakProfile,
+            PitchBreakVector,
+        )
+
+        bd_renderer = BreakDiamondPlotRenderer()
+        bd_pitches = [
+            PitchBreakVector("4-Seam", 10.0, 18.0, 98.0, "#ef4444"),
+            PitchBreakVector("Sweeper", -14.0, -1.0, 84.0, "#3b82f6"),
+            PitchBreakVector("Changeup", 15.0, 6.0, 89.0, "#10b981"),
+        ]
+        bd_prof = PitchArsenalBreakProfile(args.title, args.pitcher, bd_pitches)
+        chart = bd_renderer.render(bd_prof)
+        print(f"Generated Vector SVG Pitch Break Diamond Chart ({len(chart.svg_content)} bytes)")
 
     elif args.command == "pull-barrel":
         import json as json_lib

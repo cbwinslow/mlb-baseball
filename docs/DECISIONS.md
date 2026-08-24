@@ -2,6 +2,46 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-218: Pure-Python SVG Pitch Arsenal Horizontal & Vertical Break Movement Plot (`BREAK-DIAMOND-01`, Package 130)
+
+**Decision:** Built multi-pitch Cartesian horizontal vs vertical break vector SVG scatter chart with quadrant coordinate crosshairs in `mlb_baseball/visual.py` and CLI subcommand `mlb break-diamond`.
+- **Operational Architecture & Geometry**:
+  - Coordinate Domain: Maps Horizontal Break $\text{HB}_{\text{in}}$ ($-25\text{ to }+25\text{ in}$) against Induced Vertical Break $\text{IVB}_{\text{in}}$ ($-25\text{ to }+25\text{ in}$) with concentric $10\text{ in}$ and $20\text{ in}$ break circles.
+  - 4 Movement Quadrants: Arm-Side Ride, Glove-Side Cut, Depth / Sweep, Arm-Side Sink.
+  - CLI: `mlb break-diamond --title "Paul Skenes Arsenal Break" --pitcher "Paul Skenes"`.
+- **Verification**: 20/20 unit tests in `tests/unit/test_visual.py` passing; 758/758 full repository unit tests passing.
+
+## ADR-217: Catcher Wild Pitch & Passed Ball Wall Suppression Engine (`BLOCK-SUPPRESS-01`, Package 129)
+
+**Decision:** Built dirt-ball blocking, recovery duration, and wild pitch advancement suppression in `mlb_baseball/model/block_suppress.py` and CLI subcommand `mlb block-suppress`.
+- **Mathematical Formulations & Methodology**:
+  - Dirt Ball Wall Rating: $\text{DBWR} = \max\left(0, 100 + (\text{Block\%} - 88.0) \cdot 3.5 + (0.85 - t_{\text{recov}}) \cdot 80.0 + (\text{AdvancePrev\%} - 75.0) \cdot 1.2\right)$.
+  - Block-Advance Prevention Runs: $\text{BAPR}_{\text{runs}} = (\text{Block\%} - 88.0\%) \cdot \text{Opps} \cdot 0.32 + (\text{AdvancePrev\%} - 75.0\%) \cdot \text{Opps} \cdot 0.18$.
+  - Tiers: `BRICK_WALL_DIRT_SPECIALIST` ($\text{DBWR} \ge 118.0, \text{Block\%} \ge 93.0\%, t_{\text{recov}} \le 0.72\text{ s}$), `LEAKY_DIRT_BALL_LIABILITY`, `SLOW_RECOVERY_DEFENDER`, `AVERAGE_DIRT_BLOCKER`.
+  - CLI: `mlb block-suppress --block 95.0 --recov 0.62 --prev 90.0 --opps 180`, `mlb block-suppress --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_block_suppress.py` passing; 758/758 full repository unit tests passing.
+
+## ADR-216: Batter Two-Strike Foul-Off Attrition & Pitcher Exhaustion Engine (`FOUL-ATTRITION-01`, Package 128)
+
+**Decision:** Built multi-foul battle endurance, pitch count escalation, and starter attrition modeling in `mlb_baseball/model/foul_attrition.py` and CLI subcommand `mlb foul-attrition`.
+- **Mathematical Formulations & Methodology**:
+  - Batter Foul Attrition Index: $\text{BFAI} = \max\left(0, 100 + (\text{MultiFoul\%} - 10.0) \cdot 3.2 + (\text{P/PA} - 3.90) \cdot 35.0 + (\text{2S-Foul\%} - 40.0) \cdot 0.8\right)$.
+  - Starter Removal Acceleration Runs: $\Delta \text{Pitches}_{\text{total}} = (\text{P/PA} - 3.90) \cdot \text{PAs}$, $\text{SRAR}_{\text{runs}} = \Delta \text{Pitches}_{\text{total}} \cdot 0.032\text{ runs/pitch}$.
+  - Tiers: `EXHAUSTING_FOUL_BALL_GRINDER` ($\text{BFAI} \ge 118.0, \text{MultiFoul\%} \ge 14.5\%, \text{P/PA} \ge 4.20$), `RAPID_DISMISSAL_FREE_SWINGER`, `ABOVE_AVERAGE_PITCH_EATER`, `AVERAGE_FOUL_ATTRITION`.
+  - CLI: `mlb foul-attrition --multi-foul 18.0 --ppa 4.45 --foul 52.0 --pa 550`, `mlb foul-attrition --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_foul_attrition.py` passing; 758/758 full repository unit tests passing.
+
+## ADR-215: Pitcher Release Extension vs Plate Velocity Differential Engine (`EXT-PERCEIVE-01`, Package 127)
+
+**Decision:** Built release extension kinematics, perceived velocity boost, and reaction time compression in `mlb_baseball/model/ext_perceive.py` and CLI subcommand `mlb ext-perceive`.
+- **Mathematical Formulations & Methodology**:
+  - Effective Perceived Velocity: $v_{\text{eff}} = v_{\text{radar}} + (ext - 6.0\text{ ft}) \cdot 0.72\text{ mph}$.
+  - Batter Reaction Time Compression: $\Delta t_{\text{react}} = \frac{ext - 6.4\text{ ft}}{v_{\text{radar}} \cdot 1.467\text{ ft/s}} \cdot 1000\text{ ms}$.
+  - Effective Velocity Extension Rating: $\text{EVER} = \max\left(0, 100 + (ext - 6.4) \cdot 28.0 + (v_{\text{eff}} - 93.5) \cdot 2.2 + (\text{IVB} - 16.0) \cdot 1.4\right)$.
+  - Tiers: `ELITE_LONG_EXTENSION_DECEIVER` ($ext \ge 7.05\text{ ft}, \text{EVER} \ge 116.0, v_{\text{eff}} - v_{\text{radar}} \ge 0.75\text{ mph}$), `COMPACT_SHORT_EXTENSION_PENALIZED`, `POWER_VELO_AVERAGE_EXTENSION`, `AVERAGE_EXTENSION_DELIVERY`.
+  - CLI: `mlb ext-perceive --ext 7.3 --velo 96.0 --ivb 18.5 --rel-z 5.6 --pitches 250`, `mlb ext-perceive --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_ext_perceive.py` passing; 758/758 full repository unit tests passing.
+
 ## ADR-214: Pure-Python SVG Batter 3D Attack Zone 9x9 Hot/Cold Swing Matrix (`ATTACK-9X9-01`, Package 126)
 
 **Decision:** Built 9x9 fine-grained strike zone grid vector SVG heatmap visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb attack-9x9`.

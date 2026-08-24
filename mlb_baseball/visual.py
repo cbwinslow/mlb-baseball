@@ -34,6 +34,7 @@ class ChartType(enum.Enum):
     SPRAY_ELEVATION_ROSE = "spray_elevation_rose"
     RELEASE_WINDOW_BOX = "release_window_box"
     ATTACK_ZONE_9X9_GRID = "attack_zone_9x9_grid"
+    BREAK_DIAMOND_PLOT = "break_diamond_plot"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2065,6 +2066,101 @@ class AttackZone9x9GridRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class PitchBreakVector:
+    """Pitch horizontal and vertical movement break point."""
+
+    pitch_type: str  # e.g. "4-Seam", "Sweeper", "Changeup", "Curveball"
+    pfx_x_in: float  # Horizontal break in inches (-25 to +25)
+    pfx_z_in: float  # Induced vertical break in inches (-25 to +25)
+    velocity_mph: float
+    color_hex: str = "#3b82f6"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitchArsenalBreakProfile:
+    """Full pitch arsenal horizontal vs vertical break movement profile."""
+
+    title: str
+    pitcher_name: str
+    pitches: list[PitchBreakVector]
+
+
+class BreakDiamondPlotRenderer:
+    """Renders pure-Python vector SVG pitch break charts (BREAK-DIAMOND-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitchArsenalBreakProfile) -> GeneratedVectorChart:
+        """Render multi-pitch HB vs IVB movement scatter with coordinate crosshairs."""
+        center_x = self.width / 2
+        center_y = self.height / 2 + 15
+        radius = 160.0  # Represents 25 inches of break
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{center_x}" y="28" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{center_x}" y="46" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} Arsenal Movement (HB vs IVB)</text>',
+            # Concentric break circles: 10 in and 20 in
+            f'<circle cx="{center_x}" cy="{center_y}" r="{radius * 0.4:.1f}" '
+            f'fill="none" stroke="#1e293b" stroke-width="1.2" stroke-dasharray="3,3" />',
+            f'<circle cx="{center_x}" cy="{center_y}" r="{radius * 0.8:.1f}" '
+            f'fill="none" stroke="#1e293b" stroke-width="1.2" stroke-dasharray="3,3" />',
+            # Crosshair axes
+            f'<line x1="{center_x - radius:.0f}" y1="{center_y:.0f}" '
+            f'x2="{center_x + radius:.0f}" y2="{center_y:.0f}" '
+            f'stroke="#334155" stroke-width="1.5" />',
+            f'<line x1="{center_x:.0f}" y1="{center_y - radius:.0f}" '
+            f'x2="{center_x:.0f}" y2="{center_y + radius:.0f}" '
+            f'stroke="#334155" stroke-width="1.5" />',
+            # Quadrant labels
+            f'<text x="{center_x + radius - 10}" y="{center_y - radius + 20}" fill="#64748b" '
+            f'font-size="9" text-anchor="end" font-family="sans-serif">Arm-Side Ride</text>',
+            f'<text x="{center_x - radius + 10}" y="{center_y - radius + 20}" fill="#64748b" '
+            f'font-size="9" text-anchor="start" font-family="sans-serif">Glove-Side Cut</text>',
+            f'<text x="{center_x - radius + 10}" y="{center_y + radius - 10}" fill="#64748b" '
+            f'font-size="9" text-anchor="start" font-family="sans-serif">Depth / Sweep</text>',
+            f'<text x="{center_x + radius - 10}" y="{center_y + radius - 10}" fill="#64748b" '
+            f'font-size="9" text-anchor="end" font-family="sans-serif">Arm-Side Sink</text>',
+        ]
+
+        def scale_coord(hb: float, ivb: float) -> tuple[float, float]:
+            # hb in inches (-25 to +25), ivb in inches (-25 to +25)
+            # screen x: +hb goes right (for RHP arm-side)
+            # screen y: +ivb goes UP (smaller y)
+            sx = center_x + (hb / 25.0) * radius
+            sy = center_y - (ivb / 25.0) * radius
+            return sx, sy
+
+        for p in profile.pitches:
+            px, py = scale_coord(p.pfx_x_in, p.pfx_z_in)
+            svg_parts.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="9" '
+                f'fill="{p.color_hex}" stroke="#f8fafc" stroke-width="1.8" />'
+            )
+            # Label
+            svg_parts.append(
+                f'<text x="{px:.1f}" y="{py - 13:.1f}" fill="#f8fafc" font-size="10" '
+                f'font-weight="bold" text-anchor="middle" font-family="sans-serif">'
+                f"{p.pitch_type} ({p.velocity_mph:.0f})</text>"
+            )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.BREAK_DIAMOND_PLOT,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -2213,6 +2309,7 @@ def health_check() -> list[Check]:
             and "<svg" in rose_chart.svg_content
             and "<svg" in box_chart.svg_content
             and "<svg" in grid_chart.svg_content
+            and "<svg" in break_chart.svg_content
         ):
             checks.append(
                 Check(

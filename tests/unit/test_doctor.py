@@ -345,3 +345,12 @@ def test_pull_barrel_and_putaway_exec_and_route_burst_health_checks():
     assert pull_barrel.health_check()[0].ok is True
     assert putaway_exec.health_check()[0].ok is True
     assert route_burst.health_check()[0].ok is True
+
+
+def test_ext_perceive_and_foul_attrition_and_block_suppress_health_checks():
+    """Verify health checks for ext_perceive, foul_attrition, and block_suppress modules."""
+    from mlb_baseball.model import block_suppress, ext_perceive, foul_attrition
+
+    assert ext_perceive.health_check()[0].ok is True
+    assert foul_attrition.health_check()[0].ok is True
+    assert block_suppress.health_check()[0].ok is True

@@ -124,7 +124,11 @@ This document serves as the academic and theoretical reference manual for the ML
 98. [Pitcher Two-Strike Putaway Intent & Out-of-Zone Execution](#98-pitcher-two-strike-putaway-intent--out-of-zone-execution)
 99. [Outfielder First-Step Reaction & Burst Route Efficiency](#99-outfielder-first-step-reaction--burst-route-efficiency)
 100. [Pure-Python SVG Batter 3D Attack Zone 9x9 Hot/Cold Matrix](#100-pure-python-svg-batter-3d-attack-zone-9x9-hotcold-matrix)
-101. [Academic Bibliography & Literature Citations](#101-academic-bibliography--literature-citations)
+101. [Pitcher Release Extension vs Plate Velocity Differential Dynamics](#101-pitcher-release-extension-vs-plate-velocity-differential-dynamics)
+102. [Batter Two-Strike Foul-Off Attrition & Pitcher Exhaustion Mechanics](#102-batter-two-strike-foul-off-attrition--pitcher-exhaustion-mechanics)
+103. [Catcher Wild Pitch & Passed Ball Wall Suppression Dynamics](#103-catcher-wild-pitch--passed-ball-wall-suppression-dynamics)
+104. [Pure-Python SVG Pitch Arsenal Break Diamond Architecture](#104-pure-python-svg-pitch-arsenal-break-diamond-architecture)
+105. [Academic Bibliography & Literature Citations](#105-academic-bibliography--literature-citations)
 
 ---
 
@@ -1110,7 +1114,38 @@ $$\text{Cell}_{r, c} \in \{\text{Waste, Chase, Shadow, Heart}\}, \quad \text{Col
 
 ---
 
-## 101. Academic Bibliography & Literature Citations
+## 101. Pitcher Release Extension vs Plate Velocity Differential Dynamics
+
+### 101.1 Effective Perceived Velocity & EVER Index
+$$v_{\text{eff}} = v_{\text{radar}} + (ext - 6.0\text{ ft}) \cdot 0.72\text{ mph}, \quad \Delta t_{\text{react}} = \frac{ext - 6.4\text{ ft}}{v_{\text{radar}} \cdot 1.467\text{ ft/s}} \cdot 1000\text{ ms}$$
+$$\text{EVER} = \max\left(0, 100 + (ext - 6.4) \cdot 28.0 + (v_{\text{eff}} - 93.5) \cdot 2.2 + (\text{IVB} - 16.0) \cdot 1.4\right)$$
+
+---
+
+## 102. Batter Two-Strike Foul-Off Attrition & Pitcher Exhaustion Mechanics
+
+### 102.1 Batter Foul Attrition Index (BFAI) & SRAR
+$$\text{BFAI} = \max\left(0, 100 + (\text{MultiFoul\%} - 10.0) \cdot 3.2 + (\text{P/PA} - 3.90) \cdot 35.0 + (\text{2S-Foul\%} - 40.0) \cdot 0.8\right)$$
+$$\Delta \text{Pitches}_{\text{total}} = (\text{P/PA} - 3.90) \cdot \text{PAs}, \quad \text{SRAR}_{\text{runs}} = \Delta \text{Pitches}_{\text{total}} \cdot 0.032\text{ runs/pitch}$$
+
+---
+
+## 103. Catcher Wild Pitch & Passed Ball Wall Suppression Dynamics
+
+### 103.1 Dirt Ball Wall Rating (DBWR) & BAPR
+$$\text{DBWR} = \max\left(0, 100 + (\text{Block\%} - 88.0) \cdot 3.5 + (0.85 - t_{\text{recov}}) \cdot 80.0 + (\text{AdvancePrev\%} - 75.0) \cdot 1.2\right)$$
+$$\text{BAPR}_{\text{runs}} = (\text{Block\%} - 88.0\%) \cdot \text{Opps} \cdot 0.32 + (\text{AdvancePrev\%} - 75.0\%) \cdot \text{Opps} \cdot 0.18$$
+
+---
+
+## 104. Pure-Python SVG Pitch Arsenal Break Diamond Architecture
+
+### 104.1 Polar-to-Cartesian Break Coordinate Transformation
+$$S_x = X_{\text{center}} + \left(\frac{\text{HB}_{\text{in}}}{25.0}\right) \cdot R_{\max}, \quad S_y = Y_{\text{center}} - \left(\frac{\text{IVB}_{\text{in}}}{25.0}\right) \cdot R_{\max}$$
+
+---
+
+## 105. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1172,3 +1207,5 @@ $$\text{Cell}_{r, c} \in \{\text{Waste, Chase, Shadow, Heart}\}, \quad \text{Col
 58. **Appelman, David** (2019). "Deconstructing Catcher Pop Time: Transfer vs Arm Strength". *FanGraphs Sabermetric Library*.
 59. **Tango, Tom** (2018). "Statcast Outfield Jump Decomposition: Reaction, Burst, and Route". *MLB Advanced Media*.
 60. **Albert, Jim** (2017). "Exploring the Value of Pulling Flyballs in the Statcast Era". *Journal of Quantitative Analysis in Sports*.
+61. **Nathan, Alan M.** (2016). "Determining the Relationship Between Release Extension and Perceived Velocity in MLB". *The Physics of Baseball*.
+62. **Fast, Mike** (2011). "Spin and Movement: Evaluating Pitcher Movement Profiles via Pitch f/x". *Baseball Prospectus*.

@@ -462,6 +462,21 @@ def main(argv: list[str] | None = None) -> None:
     backfill_identity = subparsers.add_parser("backfill-game-identities")
     backfill_identity.add_argument("--batch-size", type=int, default=1000)
 
+    # Season simulation command (PROJ-01)
+    season_parser = subparsers.add_parser(
+        "season-sim", help="run full-season Monte Carlo and playoff simulations"
+    )
+    season_parser.add_argument(
+        "--season", type=int, default=2024, help="season year (default: 2024)"
+    )
+    season_parser.add_argument(
+        "--sims", type=int, default=1000, help="number of season simulations"
+    )
+    season_parser.add_argument(
+        "--seed", type=int, default=0, help="random seed for reproducibility"
+    )
+    season_parser.add_argument("--json", action="store_true", help="output result as JSON")
+
     # Simulation engine command (SIM-01)
     sim_parser = subparsers.add_parser("simulate", help="run Monte Carlo Markov game simulations")
     sim_parser.add_argument("--sims", type=int, default=10000, help="number of game simulations")
@@ -493,6 +508,23 @@ def main(argv: list[str] | None = None) -> None:
     )
     sim_parser.add_argument("--home-score", type=int, default=0, help="current home score")
     sim_parser.add_argument("--away-score", type=int, default=0, help="current away score")
+
+    # Live in-play command (LIVE-02)
+    live_cli_parser = subparsers.add_parser(
+        "live", help="monitor live in-play games and +EV prediction market opportunities"
+    )
+    live_cli_parser.add_argument(
+        "--date", type=str, help="target game date (YYYY-MM-DD, default: today)"
+    )
+    live_cli_parser.add_argument(
+        "--interval", type=int, default=15, help="refresh interval in seconds (default: 15)"
+    )
+    live_cli_parser.add_argument(
+        "--sims", type=int, default=5000, help="number of live simulations per game (default: 5000)"
+    )
+    live_cli_parser.add_argument(
+        "--watch", action="store_true", help="refresh continuously until Ctrl-C"
+    )
 
     # Player props command (PROP-01)
     props_parser = subparsers.add_parser(
@@ -757,6 +789,76 @@ def main(argv: list[str] | None = None) -> None:
         with get_connection() as conn:
             counts = backfill_game_instance_keys(conn, args.batch_size)
         print(" ".join(f"{name}={count}" for name, count in counts.items()))
+    elif args.command == "season-sim":
+        import json as json_lib
+
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.model import season
+
+        with get_connection() as conn:
+            sched = season.load_schedule_from_db(args.season, conn=conn)
+            if not sched:
+                sched = season.generate_balanced_schedule(season.ALL_MLB_TEAMS)
+
+            talents = {t: 0.500 for t in season.ALL_MLB_TEAMS}
+            res = season.simulate_season_monte_carlo(
+                schedule=sched,
+                team_true_talents=talents,
+                n_simulations=args.sims,
+                seed=args.seed,
+                season=args.season,
+            )
+
+        if args.json:
+            out_dict = {
+                "season": res.season,
+                "simulations_run": res.simulations_run,
+                "duration_ms": res.duration_ms,
+                "simulations_per_sec": res.simulations_per_sec,
+                "projections": {
+                    t: {
+                        "team": p.team_code,
+                        "league": p.league,
+                        "division": p.division,
+                        "mean_wins": p.mean_wins,
+                        "mean_losses": p.mean_losses,
+                        "std_wins": p.std_wins,
+                        "make_playoffs_prob": p.make_playoffs_prob,
+                        "win_division_prob": p.win_division_prob,
+                        "win_wild_card_prob": p.win_wild_card_prob,
+                        "win_pennant_prob": p.win_pennant_prob,
+                        "win_world_series_prob": p.win_world_series_prob,
+                    }
+                    for t, p in res.team_projections.items()
+                },
+            }
+            print(json_lib.dumps(out_dict, indent=2))
+        else:
+            print(
+                f"Season {res.season} Monte Carlo Simulation "
+                f"({res.simulations_run:,} sims in {res.duration_ms:.1f}ms | "
+                f"{res.simulations_per_sec:,.0f} seasons/sec):"
+            )
+            print(
+                f"{'Team':<6} {'Div':<11} {'Wins':<6} {'Losses':<6} "
+                f"{'Playoff%':<9} {'Div%':<7} {'Pennant%':<9} {'WS%':<7}"
+            )
+            print("-" * 65)
+            sorted_teams = sorted(
+                res.team_projections.values(), key=lambda p: (p.league, p.division, -p.mean_wins)
+            )
+            cur_div = ""
+            for proj in sorted_teams:
+                if proj.division != cur_div:
+                    cur_div = proj.division
+                    print(f"--- {cur_div} ---")
+                print(
+                    f"{proj.team_code:<6} {proj.division:<11} "
+                    f"{proj.mean_wins:<6.1f} {proj.mean_losses:<6.1f} "
+                    f"{proj.make_playoffs_prob * 100:<8.1f}% {proj.win_division_prob * 100:<6.1f}% "
+                    f"{proj.win_pennant_prob * 100:<8.1f}% "
+                    f"{proj.win_world_series_prob * 100:<6.1f}%"
+                )
     elif args.command == "simulate":
         from mlb_baseball.db import get_connection
         from mlb_baseball.model import markov, simulate
@@ -840,6 +942,39 @@ def main(argv: list[str] | None = None) -> None:
                         f"    Over {line}: {prob * 100:.1f}% | "
                         f"Under {line}: {(1.0 - prob) * 100:.1f}%"
                     )
+    elif args.command == "live":
+        import time as time_lib
+
+        from mlb_baseball import live
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.model import markov, simulate
+
+        with get_connection() as conn:
+            dist = markov.estimate_outcome_distribution(conn, seasons=[2023, 2024])
+            if not dist:
+                print("No Retrosheet transition data found.")
+                sys.exit(1)
+            table = simulate.DenseOutcomeTable.from_distribution(dist)
+
+            while True:
+                active_games = live.fetch_active_live_games(target_date=args.date, conn=conn)
+                snapshots = []
+                for g in active_games:
+                    snap = live.evaluate_live_game_state(
+                        game_data=g,
+                        transition_table=table,
+                        n_simulations=args.sims,
+                    )
+                    snapshots.append(snap)
+
+                live.print_live_tracker_report(snapshots)
+                if not args.watch:
+                    break
+                try:
+                    time_lib.sleep(args.interval)
+                except KeyboardInterrupt:
+                    print("\nLive tracking stopped by user.")
+                    break
     elif args.command == "props":
         from mlb_baseball.db import get_connection
         from mlb_baseball.model import props

@@ -148,7 +148,11 @@ This document serves as the academic and theoretical reference manual for the ML
 122. [Pitcher Arm Fatigue Velocity Decay & Release Height Mechanics](#122-pitcher-arm-fatigue-velocity-decay--release-height-mechanics)
 123. [Outfielder First-Step Reaction Burst & Jump Efficiency](#123-outfielder-first-step-reaction-burst--jump-efficiency)
 124. [Pure-Python SVG Count Usage Pitch Mix Alluvial Flow Architecture](#124-pure-python-svg-count-usage-pitch-mix-alluvial-flow-architecture)
-125. [Academic Bibliography & Literature Citations](#125-academic-bibliography--literature-citations)
+125. [Batter Opposite-Field Power & Alley Extra-Base Gap Dynamics](#125-batter-opposite-field-power--alley-extra-base-gap-dynamics)
+126. [Pitcher Release Point Spin Angle Stability & Repertoire Deception](#126-pitcher-release-point-spin-angle-stability--repertoire-deception)
+127. [Middle Infield Double-Play Turn Speed & Footwork Timing](#127-middle-infield-double-play-turn-speed--footwork-timing)
+128. [Pure-Python SVG Statcast Contact Quality Isochrone Grid Architecture](#128-pure-python-svg-statcast-contact-quality-isochrone-grid-architecture)
+129. [Academic Bibliography & Literature Citations](#129-academic-bibliography--literature-citations)
 
 ---
 
@@ -1320,7 +1324,38 @@ $$B(t) = (1-t)^3 P_0 + 3(1-t)^2 t P_1 + 3(1-t) t^2 P_2 + t^3 P_3$$
 
 ---
 
-## 125. Academic Bibliography & Literature Citations
+## 125. Batter Opposite-Field Power & Alley Extra-Base Gap Dynamics
+
+### 125.1 Opposite-Field Gap Power Index (OFGPI) & Alley Runs
+$$\text{OFGPI} = \max\left(0, 100 + (\text{XBH\%} - 8.5) \cdot 3.2 + (\text{HardHit\%} - 34.0) \cdot 1.8 + (\text{Oppo\%} - 25.0) \cdot 0.8\right)$$
+$$\text{AEBR}_{\text{runs}} = (\text{OFGPI} - 100.0) \cdot (\text{Opps} \cdot 0.0032)$$
+
+---
+
+## 126. Pitcher Release Point Spin Angle Stability & Repertoire Deception
+
+### 126.1 Arsenal Spin Alignment & Release Consistency Index (ASARCI)
+$$\text{ASARCI} = \max\left(0, 100 + (28.0 - \sigma_{\theta}) \cdot 1.4 + (1.5 - \sigma_{Z}) \cdot 15.0 + (1.8 - \sigma_{X}) \cdot 12.0\right)$$
+$$\text{DWSM} = 1.0 + (\text{ASARCI} - 100.0) \cdot 0.0035$$
+
+---
+
+## 127. Middle Infield Double-Play Turn Speed & Footwork Timing
+
+### 127.1 Double-Play Footwork Turn Index (DPFTI) & Double Plays Turned Above Average
+$$\text{DPFTI} = \max\left(0, 100 + (\text{Conv\%} - 72.0) \cdot 2.0 + (0.74 - t_{\text{pivot}}) \cdot 55.0 + (v_{\text{throw}} - 78.0) \cdot 1.2\right)$$
+$$\text{DPTAA} = \left(\frac{\text{Conv\%} - 72.0\%}{100.0}\right) \cdot \text{Opps}, \quad \text{DPRV}_{\text{runs}} = \text{DPTAA} \cdot 0.45\text{ runs}$$
+
+---
+
+## 128. Pure-Python SVG Statcast Contact Quality Isochrone Grid Architecture
+
+### 128.1 Exit Velocity vs Launch Angle Classification Polyhedra
+$$\text{Barrel Zone} \subset \left\{(EV, LA) \mid EV \ge 98\text{ mph},\; LA \in [26^{\circ} - (EV-98), 26^{\circ} + (EV-98)]\right\}$$
+
+---
+
+## 129. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1394,3 +1429,5 @@ $$B(t) = (1-t)^3 P_0 + 3(1-t)^2 t P_1 + 3(1-t) t^2 P_2 + t^3 P_3$$
 70. **Cross, Rod** (2014). "Physics of Bunt Fielding, Reaction Time, and Barehand Transfers in Baseball". *Sports Engineering*.
 71. **Nathan, Alan M.** (2019). "Aerodynamics of Sliced Line Drives and Fair-Foul Dispersion". *American Journal of Physics*.
 72. **Albert, Jim** (2017). "Modeling Count-Dependent Pitch Selection Transitions in Major League Baseball". *Journal of Quantitative Analysis in Sports*.
+73. **Carleton, Russell A.** (2018). "The Shift and Opposite-Field Power Distributions". *Baseball Prospectus*.
+74. **Fast, Mike** (2010). "Quantifying Tunneling Deception and Arm Slot Clustering". *Hardball Times*.

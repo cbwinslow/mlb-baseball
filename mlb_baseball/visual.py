@@ -40,6 +40,7 @@ class ChartType(enum.Enum):
     LA_EV_CONTOUR_HEATMAP = "la_ev_contour_heatmap"
     TUNNEL_BOX_CHART = "tunnel_box_chart"
     FLOW_MIX_CHART = "flow_mix_chart"
+    BARREL_GRID_CHART = "barrel_grid_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2798,6 +2799,146 @@ class CountUsageFlowChartRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class StatcastBattedBallEvent:
+    """Individual contact event with exit velocity, launch angle, classification, and result."""
+
+    exit_velocity_mph: float
+    launch_angle_deg: float
+    quality_class: str = "barrel"  # "barrel", "solid_contact", "flare_burner", "under", "topped"
+    play_result: str = "home_run"
+
+
+@dataclasses.dataclass(frozen=True)
+class BatterBarrelGridProfile:
+    """Batter Statcast contact quality profile with EV vs LA events."""
+
+    title: str
+    batter_name: str
+    events: list[StatcastBattedBallEvent]
+
+
+class BarrelGridPlotRenderer:
+    """Renders pure-Python vector SVG Statcast classification zone grid (BARREL-GRID-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: BatterBarrelGridProfile) -> GeneratedVectorChart:
+        """Render 2D EV vs LA scatter with Statcast classified polygon zones."""
+        x_min, x_max = 50.0, 120.0
+        y_min, y_max = -40.0, 70.0
+        origin_x = 55.0
+        origin_y = 425.0
+        plot_w = 375.0
+        plot_h = 365.0
+
+        def to_px(ev: float, la: float) -> tuple[float, float]:
+            clamped_ev = max(x_min, min(x_max, ev))
+            clamped_la = max(y_min, min(y_max, la))
+            px = origin_x + ((clamped_ev - x_min) / (x_max - x_min)) * plot_w
+            py = origin_y - ((clamped_la - y_min) / (y_max - y_min)) * plot_h
+            return px, py
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="24" fill="#f8fafc" font-size="13" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="40" fill="#94a3b8" font-size="10" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.batter_name} Statcast Contact Quality</text>',
+        ]
+
+        # Solid Contact Zone (Blue)
+        sc1 = to_px(90.0, 15.0)
+        sc2 = to_px(120.0, 38.0)
+        sc3 = to_px(120.0, 6.0)
+        sc4 = to_px(90.0, 15.0)
+        svg_parts.append(
+            f'<polygon points="{sc1[0]:.1f},{sc1[1]:.1f} {sc2[0]:.1f},{sc2[1]:.1f} '
+            f'{sc3[0]:.1f},{sc3[1]:.1f} {sc4[0]:.1f},{sc4[1]:.1f}" '
+            f'fill="#3b82f6" opacity="0.16" />'
+        )
+
+        # Barrel Zone (Purple)
+        b1 = to_px(98.0, 26.0)
+        b2 = to_px(120.0, 44.0)
+        b3 = to_px(120.0, 12.0)
+        b4 = to_px(98.0, 26.0)
+        svg_parts.append(
+            f'<polygon points="{b1[0]:.1f},{b1[1]:.1f} {b2[0]:.1f},{b2[1]:.1f} '
+            f'{b3[0]:.1f},{b3[1]:.1f} {b4[0]:.1f},{b4[1]:.1f}" '
+            f'fill="#a855f7" opacity="0.32" stroke="#c084fc" '
+            f'stroke-width="1.2" stroke-dasharray="3,3" />'
+        )
+
+        # Grid lines: EV (60, 80, 100, 120 mph) and LA (-20, 0, 25, 50, 70 deg)
+        for ev_val in [60.0, 80.0, 100.0, 120.0]:
+            p_top = to_px(ev_val, y_max)
+            p_bot = to_px(ev_val, y_min)
+            svg_parts.append(
+                f'<line x1="{p_top[0]:.1f}" y1="{p_top[1]:.1f}" '
+                f'x2="{p_bot[0]:.1f}" y2="{p_bot[1]:.1f}" '
+                f'stroke="#1e293b" stroke-width="1.0" />'
+            )
+            svg_parts.append(
+                f'<text x="{p_bot[0]:.1f}" y="{p_bot[1] + 14:.1f}" fill="#64748b" font-size="8" '
+                f'text-anchor="middle" font-family="sans-serif">{int(ev_val)} mph</text>'
+            )
+
+        for la_val in [-20.0, 0.0, 25.0, 50.0]:
+            p_lft = to_px(x_min, la_val)
+            p_rgt = to_px(x_max, la_val)
+            svg_parts.append(
+                f'<line x1="{p_lft[0]:.1f}" y1="{p_lft[1]:.1f}" '
+                f'x2="{p_rgt[0]:.1f}" y2="{p_rgt[1]:.1f}" '
+                f'stroke="#1e293b" stroke-width="1.0" />'
+            )
+            svg_parts.append(
+                f'<text x="{p_lft[0] - 6:.1f}" y="{p_lft[1] + 3:.1f}" fill="#64748b" font-size="8" '
+                f'text-anchor="end" font-family="sans-serif">{int(la_val)}°</text>'
+            )
+
+        # Plot events
+        for ev in profile.events:
+            px, py = to_px(ev.exit_velocity_mph, ev.launch_angle_deg)
+            if ev.quality_class == "barrel":
+                col = "#a855f7"
+                r_dot = 4.5
+            elif ev.quality_class == "solid_contact":
+                col = "#3b82f6"
+                r_dot = 4.0
+            elif ev.quality_class == "flare_burner":
+                col = "#10b981"
+                r_dot = 3.5
+            else:
+                col = "#ef4444"
+                r_dot = 3.0
+
+            svg_parts.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{r_dot}" fill="{col}" '
+                f'stroke="#0b1329" stroke-width="0.8" opacity="0.85" />'
+            )
+
+        # Legend
+        svg_parts.append(
+            f'<text x="{self.width / 2}" y="{self.height - 12}" fill="#94a3b8" font-size="9" '
+            f'text-anchor="middle" font-family="sans-serif">'
+            f"Purple: Barrel | Blue: Solid | Emerald: Flare/Burner | Red: Weak/Topped</text>"
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.BARREL_GRID_CHART,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -2987,6 +3128,15 @@ def health_check() -> list[Check]:
             PitcherCountFlowProfile("Count Flow", "Skenes", even_mix, ahead_mix, behind_mix)
         )
 
+        barrel_grid_renderer = BarrelGridPlotRenderer()
+        grid_events = [
+            StatcastBattedBallEvent(110.5, 29.0, "barrel", "home_run"),
+            StatcastBattedBallEvent(94.0, 18.0, "solid_contact", "double"),
+        ]
+        barrel_grid_chart = barrel_grid_renderer.render(
+            BatterBarrelGridProfile("Barrel Grid", "Ohtani", grid_events)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -3012,6 +3162,7 @@ def health_check() -> list[Check]:
             and "<svg" in contour_chart.svg_content
             and "<svg" in tunnel_chart.svg_content
             and "<svg" in count_flow_chart.svg_content
+            and "<svg" in barrel_grid_chart.svg_content
         ):
             checks.append(
                 Check(

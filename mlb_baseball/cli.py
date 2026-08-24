@@ -867,6 +867,76 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter opposite-field power & alley gap conversion (OPPO-GAP-01)
+    og_parser = subparsers.add_parser(
+        "oppo-gap",
+        help="evaluate opposite-field hard contact, extra-base conversion, and OFGPI (OPPO-GAP-01)",
+    )
+    og_parser.add_argument(
+        "--oppo", type=float, default=25.0, help="oppo contact pct (default: 25.0)"
+    )
+    og_parser.add_argument(
+        "--hard", type=float, default=34.0, help="oppo hard hit pct (default: 34.0)"
+    )
+    og_parser.add_argument("--xbh", type=float, default=8.5, help="oppo XBH pct (default: 8.5)")
+    og_parser.add_argument(
+        "--opps", type=int, default=100, help="oppo contact chances (default: 100)"
+    )
+    og_parser.add_argument("--json", action="store_true", help="output oppo gap evaluation as JSON")
+
+    # Pitcher release point spin angle stability (SPIN-ALIGN-01)
+    sa_parser = subparsers.add_parser(
+        "spin-align",
+        help="evaluate multi-pitch spin axis alignment, release stability, ASARCI (SPIN-ALIGN-01)",
+    )
+    sa_parser.add_argument(
+        "--axis-sd", type=float, default=28.0, help="spin axis std dev mins (default: 28.0)"
+    )
+    sa_parser.add_argument(
+        "--z-sd", type=float, default=1.5, help="release height std dev in (default: 1.5)"
+    )
+    sa_parser.add_argument(
+        "--x-sd", type=float, default=1.8, help="release side std dev in (default: 1.8)"
+    )
+    sa_parser.add_argument(
+        "--pitches", type=int, default=4, help="arsenal pitch count (default: 4)"
+    )
+    sa_parser.add_argument(
+        "--json", action="store_true", help="output spin align evaluation as JSON"
+    )
+
+    # Middle infield double-play turn speed & footwork (DP-FOOTWORK-01)
+    dpf_parser = subparsers.add_parser(
+        "dp-footwork",
+        help="evaluate middle infield DP pivot time, relay velo, and DPFTI (DP-FOOTWORK-01)",
+    )
+    dpf_parser.add_argument("--pos", type=str, default="2B", help="position (default: 2B)")
+    dpf_parser.add_argument(
+        "--pivot", type=float, default=0.74, help="pivot time sec (default: 0.74)"
+    )
+    dpf_parser.add_argument(
+        "--throw", type=float, default=78.0, help="throw velo mph (default: 78.0)"
+    )
+    dpf_parser.add_argument(
+        "--conv", type=float, default=72.0, help="dp conversion pct (default: 72.0)"
+    )
+    dpf_parser.add_argument(
+        "--opps", type=int, default=60, help="dp turn opportunities (default: 60)"
+    )
+    dpf_parser.add_argument(
+        "--json", action="store_true", help="output dp footwork evaluation as JSON"
+    )
+
+    # Batter Statcast EV vs LA contact grid (BARREL-GRID-01)
+    bg_parser = subparsers.add_parser(
+        "barrel-grid",
+        help="generate vector SVG Statcast contact quality barrel grid (BARREL-GRID-01)",
+    )
+    bg_parser.add_argument(
+        "--title", type=str, default="Shohei Ohtani Statcast Contact Grid", help="chart title"
+    )
+    bg_parser.add_argument("--batter", type=str, default="Shohei Ohtani", help="batter name")
+
     # Batter pull line-drive slice power & fair conversion (PULL-SLICE-01)
     ps_parser = subparsers.add_parser(
         "pull-slice",
@@ -4409,6 +4479,145 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "oppo-gap":
+        import json as json_lib
+
+        from mlb_baseball.model.oppo_gap import (
+            BatterOppoGapEngine,
+            BatterOppoGapMetrics,
+            OppoGapEvaluationResult,
+        )
+
+        og_eng = BatterOppoGapEngine()
+        og_m = BatterOppoGapMetrics(
+            "b1",
+            "Target Batter",
+            oppo_contact_pct=args.oppo,
+            oppo_hard_hit_pct=args.hard,
+            oppo_extra_base_hit_pct=args.xbh,
+            oppo_batted_balls_count=args.opps,
+        )
+        og_res: OppoGapEvaluationResult = og_eng.evaluate_oppo_gap(og_m)
+
+        if args.json:
+            og_out = {
+                "ofgpi_score": og_res.ofgpi_score,
+                "aebr_runs": og_res.aebr_runs_produced,
+                "tier": og_res.oppo_tier,
+                "is_monster": og_res.is_elite_monster,
+            }
+            print(json_lib.dumps(og_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OPPOSITE-FIELD POWER & GAP XBH [{og_res.oppo_tier}]")
+            hdr_og = (
+                f"     OFGPI Score: {og_res.ofgpi_score:.1f}/160 "
+                f"| Runs Produced: {og_res.aebr_runs_produced:>+4.2f} "
+                f"| Power Monster: {'YES' if og_res.is_elite_monster else 'NO'}"
+            )
+            print(hdr_og)
+            print(f"{'=' * 84}\n")
+            print(f"  • Power Profile        : {og_res.oppo_tier}\n")
+
+    elif args.command == "spin-align":
+        import json as json_lib
+
+        from mlb_baseball.model.spin_align import (
+            PitcherSpinAlignEngine,
+            PitcherSpinAlignMetrics,
+            SpinAlignEvaluationResult,
+        )
+
+        sa_eng = PitcherSpinAlignEngine()
+        sa_m = PitcherSpinAlignMetrics(
+            "p1",
+            "Target Pitcher",
+            spin_axis_std_dev_mins=args.axis_sd,
+            release_height_std_dev_in=args.z_sd,
+            release_side_std_dev_in=args.x_sd,
+            pitch_arsenal_size=args.pitches,
+        )
+        sa_res: SpinAlignEvaluationResult = sa_eng.evaluate_spin_align(sa_m)
+
+        if args.json:
+            sa_out = {
+                "asarci_score": sa_res.asarci_score,
+                "deception_multiplier": sa_res.deception_multiplier,
+                "tier": sa_res.alignment_tier,
+                "is_illusionist": sa_res.is_illusionist,
+            }
+            print(json_lib.dumps(sa_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     ARSENAL SPIN ALIGNMENT & RELEASE STABILITY [{sa_res.alignment_tier}]")
+            hdr_sa = (
+                f"     ASARCI Score: {sa_res.asarci_score:.1f}/160 "
+                f"| Deception Mult: {sa_res.deception_multiplier:.3f}x "
+                f"| Illusionist: {'YES' if sa_res.is_illusionist else 'NO'}"
+            )
+            print(hdr_sa)
+            print(f"{'=' * 84}\n")
+            print(f"  • Alignment Profile    : {sa_res.alignment_tier}\n")
+
+    elif args.command == "dp-footwork":
+        import json as json_lib
+
+        from mlb_baseball.model.dp_footwork import (
+            DpFootworkEvaluationResult,
+            InfieldDpFootworkEngine,
+            InfieldDpFootworkMetrics,
+        )
+
+        dpf_eng = InfieldDpFootworkEngine()
+        dpf_m = InfieldDpFootworkMetrics(
+            "f1",
+            "Target Fielder",
+            position=args.pos,
+            pivot_time_sec=args.pivot,
+            throw_velo_mph=args.throw,
+            dp_conversion_pct=args.conv,
+            dp_turn_opportunities=args.opps,
+        )
+        dpf_res: DpFootworkEvaluationResult = dpf_eng.evaluate_dp_footwork(dpf_m)
+
+        if args.json:
+            dpf_out = {
+                "dpfti_score": dpf_res.dpfti_score,
+                "dptaa_turns": dpf_res.dptaa_turns_saved,
+                "dprv_runs": dpf_res.dprv_runs_saved,
+                "tier": dpf_res.footwork_tier,
+                "is_master": dpf_res.is_lightning_master,
+            }
+            print(json_lib.dumps(dpf_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     MIDDLE INFIELD DOUBLE-PLAY TURN & FOOTWORK [{dpf_res.footwork_tier}]")
+            hdr_dpf = (
+                f"     DPFTI Score: {dpf_res.dpfti_score:.1f}/160 "
+                f"| DPTAA Turns: {dpf_res.dptaa_turns_saved:>+4.1f} "
+                f"| DPRV Runs: {dpf_res.dprv_runs_saved:>+4.2f}"
+            )
+            print(hdr_dpf)
+            print(f"{'=' * 84}\n")
+            print(f"  • Footwork Profile     : {dpf_res.footwork_tier}\n")
+
+    elif args.command == "barrel-grid":
+        from mlb_baseball.visual import (
+            BarrelGridPlotRenderer,
+            BatterBarrelGridProfile,
+            StatcastBattedBallEvent,
+        )
+
+        b_grid_renderer = BarrelGridPlotRenderer()
+        b_grid_events = [
+            StatcastBattedBallEvent(112.0, 28.0, "barrel", "home_run"),
+            StatcastBattedBallEvent(95.0, 16.0, "solid_contact", "double"),
+            StatcastBattedBallEvent(82.0, 12.0, "flare_burner", "single"),
+        ]
+        b_grid_prof = BatterBarrelGridProfile(args.title, args.batter, b_grid_events)
+        chart = b_grid_renderer.render(b_grid_prof)
+        print(f"Generated Vector SVG Statcast Barrel Grid ({len(chart.svg_content)} bytes)")
 
     elif args.command == "pull-slice":
         import json as json_lib

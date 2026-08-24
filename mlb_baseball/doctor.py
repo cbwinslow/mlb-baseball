@@ -289,6 +289,7 @@ def run() -> list[Check]:
         damage,
         decision,
         diversity,
+        dp_footwork,
         drift,
         entropy,
         exp_resist,
@@ -311,6 +312,7 @@ def run() -> list[Check]:
         low_scoop,
         neural,
         nrfi,
+        oppo_gap,
         parlay,
         pivot_dp,
         poptime,
@@ -332,6 +334,7 @@ def run() -> list[Check]:
         simulate,
         slash_oppo,
         spin,
+        spin_align,
         splits,
         spray,
         ssw,
@@ -472,6 +475,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(oppo_gap.health_check())
+    except Exception as exc:
+        checks.append(Check("oppo_gap", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(spin_align.health_check())
+    except Exception as exc:
+        checks.append(Check("spin_align", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(dp_footwork.health_check())
+    except Exception as exc:
+        checks.append(Check("dp_footwork", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(pull_slice.health_check())
     except Exception as exc:

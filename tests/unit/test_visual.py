@@ -612,3 +612,27 @@ def test_count_usage_flow_chart_svg_generation():
     assert "EVEN" in chart.svg_content
     assert "AHEAD" in chart.svg_content
     assert "BEHIND" in chart.svg_content
+
+
+def test_barrel_grid_plot_svg_generation():
+    """Verify BarrelGridPlotRenderer generates Statcast classified EV vs LA scatter."""
+    from mlb_baseball.visual import (
+        BarrelGridPlotRenderer,
+        BatterBarrelGridProfile,
+        StatcastBattedBallEvent,
+    )
+
+    renderer = BarrelGridPlotRenderer()
+    events = [
+        StatcastBattedBallEvent(112.0, 28.0, "barrel", "home_run"),
+        StatcastBattedBallEvent(95.0, 16.0, "solid_contact", "double"),
+        StatcastBattedBallEvent(82.0, 12.0, "flare_burner", "single"),
+    ]
+    prof = BatterBarrelGridProfile("Ohtani Statcast Contact Grid", "Shohei Ohtani", events)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Ohtani Statcast Contact Grid" in chart.svg_content
+    assert "100 mph" in chart.svg_content

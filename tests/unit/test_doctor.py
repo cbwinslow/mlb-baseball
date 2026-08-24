@@ -399,3 +399,12 @@ def test_pull_slice_and_fatigue_drop_and_first_step_health_checks():
     assert pull_slice.health_check()[0].ok is True
     assert fatigue_drop.health_check()[0].ok is True
     assert first_step.health_check()[0].ok is True
+
+
+def test_oppo_gap_and_spin_align_and_dp_footwork_health_checks():
+    """Verify health checks for oppo_gap, spin_align, and dp_footwork modules."""
+    from mlb_baseball.model import dp_footwork, oppo_gap, spin_align
+
+    assert oppo_gap.health_check()[0].ok is True
+    assert spin_align.health_check()[0].ok is True
+    assert dp_footwork.health_check()[0].ok is True

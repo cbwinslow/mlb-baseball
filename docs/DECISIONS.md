@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-242: Pure-Python SVG Batter Batted Ball Launch Angle vs Exit Velocity Isochrone Grid Plot (`BARREL-GRID-01`, Package 154)
+
+**Decision:** Built vector SVG Statcast contact quality barrel grid chart in `mlb_baseball/visual.py` and CLI subcommand `mlb barrel-grid`.
+- **Operational Architecture & Geometry**:
+  - Coordinate Mapping: EV $50-120\text{ mph}$, LA $-40^{\circ}\text{ to }+70^{\circ}$.
+  - Polygon Shading: Barrel Zone ($EV \ge 98, LA \in [12^{\circ}, 44^{\circ}]$) in purple opacity $0.32$, Solid Contact in blue opacity $0.16$.
+  - CLI: `mlb barrel-grid --title "Shohei Ohtani Statcast Contact Grid" --batter "Shohei Ohtani"`.
+- **Verification**: 26/26 unit tests in `tests/unit/test_visual.py` passing; 824/824 full repository unit tests passing.
+
+## ADR-241: Middle Infield Double-Play Turn Speed & Footwork Timing Engine (`DP-FOOTWORK-01`, Package 153)
+
+**Decision:** Built middle infielder 2B/SS pivot speed, relay throw velocity, and DPTAA modeling in `mlb_baseball/model/dp_footwork.py` and CLI subcommand `mlb dp-footwork`.
+- **Mathematical Formulations & Methodology**:
+  - Double-Play Footwork Turn Index: $\text{DPFTI} = \max\left(0, 100 + (\text{Conv\%} - 72.0) \cdot 2.0 + (0.74 - t_{\text{pivot}}) \cdot 55.0 + (v_{\text{throw}} - 78.0) \cdot 1.2\right)$.
+  - Double Plays Turned Above Average: $\text{DPTAA} = (\text{Conv\%} - 72.0\%) \cdot \text{Opps}, \text{DPRV}_{\text{runs}} = \text{DPTAA} \cdot 0.45\text{ runs}$.
+  - Tiers: `LIGHTNING_ACROBATIC_PIVOT_MASTER` ($\text{DPFTI} \ge 116.0, t_{\text{pivot}} \le 0.62\text{ s}, \text{Conv\%} \ge 82.0\%$), `CLUNKY_FOOTWORK_DP_LIABILITY`, `SOLID_DOUBLE_PLAY_PIVOTER`, `AVERAGE_MIDDLE_INFIELD_PIVOT`.
+  - CLI: `mlb dp-footwork --pos 2B --pivot 0.56 --throw 87.0 --conv 90.0 --opps 70`, `mlb dp-footwork --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_dp_footwork.py` passing; 824/824 full repository unit tests passing.
+
+## ADR-240: Pitcher Release Point Spin Angle Stability & Arsenal Consistency Engine (`SPIN-ALIGN-01`, Package 152)
+
+**Decision:** Built release height uniformity, multi-pitch spin axis alignment, and ASARCI in `mlb_baseball/model/spin_align.py` and CLI subcommand `mlb spin-align`.
+- **Mathematical Formulations & Methodology**:
+  - Arsenal Spin Alignment & Release Consistency Index: $\text{ASARCI} = \max\left(0, 100 + (28.0 - \sigma_{\theta}) \cdot 1.4 + (1.5 - \sigma_{Z}) \cdot 15.0 + (1.8 - \sigma_{X}) \cdot 12.0\right)$.
+  - Deception Whiff Synergy Multiplier: $\text{DWSM} = 1.0 + (\text{ASARCI} - 100.0) \cdot 0.0035$.
+  - Tiers: `MIRRORED_SPIN_TUNNEL_ILLUSIONIST` ($\text{ASARCI} \ge 116.0, \sigma_{\theta} \le 18.0\text{ mins}, \sigma_{Z} \le 0.8\text{ in}$), `TELEGRAPHED_ARM_SLOT_TIPPER`, `SOLID_REPEATED_RELEASE_DELIVERY`, `AVERAGE_ARSENAL_ALIGNMENT`.
+  - CLI: `mlb spin-align --axis-sd 12.0 --z-sd 0.5 --x-sd 0.6 --pitches 4`, `mlb spin-align --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_spin_align.py` passing; 824/824 full repository unit tests passing.
+
+## ADR-239: Batter Opposite-Field Power & Alley Extra-Base Gap Engine (`OPPO-GAP-01`, Package 151)
+
+**Decision:** Built opposite-field hard contact, power alley extra-base conversion, and run production in `mlb_baseball/model/oppo_gap.py` and CLI subcommand `mlb oppo-gap`.
+- **Mathematical Formulations & Methodology**:
+  - Opposite-Field Gap Power Index: $\text{OFGPI} = \max\left(0, 100 + (\text{XBH\%} - 8.5) \cdot 3.2 + (\text{HardHit\%} - 34.0) \cdot 1.8 + (\text{Oppo\%} - 25.0) \cdot 0.8\right)$.
+  - Alley Extra-Base Runs: $\text{AEBR}_{\text{runs}} = (\text{OFGPI} - 100.0) \cdot (\text{Opps} \cdot 0.0032)$.
+  - Tiers: `ELITE_ALL_FIELDS_POWER_MONSTER` ($\text{OFGPI} \ge 116.0, \text{XBH\%} \ge 12.5\%, \text{HardHit\%} \ge 42.0\%$), `PULL_DEPENDENT_OPPO_SLAPPER`, `SOLID_OPPO_GAP_HITTER`, `AVERAGE_OPPOSITE_FIELD_PROFILE`.
+  - CLI: `mlb oppo-gap --oppo 34.0 --hard 50.0 --xbh 15.0 --opps 130`, `mlb oppo-gap --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_oppo_gap.py` passing; 824/824 full repository unit tests passing.
+
 ## ADR-238: Pure-Python SVG Pitcher Arsenal Pitch Mix & Count Usage Transition Flow Chart (`FLOW-MIX-01`, Package 150)
 
 **Decision:** Built vector SVG count transition pitch selection alluvial flow chart in `mlb_baseball/visual.py` and CLI subcommand `mlb flow-mix`.

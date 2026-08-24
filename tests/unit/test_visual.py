@@ -583,3 +583,32 @@ def test_tunnel_box_chart_svg_generation():
     assert "Skenes Release & Tunnel Box" in chart.svg_content
     assert "RELEASE WINDOW" in chart.svg_content
     assert "TUNNEL DECISION" in chart.svg_content
+
+
+def test_count_usage_flow_chart_svg_generation():
+    """Verify CountUsageFlowChartRenderer generates 3-column alluvial pitch mix flow chart."""
+    from mlb_baseball.visual import (
+        CountPitchMixNode,
+        CountUsageFlowChartRenderer,
+        PitcherCountFlowProfile,
+    )
+
+    renderer = CountUsageFlowChartRenderer()
+    even_mix = [CountPitchMixNode("FF", 50.0, "#00d2be"), CountPitchMixNode("SL", 50.0, "#f59e0b")]
+    ahead_mix = [CountPitchMixNode("FF", 25.0, "#00d2be"), CountPitchMixNode("SL", 75.0, "#f59e0b")]
+    behind_mix = [
+        CountPitchMixNode("FF", 80.0, "#00d2be"),
+        CountPitchMixNode("SL", 20.0, "#f59e0b"),
+    ]
+    prof = PitcherCountFlowProfile(
+        "Skenes Count Flow Mix", "Paul Skenes", even_mix, ahead_mix, behind_mix
+    )
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Skenes Count Flow Mix" in chart.svg_content
+    assert "EVEN" in chart.svg_content
+    assert "AHEAD" in chart.svg_content
+    assert "BEHIND" in chart.svg_content

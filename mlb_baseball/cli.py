@@ -867,6 +867,78 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter pull line-drive slice power & fair conversion (PULL-SLICE-01)
+    ps_parser = subparsers.add_parser(
+        "pull-slice",
+        help="evaluate pull line-drive fair conversion, hook avoidance, and PLDSR (PULL-SLICE-01)",
+    )
+    ps_parser.add_argument(
+        "--pull-ld", type=float, default=18.0, help="pull LD pct (default: 18.0)"
+    )
+    ps_parser.add_argument(
+        "--conv", type=float, default=70.0, help="fair conversion pct (default: 70.0)"
+    )
+    ps_parser.add_argument("--hard", type=float, default=50.0, help="hard hit pct (default: 50.0)")
+    ps_parser.add_argument(
+        "--opps", type=int, default=80, help="pull LD opportunities (default: 80)"
+    )
+    ps_parser.add_argument(
+        "--json", action="store_true", help="output pull slice evaluation as JSON"
+    )
+
+    # Pitcher arm fatigue velocity decay & release drop (FATIGUE-DROP-01)
+    fd_parser = subparsers.add_parser(
+        "fatigue-drop",
+        help="evaluate late velocity decay, vertical release drop, and PAFII (FATIGUE-DROP-01)",
+    )
+    fd_parser.add_argument(
+        "--velo-drop", type=float, default=1.5, help="late velo drop mph (default: 1.5)"
+    )
+    fd_parser.add_argument(
+        "--rel-drop", type=float, default=1.8, help="late release drop in (default: 1.8)"
+    )
+    fd_parser.add_argument(
+        "--strike", type=float, default=61.0, help="late strike pct (default: 61.0)"
+    )
+    fd_parser.add_argument(
+        "--pitches", type=int, default=150, help="pitches past 75 (default: 150)"
+    )
+    fd_parser.add_argument(
+        "--json", action="store_true", help="output fatigue drop evaluation as JSON"
+    )
+
+    # Outfielder first-step reaction burst & jump efficiency (FIRST-STEP-01)
+    fs_parser = subparsers.add_parser(
+        "first-step",
+        help="evaluate outfielder first-step reaction, burst distance, and FSRJI (FIRST-STEP-01)",
+    )
+    fs_parser.add_argument("--pos", type=str, default="CF", help="position (default: CF)")
+    fs_parser.add_argument(
+        "--react", type=float, default=0.40, help="reaction time sec (default: 0.40)"
+    )
+    fs_parser.add_argument(
+        "--dist", type=float, default=32.0, help="1.5s distance ft (default: 32.0)"
+    )
+    fs_parser.add_argument(
+        "--eff", type=float, default=86.0, help="route efficiency pct (default: 86.0)"
+    )
+    fs_parser.add_argument(
+        "--chances", type=int, default=120, help="outfield flyball chances (default: 120)"
+    )
+    fs_parser.add_argument(
+        "--json", action="store_true", help="output first step evaluation as JSON"
+    )
+
+    # Pitcher count-dependent pitch mix transition flow (FLOW-MIX-01)
+    fm_parser = subparsers.add_parser(
+        "flow-mix",
+        help="generate vector SVG count transition pitch mix flow chart (FLOW-MIX-01)",
+    )
+    fm_parser.add_argument(
+        "--title", type=str, default="Paul Skenes Count Flow Mix", help="chart title"
+    )
+    fm_parser.add_argument("--pitcher", type=str, default="Paul Skenes", help="pitcher name")
+
     # Batter high-fastball top-of-zone whiff vs damage (HIGH-HEAT-01)
     hh_parser = subparsers.add_parser(
         "high-heat",
@@ -4337,6 +4409,153 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "pull-slice":
+        import json as json_lib
+
+        from mlb_baseball.model.pull_slice import (
+            BatterPullSliceEngine,
+            BatterPullSliceMetrics,
+            PullSliceEvaluationResult,
+        )
+
+        ps_eng = BatterPullSliceEngine()
+        ps_m = BatterPullSliceMetrics(
+            "b1",
+            "Target Batter",
+            pull_ld_rate_pct=args.pull_ld,
+            fair_pole_conversion_pct=args.conv,
+            pull_ld_hard_hit_pct=args.hard,
+            pull_ld_opportunities=args.opps,
+        )
+        ps_res: PullSliceEvaluationResult = ps_eng.evaluate_pull_slice(ps_m)
+
+        if args.json:
+            ps_out = {
+                "pldsr_score": ps_res.pldsr_score,
+                "fpebr_runs": ps_res.fpebr_runs_produced,
+                "tier": ps_res.slice_tier,
+                "is_surgeon": ps_res.is_elite_surgeon,
+            }
+            print(json_lib.dumps(ps_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PULL LINE-DRIVE SLICE & FAIR CONVERSION [{ps_res.slice_tier}]")
+            hdr_ps = (
+                f"     PLDSR Score: {ps_res.pldsr_score:.1f}/160 "
+                f"| Runs Produced: {ps_res.fpebr_runs_produced:>+4.2f} "
+                f"| Elite Surgeon: {'YES' if ps_res.is_elite_surgeon else 'NO'}"
+            )
+            print(hdr_ps)
+            print(f"{'=' * 84}\n")
+            print(f"  • Slice Profile        : {ps_res.slice_tier}\n")
+
+    elif args.command == "fatigue-drop":
+        import json as json_lib
+
+        from mlb_baseball.model.fatigue_drop import (
+            FatigueDropEvaluationResult,
+            PitcherFatigueDropEngine,
+            PitcherFatigueDropMetrics,
+        )
+
+        fd_eng = PitcherFatigueDropEngine()
+        fd_m = PitcherFatigueDropMetrics(
+            "p1",
+            "Target Pitcher",
+            late_game_velo_drop_mph=args.velo_drop,
+            late_game_rel_drop_in=args.rel_drop,
+            late_game_strike_pct=args.strike,
+            pitches_thrown_over_75=args.pitches,
+        )
+        fd_res: FatigueDropEvaluationResult = fd_eng.evaluate_fatigue_drop(fd_m)
+
+        if args.json:
+            fd_out = {
+                "pafii_score": fd_res.pafii_score,
+                "hfvrs_runs": fd_res.hfvrs_runs_saved,
+                "tier": fd_res.fatigue_tier,
+                "is_workhorse": fd_res.is_steel_arm_workhorse,
+            }
+            print(json_lib.dumps(fd_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PITCHER ARM FATIGUE VELOCITY & RELEASE DECAY [{fd_res.fatigue_tier}]")
+            hdr_fd = (
+                f"     PAFII Score: {fd_res.pafii_score:.1f}/160 "
+                f"| Late Runs Saved: {fd_res.hfvrs_runs_saved:>+4.2f} "
+                f"| Workhorse: {'YES' if fd_res.is_steel_arm_workhorse else 'NO'}"
+            )
+            print(hdr_fd)
+            print(f"{'=' * 84}\n")
+            print(f"  • Endurance Profile    : {fd_res.fatigue_tier}\n")
+
+    elif args.command == "first-step":
+        import json as json_lib
+
+        from mlb_baseball.model.first_step import (
+            FirstStepEvaluationResult,
+            OutfielderFirstStepEngine,
+            OutfielderFirstStepMetrics,
+        )
+
+        fs_eng = OutfielderFirstStepEngine()
+        fs_m = OutfielderFirstStepMetrics(
+            "f1",
+            "Target Outfielder",
+            position=args.pos,
+            reaction_time_sec=args.react,
+            distance_first_1_5s_ft=args.dist,
+            route_jump_efficiency_pct=args.eff,
+            outfield_flyball_chances=args.chances,
+        )
+        fs_res: FirstStepEvaluationResult = fs_eng.evaluate_first_step(fs_m)
+
+        if args.json:
+            fs_out = {
+                "fsrji_score": fs_res.fsrji_score,
+                "jrp_runs": fs_res.jrp_runs_prevented,
+                "tier": fs_res.jump_tier,
+                "is_burster": fs_res.is_elite_burster,
+            }
+            print(json_lib.dumps(fs_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OUTFIELDER FIRST-STEP REACTION & BURST [{fs_res.jump_tier}]")
+            hdr_fs = (
+                f"     FSRJI Score: {fs_res.fsrji_score:.1f}/160 "
+                f"| Runs Prevented: {fs_res.jrp_runs_prevented:>+4.2f} "
+                f"| Elite Burster: {'YES' if fs_res.is_elite_burster else 'NO'}"
+            )
+            print(hdr_fs)
+            print(f"{'=' * 84}\n")
+            print(f"  • Burst Profile        : {fs_res.jump_tier}\n")
+
+    elif args.command == "flow-mix":
+        from mlb_baseball.visual import (
+            CountPitchMixNode,
+            CountUsageFlowChartRenderer,
+            PitcherCountFlowProfile,
+        )
+
+        count_mix_renderer = CountUsageFlowChartRenderer()
+        even_mix = [
+            CountPitchMixNode("FF", 50.0, "#00d2be"),
+            CountPitchMixNode("SL", 50.0, "#f59e0b"),
+        ]
+        ahead_mix = [
+            CountPitchMixNode("FF", 25.0, "#00d2be"),
+            CountPitchMixNode("SL", 75.0, "#f59e0b"),
+        ]
+        behind_mix = [
+            CountPitchMixNode("FF", 80.0, "#00d2be"),
+            CountPitchMixNode("SL", 20.0, "#f59e0b"),
+        ]
+        count_mix_prof = PitcherCountFlowProfile(
+            args.title, args.pitcher, even_mix, ahead_mix, behind_mix
+        )
+        chart = count_mix_renderer.render(count_mix_prof)
+        print(f"Generated Vector SVG Count Transition Flow ({len(chart.svg_content)} bytes)")
 
     elif args.command == "high-heat":
         import json as json_lib

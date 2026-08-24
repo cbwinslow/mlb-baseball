@@ -390,3 +390,12 @@ def test_high_heat_and_ssw_latent_and_bunt_charge_health_checks():
     assert high_heat.health_check()[0].ok is True
     assert ssw_latent.health_check()[0].ok is True
     assert bunt_charge.health_check()[0].ok is True
+
+
+def test_pull_slice_and_fatigue_drop_and_first_step_health_checks():
+    """Verify health checks for pull_slice, fatigue_drop, and first_step modules."""
+    from mlb_baseball.model import fatigue_drop, first_step, pull_slice
+
+    assert pull_slice.health_check()[0].ok is True
+    assert fatigue_drop.health_check()[0].ok is True
+    assert first_step.health_check()[0].ok is True

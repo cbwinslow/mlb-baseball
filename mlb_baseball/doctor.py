@@ -295,6 +295,8 @@ def run() -> list[Check]:
         ext_perceive,
         extension,
         fatigue,
+        fatigue_drop,
+        first_step,
         foul_attrition,
         fstrike,
         gyro_spin,
@@ -317,6 +319,7 @@ def run() -> list[Check]:
         pull_air,
         pull_barrel,
         pull_gb,
+        pull_slice,
         putaway,
         putaway_exec,
         rel_drift,
@@ -469,6 +472,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(pull_slice.health_check())
+    except Exception as exc:
+        checks.append(Check("pull_slice", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(fatigue_drop.health_check())
+    except Exception as exc:
+        checks.append(Check("fatigue_drop", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(first_step.health_check())
+    except Exception as exc:
+        checks.append(Check("first_step", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(high_heat.health_check())
     except Exception as exc:

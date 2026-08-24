@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-238: Pure-Python SVG Pitcher Arsenal Pitch Mix & Count Usage Transition Flow Chart (`FLOW-MIX-01`, Package 150)
+
+**Decision:** Built vector SVG count transition pitch selection alluvial flow chart in `mlb_baseball/visual.py` and CLI subcommand `mlb flow-mix`.
+- **Operational Architecture & Geometry**:
+  - 3-Column Layout: Even Counts ($0\text{-}0, 1\text{-}1$), Ahead Counts ($0\text{-}1, 0\text{-}2, 1\text{-}2$), and Behind Counts ($1\text{-}0, 2\text{-}0, 3\text{-}1$).
+  - Connecting Ribbons: Smooth cubic Bézier flow paths connecting matching pitch families across count states.
+  - CLI: `mlb flow-mix --title "Paul Skenes Count Flow Mix" --pitcher "Paul Skenes"`.
+- **Verification**: 25/25 unit tests in `tests/unit/test_visual.py` passing; 814/814 full repository unit tests passing.
+
+## ADR-237: Outfielder First-Step Reaction Burst & Jump Efficiency Engine (`FIRST-STEP-01`, Package 149)
+
+**Decision:** Built initial reaction time, distance covered in first 1.5 seconds, and jump runs modeling in `mlb_baseball/model/first_step.py` and CLI subcommand `mlb first-step`.
+- **Mathematical Formulations & Methodology**:
+  - First-Step Reaction Jump Index: $\text{FSRJI} = \max\left(0, 100 + (0.40 - t_{\text{react}}) \cdot 75.0 + (d_{1.5\text{s}} - 32.0) \cdot 3.2 + (\eta_{\text{jump}} - 86.0) \cdot 1.4\right)$.
+  - Jump Runs Prevented: $\text{JRP}_{\text{runs}} = (\text{FSRJI} - 100.0) \cdot (\text{Chances} \cdot 0.0024)$.
+  - Tiers: `ELITE_INSTINCTIVE_BALLHAWK_BURSTER` ($\text{FSRJI} \ge 116.0, t_{\text{react}} \le 0.32\text{ s}, d_{1.5\text{s}} \ge 34.5\text{ ft}$), `HESITANT_SLOW_FIRST_STEP_LIABILITY`, `SOLID_QUICK_JUMP_OUTFIELDER`, `AVERAGE_OUTFIELD_BURST`.
+  - CLI: `mlb first-step --pos CF --react 0.26 --dist 37.2 --eff 96.0 --chances 160`, `mlb first-step --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_first_step.py` passing; 814/814 full repository unit tests passing.
+
+## ADR-236: Pitcher Arm Fatigue Velocity Decay & Release Height Drop Engine (`FATIGUE-DROP-01`, Package 148)
+
+**Decision:** Built pitch-count velocity cliff decay, vertical arm slot collapse, and PAFII in `mlb_baseball/model/fatigue_drop.py` and CLI subcommand `mlb fatigue-drop`.
+- **Mathematical Formulations & Methodology**:
+  - Pitcher Arm Fatigue Inefficiency Index: $\text{PAFII} = \max\left(0, 100 + (1.5 - \Delta v_{\text{drop}}) \cdot 12.0 + (1.8 - \Delta Z_{\text{drop}}) \cdot 8.0 + (\text{Strike\%} - 61.0) \cdot 1.5\right)$.
+  - High-Fatigue Vulnerability Runs Saved: $\text{HFVRS}_{\text{runs}} = (\text{PAFII} - 100.0) \cdot (\text{Pitches} \cdot 0.0028)$.
+  - Tiers: `STEEL_ARM_WORKHORSE_ENDURER` ($\text{PAFII} \ge 116.0, \Delta v_{\text{drop}} \le 0.8\text{ mph}, \Delta Z_{\text{drop}} \le 0.8\text{ in}$), `SEVERE_FATIGUE_ARM_COLLAPSER`, `SOLID_DEEP_GAME_ENDURER`, `AVERAGE_FATIGUE_PROFILE`.
+  - CLI: `mlb fatigue-drop --velo-drop 0.4 --rel-drop 0.3 --strike 67.0 --pitches 200`, `mlb fatigue-drop --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_fatigue_drop.py` passing; 814/814 full repository unit tests passing.
+
+## ADR-235: Batter Pull-Field Line-Drive Pull Slice Power Engine (`PULL-SLICE-01`, Package 147)
+
+**Decision:** Built pull line-drive fairway conversion, foul-pole hook avoidance, and extra-base runs in `mlb_baseball/model/pull_slice.py` and CLI subcommand `mlb pull-slice`.
+- **Mathematical Formulations & Methodology**:
+  - Pull Line-Drive Slice Rating: $\text{PLDSR} = \max\left(0, 100 + (\text{Conv\%} - 70.0) \cdot 2.0 + (\text{PullLD\%} - 18.0) \cdot 1.8 + (\text{HardHit\%} - 50.0) \cdot 1.4\right)$.
+  - Fair-Pole Extra Base Runs: $\text{FPEBR}_{\text{runs}} = (\text{PLDSR} - 100.0) \cdot (\text{Opps} \cdot 0.0035)$.
+  - Tiers: `ELITE_DOWN_THE_LINE_PULL_SURGEON` ($\text{PLDSR} \ge 116.0, \text{Conv\%} \ge 78.0\%, \text{HardHit\%} \ge 58.0\%$), `HOOKING_FOUL_BALL_SLICER`, `SOLID_PULL_LINE_DRIVE_STRIKER`, `AVERAGE_PULL_LINE_DRIVE_HITTER`.
+  - CLI: `mlb pull-slice --pull-ld 26.0 --conv 84.0 --hard 66.0 --opps 100`, `mlb pull-slice --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_pull_slice.py` passing; 814/814 full repository unit tests passing.
+
 ## ADR-234: Pure-Python SVG Pitcher Arsenal Release Point Ellipse & Tunnel Box Chart (`TUNNEL-BOX-01`, Package 146)
 
 **Decision:** Built vector SVG dual release window & decision tunnel cross-section chart in `mlb_baseball/visual.py` and CLI subcommand `mlb tunnel-box`.

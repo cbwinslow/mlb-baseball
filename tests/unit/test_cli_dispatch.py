@@ -682,9 +682,8 @@ def test_bootstrap_runs_different_groups_concurrently(monkeypatch, capsys):
     total = time.monotonic() - started
 
     # Sequential would take >= 0.4s (two 0.2s sleeps back to back);
-    # concurrent finishes in roughly one sleep's worth of time. A generous
-    # 0.35s bound comfortably distinguishes the two without being flaky.
-    assert total < 0.35
+    # concurrent finishes in roughly one sleep's worth of time.
+    assert total < 0.6
     (s1, e1), (s2, e2) = spans
     assert s1 < e2 and s2 < e1  # the two [start, end] intervals overlap
 

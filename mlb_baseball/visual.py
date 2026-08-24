@@ -39,6 +39,7 @@ class ChartType(enum.Enum):
     SPIN_POLAR_CLOCK_CHART = "spin_polar_clock_chart"
     LA_EV_CONTOUR_HEATMAP = "la_ev_contour_heatmap"
     TUNNEL_BOX_CHART = "tunnel_box_chart"
+    FLOW_MIX_CHART = "flow_mix_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2666,6 +2667,137 @@ class TunnelBoxChartRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class CountPitchMixNode:
+    """Pitch usage % within a count category."""
+
+    pitch_name: str
+    usage_pct: float  # e.g. 45.0 for 45%
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitcherCountFlowProfile:
+    """Pitcher arsenal usage flow across Even, Ahead, and Behind count states."""
+
+    title: str
+    pitcher_name: str
+    even_mix: list[CountPitchMixNode]
+    ahead_mix: list[CountPitchMixNode]
+    behind_mix: list[CountPitchMixNode]
+
+
+class CountUsageFlowChartRenderer:
+    """Renders pure-Python vector SVG count usage flow alluvial chart (FLOW-MIX-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitcherCountFlowProfile) -> GeneratedVectorChart:
+        """Render 3-column count transition stacked bar and connecting ribbons."""
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="24" fill="#f8fafc" font-size="13" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="40" fill="#94a3b8" font-size="10" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} Count Arsenal Transition</text>',
+        ]
+
+        bar_h = 300.0
+        bar_y_start = 80.0
+        cols_x = [80.0, 240.0, 400.0]
+        col_labels = ["EVEN (0-0, 1-1)", "AHEAD (0-1, 0-2, 1-2)", "BEHIND (1-0, 2-0, 3-1)"]
+
+        for cx, lbl in zip(cols_x, col_labels, strict=True):
+            svg_parts.append(
+                f'<text x="{cx}" y="68" fill="#cbd5e1" font-size="9" font-weight="bold" '
+                f'text-anchor="middle" font-family="sans-serif">{lbl}</text>'
+            )
+
+        def layout_column(
+            nodes: list[CountPitchMixNode], col_x: float
+        ) -> list[tuple[CountPitchMixNode, float, float]]:
+            tot = sum(n.usage_pct for n in nodes) or 100.0
+            cur_y = bar_y_start
+            res: list[tuple[CountPitchMixNode, float, float]] = []
+            for n in nodes:
+                seg_h = (n.usage_pct / tot) * bar_h
+                res.append((n, cur_y, seg_h))
+                cur_y += seg_h
+            return res
+
+        even_layout = layout_column(profile.even_mix, cols_x[0])
+        ahead_layout = layout_column(profile.ahead_mix, cols_x[1])
+        behind_layout = layout_column(profile.behind_mix, cols_x[2])
+
+        # Draw Flow Ribbons from Even to Ahead
+        for e_node, e_y, e_h in even_layout:
+            for a_node, a_y, a_h in ahead_layout:
+                if e_node.pitch_name == a_node.pitch_name:
+                    # Draw connecting cubic bezier ribbon
+                    x0 = cols_x[0] + 25.0
+                    x1 = cols_x[1] - 25.0
+                    mx = (x0 + x1) / 2
+                    svg_parts.append(
+                        f'<path d="M {x0:.1f} {e_y:.1f} '
+                        f"C {mx:.1f} {e_y:.1f}, {mx:.1f} {a_y:.1f}, {x1:.1f} {a_y:.1f} "
+                        f"L {x1:.1f} {a_y + a_h:.1f} "
+                        f"C {mx:.1f} {a_y + a_h:.1f}, {mx:.1f} {e_y + e_h:.1f}, "
+                        f'{x0:.1f} {e_y + e_h:.1f} Z" '
+                        f'fill="{e_node.color_hex}" opacity="0.22" />'
+                    )
+
+        # Draw Flow Ribbons from Ahead to Behind
+        for a_node, a_y, a_h in ahead_layout:
+            for b_node, b_y, b_h in behind_layout:
+                if a_node.pitch_name == b_node.pitch_name:
+                    x0 = cols_x[1] + 25.0
+                    x1 = cols_x[2] - 25.0
+                    mx = (x0 + x1) / 2
+                    svg_parts.append(
+                        f'<path d="M {x0:.1f} {a_y:.1f} '
+                        f"C {mx:.1f} {a_y:.1f}, {mx:.1f} {b_y:.1f}, {x1:.1f} {b_y:.1f} "
+                        f"L {x1:.1f} {b_y + b_h:.1f} "
+                        f"C {mx:.1f} {b_y + b_h:.1f}, {mx:.1f} {a_y + a_h:.1f}, "
+                        f'{x0:.1f} {a_y + a_h:.1f} Z" '
+                        f'fill="{a_node.color_hex}" opacity="0.22" />'
+                    )
+
+        # Draw Stacked Rectangles and Labels for each column
+        for c_idx, layout in enumerate([even_layout, ahead_layout, behind_layout]):
+            cx = cols_x[c_idx]
+            for n, y_top, h in layout:
+                svg_parts.append(
+                    f'<rect x="{cx - 25:.1f}" y="{y_top:.1f}" width="50" height="{h:.1f}" '
+                    f'fill="{n.color_hex}" stroke="#0b1329" stroke-width="1.0" rx="3" />'
+                )
+                if h >= 18.0:
+                    svg_parts.append(
+                        f'<text x="{cx:.1f}" y="{y_top + h / 2 + 3:.1f}" fill="#0b1329" '
+                        f'font-size="8" font-weight="bold" text-anchor="middle" '
+                        f'font-family="sans-serif">{n.pitch_name} {int(n.usage_pct)}%</text>'
+                    )
+
+        # Legend
+        svg_parts.append(
+            f'<text x="{self.width / 2}" y="{self.height - 15}" fill="#94a3b8" font-size="9" '
+            f'text-anchor="middle" font-family="sans-serif">'
+            f"Count-Dependent Pitch Selection Transition Alluvial Flow</text>"
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.FLOW_MIX_CHART,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -2838,6 +2970,23 @@ def health_check() -> list[Check]:
             PitcherTunnelBoxProfile("Tunnel Box", "Skenes", tunnel_pitches)
         )
 
+        count_flow_renderer = CountUsageFlowChartRenderer()
+        even_mix = [
+            CountPitchMixNode("FF", 50.0, "#00d2be"),
+            CountPitchMixNode("SL", 50.0, "#f59e0b"),
+        ]
+        ahead_mix = [
+            CountPitchMixNode("FF", 25.0, "#00d2be"),
+            CountPitchMixNode("SL", 75.0, "#f59e0b"),
+        ]
+        behind_mix = [
+            CountPitchMixNode("FF", 80.0, "#00d2be"),
+            CountPitchMixNode("SL", 20.0, "#f59e0b"),
+        ]
+        count_flow_chart = count_flow_renderer.render(
+            PitcherCountFlowProfile("Count Flow", "Skenes", even_mix, ahead_mix, behind_mix)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -2862,6 +3011,7 @@ def health_check() -> list[Check]:
             and "<svg" in polar_chart.svg_content
             and "<svg" in contour_chart.svg_content
             and "<svg" in tunnel_chart.svg_content
+            and "<svg" in count_flow_chart.svg_content
         ):
             checks.append(
                 Check(

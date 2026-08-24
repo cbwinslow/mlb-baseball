@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### FLOW-MIX-01 pure-Python SVG count transition flow chart: implemented (ADR-238) — 2026-08-24
+Added `CountUsageFlowChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb flow-mix` CLI command.
+- Renders 3-column alluvial flow chart connecting Even, Ahead, and Behind count pitch selections.
+
+### FIRST-STEP-01 outfielder first-step reaction burst & jump: implemented (ADR-237) — 2026-08-24
+Added `mlb_baseball/model/first_step.py`, unit tests in `tests/unit/test_first_step.py`, and `mlb first-step` CLI command.
+- Measures reaction time from sound of bat, 1.5s distance covered, FSRJI score, and JRP runs prevented.
+
+### FATIGUE-DROP-01 pitcher arm fatigue velocity & release drop: implemented (ADR-236) — 2026-08-24
+Added `mlb_baseball/model/fatigue_drop.py`, unit tests in `tests/unit/test_fatigue_drop.py`, and `mlb fatigue-drop` CLI command.
+- Evaluates late velocity decay, vertical release drop past pitch 75, PAFII score, and HFVRS runs saved.
+
+### PULL-SLICE-01 batter pull line-drive slice & fair conversion: implemented (ADR-235) — 2026-08-24
+Added `mlb_baseball/model/pull_slice.py`, unit tests in `tests/unit/test_pull_slice.py`, and `mlb pull-slice` CLI command.
+- Evaluates pull line-drive fair conversion, foul-pole hook avoidance, PLDSR score, and FPEBR runs.
+
 ### TUNNEL-BOX-01 pure-Python SVG release point & tunnel box chart: implemented (ADR-234) — 2026-08-24
 Added `TunnelBoxChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb tunnel-box` CLI command.
 - Renders dual-panel vector SVG with release window ($X_{	ext{rel}}, Z_{	ext{rel}}$) and 23.8 ft decision tunnel cross-section.

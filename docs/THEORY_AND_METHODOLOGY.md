@@ -144,7 +144,11 @@ This document serves as the academic and theoretical reference manual for the ML
 118. [Pitcher Seam-Shifted Wake Latent Movement Aerodynamics](#118-pitcher-seam-shifted-wake-latent-movement-aerodynamics)
 119. [Infield Bunt Defense Charging Speed & Barehand Transfer Mechanics](#119-infield-bunt-defense-charging-speed--barehand-transfer-mechanics)
 120. [Pure-Python SVG Dual-Panel Release Point & Tunnel Box Architecture](#120-pure-python-svg-dual-panel-release-point--tunnel-box-architecture)
-121. [Academic Bibliography & Literature Citations](#121-academic-bibliography--literature-citations)
+121. [Batter Pull-Field Line-Drive Pull Slice Power Dynamics](#121-batter-pull-field-line-drive-pull-slice-power-dynamics)
+122. [Pitcher Arm Fatigue Velocity Decay & Release Height Mechanics](#122-pitcher-arm-fatigue-velocity-decay--release-height-mechanics)
+123. [Outfielder First-Step Reaction Burst & Jump Efficiency](#123-outfielder-first-step-reaction-burst--jump-efficiency)
+124. [Pure-Python SVG Count Usage Pitch Mix Alluvial Flow Architecture](#124-pure-python-svg-count-usage-pitch-mix-alluvial-flow-architecture)
+125. [Academic Bibliography & Literature Citations](#125-academic-bibliography--literature-citations)
 
 ---
 
@@ -1285,7 +1289,38 @@ $$P_{\text{rel},x} = 240 + \left(\frac{X_{\text{rel}}}{3.0}\right) \cdot 180, \q
 
 ---
 
-## 121. Academic Bibliography & Literature Citations
+## 121. Batter Pull-Field Line-Drive Pull Slice Power Dynamics
+
+### 121.1 Pull Line-Drive Slice Rating (PLDSR) & Fair-Pole Production
+$$\text{PLDSR} = \max\left(0, 100 + (\text{Conv\%} - 70.0) \cdot 2.0 + (\text{PullLD\%} - 18.0) \cdot 1.8 + (\text{HardHit\%} - 50.0) \cdot 1.4\right)$$
+$$\text{FPEBR}_{\text{runs}} = (\text{PLDSR} - 100.0) \cdot (\text{Opps} \cdot 0.0035)$$
+
+---
+
+## 122. Pitcher Arm Fatigue Velocity Decay & Release Height Mechanics
+
+### 122.1 Pitcher Arm Fatigue Inefficiency Index (PAFII) & Late Runs Saved
+$$\text{PAFII} = \max\left(0, 100 + (1.5 - \Delta v_{\text{drop}}) \cdot 12.0 + (1.8 - \Delta Z_{\text{drop}}) \cdot 8.0 + (\text{Strike\%} - 61.0) \cdot 1.5\right)$$
+$$\text{HFVRS}_{\text{runs}} = (\text{PAFII} - 100.0) \cdot (\text{Pitches} \cdot 0.0028)$$
+
+---
+
+## 123. Outfielder First-Step Reaction Burst & Jump Efficiency
+
+### 123.1 First-Step Reaction Jump Index (FSRJI) & Jump Runs Prevented
+$$\text{FSRJI} = \max\left(0, 100 + (0.40 - t_{\text{react}}) \cdot 75.0 + (d_{1.5\text{s}} - 32.0) \cdot 3.2 + (\eta_{\text{jump}} - 86.0) \cdot 1.4\right)$$
+$$\text{JRP}_{\text{runs}} = (\text{FSRJI} - 100.0) \cdot (\text{Chances} \cdot 0.0024)$$
+
+---
+
+## 124. Pure-Python SVG Count Usage Pitch Mix Alluvial Flow Architecture
+
+### 124.1 Count State Transition & Bézier Cubic Ribbon Mapping
+$$B(t) = (1-t)^3 P_0 + 3(1-t)^2 t P_1 + 3(1-t) t^2 P_2 + t^3 P_3$$
+
+---
+
+## 125. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1357,3 +1392,5 @@ $$P_{\text{rel},x} = 240 + \left(\frac{X_{\text{rel}}}{3.0}\right) \cdot 180, \q
 68. **Baumer, Benjamin S.** (2015). "Baserunning Leads, Jumps, and Stolen Base Optimization in Modern Baseball". *Journal of Quantitative Analysis in Sports*.
 69. **Smith, Barton L.** (2021). "Aerodynamic Forces on a Baseball with Seam-Shifted Wake". *Experiments in Fluids*.
 70. **Cross, Rod** (2014). "Physics of Bunt Fielding, Reaction Time, and Barehand Transfers in Baseball". *Sports Engineering*.
+71. **Nathan, Alan M.** (2019). "Aerodynamics of Sliced Line Drives and Fair-Foul Dispersion". *American Journal of Physics*.
+72. **Albert, Jim** (2017). "Modeling Count-Dependent Pitch Selection Transitions in Major League Baseball". *Journal of Quantitative Analysis in Sports*.

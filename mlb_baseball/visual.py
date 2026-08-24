@@ -18,6 +18,7 @@ class ChartType(enum.Enum):
     DIAMOND_SPRAY_CHART = "diamond_spray_chart"
     WIN_EXPECTANCY_WORM = "win_expectancy_worm"
     PITCH_MOVEMENT_PLOT = "pitch_movement_plot"
+    SPIDER_RADAR_CHART = "spider_radar_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -322,6 +323,105 @@ class WinExpectancyGraphRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class RadarDimension:
+    """Individual axis attribute label and value (0 to 100)."""
+
+    name: str
+    value: float  # 0.0 to 100.0
+
+
+@dataclasses.dataclass(frozen=True)
+class PlayerRadarProfile:
+    """Multi-axis skill profile for spider radar rendering."""
+
+    title: str
+    dimensions: list[RadarDimension]
+    fill_color: str = "#00d2be"
+
+
+class RadarChartRenderer:
+    """Renders pure-Python vector SVG multi-axis Spider/Radar charts (RADAR-01)."""
+
+    def __init__(self, width: int = 500, height: int = 500) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PlayerRadarProfile) -> GeneratedVectorChart:
+        """Render radar profile into standard SVG visual chart."""
+        import math
+
+        cx = self.width / 2.0
+        cy = self.height / 2.0
+        r_max = 170.0
+
+        n = len(profile.dimensions)
+        if n < 3:
+            raise ValueError("Radar chart requires at least 3 dimensions")
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{cx}" y="35" fill="#f8fafc" font-size="16" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+        ]
+
+        # Concentric grid rings
+        for ring in (0.20, 0.40, 0.60, 0.80, 1.00):
+            r_ring = r_max * ring
+            ring_points: list[str] = []
+            for i in range(n):
+                angle = -math.pi / 2.0 + (2.0 * math.pi * i / n)
+                px = cx + r_ring * math.cos(angle)
+                py = cy + r_ring * math.sin(angle)
+                ring_points.append(f"{px:.1f},{py:.1f}")
+            pts_str = " ".join(ring_points)
+            svg_parts.append(
+                f'<polygon points="{pts_str}" fill="none" stroke="#1e293b" stroke-width="1.5" />'
+            )
+
+        # Axis Spokes and Labels
+        poly_points: list[str] = []
+        for i, dim in enumerate(profile.dimensions):
+            angle = -math.pi / 2.0 + (2.0 * math.pi * i / n)
+            spoke_x = cx + r_max * math.cos(angle)
+            spoke_y = cy + r_max * math.sin(angle)
+
+            svg_parts.append(
+                f'<line x1="{cx}" y1="{cy}" x2="{spoke_x:.1f}" '
+                f'y2="{spoke_y:.1f}" stroke="#334155" stroke-width="1.2" />'
+            )
+
+            label_x = cx + (r_max + 24.0) * math.cos(angle)
+            label_y = cy + (r_max + 24.0) * math.sin(angle) + 4.0
+            svg_parts.append(
+                f'<text x="{label_x:.1f}" y="{label_y:.1f}" fill="#94a3b8" font-size="12" '
+                f'text-anchor="middle" font-family="sans-serif">{dim.name} ({dim.value:.0f})</text>'
+            )
+
+            val_norm = max(0.0, min(100.0, dim.value)) / 100.0
+            vx = cx + (r_max * val_norm) * math.cos(angle)
+            vy = cy + (r_max * val_norm) * math.sin(angle)
+            poly_points.append(f"{vx:.1f},{vy:.1f}")
+
+        # Shaded Data Polygon
+        data_pts_str = " ".join(poly_points)
+        svg_parts.append(
+            f'<polygon points="{data_pts_str}" fill="{profile.fill_color}" fill-opacity="0.35" '
+            f'stroke="{profile.fill_color}" stroke-width="2.5" />'
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.SPIDER_RADAR_CHART,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -343,16 +443,25 @@ def health_check() -> list[Check]:
         we_points = [(0, 0.50, 1.0), (1, 0.65, 1.8), (2, 0.90, 2.5)]
         we_chart = we_renderer.render(we_points)
 
+        radar_renderer = RadarChartRenderer()
+        dims = [
+            RadarDimension("Contact", 80),
+            RadarDimension("Power", 90),
+            RadarDimension("Discipline", 85),
+        ]
+        radar_chart = radar_renderer.render(PlayerRadarProfile("Test Radar", dims))
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
             and "<svg" in we_chart.svg_content
+            and "<svg" in radar_chart.svg_content
         ):
             checks.append(
                 Check(
                     "visual chart generation engine",
                     True,
-                    "SVG vector renderers verified (Heatmap, Spray, WE Graph)",
+                    "SVG renderers verified (Heatmap, Spray, WE, Radar)",
                 )
             )
         else:

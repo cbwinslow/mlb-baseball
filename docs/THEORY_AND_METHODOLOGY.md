@@ -64,7 +64,11 @@ This document serves as the academic and theoretical reference manual for the ML
 38. [Pitch Tunneling & Point-of-Commitment Trajectory Separation](#38-pitch-tunneling--point-of-commitment-trajectory-separation)
 39. [Pitcher Physical Extension & Effective Velocity Kinematics](#39-pitcher-physical-extension--effective-velocity-kinematics)
 40. [Bullpen High-Leverage Win Probability Preservation](#40-bullpen-high-leverage-win-probability-preservation)
-41. [Academic Bibliography & Literature Citations](#41-academic-bibliography--literature-citations)
+41. [Batter Platoon Split Shrinkage & Handedness Decay](#41-batter-platoon-split-shrinkage--handedness-decay)
+42. [No-Run-First-Inning (NRFI/YRFI) Derivative Valuation](#42-no-run-first-inning-nrfiyrfi-derivative-valuation)
+43. [Pitched Ball Gyro Spin & Spin Efficiency Aerodynamics](#43-pitched-ball-gyro-spin--spin-efficiency-aerodynamics)
+44. [Multi-Axis Polar SVG Radar Visualizer Architecture](#44-multi-axis-polar-svg-radar-visualizer-architecture)
+45. [Academic Bibliography & Literature Citations](#45-academic-bibliography--literature-citations)
 
 ---
 
@@ -575,7 +579,40 @@ $$\text{Save Conversion Rate} = \min\left(98.0\%, \max\left(75.0\%, 96.0 - (\sig
 
 ---
 
-## 41. Academic Bibliography & Literature Citations
+## 41. Batter Platoon Split Shrinkage & Handedness Decay
+
+### 41.1 Empirical Bayes Handedness Shrinkage
+$$\text{wOBA}^*_{\text{vs LHP}} = \frac{\text{PA}_{\text{LHP}} \cdot \text{wOBA}_{\text{LHP}} + M \cdot (\text{wOBA}_{\text{overall}} + \delta_{\text{prior}})}{\text{PA}_{\text{LHP}} + M} \quad (M = 1000\text{ PA})$$
+$$\Delta \text{wOBA} = |\text{wOBA}^*_{\text{vs RHP}} - \text{wOBA}^*_{\text{vs LHP}}|$$
+
+---
+
+## 42. No-Run-First-Inning (NRFI/YRFI) Derivative Valuation
+
+### 42.1 Inning 1 Poisson Derivative Modeling
+$$\mu_{\text{top1}} = 0.40 \cdot \left(\frac{\text{wOBA}_{\text{away, 1-3}}}{0.335}\right) \cdot \left(\frac{\text{ERA}_{\text{home, inn1}}}{3.90}\right) \cdot \text{ParkFactor}$$
+$$P(\text{NRFI}) = e^{-\mu_{\text{top1}}} \times e^{-\mu_{\text{bot1}}}$$
+$$P(\text{YRFI}) = 1.0 - P(\text{NRFI})$$
+
+---
+
+## 43. Pitched Ball Gyro Spin & Spin Efficiency Aerodynamics
+
+### 43.1 3D Spin Vector Decomposition
+$$\omega_{\text{total}} = \sqrt{\omega_{\text{active}}^2 + \omega_{\text{gyro}}^2}$$
+$$\eta_{\text{spin}} = \frac{\omega_{\text{active}}}{\omega_{\text{total}}} \times 100\%$$
+$$\omega_{\text{gyro}} = \omega_{\text{total}} \cdot \sqrt{1.0 - (\eta_{\text{spin}} / 100.0)^2}$$
+
+---
+
+## 44. Multi-Axis Polar SVG Radar Visualizer Architecture
+
+### 44.1 Polar Coordinate Vector Chart Rendering
+$$(x_k, y_k) = \left(x_c + R \cdot \frac{v_k}{100.0} \cos\left(-\frac{\pi}{2} + \frac{2\pi k}{N}\right), y_c + R \cdot \frac{v_k}{100.0} \sin\left(-\frac{\pi}{2} + \frac{2\pi k}{N}\right)\right)$$
+
+---
+
+## 45. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -607,3 +644,5 @@ $$\text{Save Conversion Rate} = \min\left(98.0\%, \max\left(75.0\%, 96.0 - (\sig
 28. **Nathan, Alan M.; Smith, Barton** (2021). "The Physics of Seam-Shifted Wake in Baseball". *Baseball Prospectus*.
 29. **Husband, Perry** (2014). *Effective Velocity: The Science of Pitch Sequencing*.
 30. **Roegele, Jon** (2017). "The Hardball Times: Pitch Tunneling and Batter Perception".
+31. **Nathan, Alan M.** (2018). "Determining the 3D Spin Axis of a Baseball from TrackMan Data".
+32. **Tango, Tom** (2008). "Platoon Splits and the Rule of 1000 PAs". *Inside The Book*.

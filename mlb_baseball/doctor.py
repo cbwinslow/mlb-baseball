@@ -275,6 +275,7 @@ def run() -> list[Check]:
         hedge,
         leverage,
         neural,
+        nrfi,
         parlay,
         portfolio,
         props,
@@ -284,6 +285,8 @@ def run() -> list[Check]:
         shift,
         shop,
         simulate,
+        spin,
+        splits,
         ssw,
         stack,
         stuff,
@@ -409,6 +412,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(splits.health_check())
+    except Exception as exc:
+        checks.append(Check("platoon", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(nrfi.health_check())
+    except Exception as exc:
+        checks.append(Check("nrfi", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(spin.health_check())
+    except Exception as exc:
+        checks.append(Check("spin", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(decision.health_check())
     except Exception as exc:

@@ -210,3 +210,12 @@ def test_decision_and_tunnel_and_extension_and_leverage_health_checks():
     assert tunnel.health_check()[0].ok is True
     assert extension.health_check()[0].ok is True
     assert leverage.health_check()[0].ok is True
+
+
+def test_splits_and_nrfi_and_spin_health_checks():
+    """Verify health checks for splits, nrfi, and spin modules."""
+    from mlb_baseball.model import nrfi, spin, splits
+
+    assert splits.health_check()[0].ok is True
+    assert nrfi.health_check()[0].ok is True
+    assert spin.health_check()[0].ok is True

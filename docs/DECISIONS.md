@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-158: Interactive SVG Visual Radar & Arsenal Polygon Renderer (`RADAR-01`, Package 70)
+
+**Decision:** Built pure-Python vector SVG multi-axis spider radar chart renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb radar`.
+- **Operational Architecture & Geometry**:
+  - Polar Coordinate Projection: Converts N-dimensional skill scores into concentric grid polygons and axis spokes.
+  - Multi-Axis 5-Tool Radar: Contact, Power, Discipline, Speed, Defense.
+  - CLI: `mlb radar --player "Juan Soto" --contact 85 --power 90 --discipline 95`.
+- **Verification**: 5/5 unit tests in `tests/unit/test_visual.py` passing; 596/596 full repository unit tests passing.
+
+## ADR-157: Pitched Ball Seam-Orientation Gyro Spin & Efficiency Decomposer (`SPIN-01`, Package 69)
+
+**Decision:** Built 3D spin vector decomposition, active spin isolation, and spin efficiency analysis in `mlb_baseball/model/spin.py` and CLI subcommand `mlb spin`.
+- **Mathematical Formulations & Methodology**:
+  - Spin Decomposition: $\omega_{\text{total}} = \sqrt{\omega_{\text{active}}^2 + \omega_{\text{gyro}}^2}$.
+  - Spin Efficiency: $\eta = \frac{\omega_{\text{active}}}{\omega_{\text{total}}} \times 100\%$.
+  - Tiers: `PURE_MAGNUS` ($\eta \ge 88\%$), `HYBRID_MOVEMENT`, `GYRO_BULLET` ($\eta \le 45\%$).
+  - CLI: `mlb spin --pitch-type SL --spin 2600 --efficiency 35.0`, `mlb spin --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_spin.py` passing; 596/596 full repository unit tests passing.
+
+## ADR-156: First-Inning Run Scored (NRFI / YRFI) Probabilistic Valuation Engine (`NRFI-01`, Package 68)
+
+**Decision:** Built 1st-inning derivative pricing, top-of-the-order run expectancy, and market value detection in `mlb_baseball/model/nrfi.py` and CLI subcommand `mlb nrfi`.
+- **Mathematical Formulations & Methodology**:
+  - Inning 1 Poisson Expectancies: $\mu_{\text{top}} = 0.40 \cdot \left(\frac{\text{wOBA}_{A, 1-3}}{0.335}\right) \cdot \left(\frac{\text{ERA}_{H, \text{inn1}}}{3.90}\right) \cdot \text{PF}$.
+  - Derivative Probabilities: $P(\text{NRFI}) = e^{-\mu_{\text{top}}} \times e^{-\mu_{\text{bot}}}$.
+  - Fair Lines: Computes fair decimal and American moneylines for NRFI and YRFI derivative betting markets.
+  - CLI: `mlb nrfi --home LAD --away SF --home-era 2.50 --away-era 2.70`, `mlb nrfi --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_nrfi.py` passing; 596/596 full repository unit tests passing.
+
+## ADR-155: Batter Handedness Platoon Split Decay & Shrinkage Engine (`PLATOON-01`, Package 67)
+
+**Decision:** Built Empirical Bayes platoon split regression and handedness decay modeling in `mlb_baseball/model/platoon.py` and CLI subcommand `mlb platoon`.
+- **Mathematical Formulations & Methodology**:
+  - Empirical Bayes Shrinkage: Regresses small-sample observed splits toward league handedness priors ($M = 1000\text{ PA}$).
+  - True-Talent Delta: $\Delta \text{wOBA} = |\text{wOBA}^*_{\text{vs RHP}} - \text{wOBA}^*_{\text{vs LHP}}|$.
+  - Tiers: `EXTREME_PLATOON` ($\Delta \ge 0.055$), `MODERATE_PLATOON`, `PLATOON_NEUTRAL` ($\Delta < 0.030$).
+  - CLI: `mlb platoon --bats L --overall 0.330 --pa-lhp 150 --woba-lhp 0.260 --pa-rhp 450 --woba-rhp 0.360`, `mlb platoon --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_platoon.py` passing; 596/596 full repository unit tests passing.
+
 ## ADR-154: Bullpen High-Leverage Win Probability Preservation & Volatility Engine (`LEV-01`, Package 66)
 
 **Decision:** Built high-leverage reliever evaluation and closer blown-save volatility index modeling in `mlb_baseball/model/leverage.py` and CLI subcommand `mlb leverage`.

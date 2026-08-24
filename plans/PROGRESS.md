@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### RADAR-01 interactive SVG visual radar & arsenal polygon renderer: implemented (ADR-158) — 2026-08-24
+Added `RadarChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb radar` CLI command.
+- Renders pure-Python vector SVG multi-axis spider radar charts for player 5-tool evaluations and pitch arsenals.
+
+### SPIN-01 pitched ball gyro spin & spin efficiency decomposer: implemented (ADR-157) — 2026-08-24
+Added `mlb_baseball/model/spin.py`, unit tests in `tests/unit/test_spin.py`, and `mlb spin` CLI command.
+- Decomposes total 3D spin into transverse active spin vs non-Magnus gyro bullet spin and computes spin efficiency $\eta$.
+
+### NRFI-01 first-inning run scored (NRFI / YRFI) probabilistic valuation engine: implemented (ADR-156) — 2026-08-24
+Added `mlb_baseball/model/nrfi.py`, unit tests in `tests/unit/test_nrfi.py`, and `mlb nrfi` CLI command.
+- Models top-of-order run expectancy vs starter Inning 1 ERA to price fair derivative lines and detect market +EV edges.
+
+### PLATOON-01 batter handedness platoon split shrinkage & decay engine: implemented (ADR-155) — 2026-08-24
+Added `mlb_baseball/model/platoon.py`, unit tests in `tests/unit/test_platoon.py`, and `mlb platoon` CLI command.
+- Applies Empirical Bayes regression ($M=1000$ PA) to model true-talent platoon splits and lineup substitution flags.
+
 ### LEV-01 bullpen high-leverage win probability preservation & volatility engine: implemented (ADR-154) — 2026-08-24
 Added `mlb_baseball/model/leverage.py`, unit tests in `tests/unit/test_leverage.py`, and `mlb leverage` CLI command.
 - Quantifies closer blown-save volatility index, 1-run lead 9th-inning save conversion probability, and WPA/LI clutch efficiency.

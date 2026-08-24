@@ -70,4 +70,30 @@ def test_visual_health_check():
     checks = health_check()
     assert len(checks) == 1
     assert checks[0].ok is True
-    assert "SVG vector renderers verified" in checks[0].detail
+    assert "SVG renderers verified" in checks[0].detail
+
+
+def test_radar_chart_svg_generation():
+    """Verify RadarChartRenderer creates multi-axis SVG spider chart."""
+    from mlb_baseball.visual import (
+        PlayerRadarProfile,
+        RadarChartRenderer,
+        RadarDimension,
+    )
+
+    renderer = RadarChartRenderer()
+    dims = [
+        RadarDimension("Contact", 85.0),
+        RadarDimension("Power", 90.0),
+        RadarDimension("Discipline", 95.0),
+        RadarDimension("Speed", 55.0),
+        RadarDimension("Defense", 70.0),
+    ]
+    profile = PlayerRadarProfile("Juan Soto Scouting Radar", dims)
+    chart = renderer.render(profile)
+
+    assert chart.width_px == 500
+    assert chart.height_px == 500
+    assert "<svg" in chart.svg_content
+    assert "Juan Soto Scouting Radar" in chart.svg_content
+    assert "Contact (85)" in chart.svg_content

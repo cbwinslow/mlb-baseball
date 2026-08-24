@@ -867,6 +867,76 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter platoon split shrinkage (PLATOON-01)
+    plat_parser = subparsers.add_parser(
+        "platoon",
+        help="evaluate batter platoon splits with Empirical Bayes (PLATOON-01)",
+    )
+    plat_parser.add_argument("--bats", type=str, default="L", help="bats hand (L, R, S)")
+    plat_parser.add_argument(
+        "--overall", type=float, default=0.330, help="overall wOBA (default: 0.330)"
+    )
+    plat_parser.add_argument("--pa-lhp", type=int, default=150, help="PA vs LHP (default: 150)")
+    plat_parser.add_argument(
+        "--woba-lhp", type=float, default=0.260, help="wOBA vs LHP (default: 0.260)"
+    )
+    plat_parser.add_argument("--pa-rhp", type=int, default=450, help="PA vs RHP (default: 450)")
+    plat_parser.add_argument(
+        "--woba-rhp", type=float, default=0.360, help="wOBA vs RHP (default: 0.360)"
+    )
+    plat_parser.add_argument("--json", action="store_true", help="output platoon result as JSON")
+
+    # First inning valuation (NRFI-01)
+    nrfi_parser = subparsers.add_parser(
+        "nrfi",
+        help="evaluate first-inning run scored NRFI / YRFI (NRFI-01)",
+    )
+    nrfi_parser.add_argument("--home", type=str, default="LAD", help="home team (default: LAD)")
+    nrfi_parser.add_argument("--away", type=str, default="SF", help="away team (default: SF)")
+    nrfi_parser.add_argument(
+        "--home-top3", type=float, default=0.355, help="home top 3 wOBA (default: 0.355)"
+    )
+    nrfi_parser.add_argument(
+        "--away-top3", type=float, default=0.330, help="away top 3 wOBA (default: 0.330)"
+    )
+    nrfi_parser.add_argument(
+        "--home-era", type=float, default=3.10, help="home starter inn 1 ERA (default: 3.10)"
+    )
+    nrfi_parser.add_argument(
+        "--away-era", type=float, default=3.60, help="away starter inn 1 ERA (default: 3.60)"
+    )
+    nrfi_parser.add_argument("--json", action="store_true", help="output NRFI result as JSON")
+
+    # Pitched ball spin decomposition (SPIN-01)
+    spin_parser = subparsers.add_parser(
+        "spin",
+        help="decompose raw spin into active vs gyro bullet spin (SPIN-01)",
+    )
+    spin_parser.add_argument(
+        "--pitch-type", type=str, default="SL", help="pitch type (default: SL)"
+    )
+    spin_parser.add_argument(
+        "--spin", type=float, default=2600.0, help="total spin rpm (default: 2600)"
+    )
+    spin_parser.add_argument(
+        "--efficiency", type=float, default=35.0, help="spin efficiency pct (default: 35.0)"
+    )
+    spin_parser.add_argument("--json", action="store_true", help="output spin result as JSON")
+
+    # Visual spider radar chart (RADAR-01)
+    radar_parser = subparsers.add_parser(
+        "radar",
+        help="generate multi-axis vector SVG spider radar chart (RADAR-01)",
+    )
+    radar_parser.add_argument("--player", type=str, default="Scouting Radar", help="chart title")
+    radar_parser.add_argument("--contact", type=float, default=85.0, help="contact grade (0-100)")
+    radar_parser.add_argument("--power", type=float, default=90.0, help="power grade (0-100)")
+    radar_parser.add_argument(
+        "--discipline", type=float, default=95.0, help="discipline grade (0-100)"
+    )
+    radar_parser.add_argument("--speed", type=float, default=55.0, help="speed grade (0-100)")
+    radar_parser.add_argument("--defense", type=float, default=70.0, help="defense grade (0-100)")
+
     # Batter swing decisions and plate discipline (DECISION-01)
     dec_parser = subparsers.add_parser(
         "decision",
@@ -2950,6 +3020,155 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "platoon":
+        import json as json_lib
+
+        from mlb_baseball.model.splits import (
+            BatterPlatoonEngine,
+            BatterPlatoonRawStats,
+        )
+
+        plat_eng = BatterPlatoonEngine()
+        raw_st = BatterPlatoonRawStats(
+            "b1",
+            "Target Batter",
+            bats_hand=args.bats,
+            overall_woba=args.overall,
+            pa_vs_lhp=args.pa_lhp,
+            woba_vs_lhp=args.woba_lhp,
+            pa_vs_rhp=args.pa_rhp,
+            woba_vs_rhp=args.woba_rhp,
+        )
+        plat_res = plat_eng.evaluate_platoon_talent(raw_st)
+
+        if args.json:
+            plat_out = {
+                "bats": plat_res.bats_hand,
+                "shrunk_woba_vs_lhp": plat_res.shrunk_woba_vs_lhp,
+                "shrunk_woba_vs_rhp": plat_res.shrunk_woba_vs_rhp,
+                "platoon_delta": plat_res.true_talent_platoon_delta,
+                "tier": plat_res.platoon_tier,
+                "is_strict_platoon": plat_res.is_strict_platoon_candidate,
+            }
+            print(json_lib.dumps(plat_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PLATOON SPLIT SHRINKAGE [{plat_res.platoon_tier}]")
+            hdr_pl = (
+                f"     Bats: {plat_res.bats_hand} "
+                f"| vs LHP: {plat_res.shrunk_woba_vs_lhp:.3f} "
+                f"| vs RHP: {plat_res.shrunk_woba_vs_rhp:.3f}"
+            )
+            print(hdr_pl)
+            print(f"{'=' * 84}\n")
+            print(f"  • True Talent Delta    : {plat_res.true_talent_platoon_delta:.3f} wOBA")
+            pl_st = "YES" if plat_res.is_strict_platoon_candidate else "NO"
+            print(f"  • Strict Platoon Bench : {pl_st}\n")
+
+    elif args.command == "nrfi":
+        import json as json_lib
+
+        from mlb_baseball.model.nrfi import (
+            FirstInningValuationEngine,
+            InningOneMatchupInputs,
+        )
+
+        nrfi_eng = FirstInningValuationEngine()
+        inp = InningOneMatchupInputs(
+            home_team=args.home,
+            away_team=args.away,
+            home_starter_inn1_era=args.home_era,
+            away_starter_inn1_era=args.away_era,
+            home_top3_woba=args.home_top3,
+            away_top3_woba=args.away_top3,
+        )
+        nrfi_res = nrfi_eng.evaluate_first_inning(inp)
+
+        if args.json:
+            nrfi_out = {
+                "matchup": f"{args.away} @ {args.home}",
+                "nrfi_prob": nrfi_res.nrfi_probability,
+                "yrfi_prob": nrfi_res.yrfi_probability,
+                "fair_nrfi_line": nrfi_res.fair_nrfi_american,
+                "fair_yrfi_line": nrfi_res.fair_yrfi_american,
+                "recommendation": nrfi_res.recommended_side,
+            }
+            print(json_lib.dumps(nrfi_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     FIRST INNING DERIVATIVE VALUATION [{nrfi_res.recommended_side}]")
+            hdr_nr = (
+                f"     P(NRFI): {nrfi_res.nrfi_probability * 100:.1f}% "
+                f"({nrfi_res.fair_nrfi_american:+d}) "
+                f"| P(YRFI): {nrfi_res.yrfi_probability * 100:.1f}% "
+                f"({nrfi_res.fair_yrfi_american:+d})"
+            )
+            print(hdr_nr)
+            print(f"{'=' * 84}\n")
+            print(f"  • Fair NRFI Moneyline  : {nrfi_res.fair_nrfi_american:+d}")
+            print(f"  • Fair YRFI Moneyline  : {nrfi_res.fair_yrfi_american:+d}\n")
+
+    elif args.command == "spin":
+        import json as json_lib
+
+        from mlb_baseball.model.spin import (
+            PitchSpinObservation,
+            SpinDecompositionEngine,
+        )
+
+        spin_eng = SpinDecompositionEngine()
+        obs = PitchSpinObservation(
+            "p1",
+            args.pitch_type,
+            total_spin_rpm=args.spin,
+            spin_efficiency_pct=args.efficiency,
+        )
+        spin_res = spin_eng.decompose_spin(obs)
+
+        if args.json:
+            spin_out = {
+                "pitch_type": spin_res.pitch_type,
+                "total_spin": spin_res.total_spin_rpm,
+                "active_spin": spin_res.active_spin_rpm,
+                "gyro_spin": spin_res.gyro_spin_rpm,
+                "efficiency": spin_res.spin_efficiency_pct,
+                "archetype": spin_res.spin_archetype,
+            }
+            print(json_lib.dumps(spin_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PITCHED BALL SPIN DECOMPOSITION [{spin_res.spin_archetype}]")
+            hdr_sp = (
+                f"     Total: {spin_res.total_spin_rpm:.0f}rpm "
+                f"| Active: {spin_res.active_spin_rpm:.0f}rpm "
+                f"| Gyro: {spin_res.gyro_spin_rpm:.0f}rpm ({spin_res.spin_efficiency_pct:.1f}%)"
+            )
+            print(hdr_sp)
+            print(f"{'=' * 84}\n")
+            print(f"  • Active Transverse Spin : {spin_res.active_spin_rpm:.0f} rpm")
+            print(f"  • Non-Magnus Gyro Spin   : {spin_res.gyro_spin_rpm:.0f} rpm\n")
+
+    elif args.command == "radar":
+        from mlb_baseball.visual import (
+            PlayerRadarProfile,
+            RadarChartRenderer,
+            RadarDimension,
+        )
+
+        radar_renderer = RadarChartRenderer()
+        dims = [
+            RadarDimension("Contact", args.contact),
+            RadarDimension("Power", args.power),
+            RadarDimension("Discipline", args.discipline),
+            RadarDimension("Speed", args.speed),
+            RadarDimension("Defense", args.defense),
+        ]
+        prof = PlayerRadarProfile(args.player, dims)
+        chart = radar_renderer.render(prof)
+        print(
+            f"Generated Vector SVG Radar Chart for '{args.player}' ({len(chart.svg_content)} bytes)"
+        )
 
     elif args.command == "decision":
         import json as json_lib

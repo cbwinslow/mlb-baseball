@@ -18,6 +18,7 @@ import numpy as np
 import psycopg
 
 from mlb_baseball.db import get_connection
+from mlb_baseball.health import Check
 
 # 30 Active MLB Franchises by League & Division
 MLB_DIVISIONS: dict[str, dict[str, list[str]]] = {
@@ -501,3 +502,22 @@ def pythagorean_team_win_pct(
     if (rs_exp + ra_exp) <= 0:
         return 0.500
     return float(np.clip(rs_exp / (rs_exp + ra_exp), 0.200, 0.800))
+
+
+def health_check() -> list[Check]:
+    """Operational health check for Season Projection engine (PROJ-01, PROJ-02)."""
+    checks: list[Check] = []
+    try:
+        if len(ALL_MLB_TEAMS) == 30 and pythagorean_team_win_pct(4.5, 4.5) == 0.500:
+            checks.append(
+                Check(
+                    "season projection engine",
+                    True,
+                    "30-team division mapping and Pythagorean models verified",
+                )
+            )
+        else:
+            checks.append(Check("season projection engine", False, "Team mapping count invalid"))
+    except Exception as exc:
+        checks.append(Check("season projection engine", False, str(exc)))
+    return checks

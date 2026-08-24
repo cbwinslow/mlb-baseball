@@ -227,6 +227,20 @@ Never use the test/forward period to choose features. Never stack in-sample base
 predictions. Never claim betting value without permitted, time-stamped prices and
 vig-aware evaluation.
 
+## Code Architecture, Encapsulation, and Polymorphic Reusability
+
+All platform code must follow strict object-oriented and modular engineering principles:
+
+1. **Proper Encapsulation & Structured Dataclasses**:
+   - Complex domain entities (models, simulations, player projections, market allocations, game states) must be encapsulated in immutable, frozen dataclasses or typed structures with clear attribute types.
+   - Internal implementation details, SQL joins, and raw dictionary manipulations must not leak across domain boundaries.
+2. **Polymorphic & Interoperable Interfaces**:
+   - Allocators, simulators, models, and evaluators must implement polymorphic base protocols or abstract base classes (e.g. `BaseModel`, `BaseAllocator`, `BaseSimulator`) so new algorithms can be plugged in without refactoring consumer modules.
+   - Input/output contracts must be strictly interoperable between database queries, CLI commands, serving marts, and downstream web APIs.
+3. **Mathematical Precision & Exhaustive Documentation**:
+   - Every formula must include docstrings documenting inputs, mathematical citations, bounds, and failure modes.
+   - Modules must include deterministic hand-calculated test fixtures and real database integration tests.
+
 ## Product direction
 
 Use OddsTrader only as product research. Its current MLB surface emphasizes a

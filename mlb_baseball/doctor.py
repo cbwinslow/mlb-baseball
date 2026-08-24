@@ -243,6 +243,34 @@ def run() -> list[Check]:
     except Exception as exc:
         checks.append(Check("feature_select_stepwise", False, f"health_check() raised: {exc}"))
 
+    from mlb_baseball import serve
+    from mlb_baseball.model import portfolio, props, season, simulate
+
+    try:
+        checks.extend(serve.health_check())
+    except Exception as exc:
+        checks.append(Check("serve", False, f"health_check() raised: {exc}"))
+
+    try:
+        checks.extend(simulate.health_check())
+    except Exception as exc:
+        checks.append(Check("simulate", False, f"health_check() raised: {exc}"))
+
+    try:
+        checks.extend(props.health_check())
+    except Exception as exc:
+        checks.append(Check("props", False, f"health_check() raised: {exc}"))
+
+    try:
+        checks.extend(season.health_check())
+    except Exception as exc:
+        checks.append(Check("season", False, f"health_check() raised: {exc}"))
+
+    try:
+        checks.extend(portfolio.health_check())
+    except Exception as exc:
+        checks.append(Check("portfolio", False, f"health_check() raised: {exc}"))
+
     # backup.py has no bootstrap()/update() either -- it's an operational
     # tool, not a data source, but a missing pg_dump/psql should still show
     # up here rather than as a surprise the first time someone runs

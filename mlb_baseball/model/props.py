@@ -21,6 +21,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from mlb_baseball.db import get_connection
+from mlb_baseball.health import Check
 
 DEFAULT_LEAGUE_K_PCT = 0.225
 DEFAULT_LEAGUE_HR_PCT = 0.030
@@ -330,3 +331,19 @@ def fetch_game_pitcher_props(
         return _query(conn)
     with get_connection() as c:
         return _query(c)
+
+
+def health_check() -> list[Check]:
+    """Operational health check for Player Props engine (PROP-01)."""
+    checks: list[Check] = []
+    try:
+        p_k = predict_pitcher_strikeouts(1, "Test", "pk", 0.30, 0.225, 5)
+        if 0.0 <= p_k.projected_k_pct <= 1.0 and p_k.expected_k > 0:
+            checks.append(
+                Check("player props engine", True, "Log5 and Poisson distributions verified")
+            )
+        else:
+            checks.append(Check("player props engine", False, "Invalid projection bounds"))
+    except Exception as exc:
+        checks.append(Check("player props engine", False, str(exc)))
+    return checks

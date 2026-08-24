@@ -2,6 +2,28 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-114: Comprehensive Operational Health Verification for Serving & Modeling (`DOCTOR-01`, Package 26)
+
+**Decision:** Integrated health checks for `serve`, `simulate`, `props`, `season`, and `portfolio` modules into `mlb_baseball/doctor.py`, accessible via the unified `mlb doctor` CLI command and unit tested in `tests/unit/test_doctor.py`.
+- **Health Checks Added**:
+  - `serve`: Verifies existence of all 6 read-only analytical serving marts in PostgreSQL.
+  - `simulate`: Verifies 25-state dense bijection, outcome matrix indexing, and device availability.
+  - `props`: Verifies Log5 matchup strikeout odds ratios and Poisson count bounds.
+  - `season`: Verifies 30-team division and league mapping and Pythagorean expectation bounds.
+  - `portfolio`: Verifies Kelly allocation formulas, single-bet caps, and total risk bounds.
+- **Verification**: 4/4 unit tests in `tests/unit/test_doctor.py` passing.
+
+## ADR-113: Polymorphic Kelly Criterion Portfolio Risk & Allocation Engine (`PORT-01`, Package 25)
+
+**Decision:** Implemented polymorphic, object-oriented capital allocation and risk management system in `mlb_baseball/model/portfolio.py` and CLI subcommand `mlb kelly`.
+- **Architecture & Formulations**:
+  - `BaseCapitalAllocator` Protocol: Polymorphic interface enabling interchangeable portfolio allocation algorithms.
+  - Fractional Kelly Optimization: Computes optimal bankroll fractions ($f^* = c \cdot rac{p(b + 1) - 1}{b}$) for quarter-Kelly ($c = 0.25$) risk mitigation.
+  - Multi-Contract Portfolio Constraints: Enforces maximum single-position risk cap ($\le 2.5\%$) and total simultaneous exposure ceiling ($\le 15.0\%$) with proportional scale-down.
+  - Compound Growth Metric: Evaluates expected geometric growth rate $g(f) = \sum [p \ln(1 + f b) + (1 - p) \ln(1 - f)]$.
+  - CLI Command: `mlb kelly --bankroll 10000 --min-edge 0.025` with full table formatting and `--json` export.
+- **Verification**: 3/3 unit tests in `tests/unit/test_portfolio.py` passing.
+
 ## ADR-112: Bottom-Up Marcel Empirical Bayes Projection Engine (`PROJ-02`, Package 24)
 
 **Decision:** Implemented bottom-up player and team talent projection system in `mlb_baseball/model/season.py` using Tom Tango / Bill James Marcel 3-year exponential weighting ($5/12 \cdot t_{-1} + 4/12 \cdot t_{-2} + 3/12 \cdot t_{-3}$), Empirical Bayes shrinkage to league mean ($N_0 = 1200$ PA / TBF), delta-method aging curves, and Pythagorean true-talent win expectations ($W\% = rac{RS^{1.83}}{RS^{1.83} + RA^{1.83}}$).

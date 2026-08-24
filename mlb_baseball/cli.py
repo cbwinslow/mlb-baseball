@@ -526,6 +526,30 @@ def main(argv: list[str] | None = None) -> None:
         "--watch", action="store_true", help="refresh continuously until Ctrl-C"
     )
 
+    # Kelly Criterion portfolio allocator (PORT-01)
+    kelly_parser = subparsers.add_parser(
+        "kelly", help="calculate optimal Kelly Criterion portfolio allocation for +EV markets"
+    )
+    kelly_parser.add_argument(
+        "--bankroll", type=float, default=10000.0, help="total bankroll in USD (default: 10000)"
+    )
+    kelly_parser.add_argument(
+        "--fraction", type=float, default=0.25, help="Kelly fraction multiplier (default: 0.25)"
+    )
+    kelly_parser.add_argument(
+        "--max-bet", type=float, default=0.025, help="max single position fraction (default: 0.025)"
+    )
+    kelly_parser.add_argument(
+        "--max-total",
+        type=float,
+        default=0.150,
+        help="max total portfolio exposure (default: 0.150)",
+    )
+    kelly_parser.add_argument(
+        "--min-edge", type=float, default=0.025, help="min edge threshold (default: 0.025)"
+    )
+    kelly_parser.add_argument("--json", action="store_true", help="output result as JSON")
+
     # Player props command (PROP-01)
     props_parser = subparsers.add_parser(
         "props", help="forecast player proposition markets (K%, outs, hits, HR)"
@@ -1038,6 +1062,102 @@ def main(argv: list[str] | None = None) -> None:
                 )
         else:
             print("Please provide --game-pk or --pitcher-k. Use mlb props --help for options.")
+    elif args.command == "kelly":
+        import json as json_lib
+
+        from mlb_baseball import serve
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.model.portfolio import (
+            BetOpportunity,
+            KellyAllocator,
+            PositionType,
+            probability_to_decimal_odds,
+        )
+
+        with get_connection() as conn:
+            raw_alphas = serve.fetch_prediction_market_alpha(min_edge=args.min_edge, conn=conn)
+
+        opportunities = []
+        for i, a in enumerate(raw_alphas):
+            m_prob = float(a.get("model_home_win_prob") or 0.50)
+            mkt_prob = float(a.get("market_home_prob") or 0.50)
+            if mkt_prob <= 0 or mkt_prob >= 1:
+                continue
+            opp = BetOpportunity(
+                opportunity_id=f"alpha_{i}",
+                game_instance_key=str(a.get("game_instance_key", "")),
+                market_source=str(a.get("market_source", "market")),
+                position_type=PositionType.MONEYLINE,
+                description=(
+                    f"{a.get('away_team', 'AWAY')} @ "
+                    f"{a.get('home_team', 'HOME')} "
+                    f"({a.get('recommendation', 'Win')})"
+                ),
+                model_probability=m_prob,
+                market_implied_probability=mkt_prob,
+                decimal_odds=probability_to_decimal_odds(mkt_prob),
+            )
+            opportunities.append(opp)
+
+        allocator = KellyAllocator(
+            fraction=args.fraction,
+            max_single_bet_pct=args.max_bet,
+            max_total_exposure_pct=args.max_total,
+            min_edge_pct=args.min_edge,
+        )
+        plan = allocator.allocate(opportunities, total_bankroll=args.bankroll)
+
+        if args.json:
+            out_dict = {
+                "total_bankroll_usd": plan.total_bankroll_usd,
+                "total_allocated_usd": plan.total_allocated_usd,
+                "total_exposure_pct": plan.total_exposure_pct,
+                "expected_portfolio_growth_rate": plan.expected_portfolio_growth_rate,
+                "recommendations": [
+                    {
+                        "game_key": r.opportunity.game_instance_key,
+                        "source": r.opportunity.market_source,
+                        "description": r.opportunity.description,
+                        "model_prob": r.opportunity.model_probability,
+                        "market_prob": r.opportunity.market_implied_probability,
+                        "edge_pct": r.opportunity.edge,
+                        "kelly_fraction": r.kelly_fraction,
+                        "wager_usd": r.wager_amount_usd,
+                        "expected_value_pct": r.expected_value_pct,
+                    }
+                    for r in plan.recommendations
+                ],
+            }
+            print(json_lib.dumps(out_dict, indent=2))
+        else:
+            print(
+                f"\n=== KELLY CRITERION ALLOCATION PLAN "
+                f"(Bankroll: ${plan.total_bankroll_usd:,.2f}) ==="
+            )
+            print(
+                f"Total Allocated: ${plan.total_allocated_usd:,.2f} "
+                f"({plan.total_exposure_pct * 100:.2f}% of Bankroll)"
+            )
+            print(f"Expected Daily Growth Rate: {plan.expected_portfolio_growth_rate * 100:.4f}%\n")
+            if not plan.recommendations:
+                print("No +EV opportunities meeting the minimum edge threshold.")
+            else:
+                header = (
+                    f"{'Market / Matchup':<32} {'Model%':<8} {'Mkt%':<8} "
+                    f"{'Edge%':<8} {'Kelly%':<8} {'Wager ($)':<10} {'+EV%':<8}"
+                )
+                print(header)
+                print("-" * len(header))
+                for r in plan.recommendations:
+                    print(
+                        f"{r.opportunity.description:<32} "
+                        f"{r.opportunity.model_probability * 100:>6.1f}%  "
+                        f"{r.opportunity.market_implied_probability * 100:>6.1f}%  "
+                        f"{r.opportunity.edge * 100:>+6.1f}%  "
+                        f"{r.kelly_fraction * 100:>6.2f}%  "
+                        f"${r.wager_amount_usd:>8.2f}  "
+                        f"{r.expected_value_pct * 100:>+6.1f}%"
+                    )
     elif args.command == "serve":
         import json
 

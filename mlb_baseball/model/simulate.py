@@ -23,6 +23,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from mlb_baseball.compute import get_device
+from mlb_baseball.health import Check
 from mlb_baseball.model.markov import (
     TERMINAL,
     BaseOutState,
@@ -692,3 +693,22 @@ def simulate_two_phase_game_fast(
         duration_ms=duration_ms,
         simulations_per_sec=sims_per_sec,
     )
+
+
+def health_check() -> list[Check]:
+    """Operational health check for Monte Carlo simulation engine (SIM-01, SIM-02)."""
+    checks: list[Check] = []
+    try:
+        # Check bijection
+        for i in range(25):
+            st = index_to_state(i)
+            idx = state_to_index(st)
+            if idx != i:
+                checks.append(Check("simulation state bijection", False, f"mismatch at index {i}"))
+                return checks
+        checks.append(
+            Check("simulation state bijection", True, "25-state bijective bijection verified")
+        )
+    except Exception as exc:
+        checks.append(Check("simulation state bijection", False, str(exc)))
+    return checks

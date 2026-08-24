@@ -257,6 +257,8 @@ def run() -> list[Check]:
     from mlb_baseball import serve
     from mlb_baseball.model import (
         backtest,
+        bullpen,
+        bvp,
         calibration,
         cluster,
         drift,
@@ -266,11 +268,14 @@ def run() -> list[Check]:
         parlay,
         portfolio,
         props,
+        reliever,
         ros,
         season,
         simulate,
         stack,
         stuff,
+        umpire,
+        weather,
         wpa,
     )
 
@@ -368,6 +373,26 @@ def run() -> list[Check]:
         checks.extend(hedge.health_check())
     except Exception as exc:
         checks.append(Check("hedge", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(bvp.health_check())
+    except Exception as exc:
+        checks.append(Check("bvp", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(umpire.health_check())
+    except Exception as exc:
+        checks.append(Check("umpire", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(weather.health_check())
+    except Exception as exc:
+        checks.append(Check("weather", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(bullpen.health_check())
+    except Exception as exc:
+        checks.append(Check("bullpen", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(reliever.health_check())
+    except Exception as exc:
+        checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
 
     # backup.py has no bootstrap()/update() either -- it's an operational
     # tool, not a data source, but a missing pg_dump/psql should still show

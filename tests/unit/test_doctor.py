@@ -158,3 +158,13 @@ def test_visual_and_cluster_and_dump_and_hedge_health_checks():
     assert cluster.health_check()[0].ok is True
     assert dump.health_check()[0].ok is True
     assert hedge.health_check()[0].ok is True
+
+
+def test_bvp_and_umpire_and_weather_and_reliever_health_checks():
+    """Verify health checks for bvp, umpire, weather, and reliever modules."""
+    from mlb_baseball.model import bvp, reliever, umpire, weather
+
+    assert bvp.health_check()[0].ok is True
+    assert umpire.health_check()[0].ok is True
+    assert weather.health_check()[0].ok is True
+    assert reliever.health_check()[0].ok is True

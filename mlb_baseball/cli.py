@@ -792,6 +792,81 @@ def main(argv: list[str] | None = None) -> None:
     )
     hedge_parser.add_argument("--json", action="store_true", help="output hedge plan as JSON")
 
+    # Batter vs Pitcher micro-matchup engine (BVP-01)
+    bvp_parser = subparsers.add_parser(
+        "bvp",
+        help="evaluate batter vs pitcher matchup with empirical Bayes shrinkage (BVP-01)",
+    )
+    bvp_parser.add_argument(
+        "--batter-woba", type=float, default=0.360, help="batter wOBA vs hand (default: 0.360)"
+    )
+    bvp_parser.add_argument(
+        "--pitcher-woba", type=float, default=0.300, help="pitcher wOBA vs hand (default: 0.300)"
+    )
+    bvp_parser.add_argument(
+        "--pa", type=int, default=15, help="observed head-to-head PA (default: 15)"
+    )
+    bvp_parser.add_argument(
+        "--raw-woba", type=float, default=0.450, help="observed head-to-head wOBA (default: 0.450)"
+    )
+    bvp_parser.add_argument("--json", action="store_true", help="output BvP evaluation as JSON")
+
+    # Individual umpire strike zone bias engine (UMP-01)
+    ump_parser = subparsers.add_parser(
+        "umpire",
+        help="quantify individual umpire strike zone dimensions and totals impact (UMP-01)",
+    )
+    ump_parser.add_argument("--name", type=str, default="Angel Hernandez", help="umpire name")
+    ump_parser.add_argument(
+        "--base-total", type=float, default=8.5, help="baseline game total runs (default: 8.5)"
+    )
+    ump_parser.add_argument(
+        "--expansion-in",
+        type=float,
+        default=0.6,
+        help="horizontal zone expansion in (default: 0.6)",
+    )
+    ump_parser.add_argument("--json", action="store_true", help="output umpire adjustment as JSON")
+
+    # Stadium 3D vector wind & micro-climate physics (WEATHER-01)
+    weather_parser = subparsers.add_parser(
+        "weather",
+        help="compute stadium 3D vector wind aerodynamics and air density index (WEATHER-01)",
+    )
+    weather_parser.add_argument(
+        "--azimuth", type=float, default=22.5, help="stadium azimuth deg (default: 22.5 - Wrigley)"
+    )
+    weather_parser.add_argument(
+        "--wind-speed", type=float, default=15.0, help="wind speed mph (default: 15.0)"
+    )
+    weather_parser.add_argument(
+        "--wind-dir",
+        type=float,
+        default=202.5,
+        help="meteorological wind FROM dir (default: 202.5)",
+    )
+    weather_parser.add_argument(
+        "--temp", type=float, default=78.0, help="temperature F (default: 78.0)"
+    )
+    weather_parser.add_argument(
+        "--altitude", type=float, default=600.0, help="stadium altitude ft (default: 600.0)"
+    )
+    weather_parser.add_argument(
+        "--json", action="store_true", help="output weather physics as JSON"
+    )
+
+    # Dynamic bullpen fatigue decay simulator (BULLPEN-01)
+    bullpen_parser = subparsers.add_parser(
+        "bullpen",
+        help="evaluate team bullpen fatigue decay and high-leverage hierarchy (BULLPEN-01)",
+    )
+    bullpen_parser.add_argument(
+        "--team", type=str, default="LAD", help="team abbreviation (default: LAD)"
+    )
+    bullpen_parser.add_argument(
+        "--json", action="store_true", help="output bullpen projection as JSON"
+    )
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -2410,6 +2485,216 @@ def main(argv: list[str] | None = None) -> None:
                 print(
                     f"  • Profit Margin           : {h_plan.guaranteed_profit_margin_pct:+.1f}%\n"
                 )
+
+    elif args.command == "bvp":
+        import json as json_lib
+
+        from mlb_baseball.model.bvp import (
+            BatterArsenalPreferences,
+            EmpiricalBayesBvPEngine,
+            PitcherArsenalMix,
+        )
+
+        bvp_eng = EmpiricalBayesBvPEngine()
+        bvp_res = bvp_eng.evaluate_matchup(
+            batter_id="b1",
+            batter_name="Target Batter",
+            pitcher_id="p1",
+            pitcher_name="Target Pitcher",
+            batter_woba_vs_hand=args.batter_woba,
+            pitcher_woba_vs_hand=args.pitcher_woba,
+            observed_pa=args.pa,
+            observed_woba=args.raw_woba,
+            batter_prefs=BatterArsenalPreferences(rv_slider=+1.5),
+            pitcher_mix=PitcherArsenalMix(pct_slider=0.35),
+        )
+
+        if args.json:
+            b_out = {
+                "observed_pa": bvp_res.observed_pa,
+                "raw_woba": bvp_res.raw_bvp_woba,
+                "platoon_prior_woba": bvp_res.platoon_prior_woba,
+                "shrunk_bvp_woba": bvp_res.shrunk_bvp_woba,
+                "arsenal_rv100": bvp_res.arsenal_interaction_rv100,
+                "composite_woba": bvp_res.composite_matchup_woba,
+                "expected_k_pct": bvp_res.expected_k_pct,
+                "expected_bb_pct": bvp_res.expected_bb_pct,
+            }
+            print(json_lib.dumps(b_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print("     BATTER VS PITCHER (BvP) ARSENAL INTERACTION")
+            obs_str = (
+                f"  {args.pa} PA @ {args.raw_woba:.3f} | Prior: {bvp_res.platoon_prior_woba:.3f}"
+            )
+            print(obs_str)
+            print(f"{'=' * 84}\n")
+            print(
+                f"  • Shrunk BvP wOBA      : {bvp_res.shrunk_bvp_woba:.3f} (Regressed toward prior)"
+            )
+            print(f"  • Arsenal Interaction  : {bvp_res.arsenal_interaction_rv100:+.2f} RV/100")
+            print(f"  • Composite Matchup    : {bvp_res.composite_matchup_woba:.3f} wOBA")
+            kbb_str = (
+                f"  • Expected K/BB        : {bvp_res.expected_k_pct * 100:.0f}% / "
+                f"{bvp_res.expected_bb_pct * 100:.0f}%\n"
+            )
+            print(kbb_str)
+
+    elif args.command == "umpire":
+        import json as json_lib
+
+        from mlb_baseball.model.umpire import UmpireBiasEngine, UmpireProfile
+
+        u_eng = UmpireBiasEngine()
+        u_prof = UmpireProfile(
+            umpire_id="u1",
+            umpire_name=args.name,
+            games_behind_plate=110,
+            zone_horizontal_expansion_in=args.expansion_in,
+            zone_vertical_expansion_in=0.10,
+            called_strike_accuracy_pct=92.8,
+            run_impact_per_game=round(-0.55 * (args.expansion_in / 0.6), 2),
+            k_rate_multiplier=round(1.0 + (args.expansion_in * 0.08), 2),
+            bb_rate_multiplier=round(1.0 - (args.expansion_in * 0.08), 2),
+        )
+        u_adj = u_eng.evaluate_game_adjustment(u_prof, baseline_total=args.base_total)
+
+        if args.json:
+            u_out = {
+                "umpire_name": u_adj.umpire_name,
+                "baseline_total": u_adj.baseline_total_runs,
+                "adjusted_total": u_adj.adjusted_total_runs,
+                "run_delta": u_adj.run_adjustment_delta,
+                "classification": u_adj.zone_classification,
+            }
+            print(json_lib.dumps(u_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     UMPIRE STRIKE ZONE & TOTALS IMPACT ({u_adj.umpire_name.upper()})")
+            print(f"  Zone: {args.expansion_in:+.1f} in | [{u_adj.zone_classification.upper()}]")
+            print(f"{'=' * 84}\n")
+            print(f"  • Baseline Total Runs : {u_adj.baseline_total_runs:.1f}")
+            ft_str = (
+                f"  • Fair Total          : {u_adj.adjusted_total_runs:.2f} "
+                f"({u_adj.run_adjustment_delta:+.2f})"
+            )
+            print(ft_str)
+            print(f"  • Starter K Multiplier: {u_prof.k_rate_multiplier:.2f}x\n")
+
+    elif args.command == "weather":
+        import json as json_lib
+
+        from mlb_baseball.model.weather import (
+            StadiumOrientation,
+            StadiumWeatherPhysicsEngine,
+            WeatherConditions,
+        )
+
+        w_eng = StadiumWeatherPhysicsEngine()
+        s_ori = StadiumOrientation(
+            "v1",
+            "Custom Venue",
+            home_to_center_azimuth_deg=args.azimuth,
+            altitude_feet=args.altitude,
+        )
+        w_cond = WeatherConditions(
+            temperature_f=args.temp,
+            wind_speed_mph=args.wind_speed,
+            wind_from_direction_deg=args.wind_dir,
+        )
+        w_res = w_eng.compute_weather_impact(s_ori, w_cond)
+
+        if args.json:
+            w_out = {
+                "tailwind_mph": w_res.effective_tailwind_mph,
+                "crosswind_mph": w_res.effective_crosswind_mph,
+                "adi": w_res.air_density_index,
+                "distance_delta_ft": w_res.fly_ball_distance_delta_ft,
+                "hr_multiplier": w_res.home_run_multiplier,
+                "total_runs_multiplier": w_res.total_runs_multiplier,
+            }
+            print(json_lib.dumps(w_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print("     STADIUM 3D VECTOR WIND & MICRO-CLIMATE PHYSICS")
+            w_hdr = f"  Az: {args.azimuth:.0f}° | Wind: {args.wind_speed:.0f}mph"
+            print(w_hdr)
+            print(f"{'=' * 84}\n")
+            print(f"  • Tailwind Vector      : {w_res.effective_tailwind_mph:+.1f} mph")
+            print(f"  • Air Density Index    : {w_res.air_density_index:.1f} (100=Std)")
+            print(f"  • Distance Delta       : {w_res.fly_ball_distance_delta_ft:+.1f} ft")
+            print(f"  • Home Run Multiplier  : {w_res.home_run_multiplier:.2f}x")
+            print(f"  • Game Total Multiplier: {w_res.total_runs_multiplier:.2f}x\n")
+
+    elif args.command == "bullpen":
+        import json as json_lib
+
+        from mlb_baseball.model.reliever import (
+            BullpenWorkloadHierarchyEngine,
+            RelieverProfile,
+            RelieverRole,
+        )
+
+        bp_eng = BullpenWorkloadHierarchyEngine()
+        sample_arms = [
+            RelieverProfile(
+                "r1",
+                "Ace Closer",
+                RelieverRole.CLOSER,
+                true_talent_fip=2.60,
+                true_talent_k_pct=0.35,
+                pitches_yesterday=28,
+                pitches_2d_ago=18,
+            ),
+            RelieverProfile(
+                "r2",
+                "Primary Setup",
+                RelieverRole.SETUP,
+                true_talent_fip=3.10,
+                true_talent_k_pct=0.31,
+                pitches_yesterday=0,
+                pitches_2d_ago=12,
+            ),
+            RelieverProfile(
+                "r3",
+                "High Lev Arm",
+                RelieverRole.HIGH_LEVERAGE,
+                true_talent_fip=3.40,
+                true_talent_k_pct=0.28,
+                pitches_yesterday=0,
+                pitches_2d_ago=0,
+            ),
+        ]
+        bp_proj, bp_states = bp_eng.evaluate_bullpen(
+            args.team.lower(), args.team.upper(), sample_arms
+        )
+
+        if args.json:
+            bp_out = {
+                "team": bp_proj.team_abbrev,
+                "closer_status": bp_proj.closer_status.value,
+                "setup_status": bp_proj.setup_status.value,
+                "avail_high_lev_count": bp_proj.available_high_leverage_count,
+                "expected_fip_today": bp_proj.expected_bullpen_fip_today,
+                "fip_penalty": bp_proj.fip_penalty_delta,
+            }
+            print(json_lib.dumps(bp_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     DYNAMIC BULLPEN FATIGUE & HIERARCHY ({bp_proj.team_abbrev})")
+            bp_hdr = (
+                f"  Fatigue: {bp_proj.total_bullpen_fatigue_score:.0f} | "
+                f"HL: {bp_proj.available_high_leverage_count}"
+            )
+            print(bp_hdr)
+            print(f"{'=' * 84}\n")
+            print(f"  • Closer Status        : [{bp_proj.closer_status.value.upper()}]")
+            print(f"  • Setup Man Status     : [{bp_proj.setup_status.value.upper()}]")
+            fip_str = (
+                f"  • Expected FIP         : {bp_proj.expected_bullpen_fip_today:.2f} "
+                f"({bp_proj.fip_penalty_delta:+.2f})"
+            )
+            print(fip_str)
 
     elif args.command == "daily":
         import json as json_lib

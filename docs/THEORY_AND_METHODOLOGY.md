@@ -45,7 +45,11 @@ This document serves as the academic and theoretical reference manual for the ML
 19. [Hierarchical Neural Embeddings & Tree-Residual Combiners](#19-hierarchical-neural-embeddings--tree-residual-combiners)
 20. [Unsupervised Player Archetypes & Mahalanobis Pitcher Similarity](#20-unsupervised-player-archetypes--mahalanobis-pitcher-similarity)
 21. [Live In-Game Hedging & Middle Corridor Arbitrage](#21-live-in-game-hedging--middle-corridor-arbitrage)
-22. [Academic Bibliography & Literature Citations](#22-academic-bibliography--literature-citations)
+22. [Batter vs. Pitcher (BvP) Empirical Bayes Shrinkage & Arsenal Overlap](#22-batter-vs-pitcher-bvp-empirical-bayes-shrinkage--arsenal-overlap)
+23. [Umpire Strike Zone Spatial Bias & Totals Effect](#23-umpire-strike-zone-spatial-bias--totals-effect)
+24. [Stadium 3D Vector Wind Kinematics & Air Density Physics](#24-stadium-3d-vector-wind-kinematics--air-density-physics)
+25. [Reliever Fatigue Decay & Bullpen Leverage Hierarchy](#25-reliever-fatigue-decay--bullpen-leverage-hierarchy)
+26. [Academic Bibliography & Literature Citations](#26-academic-bibliography--literature-citations)
 
 ---
 
@@ -372,7 +376,54 @@ The discrete integer interval $\{k \in \mathbb{Z} : L_1 < k < L_2\}$ represents 
 
 ---
 
-## 22. Academic Bibliography & Literature Citations
+## 22. Batter vs. Pitcher (BvP) Empirical Bayes Shrinkage & Arsenal Overlap
+
+### 22.1 Log5 Platoon Prior & Shrinkage Formulation
+Given observed head-to-head performance $(PA, \text{wOBA}_{\text{obs}})$ and Log5 platoon prior $\text{wOBA}_{\text{prior}}$:
+$$\hat{\text{wOBA}}_{\text{shrunk}} = \frac{PA}{PA + M} \cdot \text{wOBA}_{\text{obs}} + \frac{M}{PA + M} \cdot \text{wOBA}_{\text{prior}}$$
+where the empirical Bayes shrinkage parameter is calibrated to $M = 350\text{ PA}$ (Tango, Lichtman, and Dolphin, *The Book*).
+
+### 22.2 Pitch-Type Arsenal Run Value Interaction
+$$\text{xRV}_{\text{arsenal}} = \sum_{k=1}^K u_k \cdot w_{\text{batter}, k}$$
+$$\text{wOBA}_{\text{composite}} = \hat{\text{wOBA}}_{\text{shrunk}} + \left(\frac{\text{xRV}_{\text{arsenal}}}{100}\right) \cdot 3.5$$
+
+---
+
+## 23. Umpire Strike Zone Spatial Bias & Totals Effect
+
+### 23.1 Spatial Zone Shift
+$$\text{Zone Expansion} = \Delta x \quad (\text{horizontal inches})$$
+$$\text{Fair Total Adjustment} = \text{Total}_{\text{base}} + \Delta R_{\text{ump}}$$
+$$\text{Starter K Multiplier} = 1.0 + (\Delta x \cdot 0.08)$$
+
+---
+
+## 24. Stadium 3D Vector Wind Kinematics & Air Density Physics
+
+### 24.1 Vector Wind Outfield Projection
+Given stadium home-to-center compass azimuth $\theta_{\text{venue}}$ and meteorological wind direction $\phi_{\text{wind}}$:
+$$\alpha_{\text{blow}} = (\phi_{\text{wind}} + 180^\circ) \bmod 360^\circ$$
+$$\Delta \theta = \alpha_{\text{blow}} - \theta_{\text{venue}}$$
+$$w_{\parallel} = v_{\text{wind}} \cdot \cos(\Delta \theta) \quad (\text{Tailwind } > 0)$$
+$$w_{\perp} = v_{\text{wind}} \cdot \sin(\Delta \theta) \quad (\text{Crosswind})$$
+
+### 24.2 Alan Nathan Air Density Index (ADI)
+$$\text{ADI} = 100 \cdot \left(\frac{P - 0.3783 \cdot p_v}{29.92}\right) \cdot \left(\frac{518.67}{T_{\text{Rankine}}}\right) \cdot \exp\left(-\frac{h_{\text{altitude}}}{28000}\right)$$
+$$\Delta d_{\text{flyball}} = (w_{\parallel} \cdot 3.0\text{ ft/mph}) + ((100.0 - \text{ADI}) \cdot 0.35\text{ ft})$$
+
+---
+
+## 25. Reliever Fatigue Decay & Bullpen Leverage Hierarchy
+
+### 25.1 3-Day Exponential Pitch Accumulation
+$$\text{Fatigue Index} = (1.00 \cdot P_{d-1}) + (0.50 \cdot P_{d-2}) + (0.25 \cdot P_{d-3}) + \text{Bonus}_{\text{B2B}}$$
+- **Fresh**: $\text{Fatigue} < 25.0 \implies 100\%$ effectiveness.
+- **Fatigued**: $25.0 \le \text{Fatigue} < 45.0 \implies \text{FIP} +0.45, K\% \times 0.90$.
+- **Unavailable**: $\text{Fatigue} \ge 45.0 \implies \text{Unavailable for high-leverage work}$.
+
+---
+
+## 26. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -394,3 +445,5 @@ The discrete integer interval $\{k \in \mathbb{Z} : L_1 < k < L_2\}$ represents 
 18. **Guo, Cheng; Berkhahn, Felix** (2016). "Entity Embeddings of Categorical Variables". *arXiv:1604.06737*.
 19. **Mahalanobis, Prasanta Chandra** (1936). "On the Generalised Distance in Statistics". *Proceedings of the National Institute of Sciences of India*.
 20. **Thorp, Edward O.** (2006). "The Kelly Criterion in Blackjack, Sports Betting, and the Stock Market". *Handbook of Asset and Liability Management*.
+21. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books.
+22. **Nathan, Alan M.** (2008). "The Effect of Wind and Air Density on the Trajectory of a Baseball". *American Journal of Physics*.

@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-138: Dynamic Bullpen Fatigue Decay & Manager Hierarchy Simulator (`BULLPEN-01`, Package 50)
+
+**Decision:** Built individual reliever fatigue decay tracking and manager leverage hierarchy modeling in `mlb_baseball/model/bullpen.py` and CLI subcommand `mlb bullpen`.
+- **Mathematical Formulations & Methodology**:
+  - Exponentially weighted 3-day pitch fatigue index: $\text{Fatigue} = P_{1d} \cdot 1.0 + P_{2d} \cdot 0.50 + P_{3d} \cdot 0.25 + \text{Back-to-Back Bonus}$.
+  - Availability Thresholds: Fresh (<25), Fatigued (25–45, -1.0 mph velo drop, +0.45 FIP), Unavailable (>=45).
+  - Manager Decision Tree: High-leverage roles (Closer, Setup, High Leverage) vs middle/long relief.
+  - Team Composite Bullpen Degradation: Computes effective daily bullpen FIP and run suppression delta.
+  - CLI: `mlb bullpen --team LAD`, `mlb bullpen --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_reliever.py` passing; 528/528 full repository unit tests passing.
+
+## ADR-137: Stadium 3D Vector Wind & Micro-Climate Physics Engine (`WEATHER-01`, Package 49)
+
+**Decision:** Built 3D stadium vector wind decomposition and Alan Nathan Air Density Index (ADI) modeling in `mlb_baseball/model/weather.py` and CLI subcommand `mlb weather`.
+- **Mathematical Formulations & Methodology**:
+  - Vector Wind Decomposition: Relative angle $\Delta \theta = (\phi_{\text{wind}} + 180^\circ) - \theta_{\text{venue}}$. Tailwind $w_{\parallel} = v_{\text{wind}} \cdot \cos(\Delta \theta)$, Crosswind $w_{\perp} = v_{\text{wind}} \cdot \sin(\Delta \theta)$.
+  - Alan Nathan ADI: Models temperature ($^\circ\text{F}$), humidity, barometric pressure, and altitude (e.g. Coors Field ADI ~82 vs Petco Park ~101).
+  - Distance & HR Scaling: Fly ball distance delta $\Delta d = (w_{\parallel} \cdot 3.0\text{ ft/mph}) + ((100.0 - \text{ADI}) \cdot 0.35\text{ ft})$.
+  - CLI: `mlb weather --azimuth 22.5 --wind-speed 15.0 --wind-dir 202.5 --temp 85.0`, `mlb weather --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_weather.py` passing; 528/528 full repository unit tests passing.
+
+## ADR-136: Individual Umpire Strike Zone & Run Bias Modeler (`UMP-01`, Package 48)
+
+**Decision:** Built home plate umpire spatial strike zone bias quantification and totals adjustments in `mlb_baseball/model/umpire.py` and CLI subcommand `mlb umpire`.
+- **Mathematical Formulations & Methodology**:
+  - Strike Zone Expansion: Horizontal expansion $\Delta x$ (wide zone = pitcher friendly, tight zone = hitter friendly).
+  - Totals Adjustment: Quantifies empirical run impact per game ($\Delta R_{\text{ump}}$) and starter strikeout multiplier ($K_{\text{mult}} = 1.0 + \Delta x \cdot 0.08$).
+  - CLI: `mlb umpire --name "Angel Hernandez" --base-total 8.5 --expansion-in 0.6`, `mlb umpire --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_umpire.py` passing; 528/528 full repository unit tests passing.
+
+## ADR-135: Batter vs. Pitcher (BvP) Arsenal Interaction & Bayesian Shrinkage Engine (`BVP-01`, Package 47)
+
+**Decision:** Built empirical Bayes small-sample BvP regression and pitch-repertoire synergy engine in `mlb_baseball/model/bvp.py` and CLI subcommand `mlb bvp`.
+- **Mathematical Formulations & Methodology**:
+  - Empirical Bayes Shrinkage: Regresses observed head-to-head PA toward Log5 platoon baseline priors with $M = 350\text{ PA}$ shrinkage constant (Tom Tango / The Book).
+  - Arsenal Overlap Synergy: $\text{xRV}_{\text{arsenal}} = \sum u_k \cdot w_{\text{batter}, k}$ translated to composite wOBA ($1.0\text{ RV/100 pitches} \approx +0.035\text{ wOBA}$).
+  - CLI: `mlb bvp --batter-woba 0.360 --pitcher-woba 0.300 --pa 15 --raw-woba 0.450`, `mlb bvp --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_bvp.py` passing; 528/528 full repository unit tests passing.
+
 ## ADR-134: Live In-Game Hedging, Middle Betting & Arbitrage Engine (`HEDGE-01`, Package 46)
 
 **Decision:** Built dynamic in-play risk hedging and middle-bet calculator in `mlb_baseball/model/hedge.py` and CLI subcommand `mlb hedge` to evaluate guaranteed-profit hedge allocations and middle corridors.

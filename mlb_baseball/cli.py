@@ -867,6 +867,81 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter in-zone whiff vs contact quality tradeoff (ZONE-WHIFF-01)
+    zw_parser = subparsers.add_parser(
+        "zone-whiff",
+        help="evaluate in-zone whiff vs contact barrel tradeoff and ZCPOI (ZONE-WHIFF-01)",
+    )
+    zw_parser.add_argument(
+        "--z-swing", type=float, default=68.0, help="zone swing pct (default: 68.0)"
+    )
+    zw_parser.add_argument(
+        "--z-whiff", type=float, default=16.0, help="zone whiff pct (default: 16.0)"
+    )
+    zw_parser.add_argument(
+        "--z-barrel", type=float, default=9.5, help="zone barrel per BBE pct (default: 9.5)"
+    )
+    zw_parser.add_argument(
+        "--swings", type=int, default=350, help="total zone swings (default: 350)"
+    )
+    zw_parser.add_argument(
+        "--json", action="store_true", help="output zone whiff evaluation as JSON"
+    )
+
+    # Pitcher spin axis gyro efficiency & active spin (ACTIVE-SPIN-01)
+    as_parser = subparsers.add_parser(
+        "active-spin",
+        help="evaluate active spin efficiency, gyro angle, and ASMI score (ACTIVE-SPIN-01)",
+    )
+    as_parser.add_argument(
+        "--pitch", type=str, default="4-Seam", help="pitch type (default: 4-Seam)"
+    )
+    as_parser.add_argument(
+        "--total", type=float, default=2300.0, help="total spin RPM (default: 2300.0)"
+    )
+    as_parser.add_argument(
+        "--active", type=float, default=2000.0, help="inferred active spin RPM (default: 2000.0)"
+    )
+    as_parser.add_argument(
+        "--ivb", type=float, default=16.5, help="observed IVB in (default: 16.5)"
+    )
+    as_parser.add_argument("--hb", type=float, default=8.0, help="observed HB in (default: 8.0)")
+    as_parser.add_argument("--pitches", type=int, default=200, help="pitch count (default: 200)")
+    as_parser.add_argument(
+        "--json", action="store_true", help="output active spin evaluation as JSON"
+    )
+
+    # Catcher low-pitch scoop & bottom-zone framing lift (LOW-SCOOP-01)
+    lsc_parser = subparsers.add_parser(
+        "low-scoop",
+        help="evaluate catcher low-shadow scoop framing and BZSFR score (LOW-SCOOP-01)",
+    )
+    lsc_parser.add_argument(
+        "--strike", type=float, default=48.0, help="low zone strike pct (default: 48.0)"
+    )
+    lsc_parser.add_argument(
+        "--scoop", type=float, default=3.5, help="scoop speed fps (default: 3.5)"
+    )
+    lsc_parser.add_argument(
+        "--drop", type=float, default=20.0, help="glove drop rate pct (default: 20.0)"
+    )
+    lsc_parser.add_argument(
+        "--opps", type=int, default=200, help="low zone opportunities (default: 200)"
+    )
+    lsc_parser.add_argument(
+        "--json", action="store_true", help="output low scoop evaluation as JSON"
+    )
+
+    # Pitcher spin polar clock chart (SPIN-POLAR-01)
+    sp_pol_parser = subparsers.add_parser(
+        "spin-polar",
+        help="generate vector SVG polar spin clock chart (SPIN-POLAR-01)",
+    )
+    sp_pol_parser.add_argument(
+        "--title", type=str, default="Paul Skenes Polar Spin Clock", help="chart title"
+    )
+    sp_pol_parser.add_argument("--pitcher", type=str, default="Paul Skenes", help="pitcher name")
+
     # Batter opposite field slash and anti-shift (SLASH-OPPO-01)
     sl_opp_parser = subparsers.add_parser(
         "slash-oppo",
@@ -4116,6 +4191,147 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "zone-whiff":
+        import json as json_lib
+
+        from mlb_baseball.model.zone_whiff import (
+            BatterZoneWhiffEngine,
+            BatterZoneWhiffMetrics,
+        )
+
+        zw_eng = BatterZoneWhiffEngine()
+        zw_m = BatterZoneWhiffMetrics(
+            "b1",
+            "Target Batter",
+            zone_swing_rate_pct=args.z_swing,
+            zone_whiff_rate_pct=args.z_whiff,
+            zone_barrel_per_bbe_pct=args.z_barrel,
+            zone_swings_count=args.swings,
+        )
+        zw_res = zw_eng.evaluate_zone_whiff(zw_m)
+
+        if args.json:
+            zw_out = {
+                "zcpoi_score": zw_res.zcpoi_score,
+                "izpsr_runs": zw_res.izpsr_runs_saved,
+                "tier": zw_res.tradeoff_tier,
+                "is_crusher": zw_res.is_elite_crusher,
+            }
+            print(json_lib.dumps(zw_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     IN-ZONE WHIFF VS CONTACT TRADEOFF [{zw_res.tradeoff_tier}]")
+            hdr_zw = (
+                f"     ZCPOI Score: {zw_res.zcpoi_score:.1f}/160 "
+                f"| Runs: {zw_res.izpsr_runs_saved:>+4.2f} "
+                f"| Elite Crusher: {'YES' if zw_res.is_elite_crusher else 'NO'}"
+            )
+            print(hdr_zw)
+            print(f"{'=' * 84}\n")
+            print(f"  • Zone Profile         : {zw_res.tradeoff_tier}\n")
+
+    elif args.command == "active-spin":
+        import json as json_lib
+
+        from mlb_baseball.model.active_spin import (
+            ActiveSpinEvaluationResult,
+            PitcherActiveSpinEngine,
+            PitcherActiveSpinMetrics,
+        )
+
+        as_eng = PitcherActiveSpinEngine()
+        as_m = PitcherActiveSpinMetrics(
+            "p1",
+            "Target Pitcher",
+            pitch_type=args.pitch,
+            total_spin_rpm=args.total,
+            inferred_active_spin_rpm=args.active,
+            observed_ivb_in=args.ivb,
+            observed_hb_in=args.hb,
+            pitch_count_evaluated=args.pitches,
+        )
+        as_res: ActiveSpinEvaluationResult = as_eng.evaluate_active_spin(as_m)
+
+        if args.json:
+            as_out = {
+                "active_spin_pct": as_res.active_spin_pct,
+                "gyro_angle_deg": as_res.gyro_angle_deg,
+                "asmi_score": as_res.asmi_score,
+                "tier": as_res.spin_tier,
+                "is_magnus": as_res.is_pure_magnus,
+            }
+            print(json_lib.dumps(as_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     ACTIVE SPIN EFFICIENCY [{as_res.spin_tier}]")
+            hdr_as = (
+                f"     Active Spin: {as_res.active_spin_pct:.1f}% "
+                f"| Gyro Angle: {as_res.gyro_angle_deg:.1f}° "
+                f"| ASMI Score: {as_res.asmi_score:.1f}/160"
+            )
+            print(hdr_as)
+            print(f"{'=' * 84}\n")
+            print(f"  • Spin Profile         : {as_res.spin_tier}")
+            print(f"  • Pure Magnus Rider    : {'YES' if as_res.is_pure_magnus else 'NO'}\n")
+
+    elif args.command == "low-scoop":
+        import json as json_lib
+
+        from mlb_baseball.model.low_scoop import (
+            CatcherLowScoopEngine,
+            CatcherLowScoopMetrics,
+            LowScoopEvaluationResult,
+        )
+
+        lsc_eng = CatcherLowScoopEngine()
+        lsc_m = CatcherLowScoopMetrics(
+            "c1",
+            "Target Catcher",
+            low_zone_called_strike_pct=args.strike,
+            upward_scoop_speed_fps=args.scoop,
+            glove_drop_rate_pct=args.drop,
+            low_zone_opportunities=args.opps,
+        )
+        lsc_res: LowScoopEvaluationResult = lsc_eng.evaluate_low_scoop(lsc_m)
+
+        if args.json:
+            lsc_out = {
+                "bzsfr_score": lsc_res.bzsfr_score,
+                "extra_strikes": lsc_res.extra_strikes_created,
+                "lzfs_runs": lsc_res.lzfs_runs_saved,
+                "tier": lsc_res.framing_tier,
+                "is_lifter": lsc_res.is_elite_lifter,
+            }
+            print(json_lib.dumps(lsc_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     BOTTOM-ZONE SCOOP FRAMING [{lsc_res.framing_tier}]")
+            hdr_ls = (
+                f"     BZSFR Score: {lsc_res.bzsfr_score:.1f}/160 "
+                f"| Extra Strikes: {lsc_res.extra_strikes_created:>+4.1f} "
+                f"| LZFS Runs: {lsc_res.lzfs_runs_saved:>+4.2f}"
+            )
+            print(hdr_ls)
+            print(f"{'=' * 84}\n")
+            print(f"  • Framing Profile      : {lsc_res.framing_tier}")
+            print(f"  • Elite Lifter         : {'YES' if lsc_res.is_elite_lifter else 'NO'}\n")
+
+    elif args.command == "spin-polar":
+        from mlb_baseball.visual import (
+            PitcherSpinPolarClockProfile,
+            PolarSpinPitchVector,
+            SpinPolarClockRenderer,
+        )
+
+        sp_pol_renderer = SpinPolarClockRenderer()
+        sp_pol_pitches = [
+            PolarSpinPitchVector("FF", 1, 15, 96.0, 2480.0, "#00d2be"),
+            PolarSpinPitchVector("SL", 8, 30, 28.0, 2400.0, "#f59e0b"),
+        ]
+        sp_pol_prof = PitcherSpinPolarClockProfile(args.title, args.pitcher, sp_pol_pitches)
+        chart = sp_pol_renderer.render(sp_pol_prof)
+        print(f"Generated Vector SVG Spin Polar Clock Chart ({len(chart.svg_content)} bytes)")
 
     elif args.command == "slash-oppo":
         import json as json_lib

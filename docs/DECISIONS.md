@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-226: Pure-Python SVG Pitcher Arsenal Active Spin vs Gyro Polar Clock Chart (`SPIN-POLAR-01`, Package 138)
+
+**Decision:** Built vector SVG polar spin clock chart with tilt radial rays and active spin concentric rings in `mlb_baseball/visual.py` and CLI subcommand `mlb spin-polar`.
+- **Operational Architecture & Geometry**:
+  - Radial Active Spin Rings: 4 concentric circles at $25\%, 50\%, 75\%, 100\%$ active efficiency.
+  - Polar Clock Mapping: $\theta = \frac{(H \cdot 60 + M) \cdot 360}{720} - 90^{\circ}$, radius $r = \frac{\text{active\_pct}}{100} \cdot R_{\max}$.
+  - CLI: `mlb spin-polar --title "Paul Skenes Polar Spin Clock" --pitcher "Paul Skenes"`.
+- **Verification**: 22/22 unit tests in `tests/unit/test_visual.py` passing; 781/781 full repository unit tests passing.
+
+## ADR-225: Catcher Low-Pitch Scoop & Bottom-Zone Framing Lift Engine (`LOW-SCOOP-01`, Package 137)
+
+**Decision:** Built borderline low-pitch framing conversion, upward scoop speed, and run value in `mlb_baseball/model/low_scoop.py` and CLI subcommand `mlb low-scoop`.
+- **Mathematical Formulations & Methodology**:
+  - Bottom-Zone Scoop Framing Rating: $\text{BZSFR} = \max\left(0, 100 + (\text{LowStrike\%} - 48.0) \cdot 2.2 + (v_{\text{scoop}} - 3.5) \cdot 12.0 + (20.0 - \text{GloveDrop\%}) \cdot 1.1\right)$.
+  - Low-Zone Framing Surplus Runs: $\text{LZFS}_{\text{runs}} = (\text{LowStrike\%} - 48.0\%) \cdot \text{Opps} \cdot 0.125\text{ runs}$.
+  - Tiers: `ELITE_LOW_ZONE_LIFTER` ($\text{BZSFR} \ge 116.0, \text{LowStrike\%} \ge 57.0\%, v_{\text{scoop}} \ge 4.2\text{ ft/s}$), `STAB_DOWN_GLOVE_DROPPING_LIABILITY`, `SOLID_LOW_PITCH_FRAMER`, `AVERAGE_LOW_ZONE_FRAMER`.
+  - CLI: `mlb low-scoop --strike 62.0 --scoop 4.6 --drop 10.0 --opps 250`, `mlb low-scoop --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_low_scoop.py` passing; 781/781 full repository unit tests passing.
+
+## ADR-224: Pitcher Spin Axis Gyro Efficiency & Active Spin Engine (`ACTIVE-SPIN-01`, Package 136)
+
+**Decision:** Built Hawkeye spin decomposition, transverse Magnus conversion, and gyro angle in `mlb_baseball/model/active_spin.py` and CLI subcommand `mlb active-spin`.
+- **Mathematical Formulations & Methodology**:
+  - Active Spin Efficiency: $\eta_{\text{active}} = \left(\frac{RPM_{\text{inferred}}}{RPM_{\text{total}}}\right) \cdot 100\%$, $\text{GyroAngle} = \arccos\left(\frac{\eta_{\text{active}}}{100}\right) \cdot \left(\frac{180}{\pi}\right)^{\circ}$.
+  - Active Spin Magnus Index: $\text{ASMI} = \max\left(0, 100 + (\eta_{\text{active}} - 85.0) \cdot 1.8 + \left(\frac{RPM_{\text{total}} - 2250}{100.0}\right) \cdot 2.5\right)$.
+  - Tiers: `PURE_TRANSVERSE_MAGNUS_RIDER` ($\eta_{\text{active}} \ge 93.0\%, \text{ASMI} \ge 116.0, RPM \ge 2350$), `PURE_BULLET_GYRO_SPINNER`, `SUB_OPTIMAL_SLOPPY_SPIN_LEAK`, `HIGH_EFFICIENCY_MAGNUS_PROFILE`, `AVERAGE_ACTIVE_SPIN`.
+  - CLI: `mlb active-spin --pitch FF --total 2450 --active 2380 --ivb 19.0 --hb 8.0`, `mlb active-spin --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_active_spin.py` passing; 781/781 full repository unit tests passing.
+
+## ADR-223: Batter In-Zone Whiff vs Contact Quality Tradeoff Engine (`ZONE-WHIFF-01`, Package 135)
+
+**Decision:** Built in-zone swing aggressiveness, whiff avoidance, and barrel conversion in `mlb_baseball/model/zone_whiff.py` and CLI subcommand `mlb zone-whiff`.
+- **Mathematical Formulations & Methodology**:
+  - In-Zone Contact-Power Optimization Index: $\text{ZCPOI} = \max\left(0, 100 + (16.0 - \text{Z-Whiff\%}) \cdot 2.8 + (\text{Z-Barrel\%} - 9.5) \cdot 3.2 + (\text{Z-Swing\%} - 68.0) \cdot 0.9\right)$.
+  - In-Zone Production Surplus Runs: $\text{IZPSR}_{\text{runs}} = (\text{ZCPOI} - 100.0) \cdot (\text{Swings}_{\text{Zone}} \cdot 0.0024)$.
+  - Tiers: `ELITE_ZONE_CRUSHER_MASTER` ($\text{ZCPOI} \ge 118.0, \text{Z-Barrel\%} \ge 12.5\%, \text{Z-Whiff\%} \le 14.0\%$), `EMPTY_CONTACT_ZONE_SLAPPER`, `ALL_OR_NOTHING_ZONE_WHIFFER`, `AVERAGE_ZONE_HITTER`.
+  - CLI: `mlb zone-whiff --z-swing 74.0 --z-whiff 11.0 --z-barrel 16.0 --swings 400`, `mlb zone-whiff --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_zone_whiff.py` passing; 781/781 full repository unit tests passing.
+
 ## ADR-222: Pure-Python SVG Batter 3D Spray Chart with Distance & Exit Velocity Isochrones (`SPRAY-ISO-01`, Package 134)
 
 **Decision:** Built vector SVG baseball diamond field chart with distance isochrone arcs (200ft, 300ft, 400ft) and exit velocity color coding in `mlb_baseball/visual.py` and CLI subcommand `mlb spray-iso`.

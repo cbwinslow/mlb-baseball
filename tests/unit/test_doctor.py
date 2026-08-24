@@ -363,3 +363,12 @@ def test_slash_oppo_and_arm_align_and_wall_crash_health_checks():
     assert slash_oppo.health_check()[0].ok is True
     assert arm_align.health_check()[0].ok is True
     assert wall_crash.health_check()[0].ok is True
+
+
+def test_zone_whiff_and_active_spin_and_low_scoop_health_checks():
+    """Verify health checks for zone_whiff, active_spin, and low_scoop modules."""
+    from mlb_baseball.model import active_spin, low_scoop, zone_whiff
+
+    assert zone_whiff.health_check()[0].ok is True
+    assert active_spin.health_check()[0].ok is True
+    assert low_scoop.health_check()[0].ok is True

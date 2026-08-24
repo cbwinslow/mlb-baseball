@@ -132,7 +132,11 @@ This document serves as the academic and theoretical reference manual for the ML
 106. [Pitcher Arm Slot Stability Across Arsenal Pitches](#106-pitcher-arm-slot-stability-across-arsenal-pitches)
 107. [Outfielder Wall Crash Hazard & High-Impact Catch Dynamics](#107-outfielder-wall-crash-hazard--high-impact-catch-dynamics)
 108. [Pure-Python SVG Batter 3D Spray Distance Isochrone Architecture](#108-pure-python-svg-batter-3d-spray-distance-isochrone-architecture)
-109. [Academic Bibliography & Literature Citations](#109-academic-bibliography--literature-citations)
+109. [Batter In-Zone Whiff vs Contact Quality Optimization Dynamics](#109-batter-in-zone-whiff-vs-contact-quality-optimization-dynamics)
+110. [Pitcher Spin Axis Gyro Efficiency & Transverse Magnus Kinematics](#110-pitcher-spin-axis-gyro-efficiency--transverse-magnus-kinematics)
+111. [Catcher Low-Pitch Scoop & Bottom-Zone Framing Lift Dynamics](#111-catcher-low-pitch-scoop--bottom-zone-framing-lift-dynamics)
+112. [Pure-Python SVG Pitcher Polar Spin Clock Architecture](#112-pure-python-svg-pitcher-polar-spin-clock-architecture)
+113. [Academic Bibliography & Literature Citations](#113-academic-bibliography--literature-citations)
 
 ---
 
@@ -1180,7 +1184,38 @@ $$R_{\text{px}}(d) = d \cdot \left(\frac{340.0}{420.0}\right)\text{ px}, \quad P
 
 ---
 
-## 109. Academic Bibliography & Literature Citations
+## 109. Batter In-Zone Whiff vs Contact Quality Optimization Dynamics
+
+### 109.1 In-Zone Contact-Power Optimization Index (ZCPOI)
+$$\text{ZCPOI} = \max\left(0, 100 + (16.0 - \text{Z-Whiff\%}) \cdot 2.8 + (\text{Z-Barrel\%} - 9.5) \cdot 3.2 + (\text{Z-Swing\%} - 68.0) \cdot 0.9\right)$$
+$$\text{IZPSR}_{\text{runs}} = (\text{ZCPOI} - 100.0) \cdot (\text{Swings}_{\text{Zone}} \cdot 0.0024)$$
+
+---
+
+## 110. Pitcher Spin Axis Gyro Efficiency & Transverse Magnus Kinematics
+
+### 110.1 Active Spin Efficiency ($\eta_{\text{active}}$) & Gyro Angle
+$$\eta_{\text{active}} = \left(\frac{RPM_{\text{inferred}}}{RPM_{\text{total}}}\right) \cdot 100\%, \quad \text{Gyro Angle} = \arccos\left(\frac{\eta_{\text{active}}}{100}\right) \cdot \left(\frac{180}{\pi}\right)\text{ deg}$$
+$$\text{ASMI} = \max\left(0, 100 + (\eta_{\text{active}} - 85.0) \cdot 1.8 + \left(\frac{RPM_{\text{total}} - 2250}{100.0}\right) \cdot 2.5\right)$$
+
+---
+
+## 111. Catcher Low-Pitch Scoop & Bottom-Zone Framing Lift Dynamics
+
+### 111.1 Bottom-Zone Scoop Framing Rating (BZSFR) & LZFS
+$$\text{BZSFR} = \max\left(0, 100 + (\text{LowStrike\%} - 48.0) \cdot 2.2 + (v_{\text{scoop}} - 3.5) \cdot 12.0 + (20.0 - \text{GloveDrop\%}) \cdot 1.1\right)$$
+$$\text{LZFS}_{\text{runs}} = (\text{LowStrike\%} - 48.0\%) \cdot \text{Opps} \cdot 0.125\text{ runs}$$
+
+---
+
+## 112. Pure-Python SVG Pitcher Polar Spin Clock Architecture
+
+### 112.1 Polar Ray Vector Transformation & Concentric Scaling
+$$\theta = \left(\frac{(H \cdot 60 + M)}{720}\right) \cdot 360^{\circ} - 90^{\circ}, \quad r = \left(\frac{\eta_{\text{active}}}{100}\right) \cdot R_{\max}$$
+
+---
+
+## 113. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1246,3 +1281,5 @@ $$R_{\text{px}}(d) = d \cdot \left(\frac{340.0}{420.0}\right)\text{ px}, \quad P
 62. **Fast, Mike** (2011). "Spin and Movement: Evaluating Pitcher Movement Profiles via Pitch f/x". *Baseball Prospectus*.
 63. **Zimmerman, Jeff** (2017). "The Changing Value of Spray Angle and Opposite Field Hits". *Hardball Times*.
 64. **Slowinski, Steve** (2012). "Arm Slot and Release Point Consistency in Major League Pitchers". *FanGraphs Sabermetrics Library*.
+65. **Cross, Rod** (2014). "Aerodynamics of Pitching: Spin Axes and Magnus Forces". *American Journal of Physics*.
+66. **Kagan, David** (2017). "The Physics of Catcher Framing and Glove Receiving Speed". *The Physics Teacher*.

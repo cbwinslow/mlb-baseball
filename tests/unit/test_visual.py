@@ -512,3 +512,26 @@ def test_spray_isochrone_chart_svg_generation():
     assert "<svg" in chart.svg_content
     assert "Judge Distance Isochrones" in chart.svg_content
     assert "400 ft" in chart.svg_content
+
+
+def test_spin_polar_clock_chart_svg_generation():
+    """Verify SpinPolarClockRenderer generates concentric rings and radial pitch vectors."""
+    from mlb_baseball.visual import (
+        PitcherSpinPolarClockProfile,
+        PolarSpinPitchVector,
+        SpinPolarClockRenderer,
+    )
+
+    renderer = SpinPolarClockRenderer()
+    pitches = [
+        PolarSpinPitchVector("FF", 1, 15, 96.0, 2480.0, "#00d2be"),
+        PolarSpinPitchVector("SL", 8, 30, 28.0, 2400.0, "#f59e0b"),
+    ]
+    prof = PitcherSpinPolarClockProfile("Skenes Spin Polar Clock", "Paul Skenes", pitches)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Skenes Spin Polar Clock" in chart.svg_content
+    assert "100%" in chart.svg_content

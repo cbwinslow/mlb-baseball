@@ -36,6 +36,7 @@ class ChartType(enum.Enum):
     ATTACK_ZONE_9X9_GRID = "attack_zone_9x9_grid"
     BREAK_DIAMOND_PLOT = "break_diamond_plot"
     SPRAY_ISOCHRONE_CHART = "spray_isochrone_chart"
+    SPIN_POLAR_CLOCK_CHART = "spin_polar_clock_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2283,6 +2284,120 @@ class SprayIsochroneChartRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class PolarSpinPitchVector:
+    """Individual pitch spin vector with tilt clock, active spin %, and total RPM."""
+
+    pitch_name: str
+    tilt_hours: int
+    tilt_minutes: int
+    active_spin_pct: float  # 0.0 to 100.0%
+    total_spin_rpm: float
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitcherSpinPolarClockProfile:
+    """Pitcher arsenal polar spin clock profile."""
+
+    title: str
+    pitcher_name: str
+    pitches: list[PolarSpinPitchVector]
+
+
+class SpinPolarClockRenderer:
+    """Renders pure-Python vector SVG polar spin clock with active spin rings (SPIN-POLAR-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitcherSpinPolarClockProfile) -> GeneratedVectorChart:
+        """Render polar clock with active spin concentric rings and pitch vectors."""
+        cx = self.width / 2  # 240
+        cy = self.height / 2 + 10  # 250
+        r_max = 160.0
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{cx}" y="28" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{cx}" y="46" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} Spin Tilt & Active Magnus %</text>',
+        ]
+
+        # 4 Concentric Active Spin Rings: 25%, 50%, 75%, 100%
+        for pct in [25.0, 50.0, 75.0, 100.0]:
+            r_ring = (pct / 100.0) * r_max
+            svg_parts.append(
+                f'<circle cx="{cx}" cy="{cy}" r="{r_ring:.1f}" fill="none" '
+                f'stroke="#1e293b" stroke-width="1.2" stroke-dasharray="3,3" />'
+            )
+            svg_parts.append(
+                f'<text x="{cx + r_ring + 2:.1f}" y="{cy - 3}" fill="#475569" font-size="7" '
+                f'font-family="sans-serif">{int(pct)}%</text>'
+            )
+
+        # 12 Clock Hour Spokes & Labels
+        for hour in range(1, 13):
+            # 12 o'clock is straight up (-90 deg)
+            angle_rad = math.radians((hour * 30.0) - 90.0)
+            x_spoke = cx + math.cos(angle_rad) * r_max
+            y_spoke = cy + math.sin(angle_rad) * r_max
+            x_label = cx + math.cos(angle_rad) * (r_max + 14.0)
+            y_label = cy + math.sin(angle_rad) * (r_max + 14.0) + 4.0
+
+            svg_parts.append(
+                f'<line x1="{cx}" y1="{cy}" x2="{x_spoke:.1f}" y2="{y_spoke:.1f}" '
+                f'stroke="#1e293b" stroke-width="1.0" />'
+            )
+            svg_parts.append(
+                f'<text x="{x_label:.1f}" y="{y_label:.1f}" fill="#64748b" font-size="9" '
+                f'text-anchor="middle" font-family="sans-serif">{hour}</text>'
+            )
+
+        # Center origin gyro point
+        svg_parts.append(f'<circle cx="{cx}" cy="{cy}" r="3" fill="#64748b" />')
+
+        # Plot Pitch Vectors
+        for p in profile.pitches:
+            # Clock minutes to angle: (H * 60 + M) / 720 * 360 - 90
+            total_mins = (p.tilt_hours % 12) * 60 + p.tilt_minutes
+            angle_deg = (total_mins / 720.0) * 360.0 - 90.0
+            angle_rad = math.radians(angle_deg)
+            vec_r = (max(0.0, min(100.0, p.active_spin_pct)) / 100.0) * r_max
+            px = cx + math.cos(angle_rad) * vec_r
+            py = cy + math.sin(angle_rad) * vec_r
+
+            # Vector Ray
+            svg_parts.append(
+                f'<line x1="{cx}" y1="{cy}" x2="{px:.1f}" y2="{py:.1f}" '
+                f'stroke="{p.color_hex}" stroke-width="2.5" stroke-linecap="round" />'
+            )
+            # Head Circle Marker
+            svg_parts.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="5.5" fill="{p.color_hex}" '
+                f'stroke="#0b1329" stroke-width="1.5" />'
+            )
+            # Pitch label badge
+            svg_parts.append(
+                f'<text x="{px:.1f}" y="{py - 8:.1f}" fill="{p.color_hex}" font-size="9" '
+                f'font-weight="bold" text-anchor="middle" font-family="sans-serif">'
+                f"{p.pitch_name} ({int(p.active_spin_pct)}%)</text>"
+            )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.SPIN_POLAR_CLOCK_CHART,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -2428,6 +2543,15 @@ def health_check() -> list[Check]:
             BatterSprayIsochroneProfile("Spray Iso", "Judge", iso_points)
         )
 
+        spin_polar_renderer = SpinPolarClockRenderer()
+        polar_pitches = [
+            PolarSpinPitchVector("FF", 1, 15, 96.0, 2450.0, "#00d2be"),
+            PolarSpinPitchVector("SL", 8, 30, 28.0, 2400.0, "#f59e0b"),
+        ]
+        polar_chart = spin_polar_renderer.render(
+            PitcherSpinPolarClockProfile("Polar Clock", "Skenes", polar_pitches)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -2449,6 +2573,7 @@ def health_check() -> list[Check]:
             and "<svg" in grid_chart.svg_content
             and "<svg" in bd_chart.svg_content
             and "<svg" in iso_chart.svg_content
+            and "<svg" in polar_chart.svg_content
         ):
             checks.append(
                 Check(

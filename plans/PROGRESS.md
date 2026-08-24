@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### SPIN-POLAR-01 pure-Python SVG pitcher arsenal polar spin clock: implemented (ADR-226) — 2026-08-24
+Added `SpinPolarClockRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb spin-polar` CLI command.
+- Renders vector SVG polar clock chart with tilt radial rays and active spin concentric rings (25%, 50%, 75%, 100%).
+
+### LOW-SCOOP-01 catcher low-pitch scoop & bottom-zone framing: implemented (ADR-225) — 2026-08-24
+Added `mlb_baseball/model/low_scoop.py`, unit tests in `tests/unit/test_low_scoop.py`, and `mlb low-scoop` CLI command.
+- Evaluates borderline low shadow strike conversion, upward scoop velocity, BZSFR score, and LZFS runs.
+
+### ACTIVE-SPIN-01 pitcher spin axis gyro efficiency & active spin: implemented (ADR-224) — 2026-08-24
+Added `mlb_baseball/model/active_spin.py`, unit tests in `tests/unit/test_active_spin.py`, and `mlb active-spin` CLI command.
+- Models Hawkeye trajectory-inferred active spin percentage, 3D gyro angle, ASMI score, and movement conversion.
+
+### ZONE-WHIFF-01 batter in-zone whiff vs contact quality tradeoff: implemented (ADR-223) — 2026-08-24
+Added `mlb_baseball/model/zone_whiff.py`, unit tests in `tests/unit/test_zone_whiff.py`, and `mlb zone-whiff` CLI command.
+- Evaluates in-zone swing rate, in-zone whiff rate, Z-Barrel% conversion, ZCPOI score, and IZPSR runs.
+
 ### SPRAY-ISO-01 pure-Python SVG batter 3D spray distance isochrone chart: implemented (ADR-222) — 2026-08-24
 Added `SprayIsochroneChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb spray-iso` CLI command.
 - Renders vector SVG field chart with distance isochrone arcs (200ft, 300ft, 400ft) and 4-tier EV color markers.

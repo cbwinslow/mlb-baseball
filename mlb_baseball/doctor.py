@@ -258,6 +258,7 @@ def run() -> list[Check]:
 
     from mlb_baseball import serve
     from mlb_baseball.model import (
+        active_spin,
         aging,
         ambush,
         arm,
@@ -300,6 +301,7 @@ def run() -> list[Check]:
         hedge,
         iffb,
         leverage,
+        low_scoop,
         neural,
         nrfi,
         parlay,
@@ -344,6 +346,7 @@ def run() -> list[Check]:
         wpa,
         xslg,
         zone_swing,
+        zone_whiff,
     )
 
     try:
@@ -460,6 +463,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(zone_whiff.health_check())
+    except Exception as exc:
+        checks.append(Check("zone_whiff", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(active_spin.health_check())
+    except Exception as exc:
+        checks.append(Check("active_spin", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(low_scoop.health_check())
+    except Exception as exc:
+        checks.append(Check("low_scoop", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(slash_oppo.health_check())
     except Exception as exc:

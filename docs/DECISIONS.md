@@ -2,6 +2,29 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-104: GBM-v2 Full Feature Set Expansion & GPU Compute Module (`FEAT-01`, Package 16)
+
+**Decision:** Expanded the production GBM model from 37 features (`gbm-v1`, `game-feature-v1`) to 257 features (`gbm-v2`, `game-feature-v2`), wiring in all 19 previously unused feature families. Expanded the experiment framework's snapshot SQL from 13 to 261 feature columns (`game_full_v2`). Added `mlb_baseball/compute.py` for GPU device detection with CPU fallback.
+- **GBM-v2 feature families added** (all as OPTIONAL_COLUMNS, NaN-handled by XGBoost natively):
+  - Catcher framing (CSAE%, framing runs, framing prior)
+  - Team rate stats (OBP, SLG, ISO, BB%, K%, BABIP, run environment, PA)
+  - Baserunning (wSB, XBT%, UBR, wGDP, BsR Total)
+  - Starter workload & experience (rest days, 7-day outs, career BF/IP, age)
+  - Plate discipline (CSW%, Whiff%, F-Strike% for starters and bullpens)
+  - Batted ball profiles (GB%, FB%, LD%, HR/FB for starters, bullpens, batting)
+  - Run expectancy & leverage (starter/bullpen avg LI, bullpen RE24, batting RE24)
+  - Pitcher estimators (xFIP, SIERA for starters and bullpens)
+  - Pitcher platoon splits (vs LHB/RHB wOBA and K%)
+  - Statcast expected metrics (HardHit%, Barrel%, xwOBA, xBA, xSLG for starters, bullpens, offense)
+  - Command & attack zones (Heart/Shadow/Chase%, fastball velo, velo delta, bullpen zones, batting discipline)
+  - Pitch movement & shape (fastball IVB, curve drop, vertical separation, spin RPM)
+  - Component park factors (1yr/3yr/5yr, HR/2B/3B/LHB-HR/RHB-HR factors)
+  - Weather physics (air density index, effective wind speed)
+  - Platoon matchups (offense wOBA vs LHP/RHP, platoon matchup wOBA diff)
+  - Matchup difference vectors (25 symmetric home-minus-away diffs and trends)
+- **GPU module**: `compute.py` detects Numba CUDA availability for K80/K40 Kepler GPUs (compute 3.5/3.7), with `MLB_FORCE_CPU=1` override. Modern XGBoost/PyTorch require compute >= 5.0, so GPU acceleration targets Monte Carlo simulation via Numba, not ML training.
+- **Verification**: 56/56 tests passed (27 unit + 29 integration, 324s). ruff + mypy clean.
+
 ## ADR-103: Multi-Model Benchmark & Holdout Evaluation Protocol (`EVAL-01`, Package 15)
 
 **Decision:** Verified and hardened the full multi-model evaluation framework across all 12 model families (`home_rate`, `log5`, `elo`, `logistic`, `hist_gradient_boosting`, `xgboost`, `random_forest`, `extra_trees`, `gam`, `svm`, `bayesian`, `neural`) and task types (classification: `home_win`, regression: `run_differential`). Implemented full test coverage in `tests/integration/test_model_evaluation.py` and `tests/integration/test_experiment.py`.

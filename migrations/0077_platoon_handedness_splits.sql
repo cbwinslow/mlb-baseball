@@ -19,6 +19,7 @@ ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_platoon_matchup_woba
 ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_platoon_matchup_woba_diff numeric;
 
 -- Extend the research export view with the new columns appended at the end.
+DROP VIEW IF EXISTS gold.game_export CASCADE;
 CREATE OR REPLACE VIEW gold.game_export AS
 SELECT
     f.game_instance_key,

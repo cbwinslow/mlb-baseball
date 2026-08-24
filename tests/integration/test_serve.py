@@ -22,6 +22,7 @@ def _reset(db_conn):
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM core.market")
         cur.execute("DELETE FROM gold.game_feature")
+        cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.player WHERE id IN (101, 102)")
         cur.execute("DELETE FROM core.team")
     db_conn.commit()
@@ -72,5 +73,56 @@ def test_serve_daily_betting_grid_and_pitcher_card(db_conn):
     assert c["throws"] == "L"
     assert float(c["siera"]) == 3.10
     assert float(c["vert_separation_in"]) == 22.5
+
+    _reset(db_conn)
+
+
+def test_serve_pitcher_props_and_live_game_tracker(db_conn):
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    bos_id = teams["BOS"]
+    nya_id = teams["NYA"]
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.player (id, retro_id, mlbam_id, first_name, last_name) VALUES "
+            "(101, 'p1_retro', '101', 'Chris', 'Sale'), "
+            "(102, 'p2_retro', '102', 'Gerrit', 'Cole') "
+            "ON CONFLICT (id) DO NOTHING"
+        )
+        cur.execute(
+            "INSERT INTO core.game (id, retro_game_id, game_pk, season, game_date, "
+            "game_number, home_team_id, away_team_id, home_score, away_score) VALUES "
+            "(999, 'BOS202406010', '999001', 2024, '2024-06-01', 1, "
+            "%(home_id)s, %(away_id)s, 5, 3)",
+            {"home_id": bos_id, "away_id": nya_id},
+        )
+        cur.execute(
+            "INSERT INTO gold.game_feature ("
+            "game_id, game_instance_key, mlb_game_pk, season, game_date, "
+            "home_team_id, away_team_id, home_starter_id, away_starter_id, "
+            "home_starter_k_pct, away_starter_k_pct, "
+            "home_k_pct, away_k_pct, home_starter_siera, away_starter_siera, home_win) VALUES ("
+            "999, 'SRV-G1', 999001, 2024, '2024-06-01', %(home_id)s, %(away_id)s, "
+            "101, 102, 0.315, 0.290, 0.210, 0.240, 3.10, 3.35, true)",
+            {"home_id": bos_id, "away_id": nya_id},
+        )
+    db_conn.commit()
+
+    props = serve.fetch_pitcher_prop_market(game_date="2024-06-01", conn=db_conn)
+    assert len(props) == 1
+    p = props[0]
+    assert p["home_starter_name"] == "Chris Sale"
+    assert p["away_starter_name"] == "Gerrit Cole"
+    assert float(p["home_starter_projected_k_pct"]) > 0.30
+
+    live_games = serve.fetch_live_game_tracker(game_date="2024-06-01", conn=db_conn)
+    assert len(live_games) == 1
+    lg = live_games[0]
+    assert lg["home_team"] == "BOS"
+    assert lg["away_team"] == "NYA"
+    assert lg["current_home_score"] == 5
+    assert lg["current_away_score"] == 3
+    assert lg["actual_home_win"] is True
 
     _reset(db_conn)

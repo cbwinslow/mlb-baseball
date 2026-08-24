@@ -93,3 +93,67 @@ def fetch_prediction_market_alpha(
         return _query(conn)
     with get_connection() as c:
         return _query(c)
+
+
+def fetch_pitcher_prop_market(
+    game_date: datetime.date | str | None = None,
+    mlb_game_pk: str | None = None,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch projected pitcher strikeout props for games on a date or specific game_pk."""
+
+    def _query(c: psycopg.Connection) -> list[dict[str, Any]]:
+        with c.cursor(row_factory=dict_row) as cur:
+            if mlb_game_pk is not None:
+                cur.execute(
+                    "SELECT * FROM serve.pitcher_prop_market WHERE mlb_game_pk = %s",
+                    (str(mlb_game_pk),),
+                )
+            elif game_date is not None:
+                cur.execute(
+                    "SELECT * FROM serve.pitcher_prop_market "
+                    "WHERE game_date = %s ORDER BY mlb_game_pk",
+                    (str(game_date),),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM serve.pitcher_prop_market ORDER BY game_date DESC LIMIT 50"
+                )
+            return list(cur.fetchall())
+
+    if conn is not None:
+        return _query(conn)
+    with get_connection() as c:
+        return _query(c)
+
+
+def fetch_live_game_tracker(
+    game_date: datetime.date | str | None = None,
+    mlb_game_pk: str | None = None,
+    conn: psycopg.Connection | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch live in-play game state and scores for games on a date or specific game_pk."""
+
+    def _query(c: psycopg.Connection) -> list[dict[str, Any]]:
+        with c.cursor(row_factory=dict_row) as cur:
+            if mlb_game_pk is not None:
+                cur.execute(
+                    "SELECT * FROM serve.live_game_tracker WHERE mlb_game_pk = %s",
+                    (str(mlb_game_pk),),
+                )
+            elif game_date is not None:
+                cur.execute(
+                    "SELECT * FROM serve.live_game_tracker "
+                    "WHERE game_date = %s ORDER BY mlb_game_pk",
+                    (str(game_date),),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM serve.live_game_tracker ORDER BY game_date DESC LIMIT 50"
+                )
+            return list(cur.fetchall())
+
+    if conn is not None:
+        return _query(conn)
+    with get_connection() as c:
+        return _query(c)

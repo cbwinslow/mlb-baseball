@@ -1,22 +1,23 @@
 -- Pitch Movement, Vertical Break & Batter Attack Zone Discipline (SHP-01).
 -- Adds Fastball IVB, Curve Drop, Vertical Separation, Spin RPM, and Batter Attack Zone rates to gold.game_feature.
 
-ALTER TABLE gold.game_feature ADD COLUMN home_starter_fastball_ivb_in numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_starter_fastball_ivb_in numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_starter_curve_drop_in numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_starter_curve_drop_in numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_starter_vert_separation_in numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_starter_vert_separation_in numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_starter_spin_rate_rpm numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_starter_spin_rate_rpm numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_bullpen_vert_separation_in numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_bullpen_vert_separation_in numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_batting_chase_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_batting_chase_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_batting_heart_swing_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_batting_heart_swing_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_starter_fastball_ivb_in numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_starter_fastball_ivb_in numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_starter_curve_drop_in numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_starter_curve_drop_in numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_starter_vert_separation_in numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_starter_vert_separation_in numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_starter_spin_rate_rpm numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_starter_spin_rate_rpm numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_bullpen_vert_separation_in numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_bullpen_vert_separation_in numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_batting_chase_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_batting_chase_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_batting_heart_swing_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_batting_heart_swing_pct numeric;
 
 -- Extend the research export view with the new columns appended at the end.
+DROP VIEW IF EXISTS gold.game_export CASCADE;
 CREATE OR REPLACE VIEW gold.game_export AS
 SELECT
     f.game_instance_key,

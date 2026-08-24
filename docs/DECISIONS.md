@@ -2,6 +2,15 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-107: Live In-Play Game Tracking & Props Serving Marts (`LIVE-01`, Package 19)
+
+**Decision:** Created analytical serving marts in migration `migrations/0079_live_game_and_props_views.sql`, access module `mlb_baseball/serve.py`, and integration tests in `tests/integration/test_serve.py`.
+- **Serving Views Added / Updated**:
+  - `serve.pitcher_prop_market`: Exposes starting pitcher projected K%, opponent K%, rest days, and Log5 matchup projected strikeout rates for live proposition markets.
+  - `serve.live_game_tracker`: Exposes real-time in-play game state (current home/away scores, pitcher quality, platoon differentials, and final game outcomes).
+  - `serve.daily_betting_grid`: Upgraded to resolve model win probabilities across both `gbm-v1` and `gbm-v2` (`COALESCE(p_gbm2.home_win_prob, p_gbm1.home_win_prob)`).
+- **Verification**: 2/2 real-PostgreSQL integration tests in `tests/integration/test_serve.py` passing.
+
 ## ADR-106: Player-Game Props Prediction System (`PROP-01`, Package 18)
 
 **Decision:** Created the player proposition forecasting system in `mlb_baseball/model/props.py` supporting starting pitcher strikeouts, outs recorded / innings pitched, batter hits, total bases, and anytime home run probabilities. Integrated with PostgreSQL `gold.game_feature` and `core.player`.

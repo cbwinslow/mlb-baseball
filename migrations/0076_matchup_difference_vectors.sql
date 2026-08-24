@@ -1,25 +1,26 @@
 -- Matchup Difference Vectors (INT-02, ADR-099).
 -- Adds symmetric home-minus-away difference columns for starting pitchers, bullpens, offenses, and catchers.
 
-ALTER TABLE gold.game_feature ADD COLUMN starter_siera_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN starter_xfip_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN starter_csw_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN starter_whiff_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN starter_xwoba_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN starter_fastball_velo_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN starter_vert_sep_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN bullpen_siera_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN bullpen_xfip_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN bullpen_csw_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN bullpen_whiff_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN bullpen_xwoba_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN offense_hard_hit_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN offense_barrel_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN offense_xwoba_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN bsr_total_diff numeric;
-ALTER TABLE gold.game_feature ADD COLUMN catcher_framing_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS starter_siera_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS starter_xfip_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS starter_csw_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS starter_whiff_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS starter_xwoba_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS starter_fastball_velo_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS starter_vert_sep_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS bullpen_siera_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS bullpen_xfip_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS bullpen_csw_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS bullpen_whiff_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS bullpen_xwoba_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS offense_hard_hit_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS offense_barrel_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS offense_xwoba_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS bsr_total_diff numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS catcher_framing_diff numeric;
 
 -- Extend the research export view with the new columns appended at the end.
+DROP VIEW IF EXISTS gold.game_export CASCADE;
 CREATE OR REPLACE VIEW gold.game_export AS
 SELECT
     f.game_instance_key,

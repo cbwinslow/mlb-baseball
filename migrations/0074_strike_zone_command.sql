@@ -1,24 +1,25 @@
 -- Strike Zone Command and Attack Zone Metrics (COM-01).
 -- Adds Heart%, Shadow%, Chase%, Fastball Velocity, and Velocity Delta to gold.game_feature.
 
-ALTER TABLE gold.game_feature ADD COLUMN home_starter_heart_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_starter_heart_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_starter_shadow_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_starter_shadow_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_starter_chase_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_starter_chase_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_starter_fastball_velo numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_starter_fastball_velo numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_starter_velo_delta numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_starter_velo_delta numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_bullpen_heart_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_bullpen_heart_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_bullpen_shadow_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_bullpen_shadow_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN home_bullpen_chase_pct numeric;
-ALTER TABLE gold.game_feature ADD COLUMN away_bullpen_chase_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_starter_heart_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_starter_heart_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_starter_shadow_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_starter_shadow_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_starter_chase_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_starter_chase_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_starter_fastball_velo numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_starter_fastball_velo numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_starter_velo_delta numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_starter_velo_delta numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_bullpen_heart_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_bullpen_heart_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_bullpen_shadow_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_bullpen_shadow_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS home_bullpen_chase_pct numeric;
+ALTER TABLE gold.game_feature ADD COLUMN IF NOT EXISTS away_bullpen_chase_pct numeric;
 
 -- Extend the research export view with the new columns appended at the end.
+DROP VIEW IF EXISTS gold.game_export CASCADE;
 CREATE OR REPLACE VIEW gold.game_export AS
 SELECT
     f.game_instance_key,

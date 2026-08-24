@@ -401,3 +401,28 @@ def test_spray_elevation_rose_svg_generation():
     assert "Ohtani Spray Rose" in chart.svg_content
     assert "path" in chart.svg_content
     assert "polygon" in chart.svg_content
+
+
+def test_release_window_box_svg_generation():
+    """Verify ReleaseWindowBoxRenderer generates release point scatter with 1-sigma ellipses."""
+    from mlb_baseball.visual import (
+        PitcherReleaseWindowProfile,
+        PitchReleasePoint,
+        ReleaseWindowBoxRenderer,
+    )
+
+    renderer = ReleaseWindowBoxRenderer()
+    pitches = [
+        PitchReleasePoint("FF", -2.15, 5.85, 1.4, 1.2, "#3b82f6"),
+        PitchReleasePoint("SL", -2.20, 5.80, 1.5, 1.3, "#ec4899"),
+        PitchReleasePoint("CH", -2.10, 5.75, 1.6, 1.4, "#a855f7"),
+    ]
+    prof = PitcherReleaseWindowProfile("Skenes Release Box", "Paul Skenes", pitches)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Skenes Release Box" in chart.svg_content
+    assert "ellipse" in chart.svg_content
+    assert "circle" in chart.svg_content

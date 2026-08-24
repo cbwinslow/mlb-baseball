@@ -2,6 +2,46 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-210: Pure-Python SVG Pitch Arsenal Release Window Scatter Box Visualizer (`RELEASE-BOX-01`, Package 122)
+
+**Decision:** Built multi-pitch Cartesian release point scatter box vector SVG visualizer with $1\sigma$ confidence ellipses in `mlb_baseball/visual.py` and CLI subcommand `mlb release-box`.
+- **Operational Architecture & Geometry**:
+  - Coordinate Domain: Maps horizontal release $X_{\text{rel}}$ ($-3.5\text{ to }+3.5\text{ ft}$) against vertical release $Z_{\text{rel}}$ ($4.5\text{ to }7.0\text{ ft}$) with mound center vertical reference line.
+  - $1\sigma$ Dispersion Ellipses: Renders semi-transparent confidence ellipses around each pitch's release cluster scaled to horizontal and vertical standard deviations.
+  - CLI: `mlb release-box --title "Paul Skenes Release Window" --pitcher "Paul Skenes"`.
+- **Verification**: 18/18 unit tests in `tests/unit/test_visual.py` passing; 736/736 full repository unit tests passing.
+
+## ADR-209: Catcher Quick Exchange & Pop Time Decomposition Engine (`CATCH-XCHG-01`, Package 121)
+
+**Decision:** Built glove-to-hand transfer time, pop time decomposition, and stolen base deterrence modeling in `mlb_baseball/model/catch_xchg.py` and CLI subcommand `mlb catch-xchg`.
+- **Mathematical Formulations & Methodology**:
+  - Pop Time Decomposition: $t_{\text{pop}} = t_{\text{xchg}} + t_{\text{flight}}\text{ seconds}$.
+  - Catcher Exchange Velocity Index: $\text{CEVI} = \max\left(0, 100 + (0.70 - t_{\text{xchg}}) \cdot 160 + (v_{\text{throw}} - 81.5) \cdot 1.8 + (\text{Acc\%} - 65.0) \cdot 0.9\right)$.
+  - Stolen Base Deterrence Surplus: $\text{SBD}_{\text{runs}} = (0.70 - t_{\text{xchg}}) \cdot \text{Att} \cdot 1.10 + (\text{Acc\%} - 65.0\%) \cdot \text{Att} \cdot 0.22$.
+  - Tiers: `LIGHTNING_QUICK_EXCHANGE_CANNON` ($t_{\text{xchg}} \le 0.64\text{ s}, \text{CEVI} \ge 115.0, v_{\text{throw}} \ge 84.0\text{ mph}$), `STRONG_ARM_SLOW_TRANSFER`, `POOR_ARM_TRANSFER_LIABILITY`, `AVERAGE_CATCHER_TRANSFER`.
+  - CLI: `mlb catch-xchg --xchg 0.62 --velo 87.0 --flight 1.28 --acc 78.0 --att 85`, `mlb catch-xchg --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_catch_xchg.py` passing; 736/736 full repository unit tests passing.
+
+## ADR-208: Batter Two-Strike Expansion Resistance & Out-of-Zone Foul Engine (`EXP-RESIST-01`, Package 120)
+
+**Decision:** Built two-strike chase suppression, out-of-zone contact, and foul survival modeling in `mlb_baseball/model/exp_resist.py` and CLI subcommand `mlb exp-resist`.
+- **Mathematical Formulations & Methodology**:
+  - Two-Strike Expansion Resistance Index: $\text{TERI} = \max\left(0, 100 + (36.0 - \text{Chase\%}) \cdot 2.5 + (\text{O-Contact\%} - 54.0) \cdot 1.8 + (\text{Foul\%} - 40.0) \cdot 1.2\right)$.
+  - Two-Strike Battle Runs: $\text{TERI}_{\text{runs}} = (\text{TERI} - 100.0) \cdot (\text{PAs} \cdot 0.0035)$.
+  - Tiers: `ELITE_ZONE_EXPANSION_RESISTOR` ($\text{TERI} \ge 118.0, \text{Chase\%} \le 28.0\%, \text{O-Contact\%} \ge 60.0\%$), `CHASE_PRONE_TWO_STRIKE_VICTIM`, `TWO_STRIKE_FOUL_BALL_SPOILER`, `AVERAGE_TWO_STRIKE_RESISTANCE`.
+  - CLI: `mlb exp-resist --chase 24.0 --o-contact 68.0 --foul 50.0 --pa 300`, `mlb exp-resist --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_exp_resist.py` passing; 736/736 full repository unit tests passing.
+
+## ADR-207: Pitcher Release Point Variance & Mechanical Tell Engine (`REL-DRIFT-01`, Package 119)
+
+**Decision:** Built 3D spatial release point dispersion, mechanical repeat consistency, and fatigue alerts in `mlb_baseball/model/rel_drift.py` and CLI subcommand `mlb rel-drift`.
+- **Mathematical Formulations & Methodology**:
+  - Spatial Dispersion: $\sigma_{\text{spatial}} = \sqrt{(\sigma_{\text{rel}, x})^2 + (\sigma_{\text{rel}, z})^2}\text{ inches}$.
+  - Mechanical Consistency Score: $\text{MCS} = \max\left(0, 100 + (2.6 - \sigma_{\text{spatial}}) \cdot 16.0 - \max(0, \text{LateDrop} - 0.8) \cdot 11.0\right)$.
+  - Tiers: `METRONOMIC_MECHANICAL_REPEATER` ($\text{MCS} \ge 112.0, \sigma_{\text{spatial}} \le 2.10\text{ in}, \text{LateDrop} \le 1.0\text{ in}$), `FATIGUE_ARM_SLOT_COLLAPSE_ALERT` ($\text{LateDrop} \ge 2.4\text{ in}$), `ERRATIC_SCATTERED_RELEASE_POINT`, `AVERAGE_RELEASE_CONSISTENCY`.
+  - CLI: `mlb rel-drift --std-x 1.4 --std-z 1.2 --late-drop 0.6 --pitches 95`, `mlb rel-drift --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_rel_drift.py` passing; 736/736 full repository unit tests passing.
+
 ## ADR-206: Pure-Python SVG Batter 3D Spray & Elevation Polar Rose Visualizer (`SPRAY-ROSE-01`, Package 118)
 
 **Decision:** Built multi-sector polar rose chart vector SVG visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb spray-rose`.

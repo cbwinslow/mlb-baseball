@@ -116,7 +116,11 @@ This document serves as the academic and theoretical reference manual for the ML
 90. [Pitcher Vertical Approach Angle vs Top-of-Zone Whiff Dynamics](#90-pitcher-vertical-approach-angle-vs-top-of-zone-whiff-dynamics)
 91. [Batter First-Pitch Aggressiveness & Early-Count Ambush Value](#91-batter-first-pitch-aggressiveness--early-count-ambush-value)
 92. [Pure-Python SVG Batter 3D Spray & Elevation Rose Architecture](#92-pure-python-svg-batter-3d-spray--elevation-rose-architecture)
-93. [Academic Bibliography & Literature Citations](#93-academic-bibliography--literature-citations)
+93. [Pitcher Release Point Variance & Mechanical Fatigue Tells](#93-pitcher-release-point-variance--mechanical-fatigue-tells)
+94. [Batter Two-Strike Expansion Resistance & Out-of-Zone Spoil Dynamics](#94-batter-two-strike-expansion-resistance--out-of-zone-spoil-dynamics)
+95. [Catcher Quick Exchange & Pop Time Decomposition Mechanics](#95-catcher-quick-exchange--pop-time-decomposition-mechanics)
+96. [Pure-Python SVG Release Window Scatter Box Architecture](#96-pure-python-svg-release-window-scatter-box-architecture)
+97. [Academic Bibliography & Literature Citations](#97-academic-bibliography--literature-citations)
 
 ---
 
@@ -1039,7 +1043,39 @@ $$\theta_{\text{sector}} = -90^\circ + \theta_{\text{spray}}, \quad R_{\text{bat
 
 ---
 
-## 93. Academic Bibliography & Literature Citations
+## 93. Pitcher Release Point Variance & Mechanical Fatigue Tells
+
+### 93.1 2D Spatial Release Dispersion & Mechanical Consistency Score
+$$\sigma_{\text{spatial}} = \sqrt{(\sigma_{\text{rel}, x})^2 + (\sigma_{\text{rel}, z})^2}\text{ inches}$$
+$$\text{MCS} = \max\left(0, 100 + (2.6 - \sigma_{\text{spatial}}) \cdot 16.0 - \max(0, \text{LateDrop} - 0.8) \cdot 11.0\right)$$
+
+---
+
+## 94. Batter Two-Strike Expansion Resistance & Out-of-Zone Spoil Dynamics
+
+### 94.1 Two-Strike Expansion Resistance Index (TERI)
+$$\text{TERI} = \max\left(0, 100 + (36.0 - \text{Chase\%}) \cdot 2.5 + (\text{O-Contact\%} - 54.0) \cdot 1.8 + (\text{Foul\%} - 40.0) \cdot 1.2\right)$$
+$$\text{TERI}_{\text{runs}} = (\text{TERI} - 100.0) \cdot (\text{PAs} \cdot 0.0035)$$
+
+---
+
+## 95. Catcher Quick Exchange & Pop Time Decomposition Mechanics
+
+### 95.1 Pop Time Decomposition & CEVI Rating
+$$t_{\text{pop}} = t_{\text{xchg}} + t_{\text{flight}}\text{ seconds}$$
+$$\text{CEVI} = \max\left(0, 100 + (0.70 - t_{\text{xchg}}) \cdot 160 + (v_{\text{throw}} - 81.5) \cdot 1.8 + (\text{Acc\%} - 65.0) \cdot 0.9\right)$$
+$$\text{SBD}_{\text{runs}} = (0.70 - t_{\text{xchg}}) \cdot \text{Att} \cdot 1.10 + (\text{Acc\%} - 65.0\%) \cdot \text{Att} \cdot 0.22$$
+
+---
+
+## 96. Pure-Python SVG Release Window Scatter Box Architecture
+
+### 96.1 1-Sigma Release Confidence Ellipses
+$$R_{x, \text{screen}} = \left(\frac{\sigma_{\text{rel}, x} / 12}{X_{\max} - X_{\min}}\right) \cdot W_{\text{plot}}, \quad R_{z, \text{screen}} = \left(\frac{\sigma_{\text{rel}, z} / 12}{Z_{\max} - Z_{\min}}\right) \cdot H_{\text{plot}}$$
+
+---
+
+## 97. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1097,3 +1133,5 @@ $$\theta_{\text{sector}} = -90^\circ + \theta_{\text{spray}}, \quad R_{\text{bat
 54. **Zimmerman, Jeff** (2017). "Outfield Arm Strength, Throwing Accuracy, and Runner Holds". *The Hardball Times*.
 55. **Petti, Bill** (2014). "The Shift and Defensive Positioning in Major League Baseball". *The Hardball Times*.
 56. **Bannister, Brian** (2018). "The Physics and Visual Perception of Flat Vertical Approach Angle". *Pitching Design Insights*.
+57. **Carleton, Russell A.** (2015). "Release Point Consistency and Pitcher Fatigue". *Baseball Prospectus*.
+58. **Appelman, David** (2019). "Deconstructing Catcher Pop Time: Transfer vs Arm Strength". *FanGraphs Sabermetric Library*.

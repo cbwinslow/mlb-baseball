@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### RELEASE-BOX-01 pure-Python SVG pitch arsenal release window scatter box visualizer: implemented (ADR-210) — 2026-08-24
+Added `ReleaseWindowBoxRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb release-box` CLI command.
+- Renders multi-pitch release scatter centroids ($X_{\text{rel}}$ vs $Z_{\text{rel}}$) with $1\sigma$ elliptical confidence envelopes.
+
+### CATCH-XCHG-01 catcher quick exchange & pop time decomposition: implemented (ADR-209) — 2026-08-24
+Added `mlb_baseball/model/catch_xchg.py`, unit tests in `tests/unit/test_catch_xchg.py`, and `mlb catch-xchg` CLI command.
+- Evaluates glove transfer duration, pop time decomposition, CEVI index, and stolen base deterrence runs.
+
+### EXP-RESIST-01 batter two-strike expansion resistance & out-of-zone foul engine: implemented (ADR-208) — 2026-08-24
+Added `mlb_baseball/model/exp_resist.py`, unit tests in `tests/unit/test_exp_resist.py`, and `mlb exp-resist` CLI command.
+- Models two-strike chase suppression, out-of-zone contact, TERI score, and extended at-bat run value.
+
+### REL-DRIFT-01 pitcher release point variance & mechanical tell engine: implemented (ADR-207) — 2026-08-24
+Added `mlb_baseball/model/rel_drift.py`, unit tests in `tests/unit/test_rel_drift.py`, and `mlb rel-drift` CLI command.
+- Evaluates 3D spatial release dispersion ($\sigma_{\text{spatial}}$), MCS repeat score, and late-game arm slot drops.
+
 ### SPRAY-ROSE-01 pure-Python SVG 3D spray & elevation polar rose visualizer: implemented (ADR-206) — 2026-08-24
 Added `SprayElevationRoseRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb spray-rose` CLI command.
 - Renders directional polar rose wedges (Pull to Oppo) with stacked groundball/linedrive/flyball elevation layers.

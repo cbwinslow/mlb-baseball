@@ -327,3 +327,12 @@ def test_pull_gb_and_vaa_toz_and_ambush_health_checks():
     assert pull_gb.health_check()[0].ok is True
     assert vaa_toz.health_check()[0].ok is True
     assert ambush.health_check()[0].ok is True
+
+
+def test_rel_drift_and_exp_resist_and_catch_xchg_health_checks():
+    """Verify health checks for rel_drift, exp_resist, and catch_xchg modules."""
+    from mlb_baseball.model import catch_xchg, exp_resist, rel_drift
+
+    assert rel_drift.health_check()[0].ok is True
+    assert exp_resist.health_check()[0].ok is True
+    assert catch_xchg.health_check()[0].ok is True

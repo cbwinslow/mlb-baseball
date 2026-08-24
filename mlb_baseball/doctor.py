@@ -275,6 +275,7 @@ def run() -> list[Check]:
         calibration,
         carry,
         catch_prob,
+        catch_xchg,
         catcher_pop,
         cluster,
         clutch,
@@ -285,6 +286,7 @@ def run() -> list[Check]:
         diversity,
         drift,
         entropy,
+        exp_resist,
         extension,
         fatigue,
         fstrike,
@@ -304,6 +306,7 @@ def run() -> list[Check]:
         pull_air,
         pull_gb,
         putaway,
+        rel_drift,
         reliever,
         ros,
         season,
@@ -448,6 +451,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(rel_drift.health_check())
+    except Exception as exc:
+        checks.append(Check("rel_drift", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(exp_resist.health_check())
+    except Exception as exc:
+        checks.append(Check("exp_resist", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(catch_xchg.health_check())
+    except Exception as exc:
+        checks.append(Check("catch_xchg", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(pull_gb.health_check())
     except Exception as exc:

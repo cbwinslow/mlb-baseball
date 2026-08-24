@@ -867,6 +867,78 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Pitcher release point drift & variance (REL-DRIFT-01)
+    rdr_parser = subparsers.add_parser(
+        "rel-drift",
+        help="evaluate pitcher spatial release point dispersion and fatigue tells (REL-DRIFT-01)",
+    )
+    rdr_parser.add_argument(
+        "--std-x", type=float, default=1.8, help="std dev rel X in inches (default: 1.8)"
+    )
+    rdr_parser.add_argument(
+        "--std-z", type=float, default=1.6, help="std dev rel Z in inches (default: 1.6)"
+    )
+    rdr_parser.add_argument(
+        "--late-drop", type=float, default=0.8, help="late game arm slot drop in (default: 0.8)"
+    )
+    rdr_parser.add_argument(
+        "--pitches", type=int, default=90, help="pitch count evaluated (default: 90)"
+    )
+    rdr_parser.add_argument(
+        "--json", action="store_true", help="output release drift evaluation as JSON"
+    )
+
+    # Batter two-strike expansion resistance (EXP-RESIST-01)
+    exp_parser = subparsers.add_parser(
+        "exp-resist",
+        help="evaluate batter two-strike chase suppression and foul survival (EXP-RESIST-01)",
+    )
+    exp_parser.add_argument(
+        "--chase", type=float, default=34.0, help="2-strike chase pct (default: 34.0)"
+    )
+    exp_parser.add_argument(
+        "--o-contact", type=float, default=56.0, help="2-strike O-contact pct (default: 56.0)"
+    )
+    exp_parser.add_argument(
+        "--foul", type=float, default=42.0, help="2-strike foul pct (default: 42.0)"
+    )
+    exp_parser.add_argument("--pa", type=int, default=250, help="2-strike PAs (default: 250)")
+    exp_parser.add_argument(
+        "--json", action="store_true", help="output expansion resistance as JSON"
+    )
+
+    # Catcher quick exchange & pop time (CATCH-XCHG-01)
+    cxc_parser = subparsers.add_parser(
+        "catch-xchg",
+        help="evaluate catcher transfer duration, pop time decomposition, and arm (CATCH-XCHG-01)",
+    )
+    cxc_parser.add_argument(
+        "--xchg", type=float, default=0.68, help="exchange time sec (default: 0.68)"
+    )
+    cxc_parser.add_argument(
+        "--velo", type=float, default=82.5, help="throw velo mph (default: 82.5)"
+    )
+    cxc_parser.add_argument(
+        "--flight", type=float, default=1.30, help="flight time sec (default: 1.30)"
+    )
+    cxc_parser.add_argument("--acc", type=float, default=68.0, help="accuracy pct (default: 68.0)")
+    cxc_parser.add_argument(
+        "--att", type=int, default=70, help="steal attempts against (default: 70)"
+    )
+    cxc_parser.add_argument(
+        "--json", action="store_true", help="output catcher exchange evaluation as JSON"
+    )
+
+    # Pitch arsenal release window scatter box plot (RELEASE-BOX-01)
+    box_parser = subparsers.add_parser(
+        "release-box",
+        help="generate vector SVG arsenal release window scatter plot (RELEASE-BOX-01)",
+    )
+    box_parser.add_argument(
+        "--title", type=str, default="Paul Skenes Release Window", help="chart title"
+    )
+    box_parser.add_argument("--pitcher", type=str, default="Paul Skenes", help="pitcher name")
+
     # Batter pull-side groundball defense (PULL-GB-01)
     pgb_parser = subparsers.add_parser(
         "pull-gb",
@@ -3820,6 +3892,150 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "rel-drift":
+        import json as json_lib
+
+        from mlb_baseball.model.rel_drift import (
+            PitcherReleaseDispersionMetrics,
+            PitcherReleaseDriftEngine,
+        )
+
+        rdr_eng = PitcherReleaseDriftEngine()
+        rdr_m = PitcherReleaseDispersionMetrics(
+            "p1",
+            "Target Pitcher",
+            std_rel_x_in=args.std_x,
+            std_rel_z_in=args.std_z,
+            late_game_rel_drop_in=args.late_drop,
+            pitch_count_evaluated=args.pitches,
+        )
+        rdr_res = rdr_eng.evaluate_release_drift(rdr_m)
+
+        if args.json:
+            rdr_out = {
+                "spatial_dispersion_in": rdr_res.spatial_dispersion_in,
+                "mcs_score": rdr_res.mcs_score,
+                "tier": rdr_res.release_tier,
+                "is_metronomic": rdr_res.is_metronomic_repeater,
+                "is_collapse": rdr_res.fatigue_collapse_warning,
+            }
+            print(json_lib.dumps(rdr_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     RELEASE POINT VARIANCE & DRIFT [{rdr_res.release_tier}]")
+            hdr_rd = (
+                f"     Dispersion: {rdr_res.spatial_dispersion_in:.2f} in "
+                f"| MCS Score: {rdr_res.mcs_score:.1f}/160 "
+                f"| Repeater: {'YES' if rdr_res.is_metronomic_repeater else 'NO'}"
+            )
+            print(hdr_rd)
+            print(f"{'=' * 84}\n")
+            print(f"  • Consistency Tier     : {rdr_res.release_tier}")
+            warn_txt = "YES (ARM DROP ALERT)" if rdr_res.fatigue_collapse_warning else "NO"
+            print(f"  • Fatigue Warning      : {warn_txt}\n")
+
+    elif args.command == "exp-resist":
+        import json as json_lib
+
+        from mlb_baseball.model.exp_resist import (
+            BatterExpansionResistanceEngine,
+            BatterExpansionResistanceMetrics,
+        )
+
+        exp_eng = BatterExpansionResistanceEngine()
+        exp_m = BatterExpansionResistanceMetrics(
+            "b1",
+            "Target Batter",
+            two_strike_chase_pct=args.chase,
+            two_strike_o_contact_pct=args.o_contact,
+            two_strike_foul_pct=args.foul,
+            two_strike_pa_count=args.pa,
+        )
+        exp_res = exp_eng.evaluate_resistance(exp_m)
+
+        if args.json:
+            exp_out = {
+                "teri_score": exp_res.teri_score,
+                "runs_value": exp_res.runs_value,
+                "tier": exp_res.resistance_tier,
+                "is_elite": exp_res.is_elite_resistor,
+            }
+            print(json_lib.dumps(exp_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     TWO-STRIKE EXPANSION RESISTANCE [{exp_res.resistance_tier}]")
+            hdr_er = (
+                f"     TERI Score: {exp_res.teri_score:.1f}/160 "
+                f"| Battle Runs: {exp_res.runs_value:>+4.2f} "
+                f"| Tier: {exp_res.resistance_tier}"
+            )
+            print(hdr_er)
+            print(f"{'=' * 84}\n")
+            print(f"  • Resistance Strategy  : {exp_res.resistance_tier}")
+            print(f"  • Elite Zone Resistor  : {'YES' if exp_res.is_elite_resistor else 'NO'}\n")
+
+    elif args.command == "catch-xchg":
+        import json as json_lib
+
+        from mlb_baseball.model.catch_xchg import (
+            CatcherExchangeEngine,
+            CatcherExchangeMetrics,
+        )
+
+        cxc_eng = CatcherExchangeEngine()
+        cxc_m = CatcherExchangeMetrics(
+            "c1",
+            "Target Catcher",
+            exchange_time_sec=args.xchg,
+            throw_velocity_mph=args.velo,
+            throw_flight_time_sec=args.flight,
+            throw_accuracy_pct=args.acc,
+            stolen_base_attempts_against=args.att,
+        )
+        cxc_res = cxc_eng.evaluate_exchange(cxc_m)
+
+        if args.json:
+            cxc_out = {
+                "total_pop_time_sec": cxc_res.total_pop_time_sec,
+                "cevi_score": cxc_res.cevi_score,
+                "sbd_runs_saved": cxc_res.sbd_runs_saved,
+                "tier": cxc_res.transfer_tier,
+                "is_lightning": cxc_res.is_lightning_transfer,
+            }
+            print(json_lib.dumps(cxc_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     CATCHER POP TIME & EXCHANGE [{cxc_res.transfer_tier}]")
+            hdr_cx = (
+                f"     Pop Time: {cxc_res.total_pop_time_sec:.3f} s "
+                f"| CEVI Score: {cxc_res.cevi_score:.1f} "
+                f"| Runs Saved: {cxc_res.sbd_runs_saved:>+4.2f}"
+            )
+            print(hdr_cx)
+            print(f"{'=' * 84}\n")
+            print(f"  • Transfer Tier        : {cxc_res.transfer_tier}")
+            print(
+                f"  • Lightning Transfer   : {'YES' if cxc_res.is_lightning_transfer else 'NO'}\n"
+            )
+
+    elif args.command == "release-box":
+        from mlb_baseball.visual import (
+            PitcherReleaseWindowProfile,
+            PitchReleasePoint,
+            ReleaseWindowBoxRenderer,
+        )
+
+        box_renderer = ReleaseWindowBoxRenderer()
+        box_pitches = [
+            PitchReleasePoint("FF", -2.15, 5.85, 1.4, 1.2, "#3b82f6"),
+            PitchReleasePoint("SL", -2.20, 5.80, 1.5, 1.3, "#ec4899"),
+            PitchReleasePoint("CH", -2.10, 5.75, 1.6, 1.4, "#a855f7"),
+            PitchReleasePoint("CB", -2.05, 5.90, 1.8, 1.5, "#eab308"),
+        ]
+        box_prof = PitcherReleaseWindowProfile(args.title, args.pitcher, box_pitches)
+        chart = box_renderer.render(box_prof)
+        print(f"Generated Vector SVG Release Window Box Plot ({len(chart.svg_content)} bytes)")
 
     elif args.command == "pull-gb":
         import json as json_lib

@@ -32,6 +32,7 @@ class ChartType(enum.Enum):
     SPIN_AXIS_CLOCK = "spin_axis_clock"
     SEPARATION_DIAMOND_PLOT = "separation_diamond_plot"
     SPRAY_ELEVATION_ROSE = "spray_elevation_rose"
+    RELEASE_WINDOW_BOX = "release_window_box"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1821,6 +1822,138 @@ class SprayElevationRoseRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class PitchReleasePoint:
+    """Release point centroid and spatial variance for an arsenal pitch."""
+
+    pitch_type: str  # "FF", "SL", "CH", "CB"
+    rel_x_ft: float  # Horizontal release (-3.5 to +3.5 ft)
+    rel_z_ft: float  # Vertical release (4.5 to 7.0 ft)
+    std_x_in: float  # Horizontal std dev in inches
+    std_z_in: float  # Vertical std dev in inches
+    color_hex: str = "#3b82f6"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitcherReleaseWindowProfile:
+    """Pitcher arsenal release point tunneling profile."""
+
+    title: str
+    pitcher_name: str
+    pitches: list[PitchReleasePoint]
+
+
+class ReleaseWindowBoxRenderer:
+    """Renders pure-Python vector SVG release window scatter plots (RELEASE-BOX-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitcherReleaseWindowProfile) -> GeneratedVectorChart:
+        """Render multi-pitch release scatter centroids with confidence ellipses into SVG."""
+        margin_left = 60
+        margin_right = 40
+        margin_top = 70
+        margin_bottom = 60
+
+        plot_w = self.width - margin_left - margin_right
+        plot_h = self.height - margin_top - margin_bottom
+
+        # Coordinate domain: X from -3.5 to +3.5 ft, Z from 4.5 to 7.0 ft
+        x_min, x_max = -3.5, 3.5
+        z_min, z_max = 4.5, 7.0
+
+        def to_screen(rx: float, rz: float) -> tuple[float, float]:
+            sx = margin_left + ((rx - x_min) / (x_max - x_min)) * plot_w
+            sy = margin_top + ((z_max - rz) / (z_max - z_min)) * plot_h
+            return sx, sy
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="28" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="46" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} Release Tunneling Envelopes</text>',
+        ]
+
+        # Inner Plot Box Background
+        svg_parts.append(
+            f'<rect x="{margin_left}" y="{margin_top}" width="{plot_w}" height="{plot_h}" '
+            f'fill="#0f172a" stroke="#334155" stroke-width="1.0" />'
+        )
+
+        # Center X Guideline (Mound Center X=0)
+        cx0, _ = to_screen(0.0, 5.75)
+        svg_parts.append(
+            f'<line x1="{cx0:.1f}" y1="{margin_top}" x2="{cx0:.1f}" y2="{margin_top + plot_h}" '
+            f'stroke="#1e293b" stroke-width="1.0" stroke-dasharray="3,3" />'
+        )
+
+        # Draw Grid & Axis Labels
+        for x_val in (-3.0, -1.5, 0.0, 1.5, 3.0):
+            sx, _ = to_screen(x_val, 5.0)
+            svg_parts.append(
+                f'<text x="{sx:.1f}" y="{margin_top + plot_h + 18}" fill="#64748b" font-size="9" '
+                f'text-anchor="middle" font-family="sans-serif">{x_val:>+3.1f} ft</text>'
+            )
+
+        for z_val in (5.0, 5.5, 6.0, 6.5, 7.0):
+            _, sy = to_screen(0.0, z_val)
+            svg_parts.append(
+                f'<line x1="{margin_left}" y1="{sy:.1f}" x2="{margin_left + plot_w}" y2="{sy:.1f}" '
+                f'stroke="#1e293b" stroke-width="0.8" />'
+            )
+            svg_parts.append(
+                f'<text x="{margin_left - 8}" y="{sy + 3:.1f}" fill="#64748b" font-size="9" '
+                f'text-anchor="end" font-family="sans-serif">{z_val:.1f} ft</text>'
+            )
+
+        # Render Pitches (Centroid + 1-sigma Ellipse)
+        for p in profile.pitches:
+            px, py = to_screen(p.rel_x_ft, p.rel_z_ft)
+
+            # Ellipse radii in screen pixels (std_in / 12 -> ft -> pixels)
+            erx = ((p.std_x_in / 12.0) / (x_max - x_min)) * plot_w
+            ery = ((p.std_z_in / 12.0) / (z_max - z_min)) * plot_h
+
+            # Confidence ellipse
+            svg_parts.append(
+                f'<ellipse cx="{px:.1f}" cy="{py:.1f}" rx="{erx:.1f}" ry="{ery:.1f}" '
+                f'fill="{p.color_hex}" fill-opacity="0.25" stroke="{p.color_hex}" '
+                f'stroke-width="1.5" stroke-dasharray="2,2" />'
+            )
+
+            # Centroid point
+            svg_parts.append(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="5.0" fill="{p.color_hex}" '
+                f'stroke="#ffffff" stroke-width="1.2" />'
+            )
+
+            # Label
+            svg_parts.append(
+                f'<text x="{px + 8.0:.1f}" y="{py - 6.0:.1f}" fill="{p.color_hex}" font-size="10" '
+                f'font-weight="bold" font-family="sans-serif">{p.pitch_type}</text>'
+            )
+
+        # Legend
+        svg_parts.append(
+            f'<text x="{self.width / 2}" y="{self.height - 18}" fill="#94a3b8" font-size="9" '
+            f'text-anchor="middle" font-family="sans-serif">Release X vs Z (1-sigma)</text>'
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.RELEASE_WINDOW_BOX,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -1933,6 +2066,15 @@ def health_check() -> list[Check]:
             BatterSprayElevationRoseProfile("Rose", "Ohtani", rose_sectors)
         )
 
+        box_renderer = ReleaseWindowBoxRenderer()
+        box_pitches = [
+            PitchReleasePoint("FF", -2.15, 5.85, 1.4, 1.2, "#3b82f6"),
+            PitchReleasePoint("SL", -2.20, 5.80, 1.5, 1.3, "#ec4899"),
+        ]
+        box_chart = box_renderer.render(
+            PitcherReleaseWindowProfile("Release Box", "Skenes", box_pitches)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -1950,6 +2092,7 @@ def health_check() -> list[Check]:
             and "<svg" in clk_chart.svg_content
             and "<svg" in sep_chart.svg_content
             and "<svg" in rose_chart.svg_content
+            and "<svg" in box_chart.svg_content
         ):
             checks.append(
                 Check(

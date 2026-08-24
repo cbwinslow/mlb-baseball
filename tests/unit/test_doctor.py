@@ -33,3 +33,13 @@ def test_portfolio_health_check():
     assert len(checks) == 1
     assert checks[0].ok is True
     assert "kelly allocator" in checks[0].name
+
+
+def test_wpa_health_check():
+    """Verify wpa engine health check returns clean pass."""
+    from mlb_baseball.model import wpa
+
+    checks = wpa.health_check()
+    assert len(checks) == 1
+    assert checks[0].ok is True
+    assert "wpa engine" in checks[0].name

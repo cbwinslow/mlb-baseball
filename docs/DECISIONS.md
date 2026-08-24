@@ -2,6 +2,18 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-115: 288-State Analytical Win Expectancy (WE), WPA, and Leverage Index Engine (`MATH-01`, Package 27)
+
+**Decision:** Created closed-form analytical Win Expectancy (WE), Win Probability Added (WPA), and Leverage Index (LI) calculation engine in `mlb_baseball/model/wpa.py` and CLI subcommand `mlb wpa`.
+- **Mathematical Formulations & Methodology**:
+  - Discrete State Representation: 288 base-out-inning-score game states (`InGameSituation` dataclass).
+  - Analytical Win Expectancy: Models logistic absorption over remaining half-innings with RE24 base/out adjustments and home field advantage ($HFA = +3.5\%$).
+  - Win Probability Added: Computes exact delta $	ext{WPA} = WE(S_{t+1}) - WE(S_t)$ for home and away teams ($	ext{WPA}_{	ext{home}} + 	ext{WPA}_{	ext{away}} = 0.000$).
+  - Leverage Index: Normalizes situational win probability swing against baseline inning leverage factors (`INNING_LEVERAGE_WEIGHTS`).
+  - Terminal Regulation Bounds: Strictly enforces walk-off victories ($WE = 1.000$) and 3rd-out regulation game endings ($WE = 0.000$).
+  - CLI: `mlb wpa --inning 9 --bottom --outs 2 --on1 --on2 --on3 --home-score 4 --away-score 5`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_wpa.py` passing.
+
 ## ADR-114: Comprehensive Operational Health Verification for Serving & Modeling (`DOCTOR-01`, Package 26)
 
 **Decision:** Integrated health checks for `serve`, `simulate`, `props`, `season`, and `portfolio` modules into `mlb_baseball/doctor.py`, accessible via the unified `mlb doctor` CLI command and unit tested in `tests/unit/test_doctor.py`.

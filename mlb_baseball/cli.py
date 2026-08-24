@@ -526,6 +526,20 @@ def main(argv: list[str] | None = None) -> None:
         "--watch", action="store_true", help="refresh continuously until Ctrl-C"
     )
 
+    # Win Expectancy and WPA calculator (MATH-01)
+    wpa_parser = subparsers.add_parser(
+        "wpa", help="calculate in-game Win Expectancy and Leverage Index for any game state"
+    )
+    wpa_parser.add_argument("--inning", type=int, default=1, help="current inning (1..15)")
+    wpa_parser.add_argument("--bottom", action="store_true", help="bottom half of inning")
+    wpa_parser.add_argument("--outs", type=int, choices=[0, 1, 2], default=0, help="current outs")
+    wpa_parser.add_argument("--on1", action="store_true", help="runner on 1st base")
+    wpa_parser.add_argument("--on2", action="store_true", help="runner on 2nd base")
+    wpa_parser.add_argument("--on3", action="store_true", help="runner on 3rd base")
+    wpa_parser.add_argument("--home-score", type=int, default=0, help="home team score")
+    wpa_parser.add_argument("--away-score", type=int, default=0, help="away team score")
+    wpa_parser.add_argument("--json", action="store_true", help="output result as JSON")
+
     # Kelly Criterion portfolio allocator (PORT-01)
     kelly_parser = subparsers.add_parser(
         "kelly", help="calculate optimal Kelly Criterion portfolio allocation for +EV markets"
@@ -1062,6 +1076,71 @@ def main(argv: list[str] | None = None) -> None:
                 )
         else:
             print("Please provide --game-pk or --pitcher-k. Use mlb props --help for options.")
+    elif args.command == "wpa":
+        import json as json_lib
+
+        from mlb_baseball.model.wpa import InGameSituation, WinExpectancyEngine
+
+        engine = WinExpectancyEngine()
+        situation = InGameSituation(
+            inning=args.inning,
+            is_bottom_half=args.bottom,
+            outs=args.outs,
+            on1=args.on1,
+            on2=args.on2,
+            on3=args.on3,
+            home_score=args.home_score,
+            away_score=args.away_score,
+        )
+        we_home = engine.calculate_win_expectancy(situation)
+        we_away = 1.0 - we_home
+
+        # Compute leverage index against an out transition
+        hypo_out = InGameSituation(
+            inning=args.inning,
+            is_bottom_half=args.bottom,
+            outs=min(2, args.outs + 1),
+            on1=args.on1,
+            on2=args.on2,
+            on3=args.on3,
+            home_score=args.home_score,
+            away_score=args.away_score,
+        )
+        wpa_res = engine.evaluate_play_transition(situation, hypo_out)
+
+        runners_desc = (
+            ("1st " if args.on1 else "")
+            + ("2nd " if args.on2 else "")
+            + ("3rd" if args.on3 else "")
+        ).strip() or "Empty"
+
+        half_str = "Bot" if args.bottom else "Top"
+
+        if args.json:
+            out_dict = {
+                "inning": args.inning,
+                "half": half_str,
+                "outs": args.outs,
+                "runners": runners_desc,
+                "home_score": args.home_score,
+                "away_score": args.away_score,
+                "home_win_expectancy": round(we_home, 4),
+                "away_win_expectancy": round(we_away, 4),
+                "leverage_index": wpa_res.leverage_index,
+            }
+            print(json_lib.dumps(out_dict, indent=2))
+        else:
+            print("\n=== WIN EXPECTANCY & LEVERAGE INDEX ===")
+            print(
+                f"Situation: {half_str} {args.inning} | {args.outs} out | Runners: {runners_desc}"
+            )
+            print(
+                f"Score: Away {args.away_score} - Home {args.home_score} "
+                f"(Margin: {situation.score_margin:+d})"
+            )
+            print(f"Home Win Expectancy: {we_home * 100:.1f}%")
+            print(f"Away Win Expectancy: {we_away * 100:.1f}%")
+            print(f"Leverage Index (LI):  {wpa_res.leverage_index:.2f}x (Normal = 1.0x)\n")
     elif args.command == "kelly":
         import json as json_lib
 

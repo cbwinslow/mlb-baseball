@@ -267,10 +267,13 @@ def run() -> list[Check]:
         calibration,
         cluster,
         count,
+        decision,
         drift,
         entropy,
+        extension,
         heatmap,
         hedge,
+        leverage,
         neural,
         parlay,
         portfolio,
@@ -286,6 +289,7 @@ def run() -> list[Check]:
         stuff,
         sub,
         travel,
+        tunnel,
         umpire,
         weather,
         wpa,
@@ -405,6 +409,22 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(decision.health_check())
+    except Exception as exc:
+        checks.append(Check("decision", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(tunnel.health_check())
+    except Exception as exc:
+        checks.append(Check("tunnel", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(extension.health_check())
+    except Exception as exc:
+        checks.append(Check("extension", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(leverage.health_check())
+    except Exception as exc:
+        checks.append(Check("leverage", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(ssw.health_check())
     except Exception as exc:

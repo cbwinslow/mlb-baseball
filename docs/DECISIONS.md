@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-154: Bullpen High-Leverage Win Probability Preservation & Volatility Engine (`LEV-01`, Package 66)
+
+**Decision:** Built high-leverage reliever evaluation and closer blown-save volatility index modeling in `mlb_baseball/model/leverage.py` and CLI subcommand `mlb leverage`.
+- **Mathematical Formulations & Methodology**:
+  - Volatility Index: $\sigma_{\text{closer}} = \left(\frac{\text{BB\%} \cdot 2.2 + \text{HR/9} \cdot 0.08}{\max(0.10, \text{K\%}) \cdot 1.5}\right) \times 50.0$.
+  - 1-Run 9th Inning Save Conversion: $\text{Save\%} = 96.0 - (\sigma_{\text{closer}} \times 0.20)$.
+  - Tiers: `LOCKDOWN_ELITE` ($\sigma \le 35, \text{Save\%} \ge 90\%$), `SOLID`, `CARDIAC_HIGH_VOLATILITY` ($\sigma \ge 60$).
+  - CLI: `mlb leverage --k-pct 0.34 --bb-pct 0.06 --hr9 0.65`, `mlb leverage --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_leverage.py` passing; 582/582 full repository unit tests passing.
+
+## ADR-153: Pitcher Physical Extension & Effective Perceived Velocity (`EXT-01`, Package 65)
+
+**Decision:** Built physical stride extension kinematics and effective velocity modeling in `mlb_baseball/model/extension.py` and CLI subcommand `mlb extension`.
+- **Mathematical Formulations & Methodology**:
+  - Time-to-Plate Reaction: $t_{\text{plate}} = \frac{60.5 - d_{\text{ext}} - 1.4}{v_0 \cdot 1.4667 \times 0.955}\text{ seconds}$.
+  - Effective Perceived Velocity: $v_{\text{eff}} = v_0 + (d_{\text{ext}} - 6.0\text{ ft}) \times 1.25\text{ mph/ft}$.
+  - Tiers: `ELITE_LONG` ($\ge 7.0\text{ ft}$), `AVERAGE`, `SHORT_COMPACT` ($\le 5.7\text{ ft}$).
+  - CLI: `mlb extension --velo 95.0 --ext 7.2`, `mlb extension --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_extension.py` passing; 582/582 full repository unit tests passing.
+
+## ADR-152: Pitcher Arsenals Tunneling & Point-of-Commitment Trajectory Separation (`TUNNEL-01`, Package 64)
+
+**Decision:** Built pitch trajectory overlap, 3D release point consistency, and Point-of-Commitment (POC) separation modeling in `mlb_baseball/model/tunnel.py` and CLI subcommand `mlb tunnel`.
+- **Mathematical Formulations & Methodology**:
+  - Release Distance: $\Delta \mathbf{r}_{\text{rel}} = \sqrt{\Delta x_{\text{rel}}^2 + \Delta z_{\text{rel}}^2} \times 12.0\text{ in}$.
+  - Point-of-Commitment Separation: Evaluates 3D coordinates at $y = 23.8\text{ ft}$ ($175\text{ms}$ before home plate).
+  - Whiff Multiplier: Tightly tunneled pairs ($\text{POC Dist} \le 8.5\text{ in}, \text{Plate Split} \ge 16.0\text{ in}$) yield up to $+5.0\%$ whiff boost.
+  - CLI: `mlb tunnel --ff-velo 96.0 --sl-velo 86.0 --ff-ivb 17.0 --sl-ivb 2.0`, `mlb tunnel --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_tunnel.py` passing; 582/582 full repository unit tests passing.
+
+## ADR-151: Batter Eye Tracking & Plate Discipline Swing Decision Engine (`DECISION-01`, Package 63)
+
+**Decision:** Built Statcast 4-zone swing decision value modeling and hitter archetype classification in `mlb_baseball/model/decision.py` and CLI subcommand `mlb decision`.
+- **Mathematical Formulations & Methodology**:
+  - Swing Decision Value: $\text{SDV} = \text{RV}_{\text{Heart}} + \text{RV}_{\text{Shadow}} + \text{RV}_{\text{Chase}} + \text{RV}_{\text{Waste}}$ per 100 pitches.
+  - Hitter Archetypes: `DISCIPLINED_SLUGGER` (High heart, low chase), `PASSIVE_WALKER` (Low chase, low heart), `FREE_SWINGER`, `VULNERABLE_CHASER` ($\text{Chase\%} \ge 35\%$).
+  - CLI: `mlb decision --heart-swing 0.78 --chase-swing 0.18`, `mlb decision --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_decision.py` passing; 582/582 full repository unit tests passing.
+
 ## ADR-150: Interactive REST/JSON Query API Gateway & Endpoint Handler (`API-01`, Package 62)
 
 **Decision:** Built lightweight, zero-dependency standard library REST API router in `mlb_baseball/api.py` and CLI subcommand `mlb serve-api`.

@@ -60,7 +60,11 @@ This document serves as the academic and theoretical reference manual for the ML
 34. [Catcher Blocking & Passed Ball Run Prevention](#34-catcher-blocking--passed-ball-run-prevention)
 35. [Circadian Travel & Doubleheader Fatigue Dynamics](#35-circadian-travel--doubleheader-fatigue-dynamics)
 36. [Standardized REST Query API Architecture](#36-standardized-rest-query-api-architecture)
-37. [Academic Bibliography & Literature Citations](#37-academic-bibliography--literature-citations)
+37. [Batter Eye Tracking & Swing Decision Value](#37-batter-eye-tracking--swing-decision-value)
+38. [Pitch Tunneling & Point-of-Commitment Trajectory Separation](#38-pitch-tunneling--point-of-commitment-trajectory-separation)
+39. [Pitcher Physical Extension & Effective Velocity Kinematics](#39-pitcher-physical-extension--effective-velocity-kinematics)
+40. [Bullpen High-Leverage Win Probability Preservation](#40-bullpen-high-leverage-win-probability-preservation)
+41. [Academic Bibliography & Literature Citations](#41-academic-bibliography--literature-citations)
 
 ---
 
@@ -538,7 +542,40 @@ $$\text{Pitcher FIP Penalty} = +\left(\frac{\text{Fatigue Score}}{100.0}\right) 
 
 ---
 
-## 37. Academic Bibliography & Literature Citations
+## 37. Batter Eye Tracking & Swing Decision Value
+
+### 37.1 Statcast 4-Zone Swing Decision Formulation
+$$\text{SDV} = \frac{\sum_{i=1}^N \text{RV}(\text{Decision}_i, \text{Zone}_i)}{N_{\text{pitches}}} \times 100$$
+- **Heart Zone:** $\text{RV} = (\text{Heart\%} - 0.72) \times 0.28 \times +0.22$
+- **Chase Zone:** $\text{RV} = (0.28 - \text{Chase\%}) \times 0.22 \times +0.28$
+
+---
+
+## 38. Pitch Tunneling & Point-of-Commitment Trajectory Separation
+
+### 38.1 Point-of-Commitment (POC) Separation (23.8 ft / 175ms)
+$$\Delta \mathbf{r}_{\text{poc}} = \sqrt{(x_{\text{poc}, A} - x_{\text{poc}, B})^2 + (z_{\text{poc}, A} - z_{\text{poc}, B})^2}$$
+$$\text{Whiff Multiplier} = +2.0\% + (\text{Tunneling Score} \times 0.035)$$
+
+---
+
+## 39. Pitcher Physical Extension & Effective Velocity Kinematics
+
+### 39.1 Time-to-Plate & Perceived Velocity
+$$t_{\text{plate}} = \frac{60.5 - d_{\text{ext}} - 1.4}{v_0 \cdot 1.4667 \times 0.955} \quad (\text{seconds})$$
+$$v_{\text{eff}} = v_0 + (d_{\text{ext}} - 6.0\text{ ft}) \times 1.25\text{ mph/ft}$$
+
+---
+
+## 40. Bullpen High-Leverage Win Probability Preservation
+
+### 40.1 Closer Blown-Save Volatility Index
+$$\sigma_{\text{closer}} = \left(\frac{\text{BB\%} \cdot 2.2 + \text{HR/9} \cdot 0.08}{\max(0.10, \text{K\%}) \cdot 1.5}\right) \times 50.0$$
+$$\text{Save Conversion Rate} = \min\left(98.0\%, \max\left(75.0\%, 96.0 - (\sigma_{\text{closer}} \times 0.20)\right)\right)$$
+
+---
+
+## 41. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -568,3 +605,5 @@ $$\text{Pitcher FIP Penalty} = +\left(\frac{\text{Fatigue Score}}{100.0}\right) 
 26. **Lichtman, Mitchel** (2009). "Aging Curves in Major League Baseball". *The Hardball Times*.
 27. **Smith, Barton** (2020). "Seam-Shifted Wake: An Introduction". *Utah State Experimental Fluid Dynamics Laboratory*.
 28. **Nathan, Alan M.; Smith, Barton** (2021). "The Physics of Seam-Shifted Wake in Baseball". *Baseball Prospectus*.
+29. **Husband, Perry** (2014). *Effective Velocity: The Science of Pitch Sequencing*.
+30. **Roegele, Jon** (2017). "The Hardball Times: Pitch Tunneling and Batter Perception".

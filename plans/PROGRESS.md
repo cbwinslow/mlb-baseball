@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### LEV-01 bullpen high-leverage win probability preservation & volatility engine: implemented (ADR-154) — 2026-08-24
+Added `mlb_baseball/model/leverage.py`, unit tests in `tests/unit/test_leverage.py`, and `mlb leverage` CLI command.
+- Quantifies closer blown-save volatility index, 1-run lead 9th-inning save conversion probability, and WPA/LI clutch efficiency.
+
+### EXT-01 pitcher physical extension & effective perceived velocity: implemented (ADR-153) — 2026-08-24
+Added `mlb_baseball/model/extension.py`, unit tests in `tests/unit/test_extension.py`, and `mlb extension` CLI command.
+- Translates physical mound stride distance into optical time-to-plate and perceived fastball reaction velocity.
+
+### TUNNEL-01 pitcher arsenals tunneling & Point-of-Commitment trajectory separation: implemented (ADR-152) — 2026-08-24
+Added `mlb_baseball/model/tunnel.py`, unit tests in `tests/unit/test_tunnel.py`, and `mlb tunnel` CLI command.
+- Evaluates 3D release point consistency, trajectory divergence at the 23.8ft decision plane, and late-break whiff multipliers.
+
+### DECISION-01 batter eye tracking & plate discipline swing decision engine: implemented (ADR-151) — 2026-08-24
+Added `mlb_baseball/model/decision.py`, unit tests in `tests/unit/test_decision.py`, and `mlb decision` CLI command.
+- Models 4-zone Statcast swing decision run value (SDV) and categorizes hitters into disciplined sluggers vs vulnerable chasers.
+
 ### API-01 interactive REST/JSON query API gateway & endpoint handler: implemented (ADR-150) — 2026-08-24
 Added `mlb_baseball/api.py`, unit tests in `tests/unit/test_api.py`, and `mlb serve-api` CLI command.
 - Standardized REST API endpoints for daily forecasts, doctor health diagnostics, vector SVG charts, and live hedging calculators.

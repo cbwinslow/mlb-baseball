@@ -867,6 +867,73 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter swing decisions and plate discipline (DECISION-01)
+    dec_parser = subparsers.add_parser(
+        "decision",
+        help="evaluate batter swing decisions and SDV (DECISION-01)",
+    )
+    dec_parser.add_argument(
+        "--heart-swing", type=float, default=0.78, help="heart zone swing pct (default: 0.78)"
+    )
+    dec_parser.add_argument(
+        "--shadow-swing", type=float, default=0.50, help="shadow zone swing pct (default: 0.50)"
+    )
+    dec_parser.add_argument(
+        "--chase-swing", type=float, default=0.18, help="chase zone swing pct (default: 0.18)"
+    )
+    dec_parser.add_argument(
+        "--waste-swing", type=float, default=0.05, help="waste zone swing pct (default: 0.05)"
+    )
+    dec_parser.add_argument("--json", action="store_true", help="output decision result as JSON")
+
+    # Pitcher arsenals tunneling (TUNNEL-01)
+    tun_parser = subparsers.add_parser(
+        "tunnel",
+        help="evaluate pitch pair tunneling and POC separation (TUNNEL-01)",
+    )
+    tun_parser.add_argument(
+        "--ff-velo", type=float, default=96.0, help="fastball velo mph (default: 96.0)"
+    )
+    tun_parser.add_argument(
+        "--sl-velo", type=float, default=86.0, help="slider velo mph (default: 86.0)"
+    )
+    tun_parser.add_argument(
+        "--ff-ivb", type=float, default=17.0, help="fastball IVB in (default: 17.0)"
+    )
+    tun_parser.add_argument(
+        "--sl-ivb", type=float, default=2.0, help="slider IVB in (default: 2.0)"
+    )
+    tun_parser.add_argument(
+        "--ff-hb", type=float, default=10.0, help="fastball HB in (default: 10.0)"
+    )
+    tun_parser.add_argument(
+        "--sl-hb", type=float, default=-8.0, help="slider HB in (default: -8.0)"
+    )
+    tun_parser.add_argument("--json", action="store_true", help="output tunneling result as JSON")
+
+    # Pitcher physical extension and effective velocity (EXT-01)
+    ext_parser = subparsers.add_parser(
+        "extension",
+        help="evaluate pitcher extension and effective velocity (EXT-01)",
+    )
+    ext_parser.add_argument(
+        "--velo", type=float, default=95.0, help="radar velocity mph (default: 95.0)"
+    )
+    ext_parser.add_argument("--ext", type=float, default=7.2, help="extension feet (default: 7.2)")
+    ext_parser.add_argument("--json", action="store_true", help="output extension result as JSON")
+
+    # Bullpen leverage and closer volatility (LEV-01)
+    lev_parser = subparsers.add_parser(
+        "leverage",
+        help="evaluate closer blown-save volatility index (LEV-01)",
+    )
+    lev_parser.add_argument(
+        "--k-pct", type=float, default=0.34, help="strikeout pct (default: 0.34)"
+    )
+    lev_parser.add_argument("--bb-pct", type=float, default=0.06, help="walk pct (default: 0.06)")
+    lev_parser.add_argument("--hr9", type=float, default=0.65, help="HR per 9 (default: 0.65)")
+    lev_parser.add_argument("--json", action="store_true", help="output leverage result as JSON")
+
     # Seam-shifted wake aerodynamics (SSW-01)
     ssw_parser = subparsers.add_parser(
         "ssw",
@@ -2883,6 +2950,172 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "decision":
+        import json as json_lib
+
+        from mlb_baseball.model.decision import (
+            BatterSwingDecisionEngine,
+            BatterZoneRates,
+        )
+
+        dec_eng = BatterSwingDecisionEngine()
+        rates = BatterZoneRates(
+            "b1",
+            "Target Batter",
+            heart_swing_pct=args.heart_swing,
+            shadow_swing_pct=args.shadow_swing,
+            chase_swing_pct=args.chase_swing,
+            waste_swing_pct=args.waste_swing,
+        )
+        dec_res = dec_eng.evaluate_batter_discipline(rates)
+
+        if args.json:
+            dec_out = {
+                "archetype": dec_res.archetype.value,
+                "discipline_grade": dec_res.discipline_grade,
+                "sdv_per_100": dec_res.swing_decision_val_per_100,
+                "season_run_value": dec_res.season_run_value_added,
+            }
+            print(json_lib.dumps(dec_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     BATTER SWING DECISIONS [{dec_res.discipline_grade}]")
+            hdr_dec = (
+                f"     SDV: {dec_res.swing_decision_val_per_100:+.2f} runs/100 pitches "
+                f"| Season Added: {dec_res.season_run_value_added:+.1f} runs"
+            )
+            print(hdr_dec)
+            print(f"{'=' * 84}\n")
+            print(f"  • Heart Zone Swing     : {args.heart_swing * 100:.1f}%")
+            print(f"  • Chase Zone Swing     : {args.chase_swing * 100:.1f}%")
+            print(f"  • Net Run Impact       : {dec_res.season_run_value_added:+.1f} runs/season\n")
+
+    elif args.command == "tunnel":
+        import json as json_lib
+
+        from mlb_baseball.model.tunnel import (
+            PitchFlightVector,
+            PitchTunnelingEngine,
+        )
+
+        tun_eng = PitchTunnelingEngine()
+        ff_p = PitchFlightVector(
+            "FF",
+            velocity_mph=args.ff_velo,
+            release_x_ft=-2.1,
+            release_z_ft=6.0,
+            ivb_in=args.ff_ivb,
+            hb_in=args.ff_hb,
+        )
+        sl_p = PitchFlightVector(
+            "SL",
+            velocity_mph=args.sl_velo,
+            release_x_ft=-2.1,
+            release_z_ft=6.0,
+            ivb_in=args.sl_ivb,
+            hb_in=args.sl_hb,
+        )
+        tun_res = tun_eng.evaluate_tunnel_pair(ff_p, sl_p)
+
+        if args.json:
+            tun_out = {
+                "pair": tun_res.pitch_pair_label,
+                "release_dist": tun_res.release_distance_in,
+                "poc_separation": tun_res.tunnel_distance_at_poc_in,
+                "plate_separation": tun_res.plate_break_separation_in,
+                "tunnel_score": tun_res.tunneling_quality_score,
+                "whiff_boost": tun_res.whiff_boost_pct,
+                "is_elite": tun_res.is_elite_tunnel,
+            }
+            print(json_lib.dumps(tun_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            tun_tag = "ELITE TUNNEL" if tun_res.is_elite_tunnel else "STANDARD"
+            print(f"     PITCH ARSENAL TUNNELING [{tun_tag}]")
+            hdr_tun = (
+                f"     Pair: {tun_res.pitch_pair_label} "
+                f"| POC Dist: {tun_res.tunnel_distance_at_poc_in:.1f}in "
+                f"| Plate: {tun_res.plate_break_separation_in:.1f}in"
+            )
+            print(hdr_tun)
+            print(f"{'=' * 84}\n")
+            print(f"  • POC Separation (23.8ft): {tun_res.tunnel_distance_at_poc_in:.1f} in")
+            print(f"  • Plate Break Split     : {tun_res.plate_break_separation_in:.1f} in")
+            print(f"  • Whiff Boost Multiplier : +{tun_res.whiff_boost_pct:.1f}%\n")
+
+    elif args.command == "extension":
+        import json as json_lib
+
+        from mlb_baseball.model.extension import (
+            PitcherExtensionEngine,
+            PitcherExtensionProfile,
+        )
+
+        ext_eng = PitcherExtensionEngine()
+        ext_prof = PitcherExtensionProfile(
+            "p1", "Target Pitcher", release_extension_ft=args.ext, radar_velocity_mph=args.velo
+        )
+        ext_res = ext_eng.evaluate_effective_velocity(ext_prof)
+
+        if args.json:
+            ext_out = {
+                "extension_ft": ext_res.release_extension_ft,
+                "radar_velo": ext_res.radar_velocity_mph,
+                "perceived_velo": ext_res.perceived_velocity_mph,
+                "velo_delta": ext_res.velocity_delta_mph,
+                "time_to_plate_ms": ext_res.time_to_plate_ms,
+                "tier": ext_res.extension_tier,
+            }
+            print(json_lib.dumps(ext_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PITCHER EXTENSION & EFFECTIVE VELOCITY [{ext_res.extension_tier}]")
+            hdr_ext = (
+                f"     Radar: {ext_res.radar_velocity_mph:.1f}mph "
+                f"-> Perceived: {ext_res.perceived_velocity_mph:.1f}mph "
+                f"({ext_res.velocity_delta_mph:+.2f}mph)"
+            )
+            print(hdr_ext)
+            print(f"{'=' * 84}\n")
+            print(f"  • Physical Extension   : {ext_res.release_extension_ft:.1f} ft")
+            print(f"  • Time-to-Plate        : {ext_res.time_to_plate_ms:.1f} ms")
+            print(f"  • Perceived Velocity   : {ext_res.perceived_velocity_mph:.1f} mph\n")
+
+    elif args.command == "leverage":
+        import json as json_lib
+
+        from mlb_baseball.model.leverage import (
+            BullpenLeverageEngine,
+            RelieverLeverageProfile,
+        )
+
+        lev_eng = BullpenLeverageEngine()
+        lev_prof = RelieverLeverageProfile(
+            "r1", "Target Reliever", k_pct=args.k_pct, bb_pct=args.bb_pct, hr_per_9=args.hr9
+        )
+        lev_res = lev_eng.evaluate_closer_reliability(lev_prof)
+
+        if args.json:
+            lev_out = {
+                "tier": lev_res.closer_tier,
+                "volatility_index": lev_res.volatility_index,
+                "save_conversion_pct": lev_res.expected_save_conversion_pct,
+                "is_lockdown": lev_res.is_lockdown_closer,
+            }
+            print(json_lib.dumps(lev_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     CLOSER VOLATILITY & LEVERAGE [{lev_res.closer_tier}]")
+            hdr_lev = (
+                f"     Volatility: {lev_res.volatility_index:.1f}/100 "
+                f"| Save Conversion: {lev_res.expected_save_conversion_pct:.1f}%"
+            )
+            print(hdr_lev)
+            print(f"{'=' * 84}\n")
+            print(f"  • Strikeout Rate       : {args.k_pct * 100:.1f}%")
+            print(f"  • Walk Rate            : {args.bb_pct * 100:.1f}%")
+            print(f"  • Blown Save Volatility: {lev_res.volatility_index:.1f}/100\n")
 
     elif args.command == "ssw":
         import json as json_lib

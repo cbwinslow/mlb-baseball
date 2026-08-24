@@ -200,3 +200,13 @@ def test_ssw_and_blocking_and_travel_and_api_health_checks():
     assert blocking.health_check()[0].ok is True
     assert travel.health_check()[0].ok is True
     assert api.health_check()[0].ok is True
+
+
+def test_decision_and_tunnel_and_extension_and_leverage_health_checks():
+    """Verify health checks for decision, tunnel, extension, and leverage modules."""
+    from mlb_baseball.model import decision, extension, leverage, tunnel
+
+    assert decision.health_check()[0].ok is True
+    assert tunnel.health_check()[0].ok is True
+    assert extension.health_check()[0].ok is True
+    assert leverage.health_check()[0].ok is True

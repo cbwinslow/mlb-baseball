@@ -426,3 +426,27 @@ def test_release_window_box_svg_generation():
     assert "Skenes Release Box" in chart.svg_content
     assert "ellipse" in chart.svg_content
     assert "circle" in chart.svg_content
+
+
+def test_attack_zone_9x9_grid_svg_generation():
+    """Verify AttackZone9x9GridRenderer generates 9x9 fine-grained grid cells and boundaries."""
+    from mlb_baseball.visual import (
+        AttackZone9x9Cell,
+        AttackZone9x9GridRenderer,
+        BatterAttackZone9x9Profile,
+    )
+
+    renderer = AttackZone9x9GridRenderer()
+    cells = [
+        AttackZone9x9Cell(row=r, col=c, swing_pct=48.0, woba_value=0.360, whiff_pct=16.0)
+        for r in range(9)
+        for c in range(9)
+    ]
+    prof = BatterAttackZone9x9Profile("Soto 9x9 Attack Zone", "Juan Soto", "wOBA", cells)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 480
+    assert chart.height_px == 480
+    assert "<svg" in chart.svg_content
+    assert "Soto 9x9 Attack Zone" in chart.svg_content
+    assert "rect" in chart.svg_content

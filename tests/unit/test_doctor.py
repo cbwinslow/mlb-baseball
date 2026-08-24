@@ -336,3 +336,12 @@ def test_rel_drift_and_exp_resist_and_catch_xchg_health_checks():
     assert rel_drift.health_check()[0].ok is True
     assert exp_resist.health_check()[0].ok is True
     assert catch_xchg.health_check()[0].ok is True
+
+
+def test_pull_barrel_and_putaway_exec_and_route_burst_health_checks():
+    """Verify health checks for pull_barrel, putaway_exec, and route_burst modules."""
+    from mlb_baseball.model import pull_barrel, putaway_exec, route_burst
+
+    assert pull_barrel.health_check()[0].ok is True
+    assert putaway_exec.health_check()[0].ok is True
+    assert route_burst.health_check()[0].ok is True

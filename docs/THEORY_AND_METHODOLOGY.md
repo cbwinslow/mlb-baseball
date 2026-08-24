@@ -120,7 +120,11 @@ This document serves as the academic and theoretical reference manual for the ML
 94. [Batter Two-Strike Expansion Resistance & Out-of-Zone Spoil Dynamics](#94-batter-two-strike-expansion-resistance--out-of-zone-spoil-dynamics)
 95. [Catcher Quick Exchange & Pop Time Decomposition Mechanics](#95-catcher-quick-exchange--pop-time-decomposition-mechanics)
 96. [Pure-Python SVG Release Window Scatter Box Architecture](#96-pure-python-svg-release-window-scatter-box-architecture)
-97. [Academic Bibliography & Literature Citations](#97-academic-bibliography--literature-citations)
+97. [Batter Pull-Air Barrel Conversion & True Power Optimization](#97-batter-pull-air-barrel-conversion--true-power-optimization)
+98. [Pitcher Two-Strike Putaway Intent & Out-of-Zone Execution](#98-pitcher-two-strike-putaway-intent--out-of-zone-execution)
+99. [Outfielder First-Step Reaction & Burst Route Efficiency](#99-outfielder-first-step-reaction--burst-route-efficiency)
+100. [Pure-Python SVG Batter 3D Attack Zone 9x9 Hot/Cold Matrix](#100-pure-python-svg-batter-3d-attack-zone-9x9-hotcold-matrix)
+101. [Academic Bibliography & Literature Citations](#101-academic-bibliography--literature-citations)
 
 ---
 
@@ -1075,7 +1079,38 @@ $$R_{x, \text{screen}} = \left(\frac{\sigma_{\text{rel}, x} / 12}{X_{\max} - X_{
 
 ---
 
-## 97. Academic Bibliography & Literature Citations
+## 97. Batter Pull-Air Barrel Conversion & True Power Optimization
+
+### 97.1 Pull-Air Barrel Conversion Index (PABCI)
+$$\text{PABCI} = \max\left(0, 100 + (\text{PullFB\%} - 28.0) \cdot 2.8 + (\text{PullBarrel\%} - 22.0) \cdot 2.4 + (\text{PullBarrel\%} - \text{OppoBarrel\%} - 10.0) \cdot 0.8\right)$$
+$$\Delta \text{HR}_{\text{pull}} = (\text{PullFB\%} - 28.0\%) \cdot N_{\text{Air}} \cdot 0.28\text{ HRs}, \quad \text{PABSV}_{\text{runs}} = \Delta \text{HR}_{\text{pull}} \cdot 1.40\text{ runs}$$
+
+---
+
+## 98. Pitcher Two-Strike Putaway Intent & Out-of-Zone Execution
+
+### 98.1 Two-Strike Putaway Execution Rating (TSPER)
+$$\text{TSPER} = \max\left(0, 100 + (\text{WhiffIntent\%} - 66.0) \cdot 2.4 - (\text{Heart\%} - 20.0) \cdot 3.2 - \max(0, \text{Waste\%} - 14.0) \cdot 1.5\right)$$
+$$\text{PTSV}_{\text{runs}} = (\text{TSPER} - 100.0) \cdot (\text{Pitches}_{2\text{S}} \cdot 0.0028)$$
+
+---
+
+## 99. Outfielder First-Step Reaction & Burst Route Efficiency
+
+### 99.1 Statcast Outfield Jump Decomposition & BRFEI
+$$\text{BRFEI} = \max\left(0, 100 + (0.45 - t_{\text{react}}) \cdot 120 + (v_{\text{burst}} - 26.5) \cdot 4.5 + (\eta_{\text{route}} - 92.0) \cdot 1.8\right)$$
+$$\text{OAA}_{\text{jump}} = (\text{BRFEI} - 100.0) \cdot (\text{Opps} \cdot 0.0018)\text{ runs}$$
+
+---
+
+## 100. Pure-Python SVG Batter 3D Attack Zone 9x9 Hot/Cold Matrix
+
+### 100.1 9x9 Sub-Zone Heat Grid Geometry
+$$\text{Cell}_{r, c} \in \{\text{Waste, Chase, Shadow, Heart}\}, \quad \text{Color}(\text{wOBA}) = \text{Colormap}(\text{wOBA}_{\text{cell}})$$
+
+---
+
+## 101. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1135,3 +1170,5 @@ $$R_{x, \text{screen}} = \left(\frac{\sigma_{\text{rel}, x} / 12}{X_{\max} - X_{
 56. **Bannister, Brian** (2018). "The Physics and Visual Perception of Flat Vertical Approach Angle". *Pitching Design Insights*.
 57. **Carleton, Russell A.** (2015). "Release Point Consistency and Pitcher Fatigue". *Baseball Prospectus*.
 58. **Appelman, David** (2019). "Deconstructing Catcher Pop Time: Transfer vs Arm Strength". *FanGraphs Sabermetric Library*.
+59. **Tango, Tom** (2018). "Statcast Outfield Jump Decomposition: Reaction, Burst, and Route". *MLB Advanced Media*.
+60. **Albert, Jim** (2017). "Exploring the Value of Pulling Flyballs in the Statcast Era". *Journal of Quantitative Analysis in Sports*.

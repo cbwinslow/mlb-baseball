@@ -304,11 +304,14 @@ def run() -> list[Check]:
         portfolio,
         props,
         pull_air,
+        pull_barrel,
         pull_gb,
         putaway,
+        putaway_exec,
         rel_drift,
         reliever,
         ros,
+        route_burst,
         season,
         shift,
         shop,
@@ -451,6 +454,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(pull_barrel.health_check())
+    except Exception as exc:
+        checks.append(Check("pull_barrel", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(putaway_exec.health_check())
+    except Exception as exc:
+        checks.append(Check("putaway_exec", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(route_burst.health_check())
+    except Exception as exc:
+        checks.append(Check("route_burst", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(rel_drift.health_check())
     except Exception as exc:

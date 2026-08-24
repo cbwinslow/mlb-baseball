@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-214: Pure-Python SVG Batter 3D Attack Zone 9x9 Hot/Cold Swing Matrix (`ATTACK-9X9-01`, Package 126)
+
+**Decision:** Built 9x9 fine-grained strike zone grid vector SVG heatmap visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb attack-9x9`.
+- **Operational Architecture & Geometry**:
+  - 9x9 Heat Matrix: Maps 81 cells across Waste (outer ring), Chase, Shadow (borderline perimeter), and Heart (3x3 core).
+  - Zone Boundaries: Delineates solid white border around 5x5 rule strike zone and dashed grey border around 3x3 heart core.
+  - CLI: `mlb attack-9x9 --title "Juan Soto 9x9 Attack Zone" --batter "Juan Soto" --mode wOBA`.
+- **Verification**: 19/19 unit tests in `tests/unit/test_visual.py` passing; 747/747 full repository unit tests passing.
+
+## ADR-213: Outfielder First-Step Reaction & Burst Route Efficiency Engine (`ROUTE-BURST-01`, Package 125)
+
+**Decision:** Built Statcast outfield jump decomposition (Reaction + Burst + Route Efficiency) in `mlb_baseball/model/route_burst.py` and CLI subcommand `mlb route-burst`.
+- **Mathematical Formulations & Methodology**:
+  - Burst-Route Fielding Efficiency Index: $\text{BRFEI} = \max\left(0, 100 + (0.45 - t_{\text{react}}) \cdot 120 + (v_{\text{burst}} - 26.5) \cdot 4.5 + (\eta_{\text{route}} - 92.0) \cdot 1.8\right)$.
+  - OAA Jump Surplus Runs: $\text{OAA}_{\text{jump}} = (\text{BRFEI} - 100.0) \cdot (\text{Opps} \cdot 0.0018)\text{ runs}$.
+  - Tiers: `ELITE_BALLHAWK_BURST_ENGINE` ($\text{BRFEI} \ge 118.0, t_{\text{react}} \le 0.38\text{ s}, \eta_{\text{route}} \ge 95.0\%$), `RAW_SPEED_INEFFICIENT_ROUTER`, `SLOW_REACTION_RANGE_LIABILITY`, `AVERAGE_OUTFIELD_BURST`.
+  - CLI: `mlb route-burst --pos CF --react 0.34 --burst 29.0 --route 97.0 --opps 150`, `mlb route-burst --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_route_burst.py` passing; 747/747 full repository unit tests passing.
+
+## ADR-212: Pitcher Two-Strike Putaway Intent & Out-of-Zone Execution Engine (`PUTAWAY-EXEC-01`, Package 124)
+
+**Decision:** Built two-strike zone command, chase inducement, and putaway execution modeling in `mlb_baseball/model/putaway_exec.py` and CLI subcommand `mlb putaway-exec`.
+- **Mathematical Formulations & Methodology**:
+  - Two-Strike Putaway Execution Rating: $\text{TSPER} = \max\left(0, 100 + (\text{WhiffIntent\%} - 66.0) \cdot 2.4 - (\text{Heart\%} - 20.0) \cdot 3.2 - \max(0, \text{Waste\%} - 14.0) \cdot 1.5\right)$.
+  - Putaway Surplus Value: $\text{PTSV}_{\text{runs}} = (\text{TSPER} - 100.0) \cdot (\text{Pitches}_{2\text{S}} \cdot 0.0028)$.
+  - Tiers: `SURGICAL_TWO_STRIKE_SNIPER` ($\text{TSPER} \ge 118.0, \text{Heart\%} \le 15.0\%, \text{Chase\%} \ge 32.0\%$), `DANGEROUS_HEART_MISTAKE_PRONE`, `WASTE_PRONE_COUNT_EXTENDER`, `AVERAGE_PUTAWAY_EXECUTION`.
+  - CLI: `mlb putaway-exec --shadow 44.0 --chase 36.0 --heart 12.0 --waste 8.0 --pitches 400`, `mlb putaway-exec --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_putaway_exec.py` passing; 747/747 full repository unit tests passing.
+
+## ADR-211: Batter Pull-Air Barrel Conversion & True Power Optimization Engine (`PULL-BARREL-01`, Package 123)
+
+**Decision:** Built pulled flyball concentration, barrel conversion, and home run surplus modeling in `mlb_baseball/model/pull_barrel.py` and CLI subcommand `mlb pull-barrel`.
+- **Mathematical Formulations & Methodology**:
+  - Pull-Air Barrel Conversion Index: $\text{PABCI} = \max\left(0, 100 + (\text{PullFB\%} - 28.0) \cdot 2.8 + (\text{PullBarrel\%} - 22.0) \cdot 2.4 + (\text{PullBarrel\%} - \text{OppoBarrel\%} - 10.0) \cdot 0.8\right)$.
+  - Surplus Home Runs & Value: $\Delta \text{HR}_{\text{pull}} = (\text{PullFB\%} - 28.0\%) \cdot N_{\text{Air}} \cdot 0.28\text{ HRs}$, $\text{PABSV}_{\text{runs}} = \Delta \text{HR}_{\text{pull}} \cdot 1.40\text{ runs}$.
+  - Tiers: `OPTIMAL_PULL_AIR_POWER_CRUSHER` ($\text{PABCI} \ge 118.0, \text{PullFB} \ge 34.0\%, \text{PullBarrel} \ge 28.0\%$), `DEAD_CENTER_POWER_UNDERVALUED`, `HARMLESS_PULL_AIR_POPUP_RISK`, `AVERAGE_PULL_AIR_PROFILE`.
+  - CLI: `mlb pull-barrel --pull-fb 38.0 --pull-bar 34.0 --oppo-bar 10.0 --air-count 80 --bbe 260`, `mlb pull-barrel --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_pull_barrel.py` passing; 747/747 full repository unit tests passing.
+
 ## ADR-210: Pure-Python SVG Pitch Arsenal Release Window Scatter Box Visualizer (`RELEASE-BOX-01`, Package 122)
 
 **Decision:** Built multi-pitch Cartesian release point scatter box vector SVG visualizer with $1\sigma$ confidence ellipses in `mlb_baseball/visual.py` and CLI subcommand `mlb release-box`.

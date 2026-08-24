@@ -867,6 +867,85 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter pull-air barrel conversion (PULL-BARREL-01)
+    pbr_parser = subparsers.add_parser(
+        "pull-barrel",
+        help="evaluate batter pull-side flyball barrel conversion and true power (PULL-BARREL-01)",
+    )
+    pbr_parser.add_argument(
+        "--pull-fb", type=float, default=30.0, help="flyball pull pct (default: 30.0)"
+    )
+    pbr_parser.add_argument(
+        "--pull-bar", type=float, default=24.0, help="pull barrel pct (default: 24.0)"
+    )
+    pbr_parser.add_argument(
+        "--oppo-bar", type=float, default=12.0, help="oppo barrel pct (default: 12.0)"
+    )
+    pbr_parser.add_argument(
+        "--air-count", type=int, default=70, help="pulled air count (default: 70)"
+    )
+    pbr_parser.add_argument("--bbe", type=int, default=240, help="total BBE count (default: 240)")
+    pbr_parser.add_argument(
+        "--json", action="store_true", help="output pull barrel evaluation as JSON"
+    )
+
+    # Pitcher two-strike putaway execution (PUTAWAY-EXEC-01)
+    ptw_parser = subparsers.add_parser(
+        "putaway-exec",
+        help="evaluate pitcher 2-strike shadow/chase targeting and execution (PUTAWAY-EXEC-01)",
+    )
+    ptw_parser.add_argument(
+        "--shadow", type=float, default=38.0, help="shadow zone pct (default: 38.0)"
+    )
+    ptw_parser.add_argument(
+        "--chase", type=float, default=28.0, help="chase zone pct (default: 28.0)"
+    )
+    ptw_parser.add_argument(
+        "--heart", type=float, default=20.0, help="heart zone pct (default: 20.0)"
+    )
+    ptw_parser.add_argument(
+        "--waste", type=float, default=14.0, help="waste zone pct (default: 14.0)"
+    )
+    ptw_parser.add_argument(
+        "--pitches", type=int, default=300, help="2-strike pitches (default: 300)"
+    )
+    ptw_parser.add_argument("--json", action="store_true", help="output putaway execution as JSON")
+
+    # Outfielder reaction and burst route efficiency (ROUTE-BURST-01)
+    rbt_parser = subparsers.add_parser(
+        "route-burst",
+        help="evaluate outfielder reaction, burst velocity, and route (ROUTE-BURST-01)",
+    )
+    rbt_parser.add_argument("--pos", type=str, default="CF", help="fielding position (default: CF)")
+    rbt_parser.add_argument(
+        "--react", type=float, default=0.44, help="reaction time sec (default: 0.44)"
+    )
+    rbt_parser.add_argument(
+        "--burst", type=float, default=27.0, help="burst velocity ft/s (default: 27.0)"
+    )
+    rbt_parser.add_argument(
+        "--route", type=float, default=93.0, help="route efficiency pct (default: 93.0)"
+    )
+    rbt_parser.add_argument(
+        "--opps", type=int, default=120, help="opportunity count (default: 120)"
+    )
+    rbt_parser.add_argument(
+        "--json", action="store_true", help="output route burst evaluation as JSON"
+    )
+
+    # Batter 9x9 attack zone grid (ATTACK-9X9-01)
+    a9_parser = subparsers.add_parser(
+        "attack-9x9",
+        help="generate vector SVG 9x9 strike zone attack grid heatmap (ATTACK-9X9-01)",
+    )
+    a9_parser.add_argument(
+        "--title", type=str, default="Juan Soto 9x9 Attack Zone", help="chart title"
+    )
+    a9_parser.add_argument("--batter", type=str, default="Juan Soto", help="batter name")
+    a9_parser.add_argument(
+        "--mode", type=str, default="wOBA", help="metric mode wOBA/Swing/Whiff (default: wOBA)"
+    )
+
     # Pitcher release point drift & variance (REL-DRIFT-01)
     rdr_parser = subparsers.add_parser(
         "rel-drift",
@@ -3892,6 +3971,145 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "pull-barrel":
+        import json as json_lib
+
+        from mlb_baseball.model.pull_barrel import (
+            BatterPullBarrelEngine,
+            BatterPullBarrelMetrics,
+        )
+
+        pbr_eng = BatterPullBarrelEngine()
+        pbr_m = BatterPullBarrelMetrics(
+            "b1",
+            "Target Batter",
+            flyball_pull_pct=args.pull_fb,
+            pull_barrel_pct=args.pull_bar,
+            oppo_barrel_pct=args.oppo_bar,
+            pulled_air_count=args.air_count,
+            total_bbe_count=args.bbe,
+        )
+        pbr_res = pbr_eng.evaluate_pull_barrel(pbr_m)
+
+        if args.json:
+            pbr_out = {
+                "pabci_score": pbr_res.pabci_score,
+                "surplus_hr": pbr_res.surplus_home_runs,
+                "pabsv_runs": pbr_res.pabsv_runs_saved,
+                "tier": pbr_res.power_tier,
+                "is_crusher": pbr_res.is_optimal_crusher,
+            }
+            print(json_lib.dumps(pbr_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     PULL-AIR BARREL POWER CONVERSION [{pbr_res.power_tier}]")
+            hdr_pb = (
+                f"     PABCI Score: {pbr_res.pabci_score:.1f}/160 "
+                f"| Surplus HRs: {pbr_res.surplus_home_runs:>+4.2f} "
+                f"| Runs: {pbr_res.pabsv_runs_saved:>+4.2f}"
+            )
+            print(hdr_pb)
+            print(f"{'=' * 84}\n")
+            print(f"  • Power Profile        : {pbr_res.power_tier}")
+            print(f"  • Optimal Power Crusher: {'YES' if pbr_res.is_optimal_crusher else 'NO'}\n")
+
+    elif args.command == "putaway-exec":
+        import json as json_lib
+
+        from mlb_baseball.model.putaway_exec import (
+            PitcherPutawayExecutionEngine,
+            PitcherPutawayExecutionMetrics,
+        )
+
+        ptw_eng = PitcherPutawayExecutionEngine()
+        ptw_m = PitcherPutawayExecutionMetrics(
+            "p1",
+            "Target Pitcher",
+            two_strike_shadow_pct=args.shadow,
+            two_strike_chase_pct=args.chase,
+            two_strike_heart_pct=args.heart,
+            two_strike_waste_pct=args.waste,
+            two_strike_pitch_count=args.pitches,
+        )
+        ptw_res = ptw_eng.evaluate_putaway_execution(ptw_m)
+
+        if args.json:
+            ptw_out = {
+                "tsper_score": ptw_res.tsper_score,
+                "ptsv_runs": ptw_res.ptsv_runs_saved,
+                "tier": ptw_res.execution_tier,
+                "is_sniper": ptw_res.is_surgical_sniper,
+            }
+            print(json_lib.dumps(ptw_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     TWO-STRIKE PUTAWAY COMMAND [{ptw_res.execution_tier}]")
+            hdr_pt = (
+                f"     TSPER Score: {ptw_res.tsper_score:.1f}/160 "
+                f"| Runs Saved: {ptw_res.ptsv_runs_saved:>+4.2f} "
+                f"| Tier: {ptw_res.execution_tier}"
+            )
+            print(hdr_pt)
+            print(f"{'=' * 84}\n")
+            print(f"  • Command Execution    : {ptw_res.execution_tier}")
+            print(f"  • Surgical Sniper      : {'YES' if ptw_res.is_surgical_sniper else 'NO'}\n")
+
+    elif args.command == "route-burst":
+        import json as json_lib
+
+        from mlb_baseball.model.route_burst import (
+            OutfielderBurstRouteMetrics,
+            OutfielderRouteBurstEngine,
+        )
+
+        rbt_eng = OutfielderRouteBurstEngine()
+        rbt_m = OutfielderBurstRouteMetrics(
+            "f1",
+            "Target Fielder",
+            position=args.pos,
+            reaction_time_sec=args.react,
+            burst_velocity_ft_s=args.burst,
+            route_efficiency_pct=args.route,
+            opportunity_count=args.opps,
+        )
+        rbt_res = rbt_eng.evaluate_route_burst(rbt_m)
+
+        if args.json:
+            rbt_out = {
+                "brfei_score": rbt_res.brfei_score,
+                "oaa_jump_runs": rbt_res.oaa_jump_runs_saved,
+                "tier": rbt_res.range_tier,
+                "is_ballhawk": rbt_res.is_elite_ballhawk,
+            }
+            print(json_lib.dumps(rbt_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OUTFIELD BURST & ROUTE EFFICIENCY [{rbt_res.range_tier}]")
+            hdr_rb = (
+                f"     BRFEI Score: {rbt_res.brfei_score:.1f}/160 "
+                f"| Jump Runs Saved: {rbt_res.oaa_jump_runs_saved:>+4.2f} "
+                f"| Tier: {rbt_res.range_tier}"
+            )
+            print(hdr_rb)
+            print(f"{'=' * 84}\n")
+            print(f"  • Range Profile        : {rbt_res.range_tier}")
+            print(f"  • Elite Ballhawk       : {'YES' if rbt_res.is_elite_ballhawk else 'NO'}\n")
+
+    elif args.command == "attack-9x9":
+        from mlb_baseball.visual import (
+            AttackZone9x9Cell,
+            AttackZone9x9GridRenderer,
+            BatterAttackZone9x9Profile,
+        )
+
+        grid_renderer = AttackZone9x9GridRenderer()
+        grid_cells = [
+            AttackZone9x9Cell(r, c_idx, 45.0, 0.340, 18.0) for r in range(9) for c_idx in range(9)
+        ]
+        grid_prof = BatterAttackZone9x9Profile(args.title, args.batter, args.mode, grid_cells)
+        chart = grid_renderer.render(grid_prof)
+        print(f"Generated Vector SVG 9x9 Attack Zone Grid ({len(chart.svg_content)} bytes)")
 
     elif args.command == "rel-drift":
         import json as json_lib

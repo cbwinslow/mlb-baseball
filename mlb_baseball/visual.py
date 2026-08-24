@@ -33,6 +33,7 @@ class ChartType(enum.Enum):
     SEPARATION_DIAMOND_PLOT = "separation_diamond_plot"
     SPRAY_ELEVATION_ROSE = "spray_elevation_rose"
     RELEASE_WINDOW_BOX = "release_window_box"
+    ATTACK_ZONE_9X9_GRID = "attack_zone_9x9_grid"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1954,6 +1955,116 @@ class ReleaseWindowBoxRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class AttackZone9x9Cell:
+    """Cell data inside a 9x9 fine-grained strike zone attack grid."""
+
+    row: int  # 0 (top waste) to 8 (bottom waste)
+    col: int  # 0 (inside waste) to 8 (outside waste)
+    swing_pct: float
+    woba_value: float
+    whiff_pct: float
+
+
+@dataclasses.dataclass(frozen=True)
+class BatterAttackZone9x9Profile:
+    """Batter fine-grained 9x9 attack zone heat matrix profile."""
+
+    title: str
+    batter_name: str
+    metric_mode: str  # "wOBA", "Swing%", "Whiff%"
+    cells: list[AttackZone9x9Cell]
+
+
+class AttackZone9x9GridRenderer:
+    """Renders pure-Python vector SVG 9x9 strike zone attack matrices (ATTACK-9X9-01)."""
+
+    def __init__(self, width: int = 480, height: int = 480) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: BatterAttackZone9x9Profile) -> GeneratedVectorChart:
+        """Render 9x9 fine-grained grid cells with zone boundaries into vector SVG."""
+        margin_x = 75
+        margin_top = 70
+        grid_dim = 330
+        cell_size = grid_dim / 9.0  # ~36.6px per cell
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="28" fill="#f8fafc" font-size="14" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="46" fill="#94a3b8" font-size="11" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.batter_name} 9x9 ({profile.metric_mode})</text>',
+        ]
+
+        def get_color(val: float) -> str:
+            # Color map for wOBA: <0.240 blue, 0.320 slate, >0.420 red
+            if val < 0.240:
+                return "#1e3a8a"
+            elif val < 0.300:
+                return "#334155"
+            elif val < 0.360:
+                return "#d97706"
+            elif val < 0.450:
+                return "#dc2626"
+            return "#991b1b"
+
+        # Render 9x9 cells
+        for cell in profile.cells:
+            cx = margin_x + cell.col * cell_size
+            cy = margin_top + cell.row * cell_size
+            col_hex = get_color(cell.woba_value)
+
+            svg_parts.append(
+                f'<rect x="{cx:.1f}" y="{cy:.1f}" width="{cell_size:.1f}" height="{cell_size:.1f}" '
+                f'fill="{col_hex}" stroke="#0b1329" stroke-width="0.8" />'
+            )
+            # Text inside cell
+            svg_parts.append(
+                f'<text x="{cx + cell_size / 2:.1f}" y="{cy + cell_size / 2 + 3:.1f}" '
+                f'fill="#f8fafc" font-size="8" font-weight="bold" text-anchor="middle" '
+                f'font-family="sans-serif">.{int(cell.woba_value * 1000):03d}</text>'
+            )
+
+        # Official Strike Zone Boundary Box: rows 2 to 6, cols 2 to 6 (5x5 inner area)
+        sz_x = margin_x + 2 * cell_size
+        sz_y = margin_top + 2 * cell_size
+        sz_w = 5 * cell_size
+        sz_h = 5 * cell_size
+        svg_parts.append(
+            f'<rect x="{sz_x:.1f}" y="{sz_y:.1f}" width="{sz_w:.1f}" height="{sz_h:.1f}" '
+            f'fill="none" stroke="#f8fafc" stroke-width="2.2" />'
+        )
+
+        # Heart Zone Inner Box (rows 3 to 5, cols 3 to 5 - 3x3 core)
+        hz_x = margin_x + 3 * cell_size
+        hz_y = margin_top + 3 * cell_size
+        hz_w = 3 * cell_size
+        hz_h = 3 * cell_size
+        svg_parts.append(
+            f'<rect x="{hz_x:.1f}" y="{hz_y:.1f}" width="{hz_w:.1f}" height="{hz_h:.1f}" '
+            f'fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="3,3" />'
+        )
+
+        # Legend
+        svg_parts.append(
+            f'<text x="{self.width / 2}" y="{self.height - 18}" fill="#94a3b8" font-size="9" '
+            f'text-anchor="middle" font-family="sans-serif">Zone Edge vs Heart Core</text>'
+        )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.ATTACK_ZONE_9X9_GRID,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -2075,6 +2186,14 @@ def health_check() -> list[Check]:
             PitcherReleaseWindowProfile("Release Box", "Skenes", box_pitches)
         )
 
+        grid_renderer = AttackZone9x9GridRenderer()
+        grid_cells = [
+            AttackZone9x9Cell(r, c_idx, 45.0, 0.340, 18.0) for r in range(9) for c_idx in range(9)
+        ]
+        grid_chart = grid_renderer.render(
+            BatterAttackZone9x9Profile("Grid", "Soto", "wOBA", grid_cells)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -2093,6 +2212,7 @@ def health_check() -> list[Check]:
             and "<svg" in sep_chart.svg_content
             and "<svg" in rose_chart.svg_content
             and "<svg" in box_chart.svg_content
+            and "<svg" in grid_chart.svg_content
         ):
             checks.append(
                 Check(

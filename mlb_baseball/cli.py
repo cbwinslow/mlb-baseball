@@ -552,6 +552,36 @@ def main(argv: list[str] | None = None) -> None:
     )
     cal_parser.add_argument("--json", action="store_true", help="output result as JSON")
 
+    # Historical Walk-Forward Backtesting Engine (BACKTEST-01)
+    bt_parser = subparsers.add_parser(
+        "backtest", help="run out-of-sample walk-forward portfolio backtesting across seasons"
+    )
+    bt_parser.add_argument(
+        "--start-date",
+        type=str,
+        default="2024-04-01",
+        help="backtest start date (default: 2024-04-01)",
+    )
+    bt_parser.add_argument(
+        "--end-date", type=str, default="2024-09-30", help="backtest end date (default: 2024-09-30)"
+    )
+    bt_parser.add_argument(
+        "--model", type=str, default="gbm-v1", help="model version (default: gbm-v1)"
+    )
+    bt_parser.add_argument(
+        "--bankroll", type=float, default=10000.0, help="starting bankroll in USD (default: 10000)"
+    )
+    bt_parser.add_argument(
+        "--min-edge", type=float, default=0.025, help="minimum edge to place bet (default: 0.025)"
+    )
+    bt_parser.add_argument(
+        "--kelly-fraction",
+        type=float,
+        default=0.25,
+        help="Kelly criterion fraction (default: 0.25)",
+    )
+    bt_parser.add_argument("--json", action="store_true", help="output backtest summary as JSON")
+
     # Unified daily research and wagering briefing (PIPE-01)
     daily_parser = subparsers.add_parser(
         "daily",
@@ -1251,6 +1281,109 @@ def main(argv: list[str] | None = None) -> None:
                             f"{b.calibration_error * 100:>6.2f}%"
                         )
                     print("")
+
+    elif args.command == "backtest":
+        import json as json_lib
+
+        from mlb_baseball.model.backtest import WalkForwardBacktester
+        from mlb_baseball.model.portfolio import KellyAllocator
+
+        allocator = KellyAllocator(
+            fraction=args.kelly_fraction,
+            max_single_bet_pct=0.025,
+            max_total_exposure_pct=0.150,
+            min_edge_pct=args.min_edge,
+        )
+        tester = WalkForwardBacktester(allocator=allocator, min_edge_pct=args.min_edge)
+        summary = tester.run_backtest(
+            start_date=args.start_date,
+            end_date=args.end_date,
+            model_version=args.model,
+            initial_bankroll=args.bankroll,
+        )
+
+        if args.json:
+            bt_out = {
+                "start_date": summary.start_date,
+                "end_date": summary.end_date,
+                "model_version": summary.model_version,
+                "initial_bankroll_usd": summary.initial_bankroll_usd,
+                "final_bankroll_usd": summary.final_bankroll_usd,
+                "total_wagers": summary.total_wagers,
+                "winning_wagers": summary.winning_wagers,
+                "losing_wagers": summary.losing_wagers,
+                "win_rate_pct": summary.win_rate_pct,
+                "total_wagered_usd": summary.total_wagered_usd,
+                "total_pnl_usd": summary.total_pnl_usd,
+                "roi_pct": summary.roi_pct,
+                "annualized_sharpe_ratio": summary.annualized_sharpe_ratio,
+                "max_drawdown_pct": summary.max_drawdown_pct,
+                "mean_clv_pct": summary.mean_clv_pct,
+                "brier_score": summary.brier_score,
+                "wager_history": [
+                    {
+                        "game_key": r.game_instance_key,
+                        "date": r.game_date,
+                        "matchup": r.matchup,
+                        "model_prob": r.model_prob,
+                        "market_prob": r.market_prob,
+                        "decimal_odds": r.decimal_odds,
+                        "wager_usd": r.wager_usd,
+                        "won": r.won_bet,
+                        "pnl_usd": r.pnl_usd,
+                        "bankroll_after_usd": r.bankroll_after_usd,
+                    }
+                    for r in summary.wager_history
+                ],
+            }
+            print(json_lib.dumps(bt_out, indent=2))
+        else:
+            print(f"\n{'=' * 80}")
+            print(
+                f"       HISTORICAL WALK-FORWARD BACKTEST SUMMARY ({summary.model_version.upper()})"
+            )
+            print(f"       Date Range: {summary.start_date} to {summary.end_date}")
+            print(f"{'=' * 80}\n")
+            print(f"Initial Bankroll:   ${summary.initial_bankroll_usd:,.2f}")
+            print(f"Final Bankroll:     ${summary.final_bankroll_usd:,.2f}")
+            print(
+                f"Net PnL:            ${summary.total_pnl_usd:+,.2f} (ROI: {summary.roi_pct:+.2f}%)"
+            )
+            print(
+                f"Total Wagers:       {summary.total_wagers} "
+                f"({summary.winning_wagers}W - {summary.losing_wagers}L | "
+                f"Win Rate: {summary.win_rate_pct:.1f}%)"
+            )
+            print(f"Total Wagered:      ${summary.total_wagered_usd:,.2f}")
+            print(f"Annualized Sharpe:  {summary.annualized_sharpe_ratio:.2f}")
+            print(f"Max Drawdown (MDD): {summary.max_drawdown_pct:.2f}%")
+            print(f"Mean CLV Edge:      {summary.mean_clv_pct:+.2f}%")
+            print(f"Brier Score:        {summary.brier_score:.4f}\n")
+
+            if summary.wager_history:
+                print("--- RECENT EXECUTED WAGERS ---")
+                w_hdr = (
+                    f"{'Date':<10} {'Matchup / Bet':<30} {'Model%':<8} "
+                    f"{'Mkt%':<8} {'Odds':<6} {'Stake':<10} "
+                    f"{'Result':<8} {'Bankroll':<12}"
+                )
+                print(w_hdr)
+                print("-" * len(w_hdr))
+                for w in summary.wager_history[-10:]:
+                    res_str = (
+                        f"WIN (+${w.pnl_usd:.2f})" if w.won_bet else f"LOSS (-${w.wager_usd:.2f})"
+                    )
+                    print(
+                        f"{w.game_date:<10} "
+                        f"{w.matchup:<30} "
+                        f"{w.model_prob * 100:>6.1f}%  "
+                        f"{w.market_prob * 100:>6.1f}%  "
+                        f"{w.decimal_odds:>5.2f} "
+                        f"${w.wager_usd:>8.2f} "
+                        f"{res_str:<14} "
+                        f"${w.bankroll_after_usd:>10.2f}"
+                    )
+                print("")
 
     elif args.command == "daily":
         import json as json_lib

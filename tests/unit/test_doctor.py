@@ -57,3 +57,12 @@ def test_research_and_calibration_health_checks():
     c_checks = calibration.health_check()
     assert len(c_checks) == 1
     assert c_checks[0].ok is True
+
+
+def test_backtest_health_check():
+    """Verify backtesting engine health check returns clean pass."""
+    from mlb_baseball.model import backtest
+
+    b_checks = backtest.health_check()
+    assert len(b_checks) == 1
+    assert b_checks[0].ok is True

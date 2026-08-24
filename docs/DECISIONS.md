@@ -2,6 +2,21 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-119: Historical Walk-Forward Backtesting Engine & Risk Metrics (`BACKTEST-01`, Package 31)
+
+**Decision:** Implemented point-in-time walk-forward backtesting simulator in `mlb_baseball/model/backtest.py` and CLI subcommand `mlb backtest` to benchmark predictive models against historical closing lines with zero retroactive lookahead leakage.
+- **Mathematical Formulations & Methodology**:
+  - Walk-Forward Sequential Processing: Evaluates model probabilities temporally game-by-game, allocating wagers via `KellyAllocator` based on dynamic real-time bankroll.
+  - Performance Metrics:
+    - Compound ROI: $\text{ROI} = \frac{\text{Net PnL}}{\text{Total Wagered}} \times 100\%$
+    - Annualized Sharpe Ratio: $\text{Sharpe} = \sqrt{252} \cdot \frac{\mu(R_{\text{daily}})}{\sigma(R_{\text{daily}})}$
+    - Maximum Peak-to-Trough Drawdown (MDD): $\text{MDD} = \max_t \left( \frac{\max_{\tau \le t} B_\tau - B_t}{\max_{\tau \le t} B_\tau} \right)$
+    - Closing Line Value (CLV): $\text{CLV} = \frac{P_{\text{model}}}{P_{\text{closing}}} - 1$
+    - Brier Score Resolution: $\text{BS} = \frac{1}{N} \sum (P_i - Y_i)^2$
+  - Multi-Modal Output: Detailed terminal executive summary and structured JSON schema for reporting.
+  - CLI: `mlb backtest --start-date 2024-04-01 --end-date 2024-09-30 --model gbm-v1 --bankroll 10000 --min-edge 0.025`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_backtest.py` passing; 457/457 full repository unit tests passing.
+
 ## ADR-118: Probability Calibration, Symmetric Mirror Training, & HFA Decomposition (`CALIB-01`, Package 30)
 
 **Decision:** Built comprehensive probability calibration, symmetric mirror-game data augmentation, and empirical Home Field Advantage (HFA) decomposition in `mlb_baseball/model/calibration.py` and CLI subcommand `mlb calibrate`.

@@ -266,6 +266,7 @@ def run() -> list[Check]:
         bullpen_opt,
         bvp,
         calibration,
+        carry,
         cluster,
         count,
         damage,
@@ -290,11 +291,13 @@ def run() -> list[Check]:
         simulate,
         spin,
         splits,
+        spray,
         ssw,
         stack,
         stuff,
         sub,
         travel,
+        tto,
         tunnel,
         umpire,
         weather,
@@ -415,6 +418,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(spray.health_check())
+    except Exception as exc:
+        checks.append(Check("spray", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(tto.health_check())
+    except Exception as exc:
+        checks.append(Check("tto", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(carry.health_check())
+    except Exception as exc:
+        checks.append(Check("carry", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(damage.health_check())
     except Exception as exc:

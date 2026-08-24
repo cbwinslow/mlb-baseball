@@ -867,6 +867,72 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter spray direction (SPRAY-01)
+    spray_parser = subparsers.add_parser(
+        "spray",
+        help="evaluate directional spray and pull power concentration (SPRAY-01)",
+    )
+    spray_parser.add_argument("--pull", type=float, default=0.46, help="pull pct (default: 0.46)")
+    spray_parser.add_argument(
+        "--center", type=float, default=0.32, help="center pct (default: 0.32)"
+    )
+    spray_parser.add_argument("--oppo", type=float, default=0.22, help="oppo pct (default: 0.22)")
+    spray_parser.add_argument(
+        "--hr-pull", type=int, default=24, help="pull home runs (default: 24)"
+    )
+    spray_parser.add_argument(
+        "--hr-total", type=int, default=28, help="total home runs (default: 28)"
+    )
+    spray_parser.add_argument("--json", action="store_true", help="output spray evaluation as JSON")
+
+    # Starting pitcher times through order (TTO-01)
+    tto_parser = subparsers.add_parser(
+        "tto",
+        help="evaluate starter times-through-the-order degradation (TTO-01)",
+    )
+    tto_parser.add_argument(
+        "--tto1-woba", type=float, default=0.280, help="TTO 1 wOBA (default: 0.280)"
+    )
+    tto_parser.add_argument(
+        "--tto2-woba", type=float, default=0.310, help="TTO 2 wOBA (default: 0.310)"
+    )
+    tto_parser.add_argument(
+        "--tto3-woba", type=float, default=0.365, help="TTO 3 wOBA (default: 0.365)"
+    )
+    tto_parser.add_argument(
+        "--tto1-k", type=float, default=0.28, help="TTO 1 K pct (default: 0.28)"
+    )
+    tto_parser.add_argument(
+        "--tto3-k", type=float, default=0.17, help="TTO 3 K pct (default: 0.17)"
+    )
+    tto_parser.add_argument("--json", action="store_true", help="output TTO evaluation as JSON")
+
+    # Environmental ballpark carry (CARRY-01)
+    carry_parser = subparsers.add_parser(
+        "carry",
+        help="evaluate 30-ballpark trajectory carry and HR clearance (CARRY-01)",
+    )
+    carry_parser.add_argument(
+        "--ev", type=float, default=102.0, help="exit velocity mph (default: 102.0)"
+    )
+    carry_parser.add_argument(
+        "--la", type=float, default=28.0, help="launch angle deg (default: 28.0)"
+    )
+    carry_parser.add_argument(
+        "--spray", type=float, default=35.0, help="spray angle deg (default: 35.0)"
+    )
+    carry_parser.add_argument(
+        "--dist", type=float, default=365.0, help="nominal distance ft (default: 365.0)"
+    )
+    carry_parser.add_argument("--json", action="store_true", help="output carry evaluation as JSON")
+
+    # Pitch break chart (BREAK-PLOT-01)
+    bplot_parser = subparsers.add_parser(
+        "break-plot",
+        help="generate 2D vector SVG pitch movement break plot (BREAK-PLOT-01)",
+    )
+    bplot_parser.add_argument("--pitcher", type=str, default="Paul Skenes", help="pitcher name")
+
     # Batter contact damage (DAMAGE-01)
     dmg_parser = subparsers.add_parser(
         "damage",
@@ -3082,6 +3148,142 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "spray":
+        import json as json_lib
+
+        from mlb_baseball.model.spray import (
+            BatterSprayMetrics,
+            SprayDirectionEngine,
+        )
+
+        spray_eng = SprayDirectionEngine()
+        spray_m = BatterSprayMetrics(
+            "b1",
+            "Target Hitter",
+            pull_pct=args.pull,
+            center_pct=args.center,
+            oppo_pct=args.oppo,
+            hr_pull=args.hr_pull,
+            hr_total=args.hr_total,
+        )
+        spray_res = spray_eng.evaluate_spray(spray_m)
+
+        if args.json:
+            spray_out = {
+                "pull_power_concentration_pct": spray_res.pull_power_concentration_pct,
+                "spray_neutrality_index": spray_res.spray_neutrality_index,
+                "archetype": spray_res.spray_archetype,
+                "dead_pull_liability": spray_res.is_dead_pull_liability,
+            }
+            print(json_lib.dumps(spray_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     BATTER SPRAY & PULL POWER [{spray_res.spray_archetype}]")
+            hdr_spry = (
+                f"     Pull Power Concentration: {spray_res.pull_power_concentration_pct:.1f}% "
+                f"| Neutrality Index: {spray_res.spray_neutrality_index:.2f}/1.00"
+            )
+            print(hdr_spry)
+            print(f"{'=' * 84}\n")
+            print(f"  • Spray Archetype     : {spray_res.spray_archetype}")
+            print(
+                f"  • Dead-Pull Liability : {'YES' if spray_res.is_dead_pull_liability else 'NO'}\n"
+            )
+
+    elif args.command == "tto":
+        import json as json_lib
+
+        from mlb_baseball.model.tto import (
+            PitcherTTOMetrics,
+            TimesThroughOrderEngine,
+        )
+
+        tto_eng = TimesThroughOrderEngine()
+        tto_m = PitcherTTOMetrics(
+            "p1",
+            "Target Starter",
+            tto1_woba=args.tto1_woba,
+            tto2_woba=args.tto2_woba,
+            tto3_woba=args.tto3_woba,
+            tto1_k_pct=args.tto1_k,
+            tto3_k_pct=args.tto3_k,
+        )
+        tto_res = tto_eng.evaluate_tto(tto_m)
+
+        if args.json:
+            tto_out = {
+                "tto_woba_delta_3_1": tto_res.tto_woba_delta_3_1,
+                "tto_k_delta_3_1": tto_res.tto_k_delta_3_1,
+                "ttvi": tto_res.third_time_vulnerability_index,
+                "hook_policy": tto_res.recommended_hook_policy,
+            }
+            print(json_lib.dumps(tto_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     TIMES-THROUGH-ORDER DEGRADATION [{tto_res.recommended_hook_policy}]")
+            hdr_tt = (
+                f"     TTVI: {tto_res.third_time_vulnerability_index:.1f}/100 "
+                f"| 3rd-Pass wOBA Delta: {tto_res.tto_woba_delta_3_1:>+5.3f} "
+                f"| K% Delta: {tto_res.tto_k_delta_3_1:>+5.3f}"
+            )
+            print(hdr_tt)
+            print(f"{'=' * 84}\n")
+            print(f"  • Recommended Hook : {tto_res.recommended_hook_policy}")
+            print(f"  • Familiarity Risk : {tto_res.third_time_vulnerability_index:.1f}/100\n")
+
+    elif args.command == "carry":
+        import json as json_lib
+
+        from mlb_baseball.model.carry import (
+            BallparkCarryScannerEngine,
+            BattedBallTrajectory,
+        )
+
+        carry_eng = BallparkCarryScannerEngine()
+        traj = BattedBallTrajectory("h1", args.ev, args.la, args.spray, args.dist)
+        carry_res = carry_eng.scan_ballparks(traj)
+
+        if args.json:
+            carry_out = {
+                "hr_count": carry_res.parks_hr_count,
+                "total_parks": carry_res.total_parks_evaluated,
+                "hr_pct": carry_res.hr_percentage,
+                "hr_venues": carry_res.home_run_venues,
+                "summary": carry_res.scan_summary,
+            }
+            print(json_lib.dumps(carry_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     30-BALLPARK CARRY SCANNER [{carry_res.scan_summary}]")
+            hdr_cr = (
+                f"     Distance: {carry_res.nominal_distance_ft:.0f}ft "
+                f"| HR in {carry_res.parks_hr_count}/{carry_res.total_parks_evaluated} "
+                f"MLB Stadiums ({carry_res.hr_percentage:.1f}%)"
+            )
+            print(hdr_cr)
+            print(f"{'=' * 84}\n")
+            hr_v = ", ".join(carry_res.home_run_venues) if carry_res.home_run_venues else "None"
+            out_v = ", ".join(carry_res.out_venues) if carry_res.out_venues else "None"
+            print(f"  • Home Run Venues ({len(carry_res.home_run_venues)}) : {hr_v}")
+            print(f"  • Flyout Venues   ({len(carry_res.out_venues)}) : {out_v}\n")
+
+    elif args.command == "break-plot":
+        from mlb_baseball.visual import (
+            PitchBreakChartRenderer,
+            PitchBreakObservation,
+            PitcherArsenalBreakProfile,
+        )
+
+        bplot_renderer = PitchBreakChartRenderer()
+        sample_pitches = [
+            PitchBreakObservation("FF", 98.2, -8.0, 18.0, "#00d2be"),
+            PitchBreakObservation("SL", 88.0, 5.5, 2.0, "#a855f7"),
+            PitchBreakObservation("CH", 89.5, -14.0, 5.0, "#f59e0b"),
+        ]
+        profile = PitcherArsenalBreakProfile(args.pitcher, sample_pitches)
+        chart = bplot_renderer.render(profile)
+        print(f"Generated Vector SVG Pitch Break Plot ({len(chart.svg_content)} bytes)")
 
     elif args.command == "damage":
         import json as json_lib

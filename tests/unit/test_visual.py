@@ -123,3 +123,28 @@ def test_odds_movement_chart_svg_generation():
     assert "NYY vs BOS Odds Movement" in chart.svg_content
     assert "polyline" in chart.svg_content
     assert "circle" in chart.svg_content  # Steam marker
+
+
+def test_pitch_break_chart_svg_generation():
+    """Verify PitchBreakChartRenderer generates Cartesian 2D pitch movement chart."""
+    from mlb_baseball.visual import (
+        PitchBreakChartRenderer,
+        PitchBreakObservation,
+        PitcherArsenalBreakProfile,
+    )
+
+    renderer = PitchBreakChartRenderer()
+    pitches = [
+        PitchBreakObservation("FF", 98.5, -8.5, 17.5),
+        PitchBreakObservation("SL", 87.0, 6.0, 1.5),
+        PitchBreakObservation("CH", 89.0, -14.0, 6.0),
+    ]
+    profile = PitcherArsenalBreakProfile("Paul Skenes", pitches)
+    chart = renderer.render(profile)
+
+    assert chart.width_px == 500
+    assert chart.height_px == 500
+    assert "<svg" in chart.svg_content
+    assert "Paul Skenes Arsenal Movement" in chart.svg_content
+    assert "FF (98)" in chart.svg_content
+    assert "Arm Side HB" in chart.svg_content

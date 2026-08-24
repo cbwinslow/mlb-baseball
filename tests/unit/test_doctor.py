@@ -228,3 +228,12 @@ def test_damage_and_bullpen_opt_and_fatigue_health_checks():
     assert damage.health_check()[0].ok is True
     assert bullpen_opt.health_check()[0].ok is True
     assert fatigue.health_check()[0].ok is True
+
+
+def test_spray_and_tto_and_carry_health_checks():
+    """Verify health checks for spray, tto, and carry modules."""
+    from mlb_baseball.model import carry, spray, tto
+
+    assert spray.health_check()[0].ok is True
+    assert tto.health_check()[0].ok is True
+    assert carry.health_check()[0].ok is True

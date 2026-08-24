@@ -72,7 +72,11 @@ This document serves as the academic and theoretical reference manual for the ML
 46. [Live Managerial Bullpen Leverage Optimization](#46-live-managerial-bullpen-leverage-optimization)
 47. [Pitcher Acute-to-Chronic Workload Ratio (ACWR) & Fatigue Mechanics](#47-pitcher-acute-to-chronic-workload-ratio-acwr--fatigue-mechanics)
 48. [Pure-Python SVG Odds Movement & Steam Visualizer Architecture](#48-pure-python-svg-odds-movement--steam-visualizer-architecture)
-49. [Academic Bibliography & Literature Citations](#49-academic-bibliography--literature-citations)
+49. [Directional Spray Power & Pull Concentration Formulation](#49-directional-spray-power--pull-concentration-formulation)
+50. [Starting Pitcher Times-Through-the-Order (TTO) Degradation](#50-starting-pitcher-times-through-the-order-tto-degradation)
+51. [30-Ballpark Environmental Carry & Fence Geometry Simulation](#51-30-ballpark-environmental-carry--fence-geometry-simulation)
+52. [2D Cartesian Pitch Break & Movement Visualizer Architecture](#52-2d-cartesian-pitch-break--movement-visualizer-architecture)
+53. [Academic Bibliography & Literature Citations](#53-academic-bibliography--literature-citations)
 
 ---
 
@@ -647,7 +651,37 @@ $$y_i = (y_{\text{top}} + H) - \left(\frac{\text{Odds}_i - \text{Odds}_{\min}}{\
 
 ---
 
-## 49. Academic Bibliography & Literature Citations
+## 49. Directional Spray Power & Pull Concentration Formulation
+
+### 49.1 Pull Power Concentration (PPC) & Spray Neutrality Index (SNI)
+$$\text{PPC} = \frac{\text{HR}_{\text{pull}}}{\max(1, \text{HR}_{\text{total}})} \times 100\%$$
+$$\text{SNI} = 1.0 - \left(\sqrt{(\text{Pull\%} - 1/3)^2 + (\text{Center\%} - 1/3)^2 + (\text{Oppo\%} - 1/3)^2} \times 2.2\right)$$
+
+---
+
+## 50. Starting Pitcher Times-Through-the-Order (TTO) Degradation
+
+### 50.1 Third-Time Vulnerability Index (TTVI)
+$$\text{TTVI} = \left(\frac{\Delta \text{wOBA}_{\text{TTO 3-1}}}{0.040}\right) \times 40.0 + \max(0.0, -\Delta \text{K\%}) \times 160.0$$
+
+---
+
+## 51. 30-Ballpark Environmental Carry & Fence Geometry Simulation
+
+### 51.1 Multi-Stadium Fence Clearance
+$$d_{\text{effective}} = d_{\text{nominal}} + \text{ElevationBoost}_{\text{stadium}}$$
+$$d_{\text{fence}}(\theta) = \begin{cases} \frac{|\theta|}{45^\circ} d_{\text{LF}} + \left(1 - \frac{|\theta|}{45^\circ}\right) d_{\text{CF}} & \text{if } \theta \le 0 \\ \frac{\theta}{45^\circ} d_{\text{RF}} + \left(1 - \frac{\theta}{45^\circ}\right) d_{\text{CF}} & \text{if } \theta > 0 \end{cases}$$
+
+---
+
+## 52. 2D Cartesian Pitch Break & Movement Visualizer Architecture
+
+### 52.1 Cartesian Normalization
+$$(x_{\text{svg}}, y_{\text{svg}}) = \left(M_x + \frac{\text{HB} - \text{HB}_{\min}}{\text{HB}_{\max} - \text{HB}_{\min}} \cdot W_{\text{plot}}, (M_y + H_{\text{plot}}) - \frac{\text{IVB} - \text{IVB}_{\min}}{\text{IVB}_{\max} - \text{IVB}_{\min}} \cdot H_{\text{plot}}\right)$$
+
+---
+
+## 53. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -683,3 +717,5 @@ $$y_i = (y_{\text{top}} + H) - \left(\frac{\text{Odds}_i - \text{Odds}_{\min}}{\
 32. **Tango, Tom** (2008). "Platoon Splits and the Rule of 1000 PAs". *Inside The Book*.
 33. **Gabbett, Tim J.** (2016). "The training-injury prevention paradox: should athletes be training smarter and harder?". *British Journal of Sports Medicine*.
 34. **Carleton, Russell A.** (2018). *The Shift: The Next Evolution in Baseball Thinking*.
+35. **Silver, Nate** (2006). "The Times Through the Order Penalty". *Baseball Prospectus*.
+36. **Nathan, Alan M.** (2015). "Fly Ball Aerodynamics and Carry in Major League Baseball Stadiums".

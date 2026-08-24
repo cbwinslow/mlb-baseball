@@ -2,6 +2,45 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-166: Pure-Python SVG Pitch Arsenal Break & Movement Plotter (`BREAK-PLOT-01`, Package 78)
+
+**Decision:** Built 2D Cartesian pitch break chart renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb break-plot`.
+- **Operational Architecture & Geometry**:
+  - Cartesian Break Plane: Plots Horizontal Break (HB in inches) on X-axis vs Induced Vertical Break (IVB in inches) on Y-axis.
+  - Arsenal Scatter & Centroids: Renders color-coded pitch dots with pitch speed labels and crosshairs at $(0, 0)$.
+  - CLI: `mlb break-plot --pitcher "Paul Skenes"`.
+- **Verification**: 7/7 unit tests in `tests/unit/test_visual.py` passing; 616/616 full repository unit tests passing.
+
+## ADR-165: Park-Adjusted True Environmental Carry & Ballpark HR Scanner (`CARRY-01`, Package 77)
+
+**Decision:** Built 30-ballpark overlay simulation and environmental trajectory clearance in `mlb_baseball/model/carry.py` and CLI subcommand `mlb carry`.
+- **Mathematical Formulations & Methodology**:
+  - Stadium Outfield Fence Geometry: Interpolates fence distances and heights across LF, CF, and RF for MLB stadiums.
+  - Environmental Adjustments: Incorporates altitude elevation distance boosts ($+16\text{ ft}$ in Coors).
+  - 30-Park Scanner: Returns $X/30$ home run count and venue-by-venue clearance diagnostics.
+  - CLI: `mlb carry --ev 102.0 --la 28.0 --spray 35.0 --dist 365.0`, `mlb carry --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_carry.py` passing; 616/616 full repository unit tests passing.
+
+## ADR-164: Starting Pitcher Times-Through-the-Order (TTO) Degradation Engine (`TTO-01`, Package 76)
+
+**Decision:** Built lineup turnover degradation tracking, third-time penalty modeling, and hook policies in `mlb_baseball/model/tto.py` and CLI subcommand `mlb tto`.
+- **Mathematical Formulations & Methodology**:
+  - TTO Degradation Deltas: $\Delta \text{wOBA} = \text{wOBA}_{\text{TTO 3}} - \text{wOBA}_{\text{TTO 1}}$, $\Delta \text{K\%} = \text{K\%}_{\text{TTO 3}} - \text{K\%}_{\text{TTO 1}}$.
+  - Third-Time Vulnerability Index: $\text{TTVI} = \left(\frac{\Delta \text{wOBA}}{0.040}\right) \times 40.0 + \max(0, -\Delta \text{K\%}) \times 160.0$.
+  - Tiers: `STRICT_2_TIME_HOOK` ($\text{TTVI} \ge 62$), `MODERATE_LEASH`, `WORKHORSE_ACE`.
+  - CLI: `mlb tto --tto1-woba 0.280 --tto2-woba 0.310 --tto3-woba 0.365 --tto1-k 0.28 --tto3-k 0.17`, `mlb tto --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_tto.py` passing; 616/616 full repository unit tests passing.
+
+## ADR-163: Batter Pull-Side / Opposite-Field Spray Power Engine (`SPRAY-01`, Package 75)
+
+**Decision:** Built directional spray analysis, pull power concentration, and spray neutrality modeling in `mlb_baseball/model/spray.py` and CLI subcommand `mlb spray`.
+- **Mathematical Formulations & Methodology**:
+  - Pull Power Concentration: $\text{PPC} = \frac{\text{HR}_{\text{pull}}}{\max(1, \text{HR}_{\text{total}})} \times 100\%$.
+  - Spray Neutrality Index: $\text{SNI} = 1.0 - \left(\sqrt{\sum (p_i - 1/3)^2} \times 2.2\right)$.
+  - Tiers: `DEAD_PULL_SLUGGER` ($\text{Pull\%} \ge 46\%, \text{PPC} \ge 75\%$), `ALL_FIELDS_GAP_HITTER` ($\text{SNI} \ge 0.82$), `OPPO_SPRAY`, `BALANCED`.
+  - CLI: `mlb spray --pull 0.46 --center 0.32 --oppo 0.22 --hr-pull 24 --hr-total 28`, `mlb spray --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_spray.py` passing; 616/616 full repository unit tests passing.
+
 ## ADR-162: Interactive SVG Market Odds Movement & Steam Visualizer (`ODDS-CHART-01`, Package 74)
 
 **Decision:** Built pure-Python vector SVG market line movement and steam action visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb odds-chart`.

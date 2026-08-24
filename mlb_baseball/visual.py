@@ -20,6 +20,7 @@ class ChartType(enum.Enum):
     PITCH_MOVEMENT_PLOT = "pitch_movement_plot"
     SPIDER_RADAR_CHART = "spider_radar_chart"
     ODDS_MOVEMENT_TIMELINE = "odds_movement_timeline"
+    PITCH_BREAK_CHART = "pitch_break_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -556,6 +557,97 @@ class OddsMovementChartRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class PitchBreakObservation:
+    """Individual pitch flight movement measurement (IVB and HB in inches)."""
+
+    pitch_type: str  # "FF", "SL", "CH", "CU", "SI", "ST"
+    velo_mph: float
+    pfx_x_in: float  # Horizontal break in inches (-25 to +25)
+    pfx_z_in: float  # Induced vertical break in inches (-20 to +25)
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitcherArsenalBreakProfile:
+    """Complete pitch arsenal movement cluster for a pitcher."""
+
+    pitcher_name: str
+    pitches: list[PitchBreakObservation]
+
+
+class PitchBreakChartRenderer:
+    """Renders pure-Python vector SVG 2D pitch movement and break charts (BREAK-PLOT-01)."""
+
+    def __init__(self, width: int = 500, height: int = 500) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitcherArsenalBreakProfile) -> GeneratedVectorChart:
+        """Render pitch movement Cartesian plane into SVG."""
+        margin = 50.0
+        plot_w = self.width - 2 * margin
+        plot_h = self.height - 2 * margin
+
+        # HB range: [-25.0, 25.0], IVB range: [-20.0, 25.0]
+        min_x, max_x = -25.0, 25.0
+        min_z, max_z = -20.0, 25.0
+
+        def to_svg(hb: float, ivb: float) -> tuple[float, float]:
+            norm_x = (hb - min_x) / (max_x - min_x)
+            norm_z = (ivb - min_z) / (max_z - min_z)
+            sx = margin + norm_x * plot_w
+            sz = (margin + plot_h) - (norm_z * plot_h)
+            return round(sx, 1), round(sz, 1)
+
+        cx, cz = to_svg(0.0, 0.0)
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="30" fill="#f8fafc" font-size="15" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">'
+            f"{profile.pitcher_name} Arsenal Movement</text>",
+            # Cartesian Axes (0,0)
+            f'<line x1="{margin}" y1="{cz}" x2="{self.width - margin}" '
+            f'y2="{cz}" stroke="#334155" stroke-width="1.5" />',
+            f'<line x1="{cx}" y1="{margin}" x2="{cx}" '
+            f'y2="{self.height - margin}" stroke="#334155" stroke-width="1.5" />',
+            # Axis Labels
+            f'<text x="{self.width - margin}" y="{cz - 8}" fill="#64748b" font-size="11" '
+            f'text-anchor="end" font-family="sans-serif">Arm Side HB (in)</text>',
+            f'<text x="{margin}" y="{cz - 8}" fill="#64748b" font-size="11" '
+            f'text-anchor="start" font-family="sans-serif">Glove Side HB</text>',
+            f'<text x="{cx + 8}" y="{margin + 12}" fill="#64748b" font-size="11" '
+            f'font-family="sans-serif">+IVB (Rise)</text>',
+            f'<text x="{cx + 8}" y="{self.height - margin - 8}" fill="#64748b" font-size="11" '
+            f'font-family="sans-serif">-IVB (Drop)</text>',
+        ]
+
+        # Pitch Dots
+        for p in profile.pitches:
+            px, pz = to_svg(p.pfx_x_in, p.pfx_z_in)
+            svg_parts.append(
+                f'<circle cx="{px}" cy="{pz}" r="6" fill="{p.color_hex}" fill-opacity="0.85" '
+                f'stroke="#ffffff" stroke-width="1.0" />'
+            )
+            svg_parts.append(
+                f'<text x="{px}" y="{pz - 9}" fill="#f8fafc" font-size="10" font-weight="bold" '
+                f'text-anchor="middle" font-family="sans-serif">'
+                f"{p.pitch_type} ({p.velo_mph:.0f})</text>"
+            )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.PITCH_BREAK_CHART,
+            title=f"{profile.pitcher_name} Arsenal Movement",
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -592,12 +684,20 @@ def health_check() -> list[Check]:
         ]
         odds_chart = odds_renderer.render(MarketOddsTimeline("Test Odds", "LAD", "SF", pts))
 
+        break_renderer = PitchBreakChartRenderer()
+        pitches = [
+            PitchBreakObservation("FF", 97.0, -8.0, 18.0),
+            PitchBreakObservation("SL", 86.0, 6.0, 2.0),
+        ]
+        break_chart = break_renderer.render(PitcherArsenalBreakProfile("Test Pitcher", pitches))
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
             and "<svg" in we_chart.svg_content
             and "<svg" in radar_chart.svg_content
             and "<svg" in odds_chart.svg_content
+            and "<svg" in break_chart.svg_content
         ):
             checks.append(
                 Check(

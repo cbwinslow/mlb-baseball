@@ -45,6 +45,7 @@ connections to the *same* server, retrosheet.org).
 
 import argparse
 import concurrent.futures
+import dataclasses
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -938,6 +939,76 @@ def main(argv: list[str] | None = None) -> None:
     )
     zi_parser.add_argument("--title", type=str, default="Skubal 3D Strike Zone", help="chart title")
     zi_parser.add_argument("--pitcher", type=str, default="Tarik Skubal", help="pitcher name")
+
+    # Batter lineup protection & on-deck advantage (LINEUP-PROTECT-01)
+    lp_parser = subparsers.add_parser(
+        "lineup-protect",
+        help="evaluate lineup protection influence and on-deck threat (LINEUP-PROTECT-01)",
+    )
+    lp_parser.add_argument(
+        "--woba", type=float, default=0.320, help="on-deck hitter wOBA (default: 0.320)"
+    )
+    lp_parser.add_argument(
+        "--zone", type=float, default=45.0, help="zone pct thrown to batter (default: 45.0)"
+    )
+    lp_parser.add_argument(
+        "--fstrike", type=float, default=60.0, help="first pitch strike pct (default: 60.0)"
+    )
+    lp_parser.add_argument("--pa", type=int, default=120, help="plate appearances (default: 120)")
+    lp_parser.add_argument(
+        "--json", action="store_true", help="output lineup protection evaluation as JSON"
+    )
+
+    # Bullpen bridge sequencing & high-leverage handoff (BULLPEN-BRIDGE-01)
+    bb_parser = subparsers.add_parser(
+        "bullpen-bridge",
+        help="evaluate bullpen bridge sequencing and handoff efficiency (BULLPEN-BRIDGE-01)",
+    )
+    bb_parser.add_argument(
+        "--hold", type=float, default=65.0, help="hold conversion pct (default: 65.0)"
+    )
+    bb_parser.add_argument(
+        "--leverage", type=float, default=50.0, help="leverage match rate pct (default: 50.0)"
+    )
+    bb_parser.add_argument(
+        "--inherited", type=float, default=30.0, help="inherited runner score pct (default: 30.0)"
+    )
+    bb_parser.add_argument(
+        "--innings", type=float, default=80.0, help="high leverage innings (default: 80.0)"
+    )
+    bb_parser.add_argument(
+        "--json", action="store_true", help="output bullpen bridge evaluation as JSON"
+    )
+
+    # Pure-Python SVG spray chart heatmap (SPRAY-HEATMAP-01)
+    sh_parser = subparsers.add_parser(
+        "spray-heatmap",
+        help="generate vector SVG spray chart heatmap (SPRAY-HEATMAP-01)",
+    )
+    sh_parser.add_argument("--title", type=str, default="Spray Chart Heatmap", help="chart title")
+    sh_parser.add_argument("--batter", type=str, default="Shohei Ohtani", help="batter name")
+    sh_parser.add_argument("--hand", type=str, default="L", help="batter hand R or L (default: L)")
+
+    # Batter swing timing & tempo consistency (SWING-TEMPO-01)
+    st_parser = subparsers.add_parser(
+        "swing-tempo",
+        help="evaluate swing timing variance, bat speed stability, and STCI (SWING-TEMPO-01)",
+    )
+    st_parser.add_argument(
+        "--std", type=float, default=3.5, help="timing std deviation ms (default: 3.5)"
+    )
+    st_parser.add_argument(
+        "--consistency", type=float, default=90.0, help="bat speed consistency pct (default: 90.0)"
+    )
+    st_parser.add_argument(
+        "--contact", type=float, default=75.0, help="late count contact pct (default: 75.0)"
+    )
+    st_parser.add_argument(
+        "--swings", type=int, default=200, help="total competitive swings (default: 200)"
+    )
+    st_parser.add_argument(
+        "--json", action="store_true", help="output swing tempo evaluation as JSON"
+    )
 
     # Batter breaking ball chase recognition (CHASE-RECOG-01)
     cr_parser = subparsers.add_parser(
@@ -4825,6 +4896,98 @@ def main(argv: list[str] | None = None) -> None:
         z_iso_prof = PitcherZoneIsometricProfile(args.title, args.pitcher, iso_p)
         chart = z_iso_renderer.render(z_iso_prof)
         print(f"Generated Vector SVG 3D Isometric Strike Zone ({len(chart.svg_content)} bytes)")
+
+    elif args.command == "lineup-protect":
+        import json as json_lib
+
+        from mlb_baseball.model.lineup_protect import (
+            BatterLineupProtectionEngine,
+            BatterProtectionMetrics,
+        )
+
+        lp_eng = BatterLineupProtectionEngine()
+        lp_m = BatterProtectionMetrics(
+            "b1",
+            "CLI Batter",
+            on_deck_woba=args.woba,
+            zone_pct=args.zone,
+            first_pitch_strike_pct=args.fstrike,
+            pa_count=args.pa,
+        )
+        lp_r = lp_eng.evaluate_protection(lp_m)
+        if args.json:
+            print(json_lib.dumps(dataclasses.asdict(lp_r), indent=2))
+        else:
+            print(f"PII Score: {lp_r.pii_score:.1f}")
+            print(f"LPRV Runs: {lp_r.lprv_runs:+.2f}")
+            print(f"Tier: {lp_r.protection_tier}")
+
+    elif args.command == "bullpen-bridge":
+        import json as json_lib
+
+        from mlb_baseball.model.bullpen_bridge import (
+            BullpenBridgeEngine,
+            BullpenBridgeMetrics,
+        )
+
+        bb_eng = BullpenBridgeEngine()
+        bb_m = BullpenBridgeMetrics(
+            "t1",
+            "CLI Team",
+            hold_pct=args.hold,
+            leverage_match_rate=args.leverage,
+            inherited_score_pct=args.inherited,
+            high_leverage_innings=args.innings,
+        )
+        bb_r = bb_eng.evaluate_bridge(bb_m)
+        if args.json:
+            print(json_lib.dumps(dataclasses.asdict(bb_r), indent=2))
+        else:
+            print(f"BSEI Score: {bb_r.bsei_score:.1f}")
+            print(f"HLHRS Runs Saved: {bb_r.hlhrs_runs_saved:+.2f}")
+            print(f"Tier: {bb_r.bridge_tier}")
+
+    elif args.command == "spray-heatmap":
+        from mlb_baseball.visual import (
+            BatterSprayHeatmapProfile,
+            SprayHeatmapChartRenderer,
+            SprayHeatmapContact,
+        )
+
+        sh_renderer = SprayHeatmapChartRenderer()
+        contacts = [
+            SprayHeatmapContact(-25.0, 108.0, 28.0, "hr", "#ef4444"),
+            SprayHeatmapContact(5.0, 95.0, 12.0, "single", "#22c55e"),
+            SprayHeatmapContact(-10.0, 102.0, 20.0, "double", "#eab308"),
+        ]
+        sh_prof = BatterSprayHeatmapProfile(args.title, args.batter, contacts, args.hand)
+        chart = sh_renderer.render(sh_prof)
+        print(f"Generated Vector SVG Spray Chart Heatmap ({len(chart.svg_content)} bytes)")
+
+    elif args.command == "swing-tempo":
+        import json as json_lib
+
+        from mlb_baseball.model.swing_tempo import (
+            BatterSwingTempoEngine,
+            BatterSwingTempoMetrics,
+        )
+
+        swt_eng = BatterSwingTempoEngine()
+        swt_m = BatterSwingTempoMetrics(
+            "b1",
+            "CLI Batter",
+            timing_std_ms=args.std,
+            bat_speed_consistency_pct=args.consistency,
+            late_count_contact_pct=args.contact,
+            total_swings=args.swings,
+        )
+        swt_r = swt_eng.evaluate_tempo(swt_m)
+        if args.json:
+            print(json_lib.dumps(dataclasses.asdict(swt_r), indent=2))
+        else:
+            print(f"STCI Score: {swt_r.stci_score:.1f}")
+            print(f"LSAR Runs: {swt_r.lsar_runs:+.2f}")
+            print(f"Tier: {swt_r.tempo_tier}")
 
     elif args.command == "chase-recog":
         import json as json_lib

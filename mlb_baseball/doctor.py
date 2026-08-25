@@ -273,6 +273,7 @@ def run() -> list[Check]:
         block_suppress,
         blocking,
         bullpen,
+        bullpen_bridge,
         bullpen_opt,
         bunt,
         bunt_charge,
@@ -312,6 +313,7 @@ def run() -> list[Check]:
         intent_leak,
         lead_snap,
         leverage,
+        lineup_protect,
         low_scoop,
         neural,
         nrfi,
@@ -350,6 +352,7 @@ def run() -> list[Check]:
         stuff,
         sub,
         sweetspot,
+        swing_tempo,
         travel,
         tto,
         tunnel,
@@ -496,6 +499,18 @@ def run() -> list[Check]:
         checks.extend(wall_leap.health_check())
     except Exception as exc:
         checks.append(Check("wall_leap", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(lineup_protect.health_check())
+    except Exception as exc:
+        checks.append(Check("lineup_protect", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(bullpen_bridge.health_check())
+    except Exception as exc:
+        checks.append(Check("bullpen_bridge", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(swing_tempo.health_check())
+    except Exception as exc:
+        checks.append(Check("swing_tempo", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(chase_recog.health_check())
     except Exception as exc:

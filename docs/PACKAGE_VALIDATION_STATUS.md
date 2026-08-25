@@ -79,11 +79,7 @@ already carry a "Verified: `<real fact>`" note.
 proof without re-running the underlying test): `elo`, `gbm`, `offense`,
 `war`, `oaa`, `bullpen`, `age`, `park`.
 
-**No existing tie-out note — real work for 06B:** `provenance`, `log5`
-(**known bug already on record** — `docs/PROJECT_REVIEW.md` documents the
-implemented log5 as `pA²/(pA²+pB²)`, not the cited Tango formula
-`pA(1-pB)/[pA(1-pB)+pB(1-pA)]` — confirm whether this was ever fixed before
-re-litigating it), `starter`, `speed`, `starter_workload`, `framing`,
+**No existing tie-out note — real work for 06B:** `provenance`, `starter`, `speed`, `starter_workload`, `framing`,
 `market`, `total`, `team_rate`, `markov`, `diff`, `trend`, `experience`,
 `pitch_discipline`, `batted_ball`, `pitcher_estimators` (xFIP, SIERA — exact
 published formulas, high-value target), `run_expectancy` (RE24, Leverage
@@ -92,6 +88,13 @@ Index — exact published formula/table, high-value target), `platoon`, `bsr`
 `statcast_expected`.
 
 **Done this session:**
+- `log5` — checked the known bug on record (`docs/PROJECT_REVIEW.md`:
+  implemented as `pA²/(pA²+pB²)` instead of Tango's cited odds-ratio form).
+  Already fixed in a prior session, confirmed by reading `log5.py` directly:
+  `MODEL_VERSION = "log5-v2"`, the real formula
+  `home(1-away) / [home(1-away) + away(1-home)]` is what's actually
+  implemented now, with a detailed docstring explaining the v1 bug and the
+  0/0 degenerate-case handling. No further action needed.
 - `pitcher_estimators` — real SIERA formula bug found and fixed (ADR-259).
 - `bsr` — real column-name bug found and fixed, the P0 pipeline-crash
   finding above (ADR-260); its `wGDP` metric was then also found to be

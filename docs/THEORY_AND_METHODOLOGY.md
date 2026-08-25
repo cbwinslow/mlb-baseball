@@ -188,8 +188,14 @@ In SQL/SQLMesh implementations, this is enforced by:
 ### 2.1 SIERA (Skill-Interactive ERA)
 - **Author**: Matt Swartz and Eric Seidman (Baseball Prospectus, 2010).
 - **Theoretical Rationale**: Traditional ERA and FIP treat strikeouts, walks, and batted balls as independent linear additive components. SIERA accounts for the **non-linear interaction** between strikeouts and ground ball rates (high-strikeout pitchers who also induce ground balls allow even fewer runs because double-play opportunities increase while ground-ball BABIP decreases when balls are hit weakly).
-- **Mathematical Formula**:
-$$\text{SIERA} = 6.145 - 16.984 \left(\frac{K}{PA}\right) + 11.434 \left(\frac{BB}{PA}\right) - 1.858 \left(\frac{GB - FB - PU}{PA}\right) + 7.653 \left(\frac{K}{PA}\right)^2 \pm \dots$$
+- **Mathematical Formula** (Swartz & Seidman, "Introducing SIERA," Baseball
+  Prospectus, 2010, verified directly against the primary source 2026-08-25 —
+  see ADR-259):
+$$\text{SIERA} = 6.145 - 16.986 \left(\frac{K}{PA}\right) + 11.434 \left(\frac{BB}{PA}\right) - 1.858 \left(\frac{GB - FB - PU}{PA}\right) + 7.653 \left(\frac{K}{PA}\right)^2 \pm 6.664 \left(\frac{GB - FB - PU}{PA}\right)^2 + 10.130 \left(\frac{K}{PA}\right)\left(\frac{GB - FB - PU}{PA}\right) - 5.195 \left(\frac{BB}{PA}\right)\left(\frac{GB - FB - PU}{PA}\right)$$
+  where the $\pm$ on the squared net-groundball term is negative when
+  $\frac{GB-FB-PU}{PA} > 0$ and positive when it is negative (an asymmetric
+  curvature term — extreme groundball and extreme flyball tendencies affect
+  SIERA differently, not just by magnitude but by direction of the term).
 - **Implementation in `gold.game_feature`**:
   - Point-in-time rolling 30-day starter SIERA (`home_starter_siera`, `away_starter_siera`).
   - Rolling 14-day bullpen SIERA (`home_bullpen_siera`, `away_bullpen_siera`).
@@ -260,7 +266,22 @@ $$\text{wRC+} = 100 \times \left( \frac{\text{wRAA}/\text{PA} + \text{LgR/PA}}{\
 ### 6.1 BsR (Total Baserunning Runs)
 - Composed of:
   1. $\text{wSB}$ (Weighted Stolen Bases) $= \text{SB} \cdot 0.20 - \text{CS} \cdot 0.407$
-  2. $\text{UBR}$ (Ultimate Base Running) = Run value generated on extra bases taken on hits and outs.
+  2. $\text{UBR}$ (Ultimate Base Running) = Run value generated on extra bases taken on hits and outs, opportunity-adjusted against the rolling league-average extra-bases-taken rate.
+  3. $\text{wGDP}$ (Weighted Grounded Into Double Play Runs, verified against
+     https://library.fangraphs.com/offense/wgdp/ 2026-08-25, ADR-261):
+     opportunity-adjusted actual-vs-expected GDP rate, same structure as UBR.
+     Opportunity is defined as "man on first, less than two outs" (source
+     above). FanGraphs does not publish their exact run-value constant; this
+     project derives its own directly from its real, empirically-built
+     24-state run expectancy matrix (§ on RE24 above /
+     `gold.run_expectancy_24`): $\text{RE}(\text{1B}, 1\text{ out}) -
+     \text{RE}(\text{empty}, 2\text{ outs}) = 0.5213 - 0.1060 = 0.4153$ runs.
+$$\text{wGDP} = (\text{GDP}_{\text{opp}} \cdot \text{lgGDPRate} - \text{GDP}) \times 0.4153$$
+     $\text{GDP}$ counts only groundball double plays (Chadwick's `DP_FL`
+     flag is a generic double-play indicator, not groundball-specific —
+     confirmed against real production data, ~19% of `DP_FL='T'` events are
+     line-drive/fly-ball/pop-up double plays — filtered via
+     `battedball_cd='G'`).
 
 ### 6.2 Catcher Framing (CSAE% & Framing Runs)
 - **CSAE% (Called Strike Above Expected)**:
@@ -332,6 +353,28 @@ where $\Delta RE_{24}$ is the net expected run differential remaining in the hal
 - **Leverage Index (Tom Tango / The Book)**:
   $$LI(S) = rac{\sigma_{	ext{swing}}(S)}{\overline{\sigma}_{	ext{swing}}}$$
   Quantifies the critical importance of a plate appearance relative to an average MLB game state ($LI = 1.0$).
+
+**Two separate implementations exist, at different validation status (Plan
+06, ADR-262) -- do not conflate them:**
+- `mlb wpa`'s `WinExpectancyEngine` (`mlb_baseball/model/wpa.py`) still uses
+  Section 10.2's hand-typed logistic-sigmoid WE(S) formula directly, despite
+  this section's own header claiming a genuine 288-state Markov
+  absorbing-chain solution (N=(I-Q)^-1) -- no matrix inversion exists
+  anywhere in the actual code. Not yet fixed; tracked in
+  `docs/PACKAGE_VALIDATION_STATUS.md`.
+- `gold.game_feature`'s real `home_starter_avg_li`/`home_bullpen_avg_li`
+  columns (what `enrich_feature_stage()`/`mlb predict` actually use) were
+  rebuilt in ADR-262 on a genuinely real, empirical foundation instead:
+  `gold.win_expectancy` (`mlb_baseball/model/win_expectancy.py`) -- the real
+  historical home-win rate observed for every real (season, inning, half,
+  outs, base state, margin) combination in Retrosheet play-by-play, not a
+  formula -- and `gold.leverage_index`
+  (`mlb_baseball/model/leverage_index.py`) -- the real observed
+  win-expectancy swing per state from that table, normalized to LI=1.0
+  average. Both verified against real, independently known reference
+  points (home-field advantage ~0.539 at the very first plate appearance; a
+  real, widely-cited high-leverage benchmark -- bottom 9th, bases loaded, 0
+  outs, tied -- landing at LI~3.08), not just internal consistency.
 
 ---
 

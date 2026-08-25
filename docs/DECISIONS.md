@@ -2,6 +2,306 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-262: Rebuild Leverage Index from a real, empirical win-expectancy table instead of a hand-typed one (Plan 06)
+
+**Decision:** `team_leverage_re24_update.sql`'s `home_starter_avg_li`/
+`home_bullpen_avg_li` (etc.) columns were computed from a hand-typed
+base/out-only lookup table with invented constants (2.10, 1.80, 1.65...),
+not derived from real data or any published methodology. The engine that
+could have supplied a real one, `wpa.py`'s `WinExpectancyEngine`, turned out
+to have the same problem one layer up: its docstring claims a genuine
+"288-state Markov absorbing chain" solution (`N = (I-Q)^-1`), but the actual
+`calculate_win_expectancy()` code is a hand-typed logistic-sigmoid
+approximation with its own invented constants (0.48, 0.28, 1.15, 0.035) —
+no matrix inversion anywhere in it. Owner direction: don't patch this with
+another guess; make it actually work, backed by real research and real data.
+
+**Real definition, from the primary source** (FanGraphs,
+https://library.fangraphs.com/misc/li/, fetched directly): Leverage Index
+is the potential win-expectancy swing of a situation, weighted by the real
+probability of each outcome, normalized so the league-wide average
+situation is exactly 1.0. This requires a real win-expectancy function —
+P(home team wins) as a function of inning, score margin, and base/out
+state — which this project did not have.
+
+**Built one, empirically, from this project's own real historical data**
+(the same "average real outcome given a real, observed state" methodology
+already proven for `gold.run_expectancy_24`, just with more state
+dimensions and a binary win/loss outcome instead of runs — this is also how
+the original historical win-expectancy tables in the literature were
+built):
+
+1. **`gold.win_expectancy`** (new table, migration 0083;
+   `mlb_baseball/model/win_expectancy.py`,
+   `mlb_baseball/sql/win_expectancy_matrix_build.sql`): for every
+   (season, inning capped at 9, top/bottom, outs, base state, home-minus-away
+   score margin capped at ±8) combination observed in real Retrosheet
+   play-by-play, the real fraction of those historical instances where the
+   home team went on to win. Populated from 16,211,154 real plays across
+   676,960 states in real production `mlb`.
+   Verified against real, independently-known reference points, not just
+   internal consistency: tied game, top of the 1st, bases empty →
+   **0.5391** home win probability (real MLB historical home-field
+   advantage is ~0.53–0.54); bottom of the 9th, 2 outs, down 3+ runs →
+   **0.0013** (a near-certain loss, correctly near 0); top of the 9th, 0
+   outs, up 5 runs → **0.9963** (a near-certain win, correctly near 1).
+2. **`gold.leverage_index`** (new table, migration 0084;
+   `mlb_baseball/model/leverage_index.py`,
+   `mlb_baseball/sql/leverage_index_matrix_build.sql`): for every real
+   historical play, the real observed swing — |WE entering the next real
+   play (or the actual final win/loss outcome, if it was the last play of
+   the game) − WE entering this play| — using table 1's real values, not a
+   separately modeled outcome distribution. Averaged per state and divided
+   by the swing averaged across every state (so the league-wide average
+   state is exactly LI=1.0, the standard convention). Pooled across all
+   seasons (unlike table 1) — leverage's shape is stable across eras even
+   though raw run-scoring rates aren't, and pooling gives far better sample
+   sizes for the rarer extreme states.
+   Verified against a real, widely-cited high-leverage benchmark: bottom of
+   the 9th, bases loaded, 0 outs, tied game → **LI ≈ 3.08** in an initial
+   spot-check (2018-2023 sample) — in the same range cited in sabermetric
+   literature for exactly this situation, not just directionally plausible.
+   Sample-weighted average across all real production states after the
+   full build: verified ≈ 1.0 by construction, via `health_check()`.
+3. **`team_leverage_re24_update.sql`** now joins `event_with_li` to
+   `gold.leverage_index` on the play's own (inning, half, outs, base state,
+   margin) instead of the hand-typed `CASE` table, falling back to 1.0
+   (average leverage, not NULL) for any state combination absent from the
+   table.
+
+**Not done in this pass, flagged not silently skipped**: `bullpen_re24`/
+`batting_re24` still use the pre-existing crude "runs vs. flat 0.12/PA
+league average" proxy, not real RE24 (`gold.run_expectancy_24`'s own
+ΔRE + runs-on-play definition). The fix is well-scoped (reuse the same
+`LEAD()`-based before/after-state pattern proven here) but was deliberately
+not rushed into the same pass — tracked as open work in
+`docs/PACKAGE_VALIDATION_STATUS.md`.
+
+**Migrations applied directly to real production `mlb`** (owner-authorized
+explicitly before each one): 0083 (`gold.win_expectancy`, purely additive
+`CREATE TABLE IF NOT EXISTS`) and 0084 (`gold.leverage_index`, same). Both
+tables were then populated for real against production data — the
+`win_expectancy` build completed in minutes; the `leverage_index` build (a
+heavier `LEAD()` self-join across ~16.5M real plays plus two more joins to
+the 677K-row win-expectancy table) took over 20 minutes, confirmed genuinely
+active via `pg_stat_activity` (not stuck) throughout.
+
+Both `compute()` functions guard on "already populated → no-op" (matching
+`run_expectancy.py`'s own `gold.run_expectancy_24` guard) rather than
+rebuilding on every call — these are expensive, full-history reference
+table builds, not per-game rolling features, and an unconditional daily
+rebuild would risk exactly the kind of slow/fragile daily-pipeline step
+ADR-260 already found and fixed once.
+
+**Verified**: new `tests/integration/test_model_win_expectancy.py` (4
+tests, including a real observed-win-rate computation hand-verified to
+exactly 0.5 from 2 seeded games) and `tests/integration/test_model_leverage_index.py`
+(4 tests, including a 4-state hand calculation matching the SQL's real
+output exactly: 0.2222/2.0000/1.3333/0.4444 — this specifically exercises
+both the ordinary next-play path and the game-ending win/loss fallback
+path). `tests/integration/test_model_run_expectancy.py` updated for the new
+real join-based `avg_li` mechanism. `uv run pytest tests/unit/` (1033
+passed), `uv run ruff check .`/`uv run ruff format --check .`/`uv run mypy`
+all clean. Wired into `enrich_feature_stage()` (before `run_expectancy`,
+which now depends on `gold.leverage_index`) and `mlb doctor` via
+`model.health_check()`.
+
+## ADR-261: Rebuild wGDP to actually compute grounded-into-double-play runs, not all double plays (Plan 06)
+
+**Decision:** Fixing ADR-260's `dp_fl` column-name crash was not sufficient —
+the owner asked directly why the original code referenced `gdp_fl` at all,
+suspecting something real was tied to that name rather than a plain typo.
+Checked, and there was: **Chadwick's `DP_FL` field
+(https://chadwick.readthedocs.io/en/stable/cwevent.html, confirmed against
+the primary docs) is a generic "double play flag," not groundball-specific.**
+Confirmed against real production data: of all `dp_fl='T'` events,
+308,207 are groundballs but 71,212 (≈19%) are line-drive, fly-ball, or
+pop-up double plays. FanGraphs' `wGDP`
+(https://library.fangraphs.com/offense/wgdp/, fetched directly) is
+explicitly about *grounded* into double play only — using `dp_fl` alone,
+even with the crash fixed, would have overcounted every non-groundball
+double play as a "GDP" for every team, indefinitely.
+
+**Second, independent bug found in the same query, also from primary-source
+research, not assumption:** the original formula was
+`wgdp_runs = -(gdp_sum * 0.45)` — a flat penalty per double play, with no
+adjustment for opportunity. FanGraphs' own description of the real
+methodology (fetched directly): *"we take the average rate of GDP in GDP
+opportunities and apply it to the number of opportunities the player
+had"* — an **opportunity-adjusted actual-vs-expected** stat, structurally
+identical to how this same file's `UBR` (Ultimate Base Running) already
+correctly compares actual extra-bases-taken against a rolling league-average
+rate. The rebuild mirrors that exact pattern rather than inventing a new
+one: FanGraphs defines a GDP opportunity as "man on first, less than two
+outs" (same source); the min-sample gate (`>= 10`) was also checking the
+wrong variable (`opp_sum`, the *stolen-base* opportunity count, not GDP
+opportunities) — fixed alongside.
+
+**Run-value constant, sourced not guessed:** FanGraphs does not publish
+their exact run-value constant for wGDP ("proprietary," per their own
+article). Rather than reuse the original unvalidated `0.45` or import an
+external number computed on a different sample/era (Tom Tango's published
+event-value table gives `-0.85` for "Grounded Into Double Play," but that's
+the value of a GDP *relative to an average PA outcome*, not the marginal
+cost *relative to an otherwise-identical productive out that doesn't erase
+the runner* — a different, smaller quantity, which is what an
+opportunity-adjusted stat needs), the constant used here — **0.4153** — was
+derived directly from this project's own real, now-corrected empirical
+24-state run expectancy matrix (`gold.run_expectancy_24`, ADR-260): real
+production RE(man on 1st, 1 out) = 0.5213 minus RE(bases empty, 2 outs) =
+0.1060, i.e. the actual, real, data-derived run cost of a double play versus
+a productive out that leaves the runner on base. This keeps the constant
+consistent with this project's own run environment rather than an
+externally-sourced one from a different era/sample.
+
+**Verified**: new `tests/integration/test_model_bsr.py::test_wgdp_excludes_non_groundball_double_plays_and_matches_hand_calculation`
+— a scenario with a real groundball GDP, a line-drive "double play" that
+must NOT count, and enough volume to clear both min-sample gates, hand-computed
+independently against the new formula, matches the SQL's real output exactly
+(`0.42`/`-0.42`). All 5 tests in the file pass, `uv run pytest tests/unit/`
+(1033 passed), `uv run ruff check .`/`uv run ruff format --check .`/
+`uv run mypy mlb_baseball/model/bsr.py` all clean.
+
+## ADR-260: Fix a column-name typo that has silently broken the entire daily enrichment/prediction pipeline since 2026-08-19 (Plan 06, P0)
+
+**Decision:** While tie-ing out `run_expectancy.py` (RE24/LI) against real production
+data for Plan 06, found that `gold.game_feature.home_starter_id` — and every
+other enrichment column depending on it — is **NULL for all 216,730 games in
+real production `mlb`**, despite `docs/FEATURE_REGISTRY.md` documenting these
+families as "wired into the live daily pipeline." Traced to the actual root
+cause via `logs/mlb_daily_update.log` (the real, currently-running daily cron
+job's own log, not a guess):
+
+`mlb_baseball/sql/team_bsr_comprehensive_retrosheet_update.sql` (RUN-01,
+baserunning wSB/XBT%/UBR/wGDP) referenced a column `re.gdp_fl` that has never
+existed in `raw.retrosheet_event` (confirmed against
+`information_schema.columns`; the correct column, used correctly everywhere
+else in this codebase, is `dp_fl`). `bsr.compute(conn)` is called from
+`enrich_feature_stage()` (`mlb_baseball/model/__init__.py`) as one entry in a
+plain Python dict literal — dict values evaluate eagerly, in order, at
+construction time. When `bsr.compute()` raises
+`psycopg.errors.UndefinedColumn`, **every enrichment module listed after it
+in that dict never runs** — `starter`, `run_expectancy`, `pitcher_estimators`,
+`framing`, `command`, `pitch_movement`, `statcast_expected`, `platoon`,
+`batted_ball`, and more (see the dict's own ordering in
+`enrich_feature_stage()`). The exception propagates out of `run()` (which
+wraps the whole sequence in one transaction) and crashes the `mlb predict`
+CLI process entirely, so nothing in that day's enrichment or prediction
+transaction commits.
+
+**Actual production impact, read directly from `logs/mlb_daily_update.log`
+(the real cron log, not inferred):** of the 6 scheduled daily runs from
+2026-08-19 through 2026-08-25, **5 have crashed with this exact traceback**
+and never reached "finished daily update" — only 2026-08-20 completed. This
+predates and is unrelated to the ADR-089–258 "package" batch itself; `bsr.py`
+(RUN-01) was added 2026-08-19 per PROGRESS.md's own account of that day's
+work, immediately breaking the enrichment pipeline it was added alongside,
+and nothing since has caught it — no test exercises `bsr.compute()` against
+a real `raw.retrosheet_event` row with realistic columns (see Verification
+below for the coverage gap this exposes), and `mlb doctor`'s per-module
+health checks did not surface this as a pipeline-ordering failure (each
+module's own health check can pass in isolation while the module never
+actually runs in the real daily sequence).
+
+**Fix:** `re.gdp_fl` → `re.dp_fl` in
+`team_bsr_comprehensive_retrosheet_update.sql`. Verified directly against
+real production `mlb` in a rolled-back transaction (never committed): the
+corrected query successfully updates all 216,730 real games; the unfixed
+query reproduces the exact production traceback. Confirmed no other column
+in the same file has a similar mismatch (checked all 11 other
+`raw.retrosheet_event` columns it references against
+`information_schema.columns`).
+
+**`tests/integration/test_model_bsr.py`'s own hand-written fixture also used
+`gdp_fl`**, not `dp_fl` — its `CREATE TABLE`/`ALTER TABLE`/`INSERT` all
+declared the same wrong column name as the bug, so the existing test suite
+could never have caught this (it was internally consistent with the bug, not
+with reality). This is the same root pattern behind every other Plan 06
+finding so far: a real column name that was never checked against actual
+Chadwick `cwevent` output before being hand-typed into both the
+implementation and its own test. Fixed the fixture to `dp_fl` alongside the
+SQL fix; `raw.retrosheet_event`'s schema is not migration-defined (it's a
+raw-layer table whose columns mirror Chadwick's own CSV header verbatim, per
+this project's naming-convention exception), so real production is the only
+authoritative source for its real column names — confirmed via
+`information_schema.columns` against 16.4M real ingested rows, not assumed.
+
+**Not yet done — real follow-up, flagged not silently assumed:**
+1. Production `gold.game_feature` still has NULL `home_starter_id`,
+   `home_starter_xfip`, `home_starter_siera`, `home_starter_avg_li`, and
+   every other column downstream of this crash, for every game, right now.
+   Fixing the SQL does not retroactively populate historical rows — a real
+   `mlb predict` run (or the next scheduled cron run) is needed to actually
+   backfill, and should be watched to confirm it reaches "finished daily
+   update" rather than assumed fixed.
+2. Once populated, the ADR-259 SIERA fix and any other formula corrections
+   found under Plan 06 will be computing against real data for the first
+   time — worth a fresh `mlb doctor` pass and spot-check against this ADR's
+   and ADR-259's fixtures once real values exist, not just the synthetic
+   test fixtures used to find and fix these bugs.
+3. `docs/FEATURE_REGISTRY.md`'s "wired into the live daily pipeline"
+   language for every family after `bsr` in `enrich_feature_stage()`'s
+   ordering was true of the *code*, not of *what has actually been running*
+   since 2026-08-19 — worth a registry-wide caveat or per-family correction
+   once backfilled and confirmed, not just this one entry.
+4. **Test coverage gap**: no existing test calls `enrich_feature_stage()`
+   (or `run()`) against a realistic multi-module sequence with real-shaped
+   `raw.retrosheet_event` columns the way production actually has them —
+   `tests/integration/test_model_enrich_stage.py` (added 2026-08-19 per
+   PROGRESS.md, for the *previous* incident) checks that the aggregator
+   invokes real `compute()` functions and writes non-NULL data, but
+   apparently does not exercise enough of the real column set to catch an
+   `UndefinedColumn` in one specific module's SQL. Worth extending rather
+   than trusting either that test or this fix alone to prevent a recurrence.
+
+**Verification**: `uv run pytest tests/integration/test_model_bsr.py`
+(existing suite); ADR authored alongside the fix, not after.
+
+## ADR-259: Fix SIERA formula transcription bug found by external tie-out (Plan 06)
+
+**Decision:** `mlb_baseball/sql/team_pitcher_estimators_retrosheet_update.sql`'s
+SIERA calculation (`starter_rates` and `bullpen_rates` CTEs, ADR-090) was
+checked directly against its cited primary source — Swartz & Seidman,
+"Introducing SIERA," Baseball Prospectus, 2010
+(<https://www.baseballprospectus.com/news/article/10045/introducing-siera-part-5/>,
+fetched directly, independently cross-checked against a second source) — as
+part of Plan 06's tie-out work. The as-shipped formula had three real bugs,
+not rounding artifacts:
+1. The K/PA coefficient was `-16.984` instead of the published `-16.986`
+   (minor).
+2. The squared net-groundball term (`± 6.664 * ((GB-FB-PU)/PA)^2`) used raw
+   `GB/PA` instead of net `(GB-FB-PU)/PA`, and used an unconditional
+   positive sign instead of the published formula's sign, which flips based
+   on whether net groundball rate is positive or negative.
+3. Both interaction terms used the wrong coefficient **and** the wrong sign
+   on the K×groundball term: implemented as `-9.096*(K/PA)*(GB/PA)` and
+   `-3.037*(BB/PA)*(GB/PA)`, published as `+10.130*(K/PA)*(netGB/PA)` and
+   `-5.195*(BB/PA)*(netGB/PA)`.
+
+Verified end-to-end against the `tests/integration/test_model_pitcher_estimators.py`
+fixture (PA=40, K=10, BB=4, GB=5, FB=10, PU=2): the buggy formula produced
+SIERA=3.6278; the corrected formula, computed independently in Python with
+exact `Decimal` arithmetic and confirmed to reproduce the buggy value
+byte-for-byte before trusting the corrected one, produces SIERA=3.6972 — a
+real, non-trivial 0.069 difference for this fixture, expected to be larger
+for pitchers with more extreme groundball/flyball profiles since the bug is
+in exactly the terms that scale with that deviation.
+
+**Production impact:** `home_starter_siera`/`away_starter_siera`/
+`home_bullpen_siera`/`away_bullpen_siera` and their derived
+`starter_siera_diff`/`bullpen_siera_diff` columns are in `gbm.py`'s
+`FEATURE_COLUMNS` — this fed the real, currently-deployed prediction model.
+**The champion model has not yet been retrained against the corrected
+values as of this ADR** — that is real Plan-04-scale retrain-and-evaluate
+work (a new `train()` run, compare against the existing champion using this
+project's normal promotion gate), intentionally not done inline with this
+fix. Tracked as open follow-up in `docs/PACKAGE_VALIDATION_STATUS.md`.
+
+**Verification**: `tests/integration/test_model_pitcher_estimators.py` updated
+with the corrected expected value and a full citation; `uv run pytest
+tests/unit/` (1033 passed), `uv run ruff check .`/`uv run ruff format --check
+.` clean.
+
 ## ADR-254: Pure-Python SVG Strike Zone 3D Isometric View Chart (`ZONE-ISOMETRIC-01`, Package 166)
 
 **Decision:** Built 3D isometric perspective strike zone box in `mlb_baseball/visual.py` and CLI subcommand `mlb zone-isometric`.

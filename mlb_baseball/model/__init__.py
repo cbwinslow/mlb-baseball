@@ -41,6 +41,7 @@ from mlb_baseball.model import (
     features,
     framing,
     gbm,
+    leverage_index,
     log5,
     market,
     oaa,
@@ -58,6 +59,7 @@ from mlb_baseball.model import (
     team_rate,
     trend,
     war,
+    win_expectancy,
 )
 
 SOURCE = "model"
@@ -167,6 +169,13 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         "gold.game_feature (experience)": experience.compute(conn),
         "gold.game_feature (pitch_discipline)": pitch_discipline.compute(conn),
         "gold.game_feature (batted_ball)": batted_ball.compute(conn),
+        # win_expectancy/leverage_index build full-history reference tables
+        # (gold.win_expectancy, gold.leverage_index), not gold.game_feature
+        # columns directly -- run_expectancy.compute() (next) reads
+        # gold.leverage_index for its avg_li columns (ADR-262). Both are
+        # cheap no-ops once already built; see their own compute() docstrings.
+        "gold.win_expectancy": win_expectancy.compute(conn),
+        "gold.leverage_index": leverage_index.compute(conn),
         "gold.game_feature (run_expectancy)": run_expectancy.compute(conn),
         "gold.game_feature (pitcher_estimators)": pitcher_estimators.compute(conn),
         "gold.game_feature (statcast_expected)": statcast_expected.compute(conn),
@@ -318,6 +327,8 @@ def health_check() -> list[Check]:
         + experience.health_check()
         + pitch_discipline.health_check()
         + batted_ball.health_check()
+        + win_expectancy.health_check()
+        + leverage_index.health_check()
         + run_expectancy.health_check()
         + pitcher_estimators.health_check()
         + statcast_expected.health_check()

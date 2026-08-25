@@ -19,44 +19,34 @@ WITH event_parsed AS (
         ) AS base_state_before,
         COALESCE(re.event_runs_ct::integer, 0) AS event_runs,
         (re.outs_ct::integer + COALESCE(re.event_outs_ct::integer, 0)) AS outs_after,
-        -- Standard empirical base-out leverage index weights (normalized to mean ~1.0)
-        CASE
-            WHEN re.outs_ct::integer = 0 THEN
-                CASE
-                    WHEN re.base1_run_id IS NOT NULL AND re.base2_run_id IS NOT NULL AND re.base3_run_id IS NOT NULL THEN 2.10
-                    WHEN re.base2_run_id IS NOT NULL AND re.base3_run_id IS NOT NULL THEN 1.80
-                    WHEN re.base1_run_id IS NOT NULL AND re.base3_run_id IS NOT NULL THEN 1.65
-                    WHEN re.base1_run_id IS NOT NULL AND re.base2_run_id IS NOT NULL THEN 1.55
-                    WHEN re.base3_run_id IS NOT NULL THEN 1.45
-                    WHEN re.base2_run_id IS NOT NULL THEN 1.25
-                    WHEN re.base1_run_id IS NOT NULL THEN 1.15
-                    ELSE 0.85
-                END
-            WHEN re.outs_ct::integer = 1 THEN
-                CASE
-                    WHEN re.base1_run_id IS NOT NULL AND re.base2_run_id IS NOT NULL AND re.base3_run_id IS NOT NULL THEN 2.05
-                    WHEN re.base2_run_id IS NOT NULL AND re.base3_run_id IS NOT NULL THEN 1.75
-                    WHEN re.base1_run_id IS NOT NULL AND re.base3_run_id IS NOT NULL THEN 1.60
-                    WHEN re.base1_run_id IS NOT NULL AND re.base2_run_id IS NOT NULL THEN 1.50
-                    WHEN re.base3_run_id IS NOT NULL THEN 1.40
-                    WHEN re.base2_run_id IS NOT NULL THEN 1.20
-                    WHEN re.base1_run_id IS NOT NULL THEN 1.05
-                    ELSE 0.70
-                END
-            ELSE
-                CASE
-                    WHEN re.base1_run_id IS NOT NULL AND re.base2_run_id IS NOT NULL AND re.base3_run_id IS NOT NULL THEN 1.90
-                    WHEN re.base2_run_id IS NOT NULL AND re.base3_run_id IS NOT NULL THEN 1.60
-                    WHEN re.base1_run_id IS NOT NULL AND re.base3_run_id IS NOT NULL THEN 1.45
-                    WHEN re.base1_run_id IS NOT NULL AND re.base2_run_id IS NOT NULL THEN 1.35
-                    WHEN re.base3_run_id IS NOT NULL THEN 1.25
-                    WHEN re.base2_run_id IS NOT NULL THEN 1.05
-                    WHEN re.base1_run_id IS NOT NULL THEN 0.85
-                    ELSE 0.50
-                END
-        END AS leverage_index,
+        LEAST(re.inn_ct::integer, 9) AS inning_bucket,
+        (re.bat_home_id = '1') AS is_bottom,
+        -- Home-minus-away score margin entering this play, capped to
+        -- +/-8, matching leverage_index_matrix_build.sql exactly.
+        GREATEST(-8, LEAST(8,
+            CASE WHEN re.bat_home_id = '1'
+                THEN re.start_bat_score_ct::integer - re.start_fld_score_ct::integer
+                ELSE re.start_fld_score_ct::integer - re.start_bat_score_ct::integer
+            END
+        )) AS margin_bucket,
         re.bat_event_fl
     FROM raw.retrosheet_event re
+),
+
+-- Leverage Index: real, empirically derived from gold.leverage_index
+-- (ADR-262), not a hand-typed table. A state combination absent from the
+-- table (extremely rare -- an under-observed corner of the real historical
+-- state space) falls back to 1.0, the definition of average leverage,
+-- rather than producing NULL and breaking the SUM aggregation below.
+event_with_li AS (
+    SELECT ep.*, COALESCE(li.leverage_index, 1.0) AS leverage_index
+    FROM event_parsed ep
+    LEFT JOIN gold.leverage_index li
+        ON li.inning_bucket = ep.inning_bucket
+        AND li.is_bottom = ep.is_bottom
+        AND li.outs_before = ep.outs_before
+        AND li.base_state = ep.base_state_before
+        AND li.margin_bucket = ep.margin_bucket
 ),
 
 games AS (
@@ -89,7 +79,7 @@ starter_game_agg AS (
         COUNT(*) AS pa_faced,
         SUM(ep.leverage_index) AS sum_li
     FROM games g
-    JOIN event_parsed ep ON ep.game_id = g.retro_game_id
+    JOIN event_with_li ep ON ep.game_id = g.retro_game_id
     WHERE ep.resp_pit_start_fl = 'T'
       AND ep.bat_event_fl = 'T'
       AND ep.resp_pit_id IN (g.home_starter_retro_id, g.away_starter_retro_id)
@@ -131,7 +121,7 @@ bullpen_game_agg AS (
         SUM(ep.leverage_index) AS sum_li,
         SUM(ep.event_runs) AS runs_allowed
     FROM games g
-    JOIN event_parsed ep ON ep.game_id = g.retro_game_id
+    JOIN event_with_li ep ON ep.game_id = g.retro_game_id
     WHERE ep.resp_pit_start_fl = 'F'
       AND ep.bat_event_fl = 'T'
     GROUP BY g.game_id, g.season, g.game_date, g.game_number,

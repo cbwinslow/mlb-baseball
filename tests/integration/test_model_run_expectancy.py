@@ -15,10 +15,16 @@ def _reset(db_conn):
         cur.execute("DELETE FROM core.team WHERE retro_team_id IN ('ATL', 'NYA')")
         cur.execute("DELETE FROM core.venue WHERE name = 'Truist Park'")
         cur.execute("DELETE FROM gold.run_expectancy_24")
+        cur.execute("DELETE FROM gold.leverage_index")
     db_conn.commit()
 
 
 def test_compute_populates_re24_and_li(db_conn):
+    # Plan 06 / ADR-262: avg_li now comes from a real join to
+    # gold.leverage_index, not a hand-typed table -- seed one exact,
+    # hand-picked fixture row for the state this test's events land in
+    # (inning=1, top, 0 outs, bases empty, margin=0) so the resulting
+    # avg_li is still a clean, fully hand-verifiable number.
     _reset(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
@@ -26,11 +32,18 @@ def test_compute_populates_re24_and_li(db_conn):
             "game_id text, inn_ct integer, bat_home_id text, resp_pit_id text, "
             "resp_pit_start_fl text, event_id integer, outs_ct text, event_outs_ct text, "
             "event_runs_ct text, base1_run_id text, base2_run_id text, base3_run_id text, "
+            "start_bat_score_ct text, start_fld_score_ct text, "
             "bat_event_fl text, _season text)"
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo "
             "(gid text, gametype text, visteam text, hometeam text, _season text)"
+        )
+        cur.execute(
+            "INSERT INTO gold.leverage_index "
+            "(inning_bucket, is_bottom, outs_before, base_state, margin_bucket, "
+            "leverage_index, sample_size) VALUES "
+            "(1, false, 0, '000', 0, 1.2000, 1000)"
         )
 
         cur.execute(
@@ -69,15 +82,17 @@ def test_compute_populates_re24_and_li(db_conn):
         )
 
         # Seed G1 events for Jacob deGrom (ATL starter):
-        # 30 PA, all 0 outs, bases empty (LI = 0.85 each) -> Total LI = 25.50 -> avg = 0.8500
+        # 30 PA, all inning=1/top/0 outs/bases empty/margin=0 (LI = 1.2000
+        # each, per the fixture row above) -> Total LI = 36.00 -> avg = 1.2000
         for i in range(30):
             cur.execute(
                 "INSERT INTO raw.retrosheet_event "
                 "(game_id, inn_ct, bat_home_id, resp_pit_id, resp_pit_start_fl, "
                 "event_id, outs_ct, event_outs_ct, event_runs_ct, "
-                "base1_run_id, base2_run_id, base3_run_id, bat_event_fl, _season) "
+                "base1_run_id, base2_run_id, base3_run_id, "
+                "start_bat_score_ct, start_fld_score_ct, bat_event_fl, _season) "
                 "VALUES ('G1', 1, '0', 'degrj001', 'T', %(i)s, '0', '1', '0', "
-                "NULL, NULL, NULL, 'T', '2021')",
+                "NULL, NULL, NULL, '0', '0', 'T', '2021')",
                 {"i": i + 1},
             )
 
@@ -86,9 +101,10 @@ def test_compute_populates_re24_and_li(db_conn):
             "INSERT INTO raw.retrosheet_event "
             "(game_id, inn_ct, bat_home_id, resp_pit_id, resp_pit_start_fl, "
             "event_id, outs_ct, event_outs_ct, event_runs_ct, "
-            "base1_run_id, base2_run_id, base3_run_id, bat_event_fl, _season) "
+            "base1_run_id, base2_run_id, base3_run_id, "
+            "start_bat_score_ct, start_fld_score_ct, bat_event_fl, _season) "
             "VALUES ('G2', 1, '0', 'degrj001', 'T', 1, '0', '1', '0', "
-            "NULL, NULL, NULL, 'T', '2021')"
+            "NULL, NULL, NULL, '0', '0', 'T', '2021')"
         )
     db_conn.commit()
 
@@ -118,8 +134,8 @@ def test_compute_populates_re24_and_li(db_conn):
     # G1: first game of 2021 -> NULL
     assert res["G1"] is None
 
-    # G2: entering avg LI = 25.50 / 30 = 0.8500
-    assert float(res["G2"]) == 0.8500
+    # G2: entering avg LI = 36.00 / 30 = 1.2000
+    assert float(res["G2"]) == 1.2000
 
     # G3: first game of 2022 -> NULL (season partition reset)
     assert res["G3"] is None
@@ -135,6 +151,7 @@ def test_compute_is_idempotent(db_conn):
             "game_id text, inn_ct integer, bat_home_id text, resp_pit_id text, "
             "resp_pit_start_fl text, event_id integer, outs_ct text, event_outs_ct text, "
             "event_runs_ct text, base1_run_id text, base2_run_id text, base3_run_id text, "
+            "start_bat_score_ct text, start_fld_score_ct text, "
             "bat_event_fl text, _season text)"
         )
         cur.execute(

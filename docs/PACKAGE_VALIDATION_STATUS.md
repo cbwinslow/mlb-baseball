@@ -147,16 +147,25 @@ Index — exact published formula/table, high-value target), `platoon`, `bsr`
   an early rename (`plate_discipline.py` → `pitch_discipline.py`,
   never actually committed under the old name) — fixed in the same change.
 
-**Still open:** `run_expectancy`'s `home_bullpen_re24`/`home_batting_re24`
-columns still use the pre-existing crude "runs vs. flat 0.12/PA league
-average" proxy, not real RE24 (`gold.run_expectancy_24`'s own
-ΔRE + runs-on-play definition) — the now-fixed matrix exists and could feed
-a real RE24 the same `LEAD()`-based way `gold.leverage_index` was built, but
-this was deliberately not rushed into the same pass. `wpa.py`'s own
-`WinExpectancyEngine` (backing the separate `mlb wpa` CLI command, not
-`gold.game_feature`) also still uses its unvalidated hand-typed formula —
-not touched this session; see `docs/THEORY_AND_METHODOLOGY.md` §10.3 for
-the full note on these two now-diverged implementations.
+- `run_expectancy`'s `home_bullpen_re24`/`away_bullpen_re24`/
+  `home_batting_re24`/`away_batting_re24` — **fixed (ADR-264).** They used
+  the same pre-existing crude "runs vs. flat 0.12/PA league average" proxy
+  as the LI columns did before ADR-262. Replaced with real RE24
+  (`RE(after) - RE(before) + runs scored`, Tom Tango/FanGraphs, cumulative
+  not per-PA, pitcher RE24 = -batter RE24) against the now-fixed
+  `gold.run_expectancy_24` matrix, using the same `LEAD()`-based
+  before/after-state technique `gold.leverage_index` was built with.
+  Hand-verified against a hand-computed 3-play half-inning fixture
+  (single -> strikeout -> GIDP), repeated 17 times: `batting_re24 =
+  -8.5000`, `bullpen_re24 = +8.5000`, both matching the SQL's real output
+  exactly. See `tests/integration/test_model_run_expectancy.py::
+  test_compute_real_bullpen_and_batting_re24`.
+
+**Still open:** `wpa.py`'s own `WinExpectancyEngine` (backing the separate
+`mlb wpa` CLI command, not `gold.game_feature`) still uses its unvalidated
+hand-typed formula — not touched this session; see
+`docs/THEORY_AND_METHODOLOGY.md` §10.3 for the full note on these two
+now-diverged implementations.
 
 ## A′ — established technique, self-contained (3 files)
 
@@ -257,3 +266,9 @@ process (refit / premise-check / relabel) to apply per package.
   `plate_discipline_v1` row now carries a real "Verified:" note and its
   stale file names (left over from an early, never-actually-committed
   rename) are corrected.
+- 2026-08-25 (continued, separate worktree): `run_expectancy`'s
+  `bullpen_re24`/`batting_re24` columns fixed against real RE24 (ADR-264,
+  `tests/integration/test_model_run_expectancy.py`) — replaced the
+  "~0.12 runs/PA league average" proxy with `RE(after) - RE(before) +
+  runs scored` (Tom Tango/FanGraphs, fetched directly this session)
+  against the now-fixed `gold.run_expectancy_24` matrix.

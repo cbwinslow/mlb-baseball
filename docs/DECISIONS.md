@@ -84,6 +84,75 @@ including a foul tip and a hit-by-pitch) asserting the corrected CSW% =
 explicitly as a regression guard), Whiff% = 5/10 = 0.5, and F-Strike% =
 5/7 ≈ 0.714286.
 
+## ADR-264: Replace the bullpen/batting RE24 proxy with real, empirical RE24 (Plan 06)
+
+**Decision:** `team_leverage_re24_update.sql`'s `bullpen_re24`/`batting_re24`
+columns (`home_bullpen_re24`/`away_bullpen_re24`/`home_batting_re24`/
+`away_batting_re24` on `gold.game_feature`) were computed from a made-up
+"runs vs. a flat 0.12 runs/PA league average" proxy — not from any real
+source or the project's own real `gold.run_expectancy_24` table, which
+already existed and already had the exact data needed. Flagged as open
+work in ADR-262 and `docs/PACKAGE_VALIDATION_STATUS.md` rather than
+rushed into that pass; fixed here.
+
+**Real definition, from the primary source** (Tom Tango, Mitchel Lichtman,
+Andrew Dolphin, "The Book"; FanGraphs RE24 library page,
+https://library.fangraphs.com/misc/re24/, fetched and verified directly
+2026-08-25): per play, `RE24 = RE(state after the play) - RE(state before
+the play) + runs scored on the play`, using the real, per-season empirical
+24 base-out run expectancy matrix. The source also confirms two details
+that shaped the implementation:
+- RE24 is a **cumulative total**, summed across every play/PA in the
+  window — not a per-PA rate (unlike `avg_li`, which is a mean).
+- A **pitcher's RE24 is the exact negative of the batting team's RE24**
+  for the same plays ("whatever positive credit goes to the batter is
+  mirrored exactly by the pitcher") — so `bullpen_re24` is computed as
+  `-1 * (batting-perspective RE24 summed over the plays that bullpen
+  faced)`, not a separately-derived formula.
+
+**Implementation** (`mlb_baseball/sql/team_leverage_re24_update.sql`):
+added `event_with_re24` and `event_re24` CTEs, following `event_with_li`'s
+established style. The "after" state is found via `LEAD()` over the next
+real play in the same game, ordered by the real event sequence — the same
+technique `leverage_index_matrix_build.sql`'s `with_next` CTE already uses
+for its own next-state lookup. This was chosen over reconstructing base
+occupancy from `bat_dest_id`/`run1_dest_id`/`run2_dest_id`/`run3_dest_id`
+(present on `raw.retrosheet_event`, confirmed by inspecting the real
+table) because those columns' exact runner-to-base destination semantics
+could not be independently confirmed against a real fetched source in
+this session — the already-verified `LEAD()` technique was preferred over
+guessing at an unverified encoding. Unlike leverage's `with_next` (which
+wants the real next state regardless of half-inning boundary, falling
+back to the game's win/loss outcome only at the very last play), RE24
+only cares about half-inning boundaries: when a play ends the half-inning
+(`outs_after >= 3`), `RE(after)` is 0 by definition, so the after-state
+lookup is explicitly gated on `outs_after < 3` rather than relying on the
+`LEAD` merely missing a row (it usually lands on the next half-inning's
+real leadoff state instead, which must not be used). Both the before- and
+after-state lookups are `LEFT JOIN`s, `COALESCE`d to 0 on a miss, matching
+`event_with_li`'s own "rare missing state -> sane fallback, don't silently
+drop the play from every downstream aggregate" reasoning — `bullpen_rates`
+and `batting_rates` now source `pa_faced`/`sum_li`/`runs_allowed`/
+`runs_scored` from this same CTE chain, so a fallback that could drop rows
+would have regressed those columns too, not just RE24.
+
+**Verified**: hand-built a 3-play half-inning fixture (single -> strikeout
+-> GIDP) against 3 hand-picked `gold.run_expectancy_24` rows, hand-computed
+each play's RE24 and the half-inning total (-0.5000, matching the
+telescoping identity `total = -RE(start state) + runs scored in the
+inning`), repeated it 17 times (51 plays, clearing both the 40-PA bullpen
+and 50-PA batting minimums) for an expected `batting_re24 = -8.5000` /
+`bullpen_re24 = +8.5000`, and confirmed the SQL's real output matches
+exactly — `tests/integration/test_model_run_expectancy.py::
+test_compute_real_bullpen_and_batting_re24`. `uv run pytest
+tests/integration/test_model_run_expectancy.py` passes;
+`uv run ruff check .` / `uv run ruff format --check .` clean on touched
+files.
+
+**Not touched**: `starter_rates`/`event_with_li` (already correct, ADR-262)
+and `leverage_index_matrix_build.sql` (already correct, out of scope) were
+left as-is.
+
 ## ADR-262: Rebuild Leverage Index from a real, empirical win-expectancy table instead of a hand-typed one (Plan 06)
 
 **Decision:** `team_leverage_re24_update.sql`'s `home_starter_avg_li`/

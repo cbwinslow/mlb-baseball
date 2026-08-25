@@ -217,7 +217,26 @@ def test_compute_populates_pitcher_estimators_and_platoons(db_conn):
 
         # Verify against hand-calculated fixtures
         assert xfip == Decimal("4.5417")
-        assert siera == Decimal("3.6278")  # SIERA calculation with exact empirical weights
+        # SIERA tied out against the published formula (Swartz & Seidman,
+        # "Introducing SIERA," Baseball Prospectus, 2010,
+        # https://www.baseballprospectus.com/news/article/10045/introducing-siera-part-5/):
+        #   SIERA = 6.145 - 16.986*(K/PA) + 11.434*(BB/PA) - 1.858*(netGB/PA)
+        #           + 7.653*(K/PA)^2 +/- 6.664*(netGB/PA)^2
+        #           + 10.130*(K/PA)*(netGB/PA) - 5.195*(BB/PA)*(netGB/PA)
+        #   where netGB = GB - FB - PU, and the +/- on the squared netGB term
+        #   is negative when netGB/PA > 0, positive when netGB/PA < 0.
+        # This fixture: PA=40, K=10, BB=4, GB=5, FB=10, PU=2 -> netGB/PA=-0.175.
+        # Plan 06 tie-out (2026-08-25) found the formula as originally shipped
+        # (ADR-090) used the wrong coefficients on both interaction terms
+        # (-9.096/-3.037 instead of +10.130/-5.195) and the wrong variable
+        # (raw GB%, not net GB%) in the squared and both interaction terms —
+        # confirmed by fetching the primary BP source directly, independently
+        # cross-checked against a second source. Fixed in
+        # mlb_baseball/sql/team_pitcher_estimators_retrosheet_update.sql; this
+        # feeds gbm.py's FEATURE_COLUMNS (starter_siera_diff/bullpen_siera_diff)
+        # in production, so the champion model needs retraining to reflect it
+        # — see docs/PACKAGE_VALIDATION_STATUS.md.
+        assert siera == Decimal("3.6972")
         assert vs_lhb_k_pct == Decimal("0.3000")  # 6/20
         assert vs_rhb_k_pct == Decimal("0.2000")  # 4/20
         assert vs_lhb_woba == Decimal(

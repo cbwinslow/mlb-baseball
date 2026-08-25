@@ -79,6 +79,45 @@ def test_serve_daily_betting_grid_and_pitcher_card(db_conn):
 
 def test_serve_pitcher_props_and_live_game_tracker(db_conn):
     _reset(db_conn)
+
+
+def test_serve_sgp_grid_uses_latest_predictions_and_actual_pitcher_hand(db_conn):
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.player (id, retro_id, mlbam_id, first_name, last_name) VALUES "
+            "(101, 'p1_retro', '101', 'Chris', 'Sale') "
+            "ON CONFLICT (id) DO NOTHING"
+        )
+        cur.execute(
+            "INSERT INTO gold.game_feature ("
+            "game_instance_key, mlb_game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_starter_id, home_starter_throws, home_starter_fastball_velo) VALUES ("
+            "'SRV-G2', 999002, 2024, '2024-06-02', %(home_id)s, %(away_id)s, "
+            "101, 'L', 94.5)",
+            {"home_id": teams["BOS"], "away_id": teams["NYA"]},
+        )
+        cur.execute(
+            "INSERT INTO gold.prediction ("
+            "mlb_game_pk, game_instance_key, model_version, generated_at, home_win_prob) VALUES "
+            "(999002, 'SRV-G2', 'gbm-v2', '2024-06-01 12:00:00+00', 0.410), "
+            "(999002, 'SRV-G2', 'gbm-v2', '2024-06-01 13:00:00+00', 0.610)"
+        )
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT home_win_prob FROM serve.sgp_matchup_grid WHERE mlb_game_pk = '999002'")
+        probabilities = cur.fetchall()
+        cur.execute("SELECT throws FROM serve.pitcher_arsenal WHERE pitcher_id = 101")
+        throws = cur.fetchall()
+
+    assert len(probabilities) == 1
+    assert float(probabilities[0][0]) == 0.610
+    assert throws == [("L",)]
+
+    _reset(db_conn)
     teams = _seed_teams(db_conn)
     bos_id = teams["BOS"]
     nya_id = teams["NYA"]

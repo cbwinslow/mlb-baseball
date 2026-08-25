@@ -33,6 +33,22 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### ZONE-ISOMETRIC-01 pure-Python SVG strike zone 3D isometric view chart: implemented (ADR-254) — 2026-08-24
+Added `ZoneIsometricChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb zone-isometric` CLI command.
+- Renders 3D isometric strike zone wireframe box ($520	ext{px} 	imes 400	ext{px}$) with pitch depth trajectories.
+
+### WALL-LEAP-01 outfielder wall leap & timing elevation index: implemented (ADR-253) — 2026-08-24
+Added `mlb_baseball/model/wall_leap.py`, unit tests in `tests/unit/test_wall_leap.py`, and `mlb wall-leap` CLI command.
+- Evaluates vertical leap apex in, timing precision ms, WLTEI score, and RRVAA runs saved.
+
+### SLOT-SAG-01 pitcher arm slot fatigue sag & lateral drift detection: implemented (ADR-252) — 2026-08-24
+Added `mlb_baseball/model/slot_sag.py`, unit tests in `tests/unit/test_slot_sag.py`, and `mlb slot-sag` CLI command.
+- Evaluates late-outing slot angle drop, lateral release drift, ASFSI score, and FSDRS runs saved.
+
+### OPPO-LINER-01 batter opposite-field spray line drive sinking liners: implemented (ADR-251) — 2026-08-24
+Added `mlb_baseball/model/oppo_liner.py`, unit tests in `tests/unit/test_oppo_liner.py`, and `mlb oppo-liner` CLI command.
+- Evaluates oppo line drive %, BABIP conversion, OFLDII score, and OLPR runs created.
+
 ### TUNNEL-DECISION-01 pure-Python SVG pitch tunnel decision separation chart: implemented (ADR-250) — 2026-08-24
 Added `TunnelDecisionChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb tunnel-decision` CLI command.
 - Renders side-by-side pitch divergence from release ($50	ext{ ft}$) through decision point ($23.8	ext{ ft}$) to plate.

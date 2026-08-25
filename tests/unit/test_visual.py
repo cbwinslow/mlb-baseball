@@ -684,3 +684,27 @@ def test_tunnel_decision_chart_svg_generation():
     assert "Skenes Fastball-Splinker Tunnel" in chart.svg_content
     assert "Decision Point (23.8 ft)" in chart.svg_content
     assert "FF (99.2)" in chart.svg_content
+
+
+def test_zone_isometric_chart_svg_generation():
+    """Verify ZoneIsometricChartRenderer generates 3D isometric strike zone volume."""
+    from mlb_baseball.visual import (
+        IsometricZonePitch,
+        PitcherZoneIsometricProfile,
+        ZoneIsometricChartRenderer,
+    )
+
+    renderer = ZoneIsometricChartRenderer()
+    pitches = [
+        IsometricZonePitch("FF", 3.0, 32.0, 0.4, 98.5, "#00d2be"),
+        IsometricZonePitch("SL", -4.0, 22.0, 1.1, 88.2, "#f59e0b"),
+    ]
+    prof = PitcherZoneIsometricProfile("Skubal 3D Zone Isometric", "Tarik Skubal", pitches)
+    chart = renderer.render(prof)
+
+    assert chart.width_px == 520
+    assert chart.height_px == 400
+    assert "<svg" in chart.svg_content
+    assert "Skubal 3D Zone Isometric" in chart.svg_content
+    assert "FF (98.5)" in chart.svg_content
+    assert "SL (88.2)" in chart.svg_content

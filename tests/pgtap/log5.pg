@@ -1,0 +1,68 @@
+-- Database-native contract checks for the canonical Log5 baseline.
+--
+-- This is intentionally a narrow complement to the Python hand-calculated
+-- and Hypothesis suites. It verifies the formula independently in PostgreSQL
+-- and asserts the serving prediction relation retains the columns required to
+-- store a Log5 result. The transaction always rolls back: it never changes
+-- data in mlb_test or any other database.
+
+BEGIN;
+
+SELECT plan(6);
+
+SELECT is(
+    (
+        SELECT (0.600::numeric * (1 - 0.500::numeric))
+             / ((0.600::numeric * (1 - 0.500::numeric))
+                + (0.500::numeric * (1 - 0.600::numeric)))
+    ),
+    0.600::numeric,
+    'Log5 preserves P(x, .500) = x'
+);
+
+SELECT is(
+    (
+        SELECT round(
+            ((0.650::numeric * (1 - 0.450::numeric))
+             / ((0.650::numeric * (1 - 0.450::numeric))
+                + (0.450::numeric * (1 - 0.650::numeric))))
+            + ((0.450::numeric * (1 - 0.650::numeric))
+               / ((0.450::numeric * (1 - 0.650::numeric))
+                  + (0.650::numeric * (1 - 0.450::numeric)))),
+            12
+        )
+    ),
+    1.000000000000::numeric,
+    'Log5 complementary matchups sum to one'
+);
+
+SELECT is(
+    (
+        SELECT CASE
+            WHEN home = away AND home IN (0::numeric, 1::numeric) THEN 0.5::numeric
+            ELSE (home * (1 - away)) / (home * (1 - away) + away * (1 - home))
+        END
+        FROM (VALUES (0::numeric, 0::numeric)) AS edge(home, away)
+    ),
+    0.5::numeric,
+    'Log5 handles equal winless records without division by zero'
+);
+
+SELECT is(
+    (
+        SELECT CASE
+            WHEN home = away AND home IN (0::numeric, 1::numeric) THEN 0.5::numeric
+            ELSE (home * (1 - away)) / (home * (1 - away) + away * (1 - home))
+        END
+        FROM (VALUES (1::numeric, 1::numeric)) AS edge(home, away)
+    ),
+    0.5::numeric,
+    'Log5 handles equal undefeated records without division by zero'
+);
+
+SELECT has_table('gold', 'prediction', 'gold.prediction stores model output');
+SELECT has_column('gold', 'prediction', 'home_win_prob', 'prediction retains home probability');
+
+SELECT * FROM finish(true);
+
+ROLLBACK;

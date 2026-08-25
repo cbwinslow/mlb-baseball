@@ -426,3 +426,12 @@ def test_chase_recog_and_first_pitch_ambush_and_wall_block_health_checks():
     assert chase_recog.health_check()[0].ok is True
     assert first_pitch_ambush.health_check()[0].ok is True
     assert wall_block.health_check()[0].ok is True
+
+
+def test_oppo_liner_and_slot_sag_and_wall_leap_health_checks():
+    """Verify health checks for oppo_liner, slot_sag, and wall_leap modules."""
+    from mlb_baseball.model import oppo_liner, slot_sag, wall_leap
+
+    assert oppo_liner.health_check()[0].ok is True
+    assert slot_sag.health_check()[0].ok is True
+    assert wall_leap.health_check()[0].ok is True

@@ -43,6 +43,7 @@ class ChartType(enum.Enum):
     BARREL_GRID_CHART = "barrel_grid_chart"
     POLAR_COMPASS_CHART = "polar_compass_chart"
     TUNNEL_DECISION_CHART = "tunnel_decision_chart"
+    ZONE_ISOMETRIC_CHART = "zone_isometric_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -3198,6 +3199,149 @@ class TunnelDecisionChartRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class IsometricZonePitch:
+    """Pitch coordinate within 3D strike zone volume."""
+
+    pitch_name: str
+    plate_x_in: float  # -8.5 to +8.5 in zone
+    plate_z_in: float  # 18.0 to 42.0 in zone
+    depth_y_ft: float = 0.5  # 0.0 (front) to 1.4 (back of plate)
+    velocity_mph: float = 95.0
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class PitcherZoneIsometricProfile:
+    """Pitcher 3D isometric strike zone mapping profile."""
+
+    title: str
+    pitcher_name: str
+    pitches: list[IsometricZonePitch] = dataclasses.field(default_factory=list)
+
+
+class ZoneIsometricChartRenderer:
+    """Renders 3D isometric perspective strike zone box (ZONE-ISOMETRIC-01)."""
+
+    def __init__(self, width: int = 520, height: int = 400) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: PitcherZoneIsometricProfile) -> GeneratedVectorChart:
+        """Render 3D isometric wireframe strike zone box with pitch entry points."""
+        cx, cy = 240.0, 240.0
+        scale_x = 7.5  # px per inch
+        scale_z = 5.5  # px per inch
+
+        # 3D isometric offset for back of plate
+        iso_dx, iso_dy = 55.0, -35.0
+
+        # Front Face Coordinates: Plate width 17 in (-8.5 to +8.5), Zone height 24 in (18 to 42)
+        f_left = cx - 8.5 * scale_x
+        f_right = cx + 8.5 * scale_x
+        f_bot = cy + 12.0 * scale_z
+        f_top = cy - 12.0 * scale_z
+
+        # Back Face Coordinates
+        b_left = f_left + iso_dx
+        b_right = f_right + iso_dx
+        b_bot = f_bot + iso_dy
+        b_top = f_top + iso_dy
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{self.width / 2}" y="24" fill="#f8fafc" font-size="13" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{self.width / 2}" y="40" fill="#94a3b8" font-size="10" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.pitcher_name} 3D Isometric Strike Zone</text>',
+        ]
+
+        # Back Face Wireframe (Dashed)
+        svg_parts.append(
+            f'<polygon points="{b_left:.1f},{b_top:.1f} {b_right:.1f},{b_top:.1f} '
+            f'{b_right:.1f},{b_bot:.1f} {b_left:.1f},{b_bot:.1f}" '
+            f'fill="#1e293b" opacity="0.4" stroke="#475569" stroke-width="1.0" '
+            f'stroke-dasharray="3,3" />'
+        )
+
+        # Connecting Depth Edges
+        svg_parts.append(
+            f'<line x1="{f_left:.1f}" y1="{f_top:.1f}" x2="{b_left:.1f}" y2="{b_top:.1f}" '
+            f'stroke="#475569" stroke-width="1.0" stroke-dasharray="3,3" />'
+        )
+        svg_parts.append(
+            f'<line x1="{f_right:.1f}" y1="{f_top:.1f}" x2="{b_right:.1f}" y2="{b_top:.1f}" '
+            f'stroke="#475569" stroke-width="1.0" stroke-dasharray="3,3" />'
+        )
+        svg_parts.append(
+            f'<line x1="{f_left:.1f}" y1="{f_bot:.1f}" x2="{b_left:.1f}" y2="{b_bot:.1f}" '
+            f'stroke="#475569" stroke-width="1.0" stroke-dasharray="3,3" />'
+        )
+        svg_parts.append(
+            f'<line x1="{f_right:.1f}" y1="{f_bot:.1f}" x2="{b_right:.1f}" y2="{b_bot:.1f}" '
+            f'stroke="#475569" stroke-width="1.0" stroke-dasharray="3,3" />'
+        )
+
+        # Front Face Wireframe & 3x3 Grid
+        svg_parts.append(
+            f'<polygon points="{f_left:.1f},{f_top:.1f} {f_right:.1f},{f_top:.1f} '
+            f'{f_right:.1f},{f_bot:.1f} {f_left:.1f},{f_bot:.1f}" '
+            f'fill="#0f172a" opacity="0.6" stroke="#f8fafc" stroke-width="2.0" />'
+        )
+
+        # 3x3 Grid Lines on Front Face
+        w_step = (f_right - f_left) / 3.0
+        h_step = (f_bot - f_top) / 3.0
+        for i in range(1, 3):
+            gx = f_left + i * w_step
+            gy = f_top + i * h_step
+            svg_parts.append(
+                f'<line x1="{gx:.1f}" y1="{f_top:.1f}" x2="{gx:.1f}" y2="{f_bot:.1f}" '
+                f'stroke="#334155" stroke-width="1.0" stroke-dasharray="2,2" />'
+            )
+            svg_parts.append(
+                f'<line x1="{f_left:.1f}" y1="{gy:.1f}" x2="{f_right:.1f}" y2="{gy:.1f}" '
+                f'stroke="#334155" stroke-width="1.0" stroke-dasharray="2,2" />'
+            )
+
+        # Render Pitches in 3D Volume
+        for p in profile.pitches:
+            # Interpolate depth factor (0.0 front -> 1.4 back)
+            depth_frac = max(0.0, min(1.0, p.depth_y_ft / 1.4))
+            px = (cx + p.plate_x_in * scale_x) + depth_frac * iso_dx
+            pz = (cy - (p.plate_z_in - 30.0) * scale_z) + depth_frac * iso_dy
+
+            # Draw Depth Projection Line to Front Plane
+            front_px = cx + p.plate_x_in * scale_x
+            front_pz = cy - (p.plate_z_in - 30.0) * scale_z
+            svg_parts.append(
+                f'<line x1="{front_px:.1f}" y1="{front_pz:.1f}" x2="{px:.1f}" y2="{pz:.1f}" '
+                f'stroke="{p.color_hex}" stroke-width="1.0" opacity="0.4" stroke-dasharray="2,2" />'
+            )
+
+            # Pitch Ball
+            svg_parts.append(
+                f'<circle cx="{px:.1f}" cy="{pz:.1f}" r="6.0" fill="{p.color_hex}" '
+                f'stroke="#0b1329" stroke-width="1.5" />'
+            )
+            svg_parts.append(
+                f'<text x="{px + 9:.1f}" y="{pz + 3:.1f}" fill="{p.color_hex}" font-size="8" '
+                f'font-weight="bold" font-family="sans-serif">'
+                f"{p.pitch_name} ({p.velocity_mph:.1f})</text>"
+            )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.ZONE_ISOMETRIC_CHART,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -3412,6 +3556,12 @@ def health_check() -> list[Check]:
             PitcherTunnelDecisionProfile("Tunnel Decision", "Skenes", p1, p2, 1.8, 18.2)
         )
 
+        zone_iso_renderer = ZoneIsometricChartRenderer()
+        iso_pitches = [IsometricZonePitch("FF", 3.0, 32.0, 0.4, 98.5, "#00d2be")]
+        zone_iso_chart = zone_iso_renderer.render(
+            PitcherZoneIsometricProfile("3D Zone", "Skubal", iso_pitches)
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -3440,6 +3590,7 @@ def health_check() -> list[Check]:
             and "<svg" in barrel_grid_chart.svg_content
             and "<svg" in compass_chart.svg_content
             and "<svg" in tunnel_dec_chart.svg_content
+            and "<svg" in zone_iso_chart.svg_content
         ):
             checks.append(
                 Check(

@@ -160,7 +160,11 @@ This document serves as the academic and theoretical reference manual for the ML
 134. [Pitcher First-Pitch Strike Aggression vs Ambush Penalty Mechanics](#134-pitcher-first-pitch-strike-aggression-vs-ambush-penalty-mechanics)
 135. [Catcher Wild Pitch & Passed Ball Wall Blocking Value](#135-catcher-wild-pitch--passed-ball-wall-blocking-value)
 136. [Pure-Python SVG Pitch Tunnel Decision Separation Architecture](#136-pure-python-svg-pitch-tunnel-decision-separation-architecture)
-137. [Academic Bibliography & Literature Citations](#137-academic-bibliography--literature-citations)
+137. [Batter Opposite-Field Line Drive Dynamics](#137-batter-opposite-field-line-drive-dynamics)
+138. [Pitcher Arm Slot Fatigue Sag & Lateral Drift Mechanics](#138-pitcher-arm-slot-fatigue-sag--lateral-drift-mechanics)
+139. [Outfielder Wall Leap & Timing Elevation Index](#139-outfielder-wall-leap--timing-elevation-index)
+140. [Pure-Python SVG Strike Zone 3D Isometric View Architecture](#140-pure-python-svg-strike-zone-3d-isometric-view-architecture)
+141. [Academic Bibliography & Literature Citations](#141-academic-bibliography--literature-citations)
 
 ---
 
@@ -1425,7 +1429,39 @@ $$\Delta_{\text{tunnel}} = \sqrt{(X_1(23.8) - X_2(23.8))^2 + (Z_1(23.8) - Z_2(23
 
 ---
 
-## 137. Academic Bibliography & Literature Citations
+## 137. Batter Opposite-Field Line Drive Dynamics
+
+### 137.1 Opposite Field Line Drive Impact Index (OFLDII) & Runs Created
+$$\text{OFLDII} = \max\left(0, 100 + (\text{OppoLD\%} - 20.0) \cdot 2.0 + (\text{BABIP} - 0.620) \cdot 50.0 + (\text{HardHit\%} - 40.0) \cdot 1.2\right)$$
+$$\text{OLPR}_{\text{runs}} = (\text{OFLDII} - 100.0) \cdot (\text{Events} \cdot 0.0030)$$
+
+---
+
+## 138. Pitcher Arm Slot Fatigue Sag & Lateral Drift Mechanics
+
+### 138.1 Arm Slot Fatigue Sag Index (ASFSI) & Runs Saved
+$$\Delta \theta = \text{early\_angle} - \text{late\_angle}, \quad \Delta X = |\text{late\_x} - \text{early\_x}|$$
+$$\text{ASFSI} = \max\left(0, 100 + (1.5 - \Delta \theta) \cdot 8.0 + (1.2 - \Delta X) \cdot 6.0\right)$$
+$$\text{FSDRS}_{\text{runs}} = (\text{ASFSI} - 100.0) \cdot (\text{LatePitches} \cdot 0.0035)$$
+
+---
+
+## 139. Outfielder Wall Leap & Timing Elevation Index
+
+### 139.1 Wall Leap Timing & Elevation Index (WLTEI) & Runs Saved
+$$\text{WLTEI} = \max\left(0, 100 + (\text{Apex} - 18.0) \cdot 1.8 + (95.0 - \text{TimingError}) \cdot 0.6 + (\text{Catch\%} - 35.0) \cdot 1.2\right)$$
+$$\text{RRVAA}_{\text{runs}} = (\text{WLTEI} - 100.0) \cdot (\text{Opps} \cdot 0.0085)$$
+
+---
+
+## 140. Pure-Python SVG Strike Zone 3D Isometric View Architecture
+
+### 140.1 3D Isometric Projection Transformation Matrix
+$$\begin{bmatrix} X_{\text{screen}} \\ Y_{\text{screen}} \end{bmatrix} = \begin{bmatrix} X_{\text{plate}} \cdot s_x + \frac{Y_{\text{depth}}}{1.4} \cdot \Delta_{\text{iso}, x} \\ -Z_{\text{plate}} \cdot s_z + \frac{Y_{\text{depth}}}{1.4} \cdot \Delta_{\text{iso}, y} \end{bmatrix}$$
+
+---
+
+## 141. Academic Bibliography & Literature Citations
 
 1. **James, Bill** (1981). *The 1981 Baseball Abstract*. Ballantine Books. (Pythagorean Expectation and run-differential modeling).
 2. **Tango, Tom; Lichtman, Mitchel; Dolphin, Andrew** (2006). *The Book: Playing the Percentages in Baseball*. Potomac Books. (Linear weights, Markov run expectancy, wOBA, and platoon leverage).
@@ -1505,3 +1541,5 @@ $$\Delta_{\text{tunnel}} = \sqrt{(X_1(23.8) - X_2(23.8))^2 + (Z_1(23.8) - Z_2(23
 76. **Petti, Bill** (2014). "Evaluating Outfielder Throw Paths and Runner Hold Frequencies". *Hardball Times*.
 77. **Roegele, Jon** (2013). "The True Value of First Pitch Strikes". *Hardball Times*.
 78. **Pavitt, Colin** (2017). "Catcher Blocking Metrics and Ball-in-Dirt Recovery Dynamics". *Journal of Sports Analytics*.
+79. **Nathan, Alan M.** (2018). "Trajectory and Magnus Force of Batted Line Drives". *American Journal of Physics*.
+80. **Carleton, Russell A.** (2015). "The Physics and Biomechanics of Pitcher Fatigue and Release Point Drift". *Baseball Prospectus*.

@@ -867,6 +867,78 @@ def main(argv: list[str] | None = None) -> None:
         "--json", action="store_true", help="output bullpen projection as JSON"
     )
 
+    # Batter opposite-field line drive sinking liners (OPPO-LINER-01)
+    ol_parser = subparsers.add_parser(
+        "oppo-liner",
+        help="evaluate oppo line drive rate, BABIP conversion, and OFLDII (OPPO-LINER-01)",
+    )
+    ol_parser.add_argument(
+        "--ld", type=float, default=20.0, help="oppo line drive pct (default: 20.0)"
+    )
+    ol_parser.add_argument(
+        "--babip", type=float, default=0.620, help="oppo liner babip (default: 0.620)"
+    )
+    ol_parser.add_argument(
+        "--hard", type=float, default=40.0, help="oppo liner hard hit pct (default: 40.0)"
+    )
+    ol_parser.add_argument(
+        "--events", type=int, default=120, help="oppo contact events (default: 120)"
+    )
+    ol_parser.add_argument(
+        "--json", action="store_true", help="output oppo liner evaluation as JSON"
+    )
+
+    # Pitcher arm slot fatigue sag & lateral drift (SLOT-SAG-01)
+    ss_parser = subparsers.add_parser(
+        "slot-sag",
+        help="evaluate late-outing arm slot drop, lateral drift, and ASFSI (SLOT-SAG-01)",
+    )
+    ss_parser.add_argument(
+        "--early-deg", type=float, default=45.0, help="early slot angle deg (default: 45.0)"
+    )
+    ss_parser.add_argument(
+        "--late-deg", type=float, default=43.5, help="late slot angle deg (default: 43.5)"
+    )
+    ss_parser.add_argument(
+        "--early-x", type=float, default=-24.0, help="early release x in (default: -24.0)"
+    )
+    ss_parser.add_argument(
+        "--late-x", type=float, default=-25.2, help="late release x in (default: -25.2)"
+    )
+    ss_parser.add_argument(
+        "--pitches", type=int, default=35, help="late pitches thrown (default: 35)"
+    )
+    ss_parser.add_argument("--json", action="store_true", help="output slot sag evaluation as JSON")
+
+    # Outfielder wall leap & timing elevation (WALL-LEAP-01)
+    wl_parser = subparsers.add_parser(
+        "wall-leap",
+        help="evaluate vertical leap apex, timing precision error, and WLTEI (WALL-LEAP-01)",
+    )
+    wl_parser.add_argument(
+        "--apex", type=float, default=18.0, help="vertical leap apex in (default: 18.0)"
+    )
+    wl_parser.add_argument(
+        "--timing", type=float, default=95.0, help="timing error ms (default: 95.0)"
+    )
+    wl_parser.add_argument(
+        "--catch", type=float, default=35.0, help="above wall catch pct (default: 35.0)"
+    )
+    wl_parser.add_argument(
+        "--opps", type=int, default=12, help="wall leap opportunities (default: 12)"
+    )
+    wl_parser.add_argument(
+        "--json", action="store_true", help="output wall leap evaluation as JSON"
+    )
+
+    # Pure-Python SVG Strike Zone 3D Isometric (ZONE-ISOMETRIC-01)
+    zi_parser = subparsers.add_parser(
+        "zone-isometric",
+        help="generate vector SVG 3D isometric strike zone box (ZONE-ISOMETRIC-01)",
+    )
+    zi_parser.add_argument("--title", type=str, default="Skubal 3D Strike Zone", help="chart title")
+    zi_parser.add_argument("--pitcher", type=str, default="Tarik Skubal", help="pitcher name")
+
     # Batter breaking ball chase recognition (CHASE-RECOG-01)
     cr_parser = subparsers.add_parser(
         "chase-recog",
@@ -4616,6 +4688,143 @@ def main(argv: list[str] | None = None) -> None:
                 f"({bp_proj.fip_penalty_delta:+.2f})"
             )
             print(fip_str)
+
+    elif args.command == "oppo-liner":
+        import json as json_lib
+
+        from mlb_baseball.model.oppo_liner import (
+            BatterOppoLinerEngine,
+            BatterOppoLinerMetrics,
+            OppoLinerEvaluationResult,
+        )
+
+        ol_eng = BatterOppoLinerEngine()
+        ol_m = BatterOppoLinerMetrics(
+            "b1",
+            "Target Batter",
+            oppo_line_drive_pct=args.ld,
+            oppo_liner_babip=args.babip,
+            oppo_liner_hard_hit_pct=args.hard,
+            oppo_contact_events=args.events,
+        )
+        ol_res: OppoLinerEvaluationResult = ol_eng.evaluate_oppo_liner(ol_m)
+
+        if args.json:
+            ol_out = {
+                "ofldii_score": ol_res.ofldii_score,
+                "olpr_runs": ol_res.olpr_runs_produced,
+                "tier": ol_res.liner_tier,
+                "is_artist": ol_res.is_line_drive_artist,
+            }
+            print(json_lib.dumps(ol_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OPPOSITE-FIELD LINE DRIVE MASTERY [{ol_res.liner_tier}]")
+            hdr_ol = (
+                f"     OFLDII Score: {ol_res.ofldii_score:.1f}/160 "
+                f"| Runs Produced: {ol_res.olpr_runs_produced:>+4.2f} "
+                f"| Line Drive Artist: {'YES' if ol_res.is_line_drive_artist else 'NO'}"
+            )
+            print(hdr_ol)
+            print(f"{'=' * 84}\n")
+            print(f"  • Liner Profile        : {ol_res.liner_tier}\n")
+
+    elif args.command == "slot-sag":
+        import json as json_lib
+
+        from mlb_baseball.model.slot_sag import (
+            PitcherSlotSagEngine,
+            PitcherSlotSagMetrics,
+            SlotSagEvaluationResult,
+        )
+
+        ss_eng = PitcherSlotSagEngine()
+        ss_m = PitcherSlotSagMetrics(
+            "p1",
+            "Target Pitcher",
+            early_arm_slot_angle_deg=args.early_deg,
+            late_arm_slot_angle_deg=args.late_deg,
+            early_release_x_in=args.early_x,
+            late_release_x_in=args.late_x,
+            late_pitches_thrown=args.pitches,
+        )
+        ss_res: SlotSagEvaluationResult = ss_eng.evaluate_slot_sag(ss_m)
+
+        if args.json:
+            ss_out = {
+                "asfsi_score": ss_res.asfsi_score,
+                "fsdrs_runs": ss_res.fsdrs_runs_saved,
+                "tier": ss_res.sag_tier,
+                "is_replicator": ss_res.is_slot_replicator,
+            }
+            print(json_lib.dumps(ss_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     ARM SLOT FATIGUE SAG & LATERAL DRIFT [{ss_res.sag_tier}]")
+            hdr_ss = (
+                f"     ASFSI Score: {ss_res.asfsi_score:.1f}/160 "
+                f"| Runs Saved: {ss_res.fsdrs_runs_saved:>+4.2f} "
+                f"| Replicator: {'YES' if ss_res.is_slot_replicator else 'NO'}"
+            )
+            print(hdr_ss)
+            print(f"{'=' * 84}\n")
+            print(f"  • Stability Profile    : {ss_res.sag_tier}\n")
+
+    elif args.command == "wall-leap":
+        import json as json_lib
+
+        from mlb_baseball.model.wall_leap import (
+            OutfielderWallLeapEngine,
+            OutfielderWallLeapMetrics,
+            WallLeapEvaluationResult,
+        )
+
+        wl_eng = OutfielderWallLeapEngine()
+        wl_m = OutfielderWallLeapMetrics(
+            "f1",
+            "Target Fielder",
+            vertical_leap_apex_in=args.apex,
+            leap_timing_precision_ms=args.timing,
+            above_wall_catch_pct=args.catch,
+            wall_leap_opportunities=args.opps,
+        )
+        wl_res: WallLeapEvaluationResult = wl_eng.evaluate_wall_leap(wl_m)
+
+        if args.json:
+            wl_out = {
+                "wltei_score": wl_res.wltei_score,
+                "rrvaa_runs": wl_res.rrvaa_runs_saved,
+                "tier": wl_res.leap_tier,
+                "is_thief": wl_res.is_wall_thief,
+            }
+            print(json_lib.dumps(wl_out, indent=2))
+        else:
+            print(f"\n{'=' * 84}")
+            print(f"     OUTFIELDER WALL LEAP & ROBBERY TIMING [{wl_res.leap_tier}]")
+            hdr_wl = (
+                f"     WLTEI Score: {wl_res.wltei_score:.1f}/160 "
+                f"| Runs Saved: {wl_res.rrvaa_runs_saved:>+4.2f} "
+                f"| Wall Thief: {'YES' if wl_res.is_wall_thief else 'NO'}"
+            )
+            print(hdr_wl)
+            print(f"{'=' * 84}\n")
+            print(f"  • Leap Profile         : {wl_res.leap_tier}\n")
+
+    elif args.command == "zone-isometric":
+        from mlb_baseball.visual import (
+            IsometricZonePitch,
+            PitcherZoneIsometricProfile,
+            ZoneIsometricChartRenderer,
+        )
+
+        z_iso_renderer = ZoneIsometricChartRenderer()
+        iso_p = [
+            IsometricZonePitch("FF", 3.0, 32.0, 0.4, 98.5, "#00d2be"),
+            IsometricZonePitch("SL", -4.0, 22.0, 1.1, 88.2, "#f59e0b"),
+        ]
+        z_iso_prof = PitcherZoneIsometricProfile(args.title, args.pitcher, iso_p)
+        chart = z_iso_renderer.render(z_iso_prof)
+        print(f"Generated Vector SVG 3D Isometric Strike Zone ({len(chart.svg_content)} bytes)")
 
     elif args.command == "chase-recog":
         import json as json_lib

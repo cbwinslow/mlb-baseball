@@ -316,6 +316,7 @@ def run() -> list[Check]:
         neural,
         nrfi,
         oppo_gap,
+        oppo_liner,
         outfield_target,
         parlay,
         pivot_dp,
@@ -338,6 +339,7 @@ def run() -> list[Check]:
         shop,
         simulate,
         slash_oppo,
+        slot_sag,
         spin,
         spin_align,
         splits,
@@ -360,6 +362,7 @@ def run() -> list[Check]:
         wall,
         wall_block,
         wall_crash,
+        wall_leap,
         weather,
         wpa,
         xslg,
@@ -481,6 +484,18 @@ def run() -> list[Check]:
         checks.extend(reliever.health_check())
     except Exception as exc:
         checks.append(Check("reliever", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(oppo_liner.health_check())
+    except Exception as exc:
+        checks.append(Check("oppo_liner", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(slot_sag.health_check())
+    except Exception as exc:
+        checks.append(Check("slot_sag", False, f"health_check() raised: {exc}"))
+    try:
+        checks.extend(wall_leap.health_check())
+    except Exception as exc:
+        checks.append(Check("wall_leap", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(chase_recog.health_check())
     except Exception as exc:

@@ -7,7 +7,7 @@
 CREATE OR REPLACE VIEW serve.pitcher_arsenal AS
 SELECT
     f.home_starter_id AS pitcher_id,
-    p.name_common AS pitcher_name,
+    NULLIF(CONCAT_WS(' ', p.first_name, p.last_name), '') AS pitcher_name,
     f.season,
     'R' AS throws,
     f.home_starter_fastball_velo AS fastball_velo_mph,
@@ -36,16 +36,19 @@ WHERE f.home_starter_id IS NOT NULL
   AND f.home_starter_fastball_velo IS NOT NULL
 ORDER BY f.season DESC, f.game_date DESC;
 
+-- gold.game_feature is the canonical pre-game grain.  core.game intentionally
+-- contains completed games only, and does not carry provider identity or
+-- scheduling-status columns used by this serving contract.
 CREATE OR REPLACE VIEW serve.sgp_matchup_grid AS
 SELECT
-    g.game_instance_key,
-    g.mlb_game_pk,
-    g.game_date,
-    g.home_team_id,
-    ht.abbrev AS home_team_code,
-    g.away_team_id,
-    at.abbrev AS away_team_code,
-    g.venue_id,
+    f.game_instance_key,
+    f.mlb_game_pk,
+    f.game_date,
+    f.home_team_id,
+    ht.retro_team_id AS home_team_code,
+    f.away_team_id,
+    at.retro_team_id AS away_team_code,
+    f.venue_id,
     -- Model probabilities
     COALESCE(p_gbm.home_win_prob, p_log5.home_win_prob, 0.54) AS home_win_prob,
     -- Pitcher Strikeout Expectations
@@ -59,13 +62,11 @@ SELECT
     f.park_factor,
     f.air_density_index,
     f.effective_wind_speed
-FROM core.game g
-JOIN core.team ht ON ht.id = g.home_team_id
-JOIN core.team at ON at.id = g.away_team_id
-LEFT JOIN gold.game_feature f ON f.game_id = g.id
-LEFT JOIN gold.prediction p_gbm ON p_gbm.mlb_game_pk = g.game_pk AND p_gbm.model_version = 'gbm-v2'
-LEFT JOIN gold.prediction p_log5 ON p_log5.mlb_game_pk = g.game_pk AND p_log5.model_version = 'log5-v2'
-WHERE g.status IN ('scheduled', 'pre-game', 'in_progress', 'final');
+FROM gold.game_feature f
+JOIN core.team ht ON ht.id = f.home_team_id
+JOIN core.team at ON at.id = f.away_team_id
+LEFT JOIN gold.prediction p_gbm ON p_gbm.mlb_game_pk = f.mlb_game_pk AND p_gbm.model_version = 'gbm-v2'
+LEFT JOIN gold.prediction p_log5 ON p_log5.mlb_game_pk = f.mlb_game_pk AND p_log5.model_version = 'log5-v2';
 
 CREATE OR REPLACE VIEW serve.batted_ball_profile AS
 SELECT

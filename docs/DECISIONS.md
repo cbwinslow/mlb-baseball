@@ -2,6 +2,46 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-254: Pure-Python SVG Strike Zone 3D Isometric View Chart (`ZONE-ISOMETRIC-01`, Package 166)
+
+**Decision:** Built 3D isometric perspective strike zone box in `mlb_baseball/visual.py` and CLI subcommand `mlb zone-isometric`.
+- **Operational Architecture & Geometry**:
+  - Front Plate Plane: $X \in [-8.5\text{ in}, +8.5\text{ in}], Z \in [18\text{ in}, 42\text{ in}]$ at $Y = 0\text{ ft}$.
+  - Back Plate Plane: Projected at isometric depth $(+55\text{px}, -35\text{px})$ at $Y = 1.4\text{ ft}$.
+  - Connecting wireframes, 3x3 inner zone grid, pitch depth trajectory lines, and velocity badges.
+  - CLI: `mlb zone-isometric --title "Skubal 3D Strike Zone" --pitcher "Tarik Skubal"`.
+- **Verification**: 29/29 unit tests in `tests/unit/test_visual.py` passing; 839/839 full repository unit tests passing.
+
+## ADR-253: Outfielder Wall Leap & Timing Elevation Index Engine (`WALL-LEAP-01`, Package 165)
+
+**Decision:** Built wall leap vertical apex, timing precision error, and WLTEI modeling in `mlb_baseball/model/wall_leap.py` and CLI subcommand `mlb wall-leap`.
+- **Mathematical Formulations & Methodology**:
+  - Wall Leap Timing & Elevation Index: $\text{WLTEI} = \max\left(0, 100 + (\text{Apex} - 18.0) \cdot 1.8 + (95.0 - \text{TimingError}) \cdot 0.6 + (\text{Catch\%} - 35.0) \cdot 1.2\right)$.
+  - Robbed Run Value Above Average: $\text{RRVAA}_{\text{runs}} = (\text{WLTEI} - 100.0) \cdot (\text{Opps} \cdot 0.0085)$.
+  - Tiers: `GRAVITY_DEFYING_WALL_THIEF` ($\text{WLTEI} \ge 116.0, \text{Apex} \ge 24.0\text{ in}, \text{Catch\%} \ge 55.0\%$), `GROUND_BOUND_MISTIMED_LEAP_LIABILITY`, `SOLID_WALL_LEAP_FIELDER`, `AVERAGE_WALL_LEAP_FIELDER`.
+  - CLI: `mlb wall-leap --apex 28.0 --timing 45.0 --catch 65.0 --opps 16`, `mlb wall-leap --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_wall_leap.py` passing; 839/839 full repository unit tests passing.
+
+## ADR-252: Pitcher Arm Slot Fatigue Sag & Lateral Drift Detection Engine (`SLOT-SAG-01`, Package 164)
+
+**Decision:** Built late-outing arm slot angle drop, lateral release drift, and ASFSI modeling in `mlb_baseball/model/slot_sag.py` and CLI subcommand `mlb slot-sag`.
+- **Mathematical Formulations & Methodology**:
+  - Arm Slot Fatigue Sag Index: $\text{ASFSI} = \max\left(0, 100 + (1.5 - \Delta \theta) \cdot 8.0 + (1.2 - \Delta X) \cdot 6.0\right)$.
+  - Fatigue Sag Damage Runs Saved: $\text{FSDRS}_{\text{runs}} = (\text{ASFSI} - 100.0) \cdot (\text{LatePitches} \cdot 0.0035)$.
+  - Tiers: `IRON_SHOULDER_SLOT_REPLICATOR` ($\text{ASFSI} \ge 114.0, \Delta \theta \le 0.8^{\circ}, \Delta X \le 0.8\text{ in}$), `COLLAPSING_SLOT_DROPPING_FATIGUE_LIABILITY`, `SOLID_ARM_SLOT_STABILITY`, `AVERAGE_ARM_SLOT_STABILITY`.
+  - CLI: `mlb slot-sag --early-deg 45.0 --late-deg 44.8 --early-x -23.0 --late-x -23.3 --pitches 45`, `mlb slot-sag --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_slot_sag.py` passing; 839/839 full repository unit tests passing.
+
+## ADR-251: Batter Opposite-Field Spray Line Drive Sinking Liners Engine (`OPPO-LINER-01`, Package 163)
+
+**Decision:** Built opposite field line drive %, BABIP conversion, and OFLDII modeling in `mlb_baseball/model/oppo_liner.py` and CLI subcommand `mlb oppo-liner`.
+- **Mathematical Formulations & Methodology**:
+  - Opposite Field Line Drive Impact Index: $\text{OFLDII} = \max\left(0, 100 + (\text{OppoLD\%} - 20.0) \cdot 2.0 + (\text{BABIP} - 0.620) \cdot 50.0 + (\text{HardHit\%} - 40.0) \cdot 1.2\right)$.
+  - Opposite Line Drive Production Runs: $\text{OLPR}_{\text{runs}} = (\text{OFLDII} - 100.0) \cdot (\text{Events} \cdot 0.0030)$.
+  - Tiers: `SURGICAL_OPPOSITE_FIELD_LINE_DRIVE_ARTIST` ($\text{OFLDII} \ge 116.0, \text{OppoLD\%} \ge 26.0\%, \text{BABIP} \ge 0.680$), `ROLLOVER_WEAK_OPPO_FLARE_LIABILITY`, `SOLID_OPPO_SPRAY_HITTER`, `AVERAGE_OPPOSITE_FIELD_LINE_DRIVE_PROFILE`.
+  - CLI: `mlb oppo-liner --ld 28.0 --babip 0.720 --hard 52.0 --events 160`, `mlb oppo-liner --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_oppo_liner.py` passing; 839/839 full repository unit tests passing.
+
 ## ADR-250: Pure-Python SVG Pitcher Pitch Tunnel Decision Separation Chart (`TUNNEL-DECISION-01`, Package 162)
 
 **Decision:** Built vector SVG pitch trajectory divergence chart in `mlb_baseball/visual.py` and CLI subcommand `mlb tunnel-decision`.

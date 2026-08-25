@@ -40,9 +40,12 @@ SELECT
     tr.season,
     t.id AS team_id,
     t.retro_team_id AS team_code,
-    t.name AS team_name,
+    NULLIF(CONCAT_WS(' ', t.city, t.nickname), '') AS team_name,
     t.league,
-    t.division,
+    -- core.team has no division-history attribute. Retain the serving
+    -- contract's column without fabricating current-era divisions for
+    -- historical team eras; a source-backed relation can populate it later.
+    NULL::text AS division,
     COUNT(*)::INTEGER AS games_played,
     SUM(tr.win)::INTEGER AS wins,
     SUM(tr.loss)::INTEGER AS losses,
@@ -57,7 +60,7 @@ SELECT
     ) AS pythagorean_win_pct
 FROM team_records tr
 JOIN core.team t ON t.id = tr.team_id
-GROUP BY tr.season, t.id, t.retro_team_id, t.name, t.league, t.division;
+GROUP BY tr.season, t.id, t.retro_team_id, t.city, t.nickname, t.league;
 
 -- 2. Comprehensive Matchup Dossier Serving Mart
 CREATE OR REPLACE VIEW serve.matchup_dossier AS

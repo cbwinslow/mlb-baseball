@@ -81,7 +81,7 @@ proof without re-running the underlying test): `elo`, `gbm`, `offense`,
 
 **No existing tie-out note — real work for 06B:** `provenance`, `starter`, `speed`, `starter_workload`, `framing`,
 `market`, `total`, `team_rate`, `markov`, `diff`, `trend`, `experience`,
-`pitch_discipline`, `batted_ball`, `pitcher_estimators` (xFIP, SIERA — exact
+`batted_ball`, `pitcher_estimators` (xFIP, SIERA — exact
 published formulas, high-value target), `run_expectancy` (RE24, Leverage
 Index — exact published formula/table, high-value target), `platoon`, `bsr`
 (wSB/UBR/XBT%/wGDP — exact published formulas), `command`, `pitch_movement`,
@@ -124,6 +124,28 @@ Index — exact published formula/table, high-value target), `platoon`, `bsr`
   states. Fixed to the real 8 states; the results land within ~0.07 runs of
   Tango's published *The Book* reference points (bases loaded/0 outs: 2.341
   here vs. 2.417 published; bases empty/2 outs: 0.106 vs. 0.098).
+- `pitch_discipline` (CSW%/Whiff%/F-Strike%, `PIT-07`) — **tied out, real
+  bug found and fixed (ADR-263).** Checked `team_pitch_discipline_retrosheet_update.sql`'s
+  pitch-code classification directly against Retrosheet's own event-file
+  spec (`retrosheet.org/eventfile.htm`, fetched directly) and Pitcher
+  List's original 2018 CSW% definition (fetched directly, the article that
+  coined the term): foul tips (Retrosheet code `T`) were missing from the
+  CSW% numerator despite the cited definition explicitly including "foul
+  tips into the glove", and hit-by-pitch (`H`) — a real, physically-thrown
+  pitch — was missing from the total-pitch denominator shared by every
+  rate in the file. Also removed a stray `W` character that isn't a real
+  Retrosheet pitch code at all, and added the pitchout-swing family
+  (`Q`/`R`/`Y`) for full agreement with the real code list (negligible
+  practical impact, included for consistency with the cited formula).
+  `K` (Retrosheet's "strike, unknown type") stays deliberately excluded
+  from every type-specific numerator — a genuine data-ambiguity limitation
+  documented in ADR-263, not a bug. New hand-calculated fixture in
+  `tests/integration/test_model_pitch_discipline.py` proves the fix is a
+  real behavior change (corrected CSW% = 10/22 ≈ 0.4545, not the pre-fix
+  formula's 9/21 ≈ 0.4286). `docs/FEATURE_REGISTRY.md`'s
+  `plate_discipline_v1` row also had stale file/test names left over from
+  an early rename (`plate_discipline.py` → `pitch_discipline.py`,
+  never actually committed under the old name) — fixed in the same change.
 
 **Still open:** `run_expectancy`'s `home_bullpen_re24`/`home_batting_re24`
 columns still use the pre-existing crude "runs vs. flat 0.12/PA league
@@ -224,3 +246,14 @@ process (refit / premise-check / relabel) to apply per package.
   `clutch`); 1 B-sub spot check done (`poptime`, `vaa`). Remaining ~90+
   Bucket B packages and ~30 Bucket A packages without a tie-out note are
   open work — this file is the worklist for continuing it.
+- 2026-08-25 (continued, separate worktree): `pitch_discipline` (CSW%/
+  Whiff%/F-Strike%, `PIT-07`) tied out against Retrosheet's own event-file
+  spec and Pitcher List's original CSW% definition (both fetched directly
+  this session), a real bug found and fixed (ADR-263,
+  `tests/integration/test_model_pitch_discipline.py`): foul tips (`T`)
+  missing from the CSW% numerator, hit-by-pitch (`H`) missing from the
+  total-pitch denominator, and a stray non-real `W` character removed from
+  the pitch-code whitelist. `docs/FEATURE_REGISTRY.md`'s
+  `plate_discipline_v1` row now carries a real "Verified:" note and its
+  stale file names (left over from an early, never-actually-committed
+  rename) are corrected.

@@ -2,6 +2,88 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-263: Fix `pitch_discipline.py`'s pitch-code whitelist against real Retrosheet codes and the real CSW% definition (Plan 06)
+
+**Decision:** Tying out `pitch_discipline.py` (PIT-07, CSW%/Whiff%/F-Strike%,
+originally ADR-089) against real external sources — Retrosheet's own event
+file specification (`retrosheet.org/eventfile.htm`, the "pitches" field,
+fetched directly) and Pitcher List's original CSW% definition ("CSW Rate:
+An Intro to an Important New Metric", the 2018 article that coined the
+term, fetched directly) — found two real, if individually small,
+formula-shape bugs in `team_pitch_discipline_retrosheet_update.sql`'s
+pitch-code classification, plus one dead/incorrect character. Fixed all
+three in the same change:
+
+1. **Foul tips (`T`) were missing from the CSW% numerator.** Pitcher List's
+   own definition is explicit: CSW counts "called strikes, swinging
+   strikes (including blocked ones), swinging pitchouts and foul tips into
+   the glove" — i.e. `C`, `S`, `M`, `Q`, and `T` all belong in the
+   numerator. The pre-fix `csw_count` keep-set was `[^CSM]` (missing both
+   `T` and `Q`), silently undercounting CSW% for every pitcher who ever
+   recorded a foul tip — a common, everyday pitch outcome, not an edge
+   case. Fixed to `[^CMQST]`.
+2. **Hit-by-pitch (`H`) was missing from the total-pitch count**, the
+   shared denominator of CSW% ("Total Pitches") and part of every other
+   rate in this file. `H` is a real, physically-thrown pitch per
+   Retrosheet's spec (the batter is hit by an actual pitched ball) — unlike
+   `N` (no pitch, on balks/interference) or `A` (automatic ball/strike for
+   a pitch-timer violation, which correctly stays excluded: no ball is
+   actually thrown, matching how Statcast/Gameday themselves don't attach
+   a tracked pitch to a timer-violation automatic strike). The pre-fix
+   `pitch_count` whitelist (`[^BCFKLMOPSTUVWXI]`) omitted `H`, undercounting
+   the denominator on every hit-by-pitch plate appearance.
+3. **`W` was present in the pre-fix whitelist but is not a real Retrosheet
+   pitch code at all** — confirmed against the full spec fetched directly;
+   no code list, official or third-party, documents a `W` pitch code.
+   Harmless in practice (it never matched real data, since no real
+   `pitch_seq_tx` value contains a `W`), but factually wrong and
+   misleading to leave in a whitelist presented as a real code list.
+   Removed.
+
+Also brought `pitch_count`/`swing_count`/`csw_count`/`whiff_count`/the
+first-pitch-strike detector into full agreement with the real Retrosheet
+code list for the pitchout-swing family (`Q` swinging pitchout, `R` foul on
+pitchout, `Y` ball put in play on pitchout) — the direct pitchout analogues
+of `S`/whiff, `F`/foul, and `X`/in-play respectively, per the same parallel
+structure Retrosheet's own spec uses for the non-pitchout codes. These are
+extremely rare in real games (pitchouts are already uncommon; a batter
+swinging at one is rarer still) so the practical impact is negligible, but
+leaving them out while citing "matches the real CSW% definition" (which
+explicitly names "swinging pitchouts") would have been inconsistent.
+
+**Deliberately not touched:** `K` (Retrosheet's "strike, unknown type" —
+used when the source data can't distinguish called from swinging) stays
+excluded from `csw_count`/`whiff_count`/`swing_count`, as it already was.
+This is a genuine data-ambiguity limitation, not a bug: CSW is defined in
+terms of the type-specific categories (called vs. swinging), and `K`
+doesn't tell us which. No real cited source resolves this ambiguity either
+way, so the conservative choice (count it in the pitch total, exclude it
+from every type-specific numerator) is kept as-is. This may skew CSW%
+slightly low in eras where `K` is common (older, less granular Retrosheet
+years) — a known, documented limitation, not something this fix invents a
+number to paper over.
+
+**A pre-existing, unrelated docs inconsistency found in passing, not
+fixed:** ADR-089's own text names `mlb_baseball/model/plate_discipline.py`,
+`mlb_baseball/sql/pitcher_plate_discipline_retrosheet_update.sql`, and
+migration `0067_plate_discipline_csw_whiff.sql` — none of which were ever
+actually committed under those names (confirmed via `git log --follow`,
+zero hits). What was actually built and has been live since commit
+`ee551f1` uses this project's real two-word naming convention throughout:
+`mlb_baseball/model/pitch_discipline.py`, migration
+`0066_pitch_discipline.sql`, `team_pitch_discipline_retrosheet_update.sql`.
+`docs/FEATURE_REGISTRY.md`'s `plate_discipline_v1` row had the same stale
+names and is fixed in this change; ADR-089 itself is left as the historical
+record it is (this project has no precedent for editing a past ADR's text
+after the fact — see the "Superseded by" grep in this file, zero hits).
+
+**Verification:** `tests/integration/test_model_pitch_discipline.py::test_compute_counts_foul_tips_and_hit_batters_per_verified_csw_formula`
+— a new hand-calculated fixture (7 plate appearances, 22 real pitches,
+including a foul tip and a hit-by-pitch) asserting the corrected CSW% =
+10/22 ≈ 0.454545 (not the pre-fix formula's wrong 9/21 ≈ 0.428571, asserted
+explicitly as a regression guard), Whiff% = 5/10 = 0.5, and F-Strike% =
+5/7 ≈ 0.714286.
+
 ## ADR-262: Rebuild Leverage Index from a real, empirical win-expectancy table instead of a hand-typed one (Plan 06)
 
 **Decision:** `team_leverage_re24_update.sql`'s `home_starter_avg_li`/

@@ -160,7 +160,7 @@ All 8 feature families below implement the strict Formula and Cross-Reference Ve
   - $\text{Whiff\%} = \frac{\text{Swinging Strikes}}{\text{Total Swings}}$
   - $\text{F-Strike\%} = \frac{\text{First-Pitch Strikes}}{\text{Total Plate Appearances}}$
 - **Data Source & Point-in-Time Availability**: Computed from `raw.retrosheet_event` pitch sequences (`pitches` and `event_cd`). Entering-game rolling aggregation strictly prior to the scheduled game.
-- **Validation**: Hand-calculated integration test in `tests/integration/test_model_plate_discipline.py`. Checked against MLB Statcast league benchmarks ($\approx 28\text{--}30\%$ CSW%, $\approx 22\text{--}26\%$ Whiff%, $\approx 59\text{--}62\%$ F-Strike%).
+- **Validation**: Hand-calculated integration test in `tests/integration/test_model_pitch_discipline.py`. Checked against MLB Statcast league benchmarks ($\approx 28\text{--}30\%$ CSW%, $\approx 22\text{--}26\%$ Whiff%, $\approx 59\text{--}62\%$ F-Strike%). ADR-263 (2026-08-25) re-verified this package directly against Retrosheet's own event-file spec and Pitcher List's original CSW% definition, and fixed two real formula-shape bugs (foul tips missing from the CSW% numerator, hit-by-pitch missing from the total-pitch denominator).
 
 ### 2. Batted-Ball Profiles: GB%, FB%, LD%, and HR/FB (`BAT-01`, ADR-090)
 - **Citations**: Voros McCracken (2001), "Defense Independent Pitching Statistics"; Tom Tango, Mitchel Lichtman, Andrew Dolphin (2007), *The Book: Playing the Percentages in Baseball*; FanGraphs Batted Ball Metrics.

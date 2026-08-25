@@ -5,13 +5,33 @@
 -- from games preceding the target game. Doubleheaders are ordered
 -- chronologically by COALESCE(g.game_number, 0).
 --
--- Pitch code definitions from Retrosheet specifications:
---   C: Called strike
---   S: Swinging strike
---   M: Missed bunt (swinging strike)
---   F, L, T, O: Fouls / foul bunts / foul tips
---   X: Ball put in play by batter
---   B, I, P, V: Balls / intentional balls / pitchouts
+-- Pitch code definitions, verified directly against Retrosheet's own event
+-- file specification (retrosheet.org/eventfile.htm, "pitches" field) --
+-- ADR-263 (2026-08-25) found and fixed a real mismatch between this file's
+-- prior code whitelist and that specification, and against CSW%%'s own
+-- published definition (Pitcher List, "CSW Rate: An Intro to an Important
+-- New Metric" -- CSW was coined there in 2018 and is the term's origin):
+--   B: Ball                        I: Intentional ball
+--   C: Called strike                K: Strike, unknown type (excluded from
+--   F: Foul                            CSW/whiff -- can't tell called vs.
+--   H: Hit batter                      swinging from this code alone)
+--   L: Foul bunt                    O: Foul tip on bunt
+--   M: Missed bunt (swinging strike) P: Pitchout (not swung at)
+--   Q: Swinging pitchout (a whiff)   R: Foul ball on pitchout
+--   S: Swinging strike               T: Foul tip
+--   U: Unknown/missed pitch          V: Called ball (pitcher went to mouth,
+--   X: Ball put in play                 automatic IBB ball, timer violation)
+--   Y: Ball put into play on pitchout
+-- Deliberately excluded from every count (not real thrown pitches):
+--   N (no pitch, on balks/interference), A (automatic ball/strike for a
+--   pitch-timer violation -- no ball is actually thrown, matching how
+--   Statcast/Gameday themselves don't attach a tracked pitch to these), and
+--   the pickoff/baserunning annotation characters (1/2/3/+/*/.../>).
+-- CSW%% (Called Strikes + Whiffs / Total Pitches) per Pitcher List's own
+-- definition explicitly includes "called strikes, swinging strikes
+-- (including blocked ones), swinging pitchouts and foul tips into the
+-- glove" -- i.e. C, S, M, Q, and T all belong in the numerator; only F, L,
+-- O (plain fouls/foul bunts) are excluded despite being swings.
 
 WITH regular_games AS (
     SELECT g.id AS game_id, g.season, g.game_date, g.game_number, g.retro_game_id,
@@ -31,12 +51,12 @@ clean_events AS (
         re.resp_pit_start_fl,
         CASE WHEN re.bat_home_id = '0' THEN rg.home_team_id ELSE rg.away_team_id END AS pitching_team_id,
         re.bat_home_id,
-        LENGTH(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFKLMOPSTUVWXI]', '', 'g')) AS pitch_count,
-        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFKLMOPSTUVWXI]', '', 'g'), '[^CSM]', '', 'g')) AS csw_count,
-        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFKLMOPSTUVWXI]', '', 'g'), '[^SM]', '', 'g')) AS whiff_count,
-        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFKLMOPSTUVWXI]', '', 'g'), '[^SMFLTOX]', '', 'g')) AS swing_count,
+        LENGTH(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g')) AS pitch_count,
+        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^CMQST]', '', 'g')) AS csw_count,
+        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^MQS]', '', 'g')) AS whiff_count,
+        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^FLMOQRSTXY]', '', 'g')) AS swing_count,
         CASE
-            WHEN SUBSTRING(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFKLMOPSTUVWXI]', '', 'g') FROM 1 FOR 1) ~ '[CSFKTMLOX]' THEN 1
+            WHEN SUBSTRING(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g') FROM 1 FOR 1) ~ '[CFKLMOQRSTXY]' THEN 1
             ELSE 0
         END AS is_fstrike,
         CASE WHEN re.bat_event_fl = 'T' THEN 1 ELSE 0 END AS is_pa

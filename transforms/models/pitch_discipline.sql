@@ -19,6 +19,13 @@ WITH regular_games AS (
     FROM core.game g
     WHERE g.game_type = 'regular'
 ),
+-- Pitch-code whitelist kept in sync with the real, production
+-- `team_pitch_discipline_retrosheet_update.sql` (see that file's header
+-- comment and ADR-263 for the full citation: Retrosheet's own event-file
+-- spec plus Pitcher List's original CSW% definition). This SQLMesh model
+-- is not currently wired into any consumer (ADR-088's parallel-spike
+-- artifact), but is kept correct rather than left stale, per this
+-- project's "near neighbors" rule.
 clean_events AS (
     SELECT
         rg.game_id,
@@ -26,12 +33,12 @@ clean_events AS (
         rg.game_date,
         rg.game_number,
         re.resp_pit_id AS pitcher_retro_id,
-        LENGTH(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFKLMOPSTUVWXI]', '', 'g')) AS pitch_count,
-        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFKLMOPSTUVWXI]', '', 'g'), '[^CSM]', '', 'g')) AS csw_count,
-        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFKLMOPSTUVWXI]', '', 'g'), '[^SM]', '', 'g')) AS whiff_count,
-        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFKLMOPSTUVWXI]', '', 'g'), '[^SMFLTOX]', '', 'g')) AS swing_count,
+        LENGTH(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g')) AS pitch_count,
+        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^CMQST]', '', 'g')) AS csw_count,
+        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^MQS]', '', 'g')) AS whiff_count,
+        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^FLMOQRSTXY]', '', 'g')) AS swing_count,
         CASE
-            WHEN SUBSTRING(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFKLMOPSTUVWXI]', '', 'g') FROM 1 FOR 1) ~ '[CSFKTMLOX]' THEN 1
+            WHEN SUBSTRING(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g') FROM 1 FOR 1) ~ '[CFKLMOQRSTXY]' THEN 1
             ELSE 0
         END AS is_fstrike,
         CASE WHEN re.bat_event_fl = 'T' THEN 1 ELSE 0 END AS is_pa

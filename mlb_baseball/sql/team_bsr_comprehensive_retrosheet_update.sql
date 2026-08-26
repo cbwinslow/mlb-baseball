@@ -21,7 +21,20 @@ team_game_stats AS (
         count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '20') AS b1,
         count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '14') AS ubb,
         count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.event_cd = '16') AS hbp,
-        count(*) FILTER (WHERE re.bat_event_fl = 'T' AND re.gdp_fl = 'T') AS gdp,
+        -- Grounded Into Double Play specifically (dp_fl alone also flags
+        -- line-drive/fly-ball/pop-up double plays -- confirmed against real
+        -- production data: of all dp_fl='T' events, ~19% are non-groundball.
+        -- FanGraphs' wGDP (https://library.fangraphs.com/offense/wgdp/) is
+        -- explicitly about ground-ball double plays only.
+        count(*) FILTER (
+            WHERE re.bat_event_fl = 'T' AND re.dp_fl = 'T' AND re.battedball_cd = 'G'
+        ) AS gdp,
+        -- GDP opportunities: FanGraphs defines this as "man on first, less
+        -- than two outs" (same source as above).
+        count(*) FILTER (
+            WHERE re.bat_event_fl = 'T' AND re.outs_ct::integer < 2
+                AND NULLIF(re.base1_run_id, '') IS NOT NULL
+        ) AS gdp_opp,
         -- Extra bases taken
         count(*) FILTER (
             WHERE (re.event_cd = '20' AND re.run1_dest_id IN ('3', '4', 'H', '5', '6'))
@@ -48,6 +61,7 @@ team_rolling AS (
         SUM(ubb) OVER w AS ubb_sum,
         SUM(hbp) OVER w AS hbp_sum,
         SUM(gdp) OVER w AS gdp_sum,
+        SUM(gdp_opp) OVER w AS gdp_opp_sum,
         SUM(xbt) OVER w AS xbt_sum,
         SUM(xbt_opp) OVER w AS xbt_opp_sum
     FROM team_game_stats
@@ -60,6 +74,7 @@ team_rolling AS (
 league_daily AS (
     SELECT season, game_date,
         SUM(sb) AS sb, SUM(cs) AS cs, SUM(b1) AS b1, SUM(ubb) AS ubb, SUM(hbp) AS hbp,
+        SUM(gdp) AS gdp, SUM(gdp_opp) AS gdp_opp,
         SUM(xbt) AS xbt, SUM(xbt_opp) AS xbt_opp
     FROM team_game_stats
     GROUP BY season, game_date
@@ -72,6 +87,8 @@ league_rolling AS (
         SUM(b1) OVER w AS b1_sum,
         SUM(ubb) OVER w AS ubb_sum,
         SUM(hbp) OVER w AS hbp_sum,
+        SUM(gdp) OVER w AS gdp_sum,
+        SUM(gdp_opp) OVER w AS gdp_opp_sum,
         SUM(xbt) OVER w AS xbt_sum,
         SUM(xbt_opp) OVER w AS xbt_opp_sum
     FROM league_daily
@@ -90,7 +107,11 @@ league_context AS (
         CASE WHEN COALESCE(xbt_opp_sum, 0) > 0 THEN
             xbt_sum::numeric / xbt_opp_sum
         ELSE 0.40
-        END AS lg_xbt_rate
+        END AS lg_xbt_rate,
+        CASE WHEN COALESCE(gdp_opp_sum, 0) > 0 THEN
+            gdp_sum::numeric / gdp_opp_sum
+        ELSE 0.20
+        END AS lg_gdp_rate
     FROM league_rolling
 ),
 
@@ -102,10 +123,12 @@ computed AS (
         tr.cs_sum,
         (COALESCE(tr.b1_sum, 0) + COALESCE(tr.ubb_sum, 0) + COALESCE(tr.hbp_sum, 0)) AS opp_sum,
         tr.gdp_sum,
+        tr.gdp_opp_sum,
         tr.xbt_sum,
         tr.xbt_opp_sum,
         lg.lgwsb,
-        COALESCE(lg.lg_xbt_rate, 0.40) AS lg_xbt_rate
+        COALESCE(lg.lg_xbt_rate, 0.40) AS lg_xbt_rate,
+        COALESCE(lg.lg_gdp_rate, 0.20) AS lg_gdp_rate
     FROM team_rolling tr
     LEFT JOIN league_context lg ON lg.season = tr.season AND lg.game_date = tr.game_date
 ),
@@ -131,9 +154,21 @@ bsr_metrics AS (
             ROUND((xbt_sum::numeric - (xbt_opp_sum * lg_xbt_rate)) * 0.20, 2)
         END AS ubr_runs,
 
-        -- wGDP runs
-        CASE WHEN COALESCE(opp_sum, 0) >= 10 THEN
-            ROUND(-(COALESCE(gdp_sum, 0) * 0.45), 2)
+        -- wGDP runs: (expected GDP - actual GDP) * run value of the extra
+        -- out/erased runner, opportunity-adjusted against a rolling
+        -- season-to-date league GDP rate -- same "actual vs. expected
+        -- opportunity rate" structure as UBR above, per FanGraphs'
+        -- description of wGDP (https://library.fangraphs.com/offense/wgdp/):
+        -- "we take the average rate of GDP in GDP opportunities and apply
+        -- it to the number of opportunities the player had." FanGraphs
+        -- doesn't publish their exact run-value constant; 0.4153 is derived
+        -- directly from this project's own real, empirically-built 24-state
+        -- run expectancy matrix (gold.run_expectancy_24, see ADR-260):
+        -- RE(man on 1st, 1 out)=0.5213 minus RE(bases empty, 2 outs)=0.1060,
+        -- i.e. the real run cost of a double play vs. an otherwise-identical
+        -- productive out that doesn't erase the runner.
+        CASE WHEN COALESCE(gdp_opp_sum, 0) >= 10 THEN
+            ROUND((gdp_opp_sum * lg_gdp_rate - COALESCE(gdp_sum, 0)) * 0.4153, 2)
         END AS wgdp_runs
     FROM computed
 ),

@@ -38,8 +38,9 @@ def _ensure_retrosheet_tables(db_conn):
                 "ab_fl text, sf_fl text, bat_event_fl text, _season text, "
                 "run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
                 "run1_cs_fl text, run2_cs_fl text, run3_cs_fl text, "
-                "gdp_fl text, run1_dest_id text, run2_dest_id text, "
-                "base1_run_id text, base2_run_id text)"
+                "dp_fl text, run1_dest_id text, run2_dest_id text, "
+                "base1_run_id text, base2_run_id text, "
+                "battedball_cd text, outs_ct text)"
             )
         else:
             cur.execute(
@@ -51,11 +52,13 @@ def _ensure_retrosheet_tables(db_conn):
                 "ADD COLUMN IF NOT EXISTS run1_cs_fl text, "
                 "ADD COLUMN IF NOT EXISTS run2_cs_fl text, "
                 "ADD COLUMN IF NOT EXISTS run3_cs_fl text, "
-                "ADD COLUMN IF NOT EXISTS gdp_fl text, "
+                "ADD COLUMN IF NOT EXISTS dp_fl text, "
                 "ADD COLUMN IF NOT EXISTS run1_dest_id text, "
                 "ADD COLUMN IF NOT EXISTS run2_dest_id text, "
                 "ADD COLUMN IF NOT EXISTS base1_run_id text, "
-                "ADD COLUMN IF NOT EXISTS base2_run_id text"
+                "ADD COLUMN IF NOT EXISTS base2_run_id text, "
+                "ADD COLUMN IF NOT EXISTS battedball_cd text, "
+                "ADD COLUMN IF NOT EXISTS outs_ct text"
             )
         cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
         if not cur.fetchone()[0]:
@@ -103,7 +106,7 @@ def test_compute_matches_hand_calculation_and_gates_below_min_attempts(db_conn):
         cur.execute(
             "INSERT INTO raw.retrosheet_event "
             "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season, "
-            "run1_sb_fl, run1_cs_fl, gdp_fl, run1_dest_id, base1_run_id) VALUES "
+            "run1_sb_fl, run1_cs_fl, dp_fl, run1_dest_id, base1_run_id) VALUES "
             # --- G1: ATL (home) ---
             "('G1', '1', '20', 'T', 'F', 'T', '2020', 'F', 'F', 'F', '3', 'p1'), "  # 1B + XBT
             "('G1', '1', '20', 'T', 'F', 'T', '2020', 'F', 'F', 'F', '2', 'p2'), "  # 1B
@@ -169,6 +172,94 @@ def test_compute_matches_hand_calculation_and_gates_below_min_attempts(db_conn):
     assert g3[6] == Decimal("0.5000")  # 4 extra bases / 8 opportunities = 0.5000
     assert g3[7] is not None  # ubr_runs
     assert g3[8] is not None  # bsr_total
+
+
+def test_wgdp_excludes_non_groundball_double_plays_and_matches_hand_calculation(db_conn):
+    # Regression test for the Plan 06 fix (ADR-260/261): dp_fl='T' alone also
+    # flags line-drive/fly-ball/pop-up double plays -- Chadwick's own DP_FL
+    # field (https://chadwick.readthedocs.io/en/stable/cwevent.html) is a
+    # generic double-play flag, not groundball-specific, and FanGraphs'
+    # wGDP (https://library.fangraphs.com/offense/wgdp/) is explicitly
+    # ground-ball-only. This proves the battedball_cd='G' filter matters and
+    # that the opportunity-adjusted formula matches a hand calculation.
+    #
+    # ATL (home) entering G2: 10 GDP opportunities (man on 1st, <2 outs).
+    # Of those: 3 real groundball double plays (dp_fl='T', battedball_cd='G'),
+    # 1 line-drive "double play" (dp_fl='T', battedball_cd='L' -- must NOT
+    # count as a real GDP), 6 ordinary opportunity PAs. gdp=3, gdp_opp=10.
+    #
+    # NYA (away) entering G2: same 10-opportunity shape, but 5 real
+    # groundball double plays. gdp=5, gdp_opp=10.
+    #
+    # League (both teams combined): gdp=8, gdp_opp=20 -> lg_gdp_rate=0.40.
+    # wgdp_runs = (gdp_opp * lg_gdp_rate - gdp) * 0.4153 (see the SQL's own
+    # comment for where 0.4153 comes from):
+    #   ATL: (10*0.40 - 3) * 0.4153 = 1.0 * 0.4153 = 0.42 (rounded)
+    #   NYA: (10*0.40 - 5) * 0.4153 = -1.0 * 0.4153 = -0.42 (rounded)
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2020, '2020-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2020, '2020-04-08', %(atl)s, %(nya)s, 4, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('G2', 'regular')"
+        )
+
+        def _opp_row(game_id, bat_home_id, dp_fl, battedball_cd):
+            # A "man on first, less than two outs" opportunity PA.
+            return (
+                f"('{game_id}', '{bat_home_id}', '2', 'T', 'F', 'T', '2020', "
+                f"'{dp_fl}', '{battedball_cd}', '0', 'p1')"
+            )
+
+        atl_rows = (
+            [_opp_row("G1", "1", "T", "G")] * 3  # 3 real GDPs
+            + [_opp_row("G1", "1", "T", "L")] * 1  # 1 line-drive DP (excluded)
+            + [_opp_row("G1", "1", "F", "G")] * 6  # 6 ordinary opportunity PAs
+        )
+        nya_rows = (
+            [_opp_row("G1", "0", "T", "G")] * 5  # 5 real GDPs
+            + [_opp_row("G1", "0", "F", "G")] * 5  # 5 ordinary opportunity PAs
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season, "
+            "dp_fl, battedball_cd, outs_ct, base1_run_id) VALUES " + ", ".join(atl_rows + nya_rows)
+        )
+        # G2: minimal row so the window's current row exists.
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, event_cd, ab_fl, sf_fl, bat_event_fl, _season, "
+            "dp_fl, battedball_cd, outs_ct, base1_run_id) VALUES "
+            "('G2', '1', '2', 'T', 'F', 'T', '2020', 'F', '', '0', ''), "
+            "('G2', '0', '2', 'T', 'F', 'T', '2020', 'F', '', '0', '')"
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    updated = bsr.compute(db_conn)
+    db_conn.commit()
+
+    assert updated == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_wgdp_runs, f.away_wgdp_runs "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "WHERE g.retro_game_id = 'G2'"
+        )
+        home_wgdp, away_wgdp = cur.fetchone()
+
+    assert home_wgdp == Decimal("0.42")  # ATL: fewer GDPs than league average
+    assert away_wgdp == Decimal("-0.42")  # NYA: more GDPs than league average
 
 
 def test_compute_returns_zero_without_retrosheet_event_table(db_conn):

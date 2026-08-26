@@ -8,15 +8,25 @@ from mlb_baseball.model import pitch_movement
 
 
 def _ensure_movement_tables(db_conn):
+    # DROP + unconditional CREATE, not an "IF NOT EXISTS" guard: several
+    # other test files (test_model_platoon.py, test_model_command.py,
+    # test_conform.py, test_audit_db.py) also create raw.statcast_pitch,
+    # each with its own different column set for its own needs. Within a
+    # full-suite run sharing one test database, whichever file's guard
+    # runs first "wins" and leaves the wrong schema for whichever file
+    # runs second -- confirmed directly: this file passes standalone but
+    # failed with a real UndefinedColumn on `game_pk` when run in the same
+    # session as test_model_platoon.py (see issue tracking the shared
+    # pattern across the other files, not fixed here -- out of scope for
+    # this one file's fixture).
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.statcast_pitch')")
-        if not cur.fetchone()[0]:
-            cur.execute(
-                "CREATE TABLE raw.statcast_pitch ("
-                "game_pk text, pitcher text, zone text, pitch_type text, "
-                "pfx_z text, release_spin_rate text, type text, inning_topbot text, "
-                "pitch_number text, _season text)"
-            )
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
+        cur.execute(
+            "CREATE TABLE raw.statcast_pitch ("
+            "game_pk text, pitcher text, zone text, pitch_type text, "
+            "pfx_z text, release_spin_rate text, type text, inning_topbot text, "
+            "pitch_number text, _season text)"
+        )
     db_conn.commit()
 
 

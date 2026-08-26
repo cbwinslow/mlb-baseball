@@ -27,6 +27,14 @@ def _reset(db_conn):
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.player WHERE id IN (101, 102)")
+        # core.game must go before core.team: this repo's test database is
+        # one shared, session-scoped instance, so a real leftover
+        # core.game row from an earlier test can reference a team this
+        # DELETE would otherwise try to remove, violating
+        # game_home_team_id_fkey/game_away_team_id_fkey -- confirmed
+        # directly (a real FK violation once the full suite could finally
+        # run start to finish, not a mock/assumption).
+        cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team")
         cur.execute("SELECT to_regclass('raw.statcast_pitch')")
         if cur.fetchone()[0]:

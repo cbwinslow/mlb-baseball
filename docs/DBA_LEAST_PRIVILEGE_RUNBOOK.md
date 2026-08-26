@@ -50,10 +50,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE mlb_owner IN SCHEMA serve
   GRANT SELECT ON TABLES TO mlb_serve;
 ```
 
-Schema `serve` and its approved objects do not exist yet; create them only in
-Plan 05 after source lineage and public-safe filtering are verified. The
-proposed roles require a migration-specific grant policy before migrations are
-run under anything other than `mlb_owner`.
+Schema `serve` and its read-only marts already exist in production (migration
+`0078_serve_layer_views.sql` onward, ADR-102) — the `serve` schema build-out
+happened ahead of this runbook's own "Plan 05" framing. What is still
+outstanding is the `mlb_serve` role itself: production has not yet had any of
+the roles above created or its `pg_hba.conf`/grant model changed. The proposed
+roles require a migration-specific grant policy before migrations are run
+under anything other than `mlb_owner`.
 
 ## Dedicated-test evidence
 

@@ -12,17 +12,34 @@ previously used directly inside `run_expectancy.py`; see ADR-262.
 
 from __future__ import annotations
 
+import logging
+import time
+
 import psycopg
 
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.sql import read_sql
 
+logger = logging.getLogger(__name__)
+
 
 def compute(conn: psycopg.Connection) -> int:
     """Build gold.leverage_index if it's empty; otherwise a no-op. Same
     "expensive full-history reference table, build once" reasoning as
-    win_expectancy.compute() -- see its docstring."""
+    win_expectancy.compute() -- see its docstring.
+
+    Built one real season at a time (~123 seasons, 1900-2025), not as a
+    single query over the full ~16M-row raw.retrosheet_event table --
+    confirmed directly: the single-query version ran 4.5+ hours against
+    real production with no way to tell whether it was making progress
+    (Postgres has no progress view for a plain SELECT/INSERT). Chunking by
+    season makes real per-chunk timing and row counts directly observable
+    from the logs between calls, and each chunk only needs to plan/execute
+    over ~1/123rd of the real data. See leverage_index_season_partial.sql
+    / leverage_index_matrix_finalize.sql for the exact math (SUM/COUNT
+    pooled across seasons afterward -- identical to a single-pass AVG, not
+    an approximation of it)."""
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
         (event_exists,) = fetch_one(cur)
@@ -40,37 +57,41 @@ def compute(conn: psycopg.Connection) -> int:
         (li_count,) = fetch_one(cur)
         if li_count > 0:
             return 0
-        # raw.retrosheet_gameinfo's `lower(gametype) = 'regular'` predicate
-        # (used throughout this codebase's Retrosheet queries) is a
-        # function-wrapped expression Postgres statistics can't estimate
-        # selectivity for -- confirmed directly: the planner estimated
-        # ~468 matching rows when the real number is 220,191, off by
-        # ~470x, which for this query (a LEAD() window function stacked on
-        # two more joins to gold.win_expectancy) caused a catastrophically
-        # undersized hash table. Migration 0086 adds expression indexes on
-        # this and a second, equally-misestimated predicate
-        # (raw.retrosheet_event's outs_ct::integer) so ANALYZE can collect
-        # real statistics on both -- confirmed via EXPLAIN afterward that
-        # every join's build side is correctly sized.
-        cur.execute("SET LOCAL enable_nestloop = off")
-        # Even with a correctly-shaped plan, this query's own sort/hash
-        # work over the full ~16M-row raw.retrosheet_event table spills
-        # heavily to disk at the default work_mem (typically 4-64MB
-        # depending on environment) -- confirmed directly: a real run
-        # against production took 3+ hours with pg_stat_database showing
-        # 130+GB of temp file spill, healthy the whole time (no lock
-        # waits, steady CPU) but far slower than necessary. Bumped to 2GB,
-        # session-local: this is a one-time historical build (see the
-        # empty-table gate above -- every later call is a no-op), not a
-        # setting that needs to hold for routine daily queries, and 2GB is
-        # well within headroom on real production hardware (confirmed via
-        # `free -h` before choosing this value: 74GB available at the
-        # time, this query's 7 parallel workers each get their own
-        # work_mem allocation so worst case is ~14GB, comfortably inside
-        # that budget).
-        cur.execute("SET LOCAL work_mem = '2GB'")
-        cur.execute(read_sql("leverage_index_matrix_build.sql"))
-        return cur.rowcount
+        cur.execute("SELECT DISTINCT _season::integer FROM raw.retrosheet_event ORDER BY 1")
+        seasons = [row[0] for row in cur.fetchall()]
+
+    partial_sql = read_sql("leverage_index_season_partial.sql")
+    for i, season in enumerate(seasons, start=1):
+        t0 = time.time()
+        with conn.cursor() as cur:
+            # See leverage_index.py's module docstring / migration 0086 for
+            # why both settings are needed: the real cardinality
+            # misestimate on lower(gametype)/outs_ct::integer (fixed by
+            # migration 0086's indexes) and the sort/hash work's own
+            # disk-spill tendency at default work_mem, both real, both
+            # confirmed directly against production. Still applied
+            # per-chunk since each is session-local (SET LOCAL) and this
+            # loop opens a fresh cursor each iteration; per-season data
+            # volume is far smaller now, so 512MB is ample headroom rather
+            # than the earlier single-query build's 2GB.
+            cur.execute("SET LOCAL enable_nestloop = off")
+            cur.execute("SET LOCAL work_mem = '512MB'")
+            cur.execute(partial_sql, {"season": season})
+        conn.commit()
+        logger.info(
+            "leverage_index: season %s done (%d/%d) in %.1fs",
+            season,
+            i,
+            len(seasons),
+            time.time() - t0,
+        )
+
+    with conn.cursor() as cur:
+        cur.execute(read_sql("leverage_index_matrix_finalize.sql"))
+        rowcount = cur.rowcount
+        cur.execute("DELETE FROM gold.leverage_index_staging")
+    conn.commit()
+    return rowcount
 
 
 def health_check() -> list[Check]:

@@ -17,6 +17,7 @@ def _reset(db_conn):
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("DELETE FROM gold.win_expectancy")
         cur.execute("DELETE FROM gold.leverage_index")
+        cur.execute("DELETE FROM gold.leverage_index_staging")
         cur.execute("DELETE FROM core.game WHERE retro_game_id IN ('G1', 'G2')")
         cur.execute("DELETE FROM core.team WHERE retro_team_id IN ('ATL', 'NYA')")
     db_conn.commit()

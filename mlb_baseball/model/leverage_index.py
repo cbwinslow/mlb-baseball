@@ -43,15 +43,32 @@ def compute(conn: psycopg.Connection) -> int:
         # raw.retrosheet_gameinfo's `lower(gametype) = 'regular'` predicate
         # (used throughout this codebase's Retrosheet queries) is a
         # function-wrapped expression Postgres statistics can't estimate
-        # selectivity for -- confirmed directly: the planner estimates
+        # selectivity for -- confirmed directly: the planner estimated
         # ~468 matching rows when the real number is 220,191, off by
-        # ~470x. Most of those queries tolerate the resulting nested-loop
-        # plan; this one, stacking a LEAD() window function and two more
-        # joins to gold.win_expectancy on top, does not -- confirmed
-        # directly: the unset-nestloop plan ran 39+ minutes without
-        # finishing, while the hash-join plan below completes quickly.
-        # Session-local, not a permanent planner setting.
+        # ~470x, which for this query (a LEAD() window function stacked on
+        # two more joins to gold.win_expectancy) caused a catastrophically
+        # undersized hash table. Migration 0086 adds expression indexes on
+        # this and a second, equally-misestimated predicate
+        # (raw.retrosheet_event's outs_ct::integer) so ANALYZE can collect
+        # real statistics on both -- confirmed via EXPLAIN afterward that
+        # every join's build side is correctly sized.
         cur.execute("SET LOCAL enable_nestloop = off")
+        # Even with a correctly-shaped plan, this query's own sort/hash
+        # work over the full ~16M-row raw.retrosheet_event table spills
+        # heavily to disk at the default work_mem (typically 4-64MB
+        # depending on environment) -- confirmed directly: a real run
+        # against production took 3+ hours with pg_stat_database showing
+        # 130+GB of temp file spill, healthy the whole time (no lock
+        # waits, steady CPU) but far slower than necessary. Bumped to 2GB,
+        # session-local: this is a one-time historical build (see the
+        # empty-table gate above -- every later call is a no-op), not a
+        # setting that needs to hold for routine daily queries, and 2GB is
+        # well within headroom on real production hardware (confirmed via
+        # `free -h` before choosing this value: 74GB available at the
+        # time, this query's 7 parallel workers each get their own
+        # work_mem allocation so worst case is ~14GB, comfortably inside
+        # that budget).
+        cur.execute("SET LOCAL work_mem = '2GB'")
         cur.execute(read_sql("leverage_index_matrix_build.sql"))
         return cur.rowcount
 

@@ -567,7 +567,7 @@ def main(argv: list[str] | None = None) -> None:
         "--end-date", type=str, default="2024-09-30", help="backtest end date (default: 2024-09-30)"
     )
     bt_parser.add_argument(
-        "--model", type=str, default="gbm-v1", help="model version (default: gbm-v1)"
+        "--model", type=str, default="gbm-v2", help="model version (default: gbm-v2)"
     )
     bt_parser.add_argument(
         "--bankroll", type=float, default=10000.0, help="starting bankroll in USD (default: 10000)"
@@ -638,7 +638,7 @@ def main(argv: list[str] | None = None) -> None:
         help="monitor rolling model calibration error, Platt slope, and concept drift (DRIFT-01)",
     )
     drift_parser.add_argument(
-        "--model", type=str, default="gbm-v1", help="model version to evaluate (default: gbm-v1)"
+        "--model", type=str, default="gbm-v2", help="model version to evaluate (default: gbm-v2)"
     )
     drift_parser.add_argument(
         "--window", type=int, default=40, help="rolling window size in games (default: 40)"
@@ -3565,7 +3565,7 @@ def main(argv: list[str] | None = None) -> None:
                         "FROM gold.prediction p "
                         "JOIN gold.game_feature f ON f.game_instance_key = p.game_instance_key "
                         "JOIN core.game g ON g.id = f.game_id "
-                        "WHERE p.model_version = 'gbm-v1' AND g.home_score IS NOT NULL "
+                        "WHERE p.model_version = 'gbm-v2' AND g.home_score IS NOT NULL "
                         "LIMIT 5000"
                     )
                     rows = cur.fetchall()

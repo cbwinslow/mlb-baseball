@@ -35,7 +35,7 @@ MODEL_VERSION = "stack-v2"
 MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "models"
 MODEL_PATH = MODEL_DIR / f"{MODEL_VERSION}.json"
 
-BASE_MODELS = ("log5-v1", "elo-v1", "gbm-v1")
+BASE_MODELS = ("log5-v1", "elo-v1", "gbm-v2")
 MARKET_MODELS = ("polymarket-v1", "kalshi-v1")
 ALL_MODELS = BASE_MODELS + MARKET_MODELS
 
@@ -273,7 +273,7 @@ def train(conn: psycopg.Connection) -> dict[str, Any]:
     base_briers = {
         "log5-v1": float(brier_score_loss(y_test, x_test[:, 0])),
         "elo-v1": float(brier_score_loss(y_test, x_test[:, 1])),
-        "gbm-v1": float(brier_score_loss(y_test, x_test[:, 2])),
+        "gbm-v2": float(brier_score_loss(y_test, x_test[:, 2])),
     }
     best_base_brier = min(base_briers.values())
     bss = (1.0 - (test_brier / best_base_brier)) if best_base_brier > 0 else 0.0
@@ -308,7 +308,7 @@ def predict(conn: psycopg.Connection) -> list[dict[str, Any]]:
     with open(MODEL_PATH) as f:
         saved = json.load(f)
 
-    weights = saved.get("weights", {"log5-v1": 0.333, "elo-v1": 0.333, "gbm-v1": 0.334})
+    weights = saved.get("weights", {"log5-v1": 0.333, "elo-v1": 0.333, "gbm-v2": 0.334})
     w_vec = np.array(
         [weights.get(m, 1.0 / len(BASE_MODELS)) for m in BASE_MODELS], dtype=np.float64
     )

@@ -62,7 +62,7 @@ def _seed_synthetic_games(db_conn, season: int, count: int, start_pk: int, decid
 
 def test_train_produces_metrics_and_saves_when_it_beats_baselines(db_conn, tmp_path, monkeypatch):
     monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
-    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v2.json")
     monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
     monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
     _reset(db_conn)
@@ -95,7 +95,7 @@ def test_predict_writes_predictions_for_upcoming_games_using_saved_model(
     db_conn, tmp_path, monkeypatch
 ):
     monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
-    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v2.json")
     monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
     monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
     _reset(db_conn)
@@ -115,7 +115,7 @@ def test_predict_writes_predictions_for_upcoming_games_using_saved_model(
         rows = cur.fetchall()
     assert len(rows) == 5
     for prob, model_version, model_id, model_run_id in rows:
-        assert model_version == "gbm-v1"
+        assert model_version == "gbm-v2"
         assert Decimal("0") <= prob <= Decimal("1")
         assert model_id is not None
         assert model_run_id is not None
@@ -125,7 +125,7 @@ def test_predict_writes_predictions_for_upcoming_games_using_saved_model(
 
 def test_train_and_predict_tolerate_optional_columns_being_null(db_conn, tmp_path, monkeypatch):
     monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
-    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v2.json")
     monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
     monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
     _reset(db_conn)
@@ -163,7 +163,7 @@ def test_health_check_reports_missing_model_file(tmp_path, monkeypatch):
 
 def test_artifact_immutability(db_conn, tmp_path, monkeypatch):
     monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
-    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v2.json")
     monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
     monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
     _reset(db_conn)
@@ -178,14 +178,14 @@ def test_artifact_immutability(db_conn, tmp_path, monkeypatch):
     artifact_file = artifacts[0]
     expected_sha = provenance.artifact_sha256(artifact_file)
     assert artifact_file.name == f"{expected_sha}.json"
-    assert not (tmp_path / "gbm-v1.json").exists()
+    assert not (tmp_path / "gbm-v2.json").exists()
 
     _reset(db_conn)
 
 
 def test_champion_replacement(db_conn, tmp_path, monkeypatch):
     monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
-    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v2.json")
     _reset(db_conn)
 
     dummy1 = tmp_path / "dummy1.json"
@@ -197,7 +197,7 @@ def test_champion_replacement(db_conn, tmp_path, monkeypatch):
         db_conn,
         name="gbm",
         target="home_win",
-        model_version="gbm-v1",
+        model_version="gbm-v2",
         feature_set_version="game-feature-v1",
         status="champion",
         artifact_path=dummy1,
@@ -207,7 +207,7 @@ def test_champion_replacement(db_conn, tmp_path, monkeypatch):
         db_conn,
         name="gbm",
         target="home_win",
-        model_version="gbm-v1",
+        model_version="gbm-v2",
         feature_set_version="game-feature-v1",
         status="champion",
         artifact_path=dummy2,
@@ -230,7 +230,7 @@ def test_champion_replacement(db_conn, tmp_path, monkeypatch):
 
 def test_prediction_foreign_key_linkage(db_conn, tmp_path, monkeypatch):
     monkeypatch.setattr(gbm, "MODEL_DIR", tmp_path)
-    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v1.json")
+    monkeypatch.setattr(gbm, "MODEL_PATH", tmp_path / "gbm-v2.json")
     monkeypatch.setattr(gbm, "TRAIN_SEASON_CUTOFF", 2020)
     monkeypatch.setattr(gbm, "VALIDATION_SEASONS", (2021,))
     _reset(db_conn)

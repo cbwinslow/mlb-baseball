@@ -132,6 +132,32 @@ def test_workflow_lock_serializes_connectors_and_derived_stages(db_conn):
                     pass
 
 
+def test_workflow_lock_serializes_two_exclusive_derived_stages(db_conn):
+    """Two exclusive-mode derived stages must reject each other too, not just
+    an exclusive stage against a shared connector.
+
+    Uses "core"/"bootstrap" (conform.py's real SOURCE/mode) and
+    "model"/"features" (model/__init__.py's real SOURCE/mode for
+    run_features()) deliberately -- these are two *different* source-lock
+    keys ("mlb-ingest:core" vs "mlb-ingest:model"), so the per-source lock
+    (see test_track_run_rejects_overlapping_runs_for_the_same_source above)
+    cannot be what serializes them. Only the shared workflow lock key
+    ("mlb-workflow:raw-core-model", acquired by every exclusive-mode call
+    regardless of source) can -- this is the real, previously-unverified
+    coverage gap for conform/features/predict/train/evaluate all correctly
+    excluding one another, not just excluding ingestion connectors."""
+    with psycopg.connect(os.environ["DATABASE_URL"]) as second_conn:
+        with track_run(db_conn, "core", "bootstrap", workflow="exclusive"):
+            with pytest.raises(RuntimeError, match="another ingestion or derived-data stage"):
+                with track_run(second_conn, "model", "features", workflow="exclusive"):
+                    pass
+
+        with track_run(db_conn, "model", "features", workflow="exclusive"):
+            with pytest.raises(RuntimeError, match="another ingestion or derived-data stage"):
+                with track_run(second_conn, "core", "bootstrap", workflow="exclusive"):
+                    pass
+
+
 def test_workflow_rejects_a_database_reserved_for_tests(db_conn, monkeypatch):
     monkeypatch.delenv("MLB_TEST_SUITE", raising=False)
     source = f"test_reservation_{uuid.uuid4().hex}"

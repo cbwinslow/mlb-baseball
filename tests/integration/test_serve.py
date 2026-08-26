@@ -82,11 +82,11 @@ def test_serve_pitcher_props_and_live_game_tracker(db_conn):
 
 
 def test_serve_daily_betting_grid_uses_latest_prediction_snapshot_only(db_conn):
-    # Regression test for the 0083 fix: gold.prediction intentionally keeps
+    # Regression test for the 0087 fix: gold.prediction intentionally keeps
     # every prediction snapshot ever generated for a game/model (see
     # mlb_baseball/model/evaluation.py's docstring) -- a still-upcoming game
     # accumulates one new row per daily `mlb predict` cron cycle. Before
-    # 0083, serve.daily_betting_grid joined gold.prediction directly on
+    # 0087, serve.daily_betting_grid joined gold.prediction directly on
     # (game_instance_key, model_version), so two snapshots for the same
     # game/model fanned the underlying gold.game_feature row out into two
     # grid rows -- one per historical snapshot, not one per game.
@@ -120,7 +120,7 @@ def test_serve_daily_betting_grid_uses_latest_prediction_snapshot_only(db_conn):
 
 def test_serve_prediction_market_alpha_uses_latest_prediction_snapshot_only(db_conn):
     # Same regression as above, for serve.prediction_market_alpha -- also
-    # fixed by 0083, also previously joined gold.prediction directly.
+    # fixed by 0087, also previously joined gold.prediction directly.
     _reset(db_conn)
     teams = _seed_teams(db_conn)
     bos_id = teams["BOS"]

@@ -66,7 +66,7 @@ cutover executed" for evidence. `gold.game_feature`/`gold.player_season`/
 `gold.team_season`/`gold.division_standing` are populated in production;
 `mlb predict` has run. This closes R1-R4 of the remediation sequence below in
 production, not just `mlb_test`. **R5 evidence added 2026-08-26** (see the R5
-entry below and `docs/DECISIONS.md` ADR-255) — real coverage gaps closed and
+entry below and `docs/DECISIONS.md` ADR-265) — real coverage gaps closed and
 one real bug fixed in `mlb_test`, but not yet Sol-reviewed or applied to
 production; treat R5 as pending review, not closed. R6
 (documentation/final verification) remains open and not started.
@@ -217,7 +217,7 @@ safely needs either a `to_regclass`-gated conditional view or a
 `core.market`-level market-type column from `conform.py`, both real,
 separate design work; filed as
 [issue #79](https://github.com/cbwinslow/mlb-baseball/issues/79). See
-`docs/DECISIONS.md` ADR-255 for full detail on both parts.
+`docs/DECISIONS.md` ADR-265 for full detail on both parts.
 
 `uv run pytest tests/integration/test_ingest_tracking.py
 tests/integration/test_serve.py -v` — 16 tests, all passing, against real

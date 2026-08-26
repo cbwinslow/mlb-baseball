@@ -38,14 +38,19 @@ data available) or only takes hand-entered CLI arguments (no real data path
 exists yet), and cross-referenced `docs/FEATURE_REGISTRY.md` for which
 already carry a "Verified: `<real fact>`" note.
 
-## Bugs found in the 2026-08-26 Bucket B triage — need real code fixes
+## Bugs found in the 2026-08-26 Bucket B triage — all 16 fixed same day
+
+**Status: all 16 items below (plus the 2 cosmetic-only notes) were fixed
+later the same session, each with a real regression test.** See the session
+log entry at the bottom of this file for the fix summary and real
+lint/type/test output. Left in place below as the original findings record.
 
 The 92 previously-unclassified Bucket B packages were triaged this session
 (6 parallel read-only passes). None were reclassified out of Bucket B and no
-files were edited during triage — these are recommendations. Real,
-behavior-changing bugs found (same "formula doesn't match its own documented
-benchmark" root cause as the `bullpen_bridge.py` precedent above), ranked by
-real impact:
+files were edited during the triage pass itself — the bugs below were found
+read-only and fixed in a separate, later pass. Real, behavior-changing bugs
+found (same "formula doesn't match its own documented benchmark" root cause
+as the `bullpen_bridge.py` precedent above), ranked by real impact:
 
 1. **`poptime.py` (POPTIME-01, ADR-173) — a league-average catcher is scored
    "elite."** The CS% sigmoid's neutral point (`delta_t = 0`) evaluates to
@@ -525,3 +530,38 @@ composite score itself is still invented either way.
   Next: owner reviews the relabel/refit/premise-check recommendations, and
   the 16 flagged bugs get real code fixes with regression tests (same
   pattern as the `bullpen_bridge.py` fix).
+- 2026-08-26 (continued, same session): all 16 bugs above fixed, each with
+  a new or updated regression test in `tests/unit/`, using the same
+  before/after-numbers discipline as the `bullpen_bridge.py` precedent.
+  Highlights: `poptime.py`'s CS% sigmoid gained a missing intercept so a
+  league-average catcher (`pop_time_s=1.95`) now scores `ABOVE_AVERAGE`
+  (27.6% expected CS%) instead of `ELITE_POP_TIME` (was 58.9%); `nrfi.py`'s
+  0.40-vs-0.52 baseline was fixed to the documented 0.52, which flips the
+  default matchup's recommended side from `NEUTRAL` to `YRFI` exactly as
+  predicted (its own `health_check()` example matchup needed retuning to
+  genuinely elite pitchers to stay a meaningful demonstration under the
+  corrected constant); `bunt.py`'s tier logic now matches ADR-185 exactly
+  (removed an undocumented raw-outs override); `arm.py` had all three tiers
+  fixed from `or` to `and` (the fixing agent found the same OR-bypass bug
+  in `WEAK_ARM_TARGET` too, not just the two originally flagged, and
+  verified no tier became unreachable); `pull_gb.py` gained a new
+  intermediate tier (`AGGRESSIVE_PULL_SHADING`) rather than loosening the
+  two-factor `is_extreme` gate, preserving its original strict semantics;
+  `fstrike.py` had its two dead, never-referenced fields removed and its
+  docstring corrected to describe the flat constant it actually uses,
+  instead of methodology it doesn't implement. The remaining 11 were
+  one-line-per-constant reconciliations (formula anchor vs. documented
+  benchmark) plus 2 cosmetic-only comment fixes. Where a fix decision was
+  ambiguous (e.g. `wall_crash.py`/`slash_oppo.py`/`route_burst.py`: fix the
+  formula or the field default?), the fixing agent deferred to whichever
+  side `cli.py`'s own hardcoded argparse defaults already matched, to avoid
+  introducing a new silent inconsistency there — noted per-file so this can
+  be revisited. Full repo-wide verification after merging all three fix
+  passes: `ruff check`/`ruff format --check` clean on
+  `mlb_baseball/model/`+`tests/unit/`, `mypy` clean on 151 source files,
+  `pytest tests/unit` — 1051 passed. Diffs read directly (not just the
+  fixing agents' self-reports) before this log entry was written, per
+  `CLAUDE.md`'s "re-run tests and read the diff yourself" rule. Not yet
+  done: none of the 16 fixes touch real ingested data (all remain Bucket B
+  exploratory calculators) — the separate relabel/refit/premise-check
+  recommendations in the table above are still open, pending owner review.

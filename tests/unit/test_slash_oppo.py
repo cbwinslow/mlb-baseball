@@ -48,6 +48,23 @@ def test_pull_shift_bait_triggers_pull_bait_tier():
     assert res.is_slash_artist is False
 
 
+def test_default_metrics_produce_neutral_ofsrr_score():
+    """SLASH-OPPO-01 regression: the class's own default pull_groundball_pct (64.0) is
+    documented in its own inline comment as the benchmark, but the OFSRR formula was
+    anchored at 65.0 instead. Feeding the engine its own defaults (24.0 oppo, 20.0 oppo
+    LD, 64.0 pull GB -- all three matching their own comments) should now produce an
+    exactly neutral OFSRR score of 100.0.
+    """
+    engine = BatterSlashOppoEngine()
+    default_batter = BatterSlashOppoMetrics(batter_id="b3", batter_name="League Average")
+
+    res = engine.evaluate_slash(default_batter)
+
+    assert res.ofsrr_score == 100.0
+    assert res.babip_adjustment == 0.0
+    assert res.ofsrv_runs_saved == 0.0
+
+
 def test_slash_oppo_health_check():
     """Verify slash oppo health check passes."""
     checks = health_check()

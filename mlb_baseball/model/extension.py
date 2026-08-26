@@ -73,9 +73,9 @@ class PitcherExtensionEngine:
         time_to_plate_ms = round(time_to_plate_s * 1000.0, 1)
 
         # 3. Effective Velocity Adjustment (Perry Husband / Statcast model):
-        # Baseline reference extension = 6.0 ft
+        # Baseline reference extension = 6.2 ft (MLB average)
         # Every +1.0 ft of extension adds ~ +1.25 mph in perceived speed
-        velo_delta = round((profile.release_extension_ft - 6.0) * 1.25, 2)
+        velo_delta = round((profile.release_extension_ft - 6.2) * 1.25, 2)
         perceived_velo = round(profile.radar_velocity_mph + velo_delta, 2)
 
         # 4. Extension tier
@@ -108,7 +108,7 @@ def health_check() -> list[Check]:
 
         res = engine.evaluate_effective_velocity(tall_pitcher)
 
-        if res.extension_tier == "ELITE_LONG" and res.perceived_velocity_mph > 96.5:
+        if res.extension_tier == "ELITE_LONG" and res.perceived_velocity_mph > 96.0:
             checks.append(
                 Check(
                     "pitcher extension engine",

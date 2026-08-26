@@ -55,6 +55,20 @@ def test_flat_homogeneous_pitcher_triggers_liability_tier():
     assert res.is_elite_disruptor is False
 
 
+def test_default_metrics_ivb_delta_matches_documented_benchmark():
+    """VELO-DELTA-01 regression (cosmetic): the module docstring used to claim a
+    ~10.0 in IVB-delta benchmark, but the class's own defaults (fastball_ivb_in=16.5,
+    changeup_ivb_in=6.0) produce 10.5 in. Verify the real default-implied delta matches
+    the now-corrected docstring number (10.5).
+    """
+    engine = PitcherVeloDeltaEngine()
+    default_pitcher = PitcherArsenalSeparationMetrics(pitcher_id="p3", pitcher_name="Average")
+
+    res = engine.evaluate_separation(default_pitcher)
+
+    assert res.fb_ch_ivb_delta_in == 10.5
+
+
 def test_velo_delta_health_check():
     """Verify velo delta health check passes."""
     checks = health_check()

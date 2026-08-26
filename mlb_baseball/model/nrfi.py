@@ -78,15 +78,26 @@ class FirstInningValuationEngine:
     ) -> NRFIValuationResult:
         """Compute Inning 1 run expectancies and fair derivative lines."""
         # 1. Expected Runs per half inning:
-        # Baseline Inning 1 average ~ 0.52 runs (higher due to top of lineup)
+        # Baseline Inning 1 average ~ 0.52 runs (higher due to top of lineup).
+        #
+        # NRFI-01 fix: this constant was implemented as 0.40, contradicting
+        # this very comment. 0.52 is the correct number: real season-long
+        # run scoring is ~4.3-4.7 runs/team/game across 9 innings, which
+        # works out to roughly 0.48-0.52 runs/inning on a flat per-inning
+        # basis -- and the *first* inning specifically runs higher than that
+        # flat average because the top of the batting order (a team's best
+        # hitters) always bats first. So 0.52, not 0.40, is the defensible
+        # real number. (Recalled sabermetric knowledge, not a freshly
+        # fetched citation -- flagged as such per this project's honesty
+        # norms.)
         mu_top = (
-            0.40
+            0.52
             * (matchup.away_top3_woba / 0.335)
             * (matchup.home_starter_inn1_era / 3.90)
             * matchup.park_factor
         )
         mu_bot = (
-            0.40
+            0.52
             * (matchup.home_top3_woba / 0.335)
             * (matchup.away_starter_inn1_era / 3.90)
             * matchup.park_factor
@@ -131,13 +142,19 @@ def health_check() -> list[Check]:
     checks: list[Check] = []
     try:
         engine = FirstInningValuationEngine()
+        # NOTE: after the NRFI-01 fix (0.40 -> 0.52 baseline), the previous
+        # example matchup (2.50/2.70 ERA, .320/.310 wOBA, no park adjustment)
+        # only reaches ~52% NRFI -- no longer decisively NRFI. This example
+        # uses genuinely elite aces in a pitcher-friendly park (park_factor
+        # 0.95) so the health check still demonstrates a clear NRFI case.
         ace_matchup = InningOneMatchupInputs(
             "LAD",
             "SF",
-            home_starter_inn1_era=2.50,
-            away_starter_inn1_era=2.70,
-            home_top3_woba=0.320,
-            away_top3_woba=0.310,
+            home_starter_inn1_era=2.00,
+            away_starter_inn1_era=2.10,
+            home_top3_woba=0.300,
+            away_top3_woba=0.295,
+            park_factor=0.95,
         )
         res = engine.evaluate_first_inning(ace_matchup)
 

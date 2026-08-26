@@ -8,7 +8,13 @@ from mlb_baseball.model.nrfi import (
 
 
 def test_ace_pitchers_matchup_yields_high_nrfi_probability():
-    """Verify duel between low-ERA starters results in high P(NRFI)."""
+    """Verify duel between low-ERA starters results in high P(NRFI).
+
+    Threshold recalibrated for NRFI-01 (0.40 -> 0.52 baseline-runs fix):
+    the higher, documented-correct baseline lowers NRFI probability across
+    the board, so this matchup now lands around 56% instead of the pre-fix
+    bug's ~60%+.
+    """
     engine = FirstInningValuationEngine()
 
     pitcher_duel = InningOneMatchupInputs(
@@ -23,9 +29,9 @@ def test_ace_pitchers_matchup_yields_high_nrfi_probability():
 
     res = engine.evaluate_first_inning(pitcher_duel)
 
-    assert res.nrfi_probability > 0.58
+    assert res.nrfi_probability > 0.55
     assert res.recommended_side == "NRFI"
-    assert res.fair_nrfi_american < -150
+    assert res.fair_nrfi_american < -100
 
 
 def test_coors_field_slugfest_yields_high_yrfi_probability():
@@ -47,6 +53,26 @@ def test_coors_field_slugfest_yields_high_yrfi_probability():
     assert res.yrfi_probability > 0.60
     assert res.recommended_side == "YRFI"
     assert res.fair_yrfi_american < 0
+
+
+def test_default_matchup_baseline_uses_documented_052_constant():
+    """Regression test for NRFI-01.
+
+    The class's own default/neutral matchup (no explicit overrides) must
+    use the implemented-and-documented 0.52 runs/inning baseline, not the
+    pre-fix bug's 0.40 -- the mismatch flipped the engine's own recommended
+    side. Before the fix, the default matchup computed nrfi_probability
+    ~0.465 and recommended_side "NEUTRAL"; after the fix it computes
+    ~0.37 and flips to "YRFI".
+    """
+    engine = FirstInningValuationEngine()
+
+    default_matchup = InningOneMatchupInputs(home_team="HOME", away_team="AWAY")
+
+    res = engine.evaluate_first_inning(default_matchup)
+
+    assert res.nrfi_probability == 0.37
+    assert res.recommended_side == "YRFI"
 
 
 def test_nrfi_health_check():

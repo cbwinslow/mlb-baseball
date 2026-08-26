@@ -1,10 +1,25 @@
 """Unit tests for Starting Pitcher First-Pitch Strike Engine (FSTRIKE-01, ADR-172)."""
 
+import dataclasses
+
 from mlb_baseball.model.fstrike import (
     FirstPitchStrikeEngine,
     PitcherFStrikeMetrics,
     health_check,
 )
+
+
+def test_dead_woba_fields_removed():
+    """FSTRIKE-01 regression: PitcherFStrikeMetrics used to declare woba_after_0_1 and
+    woba_after_1_0 fields that evaluate_fstrike() never actually referenced (the real
+    formula is a flat 0.068 runs/PA constant). Assert the dead/misleading fields are
+    gone rather than left behind as unused, confusing dataclass state.
+    """
+    field_names = {f.name for f in dataclasses.fields(PitcherFStrikeMetrics)}
+
+    assert "woba_after_0_1" not in field_names
+    assert "woba_after_1_0" not in field_names
+    assert field_names == {"pitcher_id", "pitcher_name", "fstrike_pct", "batters_faced"}
 
 
 def test_elite_first_pitch_strike_pitcher_has_high_fpsv_runs():

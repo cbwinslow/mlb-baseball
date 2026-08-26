@@ -48,6 +48,42 @@ def test_weak_outfield_arm_classified_as_weak_arm_target():
     assert res.arm_runs_saved_season < -3.0
 
 
+def test_hard_thrower_with_slow_exchange_not_tagged_cannon_elite():
+    """Regression (ADR-168): a 99 mph arm with a slow 1.5s exchange computes
+    a strongly negative arm_runs_saved_season (~-11.6, which alone would
+    qualify for WEAK_ARM_TARGET), but the raw `arm_velocity_mph >= 96.0`
+    branch used to tag it CANNON_ELITE purely off velocity. The tier must
+    now also require the computed run value to clear its own threshold.
+    """
+    engine = OutfieldArmEngine()
+    hard_thrower_slow_exchange = OutfielderArmMetrics(
+        fielder_id="f3",
+        fielder_name="Cannon Slow Exchange",
+        arm_velocity_mph=99.0,
+        exchange_time_s=1.5,
+    )
+
+    res = engine.evaluate_arm(hard_thrower_slow_exchange)
+
+    assert res.arm_runs_saved_season < -3.0
+    assert res.arm_tier not in ("CANNON_ELITE", "ABOVE_AVERAGE")
+
+
+def test_default_literal_metrics_not_tagged_above_average():
+    """Regression (ADR-168): the dataclass's own literal defaults
+    (arm_velocity_mph=93.0) compute an essentially neutral
+    arm_runs_saved_season (~-0.02), but the raw `arm_velocity_mph >= 91.0`
+    branch used to tag it ABOVE_AVERAGE purely off velocity.
+    """
+    engine = OutfieldArmEngine()
+    default_metrics = OutfielderArmMetrics(fielder_id="f4", fielder_name="Default Arm")
+
+    res = engine.evaluate_arm(default_metrics)
+
+    assert abs(res.arm_runs_saved_season) < 1.5
+    assert res.arm_tier not in ("ABOVE_AVERAGE", "CANNON_ELITE")
+
+
 def test_arm_health_check():
     """Verify outfield arm health check passes."""
     checks = health_check()

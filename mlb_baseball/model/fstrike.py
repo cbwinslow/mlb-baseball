@@ -2,9 +2,10 @@
 
 Provides first-pitch count leverage and run expectancy surplus modeling:
 1. First-Pitch Strike Rate (F-Strike%) vs League Baseline (60.5%).
-2. Count Delta Leverage (0-1 Count wOBA ~ 0.270 vs 1-0 Count wOBA ~ 0.355).
-3. First-Pitch Strike Surplus Value (FPSV_runs per season and per 100 BF).
-4. Pitcher Command Tiers (Elite Zone Pounder, Above Average, Passive Behind Count).
+2. First-Pitch Strike Surplus Value (FPSV_runs per season and per 100 BF): the
+   pitcher's F-Strike% delta from league baseline scaled by a flat ~0.068
+   runs/PA run-expectancy swing constant.
+3. Pitcher Command Tiers (Elite Zone Pounder, Above Average, Passive Behind Count).
 
 Adheres strictly to object-oriented encapsulation, polymorphic protocols, and
 point-in-time correctness with zero lookahead leakage.
@@ -26,8 +27,6 @@ class PitcherFStrikeMetrics:
     pitcher_name: str
     fstrike_pct: float = 0.65  # First pitch strike percentage
     batters_faced: int = 700
-    woba_after_0_1: float = 0.275
-    woba_after_1_0: float = 0.350
 
 
 @dataclasses.dataclass(frozen=True)

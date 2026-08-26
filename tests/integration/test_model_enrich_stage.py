@@ -31,7 +31,18 @@ from mlb_baseball.model import diff, elo, enrich_feature_stage, features
 def _reset(db_conn):
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        for table in ("raw.retrosheet_event", "raw.retrosheet_gameinfo"):
+        # raw.statcast_pitch is deliberately dropped, not created: several
+        # other test files (test_model_command.py, test_model_platoon.py,
+        # test_model_pitch_movement.py) each create it with their own
+        # different, mutually incompatible column set, and this repo's test
+        # database is one shared, session-scoped instance -- whichever file
+        # ran first in a given session leaves its schema behind. Without
+        # this drop, pitch_movement.compute()'s own to_regclass('raw.
+        # statcast_pitch') gate sees a real (but wrong-schema) table left
+        # over from an earlier test and crashes with a real UndefinedColumn
+        # instead of cleanly no-op'ing on a genuinely absent table, which is
+        # what this test actually wants to exercise.
+        for table in ("raw.retrosheet_event", "raw.retrosheet_gameinfo", "raw.statcast_pitch"):
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")

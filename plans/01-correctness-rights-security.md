@@ -65,8 +65,11 @@ executed against production `mlb` — see `PROGRESS.md` "Plan 01F production
 cutover executed" for evidence. `gold.game_feature`/`gold.player_season`/
 `gold.team_season`/`gold.division_standing` are populated in production;
 `mlb predict` has run. This closes R1-R4 of the remediation sequence below in
-production, not just `mlb_test`. R5 (consumer/workflow integrity) and R6
-(documentation/final verification) remain open.
+production, not just `mlb_test`. **R5 evidence added 2026-08-26** (see the R5
+entry below and `docs/DECISIONS.md` ADR-265) — real coverage gaps closed and
+one real bug fixed in `mlb_test`, but not yet Sol-reviewed or applied to
+production; treat R5 as pending review, not closed. R6
+(documentation/final verification) remains open and not started.
 
 **Evidence correction (2026-08-10):** The prior premise that a suspended or
 resumed game creates two valid MLB game instances sharing `game_pk` is false.
@@ -170,6 +173,58 @@ canonical primary key `(mlb_game_pk, model_version, generated_at)` and
 `gold.game_feature` has a partial unique populated MLB-key index. The focused
 migration/evaluation/feature/prediction suite passed 135 tests in `mlb_test`.
 Production remains read-only and requires separate owner approval.
+
+**R5 consumer/workflow integrity evidence (2026-08-26):** Reverified both
+halves of R5 against real `mlb_test`, not by assumption.
+
+*Workflow overlap rejection:* the existing
+`test_workflow_lock_serializes_connectors_and_derived_stages` only proved a
+shared (connector) lock and an exclusive (derived-stage) lock reject each
+other — never that two *exclusive* stages reject each other. Added
+`test_workflow_lock_serializes_two_exclusive_derived_stages`
+(`tests/integration/test_ingest_tracking.py`), using conform's and
+features' real, different `SOURCE` values (`"core"`/`"model"`) specifically
+so the per-source advisory lock cannot be what's serializing them — only
+the shared `mlb-workflow:raw-core-model` lock can. Also re-checked every
+real CLI-reachable `track_run()` call site (`conform.py`, and
+`model/__init__.py`'s `run_features()`/`run()`/`train()`/`evaluate()`,
+which back `mlb conform`/`mlb features`/`mlb predict`/`mlb train`/
+`mlb evaluate`): all five already pass `workflow="exclusive"`. No gap found
+there, no code change needed.
+
+*Prediction-boundary consumer validation:* `mlb_baseball/model/evaluation.py`
+and `mlb_baseball/model/market.py` already have solid, direct test coverage
+of the acceptance gate's named properties (schedule history counted as one
+game, post-start predictions excluded, MLB-keyed vs. Retrosheet-native-keyed
+predictions kept distinct) — confirmed by reading `tests/integration/
+test_model_evaluation.py` and `tests/integration/test_model_market.py`, not
+duplicated. Found a real, previously-unfixed bug in two `serve.*` views:
+`serve.daily_betting_grid` and `serve.prediction_market_alpha` both joined
+`gold.prediction` directly on `(game_instance_key, model_version)` without
+selecting the latest snapshot, fanning one real game out into one row per
+historical prediction snapshot — the exact fan-out pattern migration 0082
+already fixed for `serve.sgp_matchup_grid`/`serve.pitcher_arsenal`, which
+just never reached these two. Fixed forward-only in
+`migrations/0083_correct_remaining_serve_prediction_fanout.sql`; confirmed
+by hand that reverting it reproduces 2 rows for 1 game with two prediction
+snapshots, via the new
+`tests/integration/test_serve.py::test_serve_daily_betting_grid_uses_latest_prediction_snapshot_only`
+and `::test_serve_prediction_market_alpha_uses_latest_prediction_snapshot_only`.
+A second, related but distinct bug in the same view
+(`serve.prediction_market_alpha` also fans out on non-moneyline
+`core.market` rows for Polymarket) was found but not fixed here — fixing it
+safely needs either a `to_regclass`-gated conditional view or a
+`core.market`-level market-type column from `conform.py`, both real,
+separate design work; filed as
+[issue #79](https://github.com/cbwinslow/mlb-baseball/issues/79). See
+`docs/DECISIONS.md` ADR-265 for full detail on both parts.
+
+`uv run pytest tests/integration/test_ingest_tracking.py
+tests/integration/test_serve.py -v` — 16 tests, all passing, against real
+`mlb_test`. Production `mlb` untouched throughout — this is a
+`mlb_test`-verified, forward-only migration plus test change, same as every
+prior R1-R4 rehearsal entry above. R6 (documentation/final verification)
+remains open, not started by this change.
 
 ## Acceptance gate
 

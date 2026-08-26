@@ -32,7 +32,7 @@ matrix_agg AS (
         ROUND(AVG(runs_rest_of_inning)::numeric, 4) AS runs_rest_of_inning,
         COUNT(*)::integer AS sample_size
     FROM event_half_inning
-    WHERE base_state IN ('000', '100', '020', '003', '120', '103', '023', '123')
+    WHERE base_state IN ('000', '100', '010', '001', '110', '101', '011', '111')
     GROUP BY season, outs_before, base_state
 )
 

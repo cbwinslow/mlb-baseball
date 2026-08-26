@@ -8,14 +8,21 @@ from mlb_baseball.model import command
 
 
 def _ensure_command_tables(db_conn):
+    # DROP + unconditional CREATE, not an "IF NOT EXISTS" guard: several
+    # other test files (test_model_platoon.py, test_model_pitch_movement.py,
+    # test_conform.py, test_audit_db.py) also create raw.statcast_pitch,
+    # each with its own different column set for its own needs, and the
+    # underlying test database template persists mutations across separate
+    # pytest invocations -- confirmed directly: this file's own INSERT
+    # failed against a stale schema left over from a different file's run,
+    # even with this file's guard running first in that invocation.
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.statcast_pitch')")
-        if not cur.fetchone()[0]:
-            cur.execute(
-                "CREATE TABLE raw.statcast_pitch ("
-                "game_pk text, pitcher text, zone text, pitch_type text, "
-                "release_speed text, inning_topbot text, pitch_number text, _season text)"
-            )
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
+        cur.execute(
+            "CREATE TABLE raw.statcast_pitch ("
+            "game_pk text, pitcher text, zone text, pitch_type text, "
+            "release_speed text, inning_topbot text, pitch_number text, _season text)"
+        )
     db_conn.commit()
 
 

@@ -28,7 +28,7 @@ class Prediction:
     actual: bool
 
 
-MetricValue = float | int | tuple[float, float]
+MetricValue = float | int | None | tuple[float | None, float | None]
 
 
 _CUTOFF_SQL = {
@@ -156,9 +156,18 @@ def _common_sample(
     }
 
 
-def _scores(rows: Sequence[Prediction]) -> dict[str, float | int]:
+def _scores(rows: Sequence[Prediction]) -> dict[str, float | int | None]:
     if not rows:
-        return {"games": 0, "log_loss": math.nan, "brier": math.nan, "accuracy": math.nan}
+        # None (JSON null), not math.nan: this dict is eventually stored as
+        # a real json/jsonb column (provenance.record_evaluation) -- strict
+        # JSON has no NaN token (unlike Python's json.dumps default, which
+        # allows it), so a zero-games report crashed the INSERT outright
+        # with a real psycopg.errors.InvalidTextRepresentation instead of
+        # ever recording the run. Confirmed directly: this was the actual
+        # failure mode caught by test_evaluate_uses_one_pregame_snapshot_
+        # and_exact_common_sample once the full suite could finally run
+        # start to finish (see the pytest --import-mode=importlib fix).
+        return {"games": 0, "log_loss": None, "brier": None, "accuracy": None}
     epsilon = 1e-15
     probabilities = [min(max(row.probability, epsilon), 1 - epsilon) for row in rows]
     actuals = [1.0 if row.actual else 0.0 for row in rows]
@@ -177,13 +186,22 @@ def _scores(rows: Sequence[Prediction]) -> dict[str, float | int]:
 
 def _bootstrap_interval(
     rows: Sequence[Prediction], metric: str, samples: int, seed: int = 0
-) -> tuple[float, float]:
+) -> tuple[float | None, float | None]:
     if not rows or samples <= 0:
-        return math.nan, math.nan
+        return None, None
     rng = random.Random(seed)
-    estimates = sorted(
-        float(_scores([rng.choice(rows) for _ in rows])[metric]) for _ in range(samples)
-    )
+
+    def _resample_score() -> float:
+        # rows is non-empty (checked above) and rng.choice draws len(rows)
+        # times, so this resample is always non-empty too -- _scores()
+        # only returns None for the zero-rows branch, which can't happen
+        # here. Asserted, not just assumed, so a real future regression
+        # fails loudly instead of silently miscomputing a bootstrap CI.
+        value = _scores([rng.choice(rows) for _ in rows])[metric]
+        assert value is not None
+        return float(value)
+
+    estimates = sorted(_resample_score() for _ in range(samples))
     low = estimates[int(0.025 * (samples - 1))]
     high = estimates[int(0.975 * (samples - 1))]
     return low, high

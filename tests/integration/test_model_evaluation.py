@@ -32,6 +32,17 @@ def _reset(db_conn):
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM meta.model_evaluation")
+        # meta.game_instance was missing here even though this file itself
+        # writes to it (test_evaluate_retains_retrosheet_history_after_
+        # feature_rows_are_rebuilt): _selected_predictions()'s instance_rows
+        # CTE prefers a real meta.game_instance row over gold.game_feature
+        # for the same game_instance_key -- a leftover row from an earlier
+        # test in this repo's shared, session-scoped test database (see
+        # tests/conftest.py's _test_database fixture) with a stale
+        # season/game_date silently shadowed this test's own fresh
+        # gold.game_feature insert, producing a real, reproducible
+        # coverage={} bug only visible once the full suite runs together.
+        cur.execute("DELETE FROM meta.game_instance")
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
     db_conn.commit()
 

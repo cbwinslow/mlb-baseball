@@ -22,13 +22,13 @@ variables override that file. Do not point `TEST_DATABASE_URL` at the research
 database.
 
 Install the project and the Chadwick command-line tools required for the
-Retrosheet event/box sources. `mlb doctor` reports missing tools with their
+Retrosheet event/box sources. `mlb preflight` reports missing tools with their
 names before a long run begins.
 
 ## 2. Preview, migrate, and land raw sources
 
 ```bash
-uv sync
+uv sync --extra dev
 uv run mlb preflight --with-conform
 uv run mlb migrate
 uv run mlb bootstrap --profile local_research

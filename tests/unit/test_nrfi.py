@@ -1,5 +1,7 @@
 """Unit tests for First-Inning Run Scored (NRFI / YRFI) Valuation Engine (NRFI-01, ADR-156)."""
 
+import pytest
+
 from mlb_baseball.model.nrfi import (
     FirstInningValuationEngine,
     InningOneMatchupInputs,
@@ -8,13 +10,7 @@ from mlb_baseball.model.nrfi import (
 
 
 def test_ace_pitchers_matchup_yields_high_nrfi_probability():
-    """Verify duel between low-ERA starters results in high P(NRFI).
-
-    Threshold recalibrated for NRFI-01 (0.40 -> 0.52 baseline-runs fix):
-    the higher, documented-correct baseline lowers NRFI probability across
-    the board, so this matchup now lands around 56% instead of the pre-fix
-    bug's ~60%+.
-    """
+    """Verify duel between low-ERA starters results in high P(NRFI)."""
     engine = FirstInningValuationEngine()
 
     pitcher_duel = InningOneMatchupInputs(
@@ -29,9 +25,9 @@ def test_ace_pitchers_matchup_yields_high_nrfi_probability():
 
     res = engine.evaluate_first_inning(pitcher_duel)
 
-    assert res.nrfi_probability > 0.55
+    assert res.nrfi_probability > 0.58
     assert res.recommended_side == "NRFI"
-    assert res.fair_nrfi_american < -100
+    assert res.fair_nrfi_american < -150
 
 
 def test_coors_field_slugfest_yields_high_yrfi_probability():
@@ -55,24 +51,21 @@ def test_coors_field_slugfest_yields_high_yrfi_probability():
     assert res.fair_yrfi_american < 0
 
 
-def test_default_matchup_baseline_uses_documented_052_constant():
-    """Regression test for NRFI-01.
-
-    The class's own default/neutral matchup (no explicit overrides) must
-    use the implemented-and-documented 0.52 runs/inning baseline, not the
-    pre-fix bug's 0.40 -- the mismatch flipped the engine's own recommended
-    side. Before the fix, the default matchup computed nrfi_probability
-    ~0.465 and recommended_side "NEUTRAL"; after the fix it computes
-    ~0.37 and flips to "YRFI".
+def test_first_inning_poisson_baseline_is_the_documented_040_constant():
+    """Regression (NRFI-01): the half-inning Poisson mean must stay 0.40 -- the
+    value ADR-156 and docs/THEORY_AND_METHODOLOGY.md section 42.1 both define the
+    formula with. A neutral matchup (all dataclass defaults, park_factor 1.0)
+    reduces to mu_top = 0.40 * (3.60/3.90) and mu_bot = 0.40 * (0.340/0.335) *
+    (3.80/3.90), so P(NRFI) = exp(-(mu_top + mu_bot)) ~= 0.4655. A silent switch
+    to 0.52 (or any other unvalidated baseline) moves this materially and must
+    fail here.
     """
     engine = FirstInningValuationEngine()
 
-    default_matchup = InningOneMatchupInputs(home_team="HOME", away_team="AWAY")
+    res = engine.evaluate_first_inning(InningOneMatchupInputs(home_team="HOME", away_team="AWAY"))
 
-    res = engine.evaluate_first_inning(default_matchup)
-
-    assert res.nrfi_probability == 0.37
-    assert res.recommended_side == "YRFI"
+    assert res.nrfi_probability == pytest.approx(0.4655, abs=1e-3)
+    assert res.recommended_side == "NEUTRAL"
 
 
 def test_nrfi_health_check():

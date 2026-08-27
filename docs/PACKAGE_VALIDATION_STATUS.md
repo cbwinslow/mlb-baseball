@@ -420,7 +420,7 @@ composite score itself is still invented either way.
 | `lead_snap` | LEAD-SNAP-01 / 229 | Relabel | Anchors match field benchmarks exactly; 20.5ft secondary-lead figure unverified. |
 | `leverage` | LEV-01 / 154 | Relabel | Ratio-based, not anchor-subtraction; internally consistent; ADR short-code collides with the real `LEV-01`/ADR-091 (`re24_leverage_v1`) — rename recommended. |
 | `low_scoop` | LOW-SCOOP-01 / 225 | Relabel | Anchors match defaults exactly; clean 100.0 neutral. |
-| `nrfi` | NRFI-01 / 156 | Relabel, **bug** | See bug #2 (0.40 implemented vs. 0.52 documented baseline — flips the betting recommendation). |
+| `nrfi` | NRFI-01 / 156 | Relabel, **bug** | See bug #2 and the 2026-08-27 review-pass note: baseline stays `0.40` (matches ADR-156 + THEORY section 42.1); the stray "~0.52" inline comment was the real inconsistency and was corrected. Real empirical first-inning run-mean tie-out is open refit work. |
 | `oppo_gap` | OPPO-GAP-01 / 239 | Relabel | Anchors match defaults exactly; clean 100.0 neutral. |
 | `oppo_liner` | OPPO-LINER-01 / 251 | Relabel | Anchors match defaults exactly; clean 100.0 neutral. |
 | `outfield_target` | OUTFIELD-TARGET-01 / 245 | Relabel | Anchors match defaults exactly; clean 100.0 neutral. |
@@ -455,7 +455,7 @@ composite score itself is still invented either way.
 | `umpire` | UMP-01 / 136 | **Refit candidate** | Umpire zone bias/run impact is real and documented (BU umpire-scorecard research); umpire ID presence in Retrosheet not yet confirmed conformed into `core`. |
 | `vaa` | VAA-01 / 180 | **Refit candidate** | Legitimate physics-derived Statcast concept, increasingly validated publicly (Chamberlain/FanGraphs); real inputs already in `raw.statcast_pitch`. |
 | `vaa_toz` | VAA-TOZ-01 / 204 | **Refit candidate** | Same premise/data path as `vaa.py`; near-duplicate implementation — see "Structural findings." |
-| `velo_delta` | VELO-DELTA-01 / 200 | Relabel, **bug** | Cosmetic-only doc mismatch (10.0 vs 10.5); well-designed otherwise. Real data path exists — **refit candidate**. |
+| `velo_delta` | VELO-DELTA-01 / 200 | Relabel | No real bug: the VDDI IVB anchor is `10.0` in the docstring, the inline comment, and ADR-200 alike (an earlier "~10.5 in" docstring edit was reverted in the 2026-08-27 review pass). Well-designed otherwise. Real data path exists — **refit candidate**. |
 | `velo_drift` | VELO-DRIFT-01 / 188 | **Refit candidate** | Intra-game velocity fade as a fatigue signal is real and widely discussed; thresholds applied consistently; real data path via `raw.statcast_pitch` pitch sequencing. |
 | `wall` | WALL-01 / 177 | Relabel | Real premise but redundant with the already-validated `oaa.py` (Bucket A) — extend `oaa.py` instead of refitting this in parallel. Run-value constants (1.65/0.75) plausible in magnitude, uncited. |
 | `wall_block` | WALL-BLOCK-01 / 249 | Relabel | Anchors match defaults exactly; clean 100.0 neutral; same `oaa.py`-redundancy note as `wall.py`. |
@@ -565,3 +565,50 @@ composite score itself is still invented either way.
   done: none of the 16 fixes touch real ingested data (all remain Bucket B
   exploratory calculators) — the separate relabel/refit/premise-check
   recommendations in the table above are still open, pending owner review.
+- 2026-08-27 (PR #82 review pass): merged `main` (only doc conflicts in
+  this file and `docs/DECISIONS.md`, both resolved by taking the union of
+  ADR entries) and worked the automated-reviewer findings (codeant, kilo,
+  codex). Four fixes above were revised:
+  - **`nrfi.py` (bug #2): the baseline stays `0.40`, not `0.52`.** codex
+    correctly flagged that `0.52` was changed on recalled knowledge with
+    no tie-out, and that `0.40` is the value both ADR-156 *and*
+    `docs/THEORY_AND_METHODOLOGY.md` section 42.1 define the formula with —
+    only a single stray inline code comment said "~0.52". `0.40` also fits
+    observed MLB NRFI rates better (a crude `e^-2mu` model needs
+    `mu ~ 0.33-0.40` to reproduce the real ~50-53% NRFI rate; `0.52`
+    implies ~35%). Reverted the constant and the `health_check()` example
+    to `main`'s values, rewrote the inline comment to point at the two
+    authoritative docs, and replaced the regression test with one that
+    pins `0.40` (fails on a silent switch to any other baseline). A real
+    empirical first-inning run-mean tie-out against this project's own
+    Retrosheet data is real future refit work, tracked here, not done in
+    this PR.
+  - **`arm.py` (bug #4): tier now keys on `arm_runs_saved_season` alone**,
+    not `velocity AND run-value`. codex correctly flagged that the `and`
+    form over-corrected — a catastrophic arm (`arm_runs ~ -12`) with
+    velocity just over 85 fell through to `AVERAGE`. `arm_runs` already
+    folds in both inputs (velocity via flight time, plus exchange time),
+    so the raw-velocity co-condition only ever creates disagreement.
+  - **`foul_attrition.py` (bug #10): `surplus_pitches_extracted` now
+    floors at zero.** codeant correctly flagged that a below-benchmark
+    batter produced a negative "extracted" pitch count while the SRAR runs
+    beside it were already floored — a below-benchmark batter draws no
+    surplus, not a negative one.
+  - **`poptime.py` (bug #1): the `ABOVE_AVERAGE` pop-time cut is now
+    strict (`< benchmark_slide_time`).** codeant correctly flagged that a
+    catcher sitting exactly at the benchmark computes league-average CS%
+    and ~zero CSAA but was still tagged `ABOVE_AVERAGE`; at the boundary
+    it now reads `AVERAGE`.
+  - **`velo_delta.py` (cosmetic note): the docstring stays `~10.0 in`.**
+    kilo and codeant correctly flagged that the earlier docstring edit to
+    "~10.5 in" contradicted ADR-200 and `docs/THEORY_AND_METHODOLOGY.md`
+    section 42.1, which both define VDDI with `(dIVB - 10.0)`, and the
+    inline formula comment. The class's default IVB values (16.5 - 6.0 =
+    10.5) are illustrative inputs, not the benchmark. Reverted the
+    docstring; the test now pins both the default-implied 10.5 delta and
+    the ADR-200 VDDI of 104.1 it produces.
+  Two weak regression assertions codeant flagged (`test_extension.py`,
+  `test_rel_drift.py`) were tightened from `>` bounds to the exact
+  post-fix values (`1.5`/`97.5` mph; `114.7` MCS) so the pre-fix formulas
+  fail them. `ruff`/`ruff format`/`mypy` clean, `pytest tests/unit` —
+  1051 passed.

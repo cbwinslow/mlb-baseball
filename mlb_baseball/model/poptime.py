@@ -93,10 +93,13 @@ class CatcherPopTimeEngine:
             ((exp_cs - CS_PCT_LEAGUE_AVG * 100.0) / 100.0) * metrics.attempts_faced * 0.22, 2
         )
 
-        # 3. Catcher Throwing Tier
+        # 3. Catcher Throwing Tier.
+        # The ABOVE_AVERAGE pop-time cut is strict (< benchmark): a catcher
+        # sitting exactly at the benchmark slide time computes league-average
+        # CS% and ~zero CSAA, so it must read AVERAGE, not ABOVE_AVERAGE.
         if metrics.pop_time_s <= 1.89 or csaa_runs >= 3.0:
             tier = "ELITE_POP_TIME"
-        elif metrics.pop_time_s <= 1.98 or csaa_runs >= 1.0:
+        elif metrics.pop_time_s < benchmark_slide_time or csaa_runs >= 1.0:
             tier = "ABOVE_AVERAGE"
         elif metrics.pop_time_s > 2.06 or csaa_runs <= -2.5:
             tier = "SLOW_RELEASE_LIABILITY"

@@ -48,12 +48,12 @@ def test_weak_outfield_arm_classified_as_weak_arm_target():
     assert res.arm_runs_saved_season < -3.0
 
 
-def test_hard_thrower_with_slow_exchange_not_tagged_cannon_elite():
-    """Regression (ADR-168): a 99 mph arm with a slow 1.5s exchange computes
-    a strongly negative arm_runs_saved_season (~-11.6, which alone would
-    qualify for WEAK_ARM_TARGET), but the raw `arm_velocity_mph >= 96.0`
-    branch used to tag it CANNON_ELITE purely off velocity. The tier must
-    now also require the computed run value to clear its own threshold.
+def test_hard_thrower_with_slow_exchange_tagged_by_computed_run_value():
+    """Regression (ADR-168): a 99 mph arm with a slow 1.5s exchange computes a
+    strongly negative arm_runs_saved_season (~-11.6). The old `... or
+    arm_velocity_mph >= 96.0` branch tagged it CANNON_ELITE off velocity alone;
+    a naive `and` fix would instead drop it to AVERAGE. Tier is now driven by
+    the computed run value alone, so this lands WEAK_ARM_TARGET.
     """
     engine = OutfieldArmEngine()
     hard_thrower_slow_exchange = OutfielderArmMetrics(
@@ -66,14 +66,14 @@ def test_hard_thrower_with_slow_exchange_not_tagged_cannon_elite():
     res = engine.evaluate_arm(hard_thrower_slow_exchange)
 
     assert res.arm_runs_saved_season < -3.0
-    assert res.arm_tier not in ("CANNON_ELITE", "ABOVE_AVERAGE")
+    assert res.arm_tier == "WEAK_ARM_TARGET"
 
 
-def test_default_literal_metrics_not_tagged_above_average():
+def test_default_literal_metrics_tagged_average():
     """Regression (ADR-168): the dataclass's own literal defaults
     (arm_velocity_mph=93.0) compute an essentially neutral
-    arm_runs_saved_season (~-0.02), but the raw `arm_velocity_mph >= 91.0`
-    branch used to tag it ABOVE_AVERAGE purely off velocity.
+    arm_runs_saved_season (~-0.02), but the old `... or arm_velocity_mph >=
+    91.0` branch tagged it ABOVE_AVERAGE off velocity alone.
     """
     engine = OutfieldArmEngine()
     default_metrics = OutfielderArmMetrics(fielder_id="f4", fielder_name="Default Arm")
@@ -81,7 +81,7 @@ def test_default_literal_metrics_not_tagged_above_average():
     res = engine.evaluate_arm(default_metrics)
 
     assert abs(res.arm_runs_saved_season) < 1.5
-    assert res.arm_tier not in ("ABOVE_AVERAGE", "CANNON_ELITE")
+    assert res.arm_tier == "AVERAGE"
 
 
 def test_arm_health_check():

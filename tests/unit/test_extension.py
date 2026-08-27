@@ -22,10 +22,11 @@ def test_elite_extension_increases_perceived_velocity():
 
     assert res.extension_tier == "ELITE_LONG"
     # EXT-01 fix: the velocity-boost formula now anchors at 6.2 ft (the field's own
-    # documented MLB average) instead of 6.0 ft, so a 7.4 ft extension now produces
-    # exactly +1.5 mph / 97.5 mph rather than the old (buggy) +1.75 mph / 97.75 mph.
-    assert res.velocity_delta_mph > 1.2
-    assert res.perceived_velocity_mph > 97.0
+    # documented MLB average) instead of 6.0 ft, so a 7.4 ft extension produces
+    # exactly (7.4 - 6.2) * 1.25 = +1.5 mph -> 97.5 mph. Pinned exactly so the old
+    # 6.0 ft anchor (which gave +1.75 / 97.75) fails this test.
+    assert res.velocity_delta_mph == 1.5
+    assert res.perceived_velocity_mph == 97.5
     assert res.time_to_plate_ms < 400.0
 
 

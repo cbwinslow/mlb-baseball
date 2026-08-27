@@ -78,26 +78,25 @@ class FirstInningValuationEngine:
     ) -> NRFIValuationResult:
         """Compute Inning 1 run expectancies and fair derivative lines."""
         # 1. Expected Runs per half inning:
-        # Baseline Inning 1 average ~ 0.52 runs (higher due to top of lineup).
-        #
-        # NRFI-01 fix: this constant was implemented as 0.40, contradicting
-        # this very comment. 0.52 is the correct number: real season-long
-        # run scoring is ~4.3-4.7 runs/team/game across 9 innings, which
-        # works out to roughly 0.48-0.52 runs/inning on a flat per-inning
-        # basis -- and the *first* inning specifically runs higher than that
-        # flat average because the top of the batting order (a team's best
-        # hitters) always bats first. So 0.52, not 0.40, is the defensible
-        # real number. (Recalled sabermetric knowledge, not a freshly
-        # fetched citation -- flagged as such per this project's honesty
-        # norms.)
+        # Baseline Inning 1 half-inning Poisson mean: 0.40. This is the number
+        # ADR-156 and docs/THEORY_AND_METHODOLOGY.md section 42.1 both define
+        # the formula with, so it is the one implemented here. (A stray inline
+        # comment here previously read "~0.52 runs"; that was never the
+        # documented constant and 0.40 fits observed MLB NRFI rates better -- a
+        # crude e^-2mu model needs mu ~ 0.33-0.40 to reproduce the real
+        # ~50-53% NRFI rate, whereas 0.52 implies ~35%.) The real empirical
+        # per-half-inning first-inning run mean has not been tied out against
+        # this project's own Retrosheet data yet -- that calibration is
+        # tracked as future refit work in docs/PACKAGE_VALIDATION_STATUS.md,
+        # not done here (NRFI-01 stays a Bucket B exploratory calculator).
         mu_top = (
-            0.52
+            0.40
             * (matchup.away_top3_woba / 0.335)
             * (matchup.home_starter_inn1_era / 3.90)
             * matchup.park_factor
         )
         mu_bot = (
-            0.52
+            0.40
             * (matchup.home_top3_woba / 0.335)
             * (matchup.away_starter_inn1_era / 3.90)
             * matchup.park_factor
@@ -142,19 +141,13 @@ def health_check() -> list[Check]:
     checks: list[Check] = []
     try:
         engine = FirstInningValuationEngine()
-        # NOTE: after the NRFI-01 fix (0.40 -> 0.52 baseline), the previous
-        # example matchup (2.50/2.70 ERA, .320/.310 wOBA, no park adjustment)
-        # only reaches ~52% NRFI -- no longer decisively NRFI. This example
-        # uses genuinely elite aces in a pitcher-friendly park (park_factor
-        # 0.95) so the health check still demonstrates a clear NRFI case.
         ace_matchup = InningOneMatchupInputs(
             "LAD",
             "SF",
-            home_starter_inn1_era=2.00,
-            away_starter_inn1_era=2.10,
-            home_top3_woba=0.300,
-            away_top3_woba=0.295,
-            park_factor=0.95,
+            home_starter_inn1_era=2.50,
+            away_starter_inn1_era=2.70,
+            home_top3_woba=0.320,
+            away_top3_woba=0.310,
         )
         res = engine.evaluate_first_inning(ace_matchup)
 

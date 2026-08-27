@@ -2,7 +2,7 @@
 
 Provides pitch velocity differentials, speed banding, and vertical drop disruption modeling:
 1. Fastball-to-Changeup Velocity Delta (Delta v in mph, benchmark ~8.5 mph).
-2. Fastball-to-Changeup Vertical Separation (Delta IVB in inches, benchmark ~10.5 in).
+2. Fastball-to-Changeup Vertical Separation (Delta IVB in inches, benchmark ~10.0 in).
 3. Velocity Delta Disruption Index (VDDI score measuring arsenal timing disruption).
 4. Arsenal Archetypes (Elite Velo Disruptor, Tight Band Power Pitcher, Flat Arsenal).
 

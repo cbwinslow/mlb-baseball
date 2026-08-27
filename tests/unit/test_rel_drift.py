@@ -24,12 +24,12 @@ def test_metronomic_repeater_classified_properly():
 
     res = engine.evaluate_release_drift(greinke)
 
-    assert res.spatial_dispersion_in <= 1.60
-    # REL-DRIFT-01 fix: the MCS formula's dispersion anchor now matches the class's own
-    # defaults (2.41 in, not the old unreconciled 2.6 in), which shifts every mcs_score
-    # down by ~3 points at a given dispersion level. 110.0 keeps a solid margin above
-    # the class's own is_metronomic_repeater gate (>=112.0).
-    assert res.mcs_score > 110.0
+    assert res.spatial_dispersion_in == 1.49
+    # REL-DRIFT-01 fix: the MCS dispersion anchor now matches the class's own defaults
+    # (2.41 in, not the old unreconciled 2.6 in). At Greinke's 1.49 in dispersion and
+    # 0.4 in drop (no penalty): mcs = 100 + (2.41 - 1.49) * 16.0 = 114.7 exactly.
+    # Pinned so the old 2.6 in anchor (which gave 117.8) fails this test.
+    assert res.mcs_score == 114.7
     assert res.release_tier == "METRONOMIC_MECHANICAL_REPEATER"
     assert res.is_metronomic_repeater is True
     assert res.fatigue_collapse_warning is False

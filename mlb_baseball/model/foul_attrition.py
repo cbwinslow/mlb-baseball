@@ -68,10 +68,13 @@ class BatterFoulAttritionEngine:
         foul_bonus = (metrics.two_strike_foul_rate_pct - 42.0) * 0.8
         bfai = round(max(0.0, 100.0 + multi_bonus + ppa_bonus + foul_bonus), 1)
 
-        # Surplus Pitches & SRAR Runs: extra pitches force early starter hook (~0.032 runs/pitch)
+        # Surplus Pitches & SRAR Runs: extra pitches force early starter hook (~0.032 runs/pitch).
+        # surplus_pitches_extracted is a count of *extra* pitches drawn above the
+        # benchmark batter, so it floors at zero -- a below-benchmark batter draws
+        # no surplus, not a negative one (SRAR already floors the same way).
         pas = max(1, metrics.total_pa_count)
-        surplus_p = round((metrics.pitches_per_pa - 3.95) * pas, 1)
-        srar_runs = round(max(0.0, surplus_p * 0.032), 2)
+        surplus_p = round(max(0.0, (metrics.pitches_per_pa - 3.95) * pas), 1)
+        srar_runs = round(surplus_p * 0.032, 2)
 
         is_grinder = (
             bfai >= 118.0

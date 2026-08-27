@@ -363,7 +363,7 @@ All 92 packages below were read in full (module + unit test + ADR entry)
 this session. Real correctness bugs found are in the "Bugs found" section
 near the top of this file, not repeated here. None of these 92 rest on a
 classically debunked premise like `lineup_protect.py`/`clutch.py`, except
-the one marked premise-check below. "Relabel" = 06C option 3 (unvalidated
+the two marked premise-check below (`fatigue`, `spin_align`). "Relabel" = 06C option 3 (unvalidated
 exploratory calculator, the default when neither of the other two applies
 right now); "Refit" = 06C option 1, flagged as future Plan-04-scale work,
 **not attempted this session**; "Premise-check" = 06C option 2. A "B-sub"
@@ -397,7 +397,7 @@ composite score itself is still invented either way.
 | `chase_recog` | CHASE-RECOG-01 / 247 | Relabel | Anchors match defaults exactly; clean 100.0 neutral. |
 | `contact_depth` | CONTACT-DEPTH-01 / 191 | Relabel | No benchmark-mismatch term exists; "5.0in optimal" uncited. |
 | `count` | COUNT-01 / 139 | **Refit candidate** | Simulator, not an index; pitches/PA health check (3.0-5.0) matches real MLB average (~3.9-4.0); count-mix shift by count state is well-established pitcher behavior. |
-| `damage` | DAMAGE-01 / 159 | Relabel, **bug** | See bugs section: Barrel LA window claimed "dynamic," implemented static/mis-centered vs. real Statcast definition. |
+| `damage` | DAMAGE-01 / 159 | Relabel | Triage observation (not one of the 16 fixed internal-consistency bugs, and not fixed here): the Barrel LA window is described as "dynamic" but implemented static/mis-centered vs. the real Statcast definition. Needs its own tie-out against the published barrel spec before any fix — tracked as open work. |
 | `decision` | DECISION-01 / 151 | **Refit candidate** | Zone framework (Heart/Shadow/Chase/Waste) directly mirrors Baseball Savant's real published Swing/Take metric with real per-zone run values already public — best refit candidate in its batch. |
 | `diversity` | ARSENAL-01 / 169 | Relabel | Gini-Simpson/Shannon entropy legitimate; minor dead-code nit (`hasattr` fallback references a non-existent field, harmless). |
 | `dp_footwork` | DP-FOOTWORK-01 / 241 | Relabel | Anchors match defaults exactly; 0.74s pivot uncited. |
@@ -520,8 +520,9 @@ composite score itself is still invented either way.
   wall-catch family vs. `oaa.py`); and `raw.statcast_pitch` already carries
   real trajectory/movement data that isn't yet conformed into `core.pitch`,
   which materially lowers the cost of a future refit for the VAA/HAA/
-  tunneling/velocity-delta/expected-stats family. 14 packages flagged as
-  real future Plan-04-scale refit candidates (not attempted this session);
+  tunneling/velocity-delta/expected-stats family. 17 packages flagged as
+  real future Plan-04-scale refit candidates (one, `haa`, only partially;
+  not attempted this session);
   2 flagged premise-check (`fatigue`'s ACWR methodology, `spin_align`'s
   mixed tunneling-whiff evidence); the remaining ~75 get the default
   relabel-as-unvalidated-exploratory-calculator recommendation. Nothing

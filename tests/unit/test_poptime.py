@@ -52,6 +52,28 @@ def test_default_pop_time_catcher_is_not_mislabeled_elite():
     assert res.catcher_tier != "ELITE_POP_TIME"
 
 
+def test_pop_time_exactly_at_benchmark_is_average():
+    """Regression test for POPTIME-01.
+
+    A catcher whose pop time equals the benchmark slide time has delta_t=0,
+    so the calibrated sigmoid returns exactly the league-average CS% (21.0%)
+    and zero CSAA. The tier must read AVERAGE, not ABOVE_AVERAGE -- i.e. the
+    pop-time cut is strict (`< benchmark`), not `<=`. Reverting that
+    condition to `<=` would silently pass every other test in this file.
+    """
+    engine = CatcherPopTimeEngine()
+
+    benchmark_catcher = CatcherPopTimeMetrics(
+        catcher_id="c4", catcher_name="Benchmark Catcher", pop_time_s=1.98
+    )
+
+    res = engine.evaluate_pop_time(benchmark_catcher, benchmark_slide_time=1.98)
+
+    assert res.expected_cs_pct == 21.0
+    assert res.csaa_runs_saved == 0.0
+    assert res.catcher_tier == "AVERAGE"
+
+
 def test_slow_pop_time_catcher_classified_as_liability():
     """Verify 2.12s pop time yields low expected CS% and SLOW_RELEASE_LIABILITY."""
     engine = CatcherPopTimeEngine()

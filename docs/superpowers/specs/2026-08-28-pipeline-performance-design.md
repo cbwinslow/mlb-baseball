@@ -148,17 +148,21 @@ are **never** folded in after the first build. Change `compute()` to:
 - Stay a true no-op (one `SELECT` of the fingerprint) when nothing changed.
 - Never leave the table empty on a mid-rebuild failure (build into staging, swap at the end).
 
-### 1.2 Per-session durability/memory pragmas for the rebuild
+### 1.2 Per-session durability/memory pragmas for the rebuild — DONE (PR #85)
 
-`conform` and `model.run()` rebuild from a reproducible source — a crash just means re-run. At the
-start of those sessions (not globally), `SET LOCAL`:
-- `synchronous_commit = off`
-- `work_mem = 512MB` (big window/sort/hash ops currently spill to disk at 25 MB — fatal on HDD)
-- `maintenance_work_mem = 4GB` (index builds, `VACUUM`)
-- consider `jit = off` already set globally; leave it.
+`db.apply_batch_session_settings(conn)` — session-level `SET` (not `SET LOCAL`: these jobs commit
+between stages), called once right after opening the connection in `conform.run()`,
+`model.run()`, and `model.run_features()` only (never the 5-minute ingestion cron or the test
+suite — they run concurrently and a work_mem bump there could OOM):
+- `synchronous_commit = off` — rebuild from a reproducible source; a crash just re-runs.
+- `work_mem = 1GB` — the point-in-time enrichment sorts/hashes spilled to disk at the 25 MB
+  cluster default (fatal on HDD). Safe at 1 GB because the `exclusive` workflow lock means one
+  such job at a time.
+- `maintenance_work_mem = 4GB` — index maintenance during the rebuild.
 
-This mirrors the **already-proven** test-DB pattern (`tests/conftest.py::_speed_up_test_database`,
-measured bulk `TRUNCATE` 79–84 s → ~20 s).
+Mirrors the **already-proven** test-DB pattern (`tests/conftest.py::_speed_up_test_database`,
+measured bulk `TRUNCATE` 79–84 s → ~20 s). Tests:
+`tests/integration/test_batch_session_settings.py`.
 
 ### 1.3 Targeted indices on raw tables — validated with `hypopg` first
 

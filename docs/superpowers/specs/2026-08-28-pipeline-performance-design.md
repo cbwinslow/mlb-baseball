@@ -117,25 +117,38 @@ sequence:
 
 Each item ships as its own commit with a measured before/after in the message.
 
-### 1.0 Cluster-wide Postgres config (owner runs — `ALTER SYSTEM` is superuser + shared cluster)
+### 1.0 Cluster-wide Postgres config — DONE (owner ran `scripts/pg_tune.sql`)
 
 The PG16 cluster (port 5432) is shared by `mlb`, `govdata` (62 GB), `promscale`, `langfuse` and
-others — 40 cores, 125 GB RAM. Current `work_mem` is **25 MB**, so the big enrichment sorts/hashes
-spill to disk (fatal on HDD). Reload-only changes (no restart; reverse any with `ALTER SYSTEM
-RESET <name>`), applied via a committed `scripts/pg_tune.sql` the owner runs once:
+others — 40 cores, 125 GB RAM. `work_mem` was **25 MB**, so the big enrichment sorts/hashes spilled
+to disk (fatal on HDD). Reload-only changes (no restart; reverse any with `ALTER SYSTEM RESET
+<name>`), in `scripts/pg_tune.sql`:
 
 | Setting | From | To | Why |
 |---|---|---|---|
-| `work_mem` | 25 MB | 128 MB | keep normal sorts/hashes in RAM; batch jobs raise it further per-session (1.2) |
+| `work_mem` | 25 MB | 128 MB | keep normal sorts/hashes in RAM; batch jobs raise it to 1 GB per-session (1.2) |
 | `hash_mem_multiplier` | 2 | 3 | hash joins/aggregates (the enrichment queries) get `work_mem × 3` |
 | `maintenance_work_mem` | 2 GB | 4 GB | faster index builds / `VACUUM` |
 | `max_parallel_maintenance_workers` | 2 | 6 | parallel index builds on the 16 M-row raw tables (1.3) |
-| `random_page_cost` | 4 | 2 | 32 GB `shared_buffers` + 96 GB OS cache — index scans mostly hit cache, shouldn't be costed as cold HDD seeks. The one change with plan-shift risk across the other DBs; watch, `RESET` if a regression shows. |
+| `random_page_cost` | 4 | 2 | 32 GB `shared_buffers` + 96 GB OS cache — index scans mostly hit cache. The one change with plan-shift risk across the other DBs; watch, `RESET` if a regression shows. |
 | `checkpoint_timeout` | 15 min | 30 min | spread checkpoint I/O during bulk loads (`max_wal_size` already 32 GB) |
 | `effective_io_concurrency` | 16 | 32 | 6-disk array, not a single spindle |
+| `parallel_setup_cost` | 1000 | 200 | planner was choosing serial plans for the big aggregations (see below) |
+| `parallel_tuple_cost` | 0.1 | 0.05 | ″ |
+
+**Measured 2026-08-28** on COM-01's core aggregation (`raw.statcast_pitch` 13.5 M rows joined to
+all regular games, GROUP BY game+pitcher, then a rolling window) — historically ~1,070 s as part
+of the full statement:
+
+| Config | Wall time |
+|---|---|
+| baseline (`work_mem` 25 MB, serial) | ~18 min (spilled the 434 MB hash aggregate to disk in dozens of batches) |
+| `work_mem` 1 GB, serial | **60 s** (hash agg in 1 in-memory batch; ~36 s of that is the cold seq scan) |
+| `work_mem` 1 GB + 7-worker parallel seq scan + warm cache | **~5 s** |
 
 Restart-required, proposed separately (not in this change): `wal_buffers` 16 MB → 64 MB;
-`shared_buffers` 32 GB → 40 GB.
+`shared_buffers` 32 GB → 40 GB. Also worth a startup task: `pg_prewarm('raw.statcast_pitch')` /
+`raw.retrosheet_event` so the first daily query isn't a cold ~9 GB HDD read.
 
 ### 1.1 Make `gold.leverage_index` / `gold.win_expectancy` incremental + crash-safe
 
@@ -148,17 +161,21 @@ are **never** folded in after the first build. Change `compute()` to:
 - Stay a true no-op (one `SELECT` of the fingerprint) when nothing changed.
 - Never leave the table empty on a mid-rebuild failure (build into staging, swap at the end).
 
-### 1.2 Per-session durability/memory pragmas for the rebuild
+### 1.2 Per-session durability/memory pragmas for the rebuild — DONE (this PR)
 
-`conform` and `model.run()` rebuild from a reproducible source — a crash just means re-run. At the
-start of those sessions (not globally), `SET LOCAL`:
-- `synchronous_commit = off`
-- `work_mem = 512MB` (big window/sort/hash ops currently spill to disk at 25 MB — fatal on HDD)
-- `maintenance_work_mem = 4GB` (index builds, `VACUUM`)
-- consider `jit = off` already set globally; leave it.
+`db.apply_batch_session_settings(conn)` — session-level `SET` (not `SET LOCAL`: these jobs commit
+between stages), called once right after opening the connection in `conform.run()`,
+`model.run()`, and `model.run_features()` only (never the 5-minute ingestion cron or the test
+suite — they run concurrently and a work_mem bump there could OOM):
+- `synchronous_commit = off` — rebuild from a reproducible source; a crash just re-runs.
+- `work_mem = 1GB` — the point-in-time enrichment sorts/hashes spilled to disk at the 25 MB
+  cluster default (fatal on HDD). Safe at 1 GB because the `exclusive` workflow lock means one
+  such job at a time.
+- `maintenance_work_mem = 4GB` — index maintenance during the rebuild.
 
-This mirrors the **already-proven** test-DB pattern (`tests/conftest.py::_speed_up_test_database`,
-measured bulk `TRUNCATE` 79–84 s → ~20 s).
+Mirrors the **already-proven** test-DB pattern (`tests/conftest.py::_speed_up_test_database`,
+measured bulk `TRUNCATE` 79–84 s → ~20 s). Tests:
+`tests/integration/test_batch_session_settings.py`.
 
 ### 1.3 Targeted indices on raw tables — validated with `hypopg` first
 

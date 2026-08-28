@@ -74,7 +74,7 @@ from decimal import Decimal, InvalidOperation
 import psycopg
 from psycopg import sql
 
-from mlb_baseball.db import fetch_one, get_connection
+from mlb_baseball.db import apply_batch_session_settings, fetch_one, get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
     Check,
@@ -1617,6 +1617,7 @@ def run() -> dict[str, int]:
         get_connection() as conn,
         track_run(conn, SOURCE, "bootstrap", workflow="exclusive") as result,
     ):
+        apply_batch_session_settings(conn)
         _check_prerequisites(conn)
         # Every table in core/gold that anything else FKs into gets
         # truncated together, here, in one statement — not per-table via

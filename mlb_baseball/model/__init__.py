@@ -20,7 +20,7 @@ separate follow-up, not automatic just because the columns now exist).
 
 import psycopg
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import apply_batch_session_settings, get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
     Check,
@@ -103,6 +103,7 @@ def run_features() -> dict[str, int]:
         get_connection() as conn,
         track_run(conn, SOURCE, "features", workflow="exclusive") as result,
     ):
+        apply_batch_session_settings(conn)
         counts = build_feature_stage(conn)
         conn.commit()
         result["rows"] = counts["gold.game_feature"]
@@ -220,6 +221,7 @@ def run() -> dict[str, int]:
         get_connection() as conn,
         track_run(conn, SOURCE, "bootstrap", workflow="exclusive") as result,
     ):
+        apply_batch_session_settings(conn)
         feature_counts = build_feature_stage(conn)
         enrich_counts = enrich_feature_stage(conn)
         elo_rows = elo.compute_ratings(conn)

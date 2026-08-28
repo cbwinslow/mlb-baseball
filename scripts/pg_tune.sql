@@ -20,6 +20,14 @@ ALTER SYSTEM SET random_page_cost = 2;          -- watch for plan regressions on
 ALTER SYSTEM SET checkpoint_timeout = '30min';
 ALTER SYSTEM SET effective_io_concurrency = 32;
 
+-- Make the planner actually pick parallel plans for the big enrichment
+-- aggregations. Measured 2026-08-28: COM-01's core aggregation over
+-- raw.statcast_pitch (13.5M rows) went ~60s single-threaded -> ~5s with a
+-- 7-worker parallel seq scan. Defaults (setup 1000 / tuple 0.1) were high
+-- enough that the planner kept choosing the serial plan.
+ALTER SYSTEM SET parallel_setup_cost = 200;
+ALTER SYSTEM SET parallel_tuple_cost = 0.05;
+
 SELECT pg_reload_conf();
 
 -- The reload is async — the postmaster signals backends and there is a brief
@@ -31,6 +39,7 @@ FROM pg_settings
 WHERE name IN (
     'work_mem', 'hash_mem_multiplier', 'maintenance_work_mem',
     'max_parallel_maintenance_workers', 'random_page_cost',
-    'checkpoint_timeout', 'effective_io_concurrency'
+    'checkpoint_timeout', 'effective_io_concurrency',
+    'parallel_setup_cost', 'parallel_tuple_cost'
 )
 ORDER BY name;

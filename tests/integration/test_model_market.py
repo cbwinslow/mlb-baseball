@@ -84,12 +84,18 @@ def _reset(db_conn):
             "raw.polymarket_market",
             "raw.kalshi_snapshot",
             "raw.kalshi_market",
-            "raw.mlb_schedule",
         ):
             cur.execute("SELECT to_regclass(%s)", (table,))
             (exists,) = cur.fetchone()
             if exists:
                 cur.execute(f"DELETE FROM {table}")
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        (schedule_exists,) = cur.fetchone()
+        if schedule_exists:
+            # Only the rows this file inserts. A full DELETE (or a skinny
+            # CREATE TABLE IF NOT EXISTS) poisons later tests that call
+            # features.build() — CI 2026-08-28: UndefinedColumn ms.home_id.
+            cur.execute("DELETE FROM raw.mlb_schedule WHERE game_id LIKE '888%'")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.market")
@@ -295,13 +301,40 @@ def test_health_check_runs_cleanly_against_an_empty_database():
     assert all(c.name for c in checks)
 
 
+def _ensure_mlb_schedule(db_conn):
+    """Do not CREATE TABLE IF NOT EXISTS with a skinny column list.
+
+    On CI the first creator wins for the whole session. A 3-column
+    mlb_schedule made later tests fail (features.build needs home_id).
+    """
+    columns = (
+        ("game_id", "text"),
+        ("game_datetime", "text"),
+        ("_loaded_at", "timestamptz"),
+        ("home_id", "text"),
+        ("away_id", "text"),
+        ("game_type", "text"),
+        ("game_date", "text"),
+        ("game_num", "text"),
+        ("venue_id", "text"),
+        ("status", "text"),
+        ("_season", "text"),
+    )
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        (exists,) = cur.fetchone()
+        if not exists:
+            colsql = ", ".join(f"{name} {typ}" for name, typ in columns)
+            cur.execute(f"CREATE TABLE raw.mlb_schedule ({colsql})")
+        else:
+            for name, typ in columns:
+                cur.execute(f"ALTER TABLE raw.mlb_schedule ADD COLUMN IF NOT EXISTS {name} {typ}")
+
+
 def _ensure_live_market_tables(db_conn):
     """Full raw shapes needed to match an upcoming game to a moneyline."""
+    _ensure_mlb_schedule(db_conn)
     with db_conn.cursor() as cur:
-        cur.execute(
-            "CREATE TABLE IF NOT EXISTS raw.mlb_schedule "
-            "(game_id text, game_datetime text, _loaded_at timestamptz)"
-        )
         cur.execute(
             "CREATE TABLE IF NOT EXISTS raw.polymarket_event "
             "(id text, slug text, sport text, teams text, closed text)"

@@ -3,6 +3,15 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Raw lookup indexes + per-step enrich commits (issue #84) — 2026-08-28
+
+Migration 0090 adds pitcher/batter indexes on `raw.statcast_pitch` and
+pit_id/bat_id on `raw.retrosheet_event` when those columns exist (ADR-269).
+Not applied to production `mlb` in this change — wait until pid 4068632
+`mlb predict` finishes. `enrich_feature_stage()` now commits after each
+module so a mid-run crash keeps earlier work. Tests:
+`test_raw_pitcher_batter_lookup_indexes_*` on `mlb_test`.
+
 ### Why `mlb predict` was over an hour (PLT-01 correlated subquery) — 2026-08-28
 
 Read-only on production `mlb` while pid 3860016 was in flight (~05:48 UTC, age

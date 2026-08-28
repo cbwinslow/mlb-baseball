@@ -3,6 +3,15 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Bucket B WIRE: published-constants reference set — 2026-08-28
+
+Started folding Agy Engine packages into the real pipeline (default WIRE).
+First shared infrastructure: `docs/reference/tango_the_book.md` (Table 7
+linear weights as Tango restated them; 1993–2009 RE24 from his public CSV)
+and `docs/reference/statcast_glossary.md` (barrel/EV/VAA/x-stats →
+`raw.statcast_pitch` columns). Honest about missing physical-book page
+numbers. FanGraphs Guts connector still owner-gated (plan Task 2).
+
 ### Raw lookup indexes + per-step enrich commits (issue #84) — 2026-08-28
 
 Migration 0090 adds pitcher/batter indexes on `raw.statcast_pitch` and

@@ -112,6 +112,18 @@ their content as true as of their stated date, not as current state; check
   so a second embedded-SQL-in-Python pile doesn't grow alongside the
   reviewed `mlb_baseball/sql/*.sql` files.
 
+## Reference constants (Bucket B / WIRE tie-out)
+
+- [`reference/tango_the_book.md`](reference/tango_the_book.md) — The Book
+  Table 7 linear weights (as Tango restated them) and Tango’s published
+  RE24 matrix. Tie-out only; `gold.run_expectancy_24` is the computed
+  source of truth.
+- [`reference/statcast_glossary.md`](reference/statcast_glossary.md) —
+  Statcast barrel / EV / VAA / x-stats definitions and which
+  `raw.statcast_pitch` columns feed a WIRE. `local_research` only.
+- [`reference/agy/`](reference/agy/) — verbatim Agy planning artifacts
+  (2026-08-21–23). Not operating doctrine.
+
 ## Reference
 
 - [`TOOLS.md`](TOOLS.md) — libraries and tools in use, and why.

@@ -16,79 +16,87 @@ scores (`BBCRI`, `IZHSMI`, `OFLDII`, `FSRJI`, …) — **bypassed that pipeline 
 - **Concepts are real** and mostly well-chosen (breaking-ball chase discipline, VAA, in-zone
   fastball contact, first-step reaction, spin efficiency). The benchmark input constants are
   roughly plausible.
-- **The composite scoring is invented.** e.g. `BBCRI = 100 + (32.0−Chase%)·2.2 + (Take%−68.0)·1.6
-  + (58.0−Whiff%)·0.8` — the weights `2.2/1.6/0.8`, the "runs per point" conversions, and the
-  tier cutoffs (`≥ 116.0` = "elite") come from nowhere.
+- **The concepts are also documented** — `docs/THEORY_AND_METHODOLOGY.md` §75–140 gives every
+  Engine package a formula section, and §141 is a real 139-source academic bibliography (James,
+  Tango/Lichtman/Dolphin, Nathan, Petriello, Pollack/Fast, Carleton, Roegele, Husband, …).
+- **What is *not* justified is the specific composite weights.** `BBCRI = 100 + (32.0−Chase%)·2.2
+  + (Take%−68.0)·1.6 + (58.0−Whiff%)·0.8` — the `2.2 / 1.6 / 0.8`, the `0.0022` runs-per-point
+  conversion, and the `≥ 116.0` "elite" cutoff appear in THEORY §133 exactly as in the code, with
+  no derivation and no citation tying *those numbers* to anything. They read as Agy's own
+  reasonable-looking estimates, not fitted or sourced values. (Contrast §2.1 SIERA, which carries
+  the real published Swartz/Seidman coefficients, or §3.1 IVB, which has Alan Nathan's physical
+  derivation.)
 - **None are wired to data.** They take hand-typed CLI args (`mlb vaa --release-height 5.8 …`).
-  Zero `get_connection()` / `raw.` / `core.` / `gold.` references. They cannot produce a number
-  for a real player, cannot feed a model, cannot power a website.
-- Every docstring carries the same template boilerplate ("Adheres strictly to object-oriented
-  encapsulation, polymorphic protocols, and point-in-time correctness…").
+  Zero `get_connection()` / `raw.` / `core.` / `gold.` references. As built they cannot produce a
+  number for a real player, feed a model, or power a website.
+- The disciplined Bucket A work (`team_rate`, `offense`, `starter`, `bsr`, `diff`, …) went through
+  the full admission queue; Agy's own Aug-21 assessment
+  (`~/.gemini/antigravity-cli/brain/f1e15173-…/PROJECT_ASSESSMENT_AND_ENHANCEMENT_PLAN.md`)
+  documents *that* work and does not mention the Engine packages at all. The Engine batch was a
+  separate, faster generation pass (git: Aug 22–24) that skipped the queue.
 
-The framework to fix this **already exists**. This spec is the rubric for running each Engine
+The framework to fold them in **already exists**. This spec is the rubric for running each Engine
 package through it.
 
 ## The per-package decision (apply to every ADR-089–258 package)
 
-Exactly one of four outcomes. Record it in `docs/PACKAGE_VALIDATION_STATUS.md`.
+**The default is WIRE.** The concepts are real and the owner wants the work used, not discarded.
+Every package is presumed worth wiring to real data unless it clears one of the two narrow
+exceptions below. Record the outcome + a one-line reason in `docs/PACKAGE_VALIDATION_STATUS.md`.
 
-### KILL — the default for a package that clears none of the bars below
+### WIRE — the default: connect the concept to real data, fix the constants
 
-- Its concept is already covered by a governed feature (e.g. `xslg.py` / `babip.py` duplicate
-  `statcast_expected.py`'s xwOBA/xBA work; `two_strike.py` overlaps `pitch_discipline.py`).
-- Its premise is one sabermetrics has repeatedly failed to find (`clutch.py`, `lineup_protect.py`
-  — this project's own `FEATURE_ADMISSION_QUEUE.md` CTX-06 and `RESEARCH.md` already say so).
-- The measurable inputs don't exist in any permitted source (`docs/DATA_SOURCES.md`).
-- Deleting it (module + test + CLI subcommand) is less work than governing it, and nothing
-  downstream references it.
+Do all of:
+- **New `FEATURE_ADMISSION_QUEUE.md` row** — ID, grain, exact formula, PIT cutoff rule, null
+  policy + coverage gate, required tests, source profile. Coverage measured with
+  `mlb field-census --exact`.
+- **Point-in-time SQL** in `mlb_baseball/sql/<name>_update.sql` computing the metric's **raw
+  components** per entity per game (entering value only, zero-leakage), wired into
+  `enrich_feature_stage()`; `gold.game_feature` columns via a migration; `FEATURE_REGISTRY.md`
+  row with lineage.
+- **Replace every unjustified composite constant** with one that is either:
+  - *derived from our own data* — a percentile of the real distribution ("elite = p90"), or a
+    coefficient fit on a chronological sample, method documented in the ADR; or
+  - *taken from a cited published source* — FanGraphs Guts run values, Tango linear weights,
+    a named article's threshold.
+- **Emit the raw components as the model features.** The composite score / tier is kept too (it
+  has website value) but the ADR marks it **display/derived**, and it stays out of
+  `gbm.FEATURE_COLUMNS` unless it independently earns a place in a chronological retrain — the raw
+  components carry the signal; a pre-weighted composite on top is usually redundant.
+- **Integration test** with a hand-calculated fixture + idempotency + missing-table gate,
+  following `tests/integration/test_model_pitch_discipline.py`.
+- Update the package's `docs/THEORY_AND_METHODOLOGY.md` section: cite the source for each constant
+  now, or state "calibrated to our data, method: …".
+- The `mlb <name>` CLI stays if it now reads real data; otherwise it becomes a thin wrapper over
+  the SQL or is dropped.
 
-KILL means: delete the module, its `tests/unit/test_<name>.py`, its `mlb <name>` CLI subcommand
-and dispatch test, and mark its ADR **Superseded** (not erased — the ADR trail stays, per
-`AGENTS.md`). One PR per ~10 kills.
+Where the concept has a real, checkable published *definition* but our composite is invented on
+top (VAA, xSLG, spin efficiency), "WIRE" may mean **just expose the real underlying metric** and
+retire the invented index — that's a WIRE outcome, not a RETIRE.
 
-### KEEP-RAW — real metric, real inputs, genuine modeling value
+### RELABEL — exception 1: premise the project's own research rejects
 
-Clears all of:
-1. The underlying quantity is a **named, published metric** (VAA, HAA, active-spin %, CSW%,
-   barrel%, chase%) — not an invented composite.
-2. Its inputs exist in a permitted source with measured coverage (`mlb field-census --exact`).
-3. It is **not** already produced by a governed feature.
-4. There is a plausible mechanism for it to help a game/total/prop model (state it in one
-   sentence; "it's a real stat" is not a mechanism).
+Only when the package's premise is one this project's *own* documents already call unreliable —
+`clutch` (THEORY §141 cites Cramer 1977 "Do Clutch Hitters Exist?"; `FEATURE_ADMISSION_QUEUE.md`
+CTX-06 says batting clutch isn't year-over-year repeatable), `lineup_protect` (*The Book* finds no
+measurable protection effect) — **and** the owner agrees per package.
+- Module stays; docstring + ADR rewritten to: *"exploratory calculator, premise unvalidated /
+  contradicted by cited research, not a model feature, not fit for the public site as fact."*
+- No `gold` column, no `FEATURE_COLUMNS`, no registry row. Unit test asserts internal consistency
+  only, documented as such.
 
-KEEP-RAW conversion = a normal admission-queue entry:
-- New `FEATURE_ADMISSION_QUEUE.md` row: ID, grain, exact formula + citation, PIT cutoff rule,
-  null policy + coverage gate, required tests, source profile.
-- Point-in-time SQL in `mlb_baseball/sql/<name>_update.sql` producing the **raw components** per
-  entity per game (entering value only, zero-leakage), wired into `enrich_feature_stage()`.
-- `gold.game_feature` columns via a migration; `FEATURE_REGISTRY.md` row with lineage.
-- Integration test with a hand-calculated fixture + idempotency + missing-table gate, following
-  `tests/integration/test_model_pitch_discipline.py`.
-- The invented composite score and tier labels are **dropped** — the model weights the raw
-  components itself. The `mlb <name>` CLI calculator can stay as a convenience if it reads real
-  data now; otherwise delete it.
+### RETIRE — exception 2: genuinely redundant or unfixable, per-package, owner-confirmed
 
-### CALIBRATE — real concept, invented magnitude, worth a data-derived version
+Not a default and not a numeric target. Only when, for a specific package:
+- its metric is *already produced* by a governed feature at the same grain and the Engine version
+  adds nothing (e.g. an xBA/xSLG package once `statcast_expected` covers it), **or**
+- its formula produces values that are demonstrably wrong (a sign error, a physically impossible
+  range) *and* fixing it is genuinely more work than the value it would add.
 
-Clears KEEP-RAW's bars 1–3 but the *value* people want is a composite grade/tier (for the
-website), not a raw component. Then:
-- Replace every invented constant with one **derived from our own data** (a percentile of the
-  real distribution → "elite = p90", or a regression coefficient fit chronologically) or **taken
-  from a cited published source** (FanGraphs Guts run values, Tango linear weights). Document the
-  method inline and in the ADR.
-- Same admission-queue + registry + test discipline as KEEP-RAW.
-- The composite is a `gold` column too, but the ADR must state it is a **display/derived**
-  metric, and it stays out of `FEATURE_COLUMNS` unless it independently earns its place in a
-  chronological retrain (the raw components go in; the composite is redundant with them).
-
-### RELABEL — keep as clearly-marked exploratory, never a feature
-
-The concept is interesting but (a) its premise is weak/debunked, or (b) it can't be tied out or
-calibrated to anything real, yet deleting it loses a genuinely useful idea.
-- The module stays, but its docstring and ADR are rewritten to say **"exploratory calculator,
-  unvalidated, not a model feature, not fit for the public site as fact."**
-- No `gold` column, no `FEATURE_COLUMNS`, no registry row.
-- Its unit test asserts internal consistency only (documented as such).
+RETIRE = delete module + `tests/unit/test_<name>.py` + `mlb <name>` CLI + dispatch test; mark the
+ADR **Superseded** (kept, not erased, per `AGENTS.md`), noting which governed feature replaces it.
+Each RETIRE is called out individually for the owner before the PR — never batched on Claude's
+judgment alone.
 
 ## Tie-out reference infrastructure (build once, before the fan-out)
 
@@ -100,7 +108,7 @@ calibrated to anything real, yet deleting it loses a genuinely useful idea.
    wOBA scale, FIP constant, and event run values (`wBB`, `wHBP`, `w1B`…) → a dated CSV in
    `downloads/` + a `raw.fangraphs_guts` table. Add a row to `docs/DATA_SOURCES.md` (currently
    lists FanGraphs as "deferred/broken" — this is a narrow, one-time, reference-constant
-   exception, ToS note included). These constants are what CALIBRATE needs and the project has
+   exception, ToS note included). These constants are what the WIRE calibration step needs and the project has
    none of them today.
 3. A `mlb_baseball/model/_distribution.py` helper: given a metric expression and a grain, return
    the real percentile breakpoints from our own `raw`/`core` data — so "elite = p90" is computed,
@@ -108,35 +116,43 @@ calibrated to anything real, yet deleting it loses a genuinely useful idea.
 
 ## Fan-out plan
 
-1. **Rubric review** (this doc) — owner approves the four outcomes and the bars.
-2. **Triage pass** — one reading of every ADR-089–258 package (module + test + ADR), each
-   assigned an outcome + one-line reason in `PACKAGE_VALIDATION_STATUS.md`. ~110 packages; a
-   few hours; done by Claude, not delegated (it's judgment).
-3. **Reference implementations** — Claude does 3 end-to-end, one per non-KILL outcome:
-   - KEEP-RAW: `vaa.py` → `vaa_v1` (VAA from `raw.statcast_pitch` release/plate geometry).
-   - CALIBRATE: `poptime.py` → data-derived catcher pop-time tiers (real p10/p50/p90).
-   - RELABEL: `lineup_protect.py` → exploratory relabel.
-   These become the templates.
-4. **Delegated fan-out** — the KILL batches and the KEEP-RAW/CALIBRATE conversions go to Sonnet
-   subagents (own worktree + own `mlb_test`), one package or one KILL-batch per task, each
-   prompt quoting: this rubric, the matching reference PR, the package's row in
-   `PACKAGE_VALIDATION_STATUS.md`, and `AGENTS.md`. Claude/Fable review every diff and re-run
-   tests before merge — a subagent's own green self-report is not sufficient (`CLAUDE.md`).
-5. **GBM-v2** — once the KEEP-RAW columns exist, one chronological retrain with the expanded set
-   (Plan 04 gate). Most CALIBRATE composites will not survive it; that's expected and fine.
+1. **Rubric review** (this doc) — owner approves the default (WIRE) and the two exceptions.
+2. **Triage pass** — one reading of every ADR-089–258 package (module + test + ADR + its
+   `THEORY_AND_METHODOLOGY.md` section), each assigned WIRE / RELABEL / RETIRE + a one-line reason
+   in `PACKAGE_VALIDATION_STATUS.md`. Every RELABEL and RETIRE is flagged for the owner to confirm
+   before anything is deleted or downgraded. ~110 packages; done by Claude, not delegated (it's
+   judgment).
+3. **Reference implementations** — Claude does 2–3 end-to-end as templates:
+   - WIRE (metric + calibrated composite): `poptime.py` — real catcher pop time from
+     `raw.statcast_poptime` / pitch geometry, tiers set from real p10/p50/p90.
+   - WIRE (expose the real metric, retire the invented index): `vaa.py` — VAA from
+     `raw.statcast_pitch` release/plate geometry as a raw feature.
+   - RELABEL: `lineup_protect.py` (only if the owner confirms the premise-check).
+4. **Delegated fan-out** — the WIRE conversions go to Sonnet subagents (own worktree + own
+   `mlb_test`), one package per task, each prompt quoting: this rubric, the matching reference PR,
+   the package's row in `PACKAGE_VALIDATION_STATUS.md`, and `AGENTS.md`. Claude/Fable review every
+   diff and re-run tests before merge — a subagent's own green self-report is not sufficient
+   (`CLAUDE.md`). RETIREs are done by Claude directly, one PR at a time, each owner-confirmed.
+5. **GBM-v2** — once the WIRE raw-component columns exist, one chronological retrain with the
+   expanded set (Plan 04 gate).
 
 ## Non-goals
 
+- **Discarding the work.** The default is WIRE. RETIRE is a narrow, per-package, owner-confirmed
+  exception — never a batch operation on Claude's judgment.
 - Re-deriving sabermetrics from scratch. Where a published formula exists, state it verbatim and
   cite it; don't reinvent.
-- Keeping the invented composite scores "because they're already written." A clean raw component
-  the model can weight is worth more than a pre-baked score with human-chosen weights.
 - Touching the ~35–40 already-governed Bucket A features (that's Plan 06's tie-out work, separate).
 
 ## Open questions for the owner
 
-1. KILL is the default — comfortable with aggressively deleting duplicates/debunked packages
-   (probably 40–60 of the 110), keeping ADRs as "Superseded"?
-2. FanGraphs Guts one-time Playwright snapshot into `raw` — approved as a `DATA_SOURCES.md`
-   exception?
-3. Reference-implementation set — `vaa` / `poptime` / `lineup_protect`, or different picks?
+1. The default is **WIRE every package** (concept → real data, invented constants replaced with
+   data-derived or cited ones, raw components become the model features, composite kept as a
+   display metric). RELABEL only for premises this project's own docs reject (`clutch`,
+   `lineup_protect`), RETIRE only for genuine duplicates/unfixable — both per-package and
+   owner-confirmed. Does that match what you want?
+2. FanGraphs "Guts!" one-time Playwright snapshot into `raw` — approved as a narrow
+   `DATA_SOURCES.md` exception? (Those yearly wOBA/FIP/run-value constants are what the
+   calibration step needs and the project has none.)
+3. Reference-implementation picks — `poptime` + `vaa` (+ `lineup_protect` if you confirm the
+   premise-check), or different.

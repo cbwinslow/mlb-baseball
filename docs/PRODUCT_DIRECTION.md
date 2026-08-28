@@ -246,12 +246,11 @@ pipeline speed (#84).
    throw away 40 minutes. Session `work_mem` already landed (#86).
 3. **Live pre-game market match** — extend `market.py` so tomorrow's
    Kalshi `KXMLBGAME*` and Polymarket *moneyline* sit next to tomorrow's
-   model row. Today `record()` is retrospective. Issue filed from this
-   session.
+   model row. Today `record()` is retrospective. [#87](https://github.com/cbwinslow/mlb-baseball/issues/87).
 4. **Player-aware Markov** — starter vs opponent lineup (or team offense
    vs this starter as v1) → simulated win % and score distribution.
    Compare log-loss to Elo and GBM *and* to Kalshi/Polymarket on the
-   same games. This is also the parlay engine.
+   same games. This is also the parlay engine. [#88](https://github.com/cbwinslow/mlb-baseball/issues/88).
 5. **GBM retrain** — only on populated, admitted columns. Champion file
    on disk is still `models/gbm-v1.json` while code says `gbm-v2`. Do not
    change `FEATURE_COLUMNS` without a saved artifact (ADR-044 lesson).
@@ -259,7 +258,7 @@ pipeline speed (#84).
    plan). Display composites stay out of `FEATURE_COLUMNS` unless they
    independently beat the gate.
 7. **Research mart + dumps** — finish ADR-057 wiring; public-safe
-   player/team/game tables a stranger can query.
+   player/team/game tables a stranger can query. [#89](https://github.com/cbwinslow/mlb-baseball/issues/89).
 8. **Plan 05 Astro** — original daily board. No copied OddsTrader layout.
    Methodology page that a researcher would not laugh at.
 

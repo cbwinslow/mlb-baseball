@@ -60,6 +60,7 @@ from mlb_baseball.model import (
     statcast_expected,
     team_rate,
     trend,
+    vaa,
     war,
     win_expectancy,
 )
@@ -181,6 +182,7 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         ("gold.game_feature (statcast_expected)", statcast_expected.compute),
         ("gold.game_feature (command)", command.compute),
         ("gold.game_feature (pitch_movement)", pitch_movement.compute),
+        ("gold.game_feature (starter vaa)", vaa.compute),
         ("gold.game_feature (starter workload)", starter_workload.compute),
         ("gold.game_feature (starter workload live)", starter_workload.compute_live),
         ("gold.game_feature (starter workload probable)", starter_workload.compute_probable),

@@ -3,6 +3,41 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Product direction + production health snapshot (read-only `mlb`) — 2026-08-28
+
+Handoff for Claude/Agy: `docs/PRODUCT_DIRECTION.md`, ADR-266,
+`docs/superpowers/plans/2026-08-28-product-and-pipeline-next.md`. Owner asked
+to lead on the betting-site + research-DB goal, to document in this project's
+usual places, and whether to delete slow `conform`/`predict` or switch
+everything to SQLMesh. Decision (ADR-266): keep the orchestrators; SQLMesh is
+incremental gold after tie-out; named `.sql` files stay; no new Engine
+packages; next work is live market match + player-aware Markov after the
+in-flight predict finishes.
+
+**Production `mlb`, read-only SELECTs, ~04:45 UTC — do not start another
+`mlb predict`:**
+
+- `meta.ingestion_run`: `model`/`bootstrap` **running** since 03:44 UTC, pid
+  **3860016**, OS process confirmed alive (`mlb predict`). Postgres backend
+  3861497 was in an active `UPDATE` for PLT-01 platoon SQL (~18 min on that
+  statement). `core`/`bootstrap` succeeded 03:06–03:44 (38 min).
+- Several stale `running` rows from Aug 25–27 were reaped at 03:40
+  (`process no longer running`).
+- Last *successful* `model`/`bootstrap`: 2026-08-20 06:56–07:14.
+- `gold.prediction` last write: 2026-08-20 (`elo-v1` 16,055 rows,
+  `log5-v2` 1,886, `kalshi-v1` 166, `polymarket-v1` 161). **`gbm-v1` last
+  wrote 2026-08-04.**
+- `gold.game_feature`: 217,195 rows, 419 upcoming. During this in-flight
+  enrich, `home_elo` was **0 non-null** (Elo runs *after* enrichment — recount
+  when pid 3860016 finishes). `home_woba` 201,991; `home_starter_id` 203,242;
+  `home_starter_xfip`/`siera` 179,389; `home_batting_re24` 198,948;
+  `home_starter_csw_pct` only 85,543. Upcoming 2026: 35/419 have starter id,
+  39 have FIP, 0 have Elo (same in-flight caveat).
+- Failed predict since Aug 21: ADR-260 `gdp_fl` (fixed on main); Aug 22
+  `home_starter_xfip` column missing (migration ordering).
+
+No production writes in this session. No second exclusive workflow started.
+
 ## Current state summary
 
 - **Production state (superseded again 2026-08-19, see "Production incident

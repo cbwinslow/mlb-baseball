@@ -16,6 +16,11 @@ their content as true as of their stated date, not as current state; check
 - [`NORTH_STAR.md`](NORTH_STAR.md) — the vision, the three build phases, the
   budget rule ($0/month), and what makes this project different from
   baseball.computer. Read this first.
+- [`PRODUCT_DIRECTION.md`](PRODUCT_DIRECTION.md) — **2026-08-28 owner
+  handoff.** How the north star becomes the membership betting site +
+  research database: keep `conform`/`predict`, SQLMesh vs named `.sql`,
+  Agy engines as a wiring backlog, prediction ladder, production snapshot,
+  ordered next work. Claude/Agy should read this before adding features.
 - [`ROADMAP.md`](ROADMAP.md) — what's actually built vs. planned, phase by
   phase. The living answer to "where are we."
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — the raw/core/gold layered schema,

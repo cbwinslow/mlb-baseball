@@ -59,7 +59,7 @@
 - Consumes: nothing.
 - Produces: two reference docs that `WIRE` conversions cite when replacing invented constants with published values.
 
-- [ ] **Step 1: Create `docs/reference/tango_the_book.md`**
+- [x] **Step 1: Create `docs/reference/tango_the_book.md`**
 
 Transcribe from *The Book: Playing the Percentages in Baseball* (Tango/Lichtman/Dolphin, 2006) — the copy the project already cites in `docs/THEORY_AND_METHODOLOGY.md` §141 entry 2:
 - The 24-state base/out run-expectancy matrix (1999–2002 values as published).
@@ -68,11 +68,11 @@ Transcribe from *The Book: Playing the Percentages in Baseball* (Tango/Lichtman/
 
 Header must say: "Transcribed reference values for tie-out only. Not a substitute for computing these from our own Retrosheet data (`gold.run_expectancy_24`, ADR-090); use these to *check* our computed values, per `plans/06`."
 
-- [ ] **Step 2: Create `docs/reference/statcast_glossary.md`**
+- [x] **Step 2: Create `docs/reference/statcast_glossary.md`**
 
 For every Statcast metric an Engine package names (VAA, HAA, active spin %, spin efficiency, barrel, sweet-spot%, hard-hit%, xBA/xSLG/xwOBA, IVB, HB), record: the metric name, Baseball Savant's own definition (quoted, with the `baseballsavant.mlb.com/...` glossary URL), and which `raw.statcast_*` columns supply its inputs.
 
-- [ ] **Step 3: Add both to `docs/MAP.md`**
+- [x] **Step 3: Add both to `docs/MAP.md`**
 
 Under a new "Reference constants" heading, one line each.
 

@@ -612,6 +612,30 @@ def test_update_command_calls_every_connectors_update(monkeypatch, capsys):
     one.bootstrap.assert_not_called()
 
 
+def test_update_skip_excludes_the_named_connector(monkeypatch, capsys):
+    # `mlb update --skip mlb_api` is how scripts/mlb_daily_update.sh avoids
+    # the daily run fighting the every-5-min mlb_api_update cron for the
+    # mlb_api ingestion lock (spec 2026-08-28, Phase 0.2).
+    one, two = _fake_connector(), _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one, "two": two})
+
+    cli.main(["update", "--skip", "two"])
+
+    one.update.assert_called_once()
+    two.update.assert_not_called()
+
+
+def test_update_skip_is_repeatable(monkeypatch, capsys):
+    one, two, three = _fake_connector(), _fake_connector(), _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one, "two": two, "three": three})
+
+    cli.main(["update", "--skip", "two", "--skip", "three"])
+
+    one.update.assert_called_once()
+    two.update.assert_not_called()
+    three.update.assert_not_called()
+
+
 def test_bootstrap_command_continues_past_a_failing_connector(monkeypatch, capsys):
     broken = MagicMock()
     broken.bootstrap.side_effect = RuntimeError("simulated failure")

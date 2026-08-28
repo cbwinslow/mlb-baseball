@@ -154,7 +154,7 @@ def _run_group(names: list[str], mode: str, profile: str) -> bool:
     return any_failed
 
 
-def _run_all(mode: str, profile: str) -> None:
+def _run_all(mode: str, profile: str, skip: list[str] | None = None) -> None:
     # Groups run concurrently (different external servers per group,
     # confirmed no shared-server overlap between groups — see
     # _SAME_SERVER_GROUPS above); connectors within one group stay
@@ -162,7 +162,15 @@ def _run_all(mode: str, profile: str) -> None:
     # chose instead of retrying concurrency *inside* a single connector's
     # request loop (ADR-005's undiagnosed deadlock, never root-caused —
     # not worth reintroducing that risk blind, a second time).
-    groups = _concurrency_groups(list(CONNECTORS))
+    skipped = set(skip or ())
+    unknown = skipped - set(CONNECTORS)
+    if unknown:
+        print(f"mlb {mode}: --skip names no known connector: {', '.join(sorted(unknown))}")
+        sys.exit(2)
+    names = [n for n in CONNECTORS if n not in skipped]
+    if skipped:
+        print(f"mlb {mode}: skipping {', '.join(sorted(skipped))}")
+    groups = _concurrency_groups(names)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(groups)) as pool:
         try:
             results = list(pool.map(lambda names: _run_group(names, mode, profile), groups))
@@ -287,12 +295,21 @@ def main(argv: list[str] | None = None) -> None:
         "--workers", type=int, help="bounded parallel API workers for a staged MLB API run"
     )
 
-    for profile_parser in (
-        ingest_parser,
-        subparsers.add_parser("bootstrap"),
-        subparsers.add_parser("update"),
-    ):
+    bootstrap_parser = subparsers.add_parser("bootstrap")
+    update_parser = subparsers.add_parser("update")
+    for profile_parser in (ingest_parser, bootstrap_parser, update_parser):
         profile_parser.add_argument("--profile", choices=sorted(PROFILES))
+    for all_parser in (bootstrap_parser, update_parser):
+        all_parser.add_argument(
+            "--skip",
+            action="append",
+            default=[],
+            metavar="CONNECTOR",
+            help="exclude this connector from the run; repeatable. Used by "
+            "scripts/mlb_daily_update.sh to skip mlb_api (kept fresh by the "
+            "separate 5-minute mlb_api_update cron, whose ingestion lock the "
+            "daily run would otherwise fight every time).",
+        )
 
     subparsers.add_parser("conform")
     subparsers.add_parser("report", help="rebuild documented gold research tables")
@@ -3080,9 +3097,9 @@ def main(argv: list[str] | None = None) -> None:
         for table, count in fn().items():
             print(f"{table}: {count} rows")
     elif args.command == "bootstrap":
-        _run_all("bootstrap", profile)
+        _run_all("bootstrap", profile, skip=args.skip)
     elif args.command == "update":
-        _run_all("update", profile)
+        _run_all("update", profile, skip=args.skip)
     elif args.command == "conform":
         for table, count in conform.run().items():
             print(f"{table}: {count} rows")

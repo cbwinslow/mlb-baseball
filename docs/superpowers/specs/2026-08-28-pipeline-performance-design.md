@@ -80,10 +80,14 @@ Kalshi `429` retry stalls and any single hung connector shouldn't be able to wed
 Per-connector timeout + "log, mark failed, continue" (the script already does `continue` on
 failure for some — make it uniform and time-bounded).
 
-### 0.4 `mlb doctor` check: predictions stale
+### 0.4 `mlb doctor` check: predictions stale — ALREADY EXISTS
 
-Add a check that fails when `max(gold.prediction.generated_at)` is older than ~36 h, so this
-never again goes unnoticed for 8 days.
+Verified 2026-08-28: `model.health_check()` already calls
+`check_recent_run(SOURCE, DAILY_FRESHNESS_THRESHOLD_MINUTES=28h, mode="bootstrap")`, which
+currently reports `False | last run running, not success` against production. No new check needed.
+Real gap found instead: killed (SIGKILL) `predict` runs leave `meta.ingestion_run` rows stuck in
+`running` (Aug 25/26 rows still `running`) because `track_run` only reconciles on a caught
+exception. Follow-up: reconcile stale `running` rows to `failed` on the next run's startup.
 
 ### 0.5 Supervised backfill
 

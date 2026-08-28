@@ -2,6 +2,26 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-268: Rewrite PLT-01 throwing-hand lookup; stop per-game Statcast seq scans
+
+**Context:** Production `mlb predict` pid 3860016 (started 2026-08-28 03:44 UTC) was still inside `platoon_splits_update.sql` at 05:48 UTC — **80+ minutes on that one UPDATE**. The SQL used two correlated subqueries per `gold.game_feature` row:
+
+```sql
+SELECT p_throws FROM raw.statcast_pitch
+WHERE pitcher = COALESCE(...) AND p_throws IS NOT NULL
+LIMIT 1
+```
+
+~217k games × 2 sides against `raw.statcast_pitch` (13.5M rows, 10 GB, **no index on `pitcher`**). That is the N+1 query, in SQL.
+
+The same run's one-pass modules were already much cheaper after PR #86's `work_mem=1GB`: COM-01 mean 154 s, SHP-01 123 s, xFIP/SIERA 129 s (`pg_stat_statements`). Platoon was not in that list because it had not finished.
+
+**Decision:** Replace the correlated lookups with one `DISTINCT ON (pitcher)` pass, then join. Output columns and the 0.320 wOBA fallbacks are unchanged. A pitcher with two Statcast rows still yields one throws value (no fan-out of `gold.game_feature`).
+
+**Not done here:** a `pitcher` / `pit_id` index (issue #84 Phase 1.3, hypopg first — do not build on HDD while this predict is still running). The "vs LHP/RHP" columns still copy overall team wOBA rather than a real split; that is a correctness follow-up, not this speed fix.
+
+**Verification:** `TEST_DATABASE_URL=postgresql:///mlb_test uv run pytest tests/integration/test_model_platoon.py` — 3 passed, including a two-game same-pitcher fan-out regression.
+
 ## ADR-267: Live pre-game Kalshi/Polymarket moneyline match for upcoming games (issue #87)
 
 **Decision:** `market.record()` now writes two grains into `gold.prediction`:
@@ -18,7 +38,6 @@ Date/ticker/alias helpers are imported from `conform.py` so the matching formula
 **Not done here:** issue #79 (serve view still joins `core.market` without a type filter) — that is decided-game serving, not this live path. Production `mlb predict` was in flight when this landed; this change is `mlb_test`-verified only.
 
 **Verification:** `TEST_DATABASE_URL=postgresql:///mlb_test uv run pytest tests/integration/test_model_market.py tests/unit/test_sql_resources.py` — 35 passed, including live polymarket (pre-game 0.55 kept, spread 0.90 and post-game 0.99 dropped), live Kalshi (0.52 kept, post-game 0.97 dropped), and upcoming reruns inserting a second snapshot.
-
 ## ADR-266: Product sequence — keep `conform`/`predict`, SQLMesh incremental gold, no more Engine packages, live markets + player Markov next
 
 **Context:** 2026-08-28 owner session (Grok). The owner wants a membership Kalshi/Polymarket advice site plus a researcher-grade baseball database, and asked whether to (a) throw away the Agy Engine batch, (b) delete slow `mlb conform` / `mlb predict` in favor of something else, (c) switch everything to SQLMesh. Full product write-up: `docs/PRODUCT_DIRECTION.md`. Implementation order: `docs/superpowers/plans/2026-08-28-product-and-pipeline-next.md`.

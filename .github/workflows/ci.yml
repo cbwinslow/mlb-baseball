@@ -222,3 +222,20 @@ jobs:
           files: coverage.xml
           flags: integration
           fail_ci_if_error: false
+
+  # Branch protection on main requires a check named "test". This workflow's
+  # jobs are named unit/integration; without this aggregator, green PRs stay
+  # BLOCKED (PR #90, 2026-08-28). `if: always()` so a failed child still runs
+  # this job and fails the required check instead of skipping it.
+  test:
+    name: test
+    needs: [unit, integration]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require unit and integration to have succeeded
+        run: |
+          test "${{ needs.unit.result }}" = "success"
+          test "${{ needs.integration.result }}" = "success"

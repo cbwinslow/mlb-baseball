@@ -3,6 +3,15 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Live pre-game Kalshi/Polymarket match (issue #87, ADR-267) — 2026-08-28
+
+`market.record()` now also writes moneyline probabilities for still-upcoming
+`gold.game_feature` rows, matching through `raw.mlb_schedule` and the latest
+snapshot before first pitch. Decided-game ADR-053 path is unchanged.
+Tests against `mlb_test` only (`tests/integration/test_model_market.py`, 11
+tests). Production `mlb` was not written — pid 3860016 `mlb predict` was
+still running.
+
 ### Product direction + production health snapshot (read-only `mlb`) — 2026-08-28
 
 Handoff for Claude/Agy: `docs/PRODUCT_DIRECTION.md`, ADR-266,

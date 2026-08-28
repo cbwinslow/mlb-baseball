@@ -53,6 +53,9 @@ def test_reads_named_game_feature_rebuild_transformation():
 def test_reads_named_market_prediction_transformations():
     assert "sportsmarkettype = 'moneyline'" in read_sql("market_polymarket_prediction_insert.sql")
     assert "m.source = 'kalshi'" in read_sql("market_kalshi_prediction_insert.sql")
+    upcoming = read_sql("market_upcoming_games.sql")
+    assert "home_win IS NULL" in upcoming
+    assert "raw.mlb_schedule" in upcoming
 
 
 def test_reads_named_retrosheet_woba_transformation():

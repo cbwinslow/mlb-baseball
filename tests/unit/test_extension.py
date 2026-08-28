@@ -21,8 +21,12 @@ def test_elite_extension_increases_perceived_velocity():
     res = engine.evaluate_effective_velocity(glasnow)
 
     assert res.extension_tier == "ELITE_LONG"
-    assert res.velocity_delta_mph > 1.5
-    assert res.perceived_velocity_mph > 97.5
+    # EXT-01 fix: the velocity-boost formula now anchors at 6.2 ft (the field's own
+    # documented MLB average) instead of 6.0 ft, so a 7.4 ft extension produces
+    # exactly (7.4 - 6.2) * 1.25 = +1.5 mph -> 97.5 mph. Pinned exactly so the old
+    # 6.0 ft anchor (which gave +1.75 / 97.75) fails this test.
+    assert res.velocity_delta_mph == 1.5
+    assert res.perceived_velocity_mph == 97.5
     assert res.time_to_plate_ms < 400.0
 
 
@@ -42,6 +46,21 @@ def test_short_extension_decreases_perceived_velocity():
     assert res.extension_tier == "SHORT_COMPACT"
     assert res.velocity_delta_mph < 0.0
     assert res.perceived_velocity_mph < 94.0
+
+
+def test_default_extension_produces_neutral_velocity_delta():
+    """EXT-01 regression: the field default (release_extension_ft=6.2) is documented as
+    the MLB average. Feeding the engine its own default should now produce exactly zero
+    velocity delta (no boost, no penalty) instead of the +0.25 mph the old 6.0 ft anchor
+    incorrectly produced for a league-average pitcher.
+    """
+    engine = PitcherExtensionEngine()
+    average_pitcher = PitcherExtensionProfile(pitcher_id="p3", pitcher_name="League Average")
+
+    res = engine.evaluate_effective_velocity(average_pitcher)
+
+    assert res.velocity_delta_mph == 0.0
+    assert res.perceived_velocity_mph == average_pitcher.radar_velocity_mph
 
 
 def test_extension_health_check():

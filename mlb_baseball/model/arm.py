@@ -81,11 +81,19 @@ class OutfieldArmEngine:
         arm_runs = round(delta_holds * 0.28, 2)
 
         # 4. Arm Tier Classification:
-        if metrics.arm_velocity_mph >= 96.0 or arm_runs >= 4.5:
+        # Tier is driven solely by arm_runs_saved_season, the computed run
+        # value this module exists to report. arm_runs already folds in both
+        # inputs -- throw velocity (via flight time) and exchange time -- so a
+        # raw arm_velocity_mph co-condition adds nothing but disagreement:
+        # the old `or` form let a hard thrower with a slow exchange (strongly
+        # negative arm_runs) be tagged CANNON_ELITE off velocity alone, and
+        # an `and` form does the opposite, dropping a catastrophic arm
+        # (arm_runs ~ -12) to AVERAGE just because its velocity cleared 85.
+        if arm_runs >= 4.5:
             tier = "CANNON_ELITE"
-        elif metrics.arm_velocity_mph >= 91.0 or arm_runs >= 1.5:
+        elif arm_runs >= 1.5:
             tier = "ABOVE_AVERAGE"
-        elif metrics.arm_velocity_mph <= 85.0 or arm_runs <= -3.0:
+        elif arm_runs <= -3.0:
             tier = "WEAK_ARM_TARGET"
         else:
             tier = "AVERAGE"

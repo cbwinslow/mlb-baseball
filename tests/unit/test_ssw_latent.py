@@ -53,6 +53,23 @@ def test_symmetrical_pitcher_triggers_pure_magnus_tier():
     assert res.is_elite_manipulator is False
 
 
+def test_default_metrics_produce_neutral_sswlmr_score():
+    """SSW-LATENT-01 regression: the class's own defaults (optical_axis_minutes=75,
+    inferred_axis_minutes=110 -> axis_gap=35; observed_break_in=17.5,
+    pure_magnus_break_in=14.0 -> latent_break=3.5) should now produce an exactly
+    neutral SSWLMR score of 100.0 once the formula anchors (35 mins / 3.5 in) match
+    those defaults, instead of the old unreconciled 30 min / 2.5 in anchors.
+    """
+    engine = PitcherSswLatentEngine()
+    default_pitcher = PitcherSswLatentMetrics(pitcher_id="p3", pitcher_name="Average")
+
+    res = engine.evaluate_ssw(default_pitcher)
+
+    assert res.axis_deviation_mins == 35
+    assert res.latent_ssw_break_in == 3.5
+    assert res.sswlmr_score == 100.0
+
+
 def test_ssw_latent_health_check():
     """Verify ssw latent health check passes."""
     checks = health_check()

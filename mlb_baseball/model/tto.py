@@ -66,7 +66,7 @@ class TimesThroughOrderEngine:
         delta_k = round(metrics.tto3_k_pct - metrics.tto1_k_pct, 3)
 
         # 1. Third-Time Vulnerability Index (TTVI) (0 to 100):
-        # League average delta_woba is ~ +0.035, delta_k is ~ -0.050
+        # League average delta_woba is ~ +0.040, delta_k is ~ -0.050
         woba_comp = max(0.0, delta_woba / 0.040) * 40.0
         k_comp = max(0.0, -delta_k) * 160.0
         ttvi = round(float(np.clip(woba_comp + k_comp, 0.0, 100.0)), 1)

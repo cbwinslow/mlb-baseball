@@ -78,7 +78,17 @@ class FirstInningValuationEngine:
     ) -> NRFIValuationResult:
         """Compute Inning 1 run expectancies and fair derivative lines."""
         # 1. Expected Runs per half inning:
-        # Baseline Inning 1 average ~ 0.52 runs (higher due to top of lineup)
+        # Baseline Inning 1 half-inning Poisson mean: 0.40. This is the number
+        # ADR-156 and docs/THEORY_AND_METHODOLOGY.md section 42.1 both define
+        # the formula with, so it is the one implemented here. (A stray inline
+        # comment here previously read "~0.52 runs"; that was never the
+        # documented constant and 0.40 fits observed MLB NRFI rates better -- a
+        # crude e^-2mu model needs mu ~ 0.33-0.40 to reproduce the real
+        # ~50-53% NRFI rate, whereas 0.52 implies ~35%.) The real empirical
+        # per-half-inning first-inning run mean has not been tied out against
+        # this project's own Retrosheet data yet -- that calibration is
+        # tracked as future refit work in docs/PACKAGE_VALIDATION_STATUS.md,
+        # not done here (NRFI-01 stays a Bucket B exploratory calculator).
         mu_top = (
             0.40
             * (matchup.away_top3_woba / 0.335)

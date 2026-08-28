@@ -26,9 +26,9 @@ class OutfielderBurstRouteMetrics:
     fielder_id: str
     fielder_name: str
     position: str = "CF"
-    reaction_time_sec: float = 0.44  # Contact to first step (benchmark ~0.45s)
-    burst_velocity_ft_s: float = 27.0  # Top sprint speed at 1.5s (benchmark ~26.5 ft/s)
-    route_efficiency_pct: float = 93.0  # Geodesic / actual path (benchmark ~92.0%)
+    reaction_time_sec: float = 0.44  # Contact to first step (benchmark ~0.44s)
+    burst_velocity_ft_s: float = 27.0  # Top sprint speed at 1.5s (benchmark ~27.0 ft/s)
+    route_efficiency_pct: float = 93.0  # Geodesic / actual path (benchmark ~93.0%)
     opportunity_count: int = 120
 
 
@@ -63,10 +63,10 @@ class OutfielderRouteBurstEngine:
         metrics: OutfielderBurstRouteMetrics,
     ) -> RouteBurstEvaluationResult:
         """Compute BRFEI score and defensive run value."""
-        # BRFEI Score: benchmark 0.45s reaction, 26.5 ft/s burst, 92.0% route
-        react_bonus = (0.45 - metrics.reaction_time_sec) * 120.0
-        burst_bonus = (metrics.burst_velocity_ft_s - 26.5) * 4.5
-        route_bonus = (metrics.route_efficiency_pct - 92.0) * 1.8
+        # BRFEI Score: benchmark 0.44s reaction, 27.0 ft/s burst, 93.0% route
+        react_bonus = (0.44 - metrics.reaction_time_sec) * 120.0
+        burst_bonus = (metrics.burst_velocity_ft_s - 27.0) * 4.5
+        route_bonus = (metrics.route_efficiency_pct - 93.0) * 1.8
         brfei = round(max(0.0, 100.0 + react_bonus + burst_bonus + route_bonus), 1)
 
         # OAA Jump Runs Saved: ~0.0018 runs per point above 100 per opportunity

@@ -24,9 +24,9 @@ class OutfielderWallCrashMetrics:
     fielder_id: str
     fielder_name: str
     position: str = "CF"
-    wall_hazard_catch_pct: float = 65.0  # Catch conversion at wall (benchmark ~64.0%)
+    wall_hazard_catch_pct: float = 65.0  # Catch conversion at wall (benchmark ~65.0%)
     wall_collision_rate_pct: float = 30.0  # Fraction with body contact (benchmark ~30.0%)
-    deceleration_cushion_ft: float = 4.6  # Stopping distance before wall (benchmark ~4.8 ft)
+    deceleration_cushion_ft: float = 4.6  # Stopping distance before wall (benchmark ~4.6 ft)
     wall_opportunities: int = 40
 
 
@@ -62,15 +62,15 @@ class OutfielderWallCrashEngine:
         metrics: OutfielderWallCrashMetrics,
     ) -> WallCrashEvaluationResult:
         """Compute WCFI fearlessness rating and extra-base prevention runs."""
-        # WCFI Score: benchmark 64.0% catch, 30.0% collision, 4.8 ft cushion
-        catch_bonus = (metrics.wall_hazard_catch_pct - 64.0) * 2.8
+        # WCFI Score: benchmark 65.0% catch, 30.0% collision, 4.6 ft cushion
+        catch_bonus = (metrics.wall_hazard_catch_pct - 65.0) * 2.8
         collision_bonus = (metrics.wall_collision_rate_pct - 30.0) * 1.2
-        cushion_bonus = (4.8 - metrics.deceleration_cushion_ft) * 12.0
+        cushion_bonus = (4.6 - metrics.deceleration_cushion_ft) * 12.0
         wcfi = round(max(0.0, 100.0 + catch_bonus + collision_bonus + cushion_bonus), 1)
 
         # Surplus Catches & WEBPR Runs Saved (~0.85 runs saved per robbed XBH)
         opps = max(1, metrics.wall_opportunities)
-        surplus = round(((metrics.wall_hazard_catch_pct - 64.0) / 100.0) * opps, 2)
+        surplus = round(((metrics.wall_hazard_catch_pct - 65.0) / 100.0) * opps, 2)
         surplus = max(0.0, surplus)
         webpr = round(surplus * 0.85, 2)
 

@@ -2,6 +2,23 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-267: Live pre-game Kalshi/Polymarket moneyline match for upcoming games (issue #87)
+
+**Decision:** `market.record()` now writes two grains into `gold.prediction`:
+
+1. Decided games — unchanged (ADR-053). `core.market` via `core.game`. NOT EXISTS idempotent.
+2. Upcoming games — new. `gold.game_feature` rows with `home_win IS NULL` are matched to open Kalshi `KXMLBGAME*` tickers and Polymarket *moneyline* contracts through `raw.mlb_schedule.game_datetime`, using the same team-alias / slug-date / ticker-date matching conform already uses. The price is the latest `raw.*_snapshot` strictly before first pitch. Each `mlb predict` run inserts a new snapshot row (same append-only shape as log5/elo/gbm). Evaluation already selects one row per game at a cutoff.
+
+`core.market.game_id` still references `core.game`, which only holds completed games, so live matching cannot go through `core.market` without a schema change. This change does not add `mlb_game_pk` to `core.market`; it writes `gold.prediction` directly. Revisit that schema if a second consumer needs the upcoming match.
+
+Polymarket stays moneyline-only (`sportsmarkettype = 'moneyline'`). Spreads/F5 cannot become a win probability (same production bug ADR-053 found). Only the home side is stored. Doubleheaders that would be ambiguous are left unmatched rather than guessed (same rule as `conform._game_lookup`). Missing schedule/snapshot/event tables skip the upcoming path instead of crashing.
+
+Date/ticker/alias helpers are imported from `conform.py` so the matching formula is not duplicated.
+
+**Not done here:** issue #79 (serve view still joins `core.market` without a type filter) — that is decided-game serving, not this live path. Production `mlb predict` was in flight when this landed; this change is `mlb_test`-verified only.
+
+**Verification:** `TEST_DATABASE_URL=postgresql:///mlb_test uv run pytest tests/integration/test_model_market.py tests/unit/test_sql_resources.py` — 35 passed, including live polymarket (pre-game 0.55 kept, spread 0.90 and post-game 0.99 dropped), live Kalshi (0.52 kept, post-game 0.97 dropped), and upcoming reruns inserting a second snapshot.
+
 ## ADR-266: Product sequence — keep `conform`/`predict`, SQLMesh incremental gold, no more Engine packages, live markets + player Markov next
 
 **Context:** 2026-08-28 owner session (Grok). The owner wants a membership Kalshi/Polymarket advice site plus a researcher-grade baseball database, and asked whether to (a) throw away the Agy Engine batch, (b) delete slow `mlb conform` / `mlb predict` in favor of something else, (c) switch everything to SQLMesh. Full product write-up: `docs/PRODUCT_DIRECTION.md`. Implementation order: `docs/superpowers/plans/2026-08-28-product-and-pipeline-next.md`.

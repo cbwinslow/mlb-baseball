@@ -231,14 +231,11 @@ def run() -> dict[str, int]:
         # NULL Elo values on every real run (see enrich_feature_stage()'s
         # own docstring for the full explanation, PR review finding).
         diff_count = diff.compute(conn)
-        # market.record() runs before backfill_outcomes(), not after --
-        # unlike log5/elo/gbm's own predictions (made for still-upcoming
-        # games, where actual_home_win is legitimately unknown yet), every
-        # market prediction is for a game that's already decided by
-        # construction (see market.py's own docstring). Recording it after
-        # backfill_outcomes() would leave a real, already-known outcome
-        # sitting NULL for a full extra cron cycle for no reason -- found
-        # running this against production, not hypothetical.
+        # market.record() writes decided-game comparison lines and (ADR-267)
+        # live upcoming moneyline snapshots. Decided rows must land before
+        # backfill_outcomes() so a known result is not left NULL for an extra
+        # cron cycle (ADR-053 production finding). Upcoming rows have no
+        # outcome yet; backfill leaves them NULL on purpose.
         market_count = market.record(conn)
         backfilled = backfill_outcomes(conn)
         log5_count = log5.predict(conn)

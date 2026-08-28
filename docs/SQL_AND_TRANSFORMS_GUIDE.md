@@ -42,6 +42,7 @@ Per `AGENTS.md` and `docs/SQL_OWNERSHIP.md`:
 - **`catcher_framing_csae_update.sql`**: Computes shadow-zone Called Strike Above Expected (CSAE%) and framing runs per catcher.
 - **`team_bsr_comprehensive_retrosheet_update.sql`**: Computes weighted stolen base runs (wSB) and ultimate base running (UBR) into total BsR.
 - **`int_diff_update.sql`**: Vectorized single-pass algebraic update calculating all 23 symmetric home-minus-away difference columns.
+- **`market_upcoming_games.sql`**: Upcoming `gold.game_feature` rows (`home_win IS NULL`) joined to the latest `raw.mlb_schedule` first-pitch time, the live Kalshi/Polymarket match input (ADR-267).
 - **`statcast_expected_retrosheet_update.sql`**: Computes Barrels/PA, Hard-Hit%, and xwOBA for batters, starters, and relief units.
 
 ### 3.2 Markov Chain & Simulation Queries

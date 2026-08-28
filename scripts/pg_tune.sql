@@ -22,7 +22,10 @@ ALTER SYSTEM SET effective_io_concurrency = 32;
 
 SELECT pg_reload_conf();
 
--- Verify:
+-- The reload is async — the postmaster signals backends and there is a brief
+-- delay before this session sees the new values. Wait, then verify.
+SELECT pg_sleep(1);
+
 SELECT name, setting, unit, pending_restart
 FROM pg_settings
 WHERE name IN (

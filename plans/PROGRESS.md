@@ -3,6 +3,12 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Predict succeeded; starter FF VAA wired from published kinematics — 2026-08-28
+
+Production `mlb predict` pid 4068632 **success** 06:07–06:54 UTC (**47 min**, down from a 2h+ stuck platoon run). `gold.game_feature` Elo 217,195/217,195; all 419 upcoming games have Elo. `elo-v1`/`log5-v2`/`kalshi-v1`/`polymarket-v1` last write 2026-08-28 06:54. `gbm-v1` still 2026-08-04 (no retrain this run).
+
+WIRE: entering four-seam VAA in degrees (Chamberlain/Pavlidis 2022, Statcast `vy0/ay/vz0/az`), not the invented CLI flatness index. Tests: unit hand-calc ≈ −7.6233°; integration PIT on `mlb_test` (4 passed).
+
 ### Bucket B WIRE: published-constants reference set — 2026-08-28
 
 Started folding Agy Engine packages into the real pipeline (default WIRE).
@@ -11,7 +17,6 @@ linear weights as Tango restated them; 1993–2009 RE24 from his public CSV)
 and `docs/reference/statcast_glossary.md` (barrel/EV/VAA/x-stats →
 `raw.statcast_pitch` columns). Honest about missing physical-book page
 numbers. FanGraphs Guts connector still owner-gated (plan Task 2).
-
 ### Raw lookup indexes + per-step enrich commits (issue #84) — 2026-08-28
 
 Migration 0090 adds pitcher/batter indexes on `raw.statcast_pitch` and

@@ -2,6 +2,18 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-270: Wire starter four-seam VAA from Statcast kinematics (Chamberlain/Pavlidis)
+
+**Decision:** Fold Agy VAA-01 into the real pipeline as **degrees**, not the invented flatness/whiff-boost index.
+
+Published formula (Alex Chamberlain, FanGraphs, 2022-02-01, crediting Harry Pavlidis): using Statcast `vy0, ay, vz0, az` at y=50 ft, evaluate velocity at the front of the plate `yf = 17/12` ft, then `VAA = -atan(vz_f/vy_f)` in degrees. Typical FF is about −4.5° to −6°.
+
+`gold.game_feature.home_starter_ff_vaa` / `away_starter_ff_vaa` are entering, same-season, prior-game means of four-seam VAA, NULL below 20 FF pitches. Not added to `gbm.FEATURE_COLUMNS` until a chronological retrain beats Elo. The CLI `mlb vaa` engine and its display tiers stay as display-only.
+
+**Verification:** `tests/unit/test_vaa_physics.py` hand-calculates disc / vy_f / t / vz_f / VAA for vy0=-130, ay=30, vz0=-8, az=-20 (VAA ≈ −7.6233°). Integration: game 2 sees only game 1’s pitches.
+
+**Source profile:** Statcast, `local_research`.
+
 ## ADR-269: Raw Statcast/Retrosheet pitcher and batter lookup indexes (issue #84)
 
 **Decision:** Migration `0090_raw_pitcher_batter_lookup_indexes.sql` adds `idx_statcast_pitch_pitcher`, `idx_statcast_pitch_batter`, `idx_retrosheet_event_pit_id`, and `idx_retrosheet_event_bat_id` when those tables and columns exist. Loader-created tables: no-op on a clean clone. Column guards so skinny test tables without `pitcher`/`batter` do not fail `mlb migrate`. Not CONCURRENTLY (same DO-block limit as 0057).

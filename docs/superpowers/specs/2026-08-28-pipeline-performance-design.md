@@ -5,45 +5,91 @@ on 2026-08-28 with the project owner.
 
 ## Why this spec exists
 
-The daily `mlb predict` job (cron `scripts/mlb_daily_update.sh`, 06:00 UTC) **has failed every
-morning since ~2026-08-21.** `gold.prediction` was last generated **2026-08-20**. The most recent
-failure (2026-08-27) was `psycopg.OperationalError: the connection is lost` partway through
-`conform.run()`.
+The daily job (cron `scripts/mlb_daily_update.sh`, 06:00 UTC — `mlb update && mlb conform && mlb
+predict`) **has not completed since 2026-08-20.** `gold.prediction` was last generated
+**2026-08-20 06:56**. Eight days of stale predictions.
 
-Root causes, measured against real production `mlb` on 2026-08-28 (not assumed):
+Findings, measured against real production `mlb` + the real cron log on 2026-08-28 (corrected after
+a first pass overstated several numbers — validation matters):
 
-1. **`mlb predict` runs as one ~5-hour transaction holding an exclusive workflow lock.**
-   `model.run()` opens one non-autocommit connection under `track_run(..., workflow="exclusive")`
-   and inside it runs `build_feature_stage()` → `enrich_feature_stage()` (33 sequential module
-   calls) → `elo.compute_ratings()` → `diff.compute()` → predictions. A dropped connection at any
-   point rolls back **everything** — 5 hours of work lost, nothing committed, lock released only by
-   crash recovery.
-2. **`gold.leverage_index` is pathological.** `pg_stat_statements`: **228 calls, 29,111 s
-   cumulative, 127 s mean.** It is a near-static reference table (real historical WE-swing per
-   base/out state, ADR-262) built by a per-season Python loop that re-runs a heavy aggregation for
-   every season on every run.
-3. **`conform` rebuilds all ~129 seasons from raw every run.** `TRUNCATE core.play, core.pitch,
-   core.game, gold.game_feature, …` appears 62× in the stats; individual point-in-time enrichment
-   queries (COM-01 "strike zone command", SHP-01 "pitch movement") take **14–18 minutes each**.
-4. **Missing indices on the hot raw tables.** `raw.retrosheet_event` (16.5M rows) is indexed only
+1. **A *successful* run takes ~1 hour, not 5.** Real log windows: ~17–23 min in late July, growing
+   to ~1h05m–1h21m through mid-August as enrichment modules were added (Aug 18: 1h04m; Aug 20:
+   1h14m). The owner's "~5 hours" was likely a stuck/hung run observed, not steady state.
+2. **The runs since Aug 21 die during `mlb update` (ingestion) — before `conform`/`predict` ever
+   start.** Aug 21–24: the process just stops mid-`statcast_leaderboard` with no Python traceback
+   (killed by signal — OOM, reboot, or an external `kill`; load average was 13.5). Contributing:
+   `[mlb_api] FAILED (mlb_api: another ingestion run is already active)` every run — the every-5-min
+   `mlb_api_update` cron holds a lock the daily `mlb update`'s `mlb_api` step can't get; and Kalshi
+   `429 Too Many Requests` retry stalls. Aug 25–27 runs additionally hit the `bsr.py` `gdp_fl`
+   column bug (**now fixed on main**, ADR-260) once they got as far as `predict`.
+3. **`mlb predict`, when it does run, is one long transaction holding an exclusive workflow lock.**
+   `model.run()` runs `build_feature_stage()` → `enrich_feature_stage()` (33 sequential module
+   calls) → `elo.compute_ratings()` → `diff.compute()` → predictions on one non-autocommit
+   connection. A drop anywhere rolls back the whole ~40+ min of feature work — nothing checkpointed.
+4. **The individual enrichment queries are genuinely slow** (`pg_stat_statements`, 13-day window):
+   COM-01 "strike zone command" **1,070 s**, SHP-01 "pitch movement" **859 s**, "expected
+   resolvable starter ERA" **215 s mean ×8**, RE24/LI entering-game **344 s**. Each runs over the
+   full freshly-rebuilt `gold.game_feature` every time (no incrementality).
+5. **`gold.leverage_index` is a latent risk, not a current daily cost.** `pg_stat_statements` shows
+   228 calls / 29,111 s cumulative — but that's ~2 full rebuilds' worth of dev churn over 13 days.
+   `compute()` has a working "build once if empty, else no-op" guard and `conform` does **not**
+   truncate it. The risk: *if* the table is ever cleared, the next daily run does a 4.5-hour
+   per-season rebuild inline. Worth hardening (incremental for the current season), not the fire.
+6. **Missing indices on the hot raw tables.** `raw.retrosheet_event` (16.5M rows) is indexed only
    on `game_id` — nothing on `pit_id` / `bat_id`. `raw.statcast_pitch` (13.5M rows) — nothing on
-   `pitcher` / `batter`. Point-in-time "entering metrics per pitcher" queries seq-scan the full
-   table on spinning disk.
-5. **Hardware:** 40 cores, 125 GB RAM, Postgres 16.15, `shared_buffers` 32 GB, `effective_cache_size`
+   `pitcher` / `batter`. The slow point-in-time queries in (4) seq-scan the full table on HDD.
+7. **Hardware:** 40 cores, 125 GB RAM, Postgres 16.15, `shared_buffers` 32 GB, `effective_cache_size`
    96 GB, parallel workers ≤ 40. **All six disks are rotational SAS HDDs** (no SSD); PG data on
    `/mnt/storage/postgres-data`. Postgres is *not* CPU- or RAM-starved. The bottleneck is disk
-   random I/O + rebuild-everything design + the two pathological areas above.
-6. **Machine contention:** ~40 other cron jobs (sysmon) fire every 1–5 min plus the every-5-min
-   `mlb_api_update`. Load average was 13.5 during investigation.
+   random I/O + rebuild-everything design + the slow queries in (4).
+8. **Machine contention:** ~40 other cron jobs (sysmon) fire every 1–5 min plus the every-5-min
+   `mlb_api_update`. Load average 13.5 during investigation.
 
 ## Goals
 
-- Daily `mlb predict` completes reliably in **well under 1 hour**, and a mid-run failure loses
-  minutes, not hours (checkpointed progress).
+- The daily job completes reliably again, and a mid-run failure is **observable** (which step,
+  why) and **resumable** (re-run picks up, doesn't restart from zero).
+- Daily `mlb predict` completes in **well under 30 min**, and a mid-run failure loses minutes, not
+  the whole feature build (checkpointed progress).
 - A single `conform` or `predict` invocation is cheap enough to iterate on during development.
 - Full integration test suite runs in **≤ 5 minutes** (currently ~52 min on CI).
 - Every change is measured before/after (`pg_stat_statements`, `EXPLAIN (ANALYZE, BUFFERS)`,
   wall-clock) — no "should be faster" claims without a number.
+
+## Phase 0 — get the daily job green again (do first, this week)
+
+Reliability before speed. The pipeline that never finishes is worse than the slow one.
+
+### 0.1 Split `update` / `conform` / `predict` into separately-locked, separately-logged steps
+
+`scripts/mlb_daily_update.sh` runs all three under one `flock` + `set -e`, so a hiccup in `update`
+(exactly what's happening) silently skips `conform` and `predict` with no distinct signal. Give
+each its own lock, its own log section with start/end timestamps and exit code, and let `predict`
+run off the freshest `core.game` even if that morning's `update` had a partial failure.
+
+### 0.2 Fix the `mlb_api` self-lock conflict
+
+The daily `mlb update` iterates every connector including `mlb_api`, but the every-5-min
+`mlb_api_update` cron usually holds the `mlb_api` ingestion lock at 06:00 — so the daily run's
+`mlb_api` step fails every time. Options: have the daily `update` skip `mlb_api` (the 5-min cron
+already keeps it fresh), or pause the 5-min cron for the daily window. Decide and implement.
+
+### 0.3 Make `mlb update` resilient to one connector stalling
+
+Kalshi `429` retry stalls and any single hung connector shouldn't be able to wedge the whole run.
+Per-connector timeout + "log, mark failed, continue" (the script already does `continue` on
+failure for some — make it uniform and time-bounded).
+
+### 0.4 `mlb doctor` check: predictions stale
+
+Add a check that fails when `max(gold.prediction.generated_at)` is older than ~36 h, so this
+never again goes unnoticed for 8 days.
+
+### 0.5 Supervised backfill
+
+Once 0.1–0.3 land, one owner-authorized `mlb conform && mlb predict` run against production
+(`DATABASE_URL=postgresql:///mlb`, stated explicitly) to catch up the 8 missing days, watched to
+"finished".
 
 ## Non-goals (this spec)
 
@@ -54,20 +100,20 @@ Root causes, measured against real production `mlb` on 2026-08-28 (not assumed):
   work). This spec only changes *how often* and *in what transaction shape* they run.
 - Buying SSDs or changing hosting ($0/month constraint).
 
-## Phase 1 — quick wins, no restructure (target: 5h → ~1h, tests → ~10 min)
+## Phase 1 — quick wins, no restructure (target: predict ~1h → <30 min, tests → ~10 min)
 
 Each item ships as its own commit with a measured before/after in the message.
 
-### 1.1 Cache `gold.leverage_index` / `gold.win_expectancy`
+### 1.1 Make `gold.leverage_index` / `gold.win_expectancy` incremental + crash-safe
 
-These are historical reference tables that only change when a *completed* season's games change.
-`leverage_index.compute()` / `win_expectancy.compute()` should:
-- Check a stored fingerprint (max `game_date` + row count of the source, per season).
-- Recompute **only** seasons whose fingerprint changed (in practice: the current season, plus any
-  season touched by a backfill).
-- Be a true no-op (single `SELECT` of the fingerprint) when nothing changed.
-
-Expected: 29,111 s cumulative → seconds on a normal daily run.
+Today: "build once if empty, else full no-op" — so a normal daily run doesn't pay for it, but a
+single clear of the table triggers a 4.5-hour inline rebuild, and the current season's new games
+are **never** folded in after the first build. Change `compute()` to:
+- Store a per-season fingerprint (max `game_date` + row count of the source).
+- Recompute **only** seasons whose fingerprint changed (in practice: the current season each day,
+  plus any season touched by a backfill).
+- Stay a true no-op (one `SELECT` of the fingerprint) when nothing changed.
+- Never leave the table empty on a mid-rebuild failure (build into staging, swap at the end).
 
 ### 1.2 Per-session durability/memory pragmas for the rebuild
 
@@ -194,11 +240,9 @@ Separate follow-up issue; revisit after Phase 1–2 land and we know how much he
 
 ## Rollout
 
-1. Phase 1 lands as small PRs, each independently revertable. After 1.1 + 1.2, re-enable the daily
-   cron and watch a real run reach "finished daily update".
-2. Backfill the 8 days of missing predictions with one supervised `mlb predict` run
-   (`DATABASE_URL=postgresql:///mlb` stated explicitly, owner-authorized) once Phase 1 makes it
-   an hour, not five.
+1. **Phase 0 first** — small PRs, each independently revertable. After 0.1–0.4, re-enable the
+   daily cron and watch a real run reach "finished daily update". Then 0.5 (supervised backfill).
+2. Phase 1 lands as small PRs, each with a measured before/after.
 3. Phase 2 and 3 follow as separate specs/plans if this one gets too large to execute as a unit.
 
 ## Open questions for the owner

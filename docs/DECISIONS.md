@@ -2,6 +2,26 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-266: Product sequence — keep `conform`/`predict`, SQLMesh incremental gold, no more Engine packages, live markets + player Markov next
+
+**Context:** 2026-08-28 owner session (Grok). The owner wants a membership Kalshi/Polymarket advice site plus a researcher-grade baseball database, and asked whether to (a) throw away the Agy Engine batch, (b) delete slow `mlb conform` / `mlb predict` in favor of something else, (c) switch everything to SQLMesh. Full product write-up: `docs/PRODUCT_DIRECTION.md`. Implementation order: `docs/superpowers/plans/2026-08-28-product-and-pipeline-next.md`.
+
+**Decision:**
+
+1. **Keep `mlb update` / `mlb conform` / `mlb predict` as orchestrators.** They are not the problem. The problem is full-history rebuilds, one long transaction, missing raw lookup indexes, and HDD I/O — already specified in issue #84 and `docs/superpowers/specs/2026-08-28-pipeline-performance-design.md`. Session `work_mem` / parallel planner tuning already landed (PR #86). Do not replace PostgreSQL, and do not add ClickHouse for this (`CLICKHOUSE_DECISION.md` still holds).
+
+2. **SQLMesh and named `.sql` files both stay.** Named resources in `mlb_baseball/sql/` are the readable, Python-run formulas today. SQLMesh (`transforms/`, ADR-088, issue #70) is the incremental writer for set-based gold *after* a full-table + PIT tie-out against the current Python writer. Never two writers of the same table. SQLMesh does not take over `conform.py` identity, Elo's sequential walk, Markov simulation, or model training (ADR-088 reaffirmed no-go).
+
+3. **Agy Engine packages (ADR-089–258) are a wiring backlog, not trash and not 110 new GBM columns.** Default is WIRE the raw components (`docs/PACKAGE_VALIDATION_STATUS.md`; Bucket B rubric on branch `metrics/bucket-b-triage-rubric`). Invented composites stay display-only until constants are cited or fit. Stop adding new Engine packages.
+
+4. **Next modeling work, in order:** (i) let the in-flight 2026-08-28 production `mlb predict` finish and recount coverage; (ii) live pre-game Kalshi/Polymarket *moneyline* match onto upcoming games (today `market.py::record()` is retrospective); (iii) player-aware Markov v1 at starter-vs-team-offense grain, which is also the joint-parlay engine; (iv) GBM retrain only on populated admitted columns, and only promote if it beats Elo *and* is compared to the markets; (v) public-safe research marts; (vi) Plan 05 Astro after numbers can actually land on a page.
+
+5. **AI agents explain fact packets. They do not produce the probability.** Model %, market %, fair price, and pick stay separate fields.
+
+**Why now:** the owner restated the product (OddsTrader-style board + research DB + parlays on Kalshi/Polymarket) and asked for a Claude/Agy-followable record. Production evidence from the same session (read-only `mlb`): last successful predict 2026-08-20; `gbm-v1` last wrote 2026-08-04; a live `mlb predict` (pid 3860016) was running at 04:45 UTC in PLT-01; `home_elo` was 0 non-null *during* that run, which is expected until `elo.compute_ratings()` after enrichment — must be rechecked when the run ends.
+
+**Revisit if:** a permitted sportsbook odds feed is approved (changes "best line"); a Statcast redistribution license is recorded (changes public heat maps); the in-flight predict fails and Elo stays NULL (P0, blocks retrain).
+
 ## ADR-265: Plan 01F-R5 — two remaining `serve.*` views fanned out on repeated `gold.prediction` snapshots; workflow-lock cross-stage coverage gap closed
 
 **Context:** Plan 01F-R5 ("consumer/workflow integrity") asks to reverify that every real consumer of `gold.prediction`/`gold.game_feature` still respects the canonical MLB game identity contract R1-R4 established (`plans/01-correctness-rights-security.md`), and that `conform`/`features`/`predict`/`train`/`evaluate` genuinely reject overlapping each other, not just reject overlapping a raw-ingestion connector.

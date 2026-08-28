@@ -25,8 +25,8 @@ earlier.
 | 01 | Active; 01F production cutover executed 2026-08-18 (see `PROGRESS.md`) — R1-R4 done in production; R5 (consumer/workflow integrity) and R6 (docs/final verification) still open |
 | 02 | SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F |
 | 03 | Blocked by 01F and remaining Plan 02 contracts |
-| 04–05 | Queued |
-| 06 | Not started. Owner-authorized 2026-08-25 after a review session found the ADR-089–258 package batch was never actually cross-checked against external sources despite the owner asking for it repeatedly during that work — see the plan's own "Why this plan exists" for the evidence trail. |
+| 04–05 | Queued. Owner restated 2026-08-28 that Plan 04 Markov (player-aware, then joint parlays) and a live Kalshi/Polymarket match are the modeling path for the membership site; Plan 05 Astro waits until those numbers exist. See `docs/PRODUCT_DIRECTION.md` / ADR-266. |
+| 06 | Bucket A tie-outs landed on `main` (ADR-259–264). Bucket B Engine wiring is specified on branch `metrics/bucket-b-triage-rubric`; default is WIRE, not discard. |
 
 ## Delegation protocol
 

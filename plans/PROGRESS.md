@@ -3,6 +3,17 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Why `mlb predict` was over an hour (PLT-01 correlated subquery) — 2026-08-28
+
+Read-only on production `mlb` while pid 3860016 was in flight (~05:48 UTC, age
+2h04m). The backend was a single `UPDATE` from `platoon_splits_update.sql`,
+already **1h22m** on that statement. Cause: two correlated
+`SELECT p_throws FROM raw.statcast_pitch ... LIMIT 1` per game against 13.5M
+rows, no `pitcher` index. Same run, already-finished one-pass modules
+(after PR #86 `work_mem`): COM-01 154s, SHP-01 123s, xFIP/SIERA 129s.
+Owner later authorized a kill/restart; predict restarted 06:07 UTC as pid
+4068632 with this rewrite. Tests on `mlb_test` only.
+
 ### Live pre-game Kalshi/Polymarket match (issue #87, ADR-267) — 2026-08-28
 
 `market.record()` now also writes moneyline probabilities for still-upcoming
@@ -11,7 +22,6 @@ snapshot before first pitch. Decided-game ADR-053 path is unchanged.
 Tests against `mlb_test` only (`tests/integration/test_model_market.py`, 11
 tests). Production `mlb` was not written — pid 3860016 `mlb predict` was
 still running.
-
 ### Product direction + production health snapshot (read-only `mlb`) — 2026-08-28
 
 Handoff for Claude/Agy: `docs/PRODUCT_DIRECTION.md`, ADR-266,

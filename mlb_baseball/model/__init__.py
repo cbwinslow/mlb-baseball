@@ -1,7 +1,7 @@
 """Phase 2 modeling (ADR-032/033/034, docs/RESEARCH.md). Deliberately not
 a plugin framework -- features/elo/starter build up gold.game_feature's
 columns, log5/elo/gbm are the models that consume them; this just calls
-each directly, in order, inside one transaction. Extract real structure
+each directly, in order, committing after each enrichment step. Extract real structure
 once a piece actually needs something the others don't fit into this same
 shape, not before -- same reasoning as this project's connector registry,
 which came after multiple real connectors, not in anticipation of one.
@@ -17,6 +17,8 @@ whatever model train() last saved -- which means gbm-v1 won't use the new
 starter-quality columns until it's retrained against them (a real,
 separate follow-up, not automatic just because the columns now exist).
 """
+
+from collections.abc import Callable
 
 import psycopg
 
@@ -149,55 +151,54 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
 
     :param conn: an open, non-autocommit connection already inside the
         same transaction ``build_feature_stage(conn)`` just ran in.
+        Each step below is committed before the next starts so a crash
+        mid-enrichment keeps earlier modules (issue #84 Phase 2.1).
+        Several ``compute()`` functions also commit themselves; a second
+        commit here is a no-op on an empty transaction.
     """
-    return {
-        "gold.game_feature (park_factor)": park.compute(conn),
-        # trend.compute() only reads base-family columns (win_pct/
-        # win_pct_10), already populated by build_feature_stage() before
-        # this function ever runs -- no ordering dependency on any other
-        # enrichment module here.
-        "gold.game_feature (trend)": trend.compute(conn),
-        "gold.game_feature (team_rate)": team_rate.compute(conn),
-        "gold.game_feature (team_rate run environment)": team_rate.compute_run_environment(conn),
-        "gold.game_feature (bsr)": bsr.compute(conn),
-        "gold.game_feature (offense)": offense.compute(conn),
-        "gold.game_feature (wrc_plus)": offense.compute_wrc_plus(conn),
-        "gold.game_feature (offense live)": offense.compute_live(conn),
-        "gold.game_feature (wrc_plus live)": offense.compute_wrc_plus_live(conn),
-        "gold.game_feature (starter)": starter.compute(conn),
-        "gold.game_feature (starter live)": starter.compute_live(conn),
-        "gold.game_feature (starter probable)": starter.compute_probable(conn),
-        "gold.game_feature (experience)": experience.compute(conn),
-        "gold.game_feature (pitch_discipline)": pitch_discipline.compute(conn),
-        "gold.game_feature (batted_ball)": batted_ball.compute(conn),
-        # win_expectancy/leverage_index build full-history reference tables
-        # (gold.win_expectancy, gold.leverage_index), not gold.game_feature
-        # columns directly -- run_expectancy.compute() (next) reads
-        # gold.leverage_index for its avg_li columns (ADR-262). Both are
-        # cheap no-ops once already built; see their own compute() docstrings.
-        "gold.win_expectancy": win_expectancy.compute(conn),
-        "gold.leverage_index": leverage_index.compute(conn),
-        "gold.game_feature (run_expectancy)": run_expectancy.compute(conn),
-        "gold.game_feature (pitcher_estimators)": pitcher_estimators.compute(conn),
-        "gold.game_feature (statcast_expected)": statcast_expected.compute(conn),
-        "gold.game_feature (command)": command.compute(conn),
-        "gold.game_feature (pitch_movement)": pitch_movement.compute(conn),
-        "gold.game_feature (starter workload)": starter_workload.compute(conn),
-        "gold.game_feature (starter workload live)": starter_workload.compute_live(conn),
-        "gold.game_feature (starter workload probable)": starter_workload.compute_probable(conn),
-        "gold.game_feature (bullpen)": bullpen.compute(conn),
-        "gold.game_feature (bullpen live)": bullpen.compute_live(conn),
-        "gold.game_feature (bullpen upcoming)": bullpen.compute_upcoming(conn),
-        "gold.game_feature (oaa)": oaa.compute(conn),
-        "gold.game_feature (speed)": speed.compute(conn),
-        "gold.game_feature (framing)": framing.compute(conn),
-        "gold.game_feature (war)": war.compute(conn),
-        "gold.game_feature (platoon)": platoon.compute(conn),
-        # age.compute() must run last -- it reads home_starter_id/
-        # away_starter_id, which every starter.compute*() call above may
-        # set (historical, live, or probable path).
-        "gold.game_feature (age)": age.compute(conn),
-    }
+    # Order is load-bearing: live/probable after their historical path;
+    # run_expectancy after leverage_index; age last (needs starter ids).
+    steps: list[tuple[str, Callable[[psycopg.Connection], int]]] = [
+        ("gold.game_feature (park_factor)", park.compute),
+        ("gold.game_feature (trend)", trend.compute),
+        ("gold.game_feature (team_rate)", team_rate.compute),
+        ("gold.game_feature (team_rate run environment)", team_rate.compute_run_environment),
+        ("gold.game_feature (bsr)", bsr.compute),
+        ("gold.game_feature (offense)", offense.compute),
+        ("gold.game_feature (wrc_plus)", offense.compute_wrc_plus),
+        ("gold.game_feature (offense live)", offense.compute_live),
+        ("gold.game_feature (wrc_plus live)", offense.compute_wrc_plus_live),
+        ("gold.game_feature (starter)", starter.compute),
+        ("gold.game_feature (starter live)", starter.compute_live),
+        ("gold.game_feature (starter probable)", starter.compute_probable),
+        ("gold.game_feature (experience)", experience.compute),
+        ("gold.game_feature (pitch_discipline)", pitch_discipline.compute),
+        ("gold.game_feature (batted_ball)", batted_ball.compute),
+        ("gold.win_expectancy", win_expectancy.compute),
+        ("gold.leverage_index", leverage_index.compute),
+        ("gold.game_feature (run_expectancy)", run_expectancy.compute),
+        ("gold.game_feature (pitcher_estimators)", pitcher_estimators.compute),
+        ("gold.game_feature (statcast_expected)", statcast_expected.compute),
+        ("gold.game_feature (command)", command.compute),
+        ("gold.game_feature (pitch_movement)", pitch_movement.compute),
+        ("gold.game_feature (starter workload)", starter_workload.compute),
+        ("gold.game_feature (starter workload live)", starter_workload.compute_live),
+        ("gold.game_feature (starter workload probable)", starter_workload.compute_probable),
+        ("gold.game_feature (bullpen)", bullpen.compute),
+        ("gold.game_feature (bullpen live)", bullpen.compute_live),
+        ("gold.game_feature (bullpen upcoming)", bullpen.compute_upcoming),
+        ("gold.game_feature (oaa)", oaa.compute),
+        ("gold.game_feature (speed)", speed.compute),
+        ("gold.game_feature (framing)", framing.compute),
+        ("gold.game_feature (war)", war.compute),
+        ("gold.game_feature (platoon)", platoon.compute),
+        ("gold.game_feature (age)", age.compute),
+    ]
+    counts: dict[str, int] = {}
+    for name, fn in steps:
+        counts[name] = fn(conn)
+        conn.commit()
+    return counts
 
 
 def run() -> dict[str, int]:

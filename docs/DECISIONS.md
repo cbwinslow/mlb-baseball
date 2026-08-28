@@ -2,6 +2,14 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-269: Raw Statcast/Retrosheet pitcher and batter lookup indexes (issue #84)
+
+**Decision:** Migration `0090_raw_pitcher_batter_lookup_indexes.sql` adds `idx_statcast_pitch_pitcher`, `idx_statcast_pitch_batter`, `idx_retrosheet_event_pit_id`, and `idx_retrosheet_event_bat_id` when those tables and columns exist. Loader-created tables: no-op on a clean clone. Column guards so skinny test tables without `pitcher`/`batter` do not fail `mlb migrate`. Not CONCURRENTLY (same DO-block limit as 0057).
+
+**Do not apply to production `mlb` while `mlb predict` is scanning those heaps.** After the in-flight predict finishes, `mlb migrate` against `mlb` is the maintenance window.
+
+**Verification:** `tests/integration/test_migrations.py::test_raw_pitcher_batter_lookup_indexes_are_idempotent` and `::test_raw_pitcher_batter_lookup_indexes_exist_when_source_columns_exist`.
+
 ## ADR-268: Rewrite PLT-01 throwing-hand lookup; stop per-game Statcast seq scans
 
 **Context:** Production `mlb predict` pid 3860016 (started 2026-08-28 03:44 UTC) was still inside `platoon_splits_update.sql` at 05:48 UTC — **80+ minutes on that one UPDATE**. The SQL used two correlated subqueries per `gold.game_feature` row:

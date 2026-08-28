@@ -16,6 +16,57 @@ from mlb_baseball import migrate
 from mlb_baseball.db import get_connection
 
 
+def test_raw_pitcher_batter_lookup_indexes_are_idempotent(db_conn):
+    """0090 must be safe to run twice and must not fail on skinny test tables."""
+    sql = Path("migrations/0090_raw_pitcher_batter_lookup_indexes.sql").read_text()
+    with db_conn.cursor() as cur:
+        cur.execute(sql)
+        cur.execute(sql)
+    db_conn.commit()
+
+
+def test_raw_pitcher_batter_lookup_indexes_exist_when_source_columns_exist(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute(Path("migrations/0090_raw_pitcher_batter_lookup_indexes.sql").read_text())
+        expected = []
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'raw' AND table_name = 'statcast_pitch' "
+            "AND column_name = 'pitcher'"
+        )
+        if cur.fetchone():
+            expected.append("idx_statcast_pitch_pitcher")
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'raw' AND table_name = 'statcast_pitch' "
+            "AND column_name = 'batter'"
+        )
+        if cur.fetchone():
+            expected.append("idx_statcast_pitch_batter")
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'raw' AND table_name = 'retrosheet_event' "
+            "AND column_name = 'pit_id'"
+        )
+        if cur.fetchone():
+            expected.append("idx_retrosheet_event_pit_id")
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'raw' AND table_name = 'retrosheet_event' "
+            "AND column_name = 'bat_id'"
+        )
+        if cur.fetchone():
+            expected.append("idx_retrosheet_event_bat_id")
+        if not expected:
+            pytest.skip("raw Statcast/Retrosheet tables not present in this test DB")
+        cur.execute(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = 'raw' AND indexname = ANY(%s)",
+            (expected,),
+        )
+        found = {row[0] for row in cur.fetchall()}
+    assert found == set(expected)
+
+
 def test_raw_index_migration_removes_only_an_exact_duplicate(db_conn):
     try:
         with db_conn.cursor() as cur:

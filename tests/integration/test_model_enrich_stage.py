@@ -31,7 +31,18 @@ from mlb_baseball.model import diff, elo, enrich_feature_stage, features
 def _reset(db_conn):
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        for table in ("raw.retrosheet_event", "raw.retrosheet_gameinfo"):
+        # raw.statcast_pitch is deliberately dropped, not created: several
+        # other test files (test_model_command.py, test_model_platoon.py,
+        # test_model_pitch_movement.py) each create it with their own
+        # different, mutually incompatible column set, and this repo's test
+        # database is one shared, session-scoped instance -- whichever file
+        # ran first in a given session leaves its schema behind. Without
+        # this drop, pitch_movement.compute()'s own to_regclass('raw.
+        # statcast_pitch') gate sees a real (but wrong-schema) table left
+        # over from an earlier test and crashes with a real UndefinedColumn
+        # instead of cleanly no-op'ing on a genuinely absent table, which is
+        # what this test actually wants to exercise.
+        for table in ("raw.retrosheet_event", "raw.retrosheet_gameinfo", "raw.statcast_pitch"):
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
@@ -57,11 +68,16 @@ def test_enrich_feature_stage_populates_columns_from_multiple_real_modules(db_co
         # (issue #37's exact failure shape).
         cur.execute(
             "CREATE TABLE raw.retrosheet_event ("
-            "game_id text, bat_home_id text, resp_pit_id text, "
-            "resp_pit_start_fl text, event_cd text, ab_fl text, "
-            "sf_fl text, bat_event_fl text, event_outs_ct text, _season text, "
-            "run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
-            "run1_cs_fl text, run2_cs_fl text, run3_cs_fl text)"
+            "game_id text, inn_ct integer, bat_home_id text, resp_pit_id text, "
+            "resp_pit_start_fl text, event_id integer, event_cd text, ab_fl text, "
+            "sf_fl text, bat_event_fl text, outs_ct text, event_outs_ct text, "
+            "event_runs_ct text, run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
+            "run1_cs_fl text, run2_cs_fl text, run3_cs_fl text, pitch_seq_tx text, "
+            "battedball_cd text, h_cd text, dp_fl text, base1_run_id text, "
+            "base2_run_id text, base3_run_id text, run1_dest_id text, "
+            "run2_dest_id text, start_bat_score_ct text, start_fld_score_ct text, "
+            "pos2_fld_id text, event_tx text, bat_hand_cd text, "
+            "resp_bat_hand_cd text, _season text)"
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo "
@@ -182,11 +198,15 @@ def test_age_runs_after_starter_resolves_ids_through_the_real_dispatch(db_conn):
         # rows to work with.
         cur.execute(
             "CREATE TABLE raw.retrosheet_event ("
-            "game_id text, bat_home_id text, resp_pit_id text, "
-            "resp_pit_start_fl text, event_cd text, ab_fl text, "
-            "sf_fl text, bat_event_fl text, event_outs_ct text, _season text, "
-            "run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
-            "run1_cs_fl text, run2_cs_fl text, run3_cs_fl text)"
+            "game_id text, inn_ct integer, bat_home_id text, resp_pit_id text, "
+            "resp_pit_start_fl text, event_id integer, event_cd text, ab_fl text, "
+            "sf_fl text, bat_event_fl text, outs_ct text, event_outs_ct text, "
+            "event_runs_ct text, run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, "
+            "run1_cs_fl text, run2_cs_fl text, run3_cs_fl text, pitch_seq_tx text, "
+            "battedball_cd text, h_cd text, dp_fl text, base1_run_id text, "
+            "base2_run_id text, base3_run_id text, run1_dest_id text, "
+            "run2_dest_id text, start_bat_score_ct text, start_fld_score_ct text, "
+            "pos2_fld_id text, event_tx text, _season text)"
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo "

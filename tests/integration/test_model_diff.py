@@ -1,8 +1,5 @@
 """Regression coverage for mlb_baseball.model.diff -- home-minus-away
-interaction terms (ADR-081, admission queue INT-01). Pure algebra over
-already-populated gold.game_feature columns, so these tests seed
-gold.game_feature directly rather than running the full features.build()
-pipeline -- diff.py has no raw-table or core.game dependency at all.
+interaction terms (ADR-081, ADR-099, INT-01, INT-02).
 """
 
 from decimal import Decimal
@@ -41,10 +38,17 @@ def test_compute_matches_hand_calculation(db_conn):
             "(season, game_date, home_team_id, away_team_id, game_instance_key, "
             "home_win_pct, away_win_pct, home_win_pct_10, away_win_pct_10, "
             "home_pyth_wpct, away_pyth_wpct, home_elo, away_elo, "
-            "home_woba, away_woba, home_wrc_plus, away_wrc_plus) VALUES "
+            "home_woba, away_woba, home_wrc_plus, away_wrc_plus, "
+            "home_starter_siera, away_starter_siera, "
+            "home_starter_whiff_pct, away_starter_whiff_pct, "
+            "home_starter_vert_separation_in, away_starter_vert_separation_in, "
+            "home_bullpen_siera, away_bullpen_siera, home_offense_xwoba, away_offense_xwoba, "
+            "home_bsr_total, away_bsr_total, home_catcher_csae_pct, away_catcher_csae_pct) VALUES "
             "(2024, '2024-04-01', %(atl)s, %(nya)s, 'diff-test:G1', "
             "0.600, 0.400, 0.700, 0.300, 0.550, 0.450, 1550, 1450, "
-            "0.340, 0.310, 110, 95)",
+            "0.340, 0.310, 110, 95, "
+            "3.20, 4.10, 0.2800, 0.2200, 24.00, 18.00, "
+            "3.50, 3.90, 0.335, 0.315, 5.2, -2.1, 0.0400, -0.0200)",
             {"atl": atl, "nya": nya},
         )
     db_conn.commit()
@@ -56,7 +60,9 @@ def test_compute_matches_hand_calculation(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT win_pct_diff, win_pct_10_diff, pyth_wpct_diff, elo_diff, "
-            "woba_diff, wrc_plus_diff "
+            "woba_diff, wrc_plus_diff, starter_siera_diff, starter_whiff_diff, "
+            "starter_vert_sep_diff, bullpen_siera_diff, offense_xwoba_diff, "
+            "bsr_total_diff, catcher_framing_diff "
             "FROM gold.game_feature WHERE game_instance_key = 'diff-test:G1'"
         )
         row = cur.fetchone()
@@ -68,14 +74,17 @@ def test_compute_matches_hand_calculation(db_conn):
         Decimal("100"),
         Decimal("0.030"),
         Decimal("15"),
+        Decimal("-0.90"),
+        Decimal("0.0600"),
+        Decimal("6.00"),
+        Decimal("-0.40"),
+        Decimal("0.020"),
+        Decimal("7.3"),
+        Decimal("0.0600"),
     )
 
 
 def test_compute_is_null_when_either_side_is_unavailable(db_conn):
-    # A completely unenriched row (nothing beyond the base insert) must
-    # produce NULL diffs, not an error or a false zero -- subtracting a
-    # NULL is NULL in SQL, exercised here against a real row rather than
-    # assumed.
     _reset(db_conn)
     teams = _seed_teams(db_conn)
     atl, nya = teams["ATL"], teams["NYA"]
@@ -83,8 +92,8 @@ def test_compute_is_null_when_either_side_is_unavailable(db_conn):
         cur.execute(
             "INSERT INTO gold.game_feature "
             "(season, game_date, home_team_id, away_team_id, game_instance_key, "
-            "home_elo, away_elo) VALUES "
-            "(2024, '2024-04-01', %(atl)s, %(nya)s, 'diff-test:G2', 1500, NULL)",
+            "home_elo, away_elo, home_starter_siera, away_starter_siera) VALUES "
+            "(2024, '2024-04-01', %(atl)s, %(nya)s, 'diff-test:G2', 1500, NULL, 3.20, NULL)",
             {"atl": atl, "nya": nya},
         )
     db_conn.commit()
@@ -94,12 +103,12 @@ def test_compute_is_null_when_either_side_is_unavailable(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT win_pct_diff, elo_diff FROM gold.game_feature "
+            "SELECT win_pct_diff, elo_diff, starter_siera_diff FROM gold.game_feature "
             "WHERE game_instance_key = 'diff-test:G2'"
         )
         row = cur.fetchone()
 
-    assert row == (None, None)
+    assert row == (None, None, None)
 
 
 def test_compute_is_idempotent(db_conn):
@@ -110,8 +119,8 @@ def test_compute_is_idempotent(db_conn):
         cur.execute(
             "INSERT INTO gold.game_feature "
             "(season, game_date, home_team_id, away_team_id, game_instance_key, "
-            "home_elo, away_elo) VALUES "
-            "(2024, '2024-04-01', %(atl)s, %(nya)s, 'diff-test:G3', 1600, 1400)",
+            "home_elo, away_elo, home_starter_siera, away_starter_siera) VALUES "
+            "(2024, '2024-04-01', %(atl)s, %(nya)s, 'diff-test:G3', 1600, 1400, 3.00, 4.25)",
             {"atl": atl, "nya": nya},
         )
     db_conn.commit()
@@ -120,19 +129,21 @@ def test_compute_is_idempotent(db_conn):
     db_conn.commit()
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT elo_diff FROM gold.game_feature WHERE game_instance_key = 'diff-test:G3'"
+            "SELECT elo_diff, starter_siera_diff FROM gold.game_feature "
+            "WHERE game_instance_key = 'diff-test:G3'"
         )
-        (first,) = cur.fetchone()
+        first = cur.fetchone()
 
     diff.compute(db_conn)
     db_conn.commit()
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT elo_diff FROM gold.game_feature WHERE game_instance_key = 'diff-test:G3'"
+            "SELECT elo_diff, starter_siera_diff FROM gold.game_feature "
+            "WHERE game_instance_key = 'diff-test:G3'"
         )
-        (second,) = cur.fetchone()
+        second = cur.fetchone()
 
-    assert first == second == Decimal("200")
+    assert first == second == (Decimal("200"), Decimal("-1.25"))
 
 
 def test_health_check_flags_a_parity_violation(db_conn):
@@ -164,8 +175,8 @@ def test_health_check_passes_after_a_real_compute(db_conn):
         cur.execute(
             "INSERT INTO gold.game_feature "
             "(season, game_date, home_team_id, away_team_id, game_instance_key, "
-            "home_elo, away_elo) VALUES "
-            "(2024, '2024-04-01', %(atl)s, %(nya)s, 'diff-test:G5', 1600, 1400)",
+            "home_elo, away_elo, home_starter_siera, away_starter_siera) VALUES "
+            "(2024, '2024-04-01', %(atl)s, %(nya)s, 'diff-test:G5', 1600, 1400, 3.10, 3.80)",
             {"atl": atl, "nya": nya},
         )
     db_conn.commit()

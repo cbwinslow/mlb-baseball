@@ -1,54 +1,108 @@
-"""Prior-season (lagged one full season) team catcher-framing value via
-Statcast (ADR-045, docs/RESEARCH.md). A real, distinct signal from
-everything else built so far: starter.py/bullpen.py's FIP measures
-results a pitcher directly controls (DIPS theory), while framing
-measures a catcher's effect on called-strike rate -- a separate
-mechanism entirely, not something FIP already prices in.
+"""Catcher Framing and Called Strike Above Expected (CSAE%) (CAT-02, ADR-045).
 
-Lagged, not current-season, for the same reason as war.py/oaa.py:
-raw.statcast_framing is a season aggregate, not a per-game log -- a
-team's *current*-season framing value used mid-season would leak every
-game played after the one being predicted.
-
-Team identity is resolved through core.player_war, not a direct team
-column (raw.statcast_framing has none -- checked directly, same shape
-as the already-rejected xwOBA/exitvelo tables, see docs/RESEARCH.md).
-Reuses war.py's own _BREF_TO_RETRO crosswalk (core.player_war.team_code
-is bref's own abbreviation, same as war.py's problem) rather than
-duplicating it -- a second, independently-maintained copy of the same
-30-team mapping would only risk silently drifting from the original.
-
-Real coverage gap found and understood before building, not glossed
-over: only ~52% of raw.statcast_framing rows resolve to a team this
-way (confirmed directly against 2024 data) -- the unresolved half are
-consistently rookies/prospects with too little playing time for
-core.player_war's own minimum-PA threshold to include them (e.g. 2024's
-Samuel Basallo, Dalton Rushing, Carter Jensen, Drake Baldwin -- verified
-by name, not a join bug). This mirrors the same "the gap is real,
-understood, and comes from the reference source's own known limit, not
-this module's logic" pattern as starter.py's ~1.7% Retrosheet gap.
+Computes prior-season team framing value via Statcast (raw.statcast_framing)
+and point-in-time in-season starting catcher CSAE% and framing runs from Retrosheet events.
 """
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
 
 import psycopg
 
-from mlb_baseball.db import fetch_one
-from mlb_baseball.health import Check, check_table_has_rows
+from mlb_baseball.db import fetch_one, get_connection
+from mlb_baseball.health import Check
 from mlb_baseball.model.war import _BREF_TO_RETRO
 from mlb_baseball.sql import read_sql
 
+if TYPE_CHECKING:
+    pass
+
+logger = logging.getLogger(__name__)
+
 
 def compute(conn: psycopg.Connection) -> int:
+    """Compute prior team framing and in-season catcher framing metrics in gold.game_feature."""
+    rowcount = 0
     with conn.cursor() as cur:
+        # 1. Prior-season Statcast team framing
         cur.execute("SELECT to_regclass('raw.statcast_framing')")
-        (exists,) = fetch_one(cur)
-        if not exists:
-            return 0
-        values_clause = ", ".join(
-            f"('{bref}', '{retro}')" for bref, retro in _BREF_TO_RETRO.items()
-        )
-        cur.execute(read_sql("team_framing_update.sql").format(values_clause=values_clause))
-        return cur.rowcount
+        (statcast_exists,) = fetch_one(cur)
+        if statcast_exists:
+            values_clause = ", ".join(
+                f"('{bref}', '{retro}')" for bref, retro in _BREF_TO_RETRO.items()
+            )
+            cur.execute(read_sql("team_framing_update.sql").format(values_clause=values_clause))
+            rowcount += cur.rowcount
+
+        # 2. In-season point-in-time starting catcher CSAE% & framing runs
+        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
+        (event_exists,) = fetch_one(cur)
+        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
+        (gameinfo_exists,) = fetch_one(cur)
+        if event_exists and gameinfo_exists:
+            cur.execute(read_sql("catcher_framing_csae_update.sql"))
+            rowcount += cur.rowcount
+
+    conn.commit()
+    logger.info("Updated %d rows with catcher framing metrics", rowcount)
+    return rowcount
 
 
 def health_check() -> list[Check]:
-    return [check_table_has_rows("gold.game_feature")]
+    """Validate catcher framing and CSAE% metric health in gold.game_feature."""
+    with get_connection() as conn, conn.cursor() as cur:
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        cur.execute(read_sql("catcher_framing_csae_health_check.sql"))
+        row = cur.fetchone()
+        if not row:
+            return [
+                Check(
+                    name="model.catcher_framing",
+                    ok=False,
+                    detail="No rows returned by catcher_framing_csae_health_check.sql",
+                )
+            ]
+
+        (
+            total_rows,
+            home_csae_rows,
+            away_csae_rows,
+            home_framing_rows,
+            away_framing_rows,
+            framing_oob_cnt,
+        ) = row
+
+        checks = []
+        if (framing_oob_cnt or 0) > 0:
+            checks.append(
+                Check(
+                    name="model.catcher_framing.domain",
+                    ok=False,
+                    detail=(
+                        f"{framing_oob_cnt} catcher framing values were outside valid domain bounds"
+                    ),
+                )
+            )
+        else:
+            checks.append(
+                Check(
+                    name="model.catcher_framing.domain",
+                    ok=True,
+                    detail="All catcher framing metric values within domain bounds",
+                )
+            )
+
+        checks.append(
+            Check(
+                name="model.catcher_framing.coverage",
+                ok=True,
+                detail=(
+                    f"Coverage: csae home={home_csae_rows} away={away_csae_rows}, "
+                    f"framing_runs home={home_framing_rows} away={away_framing_rows} "
+                    f"(total={total_rows})"
+                ),
+            )
+        )
+        return checks

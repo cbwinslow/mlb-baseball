@@ -38,6 +38,8 @@ from mlb_baseball.sql import read_sql
 _TRANSITION_COUNTS_SQL = read_sql("markov_transition_counts.sql")
 _HALF_INNING_RUNS_SQL = read_sql("markov_half_inning_runs.sql")
 _GAME_SCORES_SQL = read_sql("markov_game_scores.sql")
+_PITCHER_ARSENAL_SQL = read_sql("pitcher_arsenal_select.sql")
+_BATTER_ARSENAL_SQL = read_sql("batter_arsenal_select.sql")
 
 
 @dataclass(frozen=True)
@@ -552,3 +554,335 @@ def summarize_runs(values: Sequence[int]) -> dict[str, float]:
         "p90": float(ordered[p90_rank - 1]),
         "max": float(ordered[-1]),
     }
+
+
+@dataclass(frozen=True)
+class PitchArsenal:
+    """Pitcher arsenal composition and effectiveness across pitch types."""
+
+    player_id: str
+    season: int
+    pitch_usage: dict[str, float]
+    run_values_per_100: dict[str, float]
+    woba_against: dict[str, float]
+    whiff_pct: dict[str, float]
+
+
+@dataclass(frozen=True)
+class BatterArsenalProfile:
+    """Batter performance and plate discipline vs specific pitch types."""
+
+    player_id: str
+    season: int
+    pitches_seen: dict[str, int]
+    run_values_per_100: dict[str, float]
+    woba: dict[str, float]
+    whiff_pct: dict[str, float]
+
+
+def fetch_pitcher_arsenal(
+    conn: psycopg.Connection, pitcher_id: str, season: int
+) -> PitchArsenal | None:
+    """Fetch pitcher arsenal statistics from raw.statcast_pitcher_arsenal_stat."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.statcast_pitcher_arsenal_stat')")
+        (table_exists,) = fetch_one(cur)
+        if not table_exists:
+            return None
+
+        cur.execute(_PITCHER_ARSENAL_SQL, {"player_id": str(pitcher_id), "season": str(season)})
+        rows = cur.fetchall()
+        if not rows:
+            return None
+
+        pitch_usage: dict[str, float] = {}
+        run_values: dict[str, float] = {}
+        woba_against: dict[str, float] = {}
+        whiff_pct: dict[str, float] = {}
+
+        for _pid, ptype, usage, rv100, woba, whiff in rows:
+            if ptype:
+                if usage is not None:
+                    pitch_usage[ptype] = float(usage)
+                if rv100 is not None:
+                    run_values[ptype] = float(rv100)
+                if woba is not None:
+                    woba_against[ptype] = float(woba)
+                if whiff is not None:
+                    whiff_pct[ptype] = float(whiff)
+
+        return PitchArsenal(
+            player_id=str(pitcher_id),
+            season=season,
+            pitch_usage=pitch_usage,
+            run_values_per_100=run_values,
+            woba_against=woba_against,
+            whiff_pct=whiff_pct,
+        )
+
+
+def fetch_batter_arsenal(
+    conn: psycopg.Connection, batter_id: str, season: int
+) -> BatterArsenalProfile | None:
+    """Fetch batter pitch-type profile from raw.statcast_batter_arsenal."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.statcast_batter_arsenal')")
+        (table_exists,) = fetch_one(cur)
+        if not table_exists:
+            return None
+
+        cur.execute(_BATTER_ARSENAL_SQL, {"player_id": str(batter_id), "season": str(season)})
+        rows = cur.fetchall()
+        if not rows:
+            return None
+
+        pitches_seen: dict[str, int] = {}
+        run_values: dict[str, float] = {}
+        woba: dict[str, float] = {}
+        whiff_pct: dict[str, float] = {}
+
+        for _pid, ptype, cnt, rv100, woba_val, whiff in rows:
+            if ptype:
+                if cnt is not None:
+                    pitches_seen[ptype] = int(cnt)
+                if rv100 is not None:
+                    run_values[ptype] = float(rv100)
+                if woba_val is not None:
+                    woba[ptype] = float(woba_val)
+                if whiff is not None:
+                    whiff_pct[ptype] = float(whiff)
+
+        return BatterArsenalProfile(
+            player_id=str(batter_id),
+            season=season,
+            pitches_seen=pitches_seen,
+            run_values_per_100=run_values,
+            woba=woba,
+            whiff_pct=whiff_pct,
+        )
+
+
+def compute_arsenal_matchup_edge(pitcher: PitchArsenal, batter: BatterArsenalProfile) -> float:
+    """Compute expected run value edge per 100 pitches for a batter facing a pitcher.
+
+    Positive edge indicates batter advantage; negative indicates pitcher advantage.
+    """
+    total_usage = sum(pitcher.pitch_usage.values())
+    if total_usage <= 0:
+        return 0.0
+
+    matchup_edge = 0.0
+    for ptype, usage in pitcher.pitch_usage.items():
+        norm_usage = usage / total_usage
+        batter_rv = batter.run_values_per_100.get(ptype, 0.0)
+        pitcher_rv = pitcher.run_values_per_100.get(ptype, 0.0)
+        # Batter advantage is batter run value minus pitcher run value
+        matchup_edge += norm_usage * (batter_rv - pitcher_rv)
+
+    return matchup_edge
+
+
+def adjust_outcome_distribution_for_matchup(
+    base_distribution: dict[BaseOutState, dict[Outcome, float]],
+    edge_runs_per_100: float,
+    scale_factor: float = 0.05,
+) -> dict[BaseOutState, dict[Outcome, float]]:
+    """Adjust a base/out outcome distribution for a specific matchup edge.
+
+    Scales scoring and advancing transition probabilities using an odds multiplier,
+    then re-normalizes each state's outgoing distribution so sum of probabilities is 1.0.
+    """
+    if abs(edge_runs_per_100) < 1e-6:
+        return base_distribution
+
+    multiplier = math.exp(scale_factor * edge_runs_per_100)
+    inverse_multiplier = 1.0 / multiplier
+
+    adjusted: dict[BaseOutState, dict[Outcome, float]] = {}
+
+    for pre, outcome_probs in base_distribution.items():
+        new_counts: dict[Outcome, float] = {}
+        for outcome, prob in outcome_probs.items():
+            # Scoring or non-out advancing play
+            is_positive = (outcome.runs > 0) or (
+                outcome.post != TERMINAL and outcome.post.outs == pre.outs
+            )
+            weight = multiplier if is_positive else inverse_multiplier
+            new_counts[outcome] = prob * weight
+
+        total_weight = sum(new_counts.values())
+        if total_weight > 0:
+            adjusted[pre] = {outcome: w / total_weight for outcome, w in new_counts.items()}
+        else:
+            adjusted[pre] = outcome_probs
+
+    return adjusted
+
+
+def simulate_matchup_game(
+    base_distribution: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    home_edge_runs_per_100: float = 0.0,
+    away_edge_runs_per_100: float = 0.0,
+    regulation_innings: int = 9,
+    max_innings: int = 30,
+) -> GameResult:
+    """Simulate a game between two teams with specific pitch-arsenal matchup edges."""
+    home_dist = adjust_outcome_distribution_for_matchup(base_distribution, home_edge_runs_per_100)
+    away_dist = adjust_outcome_distribution_for_matchup(base_distribution, away_edge_runs_per_100)
+
+    return simulate_game(
+        distribution=away_dist,
+        rng=rng,
+        regulation_innings=regulation_innings,
+        max_innings=max_innings,
+        home_distribution=home_dist,
+    )
+
+
+@dataclass(frozen=True)
+class InGameSimulationResult:
+    """Aggregated Monte Carlo results for an in-progress game forecast."""
+
+    home_win_prob: float
+    away_win_prob: float
+    home_cover_run_line_prob: float
+    away_cover_run_line_prob: float
+    expected_home_final_runs: float
+    expected_away_final_runs: float
+    expected_total_runs: float
+    simulations_run: int
+
+
+def _simulate_remainder_of_game(
+    distribution: dict[BaseOutState, dict[Outcome, float]],
+    home_dist: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    current_inning: int,
+    is_bottom_half: bool,
+    current_state: BaseOutState,
+    home_score: int,
+    away_score: int,
+    regulation_innings: int = 9,
+    max_innings: int = 30,
+) -> GameResult:
+    """Simulate the remaining plays of an in-progress game from its current state."""
+    home_runs = home_score
+    away_runs = away_score
+    inning = current_inning
+
+    # 1. Complete the current half-inning
+    if not is_bottom_half:
+        # Top half in progress
+        away_runs += sum(simulate_half_inning_steps(distribution, rng, start=current_state))
+        # Now play bottom of current inning
+        if not (inning >= regulation_innings and home_runs > away_runs):
+            if inning >= regulation_innings:
+                for runs in simulate_half_inning_steps(home_dist, rng):
+                    home_runs += runs
+                    if home_runs > away_runs:
+                        break
+            else:
+                home_runs += simulate_half_inning(home_dist, rng)
+    else:
+        # Bottom half in progress
+        if inning >= regulation_innings:
+            for runs in simulate_half_inning_steps(home_dist, rng, start=current_state):
+                home_runs += runs
+                if home_runs > away_runs:
+                    break
+        else:
+            home_runs += sum(simulate_half_inning_steps(home_dist, rng, start=current_state))
+
+    # Check if game is already decided
+    if inning >= regulation_innings and home_runs != away_runs:
+        return GameResult(away_runs=away_runs, home_runs=home_runs, innings=inning)
+
+    # 2. Continue to subsequent innings if tied or regulation not reached
+    while True:
+        inning += 1
+        if inning > max_innings:
+            raise MarkovError(f"game still tied after {max_innings} innings during in-game sim")
+
+        away_runs += simulate_half_inning(distribution, rng)
+        if inning >= regulation_innings and home_runs > away_runs:
+            break
+
+        if inning >= regulation_innings:
+            for runs in simulate_half_inning_steps(home_dist, rng):
+                home_runs += runs
+                if home_runs > away_runs:
+                    break
+        else:
+            home_runs += simulate_half_inning(home_dist, rng)
+
+        if inning >= regulation_innings and home_runs != away_runs:
+            break
+
+    return GameResult(away_runs=away_runs, home_runs=home_runs, innings=inning)
+
+
+def simulate_in_game_win_probability(
+    distribution: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    current_inning: int,
+    is_bottom_half: bool,
+    current_state: BaseOutState,
+    home_score: int,
+    away_score: int,
+    home_edge_runs_per_100: float = 0.0,
+    away_edge_runs_per_100: float = 0.0,
+    n_simulations: int = 5000,
+    regulation_innings: int = 9,
+    max_innings: int = 30,
+) -> InGameSimulationResult:
+    """Run massive Monte Carlo simulation of an in-progress game to calculate live win probability.
+
+    Returns empirical probability distribution of game winner, run lines, and projected total runs.
+    """
+    if n_simulations <= 0:
+        raise MarkovError("n_simulations must be positive")
+
+    home_dist = adjust_outcome_distribution_for_matchup(distribution, home_edge_runs_per_100)
+    away_dist = adjust_outcome_distribution_for_matchup(distribution, away_edge_runs_per_100)
+
+    home_wins = 0
+    home_covers = 0  # Home wins by 2+ (covers -1.5 run line)
+    total_home_runs = 0
+    total_away_runs = 0
+
+    for _ in range(n_simulations):
+        res = _simulate_remainder_of_game(
+            distribution=away_dist,
+            home_dist=home_dist,
+            rng=rng,
+            current_inning=current_inning,
+            is_bottom_half=is_bottom_half,
+            current_state=current_state,
+            home_score=home_score,
+            away_score=away_score,
+            regulation_innings=regulation_innings,
+            max_innings=max_innings,
+        )
+        if res.home_runs > res.away_runs:
+            home_wins += 1
+            if res.home_runs - res.away_runs >= 2:
+                home_covers += 1
+        total_home_runs += res.home_runs
+        total_away_runs += res.away_runs
+
+    home_win_prob = home_wins / n_simulations
+    away_win_prob = 1.0 - home_win_prob
+    home_cover_prob = home_covers / n_simulations
+    away_cover_prob = 1.0 - home_cover_prob
+
+    return InGameSimulationResult(
+        home_win_prob=home_win_prob,
+        away_win_prob=away_win_prob,
+        home_cover_run_line_prob=home_cover_prob,
+        away_cover_run_line_prob=away_cover_prob,
+        expected_home_final_runs=total_home_runs / n_simulations,
+        expected_away_final_runs=total_away_runs / n_simulations,
+        expected_total_runs=(total_home_runs + total_away_runs) / n_simulations,
+        simulations_run=n_simulations,
+    )

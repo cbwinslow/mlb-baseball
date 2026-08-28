@@ -477,9 +477,7 @@ def find_orphaned_test_databases(cur: psycopg.Cursor) -> list[str]:
     return [row[0] for row in cur.fetchall()]
 
 
-def reap_orphaned_test_databases(
-    dsn: str, *, recheck_delay_seconds: float = 5.0
-) -> list[str]:
+def reap_orphaned_test_databases(dsn: str, *, recheck_delay_seconds: float = 5.0) -> list[str]:
     """Drops databases still orphaned after two checks `recheck_delay_seconds`
     apart -- rules out the narrow race of a database just created by a
     session that hasn't connected to it yet."""

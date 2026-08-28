@@ -27,28 +27,28 @@ def _ensure_schedule_shape(db_conn):
 
 
 def _reset(db_conn):
-    # raw.mlb_schedule is DROPped, not DELETEd (issue #9 item 5): this
-    # table is never created by a migration, only ad-hoc by whichever
-    # test_model_*.py file's tests run first in a given pytest session.
-    # _ensure_schedule_shape above already recreates it with the full
-    # column set from scratch when missing, so a DROP here is safe and
-    # prevents a stale, narrower schema from an earlier test/file
-    # lingering for the rest of the run.
     db_conn.rollback()
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM meta.model_evaluation")
+        # meta.game_instance was missing here even though this file itself
+        # writes to it (test_evaluate_retains_retrosheet_history_after_
+        # feature_rows_are_rebuilt): _selected_predictions()'s instance_rows
+        # CTE prefers a real meta.game_instance row over gold.game_feature
+        # for the same game_instance_key -- a leftover row from an earlier
+        # test in this repo's shared, session-scoped test database (see
+        # tests/conftest.py's _test_database fixture) with a stale
+        # season/game_date silently shadowed this test's own fresh
+        # gold.game_feature insert, producing a real, reproducible
+        # coverage={} bug only visible once the full suite runs together.
+        cur.execute("DELETE FROM meta.game_instance")
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
     db_conn.commit()
 
 
 @pytest.fixture(autouse=True)
 def _clean(db_conn):
-    # Issue #9 item 5: an autouse fixture's teardown runs regardless of
-    # pass/fail, unlike the per-test trailing _reset(db_conn) call this
-    # replaces, which never ran if a test failed partway through -- see
-    # test_model_offense.py's identical fixture for the full explanation.
     _reset(db_conn)
     yield
     _reset(db_conn)
@@ -86,15 +86,45 @@ def test_evaluate_treats_schedule_history_as_one_mlb_game(db_conn):
 
 
 def test_evaluate_uses_one_pregame_snapshot_and_exact_common_sample(db_conn):
-    # Pre-existing gap, found (not introduced) while removing this file's
-    # boilerplate _reset(db_conn) calls in favor of the _clean autouse
-    # fixture above: this test's entire body was already just a bare
-    # _reset(db_conn) call, with no actual test logic -- it always passed
-    # without checking anything its name claims to. Left as a stub (not
-    # written here -- out of scope for a test-isolation cleanup) rather
-    # than silently deleted, so the gap stays visible instead of vanishing
-    # along with the boilerplate call that used to occupy this body.
-    pytest.skip("stub test never had real content -- see issue #9 item 5 PR for context")
+    _ensure_schedule_shape(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule "
+            "(game_id, game_datetime, _season, game_date, game_num, home_id, away_id) VALUES "
+            "('1001', '2026-06-01T19:00:00Z', '2026', '2026-06-01', '1', '1', '2'), "
+            "('1002', '2026-06-02T19:00:00Z', '2026', '2026-06-02', '1', '3', '4')"
+        )
+        cur.execute(
+            "INSERT INTO gold.game_feature "
+            "(mlb_game_pk, game_instance_key, season, game_date) VALUES "
+            "('1001', 'mlb:1001', 2026, '2026-06-01'), "
+            "('1002', 'mlb:1002', 2026, '2026-06-02')"
+        )
+        cur.execute(
+            "INSERT INTO gold.prediction ("
+            "mlb_game_pk, game_instance_key, model_version, generated_at, "
+            "home_win_prob, actual_home_win) VALUES "
+            # Game 1001: multiple snapshots for model 'm1' and 'm2'
+            "('1001', 'mlb:1001', 'm1', '2026-06-01T12:00:00Z', 0.55, true), "
+            "('1001', 'mlb:1001', 'm1', '2026-06-01T18:30:00Z', 0.65, true), "
+            # Post-game leak (must be ignored)
+            "('1001', 'mlb:1001', 'm1', '2026-06-01T20:00:00Z', 0.99, true), "
+            "('1001', 'mlb:1001', 'm2', '2026-06-01T18:00:00Z', 0.60, true), "
+            # Game 1002: only covered by model 'm1'
+            "('1002', 'mlb:1002', 'm1', '2026-06-02T18:00:00Z', 0.40, false)"
+        )
+    db_conn.commit()
+
+    report = evaluation.evaluate(
+        db_conn, ["m1", "m2"], season=2026, cutoff="close", bootstrap_samples=10
+    )
+
+    assert report["coverage"] == {"m1": 2, "m2": 1}
+    assert report["common_games"] == 1
+    assert report["models"]["m1"]["games"] == 1
+    assert report["models"]["m2"]["games"] == 1
+    assert report["models"]["m1"]["brier"] == pytest.approx(0.1225, abs=1e-4)
+    assert report["models"]["m2"]["brier"] == pytest.approx(0.1600, abs=1e-4)
 
 
 def test_evaluate_retains_retrosheet_history_after_feature_rows_are_rebuilt(db_conn):
@@ -119,13 +149,6 @@ def test_evaluate_retains_retrosheet_history_after_feature_rows_are_rebuilt(db_c
 
     assert report["coverage"] == {"a": 1}
     assert report["common_games"] == 1
-    # _reset(db_conn) here is not boilerplate -- it clears the legacy
-    # prediction/game_feature rows from the evaluate() call just above so
-    # the second evaluate() call below starts from a clean slate instead
-    # of accumulating this phase's data. Found the hard way: the blanket
-    # boilerplate-removal pass for issue #9 item 5 stripped this call too,
-    # and this test started failing (coverage counted 3 games, not 2) as
-    # a result.
     _reset(db_conn)
     _ensure_schedule_shape(db_conn)
     with db_conn.cursor() as cur:
@@ -145,14 +168,11 @@ def test_evaluate_retains_retrosheet_history_after_feature_rows_are_rebuilt(db_c
             "INSERT INTO gold.prediction "
             "(mlb_game_pk, game_instance_key, model_version, generated_at, home_win_prob, "
             "actual_home_win) VALUES "
-            # Both models have several snapshots for game 1. Close must
-            # select 19:00 and ignore both the older row and postgame leak.
             "('1', 'mlb:1', 'a', '2026-04-01T10:00:00Z', 0.40, true), "
             "('1', 'mlb:1', 'a', '2026-04-01T19:00:00Z', 0.80, true), "
             "('1', 'mlb:1', 'a', '2026-04-01T21:00:00Z', 0.01, true), "
             "('1', 'mlb:1', 'b', '2026-04-01T11:00:00Z', 0.70, true), "
             "('1', 'mlb:1', 'b', '2026-04-01T19:00:00Z', 0.75, true), "
-            # Only model a covers game 2, so matched comparison excludes it.
             "('2', 'mlb:2', 'a', '2026-04-02T19:00:00Z', 0.20, false)"
         )
     db_conn.commit()

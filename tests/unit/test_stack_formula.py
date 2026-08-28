@@ -73,3 +73,41 @@ def test_sigmoid_stays_within_unit_interval_for_extreme_inputs():
     # implementation -- +30 keeps exp(-30) large enough to stay distinct
     # from 1.0 while still exercising the same "very confident" regime.
     assert 1.0 - 1e-6 < _sigmoid(30.0) < 1.0
+
+
+def test_bayesian_convex_stacker_simplex_constraint():
+    """Verify BayesianConvexStacker satisfies non-negativity and sum-to-1 simplex constraints."""
+    import numpy as np
+
+    from mlb_baseball.model.stack import BayesianConvexStacker
+
+    stacker = BayesianConvexStacker(model_names=["log5", "elo", "gbm"], shrinkage_lambda=0.05)
+    # Target y is 1 for game 1 and 0 for game 2
+    # Model 3 (gbm) is perfectly accurate
+    x = np.array(
+        [
+            [0.5, 0.5, 0.9],
+            [0.5, 0.5, 0.1],
+            [0.6, 0.4, 0.8],
+            [0.4, 0.6, 0.2],
+        ]
+    )
+    y = np.array([1.0, 0.0, 1.0, 0.0])
+
+    stacker.fit(x, y)
+
+    # Weights must be non-negative and sum to 1.0
+    assert all(w >= 0.0 for w in stacker.weights)
+    assert abs(float(np.sum(stacker.weights)) - 1.0) < 1e-5
+    # GBM should have the largest weight
+    weights_dict = stacker.get_weights_dict()
+    assert weights_dict["gbm"] > weights_dict["log5"]
+
+
+def test_stack_health_check():
+    """Verify stack health check passes cleanly."""
+    from mlb_baseball.model.stack import health_check
+
+    checks = health_check()
+    assert len(checks) == 1
+    assert checks[0].ok is True

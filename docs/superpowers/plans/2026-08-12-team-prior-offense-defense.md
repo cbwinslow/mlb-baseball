@@ -413,11 +413,11 @@ def test_compute_rolling_rate_stats_match_hand_calculation(db_conn):
 
     assert rows["G1"] == (None, None, None, None, None)  # first game
     g2 = rows["G2"]
-    assert g2[0] == Decimal("0.625")   # OBP
-    assert g2[1] == Decimal("0.6")     # SLG
-    assert g2[2] == Decimal("0.2")     # ISO
-    assert g2[3] == Decimal("0.25")    # BB%
-    assert g2[4] == Decimal("0.125")   # K%
+    assert g2[0] == Decimal("0.625")  # OBP
+    assert g2[1] == Decimal("0.6")  # SLG
+    assert g2[2] == Decimal("0.2")  # ISO
+    assert g2[3] == Decimal("0.25")  # BB%
+    assert g2[4] == Decimal("0.125")  # K%
 
     _reset(db_conn)
 

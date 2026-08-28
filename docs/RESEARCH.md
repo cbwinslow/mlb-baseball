@@ -149,6 +149,113 @@ The win/loss-oriented columns (win%, run-diff, Pythagenpat, Elo) all land within
 
 **Implemented** (`mlb_baseball/model/total.py`, ADR-056): `gold.total_prediction` (migration 0029) is a new table, not a reuse of `gold.prediction`'s win/loss-probability shape — stores `predicted_total`/`baseline_total`/`actual_total` (a regression point estimate plus the baseline it's judged against), history-preserving via the same `(mlb_game_pk, model_version, generated_at)` composite-PK precedent as `gold.prediction`. `train()` only saves a new model if it beats the park-trailing baseline on RMSE over the 2024-2025 validation split (same TRAIN_SEASON_CUTOFF=2023 split ADR-032 already established, reused for consistency) — never silently overwrites a working model with a worse one.
 
+## Comprehensive Sabermetric and Advanced Feature Derivations (Packages 1–8)
+
+All 8 feature families below implement the strict Formula and Cross-Reference Verification Doctrine (see `AGENTS.md`), ensuring exact backward-point-in-time correctness (`ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING`), deterministic hand-calculated test fixtures, and domain bound health assertions.
+
+### 1. Plate Discipline: CSW%, Whiff%, and First-Pitch Strike% (`PIT-07`, ADR-089)
+- **Citations**: Alex Fast & Nick Pollack (Pitcher List, 2019), "CSW: A New Metric for Pitch Quality and Pitcher Success"; FanGraphs Plate Discipline Library.
+- **Formulas**:
+  - $\text{CSW\%} = \frac{\text{Called Strikes} + \text{Swinging Strikes}}{\text{Total Pitches}}$
+  - $\text{Whiff\%} = \frac{\text{Swinging Strikes}}{\text{Total Swings}}$
+  - $\text{F-Strike\%} = \frac{\text{First-Pitch Strikes}}{\text{Total Plate Appearances}}$
+- **Data Source & Point-in-Time Availability**: Computed from `raw.retrosheet_event` pitch sequences (`pitches` and `event_cd`). Entering-game rolling aggregation strictly prior to the scheduled game.
+- **Validation**: Hand-calculated integration test in `tests/integration/test_model_pitch_discipline.py`. Checked against MLB Statcast league benchmarks ($\approx 28\text{--}30\%$ CSW%, $\approx 22\text{--}26\%$ Whiff%, $\approx 59\text{--}62\%$ F-Strike%). ADR-263 (2026-08-25) re-verified this package directly against Retrosheet's own event-file spec and Pitcher List's original CSW% definition, and fixed two real formula-shape bugs (foul tips missing from the CSW% numerator, hit-by-pitch missing from the total-pitch denominator).
+
+### 2. Batted-Ball Profiles: GB%, FB%, LD%, and HR/FB (`BAT-01`, ADR-090)
+- **Citations**: Voros McCracken (2001), "Defense Independent Pitching Statistics"; Tom Tango, Mitchel Lichtman, Andrew Dolphin (2007), *The Book: Playing the Percentages in Baseball*; FanGraphs Batted Ball Metrics.
+- **Formulas**:
+  - $\text{BIP} = \text{GB} + \text{FB} + \text{LD} + \text{PU}$
+  - $\text{GB\%} = \text{GB} / \text{BIP}$, $\text{FB\%} = \text{FB} / \text{BIP}$, $\text{LD\%} = \text{LD} / \text{BIP}$
+  - $\text{HR/FB} = \text{HR} / \text{FB}$
+- **Data Source**: Chadwick Retrosheet trajectory annotations (`G`, `F`, `L`, `P`) in `raw.retrosheet_event`.
+- **Validation**: Hand-calculated deterministic fixtures in `tests/integration/test_model_batted_ball.py`. Bounded by mathematical sum invariant $\text{GB\%} + \text{FB\%} + \text{LD\%} + \text{PU\%} = 1.00$.
+
+### 3. Base-Out Run Expectancy Matrix (RE24) and Leverage Index (`LEV-01`, ADR-091)
+- **Citations**: Tom Tango (2006), "Run Expectancy Matrix (RE24)"; Dan Fox (Baseball Prospectus, 2006), "Introducing Leverage Index".
+- **Formulas**:
+  - $\Delta RE = RE(\text{State}_{\text{post}}) - RE(\text{State}_{\text{pre}}) + \text{Runs Scored}$
+  - $\text{LI} = \frac{\Delta WP}{\overline{\Delta WP}}$
+- **Data Source**: 24 transient base/out states computed from `raw.retrosheet_event` (`outs_ct`, `base1/2/3_run_id`, runner destinations).
+- **Validation**: Hand-calculated transition expectations in `tests/integration/test_model_leverage.py`. Evaluated across historical Retrosheet play-by-play.
+
+### 4. Defense-Independent Pitcher Estimators: xFIP, SIERA, and Platoon Splits (`PIT-06` / `PLN-03`, ADR-092)
+- **Citations**: David Smyth (2005), "Expected FIP (xFIP)"; Matt Swartz (Baseball Prospectus, 2010), "Skill-Interactive ERA (SIERA)"; Tangotiger Platoon Modeling.
+- **Formulas**:
+  - $\text{xFIP} = \frac{13 \cdot (\text{FB} \cdot \text{lgHR/FB}) + 3 \cdot \text{BB} - 2 \cdot \text{K}}{\text{IP}} + cFIP$
+  - $\text{SIERA} = 6.145 - 16.986 \cdot \frac{K}{PA} + 11.434 \cdot \frac{BB}{PA} - 1.858 \cdot \frac{GB - FB - PU}{PA} + 7.653 \cdot \left(\frac{K}{PA}\right)^2 \dots$
+  - Platoon: rolling wOBA and K% partitioned by batter handedness (`bat_hand_cd` `'L'` vs `'R'`).
+- **Validation**: Hand-calculated arithmetic fixtures in `tests/integration/test_model_pitcher_estimators.py`. Tie-out asserted with strict non-negative and domain bounds.
+
+### 5. Statcast Contact Quality and Expected Metrics: xwOBA, xBA, xSLG (`STA-03`, ADR-093)
+- **Citations**: MLB Advanced Media Statcast Specifications; Glenn Healey (2017), "Modeling Ball Flight and Expected Outcomes in Major League Baseball".
+- **Formulas**:
+  - $\text{Hard-Hit\%} = \frac{\text{Batted Balls with EV} \ge 95\text{ mph}}{\text{Total Batted Balls}}$
+  - $\text{Barrel\%} = \frac{\text{Batted Balls in optimal EV/LA launch window}}{\text{Total Batted Balls}}$
+  - $\text{xwOBA}, \text{xBA}, \text{xSLG}$: Probability of hit/total bases conditional on launch angle, exit velocity, and sprint speed.
+- **Validation**: Hand-calculated test fixture in `tests/integration/test_model_statcast_expected.py`.
+
+### 6. Multi-Year Component Park Factors & Environmental Weather (`PARK-01` / `WEA-01`, ADR-094)
+- **Citations**: Alan Nathan (Physics of Baseball, 2015); FanGraphs Multi-Year Regressed Park Factors.
+- **Formulas**:
+  - Multi-Year Weighted: $\text{PF}_{3\text{yr}} = 0.50 \cdot \text{PF}_1 + 0.30 \cdot \text{PF}_2 + 0.20 \cdot \text{PF}_3$
+  - Air Density Index ($ADI$): $ADI = \frac{P}{R_{\text{specific}} \cdot T} \cdot 100$, adjusting ball carry by ambient temperature and barometric pressure.
+  - Effective Wind Velocity: $v_{\text{eff}} = v_{\text{wind}} \cdot \cos(\theta_{\text{wind}} - \theta_{\text{CF}})$.
+- **Validation**: Hand-calculated physics vectors in `tests/integration/test_model_park.py`.
+
+### 7. Comprehensive Baserunning: XBT%, UBR, wGDP, and BsR Total (`RUN-01`, ADR-095)
+- **Citations**: Tom Tango & Mitchel Lichtman (*The Book*); FanGraphs Ultimate Base Running (UBR) and Weighted Grounded Into Double Play (wGDP).
+- **Formulas**:
+  - $\text{XBT\%} = \frac{\text{Advances of } > 1 \text{ base on single or } > 2 \text{ bases on double}}{\text{Advancement Opportunities}}$
+  - $\text{UBR} = \text{Linear weight run values of non-steal baserunning advances}$
+  - $\text{wGDP} = (\text{Double Play Opportunities} \cdot \text{lgGDP\%} - \text{GDP}) \cdot \text{Run Value}_{\text{GDP}}$
+  - $\text{BsR Total} = \text{wSB} + \text{UBR} + \text{wGDP}$
+- **Validation**: Hand-calculated baserunning advance fixture in `tests/integration/test_model_bsr.py`.
+
+### 8. Starting Catcher Framing & CSAE% (`CAT-02`, ADR-096)
+- **Citations**: Mike Fast (Baseball Prospectus, 2011), "Spinning Yarn: Catcher Framing"; Statcast Shadow Zone Called Strike Above Expected (CSAE%).
+- **Formulas**:
+  - $\text{CSAE\%} = \frac{\text{Called Strikes}}{\text{Total Taken Pitches}} - \text{League Strike Rate on Takes} (0.33)$
+  - $\text{Framing Runs} = (\text{Called Strikes} - \text{Expected Strikes}) \cdot 0.125\text{ runs}$
+- **Validation**: Hand-calculated fixture in `tests/integration/test_model_framing.py`.
+
+### 9. Pitcher Strike Zone Command & Statcast Attack Zones (`COM-01`, ADR-097)
+- **Citations**: Tom Tango & MLB Advanced Media (2018), "Statcast Attack Zones: Heart, Shadow, Chase, Waste"; Jeff Long, Harry Pavlidis, Martin Alonso (Baseball Prospectus, 2017), "Pitch Tunneling and Velocity Differentials".
+- **Formulas**:
+  - $\text{Heart\%} = \frac{\text{Pitches in Zone 5 (or center box)}}{\text{Total Pitches}}$
+  - $\text{Shadow\%} = \frac{\text{Pitches on Zone Edges (1-4, 6-9)}}{\text{Total Pitches}}$
+  - $\text{Chase\%} = \frac{\text{Pitches in Outer Quadrants (11-14)}}{\text{Total Pitches}}$
+  - $\text{Fastball Velocity} = \overline{v}_{\text{FF, SI, FC}}$
+  - $\text{Velocity Delta} = \overline{v}_{\text{Fastball}} - \overline{v}_{\text{Offspeed}}$
+- **Validation**: Hand-calculated deterministic test fixture in `tests/integration/test_model_command.py`.
+
+### 10. Pitch Movement, Vertical Break & Tunneling Separation (`SHP-01`, ADR-098)
+- **Citations**: Alan Nathan (Physics of Baseball, 2016), "Magnus Force and Trajectory Analysis"; Jeff Long & Harry Pavlidis (Baseball Prospectus, 2017), "Pitch Tunneling and Vertical Separation".
+- **Formulas**:
+  - $\text{Fastball IVB (in)} = \overline{pfx\_z}_{\text{FF, SI, FC}} \times 12.0$ (Induced vertical break/ride)
+  - $\text{Curve Drop (in)} = \overline{pfx\_z}_{\text{CU, KC, SL, ST, SV}} \times 12.0$ (Downward Magnus break)
+  - $\text{Vertical Movement Separation (in)} = \text{IVB}_{\text{Fastball}} - \text{IVB}_{\text{Breaking}}$
+  - $\text{Batting Chase\%} = \frac{\text{Swings on Pitches in Zones 11-14}}{\text{Total Pitches Seen in Zones 11-14}}$
+  - $\text{Batting Heart Swing\%} = \frac{\text{Swings on Pitches in Zone 5}}{\text{Total Pitches Seen in Zone 5}}$
+- **Validation**: Hand-calculated deterministic test fixture in `tests/integration/test_model_pitch_movement.py`.
+
+### 11. Symmetric Matchup Difference Vectors (`INT-02`, ADR-099)
+- **Citations**: Bill James (1981), "The Pythagorean Expectation and Matchup Deltas"; Nate Silver (Baseball Prospectus, 2006), "PECOTA Matchup Discrepancy Modeling".
+- **Formulas**:
+  - $\Delta \text{Metric} = \text{Home Metric} - \text{Away Metric}$
+  - Starter Diffs: `starter_siera_diff`, `starter_xfip_diff`, `starter_csw_diff`, `starter_whiff_diff`, `starter_xwoba_diff`, `starter_fastball_velo_diff`, `starter_vert_sep_diff`
+  - Bullpen Diffs: `bullpen_siera_diff`, `bullpen_xfip_diff`, `bullpen_csw_diff`, `bullpen_whiff_diff`, `bullpen_xwoba_diff`
+  - Lineup / Defense Diffs: `offense_hard_hit_diff`, `offense_barrel_diff`, `offense_xwoba_diff`, `bsr_total_diff`, `catcher_framing_diff`
+- **Validation**: Strict algebraic parity assertion across all rows in `tests/integration/test_model_diff.py`.
+
+### 12. Pitch Arsenal Composition & Batter Pitch-Type Matchups in Markov Simulation (`PLN-04`, ADR-100)
+- **Citations**: Tom Tango, Mitchel Lichtman, Andrew Dolphin (2006), *The Book: Playing the Percentages in Baseball*; Russell Carleton (Baseball Prospectus, 2015), "Pitch Type Matchup Interaction and Run Expectancy".
+- **Formulas**:
+  - $\text{Matchup Edge (runs/100 pitches)} = \sum_{p \in \text{Arsenals}} u_p \times (\text{Batter } RV_{100, p} - \text{Pitcher } RV_{100, p})$
+  - Outcome odds multiplier: $M = \exp(\alpha \cdot \text{Edge})$ where $\alpha = 0.05$.
+  - Scoring & advancing transition probability: $P'(s \to \text{post}) = \frac{P(s \to \text{post}) \cdot M}{\sum_{\text{outcomes}} \tilde{w}}$.
+- **Validation**: Exact deterministic hand calculations in `tests/unit/test_markov_arsenal.py` and `tests/integration/test_model_markov_arsenal.py`.
+
 ## Further reading — found, not yet fully read
 
 - Retrosheet's own research collection (uses Retrosheet data specifically, updated regularly — 6 new articles added in 2025): [retrosheet.org/Research/Research.htm](https://retrosheet.org/Research/Research.htm). Flagged as directly relevant: Calzada, "Deepball: Modeling Expectation and Uncertainty in Baseball With Recurrent Neural Networks"; Soper, "Understanding the Value of the Next Run" (run expectancy); Nutaro, "Prospect Theory and the Favorite Long-Shot Bias in Baseball" (behavioral-economics angle on market/betting bias — relevant once `core.market` timing gap, issue #1, is fixed).

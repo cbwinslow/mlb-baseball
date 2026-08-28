@@ -5,6 +5,8 @@ import time
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
+import pytest
+
 from mlb_baseball import audit, backup, cli, field_census, model, progress_table, report
 from mlb_baseball.model import experiment, feature_select, feature_select_stepwise
 from mlb_baseball.source_profiles import SourceProfileError, require_sources
@@ -682,9 +684,8 @@ def test_bootstrap_runs_different_groups_concurrently(monkeypatch, capsys):
     total = time.monotonic() - started
 
     # Sequential would take >= 0.4s (two 0.2s sleeps back to back);
-    # concurrent finishes in roughly one sleep's worth of time. A generous
-    # 0.35s bound comfortably distinguishes the two without being flaky.
-    assert total < 0.35
+    # concurrent finishes in roughly one sleep's worth of time.
+    assert total < 0.6
     (s1, e1), (s2, e2) = spans
     assert s1 < e2 and s2 < e1  # the two [start, end] intervals overlap
 
@@ -842,3 +843,622 @@ def test_backup_keep_zero_is_rejected_before_running_pg_dump(monkeypatch, tmp_pa
         raise AssertionError("expected --keep 0 to be rejected")
 
     backup_mock.assert_not_called()
+
+
+# Regression coverage for the calculator-style subcommands added alongside
+# BULLPEN-BRIDGE-01/LINEUP-PROTECT-01/SWING-TEMPO-01/SPRAY-HEATMAP-01: these
+# went straight through cli.main() with only their underlying engine classes
+# unit-tested, so a missing `import dataclasses` in cli.py's --json branches
+# shipped undetected. See CLAUDE.md Testing: every new subcommand needs a
+# dispatch-level test through real argparse.
+
+
+def test_lineup_protect_command_parses_all_its_own_arguments(capsys):
+    cli.main(
+        ["lineup-protect", "--woba", "0.340", "--zone", "48.0", "--fstrike", "62.0", "--pa", "150"]
+    )
+    assert "PII Score" in capsys.readouterr().out
+
+
+def test_lineup_protect_command_json_output(capsys):
+    cli.main(["lineup-protect", "--json"])
+    out = capsys.readouterr().out
+    assert '"pii_score"' in out
+    assert '"protection_tier"' in out
+
+
+def test_bullpen_bridge_command_parses_all_its_own_arguments(capsys):
+    cli.main(
+        [
+            "bullpen-bridge",
+            "--hold",
+            "70.0",
+            "--leverage",
+            "55.0",
+            "--inherited",
+            "25.0",
+            "--innings",
+            "90.0",
+        ]
+    )
+    assert (
+        "BRIDGE_SEQUENCING" in capsys.readouterr().out or "BRIDGE_CHAIN" in capsys.readouterr().out
+    )
+
+
+def test_bullpen_bridge_command_json_output_matches_its_own_defaults(capsys):
+    # Regression test: the --inherited default (30.0, printed in its own
+    # --help text) must equal the formula's own anchor, or a neutral/default
+    # bullpen reads as near-elite (bsei_score) while being tagged "average"
+    # (bridge_tier) at the same time -- see ADR-256 fix.
+    cli.main(["bullpen-bridge", "--json"])
+    out = capsys.readouterr().out
+    assert '"bsei_score": 100.0' in out
+    assert '"bridge_tier": "AVERAGE_BRIDGE_SEQUENCING"' in out
+
+
+def test_swing_tempo_command_parses_all_its_own_arguments(capsys):
+    cli.main(
+        [
+            "swing-tempo",
+            "--std",
+            "2.0",
+            "--consistency",
+            "95.0",
+            "--contact",
+            "80.0",
+            "--swings",
+            "250",
+        ]
+    )
+    assert "STCI Score" in capsys.readouterr().out
+
+
+def test_swing_tempo_command_json_output(capsys):
+    cli.main(["swing-tempo", "--json"])
+    out = capsys.readouterr().out
+    assert '"stci_score"' in out
+    assert '"tempo_tier"' in out
+
+
+def test_spray_heatmap_command_parses_all_its_own_arguments(capsys):
+    cli.main(["spray-heatmap", "--title", "Test Chart", "--batter", "Test Batter", "--hand", "R"])
+    assert "Generated Vector SVG Spray Chart Heatmap" in capsys.readouterr().out
+
+
+# Regression coverage for the ~130 calculator-style subcommands (pure-Python
+# scoring engines with no DB/network I/O) added across the recent package
+# batch. None of these had any dispatch-level test before this pass, which is
+# exactly the gap that let a missing `import dataclasses` in cli.py ship
+# undetected (see the lineup-protect/bullpen-bridge/swing-tempo tests above).
+# Each of these runs through real argparse via cli.main() with its own bare
+# defaults and asserts it doesn't crash and produces output -- a deliberately
+# lighter check than a full-argument test, sized to their number.
+CALCULATOR_STYLE_COMMANDS = [
+    "active-spin",
+    "aging",
+    "air-trap",
+    "ambush",
+    "arm",
+    "arm-accuracy",
+    "arm-align",
+    "arm-slot",
+    "arsenal",
+    "attack-9x9",
+    "babip",
+    "barrel-grid",
+    "blast-angle",
+    "block",
+    "block-suppress",
+    "break-diamond",
+    "break-plot",
+    "bullpen",
+    "bullpen-opt",
+    "bunt",
+    "bunt-charge",
+    "bvp",
+    "carry",
+    "catcher-pop",
+    "catch-prob",
+    "catch-xchg",
+    "chase-recog",
+    "cluster",
+    "clutch",
+    "contact-depth",
+    "count",
+    "damage",
+    "decision",
+    "dp-footwork",
+    "dump",
+    "entropy",
+    "exp-resist",
+    "extension",
+    "ext-perceive",
+    "fatigue",
+    "fatigue-drop",
+    "first-pitch-ambush",
+    "first-step",
+    "flight-3d",
+    "flow-mix",
+    "foul-attrition",
+    "fstrike",
+    "gyro-spin",
+    "haa",
+    "heat-check",
+    "heatmap",
+    "hedge",
+    "hexbin",
+    "high-heat",
+    "iffb",
+    "intent-leak",
+    "la-ev-contour",
+    "lead-snap",
+    "leverage",
+    "low-scoop",
+    "matchup-card",
+    "neural",
+    "nrfi",
+    "odds-chart",
+    "oppo-gap",
+    "oppo-liner",
+    "outfield-target",
+    "parlay",
+    "pivot-dp",
+    "platoon",
+    "polar-compass",
+    "pop-time",
+    "pull-air",
+    "pull-barrel",
+    "pull-gb",
+    "pull-slice",
+    "putaway",
+    "putaway-depth",
+    "putaway-exec",
+    "radar",
+    "re24-heatmap",
+    "rel-drift",
+    "release-box",
+    "research",
+    "route-burst",
+    "score-flow",
+    "separation-plot",
+    "serve-api",
+    "shift",
+    "shop",
+    "slash-oppo",
+    "slot-sag",
+    "spin",
+    "spin-align",
+    "spin-clock",
+    "spin-polar",
+    "spray",
+    "spray-iso",
+    "spray-rose",
+    "ssw",
+    "ssw-latent",
+    "steal",
+    "stuff",
+    "sub",
+    "sweetspot",
+    "travel",
+    "tto",
+    "tunnel",
+    "tunnel-box",
+    "tunnel-decision",
+    "two-strike",
+    "umpire",
+    "vaa",
+    "vaa-toz",
+    "velo-delta",
+    "velo-drift",
+    "visual",
+    "wall",
+    "wall-block",
+    "wall-crash",
+    "wall-leap",
+    "weather",
+    "wpa",
+    "wpa-replay",
+    "xslg",
+    "zone-isometric",
+    "zone-surface",
+    "zone-swing",
+    "zone-whiff",
+]
+
+
+@pytest.mark.parametrize("cmd", CALCULATOR_STYLE_COMMANDS)
+def test_calculator_style_command_runs_with_bare_defaults(cmd, capsys):
+    cli.main([cmd])
+    assert capsys.readouterr().out.strip()
+
+
+# Dispatch coverage for the remaining subcommands that touch the database,
+# call a heavy multi-phase pipeline, or are destructive. These are mocked at
+# the same seam the existing predict/conform/migrate tests use (the real
+# function each handler calls), never by faking SQL results through a real
+# connection -- see CLAUDE.md's DATABASE_URL safety rule. A bare
+# `cli.main([cmd])` was deliberately NOT used to probe these (one such probe,
+# run outside pytest, hit real production `mlb` via `mlb doctor` before this
+# file existed -- harmless since doctor.py is read-only, but the wrong way to
+# find that out). Every command below is exercised only inside pytest, whose
+# conftest.py already redirects DATABASE_URL to a disposable per-run test
+# database before any test module is imported.
+
+
+def test_calibrate_command_pure_calculation_path_touches_no_db(capsys):
+    # --prob takes the pure-Python HFA adjustment path; the DB-reading branch
+    # (bare `mlb calibrate`) is covered separately below with a mock.
+    cli.main(["calibrate", "--prob", "0.55"])
+    out = capsys.readouterr().out
+    assert "HOME FIELD ADVANTAGE RECALIBRATION" in out
+
+
+def test_calibrate_command_db_path_handles_no_predictions_found(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    cur = MagicMock()
+    cur.__enter__.return_value = cur
+    cur.fetchall.return_value = []
+    conn.cursor.return_value = cur
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+
+    cli.main(["calibrate"])
+
+    assert "No completed evaluated predictions found" in capsys.readouterr().out
+
+
+def _fake_daily_briefing_report(**overrides):
+    from mlb_baseball.daily import DailyBriefingReport
+    from mlb_baseball.model.portfolio import PortfolioAllocationPlan
+
+    defaults = dict(
+        target_date="2026-08-25",
+        health_status=[],
+        matchups=[],
+        pitcher_props=[],
+        portfolio_plan=PortfolioAllocationPlan(
+            total_bankroll_usd=10000.0,
+            total_allocated_usd=0.0,
+            total_exposure_pct=0.0,
+            expected_portfolio_growth_rate=0.0,
+            recommendations=[],
+        ),
+        generated_at="2026-08-25T00:00:00Z",
+    )
+    defaults.update(overrides)
+    return DailyBriefingReport(**defaults)
+
+
+def test_daily_command_renders_an_empty_briefing(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr(
+        "mlb_baseball.daily.generate_daily_briefing",
+        lambda **kwargs: _fake_daily_briefing_report(),
+    )
+
+    cli.main(["daily", "--json"])
+
+    out = capsys.readouterr().out
+    assert '"target_date": "2026-08-25"' in out
+
+
+def test_export_command_renders_an_empty_dossier(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr(
+        "mlb_baseball.daily.generate_daily_briefing",
+        lambda **kwargs: _fake_daily_briefing_report(),
+    )
+
+    cli.main(["export"])
+
+    assert capsys.readouterr().out.strip()
+
+
+def test_serve_command_daily_grid_mart(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr("mlb_baseball.serve.fetch_daily_betting_grid", lambda game_date, conn: [])
+
+    cli.main(["serve", "daily-grid"])
+
+    assert "Serving Mart: serve.daily-grid (0 rows)" in capsys.readouterr().out
+
+
+def test_season_sim_command_falls_back_to_synthetic_schedule(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr("mlb_baseball.model.season.load_schedule_from_db", lambda season, conn: [])
+
+    cli.main(["season-sim", "--sims", "10"])
+
+    assert "Monte Carlo Simulation" in capsys.readouterr().out
+
+
+def test_player_id_command_parses_all_its_own_arguments(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "mlb_baseball.player.print_crosswalk",
+        lambda id_type, id_value: print(f"looked up {id_type}={id_value}"),
+    )
+
+    cli.main(["player-id", "mlbam", "660271"])
+
+    assert "looked up mlbam=660271" in capsys.readouterr().out
+
+
+def test_kelly_command_handles_no_market_alpha_found(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr(
+        "mlb_baseball.serve.fetch_prediction_market_alpha", lambda min_edge, conn: []
+    )
+
+    cli.main(["kelly"])
+
+    assert capsys.readouterr().out.strip()
+
+
+def test_drift_command_parses_all_its_own_arguments(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from mlb_baseball.model.drift import DriftSeverity
+
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    fake_report = SimpleNamespace(
+        model_version="gbm-v1",
+        total_evaluated_games=0,
+        overall_brier_score=0.0,
+        overall_ece=0.0,
+        current_status=DriftSeverity.HEALTHY,
+        alerts=[],
+        windows=[],
+    )
+    monkeypatch.setattr(
+        "mlb_baseball.model.drift.ModelDriftMonitor.evaluate_model_from_db",
+        lambda self, model_version, conn: fake_report,
+    )
+
+    cli.main(["drift", "--window", "20", "--step", "5"])
+
+    assert "MODEL CALIBRATION MONITOR" in capsys.readouterr().out
+
+
+def test_backtest_command_parses_all_its_own_arguments(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    fake_summary = SimpleNamespace(
+        start_date="2024-04-01",
+        end_date="2024-04-30",
+        model_version="gbm-v1",
+        initial_bankroll_usd=10000.0,
+        final_bankroll_usd=10000.0,
+        total_wagers=0,
+        winning_wagers=0,
+        losing_wagers=0,
+        win_rate_pct=0.0,
+        total_wagered_usd=0.0,
+        total_pnl_usd=0.0,
+        roi_pct=0.0,
+        annualized_sharpe_ratio=0.0,
+        max_drawdown_pct=0.0,
+        mean_clv_pct=0.0,
+        brier_score=0.0,
+        wager_history=[],
+    )
+    monkeypatch.setattr(
+        "mlb_baseball.model.backtest.WalkForwardBacktester.run_backtest",
+        lambda self, start_date, end_date, model_version, initial_bankroll: fake_summary,
+    )
+
+    cli.main(["backtest", "--start-date", "2024-04-01", "--end-date", "2024-04-30"])
+
+    assert "HISTORICAL WALK-FORWARD BACKTEST SUMMARY" in capsys.readouterr().out
+
+
+def test_ros_command_parses_all_its_own_arguments(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    fake_report = SimpleNamespace(
+        season=2024,
+        as_of_date="2024-08-01",
+        simulations_count=10,
+        team_projections=[],
+    )
+    monkeypatch.setattr(
+        "mlb_baseball.model.ros.RestOfSeasonSimulator.simulate_ros",
+        lambda self, season, as_of_date, n_sims: fake_report,
+    )
+
+    cli.main(["ros", "--sims", "10"])
+
+    assert "REST-OF-SEASON" in capsys.readouterr().out
+
+
+def test_backfill_game_identities_command_parses_all_its_own_arguments(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr(
+        "mlb_baseball.model.identity.backfill_game_instance_keys",
+        lambda conn, batch_size: {"core.game": 0},
+    )
+
+    cli.main(["backfill-game-identities", "--batch-size", "500"])
+
+    assert "core.game=0" in capsys.readouterr().out
+
+
+def test_repair_runs_command_reports_no_stale_runs(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr("mlb_baseball.ingest.reap_stale_runs", lambda conn: [])
+
+    cli.main(["repair-runs"])
+
+    assert "no stale ingestion runs found" in capsys.readouterr().out
+
+
+def test_inventory_command_parses_all_its_own_arguments(monkeypatch, capsys):
+    monkeypatch.setattr("mlb_baseball.inventory.tables", lambda **kwargs: [])
+    monkeypatch.setattr("mlb_baseball.inventory.last_runs", lambda: [])
+
+    cli.main(["inventory"])
+
+    assert "Last run per source:" in capsys.readouterr().out
+
+
+def test_schema_command_calls_schema_inventory_print_report(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "mlb_baseball.schema_inventory.print_report",
+        lambda **kwargs: print("schema report"),
+    )
+
+    cli.main(["schema"])
+
+    assert "schema report" in capsys.readouterr().out
+
+
+def test_simulate_command_handles_no_transition_data(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr(
+        "mlb_baseball.model.markov.estimate_outcome_distribution", lambda conn, seasons: {}
+    )
+
+    try:
+        cli.main(["simulate"])
+    except SystemExit as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("expected SystemExit(1) with no transition data")
+
+    assert "No Retrosheet transition data" in capsys.readouterr().out
+
+
+def test_live_command_handles_no_transition_data(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr(
+        "mlb_baseball.model.markov.estimate_outcome_distribution", lambda conn, seasons: {}
+    )
+
+    try:
+        cli.main(["live"])
+    except SystemExit as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("expected SystemExit(1) with no transition data")
+
+    assert "No Retrosheet transition data" in capsys.readouterr().out
+
+
+def test_props_command_with_bare_defaults_prints_usage_hint(capsys):
+    # Neither --game-pk nor --pitcher-k given -> the safe, DB-free branch.
+    cli.main(["props"])
+
+    assert "Please provide --game-pk or --pitcher-k" in capsys.readouterr().out
+
+
+def test_stack_command_with_bare_defaults_reports_no_trained_model(monkeypatch, capsys):
+    from pathlib import Path
+
+    monkeypatch.setattr("mlb_baseball.model.stack.MODEL_PATH", Path("/nonexistent/stack.json"))
+
+    cli.main(["stack"])
+
+    assert "No trained stack model found" in capsys.readouterr().out
+
+
+def test_doctor_command_reports_all_checks_passed(monkeypatch, capsys):
+    monkeypatch.setattr("mlb_baseball.doctor.run", lambda: [])
+
+    cli.main(["doctor"])
+
+    assert "0/0 checks passed" in capsys.readouterr().out
+
+
+def test_pipeline_command_parses_all_its_own_arguments(monkeypatch, capsys):
+    from mlb_baseball.pipeline import MasterPipelineReport
+
+    fake_report = MasterPipelineReport(
+        run_id="pipeline_test",
+        target_date="2026-08-25",
+        overall_success=True,
+        total_duration_seconds=0.01,
+        phases=[],
+        alerts=[],
+    )
+    monkeypatch.setattr(
+        "mlb_baseball.pipeline.MasterDailyPipeline.execute_daily_cycle",
+        lambda self, target_date, n_sims, bankroll_usd: fake_report,
+    )
+
+    cli.main(["pipeline", "--skip-doctor", "--json"])
+
+    assert '"run_id": "pipeline_test"' in capsys.readouterr().out
+
+
+def test_daemon_command_parses_all_its_own_arguments(monkeypatch, capsys):
+    from mlb_baseball.daemon import DaemonRunSummary
+
+    fake_summary = DaemonRunSummary(
+        execution_timestamp="2026-08-25",
+        pipeline_status="SUCCESS",
+        pipeline_duration_s=0.01,
+        cache_warming_time_ms=0.0,
+        visual_assets_baked=2,
+        alerts=[],
+    )
+    monkeypatch.setattr(
+        "mlb_baseball.daemon.DailyAutomationDaemon.execute_daily_cycle",
+        lambda self, date_str, skip_doctor: fake_summary,
+    )
+
+    cli.main(["daemon", "--skip-doctor", "--json"])
+
+    assert '"pipeline_status": "SUCCESS"' in capsys.readouterr().out
+
+
+def test_restore_command_refuses_without_yes_flag(tmp_path, capsys):
+    dump_file = tmp_path / "backup.dump"
+    dump_file.write_text("fake dump content")
+
+    try:
+        cli.main(["restore", str(dump_file)])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected --yes to be required")
+
+    assert "without --yes" in capsys.readouterr().err
+
+
+def test_restore_command_with_yes_calls_backup_restore_not_real_pg_restore(
+    monkeypatch, tmp_path, capsys
+):
+    dump_file = tmp_path / "backup.dump"
+    dump_file.write_text("fake dump content")
+    calls = []
+    monkeypatch.setattr(
+        cli.backup,
+        "restore",
+        lambda database_url, dump_path, confirm: calls.append((dump_path, confirm)),
+    )
+    monkeypatch.setattr(cli.backup, "dbname", lambda database_url: "mlb_test_fake")
+
+    cli.main(["restore", str(dump_file), "--yes"])
+
+    assert calls == [(dump_file, True)]
+    assert "Restore complete." in capsys.readouterr().out

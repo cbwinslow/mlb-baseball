@@ -33,6 +33,557 @@ each completed plan gate.
 - **Plan 02 status:** SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F remediation.
 - **Next package:** `BSR-01`, `INT-01`, `INT-02`, `PLN-04` (both halves), and the `gbm-v1` retrain negative result all implemented -- `PLN-04`'s age half (this dated section below) is rebased onto `main` post-`experience_v1` merge (migration `0064`, `ADR-087`, view extended from `experience_v1`'s real merged tail). `BAT-01`'s proposal is written -- evidence gathered, `core.pitch` schema extension designed, source profile declared `local_research`-only, not yet implemented. Next candidates per the admission queue, roughly in order: `BSR-02` (baserunning detail by base, now unblocked), `BAT-01` itself (pending owner review of the written proposal), `PIT-07` (pitch-sequence rate stats). Remaining open GitHub issues (#15 Astro progress site, #32 offense/team_rate health-check join-failure gap, #67 starter.py's own pre-existing doubleheader-ordering gap). #6 (mojibake names) and #7 (test pollution) are closed; #9 (all 6 items -- 1/6 fixed via `db97d96`/PR #25, 2/3 turned out already fixed in the code with no PROGRESS.md entry recording it, 4/5 fixed 2026-08-20, see below) and #10/#28/#29/#46 are fixed.
 
+### ZONE-ISOMETRIC-01 pure-Python SVG strike zone 3D isometric view chart: implemented (ADR-254) — 2026-08-24
+Added `ZoneIsometricChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb zone-isometric` CLI command.
+- Renders 3D isometric strike zone wireframe box ($520	ext{px} 	imes 400	ext{px}$) with pitch depth trajectories.
+
+### WALL-LEAP-01 outfielder wall leap & timing elevation index: implemented (ADR-253) — 2026-08-24
+Added `mlb_baseball/model/wall_leap.py`, unit tests in `tests/unit/test_wall_leap.py`, and `mlb wall-leap` CLI command.
+- Evaluates vertical leap apex in, timing precision ms, WLTEI score, and RRVAA runs saved.
+
+### SLOT-SAG-01 pitcher arm slot fatigue sag & lateral drift detection: implemented (ADR-252) — 2026-08-24
+Added `mlb_baseball/model/slot_sag.py`, unit tests in `tests/unit/test_slot_sag.py`, and `mlb slot-sag` CLI command.
+- Evaluates late-outing slot angle drop, lateral release drift, ASFSI score, and FSDRS runs saved.
+
+### OPPO-LINER-01 batter opposite-field spray line drive sinking liners: implemented (ADR-251) — 2026-08-24
+Added `mlb_baseball/model/oppo_liner.py`, unit tests in `tests/unit/test_oppo_liner.py`, and `mlb oppo-liner` CLI command.
+- Evaluates oppo line drive %, BABIP conversion, OFLDII score, and OLPR runs created.
+
+### TUNNEL-DECISION-01 pure-Python SVG pitch tunnel decision separation chart: implemented (ADR-250) — 2026-08-24
+Added `TunnelDecisionChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb tunnel-decision` CLI command.
+- Renders side-by-side pitch divergence from release ($50	ext{ ft}$) through decision point ($23.8	ext{ ft}$) to plate.
+
+### WALL-BLOCK-01 catcher wild pitch & passed ball wall blocking value: implemented (ADR-249) — 2026-08-24
+Added `mlb_baseball/model/wall_block.py`, unit tests in `tests/unit/test_wall_block.py`, and `mlb wall-block` CLI command.
+- Measures dirt ball block %, runner advance suppression %, CWBEI score, and BRSAA runs saved.
+
+### FIRST-PITCH-AMBUSH-01 pitcher first-pitch strike aggression vs ambush penalty: implemented (ADR-248) — 2026-08-24
+Added `mlb_baseball/model/first_pitch_ambush.py`, unit tests in `tests/unit/test_first_pitch_ambush.py`, and `mlb first-pitch-ambush` CLI command.
+- Evaluates first-pitch strike %, 0-0 contact damage suppression, FPCARI score, and FPLRS runs saved.
+
+### CHASE-RECOG-01 batter offspeed / breaking ball chase recognition: implemented (ADR-247) — 2026-08-24
+Added `mlb_baseball/model/chase_recog.py`, unit tests in `tests/unit/test_chase_recog.py`, and `mlb chase-recog` CLI command.
+- Evaluates out-of-zone breaking ball chase %, take %, BBCRI score, and CDRA runs created.
+
+### POLAR-COMPASS-01 pure-Python SVG pitcher movement & spin polar compass: implemented (ADR-246) — 2026-08-24
+Added `PolarCompassPlotRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb polar-compass` CLI command.
+- Renders polar break coordinate chart ($480	ext{px} 	imes 480	ext{px}$) with radial clock axes and pitch vectors.
+
+### OUTFIELD-TARGET-01 outfielder throw accuracy & direct line target efficiency: implemented (ADR-245) — 2026-08-24
+Added `mlb_baseball/model/outfield_target.py`, unit tests in `tests/unit/test_outfield_target.py`, and `mlb outfield-target` CLI command.
+- Evaluates throw accuracy within 4ft of target, arm velocity, OLTAI score, and OARP runs saved.
+
+### PUTAWAY-DEPTH-01 pitcher secondary pitch whiff escalation in 2-strike counts: implemented (ADR-244) — 2026-08-24
+Added `mlb_baseball/model/putaway_depth.py`, unit tests in `tests/unit/test_putaway_depth.py`, and `mlb putaway-depth` CLI command.
+- Measures 2-strike secondary whiff surge, chase expansion, PWEI score, and TSSAA strikeouts.
+
+### HEAT-CHECK-01 batter in-zone fastball contact vs whiff vulnerability: implemented (ADR-243) — 2026-08-24
+Added `mlb_baseball/model/heat_check.py`, unit tests in `tests/unit/test_heat_check.py`, and `mlb heat-check` CLI command.
+- Evaluates in-zone fastball contact %, hard hit %, IZHSMI score, and IZFPR runs created.
+
+### BARREL-GRID-01 pure-Python SVG Statcast contact quality barrel grid: implemented (ADR-242) — 2026-08-24
+Added `BarrelGridPlotRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb barrel-grid` CLI command.
+- Renders 2D EV ($50-120	ext{ mph}$) vs LA ($-40^{\circ}	ext{ to }+70^{\circ}$) contact quality scatter with Statcast polygon zones.
+
+### DP-FOOTWORK-01 middle infield double-play turn speed & footwork: implemented (ADR-241) — 2026-08-24
+Added `mlb_baseball/model/dp_footwork.py`, unit tests in `tests/unit/test_dp_footwork.py`, and `mlb dp-footwork` CLI command.
+- Measures pivot time, relay throw velocity, DPFTI score, and DPTAA double plays turned.
+
+### SPIN-ALIGN-01 pitcher release point spin angle stability: implemented (ADR-240) — 2026-08-24
+Added `mlb_baseball/model/spin_align.py`, unit tests in `tests/unit/test_spin_align.py`, and `mlb spin-align` CLI command.
+- Measures multi-pitch spin tilt std dev, vertical release uniformity, ASARCI score, and DWSM multiplier.
+
+### OPPO-GAP-01 batter opposite-field power & alley gap conversion: implemented (ADR-239) — 2026-08-24
+Added `mlb_baseball/model/oppo_gap.py`, unit tests in `tests/unit/test_oppo_gap.py`, and `mlb oppo-gap` CLI command.
+- Evaluates oppo hard contact %, power alley extra-base conversion, OFGPI score, and AEBR runs.
+
+### FLOW-MIX-01 pure-Python SVG count transition flow chart: implemented (ADR-238) — 2026-08-24
+Added `CountUsageFlowChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb flow-mix` CLI command.
+- Renders 3-column alluvial flow chart connecting Even, Ahead, and Behind count pitch selections.
+
+### FIRST-STEP-01 outfielder first-step reaction burst & jump: implemented (ADR-237) — 2026-08-24
+Added `mlb_baseball/model/first_step.py`, unit tests in `tests/unit/test_first_step.py`, and `mlb first-step` CLI command.
+- Measures reaction time from sound of bat, 1.5s distance covered, FSRJI score, and JRP runs prevented.
+
+### FATIGUE-DROP-01 pitcher arm fatigue velocity & release drop: implemented (ADR-236) — 2026-08-24
+Added `mlb_baseball/model/fatigue_drop.py`, unit tests in `tests/unit/test_fatigue_drop.py`, and `mlb fatigue-drop` CLI command.
+- Evaluates late velocity decay, vertical release drop past pitch 75, PAFII score, and HFVRS runs saved.
+
+### PULL-SLICE-01 batter pull line-drive slice & fair conversion: implemented (ADR-235) — 2026-08-24
+Added `mlb_baseball/model/pull_slice.py`, unit tests in `tests/unit/test_pull_slice.py`, and `mlb pull-slice` CLI command.
+- Evaluates pull line-drive fair conversion, foul-pole hook avoidance, PLDSR score, and FPEBR runs.
+
+### TUNNEL-BOX-01 pure-Python SVG release point & tunnel box chart: implemented (ADR-234) — 2026-08-24
+Added `TunnelBoxChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb tunnel-box` CLI command.
+- Renders dual-panel vector SVG with release window ($X_{	ext{rel}}, Z_{	ext{rel}}$) and 23.8 ft decision tunnel cross-section.
+
+### BUNT-CHARGE-01 infield bunt defense charging speed & barehand: implemented (ADR-233) — 2026-08-24
+Added `mlb_baseball/model/bunt_charge.py`, unit tests in `tests/unit/test_bunt_charge.py`, and `mlb bunt-charge` CLI command.
+- Evaluates charging sprint speed, barehand scoop-to-throw time, IBCDI score, and BOAA outs saved.
+
+### SSW-LATENT-01 pitcher seam-shifted wake latent movement: implemented (ADR-232) — 2026-08-24
+Added `mlb_baseball/model/ssw_latent.py`, unit tests in `tests/unit/test_ssw_latent.py`, and `mlb ssw-latent` CLI command.
+- Measures optical vs inferred spin axis tilt deviation, boundary layer non-Magnus break, and SSWLMR score.
+
+### HIGH-HEAT-01 batter high-fastball top-of-zone whiff vs damage: implemented (ADR-231) — 2026-08-24
+Added `mlb_baseball/model/high_heat.py`, unit tests in `tests/unit/test_high_heat.py`, and `mlb high-heat` CLI command.
+- Evaluates high-velocity four-seam elevation vulnerability, whiff avoidance, HHEVI score, and HFPR runs.
+
+### LA-EV-CONTOUR-01 pure-Python SVG launch angle vs exit velocity contour: implemented (ADR-230) — 2026-08-24
+Added `LaEvContourHeatmapRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb la-ev-contour` CLI command.
+- Renders vector SVG Cartesian 2D density chart with Statcast Barrel & Sweetspot polygon zones.
+
+### LEAD-SNAP-01 baserunner secondary lead distance & pickoff threat: implemented (ADR-229) — 2026-08-24
+Added `mlb_baseball/model/lead_snap.py`, unit tests in `tests/unit/test_lead_snap.py`, and `mlb lead-snap` CLI command.
+- Evaluates primary lead ft, secondary jump distance, pitcher move time, ASLI score, and advance boost.
+
+### INTENT-LEAK-01 pitcher two-strike putaway intent vs heart mistake leakage: implemented (ADR-228) — 2026-08-24
+Added `mlb_baseball/model/intent_leak.py`, unit tests in `tests/unit/test_intent_leak.py`, and `mlb intent-leak` CLI command.
+- Models two-strike chase expansion, middle-middle heart mistake leakage, TSPIEI score, and HPCR runs.
+
+### AIR-TRAP-01 batter pull-side air contact vs warning track trap: implemented (ADR-227) — 2026-08-24
+Added `mlb_baseball/model/air_trap.py`, unit tests in `tests/unit/test_air_trap.py`, and `mlb air-trap` CLI command.
+- Evaluates pull flyball fence clearance, warning track dead zone trap, PACDTR score, and TTHRD runs.
+
+### SPIN-POLAR-01 pure-Python SVG pitcher arsenal polar spin clock: implemented (ADR-226) — 2026-08-24
+Added `SpinPolarClockRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb spin-polar` CLI command.
+- Renders vector SVG polar clock chart with tilt radial rays and active spin concentric rings (25%, 50%, 75%, 100%).
+
+### LOW-SCOOP-01 catcher low-pitch scoop & bottom-zone framing: implemented (ADR-225) — 2026-08-24
+Added `mlb_baseball/model/low_scoop.py`, unit tests in `tests/unit/test_low_scoop.py`, and `mlb low-scoop` CLI command.
+- Evaluates borderline low shadow strike conversion, upward scoop velocity, BZSFR score, and LZFS runs.
+
+### ACTIVE-SPIN-01 pitcher spin axis gyro efficiency & active spin: implemented (ADR-224) — 2026-08-24
+Added `mlb_baseball/model/active_spin.py`, unit tests in `tests/unit/test_active_spin.py`, and `mlb active-spin` CLI command.
+- Models Hawkeye trajectory-inferred active spin percentage, 3D gyro angle, ASMI score, and movement conversion.
+
+### ZONE-WHIFF-01 batter in-zone whiff vs contact quality tradeoff: implemented (ADR-223) — 2026-08-24
+Added `mlb_baseball/model/zone_whiff.py`, unit tests in `tests/unit/test_zone_whiff.py`, and `mlb zone-whiff` CLI command.
+- Evaluates in-zone swing rate, in-zone whiff rate, Z-Barrel% conversion, ZCPOI score, and IZPSR runs.
+
+### SPRAY-ISO-01 pure-Python SVG batter 3D spray distance isochrone chart: implemented (ADR-222) — 2026-08-24
+Added `SprayIsochroneChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb spray-iso` CLI command.
+- Renders vector SVG field chart with distance isochrone arcs (200ft, 300ft, 400ft) and 4-tier EV color markers.
+
+### WALL-CRASH-01 outfielder wall crash hazard & catch probability: implemented (ADR-221) — 2026-08-24
+Added `mlb_baseball/model/wall_crash.py`, unit tests in `tests/unit/test_wall_crash.py`, and `mlb wall-crash` CLI command.
+- Evaluates warning-track wall proximity catch conversion, deceleration cushion, WCFI score, and WEBPR runs.
+
+### ARM-ALIGN-01 pitcher arm slot stability across arsenal pitches: implemented (ADR-220) — 2026-08-24
+Added `mlb_baseball/model/arm_align.py`, unit tests in `tests/unit/test_arm_align.py`, and `mlb arm-align` CLI command.
+- Models multi-pitch arm angle consistency, release height alignment, AAAR rating, and tipping risk defense.
+
+### SLASH-OPPO-01 batter opposite field slash & anti-shift resilience: implemented (ADR-219) — 2026-08-24
+Added `mlb_baseball/model/slash_oppo.py`, unit tests in `tests/unit/test_slash_oppo.py`, and `mlb slash-oppo` CLI command.
+- Evaluates opposite-field spray, pull groundball avoidance, OFSRR score, and anti-shift BABIP adjustment.
+
+### BREAK-DIAMOND-01 pure-Python SVG pitch arsenal break movement plot: implemented (ADR-218) — 2026-08-24
+Added `BreakDiamondPlotRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb break-diamond` CLI command.
+- Renders multi-pitch Cartesian HB vs IVB scatter chart with concentric 10/20 in break circles and movement quadrants.
+
+### BLOCK-SUPPRESS-01 catcher wild pitch & dirt ball wall suppression: implemented (ADR-217) — 2026-08-24
+Added `mlb_baseball/model/block_suppress.py`, unit tests in `tests/unit/test_block_suppress.py`, and `mlb block-suppress` CLI command.
+- Evaluates dirt-ball blocking percentage, recovery time, runner advance prevention, and DBWR rating.
+
+### FOUL-ATTRITION-01 batter two-strike foul-off attrition & starter exhaustion: implemented (ADR-216) — 2026-08-24
+Added `mlb_baseball/model/foul_attrition.py`, unit tests in `tests/unit/test_foul_attrition.py`, and `mlb foul-attrition` CLI command.
+- Models multi-foul battle endurance, pitch count escalation per PA, BFAI index, and starter removal acceleration.
+
+### EXT-PERCEIVE-01 pitcher release extension vs plate velocity differential: implemented (ADR-215) — 2026-08-24
+Added `mlb_baseball/model/ext_perceive.py`, unit tests in `tests/unit/test_ext_perceive.py`, and `mlb ext-perceive` CLI command.
+- Evaluates release extension depth, effective perceived velocity boost, reaction compression, and EVER score.
+
+### ATTACK-9X9-01 pure-Python SVG batter 3D attack zone 9x9 matrix: implemented (ADR-214) — 2026-08-24
+Added `AttackZone9x9GridRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb attack-9x9` CLI command.
+- Renders 9x9 fine-grained grid cells (Waste, Chase, Shadow, Heart) with wOBA/Swing/Whiff heatmaps and zone borders.
+
+### ROUTE-BURST-01 outfielder first-step reaction & burst route efficiency: implemented (ADR-213) — 2026-08-24
+Added `mlb_baseball/model/route_burst.py`, unit tests in `tests/unit/test_route_burst.py`, and `mlb route-burst` CLI command.
+- Decomposes outfield jump into reaction time, sprint burst velocity, route efficiency, and BRFEI index.
+
+### PUTAWAY-EXEC-01 pitcher two-strike putaway intent & out-of-zone execution: implemented (ADR-212) — 2026-08-24
+Added `mlb_baseball/model/putaway_exec.py`, unit tests in `tests/unit/test_putaway_exec.py`, and `mlb putaway-exec` CLI command.
+- Models shadow/chase targeting, middle-middle heart avoidance, TSPER score, and putaway run savings.
+
+### PULL-BARREL-01 batter pull-air barrel conversion & true power engine: implemented (ADR-211) — 2026-08-24
+Added `mlb_baseball/model/pull_barrel.py`, unit tests in `tests/unit/test_pull_barrel.py`, and `mlb pull-barrel` CLI command.
+- Evaluates flyball pull rate, pull-side barrel concentration, PABCI score, and surplus home run production.
+
+### RELEASE-BOX-01 pure-Python SVG pitch arsenal release window scatter box visualizer: implemented (ADR-210) — 2026-08-24
+Added `ReleaseWindowBoxRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb release-box` CLI command.
+- Renders multi-pitch release scatter centroids ($X_{\text{rel}}$ vs $Z_{\text{rel}}$) with $1\sigma$ elliptical confidence envelopes.
+
+### CATCH-XCHG-01 catcher quick exchange & pop time decomposition: implemented (ADR-209) — 2026-08-24
+Added `mlb_baseball/model/catch_xchg.py`, unit tests in `tests/unit/test_catch_xchg.py`, and `mlb catch-xchg` CLI command.
+- Evaluates glove transfer duration, pop time decomposition, CEVI index, and stolen base deterrence runs.
+
+### EXP-RESIST-01 batter two-strike expansion resistance & out-of-zone foul engine: implemented (ADR-208) — 2026-08-24
+Added `mlb_baseball/model/exp_resist.py`, unit tests in `tests/unit/test_exp_resist.py`, and `mlb exp-resist` CLI command.
+- Models two-strike chase suppression, out-of-zone contact, TERI score, and extended at-bat run value.
+
+### REL-DRIFT-01 pitcher release point variance & mechanical tell engine: implemented (ADR-207) — 2026-08-24
+Added `mlb_baseball/model/rel_drift.py`, unit tests in `tests/unit/test_rel_drift.py`, and `mlb rel-drift` CLI command.
+- Evaluates 3D spatial release dispersion ($\sigma_{\text{spatial}}$), MCS repeat score, and late-game arm slot drops.
+
+### SPRAY-ROSE-01 pure-Python SVG 3D spray & elevation polar rose visualizer: implemented (ADR-206) — 2026-08-24
+Added `SprayElevationRoseRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb spray-rose` CLI command.
+- Renders directional polar rose wedges (Pull to Oppo) with stacked groundball/linedrive/flyball elevation layers.
+
+### AMBUSH-01 batter first-pitch aggressiveness & early-count ambush value: implemented (ADR-205) — 2026-08-24
+Added `mlb_baseball/model/ambush.py`, unit tests in `tests/unit/test_ambush.py`, and `mlb ambush` CLI command.
+- Evaluates 0-0 count swing selectivity, first-pitch SLG, FPAV index, and FPSV early-count run production.
+
+### VAA-TOZ-01 pitcher vertical approach angle vs top-of-zone whiff deception: implemented (ADR-204) — 2026-08-24
+Added `mlb_baseball/model/vaa_toz.py`, unit tests in `tests/unit/test_vaa_toz.py`, and `mlb vaa-toz` CLI command.
+- Models upper-zone entry angle ($\text{VAA}_{\text{TOZ}}$), flatness index (TOZ-FI), and swing-and-miss multipliers.
+
+### PULL-GB-01 batter pull-side groundball defense & infield positioning: implemented (ADR-203) — 2026-08-24
+Added `mlb_baseball/model/pull_gb.py`, unit tests in `tests/unit/test_pull_gb.py`, and `mlb pull-gb` CLI command.
+- Evaluates pull groundball percentage, optimal infield shading depth, GBTI index, and PDRS runs saved.
+
+### SEPARATION-PLOT-01 pure-Python SVG pitch arsenal velocity & movement separation plot: implemented (ADR-202) — 2026-08-24
+Added `SeparationDiamondPlotRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb separation-plot` CLI command.
+- Renders multi-pitch Cartesian scatter vector SVG of velocity vs IVB with tunneling connection delta rays.
+
+### ARM-ACCURACY-01 outfielder throwing arm accuracy & base-runner freeze index: implemented (ADR-201) — 2026-08-24
+Added `mlb_baseball/model/arm_accuracy.py`, unit tests in `tests/unit/test_arm_accuracy.py`, and `mlb arm-accuracy` CLI command.
+- Evaluates outfield on-target throw accuracy, extra-base hold rates, ASI index, and RFSV runs saved.
+
+### VELO-DELTA-01 pitcher arsenals separation & velocity delta disruption: implemented (ADR-200) — 2026-08-24
+Added `mlb_baseball/model/velo_delta.py`, unit tests in `tests/unit/test_velo_delta.py`, and `mlb velo-delta` CLI command.
+- Models Fastball-to-Changeup speed and IVB drop separation, VDDI index, and whiff boost multipliers.
+
+### BLAST-ANGLE-01 batter contact blast angle & launch window compression: implemented (ADR-199) — 2026-08-24
+Added `mlb_baseball/model/blast_angle.py`, unit tests in `tests/unit/test_blast_angle.py`, and `mlb blast-angle` CLI command.
+- Evaluates launch angle variance ($\sigma_{\text{LA}}$), power corridor rate, LWTS index, and BASD runs saved.
+
+### SPIN-CLOCK-01 pure-Python SVG 12-hour pitch arsenal spin axis clock visualizer: implemented (ADR-198) — 2026-08-24
+Added `SpinAxisClockVisualizerRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb spin-clock` CLI command.
+- Renders 12-hour analog clock dial vector SVG with pitch release tilt vectors and efficiency-scaled rays.
+
+### PIVOT-DP-01 infield double play pivot kinematics & turn efficiency: implemented (ADR-197) — 2026-08-24
+Added `mlb_baseball/model/pivot_dp.py`, unit tests in `tests/unit/test_pivot_dp.py`, and `mlb pivot-dp` CLI command.
+- Models second base pivot turn duration ($t_{\text{turn}}$), relay velocity, DPTI index, and DPTS runs saved.
+
+### TWO-STRIKE-01 batter two-strike approach shortening & choke-up contact: implemented (ADR-196) — 2026-08-24
+Added `mlb_baseball/model/two_strike.py`, unit tests in `tests/unit/test_two_strike.py`, and `mlb two-strike` CLI command.
+- Evaluates two-strike swing shortening ($\Delta L$), whiff suppression ($\Delta \text{Whiff}$), and TSBE index.
+
+### GYRO-SPIN-01 pitcher gyro degree & true spin axis 3D aerodynamics: implemented (ADR-195) — 2026-08-24
+Added `mlb_baseball/model/gyro_spin.py`, unit tests in `tests/unit/test_gyro_spin.py`, and `mlb gyro-spin` CLI command.
+- Evaluates 3D spin vector, gyro angle ($\theta_{\text{gyro}}$), active transverse spin, and bullet slider classification.
+
+### ZONE-SURFACE-01 pure-Python SVG 5x5 strike zone iso-contour heat surface visualizer: implemented (ADR-194) — 2026-08-24
+Added `ZoneSurfaceContourRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb zone-surface` CLI command.
+- Renders 5x5 bilinear gradient heat surfaces of batter slugging, whiff rate, or contact quality across the strike zone.
+
+### CATCHER-POP-01 catcher block-to-throw & dirt ball stolen base prevention: implemented (ADR-193) — 2026-08-24
+Added `mlb_baseball/model/catcher_pop.py`, unit tests in `tests/unit/test_catcher_pop.py`, and `mlb catcher-pop` CLI command.
+- Models secondary pop time, wild pitch suppression, and block-to-throw surplus value (BTSV).
+
+### ARM-SLOT-01 pitcher arm slot angle & release point dispersion: implemented (ADR-192) — 2026-08-24
+Added `mlb_baseball/model/arm_slot.py`, unit tests in `tests/unit/test_arm_slot.py`, and `mlb arm-slot` CLI command.
+- Calculates arm slot angle from vertical and release point consistency score ($\sigma_{\text{release}}$).
+
+### CONTACT-DEPTH-01 batter contact depth & point-of-impact kinematics: implemented (ADR-191) — 2026-08-24
+Added `mlb_baseball/model/contact_depth.py`, unit tests in `tests/unit/test_contact_depth.py`, and `mlb contact-depth` CLI command.
+- Evaluates point-of-impact depth ($y_{\text{contact}}$), velocity-adjusted optimal contact point, and timing efficiency.
+
+### FLIGHT-3D-01 pure-Python SVG 3D isometric pitch flight trajectory visualizer: implemented (ADR-190) — 2026-08-24
+Added `PitchTrajectory3DVisualizerRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb flight-3d` CLI command.
+- Renders 3D isometric pitch flight curves from release rubber to plate crossing plane with multi-pitch tunneling.
+
+### CATCH-PROB-01 defensive outfield 5-star catch probability & OAA: implemented (ADR-189) — 2026-08-24
+Added `mlb_baseball/model/catch_prob.py`, unit tests in `tests/unit/test_catch_prob.py`, and `mlb catch-prob` CLI command.
+- Computes logistic catch probability from opportunity distance, hang time, chase angle, and runner sprint speed.
+
+### VELO-DRIFT-01 starting pitcher fastball velocity drift & arm fatigue: implemented (ADR-188) — 2026-08-24
+Added `mlb_baseball/model/velo_drift.py`, unit tests in `tests/unit/test_velo_drift.py`, and `mlb velo-drift` CLI command.
+- Computes intra-game velocity degradation, FVRI retention index, and late-game HR vulnerability multiplier.
+
+### XSLG-01 batter contact expected slugging & ISO power decomposition: implemented (ADR-187) — 2026-08-24
+Added `mlb_baseball/model/xslg.py`, unit tests in `tests/unit/test_xslg.py`, and `mlb xslg` CLI command.
+- Evaluates 6 Statcast contact quality bins to derive expected slugging ($x\text{SLG}$) and power conversion efficiency (TPCE).
+
+### WPA-REPLAY-01 pure-Python SVG game win probability replay visualizer: implemented (ADR-186) — 2026-08-24
+Added `WinProbabilityReplayRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb wpa-replay` CLI command.
+- Renders full game win expectancy flow charts with highlighted pivotal turning points ($|\Delta \text{WE}| \ge 0.15$).
+
+### BUNT-01 infield bunt defense & short game run prevention engine: implemented (ADR-185) — 2026-08-24
+Added `mlb_baseball/model/bunt.py`, unit tests in `tests/unit/test_bunt.py`, and `mlb bunt` CLI command.
+- Evaluates corner infielder charging kinematics, lead runner kill rate, and net bunt run suppression ($+0.38$ runs/lead out).
+
+### HAA-01 pitcher horizontal approach angle & cross-body deception engine: implemented (ADR-184) — 2026-08-24
+Added `mlb_baseball/model/haa.py`, unit tests in `tests/unit/test_haa.py`, and `mlb haa` CLI command.
+- Calculates horizontal entry slope at home plate (HAA in degrees) and cross-body release deception score.
+
+### PULL-AIR-01 batter pulled-air (FB/LD) power polarization engine: implemented (ADR-183) — 2026-08-24
+Added `mlb_baseball/model/pull_air.py`, unit tests in `tests/unit/test_pull_air.py`, and `mlb pull-air` CLI command.
+- Evaluates Pulled-Air% and Pulled-Air Damage Multiplier (PADM) to quantify pull-side home run efficiency.
+
+### COMPARE-CARD-01 pure-Python SVG batter vs pitcher matchup comparison card: implemented (ADR-182) — 2026-08-24
+Added `MatchupComparisonCardRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb matchup-card` CLI command.
+- Renders side-by-side scouting cards with dual opposing rate metric bars and overall tactical advantage badges.
+
+### IFFB-01 pitcher infield fly ball & automatic out run value engine: implemented (ADR-181) — 2026-08-24
+Added `mlb_baseball/model/iffb.py`, unit tests in `tests/unit/test_iffb.py`, and `mlb iffb` CLI command.
+- Evaluates infield popup generation rate (IFFB%) and quantifies seasonal automatic out run savings ($+0.22$ runs/popup).
+
+### VAA-01 pitcher vertical approach angle & flatness whiff engine: implemented (ADR-180) — 2026-08-24
+Added `mlb_baseball/model/vaa.py`, unit tests in `tests/unit/test_vaa.py`, and `mlb vaa` CLI command.
+- Calculates trajectory entry slope at home plate boundary (VAA in degrees) and evaluates top-of-zone fastball whiff boost.
+
+### BABIP-LUCK-01 batter BABIP expected luck deficit & regression scanner: implemented (ADR-179) — 2026-08-24
+Added `mlb_baseball/model/babip.py`, unit tests in `tests/unit/test_babip.py`, and `mlb babip` CLI command.
+- Calculates trajectory-based expected BABIP (xBABIP) and luck deficit ($\Delta \text{BABIP}$) to identify buy-low / sell-high candidates.
+
+### HEXBIN-01 pure-Python SVG spatial attack zone hexbin visualizer: implemented (ADR-178) — 2026-08-24
+Added `SpatialHexbinVisualizerRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb hexbin` CLI command.
+- Renders 2D strike zone pitch density and spatial cluster maps with rulebook strike zone borders and home plate pentagons.
+
+### WALL-01 outfield wall collision & HR robbery run value engine: implemented (ADR-177) — 2026-08-24
+Added `mlb_baseball/model/wall.py`, unit tests in `tests/unit/test_wall.py`, and `mlb wall` CLI command.
+- Evaluates home run robberies (+1.65 runs), warning track wall catches (+0.75 runs), and wall crash risk penalties.
+
+### PUTAWAY-01 pitcher two-strike put-away & whiff conversion engine: implemented (ADR-176) — 2026-08-24
+Added `mlb_baseball/model/putaway.py`, unit tests in `tests/unit/test_putaway.py`, and `mlb putaway` CLI command.
+- Models 2-strike count conversion efficiency into terminal strikeouts and evaluates Put-Away Surplus Index (PASI).
+
+### SWEETSPOT-01 batter sweet-spot concentration & ideal contact rate engine: implemented (ADR-175) — 2026-08-24
+Added `mlb_baseball/model/sweetspot.py`, unit tests in `tests/unit/test_sweetspot.py`, and `mlb sweetspot` CLI command.
+- Evaluates Sweet-Spot% ($8^\circ-32^\circ$), launch angle variance ($\sigma_{\text{LA}}$), and Ideal Contact Rate (ICR = Hard-Hit $\cap$ Sweet-Spot).
+
+### RE24-MAP-01 pure-Python SVG 24-state base/out run expectancy heatmap: implemented (ADR-174) — 2026-08-24
+Added `RunExpectancyHeatmapRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb re24-heatmap` CLI command.
+- Renders an $8 \times 3$ grid vector SVG matrix heatmap visualizing base occupancy states across 0, 1, and 2 outs with dynamic color intensity.
+
+### POPTIME-01 catcher pop time & caught stealing above average engine: implemented (ADR-173) — 2026-08-24
+Added `mlb_baseball/model/poptime.py`, unit tests in `tests/unit/test_poptime.py`, and `mlb pop-time` CLI command.
+- Evaluates Statcast pop time to 2nd base, exchange mechanics, and Caught Stealing Above Average (CSAA) seasonal run prevention.
+
+### FSTRIKE-01 starting pitcher first-pitch strike surplus valuation engine: implemented (ADR-172) — 2026-08-24
+Added `mlb_baseball/model/fstrike.py`, unit tests in `tests/unit/test_fstrike.py`, and `mlb fstrike` CLI command.
+- Quantifies first-pitch count leverage ($0.068$ runs/PA) and calculates seasonal and per-100-BF First-Pitch Strike Surplus Value (FPSV).
+
+### ZONE-SWING-01 batter in-zone whiff vs chase swing vulnerability matrix: implemented (ADR-171) — 2026-08-24
+Added `mlb_baseball/model/zone_swing.py`, unit tests in `tests/unit/test_zone_swing.py`, and `mlb zone-swing` CLI command.
+- Decomposes plate discipline into Zone Contact Deficit (ZCD) and Chase Efficiency Ratio (CER) across Statcast attack zones.
+
+### FLOW-01 pure-Python SVG inning score flow & lead matrix renderer: implemented (ADR-170) — 2026-08-24
+Added `InningScoreFlowRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb score-flow` CLI command.
+- Renders stepped dual-team cumulative game score progressions with lead change dynamics and inning run callouts.
+
+### ARSENAL-01 pitcher arsenal diversity & count-state game theory optimizer: implemented (ADR-169) — 2026-08-24
+Added `mlb_baseball/model/diversity.py`, unit tests in `tests/unit/test_diversity.py`, and `mlb arsenal` CLI command.
+- Quantifies Gini-Simpson arsenal diversity (ADI) and Shannon entropy across count states to detect pitch predictability.
+
+### ARM-01 defensive outfield arm strength & runner hold engine: implemented (ADR-168) — 2026-08-24
+Added `mlb_baseball/model/arm.py`, unit tests in `tests/unit/test_arm.py`, and `mlb arm` CLI command.
+- Evaluates Statcast throw velocity, transfer exchange kinematics, and extra-base runner hold rates for ARM runs saved.
+
+### CLUTCH-01 batter clutch context & high-leverage split engine: implemented (ADR-167) — 2026-08-24
+Added `mlb_baseball/model/clutch.py`, unit tests in `tests/unit/test_clutch.py`, and `mlb clutch` CLI command.
+- Applies Empirical Bayes regression ($M=600$ PA) to evaluate true-talent high-leverage wOBA deltas and WPA/pLI clutch scores.
+
+### BREAK-PLOT-01 pure-Python SVG pitch arsenal break & movement plotter: implemented (ADR-166) — 2026-08-24
+Added `PitchBreakChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb break-plot` CLI command.
+- Renders 2D Cartesian pitch movement plots (IVB vs HB) with pitch speed tags, crosshairs, and color-coded scatter markers.
+
+### CARRY-01 park-adjusted true environmental carry & ballpark HR scanner: implemented (ADR-165) — 2026-08-24
+Added `mlb_baseball/model/carry.py`, unit tests in `tests/unit/test_carry.py`, and `mlb carry` CLI command.
+- Simulates 30-ballpark outfield wall clearance geometry and altitude distance boosts to evaluate would-be home run counts.
+
+### TTO-01 starting pitcher times-through-the-order degradation engine: implemented (ADR-164) — 2026-08-24
+Added `mlb_baseball/model/tto.py`, unit tests in `tests/unit/test_tto.py`, and `mlb tto` CLI command.
+- Tracks lineup turnover wOBA and K% degradation across 1st/2nd/3rd passes and generates optimal starter hook cutoff rules.
+
+### SPRAY-01 batter pull-side / opposite-field spray power engine: implemented (ADR-163) — 2026-08-24
+Added `mlb_baseball/model/spray.py`, unit tests in `tests/unit/test_spray.py`, and `mlb spray` CLI command.
+- Evaluates 3-field directional spray distributions, pull power concentration (PPC), and spray neutrality index (SNI).
+
+### ODDS-CHART-01 interactive SVG market odds movement & steam visualizer: implemented (ADR-162) — 2026-08-24
+Added `OddsMovementChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb odds-chart` CLI command.
+- Renders pure-Python vector SVG time-series charts visualizing line movement trajectories and sharp steam action markers.
+
+### FATIGUE-01 pitcher acute-to-chronic workload & fatigue risk engine: implemented (ADR-161) — 2026-08-24
+Added `mlb_baseball/model/fatigue.py`, unit tests in `tests/unit/test_fatigue.py`, and `mlb fatigue` CLI command.
+- Models 7d/28d ACWR workload ratios, radar fastball velocity decay, and release point vertical sagging into a composite fatigue risk index.
+
+### BULLPEN-OPT-01 live in-game bullpen managerial optimizer: implemented (ADR-160) — 2026-08-24
+Added `mlb_baseball/model/bullpen_opt.py`, unit tests in `tests/unit/test_bullpen_opt.py`, and `mlb bullpen-opt` CLI command.
+- Optimizes situational bullpen insertion based on leverage index, upcoming batter handedness, and 3-day stamina penalties.
+
+### DAMAGE-01 batter contact quality & damage probability engine: implemented (ADR-159) — 2026-08-24
+Added `mlb_baseball/model/damage.py`, unit tests in `tests/unit/test_damage.py`, and `mlb damage` CLI command.
+- Classifies Statcast launch speed/angle into barrels vs solid contact and computes damage rate and expected damage value.
+
+### RADAR-01 interactive SVG visual radar & arsenal polygon renderer: implemented (ADR-158) — 2026-08-24
+Added `RadarChartRenderer` to `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb radar` CLI command.
+- Renders pure-Python vector SVG multi-axis spider radar charts for player 5-tool evaluations and pitch arsenals.
+
+### SPIN-01 pitched ball gyro spin & spin efficiency decomposer: implemented (ADR-157) — 2026-08-24
+Added `mlb_baseball/model/spin.py`, unit tests in `tests/unit/test_spin.py`, and `mlb spin` CLI command.
+- Decomposes total 3D spin into transverse active spin vs non-Magnus gyro bullet spin and computes spin efficiency $\eta$.
+
+### NRFI-01 first-inning run scored (NRFI / YRFI) probabilistic valuation engine: implemented (ADR-156) — 2026-08-24
+Added `mlb_baseball/model/nrfi.py`, unit tests in `tests/unit/test_nrfi.py`, and `mlb nrfi` CLI command.
+- Models top-of-order run expectancy vs starter Inning 1 ERA to price fair derivative lines and detect market +EV edges.
+
+### PLATOON-01 batter handedness platoon split shrinkage & decay engine: implemented (ADR-155) — 2026-08-24
+Added `mlb_baseball/model/platoon.py`, unit tests in `tests/unit/test_platoon.py`, and `mlb platoon` CLI command.
+- Applies Empirical Bayes regression ($M=1000$ PA) to model true-talent platoon splits and lineup substitution flags.
+
+### LEV-01 bullpen high-leverage win probability preservation & volatility engine: implemented (ADR-154) — 2026-08-24
+Added `mlb_baseball/model/leverage.py`, unit tests in `tests/unit/test_leverage.py`, and `mlb leverage` CLI command.
+- Quantifies closer blown-save volatility index, 1-run lead 9th-inning save conversion probability, and WPA/LI clutch efficiency.
+
+### EXT-01 pitcher physical extension & effective perceived velocity: implemented (ADR-153) — 2026-08-24
+Added `mlb_baseball/model/extension.py`, unit tests in `tests/unit/test_extension.py`, and `mlb extension` CLI command.
+- Translates physical mound stride distance into optical time-to-plate and perceived fastball reaction velocity.
+
+### TUNNEL-01 pitcher arsenals tunneling & Point-of-Commitment trajectory separation: implemented (ADR-152) — 2026-08-24
+Added `mlb_baseball/model/tunnel.py`, unit tests in `tests/unit/test_tunnel.py`, and `mlb tunnel` CLI command.
+- Evaluates 3D release point consistency, trajectory divergence at the 23.8ft decision plane, and late-break whiff multipliers.
+
+### DECISION-01 batter eye tracking & plate discipline swing decision engine: implemented (ADR-151) — 2026-08-24
+Added `mlb_baseball/model/decision.py`, unit tests in `tests/unit/test_decision.py`, and `mlb decision` CLI command.
+- Models 4-zone Statcast swing decision run value (SDV) and categorizes hitters into disciplined sluggers vs vulnerable chasers.
+
+### API-01 interactive REST/JSON query API gateway & endpoint handler: implemented (ADR-150) — 2026-08-24
+Added `mlb_baseball/api.py`, unit tests in `tests/unit/test_api.py`, and `mlb serve-api` CLI command.
+- Standardized REST API endpoints for daily forecasts, doctor health diagnostics, vector SVG charts, and live hedging calculators.
+
+### TRAVEL-01 doubleheader & travel fatigue decay modeler: implemented (ADR-149) — 2026-08-24
+Added `mlb_baseball/model/travel.py`, unit tests in `tests/unit/test_travel.py`, and `mlb travel` CLI command.
+- Models time zone crossing, short rest turnarounds (<14h), and doubleheader Game 2 fatigue degradation on team wOBA and pitching FIP.
+
+### BLOCK-01 catcher blocking, passed ball & wild pitch run value modeler: implemented (ADR-148) — 2026-08-24
+Added `mlb_baseball/model/blocking.py`, unit tests in `tests/unit/test_blocking.py`, and `mlb block` CLI command.
+- Evaluates catcher lateral reach and blocking runs against pitcher dirt-ball frequencies to project passed ball and runner advance costs.
+
+### SSW-01 seam-shifted wake aerodynamic non-Magnus deviation engine: implemented (ADR-147) — 2026-08-24
+Added `mlb_baseball/model/ssw.py`, unit tests in `tests/unit/test_ssw.py`, and `mlb ssw` CLI command.
+- Quantifies seam-shifted wake movement deviations $(\vec{\Delta}_{\text{SSW}})$ from pure spin-based Magnus predictions to model batter visual deception.
+
+### SHOP-01 multi-book odds line shopping & value scanner: implemented (ADR-146) — 2026-08-24
+Added `mlb_baseball/model/shop.py`, unit tests in `tests/unit/test_shop.py`, and `mlb shop` CLI command.
+- Scans multi-book market offerings to isolate best-available price execution, calculate synthetic hold, and flag model +EV opportunities.
+
+### AGE-02 skill-specific aging trajectories & multi-year projections: implemented (ADR-145) — 2026-08-24
+Added `mlb_baseball/model/aging.py`, unit tests in `tests/unit/test_aging.py`, and `mlb aging` CLI command.
+- Models component aging curves (sprint speed, fastball velo decay, power peak, plate wisdom) for 3-year forward forecasting.
+
+### ENTROPY-01 pitch sequencing Shannon entropy & predictability index: implemented (ADR-144) — 2026-08-24
+Added `mlb_baseball/model/entropy.py`, unit tests in `tests/unit/test_entropy.py`, and `mlb entropy` CLI command.
+- Calculates repertoire Shannon entropy $H(X)$ and repetition contact rate penalties for predictable sequence patterns.
+
+### SB-01 dynamic base stealing & pitcher disengagement physics engine: implemented (ADR-143) — 2026-08-24
+Added `mlb_baseball/model/baserunning.py`, unit tests in `tests/unit/test_baserunning.py`, and `mlb steal` CLI command.
+- Evaluates physical race timing (sprint speed & jump vs delivery & pop time), disengagement rules, and 24-state run expectancy breakeven.
+
+### CRON-01 scheduled daily automation daemon & cache warmer: implemented (ADR-142) — 2026-08-24
+Added `mlb_baseball/daemon.py`, unit tests in `tests/unit/test_daemon.py`, and `mlb daemon` CLI command.
+- Orchestrates daily 8-phase forecasting cycle, warms PostgreSQL analytical serving views, and bakes static vector SVG charts.
+
+### SUB-01 late-inning tactical pinch-hit & substitution simulator: implemented (ADR-141) — 2026-08-24
+Added `mlb_baseball/model/sub.py`, unit tests in `tests/unit/test_sub.py`, and `mlb sub` CLI command.
+- Simulates manager late-inning pinch-hit decisions ($Inning \ge 7, LI \ge 1.2$) to optimize platoon wOBA gains from the bench.
+
+### SHIFT-01 defensive alignment & batted ball spray suppression: implemented (ADR-140) — 2026-08-24
+Added `mlb_baseball/model/shift.py`, unit tests in `tests/unit/test_shift.py`, and `mlb shift` CLI command.
+- Evaluates batter pull-rate distributions against defensive schemes (Standard, Shaded Pull, Infield In, Outfield Deep) and team OAA BABIP suppression.
+
+### COUNT-01 pitch sequencing & count state Markov engine: implemented (ADR-139) — 2026-08-24
+Added `mlb_baseball/model/count.py`, unit tests in `tests/unit/test_count.py`, and `mlb count` CLI command.
+- Models 12 count states ($0\text{-}0 \rightarrow 3\text{-}2$) with count-dependent pitch selection shifts, whiff jumps, and terminal absorption.
+
+### BULLPEN-01 dynamic bullpen fatigue decay & hierarchy simulator: implemented (ADR-138) — 2026-08-24
+Added `mlb_baseball/model/reliever.py`, unit tests in `tests/unit/test_reliever.py`, and `mlb bullpen` CLI command.
+- Tracks 3-day pitch fatigue accumulation with back-to-back penalties, classifies arm availability (Fresh/Fatigued/Unavailable), and models manager leverage hierarchies.
+
+### WEATHER-01 stadium 3D vector wind & micro-climate physics engine: implemented (ADR-137) — 2026-08-24
+Added `mlb_baseball/model/weather.py`, unit tests in `tests/unit/test_weather.py`, and `mlb weather` CLI command.
+- Projects meteorological wind into stadium azimuth tailwind/crosswind vectors and calculates Alan Nathan ADI environmental distance multipliers.
+
+### UMP-01 individual umpire strike zone & run bias modeler: implemented (ADR-136) — 2026-08-24
+Added `mlb_baseball/model/umpire.py`, unit tests in `tests/unit/test_umpire.py`, and `mlb umpire` CLI command.
+- Quantifies horizontal zone expansion/contraction, empirical game total run impacts ($\Delta R_{\text{ump}}$), and starter K multipliers.
+
+### BVP-01 batter vs pitcher empirical Bayes shrinkage & arsenal interaction: implemented (ADR-135) — 2026-08-24
+Added `mlb_baseball/model/bvp.py`, unit tests in `tests/unit/test_bvp.py`, and `mlb bvp` CLI command.
+- Regresses small-sample head-to-head records toward Log5 platoon priors ($M=350$) and computes pitch-mix run value synergies.
+
+### HEDGE-01 live in-game hedging & middle betting engine: implemented (ADR-134) — 2026-08-24
+Added `mlb_baseball/model/hedge.py`, unit tests in `tests/unit/test_hedge.py`, and `mlb hedge` CLI command.
+- Quantifies guaranteed-profit live hedging ($S_2 = S_1 \cdot O_1 / O_2$), free-roll upside locks, and spread/total middle corridors.
+
+### DUMP-01 player analytical dossier & JSON/CSV data dump engine: implemented (ADR-133) — 2026-08-24
+Added `mlb_baseball/dump.py`, unit tests in `tests/unit/test_dump.py`, and `mlb dump` CLI command.
+- Serializes complete multi-table player dossiers (stats, projections, Stuff+, 9-grid whiff maps) into JSON and flat CSV tables.
+
+### CLUSTER-01 player archetype, pitcher similarity & whiff clustering: implemented (ADR-132) — 2026-08-24
+Added `mlb_baseball/model/cluster.py`, unit tests in `tests/unit/test_cluster.py`, and `mlb cluster` CLI command.
+- Pitcher physical fingerprinting and weighted similarity comps: $	ext{Sim} = 100 \cdot \exp(-d / 1.5)$.
+- Batter 9-quadrant zone whiff vulnerability profiler.
+
+### VISUAL-01 visual asset & vector chart generation engine: implemented (ADR-131) — 2026-08-24
+Added `mlb_baseball/visual.py`, unit tests in `tests/unit/test_visual.py`, and `mlb visual` CLI command.
+- Pure-Python zero-dependency SVG vector chart renderers: Strike Zone KDE Heatmaps, Diamond Spray Charts, and Win Expectancy Worm Graphs.
+
+### PIPE-02 master end-to-end quantitative daily pipeline: implemented (ADR-130) — 2026-08-24
+Added `mlb_baseball/pipeline.py`, unit tests in `tests/unit/test_pipeline.py`, and `mlb pipeline` CLI command.
+- Orchestrates full 8-phase daily forecasting cycle: Health Preflight, Stacking, Stuff+, KDE Heatmaps, SGP Copula, Drift Verification, Kelly Risk Allocation, and Dossier Export.
+
+### SERVE-03 deep modeling analytical serving views: implemented (ADR-129) — 2026-08-24
+Added migration `migrations/0081_deep_modeling_serving_views.sql` and unit tests in `tests/unit/test_serve_views.py`.
+- Fast, read-only analytical marts (`serve.pitcher_arsenal`, `serve.sgp_matchup_grid`, `serve.batted_ball_profile`) pre-joining pitch physics, SGP candidates, and Statcast contact metrics.
+
+### NEURAL-01 hierarchical neural sequence & tree-residual combiner: implemented (ADR-128) — 2026-08-24
+Added `mlb_baseball/model/neural.py`, unit tests in `tests/unit/test_neural.py`, and `mlb neural` CLI command.
+- Low-dimensional categorical entity embeddings for Pitchers, Teams, and Venues combined with tree priors: $P = \sigma(	ext{logit}(P_{\text{tree}}) + \Delta_{\text{MLP}})$.
+- High-performance vectorized tensor execution with zero external runtime crash risk.
+
+### HEATMAP-01 2D strike zone KDE & spatial spray coordinate engine: implemented (ADR-127) — 2026-08-24
+Added `mlb_baseball/model/heatmap.py`, unit tests in `tests/unit/test_heatmap.py`, and `mlb heatmap` CLI command.
+- Bivariate Gaussian Kernel Density Estimation over plate $(x, z)$ coordinates with Silverman's adaptive bandwidth rule.
+- Statcast 4-region attack zone partitioning (Heart, Shadow, Chase, Waste) and ballistic diamond field landing kinematics.
+
+### STUFF-01 pitch physics & Stuff+/Location+/Pitching+ rating engine: implemented (ADR-126) — 2026-08-24
+Added `mlb_baseball/model/stuff.py`, unit tests in `tests/unit/test_stuff.py`, and `mlb stuff` CLI command.
+- Aerodynamic trajectory physics modeling velocity delta ($\Delta v$), Induced Vertical Break (IVB), horizontal break, release extension, and approach angles.
+- 100-indexed Stuff+, Location+, and composite Pitching+ scores with usage-weighted repertoire aggregation.
+
+### PARLAY-01 correlated same-game parlay copula engine & joint simulation: implemented (ADR-125) — 2026-08-24
+Added `mlb_baseball/model/parlay.py`, unit tests in `tests/unit/test_parlay.py`, and `mlb parlay` CLI command.
+- Evaluates multi-level correlations across moneylines, totals, team totals, and pitcher strikeout props via multivariate Gaussian copula Monte Carlo simulation.
+- Quantifies joint probability $\hat{P}_{\text{joint}}$, independent probability $\prod P(L_m)$, and correlation multiplier $
+ho_{\text{mult}} = \hat{P}_{\text{joint}} / \prod P(L_m)$.
+- Identifies +EV parlay structures where sportsbooks underprice positive correlation synergies.
+
+### DRIFT-01 continuous model drift & calibration tracking monitor: implemented (ADR-124) — 2026-08-24
+Added `mlb_baseball/model/drift.py`, unit tests in `tests/unit/test_drift.py`, and `mlb drift` CLI command.
+- Evaluates sliding $W$-game chronological windows computing Expected Calibration Error (ECE), Max Calibration Error (MCE), and Brier Skill Score (BSS).
+- Tracks Platt confidence slope ($lpha$) and HFA intercept ($eta$) to detect model overconfidence ($lpha < 0.50$), underconfidence ($lpha > 2.00$), and home-field bias shifts.
+- Integrated into `mlb doctor` preflight checks.
+
+### SERVE-02 analytical serving marts for standings & matchup dossiers: implemented (ADR-123) — 2026-08-24
+Added migration `migrations/0080_ros_and_stacked_serving_views.sql` and unit tests in `tests/unit/test_serve_views.py`.
+- Created read-only analytical marts `serve.ros_team_standings` and `serve.matchup_dossier` pre-joining pitcher pitch movement, attack zones, park factors, air density index, and latest model ensemble predictions.
+- Enables sub-10ms web and API rendering with strict point-in-time temporal correctness.
+
+### STACK-02 Bayesian constrained ensemble stacking & convex simplex meta-learner: implemented (ADR-122) — 2026-08-24
+Added `mlb_baseball/model/stack.py`, unit tests in `tests/unit/test_stack_formula.py`, and `mlb stack` CLI command.
+- Implements non-negative quadratic programming on the probability simplex ($w_k \ge 0, \sum w_k = 1.0$) with Dirichlet shrinkage ($\lambda = 0.05$).
+- Blends Log5, Elo, GBM-v2, and prediction market probabilities with zero negative model leverage and dynamic missing-signal re-normalization.
+
+### EXPORT-01 polymorphic research dossier & multi-format document exporter: implemented (ADR-121) — 2026-08-24
+Added `mlb_baseball/export.py`, unit tests in `tests/unit/test_export.py`, and `mlb export` CLI command.
+- Open-closed component architecture with `BaseDocumentRenderer` protocol rendering across Markdown, ANSI Terminal, Semantic HTML, and JSON.
+
+### ROS-01 dynamic rest-of-season Monte Carlo & playoff odds engine: implemented (ADR-120) — 2026-08-24
+Added `mlb_baseball/model/ros.py`, unit tests in `tests/unit/test_ros.py`, and `mlb ros` CLI command.
+- Point-in-time in-season standings ingestion, Empirical Bayes shrinkage ($w = \frac{N}{N+60}$), division clinch Magic Number calculation ($	ext{MN} = \max(0, 163 - W_{\text{leader}} - L_{\text{trailer}})$), and 12-team postseason tournament simulation.
+
 ### BSR-01 stolen-base run value (wSB): implemented, admission queue — 2026-08-20
 
 Added `mlb_baseball/model/bsr.py` (`compute()`/`health_check()`),

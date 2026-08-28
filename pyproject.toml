@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "hypothesis>=6.0",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6",
@@ -57,6 +58,16 @@ testpaths = ["tests"]
 # in tests/conftest.py (falling back to "localhost" / getpass.getuser()),
 # not hardcoded here -- a hardcoded postgresql_user would be one specific
 # contributor's OS username, which breaks for everyone else.
+#
+# --import-mode=importlib: tests/unit/ and tests/integration/ have no
+# __init__.py files, so pytest's default "prepend" import mode can't
+# distinguish two test files that share a basename in different
+# directories (e.g. tests/unit/test_doctor.py vs.
+# tests/integration/test_doctor.py) -- running the full suite in one
+# invocation hits a real "import file mismatch" collection error.
+# importlib mode is pytest's own documented fix for this, and needs no
+# __init__.py files: https://docs.pytest.org/en/stable/explanation/pythonpath.html
+addopts = ["--import-mode=importlib"]
 
 [tool.mypy]
 files = ["mlb_baseball"]

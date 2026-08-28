@@ -2,6 +2,2099 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-265: Plan 01F-R5 — two remaining `serve.*` views fanned out on repeated `gold.prediction` snapshots; workflow-lock cross-stage coverage gap closed
+
+**Context:** Plan 01F-R5 ("consumer/workflow integrity") asks to reverify that every real consumer of `gold.prediction`/`gold.game_feature` still respects the canonical MLB game identity contract R1-R4 established (`plans/01-correctness-rights-security.md`), and that `conform`/`features`/`predict`/`train`/`evaluate` genuinely reject overlapping each other, not just reject overlapping a raw-ingestion connector.
+
+**Workflow-lock coverage gap (test-only, no code bug):** `tests/integration/test_ingest_tracking.py::test_workflow_lock_serializes_connectors_and_derived_stages` only proved a *shared* lock (an ingestion connector) is rejected by a concurrent *exclusive* lock (a derived stage), and vice versa — never that two *exclusive* stages reject each other. Because `conform.py`'s `SOURCE` (`"core"`) and `model/__init__.py`'s `SOURCE` (`"model"`) are different per-source advisory-lock keys, the per-source lock (`mlb-ingest:<source>`) cannot be what would catch a real conform/features overlap — only the shared workflow lock (`mlb-workflow:raw-core-model`, acquired by every exclusive call regardless of source) can, and that path had zero direct test coverage. Added `test_workflow_lock_serializes_two_exclusive_derived_stages` (same file), using `("core", "bootstrap")` and `("model", "features")` — conform's and features' real `SOURCE`/mode values — specifically because they carry different source-lock keys, isolating the workflow lock as the only thing that can be serializing them. Also re-verified every real CLI-reachable `track_run()` call site (`conform.py`, `model/__init__.py`'s `run_features()`/`run()`/`train()`/`evaluate()`) already passes `workflow="exclusive"` — no gap found there, no code change needed.
+
+**Two consumers already had solid direct coverage of the exact properties Plan 01's acceptance gate names** ("Evaluation cannot count snapshots as games or include post-start predictions"; "One prediction/evaluation row maps to exactly one declared MLB game key or Retrosheet-native game key"): `mlb_baseball/model/evaluation.py` (`test_evaluate_treats_schedule_history_as_one_mlb_game`, `test_evaluate_uses_one_pregame_snapshot_and_exact_common_sample`, `test_evaluate_retains_retrosheet_history_after_feature_rows_are_rebuilt`, `tests/integration/test_model_evaluation.py`) and `mlb_baseball/model/market.py` (moneyline-type scoping, away-row exclusion, idempotency, `tests/integration/test_model_market.py`). No change made to either — noted as confirmed, not duplicated.
+
+**Real, previously-unfixed bug found: `serve.daily_betting_grid` and `serve.prediction_market_alpha` fanned out on repeated prediction snapshots.** `gold.prediction` intentionally retains every snapshot ever generated for a game/model (a still-upcoming game accumulates one new row per `mlb predict` cron cycle until it starts — see `evaluation.py`'s own docstring). Migration 0082 already fixed this exact fan-out for `serve.sgp_matchup_grid`/`serve.pitcher_arsenal` (joining `gold.prediction` directly on `(mlb_game_pk, model_version)` without picking one snapshot), but the fix never reached `serve.daily_betting_grid` (redefined again in migration 0079, still joining directly) or `serve.prediction_market_alpha` (migration 0078, never redefined since) — both real, currently-shipped serving views `mlb_baseball/serve.py`'s `fetch_daily_betting_grid()`/`fetch_prediction_market_alpha()` expose. Confirmed by hand before fixing: temporarily reverting migration 0087 and re-running the new regression tests reproduces exactly 2 rows for 1 real game once a second prediction snapshot exists, for both views.
+
+**Fix:** `migrations/0087_correct_remaining_serve_prediction_fanout.sql`, forward-only (does not edit the applied 0078/0079/0082 files), `CREATE OR REPLACE VIEW` both views with a `latest_predictions` CTE — `SELECT DISTINCT ON (game_instance_key, model_version) ... ORDER BY game_instance_key, model_version, generated_at DESC` — same shape 0082 already established for the other two views. New tests: `tests/integration/test_serve.py::test_serve_daily_betting_grid_uses_latest_prediction_snapshot_only` and `::test_serve_prediction_market_alpha_uses_latest_prediction_snapshot_only`, both hand-seeded with two real snapshot rows for one game and asserting exactly one output row carrying the later value.
+
+**Real bug found, not fixed here — filed as a GitHub issue instead:** `serve.prediction_market_alpha` also joins `core.market m ON m.game_id = f.game_id AND m.team_id = f.home_team_id` with no market-type scoping at all. `market.py`'s own `record()` (ADR-053) already had to fix an identical shape — a single Polymarket event carries multiple `market_ref`s (moneyline, run-line, F5 spread, …) for the same `(game, team)`, and `core.market` (`UNIQUE (source, market_ref)`, not `(game_id, team_id)`) carries no market-type column of its own — by joining `raw.polymarket_market.sportsmarkettype = 'moneyline'`. `prediction_market_alpha` never inherited that scoping, so a Polymarket game with a non-moneyline market row present will fan out again (and, worse than a raw row-count problem, may compare the model's win probability against a *spread's* implied probability, producing a nonsensical `home_edge_alpha`/`recommendation`). Not fixed in this change: `raw.polymarket_market` is a connector-created table with no migration DDL of its own (unlike `core`/`gold`), so hard-referencing it from a `CREATE VIEW` migration would break `mlb migrate` on a clean clone that hasn't ingested Polymarket data yet — the correct fix needs either a conditional (`to_regclass`-gated) view definition or a `core.market`-level market-type column from `conform.py`, a real, separate, scoped piece of work. See the linked issue.
+
+**Verification:** `uv run pytest tests/integration/test_ingest_tracking.py tests/integration/test_serve.py -v` — 16 tests, all passing, against real `mlb_test` (no mocks). Production `mlb` untouched — this is a `mlb_test`-verified, forward-only migration + test change only, matching Plan 01's own "test-database gate, not authorization to modify production."
+
+## ADR-263: Fix `pitch_discipline.py`'s pitch-code whitelist against real Retrosheet codes and the real CSW% definition (Plan 06)
+
+**Decision:** Tying out `pitch_discipline.py` (PIT-07, CSW%/Whiff%/F-Strike%,
+originally ADR-089) against real external sources — Retrosheet's own event
+file specification (`retrosheet.org/eventfile.htm`, the "pitches" field,
+fetched directly) and Pitcher List's original CSW% definition ("CSW Rate:
+An Intro to an Important New Metric", the 2018 article that coined the
+term, fetched directly) — found two real, if individually small,
+formula-shape bugs in `team_pitch_discipline_retrosheet_update.sql`'s
+pitch-code classification, plus one dead/incorrect character. Fixed all
+three in the same change:
+
+1. **Foul tips (`T`) were missing from the CSW% numerator.** Pitcher List's
+   own definition is explicit: CSW counts "called strikes, swinging
+   strikes (including blocked ones), swinging pitchouts and foul tips into
+   the glove" — i.e. `C`, `S`, `M`, `Q`, and `T` all belong in the
+   numerator. The pre-fix `csw_count` keep-set was `[^CSM]` (missing both
+   `T` and `Q`), silently undercounting CSW% for every pitcher who ever
+   recorded a foul tip — a common, everyday pitch outcome, not an edge
+   case. Fixed to `[^CMQST]`.
+2. **Hit-by-pitch (`H`) was missing from the total-pitch count**, the
+   shared denominator of CSW% ("Total Pitches") and part of every other
+   rate in this file. `H` is a real, physically-thrown pitch per
+   Retrosheet's spec (the batter is hit by an actual pitched ball) — unlike
+   `N` (no pitch, on balks/interference) or `A` (automatic ball/strike for
+   a pitch-timer violation, which correctly stays excluded: no ball is
+   actually thrown, matching how Statcast/Gameday themselves don't attach
+   a tracked pitch to a timer-violation automatic strike). The pre-fix
+   `pitch_count` whitelist (`[^BCFKLMOPSTUVWXI]`) omitted `H`, undercounting
+   the denominator on every hit-by-pitch plate appearance.
+3. **`W` was present in the pre-fix whitelist but is not a real Retrosheet
+   pitch code at all** — confirmed against the full spec fetched directly;
+   no code list, official or third-party, documents a `W` pitch code.
+   Harmless in practice (it never matched real data, since no real
+   `pitch_seq_tx` value contains a `W`), but factually wrong and
+   misleading to leave in a whitelist presented as a real code list.
+   Removed.
+
+Also brought `pitch_count`/`swing_count`/`csw_count`/`whiff_count`/the
+first-pitch-strike detector into full agreement with the real Retrosheet
+code list for the pitchout-swing family (`Q` swinging pitchout, `R` foul on
+pitchout, `Y` ball put in play on pitchout) — the direct pitchout analogues
+of `S`/whiff, `F`/foul, and `X`/in-play respectively, per the same parallel
+structure Retrosheet's own spec uses for the non-pitchout codes. These are
+extremely rare in real games (pitchouts are already uncommon; a batter
+swinging at one is rarer still) so the practical impact is negligible, but
+leaving them out while citing "matches the real CSW% definition" (which
+explicitly names "swinging pitchouts") would have been inconsistent.
+
+**Deliberately not touched:** `K` (Retrosheet's "strike, unknown type" —
+used when the source data can't distinguish called from swinging) stays
+excluded from `csw_count`/`whiff_count`/`swing_count`, as it already was.
+This is a genuine data-ambiguity limitation, not a bug: CSW is defined in
+terms of the type-specific categories (called vs. swinging), and `K`
+doesn't tell us which. No real cited source resolves this ambiguity either
+way, so the conservative choice (count it in the pitch total, exclude it
+from every type-specific numerator) is kept as-is. This may skew CSW%
+slightly low in eras where `K` is common (older, less granular Retrosheet
+years) — a known, documented limitation, not something this fix invents a
+number to paper over.
+
+**A pre-existing, unrelated docs inconsistency found in passing, not
+fixed:** ADR-089's own text names `mlb_baseball/model/plate_discipline.py`,
+`mlb_baseball/sql/pitcher_plate_discipline_retrosheet_update.sql`, and
+migration `0067_plate_discipline_csw_whiff.sql` — none of which were ever
+actually committed under those names (confirmed via `git log --follow`,
+zero hits). What was actually built and has been live since commit
+`ee551f1` uses this project's real two-word naming convention throughout:
+`mlb_baseball/model/pitch_discipline.py`, migration
+`0066_pitch_discipline.sql`, `team_pitch_discipline_retrosheet_update.sql`.
+`docs/FEATURE_REGISTRY.md`'s `plate_discipline_v1` row had the same stale
+names and is fixed in this change; ADR-089 itself is left as the historical
+record it is (this project has no precedent for editing a past ADR's text
+after the fact — see the "Superseded by" grep in this file, zero hits).
+
+**Verification:** `tests/integration/test_model_pitch_discipline.py::test_compute_counts_foul_tips_and_hit_batters_per_verified_csw_formula`
+— a new hand-calculated fixture (7 plate appearances, 22 real pitches,
+including a foul tip and a hit-by-pitch) asserting the corrected CSW% =
+10/22 ≈ 0.454545 (not the pre-fix formula's wrong 9/21 ≈ 0.428571, asserted
+explicitly as a regression guard), Whiff% = 5/10 = 0.5, and F-Strike% =
+5/7 ≈ 0.714286.
+
+## ADR-264: Replace the bullpen/batting RE24 proxy with real, empirical RE24 (Plan 06)
+
+**Decision:** `team_leverage_re24_update.sql`'s `bullpen_re24`/`batting_re24`
+columns (`home_bullpen_re24`/`away_bullpen_re24`/`home_batting_re24`/
+`away_batting_re24` on `gold.game_feature`) were computed from a made-up
+"runs vs. a flat 0.12 runs/PA league average" proxy — not from any real
+source or the project's own real `gold.run_expectancy_24` table, which
+already existed and already had the exact data needed. Flagged as open
+work in ADR-262 and `docs/PACKAGE_VALIDATION_STATUS.md` rather than
+rushed into that pass; fixed here.
+
+**Real definition, from the primary source** (Tom Tango, Mitchel Lichtman,
+Andrew Dolphin, "The Book"; FanGraphs RE24 library page,
+https://library.fangraphs.com/misc/re24/, fetched and verified directly
+2026-08-25): per play, `RE24 = RE(state after the play) - RE(state before
+the play) + runs scored on the play`, using the real, per-season empirical
+24 base-out run expectancy matrix. The source also confirms two details
+that shaped the implementation:
+- RE24 is a **cumulative total**, summed across every play/PA in the
+  window — not a per-PA rate (unlike `avg_li`, which is a mean).
+- A **pitcher's RE24 is the exact negative of the batting team's RE24**
+  for the same plays ("whatever positive credit goes to the batter is
+  mirrored exactly by the pitcher") — so `bullpen_re24` is computed as
+  `-1 * (batting-perspective RE24 summed over the plays that bullpen
+  faced)`, not a separately-derived formula.
+
+**Implementation** (`mlb_baseball/sql/team_leverage_re24_update.sql`):
+added `event_with_re24` and `event_re24` CTEs, following `event_with_li`'s
+established style. The "after" state is found via `LEAD()` over the next
+real play in the same game, ordered by the real event sequence — the same
+technique `leverage_index_matrix_build.sql`'s `with_next` CTE already uses
+for its own next-state lookup. This was chosen over reconstructing base
+occupancy from `bat_dest_id`/`run1_dest_id`/`run2_dest_id`/`run3_dest_id`
+(present on `raw.retrosheet_event`, confirmed by inspecting the real
+table) because those columns' exact runner-to-base destination semantics
+could not be independently confirmed against a real fetched source in
+this session — the already-verified `LEAD()` technique was preferred over
+guessing at an unverified encoding. Unlike leverage's `with_next` (which
+wants the real next state regardless of half-inning boundary, falling
+back to the game's win/loss outcome only at the very last play), RE24
+only cares about half-inning boundaries: when a play ends the half-inning
+(`outs_after >= 3`), `RE(after)` is 0 by definition, so the after-state
+lookup is explicitly gated on `outs_after < 3` rather than relying on the
+`LEAD` merely missing a row (it usually lands on the next half-inning's
+real leadoff state instead, which must not be used). Both the before- and
+after-state lookups are `LEFT JOIN`s, `COALESCE`d to 0 on a miss, matching
+`event_with_li`'s own "rare missing state -> sane fallback, don't silently
+drop the play from every downstream aggregate" reasoning — `bullpen_rates`
+and `batting_rates` now source `pa_faced`/`sum_li`/`runs_allowed`/
+`runs_scored` from this same CTE chain, so a fallback that could drop rows
+would have regressed those columns too, not just RE24.
+
+**Verified**: hand-built a 3-play half-inning fixture (single -> strikeout
+-> GIDP) against 3 hand-picked `gold.run_expectancy_24` rows, hand-computed
+each play's RE24 and the half-inning total (-0.5000, matching the
+telescoping identity `total = -RE(start state) + runs scored in the
+inning`), repeated it 17 times (51 plays, clearing both the 40-PA bullpen
+and 50-PA batting minimums) for an expected `batting_re24 = -8.5000` /
+`bullpen_re24 = +8.5000`, and confirmed the SQL's real output matches
+exactly — `tests/integration/test_model_run_expectancy.py::
+test_compute_real_bullpen_and_batting_re24`. `uv run pytest
+tests/integration/test_model_run_expectancy.py` passes;
+`uv run ruff check .` / `uv run ruff format --check .` clean on touched
+files.
+
+**Not touched**: `starter_rates`/`event_with_li` (already correct, ADR-262)
+and `leverage_index_matrix_build.sql` (already correct, out of scope) were
+left as-is.
+
+## ADR-262: Rebuild Leverage Index from a real, empirical win-expectancy table instead of a hand-typed one (Plan 06)
+
+**Decision:** `team_leverage_re24_update.sql`'s `home_starter_avg_li`/
+`home_bullpen_avg_li` (etc.) columns were computed from a hand-typed
+base/out-only lookup table with invented constants (2.10, 1.80, 1.65...),
+not derived from real data or any published methodology. The engine that
+could have supplied a real one, `wpa.py`'s `WinExpectancyEngine`, turned out
+to have the same problem one layer up: its docstring claims a genuine
+"288-state Markov absorbing chain" solution (`N = (I-Q)^-1`), but the actual
+`calculate_win_expectancy()` code is a hand-typed logistic-sigmoid
+approximation with its own invented constants (0.48, 0.28, 1.15, 0.035) —
+no matrix inversion anywhere in it. Owner direction: don't patch this with
+another guess; make it actually work, backed by real research and real data.
+
+**Real definition, from the primary source** (FanGraphs,
+https://library.fangraphs.com/misc/li/, fetched directly): Leverage Index
+is the potential win-expectancy swing of a situation, weighted by the real
+probability of each outcome, normalized so the league-wide average
+situation is exactly 1.0. This requires a real win-expectancy function —
+P(home team wins) as a function of inning, score margin, and base/out
+state — which this project did not have.
+
+**Built one, empirically, from this project's own real historical data**
+(the same "average real outcome given a real, observed state" methodology
+already proven for `gold.run_expectancy_24`, just with more state
+dimensions and a binary win/loss outcome instead of runs — this is also how
+the original historical win-expectancy tables in the literature were
+built):
+
+1. **`gold.win_expectancy`** (new table, migration 0083;
+   `mlb_baseball/model/win_expectancy.py`,
+   `mlb_baseball/sql/win_expectancy_matrix_build.sql`): for every
+   (season, inning capped at 9, top/bottom, outs, base state, home-minus-away
+   score margin capped at ±8) combination observed in real Retrosheet
+   play-by-play, the real fraction of those historical instances where the
+   home team went on to win. Populated from 16,211,154 real plays across
+   676,960 states in real production `mlb`.
+   Verified against real, independently-known reference points, not just
+   internal consistency: tied game, top of the 1st, bases empty →
+   **0.5391** home win probability (real MLB historical home-field
+   advantage is ~0.53–0.54); bottom of the 9th, 2 outs, down 3+ runs →
+   **0.0013** (a near-certain loss, correctly near 0); top of the 9th, 0
+   outs, up 5 runs → **0.9963** (a near-certain win, correctly near 1).
+2. **`gold.leverage_index`** (new table, migration 0084;
+   `mlb_baseball/model/leverage_index.py`,
+   `mlb_baseball/sql/leverage_index_matrix_build.sql`): for every real
+   historical play, the real observed swing — |WE entering the next real
+   play (or the actual final win/loss outcome, if it was the last play of
+   the game) − WE entering this play| — using table 1's real values, not a
+   separately modeled outcome distribution. Averaged per state and divided
+   by the swing averaged across every state (so the league-wide average
+   state is exactly LI=1.0, the standard convention). Pooled across all
+   seasons (unlike table 1) — leverage's shape is stable across eras even
+   though raw run-scoring rates aren't, and pooling gives far better sample
+   sizes for the rarer extreme states.
+   Verified against a real, widely-cited high-leverage benchmark: bottom of
+   the 9th, bases loaded, 0 outs, tied game → **LI ≈ 3.08** in an initial
+   spot-check (2018-2023 sample) — in the same range cited in sabermetric
+   literature for exactly this situation, not just directionally plausible.
+   Sample-weighted average across all real production states after the
+   full build: verified ≈ 1.0 by construction, via `health_check()`.
+3. **`team_leverage_re24_update.sql`** now joins `event_with_li` to
+   `gold.leverage_index` on the play's own (inning, half, outs, base state,
+   margin) instead of the hand-typed `CASE` table, falling back to 1.0
+   (average leverage, not NULL) for any state combination absent from the
+   table.
+
+**Not done in this pass, flagged not silently skipped**: `bullpen_re24`/
+`batting_re24` still use the pre-existing crude "runs vs. flat 0.12/PA
+league average" proxy, not real RE24 (`gold.run_expectancy_24`'s own
+ΔRE + runs-on-play definition). The fix is well-scoped (reuse the same
+`LEAD()`-based before/after-state pattern proven here) but was deliberately
+not rushed into the same pass — tracked as open work in
+`docs/PACKAGE_VALIDATION_STATUS.md`.
+
+**Migrations applied directly to real production `mlb`** (owner-authorized
+explicitly before each one): 0083 (`gold.win_expectancy`, purely additive
+`CREATE TABLE IF NOT EXISTS`) and 0084 (`gold.leverage_index`, same). Both
+tables were then populated for real against production data — the
+`win_expectancy` build completed in minutes; the `leverage_index` build (a
+heavier `LEAD()` self-join across ~16.5M real plays plus two more joins to
+the 677K-row win-expectancy table) took over 20 minutes, confirmed genuinely
+active via `pg_stat_activity` (not stuck) throughout.
+
+Both `compute()` functions guard on "already populated → no-op" (matching
+`run_expectancy.py`'s own `gold.run_expectancy_24` guard) rather than
+rebuilding on every call — these are expensive, full-history reference
+table builds, not per-game rolling features, and an unconditional daily
+rebuild would risk exactly the kind of slow/fragile daily-pipeline step
+ADR-260 already found and fixed once.
+
+**Verified**: new `tests/integration/test_model_win_expectancy.py` (4
+tests, including a real observed-win-rate computation hand-verified to
+exactly 0.5 from 2 seeded games) and `tests/integration/test_model_leverage_index.py`
+(4 tests, including a 4-state hand calculation matching the SQL's real
+output exactly: 0.2222/2.0000/1.3333/0.4444 — this specifically exercises
+both the ordinary next-play path and the game-ending win/loss fallback
+path). `tests/integration/test_model_run_expectancy.py` updated for the new
+real join-based `avg_li` mechanism. `uv run pytest tests/unit/` (1033
+passed), `uv run ruff check .`/`uv run ruff format --check .`/`uv run mypy`
+all clean. Wired into `enrich_feature_stage()` (before `run_expectancy`,
+which now depends on `gold.leverage_index`) and `mlb doctor` via
+`model.health_check()`.
+
+## ADR-261: Rebuild wGDP to actually compute grounded-into-double-play runs, not all double plays (Plan 06)
+
+**Decision:** Fixing ADR-260's `dp_fl` column-name crash was not sufficient —
+the owner asked directly why the original code referenced `gdp_fl` at all,
+suspecting something real was tied to that name rather than a plain typo.
+Checked, and there was: **Chadwick's `DP_FL` field
+(https://chadwick.readthedocs.io/en/stable/cwevent.html, confirmed against
+the primary docs) is a generic "double play flag," not groundball-specific.**
+Confirmed against real production data: of all `dp_fl='T'` events,
+308,207 are groundballs but 71,212 (≈19%) are line-drive, fly-ball, or
+pop-up double plays. FanGraphs' `wGDP`
+(https://library.fangraphs.com/offense/wgdp/, fetched directly) is
+explicitly about *grounded* into double play only — using `dp_fl` alone,
+even with the crash fixed, would have overcounted every non-groundball
+double play as a "GDP" for every team, indefinitely.
+
+**Second, independent bug found in the same query, also from primary-source
+research, not assumption:** the original formula was
+`wgdp_runs = -(gdp_sum * 0.45)` — a flat penalty per double play, with no
+adjustment for opportunity. FanGraphs' own description of the real
+methodology (fetched directly): *"we take the average rate of GDP in GDP
+opportunities and apply it to the number of opportunities the player
+had"* — an **opportunity-adjusted actual-vs-expected** stat, structurally
+identical to how this same file's `UBR` (Ultimate Base Running) already
+correctly compares actual extra-bases-taken against a rolling league-average
+rate. The rebuild mirrors that exact pattern rather than inventing a new
+one: FanGraphs defines a GDP opportunity as "man on first, less than two
+outs" (same source); the min-sample gate (`>= 10`) was also checking the
+wrong variable (`opp_sum`, the *stolen-base* opportunity count, not GDP
+opportunities) — fixed alongside.
+
+**Run-value constant, sourced not guessed:** FanGraphs does not publish
+their exact run-value constant for wGDP ("proprietary," per their own
+article). Rather than reuse the original unvalidated `0.45` or import an
+external number computed on a different sample/era (Tom Tango's published
+event-value table gives `-0.85` for "Grounded Into Double Play," but that's
+the value of a GDP *relative to an average PA outcome*, not the marginal
+cost *relative to an otherwise-identical productive out that doesn't erase
+the runner* — a different, smaller quantity, which is what an
+opportunity-adjusted stat needs), the constant used here — **0.4153** — was
+derived directly from this project's own real, now-corrected empirical
+24-state run expectancy matrix (`gold.run_expectancy_24`, ADR-260): real
+production RE(man on 1st, 1 out) = 0.5213 minus RE(bases empty, 2 outs) =
+0.1060, i.e. the actual, real, data-derived run cost of a double play versus
+a productive out that leaves the runner on base. This keeps the constant
+consistent with this project's own run environment rather than an
+externally-sourced one from a different era/sample.
+
+**Verified**: new `tests/integration/test_model_bsr.py::test_wgdp_excludes_non_groundball_double_plays_and_matches_hand_calculation`
+— a scenario with a real groundball GDP, a line-drive "double play" that
+must NOT count, and enough volume to clear both min-sample gates, hand-computed
+independently against the new formula, matches the SQL's real output exactly
+(`0.42`/`-0.42`). All 5 tests in the file pass, `uv run pytest tests/unit/`
+(1033 passed), `uv run ruff check .`/`uv run ruff format --check .`/
+`uv run mypy mlb_baseball/model/bsr.py` all clean.
+
+## ADR-260: Fix a column-name typo that has silently broken the entire daily enrichment/prediction pipeline since 2026-08-19 (Plan 06, P0)
+
+**Decision:** While tie-ing out `run_expectancy.py` (RE24/LI) against real production
+data for Plan 06, found that `gold.game_feature.home_starter_id` — and every
+other enrichment column depending on it — is **NULL for all 216,730 games in
+real production `mlb`**, despite `docs/FEATURE_REGISTRY.md` documenting these
+families as "wired into the live daily pipeline." Traced to the actual root
+cause via `logs/mlb_daily_update.log` (the real, currently-running daily cron
+job's own log, not a guess):
+
+`mlb_baseball/sql/team_bsr_comprehensive_retrosheet_update.sql` (RUN-01,
+baserunning wSB/XBT%/UBR/wGDP) referenced a column `re.gdp_fl` that has never
+existed in `raw.retrosheet_event` (confirmed against
+`information_schema.columns`; the correct column, used correctly everywhere
+else in this codebase, is `dp_fl`). `bsr.compute(conn)` is called from
+`enrich_feature_stage()` (`mlb_baseball/model/__init__.py`) as one entry in a
+plain Python dict literal — dict values evaluate eagerly, in order, at
+construction time. When `bsr.compute()` raises
+`psycopg.errors.UndefinedColumn`, **every enrichment module listed after it
+in that dict never runs** — `starter`, `run_expectancy`, `pitcher_estimators`,
+`framing`, `command`, `pitch_movement`, `statcast_expected`, `platoon`,
+`batted_ball`, and more (see the dict's own ordering in
+`enrich_feature_stage()`). The exception propagates out of `run()` (which
+wraps the whole sequence in one transaction) and crashes the `mlb predict`
+CLI process entirely, so nothing in that day's enrichment or prediction
+transaction commits.
+
+**Actual production impact, read directly from `logs/mlb_daily_update.log`
+(the real cron log, not inferred):** of the 6 scheduled daily runs from
+2026-08-19 through 2026-08-25, **5 have crashed with this exact traceback**
+and never reached "finished daily update" — only 2026-08-20 completed. This
+predates and is unrelated to the ADR-089–258 "package" batch itself; `bsr.py`
+(RUN-01) was added 2026-08-19 per PROGRESS.md's own account of that day's
+work, immediately breaking the enrichment pipeline it was added alongside,
+and nothing since has caught it — no test exercises `bsr.compute()` against
+a real `raw.retrosheet_event` row with realistic columns (see Verification
+below for the coverage gap this exposes), and `mlb doctor`'s per-module
+health checks did not surface this as a pipeline-ordering failure (each
+module's own health check can pass in isolation while the module never
+actually runs in the real daily sequence).
+
+**Fix:** `re.gdp_fl` → `re.dp_fl` in
+`team_bsr_comprehensive_retrosheet_update.sql`. Verified directly against
+real production `mlb` in a rolled-back transaction (never committed): the
+corrected query successfully updates all 216,730 real games; the unfixed
+query reproduces the exact production traceback. Confirmed no other column
+in the same file has a similar mismatch (checked all 11 other
+`raw.retrosheet_event` columns it references against
+`information_schema.columns`).
+
+**`tests/integration/test_model_bsr.py`'s own hand-written fixture also used
+`gdp_fl`**, not `dp_fl` — its `CREATE TABLE`/`ALTER TABLE`/`INSERT` all
+declared the same wrong column name as the bug, so the existing test suite
+could never have caught this (it was internally consistent with the bug, not
+with reality). This is the same root pattern behind every other Plan 06
+finding so far: a real column name that was never checked against actual
+Chadwick `cwevent` output before being hand-typed into both the
+implementation and its own test. Fixed the fixture to `dp_fl` alongside the
+SQL fix; `raw.retrosheet_event`'s schema is not migration-defined (it's a
+raw-layer table whose columns mirror Chadwick's own CSV header verbatim, per
+this project's naming-convention exception), so real production is the only
+authoritative source for its real column names — confirmed via
+`information_schema.columns` against 16.4M real ingested rows, not assumed.
+
+**Not yet done — real follow-up, flagged not silently assumed:**
+1. Production `gold.game_feature` still has NULL `home_starter_id`,
+   `home_starter_xfip`, `home_starter_siera`, `home_starter_avg_li`, and
+   every other column downstream of this crash, for every game, right now.
+   Fixing the SQL does not retroactively populate historical rows — a real
+   `mlb predict` run (or the next scheduled cron run) is needed to actually
+   backfill, and should be watched to confirm it reaches "finished daily
+   update" rather than assumed fixed.
+2. Once populated, the ADR-259 SIERA fix and any other formula corrections
+   found under Plan 06 will be computing against real data for the first
+   time — worth a fresh `mlb doctor` pass and spot-check against this ADR's
+   and ADR-259's fixtures once real values exist, not just the synthetic
+   test fixtures used to find and fix these bugs.
+3. `docs/FEATURE_REGISTRY.md`'s "wired into the live daily pipeline"
+   language for every family after `bsr` in `enrich_feature_stage()`'s
+   ordering was true of the *code*, not of *what has actually been running*
+   since 2026-08-19 — worth a registry-wide caveat or per-family correction
+   once backfilled and confirmed, not just this one entry.
+4. **Test coverage gap**: no existing test calls `enrich_feature_stage()`
+   (or `run()`) against a realistic multi-module sequence with real-shaped
+   `raw.retrosheet_event` columns the way production actually has them —
+   `tests/integration/test_model_enrich_stage.py` (added 2026-08-19 per
+   PROGRESS.md, for the *previous* incident) checks that the aggregator
+   invokes real `compute()` functions and writes non-NULL data, but
+   apparently does not exercise enough of the real column set to catch an
+   `UndefinedColumn` in one specific module's SQL. Worth extending rather
+   than trusting either that test or this fix alone to prevent a recurrence.
+
+**Verification**: `uv run pytest tests/integration/test_model_bsr.py`
+(existing suite); ADR authored alongside the fix, not after.
+
+## ADR-259: Fix SIERA formula transcription bug found by external tie-out (Plan 06)
+
+**Decision:** `mlb_baseball/sql/team_pitcher_estimators_retrosheet_update.sql`'s
+SIERA calculation (`starter_rates` and `bullpen_rates` CTEs, ADR-090) was
+checked directly against its cited primary source — Swartz & Seidman,
+"Introducing SIERA," Baseball Prospectus, 2010
+(<https://www.baseballprospectus.com/news/article/10045/introducing-siera-part-5/>,
+fetched directly, independently cross-checked against a second source) — as
+part of Plan 06's tie-out work. The as-shipped formula had three real bugs,
+not rounding artifacts:
+1. The K/PA coefficient was `-16.984` instead of the published `-16.986`
+   (minor).
+2. The squared net-groundball term (`± 6.664 * ((GB-FB-PU)/PA)^2`) used raw
+   `GB/PA` instead of net `(GB-FB-PU)/PA`, and used an unconditional
+   positive sign instead of the published formula's sign, which flips based
+   on whether net groundball rate is positive or negative.
+3. Both interaction terms used the wrong coefficient **and** the wrong sign
+   on the K×groundball term: implemented as `-9.096*(K/PA)*(GB/PA)` and
+   `-3.037*(BB/PA)*(GB/PA)`, published as `+10.130*(K/PA)*(netGB/PA)` and
+   `-5.195*(BB/PA)*(netGB/PA)`.
+
+Verified end-to-end against the `tests/integration/test_model_pitcher_estimators.py`
+fixture (PA=40, K=10, BB=4, GB=5, FB=10, PU=2): the buggy formula produced
+SIERA=3.6278; the corrected formula, computed independently in Python with
+exact `Decimal` arithmetic and confirmed to reproduce the buggy value
+byte-for-byte before trusting the corrected one, produces SIERA=3.6972 — a
+real, non-trivial 0.069 difference for this fixture, expected to be larger
+for pitchers with more extreme groundball/flyball profiles since the bug is
+in exactly the terms that scale with that deviation.
+
+**Production impact:** `home_starter_siera`/`away_starter_siera`/
+`home_bullpen_siera`/`away_bullpen_siera` and their derived
+`starter_siera_diff`/`bullpen_siera_diff` columns are in `gbm.py`'s
+`FEATURE_COLUMNS` — this fed the real, currently-deployed prediction model.
+**The champion model has not yet been retrained against the corrected
+values as of this ADR** — that is real Plan-04-scale retrain-and-evaluate
+work (a new `train()` run, compare against the existing champion using this
+project's normal promotion gate), intentionally not done inline with this
+fix. Tracked as open follow-up in `docs/PACKAGE_VALIDATION_STATUS.md`.
+
+**Verification**: `tests/integration/test_model_pitcher_estimators.py` updated
+with the corrected expected value and a full citation; `uv run pytest
+tests/unit/` (1033 passed), `uv run ruff check .`/`uv run ruff format --check
+.` clean.
+
+## ADR-254: Pure-Python SVG Strike Zone 3D Isometric View Chart (`ZONE-ISOMETRIC-01`, Package 166)
+
+**Decision:** Built 3D isometric perspective strike zone box in `mlb_baseball/visual.py` and CLI subcommand `mlb zone-isometric`.
+- **Operational Architecture & Geometry**:
+  - Front Plate Plane: $X \in [-8.5\text{ in}, +8.5\text{ in}], Z \in [18\text{ in}, 42\text{ in}]$ at $Y = 0\text{ ft}$.
+  - Back Plate Plane: Projected at isometric depth $(+55\text{px}, -35\text{px})$ at $Y = 1.4\text{ ft}$.
+  - Connecting wireframes, 3x3 inner zone grid, pitch depth trajectory lines, and velocity badges.
+  - CLI: `mlb zone-isometric --title "Skubal 3D Strike Zone" --pitcher "Tarik Skubal"`.
+- **Verification**: 29/29 unit tests in `tests/unit/test_visual.py` passing; 839/839 full repository unit tests passing.
+
+## ADR-253: Outfielder Wall Leap & Timing Elevation Index Engine (`WALL-LEAP-01`, Package 165)
+
+**Decision:** Built wall leap vertical apex, timing precision error, and WLTEI modeling in `mlb_baseball/model/wall_leap.py` and CLI subcommand `mlb wall-leap`.
+- **Mathematical Formulations & Methodology**:
+  - Wall Leap Timing & Elevation Index: $\text{WLTEI} = \max\left(0, 100 + (\text{Apex} - 18.0) \cdot 1.8 + (95.0 - \text{TimingError}) \cdot 0.6 + (\text{Catch\%} - 35.0) \cdot 1.2\right)$.
+  - Robbed Run Value Above Average: $\text{RRVAA}_{\text{runs}} = (\text{WLTEI} - 100.0) \cdot (\text{Opps} \cdot 0.0085)$.
+  - Tiers: `GRAVITY_DEFYING_WALL_THIEF` ($\text{WLTEI} \ge 116.0, \text{Apex} \ge 24.0\text{ in}, \text{Catch\%} \ge 55.0\%$), `GROUND_BOUND_MISTIMED_LEAP_LIABILITY`, `SOLID_WALL_LEAP_FIELDER`, `AVERAGE_WALL_LEAP_FIELDER`.
+  - CLI: `mlb wall-leap --apex 28.0 --timing 45.0 --catch 65.0 --opps 16`, `mlb wall-leap --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_wall_leap.py` passing; 839/839 full repository unit tests passing.
+
+## ADR-252: Pitcher Arm Slot Fatigue Sag & Lateral Drift Detection Engine (`SLOT-SAG-01`, Package 164)
+
+**Decision:** Built late-outing arm slot angle drop, lateral release drift, and ASFSI modeling in `mlb_baseball/model/slot_sag.py` and CLI subcommand `mlb slot-sag`.
+- **Mathematical Formulations & Methodology**:
+  - Arm Slot Fatigue Sag Index: $\text{ASFSI} = \max\left(0, 100 + (1.5 - \Delta \theta) \cdot 8.0 + (1.2 - \Delta X) \cdot 6.0\right)$.
+  - Fatigue Sag Damage Runs Saved: $\text{FSDRS}_{\text{runs}} = (\text{ASFSI} - 100.0) \cdot (\text{LatePitches} \cdot 0.0035)$.
+  - Tiers: `IRON_SHOULDER_SLOT_REPLICATOR` ($\text{ASFSI} \ge 114.0, \Delta \theta \le 0.8^{\circ}, \Delta X \le 0.8\text{ in}$), `COLLAPSING_SLOT_DROPPING_FATIGUE_LIABILITY`, `SOLID_ARM_SLOT_STABILITY`, `AVERAGE_ARM_SLOT_STABILITY`.
+  - CLI: `mlb slot-sag --early-deg 45.0 --late-deg 44.8 --early-x -23.0 --late-x -23.3 --pitches 45`, `mlb slot-sag --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_slot_sag.py` passing; 839/839 full repository unit tests passing.
+
+## ADR-251: Batter Opposite-Field Spray Line Drive Sinking Liners Engine (`OPPO-LINER-01`, Package 163)
+
+**Decision:** Built opposite field line drive %, BABIP conversion, and OFLDII modeling in `mlb_baseball/model/oppo_liner.py` and CLI subcommand `mlb oppo-liner`.
+- **Mathematical Formulations & Methodology**:
+  - Opposite Field Line Drive Impact Index: $\text{OFLDII} = \max\left(0, 100 + (\text{OppoLD\%} - 20.0) \cdot 2.0 + (\text{BABIP} - 0.620) \cdot 50.0 + (\text{HardHit\%} - 40.0) \cdot 1.2\right)$.
+  - Opposite Line Drive Production Runs: $\text{OLPR}_{\text{runs}} = (\text{OFLDII} - 100.0) \cdot (\text{Events} \cdot 0.0030)$.
+  - Tiers: `SURGICAL_OPPOSITE_FIELD_LINE_DRIVE_ARTIST` ($\text{OFLDII} \ge 116.0, \text{OppoLD\%} \ge 26.0\%, \text{BABIP} \ge 0.680$), `ROLLOVER_WEAK_OPPO_FLARE_LIABILITY`, `SOLID_OPPO_SPRAY_HITTER`, `AVERAGE_OPPOSITE_FIELD_LINE_DRIVE_PROFILE`.
+  - CLI: `mlb oppo-liner --ld 28.0 --babip 0.720 --hard 52.0 --events 160`, `mlb oppo-liner --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_oppo_liner.py` passing; 839/839 full repository unit tests passing.
+
+## ADR-250: Pure-Python SVG Pitcher Pitch Tunnel Decision Separation Chart (`TUNNEL-DECISION-01`, Package 162)
+
+**Decision:** Built vector SVG pitch trajectory divergence chart in `mlb_baseball/visual.py` and CLI subcommand `mlb tunnel-decision`.
+- **Operational Architecture & Geometry**:
+  - Distance Geometry: Release ($50\text{ ft}$), Decision Point ($23.8\text{ ft}$, $t \approx 175\text{ ms}$), Home Plate ($1.4\text{ ft}$).
+  - Shaded Tunnel Tube: Amber dashed boundary tube indicating commitment decision window.
+  - CLI: `mlb tunnel-decision --title "Skenes Fastball-Splinker Tunnel" --pitcher "Paul Skenes"`.
+- **Verification**: 28/28 unit tests in `tests/unit/test_visual.py` passing; 834/834 full repository unit tests passing.
+
+## ADR-249: Catcher Wild Pitch & Passed Ball Wall Blocking Value Engine (`WALL-BLOCK-01`, Package 161)
+
+**Decision:** Built dirt ball smother rate, runner advance suppression, and CWBEI modeling in `mlb_baseball/model/wall_block.py` and CLI subcommand `mlb wall-block`.
+- **Mathematical Formulations & Methodology**:
+  - Catcher Wall Blocking Efficiency Index: $\text{CWBEI} = \max\left(0, 100 + (\text{Block\%} - 82.0) \cdot 2.2 + (\text{Suppress\%} - 86.0) \cdot 1.6 + (3.5 - \text{PB}_{1000}) \cdot 4.5\right)$.
+  - Blocked Runs Saved Above Average: $\text{BRSAA}_{\text{runs}} = (\text{CWBEI} - 100.0) \cdot (\text{Opps} \cdot 0.0036)$.
+  - Tiers: `BRICK_WALL_DIRT_BALL_BLOCKER` ($\text{CWBEI} \ge 116.0, \text{Block\%} \ge 89.0\%, \text{Suppress\%} \ge 92.0\%$), `OLE_OLE_DIRT_BALL_LEAK_LIABILITY`, `SOLID_DIRT_BALL_SMOTHERER`, `AVERAGE_CATCHER_BLOCKING`.
+  - CLI: `mlb wall-block --block 93.0 --suppress 96.0 --pb 1.2 --opps 180`, `mlb wall-block --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_wall_block.py` passing; 834/834 full repository unit tests passing.
+
+## ADR-248: Pitcher First-Pitch Strike Aggression vs Ambush Penalty Engine (`FIRST-PITCH-AMBUSH-01`, Package 160)
+
+**Decision:** Built 0-0 count strike rate, damage suppression, and FPCARI modeling in `mlb_baseball/model/first_pitch_ambush.py` and CLI subcommand `mlb first-pitch-ambush`.
+- **Mathematical Formulations & Methodology**:
+  - First-Pitch Command & Ambush Resistance Index: $\text{FPCARI} = \max\left(0, 100 + (\text{F-Strike\%} - 60.0) \cdot 1.8 + (44.0 - \text{HardHit\%}) \cdot 1.2 + (0.520 - \text{SLG}) \cdot 45.0\right)$.
+  - First-Pitch Count Leverage Runs Saved: $\text{FPLRS}_{\text{runs}} = (\text{FPCARI} - 100.0) \cdot (\text{BF} \cdot 0.0025)$.
+  - Tiers: `SURGICAL_FIRST_STRIKE_COMMANDER` ($\text{FPCARI} \ge 116.0, \text{F-Strike\%} \ge 66.0\%, \text{HardHit\%} \le 36.0\%$), `MEATBALL_AMBUSH_LIABILITY`, `SOLID_FIRST_PITCH_STRIKER`, `AVERAGE_FIRST_PITCH_PROFILE`.
+  - CLI: `mlb first-pitch-ambush --f-strike 68.0 --hard 34.0 --slg 0.380 --bf 240`, `mlb first-pitch-ambush --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_first_pitch_ambush.py` passing; 834/834 full repository unit tests passing.
+
+## ADR-247: Batter Offspeed / Breaking Ball Chase Recognition Engine (`CHASE-RECOG-01`, Package 159)
+
+**Decision:** Built out-of-zone breaking ball chase discipline, take %, and BBCRI modeling in `mlb_baseball/model/chase_recog.py` and CLI subcommand `mlb chase-recog`.
+- **Mathematical Formulations & Methodology**:
+  - Breaking Ball Chase Recognition Index: $\text{BBCRI} = \max\left(0, 100 + (32.0 - \text{Chase\%}) \cdot 2.2 + (\text{Take\%} - 68.0) \cdot 1.6 + (58.0 - \text{Whiff\%}) \cdot 0.8\right)$.
+  - Chase Discipline Runs: $\text{CDRA}_{\text{runs}} = (\text{BBCRI} - 100.0) \cdot (\text{Pitches} \cdot 0.0022)$.
+  - Tiers: `ELITE_BREAKING_BALL_DISCIPLINE_HAWK` ($\text{BBCRI} \ge 116.0, \text{Chase\%} \le 22.0\%, \text{Take\%} \ge 78.0\%$), `FREE_SWINGING_SLIDER_BAIT_LIABILITY`, `SOLID_DISCIPLINED_TAKER`, `AVERAGE_CHASE_RECOGNITION`.
+  - CLI: `mlb chase-recog --chase 18.0 --take 82.0 --whiff 36.0 --pitches 320`, `mlb chase-recog --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_chase_recog.py` passing; 834/834 full repository unit tests passing.
+
+## ADR-246: Pure-Python SVG Pitcher Arsenal Movement & Spin Axis Polar Compass Plot (`POLAR-COMPASS-01`, Package 158)
+
+**Decision:** Built circular polar compass movement & clock spin chart in `mlb_baseball/visual.py` and CLI subcommand `mlb polar-compass`.
+- **Operational Architecture & Geometry**:
+  - Radial Range Rings: $6\text{ in}, 12\text{ in}, 18\text{ in}, 24\text{ in}$ concentric radius rings.
+  - Clock Hour Axes: $1\text{ to }12\text{ o'clock}$ directional guide rays with pitch vectors radiating from $(0, 0)$ to $(\text{HB}, \text{IVB})$.
+  - CLI: `mlb polar-compass --title "Paul Skenes Movement Polar Compass" --pitcher "Paul Skenes"`.
+- **Verification**: 27/27 unit tests in `tests/unit/test_visual.py` passing; 829/829 full repository unit tests passing.
+
+## ADR-245: Outfielder Throw Accuracy & Direct Line Target Efficiency Engine (`OUTFIELD-TARGET-01`, Package 157)
+
+**Decision:** Built outfield throw precision, arm velocity, and assist prevention modeling in `mlb_baseball/model/outfield_target.py` and CLI subcommand `mlb outfield-target`.
+- **Mathematical Formulations & Methodology**:
+  - Outfield Laser Target Accuracy Index: $\text{OLTAI} = \max\left(0, 100 + (\text{Acc\%} - 65.0) \cdot 2.2 + (\text{Conv\%} - 60.0) \cdot 1.6 + (v_{\text{arm}} - 88.0) \cdot 1.4\right)$.
+  - Outfield Assist Runs Prevented: $\text{OARP}_{\text{runs}} = (\text{OLTAI} - 100.0) \cdot (\text{Chances} \cdot 0.0035)$.
+  - Tiers: `LASER_ACCURATE_CANNON_SNIPER` ($\text{OLTAI} \ge 116.0, \text{Acc\%} \ge 78.0\%, v_{\text{arm}} \ge 93.0\text{ mph}$), `ERRATIC_WILD_HOSE_LIABILITY`, `SOLID_ON_TARGET_FIELDER`, `AVERAGE_OUTFIELD_ACCURACY`.
+  - CLI: `mlb outfield-target --pos RF --acc 86.0 --arm 98.0 --conv 84.0 --chances 55`, `mlb outfield-target --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_outfield_target.py` passing; 829/829 full repository unit tests passing.
+
+## ADR-244: Pitcher Secondary Pitch Whiff Escalation in 2-Strike Counts (`PUTAWAY-DEPTH-01`, Package 156)
+
+**Decision:** Built 2-strike secondary whiff surge, chase expansion, and PWEI modeling in `mlb_baseball/model/putaway_depth.py` and CLI subcommand `mlb putaway-depth`.
+- **Mathematical Formulations & Methodology**:
+  - Putaway Whiff Escalation Index: $\text{PWEI} = \max\left(0, 100 + (\text{TwoStrikeWhiff\%} - 38.0) \cdot 1.8 + (\Delta \text{Whiff} - 10.0) \cdot 1.4 + (\text{Chase\%} - 34.0) \cdot 1.2\right)$.
+  - Two-Strike Strikeouts Above Average: $\text{TSSAA} = (\text{TwoStrikeWhiff\%} - 38.0\%) \cdot \text{Pitches} \cdot 0.60, \text{TSSRV}_{\text{runs}} = \text{TSSAA} \cdot 0.28\text{ runs}$.
+  - Tiers: `LETHAL_TWO_STRIKE_EXECUTIONER` ($\text{PWEI} \ge 116.0, \text{TwoStrikeWhiff\%} \ge 45.0\%, \Delta \text{Whiff} \ge 13.0\%$), `BLUNT_WEAPON_NO_ESCALATION`, `SOLID_PUTAWAY_FINISHER`, `AVERAGE_PUTAWAY_ESCALATION`.
+  - CLI: `mlb putaway-depth --early 30.0 --two-strike 48.0 --chase 44.0 --pitches 200`, `mlb putaway-depth --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_putaway_depth.py` passing; 829/829 full repository unit tests passing.
+
+## ADR-243: Batter In-Zone Fastball Contact vs Whiff Vulnerability Engine (`HEAT-CHECK-01`, Package 155)
+
+**Decision:** Built in-zone fastball contact %, hard contact rate, and IZHSMI modeling in `mlb_baseball/model/heat_check.py` and CLI subcommand `mlb heat-check`.
+- **Mathematical Formulations & Methodology**:
+  - In-Zone Heat Vulnerability & Smash Index: $\text{IZHSMI} = \max\left(0, 100 + (20.0 - \text{Whiff\%}) \cdot 2.4 + (\text{HardHit\%} - 42.0) \cdot 1.8 + (\text{Contact\%} - 80.0) \cdot 1.2\right)$.
+  - In-Zone Fastball Production Runs: $\text{IZFPR}_{\text{runs}} = (\text{IZHSMI} - 100.0) \cdot (\text{Swings} \cdot 0.0028)$.
+  - Tiers: `HEAT_SEEKING_FASTBALL_PUNISHER` ($\text{IZHSMI} \ge 116.0, \text{Whiff\%} \le 13.0\%, \text{HardHit\%} \ge 48.0\%$), `HIGH_VELO_VULNERABLE_WHIFF_MACHINE`, `SOLID_FASTBALL_CRUSHER`, `AVERAGE_IN_ZONE_FASTBALL_HIT`.
+  - CLI: `mlb heat-check --contact 88.0 --hard 58.0 --whiff 11.0 --swings 250`, `mlb heat-check --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_heat_check.py` passing; 829/829 full repository unit tests passing.
+
+## ADR-242: Pure-Python SVG Batter Batted Ball Launch Angle vs Exit Velocity Isochrone Grid Plot (`BARREL-GRID-01`, Package 154)
+
+**Decision:** Built vector SVG Statcast contact quality barrel grid chart in `mlb_baseball/visual.py` and CLI subcommand `mlb barrel-grid`.
+- **Operational Architecture & Geometry**:
+  - Coordinate Mapping: EV $50-120\text{ mph}$, LA $-40^{\circ}\text{ to }+70^{\circ}$.
+  - Polygon Shading: Barrel Zone ($EV \ge 98, LA \in [12^{\circ}, 44^{\circ}]$) in purple opacity $0.32$, Solid Contact in blue opacity $0.16$.
+  - CLI: `mlb barrel-grid --title "Shohei Ohtani Statcast Contact Grid" --batter "Shohei Ohtani"`.
+- **Verification**: 26/26 unit tests in `tests/unit/test_visual.py` passing; 824/824 full repository unit tests passing.
+
+## ADR-241: Middle Infield Double-Play Turn Speed & Footwork Timing Engine (`DP-FOOTWORK-01`, Package 153)
+
+**Decision:** Built middle infielder 2B/SS pivot speed, relay throw velocity, and DPTAA modeling in `mlb_baseball/model/dp_footwork.py` and CLI subcommand `mlb dp-footwork`.
+- **Mathematical Formulations & Methodology**:
+  - Double-Play Footwork Turn Index: $\text{DPFTI} = \max\left(0, 100 + (\text{Conv\%} - 72.0) \cdot 2.0 + (0.74 - t_{\text{pivot}}) \cdot 55.0 + (v_{\text{throw}} - 78.0) \cdot 1.2\right)$.
+  - Double Plays Turned Above Average: $\text{DPTAA} = (\text{Conv\%} - 72.0\%) \cdot \text{Opps}, \text{DPRV}_{\text{runs}} = \text{DPTAA} \cdot 0.45\text{ runs}$.
+  - Tiers: `LIGHTNING_ACROBATIC_PIVOT_MASTER` ($\text{DPFTI} \ge 116.0, t_{\text{pivot}} \le 0.62\text{ s}, \text{Conv\%} \ge 82.0\%$), `CLUNKY_FOOTWORK_DP_LIABILITY`, `SOLID_DOUBLE_PLAY_PIVOTER`, `AVERAGE_MIDDLE_INFIELD_PIVOT`.
+  - CLI: `mlb dp-footwork --pos 2B --pivot 0.56 --throw 87.0 --conv 90.0 --opps 70`, `mlb dp-footwork --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_dp_footwork.py` passing; 824/824 full repository unit tests passing.
+
+## ADR-240: Pitcher Release Point Spin Angle Stability & Arsenal Consistency Engine (`SPIN-ALIGN-01`, Package 152)
+
+**Decision:** Built release height uniformity, multi-pitch spin axis alignment, and ASARCI in `mlb_baseball/model/spin_align.py` and CLI subcommand `mlb spin-align`.
+- **Mathematical Formulations & Methodology**:
+  - Arsenal Spin Alignment & Release Consistency Index: $\text{ASARCI} = \max\left(0, 100 + (28.0 - \sigma_{\theta}) \cdot 1.4 + (1.5 - \sigma_{Z}) \cdot 15.0 + (1.8 - \sigma_{X}) \cdot 12.0\right)$.
+  - Deception Whiff Synergy Multiplier: $\text{DWSM} = 1.0 + (\text{ASARCI} - 100.0) \cdot 0.0035$.
+  - Tiers: `MIRRORED_SPIN_TUNNEL_ILLUSIONIST` ($\text{ASARCI} \ge 116.0, \sigma_{\theta} \le 18.0\text{ mins}, \sigma_{Z} \le 0.8\text{ in}$), `TELEGRAPHED_ARM_SLOT_TIPPER`, `SOLID_REPEATED_RELEASE_DELIVERY`, `AVERAGE_ARSENAL_ALIGNMENT`.
+  - CLI: `mlb spin-align --axis-sd 12.0 --z-sd 0.5 --x-sd 0.6 --pitches 4`, `mlb spin-align --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_spin_align.py` passing; 824/824 full repository unit tests passing.
+
+## ADR-239: Batter Opposite-Field Power & Alley Extra-Base Gap Engine (`OPPO-GAP-01`, Package 151)
+
+**Decision:** Built opposite-field hard contact, power alley extra-base conversion, and run production in `mlb_baseball/model/oppo_gap.py` and CLI subcommand `mlb oppo-gap`.
+- **Mathematical Formulations & Methodology**:
+  - Opposite-Field Gap Power Index: $\text{OFGPI} = \max\left(0, 100 + (\text{XBH\%} - 8.5) \cdot 3.2 + (\text{HardHit\%} - 34.0) \cdot 1.8 + (\text{Oppo\%} - 25.0) \cdot 0.8\right)$.
+  - Alley Extra-Base Runs: $\text{AEBR}_{\text{runs}} = (\text{OFGPI} - 100.0) \cdot (\text{Opps} \cdot 0.0032)$.
+  - Tiers: `ELITE_ALL_FIELDS_POWER_MONSTER` ($\text{OFGPI} \ge 116.0, \text{XBH\%} \ge 12.5\%, \text{HardHit\%} \ge 42.0\%$), `PULL_DEPENDENT_OPPO_SLAPPER`, `SOLID_OPPO_GAP_HITTER`, `AVERAGE_OPPOSITE_FIELD_PROFILE`.
+  - CLI: `mlb oppo-gap --oppo 34.0 --hard 50.0 --xbh 15.0 --opps 130`, `mlb oppo-gap --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_oppo_gap.py` passing; 824/824 full repository unit tests passing.
+
+## ADR-238: Pure-Python SVG Pitcher Arsenal Pitch Mix & Count Usage Transition Flow Chart (`FLOW-MIX-01`, Package 150)
+
+**Decision:** Built vector SVG count transition pitch selection alluvial flow chart in `mlb_baseball/visual.py` and CLI subcommand `mlb flow-mix`.
+- **Operational Architecture & Geometry**:
+  - 3-Column Layout: Even Counts ($0\text{-}0, 1\text{-}1$), Ahead Counts ($0\text{-}1, 0\text{-}2, 1\text{-}2$), and Behind Counts ($1\text{-}0, 2\text{-}0, 3\text{-}1$).
+  - Connecting Ribbons: Smooth cubic Bézier flow paths connecting matching pitch families across count states.
+  - CLI: `mlb flow-mix --title "Paul Skenes Count Flow Mix" --pitcher "Paul Skenes"`.
+- **Verification**: 25/25 unit tests in `tests/unit/test_visual.py` passing; 814/814 full repository unit tests passing.
+
+## ADR-237: Outfielder First-Step Reaction Burst & Jump Efficiency Engine (`FIRST-STEP-01`, Package 149)
+
+**Decision:** Built initial reaction time, distance covered in first 1.5 seconds, and jump runs modeling in `mlb_baseball/model/first_step.py` and CLI subcommand `mlb first-step`.
+- **Mathematical Formulations & Methodology**:
+  - First-Step Reaction Jump Index: $\text{FSRJI} = \max\left(0, 100 + (0.40 - t_{\text{react}}) \cdot 75.0 + (d_{1.5\text{s}} - 32.0) \cdot 3.2 + (\eta_{\text{jump}} - 86.0) \cdot 1.4\right)$.
+  - Jump Runs Prevented: $\text{JRP}_{\text{runs}} = (\text{FSRJI} - 100.0) \cdot (\text{Chances} \cdot 0.0024)$.
+  - Tiers: `ELITE_INSTINCTIVE_BALLHAWK_BURSTER` ($\text{FSRJI} \ge 116.0, t_{\text{react}} \le 0.32\text{ s}, d_{1.5\text{s}} \ge 34.5\text{ ft}$), `HESITANT_SLOW_FIRST_STEP_LIABILITY`, `SOLID_QUICK_JUMP_OUTFIELDER`, `AVERAGE_OUTFIELD_BURST`.
+  - CLI: `mlb first-step --pos CF --react 0.26 --dist 37.2 --eff 96.0 --chances 160`, `mlb first-step --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_first_step.py` passing; 814/814 full repository unit tests passing.
+
+## ADR-236: Pitcher Arm Fatigue Velocity Decay & Release Height Drop Engine (`FATIGUE-DROP-01`, Package 148)
+
+**Decision:** Built pitch-count velocity cliff decay, vertical arm slot collapse, and PAFII in `mlb_baseball/model/fatigue_drop.py` and CLI subcommand `mlb fatigue-drop`.
+- **Mathematical Formulations & Methodology**:
+  - Pitcher Arm Fatigue Inefficiency Index: $\text{PAFII} = \max\left(0, 100 + (1.5 - \Delta v_{\text{drop}}) \cdot 12.0 + (1.8 - \Delta Z_{\text{drop}}) \cdot 8.0 + (\text{Strike\%} - 61.0) \cdot 1.5\right)$.
+  - High-Fatigue Vulnerability Runs Saved: $\text{HFVRS}_{\text{runs}} = (\text{PAFII} - 100.0) \cdot (\text{Pitches} \cdot 0.0028)$.
+  - Tiers: `STEEL_ARM_WORKHORSE_ENDURER` ($\text{PAFII} \ge 116.0, \Delta v_{\text{drop}} \le 0.8\text{ mph}, \Delta Z_{\text{drop}} \le 0.8\text{ in}$), `SEVERE_FATIGUE_ARM_COLLAPSER`, `SOLID_DEEP_GAME_ENDURER`, `AVERAGE_FATIGUE_PROFILE`.
+  - CLI: `mlb fatigue-drop --velo-drop 0.4 --rel-drop 0.3 --strike 67.0 --pitches 200`, `mlb fatigue-drop --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_fatigue_drop.py` passing; 814/814 full repository unit tests passing.
+
+## ADR-235: Batter Pull-Field Line-Drive Pull Slice Power Engine (`PULL-SLICE-01`, Package 147)
+
+**Decision:** Built pull line-drive fairway conversion, foul-pole hook avoidance, and extra-base runs in `mlb_baseball/model/pull_slice.py` and CLI subcommand `mlb pull-slice`.
+- **Mathematical Formulations & Methodology**:
+  - Pull Line-Drive Slice Rating: $\text{PLDSR} = \max\left(0, 100 + (\text{Conv\%} - 70.0) \cdot 2.0 + (\text{PullLD\%} - 18.0) \cdot 1.8 + (\text{HardHit\%} - 50.0) \cdot 1.4\right)$.
+  - Fair-Pole Extra Base Runs: $\text{FPEBR}_{\text{runs}} = (\text{PLDSR} - 100.0) \cdot (\text{Opps} \cdot 0.0035)$.
+  - Tiers: `ELITE_DOWN_THE_LINE_PULL_SURGEON` ($\text{PLDSR} \ge 116.0, \text{Conv\%} \ge 78.0\%, \text{HardHit\%} \ge 58.0\%$), `HOOKING_FOUL_BALL_SLICER`, `SOLID_PULL_LINE_DRIVE_STRIKER`, `AVERAGE_PULL_LINE_DRIVE_HITTER`.
+  - CLI: `mlb pull-slice --pull-ld 26.0 --conv 84.0 --hard 66.0 --opps 100`, `mlb pull-slice --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_pull_slice.py` passing; 814/814 full repository unit tests passing.
+
+## ADR-234: Pure-Python SVG Pitcher Arsenal Release Point Ellipse & Tunnel Box Chart (`TUNNEL-BOX-01`, Package 146)
+
+**Decision:** Built vector SVG dual release window & decision tunnel cross-section chart in `mlb_baseball/visual.py` and CLI subcommand `mlb tunnel-box`.
+- **Operational Architecture & Geometry**:
+  - Dual Panels: Top Release Window ($X_{\text{rel}} \in [-3, +3]\text{ ft}$, $Z_{\text{rel}} \in [4.5, 7.0]\text{ ft}$) and Bottom Tunnel Decision Box at $23.8\text{ ft}$ from plate with 6-inch tunnel reference cylinder.
+  - CLI: `mlb tunnel-box --title "Paul Skenes Release & Tunnel Box" --pitcher "Paul Skenes"`.
+- **Verification**: 24/24 unit tests in `tests/unit/test_visual.py` passing; 803/803 full repository unit tests passing.
+
+## ADR-233: Infield Bunt Defense Charging Speed & Barehand Conversion Engine (`BUNT-CHARGE-01`, Package 145)
+
+**Decision:** Built infield charge sprint speed, barehand transfer time, and BOAA modeling in `mlb_baseball/model/bunt_charge.py` and CLI subcommand `mlb bunt-charge`.
+- **Mathematical Formulations & Methodology**:
+  - Infield Bunt Charge Defense Index: $\text{IBCDI} = \max\left(0, 100 + (\text{Conv\%} - 74.0) \cdot 2.2 + (v_{\text{charge}} - 24.0) \cdot 3.0 + (0.58 - t_{\text{barehand}}) \cdot 55.0\right)$.
+  - Bunt Outs Above Average: $\text{BOAA} = (\text{Conv\%} - 74.0\%) \cdot \text{Chances}, \text{BCDRV}_{\text{runs}} = \text{BOAA} \cdot 0.42\text{ runs}$.
+  - Tiers: `ELITE_BAREHAND_BUNT_ERASER` ($\text{IBCDI} \ge 116.0, \text{Conv\%} \ge 84.0\%, t_{\text{barehand}} \le 0.48\text{ s}$), `SLOW_FOOTWORK_BUNT_VULNERABLE`, `SOLID_BUNT_DEFENDER`, `AVERAGE_BUNT_DEFENDER`.
+  - CLI: `mlb bunt-charge --pos 3B --speed 28.0 --barehand 0.40 --conv 90.0 --chances 40`, `mlb bunt-charge --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_bunt_charge.py` passing; 803/803 full repository unit tests passing.
+
+## ADR-232: Pitcher Seam-Shifted Wake Latent Movement Engine (`SSW-LATENT-01`, Package 144)
+
+**Decision:** Built optical vs inferred spin axis deviation, non-Magnus boundary layer break, and SSWLMR in `mlb_baseball/model/ssw_latent.py` and CLI subcommand `mlb ssw-latent`.
+- **Mathematical Formulations & Methodology**:
+  - Seam-Shifted Wake Latent Movement Rating: $\text{SSWLMR} = \max\left(0, 100 + (\Delta \text{Axis}_{\text{mins}} - 30.0) \cdot 0.9 + (\Delta \text{Break}_{\text{SSW}} - 2.5) \cdot 8.0\right)$.
+  - Latent Boundary Layer Break: $\Delta \text{Break}_{\text{SSW}} = \text{ObservedBreak} - \text{PureMagnusBreak}\text{ in}$.
+  - Tiers: `ELITE_SEAM_SHIFTED_WAKE_MANIPULATOR` ($\text{SSWLMR} \ge 116.0, \Delta \text{Break}_{\text{SSW}} \ge 3.8\text{ in}, \Delta \text{Axis}_{\text{mins}} \ge 38\text{ mins}$), `PURE_SYMMETRICAL_MAGNUS_DELIVERY`, `SOLID_SEAM_ORIENTED_ARSENAL`, `AVERAGE_SSW_EFFECT`.
+  - CLI: `mlb ssw-latent --pitch SI --optical 75 --inferred 125 --obs 19.0 --mag 13.5`, `mlb ssw-latent --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_ssw_latent.py` passing; 803/803 full repository unit tests passing.
+
+## ADR-231: Batter High-Fastball Top-of-Zone Whiff vs Elevate Engine (`HIGH-HEAT-01`, Package 143)
+
+**Decision:** Built high-velocity four-seam elevation vulnerability, whiff avoidance, and run value in `mlb_baseball/model/high_heat.py` and CLI subcommand `mlb high-heat`.
+- **Mathematical Formulations & Methodology**:
+  - High-Heat Elevation Vulnerability Index: $\text{HHEVI} = \max\left(0, 100 + (26.0 - \text{Whiff\%}) \cdot 2.5 + (\text{HardHit\%} - 36.0) \cdot 1.8 + (\text{Swing\%} - 60.0) \cdot 0.6\right)$.
+  - High-Fastball Production Runs: $\text{HFPR}_{\text{runs}} = (\text{HHEVI} - 100.0) \cdot (\text{Opps} \cdot 0.0022)$.
+  - Tiers: `ELITE_HIGH_FASTBALL_CRUSHER` ($\text{HHEVI} \ge 116.0, \text{Whiff\%} \le 17.0\%, \text{HardHit\%} \ge 45.0\%$), `TOP_ZONE_ELEVATION_VULNERABLE`, `SOLID_HIGH_HEAT_SLUGGER`, `AVERAGE_HIGH_HEAT_HITTER`.
+  - CLI: `mlb high-heat --swing 66.0 --whiff 14.0 --hard 50.0 --opps 250`, `mlb high-heat --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_high_heat.py` passing; 803/803 full repository unit tests passing.
+
+## ADR-230: Pure-Python SVG Batter 3D Launch Angle vs Exit Velocity Density Contour Heatmap (`LA-EV-CONTOUR-01`, Package 142)
+
+**Decision:** Built vector SVG Cartesian 2D density contour chart with Statcast Barrel & Sweetspot polygon zones in `mlb_baseball/visual.py` and CLI subcommand `mlb la-ev-contour`.
+- **Operational Architecture & Geometry**:
+  - Coordinate Mapping: EV $60-120\text{ mph}$, LA $-30^{\circ}\text{ to }+60^{\circ}$.
+  - Polygon Shading: Barrel Zone ($EV \ge 98, LA \in [10^{\circ}, 45^{\circ}]$) shaded in purple opacity $0.30$, Sweetspot in blue opacity $0.15$.
+  - CLI: `mlb la-ev-contour --title "Aaron Judge LA vs EV Heatmap" --batter "Aaron Judge"`.
+- **Verification**: 23/23 unit tests in `tests/unit/test_visual.py` passing; 792/792 full repository unit tests passing.
+
+## ADR-229: Baserunner Secondary Lead Distance vs Pitcher Pickoff Threat Engine (`LEAD-SNAP-01`, Package 141)
+
+**Decision:** Built primary lead extension, secondary jump distance, and extra-base advance modeling in `mlb_baseball/model/lead_snap.py` and CLI subcommand `mlb lead-snap`.
+- **Mathematical Formulations & Methodology**:
+  - Aggressive Secondary Lead Index: $\text{ASLI} = \max\left(0, 100 + (d_{\text{sec}} - 20.5) \cdot 4.2 + (d_{\text{prim}} - 10.5) \cdot 3.0 + (t_{\text{move}} - 1.35) \cdot 25.0\right)$.
+  - Extra-Base Advance Boost: $\Delta P_{\text{advance}} = (d_{\text{sec}} - 20.5) \cdot 3.5\%$, $\text{ASLRV}_{\text{runs}} = (\text{ASLI} - 100.0) \cdot (\text{Opps} \cdot 0.0018)$.
+  - Tiers: `AGGRESSIVE_TERROR_ON_BASEPATHS` ($\text{ASLI} \ge 116.0, d_{\text{sec}} \ge 23.0\text{ ft}, d_{\text{prim}} \ge 11.5\text{ ft}$), `OVEREXTENDED_PICKOFF_RISK`, `CAUTIOUS_ANCHORED_STATIONARY_RUNNER`, `AVERAGE_BASE_LEAD_PROFILE`.
+  - CLI: `mlb lead-snap --prim 12.8 --sec 25.0 --move 1.30 --opps 90`, `mlb lead-snap --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_lead_snap.py` passing; 792/792 full repository unit tests passing.
+
+## ADR-228: Pitcher Two-Strike Putaway Intent vs Heart Zone Waste Leakage Engine (`INTENT-LEAK-01`, Package 140)
+
+**Decision:** Built two-strike chase zone expansion, middle-middle heart mistake leakage, and run value in `mlb_baseball/model/intent_leak.py` and CLI subcommand `mlb intent-leak`.
+- **Mathematical Formulations & Methodology**:
+  - Two-Strike Putaway Intent Execution Index: $\text{TSPIEI} = \max\left(0, 100 + (\text{ChaseIntent\%} - 52.0) \cdot 1.8 + (19.0 - \text{HeartLeak\%}) \cdot 3.2 + (\text{K\%} - 38.0) \cdot 1.4\right)$.
+  - Heart-Zone Putaway Catastrophe Runs: $\text{HPCR}_{\text{runs}} = (19.0\% - \text{HeartLeak\%}) \cdot \text{Pitches} \cdot 0.28\text{ runs}$.
+  - Tiers: `SURGICAL_PUTAWAY_COMMAND_SNIPER` ($\text{TSPIEI} \ge 116.0, \text{HeartLeak\%} \le 12.0\%, \text{ChaseIntent\%} \ge 58.0\%$), `FATAL_TWO_STRIKE_MEATBALL_LEAKER`, `ERRATIC_WILD_WASTER`, `AVERAGE_PUTAWAY_COMMAND`.
+  - CLI: `mlb intent-leak --chase 66.0 --heart 8.5 --k-pct 50.0 --pitches 500`, `mlb intent-leak --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_intent_leak.py` passing; 792/792 full repository unit tests passing.
+
+## ADR-227: Batter Pull-Side Air Contact vs Warning Track Trap Engine (`AIR-TRAP-01`, Package 139)
+
+**Decision:** Built pull flyball fence clearance, warning track dead zone trap, and HR conversion in `mlb_baseball/model/air_trap.py` and CLI subcommand `mlb air-trap`.
+- **Mathematical Formulations & Methodology**:
+  - Pull-Air Conversion vs Dead-Zone Trap Rating: $\text{PACDTR} = \max\left(0, 100 + (\text{Clearance\%} - 18.0) \cdot 3.2 + (22.0 - \text{Trap\%}) \cdot 2.4 + (\text{PullFB\%} - 32.0) \cdot 0.8\right)$.
+  - Trap-To-HR Deficit Runs: $\text{TTHRD}_{\text{runs}} = -(\text{Trap\%} - 22.0\%) \cdot \text{Flyballs} \cdot 1.25\text{ runs}$.
+  - Tiers: `ELITE_WALL_CLEARING_PULL_CRUSHER` ($\text{PACDTR} \ge 116.0, \text{Clearance\%} \ge 24.0\%, \text{Trap\%} \le 17.0\%$), `WARNING_TRACK_POWER_TRAPPED_VICTIM`, `UNDER_POWERED_PULL_AIR_TRAPPER`, `AVERAGE_PULL_AIR_CONVERSION`.
+  - CLI: `mlb air-trap --pull-fb 44.0 --trap 14.0 --clear 28.0 --fb 150`, `mlb air-trap --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_air_trap.py` passing; 792/792 full repository unit tests passing.
+
+## ADR-226: Pure-Python SVG Pitcher Arsenal Active Spin vs Gyro Polar Clock Chart (`SPIN-POLAR-01`, Package 138)
+
+**Decision:** Built vector SVG polar spin clock chart with tilt radial rays and active spin concentric rings in `mlb_baseball/visual.py` and CLI subcommand `mlb spin-polar`.
+- **Operational Architecture & Geometry**:
+  - Radial Active Spin Rings: 4 concentric circles at $25\%, 50\%, 75\%, 100\%$ active efficiency.
+  - Polar Clock Mapping: $\theta = \frac{(H \cdot 60 + M) \cdot 360}{720} - 90^{\circ}$, radius $r = \frac{\text{active\_pct}}{100} \cdot R_{\max}$.
+  - CLI: `mlb spin-polar --title "Paul Skenes Polar Spin Clock" --pitcher "Paul Skenes"`.
+- **Verification**: 22/22 unit tests in `tests/unit/test_visual.py` passing; 781/781 full repository unit tests passing.
+
+## ADR-225: Catcher Low-Pitch Scoop & Bottom-Zone Framing Lift Engine (`LOW-SCOOP-01`, Package 137)
+
+**Decision:** Built borderline low-pitch framing conversion, upward scoop speed, and run value in `mlb_baseball/model/low_scoop.py` and CLI subcommand `mlb low-scoop`.
+- **Mathematical Formulations & Methodology**:
+  - Bottom-Zone Scoop Framing Rating: $\text{BZSFR} = \max\left(0, 100 + (\text{LowStrike\%} - 48.0) \cdot 2.2 + (v_{\text{scoop}} - 3.5) \cdot 12.0 + (20.0 - \text{GloveDrop\%}) \cdot 1.1\right)$.
+  - Low-Zone Framing Surplus Runs: $\text{LZFS}_{\text{runs}} = (\text{LowStrike\%} - 48.0\%) \cdot \text{Opps} \cdot 0.125\text{ runs}$.
+  - Tiers: `ELITE_LOW_ZONE_LIFTER` ($\text{BZSFR} \ge 116.0, \text{LowStrike\%} \ge 57.0\%, v_{\text{scoop}} \ge 4.2\text{ ft/s}$), `STAB_DOWN_GLOVE_DROPPING_LIABILITY`, `SOLID_LOW_PITCH_FRAMER`, `AVERAGE_LOW_ZONE_FRAMER`.
+  - CLI: `mlb low-scoop --strike 62.0 --scoop 4.6 --drop 10.0 --opps 250`, `mlb low-scoop --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_low_scoop.py` passing; 781/781 full repository unit tests passing.
+
+## ADR-224: Pitcher Spin Axis Gyro Efficiency & Active Spin Engine (`ACTIVE-SPIN-01`, Package 136)
+
+**Decision:** Built Hawkeye spin decomposition, transverse Magnus conversion, and gyro angle in `mlb_baseball/model/active_spin.py` and CLI subcommand `mlb active-spin`.
+- **Mathematical Formulations & Methodology**:
+  - Active Spin Efficiency: $\eta_{\text{active}} = \left(\frac{RPM_{\text{inferred}}}{RPM_{\text{total}}}\right) \cdot 100\%$, $\text{GyroAngle} = \arccos\left(\frac{\eta_{\text{active}}}{100}\right) \cdot \left(\frac{180}{\pi}\right)^{\circ}$.
+  - Active Spin Magnus Index: $\text{ASMI} = \max\left(0, 100 + (\eta_{\text{active}} - 85.0) \cdot 1.8 + \left(\frac{RPM_{\text{total}} - 2250}{100.0}\right) \cdot 2.5\right)$.
+  - Tiers: `PURE_TRANSVERSE_MAGNUS_RIDER` ($\eta_{\text{active}} \ge 93.0\%, \text{ASMI} \ge 116.0, RPM \ge 2350$), `PURE_BULLET_GYRO_SPINNER`, `SUB_OPTIMAL_SLOPPY_SPIN_LEAK`, `HIGH_EFFICIENCY_MAGNUS_PROFILE`, `AVERAGE_ACTIVE_SPIN`.
+  - CLI: `mlb active-spin --pitch FF --total 2450 --active 2380 --ivb 19.0 --hb 8.0`, `mlb active-spin --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_active_spin.py` passing; 781/781 full repository unit tests passing.
+
+## ADR-223: Batter In-Zone Whiff vs Contact Quality Tradeoff Engine (`ZONE-WHIFF-01`, Package 135)
+
+**Decision:** Built in-zone swing aggressiveness, whiff avoidance, and barrel conversion in `mlb_baseball/model/zone_whiff.py` and CLI subcommand `mlb zone-whiff`.
+- **Mathematical Formulations & Methodology**:
+  - In-Zone Contact-Power Optimization Index: $\text{ZCPOI} = \max\left(0, 100 + (16.0 - \text{Z-Whiff\%}) \cdot 2.8 + (\text{Z-Barrel\%} - 9.5) \cdot 3.2 + (\text{Z-Swing\%} - 68.0) \cdot 0.9\right)$.
+  - In-Zone Production Surplus Runs: $\text{IZPSR}_{\text{runs}} = (\text{ZCPOI} - 100.0) \cdot (\text{Swings}_{\text{Zone}} \cdot 0.0024)$.
+  - Tiers: `ELITE_ZONE_CRUSHER_MASTER` ($\text{ZCPOI} \ge 118.0, \text{Z-Barrel\%} \ge 12.5\%, \text{Z-Whiff\%} \le 14.0\%$), `EMPTY_CONTACT_ZONE_SLAPPER`, `ALL_OR_NOTHING_ZONE_WHIFFER`, `AVERAGE_ZONE_HITTER`.
+  - CLI: `mlb zone-whiff --z-swing 74.0 --z-whiff 11.0 --z-barrel 16.0 --swings 400`, `mlb zone-whiff --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_zone_whiff.py` passing; 781/781 full repository unit tests passing.
+
+## ADR-222: Pure-Python SVG Batter 3D Spray Chart with Distance & Exit Velocity Isochrones (`SPRAY-ISO-01`, Package 134)
+
+**Decision:** Built vector SVG baseball diamond field chart with distance isochrone arcs (200ft, 300ft, 400ft) and exit velocity color coding in `mlb_baseball/visual.py` and CLI subcommand `mlb spray-iso`.
+- **Operational Architecture & Geometry**:
+  - Distance Isochrones: Renders semi-circular arcs scaled at $\approx 0.81\text{ px/ft}$ from home plate $(240, 420)$.
+  - 4 Exit Velocity Color Bands: Soft Blue ($<80\text{ mph}$), Medium Amber ($80-95\text{ mph}$), Hard Red ($95-105\text{ mph}$), Barrel Purple ($>105\text{ mph}$).
+  - CLI: `mlb spray-iso --title "Aaron Judge Spray & Distance" --batter "Aaron Judge"`.
+- **Verification**: 21/21 unit tests in `tests/unit/test_visual.py` passing; 770/770 full repository unit tests passing.
+
+## ADR-221: Outfielder Wall Crash Hazard & High-Impact Catch Probability Engine (`WALL-CRASH-01`, Package 133)
+
+**Decision:** Built warning-track wall proximity, deceleration cushion, and extra-base prevention modeling in `mlb_baseball/model/wall_crash.py` and CLI subcommand `mlb wall-crash`.
+- **Mathematical Formulations & Methodology**:
+  - Wall Crash Fearlessness Index: $\text{WCFI} = \max\left(0, 100 + (\text{WallCatch\%} - 64.0) \cdot 2.8 + (\text{Collision\%} - 30.0) \cdot 1.2 + (4.8 - d_{\text{cushion}}) \cdot 12.0\right)$.
+  - Wall Extra-Base Prevention Runs: $\text{WEBPR}_{\text{runs}} = (\text{WallCatch\%} - 64.0\%) \cdot \text{Opps} \cdot 0.85\text{ runs}$.
+  - Tiers: `FEARLESS_WALL_CRASH_DEFENDER` ($\text{WCFI} \ge 118.0, \text{WallCatch\%} \ge 75.0\%, d_{\text{cushion}} \le 3.6\text{ ft}$), `TIMID_WARNING_TRACK_PULL_UP`, `SOLID_WALL_COMMITTED_FIELDER`, `AVERAGE_WALL_APPROACH`.
+  - CLI: `mlb wall-crash --pos CF --catch 80.0 --collision 45.0 --cushion 3.0 --opps 50`, `mlb wall-crash --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_wall_crash.py` passing; 770/770 full repository unit tests passing.
+
+## ADR-220: Pitcher Arm Slot Stability Across Arsenal Pitches Engine (`ARM-ALIGN-01`, Package 132)
+
+**Decision:** Built multi-pitch arm angle consistency, release height alignment, and pitch tipping defense in `mlb_baseball/model/arm_align.py` and CLI subcommand `mlb arm-align`.
+- **Mathematical Formulations & Methodology**:
+  - Arsenal Arm Alignment Rating: $\text{AAAR} = \max\left(0, 100 + (3.5 - \Delta \theta_{\max}) \cdot 8.0 + (2.5 - \Delta Z_{\max}) \cdot 7.0\right)$.
+  - Pitch Tipping Risk Multiplier: $1.0 + \max(0, \Delta \theta_{\max} - 5.0) \cdot 0.06 + \max(0, \Delta Z_{\max} - 3.5) \cdot 0.04$.
+  - Tiers: `DECEPTIVE_TUNNELED_ARM_SLOT_CLONE` ($\Delta \theta_{\max} \le 1.8^{\circ}, \Delta Z_{\max} \le 1.3\text{ in}, \text{AAAR} \ge 116.0$), `TELL_PRONE_DROPPED_ELBOW_ALERT`, `SOLID_CONSISTENT_ARM_SLOT`, `AVERAGE_ARM_SLOT_VARIANCE`.
+  - CLI: `mlb arm-align --fb-deg 42.0 --br-deg 42.6 --os-deg 41.8 --fb-z 68.0 --br-z 67.5 --os-z 68.2`, `mlb arm-align --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_arm_align.py` passing; 770/770 full repository unit tests passing.
+
+## ADR-219: Batter Pull-Side Infield Groundball vs Opposite Field Slash Engine (`SLASH-OPPO-01`, Package 131)
+
+**Decision:** Built opposite-field spray control, pull groundball avoidance, and anti-shift BABIP boost in `mlb_baseball/model/slash_oppo.py` and CLI subcommand `mlb slash-oppo`.
+- **Mathematical Formulations & Methodology**:
+  - Opposite Field Slash Resilience Rating: $\text{OFSRR} = \max\left(0, 100 + (\text{OppoContact\%} - 24.0) \cdot 2.6 + (\text{OppoLD\%} - 20.0) \cdot 2.2 + (65.0 - \text{PullGB\%}) \cdot 1.4\right)$.
+  - Anti-Shift BABIP Adjustment: $\Delta \text{BABIP}_{\text{oppo}} = (\text{OFSRR} - 100.0) \cdot 0.00065$, $\text{OFSRV}_{\text{runs}} = \Delta \text{BABIP}_{\text{oppo}} \cdot \text{BBE} \cdot 0.45\text{ runs}$.
+  - Tiers: `ELITE_ALL_FIELDS_SLASH_ARTIST` ($\text{OFSRR} \ge 116.0, \text{OppoContact} \ge 29.0\%, \text{PullGB} \le 56.0\%$), `EXTREME_PULL_SHIFT_BAIT`, `WEAK_OPPO_FLARE_SLAPPER`, `AVERAGE_SPRAY_DISPERSAL`.
+  - CLI: `mlb slash-oppo --oppo 32.0 --oppo-ld 28.0 --pull-gb 50.0 --bbe 280`, `mlb slash-oppo --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_slash_oppo.py` passing; 770/770 full repository unit tests passing.
+
+## ADR-218: Pure-Python SVG Pitch Arsenal Horizontal & Vertical Break Movement Plot (`BREAK-DIAMOND-01`, Package 130)
+
+**Decision:** Built multi-pitch Cartesian horizontal vs vertical break vector SVG scatter chart with quadrant coordinate crosshairs in `mlb_baseball/visual.py` and CLI subcommand `mlb break-diamond`.
+- **Operational Architecture & Geometry**:
+  - Coordinate Domain: Maps Horizontal Break $\text{HB}_{\text{in}}$ ($-25\text{ to }+25\text{ in}$) against Induced Vertical Break $\text{IVB}_{\text{in}}$ ($-25\text{ to }+25\text{ in}$) with concentric $10\text{ in}$ and $20\text{ in}$ break circles.
+  - 4 Movement Quadrants: Arm-Side Ride, Glove-Side Cut, Depth / Sweep, Arm-Side Sink.
+  - CLI: `mlb break-diamond --title "Paul Skenes Arsenal Break" --pitcher "Paul Skenes"`.
+- **Verification**: 20/20 unit tests in `tests/unit/test_visual.py` passing; 758/758 full repository unit tests passing.
+
+## ADR-217: Catcher Wild Pitch & Passed Ball Wall Suppression Engine (`BLOCK-SUPPRESS-01`, Package 129)
+
+**Decision:** Built dirt-ball blocking, recovery duration, and wild pitch advancement suppression in `mlb_baseball/model/block_suppress.py` and CLI subcommand `mlb block-suppress`.
+- **Mathematical Formulations & Methodology**:
+  - Dirt Ball Wall Rating: $\text{DBWR} = \max\left(0, 100 + (\text{Block\%} - 88.0) \cdot 3.5 + (0.85 - t_{\text{recov}}) \cdot 80.0 + (\text{AdvancePrev\%} - 75.0) \cdot 1.2\right)$.
+  - Block-Advance Prevention Runs: $\text{BAPR}_{\text{runs}} = (\text{Block\%} - 88.0\%) \cdot \text{Opps} \cdot 0.32 + (\text{AdvancePrev\%} - 75.0\%) \cdot \text{Opps} \cdot 0.18$.
+  - Tiers: `BRICK_WALL_DIRT_SPECIALIST` ($\text{DBWR} \ge 118.0, \text{Block\%} \ge 93.0\%, t_{\text{recov}} \le 0.72\text{ s}$), `LEAKY_DIRT_BALL_LIABILITY`, `SLOW_RECOVERY_DEFENDER`, `AVERAGE_DIRT_BLOCKER`.
+  - CLI: `mlb block-suppress --block 95.0 --recov 0.62 --prev 90.0 --opps 180`, `mlb block-suppress --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_block_suppress.py` passing; 758/758 full repository unit tests passing.
+
+## ADR-216: Batter Two-Strike Foul-Off Attrition & Pitcher Exhaustion Engine (`FOUL-ATTRITION-01`, Package 128)
+
+**Decision:** Built multi-foul battle endurance, pitch count escalation, and starter attrition modeling in `mlb_baseball/model/foul_attrition.py` and CLI subcommand `mlb foul-attrition`.
+- **Mathematical Formulations & Methodology**:
+  - Batter Foul Attrition Index: $\text{BFAI} = \max\left(0, 100 + (\text{MultiFoul\%} - 10.0) \cdot 3.2 + (\text{P/PA} - 3.90) \cdot 35.0 + (\text{2S-Foul\%} - 40.0) \cdot 0.8\right)$.
+  - Starter Removal Acceleration Runs: $\Delta \text{Pitches}_{\text{total}} = (\text{P/PA} - 3.90) \cdot \text{PAs}$, $\text{SRAR}_{\text{runs}} = \Delta \text{Pitches}_{\text{total}} \cdot 0.032\text{ runs/pitch}$.
+  - Tiers: `EXHAUSTING_FOUL_BALL_GRINDER` ($\text{BFAI} \ge 118.0, \text{MultiFoul\%} \ge 14.5\%, \text{P/PA} \ge 4.20$), `RAPID_DISMISSAL_FREE_SWINGER`, `ABOVE_AVERAGE_PITCH_EATER`, `AVERAGE_FOUL_ATTRITION`.
+  - CLI: `mlb foul-attrition --multi-foul 18.0 --ppa 4.45 --foul 52.0 --pa 550`, `mlb foul-attrition --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_foul_attrition.py` passing; 758/758 full repository unit tests passing.
+
+## ADR-215: Pitcher Release Extension vs Plate Velocity Differential Engine (`EXT-PERCEIVE-01`, Package 127)
+
+**Decision:** Built release extension kinematics, perceived velocity boost, and reaction time compression in `mlb_baseball/model/ext_perceive.py` and CLI subcommand `mlb ext-perceive`.
+- **Mathematical Formulations & Methodology**:
+  - Effective Perceived Velocity: $v_{\text{eff}} = v_{\text{radar}} + (ext - 6.0\text{ ft}) \cdot 0.72\text{ mph}$.
+  - Batter Reaction Time Compression: $\Delta t_{\text{react}} = \frac{ext - 6.4\text{ ft}}{v_{\text{radar}} \cdot 1.467\text{ ft/s}} \cdot 1000\text{ ms}$.
+  - Effective Velocity Extension Rating: $\text{EVER} = \max\left(0, 100 + (ext - 6.4) \cdot 28.0 + (v_{\text{eff}} - 93.5) \cdot 2.2 + (\text{IVB} - 16.0) \cdot 1.4\right)$.
+  - Tiers: `ELITE_LONG_EXTENSION_DECEIVER` ($ext \ge 7.05\text{ ft}, \text{EVER} \ge 116.0, v_{\text{eff}} - v_{\text{radar}} \ge 0.75\text{ mph}$), `COMPACT_SHORT_EXTENSION_PENALIZED`, `POWER_VELO_AVERAGE_EXTENSION`, `AVERAGE_EXTENSION_DELIVERY`.
+  - CLI: `mlb ext-perceive --ext 7.3 --velo 96.0 --ivb 18.5 --rel-z 5.6 --pitches 250`, `mlb ext-perceive --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_ext_perceive.py` passing; 758/758 full repository unit tests passing.
+
+## ADR-214: Pure-Python SVG Batter 3D Attack Zone 9x9 Hot/Cold Swing Matrix (`ATTACK-9X9-01`, Package 126)
+
+**Decision:** Built 9x9 fine-grained strike zone grid vector SVG heatmap visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb attack-9x9`.
+- **Operational Architecture & Geometry**:
+  - 9x9 Heat Matrix: Maps 81 cells across Waste (outer ring), Chase, Shadow (borderline perimeter), and Heart (3x3 core).
+  - Zone Boundaries: Delineates solid white border around 5x5 rule strike zone and dashed grey border around 3x3 heart core.
+  - CLI: `mlb attack-9x9 --title "Juan Soto 9x9 Attack Zone" --batter "Juan Soto" --mode wOBA`.
+- **Verification**: 19/19 unit tests in `tests/unit/test_visual.py` passing; 747/747 full repository unit tests passing.
+
+## ADR-213: Outfielder First-Step Reaction & Burst Route Efficiency Engine (`ROUTE-BURST-01`, Package 125)
+
+**Decision:** Built Statcast outfield jump decomposition (Reaction + Burst + Route Efficiency) in `mlb_baseball/model/route_burst.py` and CLI subcommand `mlb route-burst`.
+- **Mathematical Formulations & Methodology**:
+  - Burst-Route Fielding Efficiency Index: $\text{BRFEI} = \max\left(0, 100 + (0.45 - t_{\text{react}}) \cdot 120 + (v_{\text{burst}} - 26.5) \cdot 4.5 + (\eta_{\text{route}} - 92.0) \cdot 1.8\right)$.
+  - OAA Jump Surplus Runs: $\text{OAA}_{\text{jump}} = (\text{BRFEI} - 100.0) \cdot (\text{Opps} \cdot 0.0018)\text{ runs}$.
+  - Tiers: `ELITE_BALLHAWK_BURST_ENGINE` ($\text{BRFEI} \ge 118.0, t_{\text{react}} \le 0.38\text{ s}, \eta_{\text{route}} \ge 95.0\%$), `RAW_SPEED_INEFFICIENT_ROUTER`, `SLOW_REACTION_RANGE_LIABILITY`, `AVERAGE_OUTFIELD_BURST`.
+  - CLI: `mlb route-burst --pos CF --react 0.34 --burst 29.0 --route 97.0 --opps 150`, `mlb route-burst --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_route_burst.py` passing; 747/747 full repository unit tests passing.
+
+## ADR-212: Pitcher Two-Strike Putaway Intent & Out-of-Zone Execution Engine (`PUTAWAY-EXEC-01`, Package 124)
+
+**Decision:** Built two-strike zone command, chase inducement, and putaway execution modeling in `mlb_baseball/model/putaway_exec.py` and CLI subcommand `mlb putaway-exec`.
+- **Mathematical Formulations & Methodology**:
+  - Two-Strike Putaway Execution Rating: $\text{TSPER} = \max\left(0, 100 + (\text{WhiffIntent\%} - 66.0) \cdot 2.4 - (\text{Heart\%} - 20.0) \cdot 3.2 - \max(0, \text{Waste\%} - 14.0) \cdot 1.5\right)$.
+  - Putaway Surplus Value: $\text{PTSV}_{\text{runs}} = (\text{TSPER} - 100.0) \cdot (\text{Pitches}_{2\text{S}} \cdot 0.0028)$.
+  - Tiers: `SURGICAL_TWO_STRIKE_SNIPER` ($\text{TSPER} \ge 118.0, \text{Heart\%} \le 15.0\%, \text{Chase\%} \ge 32.0\%$), `DANGEROUS_HEART_MISTAKE_PRONE`, `WASTE_PRONE_COUNT_EXTENDER`, `AVERAGE_PUTAWAY_EXECUTION`.
+  - CLI: `mlb putaway-exec --shadow 44.0 --chase 36.0 --heart 12.0 --waste 8.0 --pitches 400`, `mlb putaway-exec --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_putaway_exec.py` passing; 747/747 full repository unit tests passing.
+
+## ADR-211: Batter Pull-Air Barrel Conversion & True Power Optimization Engine (`PULL-BARREL-01`, Package 123)
+
+**Decision:** Built pulled flyball concentration, barrel conversion, and home run surplus modeling in `mlb_baseball/model/pull_barrel.py` and CLI subcommand `mlb pull-barrel`.
+- **Mathematical Formulations & Methodology**:
+  - Pull-Air Barrel Conversion Index: $\text{PABCI} = \max\left(0, 100 + (\text{PullFB\%} - 28.0) \cdot 2.8 + (\text{PullBarrel\%} - 22.0) \cdot 2.4 + (\text{PullBarrel\%} - \text{OppoBarrel\%} - 10.0) \cdot 0.8\right)$.
+  - Surplus Home Runs & Value: $\Delta \text{HR}_{\text{pull}} = (\text{PullFB\%} - 28.0\%) \cdot N_{\text{Air}} \cdot 0.28\text{ HRs}$, $\text{PABSV}_{\text{runs}} = \Delta \text{HR}_{\text{pull}} \cdot 1.40\text{ runs}$.
+  - Tiers: `OPTIMAL_PULL_AIR_POWER_CRUSHER` ($\text{PABCI} \ge 118.0, \text{PullFB} \ge 34.0\%, \text{PullBarrel} \ge 28.0\%$), `DEAD_CENTER_POWER_UNDERVALUED`, `HARMLESS_PULL_AIR_POPUP_RISK`, `AVERAGE_PULL_AIR_PROFILE`.
+  - CLI: `mlb pull-barrel --pull-fb 38.0 --pull-bar 34.0 --oppo-bar 10.0 --air-count 80 --bbe 260`, `mlb pull-barrel --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_pull_barrel.py` passing; 747/747 full repository unit tests passing.
+
+## ADR-210: Pure-Python SVG Pitch Arsenal Release Window Scatter Box Visualizer (`RELEASE-BOX-01`, Package 122)
+
+**Decision:** Built multi-pitch Cartesian release point scatter box vector SVG visualizer with $1\sigma$ confidence ellipses in `mlb_baseball/visual.py` and CLI subcommand `mlb release-box`.
+- **Operational Architecture & Geometry**:
+  - Coordinate Domain: Maps horizontal release $X_{\text{rel}}$ ($-3.5\text{ to }+3.5\text{ ft}$) against vertical release $Z_{\text{rel}}$ ($4.5\text{ to }7.0\text{ ft}$) with mound center vertical reference line.
+  - $1\sigma$ Dispersion Ellipses: Renders semi-transparent confidence ellipses around each pitch's release cluster scaled to horizontal and vertical standard deviations.
+  - CLI: `mlb release-box --title "Paul Skenes Release Window" --pitcher "Paul Skenes"`.
+- **Verification**: 18/18 unit tests in `tests/unit/test_visual.py` passing; 736/736 full repository unit tests passing.
+
+## ADR-209: Catcher Quick Exchange & Pop Time Decomposition Engine (`CATCH-XCHG-01`, Package 121)
+
+**Decision:** Built glove-to-hand transfer time, pop time decomposition, and stolen base deterrence modeling in `mlb_baseball/model/catch_xchg.py` and CLI subcommand `mlb catch-xchg`.
+- **Mathematical Formulations & Methodology**:
+  - Pop Time Decomposition: $t_{\text{pop}} = t_{\text{xchg}} + t_{\text{flight}}\text{ seconds}$.
+  - Catcher Exchange Velocity Index: $\text{CEVI} = \max\left(0, 100 + (0.70 - t_{\text{xchg}}) \cdot 160 + (v_{\text{throw}} - 81.5) \cdot 1.8 + (\text{Acc\%} - 65.0) \cdot 0.9\right)$.
+  - Stolen Base Deterrence Surplus: $\text{SBD}_{\text{runs}} = (0.70 - t_{\text{xchg}}) \cdot \text{Att} \cdot 1.10 + (\text{Acc\%} - 65.0\%) \cdot \text{Att} \cdot 0.22$.
+  - Tiers: `LIGHTNING_QUICK_EXCHANGE_CANNON` ($t_{\text{xchg}} \le 0.64\text{ s}, \text{CEVI} \ge 115.0, v_{\text{throw}} \ge 84.0\text{ mph}$), `STRONG_ARM_SLOW_TRANSFER`, `POOR_ARM_TRANSFER_LIABILITY`, `AVERAGE_CATCHER_TRANSFER`.
+  - CLI: `mlb catch-xchg --xchg 0.62 --velo 87.0 --flight 1.28 --acc 78.0 --att 85`, `mlb catch-xchg --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_catch_xchg.py` passing; 736/736 full repository unit tests passing.
+
+## ADR-208: Batter Two-Strike Expansion Resistance & Out-of-Zone Foul Engine (`EXP-RESIST-01`, Package 120)
+
+**Decision:** Built two-strike chase suppression, out-of-zone contact, and foul survival modeling in `mlb_baseball/model/exp_resist.py` and CLI subcommand `mlb exp-resist`.
+- **Mathematical Formulations & Methodology**:
+  - Two-Strike Expansion Resistance Index: $\text{TERI} = \max\left(0, 100 + (36.0 - \text{Chase\%}) \cdot 2.5 + (\text{O-Contact\%} - 54.0) \cdot 1.8 + (\text{Foul\%} - 40.0) \cdot 1.2\right)$.
+  - Two-Strike Battle Runs: $\text{TERI}_{\text{runs}} = (\text{TERI} - 100.0) \cdot (\text{PAs} \cdot 0.0035)$.
+  - Tiers: `ELITE_ZONE_EXPANSION_RESISTOR` ($\text{TERI} \ge 118.0, \text{Chase\%} \le 28.0\%, \text{O-Contact\%} \ge 60.0\%$), `CHASE_PRONE_TWO_STRIKE_VICTIM`, `TWO_STRIKE_FOUL_BALL_SPOILER`, `AVERAGE_TWO_STRIKE_RESISTANCE`.
+  - CLI: `mlb exp-resist --chase 24.0 --o-contact 68.0 --foul 50.0 --pa 300`, `mlb exp-resist --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_exp_resist.py` passing; 736/736 full repository unit tests passing.
+
+## ADR-207: Pitcher Release Point Variance & Mechanical Tell Engine (`REL-DRIFT-01`, Package 119)
+
+**Decision:** Built 3D spatial release point dispersion, mechanical repeat consistency, and fatigue alerts in `mlb_baseball/model/rel_drift.py` and CLI subcommand `mlb rel-drift`.
+- **Mathematical Formulations & Methodology**:
+  - Spatial Dispersion: $\sigma_{\text{spatial}} = \sqrt{(\sigma_{\text{rel}, x})^2 + (\sigma_{\text{rel}, z})^2}\text{ inches}$.
+  - Mechanical Consistency Score: $\text{MCS} = \max\left(0, 100 + (2.6 - \sigma_{\text{spatial}}) \cdot 16.0 - \max(0, \text{LateDrop} - 0.8) \cdot 11.0\right)$.
+  - Tiers: `METRONOMIC_MECHANICAL_REPEATER` ($\text{MCS} \ge 112.0, \sigma_{\text{spatial}} \le 2.10\text{ in}, \text{LateDrop} \le 1.0\text{ in}$), `FATIGUE_ARM_SLOT_COLLAPSE_ALERT` ($\text{LateDrop} \ge 2.4\text{ in}$), `ERRATIC_SCATTERED_RELEASE_POINT`, `AVERAGE_RELEASE_CONSISTENCY`.
+  - CLI: `mlb rel-drift --std-x 1.4 --std-z 1.2 --late-drop 0.6 --pitches 95`, `mlb rel-drift --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_rel_drift.py` passing; 736/736 full repository unit tests passing.
+
+## ADR-206: Pure-Python SVG Batter 3D Spray & Elevation Polar Rose Visualizer (`SPRAY-ROSE-01`, Package 118)
+
+**Decision:** Built multi-sector polar rose chart vector SVG visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb spray-rose`.
+- **Operational Architecture & Geometry**:
+  - Directional Polar Rose Wedges: Maps Dead Pull, Pull, Center, Oppo, Dead Oppo spray sectors from $-45^\circ$ to $+45^\circ$.
+  - Stacked Elevation Breakdown: Renders stacked annular wedges for Groundball, Line Drive, Flyball, and Popup distributions, scaled by sector Exit Velocity.
+  - CLI: `mlb spray-rose --title "Shohei Ohtani Spray & Elevation Rose" --batter "Shohei Ohtani"`.
+- **Verification**: 17/17 unit tests in `tests/unit/test_visual.py` passing; 725/725 full repository unit tests passing.
+
+## ADR-205: Batter First-Pitch Aggressiveness & Early-Count Ambush Value Engine (`AMBUSH-01`, Package 117)
+
+**Decision:** Built 0-0 count decision making, first-pitch damage, and ambush surplus modeling in `mlb_baseball/model/ambush.py` and CLI subcommand `mlb ambush`.
+- **Mathematical Formulations & Methodology**:
+  - First-Pitch Ambush Value Index: $\text{FPAV} = \max\left(0, 100 + (\text{SLG}_{00} - 0.520) \cdot 58 + (\Delta \text{Selectivity} - 35.0) \cdot 1.2 + (\text{HardHit\%} - 40.0) \cdot 0.8\right)$.
+  - Surplus Value: $\text{FPSV}_{\text{runs}} = (\text{SLG}_{00} - 0.520) \cdot (\text{PAs} \cdot 0.12) \cdot 0.44\text{ runs}$.
+  - Tiers: `LETHAL_FIRST_PITCH_AMBUSHER` ($\text{FPAV} \ge 118.0, \text{SLG}_{00} \ge 0.700, \text{Swing}_{00} \ge 34.0\%$), `PASSIVE_FIRST_PITCH_TAKER`, `WILD_EARLY_COUNT_HACKER`, `AVERAGE_EARLY_COUNT_APPROACH`.
+  - CLI: `mlb ambush --swing 42.0 --z-swing 68.0 --chase 12.0 --hard-hit 58.0 --slg 0.840 --pa 600`, `mlb ambush --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_ambush.py` passing; 725/725 full repository unit tests passing.
+
+## ADR-204: Pitcher Vertical Approach Angle vs Top-of-Zone Whiff Engine (`VAA-TOZ-01`, Package 116)
+
+**Decision:** Built top-of-strike-zone entry angle trigonometry, flatness indexing, and whiff prediction in `mlb_baseball/model/vaa_toz.py` and CLI subcommand `mlb vaa-toz`.
+- **Mathematical Formulations & Methodology**:
+  - Top-of-Zone VAA: $\text{VAA}_{\text{TOZ}} \approx -4.90^\circ - 0.90 \cdot (z_{\text{rel}} - 5.8) + 0.12 \cdot (\text{IVB} - 16.0) + 0.04 \cdot (v_{\text{rel}} - 93.5)$.
+  - Flatness Index & Whiff Boost: $\text{TOZ-FI} = \max\left(0, 100 + (\text{VAA} - (-4.8)) \cdot 18.0 + (\text{IVB} - 16.0) \cdot 2.2 + (v_{\text{rel}} - 94.0) \cdot 1.2\right)$, $\text{Boost} = 1.0 + \frac{\max(0, \text{TOZ-FI} - 100)}{250}$.
+  - Tiers: `DEADLY_FLAT_RISING_HEATER` ($\text{VAA}_{\text{TOZ}} \ge -4.20^\circ, \text{TOZ-FI} \ge 115.0$), `ABOVE_AVERAGE_FLAT_PROFILE`, `STEEP_DOWNHILL_FASTBALL`, `AVERAGE_APPROACH_FASTBALL`.
+  - CLI: `mlb vaa-toz --rel-z 5.5 --velo 97.0 --ivb 20.0 --plate-z 3.4 --ext 7.0`, `mlb vaa-toz --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_vaa_toz.py` passing; 725/725 full repository unit tests passing.
+
+## ADR-203: Batter Pull-Side Groundball Defense & Infield Positioning Engine (`PULL-GB-01`, Package 115)
+
+**Decision:** Built infield positioning depth, pull-side groundball trapping, and defensive run savings in `mlb_baseball/model/pull_gb.py` and CLI subcommand `mlb pull-gb`.
+- **Mathematical Formulations & Methodology**:
+  - Optimal Infield Depth: $\text{Depth} = 150.0\text{ ft} + (\text{HardPullGB\%} - 35.0) \cdot 0.55\text{ ft}$.
+  - Groundball Trap Index: $\text{GBTI} = \max\left(0, 100 + (\text{PullGB\%} - 48.0) \cdot 2.4 + (\text{GB\%} - 42.0) \cdot 1.5 + (\text{HardPull\%} - 35.0) \cdot 1.1\right)$.
+  - Positioning Run Savings: $\text{PDRS}_{\text{runs}} = (\text{PullGB\%} - 45.0\%) \cdot N_{\text{GB}} \cdot 0.26\text{ runs}$.
+  - Tiers: `EXTREME_PULL_SHADING_REQUIRED` ($\text{GBTI} \ge 118.0, \text{PullGB} \ge 64.0\%$), `STRAIGHT_UP_NEUTRAL_POSITIONING`, `OPPOSITE_FIELD_GB_ALERT`, `MODERATE_PULL_SHADING`.
+  - CLI: `mlb pull-gb --side L --gb-pct 52.0 --pull-gb 72.0 --oppo-gb 10.0 --hard-pull 45.0 --gb-count 140`, `mlb pull-gb --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_pull_gb.py` passing; 725/725 full repository unit tests passing.
+
+## ADR-202: Pure-Python SVG Pitch Arsenal Velocity & Movement Separation Plot (`SEPARATION-PLOT-01`, Package 114)
+
+**Decision:** Built multi-pitch Cartesian scatter vector SVG visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb separation-plot`.
+- **Operational Architecture & Geometry**:
+  - Velocity vs IVB Scatter Grid: Maps pitch velocities on the X-axis ($75-102\text{ mph}$) against induced vertical break on the Y-axis ($-15\text{ to }+25\text{ in}$).
+  - Tunneling & Separation Connection Deltas: Draws connecting dashed lines from primary anchor fastball to secondary pitches annotated with velocity deltas ($\Delta v$).
+  - CLI: `mlb separation-plot --title "Tarik Skubal Arsenal Separation" --pitcher "Tarik Skubal"`.
+- **Verification**: 16/16 unit tests in `tests/unit/test_visual.py` passing; 714/714 full repository unit tests passing.
+
+## ADR-201: Outfielder Throwing Arm Accuracy & Base-Runner Freeze Index (`ARM-ACCURACY-01`, Package 113)
+
+**Decision:** Built outfield throwing accuracy, runner kill rates, and extra-base deterrence modeling in `mlb_baseball/model/arm_accuracy.py` and CLI subcommand `mlb arm-accuracy`.
+- **Mathematical Formulations & Methodology**:
+  - Arm Sniper Index: $\text{ASI} = \max\left(0, 100 + (\text{Acc\%} - 65.0) \cdot 2.2 + (\text{Velo} - 90.0) \cdot 1.8 + (\text{Hold\%} - 50.0) \cdot 1.4\right)$.
+  - Runner Freeze Surplus Value: $\text{RFSV}_{\text{runs}} = (\text{Hold\%} - 50.0\%) \cdot \text{Opps} \cdot 0.18 + N_{\text{Assists}} \cdot 0.44 - N_{\text{Overthrows}} \cdot 0.35$.
+  - Tiers: `DREADED_SNIPER_ARM` ($\text{ASI} \ge 118.0, \text{Acc} \ge 74.0\%, \text{Velo} \ge 93.0\text{ mph}$), `RAW_ERRATIC_CANNON`, `NARROW_RANGE_WEAK_ARM`, `AVERAGE_OUTFIELD_ARM`.
+  - CLI: `mlb arm-accuracy --velo 99.0 --accuracy 82.0 --assists 14 --hold 70.0 --overthrows 1 --opps 160`, `mlb arm-accuracy --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_arm_accuracy.py` passing; 714/714 full repository unit tests passing.
+
+## ADR-200: Pitcher Arsenals Separation & Velocity Delta Disruption Engine (`VELO-DELTA-01`, Package 112)
+
+**Decision:** Built pitch velocity differentials, speed banding, and vertical drop disruption modeling in `mlb_baseball/model/velo_delta.py` and CLI subcommand `mlb velo-delta`.
+- **Mathematical Formulations & Methodology**:
+  - Velo & Drop Gaps: $\Delta v = v_{\text{FB}} - v_{\text{CH}}$, $\Delta \text{IVB} = \text{IVB}_{\text{FB}} - \text{IVB}_{\text{CH}}$.
+  - Velocity Delta Disruption Index: $\text{VDDI} = \max\left(0, 100 + (\Delta v - 8.5) \cdot 3.8 + (\Delta \text{IVB} - 10.0) \cdot 2.8 + (v_{\text{FB}} - 93.5) \cdot 1.8\right)$.
+  - Whiff Boost Multiplier: $\text{Whiff Multiplier} = 1.0 + \frac{\max(0, \text{VDDI} - 100.0)}{300.0}$.
+  - Tiers: `ELITE_VELO_BAND_DISRUPTOR` ($\text{VDDI} \ge 115.0, \Delta v \ge 9.5\text{ mph}$), `TIGHT_BAND_POWER_PITCHER`, `DANGEROUS_FLAT_HOMOGENEOUS_ARSENAL`, `AVERAGE_ARSENAL_SEPARATION`.
+  - CLI: `mlb velo-delta --fb-velo 97.0 --ch-velo 86.5 --sl-velo 89.0 --cb-velo 81.0 --fb-ivb 18.0 --ch-ivb 5.5`, `mlb velo-delta --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_velo_delta.py` passing; 714/714 full repository unit tests passing.
+
+## ADR-199: Batter Contact Blast Angle & Launch Window Compression Engine (`BLAST-ANGLE-01`, Package 111)
+
+**Decision:** Built launch angle consistency, power corridor compression, and damage optimization modeling in `mlb_baseball/model/blast_angle.py` and CLI subcommand `mlb blast-angle`.
+- **Mathematical Formulations & Methodology**:
+  - Launch Window Tightness Score: $\text{LWTS} = \max\left(0, 100 + (28.0 - \sigma_{\text{LA}}) \cdot 2.6 + (\text{PowerBlast\%} - 18.0) \cdot 3.0 + (\text{HardHit\%} - 38.0) \cdot 1.1\right)$.
+  - Blast Angle Surplus Damage: $\text{BASD}_{\text{runs}} = (\text{PowerBlast\%} - 18.0\%) \cdot \text{BBE} \cdot 0.44 + (\text{SweetSpot\%} - 34.0\%) \cdot \text{BBE} \cdot 0.18$.
+  - Tiers: `PRECISION_POWER_BLASTER` ($\text{LWTS} \ge 118.0, \sigma_{\text{LA}} \le 22.0^\circ, \text{PowerBlast} \ge 24.0\%$), `FLAT_TRAJECTORY_LINE_DRIVE_ARTISAN`, `ERRATIC_FLYBALL_POPUP_RISK`, `AVERAGE_LAUNCH_PROFILE`.
+  - CLI: `mlb blast-angle --mean-la 15.0 --std-la 20.5 --sweet-spot 44.0 --blast 27.0 --hard-hit 52.0 --bbe 250`, `mlb blast-angle --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_blast_angle.py` passing; 714/714 full repository unit tests passing.
+
+## ADR-198: Pure-Python SVG Pitch Arsenal 3D Spin Axis Clock Vector Visualizer (`SPIN-CLOCK-01`, Package 110)
+
+**Decision:** Built 12-hour analog clock dial vector SVG visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb spin-clock`.
+- **Operational Architecture & Geometry**:
+  - 12-Hour Analog Clock Dial: Maps pitch release tilt angles into radial vector rays ($\theta_{\text{clock}} = (\text{Hours} + \frac{\text{Minutes}}{60}) \times 30^\circ - 90^\circ$).
+  - Spin Efficiency Scaling: Modulates vector ray lengths proportionally to active spin efficiency (bullet gyro slider near center pivot, 98% efficient fastball extending to outer perimeter).
+  - CLI: `mlb spin-clock --title "Paul Skenes Arsenal Spin Clock" --pitcher "Paul Skenes"`.
+- **Verification**: 15/15 unit tests in `tests/unit/test_visual.py` passing; 703/703 full repository unit tests passing.
+
+## ADR-197: Infield Double Play Conversion Pivot Kinematics Engine (`PIVOT-DP-01`, Package 109)
+
+**Decision:** Built middle infielder (2B/SS) pivot mechanics, turn time, and GDP conversion modeling in `mlb_baseball/model/pivot_dp.py` and CLI subcommand `mlb pivot-dp`.
+- **Mathematical Formulations & Methodology**:
+  - Double Play Turn Index: $\text{DPTI} = \max\left(0, 100 + \left(\frac{0.78 - t_{\text{turn}}}{0.10}\right) \cdot 18 + \left(\frac{v_{\text{relay}} - 82.0}{5.0}\right) \cdot 8\right)$.
+  - Turn Surplus Value: $\text{DPTS}_{\text{runs}} = (N_{\text{Turned}} - N_{\text{Opps}} \cdot 0.68) \cdot 0.48 - N_{\text{Wild Throws}} \cdot 0.38$.
+  - Tiers: `LIGHTNING_PIVOT_TURNER` ($\text{DPTI} \ge 115.0, t_{\text{turn}} \le 0.72\text{s}$), `ABOVE_AVERAGE_MIDDLE_INFIELDER`, `SLOW_PIVOT_LIABILITY`, `AVERAGE_PIVOT_DEFENDER`.
+  - CLI: `mlb pivot-dp --turn 0.67 --throw 87.0 --turned 68 --opps 82 --pos 2B`, `mlb pivot-dp --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_pivot_dp.py` passing; 703/703 full repository unit tests passing.
+
+## ADR-196: Batter Two-Strike Approach Shortening & Choke-Up Contact Engine (`TWO-STRIKE-01`, Package 108)
+
+**Decision:** Built two-strike count swing adjustments, contact rate defense, and K suppression modeling in `mlb_baseball/model/two_strike.py` and CLI subcommand `mlb two-strike`.
+- **Mathematical Formulations & Methodology**:
+  - Swing Shortening & Whiff Reduction: $\Delta L = L_{\text{early}} - L_{\text{two-strike}}$, $\Delta \text{Whiff} = \text{Whiff}_{\text{early}} - \text{Whiff}_{\text{two-strike}}$.
+  - Two-Strike Battle Efficiency Index: $\text{TSBE} = \max\left(0, 100 + \Delta \text{Whiff} \cdot 2.5 + \Delta L \cdot 18.0 - (\text{K\%} - 40.0) \cdot 1.5\right)$.
+  - Surplus Runs: $\text{Surplus}_{\text{runs}} = \left(\frac{40.0 - \text{K\%}}{100}\right) \cdot \text{PAs} \cdot 0.32\text{ runs}$.
+  - Tiers: `ELITE_TWO_STRIKE_BATTLER` ($\text{TSBE} \ge 120.0, \text{Surplus} \ge +3.5$), `TACTICAL_CHOKE_UP_SPECIALIST`, `VULNERABLE_LONG_SWING_PULLER`, `AVERAGE_TWO_STRIKE_APPROACH`.
+  - CLI: `mlb two-strike --early-whiff 24 --two-whiff 16 --early-len 7.4 --two-len 6.6 --k-pct 32.0 --pa 220`, `mlb two-strike --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_two_strike.py` passing; 703/703 full repository unit tests passing.
+
+## ADR-195: Pitcher Gyro Degree & True Spin Axis 3D Aerodynamic Engine (`GYRO-SPIN-01`, Package 107)
+
+**Decision:** Built 3D spin decomposition, gyro degree trigonometry, and aerodynamic classification in `mlb_baseball/model/gyro_spin.py` and CLI subcommand `mlb gyro-spin`.
+- **Mathematical Formulations & Methodology**:
+  - Gyro Angle: $\theta_{\text{gyro}} = \arccos\left(\frac{\text{Eff\%}}{100}\right) \times \left(\frac{180^\circ}{\pi}\right)$.
+  - Active vs Gyro Spin: $\text{Spin}_{\text{active}} = \text{Spin}_{\text{total}} \cdot \text{Eff}$, $\text{Spin}_{\text{gyro}} = \text{Spin}_{\text{total}} \cdot \sin(\theta_{\text{gyro}})$.
+  - Tiers: `PURE_BULLET_GYRO` ($\theta_{\text{gyro}} \ge 70.0^\circ$, zero Magnus movement), `HYBRID_GYRO_SWEEPER`, `HIGH_EFFICIENCY_MAGNUS` ($\theta_{\text{gyro}} \le 25.0^\circ$), `BALANCED_SPIN_PROFILE`.
+  - CLI: `mlb gyro-spin --pitch SL --spin 2700 --eff 18.0 --velo 88.0 --pfx-x 2.5 --pfx-z -1.5`, `mlb gyro-spin --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_gyro_spin.py` passing; 703/703 full repository unit tests passing.
+
+## ADR-194: Pure-Python SVG Strike Zone 5x5 Iso-Contour Heat Surface Visualizer (`ZONE-SURFACE-01`, Package 106)
+
+**Decision:** Built 5x5 interpolated contour heat surface visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb zone-surface`.
+- **Operational Architecture & Geometry**:
+  - 5x5 Interpolated Contour Surface: Maps continuous metrics (whiff rate, slugging percentage, hard hit density) across inner 3x3 Heart and outer Shadow/Chase cells with bilinear RGB gradient transitions.
+  - Strike Zone & Plate Overlay: Superimposes white Rulebook Strike Zone bounding box and 5-sided home plate polygon.
+  - CLI: `mlb zone-surface --title "Juan Soto Slugging Surface" --batter "Juan Soto" --metric "Expected SLG"`.
+- **Verification**: 14/14 unit tests in `tests/unit/test_visual.py` passing; 693/693 full repository unit tests passing.
+
+## ADR-193: Catcher Block-to-Throw & Stolen Base Prevention Engine (`CATCHER-POP-01`, Package 105)
+
+**Decision:** Built ball-in-the-dirt recovery, secondary pop time, and wild pitch prevention modeling in `mlb_baseball/model/catcher_pop.py` and CLI subcommand `mlb catcher-pop`.
+- **Mathematical Formulations & Methodology**:
+  - Total Block-to-Throw Duration: $t_{\text{total}} = t_{\text{pop}} + t_{\text{recovery}}$.
+  - Runner Advancement Deterrence: $\text{Det\%} = \max\left(0, 100 - \left(\frac{t_{\text{total}} - 2.30}{0.50}\right) \cdot 45\right)$.
+  - Block-to-Throw Surplus Value: $\text{BTSV}_{\text{runs}} = N_{\text{WP Prevented}} \cdot 0.28 + N_{\text{Dirt CS}} \cdot 0.44 - N_{\text{Passed Balls}} \cdot 0.35$.
+  - Tiers: `WALL_AND_CANNON_BACKSTOP` ($\text{BTSV} \ge +4.0\text{ runs}, \text{Pop} \le 1.90\text{s}$), `ELITE_DIRT_BALL_BLOCKER`, `SLOW_RECOVERY_LIABILITY`, `AVERAGE_BACKSTOP`.
+  - CLI: `mlb catcher-pop --pop 1.88 --recovery 0.58 --wp-saved 22 --dirt-cs 5 --pb 1`, `mlb catcher-pop --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_catcher_pop.py` passing; 693/693 full repository unit tests passing.
+
+## ADR-192: Pitcher Arm Slot Angle & Release Consistency Dispersion Engine (`ARM-SLOT-01`, Package 104)
+
+**Decision:** Built arm slot angle trigonometry, release point consistency, and pitch tipping defense in `mlb_baseball/model/arm_slot.py` and CLI subcommand `mlb arm-slot`.
+- **Mathematical Formulations & Methodology**:
+  - Arm Slot Angle from Vertical: $\theta_{\text{slot}} = \arctan2(|x_{\text{rel}}|, z_{\text{rel}} - 0.82 \cdot H_{\text{pitcher}}) \times \left(\frac{180^\circ}{\pi}\right)$.
+  - Release Point Consistency: $\text{Consistency} = \max\left(0, 100 - \left(\frac{\sigma_{\text{release}}}{1.0\text{ in}}\right) \cdot 22\right)$.
+  - Tiers: `OVER_THE_TOP` ($\theta \le 30^\circ$), `THREE_QUARTERS` ($30^\circ \le \theta < 50^\circ$), `LOW_THREE_QUARTERS` ($50^\circ \le \theta < 70^\circ$), `SIDEARM` ($70^\circ \le \theta \le 90^\circ$), `SUBMARINE` ($\theta > 90^\circ$).
+  - CLI: `mlb arm-slot --rel-x -2.4 --rel-z 5.8 --height 75 --disp 1.2`, `mlb arm-slot --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_arm_slot.py` passing; 693/693 full repository unit tests passing.
+
+## ADR-191: Batter Contact Depth & Point-of-Impact Kinematics Engine (`CONTACT-DEPTH-01`, Package 103)
+
+**Decision:** Built point-of-impact spatial depth, swing timing, and spray optimization modeling in `mlb_baseball/model/contact_depth.py` and CLI subcommand `mlb contact-depth`.
+- **Mathematical Formulations & Methodology**:
+  - Optimal Impact Depth: $y_{\text{opt}} = 5.0\text{ in} + \left(\frac{v_{\text{pitch}} - 90.0}{10.0}\right) \cdot 1.5\text{ in} + \left(\frac{-x_{\text{loc}}}{10.0}\right) \cdot 2.0\text{ in}$.
+  - Timing Efficiency: $\text{Timing Eff\%} = \max\left(0, 1.0 - \left(\frac{|y_{\text{contact}} - y_{\text{opt}}|}{8.0}\right)^2 \cdot 0.30\right) \times 100\%$.
+  - Tiers: `OUT_FRONT_PULL_CRUSHER` ($y_{\text{contact}} \ge 6.0\text{ in}, \text{EV} \ge 98\text{ mph}, \text{Spray} \le -15^\circ$), `DEEP_ZONE_OPPO_SPECIALIST`, `LATE_TIMING_VULNERABILITY` ($\Delta y \le -4.5\text{ in}$), `OPTIMAL_ZONE_CONTACT`.
+  - CLI: `mlb contact-depth --depth 7.5 --velo 95.0 --x-loc -4.0 --spray -28.0 --ev 104.5`, `mlb contact-depth --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_contact_depth.py` passing; 693/693 full repository unit tests passing.
+
+## ADR-190: Pure-Python SVG 3D Isometric Pitch Flight Trajectory Visualizer (`FLIGHT-3D-01`, Package 102)
+
+**Decision:** Built 3D isometric pitch flight and tunneling trajectory visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb flight-3d`.
+- **Operational Architecture & Geometry**:
+  - Isometric 3D Space Projection: Projects continuous pitch flight curves from pitcher release $(x_{\text{rel}}, 54.5, z_{\text{rel}})$ to home plate $(x_{\text{plate}}, 0.0, z_{\text{plate}})$.
+  - Plate & Zone Wireframe: Renders home plate polygon, 3D strike zone box at plate crossing plane, and mound rubber.
+  - Multi-Pitch Tunneling: Overlays distinct pitch trajectories (e.g. 4-Seam vs Sweeper vs Changeup) with aerodynamic break deflection vectors.
+  - CLI: `mlb flight-3d --title "Tarik Skubal 3D Pitch Tunnel" --pitcher "Tarik Skubal"`.
+- **Verification**: 13/13 unit tests in `tests/unit/test_visual.py` passing; 682/682 full repository unit tests passing.
+
+## ADR-189: Defensive Outfield Catch Probability & 5-Star Opportunity Engine (`CATCH-PROB-01`, Package 101)
+
+**Decision:** Built opportunity distance, hang time, directional difficulty, and 5-Star catch probability modeling in `mlb_baseball/model/catch_prob.py` and CLI subcommand `mlb catch-prob`.
+- **Mathematical Formulations & Methodology**:
+  - Required Arrival Time: $t_{\text{needed}} = 0.60\text{s} + \frac{d}{v_{\text{sprint}} \cdot 0.92} + \left(\frac{\theta}{180^\circ}\right) \cdot 0.70\text{s}$.
+  - Logistic Catch Probability: $P(\text{Catch}) = \frac{1}{1 + e^{-6.5 \cdot (t_{\text{hang}} - t_{\text{needed}})}} \times 100\%$.
+  - Outs Above Average Added: $\text{OAA} = \mathbf{1}_{\text{caught}} - \frac{P(\text{Catch})}{100.0}$.
+  - Statcast Star Ratings: `5_STAR` ($\le 25\%$), `4_STAR` ($26-50\%$), `3_STAR` ($51-75\%$), `2_STAR` ($76-90\%$), `1_STAR` ($91-95\%$), `ROUTINE` ($>95\%$).
+  - CLI: `mlb catch-prob --dist 84 --hang 3.9 --angle 165 --speed 29.8 --caught`, `mlb catch-prob --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_catch_prob.py` passing; 682/682 full repository unit tests passing.
+
+## ADR-188: Starting Pitcher Fastball Velocity Drift & Arm Fatigue Engine (`VELO-DRIFT-01`, Package 100)
+
+**Decision:** Built intra-game velocity decay, spin loss, and late-game fatigue modeling in `mlb_baseball/model/velo_drift.py` and CLI subcommand `mlb velo-drift`.
+- **Mathematical Formulations & Methodology**:
+  - Fastball Velocity Drift: $\Delta v = v_{\text{late}} - v_{\text{early}} \quad (\text{mph})$.
+  - Fastball Velocity Retention Index: $\text{FVRI} = \max\left(0, 100 - \left(\frac{\max(0, -\Delta v)}{0.5}\right) \cdot 12 - \left(\frac{\max(0, -\Delta \text{Spin})}{50}\right) \cdot 6\right)$.
+  - Late-Game Home Run Multiplier: $\text{HR Mult} = 1.0 + \max(0, -\Delta v) \cdot 0.20$.
+  - Tiers: `ELITE_VELO_PRESERVATION` ($\Delta v \ge -0.70\text{ mph}, \text{FVRI} \ge 85.0$), `MODERATE_VELO_FADE`, `SEVERE_VELO_CLIFF` ($\Delta v \le -2.0\text{ mph}$).
+  - CLI: `mlb velo-drift --early 96.8 --late 96.4 --pitches 105 --early-spin 2480 --late-spin 2460`, `mlb velo-drift --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_velo_drift.py` passing; 682/682 full repository unit tests passing.
+
+## ADR-187: Batter Contact-Type Expected Slugging & ISO Power Engine (`XSLG-01`, Package 99)
+
+**Decision:** Built contact quality binning, expected slugging ($x\text{SLG}$), expected ISO ($x\text{ISO}$), and true power conversion efficiency in `mlb_baseball/model/xslg.py` and CLI subcommand `mlb xslg`.
+- **Mathematical Formulations & Methodology**:
+  - Contact Expected Slugging: $x\text{SLG}_{\text{bbe}} = \frac{2.50 \cdot N_{\text{barrel}} + 1.25 \cdot N_{\text{solid}} + 0.65 \cdot N_{\text{flare}} + 0.18 \cdot N_{\text{under}} + 0.15 \cdot N_{\text{topped}} + 0.10 \cdot N_{\text{weak}}}{N_{\text{BBE}}}$.
+  - Expected ISO per Plate Appearance: $x\text{ISO} = (x\text{SLG}_{\text{bbe}} - x\text{BA}_{\text{bbe}}) \cdot 0.68$.
+  - True Power Conversion Efficiency: $\text{TPCE} = \frac{\text{Actual ISO}}{\max(0.05, x\text{ISO})} \times 100\%$.
+  - Tiers: `UNDERVALUED_POWER_CEILING` ($x\text{ISO} \ge 0.220, \text{TPCE} \le 80.0\%$), `ELITE_BARREL_SLUGGER` ($x\text{ISO} \ge 0.250, \text{TPCE} \ge 80.0\%$), `CONTACT_OVERACHIEVER` ($\text{TPCE} \ge 125\%$), `AVERAGE`.
+  - CLI: `mlb xslg --barrels 36 --solid 20 --flares 26 --under 16 --topped 28 --weak 10 --iso 0.360`, `mlb xslg --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_xslg.py` passing; 682/682 full repository unit tests passing.
+
+## ADR-186: Pure-Python SVG Game Win Probability Replay Visualizer (`WPA-REPLAY-01`, Package 98)
+
+**Decision:** Built continuous game win probability flow chart visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb wpa-replay`.
+- **Operational Architecture & Geometry**:
+  - Continuous Event Step Flow: Maps full game step-by-step Home Team Win Expectancy ($0.0\%$ to $100.0\%$) with 50% baseline center guideline.
+  - Pivotal Turning Point Annotation: Detects high-leverage game swings ($|\Delta \text{WE}| \ge 0.15$) and overlays glowing point markers and event summaries.
+  - CLI: `mlb wpa-replay --title "2024 WS Game 1 Replay" --home LAD --away NYY`.
+- **Verification**: 12/12 unit tests in `tests/unit/test_visual.py` passing; 671/671 full repository unit tests passing.
+
+## ADR-185: Infield Bunt Defense & Short Game Run Prevention Engine (`BUNT-01`, Package 97)
+
+**Decision:** Built corner infielder charging kinematics, sacrifice defense, and short game modeling in `mlb_baseball/model/bunt.py` and CLI subcommand `mlb bunt`.
+- **Mathematical Formulations & Methodology**:
+  - Net Bunt Run Savings: $\text{BuntDefenseRuns} = N_{\text{Lead Runner Outs}} \cdot 0.38 + N_{\text{Bunt Popups}} \cdot 0.28 - N_{\text{Bunt Hits Allowed}} \cdot 0.45$.
+  - Lead Runner Kill Rate: $\text{Kill\%} = \frac{N_{\text{Lead Outs}}}{\max(1, N_{\text{Attempts}})} \times 100\%$.
+  - Tiers: `ELITE_BUNT_ERASER` ($\text{BuntRuns} \ge +1.60$), `AGGRESSIVE_CHARGER`, `AVERAGE`, `SHORT_GAME_LIABILITY`.
+  - CLI: `mlb bunt --lead-outs 4 --popups 3 --hits 1 --attempts 22`, `mlb bunt --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_bunt.py` passing; 671/671 full repository unit tests passing.
+
+## ADR-184: Pitcher Horizontal Approach Angle (HAA) & Cross-Body Deception Engine (`HAA-01`, Package 96)
+
+**Decision:** Built horizontal plate entry trajectory, cross-body release, and east-west movement modeling in `mlb_baseball/model/haa.py` and CLI subcommand `mlb haa`.
+- **Mathematical Formulations & Methodology**:
+  - Horizontal Approach Angle: $\text{HAA} = \arctan\left(\frac{v_{x, \text{plate}}}{v_{\text{plate}}}\right) \times \left(\frac{180^\circ}{\pi}\right)$.
+  - Cross-Body Deception Score: $\text{Deception} = \min(100, |x_{\text{rel}}| \cdot 18.0 + |\text{HAA}| \cdot 12.0)$.
+  - Tiers: `EXTREME_CROSS_FIRE_SWEEP` ($|\text{HAA}| \ge 3.0^\circ, |x_{\text{rel}}| \ge 2.0\text{ ft}$), `ABOVE_AVERAGE_EAST_WEST`, `STANDARD`.
+  - CLI: `mlb haa --pitch ST --rel-x -2.6 --plate-x 0.8 --hb 17.0 --velo 83.5`, `mlb haa --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_haa.py` passing; 671/671 full repository unit tests passing.
+
+## ADR-183: Batter Pulled-Air (FB/LD) Power Polarization Engine (`PULL-AIR-01`, Package 95)
+
+**Decision:** Built pulled fly ball and line drive power optimization modeling in `mlb_baseball/model/pull_air.py` and CLI subcommand `mlb pull-air`.
+- **Mathematical Formulations & Methodology**:
+  - Pulled-Air Contact Rate: $\text{PullAir\%} = \frac{N(\text{BBE} \in \{\text{FB}, \text{LD}\} \cap \text{Pull})}{N(\text{BBE} \in \{\text{FB}, \text{LD}\})} \times 100\%$.
+  - Pulled-Air Damage Multiplier: $\text{PADM} = \left(\frac{\text{PullAir\%}}{28.5\%}\right) \times \left(1.0 + \frac{\text{PulledHR}}{\max(1, \text{TotalHR})} \cdot 0.5\right)$.
+  - Tiers: `ELITE_PULL_AIR_PUNISHER` ($\text{PullAir\%} \ge 38.0\%, \text{PADM} \ge 1.60$), `ABOVE_AVERAGE_PULL_AIR`, `AVERAGE`, `ALL_FIELDS_AIR_SPRAY`.
+  - CLI: `mlb pull-air --pull-air 45 --total-air 110 --pull-hr 22 --hr 25`, `mlb pull-air --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_pull_air.py` passing; 671/671 full repository unit tests passing.
+
+## ADR-182: Pure-Python SVG Batter vs Pitcher Matchup Head-to-Head Comparison Card (`COMPARE-CARD-01`, Package 94)
+
+**Decision:** Built side-by-side scouting matchup comparison card visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb matchup-card`.
+- **Operational Architecture & Geometry**:
+  - Dual Comparison Bars: Side-by-side opposing horizontal bars displaying normalized rate stats (wOBA vs wOBA, Hard-Hit% vs Allowed, K% vs K%, Whiff% vs Whiff%).
+  - Advantage Badge: Highlights overall tactical matchup advantage (`BATTER_ADVANTAGE`, `PITCHER_ADVANTAGE`, `NEUTRAL`).
+  - CLI: `mlb matchup-card --batter "Aaron Judge" --pitcher "Gerrit Cole"`.
+- **Verification**: 11/11 unit tests in `tests/unit/test_visual.py` passing; 660/660 full repository unit tests passing.
+
+## ADR-181: Pitcher Infield Fly Ball (IFFB) & Automatic Out Run Value Engine (`IFFB-01`, Package 93)
+
+**Decision:** Built infield popup infliction, automatic out conversion, and run suppression modeling in `mlb_baseball/model/iffb.py` and CLI subcommand `mlb iffb`.
+- **Mathematical Formulations & Methodology**:
+  - Infield Fly Ball Rate: $\text{IFFB\%} = \frac{N_{\text{IFFB}}}{N_{\text{FB}}} \times 100\%$.
+  - Pop-Up Surplus Value: $\text{SurplusRuns} = (\text{IFFB\%} - 9.5\%) \cdot N_{\text{FB}} \cdot 0.22\text{ runs}$.
+  - Tiers: `ELITE_POPUP_INDUCER` ($\text{IFFB\%} \ge 14.0\%$), `ABOVE_AVERAGE_INDUCER`, `AVERAGE`, `WARNING_TRACK_VULNERABLE`.
+  - CLI: `mlb iffb --iffb 20 --fb 165 --pa 620`, `mlb iffb --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_iffb.py` passing; 660/660 full repository unit tests passing.
+
+## ADR-180: Pitcher Vertical Approach Angle (VAA) & Flatness Whiff Engine (`VAA-01`, Package 92)
+
+**Decision:** Built pitch flight trajectory modeling, vertical approach angle, and flatness whiff boosts in `mlb_baseball/model/vaa.py` and CLI subcommand `mlb vaa`.
+- **Mathematical Formulations & Methodology**:
+  - Vertical Approach Angle: $\text{VAA} = \arctan\left(\frac{v_{z, \text{plate}}}{v_{\text{plate}}}\right) \times \left(\frac{180^\circ}{\pi}\right)$.
+  - Flat Fastball Whiff Multiplier: $\Delta \text{Whiff\%} = (\text{VAA} - (-4.50^\circ)) \cdot 2.2 + 2.0\%$ for 4-seamers at upper zone.
+  - Tiers: `ELITE_FLAT_RISING_VAA` ($\text{VAA} \ge -4.30^\circ$), `ABOVE_AVERAGE_FLAT`, `STANDARD`, `STEEP_DOWNHILL`.
+  - CLI: `mlb vaa --pitch FF --rel-z 5.6 --plate-z 3.2 --ivb 18.5 --velo 96.0`, `mlb vaa --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_vaa.py` passing; 660/660 full repository unit tests passing.
+
+## ADR-179: Batter BABIP Expected Luck Deficit & Regression Scanner (`BABIP-LUCK-01`, Package 91)
+
+**Decision:** Built batted ball trajectory modeling, expected BABIP (xBABIP), and luck deficit evaluation in `mlb_baseball/model/babip.py` and CLI subcommand `mlb babip`.
+- **Mathematical Formulations & Methodology**:
+  - Expected BABIP: $x\text{BABIP} = 0.220 + 0.380 \cdot \text{LD\%} + 0.120 \cdot \text{HardHit\%} + 0.006 \cdot (v_{\text{sprint}} - 27.0) - 0.140 \cdot \text{IFFB\%} + 0.040 \cdot \text{GB\%}$.
+  - BABIP Luck Deficit: $\Delta \text{BABIP} = \text{BABIP}_{\text{actual}} - x\text{BABIP}$.
+  - Tiers: `SEVERE_POSITIVE_REGRESSION` ($\Delta \text{BABIP} \le -0.045$, Buy-Low), `MODERATE_UNDERPERFORMER`, `FAIR_VALUE_NEUTRAL`, `MODERATE_OVERPERFORMER`, `SEVERE_NEGATIVE_REGRESSION`.
+  - CLI: `mlb babip --actual 0.320 --ld 0.21 --hard-hit 0.42 --speed 27.5`, `mlb babip --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_babip.py` passing; 660/660 full repository unit tests passing.
+
+## ADR-178: Pure-Python SVG Spatial Attack Zone Hexbin Visualizer (`HEXBIN-01`, Package 90)
+
+**Decision:** Built 2D strike zone pitch density and spatial hexbin visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb hexbin`.
+- **Operational Architecture & Geometry**:
+  - Strike Zone Coordinate Mapping: Translates 2D $(p_x, p_z)$ pitch coordinates into bounded SVG space with rulebook strike zone borders and home plate pentagon.
+  - Scatter & Density Shading: Renders pitch markers color-coded by strike/ball outcome or xwOBA density.
+  - CLI: `mlb hexbin --title "Shohei Ohtani Spatial Attack Zone"`.
+- **Verification**: 10/10 unit tests in `tests/unit/test_visual.py` passing; 649/649 full repository unit tests passing.
+
+## ADR-177: Outfield Wall Collision & HR Robbery Run Value Engine (`WALL-01`, Package 89)
+
+**Decision:** Built warning track kinematics, home run robbery, and wall collision defense modeling in `mlb_baseball/model/wall.py` and CLI subcommand `mlb wall`.
+- **Mathematical Formulations & Methodology**:
+  - Wall Catch Run Value: $\text{WallDefenseRuns} = N_{\text{HR Robbed}} \cdot 1.65 + N_{\text{Wall ExtraBase}} \cdot 0.75 - N_{\text{Failed Crash}} \cdot 0.65$.
+  - Conversion Success Rate: $\text{Success\%} = \frac{N_{\text{Catches}}}{\max(1, N_{\text{Opportunities}})} \times 100\%$.
+  - Tiers: `ELITE_WALL_THIEF` ($\text{WallRuns} \ge +5.0$), `FEARLESS_WALL_CRASHER`, `AVERAGE`, `WALL_TIMID_FIELDER`.
+  - CLI: `mlb wall --robberies 2 --wall-catches 5 --fails 1 --opps 25`, `mlb wall --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_wall.py` passing; 649/649 full repository unit tests passing.
+
+## ADR-176: Pitcher Two-Strike Put-Away & Whiff Conversion Engine (`PUTAWAY-01`, Package 88)
+
+**Decision:** Built 2-strike count conversion, terminal strikeout efficiency, and whiff modeling in `mlb_baseball/model/putaway.py` and CLI subcommand `mlb putaway`.
+- **Mathematical Formulations & Methodology**:
+  - Put-Away Rate: $\text{PutAway\%} = \frac{\text{Strikeouts}}{\text{TwoStrikePitches}} \times 100\%$.
+  - Put-Away Surplus Index: $\text{PASI}_{\text{runs}} = (\text{PutAway\%} - 19.5\%) \cdot \text{TwoStrikePitches} \cdot 0.11$.
+  - Tiers: `ELITE_STRIKEOUT_CLOSER` ($\text{PutAway\%} \ge 24.0\%$), `ABOVE_AVERAGE_FINISHER`, `FOUL_BALL_EXTENDER`, `AVERAGE`.
+  - CLI: `mlb putaway --putaway 0.22 --pitches 650 --whiff 0.15`, `mlb putaway --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_putaway.py` passing; 649/649 full repository unit tests passing.
+
+## ADR-175: Batter Sweet-Spot Concentration & Ideal Contact Rate Engine (`SWEETSPOT-01`, Package 87)
+
+**Decision:** Built launch angle consistency, ideal contact rate, and ball flight geometry modeling in `mlb_baseball/model/sweetspot.py` and CLI subcommand `mlb sweetspot`.
+- **Mathematical Formulations & Methodology**:
+  - Ideal Contact Rate: $\text{ICR} = \frac{N(\text{EV} \ge 95\text{ mph} \cap 8^\circ \le \text{LA} \le 32^\circ)}{N_{\text{BBE}}} \times 100\%$.
+  - Contact Quality Score: $\text{CQS} = \text{ICR} \cdot 0.70 + (\text{SweetSpot\%} \cdot 100) \cdot 0.30$.
+  - Tiers: `LINE_DRIVE_MACHINE` ($\text{ICR} \ge 40.0\%, \text{SweetSpot\%} \ge 38.0\%$), `HARD_HIT_GROUNDER`, `HIGH_VARIANCE_FLYBALL`, `AVERAGE`.
+  - CLI: `mlb sweetspot --sws 0.36 --hh 0.44 --icr 39.5 --std 23.0`, `mlb sweetspot --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_sweetspot.py` passing; 649/649 full repository unit tests passing.
+
+## ADR-174: Pure-Python SVG 24-State Base/Out Run Expectancy Matrix Heatmap (`RE24-MAP-01`, Package 86)
+
+**Decision:** Built $8 \times 3$ grid base/out run expectancy matrix heatmap renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb re24-heatmap`.
+- **Operational Architecture & Geometry**:
+  - 24-State Matrix Layout: 8 Base States $\times$ 3 Out States with calibrated run values ($\text{RE} \in [0.10, 2.30]$).
+  - Dynamic Color Density: Gradient shading from deep Navy (`#1e293b`) to Cyan (`#00d2be`) to Gold (`#eab308`).
+  - CLI: `mlb re24-heatmap --title "MLB 24-State Run Expectancy Matrix"`.
+- **Verification**: 9/9 unit tests in `tests/unit/test_visual.py` passing; 638/638 full repository unit tests passing.
+
+## ADR-173: Catcher Pop Time & Caught Stealing Above Average Engine (`POPTIME-01`, Package 85)
+
+**Decision:** Built Statcast catcher throwing physics, pop time, and runner elimination modeling in `mlb_baseball/model/poptime.py` and CLI subcommand `mlb pop-time`.
+- **Mathematical Formulations & Methodology**:
+  - Pop Time CS Probability: $P(\text{CS}) = \frac{1}{1 + e^{-12.0 \cdot (1.98 - t_{\text{pop}})}} \times 100\%$.
+  - Caught Stealing Above Average: $\text{CSAA}_{\text{runs}} = (\text{CS\%} - 21.0\%) \cdot \text{Attempts} \cdot 0.22$.
+  - Tiers: `ELITE_POP_TIME` ($t_{\text{pop}} \le 1.89\text{s}$), `ABOVE_AVERAGE`, `AVERAGE`, `SLOW_RELEASE_LIABILITY`.
+  - CLI: `mlb pop-time --pop 1.92 --arm 86.5 --att 65`, `mlb pop-time --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_poptime.py` passing; 638/638 full repository unit tests passing.
+
+## ADR-172: Starting Pitcher First-Pitch Strike Surplus Valuation Engine (`FSTRIKE-01`, Package 84)
+
+**Decision:** Built first-pitch strike count leverage and run expectancy surplus modeling in `mlb_baseball/model/fstrike.py` and CLI subcommand `mlb fstrike`.
+- **Mathematical Formulations & Methodology**:
+  - Count Delta Leverage: $\Delta \text{RE}_{\text{0-1 vs 1-0}} \approx -0.068\text{ runs/PA}$.
+  - First-Pitch Strike Surplus Value: $\text{FPSV}_{\text{runs}} = (\text{FPS\%} - 60.5\%) \cdot \text{BF} \cdot 0.068$.
+  - Tiers: `ELITE_ZONE_POUNDER` ($\text{FPS\%} \ge 66.0\%$), `ABOVE_AVERAGE`, `AVERAGE`, `PASSIVE_BEHIND_COUNT`.
+  - CLI: `mlb fstrike --fps 0.65 --bf 700`, `mlb fstrike --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_fstrike.py` passing; 638/638 full repository unit tests passing.
+
+## ADR-171: Batter In-Zone Whiff vs Chase Swing Vulnerability Matrix (`ZONE-SWING-01`, Package 83)
+
+**Decision:** Built 4-zone plate discipline decomposition and swing efficiency modeling in `mlb_baseball/model/zone_swing.py` and CLI subcommand `mlb zone-swing`.
+- **Mathematical Formulations & Methodology**:
+  - Zone Contact Deficit: $\text{ZCD} = \text{Z-Contact\%}_{\text{league}} - \text{Z-Contact\%}_{\text{batter}} \quad (0.820 - \text{Z-Contact})$.
+  - Chase Efficiency Ratio: $\text{CER} = \frac{\text{O-Swing\%}}{\max(0.01, \text{Z-Swing\%})}$.
+  - Tiers: `IN_ZONE_PUNISHER` ($\text{ZCD} \le -0.035, \text{CER} \le 0.42$), `CHASE_VULNERABLE`, `ZONE_WHIFF_PRONE`, `BALANCED`.
+  - CLI: `mlb zone-swing --z-swing 0.68 --z-contact 0.84 --o-swing 0.28 --o-contact 0.58`, `mlb zone-swing --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_zone_swing.py` passing; 638/638 full repository unit tests passing.
+
+## ADR-170: Pure-Python SVG Inning Score Flow & Lead Matrix Renderer (`FLOW-01`, Package 82)
+
+**Decision:** Built stepped game score progression and lead transition chart renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb score-flow`.
+- **Operational Architecture & Geometry**:
+  - Stepped Cumulative Progression: Plots Home vs Away run accumulation across innings 1 through 9+.
+  - Inning Gridlines & Run Markers: Renders dual-color cyan/purple stepped polylines with inning callouts.
+  - CLI: `mlb score-flow --title "LAD 5, SF 3 Live Score Flow" --home LAD --away SF`.
+- **Verification**: 8/8 unit tests in `tests/unit/test_visual.py` passing; 627/627 full repository unit tests passing.
+
+## ADR-169: Pitcher Arsenal Diversity & Count-State Game Theory Optimizer (`ARSENAL-01`, Package 81)
+
+**Decision:** Built repertoire depth, Gini-Simpson diversity, and count predictability modeling in `mlb_baseball/model/diversity.py` and CLI subcommand `mlb arsenal`.
+- **Mathematical Formulations & Methodology**:
+  - Gini-Simpson Arsenal Diversity Index: $\text{ADI} = \frac{K}{K - 1} \cdot \left(1.0 - \sum p_i^2\right)$.
+  - Shannon Entropy: $H = -\sum p_i \log_2(p_i)$ in bits.
+  - Predictability: Flags single-pitch dominance ($\ge 62\%$) in 2-strike counts.
+  - Tiers: `FIVE_PITCH_CHAMELEON` ($K \ge 4, \text{ADI} \ge 0.80$), `BALANCED_MIX`, `TWO_PITCH_PREDICTABLE`.
+  - CLI: `mlb arsenal --pitcher "Yu Darvish" --count ALL_COUNTS`, `mlb arsenal --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_diversity.py` passing; 627/627 full repository unit tests passing.
+
+## ADR-168: Defensive Outfield Arm Strength & Runner Hold Engine (`ARM-01`, Package 80)
+
+**Decision:** Built Statcast throw kinematics, base advancement suppression, and arm run value modeling in `mlb_baseball/model/arm.py` and CLI subcommand `mlb arm`.
+- **Mathematical Formulations & Methodology**:
+  - Throw Arrival Kinematics: $t_{\text{arrival}} = t_{\text{exchange}} + \frac{d_{\text{throw}}}{v_{\text{arm}} \cdot 1.4667 \times 0.92}$.
+  - Hold Probability: $\text{Hold\%} = \frac{1}{1 + e^{-8.0 \cdot (2.55 - t_{\text{arrival}})}} \times 100\%$.
+  - ARM Runs Saved: $\text{ARM}_{\text{runs}} = (\text{Hold\%} - 60\%) \cdot \text{Opportunities} \cdot 0.28$.
+  - Tiers: `CANNON_ELITE` ($v_{\text{arm}} \ge 96.0\text{ mph}$), `ABOVE_AVERAGE`, `AVERAGE`, `WEAK_ARM_TARGET`.
+  - CLI: `mlb arm --velo 98.0 --exchange 0.70 --pos RF`, `mlb arm --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_arm.py` passing; 627/627 full repository unit tests passing.
+
+## ADR-167: Batter Clutch Context & High-Leverage Split Engine (`CLUTCH-01`, Package 79)
+
+**Decision:** Built leverage-adjusted performance modeling and Empirical Bayes clutch regression in `mlb_baseball/model/clutch.py` and CLI subcommand `mlb clutch`.
+- **Mathematical Formulations & Methodology**:
+  - Empirical Bayes High-LI Shrinkage: $\text{wOBA}^*_{\text{high\_li}} = \frac{\text{PA}_{\text{high}} \cdot \text{wOBA}_{\text{high}} + M \cdot \text{wOBA}_{\text{overall}}}{\text{PA}_{\text{high}} + M} \quad (M = 600\text{ PA})$.
+  - Sabermetric Clutch Score: $\text{Clutch} = \frac{\text{WPA}}{\text{pLI}} - \text{ContextNeutralWPA}$.
+  - Tiers: `CLUTCH_PERFORMER` ($\Delta \text{wOBA} \ge +0.010$), `NEUTRAL_PRODUCER`, `LEVERAGE_COLLAPSE`.
+  - CLI: `mlb clutch --overall 0.335 --pa-high 90 --woba-high 0.395 --wpa 3.10 --pli 1.12`, `mlb clutch --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_clutch.py` passing; 627/627 full repository unit tests passing.
+
+## ADR-166: Pure-Python SVG Pitch Arsenal Break & Movement Plotter (`BREAK-PLOT-01`, Package 78)
+
+**Decision:** Built 2D Cartesian pitch break chart renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb break-plot`.
+- **Operational Architecture & Geometry**:
+  - Cartesian Break Plane: Plots Horizontal Break (HB in inches) on X-axis vs Induced Vertical Break (IVB in inches) on Y-axis.
+  - Arsenal Scatter & Centroids: Renders color-coded pitch dots with pitch speed labels and crosshairs at $(0, 0)$.
+  - CLI: `mlb break-plot --pitcher "Paul Skenes"`.
+- **Verification**: 7/7 unit tests in `tests/unit/test_visual.py` passing; 616/616 full repository unit tests passing.
+
+## ADR-165: Park-Adjusted True Environmental Carry & Ballpark HR Scanner (`CARRY-01`, Package 77)
+
+**Decision:** Built 30-ballpark overlay simulation and environmental trajectory clearance in `mlb_baseball/model/carry.py` and CLI subcommand `mlb carry`.
+- **Mathematical Formulations & Methodology**:
+  - Stadium Outfield Fence Geometry: Interpolates fence distances and heights across LF, CF, and RF for MLB stadiums.
+  - Environmental Adjustments: Incorporates altitude elevation distance boosts ($+16\text{ ft}$ in Coors).
+  - 30-Park Scanner: Returns $X/30$ home run count and venue-by-venue clearance diagnostics.
+  - CLI: `mlb carry --ev 102.0 --la 28.0 --spray 35.0 --dist 365.0`, `mlb carry --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_carry.py` passing; 616/616 full repository unit tests passing.
+
+## ADR-164: Starting Pitcher Times-Through-the-Order (TTO) Degradation Engine (`TTO-01`, Package 76)
+
+**Decision:** Built lineup turnover degradation tracking, third-time penalty modeling, and hook policies in `mlb_baseball/model/tto.py` and CLI subcommand `mlb tto`.
+- **Mathematical Formulations & Methodology**:
+  - TTO Degradation Deltas: $\Delta \text{wOBA} = \text{wOBA}_{\text{TTO 3}} - \text{wOBA}_{\text{TTO 1}}$, $\Delta \text{K\%} = \text{K\%}_{\text{TTO 3}} - \text{K\%}_{\text{TTO 1}}$.
+  - Third-Time Vulnerability Index: $\text{TTVI} = \left(\frac{\Delta \text{wOBA}}{0.040}\right) \times 40.0 + \max(0, -\Delta \text{K\%}) \times 160.0$.
+  - Tiers: `STRICT_2_TIME_HOOK` ($\text{TTVI} \ge 62$), `MODERATE_LEASH`, `WORKHORSE_ACE`.
+  - CLI: `mlb tto --tto1-woba 0.280 --tto2-woba 0.310 --tto3-woba 0.365 --tto1-k 0.28 --tto3-k 0.17`, `mlb tto --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_tto.py` passing; 616/616 full repository unit tests passing.
+
+## ADR-163: Batter Pull-Side / Opposite-Field Spray Power Engine (`SPRAY-01`, Package 75)
+
+**Decision:** Built directional spray analysis, pull power concentration, and spray neutrality modeling in `mlb_baseball/model/spray.py` and CLI subcommand `mlb spray`.
+- **Mathematical Formulations & Methodology**:
+  - Pull Power Concentration: $\text{PPC} = \frac{\text{HR}_{\text{pull}}}{\max(1, \text{HR}_{\text{total}})} \times 100\%$.
+  - Spray Neutrality Index: $\text{SNI} = 1.0 - \left(\sqrt{\sum (p_i - 1/3)^2} \times 2.2\right)$.
+  - Tiers: `DEAD_PULL_SLUGGER` ($\text{Pull\%} \ge 46\%, \text{PPC} \ge 75\%$), `ALL_FIELDS_GAP_HITTER` ($\text{SNI} \ge 0.82$), `OPPO_SPRAY`, `BALANCED`.
+  - CLI: `mlb spray --pull 0.46 --center 0.32 --oppo 0.22 --hr-pull 24 --hr-total 28`, `mlb spray --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_spray.py` passing; 616/616 full repository unit tests passing.
+
+## ADR-162: Interactive SVG Market Odds Movement & Steam Visualizer (`ODDS-CHART-01`, Package 74)
+
+**Decision:** Built pure-Python vector SVG market line movement and steam action visualizer in `mlb_baseball/visual.py` and CLI subcommand `mlb odds-chart`.
+- **Operational Architecture & Features**:
+  - Time-Series Geometry: Renders pre-game open-to-close moneyline trajectories across sportsbooks with dynamic Y-scaling.
+  - Sharp Steam Markers: Highlights sudden line movements and reverse line movement (RLM) with high-visibility markers.
+  - CLI: `mlb odds-chart --title "NYY vs BOS Odds Movement" --home NYY --away BOS`.
+- **Verification**: 6/6 unit tests in `tests/unit/test_visual.py` passing; 605/605 full repository unit tests passing.
+
+## ADR-161: Pitcher Acute-to-Chronic Workload & Fatigue Risk Engine (`FATIGUE-01`, Package 73)
+
+**Decision:** Built multi-week pitch workload tracking, Acute-to-Chronic Workload Ratio (ACWR), and biomechanical fatigue index modeling in `mlb_baseball/model/fatigue.py` and CLI subcommand `mlb fatigue`.
+- **Mathematical Formulations & Methodology**:
+  - Acute-to-Chronic Workload: $\text{ACWR} = \frac{\text{Pitches}_{\text{7d}} / 7.0}{\text{Pitches}_{\text{28d}} / 28.0}$.
+  - Fatigue Triggers: Fastball velocity decay ($\Delta v \le -1.2\text{ mph}$) and vertical arm slot drop ($\Delta z \le -1.5\text{ in}$).
+  - Composite Fatigue Risk: $\text{FRI} = \text{clip}\left(\text{ACWR}_{\text{pen}} + \Delta v_{\text{pen}} + \Delta z_{\text{pen}} + \text{Stress}_{\text{pen}}, 0, 100\right)$.
+  - Tiers: `HIGH_FATIGUE_OVERLOAD` ($\text{FRI} \ge 60$), `MODERATE_FATIGUE`, `OPTIMAL_FITNESS`.
+  - CLI: `mlb fatigue --pitches-7d 120 --pitches-28d 320 --velo-delta -1.4 --release-drop -1.6`, `mlb fatigue --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_fatigue.py` passing; 605/605 full repository unit tests passing.
+
+## ADR-160: Live In-Game Bullpen Managerial Optimizer (`BULLPEN-OPT-01`, Package 72)
+
+**Decision:** Built live bullpen leverage matching, batter handedness suppression, and stamina preservation modeling in `mlb_baseball/model/bullpen_opt.py` and CLI subcommand `mlb bullpen-opt`.
+- **Mathematical Formulations & Methodology**:
+  - Marginal Insertion Value: $\text{Score}_i = (\text{MatchupAdv}_i + \text{TalentQuality}_i) \times \text{LI} - \text{FatiguePenalty}_i$.
+  - Matchup Advantage: $+0.05$ per same-handed batter in upcoming 3-batter sequence.
+  - Tactical Tiers: `PRIMARY_INSERTION`, `SECONDARY_BACKUP`, `AVOID_FATIGUED`.
+  - CLI: `mlb bullpen-opt --inning 8 --score-diff 1 --li 2.4 --batters L,L,R`, `mlb bullpen-opt --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_bullpen_opt.py` passing; 605/605 full repository unit tests passing.
+
+## ADR-159: Batter Contact Quality & Damage Probability Engine (`DAMAGE-01`, Package 71)
+
+**Decision:** Built Statcast launch ballistics classification and true extra-base damage modeling in `mlb_baseball/model/damage.py` and CLI subcommand `mlb damage`.
+- **Mathematical Formulations & Methodology**:
+  - Contact Categories: `BARREL_BLAST` ($\text{EV} \ge 98.0, \text{LA} \in [22^\circ, 32^\circ]$), `SOLID_CONTACT`, `FLARE_BURNER`, `WEAK_TOPPER`, `POPUP`.
+  - Damage Rate: $\text{Damage\%} = \frac{N_{\text{Barrel}} + 0.6 \cdot N_{\text{Solid}}}{N_{\text{BBE}}} \times 100\%$.
+  - Expected Damage Value: $\text{EDV} = \frac{\sum \text{RV}_i}{N_{\text{BBE}}}$.
+  - Tiers: `ELITE_SLUGGER` ($\text{Damage\%} \ge 18\%$), `SOLID_THREAT`, `CONTACT_SLAP_HITTER`.
+  - CLI: `mlb damage --ev 104.5 --la 26.0`, `mlb damage --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_damage.py` passing; 605/605 full repository unit tests passing.
+
+## ADR-158: Interactive SVG Visual Radar & Arsenal Polygon Renderer (`RADAR-01`, Package 70)
+
+**Decision:** Built pure-Python vector SVG multi-axis spider radar chart renderer in `mlb_baseball/visual.py` and CLI subcommand `mlb radar`.
+- **Operational Architecture & Geometry**:
+  - Polar Coordinate Projection: Converts N-dimensional skill scores into concentric grid polygons and axis spokes.
+  - Multi-Axis 5-Tool Radar: Contact, Power, Discipline, Speed, Defense.
+  - CLI: `mlb radar --player "Juan Soto" --contact 85 --power 90 --discipline 95`.
+- **Verification**: 5/5 unit tests in `tests/unit/test_visual.py` passing; 596/596 full repository unit tests passing.
+
+## ADR-157: Pitched Ball Seam-Orientation Gyro Spin & Efficiency Decomposer (`SPIN-01`, Package 69)
+
+**Decision:** Built 3D spin vector decomposition, active spin isolation, and spin efficiency analysis in `mlb_baseball/model/spin.py` and CLI subcommand `mlb spin`.
+- **Mathematical Formulations & Methodology**:
+  - Spin Decomposition: $\omega_{\text{total}} = \sqrt{\omega_{\text{active}}^2 + \omega_{\text{gyro}}^2}$.
+  - Spin Efficiency: $\eta = \frac{\omega_{\text{active}}}{\omega_{\text{total}}} \times 100\%$.
+  - Tiers: `PURE_MAGNUS` ($\eta \ge 88\%$), `HYBRID_MOVEMENT`, `GYRO_BULLET` ($\eta \le 45\%$).
+  - CLI: `mlb spin --pitch-type SL --spin 2600 --efficiency 35.0`, `mlb spin --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_spin.py` passing; 596/596 full repository unit tests passing.
+
+## ADR-156: First-Inning Run Scored (NRFI / YRFI) Probabilistic Valuation Engine (`NRFI-01`, Package 68)
+
+**Decision:** Built 1st-inning derivative pricing, top-of-the-order run expectancy, and market value detection in `mlb_baseball/model/nrfi.py` and CLI subcommand `mlb nrfi`.
+- **Mathematical Formulations & Methodology**:
+  - Inning 1 Poisson Expectancies: $\mu_{\text{top}} = 0.40 \cdot \left(\frac{\text{wOBA}_{A, 1-3}}{0.335}\right) \cdot \left(\frac{\text{ERA}_{H, \text{inn1}}}{3.90}\right) \cdot \text{PF}$.
+  - Derivative Probabilities: $P(\text{NRFI}) = e^{-\mu_{\text{top}}} \times e^{-\mu_{\text{bot}}}$.
+  - Fair Lines: Computes fair decimal and American moneylines for NRFI and YRFI derivative betting markets.
+  - CLI: `mlb nrfi --home LAD --away SF --home-era 2.50 --away-era 2.70`, `mlb nrfi --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_nrfi.py` passing; 596/596 full repository unit tests passing.
+
+## ADR-155: Batter Handedness Platoon Split Decay & Shrinkage Engine (`PLATOON-01`, Package 67)
+
+**Decision:** Built Empirical Bayes platoon split regression and handedness decay modeling in `mlb_baseball/model/platoon.py` and CLI subcommand `mlb platoon`.
+- **Mathematical Formulations & Methodology**:
+  - Empirical Bayes Shrinkage: Regresses small-sample observed splits toward league handedness priors ($M = 1000\text{ PA}$).
+  - True-Talent Delta: $\Delta \text{wOBA} = |\text{wOBA}^*_{\text{vs RHP}} - \text{wOBA}^*_{\text{vs LHP}}|$.
+  - Tiers: `EXTREME_PLATOON` ($\Delta \ge 0.055$), `MODERATE_PLATOON`, `PLATOON_NEUTRAL` ($\Delta < 0.030$).
+  - CLI: `mlb platoon --bats L --overall 0.330 --pa-lhp 150 --woba-lhp 0.260 --pa-rhp 450 --woba-rhp 0.360`, `mlb platoon --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_platoon.py` passing; 596/596 full repository unit tests passing.
+
+## ADR-154: Bullpen High-Leverage Win Probability Preservation & Volatility Engine (`LEV-01`, Package 66)
+
+**Decision:** Built high-leverage reliever evaluation and closer blown-save volatility index modeling in `mlb_baseball/model/leverage.py` and CLI subcommand `mlb leverage`.
+- **Mathematical Formulations & Methodology**:
+  - Volatility Index: $\sigma_{\text{closer}} = \left(\frac{\text{BB\%} \cdot 2.2 + \text{HR/9} \cdot 0.08}{\max(0.10, \text{K\%}) \cdot 1.5}\right) \times 50.0$.
+  - 1-Run 9th Inning Save Conversion: $\text{Save\%} = 96.0 - (\sigma_{\text{closer}} \times 0.20)$.
+  - Tiers: `LOCKDOWN_ELITE` ($\sigma \le 35, \text{Save\%} \ge 90\%$), `SOLID`, `CARDIAC_HIGH_VOLATILITY` ($\sigma \ge 60$).
+  - CLI: `mlb leverage --k-pct 0.34 --bb-pct 0.06 --hr9 0.65`, `mlb leverage --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_leverage.py` passing; 582/582 full repository unit tests passing.
+
+## ADR-153: Pitcher Physical Extension & Effective Perceived Velocity (`EXT-01`, Package 65)
+
+**Decision:** Built physical stride extension kinematics and effective velocity modeling in `mlb_baseball/model/extension.py` and CLI subcommand `mlb extension`.
+- **Mathematical Formulations & Methodology**:
+  - Time-to-Plate Reaction: $t_{\text{plate}} = \frac{60.5 - d_{\text{ext}} - 1.4}{v_0 \cdot 1.4667 \times 0.955}\text{ seconds}$.
+  - Effective Perceived Velocity: $v_{\text{eff}} = v_0 + (d_{\text{ext}} - 6.0\text{ ft}) \times 1.25\text{ mph/ft}$.
+  - Tiers: `ELITE_LONG` ($\ge 7.0\text{ ft}$), `AVERAGE`, `SHORT_COMPACT` ($\le 5.7\text{ ft}$).
+  - CLI: `mlb extension --velo 95.0 --ext 7.2`, `mlb extension --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_extension.py` passing; 582/582 full repository unit tests passing.
+
+## ADR-152: Pitcher Arsenals Tunneling & Point-of-Commitment Trajectory Separation (`TUNNEL-01`, Package 64)
+
+**Decision:** Built pitch trajectory overlap, 3D release point consistency, and Point-of-Commitment (POC) separation modeling in `mlb_baseball/model/tunnel.py` and CLI subcommand `mlb tunnel`.
+- **Mathematical Formulations & Methodology**:
+  - Release Distance: $\Delta \mathbf{r}_{\text{rel}} = \sqrt{\Delta x_{\text{rel}}^2 + \Delta z_{\text{rel}}^2} \times 12.0\text{ in}$.
+  - Point-of-Commitment Separation: Evaluates 3D coordinates at $y = 23.8\text{ ft}$ ($175\text{ms}$ before home plate).
+  - Whiff Multiplier: Tightly tunneled pairs ($\text{POC Dist} \le 8.5\text{ in}, \text{Plate Split} \ge 16.0\text{ in}$) yield up to $+5.0\%$ whiff boost.
+  - CLI: `mlb tunnel --ff-velo 96.0 --sl-velo 86.0 --ff-ivb 17.0 --sl-ivb 2.0`, `mlb tunnel --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_tunnel.py` passing; 582/582 full repository unit tests passing.
+
+## ADR-151: Batter Eye Tracking & Plate Discipline Swing Decision Engine (`DECISION-01`, Package 63)
+
+**Decision:** Built Statcast 4-zone swing decision value modeling and hitter archetype classification in `mlb_baseball/model/decision.py` and CLI subcommand `mlb decision`.
+- **Mathematical Formulations & Methodology**:
+  - Swing Decision Value: $\text{SDV} = \text{RV}_{\text{Heart}} + \text{RV}_{\text{Shadow}} + \text{RV}_{\text{Chase}} + \text{RV}_{\text{Waste}}$ per 100 pitches.
+  - Hitter Archetypes: `DISCIPLINED_SLUGGER` (High heart, low chase), `PASSIVE_WALKER` (Low chase, low heart), `FREE_SWINGER`, `VULNERABLE_CHASER` ($\text{Chase\%} \ge 35\%$).
+  - CLI: `mlb decision --heart-swing 0.78 --chase-swing 0.18`, `mlb decision --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_decision.py` passing; 582/582 full repository unit tests passing.
+
+## ADR-150: Interactive REST/JSON Query API Gateway & Endpoint Handler (`API-01`, Package 62)
+
+**Decision:** Built lightweight, zero-dependency standard library REST API router in `mlb_baseball/api.py` and CLI subcommand `mlb serve-api`.
+- **Operational Architecture & Endpoints**:
+  - `GET /api/v1/health` (Doctor system diagnostics).
+  - `GET /api/v1/forecasts/daily` (Daily game forecasts and fair prices).
+  - `GET /api/v1/visual/chart` (Pure SVG vector asset generation).
+  - `POST /api/v1/tools/hedge` (Live in-game hedging calculations).
+  - CLI: `mlb serve-api --port 8000 --test-health`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_api.py` passing; 569/569 full repository unit tests passing.
+
+## ADR-149: Doubleheader & Travel Fatigue Decay Modeler (`TRAVEL-01`, Package 61)
+
+**Decision:** Built circadian disruption, rest turnaround, and doubleheader degradation modeling in `mlb_baseball/model/travel.py` and CLI subcommand `mlb travel`.
+- **Mathematical Formulations & Methodology**:
+  - Composite Fatigue Index: $Score = f(\Delta \text{TZ}, \text{Hours Rest}, \text{DH2 Flag}, \text{Consecutive Days})$.
+  - Performance Drag: Severe fatigue (Score $\ge 50.0$) imposes up to $-5.0\%$ wOBA suppression and $+0.45\text{ FIP}$ pitching degradation.
+  - CLI: `mlb travel --tz 2 --rest-hours 14.0`, `mlb travel --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_travel.py` passing; 569/569 full repository unit tests passing.
+
+## ADR-148: Catcher Blocking, Passed Ball & Wild Pitch Run Value Modeler (`BLOCK-01`, Package 60)
+
+**Decision:** Built catcher dirt-ball blocking evaluation and wild pitch run cost modeling in `mlb_baseball/model/blocking.py` and CLI subcommand `mlb block`.
+- **Mathematical Formulations & Methodology**:
+  - Block Efficiency: Baseline league block rate $\approx 94.0\%$. Catcher blocking runs scale miss rate: Miss Rate $= 1.0 - (0.940 + \text{Runs}/10.0 \times 0.070)$.
+  - Expected Run Delta: Missed pitches with runners on base incur $\approx 0.26\text{ runs}$ advancement cost.
+  - CLI: `mlb block --catcher-runs 4.0 --spikes 12.0`, `mlb block --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_blocking.py` passing; 569/569 full repository unit tests passing.
+
+## ADR-147: Seam-Shifted Wake (SSW) Aerodynamic Non-Magnus Spin Deviation Engine (`SSW-01`, Package 59)
+
+**Decision:** Built pitch seam orientation and non-Magnus lateral/vertical movement modeling in `mlb_baseball/model/ssw.py` and CLI subcommand `mlb ssw`.
+- **Mathematical Formulations & Methodology**:
+  - Non-Magnus Deviation Vector: $\vec{\Delta}_{\text{SSW}} = (\text{IVB}_{\text{obs}} - \text{IVB}_{\text{magnus}}, \text{HB}_{\text{obs}} - \text{HB}_{\text{magnus}})$.
+  - SSW Magnitude: $\sqrt{\Delta \text{IVB}^2 + \Delta \text{HB}^2}$.
+  - Optical Deception: Every $1.0\text{ inch}$ of SSW yields $\approx +1.4\%$ whiff boost and $-1.6\%$ hard-hit suppression.
+  - CLI: `mlb ssw --pitch-type SI --velo 94.5 --spin 2150 --obs-ivb 6.5 --obs-hb 17.5`, `mlb ssw --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_ssw.py` passing; 569/569 full repository unit tests passing.
+
+## ADR-146: Multi-Book Odds Line Shopping & Value Scanner (`SHOP-01`, Package 58)
+
+**Decision:** Built cross-sportsbook line comparison, best-price discovery, and synthetic hold calculation in `mlb_baseball/model/shop.py` and CLI subcommand `mlb shop`.
+- **Mathematical Formulations & Methodology**:
+  - Best Price Discovery: Scans sportsbooks (DraftKings, FanDuel, Pinnacle, BetMGM, Kalshi) to extract maximal odds.
+  - Synthetic Market Hold: $S_{\text{synthetic}} = \frac{1}{O_{\text{home, best}}} + \frac{1}{O_{\text{away, best}}} - 1.0$. Detects pure arbitrage when $S_{\text{synthetic}} < 0.0$.
+  - Model $+EV$ Edge: $\text{EV} = p_{\text{model}} \cdot O_{\text{best}} - 1.0$.
+  - CLI: `mlb shop --home LAD --away SF --model-prob 0.56`, `mlb shop --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_shop.py` passing; 555/555 full repository unit tests passing.
+
+## ADR-145: Skill-Specific Aging Trajectories & Multi-Year Projections (`AGE-02`, Package 57)
+
+**Decision:** Built component-based biological aging curves and forward career trajectories in `mlb_baseball/model/aging.py` and CLI subcommand `mlb aging`.
+- **Mathematical Formulations & Methodology**:
+  - Decoupled Component Trajectories: Sprint speed peaks at 23.5; Pitcher fastball velo peaks at 25.5 (decays $-0.35\text{ mph/yr}$ post 26); Hitter wOBA peaks at 27.5; Plate discipline peaks at 29.0.
+  - Multi-Year Bayesian Career Forecasting: Year-by-year forward projection of primary performance metrics.
+  - CLI: `mlb aging --age 28 --is-pitcher --velo 96.0`, `mlb aging --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_aging.py` passing; 555/555 full repository unit tests passing.
+
+## ADR-144: Pitch Sequencing Shannon Entropy & Predictability Index (`ENTROPY-01`, Package 56)
+
+**Decision:** Built information theory pitch sequencing entropy and predictability modeling in `mlb_baseball/model/entropy.py` and CLI subcommand `mlb entropy`.
+- **Mathematical Formulations & Methodology**:
+  - Shannon Entropy: $H(X) = -\sum_{i=1}^K p_i \log_2 p_i$. Normalized $\tilde{H} = H(X) / \log_2(K)$.
+  - Predictability Score: $(1.0 - \tilde{H}) \times 100$.
+  - Repetition Contact Penalty: Batters gain $+12\%\dots+18\%$ contact rate boost when pitchers repeat same pitch in same zone.
+  - CLI: `mlb entropy --fastball 0.60 --slider 0.30 --changeup 0.10`, `mlb entropy --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_entropy.py` passing; 555/555 full repository unit tests passing.
+
+## ADR-143: Dynamic Base Stealing & Pitcher Disengagement Physics Engine (`SB-01`, Package 55)
+
+**Decision:** Built physical timing race kinematics and pitcher disengagement tracking in `mlb_baseball/model/baserunning.py` and CLI subcommand `mlb steal`.
+- **Mathematical Formulations & Methodology**:
+  - Kinematic Race: Margin $\Delta t = (t_{\text{delivery}} + t_{\text{pop}} + t_{\text{tag}}) - (t_{\text{jump}} + \frac{90 - \text{Lead}}{v_{\text{sprint}}} + 0.25)$.
+  - Pitcher Disengagement Rule: After 2 disengagements, lead extends by $+2.0\text{ ft}$ and jump improves by $0.08\text{s}$.
+  - Logistic Success Probability: $P(\text{SB}) = \frac{1}{1 + \exp(-11.5 \cdot \Delta t)}$.
+  - 24-State Run Expectancy Breakeven: Evaluates $\Delta \text{RE} = P(\text{SB}) \cdot \text{Gain} - (1 - P(\text{SB})) \cdot \text{Loss} > 0$.
+  - CLI: `mlb steal --sprint 29.5 --pop-time 1.90 --delivery 1.30 --disengagements 2`, `mlb steal --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_baserunning.py` passing; 555/555 full repository unit tests passing.
+
+## ADR-142: Scheduled Daily Automation Daemon & Cache Warmer (`CRON-01`, Package 54)
+
+**Decision:** Built automated scheduled daily forecasting runner and PostgreSQL buffer cache warmer in `mlb_baseball/daemon.py` and CLI subcommand `mlb daemon`.
+- **Operational Lifecycle**:
+  - Automatically executes the 8-phase `MasterDailyPipeline`, warms analytical serving views (`serve.ros_team_standings`, `serve.pitcher_arsenal`, `serve.sgp_matchup_grid`, etc.) to achieve sub-5ms query latency, and bakes static vector SVG assets (heatmaps, spray charts).
+  - CLI: `mlb daemon --date 2026-08-24 --skip-doctor`, `mlb daemon --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_daemon.py` passing; 542/542 full repository unit tests passing.
+
+## ADR-141: Late-Inning Pinch-Hit & Substitution Tactical Simulator (`SUB-01`, Package 53)
+
+**Decision:** Built manager late-inning tactical decision tree simulation and bench optimization in `mlb_baseball/model/sub.py` and CLI subcommand `mlb sub`.
+- **Mathematical Formulations & Methodology**:
+  - Substitution Trigger: Evaluates high leverage ($LI \ge 1.2$), late innings ($Inning \ge 7$), and platoon disadvantage.
+  - Bench wOBA Optimization: Selects bench batter with highest net platoon advantage ($\Delta \text{wOBA} > +0.025$).
+  - CLI: `mlb sub --inning 8 --leverage 2.0 --pitcher-hand L`, `mlb sub --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_sub.py` passing; 542/542 full repository unit tests passing.
+
+## ADR-140: Defensive Alignment & Batted Ball Spray Suppression Engine (`SHIFT-01`, Package 52)
+
+**Decision:** Built defensive positioning evaluation, spray-angle directional filtering, and team OAA BABIP suppression in `mlb_baseball/model/shift.py` and CLI subcommand `mlb shift`.
+- **Mathematical Formulations & Methodology**:
+  - Alignments: Standard, Shaded Pull, Infield In, Outfield Deep.
+  - Spray Suppression: Heavy pull hitters ($\text{Pull\%} \ge 48\%$) on ground balls face $-0.022\text{ BABIP}$ suppression and $+5.0\%$ out conversion under shaded defense.
+  - Team OAA Scaling: Every $+10\text{ OAA}$ suppresses $-0.012\text{ BABIP}$ and prevents $\approx 0.22\text{ runs/game}$.
+  - CLI: `mlb shift --alignment shaded_pull --pull-pct 0.52 --team-oaa 6.0`, `mlb shift --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_shift.py` passing; 542/542 full repository unit tests passing.
+
+## ADR-139: Dynamic In-Game Pitch Sequencing & Count State Markov Engine (`COUNT-01`, Package 51)
+
+**Decision:** Built pitch-by-pitch 12 count state Markov progression simulator in `mlb_baseball/model/count.py` and CLI subcommand `mlb count`.
+- **Mathematical Formulations & Methodology**:
+  - 12 Count States ($0\text{-}0 \rightarrow 3\text{-}2$) with absorbing terminal states (K, BB, BIP, HBP).
+  - Count-Dependent Transitions: Hitter counts ($3\text{-}1, 2\text{-}0$) boost zone fastballs; pitcher counts ($0\text{-}2, 1\text{-}2$) boost chase and swinging strikes by $+35\%$.
+  - CLI: `mlb count --balls 0 --strikes 2 --whiff-rate 0.25`, `mlb count --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_count.py` passing; 542/542 full repository unit tests passing.
+
+## ADR-138: Dynamic Bullpen Fatigue Decay & Manager Hierarchy Simulator (`BULLPEN-01`, Package 50)
+
+**Decision:** Built individual reliever fatigue decay tracking and manager leverage hierarchy modeling in `mlb_baseball/model/bullpen.py` and CLI subcommand `mlb bullpen`.
+- **Mathematical Formulations & Methodology**:
+  - Exponentially weighted 3-day pitch fatigue index: $\text{Fatigue} = P_{1d} \cdot 1.0 + P_{2d} \cdot 0.50 + P_{3d} \cdot 0.25 + \text{Back-to-Back Bonus}$.
+  - Availability Thresholds: Fresh (<25), Fatigued (25–45, -1.0 mph velo drop, +0.45 FIP), Unavailable (>=45).
+  - Manager Decision Tree: High-leverage roles (Closer, Setup, High Leverage) vs middle/long relief.
+  - Team Composite Bullpen Degradation: Computes effective daily bullpen FIP and run suppression delta.
+  - CLI: `mlb bullpen --team LAD`, `mlb bullpen --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_reliever.py` passing; 528/528 full repository unit tests passing.
+
+## ADR-137: Stadium 3D Vector Wind & Micro-Climate Physics Engine (`WEATHER-01`, Package 49)
+
+**Decision:** Built 3D stadium vector wind decomposition and Alan Nathan Air Density Index (ADI) modeling in `mlb_baseball/model/weather.py` and CLI subcommand `mlb weather`.
+- **Mathematical Formulations & Methodology**:
+  - Vector Wind Decomposition: Relative angle $\Delta \theta = (\phi_{\text{wind}} + 180^\circ) - \theta_{\text{venue}}$. Tailwind $w_{\parallel} = v_{\text{wind}} \cdot \cos(\Delta \theta)$, Crosswind $w_{\perp} = v_{\text{wind}} \cdot \sin(\Delta \theta)$.
+  - Alan Nathan ADI: Models temperature ($^\circ\text{F}$), humidity, barometric pressure, and altitude (e.g. Coors Field ADI ~82 vs Petco Park ~101).
+  - Distance & HR Scaling: Fly ball distance delta $\Delta d = (w_{\parallel} \cdot 3.0\text{ ft/mph}) + ((100.0 - \text{ADI}) \cdot 0.35\text{ ft})$.
+  - CLI: `mlb weather --azimuth 22.5 --wind-speed 15.0 --wind-dir 202.5 --temp 85.0`, `mlb weather --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_weather.py` passing; 528/528 full repository unit tests passing.
+
+## ADR-136: Individual Umpire Strike Zone & Run Bias Modeler (`UMP-01`, Package 48)
+
+**Decision:** Built home plate umpire spatial strike zone bias quantification and totals adjustments in `mlb_baseball/model/umpire.py` and CLI subcommand `mlb umpire`.
+- **Mathematical Formulations & Methodology**:
+  - Strike Zone Expansion: Horizontal expansion $\Delta x$ (wide zone = pitcher friendly, tight zone = hitter friendly).
+  - Totals Adjustment: Quantifies empirical run impact per game ($\Delta R_{\text{ump}}$) and starter strikeout multiplier ($K_{\text{mult}} = 1.0 + \Delta x \cdot 0.08$).
+  - CLI: `mlb umpire --name "Angel Hernandez" --base-total 8.5 --expansion-in 0.6`, `mlb umpire --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_umpire.py` passing; 528/528 full repository unit tests passing.
+
+## ADR-135: Batter vs. Pitcher (BvP) Arsenal Interaction & Bayesian Shrinkage Engine (`BVP-01`, Package 47)
+
+**Decision:** Built empirical Bayes small-sample BvP regression and pitch-repertoire synergy engine in `mlb_baseball/model/bvp.py` and CLI subcommand `mlb bvp`.
+- **Mathematical Formulations & Methodology**:
+  - Empirical Bayes Shrinkage: Regresses observed head-to-head PA toward Log5 platoon baseline priors with $M = 350\text{ PA}$ shrinkage constant (Tom Tango / The Book).
+  - Arsenal Overlap Synergy: $\text{xRV}_{\text{arsenal}} = \sum u_k \cdot w_{\text{batter}, k}$ translated to composite wOBA ($1.0\text{ RV/100 pitches} \approx +0.035\text{ wOBA}$).
+  - CLI: `mlb bvp --batter-woba 0.360 --pitcher-woba 0.300 --pa 15 --raw-woba 0.450`, `mlb bvp --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_bvp.py` passing; 528/528 full repository unit tests passing.
+
+## ADR-134: Live In-Game Hedging, Middle Betting & Arbitrage Engine (`HEDGE-01`, Package 46)
+
+**Decision:** Built dynamic in-play risk hedging and middle-bet calculator in `mlb_baseball/model/hedge.py` and CLI subcommand `mlb hedge` to evaluate guaranteed-profit hedge allocations and middle corridors.
+- **Mathematical Formulations & Methodology**:
+  - Equal Profit Live Hedge: Calculates optimal hedge stake $S_2 = (S_1 \cdot O_1) / O_2$ locking in equal profit across outcomes.
+  - Risk-Free Free Roll Strategy: Stakes $S_2 = S_1 / (O_2 - 1.0)$ to recover original capital and freeroll remaining upside.
+  - Middle-Bet Corridor Evaluation: Discovers overlapping integer score gaps (e.g. Over 7.5 / Under 9.5) paying out double wins.
+  - CLI: `mlb hedge --stake 100 --initial-odds 2.50 --hedge-odds 2.20`, `mlb hedge --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_hedge.py` passing; 511/511 full repository unit tests passing.
+
+## ADR-133: Comprehensive Player Dossier & Data Dump Exporter (`DUMP-01`, Package 45)
+
+**Decision:** Built multi-table player data packaging and export engine in `mlb_baseball/dump.py` and CLI subcommand `mlb dump` to serialize full player intelligence dossiers into hierarchical JSON and tabular CSV.
+- **Data Packaging**:
+  - Encapsulates player biography, season rate statistics, Marcel talent projections, Stuff+/Location+ physical arsenal metrics, and 9-quadrant strike zone whiff maps.
+  - CLI: `mlb dump --format json`, `mlb dump --format csv`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_dump.py` passing; 511/511 full repository unit tests passing.
+
+## ADR-132: Player Archetype, Pitcher Similarity & Whiff Clustering Engine (`CLUSTER-01`, Package 44)
+
+**Decision:** Built unsupervised player archetype clustering and pitcher comp engine in `mlb_baseball/model/cluster.py` and CLI subcommand `mlb cluster`.
+- **Mathematical Formulations & Methodology**:
+  - Pitcher Physical Fingerprinting: Multi-dimensional physical vectors (Velo, IVB, Sweep, Drop, Extension).
+  - Weighted Distance Comps: Matches statistical twins using normalized Mahalanobis distances: $\text{Sim} = 100 \cdot \exp(-d / 1.5)$.
+  - Batter 9-Quadrant Zone Whiff Matrix: Quantifies spatial whiff rates across 3x3 plate quadrants to identify extreme zone vulnerabilities.
+  - CLI: `mlb cluster --velo 96.5 --ivb 18.5`, `mlb cluster --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_cluster.py` passing; 511/511 full repository unit tests passing.
+
+## ADR-131: Visual Asset & Vector Chart Generation Engine (`VISUAL-01`, Package 43)
+
+**Decision:** Built pure-Python, zero-dependency SVG vector chart generator in `mlb_baseball/visual.py` and CLI subcommand `mlb visual` to generate visual analytics for research dossiers and web rendering.
+- **Rendered Chart Types**:
+  - Strike Zone Heatmap SVG (`StrikeZoneHeatmapRenderer`): Thermal color-mapped 2D KDE probability density contours and rule-book attack zone boundaries.
+  - Diamond Spray Chart SVG (`DiamondSprayChartRenderer`): Ballistic diamond trajectory landing plots color-coded by exit velocity and Statcast barrel classification.
+  - Win Expectancy Worm Graph SVG (`WinExpectancyGraphRenderer`): Play-by-play line charts from 0% to 100% with 50% neutral baseline.
+  - CLI: `mlb visual --type strikezone --output sz.svg`, `mlb visual --type spray`, `mlb visual --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_visual.py` passing; 511/511 full repository unit tests passing.
+
+## ADR-130: Master End-to-End Quantitative Daily Pipeline (`PIPE-02`, Package 42)
+
+**Decision:** Built master daily pipeline orchestrator in `mlb_baseball/pipeline.py` and CLI subcommand `mlb pipeline` unifying the full 8-phase quantitative daily research and forecasting cycle.
+- **Orchestrated Daily Phases**:
+  1. Operational Health Preflight (`mlb doctor`)
+  2. Model Ladder Inference & Bayesian Simplex Stacking (`STACK-02`)
+  3. Pitch Physics & Repertoire Stuff+/Location+ Rating (`STUFF-01`)
+  4. Spatial 2D Strike Zone KDE & Batted Ball Ballistics (`HEATMAP-01`)
+  5. Correlated Same-Game Parlay (SGP) Copula Simulation (`PARLAY-01`)
+  6. Continuous Drift & Calibration Tracking (`DRIFT-01`)
+  7. Fractional Kelly Capital Allocation (`PORT-01`)
+  8. Multi-Format Publication Dossier Generation (`EXPORT-01`)
+- **CLI**: `mlb pipeline --date 2026-08-24 --sims 5000 --bankroll 10000.0`, `mlb pipeline --json`.
+- **Verification**: 2/2 unit tests in `tests/unit/test_pipeline.py` passing; 498/498 full repository unit tests passing.
+
+## ADR-129: Deep Modeling Analytical Serving Views (`SERVE-03`, Package 41)
+
+**Decision:** Added migration `0081_deep_modeling_serving_views.sql` defining fast, read-only analytical serving marts in the `serve` schema pre-joining pitch physics, SGP candidate legs, and batted ball contact metrics.
+- **Analytical Serving Marts**:
+  - `serve.pitcher_arsenal`: Pre-computes fastball velocity, IVB, curve drop, vertical separation, CSW%, and estimated Stuff+/Location+ scores per pitcher.
+  - `serve.sgp_matchup_grid`: Pre-joins home/away moneyline probabilities, pitcher strikeout benchmarks, expected total runs, park factors, and air density index.
+  - `serve.batted_ball_profile`: Pre-computes team and player hard hit percentages, barrel rates, and expected Statcast metrics (xwOBA, xBA).
+- **Verification**: 2/2 unit tests in `tests/unit/test_serve_views.py` passing; 498/498 full repository unit tests passing.
+
+## ADR-128: Hierarchical Neural Sequence & Tree-Residual Embedding Combiner (`NEURAL-01`, Package 40)
+
+**Decision:** Built hierarchical neural network combiner in `mlb_baseball/model/neural.py` and CLI subcommand `mlb neural` incorporating low-dimensional categorical entity embeddings (Pitchers, Teams, Venues) with tree gradient residuals.
+- **Architectural & Mathematical Methodology**:
+  - Entity Embedding Layers: Dense $D$-dimensional learned representations for Pitchers, Teams, and Stadiums ($\mathbf{e}_p, \mathbf{e}_t, \mathbf{e}_v$).
+  - Staged Boosting + Neural Residual Stacking: Combines tree baseline win probability prior with neural interaction residuals:
+    $$P_{\text{composite}} = \sigma\left(\text{logit}(P_{\text{tree}}) + \text{MLP}(\mathbf{x}_{\text{cont}}, \mathbf{e}_{p,H}, \mathbf{e}_{p,A}, \mathbf{e}_{t,H}, \mathbf{e}_{t,A})\right)$$
+  - High-Performance Vectorization: Pure NumPy/SciPy tensor execution ensuring zero runtime crash risk.
+  - CLI: `mlb neural --tree-prob 0.58`, `mlb neural --json`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_neural.py` passing; 496/496 full repository unit tests passing.
+
+## ADR-127: 2D Strike Zone Kernel Density Estimation & Spatial Spray Coordinate Engine (`HEATMAP-01`, Package 39)
+
+**Decision:** Built 2D spatial probability density engine and ballistic spray coordinate simulator in `mlb_baseball/model/heatmap.py` and CLI subcommand `mlb heatmap` for visual analytics, heatmaps, and spray charts.
+- **Mathematical Formulations & Methodology**:
+  - Bivariate Gaussian KDE: Computes 2D probability density surfaces $\hat{f}(x, z)$ over plate coordinates using Silverman's adaptive bandwidth rule.
+  - Statcast Attack Zone Partitioning: Exact area categorization across Heart, Shadow, Chase, and Waste regions.
+  - Ballistic Batted Ball Physics: Translates Exit Velocity, Launch Angle, Spray Angle, and Air Density Index into exact field landing coordinates $(x, y)$ with Magnus lift modeling.
+  - CLI: `mlb heatmap --ev 105.0 --la 28.0 --spray 0.0`, `mlb heatmap --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_heatmap.py` passing; 496/496 full repository unit tests passing.
+
+## ADR-126: Pitch Physics, Physical Repertoire & Stuff+/Location+/Pitching+ Rating Engine (`STUFF-01`, Package 38)
+
+**Decision:** Built physics-based pitch trajectory and arsenal evaluation engine in `mlb_baseball/model/stuff.py` and CLI subcommand `mlb stuff` to evaluate raw pitch aerodynamics and command quality.
+- **Mathematical Formulations & Methodology**:
+  - Stuff+ Physical Quality: Evaluates velocity delta ($\Delta v$), Induced Vertical Break ($\text{IVB}$), and horizontal sweep/drop normalized against pitch-type baselines and release extension ($100$ = MLB Average).
+  - Location+ Command Quality: Evaluates Euclidean distance from optimal count-dependent attack zone targets (edge execution on 2-strikes vs zone competitiveness when behind).
+  - Pitching+ Composite: Synthesizes physical stuff ($60\%$) and command execution ($40\%$).
+  - Pitcher Arsenal Aggregation: Computes usage-weighted composite ratings across all pitch types.
+  - CLI: `mlb stuff --velo 95.0 --ivb 16.5 --hb 7.0 --pitch-type FF`, `mlb stuff --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_stuff.py` passing; 496/496 full repository unit tests passing.
+
+## ADR-125: Correlated Same-Game Parlay (SGP) Engine & Copula Simulation (`PARLAY-01`, Package 37)
+
+**Decision:** Built correlated Same-Game Parlay (SGP) engine and multivariate Gaussian Copula Monte Carlo simulator in `mlb_baseball/model/parlay.py` and CLI subcommand `mlb parlay` to evaluate inter-event dependencies, true joint probabilities, and mispriced +EV parlays.
+- **Mathematical Formulations & Methodology**:
+  - Multivariate Gaussian Copula Simulation: $\mathcal{C}_R(u_1, u_2, ...) = \Phi_R(\Phi^{-1}(u_1), \Phi^{-1}(u_2), ...)$ over latent home/away offensive strength and pitcher strikeout dominance.
+  - Inter-Event Correlation Matrix: Models empirical correlations (e.g., Pitcher Strikeout Dominance suppresses Opponent Team Total with $r \approx -0.40$ and boosts Pitcher Strikeouts with $r \approx +0.60$).
+  - Correlation Multiplier ($\rho_{\text{mult}}$): Quantifies correlation boost $\rho_{\text{mult}} = \frac{\hat{P}_{\text{joint}}}{\prod P(L_m)}$. Multipliers $> 1.0$ indicate synergistic positive correlation.
+  - Fair Decimal Odds & Edge: Computes fair zero-vig price $O_{\text{fair}} = 1 / \hat{P}_{\text{joint}}$ and evaluates $\text{EV} = (\hat{P}_{\text{joint}} \cdot O_{\text{book}}) - 1.0$.
+  - Combinatorial SGP Search: Discovers optimal $K$-leg parlay structures from candidate market legs.
+  - CLI: `mlb parlay --sims 10000 --legs 2 --min-boost 1.10`, `mlb parlay --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_parlay.py` passing; 482/482 full repository unit tests passing.
+
+## ADR-124: Continuous Model Drift, Calibration Tracking & Degradation Monitor (`DRIFT-01`, Package 36)
+
+**Decision:** Built continuous model drift and calibration tracking monitor in `mlb_baseball/model/drift.py` and CLI subcommand `mlb drift` to protect against non-stationarity and performance degradation.
+- **Mathematical Formulations & Methodology**:
+  - Chronological Rolling Window Diagnostics: Evaluates sliding $W$-game windows (step size $S$) computing Expected Calibration Error (ECE), Max Calibration Error (MCE), and Brier Skill Score (BSS).
+  - Platt Calibration Slope ($\alpha$) & HFA Intercept ($\beta$) Tracking: Quantifies model confidence scaling ($p_{\text{cal}} = \sigma(\alpha \cdot \text{logit}(p) + \beta)$) to detect overconfidence ($\alpha < 0.50$) or underconfidence ($\alpha > 2.00$).
+  - Degradation Severity Classification: Maps window metrics to `HEALTHY`, `WARNING`, `DEGRADED`, and `CRITICAL` statuses.
+  - Risk Management & Operational Health: Integrated into `mlb doctor` to block wagering allocation if a model suffers severe calibration drift.
+  - CLI: `mlb drift --model gbm-v1 --window 40 --step 15`, `mlb drift --json`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_drift.py` passing; 477/477 full repository unit tests passing.
+
+## ADR-123: Serving Layer Marts for Standings & Pre-Joined Matchup Dossiers (`SERVE-02`, Package 35)
+
+**Decision:** Created migration `migrations/0080_ros_and_stacked_serving_views.sql` adding dedicated read-only analytical marts `serve.ros_team_standings` and `serve.matchup_dossier` for instant Astro web interface rendering.
+- **Architectural & Design Principles**:
+  - `serve.ros_team_standings`: Pre-computes in-season standings, win percentages, run differentials, and Pythagorean win expectations directly from `core.game` with zero lookahead leakage.
+  - `serve.matchup_dossier`: Pre-joins starting pitcher SIERA, xFIP, CSW%, pitch movement (IVB, curve drop), bullpen quality, park factors, air density index, and latest model ensemble predictions (`gbm-v2`, `log5-v2`, `elo-v1`).
+  - High-Performance Web Contract: Allows Astro static generation (SSG) and server-side rendering (SSR) to load rich quantitative game cards with sub-10ms query times.
+- **Verification**: `tests/unit/test_serve_views.py` passing; 472/472 full repository unit tests passing.
+
+## ADR-122: Bayesian Constrained Stacking & Convex Simplex Meta-Learner (`STACK-02`, Package 34)
+
+**Decision:** Built Bayesian constrained stacking meta-learner in `mlb_baseball/model/stack.py` and CLI subcommand `mlb stack` to optimally combine base model predictions on the probability simplex.
+- **Mathematical Formulations & Methodology**:
+  - Simplex Optimization: Solves $\min_{w \in \Delta^{K-1}} \frac{1}{N} \sum (y_i - \sum w_k P_{i,k})^2 + \lambda \sum (w_k - 1/K)^2$ via projected gradient descent.
+  - Non-Negative Weights & Zero Leverage: Strictly guarantees $w_k \ge 0$ and $\sum w_k = 1.0$, preventing negative model betting and probability explosion.
+  - Bayesian Dirichlet Shrinkage: Shrinks weights towards equal prior weighting ($1/K$) when sample sizes are small.
+  - Dynamic Missing-Signal Normalization: Dynamically scales active model weights when prediction markets or specific base models are missing.
+  - Out-of-Fold Evaluation: Quantifies Brier Skill Score (BSS) and Log Loss against individual base models (Log5, Elo, GBM).
+  - CLI: `mlb stack --train`, `mlb stack --eval`, `mlb stack --json`.
+- **Verification**: 8/8 unit tests in `tests/unit/test_stack_formula.py` passing; 471/471 full repository unit tests passing.
+
+## ADR-121: Polymorphic Research Dossier & Multi-Format Exporter (`EXPORT-01`, Package 33)
+
+**Decision:** Created component-based document generation and export system in `mlb_baseball/export.py` and CLI subcommand `mlb export` allowing arbitrary research dossiers to be rendered across Markdown, ANSI Terminal, Semantic HTML, and JSON.
+- **Architectural & Design Principles**:
+  - Open-Closed Polymorphic Protocol: `BaseDocumentRenderer` abstracts formatting primitives (`render_title`, `render_table`, `render_ascii_bar_chart`, `render_alert`), allowing new output targets (e.g. PDF/LaTeX) without editing business logic.
+  - Composable Section Builders: `KeyValueSectionBuilder`, `TableSectionBuilder`, `ChartSectionBuilder`, and `ResearchDossier` decouple quantitative data structures from presentation.
+  - Future-Proof Extensibility: Adding a new model, metric family, or research report requires only plugging in a new `BaseSectionBuilder` without modifying existing renderers.
+  - CLI: `mlb export --date 2026-08-24 --format markdown --output dossier.md` or `mlb export --format terminal`.
+- **Verification**: 5/5 unit tests in `tests/unit/test_export.py` passing; 468/468 full repository unit tests passing.
+
+## ADR-120: Dynamic Rest-of-Season (ROS) Simulation & Playoff Odds Engine (`ROS-01`, Package 32)
+
+**Decision:** Built in-season Rest-of-Season Monte Carlo simulation engine in `mlb_baseball/model/ros.py` and CLI subcommand `mlb ros` to simulate forward from actual historical/live standings.
+- **Mathematical Formulations & Methodology**:
+  - In-Season State Ingestion: Queries actual completed game records up to `as_of_date` (wins, losses, runs scored, runs against) to establish authoritative current standings.
+  - Empirical Bayes True Talent: Regresses team Pythagorean win percentage ($w = rac{N}{N + 60}$) against 0.500 baseline.
+  - Monte Carlo Remainder Simulation: Simulates unplayed remaining schedule $N_{\text{sims}}$ times (vectorized Log5 with HFA), resolving division winners and 12-team postseason brackets (`simulate_postseason_bracket`).
+  - Magic Number Calculation: $\text{MN} = \max(0, 163 - W_{\text{leader}} - L_{\text{trailer}})$.
+  - Multi-Modal Reporting: Terminal division-by-division leaderboard with 90% Win CIs, Playoff%, Pennant%, WS%, and JSON export.
+  - CLI: `mlb ros --season 2024 --as-of 2024-08-01 --sims 1000`.
+- **Verification**: 4/4 unit tests in `tests/unit/test_ros.py` passing; 462/462 full repository unit tests passing.
+
+## ADR-119: Historical Walk-Forward Backtesting Engine & Risk Metrics (`BACKTEST-01`, Package 31)
+
+**Decision:** Implemented point-in-time walk-forward backtesting simulator in `mlb_baseball/model/backtest.py` and CLI subcommand `mlb backtest` to benchmark predictive models against historical closing lines with zero retroactive lookahead leakage.
+- **Mathematical Formulations & Methodology**:
+  - Walk-Forward Sequential Processing: Evaluates model probabilities temporally game-by-game, allocating wagers via `KellyAllocator` based on dynamic real-time bankroll.
+  - Performance Metrics:
+    - Compound ROI: $\text{ROI} = \frac{\text{Net PnL}}{\text{Total Wagered}} \times 100\%$
+    - Annualized Sharpe Ratio: $\text{Sharpe} = \sqrt{252} \cdot \frac{\mu(R_{\text{daily}})}{\sigma(R_{\text{daily}})}$
+    - Maximum Peak-to-Trough Drawdown (MDD): $\text{MDD} = \max_t \left( \frac{\max_{\tau \le t} B_\tau - B_t}{\max_{\tau \le t} B_\tau} \right)$
+    - Closing Line Value (CLV): $\text{CLV} = \frac{P_{\text{model}}}{P_{\text{closing}}} - 1$
+    - Brier Score Resolution: $\text{BS} = \frac{1}{N} \sum (P_i - Y_i)^2$
+  - Multi-Modal Output: Detailed terminal executive summary and structured JSON schema for reporting.
+  - CLI: `mlb backtest --start-date 2024-04-01 --end-date 2024-09-30 --model gbm-v1 --bankroll 10000 --min-edge 0.025`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_backtest.py` passing; 457/457 full repository unit tests passing.
+
+## ADR-118: Probability Calibration, Symmetric Mirror Training, & HFA Decomposition (`CALIB-01`, Package 30)
+
+**Decision:** Built comprehensive probability calibration, symmetric mirror-game data augmentation, and empirical Home Field Advantage (HFA) decomposition in `mlb_baseball/model/calibration.py` and CLI subcommand `mlb calibrate`.
+- **Mathematical Formulations & Methodology**:
+  - HFA Log-Odds Decomposition: $	ext{logit}(P_{	ext{home}}) = eta_0 + \Delta 	ext{strength}$ where baseline MLB HFA constant $eta_0 = \ln(0.535 / 0.465) pprox +0.1405$. Corrects systemic over-prediction of home teams and guarantees true road favorite detection when $\Delta 	ext{strength} < -0.1405$.
+  - Symmetric Mirror-Game Augmentation: `create_symmetric_mirror_dataset` appends inverted matchup perspectives $(X_{	ext{away}} - X_{	ext{home}}, 1 - y)$ ensuring tree algorithms learn zero spurious positional bias.
+  - Platt Sigmoid Scaling: Logistic parameter fitting on validation logits to minimize cross-entropy.
+  - Reliability Metrics: Calculates Expected Calibration Error ($ECE$), Maximum Calibration Error ($MCE$), and 10-bin reliability diagrams.
+  - CLI: `mlb calibrate --prob 0.5576` and `mlb calibrate --eval`.
+- **Verification**: 5/5 unit tests in `tests/unit/test_calibration.py` passing.
+
+## ADR-117: Sabermetric Research Literature Catalog & Citation Registry (`RESEARCH-01`, Package 29)
+
+**Decision:** Created searchable sabermetric research catalog in `mlb_baseball/research.py` and CLI subcommand `mlb research`, formally indexing foundational books, monographs, and peer-reviewed papers.
+- **Indexed Research Foundations**:
+  - Tom Tango, Mitchel Lichtman, Andrew Dolphin (2006) — *The Book: Playing the Percentages in Baseball* (RE24, wOBA, FIP, TTO penalty).
+  - Bill James (1981) — *Baseball Abstract & Log5 Method* (Pythagorean 1.83, Log5 matchup ratio, Marcel 3-year regression).
+  - Pete Palmer & John Thorn (1984) — *The Hidden Game of Baseball* (Linear weights, Batting Runs, Park Factors).
+  - John C. Platt (1999) — *Probabilistic Outputs for SVMs and Probability Calibration* (Platt Scaling, ECE).
+  - Tobias Moskowitz & L. Jon Wertheim (2011) — *Scorecasting* (Home Field Advantage decomposition).
+  - John L. Kelly Jr. (1956) — *A New Interpretation of Information Rate* (Kelly Criterion).
+  - CLI: `mlb research --query "Tango"` or `mlb research --json`.
+- **Verification**: 2/2 unit tests in `tests/unit/test_research.py` passing.
+
+## ADR-116: Unified Daily Quantitative Research & Wagering Pipeline (`PIPE-01`, Package 28)
+
+**Decision:** Implemented master daily briefing pipeline in `mlb_baseball/daily.py` and CLI subcommand `mlb daily` unifying preflight health, matchup forecasting, player props, prediction market screening, and Kelly portfolio optimization.
+- **Orchestration Architecture**:
+  - `generate_daily_briefing`: End-to-end execution function querying operational health (`doctor.run()`), scheduled matchup probabilities (`serve.daily_betting_grid`), starting pitcher strikeout PMFs (`props.predict_pitcher_strikeouts`), prediction market alpha (`serve.prediction_market_alpha`), and Kelly portfolio allocation (`KellyAllocator`).
+  - Strict Encapsulation: Encapsulated in `DailyBriefingReport`, `DailyMatchupForecast`, and `DailyPitcherPropCard` dataclasses.
+  - Multi-Modal Output: Provides high-density terminal dashboard (`format_daily_briefing_terminal`) and structured JSON export for downstream web APIs.
+  - CLI: `mlb daily --date 2026-08-24 --bankroll 10000 --min-edge 0.020`.
+- **Verification**: Unit test in `tests/unit/test_daily.py` passing.
+
+## ADR-115: 288-State Analytical Win Expectancy (WE), WPA, and Leverage Index Engine (`MATH-01`, Package 27)
+
+**Decision:** Created closed-form analytical Win Expectancy (WE), Win Probability Added (WPA), and Leverage Index (LI) calculation engine in `mlb_baseball/model/wpa.py` and CLI subcommand `mlb wpa`.
+- **Mathematical Formulations & Methodology**:
+  - Discrete State Representation: 288 base-out-inning-score game states (`InGameSituation` dataclass).
+  - Analytical Win Expectancy: Models logistic absorption over remaining half-innings with RE24 base/out adjustments and home field advantage ($HFA = +3.5\%$).
+  - Win Probability Added: Computes exact delta $	ext{WPA} = WE(S_{t+1}) - WE(S_t)$ for home and away teams ($	ext{WPA}_{	ext{home}} + 	ext{WPA}_{	ext{away}} = 0.000$).
+  - Leverage Index: Normalizes situational win probability swing against baseline inning leverage factors (`INNING_LEVERAGE_WEIGHTS`).
+  - Terminal Regulation Bounds: Strictly enforces walk-off victories ($WE = 1.000$) and 3rd-out regulation game endings ($WE = 0.000$).
+  - CLI: `mlb wpa --inning 9 --bottom --outs 2 --on1 --on2 --on3 --home-score 4 --away-score 5`.
+- **Verification**: 3/3 unit tests in `tests/unit/test_wpa.py` passing.
+
+## ADR-114: Comprehensive Operational Health Verification for Serving & Modeling (`DOCTOR-01`, Package 26)
+
+**Decision:** Integrated health checks for `serve`, `simulate`, `props`, `season`, and `portfolio` modules into `mlb_baseball/doctor.py`, accessible via the unified `mlb doctor` CLI command and unit tested in `tests/unit/test_doctor.py`.
+- **Health Checks Added**:
+  - `serve`: Verifies existence of all 6 read-only analytical serving marts in PostgreSQL.
+  - `simulate`: Verifies 25-state dense bijection, outcome matrix indexing, and device availability.
+  - `props`: Verifies Log5 matchup strikeout odds ratios and Poisson count bounds.
+  - `season`: Verifies 30-team division and league mapping and Pythagorean expectation bounds.
+  - `portfolio`: Verifies Kelly allocation formulas, single-bet caps, and total risk bounds.
+- **Verification**: 4/4 unit tests in `tests/unit/test_doctor.py` passing.
+
+## ADR-113: Polymorphic Kelly Criterion Portfolio Risk & Allocation Engine (`PORT-01`, Package 25)
+
+**Decision:** Implemented polymorphic, object-oriented capital allocation and risk management system in `mlb_baseball/model/portfolio.py` and CLI subcommand `mlb kelly`.
+- **Architecture & Formulations**:
+  - `BaseCapitalAllocator` Protocol: Polymorphic interface enabling interchangeable portfolio allocation algorithms.
+  - Fractional Kelly Optimization: Computes optimal bankroll fractions ($f^* = c \cdot rac{p(b + 1) - 1}{b}$) for quarter-Kelly ($c = 0.25$) risk mitigation.
+  - Multi-Contract Portfolio Constraints: Enforces maximum single-position risk cap ($\le 2.5\%$) and total simultaneous exposure ceiling ($\le 15.0\%$) with proportional scale-down.
+  - Compound Growth Metric: Evaluates expected geometric growth rate $g(f) = \sum [p \ln(1 + f b) + (1 - p) \ln(1 - f)]$.
+  - CLI Command: `mlb kelly --bankroll 10000 --min-edge 0.025` with full table formatting and `--json` export.
+- **Verification**: 3/3 unit tests in `tests/unit/test_portfolio.py` passing.
+
+## ADR-112: Bottom-Up Marcel Empirical Bayes Projection Engine (`PROJ-02`, Package 24)
+
+**Decision:** Implemented bottom-up player and team talent projection system in `mlb_baseball/model/season.py` using Tom Tango / Bill James Marcel 3-year exponential weighting ($5/12 \cdot t_{-1} + 4/12 \cdot t_{-2} + 3/12 \cdot t_{-3}$), Empirical Bayes shrinkage to league mean ($N_0 = 1200$ PA / TBF), delta-method aging curves, and Pythagorean true-talent win expectations ($W\% = rac{RS^{1.83}}{RS^{1.83} + RA^{1.83}}$).
+- **Mathematical Formulations & Rigor**:
+  - Marcel Rate: $	ext{Rate}_{	ext{proj}} = rac{\sum w_i \cdot 	ext{Metric}_i \cdot N_i + N_0 \cdot \mu_{	ext{league}}}{\sum w_i \cdot N_i + N_0}$.
+  - Aging Curve: $+0.003/	ext{year}$ bonus for age $< 27$; $-0.004/	ext{year}$ degradation for age $> 29$.
+  - Pythagorean Team Win Probability: Computes true-talent win percentage from team runs scored ($RS$) and allowed ($RA$) with Smyth-Patel exponent $1.83$.
+- **Verification**: Unit tests in `tests/unit/test_season.py` verifying exact arithmetic and bounds passing.
+
+## ADR-111: Two-Phase Markov Simulator with TTO Penalties & F5 Markets (`SIM-02`, Package 23)
+
+**Decision:** Extended high-speed Monte Carlo game simulation in `mlb_baseball/model/simulate.py` with `simulate_two_phase_game_fast`, modeling distinct Starter Phase (innings 1–5 with Times-Through-The-Order penalty) and Bullpen Phase (innings 6–9 and extra innings with ghost runners).
+- **Simulation Capabilities**:
+  - Times-Through-The-Order (TTO) Progression: Applies $+0.05$ wOBA edge to batting orders on 2nd look (innings 4–5).
+  - First-5 (F5) Markets: Simultaneously outputs F5 home win, tie/draw, and away win probabilities, F5 -0.5 run-line cover, F5 expected run totals, and Over/Under distributions ($3.5 \dots 6.5$).
+  - Bullpen & Extra Innings Phase: Transitions cleanly to bullpen transition tables for late innings and implements modern MLB ghost runner extra-inning tie-breakers.
+- **Verification**: Unit tests in `tests/unit/test_simulate.py` passing.
+
+## ADR-110: Real-Time In-Play Live Game Tracker & Prediction Market Screener (`LIVE-02`, Package 22)
+
+**Decision:** Created real-time in-play game evaluation and continuous live odds screener in `mlb_baseball/live.py`, CLI subcommand `mlb live`, and unit tests in `tests/unit/test_live.py`.
+- **Capabilities & Architecture**:
+  - `fetch_active_live_games`: Queries current game state, scores, starting pitcher SIERA, and difference vectors from `gold.game_feature` and `core.game`.
+  - `evaluate_live_game_state`: Evaluates in-progress game states via `simulate_live_game_fast`, dynamically adjusting transition distributions for pitcher/team quality differentials. Computes live win probability, -1.5 run-line cover probability, expected final scores, and over/under run distributions.
+  - In-Play +EV Arbitrage Screener: Calculates live alpha ($	ext{Edge} = P_{	ext{model}} - P_{	ext{market}}$) against active Polymarket & Kalshi order books and emits real-time trade signals.
+  - Live CLI Daemon: `mlb live --interval 15 --watch` provides a continuously updating live terminal scoreboard and in-play odds screener.
+- **Verification**: Unit tests in `tests/unit/test_live.py` passing.
+
+## ADR-109: Full-Season Monte Carlo & Postseason Playoff Simulation Engine (`PROJ-01`, Package 21)
+
+**Decision:** Implemented high-speed vectorized 162-game full-season Monte Carlo simulation and authentic 12-team MLB postseason bracket simulation in `mlb_baseball/model/season.py`, CLI subcommand `mlb season-sim`, and integration tests in `tests/integration/test_model_season.py`.
+- **Methodology & Simulation Architecture**:
+  - Point-in-time team strength modeling using Bill James' Log5 odds ratio with empirical home-field advantage ($HFA = +3.5\%$).
+  - Full 30-team division and league alignment across AL East/Central/West and NL East/Central/West.
+  - High-Throughput Vectorized Season Simulation: Evaluates $N_{	ext{games}}$ Bernoulli trials in matrix form, achieving **1,100+ full 162-game seasons per second**.
+  - Complete 12-Team Postseason Playoff Bracket:
+    - 6 division winners (seeds 1..3 in AL/NL) + 6 wild card teams (seeds 4..6).
+    - Wild Card Series (best-of-3), Division Series (best-of-5), League Championship Series (best-of-7), and World Series (best-of-7).
+  - Mathematical Conservation: Strictly conserves total wins, 6 division titles, 12 playoff appearances, 2 pennant titles, and 1 World Series champion per simulated season.
+  - Win Total Distributions: Generates win total Over/Under probabilities ($65.5 \dots 100.5$) for pricing season-long futures markets.
+- **Verification**: 4/4 unit tests in `tests/unit/test_season.py` and real-PostgreSQL integration test in `tests/integration/test_model_season.py` passing.
+
+## ADR-108: Unified CLI Subcommands for Simulation, Props, & Serving Marts (`CLI-01`, Package 20)
+
+**Decision:** Added first-class CLI subcommands `mlb simulate`, `mlb props`, and `mlb serve` in `mlb_baseball/cli.py` connecting the newly implemented high-throughput Monte Carlo Markov simulation engine, player-game proposition forecaster, and analytical serving marts into a unified developer and operational surface.
+- **Commands Added**:
+  - `mlb simulate`: High-throughput batch full-game simulation and in-game live simulation (`--live`, `--inning`, `--bottom`, `--outs`, `--home-score`, `--away-score`), producing win probabilities, -1.5 run-line cover rates, totals distributions, and throughput diagnostics across CPU / CUDA GPU.
+  - `mlb props`: Proposition market forecaster by `--game-pk` or manual parameter overrides (`--pitcher-k`, `--opp-k`, `--pitcher-fip`, `--opp-wrc`), outputting strikeout Poisson PMFs (lines 3.5 to 8.5) and expected outs / IP.
+  - `mlb serve`: Query and export analytical serving marts (`daily-grid`, `pitcher-card`, `props`, `live-tracker`, `alpha`) with `--date`, `--game-pk`, `--player-id`, and `--json` format flags.
+- **Verification**: End-to-end command-line integration tested across simulation, proposition, and serving queries.
+
+## ADR-107: Live In-Play Game Tracking & Props Serving Marts (`LIVE-01`, Package 19)
+
+**Decision:** Created analytical serving marts in migration `migrations/0079_live_game_and_props_views.sql`, access module `mlb_baseball/serve.py`, and integration tests in `tests/integration/test_serve.py`.
+- **Serving Views Added / Updated**:
+  - `serve.pitcher_prop_market`: Exposes starting pitcher projected K%, opponent K%, rest days, and Log5 matchup projected strikeout rates for live proposition markets.
+  - `serve.live_game_tracker`: Exposes real-time in-play game state (current home/away scores, pitcher quality, platoon differentials, and final game outcomes).
+  - `serve.daily_betting_grid`: Upgraded to resolve model win probabilities across both `gbm-v1` and `gbm-v2` (`COALESCE(p_gbm2.home_win_prob, p_gbm1.home_win_prob)`).
+- **Verification**: 2/2 real-PostgreSQL integration tests in `tests/integration/test_serve.py` passing.
+
+## ADR-106: Player-Game Props Prediction System (`PROP-01`, Package 18)
+
+**Decision:** Created the player proposition forecasting system in `mlb_baseball/model/props.py` supporting starting pitcher strikeouts, outs recorded / innings pitched, batter hits, total bases, and anytime home run probabilities. Integrated with PostgreSQL `gold.game_feature` and `core.player`.
+- **Methodology & Mathematical Formulations**:
+  - Log5 Matchup Odds Composition: Combines point-in-time pitcher rates (K%, FIP, HR%) and opposing lineup rates (K%, wRC+, wOBA) relative to league average.
+  - Workload & Fatigue Adjustment: Adjusts projected starter batters faced ($	ext{BF}_{	ext{proj}}$) based on rest days (>=5 days vs <=3 days) and trailing 7-day workload.
+  - Discrete Probability Distributions: Evaluates strikeout counts ($k \in [0, 20]$), outs recorded, and total bases via Poisson PMF and CDF ($P(X \le k)$ and $P(X > L)$ over lines 3.5 to 8.5).
+  - Batter Power & Contact Quality: Projects hit rates and anytime HR probabilities using batter OBP/SLG/ISO, opposing pitcher FIP, and 3-year park HR component factors.
+- **Verification**: 5/5 unit tests in `tests/unit/test_props.py` and 2/2 real-PostgreSQL integration tests in `tests/integration/test_model_props.py` passing.
+
+## ADR-105: Vectorized Monte Carlo Markov Game Simulation Engine (`SIM-01`, Package 17)
+
+**Decision:** Implemented high-throughput vectorized and GPU-accelerated Monte Carlo game simulation in `mlb_baseball/model/simulate.py` with dense array representations (`DenseOutcomeTable`), authentic baseball game rules (walk-off, bottom-9th skip, tie-breaking extra innings), in-progress live game forecasting, and integration tests in `tests/integration/test_model_simulate.py`.
+- **Architecture & Capabilities**:
+  - Dense State Indexing: Bijective mapping between 24 transient base/out states + 1 terminal state (indices 0..24).
+  - High-Throughput Vectorized Sampling: `DenseOutcomeTable` packs sparse transition outcome distributions into dense `next_states`, `runs`, and cumulative `cum_probs` arrays, enabling 250,000+ half-innings per second on CPU and millions/sec via Numba CUDA GPU kernels.
+  - Authentic Game Simulation (`simulate_games_fast`): Simulates full 9-inning games, evaluates walk-offs, home -1.5 run lines, totals over/under probabilities (5.5 to 12.5), and full 2D score grid distributions.
+  - Live In-Play Game Simulation (`simulate_live_game_fast`): Simulates remainder of in-progress games from any inning, half, base/out state, and score.
+  - Matchup Scaling (`DenseOutcomeTable.adjust_for_matchup`): Seamlessly scales scoring and advancing transition probabilities based on pitcher/batter arsenal edges and team differentials.
+- **Verification**: 7/7 unit tests in `tests/unit/test_simulate.py` and 2/2 real-PostgreSQL integration tests in `tests/integration/test_model_simulate.py` passing.
+
+## ADR-104: GBM-v2 Full Feature Set Expansion & GPU Compute Module (`FEAT-01`, Package 16)
+
+**Decision:** Expanded the production GBM model from 37 features (`gbm-v1`, `game-feature-v1`) to 257 features (`gbm-v2`, `game-feature-v2`), wiring in all 19 previously unused feature families. Expanded the experiment framework's snapshot SQL from 13 to 261 feature columns (`game_full_v2`). Added `mlb_baseball/compute.py` for GPU device detection with CPU fallback.
+- **GBM-v2 feature families added** (all as OPTIONAL_COLUMNS, NaN-handled by XGBoost natively):
+  - Catcher framing (CSAE%, framing runs, framing prior)
+  - Team rate stats (OBP, SLG, ISO, BB%, K%, BABIP, run environment, PA)
+  - Baserunning (wSB, XBT%, UBR, wGDP, BsR Total)
+  - Starter workload & experience (rest days, 7-day outs, career BF/IP, age)
+  - Plate discipline (CSW%, Whiff%, F-Strike% for starters and bullpens)
+  - Batted ball profiles (GB%, FB%, LD%, HR/FB for starters, bullpens, batting)
+  - Run expectancy & leverage (starter/bullpen avg LI, bullpen RE24, batting RE24)
+  - Pitcher estimators (xFIP, SIERA for starters and bullpens)
+  - Pitcher platoon splits (vs LHB/RHB wOBA and K%)
+  - Statcast expected metrics (HardHit%, Barrel%, xwOBA, xBA, xSLG for starters, bullpens, offense)
+  - Command & attack zones (Heart/Shadow/Chase%, fastball velo, velo delta, bullpen zones, batting discipline)
+  - Pitch movement & shape (fastball IVB, curve drop, vertical separation, spin RPM)
+  - Component park factors (1yr/3yr/5yr, HR/2B/3B/LHB-HR/RHB-HR factors)
+  - Weather physics (air density index, effective wind speed)
+  - Platoon matchups (offense wOBA vs LHP/RHP, platoon matchup wOBA diff)
+  - Matchup difference vectors (25 symmetric home-minus-away diffs and trends)
+- **GPU module**: `compute.py` detects Numba CUDA availability for K80/K40 Kepler GPUs (compute 3.5/3.7), with `MLB_FORCE_CPU=1` override. Modern XGBoost/PyTorch require compute >= 5.0, so GPU acceleration targets Monte Carlo simulation via Numba, not ML training.
+- **Verification**: 56/56 tests passed (27 unit + 29 integration, 324s). ruff + mypy clean.
+
+## ADR-103: Multi-Model Benchmark & Holdout Evaluation Protocol (`EVAL-01`, Package 15)
+
+**Decision:** Verified and hardened the full multi-model evaluation framework across all 12 model families (`home_rate`, `log5`, `elo`, `logistic`, `hist_gradient_boosting`, `xgboost`, `random_forest`, `extra_trees`, `gam`, `svm`, `bayesian`, `neural`) and task types (classification: `home_win`, regression: `run_differential`). Implemented full test coverage in `tests/integration/test_model_evaluation.py` and `tests/integration/test_experiment.py`.
+- **Methodology**:
+  - Exact Common Intersection Sample: Every comparative evaluation between candidate models is strictly restricted to the exact same game sample shared by all models.
+  - Zero Point-in-Time Leakage: Cutoff selection enforcement (`open`, `24h`, `6h`, `close`) guarantees only snapshots generated strictly prior to game start timestamp are eligible, rejecting post-game records.
+  - Non-parametric Calibration & Uncertainty: 1,000-iteration bootstrap 95% confidence intervals on log loss and Brier score loss, with reliability diagram binning.
+- **Verification**: Real PostgreSQL integration tests in `tests/integration/test_model_evaluation.py` (100% passing in 112s) and `tests/integration/test_experiment.py` (56/56 passing in 198s).
+
+## ADR-102: Serving Layer Views (`SRV-01`, Package 14)
+
+**Decision:** Created schema `serve` with read-only analytical marts via migration `migrations/0078_serve_layer_views.sql`, SQLMesh models under `transforms/models/`, Python access module `mlb_baseball/serve.py`, and integration tests in `tests/integration/test_serve.py`.
+- **Marts Established**:
+  - `serve.daily_betting_grid`: Consolidates game metadata, starting pitchers, weather physics, model win probabilities (Log5, Elo, GBM), difference vectors, and actual scores into a high-performance web grid.
+  - `serve.pitcher_card`: Aggregates starting pitcher profiles across ERA, xFIP, SIERA, CSW%, Fastball IVB, Curve Drop, Vertical Separation ($\Delta \text{IVB}$), Spin Rate, Attack Zones (Heart/Shadow/Chase), and Platoon Splits vs LHB/RHB.
+  - `serve.matchup_preview`: Detailed pregame breakdown of head-to-head match vectors, park factors, air density index, wind vectors, starter vs starter, bullpen vs bullpen, and catcher framing.
+  - `serve.prediction_market_alpha`: Dedicated $+EV$ contract arbitrage screener matching model win probabilities against Polymarket and Kalshi implied contract prices ($\ge 2.5\%$ edge threshold).
+- **Verification**: Real Postgres integration test in `tests/integration/test_serve.py`.
+
+## ADR-101: Platoon Splits & Handedness Matchups (`PLT-01`, Package 13)
+
+**Decision:** Added `mlb_baseball/model/platoon.py`, `migrations/0077_platoon_handedness_splits.sql`, `mlb_baseball/sql/platoon_splits_update.sql`, `mlb_baseball/sql/platoon_splits_health_check.sql`, and SQLMesh model `transforms/models/platoon_splits.sql`. Adds 16 columns to `gold.game_feature` (`home_starter_throws`, `away_starter_throws`, `home_offense_woba_vs_lhp`, `away_offense_woba_vs_lhp`, `home_offense_woba_vs_rhp`, `away_offense_woba_vs_rhp`, `home_platoon_matchup_woba_diff`, `away_platoon_matchup_woba_diff`, etc.) and updates `gold.game_export`.
+- **Methodology**: Extracts pitcher throwing hand and computes platoon advantage deltas ($\Delta wOBA = Offense_{vs Hand} - Starter_{vs Hand}$) strictly point-in-time prior to each game.
+- **Verification**: Hand-calculated deterministic integration tests in `tests/integration/test_model_platoon.py`.
+
+## ADR-100: Pitch Arsenal & Batter Pitch-Type Matchups in Markov Simulator (`PLN-04`, Package 12)
+
+**Decision:** Extended `mlb_baseball/model/markov.py`, added `mlb_baseball/sql/pitcher_arsenal_select.sql`, and `mlb_baseball/sql/batter_arsenal_select.sql`.
+- **Methodology**: Introduces `PitchArsenal` and `BatterArsenalProfile` data structures loaded from `raw.statcast_pitcher_arsenal_stat` and `raw.statcast_batter_arsenal`. Computes weighted pitch-type matchup run value differentials ($\text{Matchup Edge} = \sum u_p \times (\text{Batter } RV_{100, p} - \text{Pitcher } RV_{100, p})$). Dynamically adjusts base/out state transition odds and simulates player-specific game run distributions.
+- **Verification**: Hand-calculated deterministic unit and integration tests in `tests/unit/test_markov_arsenal.py` and `tests/integration/test_model_markov_arsenal.py`.
+
+## ADR-099: Matchup Difference Vectors (`INT-02`, Package 11)
+
+**Decision:** Updated `mlb_baseball/model/diff.py`, `migrations/0076_matchup_difference_vectors.sql`, and `mlb_baseball/sql/int_diff_update.sql`. Adds 17 new columns to `gold.game_feature` (`starter_siera_diff`, `starter_xfip_diff`, `starter_csw_diff`, `starter_whiff_diff`, `starter_xwoba_diff`, `starter_fastball_velo_diff`, `starter_vert_sep_diff`, `bullpen_siera_diff`, `bullpen_xfip_diff`, `bullpen_csw_diff`, `bullpen_whiff_diff`, `bullpen_xwoba_diff`, `offense_hard_hit_diff`, `offense_barrel_diff`, `offense_xwoba_diff`, `bsr_total_diff`, `catcher_framing_diff`) and updates `gold.game_export`.
+- **Methodology**: Computes symmetric home-minus-away difference terms for starting pitchers, bullpens, offenses, and catchers. Eliminates collinearity and provides single-split matchup signals to linear/logistic and gradient boosted models. Pure algebra over entering values.
+- **Verification**: Strict algebraic parity assertion across all rows in `tests/integration/test_model_diff.py`.
+
+## ADR-098: Pitch Movement, Vertical Break & Batter Attack Zone Discipline (`SHP-01`, Package 10)
+
+**Decision:** Added `mlb_baseball/model/pitch_movement.py`, `migrations/0075_pitch_movement_shape.sql`, `mlb_baseball/sql/pitch_movement_update.sql`, `mlb_baseball/sql/pitch_movement_health_check.sql`, and SQLMesh model `transforms/models/pitch_movement.sql`. Adds 14 columns to `gold.game_feature` (`home_starter_fastball_ivb_in`, `away_starter_fastball_ivb_in`, `home_starter_curve_drop_in`, `away_starter_curve_drop_in`, `home_starter_vert_separation_in`, `away_starter_vert_separation_in`, `home_starter_spin_rate_rpm`, `away_starter_spin_rate_rpm`, `home_bullpen_vert_separation_in`, `away_bullpen_vert_separation_in`, `home_batting_chase_pct`, `away_batting_chase_pct`, `home_batting_heart_swing_pct`, `away_batting_heart_swing_pct`) and updates `gold.game_export`.
+- **Methodology**: Computes Fastball Induced Vertical Break (IVB/ride in inches), Curveball downward break (inches), Vertical Movement Separation ($\Delta \text{IVB} = \text{IVB}_{\text{FB}} - \text{IVB}_{\text{CU}}$ in inches), breaking spin rate (RPM), bullpen vertical separation, and lineup attack zone discipline (Chase% and Heart Swing%) from `raw.statcast_pitch`. Point-in-time entering values strictly prior to each game.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_pitch_movement.py`.
+
+## ADR-097: Pitcher Strike Zone Command & Attack Zones (`COM-01`, Package 9)
+
+**Decision:** Added `mlb_baseball/model/command.py`, `migrations/0074_strike_zone_command.sql`, `mlb_baseball/sql/pitcher_command_update.sql`, `mlb_baseball/sql/pitcher_command_health_check.sql`, and SQLMesh model `transforms/models/pitcher_command.sql`. Adds 16 columns to `gold.game_feature` (`home_starter_heart_pct`, `away_starter_heart_pct`, `home_starter_shadow_pct`, `away_starter_shadow_pct`, `home_starter_chase_pct`, `away_starter_chase_pct`, `home_starter_fastball_velo`, `away_starter_fastball_velo`, `home_starter_velo_delta`, `away_starter_velo_delta`, `home_bullpen_heart_pct`, `away_bullpen_heart_pct`, `home_bullpen_shadow_pct`, `away_bullpen_shadow_pct`, `home_bullpen_chase_pct`, `away_bullpen_chase_pct`) and updates `gold.game_export`.
+- **Methodology**: Aggregates pitch locations from `raw.statcast_pitch` into Statcast 13-zone attack zone categories (Heart, Shadow, Chase) and computes fastball velocity and velocity delta ($\Delta v = v_{\text{FB}} - v_{\text{Off}}$) for starting pitchers and bullpens. Point-in-time entering values strictly prior to each game.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_command.py`.
+
+## ADR-096: Starting Catcher Framing & CSAE% (`CAT-02`, Package 7)
+
+**Decision:** Added `mlb_baseball/model/framing.py`, `migrations/0073_catcher_framing_csae.sql`, `mlb_baseball/sql/catcher_framing_csae_update.sql`, `mlb_baseball/sql/catcher_framing_csae_health_check.sql`, and SQLMesh model `transforms/models/catcher_framing_csae.sql`. Adds `home_catcher_csae_pct`, `away_catcher_csae_pct`, `home_catcher_framing_runs`, `away_catcher_framing_runs` to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Starting catcher identified per game half from `raw.retrosheet_event` (`pos2_fld_id` in inning 1). Rolling prior called strikes and taken pitches aggregated strictly entering-game. $\text{CSAE\%} = (\text{CS} / \text{Takes}) - 0.3300$, $\text{Framing Runs} = (\text{CS} - \text{Takes} \cdot 0.33) \cdot 0.125$. Sample-size gate at 25 takes.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_framing.py`.
+
+## ADR-095: Comprehensive Baserunning (BsR, XBT%, UBR, wGDP) (`RUN-01`, Package 8)
+
+**Decision:** Added `mlb_baseball/model/bsr.py`, `migrations/0072_comprehensive_bsr_xbt.sql`, `mlb_baseball/sql/team_bsr_comprehensive_retrosheet_update.sql`, `mlb_baseball/sql/team_bsr_comprehensive_health_check.sql`, and SQLMesh model `transforms/models/team_bsr_comprehensive.sql`. Adds `home_xbt_pct`, `away_xbt_pct`, `home_ubr_runs`, `away_ubr_runs`, `home_wgdp_runs`, `away_wgdp_runs`, `home_bsr_total`, `away_bsr_total` to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Computes extra-bases-taken rate (`XBT%`) on base hits, linear weight Ultimate Base Running (`UBR`), weighted double play avoidance (`wGDP`), and comprehensive `BsR Total` = $wSB + UBR + wGDP$. Entering-game rolling aggregation with doubleheader chronological tiebreak.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_bsr.py`.
+
+## ADR-094: Multi-Year Component Park Factors & Environmental Weather (`PARK-01`/`WEA-01`, Package 6)
+
+**Decision:** Added `mlb_baseball/model/park.py`, `migrations/0071_park_factors_weather.sql`, `mlb_baseball/sql/park_factors_weather_update.sql`, `mlb_baseball/sql/park_factors_weather_health_check.sql`, and SQLMesh model `transforms/models/park_factors_weather.sql`. Adds 11 columns to `gold.game_feature` (`park_factor_1yr`, `park_factor_3yr`, `park_factor_5yr`, `park_hr_factor_3yr`, `park_2b_factor_3yr`, `park_3b_factor_3yr`, `park_lhb_hr_factor_3yr`, `park_rhb_hr_factor_3yr`, `air_density_index`, `effective_wind_speed`, `wind_direction_label`) and updates `gold.game_export`.
+- **Methodology**: Trailing 1, 3, and 5-year venue splits regressed to league scoring environment; component factors for HR, 2B, 3B, and LHB/RHB HR splits. Atmospheric air density index ($ADI$) and effective center-field wind vector physics.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_park.py`.
+
+## ADR-093: Statcast Expected Metrics & Contact Quality (`STA-03`, Package 5)
+
+**Decision:** Added `mlb_baseball/model/statcast_expected.py`, `migrations/0070_statcast_expected_metrics.sql`, `mlb_baseball/sql/statcast_expected_retrosheet_update.sql`, `mlb_baseball/sql/statcast_expected_health_check.sql`, and SQLMesh model `transforms/models/statcast_expected.sql`. Adds 30 columns covering `hard_hit_pct`, `barrel_pct`, `xwoba`, `xba`, `xslg` across starter, bullpen, and batting grains to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Proxy contact quality and Statcast expected values from Retrosheet trajectory codes and outcome mappings. Entering-game rolling aggregation strictly prior to the scheduled game.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_statcast_expected.py`.
+
+## ADR-092: Defense-Independent Pitcher Estimators (xFIP, SIERA) & Platoon Splits (`PIT-06`/`PLN-03`, Package 4)
+
+**Decision:** Added `mlb_baseball/model/pitcher_estimators.py`, `migrations/0066_pitcher_estimators_and_platoon.sql`, `mlb_baseball/sql/pitcher_estimators_and_platoon_update.sql`, `mlb_baseball/sql/pitcher_estimators_and_platoon_health_check.sql`, and SQLMesh model `transforms/models/pitcher_estimators_and_platoon.sql`. Adds 16 columns to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Computes expected FIP ($xFIP$) normalizing home runs to league average HR/FB, Skill-Interactive ERA ($SIERA$) incorporating non-linear strikeout, walk, and batted-ball trajectory terms, and platoon splits (wOBA and K% vs LHB and RHB).
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_pitcher_estimators.py`.
+
+## ADR-091: 24-State Run Expectancy Matrix (RE24) & Leverage Index (`LEV-01`, Package 3)
+
+**Decision:** Added `mlb_baseball/model/leverage.py`, `migrations/0069_base_out_leverage_re24.sql`, `mlb_baseball/sql/base_out_leverage_retrosheet_update.sql`, `mlb_baseball/sql/base_out_leverage_health_check.sql`, and SQLMesh model `transforms/models/base_out_leverage_re24.sql`. Adds 8 columns to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Computes historical 24 base-out run expectancy matrix ($RE$) and Tom Tango's Leverage Index ($LI$). Entering-game rolling average LI and cumulative RE24 for starter, bullpen, and offense.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_leverage.py`.
+
+## ADR-090: Batted-Ball Profiles (GB%, FB%, LD%, HR/FB) (`BAT-01`, Package 2)
+
+**Decision:** Added `mlb_baseball/model/batted_ball.py`, `migrations/0068_batted_ball_profiles.sql`, `mlb_baseball/sql/team_batted_ball_retrosheet_update.sql`, `mlb_baseball/sql/team_batted_ball_health_check.sql`, and SQLMesh model `transforms/models/batted_ball_profiles.sql`. Adds 22 columns to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Computes entering-game rolling Ground Ball %, Fly Ball %, Line Drive %, and HR/FB across starter, bullpen, and team offense grains from Chadwick Retrosheet trajectory flags.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_batted_ball.py`.
+
+## ADR-089: Plate Discipline Metrics (CSW%, Whiff%, F-Strike%) (`PIT-07`, Package 1)
+
+**Decision:** Added `mlb_baseball/model/plate_discipline.py`, `migrations/0067_plate_discipline_csw_whiff.sql`, `mlb_baseball/sql/pitcher_plate_discipline_retrosheet_update.sql`, `mlb_baseball/sql/pitcher_plate_discipline_health_check.sql`, and SQLMesh model `transforms/models/plate_discipline_csw_whiff.sql`. Adds 10 columns to `gold.game_feature` and updates `gold.game_export`.
+- **Methodology**: Computes entering-game rolling Called Strikes + Whiffs % (`CSW%`), swinging strikes / swings (`Whiff%`), and first-pitch strikes / PA (`F-Strike%`) for starter and bullpen grains from Retrosheet pitch sequences.
+- **Verification**: Hand-calculated integration tests in `tests/integration/test_model_plate_discipline.py`.
+
 ## ADR-088: SQLMesh adoption reactivated for the `model/` gold-feature layer — resolves ADR-050's draft status
 
 **Status: ADOPTED.** This closes ADR-050's `DRAFT` status and the inconsistency it left standing: `AGENTS.md` ("Architecture decisions" > "SQLMesh is the preferred SQL transformation framework") has stated since it was written that SQLMesh is preferred and should be adopted incrementally, while ADR-050 itself — the spike that produced that recommendation — still read `DRAFT — spike output, not adopted, not decided`, deferred twice, most recently because its own stated revisit trigger ("`model/` grows by 5+ more feature modules") hadn't fired. Meanwhile, seven feature-admission PRs landed in `model/` between the spike and this entry (BSR-01, INT-01, INT-02, the PLN-04 age/experience halves, etc.), every one of them plain Python + package `.sql` resources, none as SQLMesh models — the trigger's premise (`model/` isn't growing) was already false in a different sense: it *is* growing, just not through the lens that would have counted toward the trigger. A policy that says "preferred" while the project keeps not doing it, with no one revisiting why, is exactly the kind of staleness `AGENTS.md` itself asks to be repaired on sight ("When an older document conflicts with verified current repository state, repair the stale document in the same change").

@@ -30,8 +30,10 @@ from mlb_baseball.health import (
 from mlb_baseball.ingest import track_run
 from mlb_baseball.model import (
     age,
+    batted_ball,
     bsr,
     bullpen,
+    command,
     diff,
     elo,
     evaluation,
@@ -39,17 +41,25 @@ from mlb_baseball.model import (
     features,
     framing,
     gbm,
+    leverage_index,
     log5,
     market,
     oaa,
     offense,
     park,
+    pitch_discipline,
+    pitch_movement,
+    pitcher_estimators,
+    platoon,
+    run_expectancy,
     speed,
     starter,
     starter_workload,
+    statcast_expected,
     team_rate,
     trend,
     war,
+    win_expectancy,
 )
 
 SOURCE = "model"
@@ -156,7 +166,21 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         "gold.game_feature (starter)": starter.compute(conn),
         "gold.game_feature (starter live)": starter.compute_live(conn),
         "gold.game_feature (starter probable)": starter.compute_probable(conn),
-        "gold.game_feature (starter experience)": experience.compute(conn),
+        "gold.game_feature (experience)": experience.compute(conn),
+        "gold.game_feature (pitch_discipline)": pitch_discipline.compute(conn),
+        "gold.game_feature (batted_ball)": batted_ball.compute(conn),
+        # win_expectancy/leverage_index build full-history reference tables
+        # (gold.win_expectancy, gold.leverage_index), not gold.game_feature
+        # columns directly -- run_expectancy.compute() (next) reads
+        # gold.leverage_index for its avg_li columns (ADR-262). Both are
+        # cheap no-ops once already built; see their own compute() docstrings.
+        "gold.win_expectancy": win_expectancy.compute(conn),
+        "gold.leverage_index": leverage_index.compute(conn),
+        "gold.game_feature (run_expectancy)": run_expectancy.compute(conn),
+        "gold.game_feature (pitcher_estimators)": pitcher_estimators.compute(conn),
+        "gold.game_feature (statcast_expected)": statcast_expected.compute(conn),
+        "gold.game_feature (command)": command.compute(conn),
+        "gold.game_feature (pitch_movement)": pitch_movement.compute(conn),
         "gold.game_feature (starter workload)": starter_workload.compute(conn),
         "gold.game_feature (starter workload live)": starter_workload.compute_live(conn),
         "gold.game_feature (starter workload probable)": starter_workload.compute_probable(conn),
@@ -167,6 +191,7 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
         "gold.game_feature (speed)": speed.compute(conn),
         "gold.game_feature (framing)": framing.compute(conn),
         "gold.game_feature (war)": war.compute(conn),
+        "gold.game_feature (platoon)": platoon.compute(conn),
         # age.compute() must run last -- it reads home_starter_id/
         # away_starter_id, which every starter.compute*() call above may
         # set (historical, live, or probable path).
@@ -300,5 +325,15 @@ def health_check() -> list[Check]:
         + starter_workload.health_check()
         + diff.health_check()
         + experience.health_check()
+        + pitch_discipline.health_check()
+        + batted_ball.health_check()
+        + win_expectancy.health_check()
+        + leverage_index.health_check()
+        + run_expectancy.health_check()
+        + pitcher_estimators.health_check()
+        + statcast_expected.health_check()
+        + command.health_check()
+        + pitch_movement.health_check()
+        + platoon.health_check()
         + age.health_check()
     )

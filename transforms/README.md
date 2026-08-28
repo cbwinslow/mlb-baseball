@@ -203,8 +203,9 @@ tie-out (Coors/Fenway are both unique matches in `raw.mlb_venue`).
   ```python
   from sqlmesh.core.context import Context
   from sqlmesh.core.lineage import column_dependencies
-  ctx = Context(paths='.')
-  column_dependencies(ctx, 'gold.park_factor', 'park_factor')
+
+  ctx = Context(paths=".")
+  column_dependencies(ctx, "gold.park_factor", "park_factor")
   # -> {'"mlb_spike"."core"."game"': {'away_score', 'home_score'}}
   ```
   Correctly traced `park_factor` back through 4 CTEs to `core.game`'s

@@ -22,6 +22,24 @@ Principle: reuse well-established, actively-used libraries for talking to each s
 
 Several MCP servers exist that wrap MLB data (`mlb-api-mcp`, `mlb-mcp`, `mcp_mlb_statsapi`) — not adopted, because they're thin wrappers around the same libraries listed above (e.g. `mlb-mcp` literally uses `pybaseball` + `MLB-StatsAPI` under the hood). No reason to add an MCP layer between our code and a library we're already depending on directly.
 
+## Database contract tests
+
+[`pgTAP`](https://pgtap.org/) provides a small database-native complement to
+pytest's real-Postgres integration suite. The first contract,
+`tests/pgtap/log5.pg`, checks the canonical Log5 identities and required
+`gold.prediction` columns. Every pgTAP script begins a transaction and rolls it
+back, so it never changes test data. Run it with:
+
+```sh
+pg_prove --dbname=mlb_test --verbose tests/pgtap/*.pg
+```
+
+Install the extension package matching the active PostgreSQL major version
+(currently `postgresql-16-pgtap`) on the database host, plus the pgTAP Perl
+runner where `pg_prove` runs. GitHub Actions installs the extension in its
+disposable PostgreSQL service container and installs only the runner on the
+worker.
+
 ## Database backup/restore
 
 `mlb backup`/`mlb restore` (`mlb_baseball/backup.py`) wrap PostgreSQL's own

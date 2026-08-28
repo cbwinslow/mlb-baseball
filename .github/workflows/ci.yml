@@ -168,6 +168,24 @@ jobs:
           docker restart "$POSTGRES_CONTAINER_ID"
           until docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres; do sleep 1; done
 
+      - name: Install pgTAP in the PostgreSQL service and runner
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          docker exec --user root "$POSTGRES_CONTAINER_ID" apt-get update -q
+          docker exec --user root "$POSTGRES_CONTAINER_ID" apt-get install -y -q postgresql-16-pgtap
+          sudo apt-get update -q
+          sudo apt-get install -y -q libtap-parser-sourcehandler-pgtap-perl
+
+      - name: Run pgTAP database contracts
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mlb_test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mlb_test
+        run: |
+          uv run mlb migrate
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS pgtap"
+          pg_prove --dbname="$TEST_DATABASE_URL" --verbose tests/pgtap/*.pg
+
       - name: Cache Chadwick tools build
         id: chadwick-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -125,13 +125,16 @@ starter_rates AS (
             WHEN prior_pa >= %(min_starter_pa)s THEN
                 ROUND((
                     6.145
-                    - 16.984 * (prior_k::numeric / NULLIF(prior_pa, 0))
+                    - 16.986 * (prior_k::numeric / NULLIF(prior_pa, 0))
                     + 11.434 * (prior_bb::numeric / NULLIF(prior_pa, 0))
                     - 1.858 * ((prior_gb - prior_fb - prior_pu)::numeric / NULLIF(prior_pa, 0))
                     + 7.653 * POWER(prior_k::numeric / NULLIF(prior_pa, 0), 2)
-                    + 6.664 * POWER(prior_gb::numeric / NULLIF(prior_pa, 0), 2)
-                    - 9.096 * (prior_k::numeric / NULLIF(prior_pa, 0)) * (prior_gb::numeric / NULLIF(prior_pa, 0))
-                    - 3.037 * (prior_bb::numeric / NULLIF(prior_pa, 0)) * (prior_gb::numeric / NULLIF(prior_pa, 0))
+                    + (CASE WHEN (prior_gb - prior_fb - prior_pu) > 0 THEN -1 ELSE 1 END)
+                      * 6.664 * POWER((prior_gb - prior_fb - prior_pu)::numeric / NULLIF(prior_pa, 0), 2)
+                    + 10.130 * (prior_k::numeric / NULLIF(prior_pa, 0))
+                      * ((prior_gb - prior_fb - prior_pu)::numeric / NULLIF(prior_pa, 0))
+                    - 5.195 * (prior_bb::numeric / NULLIF(prior_pa, 0))
+                      * ((prior_gb - prior_fb - prior_pu)::numeric / NULLIF(prior_pa, 0))
                 )::numeric, 4)
             ELSE NULL
         END AS starter_siera,
@@ -228,13 +231,16 @@ bullpen_rates AS (
             WHEN prior_pa >= %(min_bullpen_pa)s THEN
                 ROUND((
                     6.145
-                    - 16.984 * (prior_k::numeric / NULLIF(prior_pa, 0))
+                    - 16.986 * (prior_k::numeric / NULLIF(prior_pa, 0))
                     + 11.434 * (prior_bb::numeric / NULLIF(prior_pa, 0))
                     - 1.858 * ((prior_gb - prior_fb - prior_pu)::numeric / NULLIF(prior_pa, 0))
                     + 7.653 * POWER(prior_k::numeric / NULLIF(prior_pa, 0), 2)
-                    + 6.664 * POWER(prior_gb::numeric / NULLIF(prior_pa, 0), 2)
-                    - 9.096 * (prior_k::numeric / NULLIF(prior_pa, 0)) * (prior_gb::numeric / NULLIF(prior_pa, 0))
-                    - 3.037 * (prior_bb::numeric / NULLIF(prior_pa, 0)) * (prior_gb::numeric / NULLIF(prior_pa, 0))
+                    + (CASE WHEN (prior_gb - prior_fb - prior_pu) > 0 THEN -1 ELSE 1 END)
+                      * 6.664 * POWER((prior_gb - prior_fb - prior_pu)::numeric / NULLIF(prior_pa, 0), 2)
+                    + 10.130 * (prior_k::numeric / NULLIF(prior_pa, 0))
+                      * ((prior_gb - prior_fb - prior_pu)::numeric / NULLIF(prior_pa, 0))
+                    - 5.195 * (prior_bb::numeric / NULLIF(prior_pa, 0))
+                      * ((prior_gb - prior_fb - prior_pu)::numeric / NULLIF(prior_pa, 0))
                 )::numeric, 4)
             ELSE NULL
         END AS bullpen_siera

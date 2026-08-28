@@ -66,9 +66,10 @@ class PitcherSswLatentEngine:
         axis_gap = abs(metrics.inferred_axis_minutes - metrics.optical_axis_minutes)
         latent_break = round(max(0.0, metrics.observed_break_in - metrics.pure_magnus_break_in), 1)
 
-        # SSWLMR Score: benchmark 30 mins deviation, 2.5 in latent break
-        axis_bonus = (axis_gap - 30.0) * 0.9
-        break_bonus = (latent_break - 2.5) * 8.0
+        # SSWLMR Score: benchmark 35 mins deviation, 3.5 in latent break (this
+        # class's own defaults: |110-75|=35 mins, 17.5-14.0=3.5 in)
+        axis_bonus = (axis_gap - 35.0) * 0.9
+        break_bonus = (latent_break - 3.5) * 8.0
         sswlmr = round(max(0.0, 100.0 + axis_bonus + break_bonus), 1)
 
         is_manipulator = sswlmr >= 116.0 and latent_break >= 3.8 and axis_gap >= 38

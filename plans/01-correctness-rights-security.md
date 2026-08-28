@@ -65,8 +65,16 @@ executed against production `mlb` — see `PROGRESS.md` "Plan 01F production
 cutover executed" for evidence. `gold.game_feature`/`gold.player_season`/
 `gold.team_season`/`gold.division_standing` are populated in production;
 `mlb predict` has run. This closes R1-R4 of the remediation sequence below in
-production, not just `mlb_test`. R5 (consumer/workflow integrity) and R6
-(documentation/final verification) remain open.
+production, not just `mlb_test`. **R5 evidence added 2026-08-26** (see the R5
+entry below and `docs/DECISIONS.md` ADR-265) — real coverage gaps closed and
+one real bug fixed in `mlb_test`, but not yet Sol-reviewed or applied to
+production; treat R5 as pending review, not closed. **R6 evidence added
+2026-08-26** (see the R6 entry below) — acceptance-gate contracts, runbooks,
+the API doc, and `mlb audit` output re-verified against real tests and real
+production/`mlb_test` command output; three doc drifts and one test-isolation
+bug found and fixed; one real, unfixed operational gap (`mlb doctor` has no
+streaming/bounded mode) documented, not fixed. R6 is ready for Sol review,
+not closed by this change.
 
 **Evidence correction (2026-08-10):** The prior premise that a suspended or
 resumed game creates two valid MLB game instances sharing `game_pk` is false.
@@ -170,6 +178,179 @@ canonical primary key `(mlb_game_pk, model_version, generated_at)` and
 `gold.game_feature` has a partial unique populated MLB-key index. The focused
 migration/evaluation/feature/prediction suite passed 135 tests in `mlb_test`.
 Production remains read-only and requires separate owner approval.
+
+**R5 consumer/workflow integrity evidence (2026-08-26):** Reverified both
+halves of R5 against real `mlb_test`, not by assumption.
+
+*Workflow overlap rejection:* the existing
+`test_workflow_lock_serializes_connectors_and_derived_stages` only proved a
+shared (connector) lock and an exclusive (derived-stage) lock reject each
+other — never that two *exclusive* stages reject each other. Added
+`test_workflow_lock_serializes_two_exclusive_derived_stages`
+(`tests/integration/test_ingest_tracking.py`), using conform's and
+features' real, different `SOURCE` values (`"core"`/`"model"`) specifically
+so the per-source advisory lock cannot be what's serializing them — only
+the shared `mlb-workflow:raw-core-model` lock can. Also re-checked every
+real CLI-reachable `track_run()` call site (`conform.py`, and
+`model/__init__.py`'s `run_features()`/`run()`/`train()`/`evaluate()`,
+which back `mlb conform`/`mlb features`/`mlb predict`/`mlb train`/
+`mlb evaluate`): all five already pass `workflow="exclusive"`. No gap found
+there, no code change needed.
+
+*Prediction-boundary consumer validation:* `mlb_baseball/model/evaluation.py`
+and `mlb_baseball/model/market.py` already have solid, direct test coverage
+of the acceptance gate's named properties (schedule history counted as one
+game, post-start predictions excluded, MLB-keyed vs. Retrosheet-native-keyed
+predictions kept distinct) — confirmed by reading `tests/integration/
+test_model_evaluation.py` and `tests/integration/test_model_market.py`, not
+duplicated. Found a real, previously-unfixed bug in two `serve.*` views:
+`serve.daily_betting_grid` and `serve.prediction_market_alpha` both joined
+`gold.prediction` directly on `(game_instance_key, model_version)` without
+selecting the latest snapshot, fanning one real game out into one row per
+historical prediction snapshot — the exact fan-out pattern migration 0082
+already fixed for `serve.sgp_matchup_grid`/`serve.pitcher_arsenal`, which
+just never reached these two. Fixed forward-only in
+`migrations/0087_correct_remaining_serve_prediction_fanout.sql`; confirmed
+by hand that reverting it reproduces 2 rows for 1 game with two prediction
+snapshots, via the new
+`tests/integration/test_serve.py::test_serve_daily_betting_grid_uses_latest_prediction_snapshot_only`
+and `::test_serve_prediction_market_alpha_uses_latest_prediction_snapshot_only`.
+A second, related but distinct bug in the same view
+(`serve.prediction_market_alpha` also fans out on non-moneyline
+`core.market` rows for Polymarket) was found but not fixed here — fixing it
+safely needs either a `to_regclass`-gated conditional view or a
+`core.market`-level market-type column from `conform.py`, both real,
+separate design work; filed as
+[issue #79](https://github.com/cbwinslow/mlb-baseball/issues/79). See
+`docs/DECISIONS.md` ADR-265 for full detail on both parts.
+
+`uv run pytest tests/integration/test_ingest_tracking.py
+tests/integration/test_serve.py -v` — 16 tests, all passing, against real
+`mlb_test`. Production `mlb` untouched throughout — this is a
+`mlb_test`-verified, forward-only migration plus test change, same as every
+prior R1-R4 rehearsal entry above.
+
+**R6 documentation/final-verification evidence (2026-08-26):** Worked the
+Acceptance gate section below line by line against real tests and real
+command output, not the plan text alone.
+
+*Acceptance gate contracts, each mapped to a real, currently-passing test:*
+modern-season linkage/ambiguous-NULL identity —
+`tests/integration/test_conform.py::test_multi_source_conformance_rehearsal_ties_out_across_grains`
+and `::test_backfill_game_pk_leaves_ambiguous_final_id_null`; evaluation
+snapshot/post-start exclusion —
+`tests/integration/test_model_evaluation.py::test_evaluate_uses_one_pregame_snapshot_and_exact_common_sample`;
+end-to-end prediction traceability and artifact immutability —
+`tests/integration/test_model_gbm.py::test_artifact_immutability`/
+`::test_predict_writes_predictions_for_upcoming_games_using_saved_model` plus
+`tests/integration/test_model_provenance.py::test_register_model_promotes_one_immutable_champion`/
+`::test_feature_snapshot_records_the_actual_feature_build_state` (spread
+across files, all real, none duplicated here); one prediction/evaluation row
+per declared game key, schedule history never a second game —
+`test_model_evaluation.py::test_evaluate_treats_schedule_history_as_one_mlb_game`
+plus the R5 serve-fanout fix above; cross-stage overlap rejection —
+`tests/integration/test_ingest_tracking.py::test_workflow_lock_serializes_two_exclusive_derived_stages`
+(R5) plus `tests/integration/test_migrations.py::test_failed_migration_releases_the_advisory_lock`
+for migration-execution serialization specifically; forbidden sources
+excluded from `public_safe` — `tests/unit/test_cli_dispatch.py::test_public_safe_profile_rejects_a_restricted_connector`
+and `tests/unit/test_public_api.py::test_ingest_source_rejects_source_outside_profile`;
+serving-role isolation — `tests/integration/test_least_privilege.py::test_least_privilege_bounded_isolation`
+(a synthetic disposable role/schema proving the grant *shape*, not
+production's actual not-yet-created `mlb_serve` role — already accurately
+caveated in `docs/DBA_LEAST_PRIVILEGE_RUNBOOK.md`). Every gate property has
+real coverage; none is claimed without a test.
+
+*Proportional sequential verification, run together, in this order, against
+real `mlb_test`:* `test_ingest_tracking.py`, `test_serve.py`,
+`test_model_evaluation.py`, `test_model_market.py`, `test_least_privilege.py`,
+`test_migrations.py`, `test_public_api.py`, `test_cli_dispatch.py`,
+`test_model_gbm.py`, `test_model_provenance.py` — 260 passed, 0 failed.
+Separately, `test_conform.py` plus `test_audit_db.py` — 71 passed, 0 failed.
+331 tests total, all real, all passing.
+
+*A real, previously-unnoticed test-isolation bug found and fixed while doing
+that "run together" verification:* `tests/unit/test_public_api.py::test_configure_sets_only_process_local_values`
+called `mlb.configure(...)`, which writes `DATABASE_URL`/`MLB_DATA_PROFILE`
+directly to `os.environ` (the behavior under test) — but nothing in the test
+reverted that direct write afterward, so both values leaked process-wide for
+the rest of the pytest session. Invisible under the normal alphabetical
+`uv run pytest` collection order (`test_cli_dispatch.py` before
+`test_public_api.py`), but running Plan 01's tests together in a different
+order (as this verification did) reproduced it directly: 9 real
+`test_cli_dispatch.py` ingest-dispatch tests failed with "forbidden by the
+public_safe data profile," a pure test-order artifact, not a product bug.
+Fixed with a plain `try`/`finally` that saves and restores the real
+`os.environ` entries directly, independent of `monkeypatch`'s undo-stack
+semantics (confirmed empirically that re-registering the value with
+`monkeypatch.setenv` after the direct write does *not* fix it). Reproduced
+before the fix and confirmed fixed after, both by direct combined-order
+`pytest` runs.
+
+*Runbook/API/audit alignment — three real drifts found and fixed, all
+doc-only, no production or `mlb_test` writes:*
+1. This file's own R5 entry above cited `migrations/0083_correct_remaining_serve_prediction_fanout.sql`,
+   but the migration actually merged as `migrations/0087_...sql` (0083-0086
+   were claimed by the concurrently-landed Plan 06 leverage-index
+   migrations first). `docs/DECISIONS.md` ADR-265 already had the correct
+   `0087` reference; only this file's prose was stale. Fixed here.
+2. `docs/BOOTSTRAP_RUNBOOK.md` step 1 said "`mlb doctor` reports missing
+   [Chadwick] tools" — checked `mlb_baseball/doctor.py` directly and that
+   check does not exist there; it is `mlb_baseball/preflight.py`'s
+   `missing_tools()` check. Fixed the doc to say `mlb preflight`, which also
+   now matches the runbook's own step 2 ordering (preflight runs before
+   doctor).
+3. `docs/BOOTSTRAP_RUNBOOK.md` step 2 said `uv sync` (no `--extra dev`),
+   then step 4 runs `uv run pytest`/`ruff check`/`mypy` — confirmed directly
+   that a plain `uv sync` in a clean worktree does not install
+   pytest/ruff/mypy into `.venv/bin` (they are an `optional-dependencies`
+   group, not installed by default), so following this runbook exactly as
+   written would fail at step 4 on a genuinely clean clone. `README.md`
+   already uses the correct `uv sync --extra dev`; fixed `BOOTSTRAP_RUNBOOK.md`
+   to match.
+4. `docs/DBA_LEAST_PRIVILEGE_RUNBOOK.md` said "Schema `serve` ... [does] not
+   exist yet; create them only in Plan 05" — checked `migrations/` directly:
+   `serve` and its views have existed since migration `0078_serve_layer_views.sql`
+   (ADR-102, 2026-08-23), well before this change. Fixed the doc to state
+   that `serve` already exists but the `mlb_serve` role itself has not been
+   created in production.
+`mlb audit`'s command shapes (`--scope game|database|statcast`),
+`mlb preflight --with-conform`, `mlb schema --partitions`, and
+`mlb field-census --exact --output-json/--output-markdown` were all checked
+directly against `mlb_baseball/cli.py`'s argparse definitions and match
+`AUDIT_RUNBOOK.md`/`BOOTSTRAP_RUNBOOK.md` exactly — no drift found there.
+`docs/PUBLIC_API.md`'s nine documented functions were checked directly
+against `mlb_baseball/public.py`'s real exports and match exactly.
+
+*`mlb audit` run for real against real production `mlb` (read-only,
+2026-08-26):* 20/53 passed, 32 warnings, 0 failures, 1 skipped (no
+experiment snapshot yet). 0 duplicate populated MLB game keys, 0 doubleheader
+`game_pk` collisions, 0 duplicate `gold.prediction` MLB-game/model/timestamp
+identities — directly, freshly confirms this plan's core identity/provenance
+claims against production, not just `mlb_test`. All 32 `WARN`s are documented,
+expected categories per `AUDIT_RUNBOOK.md` (older-decade Retrosheet-native
+coverage gaps, unresolved Statcast-to-game links), not new findings.
+
+*A real, unfixed gap found — a genuine operational problem, not a docs
+drift:* `mlb doctor` was run for real against production `mlb` (read-only)
+as part of this verification and was still running after 40+ minutes with
+zero streamed output, because `mlb_baseball/cli.py`'s `doctor` dispatch calls
+`doctor.run()` to completion and only prints afterward — there is no
+`--quick`/`--deep` split and no per-check progress output despite 01A's own
+stated goal ("Optimize `mlb doctor` so checks stream progress and expensive
+checks are bounded"). This is not a new finding — `docs/PROJECT_REVIEW.md`
+already recommends exactly this fix ("stream results as they complete...
+Provide `mlb doctor --quick` and `--deep`") — but it was still unfixed as of
+this session, confirmed by direct, timed observation rather than assumed
+from the review doc. Real code work (streaming/bounding `doctor.run()`),
+out of scope for this documentation/verification-only pass; left open,
+tracked by the existing `docs/PROJECT_REVIEW.md` recommendation rather than
+a new duplicate issue.
+
+**R6 is ready for Sol review. It is not "Plan 01 complete."** Per
+`plans/README.md`'s delegation protocol, only Sol's gate review — inspecting
+this diff, independently re-verifying, and recording a decision — can close
+Plan 01F, R5 included (R5 remains pending review per its own entry above,
+unaffected by this change).
 
 ## Acceptance gate
 

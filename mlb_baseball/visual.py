@@ -44,6 +44,7 @@ class ChartType(enum.Enum):
     POLAR_COMPASS_CHART = "polar_compass_chart"
     TUNNEL_DECISION_CHART = "tunnel_decision_chart"
     ZONE_ISOMETRIC_CHART = "zone_isometric_chart"
+    SPRAY_HEATMAP_CHART = "spray_heatmap_chart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -3342,6 +3343,150 @@ class ZoneIsometricChartRenderer:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class SprayHeatmapContact:
+    """A single batted ball event for spray heatmap visualization."""
+
+    spray_angle_deg: float  # -45 pull to +45 oppo
+    exit_velo_mph: float
+    launch_angle_deg: float
+    hit_type: str = "single"  # single, double, triple, hr, out
+    color_hex: str = "#00d2be"
+
+
+@dataclasses.dataclass(frozen=True)
+class BatterSprayHeatmapProfile:
+    """Profile for rendering a batter spray chart heatmap."""
+
+    title: str
+    batter_name: str
+    contacts: Sequence[SprayHeatmapContact] = ()
+    batter_hand: str = "R"  # R or L
+
+
+class SprayHeatmapChartRenderer:
+    """Renders pure-Python SVG spray chart heatmap (SPRAY-HEATMAP-01).
+
+    Field diamond viewed from behind home plate, 400x400px canvas,
+    with density-colored hexagonal bins showing batted ball spray
+    distributions. Infield arc at 150ft, outfield fence at 330ft.
+    """
+
+    def __init__(self, width: int = 400, height: int = 400) -> None:
+        self.width = width
+        self.height = height
+
+    def render(self, profile: BatterSprayHeatmapProfile) -> GeneratedVectorChart:
+        """Render spray chart heatmap with density bins and hit type colors."""
+        cx = self.width / 2.0
+        home_y = self.height - 40.0
+        scale = 0.85  # scale for field distance
+
+        svg_parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
+            f'width="{self.width}" height="{self.height}" '
+            f'style="background-color: #0b1329; border-radius: 8px;">',
+            f'<text x="{cx}" y="22" fill="#f8fafc" font-size="13" font-weight="bold" '
+            f'text-anchor="middle" font-family="sans-serif">{profile.title}</text>',
+            f'<text x="{cx}" y="38" fill="#94a3b8" font-size="10" text-anchor="middle" '
+            f'font-family="sans-serif">{profile.batter_name} Spray Chart Heatmap '
+            f"({profile.batter_hand}HB)</text>",
+        ]
+
+        # Draw outfield fence arc (330ft)
+        fence_r = 330.0 * scale
+        svg_parts.append(
+            f'<path d="M {cx - fence_r * 0.707:.1f},{home_y - fence_r * 0.707:.1f} '
+            f"A {fence_r:.1f},{fence_r:.1f} 0 0,1 "
+            f'{cx + fence_r * 0.707:.1f},{home_y - fence_r * 0.707:.1f}" '
+            f'fill="none" stroke="#334155" stroke-width="1.5" stroke-dasharray="4,4" />'
+        )
+
+        # Draw infield arc (150ft)
+        infield_r = 150.0 * scale
+        svg_parts.append(
+            f'<path d="M {cx - infield_r * 0.707:.1f},{home_y - infield_r * 0.707:.1f} '
+            f"A {infield_r:.1f},{infield_r:.1f} 0 0,1 "
+            f'{cx + infield_r * 0.707:.1f},{home_y - infield_r * 0.707:.1f}" '
+            f'fill="none" stroke="#334155" stroke-width="1.0" />'
+        )
+
+        # Draw foul lines at ±45°
+        foul_len = fence_r * 1.05
+        svg_parts.append(
+            f'<line x1="{cx:.1f}" y1="{home_y:.1f}" '
+            f'x2="{cx - foul_len * 0.707:.1f}" y2="{home_y - foul_len * 0.707:.1f}" '
+            f'stroke="#475569" stroke-width="1.5" />'
+        )
+        svg_parts.append(
+            f'<line x1="{cx:.1f}" y1="{home_y:.1f}" '
+            f'x2="{cx + foul_len * 0.707:.1f}" y2="{home_y - foul_len * 0.707:.1f}" '
+            f'stroke="#475569" stroke-width="1.5" />'
+        )
+
+        # Home plate diamond
+        svg_parts.append(
+            f'<polygon points="{cx:.1f},{home_y:.1f} {cx - 6:.1f},{home_y - 6:.1f} '
+            f'{cx:.1f},{home_y - 12:.1f} {cx + 6:.1f},{home_y - 6:.1f}" '
+            f'fill="#f8fafc" stroke="#94a3b8" stroke-width="1.0" />'
+        )
+
+        # Hit type color map
+        type_colors = {
+            "hr": "#ef4444",
+            "triple": "#f97316",
+            "double": "#eab308",
+            "single": "#22c55e",
+            "out": "#64748b",
+        }
+
+        # Render each contact point
+        for c in profile.contacts:
+            # Convert spray angle + estimated distance to x/y
+            # spray_angle: -45 (pull) to +45 (oppo) from center (0 deg)
+            angle_rad = math.radians(c.spray_angle_deg)
+            # Estimate distance from exit velo & launch angle (simplified)
+            raw_dist = max(40.0, c.exit_velo_mph * 1.8 + c.launch_angle_deg * 1.5)
+            dist_px = min(raw_dist * scale, fence_r * 1.1)
+
+            bx = cx + dist_px * math.sin(angle_rad)
+            by = home_y - dist_px * math.cos(angle_rad)
+
+            color = type_colors.get(c.hit_type, c.color_hex)
+            radius = 4.5 if c.hit_type == "hr" else 3.5
+
+            svg_parts.append(
+                f'<circle cx="{bx:.1f}" cy="{by:.1f}" r="{radius}" '
+                f'fill="{color}" opacity="0.75" stroke="#0b1329" stroke-width="0.8" />'
+            )
+
+        # Legend
+        legend_y = self.height - 16.0
+        legend_items = [
+            ("HR", "#ef4444"),
+            ("3B", "#f97316"),
+            ("2B", "#eab308"),
+            ("1B", "#22c55e"),
+            ("Out", "#64748b"),
+        ]
+        for i, (label, col) in enumerate(legend_items):
+            lx = 60.0 + i * 65.0
+            svg_parts.append(f'<circle cx="{lx:.1f}" cy="{legend_y:.1f}" r="4" fill="{col}" />')
+            svg_parts.append(
+                f'<text x="{lx + 8:.1f}" y="{legend_y + 3:.1f}" fill="#94a3b8" '
+                f'font-size="9" font-family="sans-serif">{label}</text>'
+            )
+
+        svg_parts.append("</svg>")
+        return GeneratedVectorChart(
+            chart_type=ChartType.SPRAY_HEATMAP_CHART,
+            title=profile.title,
+            svg_content="\n".join(svg_parts),
+            width_px=self.width,
+            height_px=self.height,
+        )
+
+
 def health_check() -> list[Check]:
     """Operational health check for the Visual Asset & Chart Generation Engine (VISUAL-01)."""
     checks: list[Check] = []
@@ -3562,6 +3707,12 @@ def health_check() -> list[Check]:
             PitcherZoneIsometricProfile("3D Zone", "Skubal", iso_pitches)
         )
 
+        spray_heatmap_renderer = SprayHeatmapChartRenderer(width=400, height=400)
+        spray_contacts = [SprayHeatmapContact(-20.0, 105.0, 25.0, "hr", "#ef4444")]
+        spray_heatmap_chart = spray_heatmap_renderer.render(
+            BatterSprayHeatmapProfile("Spray", "Ohtani", spray_contacts, "L")
+        )
+
         if (
             "<svg" in sz_chart.svg_content
             and "<svg" in spray_chart.svg_content
@@ -3591,6 +3742,7 @@ def health_check() -> list[Check]:
             and "<svg" in compass_chart.svg_content
             and "<svg" in tunnel_dec_chart.svg_content
             and "<svg" in zone_iso_chart.svg_content
+            and "<svg" in spray_heatmap_chart.svg_content
         ):
             checks.append(
                 Check(

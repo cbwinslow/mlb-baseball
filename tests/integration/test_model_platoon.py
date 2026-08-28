@@ -4,14 +4,20 @@ from mlb_baseball.model import platoon
 
 
 def _ensure_tables(db_conn):
+    # DROP + unconditional CREATE, not an "IF NOT EXISTS" guard: several
+    # other test files (test_model_command.py, test_model_pitch_movement.py,
+    # test_conform.py, test_audit_db.py) also create raw.statcast_pitch,
+    # each with its own different column set for its own needs, and the
+    # underlying test database template persists mutations across separate
+    # pytest invocations -- see test_model_command.py's identical guard for
+    # the confirmed failure mode.
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.statcast_pitch')")
-        if not cur.fetchone()[0]:
-            cur.execute(
-                "CREATE TABLE raw.statcast_pitch ("
-                "game_date text, home_team text, away_team text, "
-                "pitcher text, p_throws text, woba_value text, woba_denom text)"
-            )
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
+        cur.execute(
+            "CREATE TABLE raw.statcast_pitch ("
+            "game_date text, home_team text, away_team text, "
+            "pitcher text, p_throws text, woba_value text, woba_denom text)"
+        )
     db_conn.commit()
 
 
@@ -21,6 +27,14 @@ def _reset(db_conn):
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.player WHERE id IN (101, 102)")
+        # core.game must go before core.team: this repo's test database is
+        # one shared, session-scoped instance, so a real leftover
+        # core.game row from an earlier test can reference a team this
+        # DELETE would otherwise try to remove, violating
+        # game_home_team_id_fkey/game_away_team_id_fkey -- confirmed
+        # directly (a real FK violation once the full suite could finally
+        # run start to finish, not a mock/assumption).
+        cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team")
         cur.execute("SELECT to_regclass('raw.statcast_pitch')")
         if cur.fetchone()[0]:

@@ -79,7 +79,7 @@ class CatcherBlockingEngine:
 
         # 2. League average block rate on dirt pitches ~ 94.0%
         # Catcher blocking runs shift the miss rate:
-        # +5.0 runs -> 97.5% block rate, -5.0 runs -> 89.0% block rate
+        # +5.0 runs -> 97.5% block rate, -5.0 runs -> 90.5% block rate
         block_pct_shift = (catcher.blocking_runs_above_avg / 10.0) * 0.070
         block_rate = float(np.clip(0.940 + block_pct_shift, 0.850, 0.990))
 

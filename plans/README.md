@@ -15,6 +15,7 @@ earlier.
 | [03](03-research-statistics-and-features.md) | governed research/statistics/feature factory | 02 |
 | [04](04-modeling-simulation-and-experiments.md) | reproducible multi-target modeling program | 03 |
 | [05](05-serving-astro-and-launch.md) | original public research/forecast product | 04 |
+| [06](06-package-validation-and-tieout.md) | ADR-089–258 package batch tied out against real sources or honestly relabeled | none (owner-authorized, runs independent of 01–05's gate order) |
 
 ## Current status
 
@@ -25,6 +26,7 @@ earlier.
 | 02 | SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F |
 | 03 | Blocked by 01F and remaining Plan 02 contracts |
 | 04–05 | Queued |
+| 06 | Not started. Owner-authorized 2026-08-25 after a review session found the ADR-089–258 package batch was never actually cross-checked against external sources despite the owner asking for it repeatedly during that work — see the plan's own "Why this plan exists" for the evidence trail. |
 
 ## Delegation protocol
 

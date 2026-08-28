@@ -67,7 +67,7 @@ class CatcherPopAndBlockEngine:
         tot_time = round(metrics.clean_pop_time_s + metrics.block_recovery_time_s, 2)
 
         # Runner Advancement Deterrence %: benchmark is 2.50 seconds
-        det = max(0.0, 100.0 - ((tot_time - 2.30) / 0.50) * 45.0)
+        det = max(0.0, 100.0 - ((tot_time - 2.50) / 0.50) * 45.0)
         det = round(min(100.0, det), 1)
 
         # BTSV Runs Saved: WP prevented = +0.28 runs, Dirt CS = +0.44 runs, PB = -0.35 runs

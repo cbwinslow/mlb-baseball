@@ -50,6 +50,23 @@ def test_timid_pull_up_triggers_timid_tier():
     assert res.is_fearless_crasher is False
 
 
+def test_default_metrics_produce_neutral_wcfi_score():
+    """WALL-CRASH-01 regression: the class's own defaults (wall_hazard_catch_pct=65.0,
+    wall_collision_rate_pct=30.0, deceleration_cushion_ft=4.6) are each documented as
+    the benchmark in their own inline comments, but the WCFI formula was anchored at
+    64.0/30.0/4.8 instead. Feeding the engine its own defaults should now produce an
+    exactly neutral WCFI score of 100.0 and zero surplus catches.
+    """
+    engine = OutfielderWallCrashEngine()
+    default_fielder = OutfielderWallCrashMetrics(fielder_id="f3", fielder_name="League Average")
+
+    res = engine.evaluate_wall_crash(default_fielder)
+
+    assert res.wcfi_score == 100.0
+    assert res.surplus_catches == 0.0
+    assert res.webpr_runs_saved == 0.0
+
+
 def test_wall_crash_health_check():
     """Verify wall crash health check passes."""
     checks = health_check()

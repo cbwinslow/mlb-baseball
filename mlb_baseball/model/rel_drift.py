@@ -68,8 +68,9 @@ class PitcherReleaseDriftEngine:
         spatial_disp = math.sqrt(metrics.std_rel_x_in**2 + metrics.std_rel_z_in**2)
         spatial_disp = round(spatial_disp, 2)
 
-        # MCS Score: benchmark 2.6 in dispersion, 0.8 in late-game drop
-        disp_bonus = (2.6 - spatial_disp) * 16.0
+        # MCS Score: benchmark 2.41 in dispersion (this class's own defaults:
+        # sqrt(1.8^2 + 1.6^2) = 2.41), 0.8 in late-game drop
+        disp_bonus = (2.41 - spatial_disp) * 16.0
         drop_penalty = max(0.0, metrics.late_game_rel_drop_in - 0.8) * 11.0
         mcs = round(max(0.0, 100.0 + disp_bonus - drop_penalty), 1)
 

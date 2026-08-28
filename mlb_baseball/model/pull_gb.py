@@ -40,7 +40,8 @@ class PullGBEvaluationResult:
     optimal_depth_ft: float  # Infield depth in feet
     gbti_score: float  # Groundball Trap Index (0 to 160)
     pdrs_runs_saved: float  # Positioning Defensive Run Savings
-    positioning_tier: str  # e.g. "EXTREME_PULL_SHADING_REQUIRED", "STRAIGHT_UP_NEUTRAL"
+    positioning_tier: str  # e.g. "EXTREME_PULL_SHADING_REQUIRED", "AGGRESSIVE_PULL_SHADING",
+    # "OPPOSITE_FIELD_GB_ALERT", "STRAIGHT_UP_NEUTRAL_POSITIONING", "MODERATE_PULL_SHADING"
     requires_extreme_shading: bool
 
 
@@ -81,8 +82,27 @@ class InfieldPositioningGBEngine:
         is_extreme = gbti >= 118.0 and metrics.pull_groundball_pct >= 64.0
 
         # Tiers
+        #
+        # PULL-GB-01 fix: is_extreme requires BOTH a high GBTI (>=118, 74%
+        # of the 0-160 scale) AND a genuinely pull-dominant batter
+        # (pull_groundball_pct >= 64.0) -- a deliberate two-factor gate, not
+        # a bug on its own. The bug was what happened when only one of the
+        # two cleared: the file's own literal defaults (pull_groundball_pct
+        # =62.0, groundball_rate_pct=48.0, hard_pull_gb_pct=38.0) compute
+        # gbti=145.9 (91% of max) but pull_groundball_pct narrowly misses
+        # the 64.0 gate, so is_extreme was False and the tier fell all the
+        # way through to "MODERATE_PULL_SHADING" -- a near-max score
+        # reading as merely moderate. Rather than loosen the genuine-extreme
+        # gate (which would blur "both signals present" into "either
+        # signal present"), add an intermediate tier: a high GBTI on its
+        # own (>=118) without a fully pull-dominant profile still gets a
+        # stronger label than "moderate", preserving both the original
+        # two-factor EXTREME semantics and requires_extreme_shading's
+        # meaning as "both signals confirmed."
         if is_extreme:
             tier = "EXTREME_PULL_SHADING_REQUIRED"
+        elif gbti >= 118.0:
+            tier = "AGGRESSIVE_PULL_SHADING"
         elif metrics.oppo_groundball_pct >= 28.0:
             tier = "OPPOSITE_FIELD_GB_ALERT"
         elif 42.0 <= metrics.pull_groundball_pct <= 52.0:

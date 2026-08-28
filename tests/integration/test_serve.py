@@ -81,6 +81,90 @@ def test_serve_pitcher_props_and_live_game_tracker(db_conn):
     _reset(db_conn)
 
 
+def test_serve_daily_betting_grid_uses_latest_prediction_snapshot_only(db_conn):
+    # Regression test for the 0087 fix: gold.prediction intentionally keeps
+    # every prediction snapshot ever generated for a game/model (see
+    # mlb_baseball/model/evaluation.py's docstring) -- a still-upcoming game
+    # accumulates one new row per daily `mlb predict` cron cycle. Before
+    # 0087, serve.daily_betting_grid joined gold.prediction directly on
+    # (game_instance_key, model_version), so two snapshots for the same
+    # game/model fanned the underlying gold.game_feature row out into two
+    # grid rows -- one per historical snapshot, not one per game.
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    bos_id = teams["BOS"]
+    nya_id = teams["NYA"]
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO gold.game_feature ("
+            "game_instance_key, mlb_game_pk, season, game_date, home_team_id, away_team_id) "
+            "VALUES ('SRV-G3', 999003, 2024, '2024-06-03', %(home_id)s, %(away_id)s)",
+            {"home_id": bos_id, "away_id": nya_id},
+        )
+        cur.execute(
+            "INSERT INTO gold.prediction ("
+            "mlb_game_pk, game_instance_key, model_version, generated_at, home_win_prob) VALUES "
+            "(999003, 'SRV-G3', 'gbm-v1', '2024-06-02 12:00:00+00', 0.44), "
+            "(999003, 'SRV-G3', 'gbm-v1', '2024-06-02 18:00:00+00', 0.66)"
+        )
+    db_conn.commit()
+
+    grid = serve.fetch_daily_betting_grid(game_date="2024-06-03", conn=db_conn)
+
+    assert len(grid) == 1
+    assert float(grid[0]["gbm_home_win_prob"]) == 0.66
+
+    _reset(db_conn)
+
+
+def test_serve_prediction_market_alpha_uses_latest_prediction_snapshot_only(db_conn):
+    # Same regression as above, for serve.prediction_market_alpha -- also
+    # fixed by 0087, also previously joined gold.prediction directly.
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    bos_id = teams["BOS"]
+    nya_id = teams["NYA"]
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('SRVG4', '999004', 2024, '2024-06-04', %(home_id)s, %(away_id)s, "
+            "5, 3, 'regular') RETURNING id",
+            {"home_id": bos_id, "away_id": nya_id},
+        )
+        (game_id,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO gold.game_feature ("
+            "game_id, game_instance_key, mlb_game_pk, season, game_date, "
+            "home_team_id, away_team_id) VALUES "
+            "(%s, 'SRV-G4', 999004, 2024, '2024-06-04', %s, %s)",
+            (game_id, bos_id, nya_id),
+        )
+        cur.execute(
+            "INSERT INTO core.market "
+            "(game_id, source, market_ref, team_id, implied_probability, volume, status) "
+            "VALUES (%s, 'kalshi', 'KXMLBGAME-BOS', %s, 0.55, 1000, 'closed')",
+            (game_id, bos_id),
+        )
+        cur.execute(
+            "INSERT INTO gold.prediction ("
+            "mlb_game_pk, game_instance_key, model_version, generated_at, home_win_prob) VALUES "
+            "(999004, 'SRV-G4', 'gbm-v1', '2024-06-03 12:00:00+00', 0.40), "
+            "(999004, 'SRV-G4', 'gbm-v1', '2024-06-03 18:00:00+00', 0.70)"
+        )
+    db_conn.commit()
+
+    alpha = serve.fetch_prediction_market_alpha(min_edge=0.0, game_date="2024-06-04", conn=db_conn)
+
+    assert len(alpha) == 1
+    assert float(alpha[0]["model_home_win_prob"]) == 0.70
+
+    _reset(db_conn)
+
+
 def test_serve_sgp_grid_uses_latest_predictions_and_actual_pitcher_hand(db_conn):
     _reset(db_conn)
     teams = _seed_teams(db_conn)

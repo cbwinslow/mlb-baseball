@@ -435,3 +435,12 @@ def test_oppo_liner_and_slot_sag_and_wall_leap_health_checks():
     assert oppo_liner.health_check()[0].ok is True
     assert slot_sag.health_check()[0].ok is True
     assert wall_leap.health_check()[0].ok is True
+
+
+def test_lineup_protect_and_bullpen_bridge_and_swing_tempo_health_checks():
+    """Verify health checks for lineup_protect, bullpen_bridge, and swing_tempo modules."""
+    from mlb_baseball.model import bullpen_bridge, lineup_protect, swing_tempo
+
+    assert lineup_protect.health_check()[0].ok is True
+    assert bullpen_bridge.health_check()[0].ok is True
+    assert swing_tempo.health_check()[0].ok is True

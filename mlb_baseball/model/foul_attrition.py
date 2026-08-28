@@ -24,10 +24,10 @@ class BatterFoulAttritionMetrics:
     batter_id: str
     batter_name: str
     multi_foul_pa_rate_pct: float = (
-        11.0  # Fraction of 2-strike PAs with >= 3 fouls (benchmark ~10.0%)
+        11.0  # Fraction of 2-strike PAs with >= 3 fouls (benchmark ~11.0%)
     )
-    pitches_per_pa: float = 3.95  # Average pitches per PA (benchmark ~3.90)
-    two_strike_foul_rate_pct: float = 42.0  # Foul % on 2-strike swings (benchmark ~40.0%)
+    pitches_per_pa: float = 3.95  # Average pitches per PA (benchmark ~3.95)
+    two_strike_foul_rate_pct: float = 42.0  # Foul % on 2-strike swings (benchmark ~42.0%)
     total_pa_count: int = 500
 
 
@@ -62,16 +62,19 @@ class BatterFoulAttritionEngine:
         metrics: BatterFoulAttritionMetrics,
     ) -> FoulAttritionEvaluationResult:
         """Compute BFAI score and pitcher exhaustion run value."""
-        # BFAI Score: benchmark 10.0% multi-foul, 3.90 P/PA, 40.0% foul
-        multi_bonus = (metrics.multi_foul_pa_rate_pct - 10.0) * 3.2
-        ppa_bonus = (metrics.pitches_per_pa - 3.90) * 35.0
-        foul_bonus = (metrics.two_strike_foul_rate_pct - 40.0) * 0.8
+        # BFAI Score: benchmark 11.0% multi-foul, 3.95 P/PA, 42.0% foul
+        multi_bonus = (metrics.multi_foul_pa_rate_pct - 11.0) * 3.2
+        ppa_bonus = (metrics.pitches_per_pa - 3.95) * 35.0
+        foul_bonus = (metrics.two_strike_foul_rate_pct - 42.0) * 0.8
         bfai = round(max(0.0, 100.0 + multi_bonus + ppa_bonus + foul_bonus), 1)
 
-        # Surplus Pitches & SRAR Runs: extra pitches force early starter hook (~0.032 runs/pitch)
+        # Surplus Pitches & SRAR Runs: extra pitches force early starter hook (~0.032 runs/pitch).
+        # surplus_pitches_extracted is a count of *extra* pitches drawn above the
+        # benchmark batter, so it floors at zero -- a below-benchmark batter draws
+        # no surplus, not a negative one (SRAR already floors the same way).
         pas = max(1, metrics.total_pa_count)
-        surplus_p = round((metrics.pitches_per_pa - 3.90) * pas, 1)
-        srar_runs = round(max(0.0, surplus_p * 0.032), 2)
+        surplus_p = round(max(0.0, (metrics.pitches_per_pa - 3.95) * pas), 1)
+        srar_runs = round(surplus_p * 0.032, 2)
 
         is_grinder = (
             bfai >= 118.0

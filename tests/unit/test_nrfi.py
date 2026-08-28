@@ -1,5 +1,7 @@
 """Unit tests for First-Inning Run Scored (NRFI / YRFI) Valuation Engine (NRFI-01, ADR-156)."""
 
+import pytest
+
 from mlb_baseball.model.nrfi import (
     FirstInningValuationEngine,
     InningOneMatchupInputs,
@@ -47,6 +49,23 @@ def test_coors_field_slugfest_yields_high_yrfi_probability():
     assert res.yrfi_probability > 0.60
     assert res.recommended_side == "YRFI"
     assert res.fair_yrfi_american < 0
+
+
+def test_first_inning_poisson_baseline_is_the_documented_040_constant():
+    """Regression (NRFI-01): the half-inning Poisson mean must stay 0.40 -- the
+    value ADR-156 and docs/THEORY_AND_METHODOLOGY.md section 42.1 both define the
+    formula with. A neutral matchup (all dataclass defaults, park_factor 1.0)
+    reduces to mu_top = 0.40 * (3.60/3.90) and mu_bot = 0.40 * (0.340/0.335) *
+    (3.80/3.90), so P(NRFI) = exp(-(mu_top + mu_bot)) ~= 0.4655. A silent switch
+    to 0.52 (or any other unvalidated baseline) moves this materially and must
+    fail here.
+    """
+    engine = FirstInningValuationEngine()
+
+    res = engine.evaluate_first_inning(InningOneMatchupInputs(home_team="HOME", away_team="AWAY"))
+
+    assert res.nrfi_probability == pytest.approx(0.4655, abs=1e-3)
+    assert res.recommended_side == "NEUTRAL"
 
 
 def test_nrfi_health_check():

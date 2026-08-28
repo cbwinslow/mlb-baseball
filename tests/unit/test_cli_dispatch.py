@@ -612,6 +612,51 @@ def test_update_command_calls_every_connectors_update(monkeypatch, capsys):
     one.bootstrap.assert_not_called()
 
 
+def test_update_skip_excludes_the_named_connector(monkeypatch, capsys):
+    # `mlb update --skip mlb_api` is how scripts/mlb_daily_update.sh avoids
+    # the daily run fighting the every-5-min mlb_api_update cron for the
+    # mlb_api ingestion lock (spec 2026-08-28, Phase 0.2).
+    one, two = _fake_connector(), _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one, "two": two})
+
+    cli.main(["update", "--skip", "two"])
+
+    one.update.assert_called_once()
+    two.update.assert_not_called()
+
+
+def test_update_skip_is_repeatable(monkeypatch, capsys):
+    one, two, three = _fake_connector(), _fake_connector(), _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one, "two": two, "three": three})
+
+    cli.main(["update", "--skip", "two", "--skip", "three"])
+
+    one.update.assert_called_once()
+    two.update.assert_not_called()
+    three.update.assert_not_called()
+
+
+def test_update_skip_unknown_connector_exits_2(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": _fake_connector()})
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["update", "--skip", "nope"])
+    assert exc.value.code == 2
+    assert "no known connector" in capsys.readouterr().out
+
+
+def test_update_skipping_every_connector_is_a_clean_no_op(monkeypatch, capsys):
+    # --skip covering every connector leaves `groups` empty;
+    # ThreadPoolExecutor(max_workers=0) would raise ValueError. Must be a
+    # controlled no-op instead (codex/coderabbit review, PR #85).
+    one = _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one})
+
+    cli.main(["update", "--skip", "one"])
+
+    one.update.assert_not_called()
+    assert "nothing to do" in capsys.readouterr().out
+
+
 def test_bootstrap_command_continues_past_a_failing_connector(monkeypatch, capsys):
     broken = MagicMock()
     broken.bootstrap.side_effect = RuntimeError("simulated failure")

@@ -25,7 +25,8 @@ class InfieldPivotMetrics:
     fielder_id: str
     fielder_name: str
     position: str = "2B"  # "2B" or "SS"
-    pivot_turn_time_s: float = 0.72  # Benchmark league average ~0.78s
+    pivot_turn_time_s: float = 0.72  # Sample elite fielder value; DPTI formula's
+    # own league-average benchmark (used below) is 0.78s
     relay_throw_velo_mph: float = 85.0
     double_plays_turned: int = 60
     double_play_opportunities: int = 80

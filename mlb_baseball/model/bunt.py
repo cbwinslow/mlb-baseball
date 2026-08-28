@@ -79,7 +79,12 @@ class InfieldBuntDefenseEngine:
         kill_pct = round((metrics.lead_runner_outs / tot) * 100.0, 1)
 
         # 3. Elite Bunt Defender Flag
-        is_elite = runs >= 1.60 or metrics.lead_runner_outs >= 3
+        # ADR-185 defines ELITE_BUNT_ERASER as a single condition on the
+        # computed run value (BuntRuns >= +1.60). A raw lead_runner_outs
+        # count is not part of that definition and must not override it --
+        # otherwise a fielder with a bad net run value (e.g. many bunt hits
+        # allowed) could still be tagged elite purely off raw outs.
+        is_elite = runs >= 1.60
 
         # 4. Defense Tier
         if is_elite:

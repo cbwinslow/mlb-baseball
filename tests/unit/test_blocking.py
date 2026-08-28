@@ -37,6 +37,22 @@ def test_vulnerable_catcher_concedes_excess_misses():
     assert res.run_cost_delta_per_game > 0.05  # Concedes runs
 
 
+def test_negative_five_runs_matches_documented_block_rate():
+    """BLOCK-01 regression (cosmetic): the module's comment used to claim -5.0 runs
+    produces an 89.0% block rate, but the real symmetric formula
+    (0.940 + (runs/10.0)*0.070) produces 90.5%, matching the now-corrected comment.
+    Verify the real number directly via a clean 10-dirt-pitch sample
+    (10 * 0.905 block rate = 9.05 expected blocks).
+    """
+    engine = CatcherBlockingEngine()
+    catcher = CatcherBlockProfile("c3", "Porous Blocker", blocking_runs_above_avg=-5.0)
+    pitcher = PitcherSpikeProfile("p3", "Clean Ten", dirt_pitches_per_game=10.0)
+
+    res = engine.evaluate_blocking_matchup(catcher, pitcher)
+
+    assert res.expected_blocks_per_game == 9.05
+
+
 def test_blocking_health_check():
     """Verify blocking health check passes."""
     checks = health_check()

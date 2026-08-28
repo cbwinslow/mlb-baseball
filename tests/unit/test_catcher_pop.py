@@ -55,6 +55,23 @@ def test_slow_catcher_triggers_liability_tier():
     assert res.is_elite_backstop is False
 
 
+def test_default_metrics_produce_near_neutral_deterrence():
+    """CATCHER-POP-01 regression: the deterrence formula anchors at 2.30s while its own
+    comment states the benchmark is 2.50s. The class's own defaults (clean_pop_time_s=1.94
+    + block_recovery_time_s=0.62 = 2.56s total block-throw time) should now grade close to
+    the neutral/benchmark deterrence rate once the formula anchor matches its own comment.
+    """
+    engine = CatcherPopAndBlockEngine()
+    default_catcher = CatcherPopAndBlockMetrics(catcher_id="c3", catcher_name="League Average")
+
+    res = engine.evaluate_catcher(default_catcher)
+
+    assert res.total_block_throw_time_s == 2.56
+    # 2.56s total is only 0.06s over the 2.50s benchmark, so deterrence should be close
+    # to (but slightly under) 100, not the ~77 the old 2.30s anchor would have produced.
+    assert 90.0 < res.advancement_deterrence_pct < 100.0
+
+
 def test_catcher_pop_health_check():
     """Verify catcher pop health check passes."""
     checks = health_check()

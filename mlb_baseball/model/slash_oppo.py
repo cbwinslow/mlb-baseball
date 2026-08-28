@@ -25,7 +25,7 @@ class BatterSlashOppoMetrics:
     batter_name: str
     oppo_contact_pct: float = 24.0  # Opposite field spray % (benchmark ~24.0%)
     oppo_line_drive_pct: float = 20.0  # Line drive % on oppo hits (benchmark ~20.0%)
-    pull_groundball_pct: float = 64.0  # Pull % on groundballs (benchmark ~65.0%)
+    pull_groundball_pct: float = 64.0  # Pull % on groundballs (benchmark ~64.0%)
     total_bbe_count: int = 250
 
 
@@ -60,10 +60,10 @@ class BatterSlashOppoEngine:
         metrics: BatterSlashOppoMetrics,
     ) -> SlashOppoEvaluationResult:
         """Compute OFSRR rating, expected BABIP gain, and offensive runs."""
-        # OFSRR Score: benchmark 24.0% oppo, 20.0% oppo LD, 65.0% pull GB
+        # OFSRR Score: benchmark 24.0% oppo, 20.0% oppo LD, 64.0% pull GB
         oppo_bonus = (metrics.oppo_contact_pct - 24.0) * 2.6
         ld_bonus = (metrics.oppo_line_drive_pct - 20.0) * 2.2
-        pull_gb_saving = (65.0 - metrics.pull_groundball_pct) * 1.4
+        pull_gb_saving = (64.0 - metrics.pull_groundball_pct) * 1.4
         ofsrr = round(max(0.0, 100.0 + oppo_bonus + ld_bonus + pull_gb_saving), 1)
 
         # Expected BABIP Boost & Run Value: ~0.00065 BABIP per point above 100

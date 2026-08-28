@@ -52,6 +52,31 @@ def test_neutral_groundball_hitter_yields_neutral_positioning():
     assert res.requires_extreme_shading is False
 
 
+def test_default_batter_near_max_score_is_not_labeled_moderate():
+    """Regression test for PULL-GB-01.
+
+    The class's own default/neutral input (pull_groundball_pct=62.0,
+    groundball_rate_pct=48.0, hard_pull_gb_pct=38.0) computes gbti=145.9
+    (91% of the stated 0-160 scale) but narrowly misses the
+    pull_groundball_pct>=64.0 half of the EXTREME gate. Pre-fix, that
+    fell all the way through to "MODERATE_PULL_SHADING" -- a near-max
+    score reading as merely moderate. It should now land on the
+    intermediate "AGGRESSIVE_PULL_SHADING" tier instead, while
+    requires_extreme_shading (the strict two-factor "both signals
+    confirmed" flag) correctly stays False.
+    """
+    engine = InfieldPositioningGBEngine()
+
+    default_batter = BatterPullGBMetrics(batter_id="b3", batter_name="Default Batter")
+
+    res = engine.evaluate_positioning(default_batter)
+
+    assert res.gbti_score == 145.9
+    assert res.positioning_tier == "AGGRESSIVE_PULL_SHADING"
+    assert res.positioning_tier != "MODERATE_PULL_SHADING"
+    assert res.requires_extreme_shading is False
+
+
 def test_pull_gb_health_check():
     """Verify pull GB health check passes."""
     checks = health_check()

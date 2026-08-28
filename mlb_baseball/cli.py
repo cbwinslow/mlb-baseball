@@ -170,6 +170,9 @@ def _run_all(mode: str, profile: str, skip: list[str] | None = None) -> None:
     names = [n for n in CONNECTORS if n not in skipped]
     if skipped:
         print(f"mlb {mode}: skipping {', '.join(sorted(skipped))}")
+    if not names:
+        print(f"mlb {mode}: nothing to do — every connector was --skip'd")
+        return
     groups = _concurrency_groups(names)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(groups)) as pool:
         try:

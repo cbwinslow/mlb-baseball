@@ -636,6 +636,27 @@ def test_update_skip_is_repeatable(monkeypatch, capsys):
     three.update.assert_not_called()
 
 
+def test_update_skip_unknown_connector_exits_2(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": _fake_connector()})
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["update", "--skip", "nope"])
+    assert exc.value.code == 2
+    assert "no known connector" in capsys.readouterr().out
+
+
+def test_update_skipping_every_connector_is_a_clean_no_op(monkeypatch, capsys):
+    # --skip covering every connector leaves `groups` empty;
+    # ThreadPoolExecutor(max_workers=0) would raise ValueError. Must be a
+    # controlled no-op instead (codex/coderabbit review, PR #85).
+    one = _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one})
+
+    cli.main(["update", "--skip", "one"])
+
+    one.update.assert_not_called()
+    assert "nothing to do" in capsys.readouterr().out
+
+
 def test_bootstrap_command_continues_past_a_failing_connector(monkeypatch, capsys):
     broken = MagicMock()
     broken.bootstrap.side_effect = RuntimeError("simulated failure")

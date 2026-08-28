@@ -23,8 +23,10 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOCK_FILE="/tmp/mlb_daily_update.lock"
-LOG_FILE="$REPO_DIR/logs/mlb_daily_update.log"
+# Overridable so tests (and a second checkout) don't contend on one global
+# lock/log. Production cron uses the defaults.
+LOCK_FILE="${MLB_DAILY_LOCK_FILE:-/tmp/mlb_daily_update.lock}"
+LOG_FILE="${MLB_DAILY_LOG_FILE:-$REPO_DIR/logs/mlb_daily_update.log}"
 MLB="$REPO_DIR/.venv/bin/mlb"
 
 mkdir -p "$REPO_DIR/logs"

@@ -40,7 +40,14 @@ def _run(tmp_path: Path, *, fail_step: str | None = None) -> tuple[int, str, str
     (repo / "scripts" / "mlb_daily_update.sh").write_text(SCRIPT.read_text())
     (repo / "scripts" / "mlb_daily_update.sh").chmod(0o755)
 
-    env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}")
+    env = dict(
+        os.environ,
+        PATH=f"{bindir}:{os.environ['PATH']}",
+        # Per-run lock/log so concurrent test invocations (xdist, a second
+        # checkout) never take the "already running, skipping" branch.
+        MLB_DAILY_LOCK_FILE=str(tmp_path / "daily.lock"),
+        MLB_DAILY_LOG_FILE=str(tmp_path / "daily.log"),
+    )
     proc = subprocess.run(
         ["bash", str(repo / "scripts" / "mlb_daily_update.sh")],
         capture_output=True,
@@ -48,7 +55,7 @@ def _run(tmp_path: Path, *, fail_step: str | None = None) -> tuple[int, str, str
         env=env,
         timeout=30,
     )
-    daily_log = (repo / "logs" / "mlb_daily_update.log").read_text()
+    daily_log = (tmp_path / "daily.log").read_text()
     return proc.returncode, calls_log.read_text() if calls_log.exists() else "", daily_log
 
 

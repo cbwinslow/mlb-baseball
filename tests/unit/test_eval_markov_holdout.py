@@ -10,8 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from mlb_baseball.model.evaluation import Prediction
-from mlb_baseball.model.gbm import MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT
+from mlb_baseball.model.evaluation import MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT, Prediction
 
 _SCRIPT = Path(__file__).parents[2] / "scripts" / "eval_markov_holdout.py"
 _spec = importlib.util.spec_from_file_location("eval_markov_holdout", _SCRIPT)

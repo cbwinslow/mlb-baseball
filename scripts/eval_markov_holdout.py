@@ -50,12 +50,12 @@ import psycopg
 
 from mlb_baseball.model import sim_predict
 from mlb_baseball.model.evaluation import (
+    MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT,
     Prediction,
     _common_sample,
     _scores,
     _selected_predictions,
 )
-from mlb_baseball.model.gbm import MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT
 
 DEFAULT_COMPARE = ["elo-v1", "log5-v2", "gbm-v1", "kalshi-v1", "polymarket-v1"]
 BOOTSTRAP_SAMPLES = 2000
@@ -151,12 +151,13 @@ def _paired_diff_ci(
     m_losses = _per_game_losses(markov_rows)
     b_losses = _per_game_losses(baseline_rows)
     diffs = [b - m for b, m in zip(b_losses, m_losses, strict=True)]
-    point = sum(diffs) / len(diffs)
+    if not diffs:
+        return 0.0, 0.0, 0.0
+    n = len(diffs)
+    point = sum(diffs) / n
     seed = int.from_bytes(hashlib.sha256(seed_key.encode()).digest()[:8], "big")
     rng = random.Random(seed)
-    means = sorted(
-        sum(rng.choice(diffs) for _ in diffs) / len(diffs) for _ in range(BOOTSTRAP_SAMPLES)
-    )
+    means = sorted(sum(rng.choices(diffs, k=n)) / n for _ in range(BOOTSTRAP_SAMPLES))
     low = means[int(0.025 * (BOOTSTRAP_SAMPLES - 1))]
     high = means[int(0.975 * (BOOTSTRAP_SAMPLES - 1))]
     return point, low, high
@@ -263,8 +264,8 @@ def main() -> None:
         raise SystemExit("DATABASE_URL is required (read-only; safe against production mlb)")
 
     with psycopg.connect(url) as conn:
-        conn.read_only = True
         conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        conn.read_only = True
         games = _completed_games(conn, args.season, args.limit)
         if not games:
             raise SystemExit(f"no completed games in gold.game_feature for season {args.season}")

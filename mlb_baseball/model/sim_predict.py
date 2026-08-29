@@ -142,7 +142,7 @@ def simulate_matchup(
     inventing a 0.5. Seeded by ``mlb_game_pk`` so a rerun is identical.
     """
     if n_games < 1:
-        raise markov.MarkovError(f"n_games must be positive, got {n_games}")
+        raise markov.MarkovError(f"simulate_matchup: n_games must be positive, got {n_games}")
     seasons = seasons_for(season)
     cutoff = game_date if isinstance(game_date, date) else date.fromisoformat(game_date)
     league = _league_prior(conn, league_cache, seasons, cutoff)

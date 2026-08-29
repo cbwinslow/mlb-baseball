@@ -19,6 +19,15 @@ import psycopg
 from mlb_baseball.db import fetch_one
 from mlb_baseball.model import provenance
 
+# A challenger must clear this absolute held-out log-loss margin over *each*
+# baseline before it can be promoted over a working model.  It prevents a
+# one-ten-thousandth-point fluctuation from replacing the incumbent; it is a
+# promotion policy, not evidence that the margin is statistically significant.
+# Lives here (the evaluation module), not gbm.py, so that non-GBM evaluators
+# -- e.g. the markov-v1 holdout harness -- can share it without importing the
+# whole ML stack. gbm.py re-exports it for backward compatibility.
+MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT = 0.002
+
 
 @dataclass(frozen=True)
 class Prediction:

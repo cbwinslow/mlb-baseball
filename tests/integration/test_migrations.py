@@ -67,6 +67,63 @@ def test_raw_pitcher_batter_lookup_indexes_exist_when_source_columns_exist(db_co
     assert found == set(expected)
 
 
+def test_hot_query_lookup_indexes_are_idempotent(db_conn):
+    """0092 must be safe to run twice and no-op on a DB without the raw
+    MLB-API / Retrosheet tables."""
+    sql = Path("migrations/0092_hot_query_lookup_indexes.sql").read_text()
+    with db_conn.cursor() as cur:
+        cur.execute(sql)
+        cur.execute(sql)
+    db_conn.commit()
+
+
+def test_hot_query_lookup_indexes_exist_when_source_columns_exist(db_conn):
+    checks = [
+        ("mlb_playbyplay", "pitcher_id", "idx_mlb_playbyplay_pitcher"),
+        ("mlb_schedule", "game_id", "idx_mlb_schedule_game_id"),
+        ("retrosheet_event", "_season", "idx_retrosheet_event_season_int"),
+    ]
+    with db_conn.cursor() as cur:
+        cur.execute(Path("migrations/0092_hot_query_lookup_indexes.sql").read_text())
+        expected = []
+        for table, column, index in checks:
+            cur.execute(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_schema = 'raw' AND table_name = %s AND column_name = %s",
+                (table, column),
+            )
+            if cur.fetchone():
+                expected.append(index)
+        if not expected:
+            pytest.skip("raw MLB-API / Retrosheet tables not present in this test DB")
+        cur.execute(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = 'raw' AND indexname = ANY(%s)",
+            (expected,),
+        )
+        found = {row[0] for row in cur.fetchall()}
+    assert found == set(expected)
+
+
+def test_hot_query_season_index_is_an_integer_expression_index(db_conn):
+    """0092's retrosheet_event season index must be on ((_season)::integer),
+    matching starter_probable / leverage's ``re._season::integer = $1``
+    predicate -- a plain (_season) text index would not be used."""
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema = 'raw' "
+            "AND table_name = 'retrosheet_event' AND column_name = '_season'"
+        )
+        if not cur.fetchone():
+            pytest.skip("raw.retrosheet_event not present in this test DB")
+        cur.execute(Path("migrations/0092_hot_query_lookup_indexes.sql").read_text())
+        cur.execute(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE schemaname = 'raw' AND indexname = 'idx_retrosheet_event_season_int'"
+        )
+        indexdef = cur.fetchone()[0]
+    assert "::integer" in indexdef
+
+
 def test_raw_index_migration_removes_only_an_exact_duplicate(db_conn):
     try:
         with db_conn.cursor() as cur:

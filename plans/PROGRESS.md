@@ -3,6 +3,38 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Migration 0092: hot-query lookup indexes — 2026-08-29
+
+`hypopg` 1.4.3 installed on production `mlb`. `postgres-mlb` (restricted) /
+`postgres-mlb-test` (unrestricted) MCP servers added to `~/.claude.json`.
+
+Re-ranked `pg_stat_statements` (13-day window) via the MCP. Two hot queries
+0090 didn't cover:
+
+- `starter_probable_expected.sql` — 84 calls, **290 s mean** (worst per-call
+  in the DB). `starter.py` health check, runs in `mlb doctor` and every
+  `mlb predict`. `EXPLAIN`: its `EXISTS` seq-scans `raw.mlb_schedule` (236 k)
+  + `raw.mlb_playbyplay` (170 k) per candidate starter. → migration 0092:
+  `raw.mlb_playbyplay(pitcher_id, game_pk)` + `raw.mlb_schedule(game_id)`.
+- `leverage_index` per-season staging — 228 calls, 128 s mean.
+  `WHERE re._season::integer = $1` seq-scans `raw.retrosheet_event` (16.5 M).
+  → `((_season)::integer)` expression index (mirrors the existing
+  `outs_ct::integer` one).
+
+Migration verified idempotent on `mlb_test` + applied via the unrestricted
+MCP with no error. Tests: `test_hot_query_lookup_indexes_*` +
+`test_hot_query_season_index_is_an_integer_expression_index`. Not yet applied
+to production — that's a `mlb migrate` (blocked by the safety classifier;
+owner runs it), and per the migration header not while `mlb predict` is
+scanning those tables. Before/after wall-clock lands in `pg_stat_statements`
+post-apply (restricted MCP can't run `EXPLAIN ANALYZE`).
+
+`pg_database_size` shows 1.5 M calls / 8,000 s but that's an external
+monitoring poller on the shared cluster (~1/sec), not this project — noted,
+deprioritized.
+
+Spec: `docs/superpowers/specs/2026-08-28-pipeline-performance-design.md` §1.3.
+
 ### markov-v1 holdout harness — 2026-08-29
 
 Branch `eval/markov-holdout` (stacked on `feat/matchup-markov`). Builds the

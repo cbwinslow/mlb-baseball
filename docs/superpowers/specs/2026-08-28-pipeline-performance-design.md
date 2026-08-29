@@ -186,6 +186,29 @@ For each 14–18 min enrichment query: `EXPLAIN` with hypothetical indexes on ca
 time. Document each in a migration with the before/after `EXPLAIN`. Reject any that don't earn
 their keep (every index slows the COPY ingestion path).
 
+**Migration 0090 (DONE):** `raw.retrosheet_event(pit_id)` / `(bat_id)`,
+`raw.statcast_pitch(pitcher)` / `(batter)` — applied to production; the Phase 1 index work
+that got `mlb predict` from 2h+ to ~47 min alongside 1.0/1.2.
+
+**Migration 0092 (this change):** `hypopg` installed on production `mlb` 2026-08-29;
+`pg_stat_statements` (13-day window) re-ranked. Two new hot queries, not covered by 0090:
+
+| query | source | calls | mean | fix |
+| --- | --- | ---: | ---: | --- |
+| starter probable "expected" count | `starter_probable_expected.sql` (starter.py health check, runs in `mlb doctor` **and** every `mlb predict`) | 84 | **290 s** | `EXPLAIN`: its `EXISTS` is a Nested Loop that seq-scans `raw.mlb_schedule` (236 k) + `raw.mlb_playbyplay` (170 k) per candidate starter. → `raw.mlb_playbyplay(pitcher_id, game_pk)` + `raw.mlb_schedule(game_id)`. Both tables <150 MB. |
+| `leverage_index` per-season staging | `leverage_index_matrix_build` | 228 | 128 s | `WHERE re._season::integer = $1` seq-scans `raw.retrosheet_event` (16.5 M / 11 GB); no `_season` index. → expression index `((_season)::integer)`, matching `retrosheet_event_outs_ct_int_idx`. Real fix is 1.1 (incremental); this index also unblocks it. |
+
+Restricted (read-only) MCP access blocks `EXPLAIN (ANALYZE)`, so the before/after wall-clock
+lands in `pg_stat_statements` after the migration is applied — the spec's approved method.
+The plan-shape change (seq scan → index scan on the Nested Loop inner) is confirmed from the
+plain `EXPLAIN`.
+
+**Still open** (need `resp_pit_id` measurement or scoping, not just an index): the two
+`raw.retrosheet_event` full-history reconcile checks in `starter.py::health_check` —
+`starter_strikeouts_reconcile.sql` (42 s × 84) and `starter_outs_reconcile.sql`. They GROUP BY
+every player-season over 16 M rows every run; a daily health check probably only needs the
+last 1–2 seasons.
+
 ### 1.4 `mlb_test` on tmpfs + `fsync=off`
 
 The test database is disposable (`_assert_test_database_url` guarantees it can't be `mlb`). Run its

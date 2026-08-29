@@ -275,12 +275,6 @@ contributor-machine tweak (README "Testing").
 Add `pytest-xdist`; each worker clones its own database from the pre-migrated template (the
 conftest already builds one via `postgresql_noproc`). Target: 563 integration tests across 8–12
 workers. Fixes the wall-clock; the fixture-ordering bugs (#78, #58, #56, #67) must be fixed in the
-
-### 1.5 `pytest-xdist` with schema/database-per-worker
-
-Add `pytest-xdist`; each worker clones its own database from the pre-migrated template (the
-conftest already builds one via `postgresql_noproc`). Target: 563 integration tests across 8–12
-workers. Fixes the wall-clock; the fixture-ordering bugs (#78, #58, #56, #67) must be fixed in the
 same effort or xdist will surface them as flakes.
 
 ### 1.6 Diagnostic extensions
@@ -405,8 +399,9 @@ running the one script/command it wraps directly with `-x -q` and reading `logs/
 
 ## Open questions for the owner
 
-1. OK to run `mlb_test`'s cluster with `fsync=off` / on tmpfs? (Safe — disposable DB — but worth a
-   yes.)
+1. ~~OK to run the CI Postgres container with `fsync=off`?~~ **Resolved** — done in §1.4
+   (dedicated disposable container). Still open, lower priority: running the *local* `mlb_test`
+   on tmpfs on a contributor machine, where it shares a cluster with `mlb` (optional tweak only).
 2. PgBouncer: acceptable to add as a system service, or prefer application-side pooling
    (`psycopg_pool`) to keep the deploy simpler?
 3. Priority order if Phase 1 is still too slow to iterate: push straight to Phase 3 (incremental)

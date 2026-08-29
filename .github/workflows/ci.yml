@@ -169,7 +169,9 @@ jobs:
           # Same relaxations tests/conftest.py already applies per-database
           # (issue #2), lifted to the whole cluster. Do NOT copy these to any
           # persistent database.
-          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          # `-i` is required: without it `docker exec` does not forward the
+          # heredoc on stdin, so psql would get EOF and silently run nothing.
+          docker exec -i "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
           ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';
           ALTER SYSTEM SET fsync = off;
           ALTER SYSTEM SET synchronous_commit = off;

@@ -45,6 +45,37 @@ a first pass overstated several numbers — validation matters):
 8. **Machine contention:** ~40 other cron jobs (sysmon) fire every 1–5 min plus the every-5-min
    `mlb_api_update`. Load average 13.5 during investigation.
 
+## Full `pg_stat_statements` sweep by command — 2026-08-29 (postgres-mcp + hypopg)
+
+Every project query on production `mlb`, ranked and attributed to the command that runs it.
+`×N` = calls in a 13-day window (≈ daily runs + manual iteration).
+
+| command | query | mean | calls | fixable by |
+| --- | --- | ---: | ---: | --- |
+| `doctor` + `predict` | `starter_probable_expected.sql` (join-coverage denominator) | **290 s** | 84 | **index (0092)** — done in this branch |
+| `predict` | `batted_ball_rates` entering-game (BAT-*) | 213 s | 3 | incremental (full-history GROUP BY over `raw.retrosheet_event`) |
+| `predict` | `pitch_discipline` entering-game (PIT-*) | 178 s | 3 | incremental |
+| `predict` (or `leverage` rebuild) | `leverage_index` per-season staging | 128 s | 228 | `_season` index (0092) + incremental (spec 1.1) |
+| `predict` | bullpen "regular_games" reconstruction | 110 s | 3 | incremental |
+| `predict` | base `game_feature` family build | 109 s | 3 | incremental |
+| `predict` | starter career experience (PLN-04) | 91 s | 3 | incremental |
+| `predict` | comprehensive baserunning (BsR/wSB/XBT) | 76 s | 3 | incremental |
+| `predict` | team OBP/SLG/ISO/BB%/K% rolling (OFF-01/02/03) | 68 s | 3 | incremental |
+| `doctor` | `starter_strikeouts_reconcile.sql` (vs bref_pitching) | 42 s | 84 | scope to recent seasons for the *daily* check |
+| `audit`/`conform` | `core.play` DISTINCT-ON / dedup checks | 28 s | ~85 | scope / incremental |
+| `doctor` | `starter_outs_reconcile.sql` + relief/starter outs reconcile | 25 s | 160 | scope to recent seasons |
+| `conform` | `TRUNCATE core.play, core.pitch, … gold.game_feature` | 10–16 s | 62 | incremental (truncate-and-rebuild-all-129-seasons) |
+| — | `SELECT pg_database_size()` | 5 ms | **1.5 M** | external monitoring poller, **not this project** |
+
+**The shape of it:** `predict`'s ~47 min is ~30 enrichment modules that each do a full-history
+aggregate over `raw.retrosheet_event` (16.5 M rows) on every run. **Indexes (0090, 0092) fix the
+point queries; they cannot speed up a full-table `GROUP BY`.** The only lever for the `×3`
+enrichment queries is **incrementality** — only recompute seasons whose events changed (Phase 3 /
+issue #70 SQLMesh). 1950's baserunning rates do not change; recomputing them nightly is the cost.
+`doctor`'s reconcile checks (`×84`/`×160`) similarly reconcile all history every run — a daily
+health check only needs the last 1–2 seasons; keep the full-history reconcile as a
+weekly/pre-release audit.
+
 ## Goals
 
 - The daily job completes reliably again, and a mid-run failure is **observable** (which step,
@@ -185,6 +216,49 @@ For each 14–18 min enrichment query: `EXPLAIN` with hypothetical indexes on ca
 `(batter)`, `(pitcher, game_date)`). Build **only** the ones that change the plan and the measured
 time. Document each in a migration with the before/after `EXPLAIN`. Reject any that don't earn
 their keep (every index slows the COPY ingestion path).
+
+**Migration 0090 (DONE):** `raw.retrosheet_event(pit_id)` / `(bat_id)`,
+`raw.statcast_pitch(pitcher)` / `(batter)` — applied to production; the Phase 1 index work
+that got `mlb predict` from 2h+ to ~47 min alongside 1.0/1.2.
+
+**Migration 0092 (this change):** `hypopg` installed on production `mlb` 2026-08-29;
+`pg_stat_statements` (13-day window) re-ranked. Two new hot queries, not covered by 0090:
+
+| query | source | calls | mean | fix |
+| --- | --- | ---: | ---: | --- |
+| starter probable "expected" count | `starter_probable_expected.sql` (starter.py health check, runs in `mlb doctor` **and** every `mlb predict`) | 84 | **290 s** | `EXPLAIN`: its `EXISTS` is a Nested Loop that seq-scans `raw.mlb_schedule` (236 k) + `raw.mlb_playbyplay` (170 k) per candidate starter. → `raw.mlb_playbyplay(pitcher_id, game_pk)` + `raw.mlb_schedule(game_id)`. Both tables <150 MB. |
+| `leverage_index` per-season staging | `leverage_index_matrix_build` | 228 | 128 s | `WHERE re._season::integer = $1` seq-scans `raw.retrosheet_event` (16.5 M / 11 GB); no `_season` index. → expression index `((_season)::integer)`, matching `retrosheet_event_outs_ct_int_idx`. Real fix is 1.1 (incremental); this index also unblocks it. |
+
+Restricted (read-only) MCP access blocks `EXPLAIN (ANALYZE)`, so the wall-clock lands in
+`pg_stat_statements` after apply. But `hypopg` gives a quantified plan-cost before/after:
+
+| query | current plan | with 0092 index (hypopg) |
+| --- | --- | --- |
+| `starter_probable_expected` EXISTS (one iteration) | Nested Loop, seq scan `mlb_playbyplay` + seq scan `mlb_schedule`, **cost 31,400** | Index Only Scan `pbp(pitcher_id)` → Index Scan `ms(game_id)`, **cost 338** (~90×). Runs ~80–160×/call. |
+| `leverage_index` per-season scan | Seq Scan `retrosheet_event`, 16.5 M rows, **cost 1,399,165** | Bitmap Index Scan on `((_season)::integer)`, ~82 k rows, **cost 143,568** (~10×) |
+
+**The enrichment queries an index *cannot* fix.** `EXPLAIN` of the `×3` enrichment modules
+(`team_batted_ball_retrosheet_update.sql` 213 s, `team_pitch_discipline_retrosheet_update.sql`
+178 s, starter career experience 91 s, comprehensive baserunning 76 s, team-rate rolling 68 s):
+
+```text
+WindowAgg  (cost 3,046,888)
+  → Gather Merge
+    → Sort  (cost 1,601,697)          -- spills to HDD
+      → Seq Scan on retrosheet_event  (cost 1,346,083)   -- all 16.5 M rows, NO WHERE clause
+```
+
+Each has `FROM raw.retrosheet_event re` with **no filter at all** — a `ROWS BETWEEN UNBOUNDED
+PRECEDING AND 1 PRECEDING` window over every event of every season, every run. An index can't
+help a window that needs every row. The only lever is a `WHERE re._season >= <current-lookback>`
+(Phase 3 / issue #70): 1950's rates don't change, so recomputing them is pure waste. The
+`((_season)::integer)` index in 0092 is the prerequisite for that filter being fast.
+
+**Also open** — the two `raw.retrosheet_event` full-history reconcile checks in
+`starter.py::health_check` (`starter_strikeouts_reconcile.sql` 42 s × 84,
+`starter_outs_reconcile.sql`): they GROUP BY every player-season over 16 M rows every run. A
+daily health check only needs the last 1–2 seasons; keep the full reconcile as a
+weekly/pre-release audit.
 
 ### 1.4 `mlb_test` on tmpfs + `fsync=off`
 

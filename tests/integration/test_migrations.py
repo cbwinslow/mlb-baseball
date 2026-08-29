@@ -67,6 +67,61 @@ def test_raw_pitcher_batter_lookup_indexes_exist_when_source_columns_exist(db_co
     assert found == set(expected)
 
 
+def test_hot_query_lookup_indexes_are_idempotent(db_conn):
+    """0092 must be safe to run twice and no-op on a DB without the raw
+    MLB-API / Retrosheet tables. Rolled back so it never leaves an index
+    on a stub table in the shared session DB."""
+    sql = Path("migrations/0092_hot_query_lookup_indexes.sql").read_text()
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute(sql)
+            cur.execute(sql)
+    finally:
+        db_conn.rollback()
+
+
+def test_hot_query_lookup_indexes_exist_with_the_right_definitions(db_conn):
+    # (raw table, source column that gates it, index name, must-appear-in-indexdef)
+    checks = [
+        (
+            "mlb_playbyplay",
+            "pitcher_id",
+            "idx_mlb_playbyplay_pitcher_game",
+            "(pitcher_id, game_pk)",
+        ),
+        ("mlb_schedule", "game_id", "idx_mlb_schedule_game_id", "(game_id)"),
+        (
+            "retrosheet_event",
+            "_season",
+            "idx_retrosheet_event_season_int",
+            "((_season)::integer)",
+        ),
+    ]
+    with db_conn.cursor() as cur:
+        cur.execute(Path("migrations/0092_hot_query_lookup_indexes.sql").read_text())
+        expected = {}
+        for table, column, index, wanted in checks:
+            cur.execute(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_schema = 'raw' AND table_name = %s AND column_name = %s",
+                (table, column),
+            )
+            if cur.fetchone():
+                expected[index] = wanted
+        if not expected:
+            pytest.skip("raw MLB-API / Retrosheet tables not present in this test DB")
+        cur.execute(
+            "SELECT indexname, indexdef FROM pg_indexes "
+            "WHERE schemaname = 'raw' AND indexname = ANY(%s)",
+            (list(expected),),
+        )
+        found = dict(cur.fetchall())
+        db_conn.rollback()
+    assert set(found) == set(expected)
+    for index, wanted in expected.items():
+        assert wanted in found[index], f"{index}: {found[index]!r} missing {wanted!r}"
+
+
 def test_raw_index_migration_removes_only_an_exact_duplicate(db_conn):
     try:
         with db_conn.cursor() as cur:

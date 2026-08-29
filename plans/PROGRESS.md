@@ -3,6 +3,64 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### PR #100 review round 2 (CodeRabbit / Kilo / Codex) — 2026-08-29
+
+Addressed the W3a+W3b review feedback on `feat/matchup-markov`:
+
+- `markov_transition_counts_matchup.sql` `before_date` now reads
+  `gameinfo.date` (`YYYYMMDD`, the column `conform.py` already parses),
+  not a fragile `substring(gid, 4, 8)` position parse.
+- `_fetch_matchup_transition_counts` promoted to public
+  `fetch_matchup_transition_counts` (used by `sim_predict` too), validates
+  `bat_home`, and indexes `n_pa` off the row instead of star-unpacking.
+- `estimate_matchup_distribution` gained `bat_home` (validated, half-inning
+  scoping) and `pitcher_min_pa` (drop the `pit_id` filter and fall back to
+  team-vs-team when the starter sample is thin — replaces the double fetch
+  `sim_predict._side_distribution` was doing).
+- `sim_predict.predict()`: slate query guards `season`/`game_date` NOT
+  NULL; `home_win_prob` uses `Decimal(str(rate)).quantize(...)`.
+- Docstring for shrink `n` corrected (PA count, not transition total).
+- Docs: THEORY 8.3 unknown-starter fallback, ADR-271/272, course-correction
+  spec/plan PIT-eligibility and verification workflow.
+
+Deliberately **not** done: splitting the sparse matchup *sample* by
+`bat_home` in `sim_predict` (halves the data for an unproven refinement —
+deferred with a holdout check, ADR-272); `plans/PROGRESS.md` `###`→`##`
+(the whole file's per-entry convention is `###`, no repo markdownlint).
+
+Tests: full suite green — 1071 unit + 27 markov/sim_predict integration on
+`mlb_test`; Ruff, ruff-format, sqlfluff, and mypy clean. Three new markov
+integration tests: `bat_home` rejection, half-inning scoping, thin-pitcher
+backoff. No production `mlb` write.
+
+### W3b: `mlb predict` writes `markov-v1` for upcoming games — 2026-08-29
+
+`sim_predict.predict()` (ADR-272) simulates each still-undecided
+`gold.game_feature` row from matchup PA rates and appends `markov-v1`.
+Starter vs team if ≥50 PA, else team vs team. 5000 games, seed from
+`mlb_game_pk`. Wired into `model.run()` after log5/Elo/GBM. Not a
+production `mlb` run in this change.
+
+### Matchup estimator PIT leak in the league prior (PR #100 review) — 2026-08-29
+
+CodeAnt and Codex both flagged that `estimate_matchup_distribution` shrunk
+toward a full-season league prior, so a historical as-of still leaked the
+target game (and later games) through M=350. League now uses the same
+`exclude_game_id` / `before_date`. Shrink `n` is plate appearances
+(`bat_event_fl='T'`), not every transition. `mlb --help` lists core
+commands and the start-here docs.
+
+### Course correction W3a: matchup Markov estimator (ADR-271) — 2026-08-29
+
+Owner said proceed. First code slice is Layer 2, not more Engines and not a
+GBM retrain. `shrink_outcome_distribution` (M=350),
+`estimate_matchup_distribution` (team / pitcher / exclude-game / as-of
+date), `simulate_home_win_rate`. League `estimate_outcome_distribution`
+unchanged. **Not wired into daily `mlb predict`** — that is W3b.
+
+No production writes. Tests: `tests/unit/test_markov_shrink.py`,
+`tests/integration/test_model_markov.py` matchup cases, sql resource test.
+
 ### Predict succeeded; starter FF VAA wired from published kinematics — 2026-08-28
 
 Production `mlb predict` pid 4068632 **success** 06:07–06:54 UTC (**47 min**, down from a 2h+ stuck platoon run). `gold.game_feature` Elo 217,195/217,195; all 419 upcoming games have Elo. `elo-v1`/`log5-v2`/`kalshi-v1`/`polymarket-v1` last write 2026-08-28 06:54. `gbm-v1` still 2026-08-04 (no retrain this run).

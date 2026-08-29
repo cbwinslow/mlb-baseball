@@ -2,6 +2,91 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-272: Daily `mlb predict` writes `markov-v1` for upcoming games
+
+**Decision:** `sim_predict.predict()` is the Layer-2 writer. For each
+`gold.game_feature` row with `home_win IS NULL`, a non-null season/date,
+and an MLB key it estimates home/away matchup distributions via
+`markov.estimate_matchup_distribution` (starter vs opposing team when
+that starter's PA sample against the batting team clears
+`pitcher_min_pa=50`, else team vs team, Empirical Bayes M=350 toward a
+cutoff-scoped league prior), simulates 5000 games, and appends
+`markov-v1`. Seed is SHA-256 of `mlb_game_pk` so a rerun of the same
+slate is deterministic.
+
+The league prior is **not** split by batting half-inning in v1: ADR-080's
+home/away per-PA scoring difference is a proven league-level effect, but
+scoping the already-sparse team/starter matchup sample to one half is an
+unproven refinement that halves the data — deferred to a follow-up with a
+real holdout check. `estimate_matchup_distribution` accepts `bat_home`
+for callers that do want a single-half estimate.
+
+`mlb predict` (`model.run`) calls it after log5/Elo/GBM. Missing
+Retrosheet tables write zero rows, not a fake 0.5. Historical backfill is
+not this function. Status is `candidate` until a holdout vs Elo is
+published.
+
+**Verification:** `uv run pytest tests/unit/test_sim_predict.py`;
+`tests/integration/test_model_sim_predict.py` on `mlb_test` (skips decided
+and missing Retrosheet; lopsided ATL-scoring fixture home_win_prob > 0.5;
+two runs append two snapshots with the same probability; a later-season
+event does not leak into an earlier slate). Full suite, Ruff, and mypy
+clean; `mlb audit` green on `mlb_test`.
+
+## ADR-271: Course correction — matchup Markov is Layer 2; SQL and SQLMesh both stay; freeze engines
+
+**Context:** Owner agreed (2026-08-28/29) the Engine catalog was the drag and
+asked to lock SQL vs SQLMesh, pybaseball vs baseballr, and the model ladder
+(RE24 vs play/pitch outcome). Spec:
+`docs/superpowers/specs/2026-08-28-course-correction-design.md`. Program plan:
+`docs/superpowers/plans/2026-08-28-course-correction.md`.
+
+**Decision:**
+
+1. **Two products, one warehouse.** (A) researcher-queryable gold tables +
+   dump + thin readers over *our* database. (B) predict the plate appearance,
+   simulate the game, compare to Kalshi/Polymarket. Astro waits until B can
+   put a number on tomorrow's board.
+
+2. **pybaseball stays the fetch library.** Do not wrap it as a user API.
+   baseballr analogue is named queries over gold/core, not network fetch.
+
+3. **Named `.sql` files and SQLMesh both stay; one writer per table.**
+   New gold families are authored as `mlb_baseball/sql/*.sql`. SQLMesh is a
+   promotion after a full-table + PIT tie-out. Researchers query Postgres
+   tables and never depend on either tool. SQLMesh still does not own
+   identity, Elo, Markov simulation, or training (ADR-088 / 266).
+
+4. **RE24 is accounting.** Layer 2 is matchup-specific PA/24-state
+   distributions (pitching team or pitcher vs batting team, Empirical Bayes
+   $M=350$ toward league) plugged into existing `simulate_game`. First
+   implementation: `shrink_outcome_distribution`,
+   `estimate_matchup_distribution`, `simulate_home_win_rate` in
+   `markov.py`, plus `markov_transition_counts_matchup.sql`. The matchup
+   sample and the league prior it shrinks toward take the same
+   point-in-time filters (`before_date` from `gameinfo.date`,
+   `exclude_game_id`); `n` for the shrink is plate appearances
+   (`bat_event_fl = 'T'`). Wired into daily `mlb predict` as W3b
+   (ADR-272).
+
+5. **Freeze.** No new Engine packages, no `FEATURE_COLUMNS` expansion, no
+   Plan 05 Astro, no more unpromoted SQLMesh models.
+
+**Verification:** `uv sync --frozen` then `uv run pytest` /
+`uv run ruff check` / `uv run mypy` is the canonical path; CI runs unit,
+lint, type, and integration as separate jobs against a pinned Python and
+a disposable `mlb_test`. `tests/unit/test_markov_shrink.py` (hand mix at
+n=M, n=50, n=0; lopsided sim win rate 1.0).
+`tests/integration/test_model_markov.py` (against `mlb_test`): matchup
+filter, exclude-game PIT, `before_date` cutoff from `gameinfo.date`,
+`bat_home` half-inning scoping and validation, `pitcher_min_pa` backoff,
+unknown-team fallback to league. `mlb audit` stays green on `mlb_test`;
+any production audit is a separate approval-gated record.
+
+**Revisit if:** Layer 2 sim loses to Elo *and* a PA-ML model also loses
+(then game-level GBM is worth another look); a Statcast license is recorded
+(public dump can grow).
+
 ## ADR-270: Wire starter four-seam VAA from Statcast kinematics (Chamberlain/Pavlidis)
 
 **Decision:** Fold Agy VAA-01 into the real pipeline as **degrees**, not the invented flatness/whiff-boost index.

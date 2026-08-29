@@ -19,6 +19,16 @@ def _fake_connector():
     return connector
 
 
+def test_cli_help_lists_core_commands_and_start_here_docs(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "Core commands" in out
+    assert "docs/MAP.md" in out
+    assert "course-correction-design.md" in out
+
+
 def test_ingest_defaults_to_bootstrap(monkeypatch, capsys):
     connector = _fake_connector()
     monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
@@ -496,6 +506,7 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     monkeypatch.setattr(model.log5, "predict", lambda _conn: 3)
     monkeypatch.setattr(model.elo, "predict", lambda _conn: 4)
     monkeypatch.setattr(model.gbm, "predict", lambda _conn: 5)
+    monkeypatch.setattr(model.sim_predict, "predict", lambda _conn: 8)
 
     assert model.run() == {
         "gold.game_feature": 10,
@@ -505,6 +516,7 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         "gold.prediction (log5)": 3,
         "gold.prediction (elo)": 4,
         "gold.prediction (gbm)": 5,
+        "gold.prediction (markov)": 8,
         "gold.prediction (market)": 1,
         "gold.prediction (outcomes backfilled)": 2,
         "gold.game_feature (Elo ratings)": 10,
@@ -519,8 +531,8 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     # elo.compute_ratings() touch every row on every run, not just
     # newly-written ones (PR review, Kilo -- see run()'s own comment).
     # feature_counts(10) + enrich_counts(6) + log5(3) + elo(4) + gbm(5) +
-    # market(1) + backfilled(2) = 31.
-    assert tracked["rows"] == 31
+    # markov(8) + market(1) + backfilled(2) = 39.
+    assert tracked["rows"] == 39
 
 
 def test_train_command_calls_model_train_and_reports_metrics(monkeypatch, capsys):

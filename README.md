@@ -6,7 +6,12 @@ This is a ground-up rebuild; see [docs/NORTH_STAR.md](docs/NORTH_STAR.md) for th
 
 ## Status
 
-**Phase 1: data ingestion pipeline.** Nothing else is in scope yet — see [docs/ROADMAP.md](docs/ROADMAP.md).
+Warehouse and daily predict path are in production. The active product
+track is a research database plus a play-then-simulate prediction ladder
+(ADR-271) — not more named metric engines. Start at
+[docs/MAP.md](docs/MAP.md) and
+[docs/PRODUCT_DIRECTION.md](docs/PRODUCT_DIRECTION.md). What is built vs
+queued: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Docs
 

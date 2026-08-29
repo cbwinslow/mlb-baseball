@@ -54,6 +54,7 @@ from mlb_baseball.model import (
     pitcher_estimators,
     platoon,
     run_expectancy,
+    sim_predict,
     speed,
     starter,
     starter_workload,
@@ -244,6 +245,7 @@ def run() -> dict[str, int]:
         log5_count = log5.predict(conn)
         elo_count = elo.predict(conn)
         gbm_count = gbm.predict(conn)
+        markov_count = sim_predict.predict(conn)
         conn.commit()
         # diff_count is excluded here, matching elo_rows' own established
         # exclusion just below: both diff.compute() (`UPDATE ... WHERE
@@ -259,6 +261,7 @@ def run() -> dict[str, int]:
             + log5_count
             + elo_count
             + gbm_count
+            + markov_count
             + market_count
             + backfilled
         )
@@ -269,6 +272,7 @@ def run() -> dict[str, int]:
         "gold.prediction (log5)": log5_count,
         "gold.prediction (elo)": elo_count,
         "gold.prediction (gbm)": gbm_count,
+        "gold.prediction (markov)": markov_count,
         "gold.prediction (market)": market_count,
         "gold.prediction (outcomes backfilled)": backfilled,
         "gold.game_feature (Elo ratings)": elo_rows,
@@ -312,6 +316,7 @@ def health_check() -> list[Check]:
         features.health_check()
         + log5.health_check()
         + gbm.health_check()
+        + sim_predict.health_check()
         + starter.health_check()
         + park.health_check()
         + offense.health_check()

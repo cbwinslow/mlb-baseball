@@ -50,6 +50,18 @@ def test_reads_named_game_feature_rebuild_transformation():
     assert "raw.mlb_schedule" in sql
 
 
+def test_reads_named_markov_matchup_transition_counts():
+    sql = read_sql("markov_transition_counts_matchup.sql")
+
+    assert "gi.hometeam" in sql
+    assert "gi.visteam" in sql
+    assert "resp_pit_id" in sql
+    assert "exclude_game_id" in sql
+    assert "before_date" in sql
+    assert "n_pa" in sql
+    assert "bat_event_fl" in sql
+
+
 def test_reads_named_market_prediction_transformations():
     assert "sportsmarkettype = 'moneyline'" in read_sql("market_polymarket_prediction_insert.sql")
     assert "m.source = 'kalshi'" in read_sql("market_kalshi_prediction_insert.sql")

@@ -6,8 +6,16 @@ It does not replace `NORTH_STAR.md`, `AGENTS.md`, or the numbered `plans/`.
 It says *how those documents compose into the product the owner actually
 wants*, and what not to do next.
 
-Companion plan: [`superpowers/plans/2026-08-28-product-and-pipeline-next.md`](superpowers/plans/2026-08-28-product-and-pipeline-next.md).
-Decision record: ADR-266 in [`DECISIONS.md`](DECISIONS.md).
+**Course correction (ADR-271):** two products (research warehouse +
+play-then-sim ladder). Named `.sql` is the formula; SQLMesh is a promotion;
+one writer per table. pybaseball fetches; we query gold. RE24 is accounting;
+Layer 2 estimates matchup-specific PA outcome distributions (point-in-time,
+shrunk toward league) that feed `simulate_game`. Spec:
+[`superpowers/specs/2026-08-28-course-correction-design.md`](superpowers/specs/2026-08-28-course-correction-design.md).
+Do not add a metric, GBM column, or Engine without reading that.
+
+Companion plan (pipeline health, still active): [`superpowers/plans/2026-08-28-product-and-pipeline-next.md`](superpowers/plans/2026-08-28-product-and-pipeline-next.md).
+Decision records: ADR-266 and ADR-271 in [`DECISIONS.md`](DECISIONS.md).
 
 ---
 
@@ -76,10 +84,10 @@ Honest MLB game-winner ceiling is about 55–58%. Home teams already win
 | Layer | Predicts | Owner today | Next |
 |---|---|---|---|
 | 0 | Baselines | `log5.py` (v2, correct James formula), `elo.py` | Fill Elo in production; starter-adjusted Elo still missing |
-| 1 | Pre-game GBM | `gbm.py` (`gbm-v1.json` on disk; code says v2) | Retrain only after enrichment is populated; beat Elo *and* Kalshi/Polymarket |
-| 2 | PA / base-out | `markov.py` + `gold.run_expectancy_24` (real Retrosheet matrix, ~0.07 of Tango) | Player-specific transitions: this starter vs this lineup |
-| 3 | Full game / F5 / total | `simulate_game` (league-average, home/away split) | Count simulated games → win %, score distribution, joint parlays |
-| 4 | Market comparison | `market.py` (`record()`, retrospective only) | Live pre-game match of moneyline contracts to upcoming `gold.game_feature` rows |
+| 1 | Pre-game GBM | `gbm.py` (`gbm-v1.json` on disk; code says v2) | Frozen `FEATURE_COLUMNS`. Retrain only after it beats Elo *and* `markov-v1` |
+| 2 | PA / base-out | `estimate_matchup_distribution` (team/starter vs offense, M=350) | Handedness split when n≥50 |
+| 3 | Full game | `sim_predict.py` writes `markov-v1` for upcoming games (ADR-272) | Holdout vs Elo; joint parlays from the same sims |
+| 4 | Market comparison | `market.py` (decided + upcoming moneyline, ADR-267) | Evaluate sim vs Kalshi/Polymarket, one row per game |
 | 5 | Advice | not shipped | model % − market % after vig; no pick when coverage is missing |
 
 A neural net on a flat per-game row will mostly rediscover Elo. Sequence /

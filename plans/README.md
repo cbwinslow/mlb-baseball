@@ -19,14 +19,20 @@ earlier.
 
 ## Current status
 
+**Active track (ADR-271):**
+[`docs/superpowers/plans/2026-08-28-course-correction.md`](../docs/superpowers/plans/2026-08-28-course-correction.md).
+W3a (matchup Markov estimator) is the first code slice. Do not pull Plan 05
+or add Engine packages in front of that sequence.
+
 | Plan | Status |
 |---|---|
 | 00 | Accepted / archived baseline |
 | 01 | Active; 01F production cutover executed 2026-08-18 (see `PROGRESS.md`) — R1-R4 done in production; R5 (consumer/workflow integrity) and R6 (docs/final verification) still open |
-| 02 | SQLMesh foundation/candidate gate accepted; overall plan incomplete and deferred behind 01F |
-| 03 | Blocked by 01F and remaining Plan 02 contracts |
-| 04–05 | Queued. Owner restated 2026-08-28 that Plan 04 Markov (player-aware, then joint parlays) and a live Kalshi/Polymarket match are the modeling path for the membership site; Plan 05 Astro waits until those numbers exist. See `docs/PRODUCT_DIRECTION.md` / ADR-266. |
-| 06 | Bucket A tie-outs landed on `main` (ADR-259–264). Bucket B Engine wiring is specified on branch `metrics/bucket-b-triage-rubric`; default is WIRE, not discard. |
+| 02 | SQLMesh is a *promotion* of named `.sql` gold families, not an authoring free-for-all (ADR-271). |
+| 03 | Narrow gold families still the right idea; stop widening `gold.game_feature`. W2 is research marts + dump. |
+| 04 | Layer 0–1 exist. Layer 2 matchup estimator is W3a (ADR-271). Plan 05 waits on W3b + live market rows. |
+| 05 | Blocked on W1 + W3b + upcoming market rows (ADR-267). |
+| 06 | Engine wiring **frozen** except ingredients that feed W2/W3. Do not add packages. |
 
 ## Delegation protocol
 

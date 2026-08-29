@@ -27,6 +27,7 @@ import math
 import random
 from collections.abc import Hashable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from datetime import date
 from typing import Literal, TypeVar
 
 import numpy as np
@@ -36,10 +37,15 @@ from mlb_baseball.db import fetch_one
 from mlb_baseball.sql import read_sql
 
 _TRANSITION_COUNTS_SQL = read_sql("markov_transition_counts.sql")
+_MATCHUP_COUNTS_SQL = read_sql("markov_transition_counts_matchup.sql")
 _HALF_INNING_RUNS_SQL = read_sql("markov_half_inning_runs.sql")
 _GAME_SCORES_SQL = read_sql("markov_game_scores.sql")
 _PITCHER_ARSENAL_SQL = read_sql("pitcher_arsenal_select.sql")
 _BATTER_ARSENAL_SQL = read_sql("batter_arsenal_select.sql")
+
+# Tango, Lichtman & Dolphin, The Book: ~350 PA before a rate is trusted
+# over the league prior. Used as M in the Layer-2 matchup shrink.
+MATCHUP_PRIOR_PA = 350
 
 
 @dataclass(frozen=True)
@@ -331,6 +337,69 @@ def build_outcome_distribution(
     return distribution
 
 
+def shrink_outcome_distribution(
+    raw: dict[BaseOutState, dict[Outcome, float]],
+    league: dict[BaseOutState, dict[Outcome, float]],
+    n: int,
+    m: int = MATCHUP_PRIOR_PA,
+) -> dict[BaseOutState, dict[Outcome, float]]:
+    """Mix a matchup-specific outcome distribution toward the league prior.
+
+    For every pre-state present in ``league`` (and any extra state that
+    only the matchup sample saw):
+
+    ``p = (n / (n + M)) * p_raw + (M / (n + M)) * p_league``
+
+    then renormalize that state's outgoing mass to 1. ``n`` is the
+    matchup's plate-appearance count (``bat_event_fl = 'T'`` events only,
+    never the raw transition-row total, which also counts steals, wild
+    pitches, and other non-PA events the chain keeps). ``M`` defaults to
+    :data:`MATCHUP_PRIOR_PA` (350, *The Book*).
+
+    ``n = 0`` returns a copy of ``league``: a matchup with no history is
+    the league distribution, not a zeroed chain that would hang the
+    simulator. A pre-state missing from ``raw`` copies the league
+    distribution for that state (the matchup has no evidence there).
+    """
+    if n < 0:
+        raise MarkovError(f"n must be non-negative, got {n}")
+    if m <= 0:
+        raise MarkovError(f"m must be positive, got {m}")
+    if n == 0:
+        return {pre: dict(outcomes) for pre, outcomes in league.items()}
+    weight = n / (n + m)
+    prior_weight = 1.0 - weight
+    states = set(league) | set(raw)
+    mixed: dict[BaseOutState, dict[Outcome, float]] = {}
+    for pre in states:
+        raw_outcomes = raw.get(pre, {})
+        league_outcomes = league.get(pre, {})
+        if not raw_outcomes:
+            mixed[pre] = dict(league_outcomes)
+            continue
+        keys = set(raw_outcomes) | set(league_outcomes)
+        blended = {
+            outcome: weight * raw_outcomes.get(outcome, 0.0)
+            + prior_weight * league_outcomes.get(outcome, 0.0)
+            for outcome in keys
+        }
+        total = sum(blended.values())
+        if total <= 0:
+            raise MarkovError(f"shrink produced no mass for state {pre}")
+        probs = {outcome: mass / total for outcome, mass in blended.items() if mass > 0}
+        _validate_probabilities_sum_to_one(probs)
+        mixed[pre] = probs
+    return mixed
+
+
+def _validate_bat_home(bat_home: str | None) -> None:
+    """A typo like 'home'/'away' would otherwise silently match zero SQL
+    rows (``bat_home_id`` only ever holds '0'/'1') and return an empty
+    distribution instead of failing loudly."""
+    if bat_home is not None and bat_home not in ("0", "1"):
+        raise MarkovError(f"bat_home must be '0', '1', or None, got {bat_home!r}")
+
+
 def estimate_outcome_distribution(
     conn: psycopg.Connection, seasons: Sequence[int], bat_home: Literal["0", "1"] | None = None
 ) -> dict[BaseOutState, dict[Outcome, float]]:
@@ -352,10 +421,149 @@ def estimate_outcome_distribution(
     contains '0'/'1') and return an empty distribution instead of
     failing loudly."""
     _validate_seasons(seasons)
-    if bat_home is not None and bat_home not in ("0", "1"):
-        raise MarkovError(f"bat_home must be '0', '1', or None, got {bat_home!r}")
+    _validate_bat_home(bat_home)
     rows = _fetch_transition_counts(conn, seasons, bat_home)
     return build_outcome_distribution(rows)
+
+
+def fetch_matchup_transition_counts(
+    conn: psycopg.Connection,
+    seasons: Sequence[int],
+    *,
+    bat_home: Literal["0", "1"] | None = None,
+    batting_team: str | None = None,
+    pitching_team: str | None = None,
+    pit_id: str | None = None,
+    exclude_game_id: str | None = None,
+    before_date: date | None = None,
+) -> tuple[list[TransitionCountRow], int]:
+    """Return ``(transition rows, n_pa)`` for one Retrosheet matchup slice.
+
+    The low-level primitive behind :func:`estimate_matchup_distribution`;
+    call that instead unless you need the raw rows and PA count (e.g. to
+    build a cutoff-aware league prior once and reuse it across a slate).
+
+    Every filter is point-in-time safe: ``exclude_game_id`` drops the
+    target game and ``before_date`` keeps only games played strictly
+    before it. Returns ``([], 0)`` when the Retrosheet tables are absent.
+
+    ``n_pa`` is ``bat_event_fl = 'T'`` (The Book's sample). Non-PA
+    events (SB, WP, …) still enter the chain; they just do not inflate
+    the prior weight. If the flag is absent or never 'T', fall back to
+    the raw transition total so a real sample is not treated as n=0.
+
+    ``bat_home`` ('1' = home half, '0' = away half) optionally scopes to
+    one batting side; per-play scoring rates differ by side (ADR-080).
+    """
+    _validate_bat_home(bat_home)
+    if not _retrosheet_tables_ready(conn):
+        return [], 0
+    with conn.cursor() as cur:
+        cur.execute(
+            _MATCHUP_COUNTS_SQL,
+            {
+                "seasons": [str(s) for s in seasons],
+                "bat_home": bat_home,
+                "batting_team": batting_team,
+                "pitching_team": pitching_team,
+                "pit_id": pit_id,
+                "exclude_game_id": exclude_game_id,
+                "before_date": before_date,
+            },
+        )
+        rows: list[TransitionCountRow] = []
+        n_pa = 0
+        for rec in cur.fetchall():
+            # The SQL SELECTs the 10 TransitionCountRow fields, then n_pa
+            # last -- index rather than star-unpack so a future column
+            # added mid-list can't silently shift the mapping.
+            rows.append(TransitionCountRow(*rec[:-1]))
+            n_pa += int(rec[-1] or 0)
+    if n_pa == 0:
+        n_pa = sum(row.n for row in rows)
+    return rows, n_pa
+
+
+def estimate_matchup_distribution(
+    conn: psycopg.Connection,
+    seasons: Sequence[int],
+    *,
+    bat_home: Literal["0", "1"] | None = None,
+    batting_team: str | None = None,
+    pitching_team: str | None = None,
+    pit_id: str | None = None,
+    pitcher_min_pa: int = 0,
+    exclude_game_id: str | None = None,
+    before_date: date | None = None,
+    prior_pa: int = MATCHUP_PRIOR_PA,
+    league: dict[BaseOutState, dict[Outcome, float]] | None = None,
+) -> dict[BaseOutState, dict[Outcome, float]]:
+    """League-shrunk outcome distribution for one matchup.
+
+    Counts Retrosheet events for the optional pitching/batting/pitcher
+    filters, then mixes that sample toward the *same-cutoff* league
+    distribution with :func:`shrink_outcome_distribution`. The league
+    prior uses the same ``bat_home`` / ``exclude_game_id`` /
+    ``before_date`` filters — shrinking toward a future-informed or
+    wrong-batting-side league average would leak the target game (and
+    every later game in ``seasons``) into a sparse matchup, or mix in
+    the other half-inning's scoring rate (ADR-080).
+
+    ``bat_home`` ('1' = this team batting at home, '0' = on the road)
+    scopes both the sample and the prior to one half-inning. ``None``
+    combines both, matching the league estimator's default.
+
+    ``pit_id`` scopes the sample to one starting pitcher. When
+    ``pitcher_min_pa`` is set and that pitcher's sample has fewer than
+    ``pitcher_min_pa`` plate appearances, the pitcher filter is dropped
+    and the sample falls back to batting-team vs pitching-team — a thin
+    starter history is worse evidence than the team-level matchup, and
+    both then shrink toward the same league prior.
+
+    Pass a precomputed ``league`` to avoid refetching it for every
+    side of every game on a slate. The caller must build that prior
+    with the same cutoff *and the same ``bat_home``*.
+
+    A matchup with no matching rows at all (unknown team, first meeting,
+    missing tables) returns the cutoff league distribution unchanged.
+    Shrink ``n`` is plate appearances (``bat_event_fl = 'T'``), not
+    every transition.
+    """
+    _validate_seasons(seasons)
+    _validate_bat_home(bat_home)
+    if league is None:
+        league_rows, _league_n = fetch_matchup_transition_counts(
+            conn,
+            seasons,
+            bat_home=bat_home,
+            exclude_game_id=exclude_game_id,
+            before_date=before_date,
+        )
+        league = build_outcome_distribution(league_rows) if league_rows else {}
+    if not league:
+        return {}
+    rows, n_pa = fetch_matchup_transition_counts(
+        conn,
+        seasons,
+        bat_home=bat_home,
+        batting_team=batting_team,
+        pitching_team=pitching_team,
+        pit_id=pit_id,
+        exclude_game_id=exclude_game_id,
+        before_date=before_date,
+    )
+    if pit_id is not None and n_pa < pitcher_min_pa:
+        rows, n_pa = fetch_matchup_transition_counts(
+            conn,
+            seasons,
+            bat_home=bat_home,
+            batting_team=batting_team,
+            pitching_team=pitching_team,
+            exclude_game_id=exclude_game_id,
+            before_date=before_date,
+        )
+    raw = build_outcome_distribution(rows) if rows else {}
+    return shrink_outcome_distribution(raw, league, n_pa, m=prior_pa)
 
 
 def simulate_half_inning_steps(
@@ -491,6 +699,38 @@ def simulate_game(
         if inning >= regulation_innings and home_runs != away_runs:
             break  # decided in regulation or later; anything but a tie ends it
     return GameResult(away_runs=away_runs, home_runs=home_runs, innings=inning)
+
+
+def simulate_home_win_rate(
+    away_distribution: dict[BaseOutState, dict[Outcome, float]],
+    home_distribution: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    n_games: int,
+    regulation_innings: int = 9,
+    max_innings: int = 30,
+) -> float:
+    """Fraction of simulated games the home side wins.
+
+    ``n_games`` must be positive. Each trial calls :func:`simulate_game`
+    with the away side drawing from ``away_distribution`` and the home
+    side from ``home_distribution``. Ties cannot occur in
+    ``simulate_game`` (extra innings continue until a winner), so the
+    rate is wins / n_games with no push handling.
+    """
+    if n_games < 1:
+        raise MarkovError(f"n_games must be positive, got {n_games}")
+    wins = 0
+    for _ in range(n_games):
+        result = simulate_game(
+            away_distribution,
+            rng,
+            regulation_innings=regulation_innings,
+            max_innings=max_innings,
+            home_distribution=home_distribution,
+        )
+        if result.home_runs > result.away_runs:
+            wins += 1
+    return wins / n_games
 
 
 def real_half_inning_runs(conn: psycopg.Connection, seasons: Sequence[int]) -> list[int]:

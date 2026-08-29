@@ -26,4 +26,4 @@
 - [x] `estimate_matchup_distribution`
 - [x] `simulate_home_win_rate`
 - [x] unit + integration tests
-- [ ] W3b: `mlb predict` writes `markov-v1` for `home_win IS NULL` rows only
+- [x] W3b: `mlb predict` writes `markov-v1` for `home_win IS NULL` rows only (ADR-272)

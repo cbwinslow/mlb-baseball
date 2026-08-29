@@ -83,10 +83,10 @@ Honest MLB game-winner ceiling is about 55–58%. Home teams already win
 | Layer | Predicts | Owner today | Next |
 |---|---|---|---|
 | 0 | Baselines | `log5.py` (v2, correct James formula), `elo.py` | Fill Elo in production; starter-adjusted Elo still missing |
-| 1 | Pre-game GBM | `gbm.py` (`gbm-v1.json` on disk; code says v2) | Retrain only after enrichment is populated; beat Elo *and* Kalshi/Polymarket |
-| 2 | PA / base-out | `markov.py` + `gold.run_expectancy_24` (real Retrosheet matrix, ~0.07 of Tango) | Player-specific transitions: this starter vs this lineup |
-| 3 | Full game / F5 / total | `simulate_game` (league-average, home/away split) | Count simulated games → win %, score distribution, joint parlays |
-| 4 | Market comparison | `market.py` (`record()`, retrospective only) | Live pre-game match of moneyline contracts to upcoming `gold.game_feature` rows |
+| 1 | Pre-game GBM | `gbm.py` (`gbm-v1.json` on disk; code says v2) | Frozen `FEATURE_COLUMNS`. Retrain only after it beats Elo *and* `markov-v1` |
+| 2 | PA / base-out | `estimate_matchup_distribution` (team/starter vs offense, M=350) | Handedness split when n≥50 |
+| 3 | Full game | `sim_predict.py` writes `markov-v1` for upcoming games (ADR-272) | Holdout vs Elo; joint parlays from the same sims |
+| 4 | Market comparison | `market.py` (decided + upcoming moneyline, ADR-267) | Evaluate sim vs Kalshi/Polymarket, one row per game |
 | 5 | Advice | not shipped | model % − market % after vig; no pick when coverage is missing |
 
 A neural net on a flat per-game row will mostly rediscover Elo. Sequence /

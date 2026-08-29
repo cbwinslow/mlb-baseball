@@ -471,6 +471,7 @@ def estimate_matchup_distribution(
     exclude_game_id: str | None = None,
     before_date: date | None = None,
     prior_pa: int = MATCHUP_PRIOR_PA,
+    league: dict[BaseOutState, dict[Outcome, float]] | None = None,
 ) -> dict[BaseOutState, dict[Outcome, float]]:
     """League-shrunk outcome distribution for one matchup.
 
@@ -481,20 +482,23 @@ def estimate_matchup_distribution(
     toward a future-informed league average would leak the target game
     (and every later game in ``seasons``) into a sparse matchup.
 
+    Pass a precomputed ``league`` to avoid refetching it for every
+    side of every game on a slate. The caller must build that prior
+    with the same cutoff.
+
     A matchup with no rows (unknown starter, first meeting, missing
     tables) returns that cutoff league distribution. Shrink ``n`` is
     plate appearances (``bat_event_fl = 'T'``), not every transition.
-    This function does not write ``gold.prediction``; daily wiring is
-    a later package.
     """
     _validate_seasons(seasons)
-    league_rows, _league_n = _fetch_matchup_transition_counts(
-        conn,
-        seasons,
-        exclude_game_id=exclude_game_id,
-        before_date=before_date,
-    )
-    league = build_outcome_distribution(league_rows) if league_rows else {}
+    if league is None:
+        league_rows, _league_n = _fetch_matchup_transition_counts(
+            conn,
+            seasons,
+            exclude_game_id=exclude_game_id,
+            before_date=before_date,
+        )
+        league = build_outcome_distribution(league_rows) if league_rows else {}
     if not league:
         return {}
     rows, n_pa = _fetch_matchup_transition_counts(

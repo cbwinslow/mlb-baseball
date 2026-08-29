@@ -3,6 +3,14 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### W3b: `mlb predict` writes `markov-v1` for upcoming games — 2026-08-29
+
+`sim_predict.predict()` (ADR-272) simulates each still-undecided
+`gold.game_feature` row from matchup PA rates and appends `markov-v1`.
+Starter vs team if ≥50 PA, else team vs team. 5000 games, seed from
+`mlb_game_pk`. Wired into `model.run()` after log5/Elo/GBM. Not a
+production `mlb` run in this change.
+
 ### Matchup estimator PIT leak in the league prior (PR #100 review) — 2026-08-29
 
 CodeAnt and Codex both flagged that `estimate_matchup_distribution` shrunk

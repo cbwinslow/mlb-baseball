@@ -2,6 +2,25 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-272: Daily `mlb predict` writes `markov-v1` for upcoming games
+
+**Decision:** `sim_predict.predict()` is the Layer-2 writer. For each
+`gold.game_feature` row with `home_win IS NULL` and an MLB key it estimates
+home/away matchup distributions (starter vs opposing team if that starter
+has ≥50 PA, else team vs team, Empirical Bayes M=350 toward a cutoff
+league prior), simulates 5000 games, and appends `markov-v1`. Seed is
+SHA-256 of `mlb_game_pk` so a rerun of the same slate is deterministic.
+
+`mlb predict` (`model.run`) calls it after log5/Elo/GBM. Missing
+Retrosheet tables write zero rows, not a fake 0.5. Historical backfill is
+not this function. Status is `candidate` until a holdout vs Elo is
+published.
+
+**Verification:** `tests/unit/test_sim_predict.py`;
+`tests/integration/test_model_sim_predict.py` on `mlb_test` (skips decided
+and missing Retrosheet; lopsided ATL-scoring fixture home_win_prob > 0.5;
+two runs append two snapshots with the same probability).
+
 ## ADR-271: Course correction — matchup Markov is Layer 2; SQL and SQLMesh both stay; freeze engines
 
 **Context:** Owner agreed (2026-08-28/29) the Engine catalog was the drag and

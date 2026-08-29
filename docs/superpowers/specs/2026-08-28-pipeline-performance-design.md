@@ -260,12 +260,21 @@ help a window that needs every row. The only lever is a `WHERE re._season >= <cu
 daily health check only needs the last 1–2 seasons; keep the full reconcile as a
 weekly/pre-release audit.
 
-### 1.4 `mlb_test` on tmpfs + `fsync=off`
+### 1.4 CI Postgres `fsync=off` — DONE
 
-The test database is disposable (`_assert_test_database_url` guarantees it can't be `mlb`). Run its
-Postgres cluster with the data directory on tmpfs, or `fsync=off` / `full_page_writes=off` for that
-cluster. Combined with the existing `UNLOGGED` partitions + `synchronous_commit=off`, this removes
-disk from the test loop entirely. Wire into `pytest-postgresql`'s `postgresql_noproc` setup.
+The CI `integration` job's Postgres is a container destroyed after the run — crash-safety buys
+nothing. `.github/workflows/ci.yml`'s existing service-config step now also sets
+`fsync=off` / `synchronous_commit=off` / `full_page_writes=off` / `wal_level=minimal` /
+`max_wal_senders=0` cluster-wide before the restart. Cluster-wide is only safe *there* (a
+dedicated container); locally `mlb` and `mlb_test` share a cluster, so `tests/conftest.py` keeps
+its per-database relaxations (issue #2). Local `mlb_test` on tmpfs is a separate, optional
+contributor-machine tweak (README "Testing").
+
+### 1.5 `pytest-xdist` with schema/database-per-worker
+
+Add `pytest-xdist`; each worker clones its own database from the pre-migrated template (the
+conftest already builds one via `postgresql_noproc`). Target: 563 integration tests across 8–12
+workers. Fixes the wall-clock; the fixture-ordering bugs (#78, #58, #56, #67) must be fixed in the
 
 ### 1.5 `pytest-xdist` with schema/database-per-worker
 

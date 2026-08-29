@@ -159,12 +159,24 @@ jobs:
       - name: Install package with dev dependencies
         run: uv sync --frozen --extra dev
 
-      - name: Enable pg_stat_statements in the Postgres service
+      - name: Configure the Postgres service (pg_stat_statements + throwaway-DB durability)
         env:
           POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: |
-          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
-            "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements'"
+          # The CI Postgres is a disposable container that is destroyed after
+          # the run -- crash-safety buys nothing here, and the fsync/WAL cost
+          # dominates a suite that creates ~hundreds of templated databases.
+          # Same relaxations tests/conftest.py already applies per-database
+          # (issue #2), lifted to the whole cluster. Do NOT copy these to any
+          # persistent database.
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';
+          ALTER SYSTEM SET fsync = off;
+          ALTER SYSTEM SET synchronous_commit = off;
+          ALTER SYSTEM SET full_page_writes = off;
+          ALTER SYSTEM SET max_wal_senders = 0;
+          ALTER SYSTEM SET wal_level = minimal;
+          SQL
           docker restart "$POSTGRES_CONTAINER_ID"
           until docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres; do sleep 1; done
 

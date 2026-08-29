@@ -260,12 +260,15 @@ help a window that needs every row. The only lever is a `WHERE re._season >= <cu
 daily health check only needs the last 1–2 seasons; keep the full reconcile as a
 weekly/pre-release audit.
 
-### 1.4 `mlb_test` on tmpfs + `fsync=off`
+### 1.4 CI Postgres `fsync=off` — DONE
 
-The test database is disposable (`_assert_test_database_url` guarantees it can't be `mlb`). Run its
-Postgres cluster with the data directory on tmpfs, or `fsync=off` / `full_page_writes=off` for that
-cluster. Combined with the existing `UNLOGGED` partitions + `synchronous_commit=off`, this removes
-disk from the test loop entirely. Wire into `pytest-postgresql`'s `postgresql_noproc` setup.
+The CI `integration` job's Postgres is a container destroyed after the run — crash-safety buys
+nothing. `.github/workflows/ci.yml`'s existing service-config step now also sets
+`fsync=off` / `synchronous_commit=off` / `full_page_writes=off` / `wal_level=minimal` /
+`max_wal_senders=0` cluster-wide before the restart. Cluster-wide is only safe *there* (a
+dedicated container); locally `mlb` and `mlb_test` share a cluster, so `tests/conftest.py` keeps
+its per-database relaxations (issue #2). Local `mlb_test` on tmpfs is a separate, optional
+contributor-machine tweak (README "Testing").
 
 ### 1.5 `pytest-xdist` with schema/database-per-worker
 
@@ -396,8 +399,9 @@ running the one script/command it wraps directly with `-x -q` and reading `logs/
 
 ## Open questions for the owner
 
-1. OK to run `mlb_test`'s cluster with `fsync=off` / on tmpfs? (Safe — disposable DB — but worth a
-   yes.)
+1. ~~OK to run the CI Postgres container with `fsync=off`?~~ **Resolved** — done in §1.4
+   (dedicated disposable container). Still open, lower priority: running the *local* `mlb_test`
+   on tmpfs on a contributor machine, where it shares a cluster with `mlb` (optional tweak only).
 2. PgBouncer: acceptable to add as a system service, or prefer application-side pooling
    (`psycopg_pool`) to keep the deploy simpler?
 3. Priority order if Phase 1 is still too slow to iterate: push straight to Phase 3 (incremental)

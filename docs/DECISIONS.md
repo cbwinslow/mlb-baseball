@@ -26,12 +26,26 @@ Retrosheet tables write zero rows, not a fake 0.5. Historical backfill is
 not this function. Status is `candidate` until a holdout vs Elo is
 published.
 
+The per-game probability is `sim_predict.simulate_matchup()` — extracted
+from `predict()`'s loop so the holdout harness scores the *same*
+computation, not a re-derivation. The holdout is
+`scripts/eval_markov_holdout.py`: read-only against `DATABASE_URL` (safe
+on production `mlb`), recompute `markov-v1` for every completed game of a
+season at that game's own date as the PIT cutoff, pair vs each stored
+model (`elo-v1` / `log5-v2` / `gbm-v1` / `kalshi-v1` / `polymarket-v1`) on
+its exact shared sample, report log loss / Brier / accuracy. `markov-v1`
+earns promotion past `candidate` only by beating `elo-v1` on log loss
+there.
+
 **Verification:** `uv run pytest tests/unit/test_sim_predict.py`;
 `tests/integration/test_model_sim_predict.py` on `mlb_test` (skips decided
 and missing Retrosheet; lopsided ATL-scoring fixture home_win_prob > 0.5;
 two runs append two snapshots with the same probability; a later-season
-event does not leak into an earlier slate). Full suite, Ruff, and mypy
-clean; `mlb audit` green on `mlb_test`.
+event does not leak into an earlier slate; `simulate_matchup` returns
+None with no cutoff prior and is deterministic per game pk).
+`tests/integration/test_eval_markov_holdout.py` covers the harness
+plumbing end to end. Full suite, Ruff, and mypy clean; `mlb audit` green
+on `mlb_test`.
 
 ## ADR-271: Course correction — matchup Markov is Layer 2; SQL and SQLMesh both stay; freeze engines
 

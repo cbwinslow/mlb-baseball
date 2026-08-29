@@ -3,6 +3,39 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### markov-v1 holdout harness — 2026-08-29
+
+Branch `eval/markov-holdout` (stacked on `feat/matchup-markov`). Builds the
+tool that decides whether the ladder's Layer 2/3 is worth keeping:
+
+- `sim_predict.simulate_matchup()` — extracted the per-game probability core
+  from `predict()`'s loop so the holdout scores the *exact* computation
+  `mlb predict` writes, not a re-derivation. `predict()` now calls it.
+  Public `GAME_FIELDS` / `GAME_FROM` SQL fragments shared with the harness.
+- `scripts/eval_markov_holdout.py` — read-only against `DATABASE_URL`
+  (`REPEATABLE READ` + read-only txn; safe on production `mlb`). For a
+  holdout season it recomputes `markov-v1` for every *completed* game at
+  that game's own date as the PIT cutoff, pulls the stored `elo-v1` /
+  `log5-v2` / `gbm-v1` / `kalshi-v1` / `polymarket-v1` pre-game snapshots,
+  and for each baseline reports log loss / Brier / accuracy plus a paired
+  bootstrap 95% CI on the per-game log-loss difference. Verdict is
+  "markov-v1 better" only when the CI clears 0 *and* the effect exceeds
+  `gbm.MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT` (0.002).
+- **Starters unknown by default** (PR #101 review, Codex): historical
+  `gold.game_feature` starter ids are postgame Retrosheet and there's no
+  pre-game probable for 2024, so the default run is team-vs-team (the same
+  fallback `sim_predict` uses live). `--use-realized-starters` adds the
+  hindsight version as a labeled optimistic upper bound.
+
+Tests: `tests/integration/test_eval_markov_holdout.py` (3, on `mlb_test`),
+`tests/unit/test_eval_markov_holdout.py` (4, scoring/verdict helpers), +
+`simulate_matchup` direct tests in `test_model_sim_predict.py`; full markov
+/ sim_predict / eval integration green; ruff + mypy clean.
+
+Not yet run against production `mlb` — that read-only run + recording the
+numbers is the next step, and it needs `mlb predict` to have populated
+recent Elo/market rows first (or the shared samples will be thin).
+
 ### PR #100 review round 2 (CodeRabbit / Kilo / Codex) — 2026-08-29
 
 Addressed the W3a+W3b review feedback on `feat/matchup-markov`:

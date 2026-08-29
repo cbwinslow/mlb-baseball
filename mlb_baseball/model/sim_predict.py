@@ -27,6 +27,28 @@ LOOKBACK_SEASONS = 2
 SIM_GAMES = 5000
 MIN_STARTER_PA = 50
 
+# Distribution keyed by (lookback seasons, cutoff date) — one league prior
+# per point-in-time slice, reused across a slate. Callers own the dict.
+Distribution = dict[markov.BaseOutState, dict[markov.Outcome, float]]
+LeagueCache = dict[tuple[tuple[int, ...], date], Distribution]
+
+# The eight per-game fields :func:`simulate_matchup` needs, in the order
+# it (and ``predict``'s loop) unpacks them. Shared with the holdout eval
+# so both resolve retro team codes / starter ids the same way. A caller
+# that needs more columns SELECTs ``GAME_FIELDS + ", <extra>"`` and
+# unpacks the extras after these eight.
+GAME_FIELDS = (
+    "gf.mlb_game_pk, gf.game_instance_key, gf.season, gf.game_date, "
+    "ht.retro_team_id, at.retro_team_id, hsp.retro_id, asp.retro_id"
+)
+GAME_FROM = (
+    " FROM gold.game_feature gf "
+    "JOIN core.team ht ON ht.id = gf.home_team_id "
+    "JOIN core.team at ON at.id = gf.away_team_id "
+    "LEFT JOIN core.player hsp ON hsp.id = gf.home_starter_id "
+    "LEFT JOIN core.player asp ON asp.id = gf.away_starter_id "
+)
+
 
 def seasons_for(game_season: int) -> list[int]:
     """Inclusive lookback ending at the game's own season.
@@ -48,13 +70,10 @@ def rng_for(mlb_game_pk: str) -> random.Random:
 
 def _league_prior(
     conn: psycopg.Connection,
-    cache: dict[
-        tuple[tuple[int, ...], date],
-        dict[markov.BaseOutState, dict[markov.Outcome, float]],
-    ],
+    cache: LeagueCache,
     seasons: list[int],
     cutoff: date,
-) -> dict[markov.BaseOutState, dict[markov.Outcome, float]]:
+) -> Distribution:
     """Cutoff-scoped league outcome distribution, memoized per
     ``(seasons, cutoff)`` so a full slate builds it once.
 
@@ -79,8 +98,8 @@ def _side_distribution(
     pitching_team: str,
     pit_id: str | None,
     before_date: date,
-    league: dict[markov.BaseOutState, dict[markov.Outcome, float]],
-) -> dict[markov.BaseOutState, dict[markov.Outcome, float]]:
+    league: Distribution,
+) -> Distribution:
     """One batting side of one game: this team batting against the
     opposing starter, shrunk toward the same-cutoff league prior. Falls
     back to team-vs-team when the starter has faced this batting team
@@ -95,6 +114,59 @@ def _side_distribution(
         before_date=before_date,
         league=league,
     )
+
+
+def simulate_matchup(
+    conn: psycopg.Connection,
+    *,
+    mlb_game_pk: str,
+    season: int,
+    game_date: date | str,
+    home_team: str,
+    away_team: str,
+    home_starter: str | None,
+    away_starter: str | None,
+    league_cache: LeagueCache,
+    n_games: int = SIM_GAMES,
+) -> float | None:
+    """Matchup-Markov home-win probability for one game.
+
+    The per-game core of :func:`predict`, factored out so the holdout
+    evaluation (`scripts/eval_markov_holdout.py`) scores the *same*
+    computation `mlb predict` writes, not a re-derivation of it.
+
+    Point-in-time: the cutoff is the game's own date, so only events
+    strictly before it feed the league prior and the matchup samples.
+    Returns ``None`` when Retrosheet has no cutoff league prior for that
+    slice (too early a season) — the caller skips the game rather than
+    inventing a 0.5. Seeded by ``mlb_game_pk`` so a rerun is identical.
+    """
+    if n_games < 1:
+        raise markov.MarkovError(f"simulate_matchup: n_games must be positive, got {n_games}")
+    seasons = seasons_for(season)
+    cutoff = game_date if isinstance(game_date, date) else date.fromisoformat(game_date)
+    league = _league_prior(conn, league_cache, seasons, cutoff)
+    if not league:
+        return None
+    away_dist = _side_distribution(
+        conn,
+        seasons,
+        batting_team=away_team,
+        pitching_team=home_team,
+        pit_id=home_starter,
+        before_date=cutoff,
+        league=league,
+    )
+    home_dist = _side_distribution(
+        conn,
+        seasons,
+        batting_team=home_team,
+        pitching_team=away_team,
+        pit_id=away_starter,
+        before_date=cutoff,
+        league=league,
+    )
+    return markov.simulate_home_win_rate(away_dist, home_dist, rng_for(mlb_game_pk), n_games)
 
 
 def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
@@ -134,23 +206,13 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT gf.mlb_game_pk, gf.game_instance_key, gf.season, gf.game_date, "
-                "ht.retro_team_id, at.retro_team_id, "
-                "hsp.retro_id, asp.retro_id "
-                "FROM gold.game_feature gf "
-                "JOIN core.team ht ON ht.id = gf.home_team_id "
-                "JOIN core.team at ON at.id = gf.away_team_id "
-                "LEFT JOIN core.player hsp ON hsp.id = gf.home_starter_id "
-                "LEFT JOIN core.player asp ON asp.id = gf.away_starter_id "
-                "WHERE gf.home_win IS NULL AND gf.mlb_game_pk IS NOT NULL "
+                "SELECT " + GAME_FIELDS + GAME_FROM + "WHERE gf.home_win IS NULL "
+                "AND gf.mlb_game_pk IS NOT NULL "
                 "AND gf.season IS NOT NULL AND gf.game_date IS NOT NULL"
             )
             slate = cur.fetchall()
         inserted = 0
-        league_cache: dict[
-            tuple[tuple[int, ...], date],
-            dict[markov.BaseOutState, dict[markov.Outcome, float]],
-        ] = {}
+        league_cache: LeagueCache = {}
         predictions: list[tuple[object, ...]] = []
         for (
             mlb_game_pk,
@@ -162,34 +224,20 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
             home_starter,
             away_starter,
         ) in slate:
-            seasons = seasons_for(int(season))
-            cutoff = (
-                game_date if isinstance(game_date, date) else date.fromisoformat(str(game_date))
+            rate = simulate_matchup(
+                conn,
+                mlb_game_pk=mlb_game_pk,
+                season=season,
+                game_date=game_date,
+                home_team=home_team,
+                away_team=away_team,
+                home_starter=home_starter,
+                away_starter=away_starter,
+                league_cache=league_cache,
+                n_games=n_games,
             )
-            league = _league_prior(conn, league_cache, seasons, cutoff)
-            if not league:
+            if rate is None:
                 continue
-            away_dist = _side_distribution(
-                conn,
-                seasons,
-                batting_team=away_team,
-                pitching_team=home_team,
-                pit_id=home_starter,
-                before_date=cutoff,
-                league=league,
-            )
-            home_dist = _side_distribution(
-                conn,
-                seasons,
-                batting_team=home_team,
-                pitching_team=away_team,
-                pit_id=away_starter,
-                before_date=cutoff,
-                league=league,
-            )
-            rate = markov.simulate_home_win_rate(
-                away_dist, home_dist, rng_for(mlb_game_pk), n_games
-            )
             predictions.append(
                 (
                     mlb_game_pk,

@@ -187,7 +187,10 @@ cluster). Gain is an **unvalidated ~10–20% estimate**: the box already holds ~
 in the OS page cache, so the hot tables are rarely read cold — the real nightly cost is CPU
 (window aggregates) and the ~30 M-row rebuild write, which the structural work (Phase 3) targets.
 Optional follow-on in the same script: huge pages (`vm.nr_hugepages`, count derived from
-`shared_memory_size_in_huge_pages` after the 40 GB `shared_buffers` is live).
+`shared_memory_size_in_huge_pages` after the 40 GB `shared_buffers` is live). Measurement gate
+when applied: nightly `conform` + `predict` wall-clock, `pg_stat_bgwriter` checkpoint counts/write
+time, restart duration, `mlb`/`govdata` cache-hit ratio (`pg_statio_user_tables`), before and
+after.
 
 ### 1.1 Make `gold.leverage_index` / `gold.win_expectancy` incremental + crash-safe
 

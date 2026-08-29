@@ -84,6 +84,9 @@ ALTER SYSTEM SET effective_cache_size = '100GB';
 ALTER SYSTEM SET bgwriter_lru_maxpages = 1000;
 
 SELECT pg_reload_conf();
+-- pg_reload_conf() only signals the postmaster; this backend sees the new
+-- reload-only values a moment later. Brief pause, then the verify SELECT reads
+-- the applied settings (same pattern as scripts/pg_tune.sql).
 SELECT pg_sleep(1);
 
 -- Verify. Before the restart, shared_buffers and wal_buffers show
@@ -105,7 +108,8 @@ ORDER BY name;
 -- Postgres how many it needs (it accounts for the whole main shared-memory area,
 -- not just shared_buffers, at the host's huge_page_size):
 --
---   psql -X -d mlb -c "SHOW shared_memory_size_in_huge_pages;"   # e.g. ~20700
+--   psql -X -d mlb -c "SHOW shared_memory_size_in_huge_pages;"   # Linux only
+--       # (-1 on other platforms); e.g. ~20700 for a 40 GB pool
 --   grep -E 'Hugepagesize|HugePages_Total' /proc/meminfo         # confirm 2 MB
 --
 -- Then reserve that many + ~5% headroom, keeping huge_pages = try so a short

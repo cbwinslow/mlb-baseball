@@ -141,6 +141,8 @@ def simulate_matchup(
     slice (too early a season) — the caller skips the game rather than
     inventing a 0.5. Seeded by ``mlb_game_pk`` so a rerun is identical.
     """
+    if n_games < 1:
+        raise markov.MarkovError(f"n_games must be positive, got {n_games}")
     seasons = seasons_for(season)
     cutoff = game_date if isinstance(game_date, date) else date.fromisoformat(game_date)
     league = _league_prior(conn, league_cache, seasons, cutoff)
@@ -164,7 +166,7 @@ def simulate_matchup(
         before_date=cutoff,
         league=league,
     )
-    return markov.simulate_home_win_rate(away_dist, home_dist, rng_for(str(mlb_game_pk)), n_games)
+    return markov.simulate_home_win_rate(away_dist, home_dist, rng_for(mlb_game_pk), n_games)
 
 
 def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:

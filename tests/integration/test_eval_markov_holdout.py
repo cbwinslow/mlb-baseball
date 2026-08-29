@@ -102,7 +102,9 @@ def test_completed_games_returns_the_holdout_season_row(db_conn):
 def test_markov_predictions_scores_the_game_and_pairs_with_elo(db_conn):
     _seed(db_conn)
     games = eval_markov_holdout._completed_games(db_conn, 2024, limit=0)
-    markov_rows, skipped = eval_markov_holdout._markov_predictions(db_conn, games, sim_games=25)
+    markov_rows, skipped = eval_markov_holdout._markov_predictions(
+        db_conn, games, 25, use_starters=False
+    )
 
     assert skipped == 0
     assert len(markov_rows) == 1
@@ -128,6 +130,8 @@ def test_markov_predictions_skips_when_no_cutoff_league_prior(db_conn):
         cur.execute("UPDATE gold.game_feature SET season = 2019, game_date = '2019-07-01'")
     db_conn.commit()
     games = eval_markov_holdout._completed_games(db_conn, 2019, limit=0)
-    markov_rows, skipped = eval_markov_holdout._markov_predictions(db_conn, games, sim_games=25)
+    markov_rows, skipped = eval_markov_holdout._markov_predictions(
+        db_conn, games, 25, use_starters=False
+    )
     assert markov_rows == []
     assert skipped == 1

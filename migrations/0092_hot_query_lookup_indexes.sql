@@ -9,12 +9,18 @@
 --    only on game_pk; raw.mlb_schedule join key `game_id` is unindexed.
 --    -> idx on mlb_playbyplay (pitcher_id, game_pk) + mlb_schedule (game_id).
 --    Both tables are small (70 MB / 133 MB); the indexes are cheap.
+--    hypopg `EXPLAIN` of one EXISTS iteration: cost 31,400 (double seq scan)
+--    -> 338 (Index Only Scan pbp -> Index Scan ms), ~90x. The EXISTS runs
+--    once per candidate starter (~80-160/call).
 --
 -- 2. `leverage_index_matrix_build` per-season staging: 228 calls,
 --    **128 s mean**. `WHERE re._season::integer = $1` seq-scans
 --    raw.retrosheet_event (16.5 M rows / 11 GB) every call -- there is no
 --    _season index. Expression index on ((_season::integer)), matching the
 --    existing retrosheet_event_outs_ct_int_idx = ((outs_ct::integer)).
+--    hypopg `EXPLAIN`: Seq Scan cost 1,399,165 (16.5 M rows) -> Bitmap Index
+--    Scan cost 143,568 (~82 k rows), ~10x. Also unblocks the 1.1 incremental
+--    rewrite (a fast `WHERE _season = <current>` for the other enrichments).
 --
 -- Same shape as migrations 0057 / 0090: raw tables are loader-created, so a
 -- clean clone has neither yet (no-op). CREATE INDEX IF NOT EXISTS, not

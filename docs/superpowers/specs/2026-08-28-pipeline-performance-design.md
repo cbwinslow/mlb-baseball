@@ -229,16 +229,36 @@ that got `mlb predict` from 2h+ to ~47 min alongside 1.0/1.2.
 | starter probable "expected" count | `starter_probable_expected.sql` (starter.py health check, runs in `mlb doctor` **and** every `mlb predict`) | 84 | **290 s** | `EXPLAIN`: its `EXISTS` is a Nested Loop that seq-scans `raw.mlb_schedule` (236 k) + `raw.mlb_playbyplay` (170 k) per candidate starter. → `raw.mlb_playbyplay(pitcher_id, game_pk)` + `raw.mlb_schedule(game_id)`. Both tables <150 MB. |
 | `leverage_index` per-season staging | `leverage_index_matrix_build` | 228 | 128 s | `WHERE re._season::integer = $1` seq-scans `raw.retrosheet_event` (16.5 M / 11 GB); no `_season` index. → expression index `((_season)::integer)`, matching `retrosheet_event_outs_ct_int_idx`. Real fix is 1.1 (incremental); this index also unblocks it. |
 
-Restricted (read-only) MCP access blocks `EXPLAIN (ANALYZE)`, so the before/after wall-clock
-lands in `pg_stat_statements` after the migration is applied — the spec's approved method.
-The plan-shape change (seq scan → index scan on the Nested Loop inner) is confirmed from the
-plain `EXPLAIN`.
+Restricted (read-only) MCP access blocks `EXPLAIN (ANALYZE)`, so the wall-clock lands in
+`pg_stat_statements` after apply. But `hypopg` gives a quantified plan-cost before/after:
 
-**Still open** (need `resp_pit_id` measurement or scoping, not just an index): the two
-`raw.retrosheet_event` full-history reconcile checks in `starter.py::health_check` —
-`starter_strikeouts_reconcile.sql` (42 s × 84) and `starter_outs_reconcile.sql`. They GROUP BY
-every player-season over 16 M rows every run; a daily health check probably only needs the
-last 1–2 seasons.
+| query | current plan | with 0092 index (hypopg) |
+| --- | --- | --- |
+| `starter_probable_expected` EXISTS (one iteration) | Nested Loop, seq scan `mlb_playbyplay` + seq scan `mlb_schedule`, **cost 31,400** | Index Only Scan `pbp(pitcher_id)` → Index Scan `ms(game_id)`, **cost 338** (~90×). Runs ~80–160×/call. |
+| `leverage_index` per-season scan | Seq Scan `retrosheet_event`, 16.5 M rows, **cost 1,399,165** | Bitmap Index Scan on `((_season)::integer)`, ~82 k rows, **cost 143,568** (~10×) |
+
+**The enrichment queries an index *cannot* fix.** `EXPLAIN` of the `×3` enrichment modules
+(`team_batted_ball_retrosheet_update.sql` 213 s, `team_pitch_discipline_retrosheet_update.sql`
+178 s, starter career experience 91 s, comprehensive baserunning 76 s, team-rate rolling 68 s):
+
+```
+WindowAgg  (cost 3,046,888)
+  → Gather Merge
+    → Sort  (cost 1,601,697)          -- spills to HDD
+      → Seq Scan on retrosheet_event  (cost 1,346,083)   -- all 16.5 M rows, NO WHERE clause
+```
+
+Each has `FROM raw.retrosheet_event re` with **no filter at all** — a `ROWS BETWEEN UNBOUNDED
+PRECEDING AND 1 PRECEDING` window over every event of every season, every run. An index can't
+help a window that needs every row. The only lever is a `WHERE re._season >= <current-lookback>`
+(Phase 3 / issue #70): 1950's rates don't change, so recomputing them is pure waste. The
+`((_season)::integer)` index in 0092 is the prerequisite for that filter being fast.
+
+**Also open** — the two `raw.retrosheet_event` full-history reconcile checks in
+`starter.py::health_check` (`starter_strikeouts_reconcile.sql` 42 s × 84,
+`starter_outs_reconcile.sql`): they GROUP BY every player-season over 16 M rows every run. A
+daily health check only needs the last 1–2 seasons; keep the full reconcile as a
+weekly/pre-release audit.
 
 ### 1.4 `mlb_test` on tmpfs + `fsync=off`
 

@@ -1,5 +1,7 @@
 """Upcoming-game markov-v1 writer (ADR-272). Uses mlb_test."""
 
+from datetime import date
+
 import pytest
 
 from mlb_baseball.model import sim_predict
@@ -195,3 +197,52 @@ def test_seasons_lookback_does_not_use_a_later_season_event(db_conn):
         cur.execute("SELECT home_win_prob FROM gold.prediction WHERE mlb_game_pk = '718001'")
         (prob,) = cur.fetchone()
     assert float(prob) > 0.5
+
+
+def test_simulate_matchup_returns_none_without_a_cutoff_league_prior(db_conn):
+    _ensure_retrosheet(db_conn)
+    _seed_teams(db_conn)
+    # Empty Retrosheet tables -> no league prior -> None, not a fake 0.5.
+    result = sim_predict.simulate_matchup(
+        db_conn,
+        mlb_game_pk="718001",
+        season=2024,
+        game_date=date(2024, 7, 1),
+        home_team="ATL",
+        away_team="NYA",
+        home_starter=None,
+        away_starter=None,
+        league_cache={},
+        n_games=20,
+    )
+    assert result is None
+
+
+def test_simulate_matchup_scores_a_fixture_game_deterministically(db_conn):
+    _ensure_retrosheet(db_conn)
+    _seed_teams(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo "
+            "(gid, gametype, _season, visteam, hometeam, date) "
+            "VALUES ('NYA202304010', 'regular', '2023', 'ATL', 'NYA', '20230401')"
+        )
+        _insert_event(cur, "NYA202304010", bat_home_id="0", bat_dest="4")
+        _insert_event(cur, "NYA202304010", bat_home_id="1", bat_dest="0", event_cd="2")
+    db_conn.commit()
+
+    kwargs = {
+        "mlb_game_pk": "718001",
+        "season": 2024,
+        "game_date": date(2024, 7, 1),
+        "home_team": "ATL",
+        "away_team": "NYA",
+        "home_starter": None,
+        "away_starter": None,
+        "n_games": 40,
+    }
+    first = sim_predict.simulate_matchup(db_conn, league_cache={}, **kwargs)
+    second = sim_predict.simulate_matchup(db_conn, league_cache={}, **kwargs)
+    assert first is not None
+    assert 0.0 <= first <= 1.0
+    assert first == second  # seeded by mlb_game_pk

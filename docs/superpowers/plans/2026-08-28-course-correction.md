@@ -34,4 +34,11 @@
 
 - [x] `sim_predict.predict()` appends `markov-v1` for `home_win IS NULL` rows only
 - [x] wired into `model.run()` after log5/Elo/GBM; deterministic seed per `mlb_game_pk`
-- [ ] holdout of `markov-v1` vs Elo and Kalshi/Polymarket on the same games — gates promotion past `candidate` (W4 depends on it)
+- [x] `sim_predict.simulate_matchup()` — the per-game core, factored out so the
+      holdout scores the *same* computation `mlb predict` writes
+- [x] `scripts/eval_markov_holdout.py` — read-only holdout harness (recompute
+      `markov-v1` for completed games at the same PIT cutoff, pair vs each stored
+      model on its exact shared sample, log loss / Brier / accuracy)
+- [ ] **run the holdout on production `mlb`** (read-only) and record the numbers —
+      `markov-v1` stays `candidate`, and W4 stays blocked, until `markov-v1` beats
+      `elo-v1` on log loss (and ideally `kalshi-v1` / `polymarket-v1` on their overlap)

@@ -54,10 +54,14 @@ WITH scoped_events AS (
       AND (%(exclude_game_id)s::text IS NULL OR re.game_id <> %(exclude_game_id)s)
       AND (
           %(before_date)s::date IS NULL
-          OR (
-              gi.date ~ '^[0-9]{8}$'
-              AND to_date(gi.date, 'YYYYMMDD') < %(before_date)s::date
-          )
+          -- CASE (not AND) so the regex guard is guaranteed to
+          -- short-circuit: a WHERE-clause AND can be reordered by the
+          -- planner, which would run to_date() on a non-date string.
+          OR CASE
+              WHEN gi.date ~ '^[0-9]{8}$'
+                  THEN to_date(gi.date, 'YYYYMMDD') < %(before_date)s::date
+              ELSE FALSE
+          END
       )
 ),
 derived AS (

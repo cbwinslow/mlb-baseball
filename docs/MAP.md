@@ -13,8 +13,9 @@ their content as true as of their stated date, not as current state; check
 
 ## Start here
 
-Agents: read this page, then `PRODUCT_DIRECTION.md`, then the course-correction
-spec. Do not add a metric engine or GBM column from FEATURE_REGISTRY alone.
+Agents: read `NORTH_STAR.md` first, then this page, then `PRODUCT_DIRECTION.md`,
+then the course-correction spec. Do not add a metric engine or GBM column from
+FEATURE_REGISTRY alone.
 
 - [`NORTH_STAR.md`](NORTH_STAR.md) — the vision, the three build phases, the
   budget rule ($0/month), and what makes this project different from

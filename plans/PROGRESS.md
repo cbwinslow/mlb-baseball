@@ -28,9 +28,9 @@ Deliberately **not** done: splitting the sparse matchup *sample* by
 deferred with a holdout check, ADR-272); `plans/PROGRESS.md` `###`→`##`
 (the whole file's per-entry convention is `###`, no repo markdownlint).
 
-Tests: 283 unit + 27 integration (`test_model_markov.py` /
-`test_model_sim_predict.py`) on `mlb_test`; Ruff + format clean. Three new
-markov tests: `bat_home` rejection, half-inning scoping, thin-pitcher
+Tests: full suite green — 1071 unit + 27 markov/sim_predict integration on
+`mlb_test`; Ruff, ruff-format, sqlfluff, and mypy clean. Three new markov
+integration tests: `bat_home` rejection, half-inning scoping, thin-pitcher
 backoff. No production `mlb` write.
 
 ### W3b: `mlb predict` writes `markov-v1` for upcoming games — 2026-08-29

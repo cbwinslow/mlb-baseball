@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from mlb_baseball.model import sim_predict
+from mlb_baseball.model import markov, sim_predict
 
 
 def _reset(db_conn):
@@ -132,6 +132,49 @@ def test_predict_writes_markov_v1_for_upcoming_games_only(db_conn):
         cur.execute("SELECT count(*) FROM gold.prediction WHERE model_version = 'markov-v1'")
         (count,) = cur.fetchone()
     assert count == 2
+
+
+def test_predict_skips_a_game_whose_simulation_fails_and_keeps_the_rest(db_conn, monkeypatch):
+    # A degenerate estimated distribution raises MarkovError out of
+    # simulate_matchup. That one game must be skipped -- not abort the
+    # whole slate, and not roll back the shared log5/Elo/GBM transaction.
+    _ensure_retrosheet(db_conn)
+    teams = _seed_teams(db_conn)
+    gid = "NYA202304010"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo "
+            "(gid, gametype, _season, visteam, hometeam, date) "
+            "VALUES (%s, 'regular', '2023', 'ATL', 'NYA', '20230401')",
+            (gid,),
+        )
+        _insert_event(cur, gid, bat_home_id="0", bat_dest="4", event_cd="23")
+        _insert_event(cur, gid, bat_home_id="1", bat_dest="0", event_cd="2")
+        cur.execute(
+            "INSERT INTO gold.game_feature "
+            "(mlb_game_pk, game_instance_key, season, game_date, "
+            "home_team_id, away_team_id, home_win) VALUES "
+            "('good', 'mlb:good', 2024, '2024-07-01', %s, %s, NULL), "
+            "('bad', 'mlb:bad', 2024, '2024-07-01', %s, %s, NULL)",
+            (teams["ATL"], teams["NYA"], teams["ATL"], teams["NYA"]),
+        )
+    db_conn.commit()
+
+    real_simulate_matchup = sim_predict.simulate_matchup
+
+    def flaky(conn, *, mlb_game_pk, **kwargs):
+        if mlb_game_pk == "bad":
+            raise markov.MarkovError("game still tied after 100 innings -- degenerate")
+        return real_simulate_matchup(conn, mlb_game_pk=mlb_game_pk, **kwargs)
+
+    monkeypatch.setattr(sim_predict, "simulate_matchup", flaky)
+
+    inserted = sim_predict.predict(db_conn, n_games=20)
+    db_conn.commit()
+    assert inserted == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT mlb_game_pk FROM gold.prediction WHERE model_version = 'markov-v1'")
+        assert [row[0] for row in cur.fetchall()] == ["good"]
 
 
 def test_predict_is_deterministic_for_a_game_pk(db_conn):

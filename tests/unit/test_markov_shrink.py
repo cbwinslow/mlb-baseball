@@ -71,6 +71,17 @@ def test_shrink_rejects_negative_n_or_nonpositive_m():
         shrink_outcome_distribution({}, league, n=10, m=0)
 
 
+def test_simulate_home_win_rate_still_fails_loud_on_an_unbreakable_tie():
+    # Both sides always score exactly 0 -- every game is an eternal tie
+    # no sampled path can break. The Monte Carlo path (max_innings now
+    # defaults to 100, up from 30) must still raise MarkovError on a
+    # genuinely degenerate distribution, not silently coin-flip its way
+    # to a win rate.
+    tie = {EMPTY_ZERO: {Outcome(TERMINAL, 0): 1.0}}
+    with pytest.raises(MarkovError, match="innings"):
+        simulate_home_win_rate(tie, tie, random.Random(0), n_games=1)
+
+
 def test_lopsided_home_distribution_wins_every_simulated_game():
     # Away never scores (one play, 3 outs, 0 runs). Home always scores 1
     # the same way. simulate_game must then record a home win every trial.

@@ -12,6 +12,7 @@ Historical backfill is a separate command later, not this function.
 from __future__ import annotations
 
 import hashlib
+import logging
 import random
 from datetime import date
 from decimal import Decimal
@@ -21,6 +22,8 @@ import psycopg
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.model import markov, provenance
+
+logger = logging.getLogger(__name__)
 
 MODEL_VERSION = "markov-v1"
 LOOKBACK_SEASONS = 2
@@ -212,6 +215,7 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
             )
             slate = cur.fetchall()
         inserted = 0
+        errored = 0
         league_cache: LeagueCache = {}
         predictions: list[tuple[object, ...]] = []
         for (
@@ -224,18 +228,34 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
             home_starter,
             away_starter,
         ) in slate:
-            rate = simulate_matchup(
-                conn,
-                mlb_game_pk=mlb_game_pk,
-                season=season,
-                game_date=game_date,
-                home_team=home_team,
-                away_team=away_team,
-                home_starter=home_starter,
-                away_starter=away_starter,
-                league_cache=league_cache,
-                n_games=n_games,
-            )
+            try:
+                rate = simulate_matchup(
+                    conn,
+                    mlb_game_pk=mlb_game_pk,
+                    season=season,
+                    game_date=game_date,
+                    home_team=home_team,
+                    away_team=away_team,
+                    home_starter=home_starter,
+                    away_starter=away_starter,
+                    league_cache=league_cache,
+                    n_games=n_games,
+                )
+            except markov.MarkovError as error:
+                # One un-simulatable matchup (a degenerate estimated
+                # distribution -- e.g. a state with no observed outcomes,
+                # or a tie no sampled path can break within 100 innings)
+                # must not cost the rest of the slate its markov-v1 rows,
+                # nor roll back log5/Elo/GBM, which share this run's one
+                # transaction (model/__init__.py). Same skip-and-continue
+                # shape as the ``rate is None`` (no cutoff prior) case
+                # just below -- logged with the game pk so a systematic
+                # failure is still visible, not swallowed.
+                logger.warning(
+                    "markov-v1: skipping game %s -- simulation failed: %s", mlb_game_pk, error
+                )
+                errored += 1
+                continue
             if rate is None:
                 continue
             predictions.append(
@@ -260,6 +280,12 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
                     predictions,
                 )
             inserted = len(predictions)
+        if errored:
+            logger.warning(
+                "markov-v1: %d of %d slate games skipped after a simulation failure",
+                errored,
+                len(slate),
+            )
         provenance.finish_run(conn, run_id)
         return inserted
     except Exception as error:

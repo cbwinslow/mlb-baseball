@@ -707,7 +707,7 @@ def simulate_home_win_rate(
     rng: random.Random,
     n_games: int,
     regulation_innings: int = 9,
-    max_innings: int = 30,
+    max_innings: int = 100,
 ) -> float:
     """Fraction of simulated games the home side wins.
 
@@ -716,6 +716,20 @@ def simulate_home_win_rate(
     side from ``home_distribution``. Ties cannot occur in
     ``simulate_game`` (extra innings continue until a winner), so the
     rate is wins / n_games with no push handling.
+
+    ``max_innings`` defaults to 100 here, not :func:`simulate_game`'s own
+    30. This is a Monte Carlo loop: a real slate runs ``n_games`` (5000)
+    trials per matchup times ~15 matchups a day, and the estimated
+    outcome distribution has no automatic-runner-on-second rule, so its
+    extra innings run longer than the modern game (ADR-079: ~10% of
+    simulated games reach extras vs ~8.5% real). Across millions of
+    trials a handful will stay tied deep into extras purely by sampling
+    luck -- ``verify_markov_calibration.py`` already saw one reach 31
+    innings in ~2,400 single-game trials. A ``MarkovError`` from that one
+    game would abort the whole caller (``sim_predict.predict`` runs
+    inside one transaction with log5/Elo/GBM). 100 innings is high enough
+    that reaching it means the distribution genuinely cannot break a tie
+    -- a real defect worth failing on -- not an unlucky-but-finite game.
     """
     if n_games < 1:
         raise MarkovError(f"n_games must be positive, got {n_games}")

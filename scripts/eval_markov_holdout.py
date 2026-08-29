@@ -48,7 +48,7 @@ from collections.abc import Sequence
 
 import psycopg
 
-from mlb_baseball.model import sim_predict
+from mlb_baseball.model import markov, sim_predict
 from mlb_baseball.model.evaluation import (
     MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT,
     Prediction,
@@ -90,26 +90,34 @@ def _markov_predictions(
     use_starters: bool,
 ) -> tuple[list[Prediction], int]:
     """Recompute markov-v1 for each completed game. Returns the
-    predictions plus a count of games skipped for want of a cutoff
-    league prior (too-early a season)."""
+    predictions plus a count of games skipped -- either for want of a
+    cutoff league prior (too-early a season) or because the estimated
+    distribution could not be simulated (a degenerate matchup). A
+    multi-hour run must not die on the last game because one matchup
+    hit a MarkovError."""
     league_cache: sim_predict.LeagueCache = {}
     rows: list[Prediction] = []
     skipped = 0
     started = time.monotonic()
     for done, game in enumerate(games, start=1):
         pk, gik, seas, gdate, home_t, away_t, home_sp, away_sp, home_win = game
-        prob = sim_predict.simulate_matchup(
-            conn,
-            mlb_game_pk=str(pk),
-            season=int(seas),
-            game_date=gdate if isinstance(gdate, str) else str(gdate),
-            home_team=str(home_t),
-            away_team=str(away_t),
-            home_starter=str(home_sp) if use_starters and home_sp is not None else None,
-            away_starter=str(away_sp) if use_starters and away_sp is not None else None,
-            league_cache=league_cache,
-            n_games=sim_games,
-        )
+        try:
+            prob = sim_predict.simulate_matchup(
+                conn,
+                mlb_game_pk=str(pk),
+                season=int(seas),
+                game_date=gdate if isinstance(gdate, str) else str(gdate),
+                home_team=str(home_t),
+                away_team=str(away_t),
+                home_starter=str(home_sp) if use_starters and home_sp is not None else None,
+                away_starter=str(away_sp) if use_starters and away_sp is not None else None,
+                league_cache=league_cache,
+                n_games=sim_games,
+            )
+        except markov.MarkovError as error:
+            print(f"  ... game {pk} skipped -- simulation failed: {error}", flush=True)
+            skipped += 1
+            continue
         if prob is None:
             skipped += 1
             continue

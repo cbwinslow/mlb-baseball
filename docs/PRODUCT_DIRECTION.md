@@ -79,14 +79,18 @@ batch is the wiring backlog.
 ## The prediction ladder (do this, not a bigger feature soup)
 
 Honest MLB game-winner ceiling is about 55–58%. Home teams already win
-~53%. 70%+ is leakage, not skill (`RESEARCH.md`).
+~53%. An out-of-sample result above ~58% (or a suspiciously low log
+loss) is a **red flag that triggers a leakage review** — chronological
+folds, feature cutoffs, the `RESEARCH.md` failure modes — before the
+number is trusted or promoted. It is not, on its own, proof of leakage,
+and it does not automatically block the work (ADR-274).
 
 | Layer | Predicts | Owner today | Next |
 |---|---|---|---|
 | 0 | Baselines | `log5.py` (v2, correct James formula), `elo.py` | Fill Elo in production; starter-adjusted Elo still missing |
-| 1 | Pre-game GBM | `gbm.py` (`gbm-v1.json` on disk; code says v2) | Frozen `FEATURE_COLUMNS`. Retrain only after it beats Elo *and* `markov-v1` |
+| 1 | Pre-game GBM | `gbm.py` (`gbm-v1.json` on disk; code says v2) | Frozen `FEATURE_COLUMNS`. Retrain, then a promotion review of its held-out scores vs Elo *and* `markov-v1` (ADR-274) |
 | 2 | PA / base-out | `estimate_matchup_distribution` (team/starter vs offense, M=350) | Handedness split when n≥50 |
-| 3 | Full game | `sim_predict.py` writes `markov-v1` for upcoming games (ADR-272) | Holdout vs Elo; joint parlays from the same sims |
+| 3 | Full game | `sim_predict.py` writes `markov-v1` for upcoming games (ADR-272) | Run + review the holdout vs Elo; home/away split (ADR-080 machinery, deferred by ADR-272); joint parlays from the same sims |
 | 4 | Market comparison | `market.py` (decided + upcoming moneyline, ADR-267) | Evaluate sim vs Kalshi/Polymarket, one row per game |
 | 5 | Advice | not shipped | model % − market % after vig; no pick when coverage is missing |
 

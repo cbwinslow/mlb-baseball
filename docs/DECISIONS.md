@@ -2,6 +2,112 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-274: Model promotion gates are review gates, not hard blocks; ">58% out-of-sample" triggers a review, it is not a verdict
+
+**Context:** Owner direction, 2026-08-29. Two pieces of existing doctrine
+read as automatic hard stops:
+
+- `docs/PRODUCT_DIRECTION.md`: "70%+ is leakage, not skill."
+- ADR-272 / `plans/04` acceptance gate: `markov-v1` "earns promotion past
+  candidate only by beating `elo-v1` on log loss"; "a model that cannot
+  beat transparent baselines ... remains a research result."
+
+The owner's position: an out-of-sample result above the ~55–58% honest
+range is a **red flag that must be reviewed**, not a stated fact ("it is
+leakage") and not an automatic block on the work. A human looks at the
+evidence and records the call.
+
+**Decision:**
+
+1. **The honest-ceiling language is a review trigger, not a verdict.**
+   `docs/RESEARCH.md` already had the right shape ("a signal to go
+   hunting for leakage"). `docs/PRODUCT_DIRECTION.md` and `RESEARCH.md`
+   are corrected to match: out-of-sample game-winner accuracy above ~58%,
+   or a suspiciously low log loss, triggers a documented leakage review
+   (chronological folds, feature cutoffs, the `RESEARCH.md` failure
+   modes) before the number is trusted or promoted. It is not, by
+   itself, proof of leakage.
+
+2. **Promotion gates are review gates.** A candidate that does not beat
+   its baselines is not automatically barred from promotion. The
+   evidence — held-out proper scores, calibration, coverage, CI — goes
+   to a promotion review that records an explicit decision (promote /
+   hold as candidate / reject) with its reasoning, the same
+   Decision / Declined / Revisit-if shape these ADRs already use.
+
+3. **Unchanged and non-negotiable:** the anti-leakage doctrine itself —
+   chronological (never random) folds, transparent baselines computed
+   and beaten first, honest calibration and uncertainty reporting
+   (`CLAUDE.md` "ML modeling work", `plans/04`). Review replaces
+   "automatic block", not "look at the evidence". A model still may not
+   ship as a product claim until a review says it earns it.
+
+**markov-v1 specifically:** the holdout eval
+(`scripts/eval_markov_holdout.py`) is still the instrument; `markov-v1`
+stays `status=candidate` until that eval is run and reviewed. What
+changes is the outcome space — a review can promote, hold, or return it
+with gaps to close.
+
+**Verification:** doc-only. `docs/PRODUCT_DIRECTION.md`, `docs/RESEARCH.md`,
+`docs/DECISIONS.md` (ADR-272 note), `plans/04-modeling-simulation-and-experiments.md`,
+and `CLAUDE.md` updated together.
+
+## ADR-273: `markov-v1` simulation failures are isolated per game; Monte Carlo `max_innings` raised to 100
+
+**Context:** `sim_predict.predict()` (ADR-272) runs 5000 simulated games
+per matchup for every upcoming game, inside the one transaction
+`mlb predict` also uses for log5/Elo/GBM (`model/__init__.py`). Two
+failure modes could abort that whole transaction:
+
+1. `simulate_home_win_rate` passed `simulate_game`'s default
+   `max_innings=30`. The estimated outcome distribution has no
+   automatic-runner-on-second rule, so its extra innings run longer than
+   the modern game — ADR-079 measured ~10% of simulated games reaching
+   extras vs ~8.5% real, and `verify_markov_calibration.py` already saw a
+   simulated game reach 31 innings in ~2,400 single-game trials (which is
+   why that script uses `max_innings=60`). Across a real slate
+   (5000 trials × ~15 games/day) a few games stay tied past 30 innings
+   purely by sampling luck. Each raised `MarkovError`.
+2. Any other `MarkovError` from one matchup (a state with no observed
+   outcomes in a narrow estimated distribution) had the same blast
+   radius.
+
+Either way one un-simulatable game took down the entire `mlb predict`
+run — `markov-v1`, plus the log5/Elo/GBM writes sharing the transaction.
+`markov-v1` predict had not yet completed a clean production slate
+(blocked behind the migration-0091 issue), so this was latent, not
+observed.
+
+**Decision:**
+
+- `markov.simulate_home_win_rate`'s `max_innings` default is now 100, not
+  30. This is the Monte Carlo path: it runs orders of magnitude more
+  trials than a single-game analysis, so it needs far more headroom
+  before "still tied" means "the distribution genuinely cannot break a
+  tie" rather than "an unlucky but finite game". 100 innings is past any
+  plausible finite game; reaching it is a real defect worth failing on.
+  `simulate_game`'s own default stays 30 (single-game callers);
+  `verify_markov_calibration.py` keeps its explicit 60.
+- `sim_predict.predict()` catches `markov.MarkovError` per game, logs it
+  with the game pk, skips that game, and continues — the same
+  skip-and-continue shape the no-cutoff-prior (`rate is None`) case
+  already uses. A per-run count of games skipped after a failure is
+  logged. `scripts/eval_markov_holdout.py` gets the same per-game guard
+  so a multi-hour holdout run cannot die on its last game.
+
+A genuinely degenerate estimator still fails visibly: if `simulate_matchup`
+raises on the first game or on every game, the run writes zero rows and
+every failure is in the log. This isolates a one-off sampling artifact;
+it does not paper over a broken estimator.
+
+**Verification:** `tests/unit/test_markov_shrink.py::test_simulate_home_win_rate_still_fails_loud_on_an_unbreakable_tie`
+(an all-zero-runs distribution still raises `MarkovError`).
+`tests/integration/test_model_sim_predict.py::test_predict_skips_a_game_whose_simulation_fails_and_keeps_the_rest`
+(one matchup raising `MarkovError` still writes the rest of the slate,
+returns their count, does not raise). `tests/unit/test_markov_*` and
+`tests/integration/test_model_sim_predict.py` (7) pass; Ruff and mypy
+clean.
+
 ## ADR-272: Daily `mlb predict` writes `markov-v1` for upcoming games
 
 **Decision:** `sim_predict.predict()` is the Layer-2 writer. For each
@@ -34,8 +140,10 @@ on production `mlb`), recompute `markov-v1` for every completed game of a
 season at that game's own date as the PIT cutoff, pair vs each stored
 model (`elo-v1` / `log5-v2` / `gbm-v1` / `kalshi-v1` / `polymarket-v1`) on
 its exact shared sample, report log loss / Brier / accuracy. `markov-v1`
-earns promotion past `candidate` only by beating `elo-v1` on log loss
-there.
+stays `candidate` until that holdout has been run and taken to a
+promotion review (ADR-274): the review can promote it, hold it, or send
+it back with specific gaps to close — a below-Elo number is a review
+input, not an automatic dead end.
 
 **Verification:** `uv run pytest tests/unit/test_sim_predict.py`;
 `tests/integration/test_model_sim_predict.py` on `mlb_test` (skips decided

@@ -39,6 +39,7 @@ Example::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import math
 import os
 import random
@@ -137,16 +138,21 @@ def _per_game_losses(rows: Sequence[Prediction]) -> list[float]:
 
 
 def _paired_diff_ci(
-    markov_rows: Sequence[Prediction], baseline_rows: Sequence[Prediction], seed: int
+    markov_rows: Sequence[Prediction], baseline_rows: Sequence[Prediction], seed_key: str
 ) -> tuple[float, float, float]:
     """Paired bootstrap of mean(baseline loss - markov loss) over the
     shared games (same order in both sequences). Returns
     ``(point_estimate, ci_low, ci_high)``; positive means markov is
-    better. ci excluding 0 is the "not just noise" signal."""
+    better. ci excluding 0 is the "not just noise" signal.
+
+    ``seed_key`` (the baseline's own name) is hashed into the RNG seed so
+    the CI for a given baseline is stable regardless of ``--compare`` order.
+    """
     m_losses = _per_game_losses(markov_rows)
     b_losses = _per_game_losses(baseline_rows)
     diffs = [b - m for b, m in zip(b_losses, m_losses, strict=True)]
     point = sum(diffs) / len(diffs)
+    seed = int.from_bytes(hashlib.sha256(seed_key.encode()).digest()[:8], "big")
     rng = random.Random(seed)
     means = sorted(
         sum(rng.choice(diffs) for _ in diffs) / len(diffs) for _ in range(BOOTSTRAP_SAMPLES)
@@ -192,13 +198,13 @@ def _report(
         version: _common_sample(markov_rows + stored_by_version[version], ["markov-v1", version])
         for version in stored_by_version
     }
-    for index, version in enumerate(stored_by_version):
+    for version in stored_by_version:
         m_rows, b_rows = pairs[version]["markov-v1"], pairs[version][version]
         m_s, b_s = _scores(m_rows), _scores(b_rows)
         if m_s["games"] == 0 or m_s["log_loss"] is None or b_s["log_loss"] is None:
             print(f"  {version:<14} {m_s['games']:>7}   (no shared games)")
             continue
-        point, low, high = _paired_diff_ci(m_rows, b_rows, seed=index)
+        point, low, high = _paired_diff_ci(m_rows, b_rows, seed_key=version)
         ci = f"{point:+.4f} [{low:+.4f},{high:+.4f}]"
         print(
             f"  {version:<14} {m_s['games']:>7} "

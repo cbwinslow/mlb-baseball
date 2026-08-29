@@ -36,18 +36,22 @@ def test_paired_diff_ci_is_positive_when_markov_is_clearly_better():
     # markov nails every game; baseline is a coin flip.
     markov = [_pred(0.95, True), _pred(0.05, False), _pred(0.9, True), _pred(0.1, False)]
     baseline = [_pred(0.5, True), _pred(0.5, False), _pred(0.5, True), _pred(0.5, False)]
-    point, low, high = eh._paired_diff_ci(markov, baseline, seed=0)
+    point, low, high = eh._paired_diff_ci(markov, baseline, seed_key="elo-v1")
     assert point > 0
     assert low > 0  # CI excludes zero
     assert low <= point <= high
 
 
-def test_paired_diff_ci_is_seed_deterministic():
-    markov = [_pred(0.7, True), _pred(0.4, False), _pred(0.6, True)]
-    baseline = [_pred(0.55, True), _pred(0.45, False), _pred(0.5, True)]
-    assert eh._paired_diff_ci(markov, baseline, seed=3) == eh._paired_diff_ci(
-        markov, baseline, seed=3
+def test_paired_diff_ci_is_reproducible_from_the_seed_key():
+    # Seed derives from the baseline name, not its position in --compare,
+    # so reordering the arg list can't shift one baseline's CI/verdict.
+    markov = [_pred(0.7, True), _pred(0.4, False), _pred(0.6, True), _pred(0.8, True)]
+    baseline = [_pred(0.55, True), _pred(0.45, False), _pred(0.5, True), _pred(0.6, True)]
+    assert eh._paired_diff_ci(markov, baseline, seed_key="elo-v1") == eh._paired_diff_ci(
+        markov, baseline, seed_key="elo-v1"
     )
+    # A str key is accepted and hashed (not an index).
+    assert isinstance(eh._paired_diff_ci(markov, baseline, seed_key="kalshi-v1")[0], float)
 
 
 def test_verdict_requires_both_the_margin_and_a_ci_off_zero():

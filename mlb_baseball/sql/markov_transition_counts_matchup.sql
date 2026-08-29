@@ -29,7 +29,8 @@ WITH scoped_events AS (
         re.bat_dest_id::int AS bat_dest,
         re.run1_dest_id::int AS run1_dest,
         re.run2_dest_id::int AS run2_dest,
-        re.run3_dest_id::int AS run3_dest
+        re.run3_dest_id::int AS run3_dest,
+        (re.bat_event_fl = 'T') AS is_pa
     FROM raw.retrosheet_event re
     JOIN raw.retrosheet_gameinfo gi ON gi.gid = re.game_id AND lower(gi.gametype) = 'regular'
     WHERE gi._season = ANY(%(seasons)s)
@@ -62,7 +63,7 @@ WITH scoped_events AS (
 ),
 derived AS (
     SELECT
-        pre_outs, pre_b1, pre_b2, pre_b3,
+        pre_outs, pre_b1, pre_b2, pre_b3, is_pa,
         LEAST(pre_outs + outs_recorded, 3) AS post_outs,
         (bat_dest = 1)
             OR (pre_b1 AND run1_dest = 1)
@@ -85,6 +86,7 @@ derived AS (
 )
 SELECT pre_outs, pre_b1, pre_b2, pre_b3,
        post_outs, post_b1, post_b2, post_b3,
-       runs_scored, count(*) AS n
+       runs_scored, count(*) AS n,
+       count(*) FILTER (WHERE is_pa) AS n_pa
 FROM derived
 GROUP BY pre_outs, pre_b1, pre_b2, pre_b3, post_outs, post_b1, post_b2, post_b3, runs_scored;

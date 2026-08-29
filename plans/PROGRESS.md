@@ -3,6 +3,15 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Matchup estimator PIT leak in the league prior (PR #100 review) — 2026-08-29
+
+CodeAnt and Codex both flagged that `estimate_matchup_distribution` shrunk
+toward a full-season league prior, so a historical as-of still leaked the
+target game (and later games) through M=350. League now uses the same
+`exclude_game_id` / `before_date`. Shrink `n` is plate appearances
+(`bat_event_fl='T'`), not every transition. `mlb --help` lists core
+commands and the start-here docs.
+
 ### Course correction W3a: matchup Markov estimator (ADR-271) — 2026-08-29
 
 Owner said proceed. First code slice is Layer 2, not more Engines and not a

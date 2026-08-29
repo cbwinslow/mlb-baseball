@@ -19,6 +19,16 @@ def _fake_connector():
     return connector
 
 
+def test_cli_help_lists_core_commands_and_start_here_docs(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "Core commands" in out
+    assert "docs/MAP.md" in out
+    assert "course-correction-design.md" in out
+
+
 def test_ingest_defaults_to_bootstrap(monkeypatch, capsys):
     connector = _fake_connector()
     monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})

@@ -331,10 +331,11 @@ shrunk toward the league-average distribution already produced by
 $$\hat p = \frac{n}{n+M}\, p_{\text{matchup}} + \frac{M}{n+M}\, p_{\text{league}}$$
 
 with $M = 350$ plate appearances (Tango, Lichtman & Dolphin, *The Book*).
-$n = 0$ (unknown starter, no prior meetings) is the league distribution,
-not a zeroed chain. The target game's own events are excluded
-(`exclude_game_id` / `before_date`). The shrunk distributions feed
-`simulate_game`; they are not a new GBM column.
+$n$ is `bat_event_fl = 'T'` (plate appearances), not stolen bases or wild
+pitches — those events still enter the transition chain. $n = 0$ is the
+league distribution, not a zeroed chain. The league prior uses the same
+`exclude_game_id` / `before_date` as the matchup sample. The shrunk
+distributions feed `simulate_game`; they are not a new GBM column.
 
 ---
 

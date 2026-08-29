@@ -427,9 +427,16 @@ def _fetch_matchup_transition_counts(
     pit_id: str | None = None,
     exclude_game_id: str | None = None,
     before_date: date | None = None,
-) -> list[TransitionCountRow]:
+) -> tuple[list[TransitionCountRow], int]:
+    """Return transition rows plus the PA count used as shrink n.
+
+    ``n_pa`` is ``bat_event_fl = 'T'`` (The Book's sample). Non-PA
+    events (SB, WP, …) still enter the chain; they just do not inflate
+    the prior weight. If the flag is absent or never 'T', fall back to
+    the raw transition total so a real sample is not treated as n=0.
+    """
     if not _retrosheet_tables_ready(conn):
-        return []
+        return [], 0
     with conn.cursor() as cur:
         cur.execute(
             _MATCHUP_COUNTS_SQL,
@@ -443,7 +450,15 @@ def _fetch_matchup_transition_counts(
                 "before_date": before_date,
             },
         )
-        return [TransitionCountRow(*row) for row in cur.fetchall()]
+        rows: list[TransitionCountRow] = []
+        n_pa = 0
+        for rec in cur.fetchall():
+            *fields, n_pa_part = rec
+            rows.append(TransitionCountRow(*fields))
+            n_pa += int(n_pa_part or 0)
+    if n_pa == 0:
+        n_pa = sum(row.n for row in rows)
+    return rows, n_pa
 
 
 def estimate_matchup_distribution(
@@ -460,22 +475,29 @@ def estimate_matchup_distribution(
     """League-shrunk outcome distribution for one matchup.
 
     Counts Retrosheet events for the optional pitching/batting/pitcher
-    filters, then mixes that sample toward the unfiltered league
-    distribution with :func:`shrink_outcome_distribution`. A matchup
-    with no rows (unknown starter, first meeting, missing tables)
-    returns the league distribution — the simulator still has a chain
-    to walk.
+    filters, then mixes that sample toward the *same-cutoff* league
+    distribution with :func:`shrink_outcome_distribution`. The league
+    prior uses ``exclude_game_id`` / ``before_date`` too — shrinking
+    toward a future-informed league average would leak the target game
+    (and every later game in ``seasons``) into a sparse matchup.
 
-    ``exclude_game_id`` / ``before_date`` enforce the point-in-time
-    contract: the target game's own events cannot enter its pre-game
-    rates. This function does not write ``gold.prediction``; daily
-    wiring is a later package.
+    A matchup with no rows (unknown starter, first meeting, missing
+    tables) returns that cutoff league distribution. Shrink ``n`` is
+    plate appearances (``bat_event_fl = 'T'``), not every transition.
+    This function does not write ``gold.prediction``; daily wiring is
+    a later package.
     """
     _validate_seasons(seasons)
-    league = estimate_outcome_distribution(conn, seasons)
+    league_rows, _league_n = _fetch_matchup_transition_counts(
+        conn,
+        seasons,
+        exclude_game_id=exclude_game_id,
+        before_date=before_date,
+    )
+    league = build_outcome_distribution(league_rows) if league_rows else {}
     if not league:
         return {}
-    rows = _fetch_matchup_transition_counts(
+    rows, n_pa = _fetch_matchup_transition_counts(
         conn,
         seasons,
         batting_team=batting_team,
@@ -484,9 +506,8 @@ def estimate_matchup_distribution(
         exclude_game_id=exclude_game_id,
         before_date=before_date,
     )
-    n = sum(row.n for row in rows)
     raw = build_outcome_distribution(rows) if rows else {}
-    return shrink_outcome_distribution(raw, league, n, m=prior_pa)
+    return shrink_outcome_distribution(raw, league, n_pa, m=prior_pa)
 
 
 def simulate_half_inning_steps(

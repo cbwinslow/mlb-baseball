@@ -58,6 +58,8 @@ def test_reads_named_markov_matchup_transition_counts():
     assert "resp_pit_id" in sql
     assert "exclude_game_id" in sql
     assert "before_date" in sql
+    assert "n_pa" in sql
+    assert "bat_event_fl" in sql
 
 
 def test_reads_named_market_prediction_transformations():

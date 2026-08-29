@@ -262,7 +262,20 @@ def _run_experiment_command(args: argparse.Namespace, conn: psycopg.Connection) 
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="mlb")
+    parser = argparse.ArgumentParser(
+        prog="mlb",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Local MLB research warehouse and prediction pipeline.",
+        epilog=(
+            "Core commands:\n"
+            "  migrate, preflight, ingest, bootstrap, update, conform,\n"
+            "  report, features, predict, train, evaluate, inventory,\n"
+            "  doctor, dump, audit, status\n"
+            "\n"
+            "Read first: docs/MAP.md, docs/PRODUCT_DIRECTION.md,\n"
+            "docs/superpowers/specs/2026-08-28-course-correction-design.md"
+        ),
+    )
     parser.add_argument(
         "--config",
         help="optional TOML settings file (defaults to ./mlb.toml when present)",
@@ -2292,9 +2305,9 @@ def main(argv: list[str] | None = None) -> None:
     babip_parser.add_argument(
         "--actual", type=float, default=0.320, help="Actual BABIP (default: 0.320)"
     )
-    babip_parser.add_argument("--ld", type=float, default=0.21, help="Line Drive% (default: 0.21)")
+    babip_parser.add_argument("--ld", type=float, default=0.21, help="Line Drive%% (default: 0.21)")
     babip_parser.add_argument(
-        "--hard-hit", type=float, default=0.42, help="Hard-Hit% (default: 0.42)"
+        "--hard-hit", type=float, default=0.42, help="Hard-Hit%% (default: 0.42)"
     )
     babip_parser.add_argument(
         "--speed", type=float, default=27.5, help="Sprint Speed ft/s (default: 27.5)"
@@ -2340,10 +2353,10 @@ def main(argv: list[str] | None = None) -> None:
     # Batter sweet spot contact (SWEETSPOT-01)
     sws_parser = subparsers.add_parser(
         "sweetspot",
-        help="evaluate sweet-spot% and ideal contact rate (SWEETSPOT-01)",
+        help="evaluate sweet-spot%% and ideal contact rate (SWEETSPOT-01)",
     )
-    sws_parser.add_argument("--sws", type=float, default=0.36, help="Sweet-Spot% (default: 0.36)")
-    sws_parser.add_argument("--hh", type=float, default=0.44, help="Hard-Hit% (default: 0.44)")
+    sws_parser.add_argument("--sws", type=float, default=0.36, help="Sweet-Spot%% (default: 0.36)")
+    sws_parser.add_argument("--hh", type=float, default=0.44, help="Hard-Hit%% (default: 0.44)")
     sws_parser.add_argument(
         "--icr", type=float, default=39.5, help="Ideal Contact Rate (default: 39.5)"
     )
@@ -2357,12 +2370,14 @@ def main(argv: list[str] | None = None) -> None:
         "putaway",
         help="evaluate two-strike put-away conversion rate (PUTAWAY-01)",
     )
-    put_parser.add_argument("--putaway", type=float, default=0.22, help="Put-Away% (default: 0.22)")
+    put_parser.add_argument(
+        "--putaway", type=float, default=0.22, help="Put-Away%% (default: 0.22)"
+    )
     put_parser.add_argument(
         "--pitches", type=int, default=650, help="two-strike pitches (default: 650)"
     )
     put_parser.add_argument(
-        "--whiff", type=float, default=0.15, help="2-strike whiff% (default: 0.15)"
+        "--whiff", type=float, default=0.15, help="2-strike whiff%% (default: 0.15)"
     )
     put_parser.add_argument("--json", action="store_true", help="output putaway evaluation as JSON")
 
@@ -2394,13 +2409,13 @@ def main(argv: list[str] | None = None) -> None:
         "zone-swing",
         help="evaluate in-zone contact deficit and chase efficiency (ZONE-SWING-01)",
     )
-    zsw_parser.add_argument("--z-swing", type=float, default=0.68, help="Z-Swing% (default: 0.68)")
+    zsw_parser.add_argument("--z-swing", type=float, default=0.68, help="Z-Swing%% (default: 0.68)")
     zsw_parser.add_argument(
-        "--z-contact", type=float, default=0.84, help="Z-Contact% (default: 0.84)"
+        "--z-contact", type=float, default=0.84, help="Z-Contact%% (default: 0.84)"
     )
-    zsw_parser.add_argument("--o-swing", type=float, default=0.28, help="O-Swing% (default: 0.28)")
+    zsw_parser.add_argument("--o-swing", type=float, default=0.28, help="O-Swing%% (default: 0.28)")
     zsw_parser.add_argument(
-        "--o-contact", type=float, default=0.58, help="O-Contact% (default: 0.58)"
+        "--o-contact", type=float, default=0.58, help="O-Contact%% (default: 0.58)"
     )
     zsw_parser.add_argument(
         "--json", action="store_true", help="output zone swing evaluation as JSON"
@@ -2411,7 +2426,7 @@ def main(argv: list[str] | None = None) -> None:
         "fstrike",
         help="evaluate first-pitch strike surplus run value (FSTRIKE-01)",
     )
-    fps_parser.add_argument("--fps", type=float, default=0.65, help="F-Strike% (default: 0.65)")
+    fps_parser.add_argument("--fps", type=float, default=0.65, help="F-Strike%% (default: 0.65)")
     fps_parser.add_argument("--bf", type=int, default=700, help="batters faced (default: 700)")
     fps_parser.add_argument("--json", action="store_true", help="output FPS evaluation as JSON")
 
@@ -3007,12 +3022,12 @@ def main(argv: list[str] | None = None) -> None:
 
     # Player props command (PROP-01)
     props_parser = subparsers.add_parser(
-        "props", help="forecast player proposition markets (K%, outs, hits, HR)"
+        "props", help="forecast player proposition markets (K%%, outs, hits, HR)"
     )
     props_parser.add_argument("--game-pk", type=str, help="target MLB game PK to look up starters")
-    props_parser.add_argument("--pitcher-k", type=float, help="manual starter K% (e.g. 0.28)")
+    props_parser.add_argument("--pitcher-k", type=float, help="manual starter K%% (e.g. 0.28)")
     props_parser.add_argument(
-        "--opp-k", type=float, default=0.225, help="opposing lineup K% (default: 0.225)"
+        "--opp-k", type=float, default=0.225, help="opposing lineup K%% (default: 0.225)"
     )
     props_parser.add_argument(
         "--pitcher-fip", type=float, default=3.80, help="starter FIP (default: 3.80)"

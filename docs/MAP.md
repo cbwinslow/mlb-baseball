@@ -13,14 +13,18 @@ their content as true as of their stated date, not as current state; check
 
 ## Start here
 
+Agents: read this page, then `PRODUCT_DIRECTION.md`, then the course-correction
+spec. Do not add a metric engine or GBM column from FEATURE_REGISTRY alone.
+
 - [`NORTH_STAR.md`](NORTH_STAR.md) — the vision, the three build phases, the
   budget rule ($0/month), and what makes this project different from
   baseball.computer. Read this first.
 - [`PRODUCT_DIRECTION.md`](PRODUCT_DIRECTION.md) — **2026-08-28 owner
-  handoff.** How the north star becomes the membership betting site +
-  research database: keep `conform`/`predict`, SQLMesh vs named `.sql`,
-  Agy engines as a wiring backlog, prediction ladder, production snapshot,
-  ordered next work. Claude/Agy should read this before adding features.
+  handoff** plus ADR-271 course correction. Keep `conform`/`predict`,
+  SQLMesh vs named `.sql`, prediction ladder. Read this before adding
+  features.
+- [`superpowers/specs/2026-08-28-course-correction-design.md`](superpowers/specs/2026-08-28-course-correction-design.md)
+  — locked decisions: two products, matchup Markov as Layer 2, freeze list.
 - [`ROADMAP.md`](ROADMAP.md) — what's actually built vs. planned, phase by
   phase. The living answer to "where are we."
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — the raw/core/gold layered schema,

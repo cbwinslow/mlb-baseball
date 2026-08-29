@@ -60,6 +60,7 @@ def _insert_event(
     r2_dest="0",
     r3_dest="0",
     resp_pit_id=None,
+    bat_event_fl=None,
 ):
     columns = (
         "game_id, inn_ct, bat_home_id, outs_ct, event_outs_ct, event_cd, "
@@ -84,6 +85,9 @@ def _insert_event(
     if resp_pit_id is not None:
         columns += ", resp_pit_id"
         values.append(resp_pit_id)
+    if bat_event_fl is not None:
+        columns += ", bat_event_fl"
+        values.append(bat_event_fl)
     placeholders = ", ".join(["%s"] * len(values))
     cur.execute(
         f"INSERT INTO raw.retrosheet_event ({columns}) VALUES ({placeholders})",
@@ -99,7 +103,11 @@ def _ensure_matchup_columns(db_conn):
             "ADD COLUMN IF NOT EXISTS visteam text, "
             "ADD COLUMN IF NOT EXISTS hometeam text"
         )
-        cur.execute("ALTER TABLE raw.retrosheet_event ADD COLUMN IF NOT EXISTS resp_pit_id text")
+        cur.execute(
+            "ALTER TABLE raw.retrosheet_event "
+            "ADD COLUMN IF NOT EXISTS resp_pit_id text, "
+            "ADD COLUMN IF NOT EXISTS bat_event_fl text"
+        )
     db_conn.commit()
 
 
@@ -559,6 +567,40 @@ def test_estimate_matchup_distribution_excludes_the_target_game(db_conn):
     assert pit[empty_zero][markov.Outcome(markov.TERMINAL, 1)] == pytest.approx(
         as_of[empty_zero][markov.Outcome(markov.TERMINAL, 1)]
     )
+
+
+def test_estimate_matchup_distribution_league_prior_excludes_the_target_game(db_conn):
+    # The matchup sample for the target day is only the prior HR. If the
+    # league prior still included the target's scoreless play, shrink
+    # (n=1, M=1) would keep a 25% mass on 0 runs. A cutoff-correct prior
+    # is HR-only, so the mix is 100% the HR.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    _ensure_matchup_columns(db_conn)
+    prior = "NYA202104010"
+    target = "NYA202104020"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo "
+            "(gid, gametype, _season, visteam, hometeam) VALUES "
+            "(%s, 'regular', '2021', 'ATL', 'NYA'), "
+            "(%s, 'regular', '2021', 'ATL', 'NYA')",
+            (prior, target),
+        )
+        _insert_event(cur, prior, "0", "3", "23", bat_dest="4")
+        _insert_event(cur, target, "0", "3", "2", bat_dest="0")
+    db_conn.commit()
+
+    empty_zero = markov.BaseOutState(0, False, False, False)
+    pit = markov.estimate_matchup_distribution(
+        db_conn,
+        seasons=[2021],
+        batting_team="ATL",
+        exclude_game_id=target,
+        prior_pa=1,
+    )
+    assert list(pit[empty_zero]) == [markov.Outcome(markov.TERMINAL, 1)]
+    assert pit[empty_zero][markov.Outcome(markov.TERMINAL, 1)] == pytest.approx(1.0)
 
 
 def test_estimate_matchup_distribution_unknown_team_returns_league(db_conn):

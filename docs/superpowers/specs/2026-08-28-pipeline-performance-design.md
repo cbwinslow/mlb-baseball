@@ -177,9 +177,14 @@ of the full statement:
 | `work_mem` 1 GB, serial | **60 s** (hash agg in 1 in-memory batch; ~36 s of that is the cold seq scan) |
 | `work_mem` 1 GB + 7-worker parallel seq scan + warm cache | **~5 s** |
 
-Restart-required, proposed separately (not in this change): `wal_buffers` 16 MB → 64 MB;
-`shared_buffers` 32 GB → 40 GB. Also worth a startup task: `pg_prewarm('raw.statcast_pitch')` /
-`raw.retrosheet_event` so the first daily query isn't a cold ~9 GB HDD read.
+Restart-required round: `scripts/pg_tune_restart.sql` — `shared_buffers` 32 GB → 40 GB,
+`wal_buffers` 16 MB → 64 MB, `effective_cache_size` → 100 GB, `bgwriter_lru_maxpages` 100 → 1000,
+and `pg_prewarm` added to `shared_preload_libraries` for autoprewarm (buffer pool reloaded on
+restart, plus a one-time `pg_prewarm('raw.retrosheet_event')` / `raw.statcast_pitch` /
+`gold.game_feature`). Expected gain is modest (~10–20%): the box already holds ~104 GB of file
+data in the OS page cache, so the hot tables are rarely read cold — the real nightly cost is CPU
+(window aggregates) and the ~30 M-row rebuild write, which the structural work (Phase 3) targets.
+Optional follow-on in the same script: huge pages (`vm.nr_hugepages` 512 → 21000).
 
 ### 1.1 Make `gold.leverage_index` / `gold.win_expectancy` incremental + crash-safe
 

@@ -319,6 +319,23 @@ $$\text{Matchup Edge} = \sum_{i=1}^k u_i \cdot (rv_{\text{batter}, i} - rv_{\tex
 
 The outcome transition distribution is adjusted via odds multiplier $M = \exp(\alpha \cdot \text{Edge})$ and re-normalized so $\sum_{o \in \Omega} P(o \mid s) = 1.0$.
 
+### 8.3 Matchup-specific PA rates, Empirical Bayes toward league (ADR-271)
+
+RE24 is the value of a base-out state, solved from transition probabilities.
+It is accounting, not a game-winner model. The Layer-2 predictor is
+$P(\text{PA outcome} \mid \text{state}, \text{matchup})$, estimated from
+Retrosheet events for (pitching team or pitcher) vs (batting team), then
+shrunk toward the league-average distribution already produced by
+`estimate_outcome_distribution`:
+
+$$\hat p = \frac{n}{n+M}\, p_{\text{matchup}} + \frac{M}{n+M}\, p_{\text{league}}$$
+
+with $M = 350$ plate appearances (Tango, Lichtman & Dolphin, *The Book*).
+$n = 0$ (unknown starter, no prior meetings) is the league distribution,
+not a zeroed chain. The target game's own events are excluded
+(`exclude_game_id` / `before_date`). The shrunk distributions feed
+`simulate_game`; they are not a new GBM column.
+
 ---
 
 ## 9. Forecasting, Valuation & Market Alpha Formulation

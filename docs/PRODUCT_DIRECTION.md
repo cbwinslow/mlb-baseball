@@ -6,8 +6,15 @@ It does not replace `NORTH_STAR.md`, `AGENTS.md`, or the numbered `plans/`.
 It says *how those documents compose into the product the owner actually
 wants*, and what not to do next.
 
-Companion plan: [`superpowers/plans/2026-08-28-product-and-pipeline-next.md`](superpowers/plans/2026-08-28-product-and-pipeline-next.md).
-Decision record: ADR-266 in [`DECISIONS.md`](DECISIONS.md).
+**Course correction (ADR-271):** two products (research warehouse +
+play-then-sim ladder). Named `.sql` is the formula; SQLMesh is a promotion;
+one writer per table. pybaseball fetches; we query gold. RE24 is accounting;
+Layer 2 is matchup PA rates into `simulate_game`. Spec:
+[`superpowers/specs/2026-08-28-course-correction-design.md`](superpowers/specs/2026-08-28-course-correction-design.md).
+Do not add a metric, GBM column, or Engine without reading that.
+
+Companion plan (pipeline health, still active): [`superpowers/plans/2026-08-28-product-and-pipeline-next.md`](superpowers/plans/2026-08-28-product-and-pipeline-next.md).
+Decision records: ADR-266 and ADR-271 in [`DECISIONS.md`](DECISIONS.md).
 
 ---
 

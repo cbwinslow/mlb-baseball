@@ -2,6 +2,51 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-271: Course correction — matchup Markov is Layer 2; SQL and SQLMesh both stay; freeze engines
+
+**Context:** Owner agreed (2026-08-28/29) the Engine catalog was the drag and
+asked to lock SQL vs SQLMesh, pybaseball vs baseballr, and the model ladder
+(RE24 vs play/pitch outcome). Spec:
+`docs/superpowers/specs/2026-08-28-course-correction-design.md`. Program plan:
+`docs/superpowers/plans/2026-08-28-course-correction.md`.
+
+**Decision:**
+
+1. **Two products, one warehouse.** (A) researcher-queryable gold tables +
+   dump + thin readers over *our* database. (B) predict the plate appearance,
+   simulate the game, compare to Kalshi/Polymarket. Astro waits until B can
+   put a number on tomorrow's board.
+
+2. **pybaseball stays the fetch library.** Do not wrap it as a user API.
+   baseballr analogue is named queries over gold/core, not network fetch.
+
+3. **Named `.sql` files and SQLMesh both stay; one writer per table.**
+   New gold families are authored as `mlb_baseball/sql/*.sql`. SQLMesh is a
+   promotion after a full-table + PIT tie-out. Researchers query Postgres
+   tables and never depend on either tool. SQLMesh still does not own
+   identity, Elo, Markov simulation, or training (ADR-088 / 266).
+
+4. **RE24 is accounting.** Layer 2 is matchup-specific PA/24-state
+   distributions (pitching team or pitcher vs batting team, Empirical Bayes
+   $M=350$ toward league) plugged into existing `simulate_game`. First
+   implementation: `shrink_outcome_distribution`,
+   `estimate_matchup_distribution`, `simulate_home_win_rate` in
+   `markov.py`, plus `markov_transition_counts_matchup.sql`. Not wired into
+   daily `mlb predict` in this change — that write path is the next package
+   once this estimator is tested.
+
+5. **Freeze.** No new Engine packages, no `FEATURE_COLUMNS` expansion, no
+   Plan 05 Astro, no more unpromoted SQLMesh models.
+
+**Verification:** `tests/unit/test_markov_shrink.py` (hand mix at n=M, n=50,
+n=0; lopsided sim win rate 1.0). `tests/integration/test_model_markov.py`
+matchup filter, exclude-game PIT, `before_date` gid parse, unknown-team
+fallback to league.
+
+**Revisit if:** Layer 2 sim loses to Elo *and* a PA-ML model also loses
+(then game-level GBM is worth another look); a Statcast license is recorded
+(public dump can grow).
+
 ## ADR-270: Wire starter four-seam VAA from Statcast kinematics (Chamberlain/Pavlidis)
 
 **Decision:** Fold Agy VAA-01 into the real pipeline as **degrees**, not the invented flatness/whiff-boost index.

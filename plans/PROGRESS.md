@@ -3,6 +3,17 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Course correction W3a: matchup Markov estimator (ADR-271) — 2026-08-29
+
+Owner said proceed. First code slice is Layer 2, not more Engines and not a
+GBM retrain. `shrink_outcome_distribution` (M=350),
+`estimate_matchup_distribution` (team / pitcher / exclude-game / as-of
+date), `simulate_home_win_rate`. League `estimate_outcome_distribution`
+unchanged. **Not wired into daily `mlb predict`** — that is W3b.
+
+No production writes. Tests: `tests/unit/test_markov_shrink.py`,
+`tests/integration/test_model_markov.py` matchup cases, sql resource test.
+
 ### Predict succeeded; starter FF VAA wired from published kinematics — 2026-08-28
 
 Production `mlb predict` pid 4068632 **success** 06:07–06:54 UTC (**47 min**, down from a 2h+ stuck platoon run). `gold.game_feature` Elo 217,195/217,195; all 419 upcoming games have Elo. `elo-v1`/`log5-v2`/`kalshi-v1`/`polymarket-v1` last write 2026-08-28 06:54. `gbm-v1` still 2026-08-04 (no retrain this run).

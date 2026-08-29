@@ -22,12 +22,19 @@
 --    Scan cost 143,568 (~82 k rows), ~10x. Also unblocks the 1.1 incremental
 --    rewrite (a fast `WHERE _season = <current>` for the other enrichments).
 --
--- Same shape as migrations 0057 / 0090: raw tables are loader-created, so a
--- clean clone has neither yet (no-op). CREATE INDEX IF NOT EXISTS, not
--- CONCURRENTLY (a DO block cannot run CONCURRENTLY). Column-existence
--- guards for the skinny raw tables some tests create. `mlb migrate` is a
--- maintenance step; do not apply while `mlb predict` is scanning these
--- tables.
+-- Same shape as migrations 0057 / 0039 / 0090: `raw` tables are
+-- loader-created, so this needs a `to_regclass` existence guard, so it must
+-- be a DO block, so it *cannot* use `CREATE INDEX CONCURRENTLY` (PL/pgSQL
+-- restriction -- 0057's header verified the exact error). Non-CONCURRENTLY
+-- means each `CREATE INDEX` takes an ACCESS EXCLUSIVE lock on its table for
+-- the build; on `raw.retrosheet_event` (11 GB / 16.5 M rows) that is minutes
+-- on HDD. The accepted tradeoff, matching 0057/0090: `mlb migrate` is a
+-- deliberate maintenance step, run in a quiet window, not concurrently with
+-- `mlb predict` or the 5-minute `mlb_api_update`. **On production `mlb`,
+-- apply the three indexes by hand with `CREATE INDEX CONCURRENTLY` first
+-- (as 0057/0090 did), then run `mlb migrate` -- the `IF NOT EXISTS` guards
+-- make it a no-op.** Column-existence guards below cover the skinny raw
+-- tables some tests create.
 DO $$
 BEGIN
     IF to_regclass('raw.mlb_playbyplay') IS NOT NULL
@@ -41,7 +48,7 @@ BEGIN
            WHERE table_schema = 'raw' AND table_name = 'mlb_playbyplay'
              AND column_name = 'game_pk'
        ) THEN
-        CREATE INDEX IF NOT EXISTS idx_mlb_playbyplay_pitcher
+        CREATE INDEX IF NOT EXISTS idx_mlb_playbyplay_pitcher_game
             ON raw.mlb_playbyplay (pitcher_id, game_pk);
     END IF;
 

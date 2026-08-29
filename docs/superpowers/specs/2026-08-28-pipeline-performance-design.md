@@ -241,7 +241,7 @@ Restricted (read-only) MCP access blocks `EXPLAIN (ANALYZE)`, so the wall-clock 
 (`team_batted_ball_retrosheet_update.sql` 213 s, `team_pitch_discipline_retrosheet_update.sql`
 178 s, starter career experience 91 s, comprehensive baserunning 76 s, team-rate rolling 68 s):
 
-```
+```text
 WindowAgg  (cost 3,046,888)
   → Gather Merge
     → Sort  (cost 1,601,697)          -- spills to HDD

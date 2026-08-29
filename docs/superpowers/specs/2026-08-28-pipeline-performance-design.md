@@ -45,6 +45,37 @@ a first pass overstated several numbers — validation matters):
 8. **Machine contention:** ~40 other cron jobs (sysmon) fire every 1–5 min plus the every-5-min
    `mlb_api_update`. Load average 13.5 during investigation.
 
+## Full `pg_stat_statements` sweep by command — 2026-08-29 (postgres-mcp + hypopg)
+
+Every project query on production `mlb`, ranked and attributed to the command that runs it.
+`×N` = calls in a 13-day window (≈ daily runs + manual iteration).
+
+| command | query | mean | calls | fixable by |
+| --- | --- | ---: | ---: | --- |
+| `doctor` + `predict` | `starter_probable_expected.sql` (join-coverage denominator) | **290 s** | 84 | **index (0092)** — done in this branch |
+| `predict` | `batted_ball_rates` entering-game (BAT-*) | 213 s | 3 | incremental (full-history GROUP BY over `raw.retrosheet_event`) |
+| `predict` | `pitch_discipline` entering-game (PIT-*) | 178 s | 3 | incremental |
+| `predict` (or `leverage` rebuild) | `leverage_index` per-season staging | 128 s | 228 | `_season` index (0092) + incremental (spec 1.1) |
+| `predict` | bullpen "regular_games" reconstruction | 110 s | 3 | incremental |
+| `predict` | base `game_feature` family build | 109 s | 3 | incremental |
+| `predict` | starter career experience (PLN-04) | 91 s | 3 | incremental |
+| `predict` | comprehensive baserunning (BsR/wSB/XBT) | 76 s | 3 | incremental |
+| `predict` | team OBP/SLG/ISO/BB%/K% rolling (OFF-01/02/03) | 68 s | 3 | incremental |
+| `doctor` | `starter_strikeouts_reconcile.sql` (vs bref_pitching) | 42 s | 84 | scope to recent seasons for the *daily* check |
+| `audit`/`conform` | `core.play` DISTINCT-ON / dedup checks | 28 s | ~85 | scope / incremental |
+| `doctor` | `starter_outs_reconcile.sql` + relief/starter outs reconcile | 25 s | 160 | scope to recent seasons |
+| `conform` | `TRUNCATE core.play, core.pitch, … gold.game_feature` | 10–16 s | 62 | incremental (truncate-and-rebuild-all-129-seasons) |
+| — | `SELECT pg_database_size()` | 5 ms | **1.5 M** | external monitoring poller, **not this project** |
+
+**The shape of it:** `predict`'s ~47 min is ~30 enrichment modules that each do a full-history
+aggregate over `raw.retrosheet_event` (16.5 M rows) on every run. **Indexes (0090, 0092) fix the
+point queries; they cannot speed up a full-table `GROUP BY`.** The only lever for the `×3`
+enrichment queries is **incrementality** — only recompute seasons whose events changed (Phase 3 /
+issue #70 SQLMesh). 1950's baserunning rates do not change; recomputing them nightly is the cost.
+`doctor`'s reconcile checks (`×84`/`×160`) similarly reconcile all history every run — a daily
+health check only needs the last 1–2 seasons; keep the full-history reconcile as a
+weekly/pre-release audit.
+
 ## Goals
 
 - The daily job completes reliably again, and a mid-run failure is **observable** (which step,

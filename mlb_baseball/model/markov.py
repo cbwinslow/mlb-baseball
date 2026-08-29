@@ -351,8 +351,10 @@ def shrink_outcome_distribution(
     ``p = (n / (n + M)) * p_raw + (M / (n + M)) * p_league``
 
     then renormalize that state's outgoing mass to 1. ``n`` is the
-    matchup's plate-appearance count (sum of transition-row counts).
-    ``M`` defaults to :data:`MATCHUP_PRIOR_PA` (350, *The Book*).
+    matchup's plate-appearance count (``bat_event_fl = 'T'`` events only,
+    never the raw transition-row total, which also counts steals, wild
+    pitches, and other non-PA events the chain keeps). ``M`` defaults to
+    :data:`MATCHUP_PRIOR_PA` (350, *The Book*).
 
     ``n = 0`` returns a copy of ``league``: a matchup with no history is
     the league distribution, not a zeroed chain that would hang the
@@ -390,6 +392,14 @@ def shrink_outcome_distribution(
     return mixed
 
 
+def _validate_bat_home(bat_home: str | None) -> None:
+    """A typo like 'home'/'away' would otherwise silently match zero SQL
+    rows (``bat_home_id`` only ever holds '0'/'1') and return an empty
+    distribution instead of failing loudly."""
+    if bat_home is not None and bat_home not in ("0", "1"):
+        raise MarkovError(f"bat_home must be '0', '1', or None, got {bat_home!r}")
+
+
 def estimate_outcome_distribution(
     conn: psycopg.Connection, seasons: Sequence[int], bat_home: Literal["0", "1"] | None = None
 ) -> dict[BaseOutState, dict[Outcome, float]]:
@@ -411,13 +421,12 @@ def estimate_outcome_distribution(
     contains '0'/'1') and return an empty distribution instead of
     failing loudly."""
     _validate_seasons(seasons)
-    if bat_home is not None and bat_home not in ("0", "1"):
-        raise MarkovError(f"bat_home must be '0', '1', or None, got {bat_home!r}")
+    _validate_bat_home(bat_home)
     rows = _fetch_transition_counts(conn, seasons, bat_home)
     return build_outcome_distribution(rows)
 
 
-def _fetch_matchup_transition_counts(
+def fetch_matchup_transition_counts(
     conn: psycopg.Connection,
     seasons: Sequence[int],
     *,
@@ -428,13 +437,25 @@ def _fetch_matchup_transition_counts(
     exclude_game_id: str | None = None,
     before_date: date | None = None,
 ) -> tuple[list[TransitionCountRow], int]:
-    """Return transition rows plus the PA count used as shrink n.
+    """Return ``(transition rows, n_pa)`` for one Retrosheet matchup slice.
+
+    The low-level primitive behind :func:`estimate_matchup_distribution`;
+    call that instead unless you need the raw rows and PA count (e.g. to
+    build a cutoff-aware league prior once and reuse it across a slate).
+
+    Every filter is point-in-time safe: ``exclude_game_id`` drops the
+    target game and ``before_date`` keeps only games played strictly
+    before it. Returns ``([], 0)`` when the Retrosheet tables are absent.
 
     ``n_pa`` is ``bat_event_fl = 'T'`` (The Book's sample). Non-PA
     events (SB, WP, …) still enter the chain; they just do not inflate
     the prior weight. If the flag is absent or never 'T', fall back to
     the raw transition total so a real sample is not treated as n=0.
+
+    ``bat_home`` ('1' = home half, '0' = away half) optionally scopes to
+    one batting side; per-play scoring rates differ by side (ADR-080).
     """
+    _validate_bat_home(bat_home)
     if not _retrosheet_tables_ready(conn):
         return [], 0
     with conn.cursor() as cur:
@@ -453,9 +474,11 @@ def _fetch_matchup_transition_counts(
         rows: list[TransitionCountRow] = []
         n_pa = 0
         for rec in cur.fetchall():
-            *fields, n_pa_part = rec
-            rows.append(TransitionCountRow(*fields))
-            n_pa += int(n_pa_part or 0)
+            # The SQL SELECTs the 10 TransitionCountRow fields, then n_pa
+            # last -- index rather than star-unpack so a future column
+            # added mid-list can't silently shift the mapping.
+            rows.append(TransitionCountRow(*rec[:-1]))
+            n_pa += int(rec[-1] or 0)
     if n_pa == 0:
         n_pa = sum(row.n for row in rows)
     return rows, n_pa
@@ -465,9 +488,11 @@ def estimate_matchup_distribution(
     conn: psycopg.Connection,
     seasons: Sequence[int],
     *,
+    bat_home: Literal["0", "1"] | None = None,
     batting_team: str | None = None,
     pitching_team: str | None = None,
     pit_id: str | None = None,
+    pitcher_min_pa: int = 0,
     exclude_game_id: str | None = None,
     before_date: date | None = None,
     prior_pa: int = MATCHUP_PRIOR_PA,
@@ -478,38 +503,65 @@ def estimate_matchup_distribution(
     Counts Retrosheet events for the optional pitching/batting/pitcher
     filters, then mixes that sample toward the *same-cutoff* league
     distribution with :func:`shrink_outcome_distribution`. The league
-    prior uses ``exclude_game_id`` / ``before_date`` too — shrinking
-    toward a future-informed league average would leak the target game
-    (and every later game in ``seasons``) into a sparse matchup.
+    prior uses the same ``bat_home`` / ``exclude_game_id`` /
+    ``before_date`` filters — shrinking toward a future-informed or
+    wrong-batting-side league average would leak the target game (and
+    every later game in ``seasons``) into a sparse matchup, or mix in
+    the other half-inning's scoring rate (ADR-080).
+
+    ``bat_home`` ('1' = this team batting at home, '0' = on the road)
+    scopes both the sample and the prior to one half-inning. ``None``
+    combines both, matching the league estimator's default.
+
+    ``pit_id`` scopes the sample to one starting pitcher. When
+    ``pitcher_min_pa`` is set and that pitcher's sample has fewer than
+    ``pitcher_min_pa`` plate appearances, the pitcher filter is dropped
+    and the sample falls back to batting-team vs pitching-team — a thin
+    starter history is worse evidence than the team-level matchup, and
+    both then shrink toward the same league prior.
 
     Pass a precomputed ``league`` to avoid refetching it for every
     side of every game on a slate. The caller must build that prior
-    with the same cutoff.
+    with the same cutoff *and the same ``bat_home``*.
 
-    A matchup with no rows (unknown starter, first meeting, missing
-    tables) returns that cutoff league distribution. Shrink ``n`` is
-    plate appearances (``bat_event_fl = 'T'``), not every transition.
+    A matchup with no matching rows at all (unknown team, first meeting,
+    missing tables) returns the cutoff league distribution unchanged.
+    Shrink ``n`` is plate appearances (``bat_event_fl = 'T'``), not
+    every transition.
     """
     _validate_seasons(seasons)
+    _validate_bat_home(bat_home)
     if league is None:
-        league_rows, _league_n = _fetch_matchup_transition_counts(
+        league_rows, _league_n = fetch_matchup_transition_counts(
             conn,
             seasons,
+            bat_home=bat_home,
             exclude_game_id=exclude_game_id,
             before_date=before_date,
         )
         league = build_outcome_distribution(league_rows) if league_rows else {}
     if not league:
         return {}
-    rows, n_pa = _fetch_matchup_transition_counts(
+    rows, n_pa = fetch_matchup_transition_counts(
         conn,
         seasons,
+        bat_home=bat_home,
         batting_team=batting_team,
         pitching_team=pitching_team,
         pit_id=pit_id,
         exclude_game_id=exclude_game_id,
         before_date=before_date,
     )
+    if pit_id is not None and n_pa < pitcher_min_pa:
+        rows, n_pa = fetch_matchup_transition_counts(
+            conn,
+            seasons,
+            bat_home=bat_home,
+            batting_team=batting_team,
+            pitching_team=pitching_team,
+            exclude_game_id=exclude_game_id,
+            before_date=before_date,
+        )
     raw = build_outcome_distribution(rows) if rows else {}
     return shrink_outcome_distribution(raw, league, n_pa, m=prior_pa)
 

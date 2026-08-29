@@ -46,6 +46,31 @@ def rng_for(mlb_game_pk: str) -> random.Random:
     return random.Random(seed)
 
 
+def _league_prior(
+    conn: psycopg.Connection,
+    cache: dict[
+        tuple[tuple[int, ...], date],
+        dict[markov.BaseOutState, dict[markov.Outcome, float]],
+    ],
+    seasons: list[int],
+    cutoff: date,
+) -> dict[markov.BaseOutState, dict[markov.Outcome, float]]:
+    """Cutoff-scoped league outcome distribution, memoized per
+    ``(seasons, cutoff)`` so a full slate builds it once.
+
+    Not split by batting half-inning: ADR-080's home/away per-PA
+    scoring difference is a proven *league-level* effect, but scoping
+    the sparse team/starter matchup sample to one half as well is an
+    unproven refinement that halves the data. Deferred to a follow-up
+    with a real holdout check (PRODUCT_DIRECTION Layer 2 "Next").
+    """
+    key = (tuple(seasons), cutoff)
+    if key not in cache:
+        rows, _n = markov.fetch_matchup_transition_counts(conn, seasons, before_date=cutoff)
+        cache[key] = markov.build_outcome_distribution(rows) if rows else {}
+    return cache[key]
+
+
 def _side_distribution(
     conn: psycopg.Connection,
     seasons: list[int],
@@ -56,30 +81,17 @@ def _side_distribution(
     before_date: date,
     league: dict[markov.BaseOutState, dict[markov.Outcome, float]],
 ) -> dict[markov.BaseOutState, dict[markov.Outcome, float]]:
-    if pit_id:
-        _rows, n_pa = markov._fetch_matchup_transition_counts(
-            conn,
-            seasons,
-            batting_team=batting_team,
-            pitching_team=pitching_team,
-            pit_id=pit_id,
-            before_date=before_date,
-        )
-        if n_pa >= MIN_STARTER_PA:
-            return markov.estimate_matchup_distribution(
-                conn,
-                seasons,
-                batting_team=batting_team,
-                pitching_team=pitching_team,
-                pit_id=pit_id,
-                before_date=before_date,
-                league=league,
-            )
+    """One batting side of one game: this team batting against the
+    opposing starter, shrunk toward the same-cutoff league prior. Falls
+    back to team-vs-team when the starter has faced this batting team
+    for fewer than ``MIN_STARTER_PA`` plate appearances."""
     return markov.estimate_matchup_distribution(
         conn,
         seasons,
         batting_team=batting_team,
         pitching_team=pitching_team,
+        pit_id=pit_id or None,
+        pitcher_min_pa=MIN_STARTER_PA,
         before_date=before_date,
         league=league,
     )
@@ -130,7 +142,8 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
                 "JOIN core.team at ON at.id = gf.away_team_id "
                 "LEFT JOIN core.player hsp ON hsp.id = gf.home_starter_id "
                 "LEFT JOIN core.player asp ON asp.id = gf.away_starter_id "
-                "WHERE gf.home_win IS NULL AND gf.mlb_game_pk IS NOT NULL"
+                "WHERE gf.home_win IS NULL AND gf.mlb_game_pk IS NOT NULL "
+                "AND gf.season IS NOT NULL AND gf.game_date IS NOT NULL"
             )
             slate = cur.fetchall()
         inserted = 0
@@ -153,15 +166,7 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
             cutoff = (
                 game_date if isinstance(game_date, date) else date.fromisoformat(str(game_date))
             )
-            cache_key = (tuple(seasons), cutoff)
-            if cache_key not in league_cache:
-                league_rows, _n = markov._fetch_matchup_transition_counts(
-                    conn, seasons, before_date=cutoff
-                )
-                league_cache[cache_key] = (
-                    markov.build_outcome_distribution(league_rows) if league_rows else {}
-                )
-            league = league_cache[cache_key]
+            league = _league_prior(conn, league_cache, seasons, cutoff)
             if not league:
                 continue
             away_dist = _side_distribution(
@@ -190,7 +195,7 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
                     mlb_game_pk,
                     game_instance_key,
                     MODEL_VERSION,
-                    Decimal(str(round(rate, 6))),
+                    Decimal(str(rate)).quantize(Decimal("0.000001")),
                     model_id,
                     run_id,
                     data_cutoff,

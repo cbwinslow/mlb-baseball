@@ -3,6 +3,36 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### PR #100 review round 2 (CodeRabbit / Kilo / Codex) — 2026-08-29
+
+Addressed the W3a+W3b review feedback on `feat/matchup-markov`:
+
+- `markov_transition_counts_matchup.sql` `before_date` now reads
+  `gameinfo.date` (`YYYYMMDD`, the column `conform.py` already parses),
+  not a fragile `substring(gid, 4, 8)` position parse.
+- `_fetch_matchup_transition_counts` promoted to public
+  `fetch_matchup_transition_counts` (used by `sim_predict` too), validates
+  `bat_home`, and indexes `n_pa` off the row instead of star-unpacking.
+- `estimate_matchup_distribution` gained `bat_home` (validated, half-inning
+  scoping) and `pitcher_min_pa` (drop the `pit_id` filter and fall back to
+  team-vs-team when the starter sample is thin — replaces the double fetch
+  `sim_predict._side_distribution` was doing).
+- `sim_predict.predict()`: slate query guards `season`/`game_date` NOT
+  NULL; `home_win_prob` uses `Decimal(str(rate)).quantize(...)`.
+- Docstring for shrink `n` corrected (PA count, not transition total).
+- Docs: THEORY 8.3 unknown-starter fallback, ADR-271/272, course-correction
+  spec/plan PIT-eligibility and verification workflow.
+
+Deliberately **not** done: splitting the sparse matchup *sample* by
+`bat_home` in `sim_predict` (halves the data for an unproven refinement —
+deferred with a holdout check, ADR-272); `plans/PROGRESS.md` `###`→`##`
+(the whole file's per-entry convention is `###`, no repo markdownlint).
+
+Tests: 283 unit + 27 integration (`test_model_markov.py` /
+`test_model_sim_predict.py`) on `mlb_test`; Ruff + format clean. Three new
+markov tests: `bat_home` rejection, half-inning scoping, thin-pitcher
+backoff. No production `mlb` write.
+
 ### W3b: `mlb predict` writes `markov-v1` for upcoming games — 2026-08-29
 
 `sim_predict.predict()` (ADR-272) simulates each still-undecided

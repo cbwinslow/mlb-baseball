@@ -36,7 +36,8 @@ def _ensure_retrosheet(db_conn):
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo ("
-            "gid text, gametype text, _season text, visteam text, hometeam text)"
+            "gid text, gametype text, _season text, visteam text, hometeam text, "
+            "date text)"
         )
     db_conn.commit()
 
@@ -90,8 +91,8 @@ def test_predict_writes_markov_v1_for_upcoming_games_only(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo "
-            "(gid, gametype, _season, visteam, hometeam) "
-            "VALUES (%s, 'regular', '2023', 'ATL', 'NYA')",
+            "(gid, gametype, _season, visteam, hometeam, date) "
+            "VALUES (%s, 'regular', '2023', 'ATL', 'NYA', '20230401')",
             (gid,),
         )
         _insert_event(cur, gid, bat_home_id="0", bat_dest="4", event_cd="23")
@@ -138,8 +139,8 @@ def test_predict_is_deterministic_for_a_game_pk(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo "
-            "(gid, gametype, _season, visteam, hometeam) "
-            "VALUES (%s, 'regular', '2023', 'ATL', 'NYA')",
+            "(gid, gametype, _season, visteam, hometeam, date) "
+            "VALUES (%s, 'regular', '2023', 'ATL', 'NYA', '20230401')",
             (gid,),
         )
         _insert_event(cur, gid, bat_home_id="0", bat_dest="4")
@@ -173,9 +174,9 @@ def test_seasons_lookback_does_not_use_a_later_season_event(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO raw.retrosheet_gameinfo "
-            "(gid, gametype, _season, visteam, hometeam) VALUES "
-            "('NYA202304010', 'regular', '2023', 'ATL', 'NYA'), "
-            "('NYA202504010', 'regular', '2025', 'ATL', 'NYA')"
+            "(gid, gametype, _season, visteam, hometeam, date) VALUES "
+            "('NYA202304010', 'regular', '2023', 'ATL', 'NYA', '20230401'), "
+            "('NYA202504010', 'regular', '2025', 'ATL', 'NYA', '20250401')"
         )
         _insert_event(cur, "NYA202304010", bat_home_id="0", bat_dest="4")
         _insert_event(cur, "NYA202304010", bat_home_id="1", bat_dest="0", event_cd="2")

@@ -334,8 +334,18 @@ with $M = 350$ plate appearances (Tango, Lichtman & Dolphin, *The Book*).
 $n$ is `bat_event_fl = 'T'` (plate appearances), not stolen bases or wild
 pitches — those events still enter the transition chain. $n = 0$ is the
 league distribution, not a zeroed chain. The league prior uses the same
-`exclude_game_id` / `before_date` as the matchup sample. The shrunk
-distributions feed `simulate_game`; they are not a new GBM column.
+`exclude_game_id` / `before_date` / `bat_home` as the matchup sample. The
+shrunk distributions feed `simulate_game`; they are not a new GBM column.
+
+**Unknown starter.** `pit_id` scopes the sample to one pitcher. When the
+starter is not yet known, or `pitcher_min_pa` is set and that pitcher's
+sample falls below it, the pitcher filter is dropped and the sample falls
+back to *batting-team vs pitching-team* — still a real, point-in-time
+estimate shrunk toward league, not the bare league distribution. The bare
+league distribution is returned only when no prior events match the
+remaining filters at all (a genuinely unknown team, or missing tables).
+`bat_home` ('1'/'0') optionally scopes both sample and prior to one
+half-inning; `sim_predict` leaves it unset in v1 (see ADR-272).
 
 ---
 

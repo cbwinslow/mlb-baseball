@@ -14,10 +14,10 @@
 -- exclude_game_id drops that game's events (the target game must not
 -- enter its own pre-game matchup sample).
 --
--- before_date, when set, keeps only games whose Retrosheet gid encodes
--- a calendar date strictly before it (positions 4-11 of a standard
--- gid like ANA202104010). Non-standard test gids fail the regex and
--- are excluded by this filter — use exclude_game_id for those fixtures.
+-- before_date, when set, keeps only games played strictly before it,
+-- read from gameinfo.date (Retrosheet's own YYYYMMDD field, the same
+-- column conform.py parses for core.game.game_date). A row with a NULL
+-- or unparseable date is excluded when before_date is set.
 
 WITH scoped_events AS (
     SELECT
@@ -55,9 +55,8 @@ WITH scoped_events AS (
       AND (
           %(before_date)s::date IS NULL
           OR (
-              substring(gi.gid FROM 4 FOR 8) ~ '^[0-9]{8}$'
-              AND to_date(substring(gi.gid FROM 4 FOR 8), 'YYYYMMDD')
-                  < %(before_date)s::date
+              gi.date ~ '^[0-9]{8}$'
+              AND to_date(gi.date, 'YYYYMMDD') < %(before_date)s::date
           )
       )
 ),

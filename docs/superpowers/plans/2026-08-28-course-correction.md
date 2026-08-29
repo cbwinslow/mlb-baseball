@@ -22,8 +22,8 @@
 ## W3a (this package)
 
 - [x] `shrink_outcome_distribution` (M=350, n=0 → league)
-- [x] `markov_transition_counts_matchup.sql` (team, pitcher, exclude game, before_date)
-- [x] `estimate_matchup_distribution`
+- [x] `markov_transition_counts_matchup.sql` (team, pitcher, exclude game, `before_date` from `gameinfo.date`)
+- [x] `estimate_matchup_distribution` (`bat_home` / `pitcher_min_pa` backoff, cutoff-safe league prior)
 - [x] `simulate_home_win_rate`
-- [x] unit + integration tests
+- [x] unit + integration tests against `mlb_test`; full suite, Ruff, and mypy clean
 - [x] W3b: `mlb predict` writes `markov-v1` for `home_win IS NULL` rows only (ADR-272)

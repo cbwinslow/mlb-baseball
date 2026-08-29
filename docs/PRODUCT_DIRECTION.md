@@ -9,7 +9,8 @@ wants*, and what not to do next.
 **Course correction (ADR-271):** two products (research warehouse +
 play-then-sim ladder). Named `.sql` is the formula; SQLMesh is a promotion;
 one writer per table. pybaseball fetches; we query gold. RE24 is accounting;
-Layer 2 is matchup PA rates into `simulate_game`. Spec:
+Layer 2 estimates matchup-specific PA outcome distributions (point-in-time,
+shrunk toward league) that feed `simulate_game`. Spec:
 [`superpowers/specs/2026-08-28-course-correction-design.md`](superpowers/specs/2026-08-28-course-correction-design.md).
 Do not add a metric, GBM column, or Engine without reading that.
 

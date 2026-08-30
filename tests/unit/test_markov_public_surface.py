@@ -52,3 +52,13 @@ _EXPECTED = {
 def test_markov_exposes_every_expected_name():
     missing = {n for n in _EXPECTED if not hasattr(markov, n)}
     assert not missing, f"markov no longer exports: {sorted(missing)}"
+
+
+def test_core_imports_without_a_database_driver(monkeypatch):
+    # core must not pull psycopg or the SQL loader at import time.
+    import sys
+
+    for mod in [m for m in sys.modules if m.startswith("mlb_baseball.model.markov")]:
+        monkeypatch.delitem(sys.modules, mod, raising=False)
+    monkeypatch.setitem(sys.modules, "psycopg", None)  # importing psycopg now raises
+    import mlb_baseball.model.markov.core  # noqa: F401  # must not raise

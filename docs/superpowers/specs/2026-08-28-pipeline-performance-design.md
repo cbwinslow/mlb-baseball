@@ -177,9 +177,21 @@ of the full statement:
 | `work_mem` 1 GB, serial | **60 s** (hash agg in 1 in-memory batch; ~36 s of that is the cold seq scan) |
 | `work_mem` 1 GB + 7-worker parallel seq scan + warm cache | **~5 s** |
 
-Restart-required, proposed separately (not in this change): `wal_buffers` 16 MB → 64 MB;
-`shared_buffers` 32 GB → 40 GB. Also worth a startup task: `pg_prewarm('raw.statcast_pitch')` /
-`raw.retrosheet_event` so the first daily query isn't a cold ~9 GB HDD read.
+Restart-required round: `scripts/pg_tune_restart.sql` — restart-required `shared_buffers` 32 GB →
+40 GB and `wal_buffers` 16 MB → 64 MB, plus reload-only `effective_cache_size` → 100 GB and
+`bgwriter_lru_maxpages` 100 → 1000. `pg_prewarm` (`CREATE EXTENSION` + a one-time
+`pg_prewarm('raw.retrosheet_event')` / `raw.statcast_pitch` / `gold.game_feature`) is a manual
+runbook step: database-level DDL scoped to `mlb` (not a cluster config change, and not a numbered
+migration since nothing in code or tests calls `pg_prewarm()`). `shared_preload_libraries` is
+left untouched (an `ALTER SYSTEM SET` there replaces the whole list and a bad entry stops the
+cluster). Gain is an **unvalidated ~10–20% estimate**: the box already holds ~104 GB of file data
+in the OS page cache, so the hot tables are rarely read cold — the real nightly cost is CPU
+(window aggregates) and the ~30 M-row rebuild write, which the structural work (Phase 3) targets.
+Optional follow-on in the same script: huge pages (`vm.nr_hugepages`, count derived from
+`shared_memory_size_in_huge_pages` after the 40 GB `shared_buffers` is live). Measurement gate
+when applied: nightly `conform` + `predict` wall-clock, `pg_stat_bgwriter` checkpoint counts/write
+time, restart duration, `mlb`/`govdata` cache-hit ratio (`pg_statio_user_tables`), before and
+after.
 
 ### 1.1 Make `gold.leverage_index` / `gold.win_expectancy` incremental + crash-safe
 

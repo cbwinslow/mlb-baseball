@@ -181,7 +181,8 @@ Restart-required round: `scripts/pg_tune_restart.sql` — restart-required `shar
 40 GB and `wal_buffers` 16 MB → 64 MB, plus reload-only `effective_cache_size` → 100 GB and
 `bgwriter_lru_maxpages` 100 → 1000. `pg_prewarm` (`CREATE EXTENSION` + a one-time
 `pg_prewarm('raw.retrosheet_event')` / `raw.statcast_pitch` / `gold.game_feature`) is a manual
-operational step in the runbook, not a config or schema change — `shared_preload_libraries` is
+runbook step: database-level DDL scoped to `mlb` (not a cluster config change, and not a numbered
+migration since nothing in code or tests calls `pg_prewarm()`). `shared_preload_libraries` is
 left untouched (an `ALTER SYSTEM SET` there replaces the whole list and a bad entry stops the
 cluster). Gain is an **unvalidated ~10–20% estimate**: the box already holds ~104 GB of file data
 in the OS page cache, so the hot tables are rarely read cold — the real nightly cost is CPU

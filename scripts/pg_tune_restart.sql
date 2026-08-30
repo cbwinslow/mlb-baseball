@@ -1,4 +1,13 @@
 \set ON_ERROR_STOP on
+-- Guard: these ALTER SYSTEM statements are cluster-wide. Abort unless connected
+-- to the mlb database, so a wrong -d target can't silently persist them.
+SELECT current_database() = 'mlb' AS _is_mlb \gset
+\if :_is_mlb
+\else
+\warn 'ABORTING: not connected to the mlb database'
+\quit
+\endif
+
 -- Cluster-wide PostgreSQL 16 tuning for the mlb pipeline -- RESTART-REQUIRED round.
 -- Spec: docs/superpowers/specs/2026-08-28-pipeline-performance-design.md (Phase 1.0,
 -- "Restart-required round").
@@ -38,8 +47,11 @@
 --   sudo systemctl restart postgresql@16-main
 --   psql -X -v ON_ERROR_STOP=1 -d mlb -f scripts/pg_tune_restart.sql   # re-run:
 --       # the trailing SELECT now shows pending_restart = f for both restart rows
---   # then, once (operational, not schema -- like the restart itself):
---   psql -X -d mlb -c "CREATE EXTENSION IF NOT EXISTS pg_prewarm; \
+--   # then, once. This CREATE EXTENSION is database-level DDL scoped to mlb (it
+--   # registers pg_prewarm's objects in that DB only, not the cluster) -- run
+--   # manually here, not as a numbered migration, because no code or test calls
+--   # pg_prewarm(): it is a one-off cache-warming step, like the restart itself.
+--   psql -X -v ON_ERROR_STOP=1 -d mlb -c "CREATE EXTENSION IF NOT EXISTS pg_prewarm; \
 --     SELECT relname, pg_prewarm(oid) FROM pg_class \
 --     WHERE oid IN ('raw.retrosheet_event'::regclass, \
 --                   'raw.statcast_pitch'::regclass, 'gold.game_feature'::regclass);"
@@ -118,7 +130,10 @@ ORDER BY name;
 --   echo 'vm.nr_hugepages = <count>' | sudo tee /etc/sysctl.d/60-postgresql-hugepages.conf
 --   sudo sysctl --system
 --   sudo systemctl restart postgresql@16-main
---   psql -X -d mlb -c "SHOW huge_pages_status;"   # want: on
+--   # PG16 has no huge_pages_status view (that is PG17+). Confirm the pool
+--   # actually got used by watching HugePages_Free drop across the restart:
+--   grep HugePages_Free /proc/meminfo   # before vs after -- should fall by ~the
+--                                       # shared_memory_size_in_huge_pages count
 --
 -- Host currently: vm.nr_hugepages = 512 (1 GB). Reverse by restoring the file to
 -- 512 and re-running sysctl + restart.

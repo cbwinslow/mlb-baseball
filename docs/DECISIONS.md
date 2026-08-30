@@ -5,11 +5,19 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 ## ADR-275: markov-v1 promotion review — HOLD (return-with-gaps)
 
 **Context:** First ADR-274 promotion review for `markov-v1` (Layer 2 of the
-prediction ladder). Instrument: `scripts/eval_markov_holdout.py`, run
-read-only against production `mlb`, 2026-08-30. Holdout season 2026
-(2,026 completed games — the only season with stored baseline predictions;
-2024 has none, so a multi-year holdout is not possible until prediction
-history accumulates). `sim_games=2000`, cutoff `close`.
+prediction ladder). 2026-08-30. Holdout season 2026 (2,026 completed games —
+the only season with stored baseline predictions; 2024 has none, so a
+multi-year holdout is not possible until prediction history accumulates).
+
+Reproduce:
+
+```
+uv sync --frozen
+DATABASE_URL=postgresql:///mlb uv run python scripts/eval_markov_holdout.py \
+    --season 2026 --sim-games 2000 --use-realized-starters
+```
+
+read-only against production `mlb`; cutoff `close` (default).
 
 **Evidence** (paired bootstrap 95% CI on per-game log-loss difference;
 Δ > 0 favours markov-v1):
@@ -29,11 +37,13 @@ blocked by a `generated_at` bug (issue #107), not run here.
 **Decision: HOLD.** `markov-v1` stays `status=candidate`. It is not
 promoted and it is **not** removed.
 
-- It does not beat any baseline. Against `elo-v1`, even with the realized
-  starter (hindsight it would not have), the CI is entirely below zero.
-- A log loss of ~0.691 is essentially `log(2)` — the model predicts close
-  to 50/50 for nearly every game. Feeding it the real starter moved it
-  0.6916 → 0.6912, i.e. not at all.
+- It loses to `elo-v1` and `log5-v2` on log loss, and roughly ties `gbm-v1`
+  (n=173). Against `elo-v1`, even with the realized starter (hindsight it
+  would not have), the paired-bootstrap CI is entirely below zero.
+- Its aggregate log loss (~0.691) is essentially `log(2)` — the value of a
+  flat 0.5 prediction — so on the whole its probabilities sit very close to
+  0.5 (a per-game reliability curve would confirm this; not run here).
+  Feeding it the real starter moved the aggregate 0.6916 → 0.6912.
 - No leakage review is triggered: the numbers are *below* the honest range,
   not suspiciously above it.
 
@@ -54,7 +64,7 @@ promoted and it is **not** removed.
    predictions exist, and the market comparison (issue #107).
 
 **Not in scope of this hold:** deleting `markov.py`. The state model, the
-absorbing-chain run-expectancy solve, the simulator, and the empirical-Bayes
+absorbing-chain run-expectancy solve, the simulator, and the empirical Bayes
 shrinkage are the foundation for the plate-appearance-level matchup model
 (`docs/RESEARCH.md` "hierarchical pitcher-batter matchup", ~1 win/162
 upside). That model is the next Layer-2 iteration, planned separately.

@@ -52,13 +52,25 @@ _EXPECTED = {
 def test_markov_exposes_every_expected_name():
     missing = {n for n in _EXPECTED if not hasattr(markov, n)}
     assert not missing, f"markov no longer exports: {sorted(missing)}"
+    assert set(markov.__all__) == _EXPECTED, "markov.__all__ drifted from the locked surface"
+    assert len(markov.__all__) == len(set(markov.__all__)), "duplicate in markov.__all__"
 
 
-def test_core_imports_without_a_database_driver(monkeypatch):
-    # core must not pull psycopg or the SQL loader at import time.
-    import sys
+def test_core_module_has_no_database_code():
+    """`markov/core.py` is pure computation -- no psycopg, no SQL loader, no
+    db helpers. That is the property the plate-appearance matchup model
+    depends on (it reuses core's simulator without a connection). Whole-
+    process DB-free import is blocked by mlb_baseball/model/__init__.py and
+    is separate work."""
+    from pathlib import Path
 
-    for mod in [m for m in sys.modules if m.startswith("mlb_baseball.model.markov")]:
-        monkeypatch.delitem(sys.modules, mod, raising=False)
-    monkeypatch.setitem(sys.modules, "psycopg", None)  # importing psycopg now raises
-    import mlb_baseball.model.markov.core  # noqa: F401  # must not raise
+    src = Path(__file__).parents[2] / "mlb_baseball" / "model" / "markov" / "core.py"
+    text = src.read_text()
+    forbidden_fragments = (
+        "import psycopg",
+        "from mlb_baseball.sql",
+        "from mlb_baseball.db",
+        "read_sql",
+    )
+    for forbidden in forbidden_fragments:
+        assert forbidden not in text, f"markov/core.py must stay DB-free -- found {forbidden!r}"

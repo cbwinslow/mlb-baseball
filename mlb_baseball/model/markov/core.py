@@ -1,4 +1,4 @@
-"""Base/out state Markov chain estimation from real play-by-play data (Plan 04D).
+"""Pure base/out Markov chain math and simulation (Plan 04D).
 
 Models each half-inning as a Markov chain over the 24 transient base/out
 states (8 base configurations x 3 out counts) plus one absorbing TERMINAL
@@ -6,19 +6,15 @@ state (3 outs, half-inning over -- base occupancy stops mattering once the
 inning ends, so every 3-outs row collapses into this single state
 regardless of what bases were occupied on it).
 
-The transition matrix is estimated directly from raw.retrosheet_event: one
-row already carries both its own pre-play state (outs_ct, base1/2/3_run_id)
-and everything needed to derive its post-play state (event_outs_ct,
-bat_dest_id, run1/2/3_dest_id) -- see mlb_baseball/sql/
-markov_transition_counts.sql's own docstring for the destination-code
-mapping, confirmed directly against real data, and why no sequential
-per-game walk is needed (unlike every other retrosheet_event consumer's
-rolling-window shape, this is a single aggregate GROUP BY over
-independently self-describing rows).
+Everything here operates on in-memory distributions and counts: building the
+transition matrix from transition-count rows, solving run expectancy,
+building and empirical-Bayes-shrinking outcome distributions, and simulating
+half-innings, games, and matchups. No database, no SQL -- so `core` can be
+imported and unit-tested without a connection, and the plate-appearance
+matchup model reuses its simulator as a library.
 
-Scope: Retrosheet-covered eras only (1910-2025), same honest gap every
-sibling retrosheet_event-only module documents (team_rate.py, starter.py) --
-no 2026+ raw.mlb_playbyplay equivalent exists here yet.
+Estimating those counts and distributions from raw.retrosheet_event /
+Statcast lives in `markov/estimate.py`.
 """
 
 from __future__ import annotations

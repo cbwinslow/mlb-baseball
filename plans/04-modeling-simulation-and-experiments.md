@@ -185,9 +185,11 @@ leakage. Publish disagreement and uncertainty as useful product signals.
 
 Publish internal model cards before public forecasts: matched-sample log loss,
 Brier, calibration, coverage, era/segment stability, market comparison, feature
-schema, artifact/data cutoff, and known missing-input behavior. A model that
-cannot beat transparent baselines or explain its coverage remains a research
-result, not a promoted forecast.
+schema, artifact/data cutoff, and known missing-input behavior. Whether a
+model that does not beat transparent baselines is promoted, held, or
+returned with gaps to close is a recorded promotion-review decision, not
+an automatic bar (ADR-274) — but it does not ship as a product claim
+until a review says it earns it.
 
 ## Acceptance gate
 

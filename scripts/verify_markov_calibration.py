@@ -116,6 +116,9 @@ def main() -> None:
     # library default, with no other sign of a degenerate distribution).
     # 60 leaves comfortable headroom without masking a genuinely
     # degenerate distribution, which would still raise well before that.
+    # (simulate_home_win_rate, the Monte Carlo path in sim_predict, runs
+    # far more trials still and defaults max_innings to 100 for the same
+    # order-statistics reason -- see its docstring.)
     game_rng = random.Random(args.seed)
     sim_games = [
         markov.simulate_game(distribution, game_rng, max_innings=60) for _ in range(len(real_games))

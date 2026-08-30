@@ -12,6 +12,7 @@ Historical backfill is a separate command later, not this function.
 from __future__ import annotations
 
 import hashlib
+import logging
 import random
 from datetime import date
 from decimal import Decimal
@@ -21,6 +22,8 @@ import psycopg
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
 from mlb_baseball.model import markov, provenance
+
+logger = logging.getLogger(__name__)
 
 MODEL_VERSION = "markov-v1"
 LOOKBACK_SEASONS = 2
@@ -190,6 +193,9 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
             "sim_games": n_games,
             "prior_pa": markov.MATCHUP_PRIOR_PA,
             "min_starter_pa": MIN_STARTER_PA,
+            # Recorded so a later change to the tie-breaking bound is visible
+            # in run provenance (it affects the win probabilities).
+            "max_innings": markov.SIM_MAX_INNINGS,
         },
     )
     data_cutoff, feature_snapshot_id = provenance.feature_snapshot(
@@ -212,6 +218,7 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
             )
             slate = cur.fetchall()
         inserted = 0
+        errored = 0
         league_cache: LeagueCache = {}
         predictions: list[tuple[object, ...]] = []
         for (
@@ -224,18 +231,39 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
             home_starter,
             away_starter,
         ) in slate:
-            rate = simulate_matchup(
-                conn,
-                mlb_game_pk=mlb_game_pk,
-                season=season,
-                game_date=game_date,
-                home_team=home_team,
-                away_team=away_team,
-                home_starter=home_starter,
-                away_starter=away_starter,
-                league_cache=league_cache,
-                n_games=n_games,
-            )
+            try:
+                rate = simulate_matchup(
+                    conn,
+                    mlb_game_pk=mlb_game_pk,
+                    season=season,
+                    game_date=game_date,
+                    home_team=home_team,
+                    away_team=away_team,
+                    home_starter=home_starter,
+                    away_starter=away_starter,
+                    league_cache=league_cache,
+                    n_games=n_games,
+                )
+            except markov.DegenerateSimulation as error:
+                # ONE matchup whose estimated distribution genuinely cannot
+                # break a tie (checked over the whole Monte Carlo sample, not
+                # a single unlucky trial -- see simulate_home_win_rate) must
+                # not cost the rest of the slate its markov-v1 rows, nor roll
+                # back log5/Elo/GBM, which share this run's one transaction
+                # (model/__init__.py). Skip-and-continue like the ``rate is
+                # None`` case below; the count feeds the run status and the
+                # health check so a systematic failure is still visible.
+                #
+                # A plain markov.MarkovError (e.g. "no observed outcomes for
+                # state") is NOT caught here -- that is a data-contract
+                # violation, not one bad matchup, and must fail the run loudly.
+                logger.warning(
+                    "markov-v1: skipping game %s -- degenerate distribution: %s",
+                    mlb_game_pk,
+                    error,
+                )
+                errored += 1
+                continue
             if rate is None:
                 continue
             predictions.append(
@@ -249,6 +277,15 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
                     data_cutoff,
                     feature_snapshot_id,
                 )
+            )
+        # Log the skip count BEFORE the insert -- if executemany raises (a
+        # constraint violation, say) the failure path still records how many
+        # matchups were degenerate, not just the insert error.
+        if errored:
+            logger.warning(
+                "markov-v1: %d of %d slate games skipped -- degenerate distribution",
+                errored,
+                len(slate),
             )
         if predictions:
             with conn.cursor() as cur:
@@ -285,10 +322,28 @@ def health_check() -> list[Check]:
         except psycopg.errors.UndefinedTable:
             conn.rollback()
             return [Check("markov-v1 upcoming", False, "gold tables missing")]
-    return [
-        Check(
-            "markov-v1 upcoming",
-            True,
-            f"{covered}/{upcoming} upcoming games have a {MODEL_VERSION} row",
+
+    detail = f"{covered}/{upcoming} upcoming games have a {MODEL_VERSION} row"
+    # Legitimate skips (no cutoff league prior, or a degenerate distribution)
+    # are rare in practice: the 2-season lookback always supplies a prior,
+    # so the real skip rate is low double digits at worst. The old code
+    # passed even at zero coverage (codex). Fail on the unambiguous
+    # systematic failures: nothing at all, or a shortfall past 15% of the
+    # slate; a smaller gap passes with the count shown so `mlb doctor`
+    # surfaces it.
+    shortfall = upcoming - covered
+    if upcoming == 0:
+        passed = True
+    elif covered == 0:
+        passed, detail = False, detail + " -- markov-v1 produced NOTHING for this slate"
+    elif shortfall > upcoming * 0.15:
+        passed = False
+        detail += (
+            f" -- {shortfall}/{upcoming} missing ({shortfall / upcoming:.0%}), "
+            "past the expected skip rate"
         )
-    ]
+    else:
+        passed = True
+        if shortfall:
+            detail += f" ({shortfall} skipped -- no prior / degenerate)"
+    return [Check("markov-v1 upcoming", passed, detail)]

@@ -31,6 +31,19 @@ After finishing a piece of work — writing code, or digging through data/docs �
 
 Before designing a bespoke solution to a cross-cutting infrastructure problem (test isolation, auth, migrations, CI orchestration, and similar), check whether a well-adopted library or pattern already solves it, and say what was found before proposing a hand-rolled alternative. Prefer the established tool unless there's a concrete, stated reason it doesn't fit — "we'd rather write it ourselves" is not that reason.
 
+## Don't propose a rewrite or optimization on a hunch
+
+A rewrite, a "let's vectorize this", a "this is probably slow" — none of these reach the owner without evidence first. Concretely:
+
+- **Measure before you propose.** A timing, a profile, an `EXPLAIN`, a row count, a check of whether the code path has even run in production. "Pure-Python Monte Carlo is slow" is a prior, not a measurement. If you haven't measured, say "I'd need to measure X first" instead of putting the rewrite on the table.
+- **A rewrite is the last option, not one of four.** List the cheap, local fixes first. A full rewrite goes on the list only once the smaller fixes are shown to be insufficient — and reason from what's actually broken, not from how the code looks.
+- **Quote rules, don't paraphrase them.** When you cite a project rule, doctrine, or ADR as a constraint, quote it verbatim with its file path. A remembered paraphrase ("70%+ is leakage") is how a soft guideline gets presented as a hard law.
+- **Separate observation from recommendation.** "What I found" and "what I'd do about it" are different sections. Don't let a vivid observation pull an oversized recommendation along with it.
+
+## Promotion is a review, not an automatic gate (ADR-274)
+
+A model or metric that doesn't beat its baselines is not automatically blocked — its held-out evidence goes to a recorded promotion review that decides promote / hold / return-with-gaps. An out-of-sample **game-winner** accuracy above ~58% (or a suspiciously low log loss on that target) triggers a **documented** leakage review — its finding written down, not just done — it is not itself proof of leakage. (The ~58% figure is the game-winner ceiling; other targets — props, plate-appearance outcomes, run totals — have their own honest ranges in `docs/RESEARCH.md`.) The anti-leakage doctrine below is unchanged; what's a review, not a hard block, is the promotion decision.
+
 ## ML modeling work
 
 Broad technique search is welcome — don't rule out ensembles, neural/attention models, or domain-engineered features. But every technique clears the same bar before it counts as a result: chronological (never random) folds, transparent baselines beaten first, and honest calibration/uncertainty reporting. See `docs/NORTH_STAR.md` and `plans/04-modeling-simulation-and-experiments.md`'s acceptance gate for the full contract; `docs/RESEARCH.md` documents this domain's known leakage failure modes and honest accuracy ceiling.

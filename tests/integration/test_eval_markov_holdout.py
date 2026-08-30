@@ -102,11 +102,12 @@ def test_completed_games_returns_the_holdout_season_row(db_conn):
 def test_markov_predictions_scores_the_game_and_pairs_with_elo(db_conn):
     _seed(db_conn)
     games = eval_markov_holdout._completed_games(db_conn, 2024, limit=0)
-    markov_rows, skipped = eval_markov_holdout._markov_predictions(
+    markov_rows, skipped, degenerate = eval_markov_holdout._markov_predictions(
         db_conn, games, 25, use_starters=False
     )
 
     assert skipped == 0
+    assert degenerate == 0
     assert len(markov_rows) == 1
     row = markov_rows[0]
     assert row.model_version == "markov-v1"
@@ -130,8 +131,40 @@ def test_markov_predictions_skips_when_no_cutoff_league_prior(db_conn):
         cur.execute("UPDATE gold.game_feature SET season = 2019, game_date = '2019-07-01'")
     db_conn.commit()
     games = eval_markov_holdout._completed_games(db_conn, 2019, limit=0)
-    markov_rows, skipped = eval_markov_holdout._markov_predictions(
+    markov_rows, skipped, degenerate = eval_markov_holdout._markov_predictions(
         db_conn, games, 25, use_starters=False
     )
     assert markov_rows == []
     assert skipped == 1
+    assert degenerate == 0
+
+
+def test_markov_predictions_excludes_a_degenerate_game_but_not_a_contract_error(
+    db_conn, monkeypatch
+):
+    """A DegenerateSimulation is counted separately and does not abort the
+    run; a plain MarkovError (contract violation) propagates."""
+    _seed(db_conn)
+    games = eval_markov_holdout._completed_games(db_conn, 2024, limit=0)
+
+    monkeypatch.setattr(
+        eval_markov_holdout.sim_predict,
+        "simulate_matchup",
+        lambda *a, **k: (_ for _ in ()).throw(
+            eval_markov_holdout.markov.DegenerateSimulation("never broke a tie")
+        ),
+    )
+    rows, skipped, degenerate = eval_markov_holdout._markov_predictions(
+        db_conn, games, 25, use_starters=False
+    )
+    assert rows == [] and skipped == 0 and degenerate == 1
+
+    monkeypatch.setattr(
+        eval_markov_holdout.sim_predict,
+        "simulate_matchup",
+        lambda *a, **k: (_ for _ in ()).throw(
+            eval_markov_holdout.markov.MarkovError("no observed outcomes for state")
+        ),
+    )
+    with pytest.raises(eval_markov_holdout.markov.MarkovError, match="no observed outcomes"):
+        eval_markov_holdout._markov_predictions(db_conn, games, 25, use_starters=False)

@@ -1,8 +1,15 @@
 # Plate-appearance matchup model — design
 
-**Status:** Design draft for owner review. Not an implementation plan yet.
-Follows `superpowers:brainstorming`. This is the next Layer-2 iteration after
-`markov-v1` was held (ADR-275).
+**Status:** Owner-reviewed 2026-08-30 (decisions recorded below). Next step:
+`superpowers:writing-plans` → implementation plan.
+
+**Relation to existing plans:** this is `plans/04D` ("estimate transition
+matrices and run expectancy **by context**; simulate plate appearances,
+innings, games") made concrete, plus the 2026-08-19 owner direction in
+`plans/04` about plate-appearance-level modelling. It is the near-term
+statistical version; the "eventual" PyTorch sequence/attention model in
+`plans/04` is a separate, later track. Grok built `markov-v1` (ADR-271/272);
+this is v2.
 
 ## Why this spec exists
 
@@ -185,10 +192,15 @@ fallback if A's accuracy plateaus below Elo.
   order (persisted across innings), drawing from that slot's PA distribution.
 - The 24-state base/out chain is unchanged; only the outcome draw per PA now
   depends on which batter is up.
-- Pitcher change modeling (starter → bullpen after ~N batters or ~M pitches):
-  **v2.0 = starter for the whole game** (documented simplification, same
-  spirit as ADR-272 not splitting `bat_home`). A bullpen-transition model is
-  a v2.1 refinement — `bullpen.py` already estimates bullpen rates.
+- Pitcher change modeling (owner decision: in v2.0). The starter is pulled
+  when a simulated game crosses a hook threshold — batters faced / pitches
+  (estimate ~3.8 pitches/PA) / times through the order / runs allowed —
+  fit against real 2023–2025 hook data (`raw.retrosheet_event` has the pitch
+  count and the pitcher of record per PA). After the hook, the lineup's PA
+  distributions are recomputed against the **opposing bullpen's** aggregate
+  rate line (`bullpen.py` already estimates these, with a fatigue signal).
+  A single bullpen "unit" rate in v2.0 — modeling individual relievers by
+  leverage is a v2.1 refinement.
 
 ### 5. Fallback when no lineup is posted
 
@@ -216,22 +228,32 @@ optionally re-run `predict` for that day's slate once lineups post.
 
 ## Build sequence (small PRs, each measured)
 
+0. **`markov/` package split** (ADR-275 follow-up) — pure `markov/core`
+   (state, RE solve, simulator, shrink — no I/O) vs `markov/estimate` (reads
+   the DB). Mechanical, no behaviour change, unblocks clean library
+   signatures for everything below. Own PR, done first.
 1. **C sanity check** — add `markov-v1` to `stack.py` inputs, re-run its
    holdout, record the (expected null) result. ~half a day.
-2. **Lineup ingestion** — `raw.mlb_lineup`, near-game poll, `DATA_SOURCES.md`,
-   health check, idempotency test. Independent of the model.
-3. **`batter.py`** — per-batter rolling rates + `mlb doctor` reconcile.
-   Independent; useful on its own.
-4. **`pa_outcome.py`** — the multinomial `log5` blend + park. Standalone
-   calibration eval (step 6 first bullet) is the acceptance gate for this PR.
-5. **`simulate_game_with_lineups`** + the outcome→transition mapping, with
-   its own unit tests (walk-offs, extras, order persistence across innings).
-6. **`markov-v2` writer** in `sim_predict` + the fallback tiers + provenance.
-7. **Holdout + promotion review.** If it beats Elo → ADR-27x promotion.
-   If not → ADR-27x return-with-gaps, and consider Approach B.
+2. **Lineup ingestion** — `raw.mlb_lineup`, hourly poll (`0 * * * *`) +
+   scoped `predict` re-run, `DATA_SOURCES.md`, health check, idempotency
+   test. Independent of the model.
+3. **`batter.py` + `gold.batter_rate`** — per-batter rolling rates, matview,
+   `mlb doctor` reconcile against `raw.bref_batting`. Independent; useful on
+   its own (this is a `baseballr`-style public lookup).
+4. **`pa_outcome.py`** — the multinomial `log5` blend + park. Its standalone
+   calibration eval (reliability + per-outcome Brier on a held-out season)
+   is the acceptance gate for this PR — no game composition yet.
+5. **hook model** — when is the starter pulled? Fit batters-faced / pitch-
+   count / TTO / runs thresholds on 2023–2025 real hook data. Own small PR.
+6. **`simulate_game_with_lineups`** — steps the batting order across innings,
+   applies the hook (→ bullpen rate line), unit-tested (walk-offs, extras,
+   order persistence, mid-game pitcher switch).
+7. **`markov-v2` writer** in `sim_predict` + the fallback tiers + provenance.
+8. **Holdout + promotion review.** Beats Elo → ADR-27x promotion, retire the
+   v1 writer. Doesn't → ADR-27x return-with-gaps, consider Approach B.
 
-Steps 2 and 3 are safe to start in parallel and are independently valuable.
-Steps 4–7 are the model and are sequential.
+Steps 2 and 3 are safe to start in parallel with 0/1 and are independently
+valuable. Steps 4–8 are the model and are sequential.
 
 ## Risks
 
@@ -251,14 +273,42 @@ Steps 4–7 are the model and are sequential.
   needs `raw.mlb_playbyplay` parsed to the same shape (ADR-034 known gap).
   Step 4 has to handle both or the 2026 holdout is thin.
 
-## Open questions for the owner
+## Owner decisions (2026-08-30)
 
-1. `markov-v2` as a new model version, or replace `markov-v1` in place?
-   (`markov-v1` has 387 predictions, all from 2026-08-30 — nothing to
-   preserve, so replacing is clean.)
-2. Per-batter rates: a materialized `gold.batter_rate` table, or computed
-   inline in the matchup SQL each run? (Table = faster daily, another thing
-   to keep fresh; inline = simpler, slower.)
-3. Bullpen transition in v2.0, or explicitly deferred to v2.1?
-4. Is the near-game lineup poll worth adding to the 5-minute cron, or a
-   separate hourly job?
+1. **`markov-v2` is a new model version.** `markov-v1` keeps writing during
+   the build. Once `markov-v2` is validated and strictly supersedes v1
+   (everything v1 does, plus more, and it beats v1 on the holdout), the v1
+   writer is retired — the ADR-274 review that promotes v2 records that.
+2. **Materialized.** `gold.batter_rate` (or a matview) keyed
+   `(player_id, as_of_date, vs_hand)`, refreshed in the daily path like the
+   other `gold` enrichments. Faster daily runs; the holdout can point at a
+   historical snapshot.
+3. **Model bullpen changes in v2.0.** A starter is pulled after a
+   pitch/batter/inning threshold (tuned on real hook data) and the lineup's
+   PA distributions switch to the opposing bullpen's rates (`bullpen.py`
+   already estimates these). Not deferred.
+4. **Lineup poll: separate hourly job** (`scripts/mlb_lineups_update.sh`,
+   `0 * * * *`), not the 5-minute cron — lineups change on the scale of
+   hours, and the 5-minute `mlb_api_update` is already the tightest loop on
+   the box. The hourly job also triggers a scoped `mlb predict --slate today`
+   re-run so served `markov-v2` rows upgrade from the fallback tier to the
+   real lineup once it posts.
+
+## On reusability ("think like `baseballr`")
+
+Every piece below is built as a **library function with a clean signature and
+no hidden coupling**, usable standalone by someone who just wants, say, a
+batter's point-in-time K% or a park-adjusted PA distribution — not only by
+the daily pipeline:
+
+- `batter.rates(conn, player_id, as_of, vs_hand) -> RateLine` — pure lookup.
+- `pa_outcome.estimate(conn, *, batter_id, pitcher_id, park, hands, before)
+  -> PaDistribution` — the log5 blend, no pipeline state.
+- `markov.simulate_game_with_lineups(...)` — takes distributions, returns a
+  `GameResult`; knows nothing about `gold.game_feature`.
+- `sim_predict` is the only piece that knows about the schema and the daily
+  slate; it composes the library pieces.
+
+This matches the split `markov.py` should already have (ADR-275 follow-up:
+pure `markov/core` vs `markov/estimate` that reads the DB). The matchup work
+is a good forcing function to do that split.

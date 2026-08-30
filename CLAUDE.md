@@ -42,7 +42,7 @@ A rewrite, a "let's vectorize this", a "this is probably slow" — none of these
 
 ## Promotion is a review, not an automatic gate (ADR-274)
 
-A model or metric that doesn't beat its baselines is not automatically blocked — its held-out evidence goes to a recorded promotion review that decides promote / hold / return-with-gaps. An out-of-sample accuracy above ~58% (or a suspiciously low log loss) triggers a leakage review, it is not itself proof of leakage. The anti-leakage doctrine below is unchanged; what's a review, not a hard block, is the promotion decision.
+A model or metric that doesn't beat its baselines is not automatically blocked — its held-out evidence goes to a recorded promotion review that decides promote / hold / return-with-gaps. An out-of-sample **game-winner** accuracy above ~58% (or a suspiciously low log loss on that target) triggers a **documented** leakage review — its finding written down, not just done — it is not itself proof of leakage. (The ~58% figure is the game-winner ceiling; other targets — props, plate-appearance outcomes, run totals — have their own honest ranges in `docs/RESEARCH.md`.) The anti-leakage doctrine below is unchanged; what's a review, not a hard block, is the promotion decision.
 
 ## ML modeling work
 

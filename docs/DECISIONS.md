@@ -31,9 +31,11 @@ evidence and records the call.
 2. **Promotion gates are review gates.** A candidate that does not beat
    its baselines is not automatically barred from promotion. The
    evidence — held-out proper scores, calibration, coverage, CI — goes
-   to a promotion review that records an explicit decision (promote /
-   hold as candidate / reject) with its reasoning, the same
-   Decision / Declined / Revisit-if shape these ADRs already use.
+   to a promotion review that records an explicit decision with its
+   reasoning. The three outcomes are **promote**, **hold** (stays
+   `candidate`), and **return-with-gaps** (specific fixes named before it
+   comes back) — the same Decision / Declined / Revisit-if shape these
+   ADRs already use.
 
 3. **Unchanged and non-negotiable:** the anti-leakage doctrine itself —
    chronological (never random) folds, transparent baselines computed
@@ -45,8 +47,8 @@ evidence and records the call.
 **markov-v1 specifically:** the holdout eval
 (`scripts/eval_markov_holdout.py`) is still the instrument; `markov-v1`
 stays `status=candidate` until that eval is run and reviewed. What
-changes is the outcome space — a review can promote, hold, or return it
-with gaps to close.
+changes is the outcome space — a review can **promote**, **hold**, or
+**return-with-gaps**.
 
 **Verification:** doc-only. `docs/PRODUCT_DIRECTION.md`, `docs/RESEARCH.md`,
 `docs/DECISIONS.md` (ADR-272 note), `plans/04-modeling-simulation-and-experiments.md`,

@@ -193,6 +193,9 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
             "sim_games": n_games,
             "prior_pa": markov.MATCHUP_PRIOR_PA,
             "min_starter_pa": MIN_STARTER_PA,
+            # Recorded so a later change to the tie-breaking bound is visible
+            # in run provenance (it affects the win probabilities).
+            "max_innings": markov.SIM_MAX_INNINGS,
         },
     )
     data_cutoff, feature_snapshot_id = provenance.feature_snapshot(
@@ -241,18 +244,23 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
                     league_cache=league_cache,
                     n_games=n_games,
                 )
-            except markov.MarkovError as error:
-                # One un-simulatable matchup (a degenerate estimated
-                # distribution -- e.g. a state with no observed outcomes,
-                # or a tie no sampled path can break within 100 innings)
-                # must not cost the rest of the slate its markov-v1 rows,
-                # nor roll back log5/Elo/GBM, which share this run's one
-                # transaction (model/__init__.py). Same skip-and-continue
-                # shape as the ``rate is None`` (no cutoff prior) case
-                # just below -- logged with the game pk so a systematic
-                # failure is still visible, not swallowed.
+            except markov.DegenerateSimulation as error:
+                # ONE matchup whose estimated distribution genuinely cannot
+                # break a tie (checked over the whole Monte Carlo sample, not
+                # a single unlucky trial -- see simulate_home_win_rate) must
+                # not cost the rest of the slate its markov-v1 rows, nor roll
+                # back log5/Elo/GBM, which share this run's one transaction
+                # (model/__init__.py). Skip-and-continue like the ``rate is
+                # None`` case below; the count feeds the run status and the
+                # health check so a systematic failure is still visible.
+                #
+                # A plain markov.MarkovError (e.g. "no observed outcomes for
+                # state") is NOT caught here -- that is a data-contract
+                # violation, not one bad matchup, and must fail the run loudly.
                 logger.warning(
-                    "markov-v1: skipping game %s -- simulation failed: %s", mlb_game_pk, error
+                    "markov-v1: skipping game %s -- degenerate distribution: %s",
+                    mlb_game_pk,
+                    error,
                 )
                 errored += 1
                 continue
@@ -270,6 +278,15 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
                     feature_snapshot_id,
                 )
             )
+        # Log the skip count BEFORE the insert -- if executemany raises (a
+        # constraint violation, say) the failure path still records how many
+        # matchups were degenerate, not just the insert error.
+        if errored:
+            logger.warning(
+                "markov-v1: %d of %d slate games skipped -- degenerate distribution",
+                errored,
+                len(slate),
+            )
         if predictions:
             with conn.cursor() as cur:
                 cur.executemany(
@@ -280,12 +297,6 @@ def predict(conn: psycopg.Connection, *, n_games: int = SIM_GAMES) -> int:
                     predictions,
                 )
             inserted = len(predictions)
-        if errored:
-            logger.warning(
-                "markov-v1: %d of %d slate games skipped after a simulation failure",
-                errored,
-                len(slate),
-            )
         provenance.finish_run(conn, run_id)
         return inserted
     except Exception as error:
@@ -311,10 +322,20 @@ def health_check() -> list[Check]:
         except psycopg.errors.UndefinedTable:
             conn.rollback()
             return [Check("markov-v1 upcoming", False, "gold tables missing")]
-    return [
-        Check(
-            "markov-v1 upcoming",
-            True,
-            f"{covered}/{upcoming} upcoming games have a {MODEL_VERSION} row",
-        )
-    ]
+
+    detail = f"{covered}/{upcoming} upcoming games have a {MODEL_VERSION} row"
+    # A shortfall is expected in small numbers -- a matchup with no cutoff
+    # league prior, or a genuinely degenerate distribution, is skipped by
+    # design. But zero rows with games to predict, or a large gap, means a
+    # systematic estimator failure that the old unconditional pass hid.
+    if upcoming == 0:
+        passed = True
+    elif covered == 0:
+        passed = False
+        detail += " -- markov-v1 produced NOTHING for this slate"
+    elif covered < upcoming * 0.9:
+        passed = False
+        detail += f" -- {upcoming - covered} missing, past the expected skip rate"
+    else:
+        passed = True
+    return [Check("markov-v1 upcoming", passed, detail)]

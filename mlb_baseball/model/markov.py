@@ -47,6 +47,20 @@ _BATTER_ARSENAL_SQL = read_sql("batter_arsenal_select.sql")
 # over the league prior. Used as M in the Layer-2 matchup shrink.
 MATCHUP_PRIOR_PA = 350
 
+# simulate_home_win_rate: fraction of Monte Carlo trials that may stay tied
+# at max_innings before the estimated distribution is declared degenerate.
+# ~10% of simulated games reach extras (ADR-079) and the estimated
+# distribution's extras run long (no automatic-runner rule); a genuinely
+# tie-breakable distribution resolves essentially all of those. 1% failing
+# is already well beyond sampling luck.
+_UNRESOLVED_TRIAL_LIMIT = 0.01
+
+# Per-trial inning cap for the win-rate Monte Carlo. Was 30 (ADR-078), which
+# a valid but low-scoring distribution could hit by sampling luck; 100 is
+# comfortably past that while still bounding a truly stuck distribution.
+# Recorded in sim_predict's model parameters since it shifts the estimate.
+SIM_MAX_INNINGS = 100
+
 
 @dataclass(frozen=True)
 class BaseOutState:
@@ -77,6 +91,15 @@ TRANSIENT_STATES: tuple[BaseOutState, ...] = tuple(
 
 class MarkovError(ValueError):
     """A base/out transition dataset failed a physical or probability invariant."""
+
+
+class DegenerateSimulation(MarkovError):
+    """A simulated game could not be resolved: the estimated distribution has
+    no positive-probability path that breaks a tie. A subclass of
+    :class:`MarkovError` (so existing ``except MarkovError`` still catches it),
+    but distinct so a caller can tell "this one matchup's distribution is
+    degenerate -- skip it" apart from a genuine data-contract violation like
+    "no observed outcomes for state" that must not be swallowed."""
 
 
 @dataclass(frozen=True)
@@ -661,10 +684,12 @@ def simulate_game(
     real, non-degenerate estimated distribution, but not for a narrow or
     degenerate one (e.g. a distribution with zero probability of ever
     breaking a tie). `max_innings` (default 30 -- MLB's longest games on
-    record run to 25-26 innings) is a defensive bound raising MarkovError
-    if exceeded, rather than hanging forever, matching
-    `simulate_half_inning`'s own "fail loudly, don't hang" contract for a
-    dead-end state. Must be strictly greater than `regulation_innings` --
+    record run to 25-26 innings; :func:`simulate_home_win_rate` overrides
+    it to :data:`SIM_MAX_INNINGS` for its Monte Carlo) is a defensive
+    bound raising :class:`DegenerateSimulation` if exceeded, rather than
+    hanging forever, matching `simulate_half_inning`'s own "fail loudly,
+    don't hang" contract for a dead-end state. Must be strictly greater
+    than `regulation_innings` --
     equal would leave no room for even one extra inning, so any tied
     regulation game would immediately hit this guard instead of ever
     getting a chance to resolve."""
@@ -682,9 +707,8 @@ def simulate_game(
     while True:
         inning += 1
         if inning > max_innings:
-            raise MarkovError(
-                f"game still tied after {max_innings} innings -- the distribution may be "
-                "degenerate (no path to a run that breaks the tie), refusing to loop forever"
+            raise DegenerateSimulation(
+                f"game still tied after {max_innings} innings -- no sampled path broke the tie"
             )
         away_runs += simulate_half_inning(distribution, rng)
         if inning >= regulation_innings and home_runs > away_runs:
@@ -707,7 +731,7 @@ def simulate_home_win_rate(
     rng: random.Random,
     n_games: int,
     regulation_innings: int = 9,
-    max_innings: int = 100,
+    max_innings: int = SIM_MAX_INNINGS,
 ) -> float:
     """Fraction of simulated games the home side wins.
 
@@ -717,34 +741,43 @@ def simulate_home_win_rate(
     ``simulate_game`` (extra innings continue until a winner), so the
     rate is wins / n_games with no push handling.
 
-    ``max_innings`` defaults to 100 here, not :func:`simulate_game`'s own
-    30. This is a Monte Carlo loop: a real slate runs ``n_games`` (5000)
-    trials per matchup times ~15 matchups a day, and the estimated
-    outcome distribution has no automatic-runner-on-second rule, so its
-    extra innings run longer than the modern game (ADR-079: ~10% of
-    simulated games reach extras vs ~8.5% real). Across millions of
-    trials a handful will stay tied deep into extras purely by sampling
-    luck -- ``verify_markov_calibration.py`` already saw one reach 31
-    innings in ~2,400 single-game trials. A ``MarkovError`` from that one
-    game would abort the whole caller (``sim_predict.predict`` runs
-    inside one transaction with log5/Elo/GBM). 100 innings is high enough
-    that reaching it means the distribution genuinely cannot break a tie
-    -- a real defect worth failing on -- not an unlucky-but-finite game.
+    A single trial that is still tied at ``max_innings`` is *not* proof the
+    distribution is degenerate: a valid low-scoring distribution with a
+    positive tie-breaking path can still, by sampling luck, stay tied for
+    100 innings (the estimated distribution has no automatic-runner rule, so
+    its extras run longer than the modern game -- ADR-079). Such a trial is
+    dropped and the rate is taken over the games that *did* resolve. Only
+    when an implausible fraction of trials fail to resolve
+    (``_UNRESOLVED_TRIAL_LIMIT``) is the distribution declared degenerate and
+    :class:`DegenerateSimulation` raised -- at which point the caller
+    (``sim_predict.predict``) skips just that one matchup, keeping the rest
+    of the slate and log5/Elo/GBM (same transaction).
     """
     if n_games < 1:
         raise MarkovError(f"n_games must be positive, got {n_games}")
     wins = 0
+    unresolved = 0
     for _ in range(n_games):
-        result = simulate_game(
-            away_distribution,
-            rng,
-            regulation_innings=regulation_innings,
-            max_innings=max_innings,
-            home_distribution=home_distribution,
-        )
+        try:
+            result = simulate_game(
+                away_distribution,
+                rng,
+                regulation_innings=regulation_innings,
+                max_innings=max_innings,
+                home_distribution=home_distribution,
+            )
+        except DegenerateSimulation:
+            unresolved += 1
+            continue
         if result.home_runs > result.away_runs:
             wins += 1
-    return wins / n_games
+    resolved = n_games - unresolved
+    if resolved == 0 or unresolved > n_games * _UNRESOLVED_TRIAL_LIMIT:
+        raise DegenerateSimulation(
+            f"{unresolved}/{n_games} simulated games never broke a tie within "
+            f"{max_innings} innings -- the estimated distribution is degenerate"
+        )
+    return wins / resolved
 
 
 def real_half_inning_runs(conn: psycopg.Connection, seasons: Sequence[int]) -> list[int]:

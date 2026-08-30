@@ -79,11 +79,13 @@ batch is the wiring backlog.
 ## The prediction ladder (do this, not a bigger feature soup)
 
 Honest MLB game-winner ceiling is about 55–58%. Home teams already win
-~53%. An out-of-sample result above ~58% (or a suspiciously low log
-loss) is a **red flag that triggers a leakage review** — chronological
-folds, feature cutoffs, the `RESEARCH.md` failure modes — before the
-number is trusted or promoted. It is not, on its own, proof of leakage,
-and it does not automatically block the work (ADR-274).
+~53%. An out-of-sample game-winner result above ~58% (or a suspiciously
+low log loss) is a **red flag that triggers a documented leakage
+review** — chronological folds, feature cutoffs, the `RESEARCH.md`
+failure modes — whose finding is written down (an ADR entry or the
+promotion-review record) before the number is trusted or promoted. It
+is not, on its own, proof of leakage, and it does not automatically
+block the work (ADR-274).
 
 | Layer | Predicts | Owner today | Next |
 |---|---|---|---|

@@ -88,16 +88,21 @@ def _markov_predictions(
     sim_games: int,
     *,
     use_starters: bool,
-) -> tuple[list[Prediction], int]:
-    """Recompute markov-v1 for each completed game. Returns the
-    predictions plus a count of games skipped -- either for want of a
-    cutoff league prior (too-early a season) or because the estimated
-    distribution could not be simulated (a degenerate matchup). A
-    multi-hour run must not die on the last game because one matchup
-    hit a MarkovError."""
+) -> tuple[list[Prediction], int, int]:
+    """Recompute markov-v1 for each completed game. Returns the predictions,
+    a count of games skipped for want of a cutoff league prior (too-early a
+    season), and a count of games EXCLUDED because their estimated
+    distribution was degenerate (:class:`markov.DegenerateSimulation`).
+
+    The two counts are kept apart on purpose: "no cutoff prior" is a data
+    gap, a degenerate distribution is a model failure -- ``main()`` reports
+    each with the right cause, and a nonzero degenerate count blocks
+    promotion. A plain ``markov.MarkovError`` (a data-contract violation) is
+    NOT caught -- it aborts the run loudly."""
     league_cache: sim_predict.LeagueCache = {}
     rows: list[Prediction] = []
     skipped = 0
+    degenerate = 0
     started = time.monotonic()
     for done, game in enumerate(games, start=1):
         pk, gik, seas, gdate, home_t, away_t, home_sp, away_sp, home_win = game
@@ -114,9 +119,13 @@ def _markov_predictions(
                 league_cache=league_cache,
                 n_games=sim_games,
             )
-        except markov.MarkovError as error:
-            print(f"  ... game {pk} skipped -- simulation failed: {error}", flush=True)
-            skipped += 1
+        except markov.DegenerateSimulation as error:
+            degenerate += 1
+            if degenerate <= 5:
+                print(
+                    f'  degenerate_game key={gik} pk={pk} date={gdate} reason="{error}"',
+                    flush=True,
+                )
             continue
         if prob is None:
             skipped += 1
@@ -132,7 +141,7 @@ def _markov_predictions(
         if done % 200 == 0:
             rate = done / (time.monotonic() - started)
             print(f"  ... {done}/{len(games)} games ({rate:.1f}/s)", flush=True)
-    return rows, skipped
+    return rows, skipped, degenerate
 
 
 def _per_game_losses(rows: Sequence[Prediction]) -> list[float]:
@@ -284,13 +293,16 @@ def main() -> None:
         )
 
         print("recomputing markov-v1 (starters unknown) ...", flush=True)
-        no_starter_rows, skipped = _markov_predictions(
+        no_starter_rows, skipped, degenerate = _markov_predictions(
             conn, games, args.sim_games, use_starters=False
         )
         starter_rows: list[Prediction] = []
+        starter_skipped = starter_degenerate = 0
         if args.use_realized_starters:
             print("recomputing markov-v1 (realized starters; hindsight) ...", flush=True)
-            starter_rows, _ = _markov_predictions(conn, games, args.sim_games, use_starters=True)
+            starter_rows, starter_skipped, starter_degenerate = _markov_predictions(
+                conn, games, args.sim_games, use_starters=True
+            )
 
         stored_by_version = {
             version: _selected_predictions(conn, [version], args.season, args.cutoff)
@@ -298,15 +310,39 @@ def main() -> None:
         }
 
     if not no_starter_rows:
-        raise SystemExit(
-            "markov-v1 produced no predictions -- Retrosheet has no cutoff league "
-            f"prior for season {args.season} ({skipped} skipped)"
+        if degenerate and not skipped:
+            cause = (
+                f"every game markov-v1 attempted produced a degenerate distribution "
+                f"({degenerate} of {len(games)}) -- a model failure, not missing data"
+            )
+        else:
+            cause = (
+                f"Retrosheet has no cutoff league prior for season {args.season} "
+                f"({skipped} skipped, {degenerate} degenerate)"
+            )
+        raise SystemExit(f"markov-v1 produced no scorable predictions -- {cause}")
+
+    print(
+        f"\n{len(no_starter_rows)} scored; {skipped} skipped (no cutoff league prior); "
+        f"{degenerate} EXCLUDED as degenerate "
+        f"(model failure -- {degenerate / len(games):.1%} of the season)"
+    )
+    if degenerate:
+        print(
+            "  NOTE: a nonzero degenerate count means markov-v1 is not promotable "
+            "until fixed; the numbers below cover only the games it could resolve."
         )
-    print(f"\n{skipped} games skipped for want of a cutoff league prior")
 
     _report("starters unknown (deployed-system analog)", no_starter_rows, stored_by_version)
-    if starter_rows:
-        _report("realized starters (optimistic upper bound)", starter_rows, stored_by_version)
+    if args.use_realized_starters:
+        print(
+            f"\nrealized-starters run: {len(starter_rows)} scored, "
+            f"{starter_skipped} skipped, {starter_degenerate} degenerate"
+        )
+        if starter_rows:
+            _report("realized starters (optimistic upper bound)", starter_rows, stored_by_version)
+        else:
+            print("  (no scorable realized-starter predictions -- report omitted)")
 
     print()
     print(

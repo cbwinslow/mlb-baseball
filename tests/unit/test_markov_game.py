@@ -2,13 +2,16 @@ import random
 
 import pytest
 
+from mlb_baseball.model import markov
 from mlb_baseball.model.markov import (
     TERMINAL,
     BaseOutState,
+    DegenerateSimulation,
     GameResult,
     MarkovError,
     Outcome,
     simulate_game,
+    simulate_home_win_rate,
 )
 
 EMPTY_ZERO = BaseOutState(0, False, False, False)
@@ -178,7 +181,7 @@ def test_simulate_game_raises_rather_than_hang_forever_on_a_perpetual_tie():
     # validation, which a too-close pair of defaults would trigger instead
     # without ever exercising the code path this test is named for.
     distribution = {EMPTY_ZERO: {Outcome(TERMINAL, 0): 1.0}}
-    with pytest.raises(MarkovError, match="still tied"):
+    with pytest.raises(DegenerateSimulation, match="still tied"):
         simulate_game(distribution, random.Random(0), regulation_innings=1, max_innings=2)
 
 
@@ -247,3 +250,34 @@ def test_simulate_game_uses_the_shared_distribution_for_home_when_not_given():
     script = _ScriptedRandom([Outcome(TERMINAL, 0), Outcome(TERMINAL, 1)])
     result = simulate_game(distribution, script, regulation_innings=1)
     assert result == GameResult(away_runs=0, home_runs=1, innings=1)
+
+
+def test_simulate_home_win_rate_drops_a_few_unresolved_trials_instead_of_aborting(monkeypatch):
+    # One unlucky trial that never breaks a tie must not sink the whole
+    # matchup estimate -- the rate is taken over the trials that resolved.
+    calls = {"n": 0}
+    real = markov.simulate_game
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 3:  # exactly one of 100 trials
+            raise DegenerateSimulation("game still tied")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(markov, "simulate_game", flaky)
+    dist = {EMPTY_ZERO: {Outcome(TERMINAL, 0): 0.5, Outcome(TERMINAL, 1): 0.5}}
+    rate = simulate_home_win_rate(dist, dist, random.Random(1), n_games=100)
+    assert 0.0 <= rate <= 1.0  # computed, not raised
+
+
+def test_simulate_home_win_rate_raises_when_too_many_trials_never_resolve(monkeypatch):
+    # A distribution where an implausible fraction of trials stay tied is
+    # genuinely degenerate -- raise DegenerateSimulation so the caller
+    # skips just this matchup.
+    def always_tied(*_args, **_kwargs):
+        raise DegenerateSimulation("game still tied")
+
+    monkeypatch.setattr(markov, "simulate_game", always_tied)
+    dist = {EMPTY_ZERO: {Outcome(TERMINAL, 0): 1.0}}
+    with pytest.raises(DegenerateSimulation, match="degenerate"):
+        simulate_home_win_rate(dist, dist, random.Random(1), n_games=100)

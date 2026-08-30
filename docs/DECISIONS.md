@@ -47,8 +47,9 @@ run time. A separate issue, not fixed here.
 **Decision:** `mlb_baseball/model/markov.py` is now `mlb_baseball/model/markov/`:
 `core.py` (pure computation — state model, run-expectancy solve, outcome
 distributions, empirical Bayes shrink, simulators) and `estimate.py` (the
-11 functions that read `raw.retrosheet_event` / Statcast + their SQL). The
-public surface is unchanged — `markov/__init__.py` re-exports every name.
+functions that read `raw.retrosheet_event` / Statcast + their SQL; 9 are
+re-exported, the rest are private helpers). The public surface is unchanged
+— `markov/__init__.py` re-exports every name.
 
 **Context:** ADR-275's "the matchup work is a good forcing function to do
 that split." The plate-appearance matchup model (spec
@@ -61,7 +62,7 @@ suite unchanged. `git log --follow` still works (`git mv`).
 
 **Revisit if:** a fully DB-driver-free import of `markov.core` is wanted —
 that additionally needs `mlb_baseball/model/__init__.py` slimmed (it eagerly
-imports psycopg), tracked as a separate issue.
+imports psycopg), tracked as issue #111.
 
 ## ADR-275: markov-v1 promotion review — HOLD (return-with-gaps)
 

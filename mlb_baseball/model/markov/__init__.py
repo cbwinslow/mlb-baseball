@@ -5,7 +5,7 @@ follow-up) puts every database read in `estimate.py` and every pure
 computation in `core.py`, so `core` can be imported and unit-tested without
 touching SQL. (A fully DB-driver-free import of the whole process is a
 separate concern -- `mlb_baseball/model/__init__.py` eagerly imports psycopg;
-see issue.) The public surface is unchanged -- every name that was `markov.X`
+see issue #111.) The public surface is unchanged -- every name that was `markov.X`
 is re-exported here.
 """
 

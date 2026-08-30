@@ -8,15 +8,17 @@ each completed plan gate.
 Split `mlb_baseball/model/markov.py` (1,150 lines) into `markov/core.py`
 (pure: state model, RE solve, simulators, shrink) and `markov/estimate.py`
 (11 conn-taking functions + 6 SQL constants). `markov/__init__.py`
-re-exports the full 37-name surface (the 9 DB estimators via a lazy PEP 562
-`__getattr__`) — no caller changed. New
-`tests/unit/test_markov_public_surface.py` locks the surface and proves
-`core` imports with `psycopg` absent.
+eagerly re-exports the full 37-name surface (28 from `core`, 9 DB
+estimators from `estimate`) — no caller changed. New
+`tests/unit/test_markov_public_surface.py` locks the surface and asserts
+`markov/core.py` source carries no database code (`import psycopg`,
+`read_sql`, `mlb_baseball.db`/`.sql`). A truly driver-free `core` import
+also needs `mlb_baseball/model/__init__.py` to stop eagerly importing
+psycopg — tracked as issue #111 / ADR-276 "Revisit if".
 
-Commits `24dc17a..9c129a7` on `refactor/markov-package`. Zero behaviour
-change; prereq for the plate-appearance matchup model's clean library
-signatures (`docs/superpowers/specs/2026-08-30-matchup-model-design.md`
-step 0).
+On `refactor/markov-package` (PR #110). Zero behaviour change; prereq for
+the plate-appearance matchup model's clean library signatures
+(`docs/superpowers/specs/2026-08-30-matchup-model-design.md` step 0).
 
 Verification: `test_markov_*` unit suite + `test_model_markov`,
 `test_model_sim_predict`, `test_model_run_expectancy`,

@@ -324,20 +324,26 @@ def health_check() -> list[Check]:
             return [Check("markov-v1 upcoming", False, "gold tables missing")]
 
     detail = f"{covered}/{upcoming} upcoming games have a {MODEL_VERSION} row"
-    # A shortfall is expected in small numbers -- a matchup with no cutoff
-    # league prior, or a genuinely degenerate distribution, is skipped by
-    # design, and that legitimate skip rate varies with the calendar. Only
-    # the unambiguous systematic failures fail this check: nothing produced
-    # at all, or more than half the slate missing. (The old code returned a
-    # pass even at zero coverage -- codex.)
-    if upcoming == 0 or covered >= upcoming * 0.5:
+    # Legitimate skips (no cutoff league prior, or a degenerate distribution)
+    # are rare in practice: the 2-season lookback always supplies a prior,
+    # so the real skip rate is low double digits at worst. The old code
+    # passed even at zero coverage (codex). Fail on the unambiguous
+    # systematic failures: nothing at all, or a shortfall past 15% of the
+    # slate; a smaller gap passes with the count shown so `mlb doctor`
+    # surfaces it.
+    shortfall = upcoming - covered
+    if upcoming == 0:
         passed = True
-        if 0 < covered < upcoming:
-            detail += f" ({upcoming - covered} skipped -- no prior / degenerate)"
     elif covered == 0:
+        passed, detail = False, detail + " -- markov-v1 produced NOTHING for this slate"
+    elif shortfall > upcoming * 0.15:
         passed = False
-        detail += " -- markov-v1 produced NOTHING for this slate"
+        detail += (
+            f" -- {shortfall}/{upcoming} missing ({shortfall / upcoming:.0%}), "
+            "past the expected skip rate"
+        )
     else:
-        passed = False
-        detail += f" -- {upcoming - covered} of {upcoming} missing, a systematic failure"
+        passed = True
+        if shortfall:
+            detail += f" ({shortfall} skipped -- no prior / degenerate)"
     return [Check("markov-v1 upcoming", passed, detail)]

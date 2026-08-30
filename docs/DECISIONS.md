@@ -9,9 +9,10 @@ prediction ladder). 2026-08-30. Holdout season 2026 (2,026 completed games —
 the only season with stored baseline predictions; 2024 has none, so a
 multi-year holdout is not possible until prediction history accumulates).
 
-Reproduce:
+Reproduce (this one run prints **both** tables below — the default
+starters-unknown pass plus the `--use-realized-starters` pass):
 
-```
+```sh
 uv sync --frozen
 DATABASE_URL=postgresql:///mlb uv run python scripts/eval_markov_holdout.py \
     --season 2026 --sim-games 2000 --use-realized-starters

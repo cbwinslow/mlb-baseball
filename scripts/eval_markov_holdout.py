@@ -48,7 +48,7 @@ from collections.abc import Sequence
 
 import psycopg
 
-from mlb_baseball.model import sim_predict
+from mlb_baseball.model import markov, sim_predict
 from mlb_baseball.model.evaluation import (
     MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT,
     Prediction,
@@ -88,28 +88,40 @@ def _markov_predictions(
     sim_games: int,
     *,
     use_starters: bool,
-) -> tuple[list[Prediction], int]:
+) -> tuple[list[Prediction], int, int]:
     """Recompute markov-v1 for each completed game. Returns the
-    predictions plus a count of games skipped for want of a cutoff
-    league prior (too-early a season)."""
+    predictions, a count of games skipped for want of a cutoff league
+    prior (too-early a season), and a count of games whose recomputed
+    outcome distribution was degenerate (``simulate_game`` could not
+    resolve a tie within ``max_innings`` -- ``MarkovError``). A degenerate
+    game is a real model failure, not a data gap: it is excluded from the
+    scored sample and reported separately so the count is visible, not
+    silently dropped."""
     league_cache: sim_predict.LeagueCache = {}
     rows: list[Prediction] = []
     skipped = 0
+    degenerate = 0
     started = time.monotonic()
     for done, game in enumerate(games, start=1):
         pk, gik, seas, gdate, home_t, away_t, home_sp, away_sp, home_win = game
-        prob = sim_predict.simulate_matchup(
-            conn,
-            mlb_game_pk=str(pk),
-            season=int(seas),
-            game_date=gdate if isinstance(gdate, str) else str(gdate),
-            home_team=str(home_t),
-            away_team=str(away_t),
-            home_starter=str(home_sp) if use_starters and home_sp is not None else None,
-            away_starter=str(away_sp) if use_starters and away_sp is not None else None,
-            league_cache=league_cache,
-            n_games=sim_games,
-        )
+        try:
+            prob = sim_predict.simulate_matchup(
+                conn,
+                mlb_game_pk=str(pk),
+                season=int(seas),
+                game_date=gdate if isinstance(gdate, str) else str(gdate),
+                home_team=str(home_t),
+                away_team=str(away_t),
+                home_starter=str(home_sp) if use_starters and home_sp is not None else None,
+                away_starter=str(away_sp) if use_starters and away_sp is not None else None,
+                league_cache=league_cache,
+                n_games=sim_games,
+            )
+        except markov.MarkovError as exc:
+            degenerate += 1
+            if degenerate <= 5:
+                print(f"  degenerate game {pk} ({gdate}): {exc}", flush=True)
+            continue
         if prob is None:
             skipped += 1
             continue
@@ -124,7 +136,7 @@ def _markov_predictions(
         if done % 200 == 0:
             rate = done / (time.monotonic() - started)
             print(f"  ... {done}/{len(games)} games ({rate:.1f}/s)", flush=True)
-    return rows, skipped
+    return rows, skipped, degenerate
 
 
 def _per_game_losses(rows: Sequence[Prediction]) -> list[float]:
@@ -276,13 +288,13 @@ def main() -> None:
         )
 
         print("recomputing markov-v1 (starters unknown) ...", flush=True)
-        no_starter_rows, skipped = _markov_predictions(
+        no_starter_rows, skipped, degenerate = _markov_predictions(
             conn, games, args.sim_games, use_starters=False
         )
         starter_rows: list[Prediction] = []
         if args.use_realized_starters:
             print("recomputing markov-v1 (realized starters; hindsight) ...", flush=True)
-            starter_rows, _ = _markov_predictions(conn, games, args.sim_games, use_starters=True)
+            starter_rows, _, _ = _markov_predictions(conn, games, args.sim_games, use_starters=True)
 
         stored_by_version = {
             version: _selected_predictions(conn, [version], args.season, args.cutoff)
@@ -292,9 +304,18 @@ def main() -> None:
     if not no_starter_rows:
         raise SystemExit(
             "markov-v1 produced no predictions -- Retrosheet has no cutoff league "
-            f"prior for season {args.season} ({skipped} skipped)"
+            f"prior for season {args.season} ({skipped} skipped, {degenerate} degenerate)"
         )
-    print(f"\n{skipped} games skipped for want of a cutoff league prior")
+    print(
+        f"\n{len(no_starter_rows)} games scored; {skipped} skipped (no cutoff league "
+        f"prior); {degenerate} EXCLUDED as degenerate (model failure -- "
+        f"{degenerate / len(games):.1%} of the season)"
+    )
+    if degenerate:
+        print(
+            "  NOTE: a nonzero degenerate count means markov-v1 is not promotable "
+            "until fixed; the numbers below are only for the games it could resolve."
+        )
 
     _report("starters unknown (deployed-system analog)", no_starter_rows, stored_by_version)
     if starter_rows:

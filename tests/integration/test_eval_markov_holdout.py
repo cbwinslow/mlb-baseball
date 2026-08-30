@@ -102,11 +102,12 @@ def test_completed_games_returns_the_holdout_season_row(db_conn):
 def test_markov_predictions_scores_the_game_and_pairs_with_elo(db_conn):
     _seed(db_conn)
     games = eval_markov_holdout._completed_games(db_conn, 2024, limit=0)
-    markov_rows, skipped = eval_markov_holdout._markov_predictions(
+    markov_rows, skipped, degenerate = eval_markov_holdout._markov_predictions(
         db_conn, games, 25, use_starters=False
     )
 
     assert skipped == 0
+    assert degenerate == 0
     assert len(markov_rows) == 1
     row = markov_rows[0]
     assert row.model_version == "markov-v1"
@@ -130,8 +131,28 @@ def test_markov_predictions_skips_when_no_cutoff_league_prior(db_conn):
         cur.execute("UPDATE gold.game_feature SET season = 2019, game_date = '2019-07-01'")
     db_conn.commit()
     games = eval_markov_holdout._completed_games(db_conn, 2019, limit=0)
-    markov_rows, skipped = eval_markov_holdout._markov_predictions(
+    markov_rows, skipped, degenerate = eval_markov_holdout._markov_predictions(
         db_conn, games, 25, use_starters=False
     )
     assert markov_rows == []
     assert skipped == 1
+    assert degenerate == 0
+
+
+def test_markov_predictions_excludes_a_degenerate_game_instead_of_crashing(db_conn, monkeypatch):
+    """A game whose recomputed distribution can't resolve a tie raises
+    MarkovError inside simulate_matchup; the harness must count it as
+    degenerate and keep going, not abort the whole evaluation."""
+    _seed(db_conn)
+    games = eval_markov_holdout._completed_games(db_conn, 2024, limit=0)
+
+    def _boom(*_args, **_kwargs):
+        raise eval_markov_holdout.markov.MarkovError("game still tied after 30 innings")
+
+    monkeypatch.setattr(eval_markov_holdout.sim_predict, "simulate_matchup", _boom)
+    markov_rows, skipped, degenerate = eval_markov_holdout._markov_predictions(
+        db_conn, games, 25, use_starters=False
+    )
+    assert markov_rows == []
+    assert skipped == 0
+    assert degenerate == 1

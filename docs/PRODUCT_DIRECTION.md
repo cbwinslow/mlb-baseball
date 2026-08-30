@@ -85,7 +85,11 @@ review** — chronological folds, feature cutoffs, the `RESEARCH.md`
 failure modes — whose finding is written down (an ADR entry or the
 promotion-review record) before the number is trusted or promoted. It
 is not, on its own, proof of leakage, and it does not automatically
-block the work (ADR-274).
+block the work. Verbatim, from `docs/DECISIONS.md` ADR-274: "A candidate
+that does not beat its baselines is not automatically barred from
+promotion. The evidence ... goes to a promotion review that records an
+explicit decision" — one of **promote**, **hold**, or
+**return-with-gaps**.
 
 | Layer | Predicts | Owner today | Next |
 |---|---|---|---|

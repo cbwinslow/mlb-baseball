@@ -96,9 +96,9 @@ def _markov_predictions(
 
     The two counts are kept apart on purpose: "no cutoff prior" is a data
     gap, a degenerate distribution is a model failure -- ``main()`` reports
-    each with the right cause, and a nonzero degenerate count blocks
-    promotion. A plain ``markov.MarkovError`` (a data-contract violation) is
-    NOT caught -- it aborts the run loudly."""
+    each with the right cause, and a nonzero degenerate count is evidence
+    for the ADR-274 promotion review. A plain ``markov.MarkovError`` (a
+    data-contract violation) is NOT caught -- it aborts the run loudly."""
     league_cache: sim_predict.LeagueCache = {}
     rows: list[Prediction] = []
     skipped = 0
@@ -322,22 +322,26 @@ def main() -> None:
             )
         raise SystemExit(f"markov-v1 produced no scorable predictions -- {cause}")
 
+    attempted = max(1, len(games) - skipped)
     print(
         f"\n{len(no_starter_rows)} scored; {skipped} skipped (no cutoff league prior); "
         f"{degenerate} EXCLUDED as degenerate "
-        f"(model failure -- {degenerate / len(games):.1%} of the season)"
+        f"({degenerate / attempted:.1%} of the {attempted} games markov-v1 attempted)"
     )
     if degenerate:
         print(
-            "  NOTE: a nonzero degenerate count means markov-v1 is not promotable "
-            "until fixed; the numbers below cover only the games it could resolve."
+            "  NOTE: a nonzero degenerate count is evidence for the ADR-274 promotion "
+            "review (promote / hold / return-with-gaps), not an automatic block; the "
+            "numbers below cover only the games markov-v1 could resolve."
         )
 
     _report("starters unknown (deployed-system analog)", no_starter_rows, stored_by_version)
     if args.use_realized_starters:
+        s_attempted = max(1, len(games) - starter_skipped)
         print(
             f"\nrealized-starters run: {len(starter_rows)} scored, "
-            f"{starter_skipped} skipped, {starter_degenerate} degenerate"
+            f"{starter_skipped} skipped, {starter_degenerate} degenerate "
+            f"({starter_degenerate / s_attempted:.1%} of attempted)"
         )
         if starter_rows:
             _report("realized starters (optimistic upper bound)", starter_rows, stored_by_version)

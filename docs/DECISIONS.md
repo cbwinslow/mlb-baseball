@@ -2,6 +2,66 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-275: markov-v1 promotion review — HOLD (return-with-gaps)
+
+**Context:** First ADR-274 promotion review for `markov-v1` (Layer 2 of the
+prediction ladder). Instrument: `scripts/eval_markov_holdout.py`, run
+read-only against production `mlb`, 2026-08-30. Holdout season 2026
+(2,026 completed games — the only season with stored baseline predictions;
+2024 has none, so a multi-year holdout is not possible until prediction
+history accumulates). `sim_games=2000`, cutoff `close`.
+
+**Evidence** (paired bootstrap 95% CI on per-game log-loss difference;
+Δ > 0 favours markov-v1):
+
+| run | vs | n | markov ll | base ll | Δ (95% CI) | markov acc | base acc |
+|---|---|---:|---:|---:|---:|---:|---:|
+| starters unknown (deployed analog) | elo-v1 | 389 | 0.6916 | 0.6760 | −0.0156 [−0.0319, +0.0000] | 50.4% | 56.6% |
+| ″ | log5-v2 | 126 | 0.7004 | 0.6734 | −0.0269 [−0.0578, +0.0037] | 48.4% | 59.5% |
+| ″ | gbm-v1 | 173 | 0.6786 | 0.6782 | −0.0005 [−0.0265, +0.0245] | 56.7% | 56.1% |
+| realized starters (optimistic ceiling) | elo-v1 | 389 | 0.6912 | 0.6760 | −0.0152 **[−0.0311, −0.0001]** | 50.6% | 56.6% |
+| ″ | log5-v2 | 126 | 0.7007 | 0.6734 | −0.0273 [−0.0573, +0.0041] | 50.8% | 59.5% |
+| ″ | gbm-v1 | 173 | 0.6803 | 0.6782 | −0.0021 [−0.0280, +0.0233] | 55.5% | 56.1% |
+
+`kalshi-v1` / `polymarket-v1`: 0 shared games — the market comparison is
+blocked by a `generated_at` bug (issue #107), not run here.
+
+**Decision: HOLD.** `markov-v1` stays `status=candidate`. It is not
+promoted and it is **not** removed.
+
+- It does not beat any baseline. Against `elo-v1`, even with the realized
+  starter (hindsight it would not have), the CI is entirely below zero.
+- A log loss of ~0.691 is essentially `log(2)` — the model predicts close
+  to 50/50 for nearly every game. Feeding it the real starter moved it
+  0.6916 → 0.6912, i.e. not at all.
+- No leakage review is triggered: the numbers are *below* the honest range,
+  not suspiciously above it.
+
+**Return-with-gaps — what a re-review needs:**
+
+1. **Engineered features.** `markov-v1` uses none of `gold.game_feature`'s
+   ~130 columns (park, bullpen fatigue, platoon, weather, framing, VAA…).
+   The coarse team-batting-side-vs-starter PA distribution, shrunk M=350
+   toward the league mean, carries almost no team-discriminating signal —
+   MLB team-level offensive/defensive rates are too similar. Either
+   condition the transition/outcome probabilities on those features, or
+   feed markov-v1's output as one input to a feature model alongside Elo.
+2. **Lineup / individual matchups.** No batting order, no batter-vs-pitcher.
+   The machinery exists unused in `markov.py` (`fetch_batter_arsenal`,
+   `simulate_in_game_win_probability`, `compute_arsenal_matchup_edge`);
+   probable lineups are not ingested yet.
+3. **A real multi-year holdout** once ≥2 seasons of stored baseline
+   predictions exist, and the market comparison (issue #107).
+
+**Not in scope of this hold:** deleting `markov.py`. The state model, the
+absorbing-chain run-expectancy solve, the simulator, and the empirical-Bayes
+shrinkage are the foundation for the plate-appearance-level matchup model
+(`docs/RESEARCH.md` "hierarchical pitcher-batter matchup", ~1 win/162
+upside). That model is the next Layer-2 iteration, planned separately.
+
+**Revisit if:** the PA-level matchup model lands, or `markov-v1` is
+re-wired to consume features — either triggers a fresh ADR-274 review.
+
 ## ADR-274: Model promotion gates are review gates, not hard blocks; ">58% out-of-sample" triggers a review, it is not a verdict
 
 **Context:** Owner direction, 2026-08-29. Two pieces of existing doctrine

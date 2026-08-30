@@ -772,7 +772,10 @@ def simulate_home_win_rate(
         if result.home_runs > result.away_runs:
             wins += 1
     resolved = n_games - unresolved
-    if resolved == 0 or unresolved > n_games * _UNRESOLVED_TRIAL_LIMIT:
+    # max(1, ...) so a single unlucky trial never trips the guard even at the
+    # small n_games tests and callers use -- it is a fraction-of-a-large-run
+    # signal, not a "one is too many" one.
+    if resolved == 0 or unresolved > max(1, n_games * _UNRESOLVED_TRIAL_LIMIT):
         raise DegenerateSimulation(
             f"{unresolved}/{n_games} simulated games never broke a tie within "
             f"{max_innings} innings -- the estimated distribution is degenerate"

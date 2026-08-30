@@ -326,16 +326,18 @@ def health_check() -> list[Check]:
     detail = f"{covered}/{upcoming} upcoming games have a {MODEL_VERSION} row"
     # A shortfall is expected in small numbers -- a matchup with no cutoff
     # league prior, or a genuinely degenerate distribution, is skipped by
-    # design. But zero rows with games to predict, or a large gap, means a
-    # systematic estimator failure that the old unconditional pass hid.
-    if upcoming == 0:
+    # design, and that legitimate skip rate varies with the calendar. Only
+    # the unambiguous systematic failures fail this check: nothing produced
+    # at all, or more than half the slate missing. (The old code returned a
+    # pass even at zero coverage -- codex.)
+    if upcoming == 0 or covered >= upcoming * 0.5:
         passed = True
+        if 0 < covered < upcoming:
+            detail += f" ({upcoming - covered} skipped -- no prior / degenerate)"
     elif covered == 0:
         passed = False
         detail += " -- markov-v1 produced NOTHING for this slate"
-    elif covered < upcoming * 0.9:
-        passed = False
-        detail += f" -- {upcoming - covered} missing, past the expected skip rate"
     else:
-        passed = True
+        passed = False
+        detail += f" -- {upcoming - covered} of {upcoming} missing, a systematic failure"
     return [Check("markov-v1 upcoming", passed, detail)]

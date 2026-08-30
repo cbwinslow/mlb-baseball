@@ -88,6 +88,17 @@ Three levels, shrunk in sequence:
 1. league PA outcome rates (by handedness matchup L/L, L/R, R/L, R/R),
 2. batter's own rate and pitcher's own rate this season-to-date (the
    "true talent" estimates, à la Tango's `log5` for each outcome),
+
+**Combining batter and pitcher rates — the coherent form.** Do *not* apply a
+binary `log5` per outcome and renormalize (the odds ratios do not compose to
+a valid multinomial — flagged in review). Instead work in multinomial
+log-odds against a reference outcome (`IP_OUT`): for each other outcome `k`,
+`logit_k = log(l_k/l_ref) + (log(b_k/b_ref) - log(l_k/l_ref)) +
+(log(p_k/p_ref) - log(l_k/l_ref))` — the league log-odds plus the batter's
+and pitcher's *deviations* from league — then `softmax` over the 8 outcomes.
+This is the standard "additive in log-odds, reference-category" multinomial
+`log5` and it always yields a proper distribution. The batter/pitcher rates
+fed in are the partially-pooled estimates from level 2.
 3. the specific batter×pitcher head-to-head count, shrunk hard (n is
    typically 0–15 lifetime).
 
@@ -146,12 +157,16 @@ fallback if A's accuracy plateaus below Elo.
   `player_id`, `batting_order` (1–9), `_captured_at`, `_loaded_at`. Append-only
   snapshots, change-detected per `(game_pk, team_id, batting_order)` like the
   probable-pitcher pattern (ADR-047/048).
-- Fetched by a **near-game poll** — the existing 5-minute `mlb_api_update`
-  already runs; add a `hydrate=lineups` call scoped to games starting in the
-  next ~6 hours, so it isn't 30 teams every 5 minutes.
+- Fetched by a **dedicated hourly job** (`scripts/mlb_lineups_update.sh`,
+  `0 * * * *`), scoped to games starting in the next ~6 hours — not folded
+  into the 5-minute `mlb_api_update` (owner decision 4). Lineups post on the
+  scale of hours; a top-of-hour poll catches them within ~60 min.
 - `docs/DATA_SOURCES.md` row for MLB Stats API updated in the same change
   (it's the same source, new endpoint field).
-- Health check: `upcoming games starting <3h from now that have a lineup`.
+- Health check: fraction of games starting in <3h that have a lineup AND
+  fraction of *completed* games from the last 7 days that had one recorded
+  pre-game — a low pre-game rate means the poll cadence or scope is wrong,
+  which the upcoming-only check can't see.
 
 ### 2. Per-batter rolling rate table
 
@@ -159,9 +174,17 @@ fallback if A's accuracy plateaus below Elo.
   point-in-time rolling K%, BB%, HBP%, 1B%, 2B%, 3B%, HR%, IP-out% for every
   batter, from `raw.retrosheet_event` (1910–2025) and `raw.mlb_playbyplay`
   (2026), by handedness of the opposing pitcher.
-- Landed as new `gold.game_feature` columns? **No** — this is per-batter, not
-  per-game. A separate `gold.batter_rate` keyed `(player_id, as_of_date,
-  vs_hand)`, or computed on the fly in the matchup SQL. Decide in review.
+- **Player-ID conforming is not optional.** `raw.retrosheet_event` keys
+  batters by Retrosheet id (`bat_id`); `raw.mlb_playbyplay` keys them by MLB
+  `person_id`. Combining the two histories requires the crosswalk that
+  `core.player` already carries (Retrosheet id ↔ `mlbam_id`, seeded from the
+  Chadwick register — same join `starter.py`/`war.py` use). Every batter row
+  resolves to one `core.player.id` before rates are computed; unresolved ids
+  are dropped with a logged count and surfaced in `mlb doctor` (same shape
+  as the framing-coverage gap, `RESEARCH.md`).
+- Materialized `gold.batter_rate` keyed `(player_id, as_of_date, vs_hand)`
+  (owner decision 2), refreshed in the daily enrichment path; the holdout
+  points at a historical `as_of_date` slice.
 - Same leakage discipline as `starter.py`: strictly games before the cutoff,
   reconciled against `raw.bref_batting` season totals via `mlb doctor`.
 
@@ -175,9 +198,15 @@ fallback if A's accuracy plateaus below Elo.
   league prior).
 - `log5` per outcome: `p = (b * l / g) / ((b * l / g) + (1-b)(1-l)/(1-g))`
   extended to the multinomial by normalizing across the 8 outcomes.
-- Head-to-head sample blended by its own `M_h2h` (small — start at 20 PA,
-  tune on the holdout).
-- Park: HR rate `× hr_park_factor`, hit rates `× (1 + 0.3*(hits_park - 1))`.
+- Head-to-head sample blended by its own `M_h2h`. **Tune `M_h2h` (and the
+  level-2 shrink constants) on 2023–2024 with nested rolling-origin CV —
+  never on the 2026 holdout season**, or the final number is optimistic by
+  construction. The holdout runs once, with frozen constants.
+- Park: HR rate `× hr_park_factor` (the standard multiplicative HR park
+  factor). Hit rates get a *derived* factor, not a guessed `0.3` — regress
+  a park's non-HR-hit rate on the league's to get the slope, per park, the
+  same way `park.py` already computes its run factor. Any interim constant
+  is flagged `TODO(park-slope)` and blocks the step-4 acceptance gate.
 - Returns something the simulator can consume: reuse
   `markov.adjust_outcome_distribution_for_matchup` *or* build the base/out
   distribution directly from the 8-outcome vector + league advancement rates.
@@ -207,19 +236,34 @@ fallback if A's accuracy plateaus below Elo.
 Most `mlb predict` runs happen at 06:00 UTC — lineups aren't out. Fallback,
 in order:
 1. the most recent *actual* lineup that team used (from
-   `raw.mlb_boxscore_batting`), with today's opposing pitcher/park;
-2. failing that, the team's 9 most-frequent batting-order slots this season;
+   `raw.mlb_boxscore_batting`) — but the PA distributions are **recomputed
+   for today's opposing starter and park**, using each of those 9 batters'
+   `vs_hand` rate against today's pitcher's handedness. Only the *identity
+   and order* of the batters is reused, never their prior outcome rates.
+2. failing that, the team's 9 most-frequent batting-order slots this season,
+   same recompute;
 3. failing that, `markov-v1`'s team-level distribution (graceful degrade).
 
-The served prediction records which tier it used, so the holdout can score
-"lineup known" and "lineup fallback" separately — and the deployed cron can
-optionally re-run `predict` for that day's slate once lineups post.
+The served prediction records which tier it used, so the holdout scores
+"lineup known" and each fallback tier separately.
+
+**The hourly lineup job re-runs `predict` for that day's slate** (owner
+decision 4) — a served `markov-v2` row upgrades from a fallback tier to
+tier-0 (real lineup) as soon as the lineup posts. This is a hard
+requirement, not optional: a 06:00 prediction on a tier-2 fallback that is
+never refreshed is the deployed number, and it is worse than it needs to be.
+The re-run is an idempotent upsert on `(game_instance_key, model_version)` —
+it replaces the day's `markov-v2` snapshot, it does not append.
 
 ### 6. Evaluation
 
-- **PA model first, standalone:** held-out season, compare predicted P(K),
-  P(BB), P(HR)… to realized rates — reliability curves + Brier per outcome.
-  Must be calibrated before composing a game (Plan 04D contract).
+- **PA model first, standalone:** on a held-out season, compare predicted
+  P(K), P(BB), P(HR)… to realized rates. **Acceptance gate (concrete):** for
+  each of the 8 outcomes, the reliability curve stays within ±0.02 of the
+  diagonal across the middle 8 deciles, *and* per-outcome Brier beats a
+  "league rate for everyone" null. If any outcome fails, the PA model does
+  not proceed to game composition (Plan 04D contract). Numbers tunable in
+  review, but a number must be set before the eval runs.
 - **Game model:** extend `scripts/eval_markov_holdout.py` — it already
   recomputes per-game and pairs against stored baselines. Add a `markov-v2`
   path and a `--lineup-mode {realized,fallback}` flag.
@@ -232,8 +276,13 @@ optionally re-run `predict` for that day's slate once lineups post.
    (state, RE solve, simulator, shrink — no I/O) vs `markov/estimate` (reads
    the DB). Mechanical, no behaviour change, unblocks clean library
    signatures for everything below. Own PR, done first.
-1. **C sanity check** — add `markov-v1` to `stack.py` inputs, re-run its
-   holdout, record the (expected null) result. ~half a day.
+1. **C sanity check** — `stack.py` needs `markov-v1` predictions for
+   *completed* games, which don't exist (v1 only writes upcoming). So the
+   check *is* a small backfill: run `sim_predict.simulate_matchup` for the
+   ~389 completed 2026 games that have all three base-model predictions,
+   into a research table (not `gold.prediction`), then re-run `stack.py`'s
+   fit + holdout with markov added. Record the (expected null) result.
+   ~1 day.
 2. **Lineup ingestion** — `raw.mlb_lineup`, hourly poll (`0 * * * *`) +
    scoped `predict` re-run, `DATA_SOURCES.md`, health check, idempotency
    test. Independent of the model.

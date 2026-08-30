@@ -43,7 +43,7 @@
 
 **`estimate.py`** — SQL constants `_TRANSITION_COUNTS_SQL`, `_MATCHUP_COUNTS_SQL`, `_HALF_INNING_RUNS_SQL`, `_GAME_SCORES_SQL`, `_PITCHER_ARSENAL_SQL`, `_BATTER_ARSENAL_SQL`; functions `_retrosheet_tables_ready`, `_fetch_transition_counts`, `estimate_transition_matrix`, `estimate_run_expectancy`, `estimate_outcome_distribution`, `fetch_matchup_transition_counts`, `estimate_matchup_distribution`, `real_half_inning_runs`, `real_game_scores`, `fetch_pitcher_arsenal`, `fetch_batter_arsenal`.
 
-`estimate.py` imports from `.core`: `BaseOutState`, `MarkovError`, `Outcome`, `TransitionCountRow`, `GameResult`, `PitchArsenal`, `BatterArsenalProfile`, `MATCHUP_PRIOR_PA`, `build_transition_matrix`, `_immediate_expected_runs`, `run_expectancy`, `build_outcome_distribution`, `shrink_outcome_distribution`, `_validate_seasons`, `_validate_bat_home` (confirm exact set against the moved code — the estimator functions call these).
+`estimate.py` imports from `.core`: `BaseOutState`, `MarkovError`, `Outcome`, `TransitionCountRow`, `GameResult`, `PitchArsenal`, `BatterArsenalProfile`, `MATCHUP_PRIOR_PA`, `build_transition_matrix`, `_immediate_expected_runs`, `run_expectancy`, `build_outcome_distribution`, `shrink_outcome_distribution`, `_validate_seasons`, `_validate_bat_home` (confirm exact set against the moved code — the estimator functions call these). Importing `.core`'s `_`-prefixed helpers from a sibling module in the *same package* is fine — they're package-internal, not a public API leak; the `_` prefix keeps them out of `markov`'s re-exported surface, which is what matters.
 
 ---
 
@@ -389,8 +389,10 @@ private helper — either make it public in `core`/`estimate` (add to
 
 - [ ] **Step 1: Grep for stale path references**
 
-Run: `rg "model/markov\.py|model\.markov\.py" docs/ plans/ README.md`
-Fix each hit to `model/markov/` or `model.markov` (the package).
+Run: `rg -n "model/markov(\.py)?\b|model\.markov(\.py)?\b|markov\.py" docs/ plans/ README.md AGENTS.md`
+For each hit: a `markov.py` path → `markov/` (the package dir); a
+`mlb_baseball.model.markov` import reference stays as-is (still valid — it's
+the package). Only stale *file-path* references need changing.
 
 - [ ] **Step 2: PROGRESS.md entry**
 

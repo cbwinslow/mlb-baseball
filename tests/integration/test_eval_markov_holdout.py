@@ -147,7 +147,9 @@ def test_markov_predictions_excludes_a_degenerate_game_instead_of_crashing(db_co
     games = eval_markov_holdout._completed_games(db_conn, 2024, limit=0)
 
     def _boom(*_args, **_kwargs):
-        raise eval_markov_holdout.markov.MarkovError("game still tied after 30 innings")
+        raise eval_markov_holdout.markov.MarkovError(
+            "game still tied after 30 innings -- the distribution may be degenerate"
+        )
 
     monkeypatch.setattr(eval_markov_holdout.sim_predict, "simulate_matchup", _boom)
     markov_rows, skipped, degenerate = eval_markov_holdout._markov_predictions(
@@ -156,3 +158,18 @@ def test_markov_predictions_excludes_a_degenerate_game_instead_of_crashing(db_co
     assert markov_rows == []
     assert skipped == 0
     assert degenerate == 1
+
+
+def test_markov_predictions_reraises_a_non_degenerate_markov_error(db_conn, monkeypatch):
+    """A MarkovError that is NOT the tie/degenerate case (e.g. a bad
+    parameter) is a harness bug, not a per-game model failure -- it must
+    propagate, not be silently counted as a degenerate game."""
+    _seed(db_conn)
+    games = eval_markov_holdout._completed_games(db_conn, 2024, limit=0)
+
+    def _boom(*_args, **_kwargs):
+        raise eval_markov_holdout.markov.MarkovError("n_games must be positive, got 0")
+
+    monkeypatch.setattr(eval_markov_holdout.sim_predict, "simulate_matchup", _boom)
+    with pytest.raises(eval_markov_holdout.markov.MarkovError, match="n_games must be positive"):
+        eval_markov_holdout._markov_predictions(db_conn, games, 25, use_starters=False)

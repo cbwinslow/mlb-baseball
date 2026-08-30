@@ -118,9 +118,17 @@ def _markov_predictions(
                 n_games=sim_games,
             )
         except markov.MarkovError as exc:
+            # MarkovError also covers misconfiguration (bad n_games, etc.) -- only
+            # the "can't resolve a tie" case is a per-game model failure. Anything
+            # else is a bug in how this harness calls simulate_matchup: re-raise.
+            if "degenerate" not in str(exc):
+                raise
             degenerate += 1
             if degenerate <= 5:
-                print(f"  degenerate game {pk} ({gdate}): {exc}", flush=True)
+                print(
+                    f'  degenerate_game key={gik} pk={pk} date={gdate} reason="{exc}"',
+                    flush=True,
+                )
             continue
         if prob is None:
             skipped += 1
@@ -292,9 +300,12 @@ def main() -> None:
             conn, games, args.sim_games, use_starters=False
         )
         starter_rows: list[Prediction] = []
+        starter_skipped = starter_degenerate = 0
         if args.use_realized_starters:
             print("recomputing markov-v1 (realized starters; hindsight) ...", flush=True)
-            starter_rows, _, _ = _markov_predictions(conn, games, args.sim_games, use_starters=True)
+            starter_rows, starter_skipped, starter_degenerate = _markov_predictions(
+                conn, games, args.sim_games, use_starters=True
+            )
 
         stored_by_version = {
             version: _selected_predictions(conn, [version], args.season, args.cutoff)
@@ -302,10 +313,17 @@ def main() -> None:
         }
 
     if not no_starter_rows:
-        raise SystemExit(
-            "markov-v1 produced no predictions -- Retrosheet has no cutoff league "
-            f"prior for season {args.season} ({skipped} skipped, {degenerate} degenerate)"
-        )
+        if degenerate and not skipped:
+            reason = (
+                f"every game markov-v1 attempted produced a degenerate distribution "
+                f"({degenerate} of {len(games)}) -- a model failure, not missing data"
+            )
+        else:
+            reason = (
+                f"Retrosheet has no cutoff league prior for season {args.season} "
+                f"({skipped} skipped, {degenerate} degenerate)"
+            )
+        raise SystemExit(f"markov-v1 produced no scorable predictions -- {reason}")
     print(
         f"\n{len(no_starter_rows)} games scored; {skipped} skipped (no cutoff league "
         f"prior); {degenerate} EXCLUDED as degenerate (model failure -- "
@@ -318,8 +336,15 @@ def main() -> None:
         )
 
     _report("starters unknown (deployed-system analog)", no_starter_rows, stored_by_version)
-    if starter_rows:
-        _report("realized starters (optimistic upper bound)", starter_rows, stored_by_version)
+    if args.use_realized_starters:
+        print(
+            f"\nrealized-starters run: {len(starter_rows)} scored, "
+            f"{starter_skipped} skipped, {starter_degenerate} degenerate"
+        )
+        if starter_rows:
+            _report("realized starters (optimistic upper bound)", starter_rows, stored_by_version)
+        else:
+            print("  (no scorable realized-starter predictions -- report omitted)")
 
     print()
     print(

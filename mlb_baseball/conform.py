@@ -1235,15 +1235,26 @@ def _market_game_start_times(conn: psycopg.Connection) -> dict[int, datetime]:
         return starts
 
 
-def _latest_before(entries: list[tuple[datetime, Decimal]], cutoff: datetime) -> Decimal | None:
-    """entries must be sorted ascending by timestamp (both snapshot lookups
-    below build them via ORDER BY captured_at). bisect_left finds the first
-    entry NOT strictly before cutoff; the qualifying value, if any, is
+def _latest_entry_before(
+    entries: list[tuple[datetime, Decimal]], cutoff: datetime
+) -> tuple[datetime, Decimal] | None:
+    """The whole (captured_at, value) entry strictly before ``cutoff``, or
+    None. ``entries`` must be sorted ascending by timestamp (both snapshot
+    lookups below build them via ORDER BY captured_at). bisect_left finds the
+    first entry NOT strictly before cutoff; the qualifying entry, if any, is
     immediately before that index."""
     idx = bisect_left(entries, (cutoff, Decimal(0))) if entries else 0
     if idx == 0:
         return None
-    return entries[idx - 1][1]
+    return entries[idx - 1]
+
+
+def _latest_before(entries: list[tuple[datetime, Decimal]], cutoff: datetime) -> Decimal | None:
+    """The value of the most recent snapshot strictly before ``cutoff``, or
+    None. Thin wrapper over :func:`_latest_entry_before` for callers that only
+    need the price (``market.py``'s ``_record_upcoming`` path)."""
+    entry = _latest_entry_before(entries, cutoff)
+    return entry[1] if entry is not None else None
 
 
 def _polymarket_snapshot_lookup(conn: psycopg.Connection) -> dict[tuple[str, str], list]:

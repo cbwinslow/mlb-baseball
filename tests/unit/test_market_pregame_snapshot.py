@@ -7,7 +7,7 @@ one value or None out.
 from datetime import datetime
 from decimal import Decimal
 
-from mlb_baseball.conform import _latest_before
+from mlb_baseball.conform import _latest_before, _latest_entry_before
 
 
 def test_returns_the_latest_entry_strictly_before_cutoff():
@@ -40,6 +40,37 @@ def test_empty_entries_returns_none():
 def test_picks_the_most_recent_of_several_qualifying_entries():
     entries = [
         (datetime(2026, 8, 1, 6, 0), Decimal("0.50")),
+        (datetime(2026, 8, 2, 6, 0), Decimal("0.55")),
+        (datetime(2026, 8, 2, 12, 0), Decimal("0.58")),
+    ]
+    assert _latest_before(entries, datetime(2026, 8, 2, 19, 5)) == Decimal("0.58")
+
+
+def test_latest_entry_before_returns_timestamp_and_value_of_the_qualifying_entry():
+    entries = [
+        (datetime(2026, 8, 1, 6, 0), Decimal("0.55")),
+        (datetime(2026, 8, 2, 6, 0), Decimal("0.60")),
+        (datetime(2026, 8, 3, 6, 0), Decimal("0.99")),
+    ]
+    assert _latest_entry_before(entries, datetime(2026, 8, 2, 19, 5)) == (
+        datetime(2026, 8, 2, 6, 0),
+        Decimal("0.60"),
+    )
+
+
+def test_latest_entry_before_excludes_a_snapshot_exactly_at_cutoff():
+    entries = [(datetime(2026, 8, 2, 19, 5), Decimal("0.60"))]
+    assert _latest_entry_before(entries, datetime(2026, 8, 2, 19, 5)) is None
+
+
+def test_latest_entry_before_returns_none_for_empty_and_for_all_after_cutoff():
+    assert _latest_entry_before([], datetime(2026, 8, 2, 19, 5)) is None
+    later = [(datetime(2026, 8, 3, 6, 0), Decimal("0.99"))]
+    assert _latest_entry_before(later, datetime(2026, 8, 2, 19, 5)) is None
+
+
+def test_latest_before_still_returns_just_the_value():
+    entries = [
         (datetime(2026, 8, 2, 6, 0), Decimal("0.55")),
         (datetime(2026, 8, 2, 12, 0), Decimal("0.58")),
     ]

@@ -1345,13 +1345,23 @@ def _polymarket_market_rows(
             # it already issues a separate ticker per side.
             market_ref = f"{market_id}:{team_id}"
             start_time = game_starts.get(game_id) if game_id is not None else None
-            implied_probability = (
-                _latest_before(snapshots.get((market_id, outcome), []), start_time)
+            entry = (
+                _latest_entry_before(snapshots.get((market_id, outcome), []), start_time)
                 if start_time is not None
                 else None
             )
+            implied_probability, observed_at = (entry[1], entry[0]) if entry else (None, None)
             rows.append(
-                (game_id, "polymarket", market_ref, team_id, implied_probability, volume, status)
+                (
+                    game_id,
+                    "polymarket",
+                    market_ref,
+                    team_id,
+                    implied_probability,
+                    observed_at,
+                    volume,
+                    status,
+                )
             )
     return rows
 
@@ -1405,12 +1415,24 @@ def _kalshi_market_rows(
             match = game_fuzzy.get((game_date, team_id))
             game_id = match[0] if match else None
             start_time = game_starts.get(game_id) if game_id is not None else None
-            implied_probability = (
-                _latest_before(snapshots.get(ticker, []), start_time)
+            entry = (
+                _latest_entry_before(snapshots.get(ticker, []), start_time)
                 if start_time is not None
                 else None
             )
-            rows.append((game_id, "kalshi", ticker, team_id, implied_probability, volume, status))
+            implied_probability, observed_at = (entry[1], entry[0]) if entry else (None, None)
+            rows.append(
+                (
+                    game_id,
+                    "kalshi",
+                    ticker,
+                    team_id,
+                    implied_probability,
+                    observed_at,
+                    volume,
+                    status,
+                )
+            )
     return rows
 
 
@@ -1475,8 +1497,9 @@ def _build_market(conn: psycopg.Connection) -> int:
         cur.executemany(
             """
             INSERT INTO core.market
-                (game_id, source, market_ref, team_id, implied_probability, volume, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (game_id, source, market_ref, team_id, implied_probability,
+                 observed_at, volume, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             rows,
         )

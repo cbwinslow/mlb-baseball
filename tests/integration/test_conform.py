@@ -16,7 +16,7 @@ per-test TRUNCATE/DELETE for any of those; a prior version of this file did
 that redundantly (a second, unnecessary pass truncating core.play/pitch's
 ~150+ partitions per test, see GitHub issue #2) before it was removed."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import psycopg
@@ -960,6 +960,50 @@ def test_build_market_matches_polymarket_and_kalshi_to_a_core_game(db_conn):
 
     # core.play/pitch/market/game_feature/game are reset by the autouse
     # _clean_tables fixture right after this test — no need here too.
+    _drop_market_fixtures(db_conn)
+
+
+def test_build_market_records_the_resolving_snapshot_capture_time(db_conn):
+    _seed_market_game(db_conn)
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT m.source, t.retro_team_id, m.implied_probability, m.observed_at "
+            "FROM core.market m JOIN core.team t ON t.id = m.team_id "
+            "WHERE m.game_id IS NOT NULL ORDER BY m.source, t.retro_team_id"
+        )
+        rows = cur.fetchall()
+
+    pre_game = datetime(2026, 5, 23, 12, 0, tzinfo=UTC)
+    first_pitch = datetime(2026, 5, 23, 23, 5, tzinfo=UTC)
+    for source, team, implied, observed in rows:
+        assert implied is not None, (source, team)
+        assert observed == pre_game, (source, team, observed)
+        assert observed < first_pitch
+
+    _drop_market_fixtures(db_conn)
+
+
+def test_build_market_leaves_observed_at_null_when_no_pre_game_snapshot(db_conn):
+    _seed_market_game(db_conn)
+    with db_conn.cursor() as cur:
+        # Push every snapshot to after first pitch — nothing qualifies.
+        cur.execute("UPDATE raw.polymarket_snapshot SET captured_at = '2026-05-24T06:00:00+00:00'")
+        cur.execute("UPDATE raw.kalshi_snapshot SET captured_at = '2026-05-24T06:00:00+00:00'")
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT implied_probability, observed_at FROM core.market WHERE game_id IS NOT NULL"
+        )
+        for implied, observed in cur.fetchall():
+            assert implied is None
+            assert observed is None
+
     _drop_market_fixtures(db_conn)
 
 

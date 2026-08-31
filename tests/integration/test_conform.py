@@ -976,6 +976,9 @@ def test_build_market_records_the_resolving_snapshot_capture_time(db_conn):
         )
         rows = cur.fetchall()
 
+    # 2 Polymarket outcome rows + 1 Kalshi -- matches
+    # test_build_market_matches_...'s counts["core.market"] == 3.
+    assert len(rows) == 3
     pre_game = datetime(2026, 5, 23, 12, 0, tzinfo=UTC)
     first_pitch = datetime(2026, 5, 23, 23, 5, tzinfo=UTC)
     for source, team, implied, observed in rows:
@@ -1000,9 +1003,14 @@ def test_build_market_leaves_observed_at_null_when_no_pre_game_snapshot(db_conn)
         cur.execute(
             "SELECT implied_probability, observed_at FROM core.market WHERE game_id IS NOT NULL"
         )
-        for implied, observed in cur.fetchall():
-            assert implied is None
-            assert observed is None
+        rows = cur.fetchall()
+
+    # 2 Polymarket outcome rows + 1 Kalshi -- matches
+    # test_build_market_matches_...'s counts["core.market"] == 3.
+    assert len(rows) == 3
+    for implied, observed in rows:
+        assert implied is None
+        assert observed is None
 
     _drop_market_fixtures(db_conn)
 

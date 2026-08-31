@@ -141,9 +141,7 @@ def _latest_entry_before(
     return entries[idx - 1]
 
 
-def _latest_before(
-    entries: list[tuple[datetime, Decimal]], cutoff: datetime
-) -> Decimal | None:
+def _latest_before(entries: list[tuple[datetime, Decimal]], cutoff: datetime) -> Decimal | None:
     """The value of the most recent snapshot strictly before ``cutoff``, or
     None. Thin wrapper over :func:`_latest_entry_before` for callers that only
     need the price (``market.py``'s ``_record_upcoming`` path)."""
@@ -255,18 +253,16 @@ def test_build_market_leaves_observed_at_null_when_no_pre_game_snapshot(db_conn)
     _seed_market_game(db_conn)
     with db_conn.cursor() as cur:
         # Push every snapshot to after first pitch — nothing qualifies.
-        cur.execute(
-            "UPDATE raw.polymarket_snapshot SET captured_at = '2026-05-24T06:00:00+00:00'"
-        )
-        cur.execute(
-            "UPDATE raw.kalshi_snapshot SET captured_at = '2026-05-24T06:00:00+00:00'"
-        )
+        cur.execute("UPDATE raw.polymarket_snapshot SET captured_at = '2026-05-24T06:00:00+00:00'")
+        cur.execute("UPDATE raw.kalshi_snapshot SET captured_at = '2026-05-24T06:00:00+00:00'")
     db_conn.commit()
 
     conform.run()
 
     with db_conn.cursor() as cur:
-        cur.execute("SELECT implied_probability, observed_at FROM core.market WHERE game_id IS NOT NULL")
+        cur.execute(
+            "SELECT implied_probability, observed_at FROM core.market WHERE game_id IS NOT NULL"
+        )
         for implied, observed in cur.fetchall():
             assert implied is None
             assert observed is None
@@ -289,15 +285,13 @@ yet. (If it's the missing-column error, run `TEST_DATABASE_URL=postgresql:///mlb
 In `_polymarket_market_rows`, replace:
 
 ```python
-            start_time = game_starts.get(game_id) if game_id is not None else None
-            implied_probability = (
-                _latest_before(snapshots.get((market_id, outcome), []), start_time)
-                if start_time is not None
-                else None
-            )
-            rows.append(
-                (game_id, "polymarket", market_ref, team_id, implied_probability, volume, status)
-            )
+start_time = game_starts.get(game_id) if game_id is not None else None
+implied_probability = (
+    _latest_before(snapshots.get((market_id, outcome), []), start_time)
+    if start_time is not None
+    else None
+)
+rows.append((game_id, "polymarket", market_ref, team_id, implied_probability, volume, status))
 ```
 
 with:
@@ -327,28 +321,22 @@ with:
 In `_kalshi_market_rows`, replace:
 
 ```python
-            start_time = game_starts.get(game_id) if game_id is not None else None
-            implied_probability = (
-                _latest_before(snapshots.get(ticker, []), start_time)
-                if start_time is not None
-                else None
-            )
-            rows.append((game_id, "kalshi", ticker, team_id, implied_probability, volume, status))
+start_time = game_starts.get(game_id) if game_id is not None else None
+implied_probability = (
+    _latest_before(snapshots.get(ticker, []), start_time) if start_time is not None else None
+)
+rows.append((game_id, "kalshi", ticker, team_id, implied_probability, volume, status))
 ```
 
 with:
 
 ```python
-            start_time = game_starts.get(game_id) if game_id is not None else None
-            entry = (
-                _latest_entry_before(snapshots.get(ticker, []), start_time)
-                if start_time is not None
-                else None
-            )
-            implied_probability, observed_at = (entry[1], entry[0]) if entry else (None, None)
-            rows.append(
-                (game_id, "kalshi", ticker, team_id, implied_probability, observed_at, volume, status)
-            )
+start_time = game_starts.get(game_id) if game_id is not None else None
+entry = (
+    _latest_entry_before(snapshots.get(ticker, []), start_time) if start_time is not None else None
+)
+implied_probability, observed_at = (entry[1], entry[0]) if entry else (None, None)
+rows.append((game_id, "kalshi", ticker, team_id, implied_probability, observed_at, volume, status))
 ```
 
 In `_build_market`, change the `INSERT INTO core.market` statement from:
@@ -438,7 +426,12 @@ safely pre-game):
 
 ```python
 def _seed_market_row(
-    db_conn, game_id, source, team_id, implied_probability, market_ref,
+    db_conn,
+    game_id,
+    source,
+    team_id,
+    implied_probability,
+    market_ref,
     observed_at="2024-03-31 18:00:00+00",
 ):
     with db_conn.cursor() as cur:
@@ -663,9 +656,7 @@ must delete exactly the post-first-pitch market rows and nothing else."""
 from datetime import datetime, timezone
 from pathlib import Path
 
-_REPAIR_SQL = (
-    Path(__file__).resolve().parents[2] / "scripts" / "repair_market_prediction_times.sql"
-)
+_REPAIR_SQL = Path(__file__).resolve().parents[2] / "scripts" / "repair_market_prediction_times.sql"
 
 # The DELETE block from the script, verbatim. Kept here so this test exercises
 # the real statement and fails loudly if the script's DELETE is edited.
@@ -693,9 +684,7 @@ def _seed(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
         if cur.fetchone()[0] is None:
-            cur.execute(
-                "CREATE TABLE raw.mlb_schedule (game_id text, game_datetime text)"
-            )
+            cur.execute("CREATE TABLE raw.mlb_schedule (game_id text, game_datetime text)")
         cur.execute("DELETE FROM raw.mlb_schedule WHERE game_id IN ('700001', '700002')")
         cur.execute(
             "INSERT INTO raw.mlb_schedule (game_id, game_datetime) VALUES "
@@ -708,16 +697,27 @@ def _seed(db_conn):
             "VALUES (%s, %s, %s, 0.5, %s)",
             [
                 # stale: generated after first pitch — must be deleted
-                ("700001", "mlb:700001", "kalshi-v1",
-                 datetime(2026, 5, 2, 6, 0, tzinfo=timezone.utc)),
-                ("700001", "mlb:700001", "polymarket-v1",
-                 datetime(2026, 5, 2, 6, 0, tzinfo=timezone.utc)),
+                (
+                    "700001",
+                    "mlb:700001",
+                    "kalshi-v1",
+                    datetime(2026, 5, 2, 6, 0, tzinfo=timezone.utc),
+                ),
+                (
+                    "700001",
+                    "mlb:700001",
+                    "polymarket-v1",
+                    datetime(2026, 5, 2, 6, 0, tzinfo=timezone.utc),
+                ),
                 # good: generated before first pitch — must be kept
-                ("700002", "mlb:700002", "kalshi-v1",
-                 datetime(2026, 5, 2, 12, 0, tzinfo=timezone.utc)),
+                (
+                    "700002",
+                    "mlb:700002",
+                    "kalshi-v1",
+                    datetime(2026, 5, 2, 12, 0, tzinfo=timezone.utc),
+                ),
                 # not a market model — must be kept
-                ("700001", "mlb:700001", "elo-v1",
-                 datetime(2026, 5, 2, 6, 0, tzinfo=timezone.utc)),
+                ("700001", "mlb:700001", "elo-v1", datetime(2026, 5, 2, 6, 0, tzinfo=timezone.utc)),
             ],
         )
     db_conn.commit()
@@ -886,7 +886,9 @@ nullable `core.market.observed_at` and stamps `generated_at` from it.
 - `market_{kalshi,polymarket}_prediction_insert.sql` —
   `generated_at = m.observed_at`
 - `scripts/repair_market_prediction_times.sql` — one-time owner-run prod
-  cleanup of the ~540 stale rows (reports the count, transaction-wrapped)
+  cleanup of the ~540 stale rows (prints a `DELETE <n>` count; the commented
+  dry-run `SELECT` in the header is the safety check; not transaction-wrapped —
+  psql autocommit)
 - ADR, data dictionary, table contracts, roadmap updated
 
 **Deploy:** merge → `mlb migrate` → `mlb conform` (or wait for the nightly

@@ -28,7 +28,14 @@ becomes a one-line wrapper (behaviour and its `market.py` callers unchanged).
 A one-time `scripts/repair_market_prediction_times.sql` deletes the stale
 production rows so the idempotency guard re-inserts them; `gold.prediction`
 is regenerable model output. `_record_upcoming` and `implied_probability`
-value semantics are untouched.
+value semantics are untouched. Per-row `observed_at` also means two
+`core.market` rows for the same game+home-team no longer collide on
+`gold.prediction`'s PK (they insert as two snapshots) — the loud failure
+that first caught the ADR-053 fan-out. Mitigated in depth:
+`conform._game_lookup` drops ambiguous `(date, team)` keys, Polymarket is
+narrowed to `sportsmarkettype = 'moneyline'`, `evaluation._selected_predictions`
+takes `snapshot_rank = 1`, and `mlb doctor`'s coverage checks still flag an
+over-count as fan-out.
 
 **Revisit if:** the `mlb predict` cron moves off ~06:00 UTC — `_record_upcoming`
 resolves the last snapshot before *first pitch*, not before *now*, a mild

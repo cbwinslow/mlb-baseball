@@ -136,6 +136,8 @@ This catalog documents the schemas, grains, business keys, temporal semantics, a
 
 ## 5. Core Relational Tables (`core.*`)
 
+Catalogued as the tables this repo's changes have needed documented; not yet an exhaustive `core.*` listing.
+
 - **`core.market`**: One matched Polymarket/Kalshi market row per game/side (`game_id`, `source`, `market_ref`, `team_id`), matched to `core.game` by `conform.py`.
   - `implied_probability numeric` — nullable. The market-implied win probability for `team_id`, taken from the latest `raw.{polymarket,kalshi}_snapshot` row captured strictly before the game's real start time; NULL when no pre-game snapshot exists. Never the settled/current price (ADR-052).
   - `observed_at timestamptz` — nullable. The `captured_at` of the `raw.{polymarket,kalshi}_snapshot` row that `implied_probability` was resolved from; the pre-game moment that price was observed. NULL exactly when `implied_probability` is NULL (issue #107).

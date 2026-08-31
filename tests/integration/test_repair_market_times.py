@@ -33,12 +33,21 @@ def _seed(db_conn):
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
         if cur.fetchone()[0] is None:
             cur.execute("CREATE TABLE raw.mlb_schedule (game_id text, game_datetime text)")
-        cur.execute("DELETE FROM raw.mlb_schedule WHERE game_id IN ('700001', '700002')")
+        cur.execute(
+            "DELETE FROM raw.mlb_schedule WHERE game_id IN ('700001', '700002', '700003', '700004')"
+        )
         cur.execute(
             "INSERT INTO raw.mlb_schedule (game_id, game_datetime) VALUES "
-            "('700001', '2026-05-01T23:00:00Z'), ('700002', '2026-05-02T23:00:00Z')"
+            "('700001', '2026-05-01T23:00:00Z'), ('700002', '2026-05-02T23:00:00Z'), "
+            # 700003: doubleheader — two rows, different game_datetime. The
+            # HAVING count(DISTINCT ...) = 1 guard drops it from the CTE.
+            "('700003', '2026-05-03T17:00:00Z'), ('700003', '2026-05-03T23:00:00Z')"
+            # 700004: deliberately no raw.mlb_schedule row at all.
         )
-        cur.execute("DELETE FROM gold.prediction WHERE mlb_game_pk IN ('700001', '700002')")
+        cur.execute(
+            "DELETE FROM gold.prediction "
+            "WHERE mlb_game_pk IN ('700001', '700002', '700003', '700004')"
+        )
         cur.executemany(
             "INSERT INTO gold.prediction "
             "(mlb_game_pk, game_instance_key, model_version, home_win_prob, generated_at) "
@@ -51,6 +60,11 @@ def _seed(db_conn):
                 ("700002", "mlb:700002", "kalshi-v1", datetime(2026, 5, 2, 12, 0, tzinfo=UTC)),
                 # not a market model — must be kept
                 ("700001", "mlb:700001", "elo-v1", datetime(2026, 5, 2, 6, 0, tzinfo=UTC)),
+                # doubleheader: after both first pitches, but the game is
+                # dropped from the CTE by the HAVING guard — must be kept
+                ("700003", "mlb:700003", "kalshi-v1", datetime(2026, 5, 4, 6, 0, tzinfo=UTC)),
+                # no schedule row at all: inner USING join never matches — must be kept
+                ("700004", "mlb:700004", "polymarket-v1", datetime(2026, 5, 4, 6, 0, tzinfo=UTC)),
             ],
         )
     db_conn.commit()
@@ -59,8 +73,13 @@ def _seed(db_conn):
 def _cleanup(db_conn):
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute("DELETE FROM gold.prediction WHERE mlb_game_pk IN ('700001', '700002')")
-        cur.execute("DELETE FROM raw.mlb_schedule WHERE game_id IN ('700001', '700002')")
+        cur.execute(
+            "DELETE FROM gold.prediction "
+            "WHERE mlb_game_pk IN ('700001', '700002', '700003', '700004')"
+        )
+        cur.execute(
+            "DELETE FROM raw.mlb_schedule WHERE game_id IN ('700001', '700002', '700003', '700004')"
+        )
     db_conn.commit()
 
 
@@ -74,12 +93,17 @@ def test_repair_deletes_only_post_first_pitch_market_rows(db_conn):
         with db_conn.cursor() as cur:
             cur.execute(
                 "SELECT mlb_game_pk, model_version FROM gold.prediction "
-                "WHERE mlb_game_pk IN ('700001', '700002') ORDER BY mlb_game_pk, model_version"
+                "WHERE mlb_game_pk IN ('700001', '700002', '700003', '700004') "
+                "ORDER BY mlb_game_pk, model_version"
             )
             remaining = cur.fetchall()
         assert remaining == [
             ("700001", "elo-v1"),
             ("700002", "kalshi-v1"),
+            # doubleheader — dropped from the CTE by the HAVING guard
+            ("700003", "kalshi-v1"),
+            # no schedule row — inner USING join never matches
+            ("700004", "polymarket-v1"),
         ]
     finally:
         _cleanup(db_conn)

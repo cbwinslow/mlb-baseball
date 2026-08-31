@@ -1,6 +1,7 @@
 -- One-time repair for issue #107. Run once against PRODUCTION `mlb` AFTER
--- migration 0093 and the conform + prediction-SQL changes are deployed, and
--- BEFORE the next `mlb predict`:
+-- migration 0093 is applied AND `mlb conform` has run at least once with the
+-- new code (so `core.market.observed_at` is populated), and BEFORE the next
+-- `mlb predict`:
 --
 --   psql "postgresql:///mlb" -f scripts/repair_market_prediction_times.sql
 --
@@ -14,6 +15,9 @@
 --
 -- DRY RUN FIRST -- run this SELECT by hand and eyeball the count before
 -- running the file:
+--
+--   -- confirm observed_at is populated first:
+--   SELECT count(*) FROM core.market WHERE observed_at IS NOT NULL;  -- must be > 0
 --
 --   WITH schedule AS (
 --       SELECT game_id, min(NULLIF(game_datetime,'')::timestamptz) AS game_start

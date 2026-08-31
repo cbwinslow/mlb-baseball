@@ -156,9 +156,7 @@ def _latest_entry_before(
     return entries[idx - 1]
 
 
-def _latest_before(
-    entries: list[tuple[datetime, Decimal]], cutoff: datetime
-) -> Decimal | None:
+def _latest_before(entries: list[tuple[datetime, Decimal]], cutoff: datetime) -> Decimal | None:
     entry = _latest_entry_before(entries, cutoff)
     return entry[1] if entry is not None else None
 ```
@@ -313,9 +311,12 @@ rows would be filtered by the eval anyway).
 1. Merge the PR (migration + code + tests + docs).
 2. `DATABASE_URL=postgresql:///mlb uv run mlb migrate` — applies 0093.
 3. `DATABASE_URL=postgresql:///mlb uv run mlb conform` — repopulates
-   `core.market` with `observed_at` (nightly cron does this anyway; can
-   wait for it).
-4. Owner runs the `SELECT` count, then the `DELETE` in
+   `core.market` with `observed_at`. Mandatory before step 4 (the nightly
+   cron run counts — can wait for it — but step 4 must not run until this
+   has happened).
+4. Owner confirms `observed_at` is populated
+   (`SELECT count(*) FROM core.market WHERE observed_at IS NOT NULL` > 0),
+   then runs the `SELECT` count, then the `DELETE` in
    `scripts/repair_market_prediction_times.sql` against `mlb`.
 5. Next `mlb predict` re-inserts the decided-game market rows with truthful
    `generated_at`.

@@ -2,6 +2,39 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-277: core.market.observed_at — truthful pre-game timestamp for market comparison lines
+
+**Decision:** `core.market` gains a nullable `observed_at timestamptz`
+column holding the `captured_at` of the `raw.{polymarket,kalshi}_snapshot`
+row that `implied_probability` was resolved from. `conform.py`'s
+`_latest_entry_before` (a generalisation of `_latest_before` that returns
+the whole `(timestamp, value)` entry) populates it. `market_kalshi_prediction_insert.sql`
+and `market_polymarket_prediction_insert.sql` now `SELECT m.observed_at`
+into `gold.prediction.generated_at` instead of letting it default to
+`now()`.
+
+**Context:** `market._record_decided()` runs inside `mlb predict`, i.e.
+after a game has finished, so every decided-game `kalshi-v1` / `polymarket-v1`
+row was stamped `generated_at = now() > game_start` and silently dropped by
+`evaluation._selected_predictions`' `generated_at < s.game_start` filter
+(issue #107). Verified on production 2026-08-31: 0 of ~590 decided-game
+market rows passed. The `_record_upcoming` path (ADR-267) already records a
+truthful pre-game time, but only accrues ~25 games/day and leaves the
+decided path permanently broken. `core.market` already stored the pre-game
+snapshot *value* (ADR-052) — this persists its *time*.
+
+**Cost:** one nullable column (instant `ADD COLUMN` on PG16); `_latest_before`
+becomes a one-line wrapper (behaviour and its `market.py` callers unchanged).
+A one-time `scripts/repair_market_prediction_times.sql` deletes the stale
+production rows so the idempotency guard re-inserts them; `gold.prediction`
+is regenerable model output. `_record_upcoming` and `implied_probability`
+value semantics are untouched.
+
+**Revisit if:** the `mlb predict` cron moves off ~06:00 UTC — `_record_upcoming`
+resolves the last snapshot before *first pitch*, not before *now*, a mild
+lookahead that is currently harmless because only ~06:00 snapshots exist by
+run time. A separate issue, not fixed here.
+
 ## ADR-275: markov-v1 promotion review — HOLD (return-with-gaps)
 
 **Context:** First ADR-274 promotion review for `markov-v1` (Layer 2 of the

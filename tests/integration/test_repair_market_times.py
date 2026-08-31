@@ -27,12 +27,21 @@ def test_script_file_contains_the_delete_block_verbatim():
     assert _DELETE_BLOCK in _REPAIR_SQL.read_text()
 
 
+# Set by _seed when it had to CREATE raw.mlb_schedule; _cleanup then DROPs it so
+# no other test ever sees a skinny two-column raw.mlb_schedule. If the table
+# already existed (the normal full-suite case — an earlier test made it), _seed
+# leaves it alone and only touches its own rows.
+_seed_made_schedule = False
+
+
 def _seed(db_conn):
+    global _seed_made_schedule
     db_conn.rollback()
     with db_conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
         if cur.fetchone()[0] is None:
             cur.execute("CREATE TABLE raw.mlb_schedule (game_id text, game_datetime text)")
+            _seed_made_schedule = True
         cur.execute(
             "DELETE FROM raw.mlb_schedule WHERE game_id IN ('700001', '700002', '700003', '700004')"
         )
@@ -71,15 +80,23 @@ def _seed(db_conn):
 
 
 def _cleanup(db_conn):
+    global _seed_made_schedule
     db_conn.rollback()
     with db_conn.cursor() as cur:
         cur.execute(
             "DELETE FROM gold.prediction "
             "WHERE mlb_game_pk IN ('700001', '700002', '700003', '700004')"
         )
-        cur.execute(
-            "DELETE FROM raw.mlb_schedule WHERE game_id IN ('700001', '700002', '700003', '700004')"
-        )
+        if _seed_made_schedule:
+            # This test created the table — remove it entirely rather than
+            # leave a skinny raw.mlb_schedule for a later features.build() test.
+            cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+            _seed_made_schedule = False
+        else:
+            cur.execute(
+                "DELETE FROM raw.mlb_schedule "
+                "WHERE game_id IN ('700001', '700002', '700003', '700004')"
+            )
     db_conn.commit()
 
 

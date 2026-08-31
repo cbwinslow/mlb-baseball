@@ -9,6 +9,7 @@ to seed directly here, same shortcut test_model_log5.py already takes
 for core.game.
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from mlb_baseball.model import market
@@ -47,13 +48,22 @@ def _seed_decided_game(db_conn, atl, nya, game_pk="999001", retro_game_id="G1"):
     return game_id
 
 
-def _seed_market_row(db_conn, game_id, source, team_id, implied_probability, market_ref):
+def _seed_market_row(
+    db_conn,
+    game_id,
+    source,
+    team_id,
+    implied_probability,
+    market_ref,
+    observed_at="2024-03-31 18:00:00+00",
+):
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO core.market "
-            "(game_id, source, market_ref, team_id, implied_probability, volume, status) "
-            "VALUES (%s, %s, %s, %s, %s, 1000, 'closed')",
-            (game_id, source, market_ref, team_id, implied_probability),
+            "(game_id, source, market_ref, team_id, implied_probability, "
+            "observed_at, volume, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 1000, 'closed')",
+            (game_id, source, market_ref, team_id, implied_probability, observed_at),
         )
 
 
@@ -133,6 +143,11 @@ def test_record_inserts_home_teams_moneyline_price_as_prediction(db_conn):
     assert model_version == "polymarket-v1"
     assert home_win_prob == Decimal("0.62")
     assert actual is None  # backfill_outcomes() is a separate step, not record()'s job
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT generated_at FROM gold.prediction")
+        (generated_at,) = cur.fetchone()
+    assert generated_at == datetime(2024, 3, 31, 18, 0, tzinfo=UTC)
 
     _reset(db_conn)
 
@@ -511,5 +526,32 @@ def test_record_upcoming_inserts_a_new_snapshot_on_rerun(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM gold.prediction")
         assert cur.fetchone() == (2,)
+
+    _reset(db_conn)
+
+
+def test_decided_game_market_row_passes_the_evaluation_pre_game_filter(db_conn):
+    """Issue #107: before the fix generated_at defaulted to now() (post-game),
+    so _selected_predictions filtered every decided-game market row out."""
+    from mlb_baseball.model import backfill_outcomes
+    from mlb_baseball.model.evaluation import _selected_predictions
+
+    _reset(db_conn)
+    _ensure_polymarket_market_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    game_id = _seed_decided_game(db_conn, atl, nya)
+    _seed_polymarket_market_type(db_conn, "m1", "moneyline")
+    _seed_market_row(db_conn, game_id, "polymarket", atl, Decimal("0.62"), "m1:atl")
+    db_conn.commit()
+
+    market.record(db_conn)
+    backfill_outcomes(db_conn)
+    db_conn.commit()
+
+    selected = _selected_predictions(db_conn, ["polymarket-v1"], 2024, "close")
+    assert len(selected) == 1
+    assert selected[0].model_version == "polymarket-v1"
+    assert selected[0].actual is True  # ATL won 5-3, ATL is home
 
     _reset(db_conn)

@@ -9,6 +9,7 @@ from mlb_baseball.model.markov import (
     build_transition_matrix,
     run_expectancy,
 )
+from mlb_baseball.model.markov.core import _immediate_expected_runs
 
 
 def test_basic_two_state_aggregation_produces_correct_probabilities():
@@ -94,7 +95,7 @@ def test_immediate_expected_runs_is_the_count_weighted_average():
         TransitionCountRow(0, False, False, False, 1, False, False, False, 0, 3),
         TransitionCountRow(0, False, False, False, 0, False, False, False, 1, 1),
     ]
-    immediate = markov._immediate_expected_runs(rows)
+    immediate = _immediate_expected_runs(rows)
     pre = BaseOutState(0, False, False, False)
     assert immediate[pre] == pytest.approx(0.25)
 
@@ -166,7 +167,7 @@ def test_immediate_expected_runs_validates_rows_independently():
     # also call build_transition_matrix first.
     rows = [TransitionCountRow(0, False, False, False, 1, False, False, False, 0, -1)]
     with pytest.raises(MarkovError, match="non-positive row count"):
-        markov._immediate_expected_runs(rows)
+        _immediate_expected_runs(rows)
 
 
 def test_run_expectancy_raises_markov_error_on_singular_matrix():

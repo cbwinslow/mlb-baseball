@@ -24,7 +24,7 @@
 ## File Structure
 
 - Modify: `mlb_baseball/model/market.py` (Task 3 — live upcoming match)
-- Modify: `mlb_baseball/model/markov.py` / `simulate.py` (Task 4 — player-aware distributions)
+- Modify: `mlb_baseball/model/markov/` (core.py / estimate.py) / `simulate.py` (Task 4 — player-aware distributions)
 - Modify: `mlb_baseball/model/__init__.py` (Task 2 — checkpointed stages)
 - Create: `migrations/00NN_raw_lookup_indexes.sql` only after hypopg proof (Task 2)
 - Modify: `mlb_baseball/model/gbm.py` + `models/` only after Task 1 coverage is real (Task 5)
@@ -125,7 +125,7 @@ FROM gold.prediction GROUP BY 1 ORDER BY 2 DESC;
 ### Task 4: Player-aware Markov v1 (starter vs team offense)
 
 **Files:**
-- Modify: `mlb_baseball/model/markov.py` (`estimate_outcome_distribution` already has `bat_home`; add pitcher- or team-filtered counts)
+- Modify: `mlb_baseball/model/markov/` (core.py / estimate.py) (`estimate_outcome_distribution` already has `bat_home`; add pitcher- or team-filtered counts)
 - Named SQL: `mlb_baseball/sql/markov_transition_counts.sql` (parameterized filter, not a second formula)
 - Test: `tests/integration/test_model_markov.py` + keep `scripts/verify_markov_calibration.py`
 

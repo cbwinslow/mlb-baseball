@@ -120,6 +120,6 @@ coverage work (`STA-01`–`04`, `DEF-02`, `PLN-02`/`03`) not yet proven.
 
 **Separately, not a `gold.game_feature` row at all**: a live, in-game
 win-probability model is the legitimate home for WPA/Leverage Index (see
-`LIVE-01`) — `markov.py`'s half-inning/full-game simulator (Plan 04D) is
+`LIVE-01`) — `markov/`'s half-inning/full-game simulator (Plan 04D) is
 most of the way there already. Worth scoping as its own track when there's
 appetite for in-game (not pregame) content, e.g. for the website.

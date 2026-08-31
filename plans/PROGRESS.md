@@ -3,6 +3,28 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### markov/ package split (spec step 0) — 2026-08-30
+
+Split `mlb_baseball/model/markov.py` (1,150 lines) into `markov/core.py`
+(pure: state model, RE solve, simulators, shrink) and `markov/estimate.py`
+(11 conn-taking functions + 6 SQL constants). `markov/__init__.py`
+eagerly re-exports the full 37-name surface (28 from `core`, 9 DB
+estimators from `estimate`) — no caller changed. New
+`tests/unit/test_markov_public_surface.py` locks the surface and asserts
+`markov/core.py` source carries no database code (`import psycopg`,
+`read_sql`, `mlb_baseball.db`/`.sql`). A truly driver-free `core` import
+also needs `mlb_baseball/model/__init__.py` to stop eagerly importing
+psycopg — tracked as issue #111 / ADR-276 "Revisit if".
+
+On `refactor/markov-package` (PR #110). Zero behaviour change; prereq for
+the plate-appearance matchup model's clean library signatures
+(`docs/superpowers/specs/2026-08-30-matchup-model-design.md` step 0).
+
+Verification: `test_markov_*` unit suite + `test_model_markov`,
+`test_model_sim_predict`, `test_model_run_expectancy`,
+`test_eval_markov_holdout` on `mlb_test` green (same counts); ruff, ruff
+format, mypy clean.
+
 ### Migration 0092: hot-query lookup indexes — 2026-08-29
 
 `hypopg` 1.4.3 installed on production `mlb`. `postgres-mlb` (restricted) /

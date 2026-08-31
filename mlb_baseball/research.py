@@ -63,7 +63,7 @@ FOUNDATIONAL_RESEARCH: tuple[ResearchPublication, ...] = (
             "TTO_3rd_look wOBA penalty = +0.015 to +0.020 wOBA (~ +0.18 runs/game)",
         ),
         project_implementations=(
-            "mlb_baseball/model/markov.py",
+            "mlb_baseball/model/markov/",
             "mlb_baseball/model/simulate.py",
             "mlb_baseball/model/wpa.py",
             "gold.game_feature",
@@ -110,7 +110,7 @@ FOUNDATIONAL_RESEARCH: tuple[ResearchPublication, ...] = (
             "Park Factor = ((Home_RS + Home_RA) / Home_G) / ((Road_RS + Road_RA) / Road_G)",
         ),
         project_implementations=(
-            "mlb_baseball/model/markov.py",
+            "mlb_baseball/model/markov/",
             "gold.game_feature",
         ),
     ),

@@ -790,9 +790,10 @@ git add scripts/repair_market_prediction_times.sql tests/integration/test_repair
 git commit -m "chore(market): one-time repair script for stale issue #107 rows
 
 Owner runs this once against prod mlb after deploy: deletes the ~540
-kalshi-v1 / polymarket-v1 rows stamped after first pitch. Reports the
-count first, wrapped in a transaction the owner commits or rolls back.
-Test proves the DELETE predicate hits only post-first-pitch market rows."
+kalshi-v1 / polymarket-v1 rows stamped at or after first pitch. Prints its
+own DELETE count; the commented dry-run SELECT in the header is the safety
+check; not transaction-wrapped (psql autocommit). Test proves the DELETE
+predicate hits only post-first-pitch market rows."
 ```
 
 ---

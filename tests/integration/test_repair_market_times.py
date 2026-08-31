@@ -32,7 +32,18 @@ def _seed(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
         if cur.fetchone()[0] is None:
-            cur.execute("CREATE TABLE raw.mlb_schedule (game_id text, game_datetime text)")
+            # Full production column shape, not a two-column stub: a skinny
+            # raw.mlb_schedule left behind breaks later tests that call
+            # features.build() with UndefinedColumn (CI 2026-08-28). This test
+            # only writes game_id/game_datetime, but the table it may leave
+            # behind must be the real shape.
+            cur.execute(
+                "CREATE TABLE raw.mlb_schedule "
+                "(game_id text, game_date text, away_name text, home_name text, "
+                "away_id text, home_id text, _season text, status text, game_type text, "
+                "game_num text, venue_name text, venue_id text, "
+                "away_score text, home_score text, game_datetime text)"
+            )
         cur.execute(
             "DELETE FROM raw.mlb_schedule WHERE game_id IN ('700001', '700002', '700003', '700004')"
         )

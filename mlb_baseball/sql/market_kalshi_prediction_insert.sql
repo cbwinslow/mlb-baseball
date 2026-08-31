@@ -1,3 +1,8 @@
+-- No per-row market-type filter here (unlike the Polymarket insert's
+-- pm.sportsmarkettype = 'moneyline'): Kalshi game markets are already scoped
+-- upstream by conform._kalshi_market_rows (event_ticker LIKE 'KXMLBGAME%' plus
+-- a team-suffix ticker regex), so only moneyline game contracts ever reach
+-- core.market with source = 'kalshi'.
 INSERT INTO gold.prediction
     (mlb_game_pk, game_instance_key, model_version, home_win_prob, generated_at)
 SELECT g.game_pk, f.game_instance_key, %(model_version)s, m.implied_probability, m.observed_at

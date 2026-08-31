@@ -66,10 +66,13 @@ def test_core_module_has_no_database_code():
 
     src = Path(__file__).parents[2] / "mlb_baseball" / "model" / "markov" / "core.py"
     text = src.read_text()
+    # Substrings, not exact import lines: this catches `import psycopg as pg`,
+    # `from psycopg import ...`, `import mlb_baseball.db`, etc. -- core.py has
+    # no legitimate reason to mention any of these tokens at all.
     forbidden_fragments = (
-        "import psycopg",
-        "from mlb_baseball.sql",
-        "from mlb_baseball.db",
+        "psycopg",
+        "mlb_baseball.sql",
+        "mlb_baseball.db",
         "read_sql",
     )
     for forbidden in forbidden_fragments:

@@ -98,6 +98,8 @@ def _reset_dynamic_tables(conn):
             "gold.pitching_game",
             "gold.batting_season",
             "gold.batting_team",
+            "gold.pitching_season",
+            "gold.pitching_team",
             "core.game",
             "core.team_alias",
             "core.player_war",
@@ -418,7 +420,7 @@ def test_rerunning_does_not_crash_when_a_backbone_relation_references_core(db_co
     # Same FK class as the gold.game_feature regression above, for the Plan
     # 03B backbone: gold.batting_game / gold.pitching_game and the
     # gold.batting_season / gold.batting_team roll-ups reference
-    # core.game / core.player / core.team (migrations 0094-0096). conform
+    # core.game / core.player / core.team (migrations 0094-0097). conform
     # rebuilds core from scratch and reissues every core.game surrogate id,
     # so run()'s consolidated TRUNCATE must clear all of them or Postgres
     # refuses to TRUNCATE core.game / core.team / core.player while their
@@ -452,6 +454,16 @@ def test_rerunning_does_not_crash_when_a_backbone_relation_references_core(db_co
             "INSERT INTO gold.batting_team (team_id, season, pa, ab) VALUES (%s, %s, 4, 4)",
             (team_id, season),
         )
+        cur.execute(
+            "INSERT INTO gold.pitching_season "
+            "(player_id, season, team_id, is_combined, bf, outs) "
+            "VALUES (%s, %s, %s, false, 27, 21)",
+            (player_id, season, team_id),
+        )
+        cur.execute(
+            "INSERT INTO gold.pitching_team (team_id, season, bf, outs) VALUES (%s, %s, 27, 21)",
+            (team_id, season),
+        )
     db_conn.commit()
 
     conform.run()  # must not raise psycopg.errors.FeatureNotSupported
@@ -465,6 +477,8 @@ def test_rerunning_does_not_crash_when_a_backbone_relation_references_core(db_co
             "gold.pitching_game",
             "gold.batting_season",
             "gold.batting_team",
+            "gold.pitching_season",
+            "gold.pitching_team",
         ):
             cur.execute(f"SELECT count(*) FROM {table}")
             assert cur.fetchone() == (0,), table

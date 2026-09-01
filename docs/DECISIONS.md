@@ -70,6 +70,16 @@ to `gold.baserunning_game`). Export profile is `local_research`, not
 conformed `core` dims for surrogate keys (a `public_safe` variant keyed by
 retro ids is tracked follow-up).
 
+**Relation 4 (`gold.pitching_season` / `gold.pitching_team`), 2026-09-01:**
+same shape and roll-up rules as relation 3, off `gold.pitching_game`. Rate
+stats are `ra9` / `whip` / `k9` / `bb9` / `hr9` / `k_bb` (per-9 rates =
+component × 27 / outs; `k_bb` = SO / BB, NULL when BB = 0; all NULL on a
+zero `outs`). **`era` is NOT produced** — `gold.pitching_game` has no earned
+runs (needs reconstructed-inning logic cwevent does not emit); `ra9` is the
+honest event-derived rate, and ERA stays available per player-season from
+Baseball-Reference (`gold.player_season`). Export profile `local_research`,
+same rationale as relation 3.
+
 ## ADR-277: core.market.observed_at — truthful pre-game timestamp for market comparison lines
 
 **Decision:** `core.market` gains a nullable `observed_at timestamptz`

@@ -416,6 +416,8 @@ _BATTING_GAME_SQL = read_sql("batting_game_build.sql")
 _PITCHING_GAME_SQL = read_sql("pitching_game_build.sql")
 _BATTING_SEASON_SQL = read_sql("batting_season_build.sql")
 _BATTING_TEAM_SQL = read_sql("batting_team_build.sql")
+_PITCHING_SEASON_SQL = read_sql("pitching_season_build.sql")
+_PITCHING_TEAM_SQL = read_sql("pitching_team_build.sql")
 
 
 def _build_backbone_relation(
@@ -493,6 +495,12 @@ def run() -> dict[str, int]:
         )
         counts["gold.batting_team"] = _build_backbone_relation(
             conn, "gold.batting_team", _BATTING_TEAM_SQL, source="gold.batting_game"
+        )
+        counts["gold.pitching_season"] = _build_backbone_relation(
+            conn, "gold.pitching_season", _PITCHING_SEASON_SQL, source="gold.pitching_game"
+        )
+        counts["gold.pitching_team"] = _build_backbone_relation(
+            conn, "gold.pitching_team", _PITCHING_TEAM_SQL, source="gold.pitching_game"
         )
         conn.commit()
         result["rows"] = sum(counts.values())
@@ -634,6 +642,30 @@ def health_check() -> list[Check]:
             "gold.batting_game (team, season) keys get a gold.batting_team row",
             "SELECT count(*) FROM gold.batting_team",
             "SELECT count(*) FROM (SELECT DISTINCT team_id, season FROM gold.batting_game) s",
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.pitching_season"),
+        # Same shape as the batting_season check, off gold.pitching_game:
+        # one stint row per (player, season, team) + one combined row per
+        # (player, season).
+        check_join_coverage(
+            "gold.pitching_game (player, season, team) + (player, season) keys "
+            "each get a gold.pitching_season row",
+            "SELECT count(*) FROM gold.pitching_season",
+            """
+            SELECT
+                (SELECT count(*) FROM (
+                    SELECT DISTINCT player_id, season, team_id FROM gold.pitching_game) a)
+              + (SELECT count(*) FROM (
+                    SELECT DISTINCT player_id, season FROM gold.pitching_game) b)
+            """,
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.pitching_team"),
+        check_join_coverage(
+            "gold.pitching_game (team, season) keys get a gold.pitching_team row",
+            "SELECT count(*) FROM gold.pitching_team",
+            "SELECT count(*) FROM (SELECT DISTINCT team_id, season FROM gold.pitching_game) s",
             tolerance=0,
         ),
     ]

@@ -22,7 +22,11 @@ new SQL; it prevents a second embedded-SQL monolith from growing in Python.
   ingestion run tracking.
 - Multi-pass game/team identity reconciliation and market snapshot matching.
 - Sequential Elo, GBM training/inference, simulations, and evaluation control
-  flow.
+  flow. The experiment lab's two stable bulk writes -- the snapshot feature
+  matrix selection and the immutable `gold.game_feature_snapshot` insert it
+  feeds -- are named resources (`experiment_selection.sql`,
+  `experiment_snapshot_insert.sql`); Python keeps only the content-addressing
+  and idempotency check around them.
 - Parameterized operational statements and doctor/inventory diagnostics.
 - Small source-selection fragments whose composition is procedural (for
   example `features.py` choosing whether the optional schedule branch is

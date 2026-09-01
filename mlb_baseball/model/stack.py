@@ -22,7 +22,6 @@ import json
 import math
 from collections.abc import Sequence
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
@@ -30,9 +29,10 @@ import psycopg
 from sklearn.metrics import brier_score_loss, log_loss
 
 from mlb_baseball.health import Check
+from mlb_baseball.model import provenance
 
 MODEL_VERSION = "stack-v2"
-MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "models"
+MODEL_DIR = provenance.models_dir()
 MODEL_PATH = MODEL_DIR / f"{MODEL_VERSION}.json"
 
 BASE_MODELS = ("log5-v1", "elo-v1", "gbm-v2")

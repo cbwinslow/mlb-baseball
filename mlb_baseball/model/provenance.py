@@ -29,6 +29,34 @@ def git_sha() -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def models_dir() -> Path:
+    """The primary git checkout's ``models/`` directory.
+
+    Model artifacts are referenced by absolute path in the shared
+    ``meta.model`` table, so they must resolve to one stable location no
+    matter which git worktree ran ``mlb train`` -- a worktree that trained a
+    model and was then removed would leave a dangling ``artifact_uri``
+    (issue #108). ``git rev-parse --git-common-dir`` points at the primary
+    ``.git`` even from a linked worktree; ``--path-format=absolute`` makes it
+    absolute from any cwd. Falls back to this package's own location when not
+    run from a git checkout (e.g. an installed wheel)."""
+    fallback = Path(__file__).resolve().parent.parent.parent / "models"
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            check=False,
+            text=True,
+            cwd=Path(__file__).resolve().parent,
+        )
+    except OSError:
+        return fallback
+    common = result.stdout.strip()
+    if result.returncode != 0 or not common:
+        return fallback
+    return Path(common).resolve().parent / "models"
+
+
 def feature_snapshot(
     conn: psycopg.Connection, *, where: str = "TRUE"
 ) -> tuple[datetime | None, str]:

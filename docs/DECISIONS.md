@@ -2,6 +2,56 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-278: grain-complete statistic backbone — `gold.batting_game` first
+
+**Decision:** Build a stable statistic table at every grain a sabermetric
+researcher expects (game → season → career; player and team), starting with
+`gold.batting_game` — one batting box-score line per `(game_id, player_id)`,
+regular season, built by `mlb report` from `raw.retrosheet_event` (migration
+0094, `sql/batting_game_build.sql`). Counting stats only; rate stats live in
+the season/career roll-ups. Spec:
+`superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md`; plan:
+`superpowers/plans/2026-09-01-grain-backbone-plan.md`.
+
+**Context:** An inventory (2026-09-01) of baseball.computer's published
+surface vs ours found we already compute the advanced metrics (wOBA, wRC+,
+FIP, xFIP, SIERA, RE24, WPA, LI, BsR, framing, pitch discipline) with cited
+formulas and hand fixtures — but every one lives on `gold.game_feature`, at
+one grain (pregame, per game instance, `home_*`/`away_*` columns). A
+researcher cannot query player-season FIP or team wOBA by game without
+rebuilding from `raw`. baseball.computer's whole value is the clean grain
+ladder, which Plan 03B specified and we never built past the single game
+grain. The work is mostly re-plumbing already-validated formulas to new
+grains — the opposite of the ~110 frozen un-cited Engine packages.
+
+**Cost:** one new `gold` table per grain, each a named `.sql` builder + a
+migration (the proven one-writer-per-table path; a SQLMesh
+`INCREMENTAL_BY_TIME_RANGE` model is a drop-in later once ADR-088's promotion
+path is open). `gold.batting_game` reuses the exact `bat_event_fl` / `ab_fl`
+/ `sf_fl` / `sh_fl` / `event_cd` handling of
+`sql/team_woba_retrosheet_update.sql` (ADR-034) so the new grain cannot
+silently diverge from the tied-out team numbers. Building from `core.play`
+was rejected: it carries none of those flags.
+
+**Placement:** `gold`, not `core` — a box-score line is a derived
+aggregation. `core` stays dimensions + facts at their natural grain.
+
+**Scope / limits:** regular season only (matches the existing gold season
+tables and Baseball-Reference); 1910–2025 (Retrosheet), with a separate
+`raw.mlb_playbyplay` builder for 2026+ to follow; `gidp` undercounts
+pre-1988 (sparse `battedball_cd`); pure pinch-runners (PA=0) are deferred to
+a later `gold.baserunning_game`.
+
+**Revisit if:** the existing `gold.player_season` / `gold.team_season`
+(Baseball-Reference / Lahman, 2008+) should become views over the new
+Retrosheet-backed tables rather than a parallel "official-source"
+alternative — a deliberate choice to record in its own ADR when the season
+roll-ups land, not a two-writer accident.
+
+**WAR: explicitly out of scope.** Many contentious components; both fWAR and
+bWAR are proprietary blends. Keep ingesting Baseball-Reference's
+`core.player_war`.
+
 ## ADR-277: core.market.observed_at — truthful pre-game timestamp for market comparison lines
 
 **Decision:** `core.market` gains a nullable `observed_at timestamptz`

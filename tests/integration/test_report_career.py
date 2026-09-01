@@ -228,11 +228,12 @@ def test_batting_career_sums_the_per_season_combined_rows(db_conn):
         assert c["first_season"] == 2021
         assert c["last_season"] == 2022
         assert c["g"] == 290
-        # career totals: PA1150 AB1040 R170 H290 2B55 3B2 HR35 TB454 BB90 SO210
+        # career totals: PA1150 AB1040 R170 H290 1B198 2B55 3B2 HR35 TB454 BB90 SO210
         assert c["pa"] == 1150
         assert c["ab"] == 1040
         assert c["r"] == 170
         assert c["h"] == 290
+        assert c["b1"] == 198  # (150-30-2-20) + (140-25-15)
         assert c["b2"] == 55
         assert c["b3"] == 2
         assert c["hr"] == 35
@@ -321,6 +322,11 @@ def test_pitching_career_sums_combined_rows_and_recomputes_rates(db_conn):
             "hr",
             "w",
             "l",
+            "sv",
+            "ibb",
+            "hbp",
+            "wp",
+            "bk",
             "ra9",
             "whip",
             "k9",
@@ -333,6 +339,8 @@ def test_pitching_career_sums_combined_rows_and_recomputes_rates(db_conn):
         assert (c["g"], c["gs"], c["bf"], c["outs"]) == (58, 58, 1520, 1026)
         assert (c["h"], c["r"], c["bb"], c["so"], c["hr"]) == (340, 150, 95, 390, 45)
         assert (c["w"], c["l"]) == (22, 17)
+        # the seed leaves these unset -> career totals are 0, not NULL
+        assert (c["sv"], c["ibb"], c["hbp"], c["wp"], c["bk"]) == (0, 0, 0, 0, 0)
         assert float(c["ra9"]) == pytest.approx(150 * 27 / 1026)
         assert float(c["whip"]) == pytest.approx((340 + 95) * 3 / 1026)
         assert float(c["k9"]) == pytest.approx(390 * 27 / 1026)
@@ -418,5 +426,10 @@ def test_report_health_check_includes_the_career_rollups(db_conn):
         p = next(c for n, c in checks.items() if "gets a gold.pitching_career row" in n)
         assert b.ok, b.detail
         assert p.ok, p.detail
+        # rate-domain checks pass on well-formed data
+        bd = next(c for n, c in checks.items() if "batting_{season,team,career} rate stats" in n)
+        pd = next(c for n, c in checks.items() if "pitching_{season,team,career} rate stats" in n)
+        assert bd.ok, bd.detail
+        assert pd.ok, pd.detail
     finally:
         _cleanup(db_conn)

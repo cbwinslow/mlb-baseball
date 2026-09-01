@@ -6,6 +6,7 @@ from mlb_baseball.health import (
     check_last_run,
     check_never_vacuumed,
     check_no_duplicate_key,
+    check_no_rows,
     check_partition_coverage,
     check_recent_run,
     check_table_exists,
@@ -399,6 +400,36 @@ def test_check_no_duplicate_key_false_when_a_value_repeats(db_conn, drop_tables_
 def test_check_no_duplicate_key_false_when_table_never_created():
     result = check_no_duplicate_key("raw.test_health_dupcheck_never_created", "game_pk")
 
+    assert not result.ok
+    assert "does not exist" in result.detail
+
+
+def test_check_no_rows_ok_when_count_zero(db_conn, drop_tables_after):
+    t = drop_tables_after("raw.test_health_norows")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {t} (v numeric)")
+        cur.execute(f"INSERT INTO {t} VALUES (0.3), (0.5)")
+    db_conn.commit()
+
+    result = check_no_rows("test domain", f"SELECT count(*) FROM {t} WHERE v < 0 OR v > 1")
+    assert result.ok
+    assert result.detail == "none"
+
+
+def test_check_no_rows_false_when_a_row_violates(db_conn, drop_tables_after):
+    t = drop_tables_after("raw.test_health_norows_bad")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {t} (v numeric)")
+        cur.execute(f"INSERT INTO {t} VALUES (0.3), (1.7), (-0.1)")
+    db_conn.commit()
+
+    result = check_no_rows("test domain", f"SELECT count(*) FROM {t} WHERE v < 0 OR v > 1")
+    assert not result.ok
+    assert "2 row(s) violate" in result.detail
+
+
+def test_check_no_rows_false_when_table_missing():
+    result = check_no_rows("test domain", "SELECT count(*) FROM raw.test_health_norows_absent")
     assert not result.ok
     assert "does not exist" in result.detail
 

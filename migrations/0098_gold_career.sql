@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS gold.batting_career (
 );
 
 CREATE INDEX IF NOT EXISTS batting_career_last_season_idx ON gold.batting_career (last_season);
+CREATE INDEX IF NOT EXISTS batting_career_first_season_idx ON gold.batting_career (first_season);
 
 COMMENT ON TABLE gold.batting_career IS
     'Career batting line per player, summed from gold.batting_season''s '
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS gold.pitching_career (
 );
 
 CREATE INDEX IF NOT EXISTS pitching_career_last_season_idx ON gold.pitching_career (last_season);
+CREATE INDEX IF NOT EXISTS pitching_career_first_season_idx ON gold.pitching_career (first_season);
 
 COMMENT ON TABLE gold.pitching_career IS
     'Career pitching line per player, summed from gold.pitching_season''s '

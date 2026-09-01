@@ -68,7 +68,7 @@ SELECT
     CASE WHEN (ab + bb + hbp + sf) > 0
          THEN (h + bb + hbp)::numeric / (ab + bb + hbp + sf) END,
     CASE WHEN ab > 0 THEN tb::numeric / ab END,
-    CASE WHEN ab > 0 AND (ab + bb + hbp + sf) > 0
+    CASE WHEN ab > 0   -- ab>0 already implies (ab+bb+hbp+sf)>0
          THEN tb::numeric / ab + (h + bb + hbp)::numeric / (ab + bb + hbp + sf) END,
     CASE WHEN ab > 0 THEN (tb - h)::numeric / ab END,
     CASE WHEN (ab - so - hr + sf) > 0

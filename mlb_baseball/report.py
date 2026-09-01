@@ -29,7 +29,12 @@ import psycopg
 from psycopg import sql
 
 from mlb_baseball.db import fetch_one, get_connection
-from mlb_baseball.health import Check, check_join_coverage, check_table_has_rows
+from mlb_baseball.health import (
+    Check,
+    check_join_coverage,
+    check_no_rows,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.model.offense import W_1B, W_2B, W_3B, W_HBP, W_HR, W_UBB, WOBA_SCALE
 from mlb_baseball.model.war import _BREF_TO_RETRO
@@ -438,15 +443,16 @@ def _build_backbone_relation(
     loudly. The game relations read `raw.retrosheet_event`; the season / team
     roll-ups read `gold.{batting,pitching}_game`; the career roll-ups read
     the season tables (all always present once migrated, so the pre-check is
-    a no-op for them -- but keeps the one code path). Builders that take an
-    optional season scope carry a `%(season)s` bind; the career builders
-    don't (a career is every season), so params are only passed when the
-    bind is actually present. `table` and `source` are internal constants,
-    not user input; `table` is still passed through `sql.Identifier` so the
-    query is not built by string formatting."""
+    a no-op for them -- but keeps the one code path). The game / season /
+    team builders take an optional `%(season)s` scope; the career builders
+    don't (a career is every season). `{"season": None}` is passed
+    unconditionally -- psycopg ignores an unused mapping key, so the career
+    builders (which contain no placeholder) are unaffected. `table` and
+    `source` are internal constants, not user input; `table` is still passed
+    through `sql.Identifier` so the query is not built by string
+    formatting."""
     schema, name = table.split(".", 1)
     ident = sql.Identifier(schema, name)
-    params = {"season": None} if "%(season)s" in build_sql else None
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass(%s)", (source,))
         (present,) = fetch_one(cur)
@@ -457,7 +463,7 @@ def _build_backbone_relation(
     # builders' work in run()'s shared transaction, matching _build_player_season.
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(sql.SQL("TRUNCATE {}").format(ident))
-        cur.execute(build_sql, params)
+        cur.execute(build_sql, {"season": None})
         cur.execute(sql.SQL("SELECT count(*) FROM {}").format(ident))
         (count,) = fetch_one(cur)
     return count
@@ -695,5 +701,36 @@ def health_check() -> list[Check]:
             "SELECT count(*) FROM gold.pitching_career",
             "SELECT count(DISTINCT player_id) FROM gold.pitching_season WHERE is_combined",
             tolerance=0,
+        ),
+        # Rate-stat domain checks -- catch a formula or upstream-component
+        # change that produces an impossible value before a researcher sees
+        # it. AVG/OBP/SLG are bounded [0, 4] (SLG max is 4.000, a homer
+        # every AB); rate/9 stats and BABIP/percentages are non-negative;
+        # OPS = OBP + SLG so it's bounded too.
+        check_no_rows(
+            "gold.batting_{season,team,career} rate stats are in range",
+            """
+            SELECT
+              (SELECT count(*) FROM gold.batting_season WHERE avg  < 0 OR avg  > 1
+                 OR obp < 0 OR obp > 1 OR slg < 0 OR slg > 4 OR ops < 0 OR ops > 5
+                 OR iso < 0 OR babip < 0 OR bb_pct < 0 OR bb_pct > 1
+                 OR k_pct < 0 OR k_pct > 1)
+            + (SELECT count(*) FROM gold.batting_team WHERE avg  < 0 OR avg  > 1
+                 OR obp < 0 OR obp > 1 OR slg < 0 OR slg > 4 OR ops < 0 OR ops > 5)
+            + (SELECT count(*) FROM gold.batting_career WHERE avg  < 0 OR avg  > 1
+                 OR obp < 0 OR obp > 1 OR slg < 0 OR slg > 4 OR ops < 0 OR ops > 5)
+            """,
+        ),
+        check_no_rows(
+            "gold.pitching_{season,team,career} rate stats are non-negative",
+            """
+            SELECT
+              (SELECT count(*) FROM gold.pitching_season
+                 WHERE ra9 < 0 OR whip < 0 OR k9 < 0 OR bb9 < 0 OR hr9 < 0 OR k_bb < 0)
+            + (SELECT count(*) FROM gold.pitching_team
+                 WHERE ra9 < 0 OR whip < 0 OR k9 < 0 OR bb9 < 0 OR hr9 < 0 OR k_bb < 0)
+            + (SELECT count(*) FROM gold.pitching_career
+                 WHERE ra9 < 0 OR whip < 0 OR k9 < 0 OR bb9 < 0 OR hr9 < 0 OR k_bb < 0)
+            """,
         ),
     ]

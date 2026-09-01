@@ -148,6 +148,24 @@ def check_no_duplicate_key(table: str, column: str) -> Check:
     return Check(f"{table}.{column} uniqueness", True, "no duplicates")
 
 
+def check_no_rows(label: str, sql: str) -> Check:
+    """`sql` counts rows that should never exist (a domain / invariant
+    violation — an impossible rate, a negative count, a stat outside its
+    physical range). Passes only when the count is 0. Use for catching a
+    formula or upstream-component change that produces nonsense before it
+    reaches a researcher."""
+    with get_connection() as conn, conn.cursor() as cur:
+        try:
+            cur.execute(sql)
+        except psycopg.errors.UndefinedTable:
+            conn.rollback()
+            return Check(label, False, "a required table does not exist — never bootstrapped?")
+        (bad,) = fetch_one(cur)
+    if bad:
+        return Check(label, False, f"{bad} row(s) violate the invariant")
+    return Check(label, True, "none")
+
+
 def check_partition_coverage(label: str, sql: str, *, min_ratio: float = 0.5) -> Check:
     """`sql` must return rows of (partition_key, actual_count, expected_count)
     — e.g. one row per season, comparing how many games actually landed in

@@ -84,7 +84,7 @@ jobs:
           enable-cache: true
 
       - name: Install package with dev dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --extra dev --extra export
 
       - name: Lint (ruff)
         run: uv run ruff check .
@@ -113,7 +113,7 @@ jobs:
           enable-cache: true
 
       - name: Install package with dev dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --extra dev --extra export
 
       - name: Run unit tests
         run: uv run pytest tests/unit -q --cov=mlb_baseball --cov-report=xml
@@ -157,7 +157,7 @@ jobs:
           enable-cache: true
 
       - name: Install package with dev dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --extra dev --extra export
 
       - name: Configure the Postgres service (pg_stat_statements + throwaway-DB durability)
         env:

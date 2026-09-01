@@ -278,26 +278,18 @@ class MasterDailyPipeline:
             )
         )
 
-        # Phase 8: Multi-Format Research Dossier Publication
+        # Phase 8: Research Data and Interop Export Layer Validation
         p8_start = time.perf_counter()
-        from mlb_baseball.export import KeyValueSectionBuilder, MarkdownRenderer, ResearchDossier
+        from mlb_baseball.export import resolve_relation
 
-        dossier = ResearchDossier(
-            title=f"MLB Daily Quantitative Forecasting Dossier — {t_date}",
-            sections=[
-                KeyValueSectionBuilder(
-                    "System Overview", [("Status", "Operational"), ("Target Date", t_date)]
-                ),
-            ],
-        )
-        md_text = dossier.export(MarkdownRenderer())
+        rel = resolve_relation("gold.game_export")
         phases.append(
             PipelinePhaseResult(
-                phase_name="8. Multi-Format Dossier Publication",
+                phase_name="8. Research Data Export Layer",
                 status="PASS",
                 duration_seconds=round(time.perf_counter() - p8_start, 3),
-                summary="Rendered publication-ready Markdown/HTML/JSON dossiers.",
-                metrics={"rendered_bytes": len(md_text)},
+                summary=f"Validated research export relation {rel.qualified_name}.",
+                metrics={"relation": rel.qualified_name},
             )
         )
 

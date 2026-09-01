@@ -8,7 +8,7 @@ Executes `docs/superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.
 |---|---|---|---|
 | 1 | `gold.batting_game` | `raw.retrosheet_event` | **done — PR #126** (ADR-278). Migration 0094, `sql/batting_game_build.sql`, wired into `mlb report` + doctor, hand-math + idempotency tests. |
 | 2 | `gold.pitching_game` | `raw.retrosheet_event` | **done — PR #126.** Migration 0095. Runs charged per responsible pitcher (`resp_pit_id` + `run{1,2,3}_resp_pit_id`). `er`/`era` deferred: reconstructed-inning logic cwevent does not emit — `r` + season RA9 are the honest figures. |
-| 3 | `gold.batting_season` / `gold.batting_team` | roll up `gold.batting_game` + `core.game` for team/season keys | **next.** + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%. **Tie-out test vs a real Baseball-Reference player-season.** |
+| 3 | `gold.batting_season` / `gold.batting_team` | roll up `gold.batting_game` | **in progress — WS-3a.** Migration 0096, `sql/batting_season_build.sql` + `sql/batting_team_build.sql`. AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K% computed at grain. `batting_season` = per-team stint rows + one `is_combined` full-season row per player (`team_id` NULL); `batting_team` = one row per `(team, season)`. SB/CS/SB% omitted (not in `batting_game` yet). Rates NULL on zero denominator. Tie-out vs a real Baseball-Reference player-season still to add. |
 | 4 | `gold.pitching_season` / `gold.pitching_team` | roll up `gold.pitching_game` | + RA9/WHIP/K9/BB9/HR9/K:BB (not ERA — no ER at this grain) |
 | 5 | `gold.batting_career` / `gold.pitching_career` | roll up the season tables | simple sum + career rates |
 | 6 | ADR + docs | — | decide: does `gold.player_season` (BRef, 2008+) become a view over the new tables, or stay as the "official-source" alternative? One choice, recorded. |

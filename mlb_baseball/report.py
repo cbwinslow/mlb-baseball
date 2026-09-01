@@ -414,26 +414,36 @@ LEFT JOIN raw.mlb_standing ms
 
 _BATTING_GAME_SQL = read_sql("batting_game_build.sql")
 _PITCHING_GAME_SQL = read_sql("pitching_game_build.sql")
+_BATTING_SEASON_SQL = read_sql("batting_season_build.sql")
+_BATTING_TEAM_SQL = read_sql("batting_team_build.sql")
 
 
-def _build_backbone_relation(conn: psycopg.Connection, table: str, build_sql: str) -> int:
-    """Truncate-and-rebuild one grain-backbone `gold` relation from
-    raw.retrosheet_event.
+def _build_backbone_relation(
+    conn: psycopg.Connection,
+    table: str,
+    build_sql: str,
+    *,
+    source: str = "raw.retrosheet_event",
+) -> int:
+    """Truncate-and-rebuild one grain-backbone `gold` relation.
 
-    Pre-checks that `raw.retrosheet_event` exists and skips gracefully if it
-    does not (same posture as `_build_player_season` with `raw.bref_*`) --
-    checking first, rather than TRUNCATE-then-catch, so a missing *source*
-    table skips cleanly while a missing *target* table (migrations not run)
-    still fails loudly. `table` is an internal constant, not user input; it is
-    still passed through `sql.Identifier` so the query is not built by string
+    Pre-checks that `source` exists and skips gracefully if it does not (same
+    posture as `_build_player_season` with `raw.bref_*`) -- checking first,
+    rather than TRUNCATE-then-catch, so a missing *source* table skips
+    cleanly while a missing *target* table (migrations not run) still fails
+    loudly. The game relations read `raw.retrosheet_event`; the season / team
+    roll-ups read `gold.batting_game` (always present once migrated, so the
+    pre-check is a no-op for them -- but keeps the one code path). `table`
+    and `source` are internal constants, not user input; `table` is still
+    passed through `sql.Identifier` so the query is not built by string
     formatting."""
     schema, name = table.split(".", 1)
     ident = sql.Identifier(schema, name)
     with conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
+        cur.execute("SELECT to_regclass(%s)", (source,))
         (present,) = fetch_one(cur)
     if present is None:
-        print(f"report: raw.retrosheet_event not present yet -- skipping {table}")
+        print(f"report: {source} not present yet -- skipping {table}")
         return 0
     # Savepoint so any failure in this builder can't roll back the other
     # builders' work in run()'s shared transaction, matching _build_player_season.
@@ -476,6 +486,13 @@ def run() -> dict[str, int]:
         )
         counts["gold.pitching_game"] = _build_backbone_relation(
             conn, "gold.pitching_game", _PITCHING_GAME_SQL
+        )
+        # Season / team roll-ups read the game relations just built above.
+        counts["gold.batting_season"] = _build_backbone_relation(
+            conn, "gold.batting_season", _BATTING_SEASON_SQL, source="gold.batting_game"
+        )
+        counts["gold.batting_team"] = _build_backbone_relation(
+            conn, "gold.batting_team", _BATTING_TEAM_SQL, source="gold.batting_game"
         )
         conn.commit()
         result["rows"] = sum(counts.values())
@@ -591,6 +608,32 @@ def health_check() -> list[Check]:
                 HAVING count(*) FILTER (WHERE re.bat_event_fl = 'T') > 0
             ) s
             """,
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.batting_season"),
+        # gold.batting_season = one stint row per (player, season, team) plus
+        # one combined row per (player, season). The build groups both
+        # straight off gold.batting_game, so the expected count is exactly
+        # those two distinct-key counts summed -- not a stricter bar than the
+        # builder clears.
+        check_join_coverage(
+            "gold.batting_game (player, season, team) + (player, season) keys "
+            "each get a gold.batting_season row",
+            "SELECT count(*) FROM gold.batting_season",
+            """
+            SELECT
+                (SELECT count(*) FROM (
+                    SELECT DISTINCT player_id, season, team_id FROM gold.batting_game) a)
+              + (SELECT count(*) FROM (
+                    SELECT DISTINCT player_id, season FROM gold.batting_game) b)
+            """,
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.batting_team"),
+        check_join_coverage(
+            "gold.batting_game (team, season) keys get a gold.batting_team row",
+            "SELECT count(*) FROM gold.batting_team",
+            "SELECT count(*) FROM (SELECT DISTINCT team_id, season FROM gold.batting_game) s",
             tolerance=0,
         ),
     ]

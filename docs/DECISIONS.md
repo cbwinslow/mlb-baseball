@@ -55,6 +55,21 @@ roll-ups land, not a two-writer accident.
 bWAR are proprietary blends. Keep ingesting Baseball-Reference's
 `core.player_war`.
 
+**Relation 3 (`gold.batting_season` / `gold.batting_team`), 2026-09-01:**
+season lines roll straight off `gold.batting_game` (never from each other).
+`gold.batting_season` carries two row kinds — a per-`(player, season, team)`
+stint row plus one `is_combined` full-season row per `(player, season)`
+(`team_id` NULL); a one-team player's combined row equals the stint, so
+`WHERE is_combined` always yields exactly one full-season line. Matches
+Baseball-Reference's per-team + "2TM" line shape. Rate stats
+(AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%) are computed from each grain's *summed*
+components and are NULL on a zero denominator. `SB` / `CS` / `SB%` are
+absent — `gold.batting_game` has no steals (deferred with the pinch-runners
+to `gold.baserunning_game`). Export profile is `local_research`, not
+`public_safe`: the stat content is pure Retrosheet but the builder joins the
+conformed `core` dims for surrogate keys (a `public_safe` variant keyed by
+retro ids is tracked follow-up).
+
 ## ADR-277: core.market.observed_at — truthful pre-game timestamp for market comparison lines
 
 **Decision:** `core.market` gains a nullable `observed_at timestamptz`

@@ -30,6 +30,7 @@ dev = [
     "sqlmesh[postgres]>=0.236.1",
     "sqlfluff>=3.0",
     "pytest-postgresql>=8.1,<9",
+    "pytest-split>=0.9",
 ]
 export = [
     "openpyxl>=3.1",

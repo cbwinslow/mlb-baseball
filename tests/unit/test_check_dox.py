@@ -25,6 +25,10 @@ def _sidecar() -> str:
     )
 
 
+def test_repository_dox_structure_is_valid() -> None:
+    assert check_dox() == []
+
+
 def test_check_dox_accepts_indexed_hierarchy_sidecar_and_claude_bridge(tmp_path: Path) -> None:
     _write(tmp_path / "AGENTS.md", _agent(child="pkg/AGENTS.md"))
     _write(tmp_path / "CLAUDE.md", "@AGENTS.md\n")

@@ -19,18 +19,22 @@ _SIDE_CAR_SUFFIX = ".dox.md"
 _AGENT_FILE = "AGENTS.md"
 _CLAUDE_FILE = "CLAUDE.md"
 
-# Phase 1 deliberately starts file-level DOX with the highest-value modules.
-# Keep this list explicit until a directory contract intentionally declares a
-# mechanically complete profile. The generic orphan/source checks below still
-# apply to every sidecar found anywhere in the repository.
+# Sidecars added as reviewed/verified DOX infrastructure. Keep this list explicit
+# until a directory contract intentionally declares mechanically complete
+# coverage. The generic orphan/source checks below still apply to every sidecar
+# found anywhere in the repository.
 REQUIRED_SIDECARS = (
     "mlb_baseball/cli.py.dox.md",
     "mlb_baseball/conform.py.dox.md",
     "mlb_baseball/load.py.dox.md",
     "mlb_baseball/public.py.dox.md",
     "mlb_baseball/registry.py.dox.md",
+    "mlb_baseball/connectors/kalshi.py.dox.md",
     "mlb_baseball/connectors/mlb_api.py.dox.md",
+    "mlb_baseball/connectors/polymarket.py.dox.md",
     "mlb_baseball/connectors/retrosheet.py.dox.md",
+    "mlb_baseball/connectors/statcast.py.dox.md",
+    "mlb_baseball/connectors/statcast_leaderboard.py.dox.md",
 )
 
 _IGNORED_PARTS = {
@@ -114,7 +118,7 @@ def check_dox(
 ) -> list[str]:
     """Return structural DOX violations beneath *root*.
 
-    ``required_sidecars`` defaults to this repository's phase-one baseline when
+    ``required_sidecars`` defaults to this repository's reviewed baseline when
     validating the real repository. Tests/custom callers can pass an explicit
     iterable (including ``()``) for an isolated fixture tree.
     """

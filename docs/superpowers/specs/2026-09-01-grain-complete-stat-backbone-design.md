@@ -78,7 +78,7 @@ dimensions + facts at their natural grain.
 |---|---|---|
 | `gold.batting_game` | (batter, game) | batting box line — PA, AB, R, H, 1B, 2B, 3B, HR, TB, RBI, BB, IBB, HBP, SF, SH, SO, GIDP. SB/CS are baserunning, not batting — deferred to a later `gold.baserunning_game`. |
 | `gold.pitching_game` | (pitcher, game) | pitching box line — BF, outs (→IP), H, R, BB, IBB, SO, HR, HBP, WP, BK; W/L/SV from the decision. ER/ERA need reconstructed-inning logic cwevent doesn't emit — deferred, documented follow-up (ERA available per player-season from `raw.bref_pitching` today). HLD isn't a Retrosheet gameinfo field — not produced here. |
-| `gold.batting_season` / `gold.pitching_season` | (player, season, team) | box-line aggregate + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%/SB%; RA9/WHIP/K9/BB9/HR9/K:BB (not ERA — same ER gap as `gold.pitching_game`) |
+| `gold.batting_season` / `gold.pitching_season` | (player, season, team) + a combined all-teams row | box-line aggregate + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K% (SB% deferred — steals not in `gold.batting_game` yet); RA9/WHIP/K9/BB9/HR9/K:BB (not ERA — same ER gap as `gold.pitching_game`) |
 | `gold.batting_team` / `gold.pitching_team` | (team, season) | same, team grain |
 | `gold.batting_career` / `gold.pitching_career` | (player) | career roll-up |
 
@@ -164,15 +164,18 @@ builder, never 12 copies of every stat.
 
 ### Rights / attribution
 
-Every relation here is Retrosheet-derived (1910-2025). Per
-`docs/SOURCE_RIGHTS.md`, Retrosheet's use policy permits redistribution and
-commercial use but "asks users to acknowledge Retrosheet" — so each
-relation's `mlb export` allow-list entry sits in the Retrosheet-only
-`public_safe` profile, which already ships the Retrosheet attribution and a
-`MANIFEST.json` with every bundle (`docs/RESEARCH_QUERY_RUNBOOK.md`,
-EXPORT-01 / PR #123). Nothing here is `licensed_full` and nothing moves
-there without a recorded license. The Stage 5 source-lineage review
-re-confirms the notice per relation before any public bundle ships.
+The stat *content* of every relation here is 100% Retrosheet events
+(1910-2025). But the builders join the conformed `core.game` / `core.player`
+/ `core.team` dims for surrogate keys, and `docs/SOURCE_RIGHTS.md`'s bar for
+`public_safe` is strict — "public_safe currently permits only Retrosheet
+connector families" and a relation is public_safe *only if every source that
+feeds it is Retrosheet*. Those core dims mix in non-Retrosheet sources, so
+each backbone relation's `mlb export` allow-list entry is **`local_research`**
+(alongside `gold.player_season` / `gold.team_season`), not `public_safe`.
+Nothing here is `licensed_full`. A `public_safe` variant keyed by Retrosheet
+ids (`retro_id` / `retro_game_id`) rather than the core surrogate keys is
+possible follow-up work — tracked as an issue — and the Stage 5
+source-lineage review is where that gets decided per relation.
 
 ## Data-flow (Stage 1)
 

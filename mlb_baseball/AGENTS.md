@@ -76,7 +76,7 @@ Initial high-value profiles:
 | Child | Scope |
 | --- | --- |
 | [`connectors/AGENTS.md`](connectors/AGENTS.md) | External source acquisition, source rights/provenance, replay, idempotency, health, and connector-level file DOX. |
-| `sql/AGENTS.md` | Operational package SQL ownership and verification, when added. |
-| `model/AGENTS.md` | Modeling/PIT/evaluation contracts while this package remains a durable boundary. |
+| [`sql/AGENTS.md`](sql/AGENTS.md) | Operational package SQL ownership and verification. |
+| [`model/AGENTS.md`](model/AGENTS.md) | Modeling/PIT/evaluation contracts while this package remains a durable boundary. |
 
 Other package directories inherit this contract until they demonstrate stable, distinct rules that justify their own child DOX.

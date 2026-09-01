@@ -50,16 +50,20 @@ def _validated_season(season: int | str) -> int:
 
     A numeric string ("2019") is accepted -- the arsenal SQL binds
     ``str(season)`` regardless, so that shape worked before this guard
-    existed and rejecting it would be a needless behaviour change. The
-    upper bound tracks the calendar the way every Statcast connector does
+    existed and rejecting it would be a needless behaviour change. A
+    ``float`` or ``bool`` is rejected, not coerced: ``int(2019.9)`` would
+    silently query 2019, and ``int(True)`` would query 1. The upper bound
+    tracks the calendar the way every Statcast connector does
     (``date.today().year``), plus one so an off-season lookup of next
     year's not-yet-played schedule doesn't spuriously fail; a fixed year
     would start rejecting valid current-season data once the wall clock
     passed it.
     """
+    if isinstance(season, bool) or not isinstance(season, int | str):
+        raise ValueError(f"season must be an int or numeric string, got {season!r}")
     try:
         year = int(season)
-    except (TypeError, ValueError):
+    except ValueError:
         raise ValueError(f"season must be an integer year, got {season!r}") from None
     max_season = date.today().year + 1
     if not (_ARSENAL_FIRST_SEASON <= year <= max_season):
@@ -338,15 +342,19 @@ def real_game_scores(conn: psycopg.Connection, seasons: Sequence[int]) -> list[G
 def fetch_pitcher_arsenal(
     conn: psycopg.Connection, pitcher_id: str, season: int | str
 ) -> PitchArsenal | None:
-    """Fetch pitcher arsenal statistics from raw.statcast_pitcher_arsenal_stat."""
-    season = _validated_season(season)
+    """Fetch pitcher arsenal statistics from raw.statcast_pitcher_arsenal_stat.
+
+    ``season`` accepts an int or a numeric string ("2019"); see
+    ``_validated_season`` for the accepted range.
+    """
+    year = _validated_season(season)
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.statcast_pitcher_arsenal_stat')")
         (table_exists,) = fetch_one(cur)
         if not table_exists:
             return None
 
-        cur.execute(_PITCHER_ARSENAL_SQL, {"player_id": str(pitcher_id), "season": str(season)})
+        cur.execute(_PITCHER_ARSENAL_SQL, {"player_id": str(pitcher_id), "season": str(year)})
         rows = cur.fetchall()
         if not rows:
             return None
@@ -369,7 +377,7 @@ def fetch_pitcher_arsenal(
 
         return PitchArsenal(
             player_id=str(pitcher_id),
-            season=season,
+            season=year,
             pitch_usage=pitch_usage,
             run_values_per_100=run_values,
             woba_against=woba_against,
@@ -380,15 +388,19 @@ def fetch_pitcher_arsenal(
 def fetch_batter_arsenal(
     conn: psycopg.Connection, batter_id: str, season: int | str
 ) -> BatterArsenalProfile | None:
-    """Fetch batter pitch-type profile from raw.statcast_batter_arsenal."""
-    season = _validated_season(season)
+    """Fetch batter pitch-type profile from raw.statcast_batter_arsenal.
+
+    ``season`` accepts an int or a numeric string ("2019"); see
+    ``_validated_season`` for the accepted range.
+    """
+    year = _validated_season(season)
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.statcast_batter_arsenal')")
         (table_exists,) = fetch_one(cur)
         if not table_exists:
             return None
 
-        cur.execute(_BATTER_ARSENAL_SQL, {"player_id": str(batter_id), "season": str(season)})
+        cur.execute(_BATTER_ARSENAL_SQL, {"player_id": str(batter_id), "season": str(year)})
         rows = cur.fetchall()
         if not rows:
             return None
@@ -411,7 +423,7 @@ def fetch_batter_arsenal(
 
         return BatterArsenalProfile(
             player_id=str(batter_id),
-            season=season,
+            season=year,
             pitches_seen=pitches_seen,
             run_values_per_100=run_values,
             woba=woba,

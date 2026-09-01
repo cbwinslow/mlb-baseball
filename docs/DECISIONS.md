@@ -2,6 +2,68 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-277: core.market.observed_at — truthful pre-game timestamp for market comparison lines
+
+**Decision:** `core.market` gains a nullable `observed_at timestamptz`
+column holding the `captured_at` of the `raw.{polymarket,kalshi}_snapshot`
+row that `implied_probability` was resolved from. `conform.py`'s
+`_latest_entry_before` (a generalisation of `_latest_before` that returns
+the whole `(timestamp, value)` entry) populates it. `market_kalshi_prediction_insert.sql`
+and `market_polymarket_prediction_insert.sql` now `SELECT m.observed_at`
+into `gold.prediction.generated_at` instead of letting it default to
+`now()`.
+
+**Context:** `market._record_decided()` runs inside `mlb predict`, i.e.
+after a game has finished, so every decided-game `kalshi-v1` / `polymarket-v1`
+row was stamped `generated_at = now() > game_start` and silently dropped by
+`evaluation._selected_predictions`' `generated_at < s.game_start` filter
+(issue #107). Verified on production 2026-08-31: 0 of ~590 decided-game
+market rows passed. The `_record_upcoming` path (ADR-267) already records a
+truthful pre-game time, but only accrues ~25 games/day and leaves the
+decided path permanently broken. `core.market` already stored the pre-game
+snapshot *value* (ADR-052) — this persists its *time*.
+
+**Cost:** one nullable column (instant `ADD COLUMN` on PG16); `_latest_before`
+becomes a one-line wrapper (behaviour and its `market.py` callers unchanged).
+A one-time `scripts/repair_market_prediction_times.sql` deletes the stale
+production rows so the idempotency guard re-inserts them; `gold.prediction`
+is regenerable model output. `_record_upcoming` and `implied_probability`
+value semantics are untouched. Per-row `observed_at` also means two
+`core.market` rows for the same game+home-team no longer collide on
+`gold.prediction`'s PK (they insert as two snapshots) — the loud failure
+that first caught the ADR-053 fan-out. Mitigated in depth:
+`conform._game_lookup` drops ambiguous `(date, team)` keys, Polymarket is
+narrowed to `sportsmarkettype = 'moneyline'`, `evaluation._selected_predictions`
+takes `snapshot_rank = 1`, and `mlb doctor`'s coverage checks still flag an
+over-count as fan-out.
+
+**Revisit if:** the `mlb predict` cron moves off ~06:00 UTC — `_record_upcoming`
+resolves the last snapshot before *first pitch*, not before *now*, a mild
+lookahead that is currently harmless because only ~06:00 snapshots exist by
+run time. A separate issue, not fixed here.
+
+## ADR-276: markov.py split into a markov/ package (core vs estimate)
+
+**Decision:** `mlb_baseball/model/markov.py` is now `mlb_baseball/model/markov/`:
+`core.py` (pure computation — state model, run-expectancy solve, outcome
+distributions, empirical Bayes shrink, simulators) and `estimate.py` (the
+functions that read `raw.retrosheet_event` / Statcast + their SQL; 9 are
+re-exported, the rest are private helpers). The public surface is unchanged
+— `markov/__init__.py` re-exports every name.
+
+**Context:** ADR-275's "the matchup work is a good forcing function to do
+that split." The plate-appearance matchup model (spec
+`docs/superpowers/specs/2026-08-30-matchup-model-design.md`) reuses `core`'s
+simulator as a library with no database; `core` staying import-clean of
+SQL is enforced by `tests/unit/test_markov_public_surface.py`.
+
+**Cost:** none — a pure move, every function byte-identical, the full test
+suite unchanged. `git log --follow` still works (`git mv`).
+
+**Revisit if:** a fully DB-driver-free import of `markov.core` is wanted —
+that additionally needs `mlb_baseball/model/__init__.py` slimmed (it eagerly
+imports psycopg), tracked as issue #111.
+
 ## ADR-275: markov-v1 promotion review — HOLD (return-with-gaps)
 
 **Context:** First ADR-274 promotion review for `markov-v1` (Layer 2 of the
@@ -58,13 +120,14 @@ promoted and it is **not** removed.
    condition the transition/outcome probabilities on those features, or
    feed markov-v1's output as one input to a feature model alongside Elo.
 2. **Lineup / individual matchups.** No batting order, no batter-vs-pitcher.
-   The machinery exists unused in `markov.py` (`fetch_batter_arsenal`,
+   The machinery exists unused in `markov/` (`markov/estimate.py`'s
+   `fetch_batter_arsenal`, `markov/core.py`'s
    `simulate_in_game_win_probability`, `compute_arsenal_matchup_edge`);
    probable lineups are not ingested yet.
 3. **A real multi-year holdout** once ≥2 seasons of stored baseline
    predictions exist, and the market comparison (issue #107).
 
-**Not in scope of this hold:** deleting `markov.py`. The state model, the
+**Not in scope of this hold:** deleting the `markov/` package. The state model, the
 absorbing-chain run-expectancy solve, the simulator, and the empirical Bayes
 shrinkage are the foundation for the plate-appearance-level matchup model
 (`docs/RESEARCH.md` "hierarchical pitcher-batter matchup", ~1 win/162
@@ -257,7 +320,7 @@ asked to lock SQL vs SQLMesh, pybaseball vs baseballr, and the model ladder
    $M=350$ toward league) plugged into existing `simulate_game`. First
    implementation: `shrink_outcome_distribution`,
    `estimate_matchup_distribution`, `simulate_home_win_rate` in
-   `markov.py`, plus `markov_transition_counts_matchup.sql`. The matchup
+   `markov/`, plus `markov_transition_counts_matchup.sql`. The matchup
    sample and the league prior it shrinks toward take the same
    point-in-time filters (`before_date` from `gameinfo.date`,
    `exclude_game_id`); `n` for the shrink is plate appearances

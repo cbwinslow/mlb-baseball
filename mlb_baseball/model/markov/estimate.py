@@ -163,6 +163,7 @@ def fetch_matchup_transition_counts(
     ``bat_home`` ('1' = home half, '0' = away half) optionally scopes to
     one batting side; per-play scoring rates differ by side (ADR-080).
     """
+    _validate_seasons(seasons)
     _validate_bat_home(bat_home)
     if not _retrosheet_tables_ready(conn):
         return [], 0
@@ -311,6 +312,8 @@ def fetch_pitcher_arsenal(
     conn: psycopg.Connection, pitcher_id: str, season: int
 ) -> PitchArsenal | None:
     """Fetch pitcher arsenal statistics from raw.statcast_pitcher_arsenal_stat."""
+    if not (1871 <= season <= 2030):
+        raise ValueError(f"season must be between 1871 and 2030, got {season}")
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.statcast_pitcher_arsenal_stat')")
         (table_exists,) = fetch_one(cur)
@@ -352,6 +355,8 @@ def fetch_batter_arsenal(
     conn: psycopg.Connection, batter_id: str, season: int
 ) -> BatterArsenalProfile | None:
     """Fetch batter pitch-type profile from raw.statcast_batter_arsenal."""
+    if not (1871 <= season <= 2030):
+        raise ValueError(f"season must be between 1871 and 2030, got {season}")
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.statcast_batter_arsenal')")
         (table_exists,) = fetch_one(cur)

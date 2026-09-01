@@ -2,6 +2,8 @@
 in Markov module (PLN-04, ADR-100).
 """
 
+import pytest
+
 from mlb_baseball.model import markov
 
 
@@ -88,4 +90,26 @@ def test_fetch_returns_none_when_tables_missing(db_conn):
 
     assert markov.fetch_pitcher_arsenal(db_conn, "544931", 2019) is None
     assert markov.fetch_batter_arsenal(db_conn, "518692", 2019) is None
+    _reset(db_conn)
+
+
+def test_fetch_pitcher_arsenal_rejects_invalid_season(db_conn):
+    """fetch_pitcher_arsenal must validate the season argument."""
+    _reset(db_conn)
+    _ensure_arsenal_tables(db_conn)
+    with pytest.raises(ValueError):
+        markov.fetch_pitcher_arsenal(db_conn, "544931", 1870)
+    with pytest.raises(ValueError):
+        markov.fetch_pitcher_arsenal(db_conn, "544931", 2031)
+    _reset(db_conn)
+
+
+def test_fetch_batter_arsenal_rejects_invalid_season(db_conn):
+    """fetch_batter_arsenal must validate the season argument."""
+    _reset(db_conn)
+    _ensure_arsenal_tables(db_conn)
+    with pytest.raises(ValueError):
+        markov.fetch_batter_arsenal(db_conn, "518692", 1870)
+    with pytest.raises(ValueError):
+        markov.fetch_batter_arsenal(db_conn, "518692", 2031)
     _reset(db_conn)

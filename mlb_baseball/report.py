@@ -26,6 +26,7 @@ pass -- see run()'s own ordering comment).
 """
 
 import psycopg
+from psycopg import sql
 
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check, check_join_coverage, check_table_has_rows
@@ -125,13 +126,13 @@ LEFT JOIN war_sum ws ON ws.player_id = p.id AND ws.season = b._season::integer
 
 def _build_player_season(conn: psycopg.Connection) -> int:
     total = 0
-    for table, sql in (
+    for table, build_sql in (
         ("raw.bref_batting", _BUILD_BATTING_SQL),
         ("raw.bref_pitching", _BUILD_PITCHING_SQL),
     ):
         try:
             with conn.transaction(), conn.cursor() as cur:
-                cur.execute(sql)
+                cur.execute(build_sql)
                 total += cur.rowcount
         except psycopg.errors.UndefinedTable:
             print(f"report: {table} not present yet -- skipping gold.player_season")
@@ -417,21 +418,31 @@ _PITCHING_GAME_SQL = read_sql("pitching_game_build.sql")
 
 def _build_backbone_relation(conn: psycopg.Connection, table: str, build_sql: str) -> int:
     """Truncate-and-rebuild one grain-backbone `gold` relation from
-    raw.retrosheet_event. Degrades gracefully when the Retrosheet event table
-    has not been ingested yet -- same posture as _build_player_season with
-    raw.bref_*. The savepoint (`conn.transaction()`) keeps an UndefinedTable
-    here from rolling back the other builders' work in the shared run()
-    transaction."""
-    try:
-        with conn.transaction(), conn.cursor() as cur:
-            cur.execute(f"TRUNCATE {table}")
-            cur.execute(build_sql, {"season": None})
-            cur.execute(f"SELECT count(*) FROM {table}")
-            (count,) = fetch_one(cur)
-        return count
-    except psycopg.errors.UndefinedTable:
+    raw.retrosheet_event.
+
+    Pre-checks that `raw.retrosheet_event` exists and skips gracefully if it
+    does not (same posture as `_build_player_season` with `raw.bref_*`) --
+    checking first, rather than TRUNCATE-then-catch, so a missing *source*
+    table skips cleanly while a missing *target* table (migrations not run)
+    still fails loudly. `table` is an internal constant, not user input; it is
+    still passed through `sql.Identifier` so the query is not built by string
+    formatting."""
+    schema, name = table.split(".", 1)
+    ident = sql.Identifier(schema, name)
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
+        (present,) = fetch_one(cur)
+    if present is None:
         print(f"report: raw.retrosheet_event not present yet -- skipping {table}")
         return 0
+    # Savepoint so any failure in this builder can't roll back the other
+    # builders' work in run()'s shared transaction, matching _build_player_season.
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute(sql.SQL("TRUNCATE {}").format(ident))
+        cur.execute(build_sql, {"season": None})
+        cur.execute(sql.SQL("SELECT count(*) FROM {}").format(ident))
+        (count,) = fetch_one(cur)
+    return count
 
 
 def _build_division_standing(conn: psycopg.Connection) -> int:

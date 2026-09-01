@@ -151,6 +151,38 @@ for the staged plan.
 | `sf`, `sh` | `integer` | Sacrifice flies (`sf_fl`); sac bunts (`sh_fl`) |
 | `so` | `integer` | Strikeouts (`event_cd` 3) |
 | `gidp` | `integer` | Grounded into DP (`dp_fl = 'T'` and grounder). Undercounts pre-1988 (sparse `battedball_cd`). |
+| `source` | `text` | Origin of the row — `retrosheet_event` today |
+| `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
+
+### 3.2 `gold.pitching_game`
+
+- **Grain**: one pitching box-score line per `(game_id, player_id)`, regular
+  season only. A two-way player also gets a `gold.batting_game` row.
+- **Temporal semantics**: the actual game result — not point-in-time.
+- **Coverage**: 1910–2025 (Retrosheet events). 2026+ and postseason are
+  separate follow-up builders.
+- **`er` / `era` are not produced** — earned runs need reconstructed-inning
+  logic that cwevent does not emit. `r` (total runs allowed) and season RA9
+  are the honest event-derived figures; ERA is per-player-season from
+  Baseball-Reference (`gold.player_season`).
+
+| Column | Type | Definition |
+|---|---|---|
+| `game_id`, `player_id`, `team_id` | `bigint` | FKs to `core.game` / `core.player` / `core.team` |
+| `season`, `game_date` | `integer`, `date` | From `core.game` |
+| `gs` | `integer` | 1 if this pitcher started the game |
+| `bf` | `integer` | Batters faced (`bat_event_fl = 'T'`, this pitcher charged via `resp_pit_id`) |
+| `outs` | `integer` | Outs recorded (`sum(event_outs_ct)`); IP = `outs / 3.0` |
+| `h`, `hr` | `integer` | Hits / home runs allowed (`event_cd` 20–23 / 23) |
+| `r` | `integer` | Runs allowed — charged per responsible pitcher (`resp_pit_id` for the batter-runner, `run{1,2,3}_resp_pit_id` for inherited runners) |
+| `bb`, `ibb` | `integer` | Walks allowed (`event_cd` 14–15); intentional (`15`) |
+| `so` | `integer` | Strikeouts (`event_cd` 3) |
+| `hbp` | `integer` | Hit batters (`event_cd` 16) |
+| `wp` | `integer` | Wild pitches (`wp_fl = 'T'`) |
+| `bk` | `integer` | Balks (`event_cd` 11) |
+| `w`, `l`, `sv` | `integer` | Win / loss / save from `core.game.{winning,losing,save}_pitcher_id` |
+| `source` | `text` | Origin of the row — `retrosheet_event` today |
+| `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
 
 ---
 

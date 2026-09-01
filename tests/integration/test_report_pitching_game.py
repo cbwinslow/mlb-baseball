@@ -111,7 +111,34 @@ def _seed(db_conn):
                 "event_outs_ct": "0",
                 "wp_fl": "T",
             },
-            # Chapman: one strikeout.
+            {  # Cole: hit batter, then a balk (leaves a runner on 1st for Cole).
+                **blank,
+                "resp_pit_id": "colg001",
+                "resp_pit_start_fl": "T",
+                "event_cd": "16",
+                "bat_event_fl": "T",
+                "event_outs_ct": "0",
+            },
+            {
+                **blank,
+                "resp_pit_id": "colg001",
+                "resp_pit_start_fl": "T",
+                "event_cd": "11",
+                "bat_event_fl": "F",
+                "event_outs_ct": "0",
+            },
+            # Chapman comes in. A single (charged to Chapman) scores the runner
+            # Cole left on first -> the run is charged to COLE, not Chapman.
+            {
+                **blank,
+                "resp_pit_id": "chap001",
+                "resp_pit_start_fl": "F",
+                "event_cd": "20",
+                "bat_event_fl": "T",
+                "event_outs_ct": "0",
+                "run1_dest_id": "4",
+                "run1_resp_pit_id": "colg001",
+            },
             {
                 **blank,
                 "resp_pit_id": "chap001",
@@ -187,17 +214,20 @@ def test_pitching_game_box_lines_match_hand_math(db_conn):
         cole = _line(db_conn, 70004)
         assert cole == {
             "gs": 1,
-            "bf": 5,
+            "bf": 6,
             "outs": 2,
             "h": 2,
-            "r": 2,
+            # 3 runs: his own HR, the runner scoring on the HR, and -- the key
+            # inherited-runner case -- the runner he left on first who scored on
+            # Chapman's single (run1_resp_pit_id charges Cole, not Chapman).
+            "r": 3,
             "bb": 1,
             "ibb": 0,
             "so": 1,
             "hr": 1,
-            "hbp": 0,
+            "hbp": 1,
             "wp": 1,
-            "bk": 0,
+            "bk": 1,
             "w": 1,
             "l": 0,
             "sv": 0,
@@ -206,10 +236,10 @@ def test_pitching_game_box_lines_match_hand_math(db_conn):
         chapman = _line(db_conn, 70005)
         assert chapman == {
             "gs": 0,
-            "bf": 1,
+            "bf": 2,
             "outs": 1,
-            "h": 0,
-            "r": 0,
+            "h": 1,
+            "r": 0,  # the run that scored while he pitched is Cole's inherited runner
             "bb": 0,
             "ibb": 0,
             "so": 1,
@@ -237,6 +267,21 @@ def test_pitching_game_rebuild_is_idempotent(db_conn):
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM gold.pitching_game WHERE game_id = 7800002")
             assert cur.fetchone()[0] == 2
+    finally:
+        _cleanup(db_conn)
+
+
+def test_pitching_game_skips_postseason_games(db_conn):
+    _cleanup(db_conn)
+    _seed(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE core.game SET game_type = 'divisionseries' WHERE id = 7800002")
+    db_conn.commit()
+    try:
+        _build(db_conn)
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM gold.pitching_game WHERE game_id = 7800002")
+            assert cur.fetchone()[0] == 0
     finally:
         _cleanup(db_conn)
 

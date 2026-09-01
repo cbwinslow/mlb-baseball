@@ -37,9 +37,10 @@ stay frozen.
 ## What we're building
 
 A stable, documented statistic table at every grain a sabermetric researcher
-expects, built from `core.play` (Retrosheet 1910-2025 + MLB API 2026) and
-`core.pitch` (Statcast 2008+), each one analysis-ready and exportable with one
-`mlb export` command.
+expects, built from `raw.retrosheet_event` (1910-2025) with a separate
+`raw.mlb_playbyplay` builder for 2026+, each one analysis-ready and exportable
+with one `mlb export` command. (Source is `raw.retrosheet_event`, not
+`core.play` — see "The interface question" below for why.)
 
 ### The innovation (why anyone would use this over the alternatives)
 
@@ -75,7 +76,7 @@ dimensions + facts at their natural grain.
 
 | Relation | Grain | Contents |
 |---|---|---|
-| `gold.batting_game` | (batter, game) | batting box line — PA, AB, R, H, 1B, 2B, 3B, HR, TB, RBI, BB, IBB, HBP, SF, SH, SO, GIDP, SB, CS |
+| `gold.batting_game` | (batter, game) | batting box line — PA, AB, R, H, 1B, 2B, 3B, HR, TB, RBI, BB, IBB, HBP, SF, SH, SO, GIDP. SB/CS are baserunning, not batting — deferred to a later `gold.baserunning_game`. |
 | `gold.pitching_game` | (pitcher, game) | pitching box line — BF, outs (→IP), H, R, ER, BB, IBB, SO, HR, HBP, WP, BK; W/L/SV/HLD from the decision |
 | `gold.batting_season` / `gold.pitching_season` | (player, season, team) | box-line aggregate + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%/SB%; ERA/RA9/WHIP/K9/BB9/HR9/K:BB |
 | `gold.batting_team` / `gold.pitching_team` | (team, season) | same, team grain |
@@ -181,10 +182,13 @@ existing `gold.*_season` tables); `mlb doctor` gains a check per relation.
 
 ## Error handling
 
-- A builder run before `raw.retrosheet_event` is populated → clear error
-  naming the prerequisite, non-zero exit (matches
-  `conform.py::_check_prerequisites`); the live path degrades gracefully when
-  `raw.mlb_playbyplay` is absent, like `offense.py::compute_live` already does.
+- A builder run before `raw.retrosheet_event` exists → skips that relation
+  with a logged message and returns 0, leaving the other `mlb report` builders
+  to run (matches `_build_player_season`'s posture with `raw.bref_*`). It
+  pre-checks the source table's existence rather than TRUNCATE-then-catch, so
+  a missing *source* skips cleanly while a missing *target* table (migrations
+  not run) still fails loudly. The 2026+ live path degrades the same way when
+  `raw.mlb_playbyplay` is absent.
 - Retrosheet and MLB-API play-by-play have different completeness (neither
   carries runner-destination detail today, per `docs/RESEARCH.md`) — stats
   needing data we don't have are left NULL with a documented reason, never

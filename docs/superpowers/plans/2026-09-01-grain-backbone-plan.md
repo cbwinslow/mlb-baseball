@@ -6,13 +6,17 @@ Executes `docs/superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.
 
 | # | Relation | Source | Status |
 |---|---|---|---|
-| 1 | `gold.batting_game` | `raw.retrosheet_event` | **in review** — migration 0094, `sql/batting_game_build.sql`, wired into `mlb report` + doctor, integration tests with hand-math + idempotency. PR for this. |
-| 2 | `gold.pitching_game` | `raw.retrosheet_event` | next — earned-run attribution (inherited runners) is the hard part; use Retrosheet's `er` where the game data carries it, otherwise document the gap |
-| 3 | `gold.batting_season` / `gold.batting_team` | roll up `gold.batting_game` + `core.game` for team/season keys | + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%. **Tie-out test vs a real Baseball-Reference player-season.** |
-| 4 | `gold.pitching_season` / `gold.pitching_team` | roll up `gold.pitching_game` | + ERA/RA9/WHIP/K9/BB9/HR9/K:BB |
+| 1 | `gold.batting_game` | `raw.retrosheet_event` | **done — PR #125** (ADR-278). Migration 0094, `sql/batting_game_build.sql`, wired into `mlb report` + doctor, hand-math + idempotency tests. |
+| 2 | `gold.pitching_game` | `raw.retrosheet_event` | **done — PR #126.** Migration 0095. Runs charged per responsible pitcher (`resp_pit_id` + `run{1,2,3}_resp_pit_id`). `er`/`era` deferred: reconstructed-inning logic cwevent does not emit — `r` + season RA9 are the honest figures. |
+| 3 | `gold.batting_season` / `gold.batting_team` | roll up `gold.batting_game` + `core.game` for team/season keys | **next.** + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%. **Tie-out test vs a real Baseball-Reference player-season.** |
+| 4 | `gold.pitching_season` / `gold.pitching_team` | roll up `gold.pitching_game` | + RA9/WHIP/K9/BB9/HR9/K:BB (not ERA — no ER at this grain) |
 | 5 | `gold.batting_career` / `gold.pitching_career` | roll up the season tables | simple sum + career rates |
-| 6 | `gold.batting_live` / `gold.pitching_live` (2026+) | `raw.mlb_playbyplay` | mirrors `offense.py::compute_live`; a separate builder, unioned into the season tables via a `source` column |
-| 7 | ADR + docs | — | decide: does `gold.player_season` (BRef, 2008+) become a view over the new tables, or stay as the "official-source" alternative? One choice, recorded. |
+| 6 | ADR + docs | — | decide: does `gold.player_season` (BRef, 2008+) become a view over the new tables, or stay as the "official-source" alternative? One choice, recorded. |
+
+**Deferred out of Stage 1** (separate, later work item): `gold.batting_live` /
+`gold.pitching_live` for 2026+ from `raw.mlb_playbyplay`, mirroring
+`offense.py::compute_live`, unioned into the season tables via a `source`
+column. Not needed for the 1910-2025 backbone.
 
 Relations 2–6 are delegatable to Agy against relation 1 as the worked
 example, once its column contract is merged.
@@ -40,3 +44,10 @@ Migration + named `.sql` builder + `mlb report` wiring + `mlb doctor` check +
 integration tests (hand math, idempotency, and — for the season/career
 relations — a real published-figure tie-out) + `DATA_DICTIONARY.md` /
 `TABLE_CONTRACTS.md` rows + `mlb export` allow-list entry (after PR #123).
+
+All migrations, fixtures, tests, and database writes go through `mlb_test`
+(the per-run isolated clone `tests/conftest.py` provisions), never production
+`mlb` — `CLAUDE.md` golden rule. Chronological / no-lookahead correctness is
+not a concern for these relations (they are final game results, not pregame
+features), but idempotency and the tie-out are mandatory gates, and `ruff` /
+`ruff format` / `mypy` / `sqlfluff` must pass clean.

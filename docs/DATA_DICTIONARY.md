@@ -128,8 +128,10 @@ for the staged plan.
 
 ### 3.1 `gold.batting_game`
 
-- **Grain**: one batting box-score line per `(game_id, player_id)`, regular
-  season only.
+- **Grain**: one batting box-score line per `(game_id, player_id, team_id)`,
+  regular season only. `team_id` is in the key (not an inferred attribute) so
+  the rare case of a player appearing for both clubs in one `game_id` (a
+  suspended game resumed after a trade) gets two rows instead of colliding.
 - **Temporal semantics**: the actual game result — not point-in-time.
 - **Coverage**: 1910–2025 (Retrosheet events). 2026+ and postseason are
   separate follow-up builders.
@@ -156,8 +158,9 @@ for the staged plan.
 
 ### 3.2 `gold.pitching_game`
 
-- **Grain**: one pitching box-score line per `(game_id, player_id)`, regular
-  season only. A two-way player also gets a `gold.batting_game` row.
+- **Grain**: one pitching box-score line per `(game_id, player_id, team_id)`,
+  regular season only (same key rationale as `gold.batting_game` above). A
+  two-way player also gets a `gold.batting_game` row.
 - **Temporal semantics**: the actual game result — not point-in-time.
 - **Coverage**: 1910–2025 (Retrosheet events). 2026+ and postseason are
   separate follow-up builders.

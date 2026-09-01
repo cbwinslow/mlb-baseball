@@ -8,8 +8,12 @@
 -- team stats use (sql/team_woba_retrosheet_update.sql, ADR-034). 2026+ MLB
 -- Stats API play-by-play is a later, separate builder.
 --
--- Grain: (game_id, player_id). A two-way player gets a row here for their
--- batting and a row in gold.pitching_game for their pitching.
+-- Grain: (game_id, player_id, team_id). A two-way player gets a row here for
+-- their batting and a row in gold.pitching_game for their pitching. team_id is
+-- in the key, not an inferred attribute, so the once-or-twice-in-history case
+-- of a player appearing for both clubs in one game_id (a suspended game that
+-- resumes after a trade) produces two clean rows instead of a primary-key
+-- collision that would abort the whole rebuild.
 --
 -- Every column is a plain counting stat with an unambiguous MLB-glossary
 -- definition. Rate stats (AVG/OBP/SLG/...) are NOT stored here -- they live
@@ -18,7 +22,7 @@
 CREATE TABLE IF NOT EXISTS gold.batting_game (
     game_id     bigint  NOT NULL REFERENCES core.game (id),
     player_id   bigint  NOT NULL REFERENCES core.player (id),
-    team_id     bigint  REFERENCES core.team (id),
+    team_id     bigint  NOT NULL REFERENCES core.team (id),
     season      integer NOT NULL,
     game_date   date    NOT NULL,
 
@@ -43,7 +47,7 @@ CREATE TABLE IF NOT EXISTS gold.batting_game (
     source          text        NOT NULL DEFAULT 'retrosheet_event',
     _built_at       timestamptz NOT NULL DEFAULT now(),
 
-    PRIMARY KEY (game_id, player_id)
+    PRIMARY KEY (game_id, player_id, team_id)
 );
 
 CREATE INDEX IF NOT EXISTS batting_game_player_season_idx

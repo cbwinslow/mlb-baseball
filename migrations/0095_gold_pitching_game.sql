@@ -11,8 +11,11 @@
 -- re.run{1,2,3}_resp_pit_id for runners already on base, so an inherited
 -- runner's run lands on the pitcher who put them on, not the current one.
 --
--- Grain: (game_id, player_id). A two-way player gets a row here and in
--- gold.batting_game.
+-- Grain: (game_id, player_id, team_id). A two-way player gets a row here and
+-- in gold.batting_game. team_id is in the key (not an inferred attribute) so
+-- the once-or-twice-in-history case of a pitcher appearing for both clubs in
+-- one game_id (a suspended game resuming after a trade) produces two clean
+-- rows, not a primary-key collision that aborts the rebuild.
 --
 -- er / era are NOT stored: earned runs need reconstructed-inning logic
 -- (replay the inning without the errors), which cwevent does not emit. RA9
@@ -23,7 +26,7 @@
 CREATE TABLE IF NOT EXISTS gold.pitching_game (
     game_id     bigint  NOT NULL REFERENCES core.game (id),
     player_id   bigint  NOT NULL REFERENCES core.player (id),
-    team_id     bigint  REFERENCES core.team (id),
+    team_id     bigint  NOT NULL REFERENCES core.team (id),
     season      integer NOT NULL,
     game_date   date    NOT NULL,
 
@@ -46,7 +49,7 @@ CREATE TABLE IF NOT EXISTS gold.pitching_game (
     source          text        NOT NULL DEFAULT 'retrosheet_event',
     _built_at       timestamptz NOT NULL DEFAULT now(),
 
-    PRIMARY KEY (game_id, player_id)
+    PRIMARY KEY (game_id, player_id, team_id)
 );
 
 CREATE INDEX IF NOT EXISTS pitching_game_player_season_idx

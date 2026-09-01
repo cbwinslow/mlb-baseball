@@ -6,12 +6,15 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 
 **Decision:** Build a stable statistic table at every grain a sabermetric
 researcher expects (game → season → career; player and team), starting with
-`gold.batting_game` — one batting box-score line per `(game_id, player_id)`,
-regular season, built by `mlb report` from `raw.retrosheet_event` (migration
-0094, `sql/batting_game_build.sql`). Counting stats only; rate stats live in
-the season/career roll-ups. Spec:
-`superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md`; plan:
-`superpowers/plans/2026-09-01-grain-backbone-plan.md`.
+`gold.batting_game` and `gold.pitching_game` — one box-score line per
+`(game_id, player_id, team_id)`, regular season, built by `mlb report` from
+`raw.retrosheet_event` (migrations 0094/0095, `sql/batting_game_build.sql` /
+`sql/pitching_game_build.sql`). `team_id` is in the key, not an inferred
+attribute — a player who appears for both clubs in one `game_id` (a suspended
+game resumed after a trade) gets two rows instead of colliding on the primary
+key. Counting stats only; rate stats live in the season/career roll-ups.
+Spec: `superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md`;
+plan: `superpowers/plans/2026-09-01-grain-backbone-plan.md`.
 
 **Context:** An inventory (2026-09-01) of baseball.computer's published
 surface vs ours found we already compute the advanced metrics (wOBA, wRC+,

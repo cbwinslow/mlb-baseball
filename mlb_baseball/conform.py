@@ -1687,11 +1687,19 @@ def run() -> dict[str, int]:
         # pg_constraint, not guessed): core.game, core.market, core.play,
         # core.pitch, gold.game_feature reference core.game/team/player/
         # venue; core.standing/core.team_alias reference core.team;
-        # core.player_war references core.player.
+        # core.player_war references core.player; gold.batting_game and
+        # gold.pitching_game (Plan 03B backbone) reference core.game/player/
+        # team. conform empties the gold tables it does not itself rebuild
+        # for the same reason it empties gold.game_feature — a full core
+        # rebuild reissues every core.game surrogate id, so any gold row
+        # still pointing at an old one is stale. `mlb report` rebuilds
+        # gold.batting_game / gold.pitching_game afterward, like `mlb
+        # features` rebuilds gold.game_feature.
         with conn.cursor() as cur:
             cur.execute(
                 "TRUNCATE core.play, core.pitch, core.market, "
-                "gold.game_feature, core.game, core.team, core.player, "
+                "gold.game_feature, gold.batting_game, gold.pitching_game, "
+                "core.game, core.team, core.player, "
                 "core.venue, core.standing, core.team_alias, "
                 "core.player_war"
             )

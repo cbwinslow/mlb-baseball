@@ -702,3 +702,12 @@ def test_estimate_matchup_distribution_backs_off_to_team_when_pitcher_sample_is_
     # Backed off to the team matchup -> the scoreless play is now in the
     # sample, so a 0-run outcome carries real weight.
     assert thin[empty_zero].get(markov.Outcome(markov.TERMINAL, 0), 0) > 0
+
+
+def test_fetch_matchup_transition_counts_rejects_empty_seasons(db_conn):
+    """fetch_matchup_transition_counts must validate the seasons argument."""
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    _ensure_matchup_columns(db_conn)
+    with pytest.raises(ValueError, match="seasons must not be empty"):
+        markov.fetch_matchup_transition_counts(db_conn, [])

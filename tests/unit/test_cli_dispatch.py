@@ -1026,7 +1026,6 @@ CALCULATOR_STYLE_COMMANDS = [
     "damage",
     "decision",
     "dp-footwork",
-    "dump",
     "entropy",
     "exp-resist",
     "extension",
@@ -1202,18 +1201,49 @@ def test_daily_command_renders_an_empty_briefing(monkeypatch, capsys):
     assert '"target_date": "2026-08-25"' in out
 
 
-def test_export_command_renders_an_empty_dossier(monkeypatch, capsys):
+def test_export_command_relation_dispatch(monkeypatch, capsys):
     conn = MagicMock()
     conn.__enter__.return_value = conn
     monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    calls = []
     monkeypatch.setattr(
-        "mlb_baseball.daily.generate_daily_briefing",
-        lambda **kwargs: _fake_daily_briefing_report(),
+        "mlb_baseball.export.export_relation",
+        lambda c, relation, format, out_path, season: (
+            calls.append((relation, format, out_path, season)) or ("gold.game_export.csv", 42)
+        ),
     )
 
-    cli.main(["export"])
+    cli.main(
+        ["export", "gold.game_export", "--season", "2024", "--format", "csv", "--out", "test.csv"]
+    )
 
-    assert capsys.readouterr().out.strip()
+    assert calls == [("gold.game_export", "csv", "test.csv", 2024)]
+    out = capsys.readouterr().out
+    assert "Exported 42 rows to gold.game_export.csv" in out
+
+
+def test_export_command_profile_dispatch(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    calls = []
+    monkeypatch.setattr(
+        "mlb_baseball.export.export_bundle",
+        lambda c, profile, out_dir, make_zip: (
+            calls.append((profile, out_dir, make_zip)) or "export_bundle.zip"
+        ),
+    )
+
+    cli.main(["export", "--profile", "public_safe", "--out", "bundle_dir", "--zip"])
+
+    assert calls == [("public_safe", "bundle_dir", True)]
+    out = capsys.readouterr().out
+    assert "Exported public_safe bundle to export_bundle.zip" in out
+
+
+def test_export_command_missing_args_exits(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["export"])
 
 
 def test_serve_command_daily_grid_mart(monkeypatch, capsys):

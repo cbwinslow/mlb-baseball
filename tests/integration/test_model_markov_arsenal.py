@@ -94,13 +94,20 @@ def test_fetch_returns_none_when_tables_missing(db_conn):
 
 
 def test_fetch_pitcher_arsenal_rejects_invalid_season(db_conn):
-    """fetch_pitcher_arsenal must validate the season argument."""
+    """fetch_pitcher_arsenal must validate the season argument. The upper
+    bound is dynamic (this year + 1), so a year comfortably past it and a
+    year before the first pro season are both out of range, always."""
     _reset(db_conn)
     _ensure_arsenal_tables(db_conn)
+    from datetime import date
+
+    too_new = date.today().year + 5
     with pytest.raises(ValueError):
         markov.fetch_pitcher_arsenal(db_conn, "544931", 1870)
     with pytest.raises(ValueError):
-        markov.fetch_pitcher_arsenal(db_conn, "544931", 2031)
+        markov.fetch_pitcher_arsenal(db_conn, "544931", too_new)
+    with pytest.raises(ValueError):
+        markov.fetch_pitcher_arsenal(db_conn, "544931", "not-a-year")
     _reset(db_conn)
 
 
@@ -108,8 +115,33 @@ def test_fetch_batter_arsenal_rejects_invalid_season(db_conn):
     """fetch_batter_arsenal must validate the season argument."""
     _reset(db_conn)
     _ensure_arsenal_tables(db_conn)
+    from datetime import date
+
+    too_new = date.today().year + 5
     with pytest.raises(ValueError):
         markov.fetch_batter_arsenal(db_conn, "518692", 1870)
     with pytest.raises(ValueError):
-        markov.fetch_batter_arsenal(db_conn, "518692", 2031)
+        markov.fetch_batter_arsenal(db_conn, "518692", too_new)
+    with pytest.raises(ValueError):
+        markov.fetch_batter_arsenal(db_conn, "518692", "not-a-year")
+    _reset(db_conn)
+
+
+def test_fetch_arsenal_still_accepts_a_numeric_string_season(db_conn):
+    """Regression: the season guard must not reject "2019" — the arsenal
+    SQL binds str(season) either way, so that shape worked before the
+    guard and rejecting it now would be a needless breaking change."""
+    _reset(db_conn)
+    _ensure_arsenal_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.statcast_pitcher_arsenal_stat "
+            "(player_id, pitch_type, pitch_usage, run_value_per_100, woba, "
+            "whiff_percent, _season) VALUES ('544931', 'CU', '30.7', '2.3', "
+            "'0.208', '38.8', '2019')"
+        )
+    db_conn.commit()
+
+    assert markov.fetch_pitcher_arsenal(db_conn, "544931", "2019") is not None
+    assert markov.fetch_batter_arsenal(db_conn, "518692", "2019") is None  # no rows, not an error
     _reset(db_conn)

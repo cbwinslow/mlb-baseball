@@ -42,6 +42,33 @@ __all__ = [
     "fetch_batter_arsenal",
 ]
 
+_ARSENAL_FIRST_SEASON = 1871
+
+
+def _validated_season(season: int) -> int:
+    """Coerce ``season`` to ``int`` and bounds-check it.
+
+    A numeric string ("2019") is accepted -- the arsenal SQL binds
+    ``str(season)`` regardless, so that shape worked before this guard
+    existed and rejecting it would be a needless behaviour change. The
+    upper bound tracks the calendar the way every Statcast connector does
+    (``date.today().year``), plus one so an off-season lookup of next
+    year's not-yet-played schedule doesn't spuriously fail; a fixed year
+    would start rejecting valid current-season data once the wall clock
+    passed it.
+    """
+    try:
+        year = int(season)
+    except (TypeError, ValueError):
+        raise ValueError(f"season must be an integer year, got {season!r}") from None
+    max_season = date.today().year + 1
+    if not (_ARSENAL_FIRST_SEASON <= year <= max_season):
+        raise ValueError(
+            f"season must be between {_ARSENAL_FIRST_SEASON} and {max_season}, got {year}"
+        )
+    return year
+
+
 _TRANSITION_COUNTS_SQL = read_sql("markov_transition_counts.sql")
 _MATCHUP_COUNTS_SQL = read_sql("markov_transition_counts_matchup.sql")
 _HALF_INNING_RUNS_SQL = read_sql("markov_half_inning_runs.sql")
@@ -312,8 +339,7 @@ def fetch_pitcher_arsenal(
     conn: psycopg.Connection, pitcher_id: str, season: int
 ) -> PitchArsenal | None:
     """Fetch pitcher arsenal statistics from raw.statcast_pitcher_arsenal_stat."""
-    if not (1871 <= season <= 2030):
-        raise ValueError(f"season must be between 1871 and 2030, got {season}")
+    season = _validated_season(season)
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.statcast_pitcher_arsenal_stat')")
         (table_exists,) = fetch_one(cur)
@@ -355,8 +381,7 @@ def fetch_batter_arsenal(
     conn: psycopg.Connection, batter_id: str, season: int
 ) -> BatterArsenalProfile | None:
     """Fetch batter pitch-type profile from raw.statcast_batter_arsenal."""
-    if not (1871 <= season <= 2030):
-        raise ValueError(f"season must be between 1871 and 2030, got {season}")
+    season = _validated_season(season)
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.statcast_batter_arsenal')")
         (table_exists,) = fetch_one(cur)

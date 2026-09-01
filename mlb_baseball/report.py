@@ -32,6 +32,7 @@ from mlb_baseball.health import Check, check_join_coverage, check_table_has_rows
 from mlb_baseball.ingest import track_run
 from mlb_baseball.model.offense import W_1B, W_2B, W_3B, W_HBP, W_HR, W_UBB, WOBA_SCALE
 from mlb_baseball.model.war import _BREF_TO_RETRO
+from mlb_baseball.sql import read_sql
 
 SOURCE = "report"
 
@@ -406,6 +407,31 @@ LEFT JOIN raw.mlb_standing ms
 """
 
 
+# ---------------------------------------------------------------------------
+# gold.batting_game  (grain-complete statistic backbone, Plan 03B)
+# ---------------------------------------------------------------------------
+
+_BATTING_GAME_SQL = read_sql("batting_game_build.sql")
+
+
+def _build_batting_game(conn: psycopg.Connection) -> int:
+    """Rebuild gold.batting_game from raw.retrosheet_event. Degrades
+    gracefully when the Retrosheet event table has not been ingested yet --
+    same posture as _build_player_season with raw.bref_*. The savepoint
+    (`conn.transaction()`) keeps an UndefinedTable here from rolling back the
+    other builders' work in the shared run() transaction."""
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute("TRUNCATE gold.batting_game")
+            cur.execute(_BATTING_GAME_SQL, {"season": None})
+            cur.execute("SELECT count(*) FROM gold.batting_game")
+            (count,) = fetch_one(cur)
+        return count
+    except psycopg.errors.UndefinedTable:
+        print("report: raw.retrosheet_event not present yet -- skipping gold.batting_game")
+        return 0
+
+
 def _build_division_standing(conn: psycopg.Connection) -> int:
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(_BUILD_DIVISION_STANDING_SQL)
@@ -432,6 +458,7 @@ def run() -> dict[str, int]:
         _compute_woba(conn)
         _compute_war(conn)
         counts["gold.division_standing"] = _build_division_standing(conn)
+        counts["gold.batting_game"] = _build_batting_game(conn)
         conn.commit()
         result["rows"] = sum(counts.values())
     return counts
@@ -492,6 +519,30 @@ def health_check() -> list[Check]:
             "core.standing rows get a gold.division_standing row",
             "SELECT count(*) FROM gold.division_standing",
             "SELECT count(*) FROM core.standing",
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.batting_game"),
+        # tolerance=0: every (game, batter) pair with a completed plate
+        # appearance and a resolvable core.player should produce exactly one
+        # gold.batting_game row. The "expected" side mirrors the build's own
+        # inner JOIN to core.player and its HAVING pa > 0 filter, so this is
+        # not a stricter bar than the builder can clear.
+        check_join_coverage(
+            "raw.retrosheet_event (game, batter) pairs with a PA and a resolvable player "
+            "get a gold.batting_game row",
+            "SELECT count(*) FROM gold.batting_game",
+            """
+            SELECT count(*) FROM (
+                SELECT re.game_id, re.bat_id
+                FROM raw.retrosheet_event re
+                JOIN core.game g ON g.retro_game_id = re.game_id AND lower(g.game_type) = 'regular'
+                JOIN raw.retrosheet_gameinfo gi ON gi.gid = g.retro_game_id
+                JOIN core.player p ON p.retro_id = re.bat_id
+                WHERE re.bat_id IS NOT NULL AND re.bat_id <> ''
+                GROUP BY re.game_id, re.bat_id
+                HAVING count(*) FILTER (WHERE re.bat_event_fl = 'T') > 0
+            ) s
+            """,
             tolerance=0,
         ),
     ]

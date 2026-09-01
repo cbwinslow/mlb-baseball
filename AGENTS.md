@@ -1,271 +1,192 @@
-# MLB project operating doctrine
+# MLB project DOX contract
 
-This file is the durable instruction set for agents working in this repository.
-Read it with `CLAUDE.md`, `docs/NORTH_STAR.md`, `docs/ARCHITECTURE.md`, and the
-active plan under `plans/` before changing code. When an older document conflicts
-with verified current repository state, repair the stale document in the same
-change rather than silently following it.
+This file is the root contract and routing index for agents working in this
+repository. It intentionally contains only project-wide rules and pointers to
+more specific context. Detailed subsystem rules belong in the nearest applicable
+child `AGENTS.md`; file-specific durable contracts may live in adjacent
+`<source>.dox.md` files when a child declares a file-documented DOX profile.
 
-## Mission
+Before editing any path:
 
-Build a free, reproducible MLB research and forecasting platform with three
-connected outputs:
+1. read this file;
+2. walk from the repository root toward every target path;
+3. read every `AGENTS.md` on that path;
+4. if the nearest contract requires a matching `.dox.md` sidecar, read it;
+5. follow links to exact runbooks, tests, ADRs, registries, or reference docs only
+   when they are relevant to the task.
 
-1. a trustworthy historical and current baseball database;
-2. a broad experimental system for statistics, feature engineering, simulation,
-   and predictive modeling; and
-3. an original Astro research/forecasting site that can eventually offer the
-   useful product surface of an MLB odds-analysis site without copying its code,
-   assets, prose, or design.
+This is progressive disclosure: the repository may contain a large amount of
+useful durable context, but each task should load only the context it needs.
 
-The platform should be technically deep enough to demonstrate professional data
-engineering, database administration, statistical research, ML engineering, and
-product-development ability. Optional advertising or affiliate monetization must
-remain removable and must never influence model output or research conclusions.
+## Mission and current focus
 
-## Planning and delegation
+The current product focus is a free, reproducible MLB research database and
+research toolkit. Prediction/modeling and the Astro consumer site remain later
+layers and must not pull work ahead of research-database usability.
 
-- Use GPT-5.6 Sol for planning, architecture, difficult decisions, review, and
-  final verification. Do not spend Sol usage on ordinary implementation.
-- Delegate bounded implementation, mechanical refactors, repetitive tests, and
-  long-running reconnaissance to the configured Antigravity agent using Gemini
-  3.6 Flash (Medium), normally one plan work package at a time.
-- A delegated prompt must be self-contained, name the plan and exact scope, state
-  whether edits are allowed, identify the dedicated test database, and require a
-  changed-file/test/limitation handoff.
-- Delegated agents must not merge, delete worktrees, rewrite unrelated changes,
-  alter production data, or expand into the next plan. Sol reviews each gate
-  before the next package begins.
-- Preserve user and parallel-agent changes. Never assume a dirty worktree is
-  disposable.
-- Reuse the existing `mlb_test` test database for database verification;
-  do not create additional test databases unless the owner explicitly asks.
+The platform should ultimately support three connected layers:
 
-## Architecture decisions
+1. trustworthy historical/current baseball data with stable identities,
+   provenance, rights, and explicit grains;
+2. reproducible research statistics, features, simulation, and modeling; and
+3. a transparent forecasting/market-value product that separates model
+   probability, market probability, uncertainty, and betting-value claims.
 
-### PostgreSQL remains the system of record
+Read `docs/NORTH_STAR.md`, `docs/PRODUCT_DIRECTION.md`, `docs/ARCHITECTURE.md`,
+`docs/MAP.md`, and the active plan before broadening scope.
 
-Keep PostgreSQL and the existing `raw`/`core`/`gold`/`meta` layering. Do not
-rename or replace foundational schemas merely for stylistic consistency.
+## Global invariants
 
-- `raw`: source-faithful, replayable landing data and immutable snapshots.
-- `core`: conformed identities and canonical facts at explicit grains.
-- `gold`: derived baseball statistics, feature families, immutable feature
-  snapshots, evaluation outputs, and other analysis-ready products.
+### PostgreSQL is authoritative
+
+PostgreSQL remains the system of record. Preserve the existing schema layers:
+
+- `raw`: source-faithful, replayable landing data and immutable/source snapshots;
+- `core`: conformed identities and canonical facts at explicit grains;
+- `gold`: validated research/statistics/features/evaluation products;
 - `meta`: ingestion, source, transformation, research, feature, experiment,
-  artifact, and model-run provenance.
-- `serve`: add only when the website contract is ready; narrow, read-only marts,
-  never raw tables or arbitrary public SQL.
+  artifact, and model provenance;
+- `serve`: only when a narrow read-only public contract is ready.
 
-Every table must document its grain, natural/business key, source lineage,
-time semantics, point-in-time availability, update strategy, and retention rule.
-Prefer narrow domain tables joined into versioned snapshots over one ever-wider,
-sparsely populated feature table.
+Do not rename or replace these foundational layers for stylistic reasons.
 
-### SQLMesh is the preferred SQL transformation framework
+### Production data safety
 
-Adopt SQLMesh incrementally for deterministic, set-based `gold` and `serve`
-models because the existing spike already demonstrated tie-outs, plans,
-environments, incremental models, audits, tests, and lineage. Do not migrate the
-entire system at once.
+Never let tests or exploratory verification mutate the production database.
+`DATABASE_URL` may point at real data. Destructive commands must make their
+intended target obvious before execution.
 
-- SQLMesh owns named SQL transformations, rolling statistics, feature-family
-  tables, evaluation models, research marts, and serving marts.
-- Python continues to own network ingestion, file parsing, procedural identity
-  resolution, genuinely sequential algorithms, model training, simulation, and
-  orchestration that is clearer outside SQL.
-- Keep schema/extension/role DDL in numbered migrations.
-- Do not introduce dbt beside SQLMesh. Reconsider dbt only through a recorded
-  architecture decision if SQLMesh fails a measured requirement or a concrete
-  need for dbt's ecosystem/semantic-layer tooling outweighs operating two
-  frameworks. Framework popularity alone is not a reason.
+Pytest currently creates a unique disposable database per pytest process through
+`pytest-postgresql`, using `TEST_DATABASE_URL` only as the base connection/default.
+Do not reintroduce a shared mutable `mlb_test` working database. The authoritative
+local test contract lives in `tests/AGENTS.md` and `tests/conftest.py`.
 
-### Refactor `conform.py` without a wholesale rewrite
+### Research truth, provenance, and rights
 
-`conform.py` contains valuable, tested multi-pass identity logic, but it must stop
-growing as a monolith. Split orchestration, identity reconciliation, games,
-events, markets, and shared query execution into cohesive modules. Move stable,
-set-based transformations into named SQLMesh models after exact production
-tie-outs. Keep procedural or order-dependent reconciliation in Python.
+- Preserve source-faithful raw data and canonical identity evidence.
+- Prefer honest `NULL`/unknown over invented reconciliation.
+- Every derived public result must be explainable from source, formula/version,
+  grain, coverage, and validation evidence.
+- Source rights are enforced, not merely documented. `public_safe` remains
+  fail-closed. Read `docs/SOURCE_RIGHTS.md` before changing redistribution rules.
+- Point-in-time claims must reflect what was knowable at the stated cutoff.
+  Future leakage is never acceptable as a convenience.
+- Never claim betting value without time-stamped permitted market observations,
+  vig-aware evaluation, calibration, and uncertainty.
 
-Large SQL strings do not belong embedded in Python modules. New and refactored
-SQL must follow these ownership rules:
+### Preserve and consolidate before adding architecture
 
-- named SQLMesh model files for derived relations;
-- numbered migration files for DDL;
-- named, package-owned `.sql` resources for operational statements that cannot
-  be SQLMesh models;
-- small parameterized statements may remain inline only when moving them would
-  reduce clarity.
+Prefer existing assets, libraries, tables, helpers, workflows, and docs over
+creating parallel systems. Before introducing a framework or abstraction, show a
+real current requirement it solves and why the existing solution is insufficient.
 
-Never duplicate a business formula across Python and SQL. Establish one canonical
-definition, test cross-language parity when two implementations are necessary,
-and make dependencies explicit so upstream changes propagate through lineage.
+- SQLMesh is the selected SQL transformation framework; do not add dbt beside it.
+- PostgreSQL remains authoritative; ClickHouse is only a measured future option.
+- Do not create speculative plugin frameworks, ORM layers, or orchestration
+  systems when explicit mappings and current workflows are sufficient.
+- Measure before proposing rewrites, vectorization, GPU work, new indexes, or
+  database-engine changes.
 
-### ClickHouse is a measured future option, not a current migration
+### Stable contracts over accidental coupling
 
-Do not add ClickHouse now. PostgreSQL already holds the present data volume and
-preserves transactional constraints, joins, mutable conformance, and operational
-simplicity. ClickHouse becomes a candidate read-optimized analytical replica only
-after benchmarks demonstrate that indexed/partitioned PostgreSQL plus materialized
-gold tables cannot satisfy a real workload, such as interactive pitch-level scans,
-large feature sweeps, or website concurrency. Any trial must use representative
-queries, document replication/CDC and consistency costs, and leave PostgreSQL as
-the authoritative store until a separate decision says otherwise.
+- Use typed, composable Python interfaces where a current reuse boundary exists.
+- Prefer `Protocol`, `StrEnum`, frozen/slotted dataclasses, and small pure
+  functions when they clarify real domain contracts; do not force abstraction
+  for its own sake.
+- Keep deterministic transforms/statistics deterministic. AI agents may research,
+  review, propose, explain, and triage; they do not become the source of truth for
+  stored gold statistics or probabilities.
+- Never duplicate a business formula across Python and SQL without an explicit
+  canonical definition and parity tests.
 
-## Ingestion and data management
+## Verification doctrine
 
-The connector contract (`bootstrap`, `update`, health checks, run tracking,
-resumability, and real-Postgres integration tests) is a strong foundation. Harden
-it rather than replacing it with a generic framework:
+Every meaningful change must be verified at the layer where it can actually fail.
 
-- atomic download-to-temporary-file then rename;
-- checksums, source URL, retrieval time, license/profile, schema fingerprint, and
-  parser version recorded for every landed artifact;
-- bounded retries/backoff, rate-limit handling, archive size/member/path checks,
-  and explicit partial-failure behavior;
-- declared snapshot or append semantics and tested idempotency/conflict keys;
-- advisory locks or equivalent protection against overlapping runs;
-- raw schema-drift alerts and reviewed promotion into typed core tables;
-- least-privilege ingestion roles and secrets with restrictive file permissions;
-  and
-- freshness, coverage, duplicate-key, referential, and point-in-time leakage
-  checks visible through `mlb doctor`.
+- pure logic: deterministic unit tests;
+- database behavior: real PostgreSQL integration tests;
+- CLI behavior: CLI-dispatch tests through real argparse;
+- formula/stat changes: hand-calculated fixtures and credible external tie-outs
+  where available;
+- SQL: SQLFluff plus relation/grain/tie-out tests;
+- source connectors: idempotency, error/retry behavior, health checks, and
+  production-shaped load tests with network I/O mocked/captured, not DB behavior;
+- performance work: representative measurement before and after.
 
-Do not introduce dlt merely to replace working source-specific connectors. It may
-be evaluated for a genuinely new source only if a bounded spike shows less code
-and equal replayability, provenance, testability, and operational control.
+Use the exact local verification commands from the nearest child DOX rather than
+remembered commands from old plans.
 
-## Research and knowledge system
+## Planning, delegation, and parallel work
 
-Treat research as versioned input to engineering, not a collection of links.
-Maintain a structured knowledge base containing:
+- Preserve user changes and parallel-agent work; never assume a dirty worktree is
+  disposable.
+- Bounded delegated tasks must state exact scope, edit authority, applicable plan,
+  safety constraints, verification expectations, and required handoff.
+- Delegated agents must not merge, delete worktrees, rewrite unrelated changes,
+  alter production data, or silently expand into the next work package.
+- Re-read and verify delegated diffs yourself before treating them as complete.
+- Work in focused branches and PRs; direct pushes to protected `main` are not the
+  normal path.
 
-- question/hypothesis;
-- source and reuse rights;
-- population, seasons, target, and evaluation design;
-- formula or method;
-- reported effect and uncertainty;
-- known leakage/confounding risks;
-- applicability to available project data;
-- implementation status and linked feature/model IDs; and
-- reproduction notes and result.
+## Agent-specific context is first class
 
-### Formula and Cross-Reference Verification Doctrine
+The DOX tree contains shared repository truth. It does **not** erase native
+agent/harness instructions.
 
-Every calculated sabermetric statistic, rolling rate, and model feature must:
-1. Document its authoritative formula citation (e.g., FanGraphs Library, Baseball-Reference, Tangotiger/The Book, MLB Statcast specifications, or peer-reviewed research);
-2. Implement exact point-in-time correctness with zero future leakage;
-3. Include deterministic hand-calculated integration test fixtures verifying arithmetic precision;
-4. Undergo cross-reference validation against known credible reference sources (e.g., `baseballr`, `baseball.computer`, Retrosheet box scores, or FanGraphs season aggregates) with explicit tolerance thresholds; and
-5. Maintain health checks with domain bounds and null rate assertions.
+- `CLAUDE.md`, nested `CLAUDE.md`, `.claude/rules/`, Claude skills, hooks, and MCP
+  instructions may contain genuine Claude-specific behavior that differs from
+  other agents.
+- Codex natively consumes the applicable `AGENTS.md` hierarchy; do not create a
+  duplicate full `CODEX.md` unless a concrete Codex-specific requirement appears.
+- Gemini/Agy may use `GEMINI.md`, configured `AGENTS.md` loading, and bounded
+  delegation prompts for Gemini-specific behavior.
+- Agent Zero may use the full DOX pattern directly.
 
-Every proposed statistic or feature must link to research, a transparent baseball
-or mathematical rationale, or an explicitly labeled exploratory hypothesis.
-Negative results are retained so failed ideas are not repeatedly rediscovered.
+Shared facts should not be independently copied into every vendor file. Native
+agent files may import/link shared DOX and then add their own behavior.
 
-## Statistics and feature platform
+## DOX update contract
 
-Create a broad but governed catalog of reusable, point-in-time-correct statistics
-across these grains:
+After a meaningful change, perform a DOX pass before closing the task.
 
-- pitch and pitch sequence;
-- plate appearance;
-- inning and half-inning;
-- player-game and player-season;
-- team-game, matchup, series, and season;
-- park, umpire, weather, travel, rest, lineup, starter, and bullpen context; and
-- market snapshot and forecast cutoff.
+Update the nearest owning `AGENTS.md` or required `.dox.md` when the change alters
+any durable:
 
-Support career/season-to-date, expanding, exponentially weighted, and rolling
-windows with explicit minimum samples and shrinkage. Include handedness and
-platoon splits, opponent/park/era adjustment, aging curves, uncertainty, and
-availability/freshness flags.
+- purpose, responsibility, or ownership boundary;
+- public/local interface or command contract;
+- required input/output, grain, key, time semantics, or side effect;
+- source/rights/provenance behavior;
+- safety or permissions rule;
+- verification procedure;
+- dependency direction;
+- child/index structure.
 
-Feature generation should be generous but not blind. Maintain a feature registry
-with formula, owner, grain, entity keys, event time, availability time, lookback,
-version, null policy, allowed data profiles, and tests. Generate interactions from
-reviewed families: splines/polynomials for aging and nonlinear effects; matchup
-interactions; ratios and differences with denominator guards; recent-versus-long
-term deltas; and latent/embedding features when justified. Do not materialize an
-unbounded Cartesian explosion of arbitrary products. Compute/storage may be cheap;
-false discovery, leakage, and misleading certainty are not.
-
-## Modeling and simulation program
-
-Build depth and breadth through a target ladder rather than disconnected models:
-
-1. pitch outcome/type/location and swing/contact quality;
-2. plate-appearance outcome;
-3. base/out state transitions and run expectancy;
-4. inning, first-five, team-run, and full-game run distributions;
-5. winner, moneyline, run line, and totals;
-6. player-game props; and
-7. player/team season projections.
-
-Use Markov chains for base/out and run-state transitions and simulation to compose
-granular predictions into inning/game distributions. Evaluate simple baselines
-before complexity: empirical rates, log5/Elo, generalized linear models, GAMs and
-hierarchical/shrinkage models. Then test regularized regression, random forests,
-gradient boosting, SVMs where dataset size permits, neural/sequence models where
-their structure is useful, and calibrated ensembles/stacking built only from
-strictly out-of-fold predictions.
-
-“Try many options” means a registered, reproducible experiment program:
-
-- immutable data/feature/model versions and configurations;
-- rolling-origin and nested validation;
-- untouched final holdouts and true forward monitoring;
-- exact matched samples and one prediction per game/cutoff;
-- log loss, Brier score/decomposition, calibration, sharpness, coverage, and
-  uncertainty—not accuracy alone;
-- multiple-comparison controls and stability checks across seasons/eras;
-- resource budgets and pruning rules; and
-- champion/challenger promotion requiring practical, stable improvement.
-
-Never use the test/forward period to choose features. Never stack in-sample base
-predictions. Never claim betting value without permitted, time-stamped prices and
-vig-aware evaluation.
-
-## Code Architecture, Encapsulation, and Polymorphic Reusability
-
-All platform code must follow strict object-oriented and modular engineering principles:
-
-1. **Proper Encapsulation & Structured Dataclasses**:
-   - Complex domain entities (models, simulations, player projections, market allocations, game states) must be encapsulated in immutable, frozen dataclasses or typed structures with clear attribute types.
-   - Internal implementation details, SQL joins, and raw dictionary manipulations must not leak across domain boundaries.
-2. **Polymorphic & Interoperable Interfaces**:
-   - Allocators, simulators, models, and evaluators must implement polymorphic base protocols or abstract base classes (e.g. `BaseModel`, `BaseAllocator`, `BaseSimulator`) so new algorithms can be plugged in without refactoring consumer modules.
-   - Input/output contracts must be strictly interoperable between database queries, CLI commands, serving marts, and downstream web APIs.
-3. **Mathematical Precision & Exhaustive Documentation**:
-   - Every formula must include docstrings documenting inputs, mathematical citations, bounds, and failure modes.
-   - Modules must include deterministic hand-calculated test fixtures and real database integration tests.
-
-## Product direction
-
-Use OddsTrader only as product research. Its current MLB surface emphasizes a
-daily betting grid, moneyline/run-line/total predictions, projected scores,
-expected value, cover probability, ratings, best available lines, live movement,
-and player props. Our differentiated product should add transparent provenance,
-model cards, calibration, uncertainty, forecast-change explanations, season
-replay, research queries, and engineering lineage.
-
-With a zero-dollar data budget, do not pretend to offer a full sportsbook odds
-comparison feed. Use lawfully reusable sources, distinct Polymarket/Kalshi lines,
-and a client-side user-entered odds calculator until a permitted feed exists.
-Market probabilities, model probabilities, fair prices, conditional playable
-prices, and picks must remain separate concepts.
+Do not churn DOX for internal refactors that preserve every documented contract.
+Delete stale statements instead of appending contradictory history. Dated history
+belongs in plans/ADRs/progress records, not operating contracts.
 
 ## Definition of done
 
-In addition to `CLAUDE.md`:
+A change is not complete until:
 
-- every change has tests at the correct grain and a production-shaped tie-out;
-- SQL/model changes declare point-in-time and leakage behavior;
-- docs, catalogs, lineage, and health checks change with the code;
-- experiments and artifacts are immutable and reproducible from a clean clone;
-- source rights and the active data profile are enforced, not merely documented;
-- performance claims include representative benchmarks;
-- no copied competitor design/content or unsupported “AI edge” claim ships; and
-- a plan gate is complete only after Sol reviews the delegated handoff and
-  verification evidence.
+- applicable tests/checks pass or limitations are explicitly reported;
+- docs/registries/contracts change with behavior when required;
+- point-in-time, source-rights, and grain semantics remain explicit;
+- no unrelated parallel work was overwritten;
+- the applicable DOX chain and sidecars were re-checked for drift.
+
+## Child DOX Index
+
+| Child | Scope |
+| --- | --- |
+| [.github/AGENTS.md](.github/AGENTS.md) | CI, security automation, dependency/release workflows, templates. |
+| [docs/AGENTS.md](docs/AGENTS.md) | Living docs, dated evidence, ADR/reference/runbook ownership and navigation. |
+| [migrations/AGENTS.md](migrations/AGENTS.md) | Forward schema evolution, DDL safety, extensions, DB contract changes. |
+| [mlb_baseball/AGENTS.md](mlb_baseball/AGENTS.md) | Python package architecture and child package routing. |
+| [plans/AGENTS.md](plans/AGENTS.md) | Active execution plans and progress/evidence records. |
+| [scripts/AGENTS.md](scripts/AGENTS.md) | Operational shell/Python scripts and destructive-operation safeguards. |
+| [tests/AGENTS.md](tests/AGENTS.md) | Pytest isolation, unit/integration boundaries, fixtures, real-Postgres verification. |
+| [transforms/AGENTS.md](transforms/AGENTS.md) | SQLMesh models, audits, incremental transforms, promotion/tie-out rules. |
+
+Additional child boundaries should be added only when they represent durable
+ownership or workflow, not merely because a directory exists.

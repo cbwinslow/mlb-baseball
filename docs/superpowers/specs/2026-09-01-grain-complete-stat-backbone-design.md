@@ -40,7 +40,7 @@ A stable, documented statistic table at every grain a sabermetric researcher
 expects, built from `raw.retrosheet_event` (1910-2025) with a separate
 `raw.mlb_playbyplay` builder for 2026+, each one analysis-ready and exportable
 with one `mlb export` command. (Source is `raw.retrosheet_event`, not
-`core.play` — see "The interface question" below for why.)
+`core.play` — see "Scope — staged" → Stage 1 below for why.)
 
 ### The innovation (why anyone would use this over the alternatives)
 
@@ -77,8 +77,8 @@ dimensions + facts at their natural grain.
 | Relation | Grain | Contents |
 |---|---|---|
 | `gold.batting_game` | (batter, game) | batting box line — PA, AB, R, H, 1B, 2B, 3B, HR, TB, RBI, BB, IBB, HBP, SF, SH, SO, GIDP. SB/CS are baserunning, not batting — deferred to a later `gold.baserunning_game`. |
-| `gold.pitching_game` | (pitcher, game) | pitching box line — BF, outs (→IP), H, R, ER, BB, IBB, SO, HR, HBP, WP, BK; W/L/SV/HLD from the decision |
-| `gold.batting_season` / `gold.pitching_season` | (player, season, team) | box-line aggregate + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%/SB%; ERA/RA9/WHIP/K9/BB9/HR9/K:BB |
+| `gold.pitching_game` | (pitcher, game) | pitching box line — BF, outs (→IP), H, R, BB, IBB, SO, HR, HBP, WP, BK; W/L/SV from the decision. ER/ERA need reconstructed-inning logic cwevent doesn't emit — deferred, documented follow-up (ERA available per player-season from `raw.bref_pitching` today). HLD isn't a Retrosheet gameinfo field — not produced here. |
+| `gold.batting_season` / `gold.pitching_season` | (player, season, team) | box-line aggregate + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%/SB%; RA9/WHIP/K9/BB9/HR9/K:BB (not ERA — same ER gap as `gold.pitching_game`) |
 | `gold.batting_team` / `gold.pitching_team` | (team, season) | same, team grain |
 | `gold.batting_career` / `gold.pitching_career` | (player) | career roll-up |
 

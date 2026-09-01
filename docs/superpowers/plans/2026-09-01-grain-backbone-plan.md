@@ -6,7 +6,7 @@ Executes `docs/superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.
 
 | # | Relation | Source | Status |
 |---|---|---|---|
-| 1 | `gold.batting_game` | `raw.retrosheet_event` | **done — PR #125** (ADR-278). Migration 0094, `sql/batting_game_build.sql`, wired into `mlb report` + doctor, hand-math + idempotency tests. |
+| 1 | `gold.batting_game` | `raw.retrosheet_event` | **done — PR #126** (ADR-278). Migration 0094, `sql/batting_game_build.sql`, wired into `mlb report` + doctor, hand-math + idempotency tests. |
 | 2 | `gold.pitching_game` | `raw.retrosheet_event` | **done — PR #126.** Migration 0095. Runs charged per responsible pitcher (`resp_pit_id` + `run{1,2,3}_resp_pit_id`). `er`/`era` deferred: reconstructed-inning logic cwevent does not emit — `r` + season RA9 are the honest figures. |
 | 3 | `gold.batting_season` / `gold.batting_team` | roll up `gold.batting_game` + `core.game` for team/season keys | **next.** + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%. **Tie-out test vs a real Baseball-Reference player-season.** |
 | 4 | `gold.pitching_season` / `gold.pitching_team` | roll up `gold.pitching_game` | + RA9/WHIP/K9/BB9/HR9/K:BB (not ERA — no ER at this grain) |
@@ -43,7 +43,8 @@ Historical-completeness honesty; parameterized rolling windows; export bundle
 Migration + named `.sql` builder + `mlb report` wiring + `mlb doctor` check +
 integration tests (hand math, idempotency, and — for the season/career
 relations — a real published-figure tie-out) + `DATA_DICTIONARY.md` /
-`TABLE_CONTRACTS.md` rows + `mlb export` allow-list entry (after PR #123).
+`TABLE_CONTRACTS.md` rows + `mlb export` allow-list entry (the export/interop
+layer PR #123 needed for that entry is merged).
 
 All migrations, fixtures, tests, and database writes go through `mlb_test`
 (the per-run isolated clone `tests/conftest.py` provisions), never production

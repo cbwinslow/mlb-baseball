@@ -31,9 +31,9 @@ because the repository can support it.
   unit before resuming the prediction ladder or website.
 - [`superpowers/plans/2026-09-01-research-platform-consolidation.md`](superpowers/plans/2026-09-01-research-platform-consolidation.md)
   — September deep-review execution plan: research grains, stat registry,
-  research API, DuckDB/Parquet distribution, package/CLI/acquisition cleanup,
-  SQLMesh incrementality, testing, and the sequence for eventually reopening
-  forecasting.
+  research API layer, plus DuckDB and Parquet distribution, package/CLI/data
+  acquisition cleanup, SQLMesh incrementality, testing, and the sequence for
+  eventually reopening forecasting.
 - [`AGENT_CONTEXT_ARCHITECTURE.md`](AGENT_CONTEXT_ARCHITECTURE.md) — proposed
   cross-agent documentation/context design based on Agent Zero DOX, adapted for
   Codex, Claude Code, Gemini, and other coding agents.

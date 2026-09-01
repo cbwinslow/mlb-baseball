@@ -1,15 +1,30 @@
 # MLB Baseball
 
-A free, self-hosted MLB data ingestion, modeling, and research platform — built to go further than [baseball.computer](https://baseball.computer) on data coverage, ship real predictive models, and present them on a public site in the spirit of oddstrader.com.
+A free, self-hosted MLB **research database** — historical and live baseball
+data, ingested and conformed into a clean PostgreSQL warehouse you run
+yourself, with analysis-ready views and CSV / Excel / Parquet export. It aims
+to go further than [baseball.computer](https://baseball.computer) on source
+coverage (Statcast pitch-level data, live MLB StatsAPI, prediction-market
+data — not just Retrosheet/Lahman).
 
-This is a ground-up rebuild; see [docs/NORTH_STAR.md](docs/NORTH_STAR.md) for the vision and current phase.
+This is a ground-up rebuild; see [docs/NORTH_STAR.md](docs/NORTH_STAR.md) for
+the full vision.
 
 ## Status
 
-Warehouse and daily predict path are in production. The active product
-track is a research database plus a play-then-simulate prediction ladder
-(ADR-271) — not more named metric engines. Start at
-[docs/MAP.md](docs/MAP.md) and
+**The research database is the current focus** (see
+[docs/superpowers/specs/2026-09-01-research-database-v1-design.md](docs/superpowers/specs/2026-09-01-research-database-v1-design.md)).
+The warehouse and the daily ingestion path are in production. Work now is on
+finishing the export / interop layer and outside-user docs.
+
+Two related efforts are **paused until that ships**, and live in this repo but
+are not being worked on:
+
+- a play-then-simulate **prediction ladder** (Elo, GBM, Markov game sim) — the
+  `mlb predict` / `train` / `simulate` command families;
+- a public **Astro website** in the spirit of oddstrader.com.
+
+Start at [docs/MAP.md](docs/MAP.md) and
 [docs/PRODUCT_DIRECTION.md](docs/PRODUCT_DIRECTION.md). What is built vs
 queued: [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -62,10 +77,18 @@ uv run mlb bootstrap      # runs every registered connector's bootstrap()
 uv run mlb doctor         # confirms the raw layer and dependencies are healthy
 uv run mlb audit          # read-only game-identity/null/join readiness report
 uv run mlb conform        # only after the raw-layer checks you need are healthy
+uv run mlb report         # builds the gold.player_season / team_season / division_standing marts
 uv run mlb inventory
-mlb predict              # builds gold.game_feature and generates win-probability predictions (Phase 2, ADR-032)
-mlb train                # (optional) retrains the gradient-boosted model; only overwrites the saved model if it beats the log5/Elo baselines (ADR-033)
 ```
+
+That sequence gives you the full warehouse: `raw` (source-faithful), `core`
+(conformed, relational), and `gold` (derived stats and analysis-ready views).
+From there, query it directly with `psql` or any Postgres client, or pull
+tables out with `mlb export` (see "Exporting data" below).
+
+The prediction ladder (`mlb predict` / `train` / `simulate`) is paused — see
+**Status** above. It still runs, but it is not part of the research-database
+workflow and is not being maintained right now.
 
 `mlb preflight` does not download data or write to PostgreSQL. It validates the
 resolved non-secret settings, Chadwick tools, database reachability/migration
@@ -108,6 +131,19 @@ For a complete MLB Stats API source rebuild (analytics plus every reference/cata
 
 For the complete clean-clone sequence, including how to interpret a failure or
 resume a source, see [Bootstrap runbook](docs/BOOTSTRAP_RUNBOOK.md).
+
+## Exporting data
+
+The warehouse is a normal PostgreSQL database — point Excel, R, pandas, or any
+SQL client straight at it. For file extracts today, `gold.game_export`,
+`gold.player_season`, and `gold.team_season` are wide, pre-joined,
+analysis-ready relations, and `docs/RESEARCH_QUERY_RUNBOOK.md` has copy-paste
+`psql \copy ... WITH CSV HEADER` recipes for each.
+
+A dedicated `mlb export` command (any allow-listed relation → CSV / Excel /
+Parquet, plus a rights-filtered `public_safe` bundle for redistribution) is
+in progress — see the
+[v1 spec](docs/superpowers/specs/2026-09-01-research-database-v1-design.md).
 
 ## Scheduling
 

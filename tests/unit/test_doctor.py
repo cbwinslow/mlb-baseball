@@ -82,8 +82,8 @@ def test_export_health_check():
     from mlb_baseball import export
 
     e_checks = export.health_check()
-    assert len(e_checks) == 1
-    assert e_checks[0].ok is True
+    assert len(e_checks) == 3
+    assert all(c.ok for c in e_checks)
 
 
 def test_stack_health_check():
@@ -149,14 +149,13 @@ def test_pipeline_health_check():
     assert p_checks[0].ok is True
 
 
-def test_visual_and_cluster_and_dump_and_hedge_health_checks():
-    """Verify health checks for visual, cluster, dump, and hedge modules."""
-    from mlb_baseball import dump, visual
+def test_visual_and_cluster_and_hedge_health_checks():
+    """Verify health checks for visual, cluster, and hedge modules."""
+    from mlb_baseball import visual
     from mlb_baseball.model import cluster, hedge
 
     assert visual.health_check()[0].ok is True
     assert cluster.health_check()[0].ok is True
-    assert dump.health_check()[0].ok is True
     assert hedge.health_check()[0].ok is True
 
 

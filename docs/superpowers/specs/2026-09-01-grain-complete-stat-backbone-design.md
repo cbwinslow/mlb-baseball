@@ -162,9 +162,21 @@ builder, never 12 copies of every stat.
   grain ladder; the formulas are public sabermetric research implemented here
   from primary sources (FanGraphs glossary, *The Book*, MLB glossary).
 
+### Rights / attribution
+
+Every relation here is Retrosheet-derived (1910-2025). Per
+`docs/SOURCE_RIGHTS.md`, Retrosheet's use policy permits redistribution and
+commercial use but "asks users to acknowledge Retrosheet" — so each
+relation's `mlb export` allow-list entry sits in the Retrosheet-only
+`public_safe` profile, which already ships the Retrosheet attribution and a
+`MANIFEST.json` with every bundle (`docs/RESEARCH_QUERY_RUNBOOK.md`,
+EXPORT-01 / PR #123). Nothing here is `licensed_full` and nothing moves
+there without a recorded license. The Stage 5 source-lineage review
+re-confirms the notice per relation before any public bundle ships.
+
 ## Data-flow (Stage 1)
 
-```
+```text
 raw.retrosheet_event (1910-2025)  +  raw.mlb_playbyplay (2026+)
   -> sql/batting_game_build.sql    -> gold.batting_game    (per batter per game)
   -> sql/pitching_game_build.sql   -> gold.pitching_game   (per pitcher per game)

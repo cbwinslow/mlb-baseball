@@ -56,7 +56,11 @@ Migration + named `.sql` builder + `mlb report` wiring + `mlb doctor` check +
 integration tests (hand math, idempotency, and — for the season/career
 relations — a real published-figure tie-out) + `DATA_DICTIONARY.md` /
 `TABLE_CONTRACTS.md` rows + `mlb export` allow-list entry (the export/interop
-layer PR #123 needed for that entry is merged).
+layer PR #123 needed for that entry is merged) in the `public_safe` rights
+profile — every relation here is Retrosheet-derived, so it stays
+Retrosheet-only `public_safe` (which already emits the required Retrosheet
+attribution + `MANIFEST.json` per bundle) and never `licensed_full` without a
+recorded license (`docs/SOURCE_RIGHTS.md`).
 
 All migrations, fixtures, tests, and database writes go through `mlb_test`
 (the per-run isolated clone `tests/conftest.py` provisions), never production

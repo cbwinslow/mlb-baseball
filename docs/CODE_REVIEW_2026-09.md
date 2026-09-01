@@ -25,8 +25,10 @@ the earlier reviews:
 
 - **`conform.py` is high-quality.** It is long, but the length is mostly
   evidence: nearly every branch carries a comment tracing it to real
-  production data. The only cleanup worth doing is splitting the 1,929-line
-  module into a small package, and only when someone is already working in it.
+  production data. `AGENTS.md` mandates splitting it into a `conform/`
+  package and moving `_build_games`' big embedded SQL into a named `.sql`
+  resource — a mechanical, behavior-preserving change best done the next
+  time the file is opened for substantive work, not deferred forever.
 - **`cli.py` has one real problem.** `main()` is a single ~9,000-line
   function with a 171-branch `if/elif args.command == …` chain. About 120 of
   those branches are the Agy "Engine" display commands, each an inline
@@ -172,15 +174,24 @@ no features and no engines, but they are still work on frozen surface area.
 - **It has a `health_check()`** using the shared `check_*` helpers, per
   `CLAUDE.md` "Operational health checks".
 
-**Minor cleanups (low urgency, no behavior risk):**
+**Cleanups (no behavior risk):**
 
-- **Module could be a package.** 1,929 lines / ~30 functions split cleanly by
-  concern: identity (`_build_teams/_players/_team_aliases`), games +
-  `game_pk` backfill family, plays/pitches, market
-  (`_polymarket_*`/`_kalshi_*`/`_build_market`), standings/WAR. A `conform/`
-  package with `run()` in `__init__.py` would make each concern independently
-  readable. Worth doing **only when someone is already substantially editing
-  the file** — not as a standalone change.
+- **Module must become a package — this is doctrine, not a nice-to-have.**
+  `AGENTS.md` "Refactor `conform.py` without a wholesale rewrite":
+
+  > `conform.py` … **must stop growing as a monolith**. Split orchestration,
+  > identity reconciliation, games, events, markets, and shared query
+  > execution into cohesive modules.
+
+  The concrete shape: 1,929 lines / ~30 functions split by concern —
+  identity (`_build_teams/_players/_team_aliases`), games + `game_pk`
+  backfill family, plays/pitches, market
+  (`_polymarket_*`/`_kalshi_*`/`_build_market`), standings/WAR — into a
+  `conform/` package with `run()` in `__init__.py`. The mandate is standing;
+  what this review adds is only the sequencing judgment: it is a mechanical,
+  behavior-preserving split best done the next time someone opens the file
+  for a substantive change, not as an isolated 2,000-line diff. It should
+  not keep being deferred indefinitely.
 - **`run()` encodes step ordering in prose.** The orchestrator runs ~20
   ordered steps, and several ordering constraints ("must run before
   `_build_games`", "must run after both backfills above") live only in
@@ -189,17 +200,25 @@ no features and no engines, but they are still work on frozen surface area.
   recommendation — the comments are thorough and
   `tests/integration/test_conform*.py` covers the pipeline. Only worth it if
   the ordering ever actually causes a bug.
-- **Inline SQL strings.** This is settled policy, not a finding:
+- **Inline SQL strings — split the two cases.** The *policy* is settled:
 
   > current policy (`docs/SQL_OWNERSHIP.md`) is correct, not behind the
   > field. dbt, SQLMesh, and the `aiosql`/`yesql` line of Python libraries
   > all independently draw the same line this project already draws.
   > — `docs/POLICY_REVIEW_2026-08.md`
 
-  `conform.py`'s Python-side Polymarket/Kalshi matching is likewise
-  justified in the docstring (the source data is `repr()`'d dicts in text
-  columns; `ast.literal_eval` in Python beats string-matching repr output in
-  SQL).
+  Two kinds of "SQL in `conform.py`", and only one is a non-finding:
+  - **Python-side Polymarket/Kalshi matching** — justified in the docstring
+    (`repr()`'d dicts in text columns; `ast.literal_eval` in Python beats
+    string-matching repr output in SQL). Keep as-is.
+  - **`_build_games`'s ~160 lines of embedded SQL** (two `INSERT … SELECT`
+    blocks of ~72 and ~89 lines, in a 192-line function) — this is
+    exactly what `AGENTS.md`'s SQL-ownership rules target ("named,
+    package-owned `.sql` resources for operational statements that cannot be
+    SQLMesh models"; "Large SQL strings do not belong embedded in Python
+    modules"). It should move to a `mlb_baseball/sql/conform_games.sql`
+    resource, alongside the `conform/` package split above (same edit
+    window).
 
 ---
 
@@ -295,7 +314,7 @@ the `conform.py`/`.sql`/SQLMesh boundary set in ADR-266/271.)
 | **Build stack** | Rust parser → parquet → SQLMesh → DuckDB | Python connectors → `raw` (COPY) → `conform.py` → `.sql` builders + SQLMesh spike |
 | **Cross-source identity** | Not needed (single source) | `game_pk` backfill, team-alias crosswalk, Chadwick register — real, hard, and done |
 | **Forecasts** | None | Elo, log5, Markov / Monte-Carlo game sim, GBM; calibration + evaluation; model-vs-market tracking |
-| **Point-in-time discipline** | N/A | `gold.game_feature`, feature/data/model cutoffs on every prediction row |
+| **Point-in-time discipline** | N/A | `gold.game_feature`; `gold.prediction` carries `data_cutoff` / `prediction_cutoff` / `feature_snapshot_id` / `model_run_id` (`0031_model_provenance.sql`) — populated on the main `predict` path, nullable and unset on the `kalshi-*` / `polymarket-*` market-comparison rows (`_UPCOMING_INSERT` in `model/market.py`) |
 | **Researcher access** | **Browser query engine, notebook recipes, per-table grain + column docs** | `mlb dump` + `RESEARCH_QUERY_RUNBOOK.md` **planned**; `gold.player_season`/`team_season` exist (ADR-057) but reporting/doctor wiring unfinished |
 | **License / rights** | Retrosheet attribution + CC BY-SA, clean | AGPL-3.0 code; data rights gated by profile (`public_safe` / `licensed_full` / `local_research`); Statcast + BRef terms are real public-launch blockers (`PROJECT_REVIEW.md` finding 1) |
 
@@ -338,7 +357,7 @@ known, planned work item, not a design gap.
 | 2 | `cli.py`: collapse the ~120 Engine branches to one table-driven generic handler + table-driven subparsers | Low–medium | Low | Same as #1 |
 | 3 | Add `C901` / branch-count lint (or a targeted check) so a 9,000-line function can't recur silently | Low | None | — |
 | 4 | Finish research-DB packaging: `public_safe` dump + notebook recipes + surfaced per-table docs (`PRODUCT_DIRECTION.md`) | Medium | Low | Already planned; highest external value |
-| 5 | `conform.py`: split into a `conform/` package by concern | Low | Low | Only when already editing the file substantially |
+| 5 | `conform.py`: split into a `conform/` package by concern + move `_build_games` SQL to a named `.sql` resource (`AGENTS.md`-mandated) | Low | Low | Do it the next time the file is opened for substantive work — do not keep deferring |
 | 6 | Library swaps (`tenacity`, `yoyo`, `pydantic-settings`) | — | — | **None recommended now.** Revisit `tenacity` only if retry behavior needs to change *and* the hand-rolled version is measured to be what makes that hard |
 
 Items 1–3 address the one real code-quality finding. Item 4 addresses the one

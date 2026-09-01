@@ -101,12 +101,19 @@ uv run mlb export --profile public_safe --out mlb_research_bundle/
 uv run mlb export --profile public_safe --out mlb_research_public_safe --zip
 ```
 
-Relations included in the `public_safe` bundle:
+Relations included in the `public_safe` bundle (Retrosheet-only, per
+`docs/SOURCE_RIGHTS.md`):
 - `raw.retrosheet_event`, `raw.retrosheet_gameinfo`
-- `core.player`, `core.game`, `core.play`, `core.pitch`, `core.venue`, `core.team`, `core.team_alias`, `core.standing`
-- `gold.game_export`, `gold.player_season`, `gold.team_season`, `gold.division_standing`, `gold.run_expectancy_24`, `gold.win_expectancy`, `gold.leverage_index`
+- `gold.run_expectancy_24`, `gold.win_expectancy`, `gold.leverage_index`
+  (each built purely from `raw.retrosheet_event`)
 
-(Excluded from `public_safe`: Statcast pitch tracking, MLB Stats API feeds, Baseball-Reference WAR, prediction markets, and model forecasts.)
+Everything else is `local_research` and is **not** in the bundle — including
+the conformed `core.*` dimensions and the `gold` season marts, because their
+lineage mixes in the MLB Stats API (`core.game` weather, `core.play` 2026+),
+Statcast (`core.pitch`), the Chadwick register (`core.player`),
+Baseball-Reference (`gold.player_season`) or Lahman (`gold.team_season`).
+Broadening the bundle needs a per-relation lineage review recorded in
+`docs/SOURCE_RIGHTS.md` first.
 
 ### Alternative: Raw `psql \copy`
 

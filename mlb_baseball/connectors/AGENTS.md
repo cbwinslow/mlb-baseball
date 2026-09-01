@@ -78,16 +78,18 @@ For a behavior-changing connector edit, normally verify:
 
 Use real network calls only for a deliberate/manual source parity or smoke check; routine CI should remain deterministic.
 
-## Initial Sidecar Rollout
+## Reviewed Sidecar Coverage
 
-Phase 1 sidecars should prioritize the modules with the most historical/source knowledge or product importance:
+Sidecars are added in source-reviewed batches, not generated mechanically merely to reach a file-count target. The current enforced baseline is listed by `scripts/check_dox.py` and includes:
 
-- `retrosheet.py.dox.md`
-- `mlb_api.py.dox.md`
-- `kalshi.py.dox.md`
-- `polymarket.py.dox.md`
+- core/hub connectors: `mlb_api.py`, `retrosheet.py`;
+- market sources: `kalshi.py`, `polymarket.py`;
+- Baseball Savant: `statcast.py`, `statcast_leaderboard.py`;
+- Retrosheet family: `retrosheet_event.py`, `retrosheet_box.py`, `retrosheet_gamelog.py`, `retrosheet_reference.py`, `retrosheet_roster.py`, `retrosheet_schedule.py`, `retrosheet_transaction.py`.
 
-Then expand to the remaining actively maintained connectors in small batches after each batch is checked against code/tests. Do not mechanically generate low-quality prose merely to reach 100% file count.
+Next sidecar batches should prioritize actively maintained reference/research sources with distinct rights/coverage/runtime contracts (for example Lahman, Chadwick Register, Baseball-Reference, news/injury inputs) and any connector being materially changed. Small trivial adapters do not need a sidecar merely because a neighboring module has one.
+
+When a sidecar is added to the reviewed baseline, add it to `scripts/check_dox.py` so it cannot disappear silently.
 
 ## Child DOX Index
 

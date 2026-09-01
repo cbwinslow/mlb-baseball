@@ -408,27 +408,29 @@ LEFT JOIN raw.mlb_standing ms
 
 
 # ---------------------------------------------------------------------------
-# gold.batting_game  (grain-complete statistic backbone, Plan 03B)
+# gold.batting_game / gold.pitching_game  (grain-complete backbone, Plan 03B)
 # ---------------------------------------------------------------------------
 
 _BATTING_GAME_SQL = read_sql("batting_game_build.sql")
+_PITCHING_GAME_SQL = read_sql("pitching_game_build.sql")
 
 
-def _build_batting_game(conn: psycopg.Connection) -> int:
-    """Rebuild gold.batting_game from raw.retrosheet_event. Degrades
-    gracefully when the Retrosheet event table has not been ingested yet --
-    same posture as _build_player_season with raw.bref_*. The savepoint
-    (`conn.transaction()`) keeps an UndefinedTable here from rolling back the
-    other builders' work in the shared run() transaction."""
+def _build_backbone_relation(conn: psycopg.Connection, table: str, build_sql: str) -> int:
+    """Truncate-and-rebuild one grain-backbone `gold` relation from
+    raw.retrosheet_event. Degrades gracefully when the Retrosheet event table
+    has not been ingested yet -- same posture as _build_player_season with
+    raw.bref_*. The savepoint (`conn.transaction()`) keeps an UndefinedTable
+    here from rolling back the other builders' work in the shared run()
+    transaction."""
     try:
         with conn.transaction(), conn.cursor() as cur:
-            cur.execute("TRUNCATE gold.batting_game")
-            cur.execute(_BATTING_GAME_SQL, {"season": None})
-            cur.execute("SELECT count(*) FROM gold.batting_game")
+            cur.execute(f"TRUNCATE {table}")
+            cur.execute(build_sql, {"season": None})
+            cur.execute(f"SELECT count(*) FROM {table}")
             (count,) = fetch_one(cur)
         return count
     except psycopg.errors.UndefinedTable:
-        print("report: raw.retrosheet_event not present yet -- skipping gold.batting_game")
+        print(f"report: raw.retrosheet_event not present yet -- skipping {table}")
         return 0
 
 
@@ -458,7 +460,12 @@ def run() -> dict[str, int]:
         _compute_woba(conn)
         _compute_war(conn)
         counts["gold.division_standing"] = _build_division_standing(conn)
-        counts["gold.batting_game"] = _build_batting_game(conn)
+        counts["gold.batting_game"] = _build_backbone_relation(
+            conn, "gold.batting_game", _BATTING_GAME_SQL
+        )
+        counts["gold.pitching_game"] = _build_backbone_relation(
+            conn, "gold.pitching_game", _PITCHING_GAME_SQL
+        )
         conn.commit()
         result["rows"] = sum(counts.values())
     return counts
@@ -540,6 +547,27 @@ def health_check() -> list[Check]:
                 JOIN core.player p ON p.retro_id = re.bat_id
                 WHERE re.bat_id IS NOT NULL AND re.bat_id <> ''
                 GROUP BY re.game_id, re.bat_id
+                HAVING count(*) FILTER (WHERE re.bat_event_fl = 'T') > 0
+            ) s
+            """,
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.pitching_game"),
+        # Same shape as the batting_game check: one row per (game, charged
+        # pitcher) with a batter faced and a resolvable core.player.
+        check_join_coverage(
+            "raw.retrosheet_event (game, pitcher) pairs with a batter faced and a "
+            "resolvable player get a gold.pitching_game row",
+            "SELECT count(*) FROM gold.pitching_game",
+            """
+            SELECT count(*) FROM (
+                SELECT re.game_id, re.resp_pit_id
+                FROM raw.retrosheet_event re
+                JOIN core.game g ON g.retro_game_id = re.game_id AND lower(g.game_type) = 'regular'
+                JOIN raw.retrosheet_gameinfo gi ON gi.gid = g.retro_game_id
+                JOIN core.player p ON p.retro_id = re.resp_pit_id
+                WHERE re.resp_pit_id IS NOT NULL AND re.resp_pit_id <> ''
+                GROUP BY re.game_id, re.resp_pit_id
                 HAVING count(*) FILTER (WHERE re.bat_event_fl = 'T') > 0
             ) s
             """,

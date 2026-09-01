@@ -15,7 +15,7 @@ def _seed(db_conn):
         cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo")
         cur.execute(
             "CREATE TABLE raw.retrosheet_event ("
-            "game_id text, bat_id text, bat_home_id text, event_cd text, "
+            "game_id text, bat_id text, resp_pit_id text, bat_home_id text, event_cd text, "
             "bat_event_fl text, ab_fl text, sf_fl text, sh_fl text, dp_fl text, "
             "battedball_cd text, rbi_ct text, bat_dest_id text, "
             "run1_dest_id text, run2_dest_id text, run3_dest_id text, "
@@ -193,7 +193,7 @@ def test_batting_game_box_lines_match_hand_math(db_conn):
     _cleanup(db_conn)
     _seed(db_conn)
     try:
-        report._build_batting_game(db_conn)
+        report._build_backbone_relation(db_conn, "gold.batting_game", report._BATTING_GAME_SQL)
         db_conn.commit()
 
         judge = _line(db_conn, 70001)
@@ -248,10 +248,10 @@ def test_batting_game_rebuild_is_idempotent(db_conn):
     _cleanup(db_conn)
     _seed(db_conn)
     try:
-        report._build_batting_game(db_conn)
+        report._build_backbone_relation(db_conn, "gold.batting_game", report._BATTING_GAME_SQL)
         db_conn.commit()
         first = _line(db_conn, 70001)
-        report._build_batting_game(db_conn)
+        report._build_backbone_relation(db_conn, "gold.batting_game", report._BATTING_GAME_SQL)
         db_conn.commit()
         assert _line(db_conn, 70001) == first
         with db_conn.cursor() as cur:
@@ -268,7 +268,7 @@ def test_batting_game_skips_postseason_games(db_conn):
         cur.execute("UPDATE core.game SET game_type = 'wildcard' WHERE id = 7800001")
     db_conn.commit()
     try:
-        report._build_batting_game(db_conn)
+        report._build_backbone_relation(db_conn, "gold.batting_game", report._BATTING_GAME_SQL)
         db_conn.commit()
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM gold.batting_game WHERE game_id = 7800001")
@@ -282,7 +282,9 @@ def test_build_batting_game_degrades_without_retrosheet_event(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")
     db_conn.commit()
-    assert report._build_batting_game(db_conn) == 0
+    assert (
+        report._build_backbone_relation(db_conn, "gold.batting_game", report._BATTING_GAME_SQL) == 0
+    )
     # connection still usable
     with db_conn.cursor() as cur:
         cur.execute("SELECT 1")
@@ -293,7 +295,7 @@ def test_report_health_check_includes_batting_game(db_conn):
     _cleanup(db_conn)
     _seed(db_conn)
     try:
-        report._build_batting_game(db_conn)
+        report._build_backbone_relation(db_conn, "gold.batting_game", report._BATTING_GAME_SQL)
         db_conn.commit()
         names = [c.name for c in report.health_check()]
         assert any("gold.batting_game" in n for n in names)

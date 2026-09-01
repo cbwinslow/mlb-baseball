@@ -85,11 +85,15 @@ Names fit `CLAUDE.md`'s one-to-two-word convention. Two-way players get a row
 in both the batting and pitching relations.
 
 Every stat is MLB-glossary-defined (unambiguous). Each relation:
-- named `.sql` builder in `mlb_baseball/sql/` + a migration (the proven
-  one-writer-per-table production path). Designed so a SQLMesh
-  `INCREMENTAL_BY_TIME_RANGE` model on `season` is a drop-in replacement once
-  ADR-088's promotion path is open (`docs/SQL_OWNERSHIP.md`,
-  `SQLMESH_OPERATIONS.md`).
+- named `.sql` builder in `mlb_baseball/sql/` + a migration. This is not a
+  choice against SQLMesh — `docs/SQLMESH_OPERATIONS.md` is explicit that "the
+  original `mlb` database is never a SQLMesh target without a separately
+  [authorized promotion]", so a named `.sql` + migration is the *only*
+  production-ready path today, and it is exactly what ADR-088 prescribes for
+  the interim ("port existing ones table-by-table after a full-table tie-out;
+  never two writers"). Each builder is one parameterized statement so a
+  SQLMesh `INCREMENTAL_BY_TIME_RANGE` model on `season` is a literal drop-in
+  once that promotion gate opens.
 - hand-calculated fixture + tie-out against a real published player-season
   (e.g. 2023 Aaron Judge batting, 2023 Gerrit Cole pitching) within a stated
   tolerance — a unit test feeding defaults is **not** a tie-out
@@ -107,7 +111,10 @@ already in those modules — only the `GROUP BY` changes.
   from our own `gold.run_expectancy_24`. This is the wOBA/wRAA foundation and
   the one genuinely-new build in this stage; baseball.computer ships the
   equivalent (`linear_weights`).
-- wOBA, wRC+, wRAA at player-season / team-season (from `offense.py`).
+- wOBA, wRC+ at player-season / team-season (from `offense.py` constants).
+  wRAA is exposed as a standalone column — today it exists only folded into
+  the wRC+ numerator, so this is partly new work, not a pure re-plumb, and
+  gets its own fixture.
 - FIP, xFIP, SIERA at player-game / player-season (from `starter.py`,
   `pitcher_estimators.py` — FIP has the strongest tie-out in the repo).
 - RE24, WPA per plate appearance (from `run_expectancy.py` +

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import subprocess
@@ -29,6 +30,7 @@ def git_sha() -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+@functools.cache
 def models_dir() -> Path:
     """The primary git checkout's ``models/`` directory.
 
@@ -37,9 +39,13 @@ def models_dir() -> Path:
     matter which git worktree ran ``mlb train`` -- a worktree that trained a
     model and was then removed would leave a dangling ``artifact_uri``
     (issue #108). ``git rev-parse --git-common-dir`` points at the primary
-    ``.git`` even from a linked worktree; ``--path-format=absolute`` makes it
-    absolute from any cwd. Falls back to this package's own location when not
-    run from a git checkout (e.g. an installed wheel)."""
+    ``.git`` even from a linked worktree; ``--path-format=absolute`` (git
+    >= 2.32) makes it absolute from any cwd. Anything unexpected -- git
+    missing, an older git that rejects the flag, a non-checkout (installed
+    wheel), a hung call -- falls back to this package's own location.
+
+    Cached: the three model modules call this at import time; the result
+    does not change within a process."""
     fallback = Path(__file__).resolve().parent.parent.parent / "models"
     try:
         result = subprocess.run(
@@ -48,8 +54,9 @@ def models_dir() -> Path:
             check=False,
             text=True,
             cwd=Path(__file__).resolve().parent,
+            timeout=10,
         )
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
         return fallback
     common = result.stdout.strip()
     if result.returncode != 0 or not common:

@@ -4,25 +4,50 @@ referenced by absolute path in the shared ``meta.model`` table, so a
 worktree that trained a model and was then removed would orphan the row
 (issue #108)."""
 
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from mlb_baseball.model import provenance
 
-
-def test_models_dir_resolves_outside_any_git_worktree():
-    d = provenance.models_dir()
-    assert d.name == "models"
-    assert "worktrees" not in d.parts, d
-    assert ".git" not in d.parts, d
+_PACKAGE_MODELS = Path(provenance.__file__).resolve().parent.parent.parent / "models"
 
 
-def test_models_dir_falls_back_to_package_root_when_git_is_unavailable(monkeypatch):
-    def _no_git(*args, **kwargs):
-        raise FileNotFoundError("git")
+@pytest.fixture(autouse=True)
+def _clear_models_dir_cache():
+    """models_dir is @functools.cache'd; each test starts from a cold cache."""
+    provenance.models_dir.cache_clear()
+    yield
+    provenance.models_dir.cache_clear()
 
-    monkeypatch.setattr(provenance.subprocess, "run", _no_git)
-    d = provenance.models_dir()
-    assert d == Path(provenance.__file__).resolve().parent.parent.parent / "models"
+
+def test_models_dir_matches_the_primary_git_common_dir_even_from_a_worktree():
+    """This suite itself runs from a linked worktree in development. The
+    result must still be ``<primary checkout>/models`` -- the parent of the
+    primary ``.git`` that ``--git-common-dir`` reports -- not
+    ``<this worktree>/models``. That is the whole #108 fix.
+    """
+    common = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=Path(provenance.__file__).resolve().parent,
+    ).stdout.strip()
+    resolved = provenance.models_dir()
+    assert resolved == Path(common).resolve().parent / "models"
+    assert resolved.name == "models"
+    assert ".git" not in resolved.parts
+
+
+def test_models_dir_falls_back_to_package_root_when_git_is_missing(monkeypatch):
+    monkeypatch.setattr(
+        provenance.subprocess,
+        "run",
+        lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("git")),
+    )
+    assert provenance.models_dir() == _PACKAGE_MODELS
 
 
 def test_models_dir_falls_back_when_git_rev_parse_fails(monkeypatch):
@@ -31,8 +56,15 @@ def test_models_dir_falls_back_when_git_rev_parse_fails(monkeypatch):
         stdout = ""
 
     monkeypatch.setattr(provenance.subprocess, "run", lambda *a, **k: _Result())
-    d = provenance.models_dir()
-    assert d == Path(provenance.__file__).resolve().parent.parent.parent / "models"
+    assert provenance.models_dir() == _PACKAGE_MODELS
+
+
+def test_models_dir_falls_back_when_git_call_times_out(monkeypatch):
+    def _timeout(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="git", timeout=10)
+
+    monkeypatch.setattr(provenance.subprocess, "run", _timeout)
+    assert provenance.models_dir() == _PACKAGE_MODELS
 
 
 def test_gbm_total_stack_all_use_the_shared_models_dir():

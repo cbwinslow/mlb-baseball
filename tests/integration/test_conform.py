@@ -94,6 +94,8 @@ def _reset_dynamic_tables(conn):
             "core.market",
             "gold.game_feature",
             "gold.prediction",
+            "gold.batting_game",
+            "gold.pitching_game",
             "core.game",
             "core.team_alias",
             "core.player_war",
@@ -408,6 +410,47 @@ def test_rerunning_does_not_crash_when_gold_game_feature_references_a_game(db_co
     with db_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM core.game")
         assert cur.fetchone() == (2,)
+
+
+def test_rerunning_does_not_crash_when_a_backbone_relation_references_core(db_conn):
+    # Same FK class as the gold.game_feature regression above, for the Plan
+    # 03B backbone: gold.batting_game / gold.pitching_game reference
+    # core.game / core.player / core.team (migrations 0094, 0095). conform
+    # rebuilds core from scratch and reissues every core.game surrogate id,
+    # so run()'s consolidated TRUNCATE must clear these two as well or
+    # Postgres refuses to TRUNCATE core.game while their FKs exist,
+    # regardless of row counts. `mlb report` rebuilds them afterward.
+    _seed_raw_tables(db_conn)
+    conform.run()
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id, season, game_date, home_team_id FROM core.game LIMIT 1")
+        game_id, season, game_date, team_id = cur.fetchone()
+        cur.execute("SELECT id FROM core.player LIMIT 1")
+        (player_id,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO gold.batting_game "
+            "(game_id, player_id, team_id, season, game_date, pa, ab) "
+            "VALUES (%s, %s, %s, %s, %s, 4, 4)",
+            (game_id, player_id, team_id, season, game_date),
+        )
+        cur.execute(
+            "INSERT INTO gold.pitching_game "
+            "(game_id, player_id, team_id, season, game_date, bf, outs) "
+            "VALUES (%s, %s, %s, %s, %s, 27, 21)",
+            (game_id, player_id, team_id, season, game_date),
+        )
+    db_conn.commit()
+
+    conform.run()  # must not raise psycopg.errors.FeatureNotSupported
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.game")
+        assert cur.fetchone() == (2,)
+        # conform empties the backbone relations it does not itself rebuild.
+        cur.execute("SELECT count(*) FROM gold.batting_game")
+        assert cur.fetchone() == (0,)
+        cur.execute("SELECT count(*) FROM gold.pitching_game")
+        assert cur.fetchone() == (0,)
 
 
 def test_build_plays_and_pitches_unify_both_sources(db_conn):

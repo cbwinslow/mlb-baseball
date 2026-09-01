@@ -107,6 +107,10 @@ FEATURE_REGISTRY alone.
 - [`PROJECT_REVIEW.md`](PROJECT_REVIEW.md) — a large end-to-end review of
   the research/prediction/website plan, including the detailed comparison
   against baseball.computer and oddstrader.
+- [`CODE_REVIEW_2026-09.md`](CODE_REVIEW_2026-09.md) — **dated review,
+  2026-09-01.** Prompted by an external repo overview: code quality of
+  `cli.py` / `conform.py`, a library-overlap pass, and a feature comparison
+  against baseball.computer.
 
 ## Working with this repo
 

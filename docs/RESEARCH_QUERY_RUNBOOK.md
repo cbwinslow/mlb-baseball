@@ -67,23 +67,53 @@ For pitch, play, or identity research, join the explicit `core` relations by
 their documented keys. Do not union Retrosheet and MLB play-by-play rows until
 their source-specific grains have been selected and documented.
 
-## Exporting to CSV
+## Exporting Research Data
 
-Every relation above can be piped straight to a CSV file with `psql`'s
-`\copy` (client-side, so it works against a remote database without
-server filesystem access). These three relations are unbounded and can be
-tens of millions of rows for the full history, so filter to a season for
-a one-off look:
+The platform provides a first-class CLI export command (`mlb export`) that streams allow-listed relations directly to CSV, Apache Parquet, or Microsoft Excel (`.xlsx`), with server-side cursors and zero arbitrary SQL execution.
+
+### Single Relation Export
+
+Export any allow-listed `raw.*`, `core.*`, or `gold.*` relation:
+
+```sh
+# Export gold.game_export for 2024 to Parquet (default)
+uv run mlb export gold.game_export --season 2024 --out game_export_2024.parquet
+
+# Export player season metrics to CSV
+uv run mlb export gold.player_season --season 2024 --format csv --out player_season_2024.csv
+
+# Export team franchise directory to Excel (.xlsx with 1M-row safety check)
+uv run mlb export core.team --format xlsx --out teams.xlsx
+
+# Export full 24-state run expectancy matrix
+uv run mlb export gold.run_expectancy_24 --format parquet
+```
+
+### Rights-Filtered Redistribution Bundles (`--profile public_safe`)
+
+Generate a complete, rights-cleared research archive containing only Retrosheet-derived data, accompanied by an authoritative `MANIFEST.json` and Retrosheet attribution:
+
+```sh
+# Generate bundle directory
+uv run mlb export --profile public_safe --out mlb_research_bundle/
+
+# Generate compressed zip bundle directly
+uv run mlb export --profile public_safe --out mlb_research_public_safe --zip
+```
+
+Relations included in the `public_safe` bundle:
+- `raw.retrosheet_event`, `raw.retrosheet_gameinfo`
+- `core.player`, `core.game`, `core.play`, `core.pitch`, `core.venue`, `core.team`, `core.team_alias`, `core.standing`
+- `gold.game_export`, `gold.player_season`, `gold.team_season`, `gold.division_standing`, `gold.run_expectancy_24`, `gold.win_expectancy`, `gold.leverage_index`
+
+(Excluded from `public_safe`: Statcast pitch tracking, MLB Stats API feeds, Baseball-Reference WAR, prediction markets, and model forecasts.)
+
+### Alternative: Raw `psql \copy`
+
+If querying directly from PostgreSQL without the Python CLI:
 
 ```sh
 psql "postgresql:///mlb" -c "\copy (SELECT * FROM gold.team_season WHERE season = 2024 ORDER BY team_id) TO 'team_season_2024.csv' WITH CSV HEADER"
 psql "postgresql:///mlb" -c "\copy (SELECT * FROM gold.player_season WHERE season = 2024 ORDER BY player_id) TO 'player_season_2024.csv' WITH CSV HEADER"
 psql "postgresql:///mlb" -c "\copy (SELECT * FROM gold.game_export WHERE season = 2024 ORDER BY game_date) TO 'game_export_2024.csv' WITH CSV HEADER"
-```
-
-An explicit full-history export (every season, no filter) is the same
-shape without the `WHERE`:
-
-```sh
-psql "postgresql:///mlb" -c "\copy (SELECT * FROM gold.game_export ORDER BY season, game_date) TO 'game_export_full.csv' WITH CSV HEADER"
 ```

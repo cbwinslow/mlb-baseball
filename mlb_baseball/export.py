@@ -1,431 +1,592 @@
-"""Polymorphic Research Dossier & Multi-Format Exporter Architecture (EXPORT-01, ADR-121).
+"""Research Database Exporter & Interoperability Layer (EXPORT-01, Plan v1).
 
-Provides an extensible, component-based document generation system:
-1. Polymorphic renderers (Markdown, Terminal, HTML, JSON/Dict).
-2. Pluggable section builders (Matchups, Pitcher Props, Portfolio, Standings, Research Citations).
-3. ASCII distribution and histogram plotting utilities.
-4. Clean decoupling between quantitative data structures and presentation layers.
-
-Adheres strictly to object-oriented encapsulation, open-closed design principles,
-and polymorphic composability.
+Provides high-performance, streaming multi-format exports for research data:
+1. Validated relation allow-list (raw.*, core.*, gold.*) with zero arbitrary SQL.
+2. Read-only repeatable-read streaming transactions via server-side cursors.
+3. Multi-format serialisation: CSV, Excel (.xlsx with 1M-row safety guard), and Parquet.
+4. Rights-filtered bundle export (`--profile public_safe`) with manifest and optional zip.
+5. Defensive health checks wired into `mlb doctor`.
 """
 
 from __future__ import annotations
 
+import csv
 import dataclasses
-import enum
 import json
-from collections.abc import Sequence
-from typing import Any, Protocol
+import logging
+import zipfile
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
+import psycopg
+from psycopg import sql
+
+from mlb_baseball.db import fetch_one
 from mlb_baseball.health import Check
 
+logger = logging.getLogger(__name__)
 
-class ExportFormat(enum.Enum):
-    """Supported export output formats."""
+RETROSHEET_ATTRIBUTION = (
+    "Information used here was obtained free of charge from and is copyrighted by "
+    "Retrosheet. Interested parties may contact Retrosheet at 20 Sunset Rd., Newark, DE 19711."
+)
 
-    MARKDOWN = "markdown"
-    TERMINAL = "terminal"
-    HTML = "html"
-    JSON = "json"
-
-
-# ---------------------------------------------------------------------------
-# Polymorphic Document Renderers
-# ---------------------------------------------------------------------------
+MAX_EXCEL_DATA_ROWS = 1_048_575  # 1,048,576 total rows minus 1 header row
 
 
-class BaseDocumentRenderer(Protocol):
-    """Polymorphic protocol for document formatters."""
+@dataclasses.dataclass(frozen=True)
+class ExportRelation:
+    """An allow-listed database relation available for researcher export."""
 
-    def render_title(self, title: str, subtitle: str | None = None) -> str:
-        """Render the master document title and optional subtitle."""
-        ...
+    schema: str
+    table: str
+    season_column: str | None = None
+    profile: str = "local_research"
+    rights_note: str = ""
 
-    def render_section_header(self, heading: str, level: int = 2) -> str:
-        """Render a section heading."""
-        ...
-
-    def render_table(
-        self,
-        headers: Sequence[str],
-        rows: Sequence[Sequence[Any]],
-        alignments: Sequence[str] | None = None,
-    ) -> str:
-        """Render a tabular dataset."""
-        ...
-
-    def render_key_values(self, pairs: Sequence[tuple[str, Any]]) -> str:
-        """Render a key-value summary list."""
-        ...
-
-    def render_ascii_bar_chart(
-        self,
-        items: Sequence[tuple[str, float]],
-        max_width: int = 30,
-        unit: str = "%",
-    ) -> str:
-        """Render an ASCII horizontal bar chart."""
-        ...
-
-    def render_alert(self, level: str, message: str) -> str:
-        """Render an emphasized note, tip, or warning alert box."""
-        ...
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.schema}.{self.table}"
 
 
-class MarkdownRenderer:
-    """GitHub Flavored Markdown (GFM) document renderer."""
+# Canonical list of all allowable export relations across raw, core, and gold schemas.
+# profile="public_safe" relations are exclusively sourced from rights-cleared Retrosheet data.
+RELATIONS: tuple[ExportRelation, ...] = (
+    # Public-Safe Gold Relations
+    ExportRelation(
+        "gold", "game_export", "season", "public_safe", "Retrosheet canonical wide game export"
+    ),
+    ExportRelation(
+        "gold", "player_season", "season", "public_safe", "Retrosheet player season metrics"
+    ),
+    ExportRelation(
+        "gold", "team_season", "season", "public_safe", "Retrosheet team season metrics"
+    ),
+    ExportRelation(
+        "gold", "division_standing", "season", "public_safe", "Retrosheet division standings"
+    ),
+    ExportRelation(
+        "gold",
+        "run_expectancy_24",
+        None,
+        "public_safe",
+        "Retrosheet 24-state run expectancy transition matrix",
+    ),
+    ExportRelation(
+        "gold", "win_expectancy", None, "public_safe", "Retrosheet win expectancy state matrix"
+    ),
+    ExportRelation(
+        "gold", "leverage_index", "season", "public_safe", "Retrosheet leverage index matrix"
+    ),
+    # Public-Safe Core Relations
+    ExportRelation("core", "game", "season", "public_safe", "Retrosheet canonical game facts"),
+    ExportRelation(
+        "core", "play", "season", "public_safe", "Retrosheet canonical play-by-play events"
+    ),
+    ExportRelation(
+        "core", "pitch", "season", "public_safe", "Retrosheet canonical pitch-level facts"
+    ),
+    ExportRelation(
+        "core", "player", None, "public_safe", "Retrosheet biographical player directory"
+    ),
+    ExportRelation("core", "team", None, "public_safe", "Retrosheet franchise registry"),
+    ExportRelation("core", "team_alias", None, "public_safe", "Retrosheet team alias crosswalk"),
+    ExportRelation("core", "venue", None, "public_safe", "Retrosheet ballpark reference registry"),
+    ExportRelation("core", "standing", "season", "public_safe", "Retrosheet canonical standings"),
+    # Public-Safe Raw Relations
+    ExportRelation(
+        "raw", "retrosheet_event", "season", "public_safe", "Raw Retrosheet event plays"
+    ),
+    ExportRelation(
+        "raw", "retrosheet_gameinfo", "season", "public_safe", "Raw Retrosheet game metadata"
+    ),
+    # Local Research Gold Relations (Excluded from public_safe)
+    ExportRelation(
+        "gold",
+        "game_feature",
+        "season",
+        "local_research",
+        "Enriched feature matrix (contains Statcast/MLB API data)",
+    ),
+    ExportRelation(
+        "gold",
+        "game_feature_snapshot",
+        "season",
+        "local_research",
+        "Point-in-time feature snapshot",
+    ),
+    ExportRelation(
+        "gold", "prediction", "season", "local_research", "Model game-winner forecast outputs"
+    ),
+    ExportRelation(
+        "gold", "total_prediction", "season", "local_research", "Model run-total forecast outputs"
+    ),
+    # Local Research Core Relations
+    ExportRelation(
+        "core", "player_war", "season", "local_research", "Baseball-Reference WAR calculations"
+    ),
+    ExportRelation(
+        "core", "market", "season", "local_research", "Prediction market comparison lines"
+    ),
+    # Local Research Raw Relations (MLB API, Chadwick, RSS)
+    ExportRelation(
+        "raw", "mlb_playbyplay", "_season", "local_research", "MLB Stats API play-by-play"
+    ),
+    ExportRelation(
+        "raw", "mlb_boxscore_batting", "_season", "local_research", "MLB Stats API boxscore batting"
+    ),
+    ExportRelation(
+        "raw",
+        "mlb_boxscore_fielding",
+        "_season",
+        "local_research",
+        "MLB Stats API boxscore fielding",
+    ),
+    ExportRelation("raw", "mlb_roster", "_season", "local_research", "MLB Stats API team rosters"),
+    ExportRelation(
+        "raw", "mlb_player_stat", "_season", "local_research", "MLB Stats API player season totals"
+    ),
+    ExportRelation(
+        "raw", "mlb_team_stat", "_season", "local_research", "MLB Stats API team season totals"
+    ),
+    ExportRelation("raw", "mlb_standing", "_season", "local_research", "MLB Stats API standings"),
+    ExportRelation(
+        "raw", "mlb_game_context", "_season", "local_research", "MLB Stats API game context"
+    ),
+    ExportRelation(
+        "raw", "mlb_game_pace", "_season", "local_research", "MLB Stats API game pace metrics"
+    ),
+    ExportRelation(
+        "raw", "mlb_linescore", "_season", "local_research", "MLB Stats API linescore innings"
+    ),
+    ExportRelation(
+        "raw", "mlb_stat_leader", "_season", "local_research", "MLB Stats API category leaders"
+    ),
+    ExportRelation(
+        "raw", "mlb_team_leader", "_season", "local_research", "MLB Stats API team leaders"
+    ),
+    ExportRelation(
+        "raw", "mlb_umpire", "_season", "local_research", "MLB Stats API umpire directory"
+    ),
+    ExportRelation(
+        "raw", "mlb_win_prob", "_season", "local_research", "MLB Stats API win probability"
+    ),
+    ExportRelation("raw", "mlb_alumni", "_season", "local_research", "MLB Stats API alumni lists"),
+    ExportRelation("raw", "mlb_coach", "_season", "local_research", "MLB Stats API coaching staff"),
+    ExportRelation(
+        "raw", "mlb_free_agent", "_season", "local_research", "MLB Stats API free agents"
+    ),
+    ExportRelation(
+        "raw", "mlb_transaction", "_season", "local_research", "MLB Stats API transaction log"
+    ),
+    ExportRelation(
+        "raw", "register_people", None, "local_research", "Chadwick Register player crosswalk"
+    ),
+    ExportRelation(
+        "raw", "register_names", None, "local_research", "Chadwick Register name variants"
+    ),
+    ExportRelation(
+        "raw", "register_links", None, "local_research", "Chadwick Register identifier links"
+    ),
+    ExportRelation(
+        "raw", "register_countries", None, "local_research", "Chadwick Register country codes"
+    ),
+    ExportRelation(
+        "raw", "news", None, "local_research", "MLB / Trade Rumors / ESPN RSS news feeds"
+    ),
+    ExportRelation("meta", "ingestion_run", "season", "local_research", "Ingestion run ledger"),
+    ExportRelation("meta", "ingestion_item", "season", "local_research", "Ingestion item ledger"),
+)
 
-    def render_title(self, title: str, subtitle: str | None = None) -> str:
-        out = f"# {title}\n"
-        if subtitle:
-            out += f"\n> {subtitle}\n"
-        return out + "\n"
+ALLOWLIST: dict[str, ExportRelation] = {r.qualified_name: r for r in RELATIONS}
 
-    def render_section_header(self, heading: str, level: int = 2) -> str:
-        prefix = "#" * max(1, min(6, level))
-        return f"{prefix} {heading}\n\n"
 
-    def render_table(
-        self,
-        headers: Sequence[str],
-        rows: Sequence[Sequence[Any]],
-        alignments: Sequence[str] | None = None,
-    ) -> str:
-        if not headers:
-            return ""
-        align_map = {"left": ":---", "center": ":---:", "right": "---:"}
-        align_row = [
-            align_map.get(a.lower(), "---:") if alignments and i < len(alignments) else "---:"
-            for i, a in enumerate(alignments or ["right"] * len(headers))
-        ]
+def resolve_relation(name: str) -> ExportRelation:
+    """Validate and resolve a relation name against the allow-list.
 
-        lines = [
-            "| " + " | ".join(str(h) for h in headers) + " |",
-            "| " + " | ".join(align_row) + " |",
-        ]
-        for row in rows:
-            lines.append("| " + " | ".join(str(c) for c in row) + " |")
-        return "\n".join(lines) + "\n\n"
+    Accepts fully qualified ("gold.game_export") or bare ("game_export") names.
+    Raises ValueError on unknown or ambiguous relation names.
+    """
+    clean_name = name.strip()
+    if clean_name in ALLOWLIST:
+        return ALLOWLIST[clean_name]
 
-    def render_key_values(self, pairs: Sequence[tuple[str, Any]]) -> str:
-        lines = [f"- **{k}**: {v}" for k, v in pairs]
-        return "\n".join(lines) + "\n\n"
+    # Check for bare table name match
+    matches = [r for r in RELATIONS if r.table == clean_name]
+    if len(matches) == 1:
+        return matches[0]
+    elif len(matches) > 1:
+        options = ", ".join(m.qualified_name for m in matches)
+        raise ValueError(f"Ambiguous relation {name!r}. Specify schema: {options}")
 
-    def render_ascii_bar_chart(
-        self,
-        items: Sequence[tuple[str, float]],
-        max_width: int = 25,
-        unit: str = "%",
-    ) -> str:
-        if not items:
-            return ""
-        max_val = max((val for _, val in items), default=1.0)
-        max_val = max(max_val, 1e-6)
-        max_label_len = max((len(lbl) for lbl, _ in items), default=10)
+    allowed = sorted(ALLOWLIST.keys())
+    raise ValueError(
+        f"Relation {name!r} is not in the export allow-list. "
+        f"Allowed relations: {', '.join(allowed)}"
+    )
 
-        lines = ["```text"]
-        for label, val in items:
-            bar_len = int(round((val / max_val) * max_width))
-            bar_len = max(0, min(max_width, bar_len))
-            bar_str = "█" * bar_len + "░" * (max_width - bar_len)
-            lines.append(f"{label:<{max_label_len}} | {bar_str} | {val:>5.1f}{unit}")
-        lines.append("```\n")
-        return "\n".join(lines) + "\n"
 
-    def render_alert(self, level: str, message: str) -> str:
-        lvl_tag = (
-            level.upper()
-            if level.upper() in ("NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION")
-            else "NOTE"
+def _build_select_query(
+    rel: ExportRelation, season: int | None = None
+) -> tuple[sql.Composed, list[Any]]:
+    """Construct a strictly-parameterized SQL query for the given relation."""
+    query = sql.SQL("SELECT * FROM {}.{}").format(
+        sql.Identifier(rel.schema),
+        sql.Identifier(rel.table),
+    )
+    params: list[Any] = []
+    if season is not None:
+        if rel.season_column is None:
+            raise ValueError(
+                f"Relation {rel.qualified_name!r} does not have a season column "
+                "and cannot be filtered by --season"
+            )
+        query = sql.SQL("SELECT * FROM {}.{} WHERE {} = %s").format(
+            sql.Identifier(rel.schema),
+            sql.Identifier(rel.table),
+            sql.Identifier(rel.season_column),
         )
-        return f"> [!{lvl_tag}]\n> {message}\n\n"
+        params.append(season)
+    return query, params
 
 
-class TerminalRenderer:
-    """High-density ANSI text terminal renderer."""
-
-    def render_title(self, title: str, subtitle: str | None = None) -> str:
-        border = "=" * 80
-        out = [border, f"  {title.upper()}"]
-        if subtitle:
-            out.append(f"  {subtitle}")
-        out.append(border + "\n")
-        return "\n".join(out)
-
-    def render_section_header(self, heading: str, level: int = 2) -> str:
-        return f"--- {heading.upper()} ---\n"
-
-    def render_table(
-        self,
-        headers: Sequence[str],
-        rows: Sequence[Sequence[Any]],
-        alignments: Sequence[str] | None = None,
-    ) -> str:
-        if not headers:
-            return ""
-        # Determine column widths
-        col_widths = [len(str(h)) for h in headers]
-        for row in rows:
-            for i, val in enumerate(row):
-                if i < len(col_widths):
-                    col_widths[i] = max(col_widths[i], len(str(val)))
-
-        # Format header
-        header_cells = [f"{str(h):<{col_widths[i]}}" for i, h in enumerate(headers)]
-        hdr_line = "  ".join(header_cells)
-        sep_line = "-" * len(hdr_line)
-
-        lines = [hdr_line, sep_line]
-        for row in rows:
-            cells = []
-            for i, val in enumerate(row):
-                align = alignments[i] if alignments and i < len(alignments) else "right"
-                w = col_widths[i] if i < len(col_widths) else 10
-                if align == "left":
-                    cells.append(f"{str(val):<{w}}")
-                else:
-                    cells.append(f"{str(val):>{w}}")
-            lines.append("  ".join(cells))
-        return "\n".join(lines) + "\n\n"
-
-    def render_key_values(self, pairs: Sequence[tuple[str, Any]]) -> str:
-        lines = [f"{k:<24}: {v}" for k, v in pairs]
-        return "\n".join(lines) + "\n\n"
-
-    def render_ascii_bar_chart(
-        self,
-        items: Sequence[tuple[str, float]],
-        max_width: int = 25,
-        unit: str = "%",
-    ) -> str:
-        if not items:
-            return ""
-        max_val = max((val for _, val in items), default=1.0)
-        max_val = max(max_val, 1e-6)
-        max_label_len = max((len(lbl) for lbl, _ in items), default=10)
-
-        lines = []
-        for label, val in items:
-            bar_len = int(round((val / max_val) * max_width))
-            bar_len = max(0, min(max_width, bar_len))
-            bar_str = "#" * bar_len + "." * (max_width - bar_len)
-            lines.append(f"{label:<{max_label_len}} | {bar_str} | {val:>5.1f}{unit}")
-        return "\n".join(lines) + "\n\n"
-
-    def render_alert(self, level: str, message: str) -> str:
-        return f"[{level.upper()}]: {message}\n\n"
+def _build_count_query(
+    rel: ExportRelation, season: int | None = None
+) -> tuple[sql.Composed, list[Any]]:
+    """Construct a parameterized count query for the given relation."""
+    query = sql.SQL("SELECT count(*) FROM {}.{}").format(
+        sql.Identifier(rel.schema),
+        sql.Identifier(rel.table),
+    )
+    params: list[Any] = []
+    if season is not None and rel.season_column is not None:
+        query = sql.SQL("SELECT count(*) FROM {}.{} WHERE {} = %s").format(
+            sql.Identifier(rel.schema),
+            sql.Identifier(rel.table),
+            sql.Identifier(rel.season_column),
+        )
+        params.append(season)
+    return query, params
 
 
-class HTMLRenderer:
-    """Semantic HTML5 card and dossier renderer."""
+def _set_read_only_repeatable_read(conn: psycopg.Connection) -> None:
+    """Ensure the connection runs in a read-only, repeatable-read transaction."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+    except psycopg.errors.ActiveSqlTransaction:
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
 
-    def render_title(self, title: str, subtitle: str | None = None) -> str:
-        sub_html = f"<p class='subtitle'>{subtitle}</p>" if subtitle else ""
-        return f"<div class='dossier-header'><h1>{title}</h1>{sub_html}</div>\n"
 
-    def render_section_header(self, heading: str, level: int = 2) -> str:
-        lvl = max(1, min(6, level))
-        return f"<h{lvl} class='section-title'>{heading}</h{lvl}>\n"
+def export_to_csv(
+    conn: psycopg.Connection,
+    rel: ExportRelation,
+    out_path: Path,
+    season: int | None = None,
+) -> int:
+    """Stream relation rows directly to a CSV file."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    query, params = _build_select_query(rel, season=season)
+    _set_read_only_repeatable_read(conn)
 
-    def render_table(
-        self,
-        headers: Sequence[str],
-        rows: Sequence[Sequence[Any]],
-        alignments: Sequence[str] | None = None,
-    ) -> str:
-        if not headers:
-            return ""
-        th_cells = "".join(f"<th>{h}</th>" for h in headers)
-        lines = [
-            "<table class='dossier-table'>",
-            f"  <thead><tr>{th_cells}</tr></thead>",
-            "  <tbody>",
-        ]
-        for row in rows:
-            td_cells = "".join(f"<td>{c}</td>" for c in row)
-            lines.append(f"    <tr>{td_cells}</tr>")
-        lines.extend(["  </tbody>", "</table>\n"])
-        return "\n".join(lines)
+    row_count = 0
+    try:
+        with conn.cursor(name=f"export_csv_{rel.schema}_{rel.table}") as cur:
+            cur.itersize = 5000
+            cur.execute(query, params)
+            headers = [desc.name for desc in cur.description or []]
+            with out_path.open("w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                while True:
+                    rows = cur.fetchmany(5000)
+                    if not rows:
+                        break
+                    writer.writerows(rows)
+                    row_count += len(rows)
+    finally:
+        conn.commit()
+    return row_count
 
-    def render_key_values(self, pairs: Sequence[tuple[str, Any]]) -> str:
-        lines = ["<ul class='kv-list'>"]
-        for k, v in pairs:
-            lines.append(f"  <li><strong>{k}:</strong> {v}</li>")
-        lines.append("</ul>\n")
-        return "\n".join(lines)
 
-    def render_ascii_bar_chart(
-        self,
-        items: Sequence[tuple[str, float]],
-        max_width: int = 25,
-        unit: str = "%",
-    ) -> str:
-        lines = ["<pre class='ascii-chart'>"]
-        max_val = max((val for _, val in items), default=1.0)
-        max_val = max(max_val, 1e-6)
-        max_label_len = max((len(lbl) for lbl, _ in items), default=10)
+def export_to_parquet(
+    conn: psycopg.Connection,
+    rel: ExportRelation,
+    out_path: Path,
+    season: int | None = None,
+) -> int:
+    """Stream relation rows to an Apache Parquet file using PyArrow."""
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except ImportError:
+        raise RuntimeError(
+            "Parquet export requires pyarrow. "
+            "Install with `pip install 'mlb-baseball[export]'` or `uv sync --extra export`."
+        ) from None
 
-        for label, val in items:
-            bar_len = int(round((val / max_val) * max_width))
-            bar_str = "█" * bar_len + "░" * (max_width - bar_len)
-            lines.append(f"{label:<{max_label_len}} | {bar_str} | {val:>5.1f}{unit}")
-        lines.append("</pre>\n")
-        return "\n".join(lines)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    query, params = _build_select_query(rel, season=season)
+    _set_read_only_repeatable_read(conn)
 
-    def render_alert(self, level: str, message: str) -> str:
-        return (
-            f"<div class='alert alert-{level.lower()}'>"
-            f"<strong>{level.upper()}:</strong> {message}</div>\n"
+    row_count = 0
+    try:
+        with conn.cursor(name=f"export_parquet_{rel.schema}_{rel.table}") as cur:
+            cur.itersize = 5000
+            cur.execute(query, params)
+            headers = [desc.name for desc in cur.description or []]
+            writer: pq.ParquetWriter | None = None
+            try:
+                while True:
+                    rows = cur.fetchmany(5000)
+                    if not rows:
+                        if writer is None:
+                            # Empty result set -> write empty table with column names
+                            empty_pydict: dict[str, list[Any]] = {h: [] for h in headers}
+                            table = pa.Table.from_pydict(empty_pydict)
+                            pq.write_table(table, out_path)
+                        break
+                    # Transpose rows to column arrays for pyarrow.Table
+                    cols = list(zip(*rows, strict=True))
+                    batch_dict = {
+                        h: list(col_data) for h, col_data in zip(headers, cols, strict=True)
+                    }
+                    table = pa.Table.from_pydict(batch_dict)
+                    if writer is None:
+                        writer = pq.ParquetWriter(out_path, table.schema)
+                    writer.write_table(table)
+                    row_count += len(rows)
+            finally:
+                if writer is not None:
+                    writer.close()
+    finally:
+        conn.commit()
+    return row_count
+
+
+def export_to_xlsx(
+    conn: psycopg.Connection,
+    rel: ExportRelation,
+    out_path: Path,
+    season: int | None = None,
+) -> int:
+    """Stream relation rows to an Excel (.xlsx) workbook using openpyxl."""
+    try:
+        import openpyxl
+    except ImportError:
+        raise RuntimeError(
+            "Excel export requires openpyxl. "
+            "Install with `pip install 'mlb-baseball[export]'` or `uv sync --extra export`."
+        ) from None
+
+    # Pre-check row count against Excel sheet capacity (1,048,576 rows)
+    count_query, count_params = _build_count_query(rel, season=season)
+    with conn.cursor() as cur:
+        cur.execute(count_query, count_params)
+        (total_rows,) = fetch_one(cur)
+
+    if total_rows > MAX_EXCEL_DATA_ROWS:
+        raise ValueError(
+            f"Excel export exceeds maximum sheet limit (1,048,576 rows; "
+            f"relation query returned {total_rows:,} rows). "
+            "Use .parquet or .csv instead."
         )
 
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet(title=rel.table[:31])
 
-# ---------------------------------------------------------------------------
-# Pluggable Component Section Builders
-# ---------------------------------------------------------------------------
+    query, params = _build_select_query(rel, season=season)
+    _set_read_only_repeatable_read(conn)
 
-
-class BaseSectionBuilder(Protocol):
-    """Polymorphic protocol for dossier section builders."""
-
-    def build_section(self, renderer: BaseDocumentRenderer) -> str:
-        """Build and render this section using the specified document renderer."""
-        ...
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize section data to a dictionary for JSON output."""
-        ...
-
-
-@dataclasses.dataclass(frozen=True)
-class KeyValueSectionBuilder:
-    """Generic key-value summary section builder."""
-
-    title: str
-    pairs: list[tuple[str, Any]]
-
-    def build_section(self, renderer: BaseDocumentRenderer) -> str:
-        out = renderer.render_section_header(self.title)
-        out += renderer.render_key_values(self.pairs)
-        return out
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"title": self.title, "data": dict(self.pairs)}
-
-
-@dataclasses.dataclass(frozen=True)
-class TableSectionBuilder:
-    """Generic tabular data section builder."""
-
-    title: str
-    headers: list[str]
-    rows: list[list[Any]]
-    alignments: list[str] | None = None
-
-    def build_section(self, renderer: BaseDocumentRenderer) -> str:
-        out = renderer.render_section_header(self.title)
-        out += renderer.render_table(self.headers, self.rows, self.alignments)
-        return out
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "title": self.title,
-            "headers": self.headers,
-            "rows": self.rows,
-        }
+    row_count = 0
+    try:
+        with conn.cursor(name=f"export_xlsx_{rel.schema}_{rel.table}") as cur:
+            cur.itersize = 5000
+            cur.execute(query, params)
+            headers = [desc.name for desc in cur.description or []]
+            ws.append(headers)
+            while True:
+                rows = cur.fetchmany(5000)
+                if not rows:
+                    break
+                for r in rows:
+                    formatted_row = []
+                    for val in r:
+                        if hasattr(val, "tzinfo") and val.tzinfo is not None:
+                            formatted_row.append(val.isoformat())
+                        else:
+                            formatted_row.append(val)
+                    ws.append(formatted_row)
+                row_count += len(rows)
+        wb.save(out_path)
+    finally:
+        conn.commit()
+    return row_count
 
 
-@dataclasses.dataclass(frozen=True)
-class ChartSectionBuilder:
-    """Horizontal distribution bar chart section builder."""
+def export_relation(
+    conn: psycopg.Connection,
+    relation: str,
+    *,
+    format: str | None = None,
+    out_path: Path | str | None = None,
+    season: int | None = None,
+) -> tuple[Path, int]:
+    """Export a single allow-listed relation to the target format and file path.
 
-    title: str
-    items: list[tuple[str, float]]
-    unit: str = "%"
+    Returns a tuple of (resolved_out_path, row_count).
+    """
+    rel = resolve_relation(relation)
 
-    def build_section(self, renderer: BaseDocumentRenderer) -> str:
-        out = renderer.render_section_header(self.title)
-        out += renderer.render_ascii_bar_chart(self.items, unit=self.unit)
-        return out
+    # Infer or default format and file path
+    fmt = format.lower() if format else None
+    if out_path is not None:
+        target_path = Path(out_path)
+        if fmt is None:
+            ext = target_path.suffix.lstrip(".").lower()
+            if ext in ("csv", "xlsx", "parquet"):
+                fmt = ext
+            else:
+                fmt = "parquet"
+    else:
+        fmt = fmt or "parquet"
+        target_path = Path(f"{rel.schema}.{rel.table}.{fmt}")
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "title": self.title,
-            "items": [{"label": lbl, "value": val} for lbl, val in self.items],
-            "unit": self.unit,
-        }
+    if fmt == "csv":
+        count = export_to_csv(conn, rel, target_path, season=season)
+    elif fmt == "xlsx":
+        count = export_to_xlsx(conn, rel, target_path, season=season)
+    elif fmt == "parquet":
+        count = export_to_parquet(conn, rel, target_path, season=season)
+    else:
+        raise ValueError(
+            f"Unsupported format {format!r}. Supported formats: 'csv', 'xlsx', 'parquet'."
+        )
 
-
-# ---------------------------------------------------------------------------
-# Master Dossier Assembler
-# ---------------------------------------------------------------------------
-
-
-class ResearchDossier:
-    """Composable research dossier holding arbitrary modular sections."""
-
-    def __init__(
-        self,
-        title: str,
-        subtitle: str | None = None,
-        sections: Sequence[BaseSectionBuilder] | None = None,
-    ) -> None:
-        self.title = title
-        self.subtitle = subtitle
-        self.sections: list[BaseSectionBuilder] = list(sections or [])
-
-    def add_section(self, section: BaseSectionBuilder) -> ResearchDossier:
-        """Append a section builder to the dossier."""
-        self.sections.append(section)
-        return self
-
-    def export(self, renderer: BaseDocumentRenderer) -> str:
-        """Export the complete document using the provided renderer."""
-        chunks = [renderer.render_title(self.title, self.subtitle)]
-        for sec in self.sections:
-            chunks.append(sec.build_section(renderer))
-        return "".join(chunks)
-
-    def to_json(self, indent: int = 2) -> str:
-        """Export structured data as JSON."""
-        doc = {
-            "title": self.title,
-            "subtitle": self.subtitle,
-            "sections": [sec.to_dict() for sec in self.sections],
-        }
-        return json.dumps(doc, indent=indent)
+    return target_path, count
 
 
-def get_renderer(fmt: ExportFormat | str) -> BaseDocumentRenderer:
-    """Polymorphic factory returning the appropriate renderer instance."""
-    fmt_enum = ExportFormat(fmt.lower()) if isinstance(fmt, str) else fmt
-    if fmt_enum == ExportFormat.MARKDOWN:
-        return MarkdownRenderer()
-    elif fmt_enum == ExportFormat.HTML:
-        return HTMLRenderer()
-    elif fmt_enum == ExportFormat.TERMINAL:
-        return TerminalRenderer()
-    return MarkdownRenderer()
+def _relation_exists(conn: psycopg.Connection, schema: str, table: str) -> bool:
+    """Check if a table or view exists in the database."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT 1 FROM information_schema.tables WHERE table_schema = %s AND table_name = %s
+            UNION ALL
+            SELECT 1 FROM information_schema.views WHERE table_schema = %s AND table_name = %s
+            """,
+            (schema, table, schema, table),
+        )
+        return cur.fetchone() is not None
+
+
+def export_bundle(
+    conn: psycopg.Connection,
+    *,
+    profile: str = "public_safe",
+    out_dir: Path | str = Path("export_bundle"),
+    make_zip: bool = False,
+) -> Path:
+    """Export a rights-filtered collection of relations into a directory bundle."""
+    if profile != "public_safe":
+        raise ValueError(
+            f"Unsupported export bundle profile {profile!r}. "
+            "Currently only 'public_safe' is supported."
+        )
+
+    bundle_dir = Path(out_dir)
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_relations = []
+    for rel in RELATIONS:
+        if rel.profile != profile:
+            continue
+
+        if not _relation_exists(conn, rel.schema, rel.table):
+            logger.warning(
+                "Skipping absent relation %s from %s bundle", rel.qualified_name, profile
+            )
+            continue
+
+        target_file = bundle_dir / f"{rel.schema}.{rel.table}.parquet"
+        row_count = export_to_parquet(conn, rel, target_file)
+        manifest_relations.append(
+            {
+                "relation": rel.qualified_name,
+                "file": target_file.name,
+                "row_count": row_count,
+                "source_rights": rel.rights_note,
+            }
+        )
+
+    # Write MANIFEST.json
+    manifest_data = {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "profile": profile,
+        "relations": manifest_relations,
+        "attribution": RETROSHEET_ATTRIBUTION,
+    }
+    manifest_path = bundle_dir / "MANIFEST.json"
+    manifest_path.write_text(json.dumps(manifest_data, indent=2) + "\n", encoding="utf-8")
+
+    if make_zip:
+        zip_path = (
+            bundle_dir.with_suffix(".zip") if not str(bundle_dir).endswith(".zip") else bundle_dir
+        )
+        if zip_path == bundle_dir:
+            zip_path = bundle_dir.parent / f"{bundle_dir.name}.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file_path in bundle_dir.rglob("*"):
+                if file_path.is_file():
+                    zf.write(file_path, arcname=file_path.relative_to(bundle_dir))
+        return zip_path
+
+    return bundle_dir
 
 
 def health_check() -> list[Check]:
-    """Operational health check for the Polymorphic Exporter Engine (EXPORT-01)."""
+    """Operational health check for the research data exporter layer."""
     checks: list[Check] = []
-    try:
-        dossier = ResearchDossier("Test", "Subtitle")
-        dossier.add_section(KeyValueSectionBuilder("Summary", [("Key", "Value")]))
-        md = dossier.export(MarkdownRenderer())
-        term = dossier.export(TerminalRenderer())
-        js = dossier.to_json()
+    if not ALLOWLIST:
+        checks.append(Check("export allowlist", False, "No export relations registered"))
+    else:
+        public_count = sum(1 for r in RELATIONS if r.profile == "public_safe")
+        checks.append(
+            Check(
+                "export allowlist",
+                True,
+                f"{len(ALLOWLIST)} relations registered ({public_count} public_safe)",
+            )
+        )
 
-        if "# Test" in md and "TEST" in term and '"title": "Test"' in js:
-            checks.append(
-                Check("research dossier exporter", True, "Multi-format rendering verified")
+    try:
+        import pyarrow  # noqa: F401
+
+        checks.append(Check("export pyarrow dependency", True, "pyarrow installed"))
+    except ImportError:
+        checks.append(
+            Check(
+                "export pyarrow dependency",
+                False,
+                "pyarrow missing — install with `pip install 'mlb-baseball[export]'`",
             )
-        else:
-            checks.append(
-                Check("research dossier exporter", False, "Rendering mismatch across formats")
+        )
+
+    try:
+        import openpyxl  # noqa: F401
+
+        checks.append(Check("export openpyxl dependency", True, "openpyxl installed"))
+    except ImportError:
+        checks.append(
+            Check(
+                "export openpyxl dependency",
+                False,
+                "openpyxl missing — install with `pip install 'mlb-baseball[export]'`",
             )
-    except Exception as exc:
-        checks.append(Check("research dossier exporter", False, str(exc)))
+        )
+
     return checks

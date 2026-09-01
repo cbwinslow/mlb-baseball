@@ -59,20 +59,30 @@ is the product.
 
 ### Stage 1 — classical counting/rate backbone (foundation)
 
-New canonical grain relations, built from `core.play`:
+New derived grain relations. **Placement: `gold`, not `core`** — a box-score
+line is an aggregation of `core.play` / `raw.retrosheet_event`, i.e. a derived
+stat, which is what `gold` is for (`docs/ARCHITECTURE.md`). `core` stays
+dimensions + facts at their natural grain.
+
+**Source: `raw.retrosheet_event` for 1910-2025, `raw.mlb_playbyplay` for
+2026+** — matching *exactly* how the existing tied-out team stats are built
+(`sql/team_woba_retrosheet_update.sql` reads `re.bat_event_fl`, `re.ab_fl`,
+`re.sf_fl`, `re.h_cd`, `re.event_cd`, `re.rbi_ct`, ...). Building from
+`core.play` instead would silently diverge from those numbers, because
+`core.play` doesn't carry `bat_event_fl` / `ab_fl` / `sf_fl` / `rbi_ct`
+(inventory §4). The historical / live split mirrors `offense.py`'s existing
+`compute()` vs `compute_live()` pattern.
 
 | Relation | Grain | Contents |
 |---|---|---|
-| `core.player_game` | (player, game, role) | batting **or** pitching box line per player per game — PA, AB, H, 1B/2B/3B/HR, TB, BB, IBB, HBP, SF, SH, K, RBI, GIDP, R; IP, BF, ER, R, H, BB, K, HR for pitchers |
-| `core.team_game` | (team, game) | team box line per game (same columns, team totals) + the real final score |
-| `gold.player_season_batting` / `_pitching` | (player, season, team) | season aggregates + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%/SB%; ERA/RA9/WHIP/K9/BB9/HR9/K:BB/FIP-peripheral rates |
-| `gold.team_season_batting` / `_pitching` | (team, season) | same, team grain |
-| `gold.player_career_batting` / `_pitching` | (player) | career roll-up |
+| `gold.batting_game` | (batter, game) | batting box line — PA, AB, R, H, 1B, 2B, 3B, HR, TB, RBI, BB, IBB, HBP, SF, SH, SO, GIDP, SB, CS |
+| `gold.pitching_game` | (pitcher, game) | pitching box line — BF, outs (→IP), H, R, ER, BB, IBB, SO, HR, HBP, WP, BK; W/L/SV/HLD from the decision |
+| `gold.batting_season` / `gold.pitching_season` | (player, season, team) | box-line aggregate + AVG/OBP/SLG/OPS/ISO/BABIP/BB%/K%/SB%; ERA/RA9/WHIP/K9/BB9/HR9/K:BB |
+| `gold.batting_team` / `gold.pitching_team` | (team, season) | same, team grain |
+| `gold.batting_career` / `gold.pitching_career` | (player) | career roll-up |
 
-The relation names above are illustrative. Final names are set in the plan and
-must fit `CLAUDE.md`'s naming convention (one word, two at most) — likely
-`core.player_game` / `core.team_game` and 2-word `gold.*` names, not the
-3-word placeholders here.
+Names fit `CLAUDE.md`'s one-to-two-word convention. Two-way players get a row
+in both the batting and pitching relations.
 
 Every stat is MLB-glossary-defined (unambiguous). Each relation:
 - named `.sql` builder in `mlb_baseball/sql/` + a migration (the proven
@@ -147,14 +157,15 @@ builder, never 12 copies of every stat.
 ## Data-flow (Stage 1)
 
 ```
-core.play (PA grain, Retrosheet + MLB API)
-  -> sql/player_game_build.sql   -> core.player_game   (per player per game)
-  -> sql/team_game_build.sql     -> core.team_game     (per team per game)
-core.player_game
-  -> sql/player_season_build.sql -> gold.player_season_batting / _pitching
-  -> sql/player_career_build.sql -> gold.player_career_batting / _pitching
-core.team_game
-  -> sql/team_season_build.sql   -> gold.team_season_batting / _pitching
+raw.retrosheet_event (1910-2025)  +  raw.mlb_playbyplay (2026+)
+  -> sql/batting_game_build.sql    -> gold.batting_game    (per batter per game)
+  -> sql/pitching_game_build.sql   -> gold.pitching_game   (per pitcher per game)
+gold.batting_game
+  -> sql/batting_season_build.sql  -> gold.batting_season
+  -> sql/batting_career_build.sql  -> gold.batting_career
+gold.pitching_game  -> gold.pitching_season / gold.pitching_team / gold.pitching_career
+gold.batting_game   -> gold.batting_team
+core.player / core.team / core.game join in for readable names + season keys
 ```
 
 New CLI: none. `mlb report` gains these builders (it already builds the
@@ -163,12 +174,16 @@ existing `gold.*_season` tables); `mlb doctor` gains a check per relation.
 
 ## Error handling
 
-- A builder run before `core.play` is populated → clear error naming the
-  prerequisite, non-zero exit (matches `conform.py::_check_prerequisites`).
-- Retrosheet vs MLB-API `core.play` rows have different completeness (no
-  runner-destination columns in either today, per `docs/RESEARCH.md`) — stats
-  that need data we don't have are left NULL with a documented reason, never
-  guessed. Batting-out and GIDP handling follows the Retrosheet event spec.
+- A builder run before `raw.retrosheet_event` is populated → clear error
+  naming the prerequisite, non-zero exit (matches
+  `conform.py::_check_prerequisites`); the live path degrades gracefully when
+  `raw.mlb_playbyplay` is absent, like `offense.py::compute_live` already does.
+- Retrosheet and MLB-API play-by-play have different completeness (neither
+  carries runner-destination detail today, per `docs/RESEARCH.md`) — stats
+  needing data we don't have are left NULL with a documented reason, never
+  guessed. `bat_event_fl` / `ab_fl` / `sh_fl` / `sf_fl` / `h_cd` / `rbi_ct`
+  handling follows the Retrosheet event spec and the precedent already set in
+  `sql/team_woba_retrosheet_update.sql` (ADR-034's `bat_event_fl` finding).
 - Rebuild is truncate-and-replace, transactional, idempotent.
 
 ## Testing
@@ -187,10 +202,12 @@ Per relation:
 
 ## Acceptance (Stage 1)
 
-- `core.player_game`, `core.team_game`, `gold.player_season_batting`/
-  `_pitching`, `gold.team_season_batting`/`_pitching`, `gold.player_career_*`
-  all build, idempotent, doctor-checked, in the `mlb export` allow-list.
-- Each has a passing tie-out test against a real published player-season.
+- `gold.batting_game`, `gold.pitching_game`, and the season / team / career
+  roll-ups all build, idempotent, doctor-checked, in the `mlb export`
+  allow-list.
+- Each has a passing tie-out test against a real published player-season
+  (batting: a documented Aaron Judge season vs Baseball-Reference; pitching: a
+  documented Gerrit Cole season).
 - `docs/DATA_DICTIONARY.md` + `docs/TABLE_CONTRACTS.md` document every column
   and grain.
 - The existing `gold.player_season` / `gold.team_season` (BRef/Lahman-sourced,
@@ -200,10 +217,11 @@ Per relation:
 
 ## Workstreams
 
-1. **WS1 — Stage 1 grain tables.** `core.player_game` + `core.team_game`
-   first (they feed everything), then the season/career roll-ups. Largest;
-   delegatable to Agy against a per-relation spec once the `core.player_game`
-   column contract is nailed and reviewed.
+1. **WS1 — Stage 1 grain tables.** `gold.batting_game` first (cleanest —
+   every stat is a direct cwevent field), as the reference implementation.
+   Then `gold.pitching_game` (earned-run attribution is the hard part), then
+   the season / team / career roll-ups. The batting-game build establishes
+   the pattern; subsequent relations are delegatable to Agy against it.
 2. **WS2 — `gold.linear_weights`** from `gold.run_expectancy_24`. Small,
    foundational for Stage 2. Claude.
 3. **WS3 — Stage 2 advanced re-plumb.** After WS1. Per-metric, reusing

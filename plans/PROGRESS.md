@@ -3,6 +3,27 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Model artifact dir resolves to the primary checkout — 2026-09-01 (issue #108)
+
+`gbm.py` / `total.py` / `stack.py` set `MODEL_DIR = Path(__file__)...`, which
+resolves to whichever checkout the `mlb_baseball` package was imported from.
+A subagent that ran `mlb train` inside the `conform-speedup` worktree wrote
+the gbm artifact to `<worktree>/models/artifacts/` and its **absolute path**
+into the shared production `meta.model.artifact_uri`; removing the worktree
+orphaned the row, so `gbm._get_champion` finds nothing and `mlb predict`
+writes 0 gbm rows.
+
+Fix: new `provenance.models_dir()` resolves `models/` via
+`git rev-parse --path-format=absolute --git-common-dir` (the primary `.git`
+even from a linked worktree), falling back to the package location when not
+in a git checkout. All three model modules now use it. New unit test asserts
+the resolved dir is never under a `worktrees/` or `.git/` path and that the
+git-unavailable fallback works.
+
+Does not fix the *other* half of #108 (there is no gbm champion — the last
+`mlb train` produced a `candidate`). Whether to retrain against prod to make
+a real champion is a separate call.
+
 ### markov/ package split (spec step 0) — 2026-08-30
 
 Split `mlb_baseball/model/markov.py` (1,150 lines) into `markov/core.py`

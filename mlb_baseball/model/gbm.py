@@ -61,7 +61,7 @@ from mlb_baseball.health import Check
 from mlb_baseball.model import elo, evaluation, log5, provenance
 
 MODEL_VERSION = "gbm-v2"
-MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "models"
+MODEL_DIR = provenance.models_dir()
 MODEL_PATH = MODEL_DIR / f"{MODEL_VERSION}.json"
 ARTIFACTS_DIR = MODEL_DIR / "artifacts"
 

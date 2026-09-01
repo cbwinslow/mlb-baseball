@@ -78,8 +78,6 @@ another row, tracking how the prediction moved as game day approaches,
 rather than overwriting it in place.
 """
 
-from pathlib import Path
-
 import numpy as np
 import psycopg
 import xgboost as xgb
@@ -87,9 +85,10 @@ from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check, check_table_has_rows
+from mlb_baseball.model import provenance
 
 MODEL_VERSION = "total-v1"
-MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "models"
+MODEL_DIR = provenance.models_dir()
 MODEL_PATH = MODEL_DIR / f"{MODEL_VERSION}.json"
 
 # Same trailing window as park.py's own TRAILING_SEASONS -- see module

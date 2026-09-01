@@ -239,7 +239,26 @@ def test_batting_game_box_lines_match_hand_math(db_conn):
             "team_id": 7101,
         }
         volpe = _line(db_conn, 70003)
-        assert volpe["pa"] == 1 and volpe["h"] == 1 and volpe["b1"] == 1 and volpe["tb"] == 1
+        assert volpe == {
+            "pa": 1,
+            "ab": 1,
+            "r": 0,
+            "h": 1,
+            "b1": 1,
+            "b2": 0,
+            "b3": 0,
+            "hr": 0,
+            "tb": 1,
+            "rbi": 0,
+            "bb": 0,
+            "ibb": 0,
+            "hbp": 0,
+            "sf": 0,
+            "sh": 0,
+            "so": 0,
+            "gidp": 0,
+            "team_id": 7101,
+        }
     finally:
         _cleanup(db_conn)
 
@@ -254,6 +273,33 @@ def test_batting_game_rebuild_is_idempotent(db_conn):
         report._build_backbone_relation(db_conn, "gold.batting_game", report._BATTING_GAME_SQL)
         db_conn.commit()
         assert _line(db_conn, 70001) == first
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM gold.batting_game WHERE game_id = 7800001")
+            assert cur.fetchone()[0] == 3
+    finally:
+        _cleanup(db_conn)
+
+
+def test_batting_game_season_param_scopes_the_rebuild(db_conn):
+    # _build_backbone_relation always binds season=None (mlb report rebuilds
+    # every season) -- the %(season)s bind itself is otherwise untested. This
+    # exercises it directly, the same knob a future season-scoped rebuild
+    # would bind.
+    _cleanup(db_conn)
+    _seed(db_conn)
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute("TRUNCATE gold.batting_game")
+            cur.execute(report._BATTING_GAME_SQL, {"season": 2023})
+        db_conn.commit()
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM gold.batting_game WHERE game_id = 7800001")
+            assert cur.fetchone()[0] == 0  # seeded game is season 2024, not 2023
+
+        with db_conn.cursor() as cur:
+            cur.execute("TRUNCATE gold.batting_game")
+            cur.execute(report._BATTING_GAME_SQL, {"season": 2024})
+        db_conn.commit()
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM gold.batting_game WHERE game_id = 7800001")
             assert cur.fetchone()[0] == 3

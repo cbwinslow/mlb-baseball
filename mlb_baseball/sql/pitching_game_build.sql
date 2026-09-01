@@ -102,9 +102,9 @@ SELECT
     pg.h,
     coalesce(r.r, 0) AS r,
     pg.bb, pg.ibb, pg.so, pg.hr, pg.hbp, pg.wp, pg.bk,
-    coalesce((p.id = pg.winning_pitcher_id)::integer, 0) AS w,
-    coalesce((p.id = pg.losing_pitcher_id)::integer, 0)  AS l,
-    coalesce((p.id = pg.save_pitcher_id)::integer, 0)    AS sv
+    CASE WHEN p.id = pg.winning_pitcher_id THEN 1 ELSE 0 END AS w,
+    CASE WHEN p.id = pg.losing_pitcher_id THEN 1 ELSE 0 END AS l,
+    CASE WHEN p.id = pg.save_pitcher_id THEN 1 ELSE 0 END AS sv
 FROM pitching pg
 JOIN core.player p ON p.retro_id = pg.pit_id
 LEFT JOIN runs r ON r.game_id = pg.game_id AND r.pit_id = pg.pit_id

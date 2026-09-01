@@ -271,6 +271,33 @@ def test_pitching_game_rebuild_is_idempotent(db_conn):
         _cleanup(db_conn)
 
 
+def test_pitching_game_season_param_scopes_the_rebuild(db_conn):
+    # _build_backbone_relation always binds season=None (mlb report rebuilds
+    # every season) -- the %(season)s bind itself is otherwise untested. This
+    # exercises it directly, the same knob a future season-scoped rebuild
+    # would bind.
+    _cleanup(db_conn)
+    _seed(db_conn)
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute("TRUNCATE gold.pitching_game")
+            cur.execute(report._PITCHING_GAME_SQL, {"season": 2023})
+        db_conn.commit()
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM gold.pitching_game WHERE game_id = 7800002")
+            assert cur.fetchone()[0] == 0  # seeded game is season 2024, not 2023
+
+        with db_conn.cursor() as cur:
+            cur.execute("TRUNCATE gold.pitching_game")
+            cur.execute(report._PITCHING_GAME_SQL, {"season": 2024})
+        db_conn.commit()
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM gold.pitching_game WHERE game_id = 7800002")
+            assert cur.fetchone()[0] == 2
+    finally:
+        _cleanup(db_conn)
+
+
 def test_pitching_game_skips_postseason_games(db_conn):
     _cleanup(db_conn)
     _seed(db_conn)

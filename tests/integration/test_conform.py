@@ -96,6 +96,12 @@ def _reset_dynamic_tables(conn):
             "gold.prediction",
             "gold.batting_game",
             "gold.pitching_game",
+            "gold.batting_season",
+            "gold.batting_team",
+            "gold.pitching_season",
+            "gold.pitching_team",
+            "gold.batting_career",
+            "gold.pitching_career",
             "core.game",
             "core.team_alias",
             "core.player_war",
@@ -414,12 +420,13 @@ def test_rerunning_does_not_crash_when_gold_game_feature_references_a_game(db_co
 
 def test_rerunning_does_not_crash_when_a_backbone_relation_references_core(db_conn):
     # Same FK class as the gold.game_feature regression above, for the Plan
-    # 03B backbone: gold.batting_game / gold.pitching_game reference
-    # core.game / core.player / core.team (migrations 0094, 0095). conform
+    # 03B backbone: gold.batting_game / gold.pitching_game and the
+    # gold.batting_season / gold.batting_team roll-ups reference
+    # core.game / core.player / core.team (migrations 0094-0098). conform
     # rebuilds core from scratch and reissues every core.game surrogate id,
-    # so run()'s consolidated TRUNCATE must clear these two as well or
-    # Postgres refuses to TRUNCATE core.game while their FKs exist,
-    # regardless of row counts. `mlb report` rebuilds them afterward.
+    # so run()'s consolidated TRUNCATE must clear all of them or Postgres
+    # refuses to TRUNCATE core.game / core.team / core.player while their
+    # FKs exist, regardless of row counts. `mlb report` rebuilds them after.
     _seed_raw_tables(db_conn)
     conform.run()
     with db_conn.cursor() as cur:
@@ -439,6 +446,35 @@ def test_rerunning_does_not_crash_when_a_backbone_relation_references_core(db_co
             "VALUES (%s, %s, %s, %s, %s, 27, 21)",
             (game_id, player_id, team_id, season, game_date),
         )
+        cur.execute(
+            "INSERT INTO gold.batting_season "
+            "(player_id, season, team_id, is_combined, pa, ab) "
+            "VALUES (%s, %s, %s, false, 4, 4)",
+            (player_id, season, team_id),
+        )
+        cur.execute(
+            "INSERT INTO gold.batting_team (team_id, season, pa, ab) VALUES (%s, %s, 4, 4)",
+            (team_id, season),
+        )
+        cur.execute(
+            "INSERT INTO gold.pitching_season "
+            "(player_id, season, team_id, is_combined, bf, outs) "
+            "VALUES (%s, %s, %s, false, 27, 21)",
+            (player_id, season, team_id),
+        )
+        cur.execute(
+            "INSERT INTO gold.pitching_team (team_id, season, bf, outs) VALUES (%s, %s, 27, 21)",
+            (team_id, season),
+        )
+        cur.execute(
+            "INSERT INTO gold.batting_career (player_id, seasons, pa, ab) VALUES (%s, 1, 4, 4)",
+            (player_id,),
+        )
+        cur.execute(
+            "INSERT INTO gold.pitching_career (player_id, seasons, bf, outs) "
+            "VALUES (%s, 1, 27, 21)",
+            (player_id,),
+        )
     db_conn.commit()
 
     conform.run()  # must not raise psycopg.errors.FeatureNotSupported
@@ -447,10 +483,18 @@ def test_rerunning_does_not_crash_when_a_backbone_relation_references_core(db_co
         cur.execute("SELECT count(*) FROM core.game")
         assert cur.fetchone() == (2,)
         # conform empties the backbone relations it does not itself rebuild.
-        cur.execute("SELECT count(*) FROM gold.batting_game")
-        assert cur.fetchone() == (0,)
-        cur.execute("SELECT count(*) FROM gold.pitching_game")
-        assert cur.fetchone() == (0,)
+        for table in (
+            "gold.batting_game",
+            "gold.pitching_game",
+            "gold.batting_season",
+            "gold.batting_team",
+            "gold.pitching_season",
+            "gold.pitching_team",
+            "gold.batting_career",
+            "gold.pitching_career",
+        ):
+            cur.execute(f"SELECT count(*) FROM {table}")
+            assert cur.fetchone() == (0,), table
 
 
 def test_build_plays_and_pitches_unify_both_sources(db_conn):

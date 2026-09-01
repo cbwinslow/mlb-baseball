@@ -105,6 +105,60 @@ RELATIONS: tuple[ExportRelation, ...] = (
     ExportRelation(
         "gold", "division_standing", "season", "local_research", "Season-end division standings"
     ),
+    # Grain-complete statistic backbone (Plan 03B). local_research, not
+    # public_safe: the stat content is 100% Retrosheet events, but the
+    # builders join the conformed core.game / core.player / core.team dims
+    # for surrogate keys, and those dims mix in non-Retrosheet sources (the
+    # public_safe bar is "every source that feeds it is Retrosheet"). A
+    # public_safe variant keyed by retro ids is possible follow-up work.
+    ExportRelation(
+        "gold",
+        "batting_game",
+        "season",
+        "local_research",
+        "Batting box line per (game, player, team)",
+    ),
+    ExportRelation(
+        "gold",
+        "pitching_game",
+        "season",
+        "local_research",
+        "Pitching box line per (game, charged pitcher, team)",
+    ),
+    ExportRelation(
+        "gold",
+        "batting_season",
+        "season",
+        "local_research",
+        "Season batting line per (player, season, team) + combined row",
+    ),
+    ExportRelation(
+        "gold",
+        "batting_team",
+        "season",
+        "local_research",
+        "Season batting line per (team, season)",
+    ),
+    ExportRelation(
+        "gold",
+        "pitching_season",
+        "season",
+        "local_research",
+        "Season pitching line per (player, season, team) + combined row",
+    ),
+    ExportRelation(
+        "gold",
+        "pitching_team",
+        "season",
+        "local_research",
+        "Season pitching line per (team, season)",
+    ),
+    ExportRelation(
+        "gold", "batting_career", None, "local_research", "Career batting line per player"
+    ),
+    ExportRelation(
+        "gold", "pitching_career", None, "local_research", "Career pitching line per player"
+    ),
     ExportRelation(
         "core", "game", "season", "local_research", "Conformed games (Retrosheet + MLB API)"
     ),

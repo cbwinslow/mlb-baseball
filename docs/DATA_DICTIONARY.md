@@ -187,6 +187,100 @@ for the staged plan.
 | `source` | `text` | Origin of the row — `retrosheet_event` today |
 | `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
 
+### 3.3 `gold.batting_season`
+
+- **Grain**: one `is_combined = false` stint row per `(player_id, season,
+  team_id)`, plus one `is_combined = true` combined row per `(player_id,
+  season)` with `team_id` NULL. For a one-team player the combined row
+  equals the single stint, so `WHERE is_combined` always yields exactly one
+  full-season line per player. Matches Baseball-Reference's per-team lines +
+  "2TM"/"3TM" combined line.
+- **Source**: rolled up from `gold.batting_game` by `mlb report`.
+- **Temporal semantics**: the actual season result — not point-in-time.
+- **Coverage**: 1910–2025, regular season (inherits `gold.batting_game`).
+- Counting stats are plain sums. Rate stats are computed from this grain's
+  summed components — a season AVG is total H / total AB, never the mean of
+  game AVGs. Every rate is NULL when its denominator is 0.
+- **SB / CS / SB% absent**: `gold.batting_game` has no steals (baserunning,
+  deferred to a later `gold.baserunning_game`).
+
+| Column | Type | Definition |
+|---|---|---|
+| `id` | `bigserial` | Surrogate primary key |
+| `player_id`, `season` | `bigint`, `integer` | Player + season |
+| `team_id` | `bigint` | FK `core.team`; NULL iff `is_combined` |
+| `is_combined` | `boolean` | `true` = the all-teams full-season line |
+| `g` | `integer` | Games played (distinct `game_id`) |
+| `pa`, `ab`, `r`, `h`, `b1`, `b2`, `b3`, `hr`, `tb`, `rbi`, `bb`, `ibb`, `hbp`, `sf`, `sh`, `so`, `gidp` | `integer` | Summed counting stats |
+| `avg` | `numeric` | H / AB |
+| `obp` | `numeric` | (H + BB + HBP) / (AB + BB + HBP + SF) |
+| `slg` | `numeric` | TB / AB |
+| `ops` | `numeric` | OBP + SLG |
+| `iso` | `numeric` | SLG − AVG = (TB − H) / AB |
+| `babip` | `numeric` | (H − HR) / (AB − SO − HR + SF) |
+| `bb_pct` | `numeric` | BB / PA |
+| `k_pct` | `numeric` | SO / PA |
+| `source` | `text` | `retrosheet_event` today |
+| `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
+
+### 3.4 `gold.batting_team`
+
+- **Grain**: one row per `(team_id, season)`, rolled up from
+  `gold.batting_game`. Same columns and rate-stat definitions as
+  `gold.batting_season` (minus `player_id` / `is_combined`); primary key is
+  `(team_id, season)`.
+- **Coverage**: 1910–2025, regular season.
+
+### 3.5 `gold.pitching_season`
+
+- **Grain**: same two-row-kind shape as `gold.batting_season` — a stint row
+  per `(player_id, season, team_id)` plus one `is_combined` full-season row
+  per `(player_id, season)` (`team_id` NULL). Rolled up from
+  `gold.pitching_game` by `mlb report`.
+- **Coverage**: 1910–2025, regular season.
+- Counting stats are plain sums; rate stats computed from this grain's
+  summed components, NULL when the denominator is 0.
+- **ERA absent** — `gold.pitching_game` has no earned runs (reconstructed-
+  inning logic cwevent does not emit). `ra9` (runs allowed per 9) is the
+  honest event-derived rate; ERA is per-player-season from Baseball-Reference
+  (`gold.player_season`).
+
+| Column | Type | Definition |
+|---|---|---|
+| `id` | `bigserial` | Surrogate primary key |
+| `player_id`, `season` | `bigint`, `integer` | Player + season |
+| `team_id` | `bigint` | FK `core.team`; NULL iff `is_combined` |
+| `is_combined` | `boolean` | `true` = the all-teams full-season line |
+| `g`, `gs` | `integer` | Games pitched (distinct `game_id`); games started |
+| `bf`, `outs`, `h`, `r`, `bb`, `ibb`, `so`, `hr`, `hbp`, `wp`, `bk`, `w`, `l`, `sv` | `integer` | Summed counting stats (`IP` = `outs` / 3) |
+| `ra9` | `numeric` | R × 27 / outs — runs allowed per 9 IP, **not** ERA |
+| `whip` | `numeric` | (H + BB) × 3 / outs |
+| `k9`, `bb9`, `hr9` | `numeric` | SO / BB / HR × 27 / outs |
+| `k_bb` | `numeric` | SO / BB (NULL when BB = 0) |
+| `source` | `text` | `retrosheet_event` today |
+| `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
+
+### 3.6 `gold.pitching_team`
+
+- **Grain**: one row per `(team_id, season)`, rolled up from
+  `gold.pitching_game`. Same columns and rate definitions as
+  `gold.pitching_season` (minus `player_id` / `is_combined`); primary key
+  `(team_id, season)`.
+- **Coverage**: 1910–2025, regular season.
+
+### 3.7 `gold.batting_career` / `gold.pitching_career`
+
+- **Grain**: one row per `(player_id)`, summed from each player's per-season
+  combined rows (`is_combined = true`) in `gold.batting_season` /
+  `gold.pitching_season` — so a traded season is counted once, not per
+  stint.
+- Extra columns: `seasons` (distinct seasons played), `first_season`,
+  `last_season`. All other counting and rate columns match the
+  corresponding season table; rate stats are recomputed from the
+  career-total components. `gold.pitching_career` has `ra9`, not ERA (same
+  no-earned-runs reason as `gold.pitching_season`).
+- **Coverage**: 1910–2025, regular season.
+
 ---
 
 ## 4. Raw Data Landing Tables (`raw.*`)

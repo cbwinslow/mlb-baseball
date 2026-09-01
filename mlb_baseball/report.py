@@ -29,7 +29,12 @@ import psycopg
 from psycopg import sql
 
 from mlb_baseball.db import fetch_one, get_connection
-from mlb_baseball.health import Check, check_join_coverage, check_table_has_rows
+from mlb_baseball.health import (
+    Check,
+    check_join_coverage,
+    check_no_rows,
+    check_table_has_rows,
+)
 from mlb_baseball.ingest import track_run
 from mlb_baseball.model.offense import W_1B, W_2B, W_3B, W_HBP, W_HR, W_UBB, WOBA_SCALE
 from mlb_baseball.model.war import _BREF_TO_RETRO
@@ -414,26 +419,45 @@ LEFT JOIN raw.mlb_standing ms
 
 _BATTING_GAME_SQL = read_sql("batting_game_build.sql")
 _PITCHING_GAME_SQL = read_sql("pitching_game_build.sql")
+_BATTING_SEASON_SQL = read_sql("batting_season_build.sql")
+_BATTING_TEAM_SQL = read_sql("batting_team_build.sql")
+_PITCHING_SEASON_SQL = read_sql("pitching_season_build.sql")
+_PITCHING_TEAM_SQL = read_sql("pitching_team_build.sql")
+_BATTING_CAREER_SQL = read_sql("batting_career_build.sql")
+_PITCHING_CAREER_SQL = read_sql("pitching_career_build.sql")
 
 
-def _build_backbone_relation(conn: psycopg.Connection, table: str, build_sql: str) -> int:
-    """Truncate-and-rebuild one grain-backbone `gold` relation from
-    raw.retrosheet_event.
+def _build_backbone_relation(
+    conn: psycopg.Connection,
+    table: str,
+    build_sql: str,
+    *,
+    source: str = "raw.retrosheet_event",
+) -> int:
+    """Truncate-and-rebuild one grain-backbone `gold` relation.
 
-    Pre-checks that `raw.retrosheet_event` exists and skips gracefully if it
-    does not (same posture as `_build_player_season` with `raw.bref_*`) --
-    checking first, rather than TRUNCATE-then-catch, so a missing *source*
-    table skips cleanly while a missing *target* table (migrations not run)
-    still fails loudly. `table` is an internal constant, not user input; it is
-    still passed through `sql.Identifier` so the query is not built by string
+    Pre-checks that `source` exists and skips gracefully if it does not (same
+    posture as `_build_player_season` with `raw.bref_*`) -- checking first,
+    rather than TRUNCATE-then-catch, so a missing *source* table skips
+    cleanly while a missing *target* table (migrations not run) still fails
+    loudly. The game relations read `raw.retrosheet_event`; the season / team
+    roll-ups read `gold.{batting,pitching}_game`; the career roll-ups read
+    the season tables (all always present once migrated, so the pre-check is
+    a no-op for them -- but keeps the one code path). The game / season /
+    team builders take an optional `%(season)s` scope; the career builders
+    don't (a career is every season). `{"season": None}` is passed
+    unconditionally -- psycopg ignores an unused mapping key, so the career
+    builders (which contain no placeholder) are unaffected. `table` and
+    `source` are internal constants, not user input; `table` is still passed
+    through `sql.Identifier` so the query is not built by string
     formatting."""
     schema, name = table.split(".", 1)
     ident = sql.Identifier(schema, name)
     with conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
+        cur.execute("SELECT to_regclass(%s)", (source,))
         (present,) = fetch_one(cur)
     if present is None:
-        print(f"report: raw.retrosheet_event not present yet -- skipping {table}")
+        print(f"report: {source} not present yet -- skipping {table}")
         return 0
     # Savepoint so any failure in this builder can't roll back the other
     # builders' work in run()'s shared transaction, matching _build_player_season.
@@ -476,6 +500,26 @@ def run() -> dict[str, int]:
         )
         counts["gold.pitching_game"] = _build_backbone_relation(
             conn, "gold.pitching_game", _PITCHING_GAME_SQL
+        )
+        # Season / team roll-ups read the game relations just built above.
+        counts["gold.batting_season"] = _build_backbone_relation(
+            conn, "gold.batting_season", _BATTING_SEASON_SQL, source="gold.batting_game"
+        )
+        counts["gold.batting_team"] = _build_backbone_relation(
+            conn, "gold.batting_team", _BATTING_TEAM_SQL, source="gold.batting_game"
+        )
+        counts["gold.pitching_season"] = _build_backbone_relation(
+            conn, "gold.pitching_season", _PITCHING_SEASON_SQL, source="gold.pitching_game"
+        )
+        counts["gold.pitching_team"] = _build_backbone_relation(
+            conn, "gold.pitching_team", _PITCHING_TEAM_SQL, source="gold.pitching_game"
+        )
+        # Career roll-ups read the season tables built just above.
+        counts["gold.batting_career"] = _build_backbone_relation(
+            conn, "gold.batting_career", _BATTING_CAREER_SQL, source="gold.batting_season"
+        )
+        counts["gold.pitching_career"] = _build_backbone_relation(
+            conn, "gold.pitching_career", _PITCHING_CAREER_SQL, source="gold.pitching_season"
         )
         conn.commit()
         result["rows"] = sum(counts.values())
@@ -592,5 +636,101 @@ def health_check() -> list[Check]:
             ) s
             """,
             tolerance=0,
+        ),
+        check_table_has_rows("gold.batting_season"),
+        # gold.batting_season = one stint row per (player, season, team) plus
+        # one combined row per (player, season). The build groups both
+        # straight off gold.batting_game, so the expected count is exactly
+        # those two distinct-key counts summed -- not a stricter bar than the
+        # builder clears.
+        check_join_coverage(
+            "gold.batting_game (player, season, team) + (player, season) keys "
+            "each get a gold.batting_season row",
+            "SELECT count(*) FROM gold.batting_season",
+            """
+            SELECT
+                (SELECT count(*) FROM (
+                    SELECT DISTINCT player_id, season, team_id FROM gold.batting_game) a)
+              + (SELECT count(*) FROM (
+                    SELECT DISTINCT player_id, season FROM gold.batting_game) b)
+            """,
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.batting_team"),
+        check_join_coverage(
+            "gold.batting_game (team, season) keys get a gold.batting_team row",
+            "SELECT count(*) FROM gold.batting_team",
+            "SELECT count(*) FROM (SELECT DISTINCT team_id, season FROM gold.batting_game) s",
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.pitching_season"),
+        # Same shape as the batting_season check, off gold.pitching_game:
+        # one stint row per (player, season, team) + one combined row per
+        # (player, season).
+        check_join_coverage(
+            "gold.pitching_game (player, season, team) + (player, season) keys "
+            "each get a gold.pitching_season row",
+            "SELECT count(*) FROM gold.pitching_season",
+            """
+            SELECT
+                (SELECT count(*) FROM (
+                    SELECT DISTINCT player_id, season, team_id FROM gold.pitching_game) a)
+              + (SELECT count(*) FROM (
+                    SELECT DISTINCT player_id, season FROM gold.pitching_game) b)
+            """,
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.pitching_team"),
+        check_join_coverage(
+            "gold.pitching_game (team, season) keys get a gold.pitching_team row",
+            "SELECT count(*) FROM gold.pitching_team",
+            "SELECT count(*) FROM (SELECT DISTINCT team_id, season FROM gold.pitching_game) s",
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.batting_career"),
+        # One career row per player with any batting_season combined row.
+        check_join_coverage(
+            "every gold.batting_season player gets a gold.batting_career row",
+            "SELECT count(*) FROM gold.batting_career",
+            "SELECT count(DISTINCT player_id) FROM gold.batting_season WHERE is_combined",
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.pitching_career"),
+        check_join_coverage(
+            "every gold.pitching_season player gets a gold.pitching_career row",
+            "SELECT count(*) FROM gold.pitching_career",
+            "SELECT count(DISTINCT player_id) FROM gold.pitching_season WHERE is_combined",
+            tolerance=0,
+        ),
+        # Rate-stat domain checks -- catch a formula or upstream-component
+        # change that produces an impossible value before a researcher sees
+        # it. AVG/OBP/SLG are bounded [0, 4] (SLG max is 4.000, a homer
+        # every AB); rate/9 stats and BABIP/percentages are non-negative;
+        # OPS = OBP + SLG so it's bounded too.
+        check_no_rows(
+            "gold.batting_{season,team,career} rate stats are in range",
+            """
+            SELECT
+              (SELECT count(*) FROM gold.batting_season WHERE avg  < 0 OR avg  > 1
+                 OR obp < 0 OR obp > 1 OR slg < 0 OR slg > 4 OR ops < 0 OR ops > 5
+                 OR iso < 0 OR babip < 0 OR bb_pct < 0 OR bb_pct > 1
+                 OR k_pct < 0 OR k_pct > 1)
+            + (SELECT count(*) FROM gold.batting_team WHERE avg  < 0 OR avg  > 1
+                 OR obp < 0 OR obp > 1 OR slg < 0 OR slg > 4 OR ops < 0 OR ops > 5)
+            + (SELECT count(*) FROM gold.batting_career WHERE avg  < 0 OR avg  > 1
+                 OR obp < 0 OR obp > 1 OR slg < 0 OR slg > 4 OR ops < 0 OR ops > 5)
+            """,
+        ),
+        check_no_rows(
+            "gold.pitching_{season,team,career} rate stats are non-negative",
+            """
+            SELECT
+              (SELECT count(*) FROM gold.pitching_season
+                 WHERE ra9 < 0 OR whip < 0 OR k9 < 0 OR bb9 < 0 OR hr9 < 0 OR k_bb < 0)
+            + (SELECT count(*) FROM gold.pitching_team
+                 WHERE ra9 < 0 OR whip < 0 OR k9 < 0 OR bb9 < 0 OR hr9 < 0 OR k_bb < 0)
+            + (SELECT count(*) FROM gold.pitching_career
+                 WHERE ra9 < 0 OR whip < 0 OR k9 < 0 OR bb9 < 0 OR hr9 < 0 OR k_bb < 0)
+            """,
         ),
     ]

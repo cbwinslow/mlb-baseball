@@ -8,7 +8,12 @@
 #     pytest-split (balanced by the committed `.test_durations`). Each shard
 #     needs its own Postgres service container; the Chadwick build is cached.
 #     The serial suite is ~42 min -- sharding brings wall time to ~15 min.
-#     Regenerate `.test_durations` with:
+#     `--splitting-algorithm least_duration` bin-packs by individual test
+#     time, so the ~40 heavy `conform.run()` tests spread across all 3 shards
+#     instead of landing in one contiguous chunk (the default algorithm's
+#     failure mode -- it splits the file-ordered list into equal-time slabs,
+#     which put every `test_conform.py` test on shard 1 and left 2/3 idle).
+#     Regenerate `.test_durations` from a real run with:
 #       uv run pytest tests/integration --store-durations
 #
 # Integration tests run against a real Postgres service container (mlb_test),
@@ -246,6 +251,7 @@ jobs:
         run: >-
           uv run pytest tests/integration -q
           --splits 3 --group ${{ matrix.shard }}
+          --splitting-algorithm least_duration
           --durations-path .test_durations
           --cov=mlb_baseball --cov-report=xml
 

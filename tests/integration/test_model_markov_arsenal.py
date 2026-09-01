@@ -128,6 +128,8 @@ def test_fetch_batter_arsenal_rejects_invalid_season(db_conn):
         markov.fetch_batter_arsenal(db_conn, "518692", "not-a-year")
     with pytest.raises(ValueError):
         markov.fetch_batter_arsenal(db_conn, "518692", 2019.9)  # float is not coerced
+    with pytest.raises(ValueError):
+        markov.fetch_batter_arsenal(db_conn, "518692", True)  # bool is not coerced
     _reset(db_conn)
 
 
@@ -157,7 +159,8 @@ def test_fetch_arsenal_accepts_next_year_at_the_dynamic_upper_bound(db_conn):
     _reset(db_conn)
     _ensure_arsenal_tables(db_conn)
     next_year = date.today().year + 1
-    assert markov.fetch_pitcher_arsenal(db_conn, "544931", next_year) is None
-    with pytest.raises(ValueError):
-        markov.fetch_pitcher_arsenal(db_conn, "544931", next_year + 1)
+    for fetch in (markov.fetch_pitcher_arsenal, markov.fetch_batter_arsenal):
+        assert fetch(db_conn, "544931", next_year) is None
+        with pytest.raises(ValueError):
+            fetch(db_conn, "544931", next_year + 1)
     _reset(db_conn)

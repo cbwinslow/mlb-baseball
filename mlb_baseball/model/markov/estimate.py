@@ -45,7 +45,7 @@ __all__ = [
 _ARSENAL_FIRST_SEASON = 1871
 
 
-def _validated_season(season: int) -> int:
+def _validated_season(season: int | str) -> int:
     """Coerce ``season`` to ``int`` and bounds-check it.
 
     A numeric string ("2019") is accepted -- the arsenal SQL binds
@@ -336,7 +336,7 @@ def real_game_scores(conn: psycopg.Connection, seasons: Sequence[int]) -> list[G
 
 
 def fetch_pitcher_arsenal(
-    conn: psycopg.Connection, pitcher_id: str, season: int
+    conn: psycopg.Connection, pitcher_id: str, season: int | str
 ) -> PitchArsenal | None:
     """Fetch pitcher arsenal statistics from raw.statcast_pitcher_arsenal_stat."""
     season = _validated_season(season)
@@ -378,7 +378,7 @@ def fetch_pitcher_arsenal(
 
 
 def fetch_batter_arsenal(
-    conn: psycopg.Connection, batter_id: str, season: int
+    conn: psycopg.Connection, batter_id: str, season: int | str
 ) -> BatterArsenalProfile | None:
     """Fetch batter pitch-type profile from raw.statcast_batter_arsenal."""
     season = _validated_season(season)

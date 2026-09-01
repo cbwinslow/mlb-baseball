@@ -42,11 +42,10 @@ def test_models_dir_matches_the_primary_git_common_dir_even_from_a_worktree():
 
 
 def test_models_dir_falls_back_to_package_root_when_git_is_missing(monkeypatch):
-    monkeypatch.setattr(
-        provenance.subprocess,
-        "run",
-        lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("git")),
-    )
+    def _git_not_installed(*a, **k):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(provenance.subprocess, "run", _git_not_installed)
     assert provenance.models_dir() == _PACKAGE_MODELS
 
 

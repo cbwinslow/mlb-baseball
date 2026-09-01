@@ -231,6 +231,43 @@ for the staged plan.
   `(team_id, season)`.
 - **Coverage**: 1910–2025, regular season.
 
+### 3.5 `gold.pitching_season`
+
+- **Grain**: same two-row-kind shape as `gold.batting_season` — a stint row
+  per `(player_id, season, team_id)` plus one `is_combined` full-season row
+  per `(player_id, season)` (`team_id` NULL). Rolled up from
+  `gold.pitching_game` by `mlb report`.
+- **Coverage**: 1910–2025, regular season.
+- Counting stats are plain sums; rate stats computed from this grain's
+  summed components, NULL when the denominator is 0.
+- **ERA absent** — `gold.pitching_game` has no earned runs (reconstructed-
+  inning logic cwevent does not emit). `ra9` (runs allowed per 9) is the
+  honest event-derived rate; ERA is per-player-season from Baseball-Reference
+  (`gold.player_season`).
+
+| Column | Type | Definition |
+|---|---|---|
+| `id` | `bigserial` | Surrogate primary key |
+| `player_id`, `season` | `bigint`, `integer` | Player + season |
+| `team_id` | `bigint` | FK `core.team`; NULL iff `is_combined` |
+| `is_combined` | `boolean` | `true` = the all-teams full-season line |
+| `g`, `gs` | `integer` | Games pitched (distinct `game_id`); games started |
+| `bf`, `outs`, `h`, `r`, `bb`, `ibb`, `so`, `hr`, `hbp`, `wp`, `bk`, `w`, `l`, `sv` | `integer` | Summed counting stats (`IP` = `outs` / 3) |
+| `ra9` | `numeric` | R × 27 / outs — runs allowed per 9 IP, **not** ERA |
+| `whip` | `numeric` | (H + BB) × 3 / outs |
+| `k9`, `bb9`, `hr9` | `numeric` | SO / BB / HR × 27 / outs |
+| `k_bb` | `numeric` | SO / BB (NULL when BB = 0) |
+| `source` | `text` | `retrosheet_event` today |
+| `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
+
+### 3.6 `gold.pitching_team`
+
+- **Grain**: one row per `(team_id, season)`, rolled up from
+  `gold.pitching_game`. Same columns and rate definitions as
+  `gold.pitching_season` (minus `player_id` / `is_combined`); primary key
+  `(team_id, season)`.
+- **Coverage**: 1910–2025, regular season.
+
 ---
 
 ## 4. Raw Data Landing Tables (`raw.*`)

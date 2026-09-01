@@ -57,15 +57,17 @@ out into the tools they actually use, operable housekeeping, and honest docs.
 **C. Housekeeping & operability**
 
 - Fix issue #76 — stale serving-view migrations block a fresh database from
-  initializing. An outsider cannot bootstrap until this is fixed.
-- Extend `mlb metrics` past its three hardcoded tables to real per-schema
-  table-size / row-count / disk reporting.
-- One command to rebuild the derived layer (`conform` + `report`) in the right
-  order, and a vacuum/analyze helper.
-- Decide issue #74 (analytics extensions: `pg_trgm`, `btree_gist`,
-  `tablefunc`) in or out for v1.
-- Every new command exposes a `health_check()` and is wired into `mlb doctor`,
-  per the repo's operational-health rule.
+  initializing. An outsider cannot bootstrap until this is fixed. This is a
+  bug fix, not a new command.
+- No new one-off CLI commands. `mlb conform`, `mlb report`, `mlb doctor`,
+  `mlb metrics`, `mlb backup` already exist and cover rebuild / health /
+  operational reporting. Postgres autovacuum covers vacuum. If a genuine gap
+  in an *existing* command surfaces while doing A/B/D, fix it in place; do not
+  add wrappers.
+- `mlb export` (the one genuinely new command) exposes `health_check()` and is
+  wired into `mlb doctor`.
+- Issue #74 (analytics extensions `pg_trgm` / `btree_gist` / `tablefunc`):
+  deferred out of v1 unless the export work turns out to need one.
 
 **D. Docs for a stranger**
 
@@ -123,7 +125,7 @@ This line is recorded now so the eventual repo split is a move, not a redesign.
 |---|---|---|
 | Export | `mlb_baseball/export.py`, `mlb_baseball/dump.py`, `cli.py` | new relation→file export; delete dump demo; rights-filtered bundle |
 | Rights map | `mlb_baseball/source_profiles.py` (+ new relation map) | relation→profile lookup for `public_safe` bundle |
-| Housekeeping | `mlb_baseball/metrics.py`, `mlb_baseball/doctor.py`, `cli.py`, `migrations/` | table-size reporting, rebuild command, #76 fix, #74 decision |
+| Housekeeping | `migrations/`, whatever #76 touches | #76 fresh-DB init fix only — no new commands |
 | Views | `migrations/` | player-game view (maybe); column docs |
 | Docs | `docs/USER_MANUAL.md`, `README.md`, `docs/RESEARCH_QUERY_RUNBOOK.md`, `docs/DATA_DICTIONARY.md` | rewrite for outside user |
 | Board | GitHub issues / PRs | triage + land/close |
@@ -174,8 +176,8 @@ caller: mlb export --profile public_safe --out DIR
 1. **WS1 — export & interop (A).** Largest. Bounded and mechanical enough to
    delegate to Agy against this spec + a detailed task brief; Claude writes the
    brief and reviews the diff.
-2. **WS2 — housekeeping (C).** #76 fix + `mlb metrics` extension + rebuild
-   command. Claude or a Claude subagent.
+2. **WS2 — housekeeping (C).** Issue #76 fresh-DB init fix only. Claude or a
+   Claude subagent.
 3. **WS3 — docs (D).** After WS1 lands the command surface, so the manual is
    accurate.
 4. **WS4 — board triage + PR landing (E).** Claude, in parallel from the

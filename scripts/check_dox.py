@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Validate the repository's structural DOX/progressive-context contracts.
 
-This intentionally checks objective filesystem invariants only.  It does not try
+This intentionally checks objective filesystem invariants only. It does not try
 to lint prose quality, decide where a new DOX file should exist, or require every
-source file to have a sidecar.  Those are design/review decisions.
+source file to have a sidecar. Those are design/review decisions.
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ _SIDE_CAR_SUFFIX = ".dox.md"
 _AGENT_FILE = "AGENTS.md"
 _CLAUDE_FILE = "CLAUDE.md"
 
-# Phase-1 deliberately starts file-level DOX with the highest-value modules.
+# Phase 1 deliberately starts file-level DOX with the highest-value modules.
 # Keep this list explicit until a directory contract intentionally declares a
-# mechanically complete profile.  The generic orphan/source checks below still
+# mechanically complete profile. The generic orphan/source checks below still
 # apply to every sidecar found anywhere in the repository.
 REQUIRED_SIDECARS = (
     "mlb_baseball/cli.py.dox.md",
@@ -43,7 +43,9 @@ _IGNORED_PARTS = {
     "node_modules",
 }
 
-_REQUIRED_AGENT_HEADINGS = (
+# Child AGENTS files use the common DOX profile. The root intentionally has a
+# different job: small invariant set + routing map, so it only needs the index.
+_REQUIRED_CHILD_AGENT_HEADINGS = (
     "## Purpose",
     "## Child DOX Index",
 )
@@ -113,7 +115,7 @@ def check_dox(
     """Return structural DOX violations beneath *root*.
 
     ``required_sidecars`` defaults to this repository's phase-one baseline when
-    validating the real repository.  Tests/custom callers can pass an explicit
+    validating the real repository. Tests/custom callers can pass an explicit
     iterable (including ``()``) for an isolated fixture tree.
     """
 
@@ -124,9 +126,12 @@ def check_dox(
     root_agent = root / _AGENT_FILE
     if root_agent not in agent_files:
         errors.append(f"{root_agent}: root AGENTS.md is missing")
+    else:
+        _check_required_headings(root_agent, (_CHILD_INDEX_HEADING,), errors)
 
     for agent in agent_files:
-        _check_required_headings(agent, _REQUIRED_AGENT_HEADINGS, errors)
+        if agent != root_agent:
+            _check_required_headings(agent, _REQUIRED_CHILD_AGENT_HEADINGS, errors)
 
         # Every linked child must resolve to a real AGENTS.md file.
         for indexed in _indexed_agent_paths(agent):

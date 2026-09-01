@@ -2,6 +2,10 @@
 in Markov module (PLN-04, ADR-100).
 """
 
+from datetime import date
+
+import pytest
+
 from mlb_baseball.model import markov
 
 
@@ -88,4 +92,75 @@ def test_fetch_returns_none_when_tables_missing(db_conn):
 
     assert markov.fetch_pitcher_arsenal(db_conn, "544931", 2019) is None
     assert markov.fetch_batter_arsenal(db_conn, "518692", 2019) is None
+    _reset(db_conn)
+
+
+def test_fetch_pitcher_arsenal_rejects_invalid_season(db_conn):
+    """fetch_pitcher_arsenal must validate the season argument. The upper
+    bound is dynamic (this year + 1), so a year comfortably past it and a
+    year before the first pro season are both out of range, always."""
+    _reset(db_conn)
+    _ensure_arsenal_tables(db_conn)
+    this_year = date.today().year
+    with pytest.raises(ValueError):
+        markov.fetch_pitcher_arsenal(db_conn, "544931", 1870)
+    with pytest.raises(ValueError):
+        markov.fetch_pitcher_arsenal(db_conn, "544931", this_year + 2)  # just past the bound
+    with pytest.raises(ValueError):
+        markov.fetch_pitcher_arsenal(db_conn, "544931", "not-a-year")
+    with pytest.raises(ValueError):
+        markov.fetch_pitcher_arsenal(db_conn, "544931", 2019.9)  # float is not coerced
+    with pytest.raises(ValueError):
+        markov.fetch_pitcher_arsenal(db_conn, "544931", True)  # bool is not coerced
+    _reset(db_conn)
+
+
+def test_fetch_batter_arsenal_rejects_invalid_season(db_conn):
+    """fetch_batter_arsenal must validate the season argument."""
+    _reset(db_conn)
+    _ensure_arsenal_tables(db_conn)
+    this_year = date.today().year
+    with pytest.raises(ValueError):
+        markov.fetch_batter_arsenal(db_conn, "518692", 1870)
+    with pytest.raises(ValueError):
+        markov.fetch_batter_arsenal(db_conn, "518692", this_year + 2)  # just past the bound
+    with pytest.raises(ValueError):
+        markov.fetch_batter_arsenal(db_conn, "518692", "not-a-year")
+    with pytest.raises(ValueError):
+        markov.fetch_batter_arsenal(db_conn, "518692", 2019.9)  # float is not coerced
+    with pytest.raises(ValueError):
+        markov.fetch_batter_arsenal(db_conn, "518692", True)  # bool is not coerced
+    _reset(db_conn)
+
+
+def test_fetch_arsenal_still_accepts_a_numeric_string_season(db_conn):
+    """Regression: the season guard must not reject "2019" — the arsenal
+    SQL binds str(season) either way, so that shape worked before the
+    guard and rejecting it now would be a needless breaking change."""
+    _reset(db_conn)
+    _ensure_arsenal_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.statcast_pitcher_arsenal_stat "
+            "(player_id, pitch_type, pitch_usage, run_value_per_100, woba, "
+            "whiff_percent, _season) VALUES ('544931', 'CU', '30.7', '2.3', "
+            "'0.208', '38.8', '2019')"
+        )
+    db_conn.commit()
+
+    assert markov.fetch_pitcher_arsenal(db_conn, "544931", "2019") is not None
+    assert markov.fetch_batter_arsenal(db_conn, "518692", "2019") is None  # no rows, not an error
+    _reset(db_conn)
+
+
+def test_fetch_arsenal_accepts_next_year_at_the_dynamic_upper_bound(db_conn):
+    """The upper bound is this year + 1: next year is in range (no rows
+    yet, so None), the year after is out of range (ValueError)."""
+    _reset(db_conn)
+    _ensure_arsenal_tables(db_conn)
+    next_year = date.today().year + 1
+    for fetch in (markov.fetch_pitcher_arsenal, markov.fetch_batter_arsenal):
+        assert fetch(db_conn, "544931", next_year) is None
+        with pytest.raises(ValueError):
+            fetch(db_conn, "544931", next_year + 1)
     _reset(db_conn)

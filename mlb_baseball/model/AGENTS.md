@@ -81,7 +81,8 @@ Prefer stable narrow research relations and governed feature admission.
 
 Keep pure computation separate from DB access. The Markov split between pure core
 math and estimator/database access is the preferred direction; issue #111 tracks
-remaining eager-import coupling.
+remaining eager-import coupling. The detailed local contract is in
+`markov/AGENTS.md` and applies whenever that subtree is touched.
 
 When refactoring a legacy Engine module, classify it as one of:
 
@@ -112,6 +113,9 @@ baselines, matched sample, metrics, and uncertainty—not only a headline score.
 
 ## Child DOX Index
 
-No child DOX files yet. `markov/` is a likely future child because it already has
-a durable pure-core vs estimator boundary; add it when local rules justify the
-extra layer rather than mechanically mirroring every model subdirectory.
+| Child | Scope |
+| --- | --- |
+| [markov/AGENTS.md](markov/AGENTS.md) | Pure base/out Markov math and DB-backed Retrosheet/Statcast estimators with strict PIT rules. |
+
+Do not mechanically add children for every legacy Engine directory/module. Add a
+child only when a stable conceptual boundary has distinct local contracts.

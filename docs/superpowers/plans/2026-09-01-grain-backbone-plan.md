@@ -21,6 +21,18 @@ column. Not needed for the 1910-2025 backbone.
 Relations 2–6 are delegatable to Agy against relation 1 as the worked
 example, once its column contract is merged.
 
+**Tie-out contract for relation 3 onward (blocking, write before starting):**
+Retrosheet-derived season lines will not match Baseball-Reference exactly —
+different underlying data, corrections, and era-specific scoring judgment,
+more so pre-1988. "Tie-out" here means: counting stats (H, BB, SO, ...) match
+exactly or the delta is understood and documented (e.g. a known BRef
+correction); rate stats (AVG/OBP/SLG) match within a few thousandths. A
+documented, understood delta is a pass — it is not a blank check, so any
+delta must be traced to a specific, named cause before the test is allowed to
+pass with tolerance. An unexplained delta blocks the relation. Written down
+here so whoever picks up relation 3 (Agy or otherwise) doesn't stall on the
+first real BRef mismatch without a documented rule to apply.
+
 ## Stage 2 — advanced layer at the new grains
 
 | # | Relation | Reuses |

@@ -634,23 +634,41 @@ def main(argv: list[str] | None = None) -> None:
     )
     ros_parser.add_argument("--json", action="store_true", help="output ROS projections as JSON")
 
-    # Polymorphic research dossier and report exporter (EXPORT-01)
+    # Research data and interop exporter (EXPORT-01)
     export_parser = subparsers.add_parser(
         "export",
-        help="export publication-ready research dossiers in Markdown, Terminal, HTML, or JSON",
+        help="export database relations to CSV, Excel, or Parquet, or generate public_safe bundle",
     )
     export_parser.add_argument(
-        "--date", type=str, help="target game date (YYYY-MM-DD, default: today)"
+        "relation",
+        nargs="?",
+        type=str,
+        help="relation to export (e.g. gold.game_export, core.player, or game_export)",
+    )
+    export_parser.add_argument(
+        "--season",
+        type=int,
+        help="filter export by season (for relations with a season column)",
     )
     export_parser.add_argument(
         "--format",
-        type=str,
-        choices=["markdown", "terminal", "html", "json"],
-        default="markdown",
-        help="output format (default: markdown)",
+        choices=["csv", "xlsx", "parquet"],
+        help="export format (default: inferred from --out extension or parquet)",
     )
     export_parser.add_argument(
-        "--output", type=str, help="optional output file path to write rendered dossier"
+        "--out",
+        type=str,
+        help="output file path or directory (default: <rel>.<ext> or export_bundle/)",
+    )
+    export_parser.add_argument(
+        "--profile",
+        choices=["public_safe"],
+        help="export rights-filtered redistribution bundle (e.g. public_safe)",
+    )
+    export_parser.add_argument(
+        "--zip",
+        action="store_true",
+        help="compress export bundle directory into a zip archive",
     )
 
     # Bayesian constrained ensemble stacking meta-learner (STACK-02)
@@ -797,15 +815,6 @@ def main(argv: list[str] | None = None) -> None:
         "--ivb", type=float, default=18.5, help="target fastball IVB (default: 18.5)"
     )
     cluster_parser.add_argument("--json", action="store_true", help="output comps as JSON")
-
-    # Comprehensive player dossier & data dump (DUMP-01)
-    dump_parser = subparsers.add_parser(
-        "dump",
-        help="export multi-table player analytical dossiers to JSON or CSV (DUMP-01)",
-    )
-    dump_parser.add_argument(
-        "--format", choices=["json", "csv"], default="json", help="export format (default: json)"
-    )
 
     # Live in-game hedging and middle bet calculator (HEDGE-01)
     hedge_parser = subparsers.add_parser(
@@ -3850,103 +3859,31 @@ def main(argv: list[str] | None = None) -> None:
             print("")
 
     elif args.command == "export":
-        from mlb_baseball.daily import generate_daily_briefing
         from mlb_baseball.db import get_connection
-        from mlb_baseball.export import (
-            ChartSectionBuilder,
-            KeyValueSectionBuilder,
-            ResearchDossier,
-            TableSectionBuilder,
-            get_renderer,
-        )
+        from mlb_baseball.export import export_bundle, export_relation
 
-        with get_connection() as conn:
-            d_report = generate_daily_briefing(target_date=args.date, conn=conn)
-
-        dossier = ResearchDossier(
-            title="MLB Quantitative Research & Matchup Dossier",
-            subtitle=(
-                f"Target Date: {d_report.target_date} (Generated UTC: {d_report.generated_at})"
-            ),
-        )
-
-        # 1. Health Status Section
-        health_pairs = [
-            (c.name, "PASS" if c.ok else f"FAIL ({c.detail})") for c in d_report.health_status
-        ]
-        dossier.add_section(KeyValueSectionBuilder("Operational Health Verification", health_pairs))
-
-        # 2. Matchup Forecasts Section
-        if d_report.matchups:
-            m_headers = ["Matchup", "Home Win%", "Away Win%", "Home Starter", "Away Starter"]
-            m_rows = [
-                [
-                    f"{m.away_team} @ {m.home_team}",
-                    f"{m.model_home_win_prob * 100:.1f}%",
-                    f"{m.model_away_win_prob * 100:.1f}%",
-                    m.home_starter or "TBD",
-                    m.away_starter or "TBD",
-                ]
-                for m in d_report.matchups
-            ]
-            dossier.add_section(
-                TableSectionBuilder("Today's Matchup Forecasts (GBM-v2 + Log5)", m_headers, m_rows)
-            )
-
-        # 3. Pitcher Strikeout Props Chart Section
-        if d_report.pitcher_props:
-            chart_items = [
-                (f"{p.pitcher_name} ({p.team})", round(p.projected_k_pct * 100.0, 1))
-                for p in d_report.pitcher_props
-            ]
-            dossier.add_section(
-                ChartSectionBuilder("Projected Pitcher Strikeout Rates (K%)", chart_items, unit="%")
-            )
-
-        # 4. Kelly Allocations Section
-        if d_report.portfolio_plan and d_report.portfolio_plan.recommendations:
-            k_headers = [
-                "Market / Matchup",
-                "Model%",
-                "Market%",
-                "Edge%",
-                "Kelly%",
-                "Wager ($)",
-                "+EV%",
-            ]
-            k_rows = [
-                [
-                    r.opportunity.description,
-                    f"{r.opportunity.model_probability * 100:.1f}%",
-                    f"{r.opportunity.market_implied_probability * 100:.1f}%",
-                    f"{r.opportunity.edge * 100:+.1f}%",
-                    f"{r.kelly_fraction * 100:.2f}%",
-                    f"${r.wager_amount_usd:,.2f}",
-                    f"{r.expected_value_pct * 100:+.1f}%",
-                ]
-                for r in d_report.portfolio_plan.recommendations
-            ]
-            dossier.add_section(
-                TableSectionBuilder(
-                    f"Kelly Criterion Capital Allocation "
-                    f"(Bankroll: ${d_report.portfolio_plan.total_bankroll_usd:,.2f})",
-                    k_headers,
-                    k_rows,
+        if args.profile:
+            with get_connection() as conn:
+                out_dir = args.out or "export_bundle"
+                result_path = export_bundle(
+                    conn,
+                    profile=args.profile,
+                    out_dir=out_dir,
+                    make_zip=args.zip,
                 )
-            )
-
-        if args.format == "json":
-            rendered = dossier.to_json()
+            print(f"Exported {args.profile} bundle to {result_path}")
+        elif args.relation:
+            with get_connection() as conn:
+                result_path, count = export_relation(
+                    conn,
+                    relation=args.relation,
+                    format=args.format,
+                    out_path=args.out,
+                    season=args.season,
+                )
+            print(f"Exported {count:,} rows to {result_path}")
         else:
-            renderer = get_renderer(args.format)
-            rendered = dossier.export(renderer)
-
-        if args.output:
-            with open(args.output, "w") as out_f:
-                out_f.write(rendered)
-            print(f"Dossier successfully exported to: {args.output}")
-        else:
-            print(rendered)
+            export_parser.error("must specify a relation or --profile")
 
     elif args.command == "stack":
         import json as json_lib
@@ -4520,26 +4457,6 @@ def main(argv: list[str] | None = None) -> None:
                 pname = c.matched_pitcher_name
                 print(f"  #{idx} {pname} ({c.matched_season}): {c.similarity_score_pct:.1f}%")
             print("")
-
-    elif args.command == "dump":
-        from mlb_baseball.dump import PlayerDataDumpEngine, PlayerDossierDump
-
-        dump_engine = PlayerDataDumpEngine()
-        sample_dossier = PlayerDossierDump(
-            player_id="660271",
-            player_name="Shohei Ohtani",
-            season=2024,
-            position_type="batter",
-            team_abbrev="LAD",
-            primary_metrics={"woba": 0.425, "wrc_plus": 182.0, "barrel_pct": 0.198},
-            stuff_arsenal={"stuff_plus": 115.0, "pitching_plus": 112.0},
-            projection={"projected_woba": 0.405},
-            zone_whiff_rates={1: 0.15, 2: 0.12, 3: 0.28},
-        )
-        if args.format == "csv":
-            print(dump_engine.export_csv([sample_dossier]))
-        else:
-            print(dump_engine.export_json([sample_dossier]))
 
     elif args.command == "hedge":
         import json as json_lib

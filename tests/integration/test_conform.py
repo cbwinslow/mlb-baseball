@@ -328,6 +328,10 @@ def test_conform_adds_only_completed_spring_games_and_links_statcast_pitches(db_
             "('910003', '2024-03-04', 'New York Yankees', 'Atlanta Braves', '147', '144', "
             "'2024', 'In Progress', 'S', '1', 'Park', '', '1', '0')"
         )
+        # issue #78: another test file may have left raw.statcast_pitch with a
+        # different column set; drop unconditionally rather than relying on a
+        # guard + collection order.
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
         cur.execute(
             "CREATE TABLE raw.statcast_pitch "
             "(game_pk text, game_year text, at_bat_number text, pitch_number text, inning text, "
@@ -477,6 +481,8 @@ def test_build_plays_and_pitches_unify_both_sources(db_conn):
             "'field_out', 'Groundout', '0', '0', '0', '0', '1')"
         )
 
+        # issue #78: drop unconditionally, don't rely on collection order.
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
         cur.execute(
             "CREATE TABLE raw.statcast_pitch "
             "(game_pk text, game_year text, at_bat_number text, "
@@ -2440,6 +2446,8 @@ def test_build_pitches_leaves_unmatched_statcast_row_as_null_instead_of_dropping
     # precedent — same fix already applied to core.player_war above.
     _seed_raw_tables(db_conn)
     with db_conn.cursor() as cur:
+        # issue #78: drop unconditionally, don't rely on collection order.
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
         cur.execute(
             "CREATE TABLE raw.statcast_pitch "
             "(game_pk text, game_year text, at_bat_number text, "
@@ -2852,6 +2860,8 @@ def _seed_conformance_rehearsal(db_conn):
             "('800001', '2026', '0', '1', 'top', '234567', '123456', "
             "'field_out', 'Groundout', '0', '0', '0', '0', '1')"
         )
+        # issue #78: drop unconditionally, don't rely on collection order.
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
         cur.execute(
             "CREATE TABLE raw.statcast_pitch "
             "(game_pk text, game_year text, at_bat_number text, pitch_number text, inning text, "

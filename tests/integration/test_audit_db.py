@@ -13,8 +13,12 @@ def _find(findings, name: str):
 
 def _seed_game_audit_data(db_conn):
     with db_conn.cursor() as cur:
+        # issue #78: another test file may have left these with a different
+        # column set; drop unconditionally rather than relying on collection order.
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
         cur.execute("CREATE TABLE raw.mlb_schedule (game_id text)")
         cur.execute("INSERT INTO raw.mlb_schedule VALUES ('900001'), ('900001'), ('900002')")
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
         cur.execute("CREATE TABLE raw.statcast_pitch (game_pk text, game_year text)")
         cur.execute(
             "INSERT INTO raw.statcast_pitch VALUES "

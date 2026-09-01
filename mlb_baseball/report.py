@@ -26,12 +26,14 @@ pass -- see run()'s own ordering comment).
 """
 
 import psycopg
+from psycopg import sql
 
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check, check_join_coverage, check_table_has_rows
 from mlb_baseball.ingest import track_run
 from mlb_baseball.model.offense import W_1B, W_2B, W_3B, W_HBP, W_HR, W_UBB, WOBA_SCALE
 from mlb_baseball.model.war import _BREF_TO_RETRO
+from mlb_baseball.sql import read_sql
 
 SOURCE = "report"
 
@@ -124,13 +126,13 @@ LEFT JOIN war_sum ws ON ws.player_id = p.id AND ws.season = b._season::integer
 
 def _build_player_season(conn: psycopg.Connection) -> int:
     total = 0
-    for table, sql in (
+    for table, build_sql in (
         ("raw.bref_batting", _BUILD_BATTING_SQL),
         ("raw.bref_pitching", _BUILD_PITCHING_SQL),
     ):
         try:
             with conn.transaction(), conn.cursor() as cur:
-                cur.execute(sql)
+                cur.execute(build_sql)
                 total += cur.rowcount
         except psycopg.errors.UndefinedTable:
             print(f"report: {table} not present yet -- skipping gold.player_season")
@@ -406,6 +408,43 @@ LEFT JOIN raw.mlb_standing ms
 """
 
 
+# ---------------------------------------------------------------------------
+# gold.batting_game / gold.pitching_game  (grain-complete backbone, Plan 03B)
+# ---------------------------------------------------------------------------
+
+_BATTING_GAME_SQL = read_sql("batting_game_build.sql")
+_PITCHING_GAME_SQL = read_sql("pitching_game_build.sql")
+
+
+def _build_backbone_relation(conn: psycopg.Connection, table: str, build_sql: str) -> int:
+    """Truncate-and-rebuild one grain-backbone `gold` relation from
+    raw.retrosheet_event.
+
+    Pre-checks that `raw.retrosheet_event` exists and skips gracefully if it
+    does not (same posture as `_build_player_season` with `raw.bref_*`) --
+    checking first, rather than TRUNCATE-then-catch, so a missing *source*
+    table skips cleanly while a missing *target* table (migrations not run)
+    still fails loudly. `table` is an internal constant, not user input; it is
+    still passed through `sql.Identifier` so the query is not built by string
+    formatting."""
+    schema, name = table.split(".", 1)
+    ident = sql.Identifier(schema, name)
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
+        (present,) = fetch_one(cur)
+    if present is None:
+        print(f"report: raw.retrosheet_event not present yet -- skipping {table}")
+        return 0
+    # Savepoint so any failure in this builder can't roll back the other
+    # builders' work in run()'s shared transaction, matching _build_player_season.
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute(sql.SQL("TRUNCATE {}").format(ident))
+        cur.execute(build_sql, {"season": None})
+        cur.execute(sql.SQL("SELECT count(*) FROM {}").format(ident))
+        (count,) = fetch_one(cur)
+    return count
+
+
 def _build_division_standing(conn: psycopg.Connection) -> int:
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(_BUILD_DIVISION_STANDING_SQL)
@@ -432,6 +471,12 @@ def run() -> dict[str, int]:
         _compute_woba(conn)
         _compute_war(conn)
         counts["gold.division_standing"] = _build_division_standing(conn)
+        counts["gold.batting_game"] = _build_backbone_relation(
+            conn, "gold.batting_game", _BATTING_GAME_SQL
+        )
+        counts["gold.pitching_game"] = _build_backbone_relation(
+            conn, "gold.pitching_game", _PITCHING_GAME_SQL
+        )
         conn.commit()
         result["rows"] = sum(counts.values())
     return counts
@@ -492,6 +537,60 @@ def health_check() -> list[Check]:
             "core.standing rows get a gold.division_standing row",
             "SELECT count(*) FROM gold.division_standing",
             "SELECT count(*) FROM core.standing",
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.batting_game"),
+        # tolerance=0: every (game, batter, team) triple with a completed
+        # plate appearance and a resolvable core.player should produce
+        # exactly one gold.batting_game row. The "expected" side mirrors the
+        # build's own inner JOIN to core.player, its HAVING pa > 0 filter,
+        # and its (game, player, team) grain -- the team CASE matches
+        # batting_game_build.sql exactly -- so this is not a stricter bar
+        # than the builder can clear, and it does not false-alarm on the
+        # rare player-for-both-clubs-in-one-game case.
+        check_join_coverage(
+            "raw.retrosheet_event (game, batter, team) triples with a PA and a resolvable "
+            "player get a gold.batting_game row",
+            "SELECT count(*) FROM gold.batting_game",
+            """
+            SELECT count(*) FROM (
+                SELECT re.game_id, re.bat_id,
+                    CASE WHEN re.bat_home_id = '1' THEN g.home_team_id ELSE g.away_team_id END
+                FROM raw.retrosheet_event re
+                JOIN core.game g ON g.retro_game_id = re.game_id AND lower(g.game_type) = 'regular'
+                JOIN raw.retrosheet_gameinfo gi ON gi.gid = g.retro_game_id
+                JOIN core.player p ON p.retro_id = re.bat_id
+                WHERE re.bat_id IS NOT NULL AND re.bat_id <> ''
+                GROUP BY re.game_id, re.bat_id,
+                    CASE WHEN re.bat_home_id = '1' THEN g.home_team_id ELSE g.away_team_id END
+                HAVING count(*) FILTER (WHERE re.bat_event_fl = 'T') > 0
+            ) s
+            """,
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.pitching_game"),
+        # Same shape as the batting_game check: one row per (game, charged
+        # pitcher, team) with a batter faced and a resolvable core.player.
+        # The team CASE is inverted from batting (the pitching team is the
+        # one not batting), matching pitching_game_build.sql.
+        check_join_coverage(
+            "raw.retrosheet_event (game, pitcher, team) triples with a batter faced and a "
+            "resolvable player get a gold.pitching_game row",
+            "SELECT count(*) FROM gold.pitching_game",
+            """
+            SELECT count(*) FROM (
+                SELECT re.game_id, re.resp_pit_id,
+                    CASE WHEN re.bat_home_id = '1' THEN g.away_team_id ELSE g.home_team_id END
+                FROM raw.retrosheet_event re
+                JOIN core.game g ON g.retro_game_id = re.game_id AND lower(g.game_type) = 'regular'
+                JOIN raw.retrosheet_gameinfo gi ON gi.gid = g.retro_game_id
+                JOIN core.player p ON p.retro_id = re.resp_pit_id
+                WHERE re.resp_pit_id IS NOT NULL AND re.resp_pit_id <> ''
+                GROUP BY re.game_id, re.resp_pit_id,
+                    CASE WHEN re.bat_home_id = '1' THEN g.away_team_id ELSE g.home_team_id END
+                HAVING count(*) FILTER (WHERE re.bat_event_fl = 'T') > 0
+            ) s
+            """,
             tolerance=0,
         ),
     ]

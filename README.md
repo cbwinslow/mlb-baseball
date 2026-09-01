@@ -81,10 +81,14 @@ uv run mlb report         # builds the gold.player_season / team_season / divisi
 uv run mlb inventory
 ```
 
-That sequence gives you the full warehouse: `raw` (source-faithful), `core`
-(conformed, relational), and `gold` (derived stats and analysis-ready views).
-From there, query it directly with `psql` or any Postgres client, or pull
-tables out with `mlb export` (see "Exporting data" below).
+That sequence gives you the warehouse: `raw` (source-faithful), `core`
+(conformed, relational), and the research `gold` tables — `player_season`,
+`team_season`, `division_standing`, and the per-game statistic backbone
+(`batting_game`, …). `gold.game_feature` / `gold.game_export` (the *pregame*
+prediction-feature matrix) are additionally populated by `mlb features`,
+which is part of the paused prediction ladder — not needed for research use.
+From there, query the database directly with `psql` or any Postgres client,
+or dump tables to CSV with `psql \copy` (see "Exporting data" below).
 
 The prediction ladder (`mlb predict` / `train` / `simulate`) is paused — see
 **Status** above. It still runs, but it is not part of the research-database
@@ -135,15 +139,16 @@ resume a source, see [Bootstrap runbook](docs/BOOTSTRAP_RUNBOOK.md).
 ## Exporting data
 
 The warehouse is a normal PostgreSQL database — point Excel, R, pandas, or any
-SQL client straight at it. For file extracts today, `gold.game_export`,
-`gold.player_season`, and `gold.team_season` are wide, pre-joined,
-analysis-ready relations, and `docs/RESEARCH_QUERY_RUNBOOK.md` has copy-paste
+SQL client straight at it. `gold.player_season`, `gold.team_season`,
+`gold.division_standing`, and `gold.game_export` are wide, pre-joined,
+analysis-ready relations; `docs/RESEARCH_QUERY_RUNBOOK.md` has copy-paste
 `psql \copy ... WITH CSV HEADER` recipes for each.
 
-A dedicated `mlb export` command (any allow-listed relation → CSV / Excel /
-Parquet, plus a rights-filtered `public_safe` bundle for redistribution) is
-in progress — see the
-[v1 spec](docs/superpowers/specs/2026-09-01-research-database-v1-design.md).
+An `mlb export` command — any allow-listed relation to CSV / Excel / Parquet,
+plus a rights-filtered `public_safe` bundle for redistribution — is landing
+in a separate change (see the
+[v1 spec](docs/superpowers/specs/2026-09-01-research-database-v1-design.md)).
+Until it merges, use the `psql \copy` recipes above.
 
 ## Scheduling
 

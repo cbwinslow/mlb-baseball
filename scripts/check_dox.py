@@ -33,6 +33,13 @@ REQUIRED_SIDECARS = (
     "mlb_baseball/connectors/mlb_api.py.dox.md",
     "mlb_baseball/connectors/polymarket.py.dox.md",
     "mlb_baseball/connectors/retrosheet.py.dox.md",
+    "mlb_baseball/connectors/retrosheet_box.py.dox.md",
+    "mlb_baseball/connectors/retrosheet_event.py.dox.md",
+    "mlb_baseball/connectors/retrosheet_gamelog.py.dox.md",
+    "mlb_baseball/connectors/retrosheet_reference.py.dox.md",
+    "mlb_baseball/connectors/retrosheet_roster.py.dox.md",
+    "mlb_baseball/connectors/retrosheet_schedule.py.dox.md",
+    "mlb_baseball/connectors/retrosheet_transaction.py.dox.md",
     "mlb_baseball/connectors/statcast.py.dox.md",
     "mlb_baseball/connectors/statcast_leaderboard.py.dox.md",
 )

@@ -540,24 +540,29 @@ def health_check() -> list[Check]:
             tolerance=0,
         ),
         check_table_has_rows("gold.batting_game"),
-        # tolerance=0: every (game, batter) pair with a completed plate
-        # appearance and a resolvable core.player should produce exactly one
-        # gold.batting_game row. The "expected" side mirrors the build's own
-        # inner JOIN to core.player and its HAVING pa > 0 filter, so this is
-        # not a stricter bar than the builder can clear.
+        # tolerance=0: every (game, batter, team) triple with a completed
+        # plate appearance and a resolvable core.player should produce
+        # exactly one gold.batting_game row. The "expected" side mirrors the
+        # build's own inner JOIN to core.player, its HAVING pa > 0 filter,
+        # and its (game, player, team) grain -- the team CASE matches
+        # batting_game_build.sql exactly -- so this is not a stricter bar
+        # than the builder can clear, and it does not false-alarm on the
+        # rare player-for-both-clubs-in-one-game case.
         check_join_coverage(
-            "raw.retrosheet_event (game, batter) pairs with a PA and a resolvable player "
-            "get a gold.batting_game row",
+            "raw.retrosheet_event (game, batter, team) triples with a PA and a resolvable "
+            "player get a gold.batting_game row",
             "SELECT count(*) FROM gold.batting_game",
             """
             SELECT count(*) FROM (
-                SELECT re.game_id, re.bat_id
+                SELECT re.game_id, re.bat_id,
+                    CASE WHEN re.bat_home_id = '1' THEN g.home_team_id ELSE g.away_team_id END
                 FROM raw.retrosheet_event re
                 JOIN core.game g ON g.retro_game_id = re.game_id AND lower(g.game_type) = 'regular'
                 JOIN raw.retrosheet_gameinfo gi ON gi.gid = g.retro_game_id
                 JOIN core.player p ON p.retro_id = re.bat_id
                 WHERE re.bat_id IS NOT NULL AND re.bat_id <> ''
-                GROUP BY re.game_id, re.bat_id
+                GROUP BY re.game_id, re.bat_id,
+                    CASE WHEN re.bat_home_id = '1' THEN g.home_team_id ELSE g.away_team_id END
                 HAVING count(*) FILTER (WHERE re.bat_event_fl = 'T') > 0
             ) s
             """,
@@ -565,20 +570,24 @@ def health_check() -> list[Check]:
         ),
         check_table_has_rows("gold.pitching_game"),
         # Same shape as the batting_game check: one row per (game, charged
-        # pitcher) with a batter faced and a resolvable core.player.
+        # pitcher, team) with a batter faced and a resolvable core.player.
+        # The team CASE is inverted from batting (the pitching team is the
+        # one not batting), matching pitching_game_build.sql.
         check_join_coverage(
-            "raw.retrosheet_event (game, pitcher) pairs with a batter faced and a "
+            "raw.retrosheet_event (game, pitcher, team) triples with a batter faced and a "
             "resolvable player get a gold.pitching_game row",
             "SELECT count(*) FROM gold.pitching_game",
             """
             SELECT count(*) FROM (
-                SELECT re.game_id, re.resp_pit_id
+                SELECT re.game_id, re.resp_pit_id,
+                    CASE WHEN re.bat_home_id = '1' THEN g.away_team_id ELSE g.home_team_id END
                 FROM raw.retrosheet_event re
                 JOIN core.game g ON g.retro_game_id = re.game_id AND lower(g.game_type) = 'regular'
                 JOIN raw.retrosheet_gameinfo gi ON gi.gid = g.retro_game_id
                 JOIN core.player p ON p.retro_id = re.resp_pit_id
                 WHERE re.resp_pit_id IS NOT NULL AND re.resp_pit_id <> ''
-                GROUP BY re.game_id, re.resp_pit_id
+                GROUP BY re.game_id, re.resp_pit_id,
+                    CASE WHEN re.bat_home_id = '1' THEN g.away_team_id ELSE g.home_team_id END
                 HAVING count(*) FILTER (WHERE re.bat_event_fl = 'T') > 0
             ) s
             """,

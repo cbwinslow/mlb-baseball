@@ -23,9 +23,10 @@
 --   * 2026+ games (MLB Stats API play-by-play) are not covered here -- a
 --     separate builder over raw.mlb_playbyplay follows.
 --
--- The caller (report._build_batting_game) TRUNCATEs gold.batting_game first,
--- in the same transaction. This file is one parameterized statement so psycopg
--- can prepare it (a multi-statement string with a bind fails to prepare).
+-- The caller (report._build_backbone_relation) TRUNCATEs gold.batting_game
+-- first, in the same transaction. This file is one parameterized statement so
+-- psycopg can prepare it (a multi-statement string with a bind fails to
+-- prepare).
 
 INSERT INTO gold.batting_game (
     game_id, player_id, team_id, season, game_date,

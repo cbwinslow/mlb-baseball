@@ -9,6 +9,7 @@ to seed directly here, same shortcut test_model_log5.py already takes
 for core.game.
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from mlb_baseball.model import market
@@ -47,13 +48,22 @@ def _seed_decided_game(db_conn, atl, nya, game_pk="999001", retro_game_id="G1"):
     return game_id
 
 
-def _seed_market_row(db_conn, game_id, source, team_id, implied_probability, market_ref):
+def _seed_market_row(
+    db_conn,
+    game_id,
+    source,
+    team_id,
+    implied_probability,
+    market_ref,
+    observed_at="2024-03-31 18:00:00+00",
+):
     with db_conn.cursor() as cur:
         cur.execute(
             "INSERT INTO core.market "
-            "(game_id, source, market_ref, team_id, implied_probability, volume, status) "
-            "VALUES (%s, %s, %s, %s, %s, 1000, 'closed')",
-            (game_id, source, market_ref, team_id, implied_probability),
+            "(game_id, source, market_ref, team_id, implied_probability, "
+            "observed_at, volume, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 1000, 'closed')",
+            (game_id, source, market_ref, team_id, implied_probability, observed_at),
         )
 
 
@@ -77,14 +87,33 @@ def _seed_polymarket_market_type(db_conn, market_id, sportsmarkettype):
 def _reset(db_conn):
     db_conn.rollback()
     with db_conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.polymarket_market')")
-        (exists,) = cur.fetchone()
-        if exists:
-            cur.execute("DELETE FROM raw.polymarket_market")
+        for table in (
+            "raw.polymarket_outcome",
+            "raw.polymarket_snapshot",
+            "raw.polymarket_event",
+            "raw.polymarket_market",
+            "raw.kalshi_snapshot",
+            "raw.kalshi_market",
+        ):
+            cur.execute("SELECT to_regclass(%s)", (table,))
+            (exists,) = cur.fetchone()
+            if exists:
+                cur.execute(f"DELETE FROM {table}")
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        (schedule_exists,) = cur.fetchone()
+        if schedule_exists:
+            # Only the rows this file inserts. A full DELETE (or a skinny
+            # CREATE TABLE IF NOT EXISTS) poisons later tests that call
+            # features.build() — CI 2026-08-28: UndefinedColumn ms.home_id.
+            cur.execute("DELETE FROM raw.mlb_schedule WHERE game_id LIKE '888%'")
         cur.execute("DELETE FROM gold.prediction")
         cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.market")
         cur.execute("DELETE FROM core.game")
+        cur.execute(
+            "DELETE FROM core.team_alias a USING core.team t "
+            "WHERE a.team_id = t.id AND t.retro_team_id IN ('ATL', 'NYA')"
+        )
         cur.execute("DELETE FROM core.team")
     db_conn.commit()
 
@@ -114,6 +143,11 @@ def test_record_inserts_home_teams_moneyline_price_as_prediction(db_conn):
     assert model_version == "polymarket-v1"
     assert home_win_prob == Decimal("0.62")
     assert actual is None  # backfill_outcomes() is a separate step, not record()'s job
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT generated_at FROM gold.prediction")
+        (generated_at,) = cur.fetchone()
+    assert generated_at == datetime(2024, 3, 31, 18, 0, tzinfo=UTC)
 
     _reset(db_conn)
 
@@ -278,5 +312,246 @@ def test_health_check_flags_a_qualifying_row_that_was_never_recorded(db_conn):
 
 def test_health_check_runs_cleanly_against_an_empty_database():
     checks = market.health_check()
-    assert len(checks) == 2
+    assert len(checks) == 4
     assert all(c.name for c in checks)
+
+
+def _ensure_mlb_schedule(db_conn):
+    """Do not CREATE TABLE IF NOT EXISTS with a skinny column list.
+
+    On CI the first creator wins for the whole session. A 3-column
+    mlb_schedule made later tests fail (features.build needs home_id).
+    """
+    columns = (
+        ("game_id", "text"),
+        ("game_datetime", "text"),
+        ("_loaded_at", "timestamptz"),
+        ("home_id", "text"),
+        ("away_id", "text"),
+        ("game_type", "text"),
+        ("game_date", "text"),
+        ("game_num", "text"),
+        ("venue_id", "text"),
+        ("status", "text"),
+        ("_season", "text"),
+    )
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        (exists,) = cur.fetchone()
+        if not exists:
+            colsql = ", ".join(f"{name} {typ}" for name, typ in columns)
+            cur.execute(f"CREATE TABLE raw.mlb_schedule ({colsql})")
+        else:
+            for name, typ in columns:
+                cur.execute(f"ALTER TABLE raw.mlb_schedule ADD COLUMN IF NOT EXISTS {name} {typ}")
+
+
+def _ensure_live_market_tables(db_conn):
+    """Full raw shapes needed to match an upcoming game to a moneyline."""
+    _ensure_mlb_schedule(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS raw.polymarket_event "
+            "(id text, slug text, sport text, teams text, closed text)"
+        )
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS raw.polymarket_market "
+            "(id text, event_id text, sportsmarkettype text, volume text)"
+        )
+        cur.execute("ALTER TABLE raw.polymarket_market ADD COLUMN IF NOT EXISTS event_id text")
+        cur.execute(
+            "ALTER TABLE raw.polymarket_market ADD COLUMN IF NOT EXISTS sportsmarkettype text"
+        )
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS raw.polymarket_outcome "
+            "(market_id text, outcome text, price text)"
+        )
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS raw.polymarket_snapshot "
+            "(market_id text, outcome text, price text, captured_at text)"
+        )
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS raw.kalshi_market "
+            "(ticker text, event_ticker text, status text, volume_fp text)"
+        )
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS raw.kalshi_snapshot "
+            "(ticker text, yes_bid_dollars text, yes_ask_dollars text, "
+            "last_price_dollars text, captured_at text)"
+        )
+    db_conn.commit()
+
+
+def _seed_upcoming_game(db_conn, atl, nya, game_pk="888001"):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO gold.game_feature "
+            "(mlb_game_pk, game_instance_key, season, game_date, home_team_id, "
+            "away_team_id, home_win) "
+            "VALUES (%s, %s, 2026, '2026-05-23', %s, %s, NULL)",
+            (game_pk, f"mlb:{game_pk}", atl, nya),
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule (game_id, game_datetime, _loaded_at) "
+            "VALUES (%s, %s, '2026-05-22T12:00:00+00:00')",
+            (game_pk, "2026-05-23T23:05:00+00:00"),
+        )
+    return game_pk
+
+
+def test_record_writes_live_polymarket_moneyline_for_an_upcoming_game(db_conn):
+    _reset(db_conn)
+    _ensure_polymarket_market_table(db_conn)
+    _ensure_live_market_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    game_pk = _seed_upcoming_game(db_conn, atl, nya)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.polymarket_event (id, slug, sport, teams, closed) VALUES ("
+            "'1', 'mlb-nyy-atl-2026-05-23', 'mlb', "
+            "'[{''name'': ''New York Yankees'', ''ordering'': ''away''}, "
+            "{''name'': ''Atlanta Braves'', ''ordering'': ''home''}]', "
+            "'False')"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_market (id, event_id, sportsmarkettype) "
+            "VALUES ('10', '1', 'moneyline'), ('11', '1', 'spreads')"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_outcome (market_id, outcome) VALUES "
+            "('10', 'Atlanta Braves'), ('10', 'New York Yankees'), "
+            "('11', 'Atlanta Braves')"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_snapshot "
+            "(market_id, outcome, price, captured_at) VALUES "
+            "('10', 'Atlanta Braves', '0.55', '2026-05-23T12:00:00+00:00'), "
+            "('10', 'New York Yankees', '0.45', '2026-05-23T12:00:00+00:00'), "
+            "('11', 'Atlanta Braves', '0.90', '2026-05-23T12:00:00+00:00'), "
+            "('10', 'Atlanta Braves', '0.99', '2026-05-24T06:00:00+00:00')"
+        )
+    db_conn.commit()
+
+    inserted = market.record(db_conn)
+    db_conn.commit()
+
+    assert inserted == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT mlb_game_pk, model_version, home_win_prob FROM gold.prediction")
+        rows = cur.fetchall()
+    assert rows == [(game_pk, "polymarket-v1", Decimal("0.55"))]
+
+    _reset(db_conn)
+
+
+def test_record_writes_live_kalshi_moneyline_for_an_upcoming_game(db_conn):
+    _reset(db_conn)
+    _ensure_live_market_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.team_alias (team_id, alias, source) VALUES (%s, 'ATL', 'kalshi')",
+            (atl,),
+        )
+    game_pk = _seed_upcoming_game(db_conn, atl, nya, game_pk="888002")
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.kalshi_market (ticker, event_ticker, status) VALUES "
+            "('KXMLBGAME-26MAY231905NYAATL-ATL', 'KXMLBGAME-26MAY231905NYAATL', 'open')"
+        )
+        cur.execute(
+            "INSERT INTO raw.kalshi_snapshot "
+            "(ticker, yes_bid_dollars, yes_ask_dollars, last_price_dollars, captured_at) "
+            "VALUES "
+            "('KXMLBGAME-26MAY231905NYAATL-ATL', '0.50', '0.54', '0.52', "
+            "'2026-05-23T12:00:00+00:00'), "
+            "('KXMLBGAME-26MAY231905NYAATL-ATL', '0.96', '0.99', '0.97', "
+            "'2026-05-24T06:00:00+00:00')"
+        )
+    db_conn.commit()
+
+    inserted = market.record(db_conn)
+    db_conn.commit()
+
+    assert inserted == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT model_version, home_win_prob FROM gold.prediction")
+        assert cur.fetchall() == [("kalshi-v1", Decimal("0.52"))]
+    assert game_pk == "888002"
+
+    _reset(db_conn)
+
+
+def test_record_upcoming_inserts_a_new_snapshot_on_rerun(db_conn):
+    # Upcoming prices move; gold.prediction is append-only snapshots, same
+    # as log5/elo/gbm. Decided-game record() stays NOT EXISTS-idempotent.
+    _reset(db_conn)
+    _ensure_polymarket_market_table(db_conn)
+    _ensure_live_market_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    _seed_upcoming_game(db_conn, atl, nya, game_pk="888003")
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.polymarket_event (id, slug, sport, teams, closed) VALUES ("
+            "'1', 'mlb-nyy-atl-2026-05-23', 'mlb', "
+            "'[{''name'': ''New York Yankees'', ''ordering'': ''away''}, "
+            "{''name'': ''Atlanta Braves'', ''ordering'': ''home''}]', "
+            "'False')"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_market (id, event_id, sportsmarkettype) "
+            "VALUES ('10', '1', 'moneyline')"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_outcome (market_id, outcome) "
+            "VALUES ('10', 'Atlanta Braves')"
+        )
+        cur.execute(
+            "INSERT INTO raw.polymarket_snapshot "
+            "(market_id, outcome, price, captured_at) VALUES "
+            "('10', 'Atlanta Braves', '0.55', '2026-05-23T12:00:00+00:00')"
+        )
+    db_conn.commit()
+
+    first = market.record(db_conn)
+    db_conn.commit()
+    second = market.record(db_conn)
+    db_conn.commit()
+
+    assert first == 1
+    assert second == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM gold.prediction")
+        assert cur.fetchone() == (2,)
+
+    _reset(db_conn)
+
+
+def test_decided_game_market_row_passes_the_evaluation_pre_game_filter(db_conn):
+    """Issue #107: before the fix generated_at defaulted to now() (post-game),
+    so _selected_predictions filtered every decided-game market row out."""
+    from mlb_baseball.model import backfill_outcomes
+    from mlb_baseball.model.evaluation import _selected_predictions
+
+    _reset(db_conn)
+    _ensure_polymarket_market_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    game_id = _seed_decided_game(db_conn, atl, nya)
+    _seed_polymarket_market_type(db_conn, "m1", "moneyline")
+    _seed_market_row(db_conn, game_id, "polymarket", atl, Decimal("0.62"), "m1:atl")
+    db_conn.commit()
+
+    market.record(db_conn)
+    backfill_outcomes(db_conn)
+    db_conn.commit()
+
+    selected = _selected_predictions(db_conn, ["polymarket-v1"], 2024, "close")
+    assert len(selected) == 1
+    assert selected[0].model_version == "polymarket-v1"
+    assert selected[0].actual is True  # ATL won 5-3, ATL is home
+
+    _reset(db_conn)

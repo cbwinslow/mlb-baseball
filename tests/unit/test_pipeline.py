@@ -21,7 +21,7 @@ def test_master_daily_pipeline_execution():
     assert any("KDE" in name for name in phase_names)
     assert any("SGP" in name for name in phase_names)
     assert any("Kelly" in name for name in phase_names)
-    assert any("Dossier" in name for name in phase_names)
+    assert any("Export" in name for name in phase_names)
 
 
 def test_pipeline_health_check():

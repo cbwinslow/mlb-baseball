@@ -21,7 +21,6 @@ from mlb_baseball import (
     backup,
     conform,
     daemon,
-    dump,
     ingest,
     manifest,
     migrate,
@@ -459,10 +458,6 @@ def run() -> list[Check]:
         checks.extend(cluster.health_check())
     except Exception as exc:
         checks.append(Check("cluster", False, f"health_check() raised: {exc}"))
-    try:
-        checks.extend(dump.health_check())
-    except Exception as exc:
-        checks.append(Check("dump", False, f"health_check() raised: {exc}"))
     try:
         checks.extend(hedge.health_check())
     except Exception as exc:

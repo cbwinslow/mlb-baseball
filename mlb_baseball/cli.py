@@ -154,7 +154,7 @@ def _run_group(names: list[str], mode: str, profile: str) -> bool:
     return any_failed
 
 
-def _run_all(mode: str, profile: str) -> None:
+def _run_all(mode: str, profile: str, skip: list[str] | None = None) -> None:
     # Groups run concurrently (different external servers per group,
     # confirmed no shared-server overlap between groups — see
     # _SAME_SERVER_GROUPS above); connectors within one group stay
@@ -162,7 +162,18 @@ def _run_all(mode: str, profile: str) -> None:
     # chose instead of retrying concurrency *inside* a single connector's
     # request loop (ADR-005's undiagnosed deadlock, never root-caused —
     # not worth reintroducing that risk blind, a second time).
-    groups = _concurrency_groups(list(CONNECTORS))
+    skipped = set(skip or ())
+    unknown = skipped - set(CONNECTORS)
+    if unknown:
+        print(f"mlb {mode}: --skip names no known connector: {', '.join(sorted(unknown))}")
+        sys.exit(2)
+    names = [n for n in CONNECTORS if n not in skipped]
+    if skipped:
+        print(f"mlb {mode}: skipping {', '.join(sorted(skipped))}")
+    if not names:
+        print(f"mlb {mode}: nothing to do — every connector was --skip'd")
+        return
+    groups = _concurrency_groups(names)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(groups)) as pool:
         try:
             results = list(pool.map(lambda names: _run_group(names, mode, profile), groups))
@@ -251,7 +262,20 @@ def _run_experiment_command(args: argparse.Namespace, conn: psycopg.Connection) 
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="mlb")
+    parser = argparse.ArgumentParser(
+        prog="mlb",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Local MLB research warehouse and prediction pipeline.",
+        epilog=(
+            "Core commands:\n"
+            "  migrate, preflight, ingest, bootstrap, update, conform,\n"
+            "  report, features, predict, train, evaluate, inventory,\n"
+            "  doctor, dump, audit, status\n"
+            "\n"
+            "Read first: docs/MAP.md, docs/PRODUCT_DIRECTION.md,\n"
+            "docs/superpowers/specs/2026-08-28-course-correction-design.md"
+        ),
+    )
     parser.add_argument(
         "--config",
         help="optional TOML settings file (defaults to ./mlb.toml when present)",
@@ -287,12 +311,21 @@ def main(argv: list[str] | None = None) -> None:
         "--workers", type=int, help="bounded parallel API workers for a staged MLB API run"
     )
 
-    for profile_parser in (
-        ingest_parser,
-        subparsers.add_parser("bootstrap"),
-        subparsers.add_parser("update"),
-    ):
+    bootstrap_parser = subparsers.add_parser("bootstrap")
+    update_parser = subparsers.add_parser("update")
+    for profile_parser in (ingest_parser, bootstrap_parser, update_parser):
         profile_parser.add_argument("--profile", choices=sorted(PROFILES))
+    for all_parser in (bootstrap_parser, update_parser):
+        all_parser.add_argument(
+            "--skip",
+            action="append",
+            default=[],
+            metavar="CONNECTOR",
+            help="exclude this connector from the run; repeatable. Used by "
+            "scripts/mlb_daily_update.sh to skip mlb_api (kept fresh by the "
+            "separate 5-minute mlb_api_update cron, whose ingestion lock the "
+            "daily run would otherwise fight every time).",
+        )
 
     subparsers.add_parser("conform")
     subparsers.add_parser("report", help="rebuild documented gold research tables")
@@ -601,23 +634,41 @@ def main(argv: list[str] | None = None) -> None:
     )
     ros_parser.add_argument("--json", action="store_true", help="output ROS projections as JSON")
 
-    # Polymorphic research dossier and report exporter (EXPORT-01)
+    # Research data and interop exporter (EXPORT-01)
     export_parser = subparsers.add_parser(
         "export",
-        help="export publication-ready research dossiers in Markdown, Terminal, HTML, or JSON",
+        help="export database relations to CSV, Excel, or Parquet, or generate public_safe bundle",
     )
     export_parser.add_argument(
-        "--date", type=str, help="target game date (YYYY-MM-DD, default: today)"
+        "relation",
+        nargs="?",
+        type=str,
+        help="relation to export (e.g. gold.game_export, core.player, or game_export)",
+    )
+    export_parser.add_argument(
+        "--season",
+        type=int,
+        help="filter export by season (for relations with a season column)",
     )
     export_parser.add_argument(
         "--format",
-        type=str,
-        choices=["markdown", "terminal", "html", "json"],
-        default="markdown",
-        help="output format (default: markdown)",
+        choices=["csv", "xlsx", "parquet"],
+        help="export format (default: inferred from --out extension or parquet)",
     )
     export_parser.add_argument(
-        "--output", type=str, help="optional output file path to write rendered dossier"
+        "--out",
+        type=str,
+        help="output file path or directory (default: <rel>.<ext> or export_bundle/)",
+    )
+    export_parser.add_argument(
+        "--profile",
+        choices=["public_safe"],
+        help="export rights-filtered redistribution bundle (e.g. public_safe)",
+    )
+    export_parser.add_argument(
+        "--zip",
+        action="store_true",
+        help="compress export bundle directory into a zip archive",
     )
 
     # Bayesian constrained ensemble stacking meta-learner (STACK-02)
@@ -764,15 +815,6 @@ def main(argv: list[str] | None = None) -> None:
         "--ivb", type=float, default=18.5, help="target fastball IVB (default: 18.5)"
     )
     cluster_parser.add_argument("--json", action="store_true", help="output comps as JSON")
-
-    # Comprehensive player dossier & data dump (DUMP-01)
-    dump_parser = subparsers.add_parser(
-        "dump",
-        help="export multi-table player analytical dossiers to JSON or CSV (DUMP-01)",
-    )
-    dump_parser.add_argument(
-        "--format", choices=["json", "csv"], default="json", help="export format (default: json)"
-    )
 
     # Live in-game hedging and middle bet calculator (HEDGE-01)
     hedge_parser = subparsers.add_parser(
@@ -2272,9 +2314,9 @@ def main(argv: list[str] | None = None) -> None:
     babip_parser.add_argument(
         "--actual", type=float, default=0.320, help="Actual BABIP (default: 0.320)"
     )
-    babip_parser.add_argument("--ld", type=float, default=0.21, help="Line Drive% (default: 0.21)")
+    babip_parser.add_argument("--ld", type=float, default=0.21, help="Line Drive%% (default: 0.21)")
     babip_parser.add_argument(
-        "--hard-hit", type=float, default=0.42, help="Hard-Hit% (default: 0.42)"
+        "--hard-hit", type=float, default=0.42, help="Hard-Hit%% (default: 0.42)"
     )
     babip_parser.add_argument(
         "--speed", type=float, default=27.5, help="Sprint Speed ft/s (default: 27.5)"
@@ -2320,10 +2362,10 @@ def main(argv: list[str] | None = None) -> None:
     # Batter sweet spot contact (SWEETSPOT-01)
     sws_parser = subparsers.add_parser(
         "sweetspot",
-        help="evaluate sweet-spot% and ideal contact rate (SWEETSPOT-01)",
+        help="evaluate sweet-spot%% and ideal contact rate (SWEETSPOT-01)",
     )
-    sws_parser.add_argument("--sws", type=float, default=0.36, help="Sweet-Spot% (default: 0.36)")
-    sws_parser.add_argument("--hh", type=float, default=0.44, help="Hard-Hit% (default: 0.44)")
+    sws_parser.add_argument("--sws", type=float, default=0.36, help="Sweet-Spot%% (default: 0.36)")
+    sws_parser.add_argument("--hh", type=float, default=0.44, help="Hard-Hit%% (default: 0.44)")
     sws_parser.add_argument(
         "--icr", type=float, default=39.5, help="Ideal Contact Rate (default: 39.5)"
     )
@@ -2337,12 +2379,14 @@ def main(argv: list[str] | None = None) -> None:
         "putaway",
         help="evaluate two-strike put-away conversion rate (PUTAWAY-01)",
     )
-    put_parser.add_argument("--putaway", type=float, default=0.22, help="Put-Away% (default: 0.22)")
+    put_parser.add_argument(
+        "--putaway", type=float, default=0.22, help="Put-Away%% (default: 0.22)"
+    )
     put_parser.add_argument(
         "--pitches", type=int, default=650, help="two-strike pitches (default: 650)"
     )
     put_parser.add_argument(
-        "--whiff", type=float, default=0.15, help="2-strike whiff% (default: 0.15)"
+        "--whiff", type=float, default=0.15, help="2-strike whiff%% (default: 0.15)"
     )
     put_parser.add_argument("--json", action="store_true", help="output putaway evaluation as JSON")
 
@@ -2374,13 +2418,13 @@ def main(argv: list[str] | None = None) -> None:
         "zone-swing",
         help="evaluate in-zone contact deficit and chase efficiency (ZONE-SWING-01)",
     )
-    zsw_parser.add_argument("--z-swing", type=float, default=0.68, help="Z-Swing% (default: 0.68)")
+    zsw_parser.add_argument("--z-swing", type=float, default=0.68, help="Z-Swing%% (default: 0.68)")
     zsw_parser.add_argument(
-        "--z-contact", type=float, default=0.84, help="Z-Contact% (default: 0.84)"
+        "--z-contact", type=float, default=0.84, help="Z-Contact%% (default: 0.84)"
     )
-    zsw_parser.add_argument("--o-swing", type=float, default=0.28, help="O-Swing% (default: 0.28)")
+    zsw_parser.add_argument("--o-swing", type=float, default=0.28, help="O-Swing%% (default: 0.28)")
     zsw_parser.add_argument(
-        "--o-contact", type=float, default=0.58, help="O-Contact% (default: 0.58)"
+        "--o-contact", type=float, default=0.58, help="O-Contact%% (default: 0.58)"
     )
     zsw_parser.add_argument(
         "--json", action="store_true", help="output zone swing evaluation as JSON"
@@ -2391,7 +2435,7 @@ def main(argv: list[str] | None = None) -> None:
         "fstrike",
         help="evaluate first-pitch strike surplus run value (FSTRIKE-01)",
     )
-    fps_parser.add_argument("--fps", type=float, default=0.65, help="F-Strike% (default: 0.65)")
+    fps_parser.add_argument("--fps", type=float, default=0.65, help="F-Strike%% (default: 0.65)")
     fps_parser.add_argument("--bf", type=int, default=700, help="batters faced (default: 700)")
     fps_parser.add_argument("--json", action="store_true", help="output FPS evaluation as JSON")
 
@@ -2987,12 +3031,12 @@ def main(argv: list[str] | None = None) -> None:
 
     # Player props command (PROP-01)
     props_parser = subparsers.add_parser(
-        "props", help="forecast player proposition markets (K%, outs, hits, HR)"
+        "props", help="forecast player proposition markets (K%%, outs, hits, HR)"
     )
     props_parser.add_argument("--game-pk", type=str, help="target MLB game PK to look up starters")
-    props_parser.add_argument("--pitcher-k", type=float, help="manual starter K% (e.g. 0.28)")
+    props_parser.add_argument("--pitcher-k", type=float, help="manual starter K%% (e.g. 0.28)")
     props_parser.add_argument(
-        "--opp-k", type=float, default=0.225, help="opposing lineup K% (default: 0.225)"
+        "--opp-k", type=float, default=0.225, help="opposing lineup K%% (default: 0.225)"
     )
     props_parser.add_argument(
         "--pitcher-fip", type=float, default=3.80, help="starter FIP (default: 3.80)"
@@ -3080,9 +3124,9 @@ def main(argv: list[str] | None = None) -> None:
         for table, count in fn().items():
             print(f"{table}: {count} rows")
     elif args.command == "bootstrap":
-        _run_all("bootstrap", profile)
+        _run_all("bootstrap", profile, skip=args.skip)
     elif args.command == "update":
-        _run_all("update", profile)
+        _run_all("update", profile, skip=args.skip)
     elif args.command == "conform":
         for table, count in conform.run().items():
             print(f"{table}: {count} rows")
@@ -3815,103 +3859,31 @@ def main(argv: list[str] | None = None) -> None:
             print("")
 
     elif args.command == "export":
-        from mlb_baseball.daily import generate_daily_briefing
         from mlb_baseball.db import get_connection
-        from mlb_baseball.export import (
-            ChartSectionBuilder,
-            KeyValueSectionBuilder,
-            ResearchDossier,
-            TableSectionBuilder,
-            get_renderer,
-        )
+        from mlb_baseball.export import export_bundle, export_relation
 
-        with get_connection() as conn:
-            d_report = generate_daily_briefing(target_date=args.date, conn=conn)
-
-        dossier = ResearchDossier(
-            title="MLB Quantitative Research & Matchup Dossier",
-            subtitle=(
-                f"Target Date: {d_report.target_date} (Generated UTC: {d_report.generated_at})"
-            ),
-        )
-
-        # 1. Health Status Section
-        health_pairs = [
-            (c.name, "PASS" if c.ok else f"FAIL ({c.detail})") for c in d_report.health_status
-        ]
-        dossier.add_section(KeyValueSectionBuilder("Operational Health Verification", health_pairs))
-
-        # 2. Matchup Forecasts Section
-        if d_report.matchups:
-            m_headers = ["Matchup", "Home Win%", "Away Win%", "Home Starter", "Away Starter"]
-            m_rows = [
-                [
-                    f"{m.away_team} @ {m.home_team}",
-                    f"{m.model_home_win_prob * 100:.1f}%",
-                    f"{m.model_away_win_prob * 100:.1f}%",
-                    m.home_starter or "TBD",
-                    m.away_starter or "TBD",
-                ]
-                for m in d_report.matchups
-            ]
-            dossier.add_section(
-                TableSectionBuilder("Today's Matchup Forecasts (GBM-v2 + Log5)", m_headers, m_rows)
-            )
-
-        # 3. Pitcher Strikeout Props Chart Section
-        if d_report.pitcher_props:
-            chart_items = [
-                (f"{p.pitcher_name} ({p.team})", round(p.projected_k_pct * 100.0, 1))
-                for p in d_report.pitcher_props
-            ]
-            dossier.add_section(
-                ChartSectionBuilder("Projected Pitcher Strikeout Rates (K%)", chart_items, unit="%")
-            )
-
-        # 4. Kelly Allocations Section
-        if d_report.portfolio_plan and d_report.portfolio_plan.recommendations:
-            k_headers = [
-                "Market / Matchup",
-                "Model%",
-                "Market%",
-                "Edge%",
-                "Kelly%",
-                "Wager ($)",
-                "+EV%",
-            ]
-            k_rows = [
-                [
-                    r.opportunity.description,
-                    f"{r.opportunity.model_probability * 100:.1f}%",
-                    f"{r.opportunity.market_implied_probability * 100:.1f}%",
-                    f"{r.opportunity.edge * 100:+.1f}%",
-                    f"{r.kelly_fraction * 100:.2f}%",
-                    f"${r.wager_amount_usd:,.2f}",
-                    f"{r.expected_value_pct * 100:+.1f}%",
-                ]
-                for r in d_report.portfolio_plan.recommendations
-            ]
-            dossier.add_section(
-                TableSectionBuilder(
-                    f"Kelly Criterion Capital Allocation "
-                    f"(Bankroll: ${d_report.portfolio_plan.total_bankroll_usd:,.2f})",
-                    k_headers,
-                    k_rows,
+        if args.profile:
+            with get_connection() as conn:
+                out_dir = args.out or "export_bundle"
+                result_path = export_bundle(
+                    conn,
+                    profile=args.profile,
+                    out_dir=out_dir,
+                    make_zip=args.zip,
                 )
-            )
-
-        if args.format == "json":
-            rendered = dossier.to_json()
+            print(f"Exported {args.profile} bundle to {result_path}")
+        elif args.relation:
+            with get_connection() as conn:
+                result_path, count = export_relation(
+                    conn,
+                    relation=args.relation,
+                    format=args.format,
+                    out_path=args.out,
+                    season=args.season,
+                )
+            print(f"Exported {count:,} rows to {result_path}")
         else:
-            renderer = get_renderer(args.format)
-            rendered = dossier.export(renderer)
-
-        if args.output:
-            with open(args.output, "w") as out_f:
-                out_f.write(rendered)
-            print(f"Dossier successfully exported to: {args.output}")
-        else:
-            print(rendered)
+            export_parser.error("must specify a relation or --profile")
 
     elif args.command == "stack":
         import json as json_lib
@@ -4485,26 +4457,6 @@ def main(argv: list[str] | None = None) -> None:
                 pname = c.matched_pitcher_name
                 print(f"  #{idx} {pname} ({c.matched_season}): {c.similarity_score_pct:.1f}%")
             print("")
-
-    elif args.command == "dump":
-        from mlb_baseball.dump import PlayerDataDumpEngine, PlayerDossierDump
-
-        dump_engine = PlayerDataDumpEngine()
-        sample_dossier = PlayerDossierDump(
-            player_id="660271",
-            player_name="Shohei Ohtani",
-            season=2024,
-            position_type="batter",
-            team_abbrev="LAD",
-            primary_metrics={"woba": 0.425, "wrc_plus": 182.0, "barrel_pct": 0.198},
-            stuff_arsenal={"stuff_plus": 115.0, "pitching_plus": 112.0},
-            projection={"projected_woba": 0.405},
-            zone_whiff_rates={1: 0.15, 2: 0.12, 3: 0.28},
-        )
-        if args.format == "csv":
-            print(dump_engine.export_csv([sample_dossier]))
-        else:
-            print(dump_engine.export_json([sample_dossier]))
 
     elif args.command == "hedge":
         import json as json_lib

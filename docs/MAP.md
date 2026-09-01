@@ -13,9 +13,19 @@ their content as true as of their stated date, not as current state; check
 
 ## Start here
 
+Agents: read `NORTH_STAR.md` first, then this page, then `PRODUCT_DIRECTION.md`,
+then the course-correction spec. Do not add a metric engine or GBM column from
+FEATURE_REGISTRY alone.
+
 - [`NORTH_STAR.md`](NORTH_STAR.md) — the vision, the three build phases, the
   budget rule ($0/month), and what makes this project different from
   baseball.computer. Read this first.
+- [`PRODUCT_DIRECTION.md`](PRODUCT_DIRECTION.md) — **2026-08-28 owner
+  handoff** plus ADR-271 course correction. Keep `conform`/`predict`,
+  SQLMesh vs named `.sql`, prediction ladder. Read this before adding
+  features.
+- [`superpowers/specs/2026-08-28-course-correction-design.md`](superpowers/specs/2026-08-28-course-correction-design.md)
+  — locked decisions: two products, matchup Markov as Layer 2, freeze list.
 - [`ROADMAP.md`](ROADMAP.md) — what's actually built vs. planned, phase by
   phase. The living answer to "where are we."
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — the raw/core/gold layered schema,
@@ -106,6 +116,18 @@ their content as true as of their stated date, not as current state; check
 - [`SQL_OWNERSHIP.md`](SQL_OWNERSHIP.md) — where new SQL is allowed to live,
   so a second embedded-SQL-in-Python pile doesn't grow alongside the
   reviewed `mlb_baseball/sql/*.sql` files.
+
+## Reference constants (Bucket B / WIRE tie-out)
+
+- [`reference/tango_the_book.md`](reference/tango_the_book.md) — The Book
+  Table 7 linear weights (as Tango restated them) and Tango’s published
+  RE24 matrix. Tie-out only; `gold.run_expectancy_24` is the computed
+  source of truth.
+- [`reference/statcast_glossary.md`](reference/statcast_glossary.md) —
+  Statcast barrel / EV / VAA / x-stats definitions and which
+  `raw.statcast_pitch` columns feed a WIRE. `local_research` only.
+- [`reference/agy/`](reference/agy/) — verbatim Agy planning artifacts
+  (2026-08-21–23). Not operating doctrine.
 
 ## Reference
 

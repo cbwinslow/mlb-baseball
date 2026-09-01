@@ -84,7 +84,7 @@ jobs:
           enable-cache: true
 
       - name: Install package with dev dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --extra dev --extra export
 
       - name: Lint (ruff)
         run: uv run ruff check .
@@ -113,7 +113,7 @@ jobs:
           enable-cache: true
 
       - name: Install package with dev dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --extra dev --extra export
 
       - name: Run unit tests
         run: uv run pytest tests/unit -q --cov=mlb_baseball --cov-report=xml
@@ -157,14 +157,28 @@ jobs:
           enable-cache: true
 
       - name: Install package with dev dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --extra dev --extra export
 
-      - name: Enable pg_stat_statements in the Postgres service
+      - name: Configure the Postgres service (pg_stat_statements + throwaway-DB durability)
         env:
           POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: |
-          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
-            "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements'"
+          # The CI Postgres is a disposable container that is destroyed after
+          # the run -- crash-safety buys nothing here, and the fsync/WAL cost
+          # dominates a suite that creates ~hundreds of templated databases.
+          # Same relaxations tests/conftest.py already applies per-database
+          # (issue #2), lifted to the whole cluster. Do NOT copy these to any
+          # persistent database.
+          # `-i` is required: without it `docker exec` does not forward the
+          # heredoc on stdin, so psql would get EOF and silently run nothing.
+          docker exec -i "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';
+          ALTER SYSTEM SET fsync = off;
+          ALTER SYSTEM SET synchronous_commit = off;
+          ALTER SYSTEM SET full_page_writes = off;
+          ALTER SYSTEM SET max_wal_senders = 0;
+          ALTER SYSTEM SET wal_level = minimal;
+          SQL
           docker restart "$POSTGRES_CONTAINER_ID"
           until docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres; do sleep 1; done
 
@@ -222,3 +236,20 @@ jobs:
           files: coverage.xml
           flags: integration
           fail_ci_if_error: false
+
+  # Branch protection on main requires a check named "test". This workflow's
+  # jobs are named unit/integration; without this aggregator, green PRs stay
+  # BLOCKED (PR #90, 2026-08-28). `if: always()` so a failed child still runs
+  # this job and fails the required check instead of skipping it.
+  test:
+    name: test
+    needs: [unit, integration]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require unit and integration to have succeeded
+        run: |
+          test "${{ needs.unit.result }}" = "success"
+          test "${{ needs.integration.result }}" = "success"

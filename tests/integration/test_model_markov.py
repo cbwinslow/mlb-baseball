@@ -3,6 +3,7 @@ matrix estimation from raw.retrosheet_event (Plan 04D).
 """
 
 import random
+from datetime import date
 
 import pytest
 
@@ -24,7 +25,8 @@ def _ensure_retrosheet_tables(db_conn):
         if not cur.fetchone()[0]:
             cur.execute(
                 "CREATE TABLE raw.retrosheet_gameinfo "
-                "(gid text, gametype text, _season text, vruns text, hruns text)"
+                "(gid text, gametype text, _season text, vruns text, hruns text, "
+                "date text)"
             )
     db_conn.commit()
 
@@ -58,29 +60,57 @@ def _insert_event(
     r1_dest="0",
     r2_dest="0",
     r3_dest="0",
+    resp_pit_id=None,
+    bat_event_fl=None,
 ):
-    cur.execute(
-        "INSERT INTO raw.retrosheet_event "
-        "(game_id, inn_ct, bat_home_id, outs_ct, event_outs_ct, event_cd, "
+    columns = (
+        "game_id, inn_ct, bat_home_id, outs_ct, event_outs_ct, event_cd, "
         "base1_run_id, base2_run_id, "
-        "base3_run_id, bat_dest_id, run1_dest_id, run2_dest_id, run3_dest_id) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (
-            game_id,
-            inn_ct,
-            bat_home_id,
-            outs_ct,
-            event_outs_ct,
-            event_cd,
-            b1,
-            b2,
-            b3,
-            bat_dest,
-            r1_dest,
-            r2_dest,
-            r3_dest,
-        ),
+        "base3_run_id, bat_dest_id, run1_dest_id, run2_dest_id, run3_dest_id"
     )
+    values: list[object] = [
+        game_id,
+        inn_ct,
+        bat_home_id,
+        outs_ct,
+        event_outs_ct,
+        event_cd,
+        b1,
+        b2,
+        b3,
+        bat_dest,
+        r1_dest,
+        r2_dest,
+        r3_dest,
+    ]
+    if resp_pit_id is not None:
+        columns += ", resp_pit_id"
+        values.append(resp_pit_id)
+    if bat_event_fl is not None:
+        columns += ", bat_event_fl"
+        values.append(bat_event_fl)
+    placeholders = ", ".join(["%s"] * len(values))
+    cur.execute(
+        f"INSERT INTO raw.retrosheet_event ({columns}) VALUES ({placeholders})",
+        values,
+    )
+
+
+def _ensure_matchup_columns(db_conn):
+    """Layer-2 filters need team and pitcher columns the league query does not."""
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "ALTER TABLE raw.retrosheet_gameinfo "
+            "ADD COLUMN IF NOT EXISTS visteam text, "
+            "ADD COLUMN IF NOT EXISTS hometeam text, "
+            "ADD COLUMN IF NOT EXISTS date text"
+        )
+        cur.execute(
+            "ALTER TABLE raw.retrosheet_event "
+            "ADD COLUMN IF NOT EXISTS resp_pit_id text, "
+            "ADD COLUMN IF NOT EXISTS bat_event_fl text"
+        )
+    db_conn.commit()
 
 
 def test_estimate_transition_matrix_matches_hand_built_half_inning(db_conn):
@@ -457,3 +487,227 @@ def test_real_game_scores_matches_hand_calculation(db_conn):
 def test_real_game_scores_returns_empty_when_tables_missing(db_conn):
     _reset(db_conn)
     assert markov.real_game_scores(db_conn, seasons=[2021]) == []
+
+
+def test_estimate_matchup_distribution_filters_to_the_batting_team(db_conn):
+    # NYA202104010: ATL (away) hits a solo HR; NYA (home) makes three
+    # outs with no runs. A batting_team='ATL' matchup must see only the
+    # HR; the unfiltered league distribution sees both outcomes.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    _ensure_matchup_columns(db_conn)
+    gid = "NYA202104010"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo "
+            "(gid, gametype, _season, visteam, hometeam) "
+            "VALUES (%s, 'regular', '2021', 'ATL', 'NYA')",
+            (gid,),
+        )
+        _insert_event(cur, gid, "0", "3", "23", bat_dest="4", resp_pit_id="nyap001")
+        _insert_event(cur, gid, "0", "3", "2", bat_home_id="1", bat_dest="0", resp_pit_id="atlp001")
+    db_conn.commit()
+
+    empty_zero = markov.BaseOutState(0, False, False, False)
+    league = markov.estimate_outcome_distribution(db_conn, seasons=[2021])
+    atl = markov.estimate_matchup_distribution(
+        db_conn, seasons=[2021], batting_team="ATL", pitching_team="NYA", prior_pa=1
+    )
+
+    assert len(league[empty_zero]) == 2
+    # prior_pa=1 and n=1 → even mix would appear if we used the league
+    # prior heavily; with prior_pa=1 the ATL HR dominates. Check the HR
+    # outcome is the majority, and the scoreless NYA play is the minority.
+    atl_hr = atl[empty_zero][markov.Outcome(markov.TERMINAL, 1)]
+    atl_out = atl[empty_zero][markov.Outcome(markov.TERMINAL, 0)]
+    assert atl_hr > atl_out
+
+
+def test_estimate_matchup_distribution_excludes_the_target_game(db_conn):
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    _ensure_matchup_columns(db_conn)
+    prior = "NYA202104010"
+    target = "NYA202104020"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo "
+            "(gid, gametype, _season, visteam, hometeam, date) VALUES "
+            "(%s, 'regular', '2021', 'ATL', 'NYA', '20210401'), "
+            "(%s, 'regular', '2021', 'ATL', 'NYA', '20210402')",
+            (prior, target),
+        )
+        _insert_event(cur, prior, "0", "3", "23", bat_dest="4")
+        _insert_event(cur, target, "0", "3", "2", bat_dest="0")
+    db_conn.commit()
+
+    empty_zero = markov.BaseOutState(0, False, False, False)
+    leaked = markov.estimate_matchup_distribution(
+        db_conn, seasons=[2021], batting_team="ATL", prior_pa=1
+    )
+    pit = markov.estimate_matchup_distribution(
+        db_conn,
+        seasons=[2021],
+        batting_team="ATL",
+        exclude_game_id=target,
+        prior_pa=1,
+    )
+    as_of = markov.estimate_matchup_distribution(
+        db_conn,
+        seasons=[2021],
+        batting_team="ATL",
+        before_date=date(2021, 4, 2),
+        prior_pa=1,
+    )
+
+    # With both games, ATL has a HR and a scoreless play. Excluding the
+    # target (or cutting off before it) leaves only the prior HR, so the
+    # scoreless outcome's weight must drop.
+    assert leaked[empty_zero][markov.Outcome(markov.TERMINAL, 0)] > pit[empty_zero].get(
+        markov.Outcome(markov.TERMINAL, 0), 0
+    )
+    assert pit[empty_zero][markov.Outcome(markov.TERMINAL, 1)] == pytest.approx(
+        as_of[empty_zero][markov.Outcome(markov.TERMINAL, 1)]
+    )
+
+
+def test_estimate_matchup_distribution_league_prior_excludes_the_target_game(db_conn):
+    # The matchup sample for the target day is only the prior HR. If the
+    # league prior still included the target's scoreless play, shrink
+    # (n=1, M=1) would keep a 25% mass on 0 runs. A cutoff-correct prior
+    # is HR-only, so the mix is 100% the HR.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    _ensure_matchup_columns(db_conn)
+    prior = "NYA202104010"
+    target = "NYA202104020"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo "
+            "(gid, gametype, _season, visteam, hometeam) VALUES "
+            "(%s, 'regular', '2021', 'ATL', 'NYA'), "
+            "(%s, 'regular', '2021', 'ATL', 'NYA')",
+            (prior, target),
+        )
+        _insert_event(cur, prior, "0", "3", "23", bat_dest="4")
+        _insert_event(cur, target, "0", "3", "2", bat_dest="0")
+    db_conn.commit()
+
+    empty_zero = markov.BaseOutState(0, False, False, False)
+    pit = markov.estimate_matchup_distribution(
+        db_conn,
+        seasons=[2021],
+        batting_team="ATL",
+        exclude_game_id=target,
+        prior_pa=1,
+    )
+    assert list(pit[empty_zero]) == [markov.Outcome(markov.TERMINAL, 1)]
+    assert pit[empty_zero][markov.Outcome(markov.TERMINAL, 1)] == pytest.approx(1.0)
+
+
+def test_estimate_matchup_distribution_unknown_team_returns_league(db_conn):
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    _ensure_matchup_columns(db_conn)
+    gid = "NYA202104010"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo "
+            "(gid, gametype, _season, visteam, hometeam) "
+            "VALUES (%s, 'regular', '2021', 'ATL', 'NYA')",
+            (gid,),
+        )
+        _insert_event(cur, gid, "0", "3", "23", bat_dest="4")
+    db_conn.commit()
+
+    league = markov.estimate_outcome_distribution(db_conn, seasons=[2021])
+    fallback = markov.estimate_matchup_distribution(db_conn, seasons=[2021], batting_team="XXX")
+    empty_zero = markov.BaseOutState(0, False, False, False)
+    assert fallback[empty_zero] == league[empty_zero]
+
+
+def test_estimate_matchup_distribution_returns_empty_when_tables_missing(db_conn):
+    _reset(db_conn)
+    assert markov.estimate_matchup_distribution(db_conn, seasons=[2021]) == {}
+
+
+def test_estimate_matchup_distribution_rejects_a_bad_bat_home(db_conn):
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    _ensure_matchup_columns(db_conn)
+    with pytest.raises(markov.MarkovError):
+        markov.estimate_matchup_distribution(db_conn, seasons=[2021], bat_home="home")
+    with pytest.raises(markov.MarkovError):
+        markov.fetch_matchup_transition_counts(db_conn, [2021], bat_home="away")
+
+
+def test_estimate_matchup_distribution_scopes_to_one_batting_side(db_conn):
+    # One game: ATL (away, bat_home '0') hits a HR; NYA (home, bat_home
+    # '1') makes an out. bat_home='0' must see only the HR outcome,
+    # bat_home='1' only the out -- the two half-innings do not mix.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    _ensure_matchup_columns(db_conn)
+    gid = "NYA202104010"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo "
+            "(gid, gametype, _season, visteam, hometeam, date) "
+            "VALUES (%s, 'regular', '2021', 'ATL', 'NYA', '20210401')",
+            (gid,),
+        )
+        _insert_event(cur, gid, "0", "3", "23", bat_home_id="0", bat_dest="4")
+        _insert_event(cur, gid, "0", "3", "2", bat_home_id="1", bat_dest="0")
+    db_conn.commit()
+
+    empty_zero = markov.BaseOutState(0, False, False, False)
+    away = markov.estimate_matchup_distribution(db_conn, seasons=[2021], bat_home="0", prior_pa=1)
+    home = markov.estimate_matchup_distribution(db_conn, seasons=[2021], bat_home="1", prior_pa=1)
+    assert list(away[empty_zero]) == [markov.Outcome(markov.TERMINAL, 1)]
+    assert list(home[empty_zero]) == [markov.Outcome(markov.TERMINAL, 0)]
+
+
+def test_estimate_matchup_distribution_backs_off_to_team_when_pitcher_sample_is_thin(db_conn):
+    # ATL vs NYA: pitcher nyap001 faced ATL once (a HR). With
+    # pitcher_min_pa=5 that one-PA sample is dropped and the estimate
+    # falls back to the ATL-vs-NYA team matchup, which also includes a
+    # scoreless play thrown by a different pitcher.
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    _ensure_matchup_columns(db_conn)
+    gid = "NYA202104010"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo "
+            "(gid, gametype, _season, visteam, hometeam, date) "
+            "VALUES (%s, 'regular', '2021', 'ATL', 'NYA', '20210401')",
+            (gid,),
+        )
+        _insert_event(
+            cur, gid, "0", "3", "23", bat_home_id="0", bat_dest="4", resp_pit_id="nyap001"
+        )
+        _insert_event(cur, gid, "0", "3", "2", bat_home_id="0", bat_dest="0", resp_pit_id="nyap002")
+    db_conn.commit()
+
+    empty_zero = markov.BaseOutState(0, False, False, False)
+    thin = markov.estimate_matchup_distribution(
+        db_conn,
+        seasons=[2021],
+        batting_team="ATL",
+        pitching_team="NYA",
+        pit_id="nyap001",
+        pitcher_min_pa=5,
+        prior_pa=1,
+    )
+    # Backed off to the team matchup -> the scoreless play is now in the
+    # sample, so a 0-run outcome carries real weight.
+    assert thin[empty_zero].get(markov.Outcome(markov.TERMINAL, 0), 0) > 0
+
+
+def test_fetch_matchup_transition_counts_rejects_empty_seasons(db_conn):
+    """fetch_matchup_transition_counts must validate the seasons argument."""
+    _reset(db_conn)
+    _ensure_retrosheet_tables(db_conn)
+    _ensure_matchup_columns(db_conn)
+    with pytest.raises(ValueError, match="seasons must not be empty"):
+        markov.fetch_matchup_transition_counts(db_conn, [])

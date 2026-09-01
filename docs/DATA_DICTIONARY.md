@@ -115,7 +115,81 @@ This catalog documents the schemas, grains, business keys, temporal semantics, a
 
 ---
 
-## 3. Raw Data Landing Tables (`raw.*`)
+## 3. Grain-Complete Statistic Backbone (`gold.batting_game`, …)
+
+The complement to `gold.game_feature`: where `game_feature` is *what was
+knowable before a game*, the backbone is *what actually happened*, at every
+grain a sabermetric researcher expects (game → season → career; player and
+team). Built by `mlb report` from `raw.retrosheet_event`, matching the
+event-flag handling of the already-tied-out team stats
+(`sql/team_woba_retrosheet_update.sql`, ADR-034). See
+[`superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md`](superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md)
+for the staged plan.
+
+### 3.1 `gold.batting_game`
+
+- **Grain**: one batting box-score line per `(game_id, player_id, team_id)`,
+  regular season only. `team_id` is in the key (not an inferred attribute) so
+  the rare case of a player appearing for both clubs in one `game_id` (a
+  suspended game resumed after a trade) gets two rows instead of colliding.
+- **Temporal semantics**: the actual game result — not point-in-time.
+- **Coverage**: 1910–2025 (Retrosheet events). 2026+ and postseason are
+  separate follow-up builders.
+- **Counting stats only** — rate stats (AVG/OBP/SLG/…) live in the season and
+  career roll-ups where the denominators are meaningful.
+
+| Column | Type | Definition |
+|---|---|---|
+| `game_id`, `player_id`, `team_id` | `bigint` | FKs to `core.game` / `core.player` / `core.team` |
+| `season`, `game_date` | `integer`, `date` | From `core.game` |
+| `pa` | `integer` | Plate appearances (`bat_event_fl = 'T'`) |
+| `ab` | `integer` | At bats (`ab_fl = 'T'`) |
+| `r` | `integer` | Runs scored by this player, as batter or baserunner |
+| `h`, `b1`, `b2`, `b3`, `hr` | `integer` | Hits and hit types (`event_cd` 20/21/22/23) |
+| `tb` | `integer` | Total bases (`b1 + 2·b2 + 3·b3 + 4·hr`) |
+| `rbi` | `integer` | Runs batted in (`sum(rbi_ct)`) |
+| `bb`, `ibb` | `integer` | Walks (`event_cd` 14–15); intentional (`15`) |
+| `hbp` | `integer` | Hit by pitch (`event_cd` 16) |
+| `sf`, `sh` | `integer` | Sacrifice flies (`sf_fl`); sac bunts (`sh_fl`) |
+| `so` | `integer` | Strikeouts (`event_cd` 3) |
+| `gidp` | `integer` | Grounded into DP (`dp_fl = 'T'` and grounder). Undercounts pre-1988 (sparse `battedball_cd`). |
+| `source` | `text` | Origin of the row — `retrosheet_event` today |
+| `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
+
+### 3.2 `gold.pitching_game`
+
+- **Grain**: one pitching box-score line per `(game_id, player_id, team_id)`,
+  regular season only (same key rationale as `gold.batting_game` above). A
+  two-way player also gets a `gold.batting_game` row.
+- **Temporal semantics**: the actual game result — not point-in-time.
+- **Coverage**: 1910–2025 (Retrosheet events). 2026+ and postseason are
+  separate follow-up builders.
+- **`er` / `era` are not produced** — earned runs need reconstructed-inning
+  logic that cwevent does not emit. `r` (total runs allowed) and season RA9
+  are the honest event-derived figures; ERA is per-player-season from
+  Baseball-Reference (`gold.player_season`).
+
+| Column | Type | Definition |
+|---|---|---|
+| `game_id`, `player_id`, `team_id` | `bigint` | FKs to `core.game` / `core.player` / `core.team` |
+| `season`, `game_date` | `integer`, `date` | From `core.game` |
+| `gs` | `integer` | 1 if this pitcher started the game |
+| `bf` | `integer` | Batters faced (`bat_event_fl = 'T'`, this pitcher charged via `resp_pit_id`) |
+| `outs` | `integer` | Outs recorded (`sum(event_outs_ct)`); IP = `outs / 3.0` |
+| `h`, `hr` | `integer` | Hits / home runs allowed (`event_cd` 20–23 / 23) |
+| `r` | `integer` | Runs allowed — charged per responsible pitcher (`resp_pit_id` for the batter-runner, `run{1,2,3}_resp_pit_id` for inherited runners) |
+| `bb`, `ibb` | `integer` | Walks allowed (`event_cd` 14–15); intentional (`15`) |
+| `so` | `integer` | Strikeouts (`event_cd` 3) |
+| `hbp` | `integer` | Hit batters (`event_cd` 16) |
+| `wp` | `integer` | Wild pitches (`wp_fl = 'T'`) |
+| `bk` | `integer` | Balks (`event_cd` 11) |
+| `w`, `l`, `sv` | `integer` | Win / loss / save from `core.game.{winning,losing,save}_pitcher_id` |
+| `source` | `text` | Origin of the row — `retrosheet_event` today |
+| `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
+
+---
+
+## 4. Raw Data Landing Tables (`raw.*`)
 
 - **`raw.statcast_pitch`**: Every tracked pitch in Statcast era (pitch type, velocity, spin rate, release coordinates, `pfx_x`, `pfx_z`, plate coordinates, zone 1-14, exit velocity, launch angle, hit distance, xBA, xwOBA).
 - **`raw.statcast_pitcher_arsenal_stat`**: Pitcher pitch-type repertoire (usage%, run value/100, wOBA against, whiff%).
@@ -126,8 +200,18 @@ This catalog documents the schemas, grains, business keys, temporal semantics, a
 
 ---
 
-## 4. Serving Marts (`serve.*`)
+## 5. Serving Marts (`serve.*`)
 
 - **`serve.daily_betting_grid`**: Live and historical games with starting pitchers, market consensus odds, model predicted win probability, fair price, and $+EV$ edge.
 - **`serve.pitcher_card`**: Comprehensive pitcher profile (SIERA, xFIP, CSW%, IVB, Curve Drop, Vertical Separation, 4-tier attack zone breakdown).
 - **`serve.matchup_preview`**: Complete head-to-head comparison table showing all 17 symmetric difference terms.
+
+---
+
+## 6. Core Relational Tables (`core.*`)
+
+Catalogued as the tables this repo's changes have needed documented; not yet an exhaustive `core.*` listing.
+
+- **`core.market`**: One matched Polymarket/Kalshi market row per game/side (`game_id`, `source`, `market_ref`, `team_id`), matched to `core.game` by `conform.py`.
+  - `implied_probability numeric` — nullable. The market-implied win probability for `team_id`, taken from the latest `raw.{polymarket,kalshi}_snapshot` row captured strictly before the game's real start time; NULL when no pre-game snapshot exists. Never the settled/current price (ADR-052).
+  - `observed_at timestamptz` — nullable. The `captured_at` of the `raw.{polymarket,kalshi}_snapshot` row that `implied_probability` was resolved from; the pre-game moment that price was observed. NULL exactly when `implied_probability` is NULL (issue #107).

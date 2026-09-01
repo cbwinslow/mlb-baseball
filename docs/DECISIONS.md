@@ -2,6 +2,478 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-278: grain-complete statistic backbone — `gold.batting_game` first
+
+**Decision:** Build a stable statistic table at every grain a sabermetric
+researcher expects (game → season → career; player and team), starting with
+`gold.batting_game` and `gold.pitching_game` — one box-score line per
+`(game_id, player_id, team_id)`, regular season, built by `mlb report` from
+`raw.retrosheet_event` (migrations 0094/0095, `sql/batting_game_build.sql` /
+`sql/pitching_game_build.sql`). `team_id` is in the key, not an inferred
+attribute — a player who appears for both clubs in one `game_id` (a suspended
+game resumed after a trade) gets two rows instead of colliding on the primary
+key. Counting stats only; rate stats live in the season/career roll-ups.
+Spec: `superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md`;
+plan: `superpowers/plans/2026-09-01-grain-backbone-plan.md`.
+
+**Context:** An inventory (2026-09-01) of baseball.computer's published
+surface vs ours found we already compute the advanced metrics (wOBA, wRC+,
+FIP, xFIP, SIERA, RE24, WPA, LI, BsR, framing, pitch discipline) with cited
+formulas and hand fixtures — but every one lives on `gold.game_feature`, at
+one grain (pregame, per game instance, `home_*`/`away_*` columns). A
+researcher cannot query player-season FIP or team wOBA by game without
+rebuilding from `raw`. baseball.computer's whole value is the clean grain
+ladder, which Plan 03B specified and we never built past the single game
+grain. The work is mostly re-plumbing already-validated formulas to new
+grains — the opposite of the ~110 frozen un-cited Engine packages.
+
+**Cost:** one new `gold` table per grain, each a named `.sql` builder + a
+migration (the proven one-writer-per-table path; a SQLMesh
+`INCREMENTAL_BY_TIME_RANGE` model is a drop-in later once ADR-088's promotion
+path is open). `gold.batting_game` reuses the exact `bat_event_fl` / `ab_fl`
+/ `sf_fl` / `sh_fl` / `event_cd` handling of
+`sql/team_woba_retrosheet_update.sql` (ADR-034) so the new grain cannot
+silently diverge from the tied-out team numbers. Building from `core.play`
+was rejected: it carries none of those flags.
+
+**Placement:** `gold`, not `core` — a box-score line is a derived
+aggregation. `core` stays dimensions + facts at their natural grain.
+
+**Scope / limits:** regular season only (matches the existing gold season
+tables and Baseball-Reference); 1910–2025 (Retrosheet), with a separate
+`raw.mlb_playbyplay` builder for 2026+ to follow; `gidp` undercounts
+pre-1988 (sparse `battedball_cd`); pure pinch-runners (PA=0) are deferred to
+a later `gold.baserunning_game`.
+
+**Revisit if:** the existing `gold.player_season` / `gold.team_season`
+(Baseball-Reference / Lahman, 2008+) should become views over the new
+Retrosheet-backed tables rather than a parallel "official-source"
+alternative — a deliberate choice to record in its own ADR when the season
+roll-ups land, not a two-writer accident.
+
+**WAR: explicitly out of scope.** Many contentious components; both fWAR and
+bWAR are proprietary blends. Keep ingesting Baseball-Reference's
+`core.player_war`.
+
+## ADR-277: core.market.observed_at — truthful pre-game timestamp for market comparison lines
+
+**Decision:** `core.market` gains a nullable `observed_at timestamptz`
+column holding the `captured_at` of the `raw.{polymarket,kalshi}_snapshot`
+row that `implied_probability` was resolved from. `conform.py`'s
+`_latest_entry_before` (a generalisation of `_latest_before` that returns
+the whole `(timestamp, value)` entry) populates it. `market_kalshi_prediction_insert.sql`
+and `market_polymarket_prediction_insert.sql` now `SELECT m.observed_at`
+into `gold.prediction.generated_at` instead of letting it default to
+`now()`.
+
+**Context:** `market._record_decided()` runs inside `mlb predict`, i.e.
+after a game has finished, so every decided-game `kalshi-v1` / `polymarket-v1`
+row was stamped `generated_at = now() > game_start` and silently dropped by
+`evaluation._selected_predictions`' `generated_at < s.game_start` filter
+(issue #107). Verified on production 2026-08-31: 0 of ~590 decided-game
+market rows passed. The `_record_upcoming` path (ADR-267) already records a
+truthful pre-game time, but only accrues ~25 games/day and leaves the
+decided path permanently broken. `core.market` already stored the pre-game
+snapshot *value* (ADR-052) — this persists its *time*.
+
+**Cost:** one nullable column (instant `ADD COLUMN` on PG16); `_latest_before`
+becomes a one-line wrapper (behaviour and its `market.py` callers unchanged).
+A one-time `scripts/repair_market_prediction_times.sql` deletes the stale
+production rows so the idempotency guard re-inserts them; `gold.prediction`
+is regenerable model output. `_record_upcoming` and `implied_probability`
+value semantics are untouched. Per-row `observed_at` also means two
+`core.market` rows for the same game+home-team no longer collide on
+`gold.prediction`'s PK (they insert as two snapshots) — the loud failure
+that first caught the ADR-053 fan-out. Mitigated in depth:
+`conform._game_lookup` drops ambiguous `(date, team)` keys, Polymarket is
+narrowed to `sportsmarkettype = 'moneyline'`, `evaluation._selected_predictions`
+takes `snapshot_rank = 1`, and `mlb doctor`'s coverage checks still flag an
+over-count as fan-out.
+
+**Revisit if:** the `mlb predict` cron moves off ~06:00 UTC — `_record_upcoming`
+resolves the last snapshot before *first pitch*, not before *now*, a mild
+lookahead that is currently harmless because only ~06:00 snapshots exist by
+run time. A separate issue, not fixed here.
+
+## ADR-276: markov.py split into a markov/ package (core vs estimate)
+
+**Decision:** `mlb_baseball/model/markov.py` is now `mlb_baseball/model/markov/`:
+`core.py` (pure computation — state model, run-expectancy solve, outcome
+distributions, empirical Bayes shrink, simulators) and `estimate.py` (the
+functions that read `raw.retrosheet_event` / Statcast + their SQL; 9 are
+re-exported, the rest are private helpers). The public surface is unchanged
+— `markov/__init__.py` re-exports every name.
+
+**Context:** ADR-275's "the matchup work is a good forcing function to do
+that split." The plate-appearance matchup model (spec
+`docs/superpowers/specs/2026-08-30-matchup-model-design.md`) reuses `core`'s
+simulator as a library with no database; `core` staying import-clean of
+SQL is enforced by `tests/unit/test_markov_public_surface.py`.
+
+**Cost:** none — a pure move, every function byte-identical, the full test
+suite unchanged. `git log --follow` still works (`git mv`).
+
+**Revisit if:** a fully DB-driver-free import of `markov.core` is wanted —
+that additionally needs `mlb_baseball/model/__init__.py` slimmed (it eagerly
+imports psycopg), tracked as issue #111.
+
+## ADR-275: markov-v1 promotion review — HOLD (return-with-gaps)
+
+**Context:** First ADR-274 promotion review for `markov-v1` (Layer 2 of the
+prediction ladder). 2026-08-30. Holdout season 2026 (2,026 completed games —
+the only season with stored baseline predictions; 2024 has none, so a
+multi-year holdout is not possible until prediction history accumulates).
+
+Reproduce (this one run prints **both** tables below — the default
+starters-unknown pass plus the `--use-realized-starters` pass):
+
+```sh
+uv sync --frozen
+DATABASE_URL=postgresql:///mlb uv run python scripts/eval_markov_holdout.py \
+    --season 2026 --sim-games 2000 --use-realized-starters
+```
+
+read-only against production `mlb`; cutoff `close` (default).
+
+**Evidence** (paired bootstrap 95% CI on per-game log-loss difference;
+Δ > 0 favours markov-v1):
+
+| run | vs | n | markov ll | base ll | Δ (95% CI) | markov acc | base acc |
+|---|---|---:|---:|---:|---:|---:|---:|
+| starters unknown (deployed analog) | elo-v1 | 389 | 0.6916 | 0.6760 | −0.0156 [−0.0319, +0.0000] | 50.4% | 56.6% |
+| ″ | log5-v2 | 126 | 0.7004 | 0.6734 | −0.0269 [−0.0578, +0.0037] | 48.4% | 59.5% |
+| ″ | gbm-v1 | 173 | 0.6786 | 0.6782 | −0.0005 [−0.0265, +0.0245] | 56.7% | 56.1% |
+| realized starters (optimistic ceiling) | elo-v1 | 389 | 0.6912 | 0.6760 | −0.0152 **[−0.0311, −0.0001]** | 50.6% | 56.6% |
+| ″ | log5-v2 | 126 | 0.7007 | 0.6734 | −0.0273 [−0.0573, +0.0041] | 50.8% | 59.5% |
+| ″ | gbm-v1 | 173 | 0.6803 | 0.6782 | −0.0021 [−0.0280, +0.0233] | 55.5% | 56.1% |
+
+`kalshi-v1` / `polymarket-v1`: 0 shared games — the market comparison is
+blocked by a `generated_at` bug (issue #107), not run here.
+
+**Decision: HOLD.** `markov-v1` stays `status=candidate`. It is not
+promoted and it is **not** removed.
+
+- It loses to `elo-v1` and `log5-v2` on log loss, and roughly ties `gbm-v1`
+  (n=173). Against `elo-v1`, even with the realized starter (hindsight it
+  would not have), the paired-bootstrap CI is entirely below zero.
+- Its aggregate log loss (~0.691) is essentially `log(2)` — the value of a
+  flat 0.5 prediction — so on the whole its probabilities sit very close to
+  0.5 (a per-game reliability curve would confirm this; not run here).
+  Feeding it the real starter moved the aggregate 0.6916 → 0.6912.
+- No leakage review is triggered: the numbers are *below* the honest range,
+  not suspiciously above it.
+
+**Return-with-gaps — what a re-review needs:**
+
+1. **Engineered features.** `markov-v1` uses none of `gold.game_feature`'s
+   ~130 columns (park, bullpen fatigue, platoon, weather, framing, VAA…).
+   The coarse team-batting-side-vs-starter PA distribution, shrunk M=350
+   toward the league mean, carries almost no team-discriminating signal —
+   MLB team-level offensive/defensive rates are too similar. Either
+   condition the transition/outcome probabilities on those features, or
+   feed markov-v1's output as one input to a feature model alongside Elo.
+2. **Lineup / individual matchups.** No batting order, no batter-vs-pitcher.
+   The machinery exists unused in `markov/` (`markov/estimate.py`'s
+   `fetch_batter_arsenal`, `markov/core.py`'s
+   `simulate_in_game_win_probability`, `compute_arsenal_matchup_edge`);
+   probable lineups are not ingested yet.
+3. **A real multi-year holdout** once ≥2 seasons of stored baseline
+   predictions exist, and the market comparison (issue #107).
+
+**Not in scope of this hold:** deleting the `markov/` package. The state model, the
+absorbing-chain run-expectancy solve, the simulator, and the empirical Bayes
+shrinkage are the foundation for the plate-appearance-level matchup model
+(`docs/RESEARCH.md` "hierarchical pitcher-batter matchup", ~1 win/162
+upside). That model is the next Layer-2 iteration, planned separately.
+
+**Revisit if:** the PA-level matchup model lands, or `markov-v1` is
+re-wired to consume features — either triggers a fresh ADR-274 review.
+
+## ADR-274: Model promotion gates are review gates, not hard blocks; ">58% out-of-sample" triggers a review, it is not a verdict
+
+**Context:** Owner direction, 2026-08-29. Two pieces of existing doctrine
+read as automatic hard stops:
+
+- `docs/PRODUCT_DIRECTION.md`: "70%+ is leakage, not skill."
+- ADR-272 / `plans/04` acceptance gate: `markov-v1` "earns promotion past
+  candidate only by beating `elo-v1` on log loss"; "a model that cannot
+  beat transparent baselines ... remains a research result."
+
+The owner's position: an out-of-sample result above the ~55–58% honest
+range is a **red flag that must be reviewed**, not a stated fact ("it is
+leakage") and not an automatic block on the work. A human looks at the
+evidence and records the call.
+
+**Decision:**
+
+1. **The honest-ceiling language is a review trigger, not a verdict.**
+   `docs/RESEARCH.md` already had the right shape ("a signal to go
+   hunting for leakage"). `docs/PRODUCT_DIRECTION.md` and `RESEARCH.md`
+   are corrected to match: out-of-sample game-winner accuracy above ~58%,
+   or a suspiciously low log loss, triggers a documented leakage review
+   (chronological folds, feature cutoffs, the `RESEARCH.md` failure
+   modes) before the number is trusted or promoted. It is not, by
+   itself, proof of leakage.
+
+2. **Promotion gates are review gates.** A candidate that does not beat
+   its baselines is not automatically barred from promotion. The
+   evidence — held-out proper scores, calibration, coverage, CI — goes
+   to a promotion review that records an explicit decision with its
+   reasoning. The three outcomes are **promote**, **hold** (stays
+   `candidate`), and **return-with-gaps** (specific fixes named before it
+   comes back) — the same Decision / Declined / Revisit-if shape these
+   ADRs already use.
+
+3. **Unchanged and non-negotiable:** the anti-leakage doctrine itself —
+   chronological (never random) folds, transparent baselines computed
+   and beaten first, honest calibration and uncertainty reporting
+   (`CLAUDE.md` "ML modeling work", `plans/04`). Review replaces
+   "automatic block", not "look at the evidence". A model still may not
+   ship as a product claim until a review says it earns it.
+
+**markov-v1 specifically:** the holdout eval
+(`scripts/eval_markov_holdout.py`) is still the instrument; `markov-v1`
+stays `status=candidate` until that eval is run and reviewed. What
+changes is the outcome space — a review can **promote**, **hold**, or
+**return-with-gaps**.
+
+**Verification:** doc-only. `docs/PRODUCT_DIRECTION.md`, `docs/RESEARCH.md`,
+`docs/DECISIONS.md` (ADR-272 note), `plans/04-modeling-simulation-and-experiments.md`,
+and `CLAUDE.md` updated together.
+
+## ADR-273: `markov-v1` simulation failures are isolated per game; Monte Carlo `max_innings` raised to 100
+
+**Context:** `sim_predict.predict()` (ADR-272) runs 5000 simulated games
+per matchup for every upcoming game, inside the one transaction
+`mlb predict` also uses for log5/Elo/GBM (`model/__init__.py`). Two
+failure modes could abort that whole transaction:
+
+1. `simulate_home_win_rate` passed `simulate_game`'s default
+   `max_innings=30`. The estimated outcome distribution has no
+   automatic-runner-on-second rule, so its extra innings run longer than
+   the modern game — ADR-079 measured ~10% of simulated games reaching
+   extras vs ~8.5% real, and `verify_markov_calibration.py` already saw a
+   simulated game reach 31 innings in ~2,400 single-game trials (which is
+   why that script uses `max_innings=60`). Across a real slate
+   (5000 trials × ~15 games/day) a few games stay tied past 30 innings
+   purely by sampling luck. Each raised `MarkovError`.
+2. Any other `MarkovError` from one matchup (a state with no observed
+   outcomes in a narrow estimated distribution) had the same blast
+   radius.
+
+Either way one un-simulatable game took down the entire `mlb predict`
+run — `markov-v1`, plus the log5/Elo/GBM writes sharing the transaction.
+`markov-v1` predict had not yet completed a clean production slate
+(blocked behind the migration-0091 issue), so this was latent, not
+observed.
+
+**Decision:**
+
+- `markov.simulate_home_win_rate`'s `max_innings` default is now 100, not
+  30. This is the Monte Carlo path: it runs orders of magnitude more
+  trials than a single-game analysis, so it needs far more headroom
+  before "still tied" means "the distribution genuinely cannot break a
+  tie" rather than "an unlucky but finite game". 100 innings is past any
+  plausible finite game; reaching it is a real defect worth failing on.
+  `simulate_game`'s own default stays 30 (single-game callers);
+  `verify_markov_calibration.py` keeps its explicit 60.
+- `sim_predict.predict()` catches `markov.MarkovError` per game, logs it
+  with the game pk, skips that game, and continues — the same
+  skip-and-continue shape the no-cutoff-prior (`rate is None`) case
+  already uses. A per-run count of games skipped after a failure is
+  logged. `scripts/eval_markov_holdout.py` gets the same per-game guard
+  so a multi-hour holdout run cannot die on its last game.
+
+A genuinely degenerate estimator still fails visibly: if `simulate_matchup`
+raises on the first game or on every game, the run writes zero rows and
+every failure is in the log. This isolates a one-off sampling artifact;
+it does not paper over a broken estimator.
+
+**Verification:** `tests/unit/test_markov_shrink.py::test_simulate_home_win_rate_still_fails_loud_on_an_unbreakable_tie`
+(an all-zero-runs distribution still raises `MarkovError`).
+`tests/integration/test_model_sim_predict.py::test_predict_skips_a_game_whose_simulation_fails_and_keeps_the_rest`
+(one matchup raising `MarkovError` still writes the rest of the slate,
+returns their count, does not raise). `tests/unit/test_markov_*` and
+`tests/integration/test_model_sim_predict.py` (7) pass; Ruff and mypy
+clean.
+
+## ADR-272: Daily `mlb predict` writes `markov-v1` for upcoming games
+
+**Decision:** `sim_predict.predict()` is the Layer-2 writer. For each
+`gold.game_feature` row with `home_win IS NULL`, a non-null season/date,
+and an MLB key it estimates home/away matchup distributions via
+`markov.estimate_matchup_distribution` (starter vs opposing team when
+that starter's PA sample against the batting team clears
+`pitcher_min_pa=50`, else team vs team, Empirical Bayes M=350 toward a
+cutoff-scoped league prior), simulates 5000 games, and appends
+`markov-v1`. Seed is SHA-256 of `mlb_game_pk` so a rerun of the same
+slate is deterministic.
+
+The league prior is **not** split by batting half-inning in v1: ADR-080's
+home/away per-PA scoring difference is a proven league-level effect, but
+scoping the already-sparse team/starter matchup sample to one half is an
+unproven refinement that halves the data — deferred to a follow-up with a
+real holdout check. `estimate_matchup_distribution` accepts `bat_home`
+for callers that do want a single-half estimate.
+
+`mlb predict` (`model.run`) calls it after log5/Elo/GBM. Missing
+Retrosheet tables write zero rows, not a fake 0.5. Historical backfill is
+not this function. Status is `candidate` until a holdout vs Elo is
+published.
+
+The per-game probability is `sim_predict.simulate_matchup()` — extracted
+from `predict()`'s loop so the holdout harness scores the *same*
+computation, not a re-derivation. The holdout is
+`scripts/eval_markov_holdout.py`: read-only against `DATABASE_URL` (safe
+on production `mlb`), recompute `markov-v1` for every completed game of a
+season at that game's own date as the PIT cutoff, pair vs each stored
+model (`elo-v1` / `log5-v2` / `gbm-v1` / `kalshi-v1` / `polymarket-v1`) on
+its exact shared sample, report log loss / Brier / accuracy. `markov-v1`
+stays `candidate` until that holdout has been run and taken to a
+promotion review (ADR-274): the review can promote it, hold it, or send
+it back with specific gaps to close — a below-Elo number is a review
+input, not an automatic dead end.
+
+**Verification:** `uv run pytest tests/unit/test_sim_predict.py`;
+`tests/integration/test_model_sim_predict.py` on `mlb_test` (skips decided
+and missing Retrosheet; lopsided ATL-scoring fixture home_win_prob > 0.5;
+two runs append two snapshots with the same probability; a later-season
+event does not leak into an earlier slate; `simulate_matchup` returns
+None with no cutoff prior and is deterministic per game pk).
+`tests/integration/test_eval_markov_holdout.py` covers the harness
+plumbing end to end. Full suite, Ruff, and mypy clean; `mlb audit` green
+on `mlb_test`.
+
+## ADR-271: Course correction — matchup Markov is Layer 2; SQL and SQLMesh both stay; freeze engines
+
+**Context:** Owner agreed (2026-08-28/29) the Engine catalog was the drag and
+asked to lock SQL vs SQLMesh, pybaseball vs baseballr, and the model ladder
+(RE24 vs play/pitch outcome). Spec:
+`docs/superpowers/specs/2026-08-28-course-correction-design.md`. Program plan:
+`docs/superpowers/plans/2026-08-28-course-correction.md`.
+
+**Decision:**
+
+1. **Two products, one warehouse.** (A) researcher-queryable gold tables +
+   dump + thin readers over *our* database. (B) predict the plate appearance,
+   simulate the game, compare to Kalshi/Polymarket. Astro waits until B can
+   put a number on tomorrow's board.
+
+2. **pybaseball stays the fetch library.** Do not wrap it as a user API.
+   baseballr analogue is named queries over gold/core, not network fetch.
+
+3. **Named `.sql` files and SQLMesh both stay; one writer per table.**
+   New gold families are authored as `mlb_baseball/sql/*.sql`. SQLMesh is a
+   promotion after a full-table + PIT tie-out. Researchers query Postgres
+   tables and never depend on either tool. SQLMesh still does not own
+   identity, Elo, Markov simulation, or training (ADR-088 / 266).
+
+4. **RE24 is accounting.** Layer 2 is matchup-specific PA/24-state
+   distributions (pitching team or pitcher vs batting team, Empirical Bayes
+   $M=350$ toward league) plugged into existing `simulate_game`. First
+   implementation: `shrink_outcome_distribution`,
+   `estimate_matchup_distribution`, `simulate_home_win_rate` in
+   `markov/`, plus `markov_transition_counts_matchup.sql`. The matchup
+   sample and the league prior it shrinks toward take the same
+   point-in-time filters (`before_date` from `gameinfo.date`,
+   `exclude_game_id`); `n` for the shrink is plate appearances
+   (`bat_event_fl = 'T'`). Wired into daily `mlb predict` as W3b
+   (ADR-272).
+
+5. **Freeze.** No new Engine packages, no `FEATURE_COLUMNS` expansion, no
+   Plan 05 Astro, no more unpromoted SQLMesh models.
+
+**Verification:** `uv sync --frozen` then `uv run pytest` /
+`uv run ruff check` / `uv run mypy` is the canonical path; CI runs unit,
+lint, type, and integration as separate jobs against a pinned Python and
+a disposable `mlb_test`. `tests/unit/test_markov_shrink.py` (hand mix at
+n=M, n=50, n=0; lopsided sim win rate 1.0).
+`tests/integration/test_model_markov.py` (against `mlb_test`): matchup
+filter, exclude-game PIT, `before_date` cutoff from `gameinfo.date`,
+`bat_home` half-inning scoping and validation, `pitcher_min_pa` backoff,
+unknown-team fallback to league. `mlb audit` stays green on `mlb_test`;
+any production audit is a separate approval-gated record.
+
+**Revisit if:** Layer 2 sim loses to Elo *and* a PA-ML model also loses
+(then game-level GBM is worth another look); a Statcast license is recorded
+(public dump can grow).
+
+## ADR-270: Wire starter four-seam VAA from Statcast kinematics (Chamberlain/Pavlidis)
+
+**Decision:** Fold Agy VAA-01 into the real pipeline as **degrees**, not the invented flatness/whiff-boost index.
+
+Published formula (Alex Chamberlain, FanGraphs, 2022-02-01, crediting Harry Pavlidis): using Statcast `vy0, ay, vz0, az` at y=50 ft, evaluate velocity at the front of the plate `yf = 17/12` ft, then `VAA = -atan(vz_f/vy_f)` in degrees. Typical FF is about −4.5° to −6°.
+
+`gold.game_feature.home_starter_ff_vaa` / `away_starter_ff_vaa` are entering, same-season, prior-game means of four-seam VAA, NULL below 20 FF pitches. Not added to `gbm.FEATURE_COLUMNS` until a chronological retrain beats Elo. The CLI `mlb vaa` engine and its display tiers stay as display-only.
+
+**Verification:** `tests/unit/test_vaa_physics.py` hand-calculates disc / vy_f / t / vz_f / VAA for vy0=-130, ay=30, vz0=-8, az=-20 (VAA ≈ −7.6233°). Integration: game 2 sees only game 1’s pitches.
+
+**Source profile:** Statcast, `local_research`.
+
+## ADR-269: Raw Statcast/Retrosheet pitcher and batter lookup indexes (issue #84)
+
+**Decision:** Migration `0090_raw_pitcher_batter_lookup_indexes.sql` adds `idx_statcast_pitch_pitcher`, `idx_statcast_pitch_batter`, `idx_retrosheet_event_pit_id`, and `idx_retrosheet_event_bat_id` when those tables and columns exist. Loader-created tables: no-op on a clean clone. Column guards so skinny test tables without `pitcher`/`batter` do not fail `mlb migrate`. Not CONCURRENTLY (same DO-block limit as 0057).
+
+**Do not apply to production `mlb` while `mlb predict` is scanning those heaps.** After the in-flight predict finishes, `mlb migrate` against `mlb` is the maintenance window.
+
+**Verification:** `tests/integration/test_migrations.py::test_raw_pitcher_batter_lookup_indexes_are_idempotent` and `::test_raw_pitcher_batter_lookup_indexes_exist_when_source_columns_exist`.
+
+## ADR-268: Rewrite PLT-01 throwing-hand lookup; stop per-game Statcast seq scans
+
+**Context:** Production `mlb predict` pid 3860016 (started 2026-08-28 03:44 UTC) was still inside `platoon_splits_update.sql` at 05:48 UTC — **80+ minutes on that one UPDATE**. The SQL used two correlated subqueries per `gold.game_feature` row:
+
+```sql
+SELECT p_throws FROM raw.statcast_pitch
+WHERE pitcher = COALESCE(...) AND p_throws IS NOT NULL
+LIMIT 1
+```
+
+~217k games × 2 sides against `raw.statcast_pitch` (13.5M rows, 10 GB, **no index on `pitcher`**). That is the N+1 query, in SQL.
+
+The same run's one-pass modules were already much cheaper after PR #86's `work_mem=1GB`: COM-01 mean 154 s, SHP-01 123 s, xFIP/SIERA 129 s (`pg_stat_statements`). Platoon was not in that list because it had not finished.
+
+**Decision:** Replace the correlated lookups with one `DISTINCT ON (pitcher)` pass, then join. Output columns and the 0.320 wOBA fallbacks are unchanged. A pitcher with two Statcast rows still yields one throws value (no fan-out of `gold.game_feature`).
+
+**Not done here:** a `pitcher` / `pit_id` index (issue #84 Phase 1.3, hypopg first — do not build on HDD while this predict is still running). The "vs LHP/RHP" columns still copy overall team wOBA rather than a real split; that is a correctness follow-up, not this speed fix.
+
+**Verification:** `TEST_DATABASE_URL=postgresql:///mlb_test uv run pytest tests/integration/test_model_platoon.py` — 3 passed, including a two-game same-pitcher fan-out regression.
+
+## ADR-267: Live pre-game Kalshi/Polymarket moneyline match for upcoming games (issue #87)
+
+**Decision:** `market.record()` now writes two grains into `gold.prediction`:
+
+1. Decided games — unchanged (ADR-053). `core.market` via `core.game`. NOT EXISTS idempotent.
+2. Upcoming games — new. `gold.game_feature` rows with `home_win IS NULL` are matched to open Kalshi `KXMLBGAME*` tickers and Polymarket *moneyline* contracts through `raw.mlb_schedule.game_datetime`, using the same team-alias / slug-date / ticker-date matching conform already uses. The price is the latest `raw.*_snapshot` strictly before first pitch. Each `mlb predict` run inserts a new snapshot row (same append-only shape as log5/elo/gbm). Evaluation already selects one row per game at a cutoff.
+
+`core.market.game_id` still references `core.game`, which only holds completed games, so live matching cannot go through `core.market` without a schema change. This change does not add `mlb_game_pk` to `core.market`; it writes `gold.prediction` directly. Revisit that schema if a second consumer needs the upcoming match.
+
+Polymarket stays moneyline-only (`sportsmarkettype = 'moneyline'`). Spreads/F5 cannot become a win probability (same production bug ADR-053 found). Only the home side is stored. Doubleheaders that would be ambiguous are left unmatched rather than guessed (same rule as `conform._game_lookup`). Missing schedule/snapshot/event tables skip the upcoming path instead of crashing.
+
+Date/ticker/alias helpers are imported from `conform.py` so the matching formula is not duplicated.
+
+**Not done here:** issue #79 (serve view still joins `core.market` without a type filter) — that is decided-game serving, not this live path. Production `mlb predict` was in flight when this landed; this change is `mlb_test`-verified only.
+
+**Verification:** `TEST_DATABASE_URL=postgresql:///mlb_test uv run pytest tests/integration/test_model_market.py tests/unit/test_sql_resources.py` — 35 passed, including live polymarket (pre-game 0.55 kept, spread 0.90 and post-game 0.99 dropped), live Kalshi (0.52 kept, post-game 0.97 dropped), and upcoming reruns inserting a second snapshot.
+## ADR-266: Product sequence — keep `conform`/`predict`, SQLMesh incremental gold, no more Engine packages, live markets + player Markov next
+
+**Context:** 2026-08-28 owner session (Grok). The owner wants a membership Kalshi/Polymarket advice site plus a researcher-grade baseball database, and asked whether to (a) throw away the Agy Engine batch, (b) delete slow `mlb conform` / `mlb predict` in favor of something else, (c) switch everything to SQLMesh. Full product write-up: `docs/PRODUCT_DIRECTION.md`. Implementation order: `docs/superpowers/plans/2026-08-28-product-and-pipeline-next.md`.
+
+**Decision:**
+
+1. **Keep `mlb update` / `mlb conform` / `mlb predict` as orchestrators.** They are not the problem. The problem is full-history rebuilds, one long transaction, missing raw lookup indexes, and HDD I/O — already specified in issue #84 and `docs/superpowers/specs/2026-08-28-pipeline-performance-design.md`. Session `work_mem` / parallel planner tuning already landed (PR #86). Do not replace PostgreSQL, and do not add ClickHouse for this (`CLICKHOUSE_DECISION.md` still holds).
+
+2. **SQLMesh and named `.sql` files both stay.** Named resources in `mlb_baseball/sql/` are the readable, Python-run formulas today. SQLMesh (`transforms/`, ADR-088, issue #70) is the incremental writer for set-based gold *after* a full-table + PIT tie-out against the current Python writer. Never two writers of the same table. SQLMesh does not take over `conform.py` identity, Elo's sequential walk, Markov simulation, or model training (ADR-088 reaffirmed no-go).
+
+3. **Agy Engine packages (ADR-089–258) are a wiring backlog, not trash and not 110 new GBM columns.** Default is WIRE the raw components (`docs/PACKAGE_VALIDATION_STATUS.md`; Bucket B rubric on branch `metrics/bucket-b-triage-rubric`). Invented composites stay display-only until constants are cited or fit. Stop adding new Engine packages.
+
+4. **Next modeling work, in order:** (i) let the in-flight 2026-08-28 production `mlb predict` finish and recount coverage; (ii) live pre-game Kalshi/Polymarket *moneyline* match onto upcoming games (today `market.py::record()` is retrospective); (iii) player-aware Markov v1 at starter-vs-team-offense grain, which is also the joint-parlay engine; (iv) GBM retrain only on populated admitted columns, and only promote if it beats Elo *and* is compared to the markets; (v) public-safe research marts; (vi) Plan 05 Astro after numbers can actually land on a page.
+
+5. **AI agents explain fact packets. They do not produce the probability.** Model %, market %, fair price, and pick stay separate fields.
+
+**Why now:** the owner restated the product (OddsTrader-style board + research DB + parlays on Kalshi/Polymarket) and asked for a Claude/Agy-followable record. Production evidence from the same session (read-only `mlb`): last successful predict 2026-08-20; `gbm-v1` last wrote 2026-08-04; a live `mlb predict` (pid 3860016) was running at 04:45 UTC in PLT-01; `home_elo` was 0 non-null *during* that run, which is expected until `elo.compute_ratings()` after enrichment — must be rechecked when the run ends.
+
+**Revisit if:** a permitted sportsbook odds feed is approved (changes "best line"); a Statcast redistribution license is recorded (changes public heat maps); the in-flight predict fails and Elo stays NULL (P0, blocks retrain).
+
 ## ADR-265: Plan 01F-R5 — two remaining `serve.*` views fanned out on repeated `gold.prediction` snapshots; workflow-lock cross-stage coverage gap closed
 
 **Context:** Plan 01F-R5 ("consumer/workflow integrity") asks to reverify that every real consumer of `gold.prediction`/`gold.game_feature` still respects the canonical MLB game identity contract R1-R4 established (`plans/01-correctness-rights-security.md`), and that `conform`/`features`/`predict`/`train`/`evaluate` genuinely reject overlapping each other, not just reject overlapping a raw-ingestion connector.

@@ -112,6 +112,56 @@ def test_platoon_splits_hand_calculated_math(db_conn):
     _reset(db_conn)
 
 
+def test_platoon_throws_lookup_does_not_fan_out_when_one_pitcher_starts_twice(
+    db_conn,
+):
+    """Regression for the correlated per-row LIMIT 1 lookup: one Statcast
+    pitcher row must join many games without duplicating gold.game_feature.
+    """
+    _ensure_tables(db_conn)
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    bos_id = teams["BOS"]
+    nya_id = teams["NYA"]
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.player (id, retro_id, mlbam_id, first_name, last_name) VALUES "
+            "(101, 'p1_retro', '101', 'Chris', 'Sale'), "
+            "(102, 'p2_retro', '102', 'Gerrit', 'Cole') "
+            "ON CONFLICT (id) DO NOTHING"
+        )
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch (pitcher, p_throws) VALUES "
+            "('101', 'L'), ('101', 'L'), ('102', 'R')"
+        )
+        cur.execute(
+            "INSERT INTO gold.game_feature ("
+            "game_instance_key, season, game_date, home_team_id, away_team_id, "
+            "home_starter_id, away_starter_id, home_woba, away_woba, "
+            "home_starter_vs_lhb_woba, home_starter_vs_rhb_woba, "
+            "away_starter_vs_lhb_woba, away_starter_vs_rhb_woba) VALUES "
+            "('G1', 2024, '2024-05-01', %(home)s, %(away)s, "
+            "101, 102, 0.350, 0.330, 0.280, 0.340, 0.360, 0.310), "
+            "('G2', 2024, '2024-05-08', %(home)s, %(away)s, "
+            "101, 102, 0.350, 0.330, 0.280, 0.340, 0.360, 0.310)",
+            {"home": bos_id, "away": nya_id},
+        )
+    db_conn.commit()
+
+    rows = platoon.compute(db_conn)
+    assert rows == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT game_instance_key, home_starter_throws, away_starter_throws "
+            "FROM gold.game_feature ORDER BY game_instance_key"
+        )
+        got = cur.fetchall()
+    assert got == [("G1", "L", "R"), ("G2", "L", "R")]
+
+    _reset(db_conn)
+
+
 def test_platoon_health_check_bounds(db_conn):
     _ensure_tables(db_conn)
     _reset(db_conn)

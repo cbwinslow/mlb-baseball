@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import subprocess
@@ -27,6 +28,40 @@ def git_sha() -> str | None:
         ["git", "rev-parse", "HEAD"], capture_output=True, check=False, text=True
     )
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+@functools.cache
+def models_dir() -> Path:
+    """The primary git checkout's ``models/`` directory.
+
+    Model artifacts are referenced by absolute path in the shared
+    ``meta.model`` table, so they must resolve to one stable location no
+    matter which git worktree ran ``mlb train`` -- a worktree that trained a
+    model and was then removed would leave a dangling ``artifact_uri``
+    (issue #108). ``git rev-parse --git-common-dir`` points at the primary
+    ``.git`` even from a linked worktree; ``--path-format=absolute`` (git
+    >= 2.32) makes it absolute from any cwd. Anything unexpected -- git
+    missing, an older git that rejects the flag, a non-checkout (installed
+    wheel), a hung call -- falls back to this package's own location.
+
+    Cached: the three model modules call this at import time; the result
+    does not change within a process."""
+    fallback = Path(__file__).resolve().parent.parent.parent / "models"
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            check=False,
+            text=True,
+            cwd=Path(__file__).resolve().parent,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return fallback
+    common = result.stdout.strip()
+    if result.returncode != 0 or not common:
+        return fallback
+    return Path(common).resolve().parent / "models"
 
 
 def feature_snapshot(

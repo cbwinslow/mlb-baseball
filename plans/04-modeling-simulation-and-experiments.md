@@ -48,7 +48,7 @@ The owner has two older NVIDIA GPUs (K40, K80) available in a homelab server
 for this; both are Kepler-generation (2013/2014) and may need an older
 CUDA/PyTorch version pairing to work at all -- verify compatibility before
 depending on them, and note that Plan 04D's own Markov/simulation engine
-(`mlb_baseball/model/markov.py`) is the natural foundation to compose with
+(`mlb_baseball/model/markov/`) is the natural foundation to compose with
 here: it already estimates play-by-play outcome distributions and simulates
 half-innings/games from real data, which is a different (simulation-based)
 approach to the same "predict what happens in this half-inning" question a
@@ -57,7 +57,7 @@ worth comparing, not just picking one and dropping the other. Not started;
 tracked here as the next real exploration once current PR/review work is
 clear, not implied to already be in progress.
 
-**04D status:** first package landed 2026-08-19 — `mlb_baseball/model/markov.py`
+**04D status:** first package landed 2026-08-19 — `mlb_baseball/model/markov/`
 estimates the 24-state base/out transition matrix and its RE24-style run-
 expectancy table directly from `raw.retrosheet_event` (ADR-076; `core.play`
 alone cannot, it has no runner-on-base columns — a correction to
@@ -185,9 +185,11 @@ leakage. Publish disagreement and uncertainty as useful product signals.
 
 Publish internal model cards before public forecasts: matched-sample log loss,
 Brier, calibration, coverage, era/segment stability, market comparison, feature
-schema, artifact/data cutoff, and known missing-input behavior. A model that
-cannot beat transparent baselines or explain its coverage remains a research
-result, not a promoted forecast.
+schema, artifact/data cutoff, and known missing-input behavior. Whether a
+model that does not beat transparent baselines is promoted, held, or
+returned with gaps to close is a recorded promotion-review decision, not
+an automatic bar (ADR-274) — but it does not ship as a product claim
+until a review says it earns it.
 
 ## Acceptance gate
 

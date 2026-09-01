@@ -3,6 +3,249 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Model artifact dir resolves to the primary checkout — 2026-09-01 (issue #108)
+
+`gbm.py` / `total.py` / `stack.py` set `MODEL_DIR = Path(__file__)...`, which
+resolves to whichever checkout the `mlb_baseball` package was imported from.
+A subagent that ran `mlb train` inside the `conform-speedup` worktree wrote
+the gbm artifact to `<worktree>/models/artifacts/` and its **absolute path**
+into the shared production `meta.model.artifact_uri`; removing the worktree
+orphaned the row, so `gbm._get_champion` finds nothing and `mlb predict`
+writes 0 gbm rows.
+
+Fix: new `provenance.models_dir()` resolves `models/` via
+`git rev-parse --path-format=absolute --git-common-dir` (the primary `.git`
+even from a linked worktree), falling back to the package location when not
+in a git checkout. All three model modules now use it. New unit test asserts
+the resolved dir is never under a `worktrees/` or `.git/` path and that the
+git-unavailable fallback works.
+
+Does not fix the *other* half of #108 (there is no gbm champion — the last
+`mlb train` produced a `candidate`). Whether to retrain against prod to make
+a real champion is a separate call.
+
+### markov/ package split (spec step 0) — 2026-08-30
+
+Split `mlb_baseball/model/markov.py` (1,150 lines) into `markov/core.py`
+(pure: state model, RE solve, simulators, shrink) and `markov/estimate.py`
+(11 conn-taking functions + 6 SQL constants). `markov/__init__.py`
+eagerly re-exports the full 37-name surface (28 from `core`, 9 DB
+estimators from `estimate`) — no caller changed. New
+`tests/unit/test_markov_public_surface.py` locks the surface and asserts
+`markov/core.py` source carries no database code (`import psycopg`,
+`read_sql`, `mlb_baseball.db`/`.sql`). A truly driver-free `core` import
+also needs `mlb_baseball/model/__init__.py` to stop eagerly importing
+psycopg — tracked as issue #111 / ADR-276 "Revisit if".
+
+On `refactor/markov-package` (PR #110). Zero behaviour change; prereq for
+the plate-appearance matchup model's clean library signatures
+(`docs/superpowers/specs/2026-08-30-matchup-model-design.md` step 0).
+
+Verification: `test_markov_*` unit suite + `test_model_markov`,
+`test_model_sim_predict`, `test_model_run_expectancy`,
+`test_eval_markov_holdout` on `mlb_test` green (same counts); ruff, ruff
+format, mypy clean.
+
+### Migration 0092: hot-query lookup indexes — 2026-08-29
+
+`hypopg` 1.4.3 installed on production `mlb`. `postgres-mlb` (restricted) /
+`postgres-mlb-test` (unrestricted) MCP servers added to `~/.claude.json`.
+
+Re-ranked `pg_stat_statements` (13-day window) via the MCP. Two hot queries
+0090 didn't cover:
+
+- `starter_probable_expected.sql` — 84 calls, **290 s mean** (worst per-call
+  in the DB). `starter.py` health check, runs in `mlb doctor` and every
+  `mlb predict`. `EXPLAIN`: its `EXISTS` seq-scans `raw.mlb_schedule` (236 k)
+  + `raw.mlb_playbyplay` (170 k) per candidate starter. → migration 0092:
+  `raw.mlb_playbyplay(pitcher_id, game_pk)` + `raw.mlb_schedule(game_id)`.
+- `leverage_index` per-season staging — 228 calls, 128 s mean.
+  `WHERE re._season::integer = $1` seq-scans `raw.retrosheet_event` (16.5 M).
+  → `((_season)::integer)` expression index (mirrors the existing
+  `outs_ct::integer` one).
+
+Migration verified idempotent on `mlb_test` + applied via the unrestricted
+MCP with no error. Tests: `test_hot_query_lookup_indexes_*` +
+`test_hot_query_season_index_is_an_integer_expression_index`. Not yet applied
+to production — that's a `mlb migrate` (blocked by the safety classifier;
+owner runs it), and per the migration header not while `mlb predict` is
+scanning those tables. Before/after wall-clock lands in `pg_stat_statements`
+post-apply (restricted MCP can't run `EXPLAIN ANALYZE`).
+
+`pg_database_size` shows 1.5 M calls / 8,000 s but that's an external
+monitoring poller on the shared cluster (~1/sec), not this project — noted,
+deprioritized.
+
+Spec: `docs/superpowers/specs/2026-08-28-pipeline-performance-design.md` §1.3.
+
+### markov-v1 holdout harness — 2026-08-29
+
+Branch `eval/markov-holdout` (stacked on `feat/matchup-markov`). Builds the
+tool that decides whether the ladder's Layer 2/3 is worth keeping:
+
+- `sim_predict.simulate_matchup()` — extracted the per-game probability core
+  from `predict()`'s loop so the holdout scores the *exact* computation
+  `mlb predict` writes, not a re-derivation. `predict()` now calls it.
+  Public `GAME_FIELDS` / `GAME_FROM` SQL fragments shared with the harness.
+- `scripts/eval_markov_holdout.py` — read-only against `DATABASE_URL`
+  (`REPEATABLE READ` + read-only txn; safe on production `mlb`). For a
+  holdout season it recomputes `markov-v1` for every *completed* game at
+  that game's own date as the PIT cutoff, pulls the stored `elo-v1` /
+  `log5-v2` / `gbm-v1` / `kalshi-v1` / `polymarket-v1` pre-game snapshots,
+  and for each baseline reports log loss / Brier / accuracy plus a paired
+  bootstrap 95% CI on the per-game log-loss difference. Verdict is
+  "markov-v1 better" only when the CI clears 0 *and* the effect exceeds
+  `gbm.MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT` (0.002).
+- **Starters unknown by default** (PR #101 review, Codex): historical
+  `gold.game_feature` starter ids are postgame Retrosheet and there's no
+  pre-game probable for 2024, so the default run is team-vs-team (the same
+  fallback `sim_predict` uses live). `--use-realized-starters` adds the
+  hindsight version as a labeled optimistic upper bound.
+
+Tests: `tests/integration/test_eval_markov_holdout.py` (3, on `mlb_test`),
+`tests/unit/test_eval_markov_holdout.py` (4, scoring/verdict helpers), +
+`simulate_matchup` direct tests in `test_model_sim_predict.py`; full markov
+/ sim_predict / eval integration green; ruff + mypy clean.
+
+Not yet run against production `mlb` — that read-only run + recording the
+numbers is the next step, and it needs `mlb predict` to have populated
+recent Elo/market rows first (or the shared samples will be thin).
+
+### PR #100 review round 2 (CodeRabbit / Kilo / Codex) — 2026-08-29
+
+Addressed the W3a+W3b review feedback on `feat/matchup-markov`:
+
+- `markov_transition_counts_matchup.sql` `before_date` now reads
+  `gameinfo.date` (`YYYYMMDD`, the column `conform.py` already parses),
+  not a fragile `substring(gid, 4, 8)` position parse.
+- `_fetch_matchup_transition_counts` promoted to public
+  `fetch_matchup_transition_counts` (used by `sim_predict` too), validates
+  `bat_home`, and indexes `n_pa` off the row instead of star-unpacking.
+- `estimate_matchup_distribution` gained `bat_home` (validated, half-inning
+  scoping) and `pitcher_min_pa` (drop the `pit_id` filter and fall back to
+  team-vs-team when the starter sample is thin — replaces the double fetch
+  `sim_predict._side_distribution` was doing).
+- `sim_predict.predict()`: slate query guards `season`/`game_date` NOT
+  NULL; `home_win_prob` uses `Decimal(str(rate)).quantize(...)`.
+- Docstring for shrink `n` corrected (PA count, not transition total).
+- Docs: THEORY 8.3 unknown-starter fallback, ADR-271/272, course-correction
+  spec/plan PIT-eligibility and verification workflow.
+
+Deliberately **not** done: splitting the sparse matchup *sample* by
+`bat_home` in `sim_predict` (halves the data for an unproven refinement —
+deferred with a holdout check, ADR-272); `plans/PROGRESS.md` `###`→`##`
+(the whole file's per-entry convention is `###`, no repo markdownlint).
+
+Tests: full suite green — 1071 unit + 27 markov/sim_predict integration on
+`mlb_test`; Ruff, ruff-format, sqlfluff, and mypy clean. Three new markov
+integration tests: `bat_home` rejection, half-inning scoping, thin-pitcher
+backoff. No production `mlb` write.
+
+### W3b: `mlb predict` writes `markov-v1` for upcoming games — 2026-08-29
+
+`sim_predict.predict()` (ADR-272) simulates each still-undecided
+`gold.game_feature` row from matchup PA rates and appends `markov-v1`.
+Starter vs team if ≥50 PA, else team vs team. 5000 games, seed from
+`mlb_game_pk`. Wired into `model.run()` after log5/Elo/GBM. Not a
+production `mlb` run in this change.
+
+### Matchup estimator PIT leak in the league prior (PR #100 review) — 2026-08-29
+
+CodeAnt and Codex both flagged that `estimate_matchup_distribution` shrunk
+toward a full-season league prior, so a historical as-of still leaked the
+target game (and later games) through M=350. League now uses the same
+`exclude_game_id` / `before_date`. Shrink `n` is plate appearances
+(`bat_event_fl='T'`), not every transition. `mlb --help` lists core
+commands and the start-here docs.
+
+### Course correction W3a: matchup Markov estimator (ADR-271) — 2026-08-29
+
+Owner said proceed. First code slice is Layer 2, not more Engines and not a
+GBM retrain. `shrink_outcome_distribution` (M=350),
+`estimate_matchup_distribution` (team / pitcher / exclude-game / as-of
+date), `simulate_home_win_rate`. League `estimate_outcome_distribution`
+unchanged. **Not wired into daily `mlb predict`** — that is W3b.
+
+No production writes. Tests: `tests/unit/test_markov_shrink.py`,
+`tests/integration/test_model_markov.py` matchup cases, sql resource test.
+
+### Predict succeeded; starter FF VAA wired from published kinematics — 2026-08-28
+
+Production `mlb predict` pid 4068632 **success** 06:07–06:54 UTC (**47 min**, down from a 2h+ stuck platoon run). `gold.game_feature` Elo 217,195/217,195; all 419 upcoming games have Elo. `elo-v1`/`log5-v2`/`kalshi-v1`/`polymarket-v1` last write 2026-08-28 06:54. `gbm-v1` still 2026-08-04 (no retrain this run).
+
+WIRE: entering four-seam VAA in degrees (Chamberlain/Pavlidis 2022, Statcast `vy0/ay/vz0/az`), not the invented CLI flatness index. Tests: unit hand-calc ≈ −7.6233°; integration PIT on `mlb_test` (4 passed).
+
+### Bucket B WIRE: published-constants reference set — 2026-08-28
+
+Started folding Agy Engine packages into the real pipeline (default WIRE).
+First shared infrastructure: `docs/reference/tango_the_book.md` (Table 7
+linear weights as Tango restated them; 1993–2009 RE24 from his public CSV)
+and `docs/reference/statcast_glossary.md` (barrel/EV/VAA/x-stats →
+`raw.statcast_pitch` columns). Honest about missing physical-book page
+numbers. FanGraphs Guts connector still owner-gated (plan Task 2).
+### Raw lookup indexes + per-step enrich commits (issue #84) — 2026-08-28
+
+Migration 0090 adds pitcher/batter indexes on `raw.statcast_pitch` and
+pit_id/bat_id on `raw.retrosheet_event` when those columns exist (ADR-269).
+Not applied to production `mlb` in this change — wait until pid 4068632
+`mlb predict` finishes. `enrich_feature_stage()` now commits after each
+module so a mid-run crash keeps earlier work. Tests:
+`test_raw_pitcher_batter_lookup_indexes_*` on `mlb_test`.
+
+### Why `mlb predict` was over an hour (PLT-01 correlated subquery) — 2026-08-28
+
+Read-only on production `mlb` while pid 3860016 was in flight (~05:48 UTC, age
+2h04m). The backend was a single `UPDATE` from `platoon_splits_update.sql`,
+already **1h22m** on that statement. Cause: two correlated
+`SELECT p_throws FROM raw.statcast_pitch ... LIMIT 1` per game against 13.5M
+rows, no `pitcher` index. Same run, already-finished one-pass modules
+(after PR #86 `work_mem`): COM-01 154s, SHP-01 123s, xFIP/SIERA 129s.
+Owner later authorized a kill/restart; predict restarted 06:07 UTC as pid
+4068632 with this rewrite. Tests on `mlb_test` only.
+
+### Live pre-game Kalshi/Polymarket match (issue #87, ADR-267) — 2026-08-28
+
+`market.record()` now also writes moneyline probabilities for still-upcoming
+`gold.game_feature` rows, matching through `raw.mlb_schedule` and the latest
+snapshot before first pitch. Decided-game ADR-053 path is unchanged.
+Tests against `mlb_test` only (`tests/integration/test_model_market.py`, 11
+tests). Production `mlb` was not written — pid 3860016 `mlb predict` was
+still running.
+### Product direction + production health snapshot (read-only `mlb`) — 2026-08-28
+
+Handoff for Claude/Agy: `docs/PRODUCT_DIRECTION.md`, ADR-266,
+`docs/superpowers/plans/2026-08-28-product-and-pipeline-next.md`. Owner asked
+to lead on the betting-site + research-DB goal, to document in this project's
+usual places, and whether to delete slow `conform`/`predict` or switch
+everything to SQLMesh. Decision (ADR-266): keep the orchestrators; SQLMesh is
+incremental gold after tie-out; named `.sql` files stay; no new Engine
+packages; next work is live market match + player-aware Markov after the
+in-flight predict finishes.
+
+**Production `mlb`, read-only SELECTs, ~04:45 UTC — do not start another
+`mlb predict`:**
+
+- `meta.ingestion_run`: `model`/`bootstrap` **running** since 03:44 UTC, pid
+  **3860016**, OS process confirmed alive (`mlb predict`). Postgres backend
+  3861497 was in an active `UPDATE` for PLT-01 platoon SQL (~18 min on that
+  statement). `core`/`bootstrap` succeeded 03:06–03:44 (38 min).
+- Several stale `running` rows from Aug 25–27 were reaped at 03:40
+  (`process no longer running`).
+- Last *successful* `model`/`bootstrap`: 2026-08-20 06:56–07:14.
+- `gold.prediction` last write: 2026-08-20 (`elo-v1` 16,055 rows,
+  `log5-v2` 1,886, `kalshi-v1` 166, `polymarket-v1` 161). **`gbm-v1` last
+  wrote 2026-08-04.**
+- `gold.game_feature`: 217,195 rows, 419 upcoming. During this in-flight
+  enrich, `home_elo` was **0 non-null** (Elo runs *after* enrichment — recount
+  when pid 3860016 finishes). `home_woba` 201,991; `home_starter_id` 203,242;
+  `home_starter_xfip`/`siera` 179,389; `home_batting_re24` 198,948;
+  `home_starter_csw_pct` only 85,543. Upcoming 2026: 35/419 have starter id,
+  39 have FIP, 0 have Elo (same in-flight caveat).
+- Failed predict since Aug 21: ADR-260 `gdp_fl` (fixed on main); Aug 22
+  `home_starter_xfip` column missing (migration ordering).
+
+No production writes in this session. No second exclusive workflow started.
+
 ## Current state summary
 
 - **Production state (superseded again 2026-08-19, see "Production incident

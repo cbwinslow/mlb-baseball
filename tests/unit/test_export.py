@@ -1,139 +1,155 @@
-"""Unit tests for Polymorphic Research Dossier & Multi-Format Exporter (EXPORT-01, ADR-121)."""
+"""Unit tests for Research Database Exporter & Interoperability Layer (EXPORT-01)."""
 
-import json
+import builtins
+from unittest.mock import MagicMock
+
+import pytest
 
 from mlb_baseball.export import (
-    ChartSectionBuilder,
-    HTMLRenderer,
-    KeyValueSectionBuilder,
-    MarkdownRenderer,
-    ResearchDossier,
-    TableSectionBuilder,
-    TerminalRenderer,
-    get_renderer,
+    ALLOWLIST,
+    RELATIONS,
+    ExportRelation,
+    _build_count_query,
+    _build_select_query,
+    export_to_parquet,
+    export_to_xlsx,
     health_check,
+    resolve_relation,
 )
 
 
-def test_markdown_renderer_tables_and_alerts():
-    """Verify MarkdownRenderer produces valid GFM tables and alert callouts."""
-    renderer = MarkdownRenderer()
+def test_resolve_relation_fully_qualified():
+    """Verify fully qualified relation names resolve correctly."""
+    rel = resolve_relation("gold.game_export")
+    assert rel.schema == "gold"
+    assert rel.table == "game_export"
+    assert rel.season_column == "season"
+    # game_export is a view over gold.game_feature, which carries Statcast/MLB-API
+    # enrichment columns -> local_research, not redistributable (docs/SOURCE_RIGHTS.md).
+    assert rel.profile == "local_research"
 
-    # 1. Title
-    title_str = renderer.render_title("MLB Game Dossier", "BAL @ NYA")
-    assert "# MLB Game Dossier" in title_str
-    assert "> BAL @ NYA" in title_str
 
-    # 2. Table
-    table_str = renderer.render_table(
-        headers=["Model", "Win%", "Edge"],
-        rows=[["GBM-v2", "62.0%", "+12.0%"], ["Log5", "58.5%", "+8.5%"]],
-        alignments=["left", "right", "right"],
+def test_resolve_relation_bare_name():
+    """Verify bare table name resolves if present in the allow-list."""
+    rel = resolve_relation("game_export")
+    assert rel.qualified_name == "gold.game_export"
+
+    player_rel = resolve_relation("player")
+    assert player_rel.qualified_name == "core.player"
+
+
+def test_resolve_relation_rejects_unknown():
+    """Verify unknown or malicious table/query strings are rejected."""
+    with pytest.raises(ValueError, match="is not in the export allow-list"):
+        resolve_relation("unknown_table")
+
+    with pytest.raises(ValueError, match="is not in the export allow-list"):
+        resolve_relation("SELECT * FROM core.game")
+
+
+def test_build_select_query_without_season():
+    """Verify standard SELECT query without season filter."""
+    rel = ExportRelation("gold", "game_export", "season", "public_safe")
+    query, params = _build_select_query(rel)
+    assert 'SELECT * FROM "gold"."game_export"' in query.as_string(None)
+    assert params == []
+
+
+def test_build_select_query_with_season():
+    """Verify SELECT query with season parameter binding."""
+    rel = ExportRelation("gold", "game_export", "season", "public_safe")
+    query, params = _build_select_query(rel, season=2024)
+    assert 'SELECT * FROM "gold"."game_export" WHERE "season" = %s' in query.as_string(None)
+    assert params == [2024]
+
+
+def test_build_select_query_rejects_season_on_unsupported_relation():
+    """Verify attempting to filter a non-season table by season raises ValueError."""
+    rel = ExportRelation("core", "player", None, "public_safe")
+    with pytest.raises(ValueError, match="does not have a season column"):
+        _build_select_query(rel, season=2024)
+
+
+def test_build_count_query_with_season():
+    """Verify count query builds with season parameter."""
+    rel = ExportRelation("gold", "player_season", "season", "public_safe")
+    query, params = _build_count_query(rel, season=2023)
+    assert 'SELECT count(*) FROM "gold"."player_season" WHERE "season" = %s' in query.as_string(
+        None
     )
-    assert "| Model | Win% | Edge |" in table_str
-    assert "| :--- | ---: | ---: |" in table_str
-    assert "| GBM-v2 | 62.0% | +12.0% |" in table_str
-
-    # 3. Alert
-    alert_str = renderer.render_alert("IMPORTANT", "Model recommends quarter-Kelly stake.")
-    assert "> [!IMPORTANT]" in alert_str
-    assert "quarter-Kelly" in alert_str
-
-    # 4. ASCII Chart
-    chart_str = renderer.render_ascii_bar_chart(
-        items=[("Strikeout 5.5+", 74.5), ("Strikeout 6.5+", 58.2)],
-        max_width=10,
-    )
-    assert "```text" in chart_str
-    assert "Strikeout 5.5+" in chart_str
-    assert "74.5%" in chart_str
+    assert params == [2033] if False else params == [2023]
 
 
-def test_terminal_renderer_aligned_columns():
-    """Verify TerminalRenderer generates properly padded and aligned columns."""
-    renderer = TerminalRenderer()
+def test_excel_row_limit_guard():
+    """Verify Excel exporter refuses relations exceeding the 1,048,576 row sheet limit."""
+    conn = MagicMock()
+    cur = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cur
+    cur.fetchone.return_value = (1_048_576,)  # 1 over max data rows
 
-    table_str = renderer.render_table(
-        headers=["Pitcher", "Team", "K%"],
-        rows=[["Gerrit Cole", "NYA", "29.5%"], ["Corbin Burnes", "BAL", "28.1%"]],
-        alignments=["left", "left", "right"],
-    )
-
-    assert "Gerrit Cole" in table_str
-    assert "Corbin Burnes" in table_str
-    assert "---" in table_str
+    rel = ExportRelation("core", "pitch", "season", "public_safe")
+    with pytest.raises(ValueError, match="exceeds maximum sheet limit"):
+        export_to_xlsx(conn, rel, pytest.importorskip("pathlib").Path("test.xlsx"))
 
 
-def test_html_renderer_semantic_markup():
-    """Verify HTMLRenderer generates valid semantic HTML tags."""
-    renderer = HTMLRenderer()
+def test_missing_pyarrow_error(monkeypatch):
+    """Verify helpful error message when pyarrow is not installed."""
+    real_import = builtins.__import__
 
-    title_html = renderer.render_title("Title", "Subtitle")
-    assert (
-        "<div class='dossier-header'><h1>Title</h1><p class='subtitle'>Subtitle</p></div>"
-        in title_html
-    )
+    def fake_import(name, *args, **kwargs):
+        if name in ("pyarrow", "pyarrow.parquet"):
+            raise ImportError("No module named 'pyarrow'")
+        return real_import(name, *args, **kwargs)
 
-    tbl_html = renderer.render_table(
-        headers=["A", "B"],
-        rows=[[1, 2]],
-    )
-    assert "<table class='dossier-table'>" in tbl_html
-    assert "<th>A</th><th>B</th>" in tbl_html
-    assert "<td>1</td><td>2</td>" in tbl_html
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    conn = MagicMock()
+    rel = ExportRelation("gold", "game_export", "season", "public_safe")
+
+    with pytest.raises(RuntimeError, match="Parquet export requires pyarrow"):
+        export_to_parquet(conn, rel, pytest.importorskip("pathlib").Path("test.parquet"))
 
 
-def test_dossier_assembler_composition():
-    """Verify ResearchDossier accepts pluggable sections and exports across all formats."""
-    dossier = ResearchDossier("NYA Matchup Dossier", "2026-08-24")
+def test_missing_openpyxl_error(monkeypatch):
+    """Verify helpful error message when openpyxl is not installed."""
+    real_import = builtins.__import__
 
-    # Add 3 distinct polymorphic section builders
-    dossier.add_section(
-        KeyValueSectionBuilder(
-            "Game Details",
-            [
-                ("Venue", "Yankee Stadium"),
-                ("Home Starter", "Gerrit Cole"),
-                ("Away Starter", "Corbin Burnes"),
-            ],
-        )
-    )
-    dossier.add_section(
-        TableSectionBuilder(
-            "Model Forecasts",
-            headers=["Model", "Home Win%"],
-            rows=[["GBM-v2", "62.0%"], ["Log5-v2", "58.5%"]],
-        )
-    )
-    dossier.add_section(
-        ChartSectionBuilder(
-            "Pitcher Strikeout PMF",
-            items=[("4.5+ K", 88.0), ("5.5+ K", 74.5), ("6.5+ K", 58.2)],
-        )
-    )
+    def fake_import(name, *args, **kwargs):
+        if name == "openpyxl":
+            raise ImportError("No module named 'openpyxl'")
+        return real_import(name, *args, **kwargs)
 
-    # 1. Export Markdown
-    md_output = dossier.export(get_renderer("markdown"))
-    assert "# NYA Matchup Dossier" in md_output
-    assert "Yankee Stadium" in md_output
-    assert "| GBM-v2 | 62.0% |" in md_output
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    conn = MagicMock()
+    rel = ExportRelation("gold", "game_export", "season", "public_safe")
 
-    # 2. Export Terminal
-    term_output = dossier.export(get_renderer("terminal"))
-    assert "NYA MATCHUP DOSSIER" in term_output
-    assert "Gerrit Cole" in term_output
-
-    # 3. Export JSON
-    json_str = dossier.to_json()
-    data = json.loads(json_str)
-    assert data["title"] == "NYA Matchup Dossier"
-    assert len(data["sections"]) == 3
-    assert data["sections"][0]["title"] == "Game Details"
+    with pytest.raises(RuntimeError, match="Excel export requires openpyxl"):
+        export_to_xlsx(conn, rel, pytest.importorskip("pathlib").Path("test.xlsx"))
 
 
-def test_export_health_check():
-    """Verify export engine health check passes cleanly."""
+def test_public_safe_relations_are_conservative():
+    """public_safe is Retrosheet-only (docs/SOURCE_RIGHTS.md). This is the guard
+    against a redistributable bundle silently shipping Statcast / MLB-API /
+    Baseball-Reference / Lahman / Chadwick data. If you add a relation here, its
+    entire lineage must be Retrosheet -- verify it and extend this allowlist in
+    the same change."""
+    allowed_public_safe = {
+        "raw.retrosheet_event",
+        "raw.retrosheet_gameinfo",
+        "gold.run_expectancy_24",
+        "gold.win_expectancy",
+        "gold.leverage_index",
+    }
+    actual_public_safe = {r.qualified_name for r in RELATIONS if r.profile == "public_safe"}
+    assert actual_public_safe == allowed_public_safe
+    for rel in RELATIONS:
+        if rel.profile == "public_safe":
+            assert "Retrosheet" in rel.rights_note
+
+
+def test_export_health_check_passes():
+    """Verify export module health check reports allowlist and optional dependencies."""
     checks = health_check()
-    assert len(checks) == 1
-    assert checks[0].ok is True
-    assert "Multi-format" in checks[0].detail
+    assert len(checks) == 3
+    allowlist_check = next(c for c in checks if c.name == "export allowlist")
+    assert allowlist_check.ok is True
+    assert f"{len(ALLOWLIST)} relations registered" in allowlist_check.detail

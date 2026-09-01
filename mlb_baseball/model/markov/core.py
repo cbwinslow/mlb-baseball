@@ -1,4 +1,4 @@
-"""Base/out state Markov chain estimation from real play-by-play data (Plan 04D).
+"""Pure base/out Markov chain math and simulation (Plan 04D).
 
 Models each half-inning as a Markov chain over the 24 transient base/out
 states (8 base configurations x 3 out counts) plus one absorbing TERMINAL
@@ -6,19 +6,15 @@ state (3 outs, half-inning over -- base occupancy stops mattering once the
 inning ends, so every 3-outs row collapses into this single state
 regardless of what bases were occupied on it).
 
-The transition matrix is estimated directly from raw.retrosheet_event: one
-row already carries both its own pre-play state (outs_ct, base1/2/3_run_id)
-and everything needed to derive its post-play state (event_outs_ct,
-bat_dest_id, run1/2/3_dest_id) -- see mlb_baseball/sql/
-markov_transition_counts.sql's own docstring for the destination-code
-mapping, confirmed directly against real data, and why no sequential
-per-game walk is needed (unlike every other retrosheet_event consumer's
-rolling-window shape, this is a single aggregate GROUP BY over
-independently self-describing rows).
+Everything here operates on in-memory distributions and counts: building the
+transition matrix from transition-count rows, solving run expectancy,
+building and empirical-Bayes-shrinking outcome distributions, and simulating
+half-innings, games, and matchups. No database, no SQL -- so `core` can be
+imported and unit-tested without a connection, and the plate-appearance
+matchup model reuses its simulator as a library.
 
-Scope: Retrosheet-covered eras only (1910-2025), same honest gap every
-sibling retrosheet_event-only module documents (team_rate.py, starter.py) --
-no 2026+ raw.mlb_playbyplay equivalent exists here yet.
+Estimating those counts and distributions from raw.retrosheet_event /
+Statcast lives in `markov/estimate.py`.
 """
 
 from __future__ import annotations
@@ -27,19 +23,58 @@ import math
 import random
 from collections.abc import Hashable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Literal, TypeVar
+from typing import TypeVar
 
 import numpy as np
-import psycopg
 
-from mlb_baseball.db import fetch_one
-from mlb_baseball.sql import read_sql
+__all__ = [
+    "BaseOutState",
+    "MarkovError",
+    "DegenerateSimulation",
+    "TransitionCountRow",
+    "Outcome",
+    "GameResult",
+    "PitchArsenal",
+    "BatterArsenalProfile",
+    "InGameSimulationResult",
+    "MATCHUP_PRIOR_PA",
+    "TERMINAL",
+    "EMPTY_ZERO_OUTS",
+    "TRANSIENT_STATES",
+    "SIM_MAX_INNINGS",
+    "build_transition_matrix",
+    "run_expectancy",
+    "build_outcome_distribution",
+    "shrink_outcome_distribution",
+    "simulate_half_inning_steps",
+    "simulate_half_inning",
+    "simulate_half_innings",
+    "simulate_game",
+    "simulate_home_win_rate",
+    "summarize_runs",
+    "compute_arsenal_matchup_edge",
+    "adjust_outcome_distribution_for_matchup",
+    "simulate_matchup_game",
+    "simulate_in_game_win_probability",
+]
 
-_TRANSITION_COUNTS_SQL = read_sql("markov_transition_counts.sql")
-_HALF_INNING_RUNS_SQL = read_sql("markov_half_inning_runs.sql")
-_GAME_SCORES_SQL = read_sql("markov_game_scores.sql")
-_PITCHER_ARSENAL_SQL = read_sql("pitcher_arsenal_select.sql")
-_BATTER_ARSENAL_SQL = read_sql("batter_arsenal_select.sql")
+# Tango, Lichtman & Dolphin, The Book: ~350 PA before a rate is trusted
+# over the league prior. Used as M in the Layer-2 matchup shrink.
+MATCHUP_PRIOR_PA = 350
+
+# simulate_home_win_rate: fraction of Monte Carlo trials that may stay tied
+# at max_innings before the estimated distribution is declared degenerate.
+# ~10% of simulated games reach extras (ADR-079) and the estimated
+# distribution's extras run long (no automatic-runner rule); a genuinely
+# tie-breakable distribution resolves essentially all of those. 1% failing
+# is already well beyond sampling luck.
+_UNRESOLVED_TRIAL_LIMIT = 0.01
+
+# Per-trial inning cap for the win-rate Monte Carlo. Was 30 (ADR-078), which
+# a valid but low-scoring distribution could hit by sampling luck; 100 is
+# comfortably past that while still bounding a truly stuck distribution.
+# Recorded in sim_predict's model parameters since it shifts the estimate.
+SIM_MAX_INNINGS = 100
 
 
 @dataclass(frozen=True)
@@ -71,6 +106,15 @@ TRANSIENT_STATES: tuple[BaseOutState, ...] = tuple(
 
 class MarkovError(ValueError):
     """A base/out transition dataset failed a physical or probability invariant."""
+
+
+class DegenerateSimulation(MarkovError):
+    """A simulated game could not be resolved: the estimated distribution has
+    no positive-probability path that breaks a tie. A subclass of
+    :class:`MarkovError` (so existing ``except MarkovError`` still catches it),
+    but distinct so a caller can tell "this one matchup's distribution is
+    degenerate -- skip it" apart from a genuine data-contract violation like
+    "no observed outcomes for state" that must not be swallowed."""
 
 
 @dataclass(frozen=True)
@@ -165,49 +209,9 @@ def build_transition_matrix(
     return matrix
 
 
-def _retrosheet_tables_ready(conn: psycopg.Connection) -> bool:
-    # Two-table dependency, two-table gate (matching team_rate.py/
-    # offense.py/starter.py's established convention, issue #9 item 2):
-    # raw.retrosheet_event and raw.retrosheet_gameinfo are landed by two
-    # different connectors -- a fresh clone or partial bootstrap that's
-    # only ingested one of them would otherwise hit an UndefinedTable
-    # error here instead of the same clean "not ready yet" every sibling
-    # retrosheet_event consumer gives.
-    with conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        (event_exists,) = fetch_one(cur)
-        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
-        (gameinfo_exists,) = fetch_one(cur)
-    return bool(event_exists) and bool(gameinfo_exists)
-
-
-def _fetch_transition_counts(
-    conn: psycopg.Connection, seasons: Sequence[int], bat_home: Literal["0", "1"] | None = None
-) -> list[TransitionCountRow]:
-    if not _retrosheet_tables_ready(conn):
-        return []
-    with conn.cursor() as cur:
-        cur.execute(
-            _TRANSITION_COUNTS_SQL, {"seasons": [str(s) for s in seasons], "bat_home": bat_home}
-        )
-        return [TransitionCountRow(*row) for row in cur.fetchall()]
-
-
 def _validate_seasons(seasons: Sequence[int]) -> None:
     if not seasons:
         raise ValueError("seasons must not be empty")
-
-
-def estimate_transition_matrix(
-    conn: psycopg.Connection, seasons: Sequence[int]
-) -> dict[BaseOutState, dict[BaseOutState, float]]:
-    """Estimate the base/out transition matrix from real Retrosheet
-    play-by-play for the given regular-season years. Returns an empty
-    dict, matching every sibling retrosheet_event consumer's "not ready
-    yet" contract, if either source table hasn't been bootstrapped."""
-    _validate_seasons(seasons)
-    rows = _fetch_transition_counts(conn, seasons)
-    return build_transition_matrix(rows)
 
 
 def _immediate_expected_runs(rows: Iterable[TransitionCountRow]) -> dict[BaseOutState, float]:
@@ -275,24 +279,6 @@ def run_expectancy(
     return {state: float(re[i]) for state, i in index.items()}
 
 
-def estimate_run_expectancy(
-    conn: psycopg.Connection, seasons: Sequence[int]
-) -> dict[BaseOutState, float]:
-    """Estimate the RE24-style run-expectancy table from real Retrosheet
-    play-by-play for the given regular-season years. Returns an empty
-    dict, matching estimate_transition_matrix's "not ready yet" contract,
-    if either source table hasn't been bootstrapped -- not a full table of
-    zeros, which run_expectancy's own "unobserved state defaults to 0"
-    behavior would otherwise produce from an empty matrix."""
-    _validate_seasons(seasons)
-    rows = _fetch_transition_counts(conn, seasons)
-    if not rows:
-        return {}
-    matrix = build_transition_matrix(rows)
-    immediate_runs = _immediate_expected_runs(rows)
-    return run_expectancy(matrix, immediate_runs)
-
-
 @dataclass(frozen=True)
 class Outcome:
     post: BaseOutState
@@ -331,31 +317,67 @@ def build_outcome_distribution(
     return distribution
 
 
-def estimate_outcome_distribution(
-    conn: psycopg.Connection, seasons: Sequence[int], bat_home: Literal["0", "1"] | None = None
+def shrink_outcome_distribution(
+    raw: dict[BaseOutState, dict[Outcome, float]],
+    league: dict[BaseOutState, dict[Outcome, float]],
+    n: int,
+    m: int = MATCHUP_PRIOR_PA,
 ) -> dict[BaseOutState, dict[Outcome, float]]:
-    """Estimate the joint (post_state, runs_scored) outcome distribution
-    from real Retrosheet play-by-play for the given regular-season years
-    -- the input simulate_half_inning/simulate_half_innings need. Returns
-    an empty dict, matching estimate_transition_matrix's "not ready yet"
-    contract, if either source table hasn't been bootstrapped.
+    """Mix a matchup-specific outcome distribution toward the league prior.
 
-    `bat_home` optionally scopes to one batting side only ('1' = home,
-    '0' = away) -- None (the default) combines both sides into one
-    league-average distribution, matching every prior Plan 04D package's
-    behavior. Real per-play scoring rates genuinely differ by batting
-    side in most seasons (verified directly against real data, ADR-080)
-    -- pass '1'/'0' to get each side's own distribution for
-    `simulate_game`'s optional `home_distribution` parameter. Raises
-    MarkovError for any other value -- a typo like 'home'/'away' would
-    otherwise silently match zero SQL rows (bat_home_id only ever
-    contains '0'/'1') and return an empty distribution instead of
-    failing loudly."""
-    _validate_seasons(seasons)
+    For every pre-state present in ``league`` (and any extra state that
+    only the matchup sample saw):
+
+    ``p = (n / (n + M)) * p_raw + (M / (n + M)) * p_league``
+
+    then renormalize that state's outgoing mass to 1. ``n`` is the
+    matchup's plate-appearance count (``bat_event_fl = 'T'`` events only,
+    never the raw transition-row total, which also counts steals, wild
+    pitches, and other non-PA events the chain keeps). ``M`` defaults to
+    :data:`MATCHUP_PRIOR_PA` (350, *The Book*).
+
+    ``n = 0`` returns a copy of ``league``: a matchup with no history is
+    the league distribution, not a zeroed chain that would hang the
+    simulator. A pre-state missing from ``raw`` copies the league
+    distribution for that state (the matchup has no evidence there).
+    """
+    if n < 0:
+        raise MarkovError(f"n must be non-negative, got {n}")
+    if m <= 0:
+        raise MarkovError(f"m must be positive, got {m}")
+    if n == 0:
+        return {pre: dict(outcomes) for pre, outcomes in league.items()}
+    weight = n / (n + m)
+    prior_weight = 1.0 - weight
+    states = set(league) | set(raw)
+    mixed: dict[BaseOutState, dict[Outcome, float]] = {}
+    for pre in states:
+        raw_outcomes = raw.get(pre, {})
+        league_outcomes = league.get(pre, {})
+        if not raw_outcomes:
+            mixed[pre] = dict(league_outcomes)
+            continue
+        keys = set(raw_outcomes) | set(league_outcomes)
+        blended = {
+            outcome: weight * raw_outcomes.get(outcome, 0.0)
+            + prior_weight * league_outcomes.get(outcome, 0.0)
+            for outcome in keys
+        }
+        total = sum(blended.values())
+        if total <= 0:
+            raise MarkovError(f"shrink produced no mass for state {pre}")
+        probs = {outcome: mass / total for outcome, mass in blended.items() if mass > 0}
+        _validate_probabilities_sum_to_one(probs)
+        mixed[pre] = probs
+    return mixed
+
+
+def _validate_bat_home(bat_home: str | None) -> None:
+    """A typo like 'home'/'away' would otherwise silently match zero SQL
+    rows (``bat_home_id`` only ever holds '0'/'1') and return an empty
+    distribution instead of failing loudly."""
     if bat_home is not None and bat_home not in ("0", "1"):
         raise MarkovError(f"bat_home must be '0', '1', or None, got {bat_home!r}")
-    rows = _fetch_transition_counts(conn, seasons, bat_home)
-    return build_outcome_distribution(rows)
 
 
 def simulate_half_inning_steps(
@@ -453,10 +475,12 @@ def simulate_game(
     real, non-degenerate estimated distribution, but not for a narrow or
     degenerate one (e.g. a distribution with zero probability of ever
     breaking a tie). `max_innings` (default 30 -- MLB's longest games on
-    record run to 25-26 innings) is a defensive bound raising MarkovError
-    if exceeded, rather than hanging forever, matching
-    `simulate_half_inning`'s own "fail loudly, don't hang" contract for a
-    dead-end state. Must be strictly greater than `regulation_innings` --
+    record run to 25-26 innings; :func:`simulate_home_win_rate` overrides
+    it to :data:`SIM_MAX_INNINGS` for its Monte Carlo) is a defensive
+    bound raising :class:`DegenerateSimulation` if exceeded, rather than
+    hanging forever, matching `simulate_half_inning`'s own "fail loudly,
+    don't hang" contract for a dead-end state. Must be strictly greater
+    than `regulation_innings` --
     equal would leave no room for even one extra inning, so any tied
     regulation game would immediately hit this guard instead of ever
     getting a chance to resolve."""
@@ -474,9 +498,8 @@ def simulate_game(
     while True:
         inning += 1
         if inning > max_innings:
-            raise MarkovError(
-                f"game still tied after {max_innings} innings -- the distribution may be "
-                "degenerate (no path to a run that breaks the tie), refusing to loop forever"
+            raise DegenerateSimulation(
+                f"game still tied after {max_innings} innings -- no sampled path broke the tie"
             )
         away_runs += simulate_half_inning(distribution, rng)
         if inning >= regulation_innings and home_runs > away_runs:
@@ -493,37 +516,62 @@ def simulate_game(
     return GameResult(away_runs=away_runs, home_runs=home_runs, innings=inning)
 
 
-def real_half_inning_runs(conn: psycopg.Connection, seasons: Sequence[int]) -> list[int]:
-    """Real per-half-inning run totals from Retrosheet play-by-play for the
-    given regular-season years -- one value per (game, inning, side), what
-    `simulate_half_innings`' output is compared against for Plan 04D's
-    calibration check ("Calibrate composed distributions against held-out
-    seasons and real forward results"). Returns an empty list, matching
-    every other estimator here's "not ready yet" contract, if either
-    source table hasn't been bootstrapped."""
-    _validate_seasons(seasons)
-    if not _retrosheet_tables_ready(conn):
-        return []
-    with conn.cursor() as cur:
-        cur.execute(_HALF_INNING_RUNS_SQL, {"seasons": [str(s) for s in seasons]})
-        return [int(total_runs) for _game_id, _inning, _side, total_runs in cur.fetchall()]
+def simulate_home_win_rate(
+    away_distribution: dict[BaseOutState, dict[Outcome, float]],
+    home_distribution: dict[BaseOutState, dict[Outcome, float]],
+    rng: random.Random,
+    n_games: int,
+    regulation_innings: int = 9,
+    max_innings: int = SIM_MAX_INNINGS,
+) -> float:
+    """Fraction of simulated games the home side wins.
 
+    ``n_games`` must be positive. Each trial calls :func:`simulate_game`
+    with the away side drawing from ``away_distribution`` and the home
+    side from ``home_distribution``. Ties cannot occur in
+    ``simulate_game`` (extra innings continue until a winner), so the
+    rate is wins / n_games with no push handling.
 
-def real_game_scores(conn: psycopg.Connection, seasons: Sequence[int]) -> list[GameResult]:
-    """Real final game scores from Retrosheet for the given regular-season
-    years -- one `GameResult` per game, what `simulate_game`'s output is
-    compared against for Plan 04D's game-level calibration check. Returns
-    an empty list, matching every other estimator here's "not ready yet"
-    contract, if either source table hasn't been bootstrapped."""
-    _validate_seasons(seasons)
-    if not _retrosheet_tables_ready(conn):
-        return []
-    with conn.cursor() as cur:
-        cur.execute(_GAME_SCORES_SQL, {"seasons": [str(s) for s in seasons]})
-        return [
-            GameResult(away_runs=away_runs, home_runs=home_runs, innings=innings)
-            for _game_id, away_runs, home_runs, innings in cur.fetchall()
-        ]
+    A single trial that is still tied at ``max_innings`` is *not* proof the
+    distribution is degenerate: a valid low-scoring distribution with a
+    positive tie-breaking path can still, by sampling luck, stay tied for
+    100 innings (the estimated distribution has no automatic-runner rule, so
+    its extras run longer than the modern game -- ADR-079). Such a trial is
+    dropped and the rate is taken over the games that *did* resolve. Only
+    when an implausible fraction of trials fail to resolve
+    (``_UNRESOLVED_TRIAL_LIMIT``) is the distribution declared degenerate and
+    :class:`DegenerateSimulation` raised -- at which point the caller
+    (``sim_predict.predict``) skips just that one matchup, keeping the rest
+    of the slate and log5/Elo/GBM (same transaction).
+    """
+    if n_games < 1:
+        raise MarkovError(f"n_games must be positive, got {n_games}")
+    wins = 0
+    unresolved = 0
+    for _ in range(n_games):
+        try:
+            result = simulate_game(
+                away_distribution,
+                rng,
+                regulation_innings=regulation_innings,
+                max_innings=max_innings,
+                home_distribution=home_distribution,
+            )
+        except DegenerateSimulation:
+            unresolved += 1
+            continue
+        if result.home_runs > result.away_runs:
+            wins += 1
+    resolved = n_games - unresolved
+    # max(1, ...) so a single unlucky trial never trips the guard even at the
+    # small n_games tests and callers use -- it is a fraction-of-a-large-run
+    # signal, not a "one is too many" one.
+    if resolved == 0 or unresolved > max(1, n_games * _UNRESOLVED_TRIAL_LIMIT):
+        raise DegenerateSimulation(
+            f"{unresolved}/{n_games} simulated games never broke a tie within "
+            f"{max_innings} innings -- the estimated distribution is degenerate"
+        )
+    return wins / resolved
 
 
 def summarize_runs(values: Sequence[int]) -> dict[str, float]:
@@ -578,88 +626,6 @@ class BatterArsenalProfile:
     run_values_per_100: dict[str, float]
     woba: dict[str, float]
     whiff_pct: dict[str, float]
-
-
-def fetch_pitcher_arsenal(
-    conn: psycopg.Connection, pitcher_id: str, season: int
-) -> PitchArsenal | None:
-    """Fetch pitcher arsenal statistics from raw.statcast_pitcher_arsenal_stat."""
-    with conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.statcast_pitcher_arsenal_stat')")
-        (table_exists,) = fetch_one(cur)
-        if not table_exists:
-            return None
-
-        cur.execute(_PITCHER_ARSENAL_SQL, {"player_id": str(pitcher_id), "season": str(season)})
-        rows = cur.fetchall()
-        if not rows:
-            return None
-
-        pitch_usage: dict[str, float] = {}
-        run_values: dict[str, float] = {}
-        woba_against: dict[str, float] = {}
-        whiff_pct: dict[str, float] = {}
-
-        for _pid, ptype, usage, rv100, woba, whiff in rows:
-            if ptype:
-                if usage is not None:
-                    pitch_usage[ptype] = float(usage)
-                if rv100 is not None:
-                    run_values[ptype] = float(rv100)
-                if woba is not None:
-                    woba_against[ptype] = float(woba)
-                if whiff is not None:
-                    whiff_pct[ptype] = float(whiff)
-
-        return PitchArsenal(
-            player_id=str(pitcher_id),
-            season=season,
-            pitch_usage=pitch_usage,
-            run_values_per_100=run_values,
-            woba_against=woba_against,
-            whiff_pct=whiff_pct,
-        )
-
-
-def fetch_batter_arsenal(
-    conn: psycopg.Connection, batter_id: str, season: int
-) -> BatterArsenalProfile | None:
-    """Fetch batter pitch-type profile from raw.statcast_batter_arsenal."""
-    with conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.statcast_batter_arsenal')")
-        (table_exists,) = fetch_one(cur)
-        if not table_exists:
-            return None
-
-        cur.execute(_BATTER_ARSENAL_SQL, {"player_id": str(batter_id), "season": str(season)})
-        rows = cur.fetchall()
-        if not rows:
-            return None
-
-        pitches_seen: dict[str, int] = {}
-        run_values: dict[str, float] = {}
-        woba: dict[str, float] = {}
-        whiff_pct: dict[str, float] = {}
-
-        for _pid, ptype, cnt, rv100, woba_val, whiff in rows:
-            if ptype:
-                if cnt is not None:
-                    pitches_seen[ptype] = int(cnt)
-                if rv100 is not None:
-                    run_values[ptype] = float(rv100)
-                if woba_val is not None:
-                    woba[ptype] = float(woba_val)
-                if whiff is not None:
-                    whiff_pct[ptype] = float(whiff)
-
-        return BatterArsenalProfile(
-            player_id=str(batter_id),
-            season=season,
-            pitches_seen=pitches_seen,
-            run_values_per_100=run_values,
-            woba=woba,
-            whiff_pct=whiff_pct,
-        )
 
 
 def compute_arsenal_matchup_edge(pitcher: PitchArsenal, batter: BatterArsenalProfile) -> float:

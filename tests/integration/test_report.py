@@ -58,9 +58,23 @@ def _ensure_dynamic_tables(conn):
             )
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
         if not cur.fetchone()[0]:
+            # Full column set the gold.batting_game / gold.pitching_game
+            # builders (Plan 03B) and their doctor join-coverage checks
+            # read -- run() and health_check() both exercise them, so the
+            # older narrow stub (game_id/bat_home_id/event_cd/ab_fl/sf_fl)
+            # is no longer enough. Kept a superset of what
+            # test_report_batting_game.py / test_report_pitching_game.py
+            # each create for their own focused runs.
             cur.execute(
-                "CREATE TABLE raw.retrosheet_event (game_id text, bat_home_id text, "
-                "event_cd text, ab_fl text, sf_fl text, _season text)"
+                "CREATE TABLE raw.retrosheet_event ("
+                "game_id text, bat_id text, resp_pit_id text, resp_pit_start_fl text, "
+                "bat_home_id text, event_cd text, bat_event_fl text, ab_fl text, "
+                "sf_fl text, sh_fl text, dp_fl text, wp_fl text, battedball_cd text, "
+                "rbi_ct text, event_outs_ct text, bat_dest_id text, "
+                "run1_dest_id text, run2_dest_id text, run3_dest_id text, "
+                "base1_run_id text, base2_run_id text, base3_run_id text, "
+                "run1_resp_pit_id text, run2_resp_pit_id text, run3_resp_pit_id text, "
+                "_season text)"
             )
         cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
         if not cur.fetchone()[0]:

@@ -1,7 +1,7 @@
 """Phase 2 modeling (ADR-032/033/034, docs/RESEARCH.md). Deliberately not
 a plugin framework -- features/elo/starter build up gold.game_feature's
 columns, log5/elo/gbm are the models that consume them; this just calls
-each directly, in order, inside one transaction. Extract real structure
+each directly, in order, committing after each enrichment step. Extract real structure
 once a piece actually needs something the others don't fit into this same
 shape, not before -- same reasoning as this project's connector registry,
 which came after multiple real connectors, not in anticipation of one.
@@ -18,9 +18,11 @@ starter-quality columns until it's retrained against them (a real,
 separate follow-up, not automatic just because the columns now exist).
 """
 
+from collections.abc import Callable
+
 import psycopg
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import apply_batch_session_settings, get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
     Check,
@@ -52,12 +54,14 @@ from mlb_baseball.model import (
     pitcher_estimators,
     platoon,
     run_expectancy,
+    sim_predict,
     speed,
     starter,
     starter_workload,
     statcast_expected,
     team_rate,
     trend,
+    vaa,
     war,
     win_expectancy,
 )
@@ -103,6 +107,7 @@ def run_features() -> dict[str, int]:
         get_connection() as conn,
         track_run(conn, SOURCE, "features", workflow="exclusive") as result,
     ):
+        apply_batch_session_settings(conn)
         counts = build_feature_stage(conn)
         conn.commit()
         result["rows"] = counts["gold.game_feature"]
@@ -148,55 +153,55 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
 
     :param conn: an open, non-autocommit connection already inside the
         same transaction ``build_feature_stage(conn)`` just ran in.
+        Each step below is committed before the next starts so a crash
+        mid-enrichment keeps earlier modules (issue #84 Phase 2.1).
+        Several ``compute()`` functions also commit themselves; a second
+        commit here is a no-op on an empty transaction.
     """
-    return {
-        "gold.game_feature (park_factor)": park.compute(conn),
-        # trend.compute() only reads base-family columns (win_pct/
-        # win_pct_10), already populated by build_feature_stage() before
-        # this function ever runs -- no ordering dependency on any other
-        # enrichment module here.
-        "gold.game_feature (trend)": trend.compute(conn),
-        "gold.game_feature (team_rate)": team_rate.compute(conn),
-        "gold.game_feature (team_rate run environment)": team_rate.compute_run_environment(conn),
-        "gold.game_feature (bsr)": bsr.compute(conn),
-        "gold.game_feature (offense)": offense.compute(conn),
-        "gold.game_feature (wrc_plus)": offense.compute_wrc_plus(conn),
-        "gold.game_feature (offense live)": offense.compute_live(conn),
-        "gold.game_feature (wrc_plus live)": offense.compute_wrc_plus_live(conn),
-        "gold.game_feature (starter)": starter.compute(conn),
-        "gold.game_feature (starter live)": starter.compute_live(conn),
-        "gold.game_feature (starter probable)": starter.compute_probable(conn),
-        "gold.game_feature (experience)": experience.compute(conn),
-        "gold.game_feature (pitch_discipline)": pitch_discipline.compute(conn),
-        "gold.game_feature (batted_ball)": batted_ball.compute(conn),
-        # win_expectancy/leverage_index build full-history reference tables
-        # (gold.win_expectancy, gold.leverage_index), not gold.game_feature
-        # columns directly -- run_expectancy.compute() (next) reads
-        # gold.leverage_index for its avg_li columns (ADR-262). Both are
-        # cheap no-ops once already built; see their own compute() docstrings.
-        "gold.win_expectancy": win_expectancy.compute(conn),
-        "gold.leverage_index": leverage_index.compute(conn),
-        "gold.game_feature (run_expectancy)": run_expectancy.compute(conn),
-        "gold.game_feature (pitcher_estimators)": pitcher_estimators.compute(conn),
-        "gold.game_feature (statcast_expected)": statcast_expected.compute(conn),
-        "gold.game_feature (command)": command.compute(conn),
-        "gold.game_feature (pitch_movement)": pitch_movement.compute(conn),
-        "gold.game_feature (starter workload)": starter_workload.compute(conn),
-        "gold.game_feature (starter workload live)": starter_workload.compute_live(conn),
-        "gold.game_feature (starter workload probable)": starter_workload.compute_probable(conn),
-        "gold.game_feature (bullpen)": bullpen.compute(conn),
-        "gold.game_feature (bullpen live)": bullpen.compute_live(conn),
-        "gold.game_feature (bullpen upcoming)": bullpen.compute_upcoming(conn),
-        "gold.game_feature (oaa)": oaa.compute(conn),
-        "gold.game_feature (speed)": speed.compute(conn),
-        "gold.game_feature (framing)": framing.compute(conn),
-        "gold.game_feature (war)": war.compute(conn),
-        "gold.game_feature (platoon)": platoon.compute(conn),
-        # age.compute() must run last -- it reads home_starter_id/
-        # away_starter_id, which every starter.compute*() call above may
-        # set (historical, live, or probable path).
-        "gold.game_feature (age)": age.compute(conn),
-    }
+    # Order is load-bearing: live/probable after their historical path;
+    # run_expectancy after leverage_index; age last (needs starter ids).
+    steps: list[tuple[str, Callable[[psycopg.Connection], int]]] = [
+        ("gold.game_feature (park_factor)", park.compute),
+        ("gold.game_feature (trend)", trend.compute),
+        ("gold.game_feature (team_rate)", team_rate.compute),
+        ("gold.game_feature (team_rate run environment)", team_rate.compute_run_environment),
+        ("gold.game_feature (bsr)", bsr.compute),
+        ("gold.game_feature (offense)", offense.compute),
+        ("gold.game_feature (wrc_plus)", offense.compute_wrc_plus),
+        ("gold.game_feature (offense live)", offense.compute_live),
+        ("gold.game_feature (wrc_plus live)", offense.compute_wrc_plus_live),
+        ("gold.game_feature (starter)", starter.compute),
+        ("gold.game_feature (starter live)", starter.compute_live),
+        ("gold.game_feature (starter probable)", starter.compute_probable),
+        ("gold.game_feature (experience)", experience.compute),
+        ("gold.game_feature (pitch_discipline)", pitch_discipline.compute),
+        ("gold.game_feature (batted_ball)", batted_ball.compute),
+        ("gold.win_expectancy", win_expectancy.compute),
+        ("gold.leverage_index", leverage_index.compute),
+        ("gold.game_feature (run_expectancy)", run_expectancy.compute),
+        ("gold.game_feature (pitcher_estimators)", pitcher_estimators.compute),
+        ("gold.game_feature (statcast_expected)", statcast_expected.compute),
+        ("gold.game_feature (command)", command.compute),
+        ("gold.game_feature (pitch_movement)", pitch_movement.compute),
+        ("gold.game_feature (starter vaa)", vaa.compute),
+        ("gold.game_feature (starter workload)", starter_workload.compute),
+        ("gold.game_feature (starter workload live)", starter_workload.compute_live),
+        ("gold.game_feature (starter workload probable)", starter_workload.compute_probable),
+        ("gold.game_feature (bullpen)", bullpen.compute),
+        ("gold.game_feature (bullpen live)", bullpen.compute_live),
+        ("gold.game_feature (bullpen upcoming)", bullpen.compute_upcoming),
+        ("gold.game_feature (oaa)", oaa.compute),
+        ("gold.game_feature (speed)", speed.compute),
+        ("gold.game_feature (framing)", framing.compute),
+        ("gold.game_feature (war)", war.compute),
+        ("gold.game_feature (platoon)", platoon.compute),
+        ("gold.game_feature (age)", age.compute),
+    ]
+    counts: dict[str, int] = {}
+    for name, fn in steps:
+        counts[name] = fn(conn)
+        conn.commit()
+    return counts
 
 
 def run() -> dict[str, int]:
@@ -220,6 +225,7 @@ def run() -> dict[str, int]:
         get_connection() as conn,
         track_run(conn, SOURCE, "bootstrap", workflow="exclusive") as result,
     ):
+        apply_batch_session_settings(conn)
         feature_counts = build_feature_stage(conn)
         enrich_counts = enrich_feature_stage(conn)
         elo_rows = elo.compute_ratings(conn)
@@ -229,19 +235,17 @@ def run() -> dict[str, int]:
         # NULL Elo values on every real run (see enrich_feature_stage()'s
         # own docstring for the full explanation, PR review finding).
         diff_count = diff.compute(conn)
-        # market.record() runs before backfill_outcomes(), not after --
-        # unlike log5/elo/gbm's own predictions (made for still-upcoming
-        # games, where actual_home_win is legitimately unknown yet), every
-        # market prediction is for a game that's already decided by
-        # construction (see market.py's own docstring). Recording it after
-        # backfill_outcomes() would leave a real, already-known outcome
-        # sitting NULL for a full extra cron cycle for no reason -- found
-        # running this against production, not hypothetical.
+        # market.record() writes decided-game comparison lines and (ADR-267)
+        # live upcoming moneyline snapshots. Decided rows must land before
+        # backfill_outcomes() so a known result is not left NULL for an extra
+        # cron cycle (ADR-053 production finding). Upcoming rows have no
+        # outcome yet; backfill leaves them NULL on purpose.
         market_count = market.record(conn)
         backfilled = backfill_outcomes(conn)
         log5_count = log5.predict(conn)
         elo_count = elo.predict(conn)
         gbm_count = gbm.predict(conn)
+        markov_count = sim_predict.predict(conn)
         conn.commit()
         # diff_count is excluded here, matching elo_rows' own established
         # exclusion just below: both diff.compute() (`UPDATE ... WHERE
@@ -257,6 +261,7 @@ def run() -> dict[str, int]:
             + log5_count
             + elo_count
             + gbm_count
+            + markov_count
             + market_count
             + backfilled
         )
@@ -267,6 +272,7 @@ def run() -> dict[str, int]:
         "gold.prediction (log5)": log5_count,
         "gold.prediction (elo)": elo_count,
         "gold.prediction (gbm)": gbm_count,
+        "gold.prediction (markov)": markov_count,
         "gold.prediction (market)": market_count,
         "gold.prediction (outcomes backfilled)": backfilled,
         "gold.game_feature (Elo ratings)": elo_rows,
@@ -310,6 +316,7 @@ def health_check() -> list[Check]:
         features.health_check()
         + log5.health_check()
         + gbm.health_check()
+        + sim_predict.health_check()
         + starter.health_check()
         + park.health_check()
         + offense.health_check()

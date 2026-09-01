@@ -10,7 +10,7 @@ This knowledge repository indexes the fundamental texts, academic papers, and sa
 - **Authors**: Tom Tango, Mitchel Lichtman, Andrew Dolphin (2006).
 - **Key Concepts Implemented in Platform**:
   - **Chapter 1 (Linear Weights & wOBA)**: Derivation of run values for walks ($0.69$), singles ($0.88$), doubles ($1.24$), triples ($1.56$), home runs ($1.95$), and outs ($-0.27$). Implemented in `mlb_baseball/sql/team_woba_retrosheet_update.sql`.
-  - **Chapter 2 (Run Expectancy Matrix & 24-State RE24)**: Base/out transition matrices and immediate run expectancies. Implemented in `mlb_baseball/model/markov.py` and `mlb_baseball/sql/markov_transition_counts.sql`.
+  - **Chapter 2 (Run Expectancy Matrix & 24-State RE24)**: Base/out transition matrices and immediate run expectancies. Implemented in `mlb_baseball/model/markov/` and `mlb_baseball/sql/markov_transition_counts.sql`.
   - **Chapter 5 (Leverage Index & Win Expectancy)**: Quantifying the swing in win probability on every pitch/event. Implemented in `mlb_baseball/model/leverage.py` and `mlb_baseball/sql/team_leverage_re24_update.sql`.
   - **Chapter 6 (Times Through the Order Penalty - TTOP)**: Pitcher effectiveness decay per cycle through the batting order ($+20$ points of wOBA per cycle).
   - **Chapter 8 (The Platoon Advantage & Handedness)**: Empirical advantages of opposite-handed batter/pitcher matchups ($+15$ to $+30$ points of wOBA).

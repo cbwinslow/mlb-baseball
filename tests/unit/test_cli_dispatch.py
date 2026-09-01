@@ -19,6 +19,16 @@ def _fake_connector():
     return connector
 
 
+def test_cli_help_lists_core_commands_and_start_here_docs(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "Core commands" in out
+    assert "docs/MAP.md" in out
+    assert "course-correction-design.md" in out
+
+
 def test_ingest_defaults_to_bootstrap(monkeypatch, capsys):
     connector = _fake_connector()
     monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
@@ -496,6 +506,7 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     monkeypatch.setattr(model.log5, "predict", lambda _conn: 3)
     monkeypatch.setattr(model.elo, "predict", lambda _conn: 4)
     monkeypatch.setattr(model.gbm, "predict", lambda _conn: 5)
+    monkeypatch.setattr(model.sim_predict, "predict", lambda _conn: 8)
 
     assert model.run() == {
         "gold.game_feature": 10,
@@ -505,6 +516,7 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
         "gold.prediction (log5)": 3,
         "gold.prediction (elo)": 4,
         "gold.prediction (gbm)": 5,
+        "gold.prediction (markov)": 8,
         "gold.prediction (market)": 1,
         "gold.prediction (outcomes backfilled)": 2,
         "gold.game_feature (Elo ratings)": 10,
@@ -519,8 +531,8 @@ def test_predict_keeps_feature_stage_and_prediction_writes_separate(monkeypatch)
     # elo.compute_ratings() touch every row on every run, not just
     # newly-written ones (PR review, Kilo -- see run()'s own comment).
     # feature_counts(10) + enrich_counts(6) + log5(3) + elo(4) + gbm(5) +
-    # market(1) + backfilled(2) = 31.
-    assert tracked["rows"] == 31
+    # markov(8) + market(1) + backfilled(2) = 39.
+    assert tracked["rows"] == 39
 
 
 def test_train_command_calls_model_train_and_reports_metrics(monkeypatch, capsys):
@@ -610,6 +622,51 @@ def test_update_command_calls_every_connectors_update(monkeypatch, capsys):
     one.update.assert_called_once()
     two.update.assert_called_once()
     one.bootstrap.assert_not_called()
+
+
+def test_update_skip_excludes_the_named_connector(monkeypatch, capsys):
+    # `mlb update --skip mlb_api` is how scripts/mlb_daily_update.sh avoids
+    # the daily run fighting the every-5-min mlb_api_update cron for the
+    # mlb_api ingestion lock (spec 2026-08-28, Phase 0.2).
+    one, two = _fake_connector(), _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one, "two": two})
+
+    cli.main(["update", "--skip", "two"])
+
+    one.update.assert_called_once()
+    two.update.assert_not_called()
+
+
+def test_update_skip_is_repeatable(monkeypatch, capsys):
+    one, two, three = _fake_connector(), _fake_connector(), _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one, "two": two, "three": three})
+
+    cli.main(["update", "--skip", "two", "--skip", "three"])
+
+    one.update.assert_called_once()
+    two.update.assert_not_called()
+    three.update.assert_not_called()
+
+
+def test_update_skip_unknown_connector_exits_2(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": _fake_connector()})
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["update", "--skip", "nope"])
+    assert exc.value.code == 2
+    assert "no known connector" in capsys.readouterr().out
+
+
+def test_update_skipping_every_connector_is_a_clean_no_op(monkeypatch, capsys):
+    # --skip covering every connector leaves `groups` empty;
+    # ThreadPoolExecutor(max_workers=0) would raise ValueError. Must be a
+    # controlled no-op instead (codex/coderabbit review, PR #85).
+    one = _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one})
+
+    cli.main(["update", "--skip", "one"])
+
+    one.update.assert_not_called()
+    assert "nothing to do" in capsys.readouterr().out
 
 
 def test_bootstrap_command_continues_past_a_failing_connector(monkeypatch, capsys):
@@ -969,7 +1026,6 @@ CALCULATOR_STYLE_COMMANDS = [
     "damage",
     "decision",
     "dp-footwork",
-    "dump",
     "entropy",
     "exp-resist",
     "extension",
@@ -1145,18 +1201,49 @@ def test_daily_command_renders_an_empty_briefing(monkeypatch, capsys):
     assert '"target_date": "2026-08-25"' in out
 
 
-def test_export_command_renders_an_empty_dossier(monkeypatch, capsys):
+def test_export_command_relation_dispatch(monkeypatch, capsys):
     conn = MagicMock()
     conn.__enter__.return_value = conn
     monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    calls = []
     monkeypatch.setattr(
-        "mlb_baseball.daily.generate_daily_briefing",
-        lambda **kwargs: _fake_daily_briefing_report(),
+        "mlb_baseball.export.export_relation",
+        lambda c, relation, format, out_path, season: (
+            calls.append((relation, format, out_path, season)) or ("gold.game_export.csv", 42)
+        ),
     )
 
-    cli.main(["export"])
+    cli.main(
+        ["export", "gold.game_export", "--season", "2024", "--format", "csv", "--out", "test.csv"]
+    )
 
-    assert capsys.readouterr().out.strip()
+    assert calls == [("gold.game_export", "csv", "test.csv", 2024)]
+    out = capsys.readouterr().out
+    assert "Exported 42 rows to gold.game_export.csv" in out
+
+
+def test_export_command_profile_dispatch(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    calls = []
+    monkeypatch.setattr(
+        "mlb_baseball.export.export_bundle",
+        lambda c, profile, out_dir, make_zip: (
+            calls.append((profile, out_dir, make_zip)) or "export_bundle.zip"
+        ),
+    )
+
+    cli.main(["export", "--profile", "public_safe", "--out", "bundle_dir", "--zip"])
+
+    assert calls == [("public_safe", "bundle_dir", True)]
+    out = capsys.readouterr().out
+    assert "Exported public_safe bundle to export_bundle.zip" in out
+
+
+def test_export_command_missing_args_exits(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["export"])
 
 
 def test_serve_command_daily_grid_mart(monkeypatch, capsys):

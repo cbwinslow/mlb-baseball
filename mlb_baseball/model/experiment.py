@@ -348,6 +348,7 @@ SUPPORTED_MODELS = (
     "neural",
 )
 _SELECTION_SQL = read_sql("experiment_selection.sql")
+_SNAPSHOT_INSERT_SQL = read_sql("experiment_snapshot_insert.sql")
 
 
 class ExperimentError(ValueError):
@@ -614,31 +615,24 @@ def create_snapshot(
                 provenance.git_sha(),
             ),
         )
-        # sql-ownership: allow -- pre-existing gap, extraction tracked separately (issue #72)
         cur.executemany(
-            """
-            INSERT INTO gold.game_feature_snapshot (
-                snapshot_id, game_instance_key, mlb_game_pk, feature_cutoff_at,
-                season, game_date, game_number, home_team_id, away_team_id,
-                home_score, away_score, feature_json, home_win
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
+            _SNAPSHOT_INSERT_SQL,
             [
-                (
-                    snapshot_id,
-                    row.game_instance_key,
-                    row.mlb_game_pk,
-                    row.feature_cutoff_at,
-                    row.season,
-                    row.game_date,
-                    row.game_number,
-                    row.home_team_id,
-                    row.away_team_id,
-                    row.home_score,
-                    row.away_score,
-                    json.dumps(row.values),
-                    row.home_win,
-                )
+                {
+                    "snapshot_id": snapshot_id,
+                    "game_instance_key": row.game_instance_key,
+                    "mlb_game_pk": row.mlb_game_pk,
+                    "feature_cutoff_at": row.feature_cutoff_at,
+                    "season": row.season,
+                    "game_date": row.game_date,
+                    "game_number": row.game_number,
+                    "home_team_id": row.home_team_id,
+                    "away_team_id": row.away_team_id,
+                    "home_score": row.home_score,
+                    "away_score": row.away_score,
+                    "feature_json": json.dumps(row.values),
+                    "home_win": row.home_win,
+                }
                 for row in rows
             ],
         )

@@ -319,6 +319,34 @@ $$\text{Matchup Edge} = \sum_{i=1}^k u_i \cdot (rv_{\text{batter}, i} - rv_{\tex
 
 The outcome transition distribution is adjusted via odds multiplier $M = \exp(\alpha \cdot \text{Edge})$ and re-normalized so $\sum_{o \in \Omega} P(o \mid s) = 1.0$.
 
+### 8.3 Matchup-specific PA rates, Empirical Bayes toward league (ADR-271)
+
+RE24 is the value of a base-out state, solved from transition probabilities.
+It is accounting, not a game-winner model. The Layer-2 predictor is
+$P(\text{PA outcome} \mid \text{state}, \text{matchup})$, estimated from
+Retrosheet events for (pitching team or pitcher) vs (batting team), then
+shrunk toward the league-average distribution already produced by
+`estimate_outcome_distribution`:
+
+$$\hat p = \frac{n}{n+M}\, p_{\text{matchup}} + \frac{M}{n+M}\, p_{\text{league}}$$
+
+with $M = 350$ plate appearances (Tango, Lichtman & Dolphin, *The Book*).
+$n$ is `bat_event_fl = 'T'` (plate appearances), not stolen bases or wild
+pitches — those events still enter the transition chain. $n = 0$ is the
+league distribution, not a zeroed chain. The league prior uses the same
+`exclude_game_id` / `before_date` / `bat_home` as the matchup sample. The
+shrunk distributions feed `simulate_game`; they are not a new GBM column.
+
+**Unknown starter.** `pit_id` scopes the sample to one pitcher. When the
+starter is not yet known, or `pitcher_min_pa` is set and that pitcher's
+sample falls below it, the pitcher filter is dropped and the sample falls
+back to *batting-team vs pitching-team* — still a real, point-in-time
+estimate shrunk toward league, not the bare league distribution. The bare
+league distribution is returned only when no prior events match the
+remaining filters at all (a genuinely unknown team, or missing tables).
+`bat_home` ('1'/'0') optionally scopes both sample and prior to one
+half-inning; `sim_predict` leaves it unset in v1 (see ADR-272).
+
 ---
 
 ## 9. Forecasting, Valuation & Market Alpha Formulation

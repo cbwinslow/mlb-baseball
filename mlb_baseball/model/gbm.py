@@ -58,10 +58,10 @@ import xgboost as xgb
 from sklearn.metrics import brier_score_loss, log_loss
 
 from mlb_baseball.health import Check
-from mlb_baseball.model import elo, log5, provenance
+from mlb_baseball.model import elo, evaluation, log5, provenance
 
 MODEL_VERSION = "gbm-v2"
-MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "models"
+MODEL_DIR = provenance.models_dir()
 MODEL_PATH = MODEL_DIR / f"{MODEL_VERSION}.json"
 ARTIFACTS_DIR = MODEL_DIR / "artifacts"
 
@@ -351,11 +351,10 @@ FEATURE_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 # against 2026 via the normal mlb predict path -- not a fourth split here.
 TRAIN_SEASON_CUTOFF = 2023
 VALIDATION_SEASONS = (2024, 2025)
-# A challenger must clear this absolute held-out log-loss margin over *each*
-# baseline before it can become champion.  It prevents a one-ten-thousandth
-# point fluctuation from replacing a working model; it is a promotion policy,
-# not evidence that the margin is statistically significant.
-MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT = 0.002
+# Defined in mlb_baseball.model.evaluation (the promotion-policy home,
+# importable without the ML stack); re-exported here for callers/tests that
+# have long imported it from gbm.
+MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT = evaluation.MIN_PRACTICAL_LOG_LOSS_IMPROVEMENT
 
 
 def _fetch_rows(conn: psycopg.Connection, season_filter: str) -> tuple[np.ndarray, np.ndarray]:

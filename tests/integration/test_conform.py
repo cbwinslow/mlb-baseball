@@ -916,6 +916,12 @@ def _seed_market_game(db_conn):
 
 
 def _drop_market_fixtures(db_conn):
+    # Roll back first, exactly as _reset_dynamic_tables does: when this runs
+    # as the market_game teardown after a test body failed on a SQL error,
+    # db_conn is in an aborted transaction and every DROP below would itself
+    # raise InFailedSqlTransaction -- leaving the raw tables behind and
+    # cascading into the next market test, the very failure #114 removes.
+    db_conn.rollback()
     with db_conn.cursor() as cur:
         for table in [
             "raw.polymarket_event",
@@ -947,24 +953,27 @@ def market_game(db_conn):
     _drop_market_fixtures(db_conn)
 
 
-def test_market_game_fixture_tears_down_even_when_the_test_body_raises(db_conn):
+def test_market_game_fixture_tears_down_after_a_test_body_sql_error(db_conn):
     # issue #114 regression: drive the market_game fixture's own generator
     # the way pytest's finalizer does — advance once for setup, then again
-    # for teardown regardless of how the "test" ended — and confirm the raw
-    # market tables are gone afterwards.
+    # for teardown regardless of how the "test" ended. The realistic failure
+    # is a SQL error mid-body (a bad conform.run(), a failed assertion after
+    # a bad query): that leaves db_conn in an aborted transaction, and the
+    # teardown must roll back before its DROPs or they all fail and the raw
+    # tables leak to the next test. Reproduce that aborted state here.
     gen = market_game.__wrapped__(db_conn)
     next(gen)  # setup: _seed_market_game
     with db_conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
         assert cur.fetchone() != (None,)
 
-    try:
-        raise RuntimeError("simulated mid-test failure")
-    except RuntimeError:
-        pass
-    finally:
-        with pytest.raises(StopIteration):
-            next(gen)  # teardown: _drop_market_fixtures
+    with db_conn.cursor() as cur, pytest.raises(psycopg.errors.UndefinedTable):
+        cur.execute("SELECT * FROM raw.this_table_does_not_exist")
+    # db_conn is now in InFailedSqlTransaction — every statement errors
+    # until a rollback, so the teardown below only works if it rolls back.
+
+    with pytest.raises(StopIteration):
+        next(gen)  # teardown: _drop_market_fixtures
 
     with db_conn.cursor() as cur:
         for table in (

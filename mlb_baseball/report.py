@@ -418,6 +418,8 @@ _BATTING_SEASON_SQL = read_sql("batting_season_build.sql")
 _BATTING_TEAM_SQL = read_sql("batting_team_build.sql")
 _PITCHING_SEASON_SQL = read_sql("pitching_season_build.sql")
 _PITCHING_TEAM_SQL = read_sql("pitching_team_build.sql")
+_BATTING_CAREER_SQL = read_sql("batting_career_build.sql")
+_PITCHING_CAREER_SQL = read_sql("pitching_career_build.sql")
 
 
 def _build_backbone_relation(
@@ -434,13 +436,17 @@ def _build_backbone_relation(
     rather than TRUNCATE-then-catch, so a missing *source* table skips
     cleanly while a missing *target* table (migrations not run) still fails
     loudly. The game relations read `raw.retrosheet_event`; the season / team
-    roll-ups read `gold.batting_game` (always present once migrated, so the
-    pre-check is a no-op for them -- but keeps the one code path). `table`
-    and `source` are internal constants, not user input; `table` is still
-    passed through `sql.Identifier` so the query is not built by string
-    formatting."""
+    roll-ups read `gold.{batting,pitching}_game`; the career roll-ups read
+    the season tables (all always present once migrated, so the pre-check is
+    a no-op for them -- but keeps the one code path). Builders that take an
+    optional season scope carry a `%(season)s` bind; the career builders
+    don't (a career is every season), so params are only passed when the
+    bind is actually present. `table` and `source` are internal constants,
+    not user input; `table` is still passed through `sql.Identifier` so the
+    query is not built by string formatting."""
     schema, name = table.split(".", 1)
     ident = sql.Identifier(schema, name)
+    params = {"season": None} if "%(season)s" in build_sql else None
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass(%s)", (source,))
         (present,) = fetch_one(cur)
@@ -451,7 +457,7 @@ def _build_backbone_relation(
     # builders' work in run()'s shared transaction, matching _build_player_season.
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(sql.SQL("TRUNCATE {}").format(ident))
-        cur.execute(build_sql, {"season": None})
+        cur.execute(build_sql, params)
         cur.execute(sql.SQL("SELECT count(*) FROM {}").format(ident))
         (count,) = fetch_one(cur)
     return count
@@ -501,6 +507,13 @@ def run() -> dict[str, int]:
         )
         counts["gold.pitching_team"] = _build_backbone_relation(
             conn, "gold.pitching_team", _PITCHING_TEAM_SQL, source="gold.pitching_game"
+        )
+        # Career roll-ups read the season tables built just above.
+        counts["gold.batting_career"] = _build_backbone_relation(
+            conn, "gold.batting_career", _BATTING_CAREER_SQL, source="gold.batting_season"
+        )
+        counts["gold.pitching_career"] = _build_backbone_relation(
+            conn, "gold.pitching_career", _PITCHING_CAREER_SQL, source="gold.pitching_season"
         )
         conn.commit()
         result["rows"] = sum(counts.values())
@@ -666,6 +679,21 @@ def health_check() -> list[Check]:
             "gold.pitching_game (team, season) keys get a gold.pitching_team row",
             "SELECT count(*) FROM gold.pitching_team",
             "SELECT count(*) FROM (SELECT DISTINCT team_id, season FROM gold.pitching_game) s",
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.batting_career"),
+        # One career row per player with any batting_season combined row.
+        check_join_coverage(
+            "every gold.batting_season player gets a gold.batting_career row",
+            "SELECT count(*) FROM gold.batting_career",
+            "SELECT count(DISTINCT player_id) FROM gold.batting_season WHERE is_combined",
+            tolerance=0,
+        ),
+        check_table_has_rows("gold.pitching_career"),
+        check_join_coverage(
+            "every gold.pitching_season player gets a gold.pitching_career row",
+            "SELECT count(*) FROM gold.pitching_career",
+            "SELECT count(DISTINCT player_id) FROM gold.pitching_season WHERE is_combined",
             tolerance=0,
         ),
     ]

@@ -80,6 +80,22 @@ honest event-derived rate, and ERA stays available per player-season from
 Baseball-Reference (`gold.player_season`). Export profile `local_research`,
 same rationale as relation 3.
 
+**Relation 5 (`gold.batting_career` / `gold.pitching_career`), 2026-09-01:**
+one row per player, summing each player's per-season `is_combined` rows from
+the season tables (so a traded season counts once, not per stint). Adds
+`seasons` / `first_season` / `last_season`; all other counting + rate
+columns match the season table, rates recomputed from career totals.
+`gold.pitching_career` carries `ra9`, not ERA. The career builders take no
+`%(season)s` bind (a career is every season), so `_build_backbone_relation`
+only passes params when the SQL actually contains the bind.
+
+**Relation 6 (the `gold.player_season` decision) is still open** — see the
+"Revisit if" above. The recommendation on the table (forward plan D3) is to
+keep `gold.player_season` as the Baseball-Reference-sourced "official"
+season line and the new tables as the event-computed / full-history /
+team-aware line, recorded in its own ADR. Not yet decided; do not wire the
+two together as a two-writer accident.
+
 ## ADR-277: core.market.observed_at — truthful pre-game timestamp for market comparison lines
 
 **Decision:** `core.market` gains a nullable `observed_at timestamptz`

@@ -154,6 +154,12 @@ RELATIONS: tuple[ExportRelation, ...] = (
         "Season pitching line per (team, season)",
     ),
     ExportRelation(
+        "gold", "batting_career", None, "local_research", "Career batting line per player"
+    ),
+    ExportRelation(
+        "gold", "pitching_career", None, "local_research", "Career pitching line per player"
+    ),
+    ExportRelation(
         "core", "game", "season", "local_research", "Conformed games (Retrosheet + MLB API)"
     ),
     ExportRelation(

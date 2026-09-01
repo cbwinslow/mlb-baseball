@@ -268,6 +268,19 @@ for the staged plan.
   `(team_id, season)`.
 - **Coverage**: 1910–2025, regular season.
 
+### 3.7 `gold.batting_career` / `gold.pitching_career`
+
+- **Grain**: one row per `(player_id)`, summed from each player's per-season
+  combined rows (`is_combined = true`) in `gold.batting_season` /
+  `gold.pitching_season` — so a traded season is counted once, not per
+  stint.
+- Extra columns: `seasons` (distinct seasons played), `first_season`,
+  `last_season`. All other counting and rate columns match the
+  corresponding season table; rate stats are recomputed from the
+  career-total components. `gold.pitching_career` has `ra9`, not ERA (same
+  no-earned-runs reason as `gold.pitching_season`).
+- **Coverage**: 1910–2025, regular season.
+
 ---
 
 ## 4. Raw Data Landing Tables (`raw.*`)

@@ -1,26 +1,67 @@
-# DOX multi-agent context rollout — 2026-09-01
+# DOX repository-knowledge rollout — 2026-09-01
 
 Status: proposed implementation plan for owner review.
 
 Design reference: `docs/AGENT_CONTEXT_ARCHITECTURE.md`.
 
-This plan pilots Agent Zero's DOX concept in this repository while preserving
-cross-tool compatibility with Codex, Claude Code, Gemini CLI / Gemini-based
-agents, Agent Zero, and other `AGENTS.md`-aware tools.
+This plan implements Agent Zero's DOX model as a **recursive, source-adjacent
+repository knowledge protocol**. It replaces the earlier narrower plan that
+focused mostly on nested `AGENTS.md` files.
 
-The objective is not "more documentation." The objective is **less irrelevant
-context, clearer local ownership, and fewer contradictory instructions**.
+The intended result is not simply more instruction files. It is a navigable
+knowledge tree that lets an agent discover the exact contracts for the code it is
+about to change:
 
-## 1. Desired end state
+```text
+root AGENTS.md
+   ↓
+subsystem/AGENTS.md
+   ↓
+source_file.py.dox.md   # when local profile requires file-level DOX
+   ↓
+source + tests + linked authoritative docs
+```
 
-One canonical instruction hierarchy:
+The protocol must remain useful to Codex, Claude Code, Gemini/Agy, Agent Zero,
+and humans without depending on a proprietary runtime.
+
+# 1. Non-negotiable DOX principles
+
+1. `AGENTS.md` is a recursive contract/index, not merely a prompt file.
+2. The closest applicable directory DOX owns local subsystem behavior.
+3. A local `AGENTS.md` may declare the directory a **file-documented DOX
+   profile**.
+4. In a file-documented profile, direct source files have same-directory
+   `<full-filename>.dox.md` contracts.
+5. Source owns implementation; DOX owns durable knowledge about that
+   implementation.
+6. Before editing, agents traverse the applicable DOX path and load only relevant
+   local contracts.
+7. After meaningful changes, agents update affected sidecars/contracts/indexes in
+   the same change.
+8. DOX summarizes and routes to authoritative structured sources; it must not
+   compete with the Stat Registry, table contracts, ADRs, tests, or code.
+9. No child may weaken parent-level safety/research contracts.
+10. Stale DOX is removed or corrected immediately rather than preserved as
+    historical narrative.
+
+# 2. Target architecture
+
+A likely mature topology is:
 
 ```text
 AGENTS.md
 ├── mlb_baseball/AGENTS.md
-│   ├── connectors/AGENTS.md
-│   ├── sql/AGENTS.md
-│   └── model/AGENTS.md        # while this legacy/frozen boundary exists
+│   ├── connectors/AGENTS.md          # file-documented profile
+│   │   ├── mlb_api.py
+│   │   ├── mlb_api.py.dox.md
+│   │   ├── retrosheet.py
+│   │   ├── retrosheet.py.dox.md
+│   │   └── ...
+│   ├── stats/AGENTS.md               # future file-documented profile
+│   ├── research/AGENTS.md
+│   ├── model/AGENTS.md
+│   └── sql/AGENTS.md
 ├── transforms/AGENTS.md
 ├── migrations/AGENTS.md
 ├── tests/AGENTS.md
@@ -29,612 +70,557 @@ AGENTS.md
 └── scripts/AGENTS.md
 ```
 
-Tool-specific adapters stay thin:
+Tool adapters:
 
 ```text
-CLAUDE.md     -> imports root AGENTS.md + Claude-only additions
-GEMINI.md     -> imports root AGENTS.md + Gemini-only additions
-CODEX.md      -> normally absent; Codex reads AGENTS.md natively
+CLAUDE.md      thin bridge + Claude-only behavior
+GEMINI.md      thin bridge + Gemini-only behavior
+CODEX.md       normally absent; Codex consumes AGENTS.md directly
 ```
 
-At child boundaries, add `CLAUDE.md` / `GEMINI.md` import bridges only where
-needed to make vanilla/default tool behavior reliably load the local canonical
-`AGENTS.md`.
+Selected root/gravity-well source files may also have sidecars while the package
+is being reorganized:
 
-This tree is illustrative. The pilot must prove each proposed child is a real
-durable boundary before creating it.
+```text
+mlb_baseball/cli.py.dox.md
+mlb_baseball/conform.py.dox.md
+```
 
-## 2. Phase 0 — current-state audit and contradiction register
+The exact tree is created from current repository evidence, not copied blindly
+from Agent Zero.
 
-Before moving a single rule, inventory every instruction-bearing artifact that
-can affect agent work:
+# 3. Phase 0 — truth and instruction audit
+
+Before creating the DOX tree, identify all durable instructions and resolve known
+contradictions.
+
+Inventory:
 
 - root `AGENTS.md`;
 - root `CLAUDE.md`;
-- `.claude/` rules/settings/skills/subagents if present;
-- any current/future `GEMINI.md`;
-- `.github/copilot-instructions.md` if present;
-- Cursor/Windsurf/OpenCode rules if present;
+- `.claude/` project rules/settings/skills;
+- any `GEMINI.md` or other checked-in agent rules;
 - `docs/NORTH_STAR.md`;
-- `docs/ARCHITECTURE.md`;
 - `docs/PRODUCT_DIRECTION.md`;
-- `docs/ROADMAP.md`;
+- `docs/ARCHITECTURE.md`;
 - `docs/SQL_OWNERSHIP.md`;
 - `docs/SOURCE_RIGHTS.md`;
+- `docs/TABLE_CONTRACTS.md`;
+- `docs/ROADMAP.md`;
 - `plans/README.md` and active plans;
-- important runbooks that root agent docs currently paraphrase.
+- verification commands encoded in CI/pre-commit/pyproject;
+- source-level comments that contain unique durable contracts.
 
-Build a temporary reconciliation table with columns:
+Build a temporary reconciliation matrix:
 
-| Rule/topic | Current owners | Conflict? | Canonical owner | Local child | Action |
-|---|---|---|---|---|---|
-| test database isolation | AGENTS, CLAUDE, README | yes | tests/AGENTS | tests | reconcile |
-| production DB safety | AGENTS, CLAUDE | overlap | root AGENTS | none | dedupe |
-| connector idempotency | AGENTS, CLAUDE | overlap | connectors/AGENTS | connectors | move |
-| SQL ownership | AGENTS, SQL_OWNERSHIP | overlap | docs + local AGENTS | sql/transforms | link |
-| model promotion | AGENTS, CLAUDE, ADRs | overlap | model/AGENTS + ADR | model | move/link |
+| Topic | Current locations | Observed truth | Canonical DOX owner | Detailed source |
+| --- | --- | --- | --- | --- |
+| test DB isolation | AGENTS, CLAUDE, README | verify from fixtures | `tests/AGENTS.md` | tests/conftest.py |
+| production DB safety | AGENTS, CLAUDE | verify current | root AGENTS | code/runbook |
+| connector idempotency | AGENTS, CLAUDE | current contract | connectors AGENTS | tests/docs |
+| source rights | several | current profiles | root + connector sidecars | source_profiles |
+| stat formulas | model/docs/tests | per-stat | stats DOX summary | Stat Registry |
 
-The table may live only in the implementation PR description or a temporary plan
-section; do not create a permanent registry unless it proves useful.
+## First known contradiction
 
-### Known contradiction to resolve first
+The current root agent doctrine and current README describe test database behavior
+differently. Determine the actual behavior from `tests/conftest.py` and relevant
+tests before changing either statement.
 
-Current root doctrine describes/requires a fixed `mlb_test` test database in
-places, while current README/testing behavior describes per-run isolated
-uniquely-named pytest databases using the base test connection and says `mlb_test`
-is not modified by tests.
+## Phase 0 gate
 
-The implementation must verify actual `tests/conftest.py` behavior and make the
-code the observation source before rewriting documentation. Do not choose a side
-from memory.
+- every substantive root rule has a named canonical owner;
+- contradictions have an observed source of truth;
+- no stale rule is copied into a new DOX file merely because it existed before.
 
-### Phase 0 gate
+# 4. Phase 1 — establish root DOX rail
 
-- every root instruction is classified as global, local, tool-specific, stale,
-  duplicate, or detailed-reference-only;
-- actual test database behavior is verified from code/tests;
-- no rule is moved until its canonical owner is named.
+Refactor root `AGENTS.md` into a concise global contract and top-level Child DOX
+Index.
 
-## 3. Phase 1 — shrink and clarify root `AGENTS.md`
+Root retains only project-wide invariants:
 
-### Goal
-
-Turn the root file from a broad encyclopedia into a durable project rail + map.
-
-### Keep at root
-
-Only invariants that apply to most/all changes:
-
-- current product focus and mission;
-- PostgreSQL is authoritative; production DB safety;
-- source rights and provenance honesty;
+- research database is the current product focus;
+- PostgreSQL/system-of-record safety;
+- source-rights/provenance honesty;
 - point-in-time/leakage honesty;
-- preserve/reuse existing assets before adding new architecture;
-- established-library check for cross-cutting infrastructure;
-- measure before optimization/rewrite;
+- reuse existing assets before inventing frameworks;
+- measure before rewrites/optimizations;
 - Git/PR/worktree safety;
-- general verification/definition-of-done expectations;
-- delegation safety that applies repository-wide;
+- general verification expectations;
+- DOX traversal/update protocol;
 - Child DOX Index;
-- links to current product/architecture/roadmap docs.
+- links to current architecture/product/roadmap docs.
 
-### Move down
+Move subsystem-specific instructions down instead of duplicating them.
 
-Examples:
+## Root DOX workflow text must explicitly say
 
-- connector retry/idempotency/raw artifact rules -> connectors child;
-- SQL placement rules -> sql/transforms children plus `docs/SQL_OWNERSHIP.md`;
-- test database/fixture rules -> tests child;
-- model ladder/promotion detail -> model child + research docs/ADRs;
-- docs history/map rules -> docs child;
-- migration-specific destructive DDL rules -> migrations child;
-- shell/script DB-target/dry-run rules -> scripts child.
+Before editing:
 
-### Root style
+1. identify every target path;
+2. read root DOX;
+3. traverse all indexed child DOX that contain the target;
+4. obey the nearest local profile;
+5. if the local profile requires file sidecars, read each target's matching
+   `.dox.md` before editing.
 
-Use DOX-compatible sections where they help, but do not force every root concept
-into the exact child template. Suggested root shape:
+After editing:
+
+1. update affected file sidecars when durable contracts changed;
+2. update directory contracts when responsibilities/workflows changed;
+3. update parent indexes when structure changed;
+4. delete stale sidecars/index rows after moves/deletes;
+5. run local verification.
+
+# 5. Phase 2 — first child DOX: tests
+
+Create `tests/AGENTS.md` first because testing has a known instruction conflict and
+strong local safety semantics.
+
+It owns:
+
+- unit vs integration boundaries;
+- actual verified PostgreSQL test-database isolation behavior;
+- production DB prohibition;
+- fixture ownership and cleanup;
+- rollback after failed transactions;
+- network fixture policy;
+- test-order independence;
+- eventual xdist worker isolation;
+- exact current verification commands.
+
+Do **not** create sidecars for every test file. Tests are executable evidence for
+other contracts, not a flat component API needing its own prose twin.
+
+## Phase 2 gate
+
+A new agent editing `tests/integration/...` can determine database safety and
+verification rules from root -> `tests/AGENTS.md` without reading model or
+connector doctrine.
+
+# 6. Phase 3 — connectors as first file-documented profile
+
+This is the most important corrected part of the rollout.
+
+Create `mlb_baseball/AGENTS.md` if needed for package-wide dependency/public API
+contracts, then create:
 
 ```text
-# MLB project contract
-## Mission and current focus
-## Global invariants
-## Work and verification doctrine
-## Git/delegation safety
-## Project map / sources of truth
-## Child DOX Index
+mlb_baseball/connectors/AGENTS.md
 ```
 
-Target roughly 100–150 lines if practical. This is a quality target, not a hard
-CI limit.
+Declare it a **file-documented DOX profile**, analogous to Agent Zero's
+`api/`, `helpers/`, and `tools/` directories.
 
-### Gate
+The local contract should require a matching `*.dox.md` sidecar for each direct
+connector implementation that participates in the supported connector registry.
 
-A reviewer can read root `AGENTS.md` in a few minutes and know:
-
-- what the project currently is;
-- what must never be violated;
-- where to look for the subsystem being edited;
-- how to verify work at a high level.
-
-## 4. Phase 2 — create first child contracts
-
-Start with the boundaries that have the strongest evidence of distinct rules.
-Do not create all possible children in one mechanical sweep unless the audit
-shows they are all genuinely useful.
-
-### 4.1 `tests/AGENTS.md` — first pilot child
-
-This should be the first child because it resolves a known root contradiction and
-has clear local rules.
-
-Suggested content:
-
-#### Purpose
-
-Protect correctness with pure unit tests and real-PostgreSQL integration tests
-without touching production data.
-
-#### Ownership
-
-- `tests/unit/**`
-- `tests/integration/**`
-- test fixtures and database-isolation behavior
-- network fixture policy
-
-#### Local Contracts
-
-- verified current database clone/isolation behavior;
-- production DB must never be a test target;
-- real PostgreSQL for DB behavior; do not mock transactions/locks/COPY contracts;
-- network mocked/captured for deterministic tests;
-- failed transactions rolled back before teardown queries;
-- fixtures own and clean their state;
-- no order dependence;
-- current accepted approach to per-worker DB isolation once xdist is adopted.
-
-#### Verification
-
-Exact current commands from CI/pyproject, not remembered commands.
-
-#### Child DOX Index
-
-Initially none unless integration/unit genuinely diverge enough later.
-
-### 4.2 `mlb_baseball/connectors/AGENTS.md`
-
-Own connector/source-specific contracts:
-
-- bootstrap/update/backfill capabilities;
-- health checks;
-- run tracking;
-- idempotency;
-- bounded retry/rate limiting;
-- source artifacts/checksums/replay;
-- rights/profile checks;
-- schema drift;
-- raw/source-faithful naming;
-- no third-party SDK object model leaking into core research schema.
-
-Do not immediately add one child per connector. `mlb_api` may eventually justify
-its own child after decomposition because it is a subsystem; small connectors do
-not.
-
-### 4.3 `docs/AGENTS.md`
-
-Own:
-
-- living vs dated snapshot semantics;
-- `docs/MAP.md` maintenance;
-- source/citation standards;
-- generated docs vs curated docs;
-- no duplicating current state in many places;
-- when an ADR/spec/runbook is the correct artifact;
-- archive/delete stale material instead of appending explanations forever.
-
-### 4.4 `migrations/AGENTS.md`
-
-Own:
-
-- forward-only migration policy;
-- naming/ordering;
-- explicit target DB warning;
-- transactional behavior;
-- extension policy;
-- schema/table-contract updates;
-- integration verification.
-
-### 4.5 `transforms/AGENTS.md`
-
-Own SQLMesh rules:
-
-- set-based derived transformations;
-- incremental model contracts;
-- audits/tests/tie-outs;
-- no source identity reconciliation or model training;
-- no second transform runtime.
-
-### 4.6 `scripts/AGENTS.md`
-
-Own operational shell/Python script safety:
-
-- shebang and strict shell mode where applicable;
-- prerequisite checks;
-- explicit production/test DB target;
-- dry-run for destructive one-time operations where feasible;
-- logs and clear non-zero failure;
-- no hidden production writes;
-- idempotency/resume where appropriate.
-
-### Phase 2 gate
-
-For each child:
-
-- content was moved/reconciled, not duplicated wholesale;
-- root index describes its scope;
-- no child weakens global safety/research invariants;
-- local file is concise enough to be useful;
-- exact verification commands are current.
-
-## 5. Phase 3 — Python package/model child boundaries
-
-Only after the first children prove useful.
-
-### `mlb_baseball/AGENTS.md`
-
-Own package-wide architecture:
-
-- dependency direction;
-- public facade/backward compatibility;
-- typed contracts (`Protocol`, `StrEnum`, frozen/slotted dataclasses where they
-  solve a real current need);
-- pure stats/simulation import boundary;
-- no speculative plugin inheritance tree;
-- module sizing/decomposition philosophy;
-- child index.
-
-### `mlb_baseball/model/AGENTS.md`
-
-While the current package exists, own:
-
-- point-in-time contracts;
-- promotion/evaluation doctrine;
-- chronological folds;
-- model artifact/provenance rules;
-- deterministic model inference;
-- frozen Engine-package rule;
-- distinction between research stat and predictive feature.
-
-When the package is later reorganized, move this contract with the durable
-conceptual boundary rather than preserving a stale path for compatibility alone.
-
-### `mlb_baseball/sql/AGENTS.md`
-
-Own package SQL resources:
-
-- SQL ownership rules;
-- named resources;
-- psycopg placeholder/comment gotchas;
-- mutating vs read-only conventions;
-- SQLFluff expectations;
-- parity/contract tests.
-
-## 6. Phase 4 — Claude bridge design
-
-Anthropic's current official guidance says Claude Code reads `CLAUDE.md`, not
-`AGENTS.md`, and recommends importing `AGENTS.md` to avoid duplication.
-
-### Root change
-
-Refactor root `CLAUDE.md` toward:
-
-```markdown
-@AGENTS.md
-
-# Claude Code adapter
-
-<only Claude-specific repository behavior>
-```
-
-Do not delete valuable existing rules until they have a verified canonical home.
-The migration PR should show a rule-by-rule mapping for substantive deletions.
-
-### Child bridges
-
-For each child DOX boundary used by Claude, add a small file:
+Example:
 
 ```text
-<boundary>/CLAUDE.md
+retrosheet.py
+retrosheet.py.dox.md
+
+kalshi.py
+kalshi.py.dox.md
 ```
 
-with:
+## Connector sidecar template
 
 ```markdown
-@AGENTS.md
-```
-
-plus local Claude-only behavior only if necessary.
-
-Verify actual Claude Code loading with `/context`, `/memory`, or the current
-supported instruction-inspection mechanism before declaring the bridge complete.
-
-### `.claude/rules/`
-
-Use for Claude-specific path-scoped behavior that should not be a canonical
-project rule. Examples might include a Claude-only planning workflow or tool-use
-preference. Do not mirror all child AGENTS content into `.claude/rules/`.
-
-## 7. Phase 5 — Gemini bridge design
-
-Gemini CLI currently supports hierarchical/JIT `GEMINI.md` files and `@` imports.
-It also supports configuring `context.fileName` with multiple filenames such as
-`AGENTS.md`.
-
-### Portable repository default
-
-Create root:
-
-```text
-GEMINI.md
-```
-
-with:
-
-```markdown
-@AGENTS.md
-```
-
-plus only Gemini-specific shared behavior if any.
-
-At child DOX boundaries, add small `GEMINI.md` import bridges when the default
-Gemini loader needs them for local context.
-
-### Configured-user optimization
-
-Document that users may configure Gemini to load `AGENTS.md` directly, but do not
-make project correctness depend on a personal global setting.
-
-### Antigravity/Agy delegation
-
-Even with hierarchical files, bounded delegated prompts should remain
-self-contained:
-
-- exact task/scope;
-- applicable plan;
-- edits allowed/not allowed;
-- DB safety;
-- verification expected;
-- changed-file/test/limitation handoff;
-- no merge/next-package authority.
-
-Different orchestration products can decide differently how much parent context a
-subagent receives.
-
-## 8. Phase 6 — Codex handling
-
-No `CODEX.md` implementation is needed by default.
-
-Codex directly supports the canonical `AGENTS.md` hierarchy and deeper-scoped
-instructions. The implementation should verify the actual loaded chain in a
-representative Codex session.
-
-If a later use case needs Codex-only repository guidance:
-
-1. first ask whether it belongs in user Codex configuration;
-2. otherwise use a minimal documented adapter/fallback mechanism;
-3. never create a second full project doctrine in `CODEX.md`.
-
-## 9. Phase 7 — lightweight DOX validation
-
-Do not add validation until the manual hierarchy is stable enough that we know
-what should be enforced.
-
-Candidate `scripts/check_agent_docs.py` responsibilities:
-
-1. find all canonical `AGENTS.md` files;
-2. parse each `Child DOX Index` using a deliberately simple format;
-3. verify indexed child files exist;
-4. verify every non-root canonical child has exactly one nearest parent index;
-5. verify known bridge files are small and reference/import the adjacent
-   `AGENTS.md`;
-6. warn on oversized root/child docs;
-7. detect a small set of high-risk contradictory literals only if false positives
-   are low (e.g. old fixed test-database claims after migration);
-8. exit non-zero only for structural breakage, not subjective prose quality.
-
-Keep the script dependency-free or standard-library-only unless a parser library
-provides a clear benefit.
-
-Add to CI/pre-commit only after local testing proves it does not create noise.
-
-## 10. Phase 8 — documentation/system-of-record cleanup enabled by DOX
-
-Once local contracts exist, reduce duplicated current-state prose elsewhere.
-
-Examples:
-
-- `AGENTS.md` links to `docs/ARCHITECTURE.md` rather than restating full schema
-  rationale;
-- `tests/AGENTS.md` owns test procedure while README gives user-facing setup;
-- `docs/AGENTS.md` points dated specs to current living docs;
-- generated registries produce source/stat/CLI reference where possible.
-
-The hierarchy should make `docs/MAP.md` simpler over time, not add another map that
-must be reconciled manually.
-
-## 11. Phase 9 — evaluate adjacent `*.dox.md`
-
-Do this only after the AGENTS hierarchy works.
-
-Pilot at most one or two modules that genuinely benefit from an adjacent contract,
-for example a large gravity-well module during decomposition. Compare:
-
-- agent edit accuracy;
-- time to understand the module;
-- duplication with docstrings/tests/AGENTS;
-- maintenance burden after subsequent code changes.
-
-Reject repo-wide adjacent DOX files if the same value comes from subtree contracts,
-typed APIs, tests, and docstrings.
-
-## 12. Phase 10 — cross-project template
-
-If the MLB pilot demonstrates value, create a reusable template outside this
-repository containing only generic material.
-
-Suggested generic structure:
-
-```text
-AGENTS.md
-CLAUDE.md
-GEMINI.md
-
-docs/AGENTS.md
-src/AGENTS.md
-tests/AGENTS.md
-```
-
-Generic root contract should include placeholders for:
-
-- mission/current scope;
-- global invariants/safety;
-- architecture map;
-- verification commands;
-- Git workflow;
-- Child DOX Index.
-
-Generic child template:
-
-```markdown
-# <subsystem> contract
+# <connector>.py DOX
 
 ## Purpose
 
 ## Ownership
+- source family
+- raw relations/artifacts owned
+- public connector entry points
 
-## Local Contracts
+## Source Contracts
+- upstream endpoint/files
+- rights/profile
+- historical/current coverage
+- source-native identity/scope
+
+## Runtime Contracts
+- bootstrap/update/backfill
+- idempotency
+- retry/rate limit
+- artifact/replay behavior
+- schema drift/null handling
+- side effects
+
+## Key Dependencies
+- internal helpers
+- external library/client
+- downstream conform consumers
 
 ## Work Guidance
 
 ## Verification
+- integration tests
+- health checks
+- relevant replay/fixture checks
 
 ## Child DOX Index
+No child DOX files.
 ```
 
-Do not carry MLB-specific PostgreSQL/model/rights rules into unrelated projects.
+## How to bootstrap sidecars safely
 
-### Distribution options
+For each connector:
 
-Prefer, in order:
+1. read the implementation;
+2. read registry entry;
+3. read its integration tests;
+4. read source-rights/data-source docs;
+5. read relevant migration/raw table contract;
+6. capture only durable, verified facts;
+7. link to detailed docs instead of restating them;
+8. mark unknowns as unknown rather than inferring behavior.
 
-1. starter/template repository;
-2. small local scaffolding script;
-3. optional repository bootstrap skill for Claude/Codex/Gemini/A0.
+## Phase 3 gate
 
-Avoid a live remote include, mandatory runtime, or Git submodule for project
-doctrine. A checked-out repository should contain the exact instructions that
-match its code commit.
+- direct connector coverage is complete for the declared profile;
+- every sidecar identifies verification evidence;
+- sidecars do not reproduce raw schemas or giant source documentation;
+- registry/source-profile changes update relevant sidecars in the same PR.
 
-## 13. Measuring whether DOX actually helps
+# 7. Phase 4 — high-value gravity-well file DOX
 
-The pilot should collect qualitative and lightweight quantitative evidence.
+Add sidecars for large modules where orientation cost is high even if their
+parent directory is not yet a full file-documented profile.
 
-Possible measures over several PRs:
+Priority candidates:
 
-- root always-loaded instruction lines/tokens before vs after;
-- number of review findings caused by an agent missing a local rule;
-- number of contradictory/stale instruction fixes;
-- number of files an agent touches outside task scope;
-- time/retries needed for an agent to find verification commands;
-- agent self-reported applicable instruction chain in PR handoff;
-- human reviewer assessment of whether local contracts helped or merely added
-  ceremony.
+- `mlb_baseball/cli.py`;
+- `mlb_baseball/conform.py`;
+- `mlb_baseball/connectors/mlb_api.py` (already covered by connectors profile);
+- `mlb_baseball/load.py`;
+- `mlb_baseball/report.py`;
+- `mlb_baseball/public.py`.
 
-Do not claim performance gains from DOX without this evidence.
+These sidecars should document responsibility maps rather than paraphrase every
+function.
 
-## 14. Rollback criteria
+For `conform.py`, for example:
 
-Simplify or roll back parts of the hierarchy if:
+- identity responsibilities;
+- game resolution/backfills;
+- plays/pitches;
+- market normalization;
+- order dependencies;
+- honest-null policy;
+- relevant table contracts/tests.
 
-- child docs regularly repeat parent text;
-- contributors cannot tell which file owns a rule;
-- tool-specific bridge files frequently drift;
-- agents load more context than before without better accuracy;
-- every code edit triggers noisy documentation churn;
-- validation scripts become more complex than the documentation problem.
+For `cli.py`:
 
-The canonical `AGENTS.md` concept can still be retained even if a deeper tree is
-reduced.
+- parser/dispatch ownership;
+- stable public commands;
+- command groups;
+- frozen Engine surface;
+- behavior-preserving decomposition constraints;
+- dispatch tests.
 
-## 15. PR slicing
+When these files are split, move/split the DOX contracts with the implementation.
 
-Implement as reviewable PRs, not one giant doctrine rewrite.
+# 8. Phase 5 — docs/plans/migrations/transforms directory DOX
 
-### PR A — audit + testing pilot
+Create directory-level DOX where local workflows differ materially.
 
-- verify actual test DB behavior;
+## `docs/AGENTS.md`
+
+Own:
+
+- living vs dated snapshot distinction;
+- current-doc map/index responsibilities;
+- citation/source policy;
+- generated vs curated docs;
+- archival rules;
+- no current-state duplication across many docs.
+
+Normally no sidecar for every Markdown document. The documents themselves are
+human-facing content.
+
+## `plans/AGENTS.md`
+
+Own:
+
+- active vs historical plan semantics;
+- progress/evidence recording;
+- plan sequencing and closeout;
+- no stale plan presented as current product direction.
+
+## `migrations/AGENTS.md`
+
+Own:
+
+- forward-only numbering;
+- production target safety;
+- DDL/extension rules;
+- schema/table contract updates;
+- integration verification.
+
+Do not create one `.dox.md` sidecar per migration by default. The migration SQL
+and its comments are already the local implementation artifact.
+
+## `transforms/AGENTS.md`
+
+Own:
+
+- SQLMesh domain boundary;
+- incrementality;
+- audits/tests/tie-outs;
+- grain/time semantics;
+- promotion policy;
+- no procedural identity or ML training.
+
+File-level sidecars for particularly complex long-lived SQLMesh models can be
+added later if they provide real contract value.
+
+# 9. Phase 6 — model package DOX without doubling the legacy engine pile
+
+The `model/` directory is unusually large and contains many frozen/legacy Engine
+modules.
+
+Do not immediately generate 100+ generic sidecars.
+
+First create `model/AGENTS.md` covering:
+
+- point-in-time rules;
+- chronological evaluation;
+- artifact/provenance behavior;
+- frozen Engine-package policy;
+- research-stat vs predictive-feature distinction;
+- child domain roadmap.
+
+Then classify modules into durable domains as the consolidation plan proceeds:
+
+```text
+stats/
+simulation/
+models/
+evaluation/
+legacy-or-prototypes/
+```
+
+Declare file-documented profiles only after those boundaries stabilize.
+
+For currently load-bearing pure modules (Markov core, evaluation, GBM, etc.),
+individual sidecars may be worthwhile before the full reorganization if they
+capture meaningful contracts.
+
+# 10. Phase 7 — future stats and ResearchDB DOX
+
+When the neutral `stats/` package is created, strongly consider making it a
+file-documented profile.
+
+A stat module sidecar should link to the machine-readable Stat Registry and
+capture module-level ownership rather than duplicate every formula field.
+
+Useful DOX concepts:
+
+- domain/grain;
+- authoritative registry IDs;
+- pure-function/import expectations;
+- allowed dependencies;
+- PIT vs finalized-stat role;
+- cross-language parity obligations;
+- hand-fixture/tie-out test paths.
+
+For `research/`, file-level DOX should capture stable public query contracts:
+
+- filters;
+- return types/backends;
+- rights behavior;
+- relation ownership;
+- compatibility expectations;
+- query tests.
+
+# 11. Phase 8 — Claude/Codex/Gemini bridge behavior
+
+## Codex
+
+Codex already understands hierarchical `AGENTS.md`. Its applicable local DOX then
+instructs it to read sidecars before source edits.
+
+No full `CODEX.md` copy.
+
+## Claude Code
+
+Refactor root `CLAUDE.md` toward a thin import/adapter of canonical DOX plus only
+Claude-specific behavior.
+
+Use nested bridges or supported path-scoped rules so Claude sees local DOX
+routing when working in a child subtree.
+
+Once the child contract is visible, Claude can explicitly read source sidecars;
+sidecars do not need native implicit loading.
+
+## Gemini CLI / Agy
+
+Use `GEMINI.md` imports or configure Gemini context filenames to include
+`AGENTS.md`.
+
+Delegated Agy prompts remain self-contained about task scope, DB safety, allowed
+writes, and expected handoff because orchestration products may not propagate the
+same repository context automatically.
+
+## Agent Zero
+
+Use the protocol directly.
+
+# 12. Phase 9 — structural DOX validator
+
+After the conventions stabilize, create a small structural validator.
+
+Suggested responsibilities:
+
+1. enumerate all `AGENTS.md` files;
+2. validate parent Child DOX Index links;
+3. ensure each non-root child has a nearest indexed parent;
+4. identify directories explicitly declared file-documented;
+5. ensure each required direct source file has a matching sidecar;
+6. detect orphan sidecars;
+7. validate required sidecar section headings;
+8. validate referenced local test/doc paths where practical;
+9. keep tool adapter files within a small size budget;
+10. fail only on structural contract violations, not subjective prose quality.
+
+Use standard library Python initially.
+
+Potential command:
+
+```bash
+uv run python scripts/check_dox.py
+```
+
+After it proves quiet and useful, add it to pre-commit and CI.
+
+# 13. Phase 10 — DOX freshness discipline
+
+Add DOX to definition-of-done for behavioral changes.
+
+A PR that changes a documented component should answer:
+
+- Did its public/local contract change?
+- Did inputs/outputs/side effects change?
+- Did ownership move?
+- Did verification change?
+- Did a dependency/source/rights assumption change?
+- Does its sidecar need updating?
+- Does a parent index need updating?
+
+No change is required when a refactor preserves every durable contract; the agent
+should still perform the check.
+
+For file-documented profiles, CI covers structural freshness (presence/orphans).
+Semantic freshness remains a code-review concern.
+
+# 14. Phase 11 — measure whether DOX helps
+
+Do not evaluate success by file count.
+
+Track qualitative/quantitative evidence across several real tasks:
+
+- time/tokens spent discovering a module's responsibility;
+- number of irrelevant files agents open before edits;
+- rate of duplicated helpers/abstractions;
+- rate of forgotten tests/docs/health checks;
+- reviewer findings caused by missing local context;
+- contradictions found between old docs and implementation;
+- frequency of sidecar updates after behavioral changes;
+- whether sidecars remain concise after several development cycles.
+
+Test with at least Codex, Claude Code, and Gemini/Agy-style work if possible.
+
+Success means agents make more precise changes with less rediscovery and fewer
+missed local contracts.
+
+# 15. Phase 12 — cross-project standardization
+
+If the MLB rollout remains useful after normal churn, create a reusable DOX
+bootstrap/template for other repositories.
+
+Generic initializer behavior:
+
+1. inventory top-level durable subsystem boundaries;
+2. create root DOX contract/index;
+3. create child contracts for genuine boundaries;
+4. identify flat, contract-heavy directories suited to file-documented profiles;
+5. generate initial sidecars from source + tests + existing docs;
+6. flag uncertain facts for review;
+7. run structural validation;
+8. create thin vendor adapters only where needed.
+
+Do not copy MLB-specific rules into unrelated projects.
+
+# 16. Recommended PR sequence for this repository
+
+Keep implementation reviewable.
+
+## PR A — DOX foundation
+
+- verify/reconcile root instruction contradictions;
+- establish root DOX workflow/index;
 - add `tests/AGENTS.md`;
-- reconcile root test doctrine;
-- add root Child DOX Index;
-- no other subtree changes.
+- no mass sidecars yet.
 
-### PR B — connectors + docs children
+## PR B — connector DOX profile
 
-- `connectors/AGENTS.md`;
-- `docs/AGENTS.md`;
-- move/dedupe applicable root rules;
-- verify existing workflows/docs.
+- add package/connectors `AGENTS.md` hierarchy;
+- declare connectors file-documented;
+- add sidecars for direct registered connector modules;
+- add initial structural coverage check for that directory.
 
-### PR C — SQL/transforms/migrations/scripts
+## PR C — gravity-well sidecars
 
-- create only children justified by audit;
-- move specialized operational rules;
-- keep global destructive-DB invariant at root.
+- `cli.py.dox.md`;
+- `conform.py.dox.md`;
+- `load.py.dox.md` / `report.py.dox.md` where justified;
+- use them to support the planned decomposition work.
 
-### PR D — Claude/Gemini adapters
+## PR D — docs/migrations/transforms/plans DOX
 
-- shrink root `CLAUDE.md` into `@AGENTS.md` adapter after all migrated rules have
-  canonical homes;
-- add minimal `GEMINI.md`;
-- add child bridges where verified necessary;
-- test instruction loading in the actual tools available.
+- add local directory contracts;
+- move/dedupe existing root rules;
+- update root index.
 
-### PR E — validator
+## PR E — tool bridges + validator
 
-- only if manual pilot is successful;
-- add structural checker + CI/pre-commit integration;
-- no NLP or complicated policy engine.
+- thin Claude/Gemini adapters;
+- mature structural validator;
+- pre-commit/CI only after local proof.
 
-### PR F — cross-project template
+## Later
 
-- separate repository/template work after MLB acceptance;
-- document lessons and boundaries; do not copy MLB doctrine.
+- stats/research file profiles when those packages exist;
+- model profile expansion after module classification;
+- reusable cross-project DOX template.
 
-## 16. Acceptance criteria for the MLB pilot
+# 17. Completion criteria
 
-The pilot is complete when:
+The rollout is successful when:
 
-1. there is one obvious canonical rule source for every sampled topic;
-2. root `AGENTS.md` is materially shorter and more navigational;
-3. Codex receives canonical local rules natively;
-4. Claude receives root and sampled local rules through verified CLAUDE bridges;
-5. Gemini receives root and sampled local rules through verified GEMINI bridges or
-   documented supported configuration;
-6. Agent Zero can use the same canonical tree without project-specific runtime;
-7. the test-database contradiction is resolved from verified code behavior;
-8. no full duplicated `CODEX.md`/`GEMINI.md`/`CLAUDE.md` doctrine exists;
-9. agents can state the instruction chain applicable to a changed file;
-10. human review finds the system easier to navigate than the prior root-only
-    documents.
+- a fresh agent can locate all applicable contracts for a target path without
+  searching the entire docs tree;
+- file-documented profiles have complete sidecar coverage;
+- sidecars describe non-obvious durable contracts rather than generic summaries;
+- moves/deletes cannot leave orphan sidecars/indexes unnoticed;
+- root agent context is materially smaller and less contradictory;
+- Claude/Codex/Gemini can all traverse the same canonical knowledge;
+- DOX links cleanly to tests, registries, table contracts, rights docs, and ADRs;
+- documentation stays current through several real PRs;
+- the system reduces rediscovery instead of becoming another documentation burden.
 
-## 17. Recommendation
+## Bottom line
 
-Proceed with PR A after the current research-grain PR stack is stable enough not
-to create unrelated merge churn.
+The implementation target is not a collection of nested prompts.
 
-The first implementation should be intentionally small: root index +
-`tests/AGENTS.md` + reconciliation of the known test instruction conflict. If that
-small slice is not clearly useful, stop before building a larger hierarchy.
+It is a **self-maintaining, recursively indexed knowledge layer colocated with the
+repository structure and, where valuable, with the individual source files
+itself**.
 
-If it is useful, continue through connector/docs boundaries, then add Claude and
-Gemini bridges, then consider automation.
+That is the DOX protocol this project should pilot.

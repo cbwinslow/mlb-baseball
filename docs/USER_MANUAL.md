@@ -132,17 +132,45 @@ pregame inputs).
 
 ## 6. Exporting to a file
 
-Direct from `psql` today, per `docs/RESEARCH_QUERY_RUNBOOK.md`:
+`mlb export` writes an allow-listed `raw`, `core`, or `gold` relation to CSV,
+Excel, or Parquet. It does not accept arbitrary SQL. Parquet and Excel support
+come from the `export` optional dependency group:
+
+```bash
+uv sync --extra export
+
+# Parquet is the default when the output suffix is .parquet.
+uv run mlb export gold.game_export --season 2024 --out game_export_2024.parquet
+
+# CSV.
+uv run mlb export gold.player_season --season 2024 --format csv --out player_season_2024.csv
+
+# Excel.
+uv run mlb export core.team --format xlsx --out teams.xlsx
+```
+
+The exporter uses read-only consistent snapshots and streams large relations.
+Excel exports fail before exceeding the spreadsheet row limit rather than
+silently truncating data.
+
+For redistribution, use the rights-filtered `public_safe` bundle rather than
+choosing local-research tables yourself:
+
+```bash
+uv run mlb export --profile public_safe --out mlb_research_public_safe --zip
+```
+
+`public_safe` is deliberately conservative and currently contains only
+Retrosheet-derived relations approved by `docs/SOURCE_RIGHTS.md`. The bundle
+includes a manifest/attribution material, and `--zip` produces a packaged archive.
+See `docs/RESEARCH_QUERY_RUNBOOK.md` for the current relation list and more
+copy-paste examples.
+
+Direct `psql \copy` remains useful when you need a custom read-only query:
 
 ```bash
 psql "$DATABASE_URL" -c "\copy (SELECT * FROM gold.game_export WHERE season = 2024) TO 'games_2024.csv' WITH CSV HEADER"
 ```
-
-A dedicated `mlb export` command — any allow-listed relation to CSV / Excel /
-Parquet, plus a rights-filtered `public_safe` bundle for redistribution — is
-in progress. See
-`docs/superpowers/specs/2026-09-01-research-database-v1-design.md`. This
-section will be filled in when it lands.
 
 ---
 

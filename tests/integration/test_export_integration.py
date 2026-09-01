@@ -3,10 +3,12 @@
 import json
 import zipfile
 
-import openpyxl
-import pyarrow.parquet as pq
+import pytest
 
-from mlb_baseball.export import (
+openpyxl = pytest.importorskip("openpyxl")
+pq = pytest.importorskip("pyarrow.parquet")
+
+from mlb_baseball.export import (  # noqa: E402
     export_bundle,
     export_relation,
     resolve_relation,

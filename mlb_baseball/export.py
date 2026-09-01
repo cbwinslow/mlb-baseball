@@ -50,57 +50,75 @@ class ExportRelation:
         return f"{self.schema}.{self.table}"
 
 
-# Canonical list of all allowable export relations across raw, core, and gold schemas.
-# profile="public_safe" relations are exclusively sourced from rights-cleared Retrosheet data.
+# Canonical list of allowable export relations across raw, core, and gold schemas.
+#
+# profile="public_safe" is Retrosheet-only, per docs/SOURCE_RIGHTS.md: "public_safe
+# currently permits only Retrosheet connector families." A relation is public_safe
+# ONLY if every source that feeds it is Retrosheet. Anything touching Statcast, the
+# MLB Stats API, Baseball-Reference, Lahman, Chadwick, or market data is
+# local_research even when it also contains Retrosheet-derived columns -- core.game
+# carries MLB-API weather, core.pitch is Statcast, core.player is conformed through
+# the Chadwick register, gold.player_season is Baseball-Reference, and so on.
 RELATIONS: tuple[ExportRelation, ...] = (
-    # Public-Safe Gold Relations
-    ExportRelation(
-        "gold", "game_export", "season", "public_safe", "Retrosheet canonical wide game export"
-    ),
-    ExportRelation(
-        "gold", "player_season", "season", "public_safe", "Retrosheet player season metrics"
-    ),
-    ExportRelation(
-        "gold", "team_season", "season", "public_safe", "Retrosheet team season metrics"
-    ),
-    ExportRelation(
-        "gold", "division_standing", "season", "public_safe", "Retrosheet division standings"
-    ),
+    # --- public_safe: Retrosheet-derived only (redistributable with attribution) ---
+    # State->value lookup matrices, each built purely FROM raw.retrosheet_event
+    # (+ raw.retrosheet_gameinfo for the game filter); see mlb_baseball/sql/*_matrix_build.sql.
     ExportRelation(
         "gold",
         "run_expectancy_24",
         None,
         "public_safe",
-        "Retrosheet 24-state run expectancy transition matrix",
+        "24 base-out-state run expectancy matrix (from Retrosheet events)",
     ),
     ExportRelation(
-        "gold", "win_expectancy", None, "public_safe", "Retrosheet win expectancy state matrix"
+        "gold",
+        "win_expectancy",
+        None,
+        "public_safe",
+        "Win expectancy by score/inning/base-out state (from Retrosheet events)",
     ),
     ExportRelation(
-        "gold", "leverage_index", "season", "public_safe", "Retrosheet leverage index matrix"
-    ),
-    # Public-Safe Core Relations
-    ExportRelation("core", "game", "season", "public_safe", "Retrosheet canonical game facts"),
-    ExportRelation(
-        "core", "play", "season", "public_safe", "Retrosheet canonical play-by-play events"
-    ),
-    ExportRelation(
-        "core", "pitch", "season", "public_safe", "Retrosheet canonical pitch-level facts"
+        "gold",
+        "leverage_index",
+        None,
+        "public_safe",
+        "Leverage index matrix (from Retrosheet events)",
     ),
     ExportRelation(
-        "core", "player", None, "public_safe", "Retrosheet biographical player directory"
-    ),
-    ExportRelation("core", "team", None, "public_safe", "Retrosheet franchise registry"),
-    ExportRelation("core", "team_alias", None, "public_safe", "Retrosheet team alias crosswalk"),
-    ExportRelation("core", "venue", None, "public_safe", "Retrosheet ballpark reference registry"),
-    ExportRelation("core", "standing", "season", "public_safe", "Retrosheet canonical standings"),
-    # Public-Safe Raw Relations
-    ExportRelation(
-        "raw", "retrosheet_event", "season", "public_safe", "Raw Retrosheet event plays"
+        "raw", "retrosheet_event", None, "public_safe", "Raw Retrosheet play-by-play events"
     ),
     ExportRelation(
-        "raw", "retrosheet_gameinfo", "season", "public_safe", "Raw Retrosheet game metadata"
+        "raw", "retrosheet_gameinfo", None, "public_safe", "Raw Retrosheet per-game metadata"
     ),
+    # --- local_research: conformed dims/facts that mix in non-Retrosheet sources ---
+    ExportRelation("gold", "game_export", "season", "local_research", "Wide per-game export view"),
+    ExportRelation(
+        "gold",
+        "player_season",
+        "season",
+        "local_research",
+        "Player season lines (Baseball-Reference + WAR)",
+    ),
+    ExportRelation(
+        "gold", "team_season", "season", "local_research", "Team season stats (Lahman + Retrosheet)"
+    ),
+    ExportRelation(
+        "gold", "division_standing", "season", "local_research", "Season-end division standings"
+    ),
+    ExportRelation(
+        "core", "game", "season", "local_research", "Conformed games (Retrosheet + MLB API)"
+    ),
+    ExportRelation(
+        "core", "play", "season", "local_research", "Conformed plays (Retrosheet + MLB API PBP)"
+    ),
+    ExportRelation("core", "pitch", "season", "local_research", "Conformed pitches (Statcast)"),
+    ExportRelation(
+        "core", "player", None, "local_research", "Player directory (conformed via Chadwick)"
+    ),
+    ExportRelation("core", "team", None, "local_research", "Franchise registry"),
+    ExportRelation("core", "team_alias", None, "local_research", "Team alias crosswalk"),
+    ExportRelation("core", "venue", None, "local_research", "Ballpark reference registry"),
+    ExportRelation("core", "standing", "season", "local_research", "Conformed standings"),
     # Local Research Gold Relations (Excluded from public_safe)
     ExportRelation(
         "gold",
@@ -382,6 +400,11 @@ def export_to_xlsx(
             "Install with `pip install 'mlb-baseball[export]'` or `uv sync --extra export`."
         ) from None
 
+    # Isolation must be set before the first query of the transaction, so do it
+    # up front -- the row-count pre-check below then runs inside the same
+    # read-only, repeatable-read snapshot as the streaming export.
+    _set_read_only_repeatable_read(conn)
+
     # Pre-check row count against Excel sheet capacity (1,048,576 rows)
     count_query, count_params = _build_count_query(rel, season=season)
     with conn.cursor() as cur:
@@ -400,7 +423,6 @@ def export_to_xlsx(
     ws = wb.create_sheet(title=rel.table[:31])
 
     query, params = _build_select_query(rel, season=season)
-    _set_read_only_repeatable_read(conn)
 
     row_count = 0
     try:

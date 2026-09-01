@@ -24,7 +24,9 @@ def test_resolve_relation_fully_qualified():
     assert rel.schema == "gold"
     assert rel.table == "game_export"
     assert rel.season_column == "season"
-    assert rel.profile == "public_safe"
+    # game_export is a view over gold.game_feature, which carries Statcast/MLB-API
+    # enrichment columns -> local_research, not redistributable (docs/SOURCE_RIGHTS.md).
+    assert rel.profile == "local_research"
 
 
 def test_resolve_relation_bare_name():
@@ -125,17 +127,23 @@ def test_missing_openpyxl_error(monkeypatch):
 
 
 def test_public_safe_relations_are_conservative():
-    """Verify all public_safe relations only come from Retrosheet rights-cleared data."""
+    """public_safe is Retrosheet-only (docs/SOURCE_RIGHTS.md). This is the guard
+    against a redistributable bundle silently shipping Statcast / MLB-API /
+    Baseball-Reference / Lahman / Chadwick data. If you add a relation here, its
+    entire lineage must be Retrosheet -- verify it and extend this allowlist in
+    the same change."""
+    allowed_public_safe = {
+        "raw.retrosheet_event",
+        "raw.retrosheet_gameinfo",
+        "gold.run_expectancy_24",
+        "gold.win_expectancy",
+        "gold.leverage_index",
+    }
+    actual_public_safe = {r.qualified_name for r in RELATIONS if r.profile == "public_safe"}
+    assert actual_public_safe == allowed_public_safe
     for rel in RELATIONS:
         if rel.profile == "public_safe":
-            assert "Retrosheet" in rel.rights_note or rel.schema in ("core", "gold", "raw")
-            assert not rel.table.startswith("mlb_")
-            assert not rel.table.startswith("statcast_")
-            assert not rel.table.startswith("register_")
-            assert not rel.table.startswith("news")
-            assert rel.table != "player_war"
-            assert rel.table != "market"
-            assert rel.table != "game_feature"
+            assert "Retrosheet" in rel.rights_note
 
 
 def test_export_health_check_passes():

@@ -3,6 +3,49 @@
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 
+### Model artifact dir resolves to the primary checkout — 2026-09-01 (issue #108)
+
+`gbm.py` / `total.py` / `stack.py` set `MODEL_DIR = Path(__file__)...`, which
+resolves to whichever checkout the `mlb_baseball` package was imported from.
+A subagent that ran `mlb train` inside the `conform-speedup` worktree wrote
+the gbm artifact to `<worktree>/models/artifacts/` and its **absolute path**
+into the shared production `meta.model.artifact_uri`; removing the worktree
+orphaned the row, so `gbm._get_champion` finds nothing and `mlb predict`
+writes 0 gbm rows.
+
+Fix: new `provenance.models_dir()` resolves `models/` via
+`git rev-parse --path-format=absolute --git-common-dir` (the primary `.git`
+even from a linked worktree), falling back to the package location when not
+in a git checkout. All three model modules now use it. New unit test asserts
+the resolved dir is never under a `worktrees/` or `.git/` path and that the
+git-unavailable fallback works.
+
+Does not fix the *other* half of #108 (there is no gbm champion — the last
+`mlb train` produced a `candidate`). Whether to retrain against prod to make
+a real champion is a separate call.
+
+### markov/ package split (spec step 0) — 2026-08-30
+
+Split `mlb_baseball/model/markov.py` (1,150 lines) into `markov/core.py`
+(pure: state model, RE solve, simulators, shrink) and `markov/estimate.py`
+(11 conn-taking functions + 6 SQL constants). `markov/__init__.py`
+eagerly re-exports the full 37-name surface (28 from `core`, 9 DB
+estimators from `estimate`) — no caller changed. New
+`tests/unit/test_markov_public_surface.py` locks the surface and asserts
+`markov/core.py` source carries no database code (`import psycopg`,
+`read_sql`, `mlb_baseball.db`/`.sql`). A truly driver-free `core` import
+also needs `mlb_baseball/model/__init__.py` to stop eagerly importing
+psycopg — tracked as issue #111 / ADR-276 "Revisit if".
+
+On `refactor/markov-package` (PR #110). Zero behaviour change; prereq for
+the plate-appearance matchup model's clean library signatures
+(`docs/superpowers/specs/2026-08-30-matchup-model-design.md` step 0).
+
+Verification: `test_markov_*` unit suite + `test_model_markov`,
+`test_model_sim_predict`, `test_model_run_expectancy`,
+`test_eval_markov_holdout` on `mlb_test` green (same counts); ruff, ruff
+format, mypy clean.
+
 ### Migration 0092: hot-query lookup indexes — 2026-08-29
 
 `hypopg` 1.4.3 installed on production `mlb`. `postgres-mlb` (restricted) /

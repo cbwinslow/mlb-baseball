@@ -1235,15 +1235,26 @@ def _market_game_start_times(conn: psycopg.Connection) -> dict[int, datetime]:
         return starts
 
 
-def _latest_before(entries: list[tuple[datetime, Decimal]], cutoff: datetime) -> Decimal | None:
-    """entries must be sorted ascending by timestamp (both snapshot lookups
-    below build them via ORDER BY captured_at). bisect_left finds the first
-    entry NOT strictly before cutoff; the qualifying value, if any, is
+def _latest_entry_before(
+    entries: list[tuple[datetime, Decimal]], cutoff: datetime
+) -> tuple[datetime, Decimal] | None:
+    """The whole (captured_at, value) entry strictly before ``cutoff``, or
+    None. ``entries`` must be sorted ascending by timestamp (both snapshot
+    lookups below build them via ORDER BY captured_at). bisect_left finds the
+    first entry NOT strictly before cutoff; the qualifying entry, if any, is
     immediately before that index."""
     idx = bisect_left(entries, (cutoff, Decimal(0))) if entries else 0
     if idx == 0:
         return None
-    return entries[idx - 1][1]
+    return entries[idx - 1]
+
+
+def _latest_before(entries: list[tuple[datetime, Decimal]], cutoff: datetime) -> Decimal | None:
+    """The value of the most recent snapshot strictly before ``cutoff``, or
+    None. Thin wrapper over :func:`_latest_entry_before` for callers that only
+    need the price (``market.py``'s ``_record_upcoming`` path)."""
+    entry = _latest_entry_before(entries, cutoff)
+    return entry[1] if entry is not None else None
 
 
 def _polymarket_snapshot_lookup(conn: psycopg.Connection) -> dict[tuple[str, str], list]:
@@ -1334,13 +1345,23 @@ def _polymarket_market_rows(
             # it already issues a separate ticker per side.
             market_ref = f"{market_id}:{team_id}"
             start_time = game_starts.get(game_id) if game_id is not None else None
-            implied_probability = (
-                _latest_before(snapshots.get((market_id, outcome), []), start_time)
+            entry = (
+                _latest_entry_before(snapshots.get((market_id, outcome), []), start_time)
                 if start_time is not None
                 else None
             )
+            implied_probability, observed_at = (entry[1], entry[0]) if entry else (None, None)
             rows.append(
-                (game_id, "polymarket", market_ref, team_id, implied_probability, volume, status)
+                (
+                    game_id,
+                    "polymarket",
+                    market_ref,
+                    team_id,
+                    implied_probability,
+                    observed_at,
+                    volume,
+                    status,
+                )
             )
     return rows
 
@@ -1394,12 +1415,24 @@ def _kalshi_market_rows(
             match = game_fuzzy.get((game_date, team_id))
             game_id = match[0] if match else None
             start_time = game_starts.get(game_id) if game_id is not None else None
-            implied_probability = (
-                _latest_before(snapshots.get(ticker, []), start_time)
+            entry = (
+                _latest_entry_before(snapshots.get(ticker, []), start_time)
                 if start_time is not None
                 else None
             )
-            rows.append((game_id, "kalshi", ticker, team_id, implied_probability, volume, status))
+            implied_probability, observed_at = (entry[1], entry[0]) if entry else (None, None)
+            rows.append(
+                (
+                    game_id,
+                    "kalshi",
+                    ticker,
+                    team_id,
+                    implied_probability,
+                    observed_at,
+                    volume,
+                    status,
+                )
+            )
     return rows
 
 
@@ -1464,8 +1497,9 @@ def _build_market(conn: psycopg.Connection) -> int:
         cur.executemany(
             """
             INSERT INTO core.market
-                (game_id, source, market_ref, team_id, implied_probability, volume, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (game_id, source, market_ref, team_id, implied_probability,
+                 observed_at, volume, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             rows,
         )

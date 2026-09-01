@@ -16,7 +16,7 @@ per-test TRUNCATE/DELETE for any of those; a prior version of this file did
 that redundantly (a second, unnecessary pass truncating core.play/pitch's
 ~150+ partitions per test, see GitHub issue #2) before it was removed."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import psycopg
@@ -916,6 +916,12 @@ def _seed_market_game(db_conn):
 
 
 def _drop_market_fixtures(db_conn):
+    # Roll back first, exactly as _reset_dynamic_tables does: when this runs
+    # as the market_game teardown after a test body failed on a SQL error,
+    # db_conn is in an aborted transaction and every DROP below would itself
+    # raise InFailedSqlTransaction -- leaving the raw tables behind and
+    # cascading into the next market test, the very failure #114 removes.
+    db_conn.rollback()
     with db_conn.cursor() as cur:
         for table in [
             "raw.polymarket_event",
@@ -930,9 +936,60 @@ def _drop_market_fixtures(db_conn):
     db_conn.commit()
 
 
-def test_build_market_matches_polymarket_and_kalshi_to_a_core_game(db_conn):
-    _seed_market_game(db_conn)
+@pytest.fixture
+def market_game(db_conn):
+    """Seed the shared core.market fixture (see _seed_market_game) and,
+    critically, drop its raw tables again in teardown — which pytest runs
+    whether the test body passed or raised.
 
+    issue #114: every core.market test used to call _drop_market_fixtures
+    only on its own last line, so a conform.run() error or a failed
+    assertion partway left raw.polymarket_*/raw.kalshi_*/raw.mlb_schedule
+    behind, and the next market test then failed on _seed_market_game's
+    unconditional CREATE TABLE instead of on its own logic — turning one
+    real failure into a cascade of unrelated ones."""
+    _seed_market_game(db_conn)
+    yield
+    _drop_market_fixtures(db_conn)
+
+
+def test_market_game_fixture_tears_down_after_a_test_body_sql_error(db_conn):
+    # issue #114 regression: drive the market_game fixture's own generator
+    # the way pytest's finalizer does — advance once for setup, then again
+    # for teardown regardless of how the "test" ended. The realistic failure
+    # is a SQL error mid-body (a bad conform.run(), a failed assertion after
+    # a bad query): that leaves db_conn in an aborted transaction, and the
+    # teardown must roll back before its DROPs or they all fail and the raw
+    # tables leak to the next test. Reproduce that aborted state here.
+    gen = market_game.__wrapped__(db_conn)
+    next(gen)  # setup: _seed_market_game
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        assert cur.fetchone() != (None,)
+
+    with db_conn.cursor() as cur, pytest.raises(psycopg.errors.UndefinedTable):
+        cur.execute("SELECT * FROM raw.this_table_does_not_exist")
+    # db_conn is now in InFailedSqlTransaction — every statement errors
+    # until a rollback, so the teardown below only works if it rolls back.
+
+    with pytest.raises(StopIteration):
+        next(gen)  # teardown: _drop_market_fixtures
+
+    with db_conn.cursor() as cur:
+        for table in (
+            "raw.mlb_schedule",
+            "raw.polymarket_event",
+            "raw.polymarket_market",
+            "raw.polymarket_outcome",
+            "raw.polymarket_snapshot",
+            "raw.kalshi_market",
+            "raw.kalshi_snapshot",
+        ):
+            cur.execute(f"SELECT to_regclass('{table}')")
+            assert cur.fetchone() == (None,), table
+
+
+def test_build_market_matches_polymarket_and_kalshi_to_a_core_game(db_conn, market_game):
     counts = conform.run()
 
     # 2 Polymarket outcome rows (away + home) + 1 Kalshi market row.
@@ -958,17 +1015,56 @@ def test_build_market_matches_polymarket_and_kalshi_to_a_core_game(db_conn):
     assert by_team[("polymarket", "ATL")][1] == Decimal("0.55")
     assert by_team[("polymarket", "NYA")][1] == Decimal("0.45")
 
-    # core.play/pitch/market/game_feature/game are reset by the autouse
-    # _clean_tables fixture right after this test — no need here too.
-    _drop_market_fixtures(db_conn)
+
+def test_build_market_records_the_resolving_snapshot_capture_time(db_conn, market_game):
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT m.source, t.retro_team_id, m.implied_probability, m.observed_at "
+            "FROM core.market m JOIN core.team t ON t.id = m.team_id "
+            "WHERE m.game_id IS NOT NULL ORDER BY m.source, t.retro_team_id"
+        )
+        rows = cur.fetchall()
+
+    # 2 Polymarket outcome rows + 1 Kalshi -- matches
+    # test_build_market_matches_...'s counts["core.market"] == 3.
+    assert len(rows) == 3
+    pre_game = datetime(2026, 5, 23, 12, 0, tzinfo=UTC)
+    first_pitch = datetime(2026, 5, 23, 23, 5, tzinfo=UTC)
+    for source, team, implied, observed in rows:
+        assert implied is not None, (source, team)
+        assert observed == pre_game, (source, team, observed)
+        assert observed < first_pitch
 
 
-def test_build_market_leaves_market_ref_unique_across_both_outcome_rows(db_conn):
+def test_build_market_leaves_observed_at_null_when_no_pre_game_snapshot(db_conn, market_game):
+    with db_conn.cursor() as cur:
+        # Push every snapshot to after first pitch — nothing qualifies.
+        cur.execute("UPDATE raw.polymarket_snapshot SET captured_at = '2026-05-24T06:00:00+00:00'")
+        cur.execute("UPDATE raw.kalshi_snapshot SET captured_at = '2026-05-24T06:00:00+00:00'")
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT implied_probability, observed_at FROM core.market WHERE game_id IS NOT NULL"
+        )
+        rows = cur.fetchall()
+
+    # 2 Polymarket outcome rows + 1 Kalshi -- matches
+    # test_build_market_matches_...'s counts["core.market"] == 3.
+    assert len(rows) == 3
+    for implied, observed in rows:
+        assert implied is None
+        assert observed is None
+
+
+def test_build_market_leaves_market_ref_unique_across_both_outcome_rows(db_conn, market_game):
     # Regression: Polymarket's away/home outcome rows share the same
     # underlying market id — core.market's UNIQUE(source, market_ref)
     # would reject the second row if market_ref were just that id.
-    _seed_market_game(db_conn)
-
     conform.run()
 
     with db_conn.cursor() as cur:
@@ -977,18 +1073,13 @@ def test_build_market_leaves_market_ref_unique_across_both_outcome_rows(db_conn)
         )
         assert cur.fetchone() == (2,)
 
-    # core.play/pitch/market/game_feature/game are reset by the autouse
-    # _clean_tables fixture right after this test — no need here too.
-    _drop_market_fixtures(db_conn)
 
-
-def test_build_market_leaves_kalshi_price_as_bid_ask_midpoint_when_untraded(db_conn):
+def test_build_market_leaves_kalshi_price_as_bid_ask_midpoint_when_untraded(db_conn, market_game):
     # Real production case: a newly-listed Kalshi market has real bid/ask
     # quotes but last_price_dollars is still its zero-value placeholder
     # (never traded yet) -- the midpoint is the honest fallback, not 0.
     # ADR-052: this now applies to raw.kalshi_snapshot's own last_price
     # column (the pre-game source), not raw.kalshi_market's.
-    _seed_market_game(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
             "UPDATE raw.kalshi_snapshot SET last_price_dollars = '0.0000' "
@@ -1002,14 +1093,8 @@ def test_build_market_leaves_kalshi_price_as_bid_ask_midpoint_when_untraded(db_c
         cur.execute("SELECT implied_probability FROM core.market WHERE source = 'kalshi'")
         assert cur.fetchone() == (Decimal("0.62"),)  # (0.60 + 0.64) / 2
 
-    # core.play/pitch/market/game_feature/game are reset by the autouse
-    # _clean_tables fixture right after this test — no need here too.
-    _drop_market_fixtures(db_conn)
 
-
-def test_build_market_rerunning_replaces_instead_of_duplicating(db_conn):
-    _seed_market_game(db_conn)
-
+def test_build_market_rerunning_replaces_instead_of_duplicating(db_conn, market_game):
     conform.run()
     conform.run()
 
@@ -1017,18 +1102,15 @@ def test_build_market_rerunning_replaces_instead_of_duplicating(db_conn):
         cur.execute("SELECT count(*) FROM core.market")
         assert cur.fetchone() == (3,)
 
-    # core.play/pitch/market/game_feature/game are reset by the autouse
-    # _clean_tables fixture right after this test — no need here too.
-    _drop_market_fixtures(db_conn)
 
-
-def test_build_market_leaves_implied_probability_null_without_a_pregame_snapshot(db_conn):
+def test_build_market_leaves_implied_probability_null_without_a_pregame_snapshot(
+    db_conn, market_game
+):
     # ADR-052: a market with real snapshot history, but none of it captured
     # before the game's own start time (only the post-game rows this
     # module's docstring warns about), must resolve NULL -- not silently
     # fall back to the leaky settled price, and not the post-game snapshot
     # either.
-    _seed_market_game(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
             "DELETE FROM raw.polymarket_snapshot WHERE captured_at = '2026-05-23T12:00:00+00:00'"
@@ -1044,15 +1126,12 @@ def test_build_market_leaves_implied_probability_null_without_a_pregame_snapshot
         cur.execute("SELECT implied_probability FROM core.market ORDER BY source")
         assert cur.fetchall() == [(None,), (None,), (None,)]
 
-    _drop_market_fixtures(db_conn)
 
-
-def test_build_market_leaves_implied_probability_null_without_mlb_schedule(db_conn):
+def test_build_market_leaves_implied_probability_null_without_mlb_schedule(db_conn, market_game):
     # No raw.mlb_schedule at all -- no known game start time for ANY
     # market, so every implied_probability must resolve NULL, and the run
     # must not crash (same "optional dependency not ready yet" tolerance
     # every other degrade-gracefully path in this file has).
-    _seed_market_game(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE raw.mlb_schedule")
     db_conn.commit()
@@ -1065,17 +1144,14 @@ def test_build_market_leaves_implied_probability_null_without_mlb_schedule(db_co
         cur.execute("SELECT count(*) FROM core.market WHERE implied_probability IS NOT NULL")
         assert cur.fetchone() == (0,)
 
-    _drop_market_fixtures(db_conn)
 
-
-def test_build_market_degrades_gracefully_without_game_datetime_column(db_conn):
+def test_build_market_degrades_gracefully_without_game_datetime_column(db_conn, market_game):
     # Real bug found running this against the full suite: raw.mlb_schedule
     # can exist (many fixtures throughout this file create one) without a
     # game_datetime column at all (an older snapshot, or a test/partial
     # deployment) -- _market_game_start_times's query must not crash the
     # whole conform() run over an UndefinedColumn, same tolerance
     # _backfill_mlb_team_id already has for that table's away_id/home_id.
-    _seed_market_game(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("ALTER TABLE raw.mlb_schedule DROP COLUMN game_datetime")
     db_conn.commit()
@@ -1086,15 +1162,12 @@ def test_build_market_degrades_gracefully_without_game_datetime_column(db_conn):
         cur.execute("SELECT count(*) FROM core.market WHERE implied_probability IS NOT NULL")
         assert cur.fetchone() == (0,)
 
-    _drop_market_fixtures(db_conn)
 
-
-def test_build_market_leaves_implied_probability_null_without_snapshot_tables(db_conn):
+def test_build_market_leaves_implied_probability_null_without_snapshot_tables(db_conn, market_game):
     # A fresh clone that's never run polymarket.py/kalshi.py's ADR-049
     # snapshot capture at all -- raw.polymarket_snapshot/raw.kalshi_snapshot
     # don't exist yet. Must not crash; every implied_probability resolves
     # NULL, same as the no-schedule case above.
-    _seed_market_game(db_conn)
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE raw.polymarket_snapshot")
         cur.execute("DROP TABLE raw.kalshi_snapshot")
@@ -1105,8 +1178,6 @@ def test_build_market_leaves_implied_probability_null_without_snapshot_tables(db
     with db_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM core.market WHERE implied_probability IS NOT NULL")
         assert cur.fetchone() == (0,)
-
-    _drop_market_fixtures(db_conn)
 
 
 def test_build_player_war_lands_batting_and_pitching_rows(db_conn):

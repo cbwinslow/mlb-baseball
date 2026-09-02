@@ -47,11 +47,21 @@ def _no_chunk_pause(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clean_table(db_conn):
+    # Clean both before and after: raw.statcast_pitch is created on demand by
+    # the connector (no migration owns it), and other test files create their
+    # own skinny version of it. pytest-split distributes tests by measured
+    # duration, so this file no longer runs as one contiguous block on one
+    # shard -- a leaky predecessor from another file must not make the
+    # "table absent" assertions here flake.
+    def _reset():
+        with db_conn.cursor() as cur:
+            cur.execute(f"DROP TABLE IF EXISTS {TABLE}")
+            cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (statcast.SOURCE,))
+        db_conn.commit()
+
+    _reset()
     yield
-    with db_conn.cursor() as cur:
-        cur.execute(f"DROP TABLE IF EXISTS {TABLE}")
-        cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (statcast.SOURCE,))
-    db_conn.commit()
+    _reset()
 
 
 def test_load_week_creates_table_and_loads_rows(db_conn):

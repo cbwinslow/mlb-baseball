@@ -2,6 +2,8 @@
 
 # Claude Code — repository operating rules
 
+> **START HERE: [`openspec/project.md`](openspec/project.md)** — the project constitution. **Workflow is OpenSpec** (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`); `plans/` and conductor `/spec` are retired.
+
 `AGENTS.md` is the shared project contract and filesystem DOX map. This file adds
 **Claude-specific** working behavior. It is intentionally not a duplicate of all
 project architecture, connector, test, SQL, or modeling rules.

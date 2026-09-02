@@ -1,5 +1,15 @@
 # MLB Baseball — root DOX contract
 
+> **START HERE: `openspec/project.md`** — the project constitution (product,
+> audience, current phase, frozen list, DB standards, workflow, CI gates, merge
+> protocol, tooling). Read it before anything else. Rationale:
+> `docs/superpowers/specs/2026-09-02-project-restructure-design.md`.
+>
+> **Workflow is OpenSpec** (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`).
+> `plans/` and conductor `/spec` are retired; `docs/NORTH_STAR.md` is superseded
+> by `openspec/project.md`. Superpowers `brainstorming` + `test-driven-development`
+> are skills used *inside* a change.
+
 This is the **small, always-relevant project contract and filesystem context map**.
 Do not treat it as an encyclopedia. Before editing a path, follow the applicable
 `AGENTS.md` chain into that subtree and read a matching `<source>.dox.md` sidecar

@@ -1,0 +1,37 @@
+schema: spec-driven
+
+context: |
+  Read openspec/project.md first - it is the project constitution
+  (product, audience, current phase, frozen list, DB standards, workflow,
+  CI gates, merge protocol, tooling). Full rationale in
+  docs/superpowers/specs/2026-09-02-project-restructure-design.md.
+
+  Also read CLAUDE.md and AGENTS.md for detailed engineering doctrine,
+  and docs/DECISIONS.md (ADRs) for recorded technical decisions.
+
+  Stack: Python 3.12, uv, PostgreSQL 16 (databases `mlb` prod / `mlb_test`
+  test - never conflate), pytest. Two-database golden rule is absolute.
+  Definition of done: tests pass, linters clean, ingestion idempotent
+  (as a test), upstream errors handled explicitly, docs updated same change.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

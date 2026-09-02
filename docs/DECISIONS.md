@@ -2,6 +2,30 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-280: enable `pg_trgm` / `unaccent` / `btree_gist` / `tablefunc` as available toolbox
+
+**Decision:** Migration `0099_analytics_extensions.sql` runs `CREATE EXTENSION`
+for `pg_trgm`, `unaccent`, `btree_gist`, and `tablefunc` — nothing else. No
+indexes, no table changes. This *makes them available* so the
+fuzzy-name-crosswalk and research-query work ADR-279 flagged as "gated for
+later" doesn't need a schema change to begin. Rebuilt from the abandoned
+`postgres-analytics-extensions` branch (stale migration number + pre-restructure
+doc edits).
+
+**`pgvector` is deliberately NOT enabled.** ADR-279 gates it on a named,
+rights-approved embedding feature and a similarity-search consumer. When that
+consumer lands (candidate: Phase 2 player-similarity / `model/cluster.py`), its
+migration adds `CREATE EXTENSION vector`.
+
+**The 4 trigram GIN indexes from the old branch are dropped** — YAGNI. `pg_trgm`
+must not enter conformance (ADR-029 stands); the indexes ship with the specific
+research/crosswalk query that needs them.
+
+**Cost:** one idempotent `CREATE EXTENSION IF NOT EXISTS` migration (instant; the
+Postgres image already ships the contrib package), one extra `mlb doctor` line.
+No Python dependency, no pipeline behavior change. Change record:
+`openspec/changes/analytics-extensions/`.
+
 ## ADR-279: dependency + Postgres-extension audit — no adoptions, `logging` is the one follow-up
 
 **Decision:** The 2026-09-02 restructure (step 4, `openspec/project.md`) ran a

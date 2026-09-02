@@ -4,7 +4,7 @@
 you want"). First code slice is Layer-2 matchup Markov in `markov.py`
 (ADR-271). Daily `mlb predict` wiring landed as W3b (ADR-272).
 
-**Companion plan:** [`../plans/2026-08-28-course-correction.md`](../plans/2026-08-28-course-correction.md)
+**Companion plan:** [`2026-08-28-course-correction.md`](../../archive/superpowers-plans/2026-08-28-course-correction.md)
 
 **Decision record:** ADR-271 in [`../../DECISIONS.md`](../../DECISIONS.md)
 

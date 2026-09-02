@@ -1,6 +1,6 @@
 # Tasks
 
-- [x] `git mv plans/` and `docs/superpowers/plans/` into `docs/archive/`
+- [x] `git mv` the retired plan trees (staged execution plans and the Superpowers plan archive) into `docs/archive/`
 - [x] `git mv` the 14 superseded / dated `docs/*.md` into `docs/archive/`
 - [x] `docs/archive/README.md` created with the old -> new path map
 - [x] Cross-references rewritten in the active docs, scripts, tests, and package

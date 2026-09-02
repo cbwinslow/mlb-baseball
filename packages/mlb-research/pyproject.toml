@@ -1,0 +1,19 @@
+[project]
+name = "mlb-research"
+version = "0.1.0"
+description = "pybaseball-style Python loader for the MLB Research Statistic Backbone dataset."
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.11"
+dependencies = [
+    "duckdb>=1.0",
+    "huggingface_hub>=0.24",
+    "pandas>=2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mlb_research"]

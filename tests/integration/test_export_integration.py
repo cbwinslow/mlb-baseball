@@ -9,6 +9,7 @@ openpyxl = pytest.importorskip("openpyxl")
 pq = pytest.importorskip("pyarrow.parquet")
 
 from mlb_baseball.export import (  # noqa: E402
+    export_backbone_bundle,
     export_bundle,
     export_relation,
     resolve_relation,
@@ -50,6 +51,172 @@ def _seed_test_data(db_conn):
             """
         )
     db_conn.commit()
+
+
+def _seed_backbone_data(db_conn):
+    """Seed one row per grain in each of the ten candidate backbone tables."""
+    _seed_test_data(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO gold.batting_game
+                (game_id, player_id, team_id, season, game_date, pa, ab, h)
+            VALUES (800001, 90001, 101, 2024, '2024-06-01', 4, 4, 2)
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO gold.pitching_game (game_id, player_id, team_id, season, game_date, outs, h)
+            VALUES (800001, 90002, 102, 2024, '2024-06-01', 27, 5)
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO gold.batting_season (player_id, season, team_id, is_combined, g, pa, ab, h)
+            VALUES (90001, 2024, 101, false, 1, 4, 4, 2),
+                   (90001, 2024, NULL, true, 1, 4, 4, 2)
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO gold.pitching_season (player_id, season, team_id, is_combined, g, outs, h)
+            VALUES (90002, 2024, 102, false, 1, 27, 5),
+                   (90002, 2024, NULL, true, 1, 27, 5)
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO gold.batting_team (team_id, season, g, pa, ab, h)
+            VALUES (101, 2024, 1, 4, 4, 2)
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO gold.pitching_team (team_id, season, g, outs, h)
+            VALUES (102, 2024, 1, 27, 5)
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO gold.batting_career
+                (player_id, seasons, first_season, last_season, g, pa, ab, h)
+            VALUES (90001, 1, 2024, 2024, 1, 4, 4, 2)
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO gold.pitching_career
+                (player_id, seasons, first_season, last_season, g, outs, h)
+            VALUES (90002, 1, 2024, 2024, 1, 27, 5)
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO gold.player_season (player_id, season, is_pitcher, player_name, team, games)
+            VALUES (90001, 2024, false, 'Aaron Judge', 'New York', 1)
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO gold.team_season (team_id, season, team_city, team_nickname, wins, losses)
+            VALUES (101, 2024, 'New York', 'Yankees', 1, 0)
+            ON CONFLICT DO NOTHING;
+            """
+        )
+    db_conn.commit()
+
+
+def _type_bucket(type_str: str) -> str:
+    """Normalize a pyarrow/duckdb type string into a coarse comparison bucket."""
+    t = type_str.lower()
+    if "bool" in t:
+        return "bool"
+    if "int" in t:
+        return "int"
+    if "double" in t or "float" in t or "decimal" in t or "numeric" in t:
+        return "float"
+    if "timestamp" in t:
+        return "timestamp"
+    if "date" in t:
+        return "date"
+    return "text"
+
+
+def test_export_backbone_bundle_manifest_and_excluded(db_conn, tmp_path):
+    """Verify the backbone preset writes one Parquet per eligible table, a
+    manifest.json, a README.md dataset card, and records player_season /
+    team_season as excluded with their rights reasons (task 1.2)."""
+    _seed_backbone_data(db_conn)
+    bundle_dir = tmp_path / "backbone_bundle"
+
+    result = export_backbone_bundle(db_conn, out_dir=bundle_dir)
+    assert result == bundle_dir
+
+    eligible = {
+        "batting_game",
+        "pitching_game",
+        "batting_season",
+        "pitching_season",
+        "batting_team",
+        "pitching_team",
+        "batting_career",
+        "pitching_career",
+    }
+    for table in eligible:
+        assert (bundle_dir / "data" / f"{table}.parquet").exists()
+    assert not (bundle_dir / "data" / "player_season.parquet").exists()
+    assert not (bundle_dir / "data" / "team_season.parquet").exists()
+
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert {t["table"] for t in manifest["tables"]} == eligible
+    for entry in manifest["tables"]:
+        assert entry["row_count"] >= 1
+        assert entry["columns"]
+
+    excluded_by_table = {e["table"]: e["reason"] for e in manifest["excluded"]}
+    assert set(excluded_by_table) == {"player_season", "team_season"}
+    assert "Baseball-Reference" in excluded_by_table["player_season"]
+    assert "Lahman" in excluded_by_table["team_season"]
+
+    card = (bundle_dir / "README.md").read_text(encoding="utf-8")
+    assert manifest["schema_version"] in card
+    assert "Retrosheet" in card
+
+
+def test_export_backbone_bundle_is_deterministic(db_conn, tmp_path):
+    """Re-running the backbone export over the same database state produces
+    identical row counts and identical first/last rows per table (task 1.3)."""
+    _seed_backbone_data(db_conn)
+
+    dir1 = tmp_path / "run1"
+    dir2 = tmp_path / "run2"
+    export_backbone_bundle(db_conn, out_dir=dir1)
+    export_backbone_bundle(db_conn, out_dir=dir2)
+
+    manifest1 = json.loads((dir1 / "manifest.json").read_text(encoding="utf-8"))
+    manifest2 = json.loads((dir2 / "manifest.json").read_text(encoding="utf-8"))
+    tables1 = {t["table"]: t for t in manifest1["tables"]}
+    tables2 = {t["table"]: t for t in manifest2["tables"]}
+    assert tables1.keys() == tables2.keys()
+
+    for table, entry1 in tables1.items():
+        entry2 = tables2[table]
+        assert entry1["row_count"] == entry2["row_count"]
+
+        parquet1 = pq.read_table(dir1 / entry1["file"])
+        parquet2 = pq.read_table(dir2 / entry2["file"])
+        assert parquet1.num_rows == parquet2.num_rows
+        if parquet1.num_rows == 0:
+            continue
+        for idx in (0, -1):
+            row1 = {col: parquet1.column(col)[idx].as_py() for col in parquet1.column_names}
+            row2 = {col: parquet2.column(col)[idx].as_py() for col in parquet2.column_names}
+            assert row1 == row2, f"{table} row {idx} differs between export runs"
+
+
+def test_export_backbone_bundle_duckdb_round_trip(db_conn, tmp_path):
+    """Round-trip: write the bundle with pyarrow, read every Parquet back with
+    duckdb, assert each table's column names + types match its manifest.json
+    entry (task 1.5, guards against the pyarrow/duckdb schema-drift risk in
+    design.md)."""
+    duckdb = pytest.importorskip("duckdb")
+    _seed_backbone_data(db_conn)
+    bundle_dir = tmp_path / "backbone_roundtrip"
+
+    export_backbone_bundle(db_conn, out_dir=bundle_dir)
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+
+    for entry in manifest["tables"]:
+        parquet_path = bundle_dir / entry["file"]
+        relation = duckdb.sql(f"SELECT * FROM read_parquet('{parquet_path.as_posix()}')")
+        assert relation.columns == [c["name"] for c in entry["columns"]]
+        manifest_types = {c["name"]: c["type"] for c in entry["columns"]}
+        for name, duck_type in zip(relation.columns, relation.types, strict=True):
+            assert _type_bucket(str(duck_type)) == _type_bucket(manifest_types[name]), (
+                f"{entry['table']}.{name}: duckdb={duck_type} manifest={manifest_types[name]}"
+            )
 
 
 def test_export_relation_csv_round_trip(db_conn, tmp_path):

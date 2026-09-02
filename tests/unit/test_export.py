@@ -7,6 +7,9 @@ import pytest
 
 from mlb_baseball.export import (
     ALLOWLIST,
+    BACKBONE_CANDIDATES,
+    BACKBONE_EXCLUDED,
+    BACKBONE_TABLES,
     RELATIONS,
     ExportRelation,
     _build_count_query,
@@ -144,6 +147,64 @@ def test_public_safe_relations_are_conservative():
     for rel in RELATIONS:
         if rel.profile == "public_safe":
             assert "Retrosheet" in rel.rights_note
+
+
+def test_build_select_query_with_order_by():
+    """Verify ORDER BY is appended for deterministic backbone export row order."""
+    rel = ExportRelation(
+        "gold", "batting_game", "season", "local_research", "", ("game_id", "player_id", "team_id")
+    )
+    query, params = _build_select_query(rel, order_by=rel.primary_key)
+    assert query.as_string(None) == (
+        'SELECT * FROM "gold"."batting_game" ORDER BY "game_id", "player_id", "team_id"'
+    )
+    assert params == []
+
+
+def test_build_select_query_with_season_and_order_by():
+    """Verify a season filter and ORDER BY compose correctly."""
+    rel = ExportRelation(
+        "gold", "batting_team", "season", "local_research", "", ("team_id", "season")
+    )
+    query, params = _build_select_query(rel, season=2023, order_by=rel.primary_key)
+    assert query.as_string(None) == (
+        'SELECT * FROM "gold"."batting_team" WHERE "season" = %s ORDER BY "team_id", "season"'
+    )
+    assert params == [2023]
+
+
+def test_backbone_excludes_player_season_and_team_season():
+    """player_season (Baseball-Reference) and team_season (Lahman) fail the
+    redistribution rights review (rights-review.md) -- confirmed by inspecting
+    their defining migrations, not merely anticipated by design.md."""
+    assert set(BACKBONE_EXCLUDED) == {"gold.player_season", "gold.team_season"}
+    assert "Baseball-Reference" in BACKBONE_EXCLUDED["gold.player_season"]
+    assert "Lahman" in BACKBONE_EXCLUDED["gold.team_season"]
+
+
+def test_backbone_tables_is_candidates_minus_excluded():
+    """The publishable backbone set is exactly the eight Retrosheet-only relations."""
+    assert set(BACKBONE_TABLES) == set(BACKBONE_CANDIDATES) - set(BACKBONE_EXCLUDED)
+    assert BACKBONE_TABLES == (
+        "gold.batting_game",
+        "gold.pitching_game",
+        "gold.batting_season",
+        "gold.pitching_season",
+        "gold.batting_team",
+        "gold.pitching_team",
+        "gold.batting_career",
+        "gold.pitching_career",
+    )
+    for name in BACKBONE_TABLES:
+        assert name in ALLOWLIST, f"{name} must remain a resolvable export relation"
+
+
+def test_backbone_relations_have_primary_key_for_order_by():
+    """Every publishable backbone relation declares a primary_key so the export
+    query can ORDER BY it for deterministic row order (task 1.3)."""
+    by_name = {r.qualified_name: r for r in RELATIONS}
+    for name in BACKBONE_TABLES:
+        assert by_name[name].primary_key, f"{name} must declare primary_key"
 
 
 def test_export_health_check_passes():

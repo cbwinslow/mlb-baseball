@@ -636,7 +636,10 @@ def main(argv: list[str] | None = None) -> None:
     # Research data and interop exporter (EXPORT-01)
     export_parser = subparsers.add_parser(
         "export",
-        help="export database relations to CSV, Excel, or Parquet, or generate public_safe bundle",
+        help=(
+            "export database relations to CSV, Excel, or Parquet, or generate a "
+            "public_safe/backbone bundle"
+        ),
     )
     export_parser.add_argument(
         "relation",
@@ -663,6 +666,22 @@ def main(argv: list[str] | None = None) -> None:
         "--profile",
         choices=["public_safe"],
         help="export rights-filtered redistribution bundle (e.g. public_safe)",
+    )
+    export_parser.add_argument(
+        "--preset",
+        choices=["backbone"],
+        help="export a named table-set bundle in HF dataset-repo layout (e.g. backbone)",
+    )
+    export_parser.add_argument(
+        "--publish",
+        choices=["hf"],
+        help="publish the exported --preset bundle to a dataset host (requires --tag; "
+        "reads the write credential from HF_TOKEN, never a flag)",
+    )
+    export_parser.add_argument(
+        "--tag",
+        type=str,
+        help="release tag / revision to publish under (required with --publish)",
     )
     export_parser.add_argument(
         "--zip",
@@ -3859,9 +3878,25 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.command == "export":
         from mlb_baseball.db import get_connection
-        from mlb_baseball.export import export_bundle, export_relation
+        from mlb_baseball.export import export_backbone_bundle, export_bundle, export_relation
 
-        if args.profile:
+        if args.publish and not args.preset:
+            export_parser.error("--publish requires --preset")
+        if args.publish and not args.tag:
+            export_parser.error("--publish requires --tag")
+
+        if args.preset:
+            with get_connection() as conn:
+                out_dir = args.out or "backbone_bundle"
+                result_path = export_backbone_bundle(conn, out_dir=out_dir)
+            print(f"Exported {args.preset} preset bundle to {result_path}")
+
+            if args.publish == "hf":
+                from mlb_baseball.publish import publish_backbone_bundle
+
+                commit = publish_backbone_bundle(result_path, tag=args.tag)
+                print(f"Published to Hugging Face (revision={args.tag}): {commit}")
+        elif args.profile:
             with get_connection() as conn:
                 out_dir = args.out or "export_bundle"
                 result_path = export_bundle(
@@ -3882,7 +3917,7 @@ def main(argv: list[str] | None = None) -> None:
                 )
             print(f"Exported {count:,} rows to {result_path}")
         else:
-            export_parser.error("must specify a relation or --profile")
+            export_parser.error("must specify a relation, --profile, or --preset")
 
     elif args.command == "stack":
         import json as json_lib

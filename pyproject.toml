@@ -31,14 +31,28 @@ dev = [
     "sqlfluff>=3.0",
     "pytest-postgresql>=8.1,<9",
     "pytest-split>=0.9",
+    # packages/mlb-research (delivery-surface change) -- a workspace member,
+    # not a runtime dependency of mlb_baseball; included here only so
+    # `uv sync --extra dev` gives one venv that can run its tests too.
+    "mlb-research",
 ]
 export = [
     "openpyxl>=3.1",
     "pyarrow>=16",
+    "huggingface-hub>=0.24",
 ]
 
 [project.scripts]
 mlb = "mlb_baseball.cli:main"
+
+[tool.uv.workspace]
+# packages/mlb-research develops in-tree (delivery-surface change) but
+# publishes independently to PyPI as `mlb-research` -- it deliberately does
+# not depend on mlb_baseball. Repo split is deferred (openspec/project.md).
+members = ["packages/*"]
+
+[tool.uv.sources]
+mlb-research = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -58,7 +72,7 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/mlb-research/tests"]
 # host/user for pytest-postgresql's postgresql_noproc fixture are resolved
 # in tests/conftest.py (falling back to "localhost" / getpass.getuser()),
 # not hardcoded here -- a hardcoded postgresql_user would be one specific

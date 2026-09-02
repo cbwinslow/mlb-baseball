@@ -42,7 +42,8 @@ Parquet on Hugging Face (+ GitHub Releases mirror) → pybaseball-style
 Python loader on PyPI → DuckDB-WASM browser query page → Docker image →
 Marimo notebooks + a MkDocs Material docs site. Coverage target: match
 `pybaseball` / `baseballr`. No hosted DB, no hosted REST API (defer —
-needs revenue).
+needs revenue). Publishing the backbone dataset:
+[`docs/PUBLIC_API.md`](../docs/PUBLIC_API.md#publishing-the-backbone-dataset-to-hugging-face).
 
 ---
 
@@ -162,8 +163,15 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 4. ✅ Bot prune + dependency/PG-extension audit — ADR-279; issue #142
    (logging); `.coderabbit.yaml`; dependency-review comment fix; owner uninstalls pending
 5. MkDocs Material docs site + `understand-anything` knowledge graph
-6. Delivery surface first cut — Parquet→HF, DuckDB-WASM page, PyPI
-   loader skeleton, one notebook
+6. 🟡 Delivery surface first cut (`openspec/changes/delivery-surface/`) —
+   `mlb export --preset backbone` (8 of 10 candidate tables; `player_season`/
+   `team_season` excluded on source-rights grounds, see
+   `rights-review.md`), HF publish step, `mlb-research` PyPI loader
+   package, and the DuckDB-WASM query page (`docs/site/query/`) are built
+   and tested. **Not done:** the owner's first real HF publish (needs
+   `HF_TOKEN` + a namespace decision — `cbwinslow/mlb-research` vs an org),
+   pointing the query page / package `"latest"` at it, and the one example
+   notebook (blocked on the publish existing to run against).
 
 **NEXT** — the milestone proper: capture the grain backbone as
 `openspec/specs/statistic-backbone/spec.md`; Baseball-Reference tie-out

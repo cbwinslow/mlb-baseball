@@ -1,0 +1,9 @@
+# gitleaks false positives, pinned by finding fingerprint
+# (<commit>:<file>:<rule>:<line>). Format: https://github.com/gitleaks/gitleaks#gitleaksignore
+#
+# commit ed9858f, docs/MAP.md line 34: a prose sentence listing project
+# components matched the generic-api-key rule (the keyword "api" followed by a
+# slash-containing token). No secret. The line was reworded in a later commit
+# on this branch; this entry covers the historical commit, which gitleaks-action
+# still scans as part of the PR. Inert once this branch squash-merges to main.
+ed9858f94a1b062b63c73e08a539af89c36bded6:docs/MAP.md:generic-api-key:34

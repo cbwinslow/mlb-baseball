@@ -40,6 +40,15 @@ repos:
         pass_filenames: false
         files: ^mlb_baseball/.*\.py$
 
+      # Validates the progressive-disclosure DOX tree: child indexes, declared
+      # file-documented profiles, required sidecars, and orphan sidecars.
+      - id: dox-structure
+        name: DOX structure (indexes and source-adjacent contracts)
+        entry: python scripts/check_dox.py
+        language: system
+        pass_filenames: false
+        files: (^|/)(AGENTS\.md|.*\.dox\.md|.*\.py)$|^scripts/check_dox\.py$
+
   # Blocks known credential patterns before they enter a commit. GitHub secret
   # scanning and push protection remain the server-side backstop.
   - repo: https://github.com/gitleaks/gitleaks

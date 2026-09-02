@@ -127,7 +127,7 @@ pending that artifact.
 2. Run a separately recorded production **read-only** census only when current
    coverage evidence is needed.
 3. Select no more than one or two candidates from
-   [the feature-admission queue](FEATURE_ADMISSION_QUEUE.md).
+   [the feature-admission queue](archive/FEATURE_ADMISSION_QUEUE.md).
 4. Design a narrow gold family and its future-data/leakage fixtures.
 5. Build it only after review; add it to an immutable experiment snapshot only
    after its own point-in-time and coverage gate passes.

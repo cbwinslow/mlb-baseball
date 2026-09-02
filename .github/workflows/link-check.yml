@@ -1,9 +1,18 @@
-# Catches dead links across the docs/ and plans/ tree (large, growing, and
-# easy to let rot). Runs weekly rather than per-PR since most breakage is
-# external links going stale, not something a given PR introduces.
+# Catches dead links across the docs tree (large, growing, easy to let rot).
+#
+#   - pull_request: internal links only (--offline), advisory (fail: false) --
+#     fast, deterministic, catches a PR that moves or renames a doc. This is
+#     the case the weekly run used to miss (e.g. the 2026-09-02 archive move).
+#   - weekly: the full check including external URLs, fail: true -- external
+#     rot is not a given PR's fault, so it stays off the PR path.
 name: link-check
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - ".github/workflows/link-check.yml"
   schedule:
     - cron: "37 6 * * 1"
   workflow_dispatch: {}
@@ -19,12 +28,27 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+      - name: Internal links (pull_request -- advisory)
+        if: github.event_name == 'pull_request'
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --no-progress
+            --offline
+            --exclude-mail
+            'docs/**/*.md'
+            'openspec/**/*.md'
+            '*.md'
+          fail: false
+
+      - name: All links (weekly -- blocking its own run)
+        if: github.event_name != 'pull_request'
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           args: >-
             --no-progress
             --exclude-mail
             'docs/**/*.md'
-            'plans/**/*.md'
+            'openspec/**/*.md'
             '*.md'
           fail: true

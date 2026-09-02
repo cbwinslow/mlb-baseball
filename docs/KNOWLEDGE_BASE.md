@@ -100,7 +100,7 @@ design into this repository.
   team offense/defense and captured starter/bullpen workload.
 - **Implementation status:** Admission queue only; no new feature family is
   approved by this entry. See [feature-admission sources](research/feature_admission_sources.md)
-  and [feature-admission queue](FEATURE_ADMISSION_QUEUE.md).
+  and [feature-admission queue](archive/FEATURE_ADMISSION_QUEUE.md).
 
 ### Retrosheet supplemental team identities
 

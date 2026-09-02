@@ -5,7 +5,7 @@ narrow: later feature families must be registered separately rather than being
 silently added to `gold.game_feature`.
 
 The read-only [`mlb field-census`](RAW_CORE_GOLD_FIELD_CENSUS.md) and
-[feature-admission queue](FEATURE_ADMISSION_QUEUE.md) are the gate before a
+[feature-admission queue](archive/FEATURE_ADMISSION_QUEUE.md) are the gate before a
 new family enters this registry. A landed raw value is not a feature merely
 because it is populated; it needs an explicit point-in-time contract.
 

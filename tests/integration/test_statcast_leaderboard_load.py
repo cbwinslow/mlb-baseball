@@ -53,12 +53,19 @@ def _fixed_date(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clean_tables(db_conn):
+    # Clean before and after: these raw tables are created on demand (no
+    # migration owns them) and pytest-split may schedule a leaky test from
+    # another file ahead of this one's "table absent" assertions.
+    def _reset():
+        with db_conn.cursor() as cur:
+            for table in TABLES:
+                cur.execute(f"DROP TABLE IF EXISTS {table}")
+            cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (sl.SOURCE,))
+        db_conn.commit()
+
+    _reset()
     yield
-    with db_conn.cursor() as cur:
-        for table in TABLES:
-            cur.execute(f"DROP TABLE IF EXISTS {table}")
-        cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (sl.SOURCE,))
-    db_conn.commit()
+    _reset()
 
 
 def _fake_leaderboards(monkeypatch, fn_a=None, fn_b=None):

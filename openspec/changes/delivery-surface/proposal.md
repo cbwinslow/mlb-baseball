@@ -34,7 +34,7 @@ dataset a Retrosheet/FanGraphs/academic researcher can actually pull".
 - **Docs:** a delivery section in `openspec/project.md` / the eventual docs
   site pointing at all four.
 
-Not in this change: the Quarto docs site (step 5), the remaining ≥4
+Not in this change: the MkDocs Material docs site (step 5), the remaining ≥4
 notebook recipes, the r/Sabermetrics announcement, `public_safe`-keyed
 variants. Those are the rest of the milestone (`openspec/project.md`
 NOW → milestone).

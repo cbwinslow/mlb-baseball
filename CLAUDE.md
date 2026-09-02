@@ -1,6 +1,8 @@
 # CLAUDE.md — Operating rules for this repo
 
-This project was rebuilt from scratch after the original (Gemini-built) version accumulated bugs and inconsistent code quality. The rules below exist to prevent a repeat. Read [AGENTS.md](AGENTS.md), [docs/NORTH_STAR.md](docs/NORTH_STAR.md), and [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) before making changes.
+> **START HERE: [`openspec/project.md`](openspec/project.md)** — the project constitution (product, audience, current phase, frozen list, workflow, CI gates, merge protocol). Read it first. **Workflow is OpenSpec** (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`); `plans/` and conductor `/spec` are retired.
+
+This project was rebuilt from scratch after the original (Gemini-built) version accumulated bugs and inconsistent code quality. The rules below exist to prevent a repeat. Read [AGENTS.md](AGENTS.md), [`openspec/project.md`](openspec/project.md), and [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) before making changes. (`docs/NORTH_STAR.md` is superseded by `openspec/project.md`.)
 
 ## Database names — golden rule
 

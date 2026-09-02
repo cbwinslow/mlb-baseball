@@ -1,8 +1,9 @@
 # Project restructure — constitution, workflow, knowledge architecture
 
 Date: 2026-09-02
-Status: DRAFT v2 — owner reviewed 2026-09-02, pushbacks accepted, two open
-questions remain (§11).
+Status: DRAFT v3 — owner reviewed 2026-09-02: pushbacks accepted, tooling
+list (Part 6) accepted, Quarto + Marimo + Kilo chosen. One open question
+left (§12: milestone scope). Execution Step 1 authorized.
 Supersedes: the "Track C" framing in `scratchpad/forward-plan.md`; reframes
 `docs/NORTH_STAR.md` as an input to a single canonical constitution.
 
@@ -293,7 +294,7 @@ GitHub Projects board is optional later if others contribute.
 | Tree | Audience | Contents |
 |---|---|---|
 | `openspec/` | agents + owner | `project.md`, `specs/`, `changes/` |
-| `docs/` → MkDocs or Quarto → GitHub Pages | end users | getting started, grain-ladder diagram, data dictionary, formula citations + sources, notebook index, honest-limitations page |
+| `docs/` → Quarto → GitHub Pages | end users | getting started, grain-ladder diagram, data dictionary, formula citations + sources, notebook index, honest-limitations page |
 
 `docs/DECISIONS.md` (ADRs) and `docs/archive/` are repo-only, unpublished.
 
@@ -423,7 +424,53 @@ it's a clear win on tested code paths; never a rewrite on a hunch
 
 ---
 
-## 9. Execution plan (≈1 week, sequenced)
+## 9. Part 6 — Tooling
+
+### 9.1 Adopt now (serves the milestone, low risk)
+
+| Tool | Role | Cost |
+|---|---|---|
+| **DuckDB** (Python lib + CLI) | Parquet export, local analytics, testing the exact SQL a user runs. Already half the delivery surface. | $0 |
+| **`exa` MCP (authenticate it)** | Restores web search/fetch — currently blocked in this environment. | free tier |
+| **`postgres-mcp` (installed — formalize use)** | `explain_query`, `analyze_workload_indexes`, `get_top_queries`, `analyze_db_health` — this *is* the EXPLAIN/ANALYZE + index-tuning discipline of §4.5. | $0 |
+| **`pandera`** | Dataframe schema validation at pipeline boundaries — serves definition-of-done #4 (schema drift explicit, not swallowed). | $0 |
+| **Project skill `add-gold-metric`** | Codifies the repeated 7-step definition-of-done for a new `gold` metric so no step is skipped. Built during execution. | $0 |
+
+### 9.2 Audit candidates (evaluate in §8.4 — do not adopt on faith)
+
+- **Polars** vs pandas — needs a measurement first.
+- **pg_partman** vs the hand-rolled ~316 season partitions (already a test-DB pain point).
+- **pg_duckdb / duckdb_fdw** — query the Parquet directly from the Docker Postgres.
+- **sqlglot** — transpile Postgres ↔ DuckDB SQL for dual-backend delivery.
+- **pg_trgm** — fuzzy player-name crosswalk (~0.5% unresolved IDs + mojibake).
+- **actionlint**, **hyperfine** — small dev-tooling adds (CI-yaml lint; benchmark timing).
+
+### 9.3 Phase 2+ (real, not now)
+
+- **pgvector** — player/pitch similarity search ("find comparable pitchers").
+- **great-expectations / soda-core** — only if the pytest tie-outs outgrow themselves.
+- **HuggingFace MCP** — when actively managing the published dataset.
+
+### 9.4 Not adopting
+
+- **pg_cron** — system cron + `mlb` CLI works; no in-DB scheduling.
+- **PL/pgSQL / PL/Python for pipeline logic** — §4.5: SQL in `.sql`, Python in Python.
+- **More skill/plugin packs** — fragmentation is what we are fixing.
+- **TimescaleDB** — already declined (ADR).
+- **A baseball-stats MCP** — the data is already ingested.
+- **GitHub / filesystem MCP** — `gh` + native tools cover it.
+
+### 9.5 On record for the vision, not now
+
+**DuckDB as a build engine, not just an export format.** The transform
+layer (pandas + Postgres SQL today) could become DuckDB-centric —
+columnar, free, embeddable, native Parquet, near-Postgres SQL — with
+Postgres staying the canonical serving store. A Phase 2 architecture
+question; recorded here so it is not re-derived.
+
+---
+
+## 10. Execution plan (≈1 week, sequenced)
 
 Each step is its own OpenSpec change once OpenSpec is initialized; step 1
 bootstraps it.
@@ -441,17 +488,22 @@ bootstraps it.
 4. **Bot prune + dependency audit.** Audit last ~20 PRs; turn off
    dead-weight bots; document the real gates; produce the dependency +
    extension candidate list.
-5. **Docs site + knowledge graph.** MkDocs or Quarto scaffold;
-   `understand-anything` generates the architecture graph + grain-ladder
-   diagram; publish to GitHub Pages.
-6. **Delivery surface (first cut).** Parquet export of the `gold` tables
-   to Hugging Face; DuckDB-WASM query page; Python loader package
-   skeleton; one notebook recipe.
+5. **Docs site + knowledge graph.** Quarto scaffold; `understand-anything`
+   generates the architecture graph + grain-ladder diagram; publish to
+   GitHub Pages.
+6. **Delivery surface (first cut).** DuckDB-based Parquet export of the
+   `gold` tables to Hugging Face; DuckDB-WASM query page; Python loader
+   package skeleton; one Marimo notebook recipe.
+
+Tooling adoptions from §9.1 land alongside the steps that need them:
+DuckDB + `add-gold-metric` skill in step 1's wake, `exa` MCP auth in
+step 2, `pandera` at the first pipeline-boundary change, `postgres-mcp`
+formalized in step 4's audit.
 
 Steps 1–4 are the "stop the bleeding" week. 5–6 begin the milestone
 proper; the rest of §4.6 follows as normal changes.
 
-## 10. Risks
+## 11. Risks
 
 - **OpenSpec is young (v1.11).** MIT + plain markdown — if it fails, the
   `openspec/` folder is still readable docs; we lose the CLI, not the
@@ -469,15 +521,15 @@ proper; the rest of §4.6 follows as normal changes.
   split (§4.6–4.8) is the guardrail; every new "I also want" gets sorted
   into a phase before it becomes work.
 
-## 11. Open questions for owner review
+## 12. Open questions for owner review
 
 1. **Milestone (§4.6)** — enriched with citations + tie-outs + PyPI
-   package + coverage-vs-pybaseball. Still the right scope?
-2. **Docs site generator** — **Quarto** (notebook-native, handles the
-   docs site *and* the recipe notebooks in one tool) vs. MkDocs
-   Material. Lean Quarto unless you object.
-3. **Notebook tool** — Marimo (reactive, clean git diffs) vs. classic
-   Jupyter. Lean Marimo unless you object.
+   package + coverage-vs-pybaseball. Still the right scope? *(Only open
+   question remaining.)*
+
+(Resolved 2026-09-02: docs site → **Quarto**; notebooks → **Marimo**;
+AI reviewer → **Kilo**; frozen list → confirmed; all §"push back" items
+→ accepted; tooling list §9 → accepted.)
 
 (Prior open questions resolved: AI reviewer → Kilo; frozen list →
 confirmed; all §"push back" items → accepted by owner.)

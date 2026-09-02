@@ -40,7 +40,7 @@ models (revenue bridge, later phase).
 
 Parquet on Hugging Face (+ GitHub Releases mirror) → pybaseball-style
 Python loader on PyPI → DuckDB-WASM browser query page → Docker image →
-Marimo notebooks + Quarto docs site. Coverage target: match
+Marimo notebooks + a MkDocs Material docs site. Coverage target: match
 `pybaseball` / `baseballr`. No hosted DB, no hosted REST API (defer —
 needs revenue).
 
@@ -52,7 +52,7 @@ The prediction site and models are **frozen** (see Frozen list). Phase is
 done when: backbone relations 1–6 tied out to Baseball-Reference within a
 documented tolerance; every metric cites its source and has a tie-out
 test; published to Hugging Face; Python loader on PyPI; DuckDB-WASM page
-live; Quarto docs site published (data dictionary, grain-ladder diagram,
+live; a MkDocs Material docs site published (data dictionary, grain-ladder diagram,
 formula citations, honest-limitations page); ≥5 notebook recipes;
 announced to r/Sabermetrics.
 
@@ -136,7 +136,7 @@ branches, or merging into a frozen area still need an explicit ask.
 
 ## Tooling
 
-**Adopted:** DuckDB, `postgres-mcp` (formalized), Quarto, Marimo, the
+**Adopted:** DuckDB, `postgres-mcp` (formalized), MkDocs Material, Marimo, the
 `add-gold-metric` project skill (to build).
 **Audit done (ADR-279, 2026-09-02):** no library/extension adopted — prior
 reviews hold. One follow-up filed (issue #142: stdlib `logging` for
@@ -161,7 +161,7 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    rewritten (historical record).
 4. ✅ Bot prune + dependency/PG-extension audit — ADR-279; issue #142
    (logging); `.coderabbit.yaml`; dependency-review comment fix; owner uninstalls pending
-5. Quarto docs site + `understand-anything` knowledge graph
+5. MkDocs Material docs site + `understand-anything` knowledge graph
 6. Delivery surface first cut — Parquet→HF, DuckDB-WASM page, PyPI
    loader skeleton, one notebook
 

@@ -1,9 +1,10 @@
 # Project restructure — constitution, workflow, knowledge architecture
 
 Date: 2026-09-02
-Status: DRAFT v3 — owner reviewed 2026-09-02: pushbacks accepted, tooling
-list (Part 6) accepted, Quarto + Marimo + Kilo chosen. One open question
-left (§12: milestone scope). Execution Step 1 authorized.
+Status: v3 — owner reviewed 2026-09-02; Marimo + Kilo chosen, docs site
+revised Quarto → MkDocs Material. Steps 1–4 executed and merged
+(#139–#146). Step 5–6 open; delivery-surface (Step 6) planned as an
+OpenSpec change (#145). Live state: `openspec/project.md`.
 Supersedes: the "Track C" framing in `scratchpad/forward-plan.md`; reframes
 `docs/NORTH_STAR.md` as an input to a single canonical constitution.
 
@@ -294,7 +295,7 @@ GitHub Projects board is optional later if others contribute.
 | Tree | Audience | Contents |
 |---|---|---|
 | `openspec/` | agents + owner | `project.md`, `specs/`, `changes/` |
-| `docs/` → Quarto → GitHub Pages | end users | getting started, grain-ladder diagram, data dictionary, formula citations + sources, notebook index, honest-limitations page |
+| `docs/` → MkDocs Material → GitHub Pages | end users | getting started, grain-ladder diagram, data dictionary, formula citations + sources, notebook index, honest-limitations page |
 
 `docs/DECISIONS.md` (ADRs) and `docs/archive/` are repo-only, unpublished.
 
@@ -488,7 +489,7 @@ bootstraps it.
 4. **Bot prune + dependency audit.** Audit last ~20 PRs; turn off
    dead-weight bots; document the real gates; produce the dependency +
    extension candidate list.
-5. **Docs site + knowledge graph.** Quarto scaffold; `understand-anything`
+5. **Docs site + knowledge graph.** MkDocs Material scaffold; `understand-anything`
    generates the architecture graph + grain-ladder diagram; publish to
    GitHub Pages.
 6. **Delivery surface (first cut).** DuckDB-based Parquet export of the
@@ -527,7 +528,9 @@ proper; the rest of §4.6 follows as normal changes.
    package + coverage-vs-pybaseball. Still the right scope? *(Only open
    question remaining.)*
 
-(Resolved 2026-09-02: docs site → **Quarto**; notebooks → **Marimo**;
+(Resolved 2026-09-02: docs site → **MkDocs Material** (revised from Quarto
+— Quarto needs a ~100 MB binary and the docs are already Markdown; MkDocs
+is `uv`-installable and serves Markdown as-is); notebooks → **Marimo**;
 AI reviewer → **Kilo**; frozen list → confirmed; all §"push back" items
 → accepted; tooling list §9 → accepted.)
 

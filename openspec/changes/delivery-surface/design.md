@@ -94,7 +94,7 @@ A single static `docs/site/query/index.html` (+ a small JS file):
 - a `<textarea>` + Run button + a results `<table>`; errors rendered inline.
 
 Published via a `pages` GitHub Actions workflow (the same one that will
-later publish the Quarto docs site — step 5).
+later publish the MkDocs Material docs site — step 5).
 
 *Alternative considered:* sql.js / a hosted read-only Postgres. Rejected —
 sql.js can't read Parquet; a hosted DB costs money and invites abuse
@@ -174,4 +174,4 @@ or a version yanked without touching the repo.
   change the specs or tasks; fill in at apply task 2. (Owner to confirm the
   exact namespace.)
 - **Query-page host path** — its own `gh-pages` vs a subpath of the (later)
-  Quarto site. Deferrable; the page is self-contained either way.
+  MkDocs site. Deferrable; the page is self-contained either way.

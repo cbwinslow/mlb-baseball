@@ -59,9 +59,10 @@ results without blocking a merge.
 - Use the public [roadmap project](https://github.com/users/cbwinslow/projects/25)
   to find the current work, and GitHub Discussions for questions and ideas.
 
-The project is in an early, data-pipeline-first stage. The public website is a
-planned Astro deliverable; current progress and sequencing are tracked in
-[docs/archive/plans/PROGRESS.md](docs/archive/plans/PROGRESS.md) and [docs/archive/ROADMAP.md](docs/archive/ROADMAP.md).
+The project is in an early, research-database-first stage. Current phase,
+priorities, and what's explicitly frozen are in
+[openspec/project.md](openspec/project.md) (`NOW / NEXT / LATER`). The
+historical build log is [docs/archive/plans/PROGRESS.md](docs/archive/plans/PROGRESS.md).
 
 ## License
 

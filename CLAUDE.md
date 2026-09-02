@@ -2,7 +2,7 @@
 
 # Claude Code — repository operating rules
 
-> **START HERE: [`openspec/project.md`](openspec/project.md)** — the project constitution. **Workflow is OpenSpec** (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`); `docs/archive/plans/` and conductor `/spec` are retired.
+> **START HERE: [`openspec/project.md`](openspec/project.md)** — the project constitution. **Workflow is OpenSpec** (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`); the `plans/` workflow (now `docs/archive/plans/`) and conductor `/spec` are retired.
 
 `AGENTS.md` is the shared project contract and filesystem DOX map. This file adds
 **Claude-specific** working behavior. It is intentionally not a duplicate of all
@@ -46,9 +46,9 @@ merely so Claude sees it. Import/read the local shared contract and reserve
 
 ## Scope and planning discipline
 
-- Follow the current owner-approved plan/focus in `docs/archive/MAP.md` and
-  `docs/archive/plans/README.md`; do not pull paused/later model or website work forward
-  because an older plan contains it.
+- Follow the current owner-approved focus in `openspec/project.md` (current
+  phase + `NOW / NEXT / LATER`); do not pull paused/later model or website
+  work forward because an older archived plan contains it.
 - Before changing code, read the target module/class and near neighbors. Reuse
   existing project assets before creating another implementation.
 - Keep a change bounded. Do not turn a requested fix into an adjacent rewrite,

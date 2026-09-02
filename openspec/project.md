@@ -95,7 +95,7 @@ US state) · DuckDB as a build engine, not just an export format.
 - **Workflow: OpenSpec.** Every non-trivial change is an `openspec/
   changes/<name>/` (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`).
   Superpowers `brainstorming` + `test-driven-development` are skills used
-  *inside* a change. The old `docs/archive/plans/` and conductor `/spec`
+  *inside* a change. The old `plans/` (now `docs/archive/plans/`) and conductor `/spec`
   workflows are retired.
 - **Queue:** open `openspec/changes/` folders + the `NOW / NEXT / LATER`
   block below.

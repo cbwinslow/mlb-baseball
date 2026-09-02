@@ -6,9 +6,10 @@
 > `docs/superpowers/specs/2026-09-02-project-restructure-design.md`.
 >
 > **Workflow is OpenSpec** (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`).
-> `docs/archive/plans/` and conductor `/spec` are retired; `docs/archive/NORTH_STAR.md` is superseded
-> by `openspec/project.md`. Superpowers `brainstorming` + `test-driven-development`
-> are skills used *inside* a change.
+> The `plans/` workflow (now `docs/archive/plans/`) and conductor `/spec` are
+> retired; `docs/archive/NORTH_STAR.md` is superseded by `openspec/project.md`.
+> Superpowers `brainstorming` + `test-driven-development` are skills used
+> *inside* a change.
 
 This is the **small, always-relevant project contract and filesystem context map**.
 Do not treat it as an encyclopedia. Before editing a path, follow the applicable
@@ -36,8 +37,8 @@ Current priority order:
    is ready.
 
 Do not reopen model/website expansion merely because older plans contain it.
-Use `docs/archive/MAP.md`, `docs/archive/plans/README.md`, and the newest active owner-approved plan to
-resolve current priority.
+`openspec/project.md` (constitution) and the `NOW / NEXT / LATER` block in it
+resolve current priority; the archived `docs/archive/plans/` tree is history.
 
 ## Global invariants
 
@@ -150,13 +151,14 @@ copy the same rule into every ancestor.
 
 Start here for deeper shared context:
 
-- `docs/archive/MAP.md` — documentation/navigation map and current focus.
-- `docs/archive/NORTH_STAR.md` — durable product/research principles.
+- `openspec/project.md` — the constitution: product, audience, current phase,
+  frozen list, workflow, `NOW / NEXT / LATER` queue. Read first.
 - `docs/ARCHITECTURE.md` — data/system architecture.
 - `docs/DATA_SOURCES.md` / `docs/SOURCE_RIGHTS.md` — source catalog and rights.
 - `docs/SQL_OWNERSHIP.md` — SQL placement/ownership.
-- `docs/archive/plans/README.md` — current vs paused/historical execution programs.
-- `docs/archive/PROGRESSIVE_CONTEXT_ARCHITECTURE.md` — context/progressive-disclosure design.
+- `docs/DECISIONS.md` — architecture decision log.
+- `docs/archive/` — frozen history (NORTH_STAR, MAP, ROADMAP, plans, reviews);
+  see `docs/archive/README.md`.
 
 ## Child DOX Index
 

@@ -1,5 +1,5 @@
 """Starter age on game date (ADR-087, admission queue PLN-04,
-docs/FEATURE_ADMISSION_QUEUE.md). Pure derived value over two already-
+docs/archive/FEATURE_ADMISSION_QUEUE.md). Pure derived value over two already-
 populated pieces -- gold.game_feature's own home_starter_id/away_starter_id
 (resolved by starter.py) and core.player.birth_date -- no new raw-event
 dependency, same "derive from a prior step's own output" shape as

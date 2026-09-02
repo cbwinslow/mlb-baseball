@@ -1,7 +1,7 @@
 """Drops per-run test databases (tests/conftest.py's postgresql_noproc
 fixture, mlb_test_<hex>) left behind by a pytest process that crashed
 before its own teardown ran. See
-docs/superpowers/plans/2026-08-21-test-db-isolation.md Task 5.
+docs/archive/superpowers-plans/2026-08-21-test-db-isolation.md Task 5.
 
 Never touches `mlb`, or any database not matching the mlb_test_<hex>
 naming pattern this project's test suite uses -- see CLAUDE.md's database

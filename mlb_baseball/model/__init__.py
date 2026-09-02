@@ -125,7 +125,7 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
     ``build_feature_stage()``, never before or concurrently with it.
 
     Found missing from ``run()`` during PR review of the 2026-08-19
-    production incident (see plans/PROGRESS.md "Production incident found
+    production incident (see docs/archive/plans/PROGRESS.md "Production incident found
     and fixed" and issue #48): every enrichment module was run once by
     hand, but none was ever wired into the path `mlb predict` (this
     module's own ``run()``) actually takes -- the same path the daily cron

@@ -6,7 +6,7 @@ docs/SQL_OWNERSHIP.md draws the line: stable, deterministic business-logic
 mutations belong in a named .sql file; parameterized-identifier,
 operational/diagnostic, and procedural-composition SQL stays inline.
 SQLFluff already checks that the named .sql resources themselves are valid
-SQL -- this script checks the other half docs/POLICY_REVIEW_2026-08.md
+SQL -- this script checks the other half docs/archive/POLICY_REVIEW_2026-08.md
 found nothing off-the-shelf could: whether a *new* piece of inline SQL
 should have been extracted per that taxonomy.
 

@@ -87,7 +87,7 @@ class FirstInningValuationEngine:
         # ~50-53% NRFI rate, whereas 0.52 implies ~35%.) The real empirical
         # per-half-inning first-inning run mean has not been tied out against
         # this project's own Retrosheet data yet -- that calibration is
-        # tracked as future refit work in docs/PACKAGE_VALIDATION_STATUS.md,
+        # tracked as future refit work in docs/archive/PACKAGE_VALIDATION_STATUS.md,
         # not done here (NRFI-01 stays a Bucket B exploratory calculator).
         mu_top = (
             0.40

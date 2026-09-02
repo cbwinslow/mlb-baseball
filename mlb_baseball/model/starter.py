@@ -40,7 +40,7 @@ bref_pitching and raw.retrosheet_event both cover), not just the one
 hand-picked example: 98.3% match exactly at a small (5-strikeout)
 tolerance -- and that number is not a coincidence, it matches this
 project's own already-documented Retrosheet raw-event-file coverage rate
-(docs/ROADMAP.md, ADR-012: ~98.3% of games have a published raw event
+(docs/archive/ROADMAP.md, ADR-012: ~98.3% of games have a published raw event
 file; the rest is a genuine gap in what Retrosheet publishes, not a
 parsing limitation) almost exactly, strong independent confirmation the
 reconstruction itself is correct. The remaining, larger mismatches trace

@@ -24,7 +24,7 @@ probable-pitcher record exists for historical seasons -- feeding the
 that as an optimistic upper bound, not the deployed system's number.
 
 ``markov-v1`` stays ``status=candidate`` until a comparison like this is
-recorded (ADR-272; ``plans/04-modeling-simulation-and-experiments.md``).
+recorded (ADR-272; ``docs/archive/plans/04-modeling-simulation-and-experiments.md``).
 It earns promotion only by beating ``elo-v1`` on log loss by at least the
 project's practical margin with a CI that excludes zero; it earns a place
 in a betting product only if it also beats ``kalshi-v1`` / ``polymarket-v1``

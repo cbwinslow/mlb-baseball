@@ -1,5 +1,5 @@
 """Starter career experience entering a game (ADR-085, admission queue
-PLN-04's "prior MLB PA/IP" half, docs/FEATURE_ADMISSION_QUEUE.md). Career
+PLN-04's "prior MLB PA/IP" half, docs/archive/FEATURE_ADMISSION_QUEUE.md). Career
 batters-faced and innings-pitched, counted the same way
 team_starter_retrosheet_update.sql's own pitcher_game_stats CTE already
 counts a season total (starter.py, ADR-034) -- the only difference is the

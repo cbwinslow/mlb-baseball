@@ -9,7 +9,7 @@ This subtree owns human-facing architecture, source, research, runbook, decision
 - Living/current docs: architecture, source catalog, rights, SQL ownership, user manual, runbooks, maps, product direction, research contracts.
 - Decision records / ADRs: why important choices were made and when they should be revisited.
 - Dated specs/plans: intended work for a bounded change or program; these are historical evidence once superseded.
-- `docs/MAP.md`: primary human/agent navigation surface for the docs tree.
+- `openspec/project.md`: the project constitution and primary navigation surface. `docs/archive/MAP.md` is the frozen predecessor docs map.
 - DOX architecture/rollout docs: the context-distribution design itself.
 
 ## Local Contracts
@@ -41,7 +41,7 @@ The goal is more total high-quality context with less irrelevant context loaded 
 ## Work Guidance
 
 - When adding a new document, first ask whether an existing canonical document should be extended instead.
-- Keep `docs/MAP.md` useful as a map, not an encyclopedia.
+- Keep navigation surfaces (`openspec/project.md`) useful as a map, not an encyclopedia.
 - Prefer relative links inside the repository.
 - Archive/remove stale duplicated guidance rather than appending ever more caveats to it.
 - Use exact dates when documenting changing project state.
@@ -58,6 +58,6 @@ The goal is more total high-quality context with less irrelevant context loaded 
 
 | Child | Scope |
 | --- | --- |
-| [`superpowers/plans/`](superpowers/plans/) | Dated implementation/review plans; historical/contextual unless referenced as active by current project maps. |
+No child DOX. Dated implementation/review plans were moved to `docs/archive/superpowers-plans/` (see `docs/archive/README.md`); `superpowers/specs/` remains point-in-time record and is not a managed DOX subtree.
 
 Create deeper documentation DOX only where a durable subcollection develops distinct authoring/maintenance rules.

@@ -123,5 +123,5 @@ uses a reviewed `sqlmesh plan --restate-model <model> --start <date> --end
 <date> --no-prompts` first, then the same bounded range with an explicitly
 authorized apply. A rollback reactivates the retained Python writer or
 compatibility object, verifies its output against the preserved relation, and
-records the reason in `plans/PROGRESS.md`; it does not delete historical data
+records the reason in `docs/archive/plans/PROGRESS.md`; it does not delete historical data
 or state as a shortcut.

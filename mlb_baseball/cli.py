@@ -272,8 +272,7 @@ def main(argv: list[str] | None = None) -> None:
             "  report, features, predict, train, evaluate, inventory,\n"
             "  doctor, dump, audit, status\n"
             "\n"
-            "Read first: docs/MAP.md, docs/PRODUCT_DIRECTION.md,\n"
-            "docs/superpowers/specs/2026-08-28-course-correction-design.md"
+            "Read first: openspec/project.md, docs/ARCHITECTURE.md"
         ),
     )
     parser.add_argument(

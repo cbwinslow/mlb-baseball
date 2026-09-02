@@ -6,8 +6,8 @@ point-in-time safety matter more than speed of change.
 
 ## Before you start
 
-1. Read [README.md](README.md), [AGENTS.md](AGENTS.md), and the active plans
-   under [`plans/`](plans/).
+1. Read [README.md](README.md), [AGENTS.md](AGENTS.md), and [`openspec/project.md`](openspec/project.md).
+   Historical execution plans are archived under [`docs/archive/plans/`](docs/archive/plans/).
 2. Look for an existing issue, especially one labelled `good first issue` or
    `help wanted`. Open an issue or Discussion before beginning a large change.
 3. Fork the repository and work on a branch. `main` accepts changes only by

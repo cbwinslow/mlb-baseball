@@ -12,10 +12,15 @@ def test_pg_trgm_similarity(db_conn):
     assert sim > 0.6
 
 
-def test_pg_trgm_operator_available(db_conn):
-    # the `%` similarity operator resolves without an explicit similarity() call
+def test_pg_trgm_functions_resolve(db_conn):
+    # show_trgm + the % operator (with an explicit threshold so the assert
+    # doesn't depend on the session default) both come from pg_trgm.
     with db_conn.cursor() as cur:
-        cur.execute("SELECT 'Aaron Judge' %% 'Aron Judge'")
+        cur.execute("SELECT show_trgm('judge')")
+        (trigrams,) = cur.fetchone()
+        assert "  j" in trigrams
+        cur.execute("SET pg_trgm.similarity_threshold = 0.2")
+        cur.execute("SELECT %s %% %s", ("Aaron Judge", "Aron Judge"))
         (matched,) = cur.fetchone()
     assert matched is True
 

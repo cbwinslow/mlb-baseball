@@ -73,6 +73,14 @@ def test_pg_stat_statements_enabled_against_the_test_db():
     assert "tracking" in result.detail
 
 
+def test_analytics_extensions_enabled_against_the_test_db():
+    # migration 0099 installs pg_trgm, unaccent, btree_gist, tablefunc.
+    result = doctor._analytics_extensions_enabled()
+    assert result.ok
+    for ext in ("pg_trgm", "unaccent", "btree_gist", "tablefunc"):
+        assert ext in result.detail
+
+
 def test_migrations_up_to_date_reports_actionable_message_on_unmigrated_db(
     monkeypatch, unmigrated_db_connection
 ):

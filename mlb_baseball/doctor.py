@@ -120,6 +120,31 @@ def _pg_stat_statements_enabled() -> Check:
     return Check("pg_stat_statements", True, f"tracking {count} distinct statements")
 
 
+def _analytics_extensions_enabled() -> Check:
+    """Confirms migration 0099's contrib extensions are installed. These are
+    plain `CREATE EXTENSION` (no shared_preload_libraries), so a green
+    `migrations` check should imply this one -- a mismatch means the DB was
+    migrated against an image without the contrib package."""
+    required = ("pg_trgm", "unaccent", "btree_gist", "tablefunc")
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT extname, extversion FROM pg_extension WHERE extname = ANY(%s)",
+                (list(required),),
+            )
+            installed: dict[str, str] = dict(cur.fetchall())
+    missing = [ext for ext in required if ext not in installed]
+    if missing:
+        return Check(
+            "analytics extensions",
+            False,
+            f"missing: {', '.join(missing)} -- run `mlb migrate` "
+            "(the contrib package must be present in the Postgres image)",
+        )
+    detail = ", ".join(f"{ext} {installed[ext]}" for ext in required)
+    return Check("analytics extensions", True, f"installed ({detail})")
+
+
 def _stale_ingestion_runs() -> Check:
     """Report stale runs without changing operational state.
 
@@ -190,6 +215,7 @@ _CORE_CHECKS = [
     ("migrations", _migrations_up_to_date),
     ("downloads directory", _downloads_directory_ok),
     ("pg_stat_statements", _pg_stat_statements_enabled),
+    ("analytics extensions", _analytics_extensions_enabled),
     ("stale ingestion runs", _stale_ingestion_runs),
     ("workflow lock", _workflow_lock_state),
     ("never-vacuumed tables", check_never_vacuumed),

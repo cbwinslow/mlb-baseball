@@ -2,6 +2,37 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-279: dependency + Postgres-extension audit — no adoptions, `logging` is the one follow-up
+
+**Decision:** The 2026-09-02 restructure (step 4, `openspec/project.md`) ran a
+fresh audit of where the codebase hand-rolls functionality a maintained
+library or Postgres extension provides. **Outcome: adopt nothing now.** The
+two prior reviews — `docs/POLICY_REVIEW_2026-08.md` and
+`docs/ECOSYSTEM_ASSESSMENT_2026-08.md` — plus ADR-043 already
+evaluated the infra-library and extension surface with documented verdicts
+and revisit gates that still hold (SQL-in-`.sql`, migrations vs Alembic,
+`health.py` vs Great Expectations/Pandera/Soda, real-Postgres testing,
+pg_trgm/TimescaleDB/pg_cron/pgvector all declined-or-gated).
+
+**The one gap worth acting on:** ingestion error visibility. ~1000 `print()`
+call sites, ~12 modules using `logging`; connector failures print to stdout.
+That is arguably a `CLAUDE.md` compliance gap ("failures in ingestion must be
+visible — logged with enough context to debug"), not a preference, and needs
+no new dependency (stdlib `logging`). Tracked as issue #142, not done here.
+
+**Revisit gates (unchanged, restated for convenience):** `requests.Session`
+reuse — adopt if a bootstrap wall-time benchmark shows a real payoff.
+`ftfy` for `bref._repair_name_mojibake` — adopt only if it matches the
+hand-rolled repair on the real affected rows. `pandera` — one-source trial
+with a failure/reporting comparison. `pg_duckdb` — benchmark the heaviest
+`conform`/`report` build if wall-time becomes a complaint (gate not met;
+`docs/CLICKHOUSE_DECISION.md` still holds). `pg_partman` — adopt only
+if partition cadence changes from annual. `pgvector` — needs a named,
+rights-approved embedding feature and a similarity-search consumer.
+
+**Cost:** none. Full audit: `openspec/changes/step4-audits/` (archived
+with the change).
+
 ## ADR-278: grain-complete statistic backbone — `gold.batting_game` first
 
 **Decision:** Build a stable statistic table at every grain a sabermetric

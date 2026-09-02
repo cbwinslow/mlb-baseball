@@ -119,8 +119,12 @@ a reviewed diff).
 
 - **Only `test` and `secrets` block a merge.** Every other bot is
   advisory — never treat its red X as a blocker.
-- **Kilo Code** is the kept AI reviewer; address its comments. CodeRabbit
-  is advisory, do not wait on it. Codex auto-review is off.
+- **Kilo Code** is the kept AI reviewer; address its WARNING/CRITICAL
+  comments. CodeRabbit is advisory (CHILL profile, `.coderabbit.yaml`),
+  do not wait on it. Codex auto-review is off (owner: on-demand only via
+  `@codex review`). Bot audit + kill list: `openspec/changes/step4-audits/
+  bot-audit.md` (owner to uninstall Qodo, Macroscope, CodeAnt, Mergify,
+  Guardrails via GitHub App settings).
 
 ## Merge protocol (Claude)
 
@@ -132,10 +136,13 @@ branches, or merging into a frozen area still need an explicit ask.
 
 ## Tooling
 
-**Adopted:** DuckDB, `pandera`, `postgres-mcp` (formalized), Quarto,
-Marimo, the `add-gold-metric` project skill (to build).
-**Audit candidates** (evaluate, don't adopt blind): Polars, pg_partman,
-pg_duckdb, sqlglot, pg_trgm, actionlint, hyperfine.
+**Adopted:** DuckDB, `postgres-mcp` (formalized), Quarto, Marimo, the
+`add-gold-metric` project skill (to build).
+**Audit done (ADR-279, 2026-09-02):** no library/extension adopted — prior
+reviews hold. One follow-up filed (issue #142: stdlib `logging` for
+ingestion errors). Gated for later: `requests.Session` reuse, `ftfy`,
+`pandera`, `pg_duckdb`, `pg_partman`, `pgvector`, Polars, sqlglot, pg_trgm
+— each has a documented trigger (see ADR-279).
 **Not adopting:** pg_cron, PL/pgSQL for pipeline logic, more skill packs,
 TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 
@@ -152,7 +159,8 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    in `openspec/changes/doc-consolidation-part2/` — delegatable to a cheap
    model, Claude reviews. `docs/DECISIONS.md` and `docs/superpowers/specs/`
    are never rewritten (historical record).
-4. Bot prune + dependency/PG-extension audit
+4. ✅ Bot prune + dependency/PG-extension audit — ADR-279; issue #142
+   (logging); `.coderabbit.yaml`; dependency-review comment fix; owner uninstalls pending
 5. Quarto docs site + `understand-anything` knowledge graph
 6. Delivery surface first cut — Parquet→HF, DuckDB-WASM page, PyPI
    loader skeleton, one notebook

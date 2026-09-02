@@ -1,10 +1,22 @@
 # MLB project operating doctrine
 
-This file is the durable instruction set for agents working in this repository.
-Read it with `CLAUDE.md`, `docs/NORTH_STAR.md`, `docs/ARCHITECTURE.md`, and the
-active plan under `plans/` before changing code. When an older document conflicts
-with verified current repository state, repair the stale document in the same
-change rather than silently following it.
+> **START HERE: `openspec/project.md`** is the project constitution — product,
+> audience, current phase, frozen list, DB standards, workflow, CI gates, merge
+> protocol, tooling. Read it before anything else. Rationale:
+> `docs/superpowers/specs/2026-09-02-project-restructure-design.md`.
+>
+> **Workflow is OpenSpec.** Every non-trivial change is an `openspec/changes/`
+> (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`). The `plans/` and conductor
+> `/spec` workflows are retired; `plans/` and `scratchpad/` are being archived.
+> Superpowers `brainstorming` + `test-driven-development` are skills used *inside*
+> a change.
+
+This file is the durable engineering doctrine for agents working in this
+repository. Read it with `CLAUDE.md`, `docs/ARCHITECTURE.md`, and `docs/DECISIONS.md`
+before changing code. When an older document conflicts with verified current
+repository state, repair the stale document in the same change rather than
+silently following it. (`docs/NORTH_STAR.md` and `plans/` are superseded by
+`openspec/project.md` and will be consolidated.)
 
 ## Mission
 

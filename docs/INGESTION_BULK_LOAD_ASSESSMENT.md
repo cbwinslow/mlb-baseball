@@ -1,5 +1,8 @@
 # Bulk-load assessment
 
+> **Status: historical snapshot (2026-08-10), not maintained.** A point-in-time review kept for the record. Current direction: [`openspec/project.md`](../openspec/project.md).
+
+
 This is the decision record for applying the MLB API analytics pattern
 (durable artifact, bounded work item, scoped replacement, one COPY per batch,
 and resume evidence) to other high-volume connectors. It is intentionally

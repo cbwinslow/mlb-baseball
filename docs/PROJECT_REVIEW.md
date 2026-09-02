@@ -1,5 +1,8 @@
 # MLB research, prediction, and website project review
 
+> **Status: historical snapshot (2026-08-10), not maintained.** A point-in-time review kept for the record. Current direction: [`openspec/project.md`](../openspec/project.md).
+
+
 Date: 2026-08-04
 
 This is a technical and product review, not legal advice. The legal/data-rights findings below are serious enough that a qualified attorney or written permission from the relevant data owner should be obtained before a public or commercial launch.

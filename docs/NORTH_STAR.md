@@ -1,5 +1,8 @@
 # North Star
 
+> **Status: superseded by [`openspec/project.md`](../openspec/project.md).** Kept for history; do not treat as current.
+
+
 ## Vision
 
 A free, self-hosted MLB data and research platform that:

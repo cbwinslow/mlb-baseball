@@ -1,5 +1,8 @@
 # Roadmap
 
+> **Status: superseded by [`openspec/project.md`](../openspec/project.md).** Kept for history; do not treat as current. The active queue is the `NOW / NEXT / LATER` block in `openspec/project.md`.
+
+
 Only Phase 1 is broken into concrete steps right now — Phases 2 and 3 get planned when Phase 1 is actually done (see [NORTH_STAR.md](NORTH_STAR.md)).
 
 ## Phase 1 — Data ingestion pipeline

@@ -1,5 +1,8 @@
 # MLB ecosystem assessment — 2026-08-24
 
+> **Status: historical snapshot (2026-08-24), not maintained.** A point-in-time review kept for the record. Current direction: [`openspec/project.md`](../openspec/project.md).
+
+
 ## Decision
 
 Do **not** add a git submodule, MCP server, PostgreSQL extension, or new data

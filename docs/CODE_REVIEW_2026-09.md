@@ -1,5 +1,8 @@
 # Deep review — 2026-09-01
 
+> **Status: historical snapshot (2026-09-01), not maintained.** A point-in-time review kept for the record. Current direction: [`openspec/project.md`](../openspec/project.md).
+
+
 Prompted by an external repo overview (GitHub Copilot) that offered three
 follow-up analyses:
 

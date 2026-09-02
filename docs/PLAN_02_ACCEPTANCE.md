@@ -1,5 +1,8 @@
 # Plan 02 acceptance evidence
 
+> **Status: historical snapshot (2026-08-09), not maintained.** A point-in-time review kept for the record. Current direction: [`openspec/project.md`](../openspec/project.md).
+
+
 Last audited: 2026-08-06. This is an evidence record, not a production
 SQLMesh cutover approval.
 

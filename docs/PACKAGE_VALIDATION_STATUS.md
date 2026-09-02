@@ -1,5 +1,8 @@
 # Package validation status (Plan 06)
 
+> **Status: historical snapshot (2026-08-27), not maintained.** A point-in-time review kept for the record. Current direction: [`openspec/project.md`](../openspec/project.md).
+
+
 Tracks the 06A classification and validation status for every package added
 since ADR-089, per `plans/06-package-validation-and-tieout.md`. This is a
 tracking doc, not a design doc — `docs/DECISIONS.md` and

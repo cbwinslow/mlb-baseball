@@ -1,5 +1,8 @@
 # Execution plans DOX
 
+> **Status: retired.** The `plans/` workflow is replaced by OpenSpec (`openspec/changes/` + the `NOW / NEXT / LATER` block in `openspec/project.md`). Files here are historical.
+
+
 ## Purpose
 
 This subtree owns long-horizon and staged execution plans. Plans describe intended work and acceptance gates; they do not automatically override newer verified repository state or current product direction.

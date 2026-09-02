@@ -144,10 +144,14 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 ## NOW / NEXT / LATER
 
 **NOW** — restructure execution (spec §10):
-1. ✅ Bootstrap OpenSpec (this change)
-2. Repo hygiene — kill ~15 stale worktrees, dead branches, stale PRs
-3. Doc consolidation — cheap model triages, Claude reviews; `openspec/` +
-   `docs/` + `docs/archive/` split; retire `plans/`, `scratchpad/`
+1. ✅ Bootstrap OpenSpec (#139/#140)
+2. ✅ Repo hygiene — worktrees 14→3, ~16 dead branches deleted, PR queue empty
+3. 🔄 Doc consolidation — **part 1 done** (status banners on 15 superseded /
+   historical docs; `plans/` marked retired). **Part 2 pending:** physically
+   move superseded docs + `plans/` to `docs/archive/` with the reference map
+   in `openspec/changes/doc-consolidation-part2/` — delegatable to a cheap
+   model, Claude reviews. `docs/DECISIONS.md` and `docs/superpowers/specs/`
+   are never rewritten (historical record).
 4. Bot prune + dependency/PG-extension audit
 5. Quarto docs site + `understand-anything` knowledge graph
 6. Delivery surface first cut — Parquet→HF, DuckDB-WASM page, PyPI

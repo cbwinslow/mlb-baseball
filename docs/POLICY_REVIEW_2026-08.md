@@ -1,5 +1,8 @@
 # Policy review — 2026-08-13
 
+> **Status: historical snapshot (2026-08-13), not maintained.** A point-in-time review kept for the record. Current direction: [`openspec/project.md`](../openspec/project.md).
+
+
 Prompted by a direct challenge to this project's own conventions: is nesting
 SQL as Python strings actually good practice, and more broadly, is this
 project reinventing things the wider software/ML world has already solved?

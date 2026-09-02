@@ -1,5 +1,8 @@
 # Feature admission queue
 
+> **Status: superseded by [`openspec/project.md`](../openspec/project.md).** Kept for history; do not treat as current. Feature work is now tracked as OpenSpec changes.
+
+
 This is a governed queue, not a feature dump.  “Now” means eligible for a
 small, separately reviewed implementation package after the field census; it
 does not mean automatically approved for `game_base_v1` or production use.

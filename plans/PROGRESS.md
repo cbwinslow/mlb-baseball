@@ -1,5 +1,8 @@
 # Execution progress
 
+> **Status: retired.** The `plans/` workflow is replaced by OpenSpec (`openspec/changes/` + the `NOW / NEXT / LATER` block in `openspec/project.md`). Files here are historical.
+
+
 This is an evidence log, not an authorization to merge or deploy. Update it at
 each completed plan gate.
 

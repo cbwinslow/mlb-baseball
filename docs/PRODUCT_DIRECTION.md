@@ -1,5 +1,8 @@
 # Product direction — betting site, research database, model ladder
 
+> **Status: superseded by [`openspec/project.md`](../openspec/project.md).** Kept for history; do not treat as current.
+
+
 Written 2026-08-28 after a Grok session with the owner. This is the durable
 handoff so Claude, Agy, or any later agent can continue without a recap.
 It does not replace `NORTH_STAR.md`, `AGENTS.md`, or the numbered `plans/`.

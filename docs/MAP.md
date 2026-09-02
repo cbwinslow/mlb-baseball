@@ -1,5 +1,8 @@
 # Docs map
 
+> **Status: superseded by [`openspec/project.md`](../openspec/project.md).** Kept for history; do not treat as current. Navigation is now the nested `AGENTS.md` / `*.dox.md` chain (see `docs/AGENTS.md`).
+
+
 `docs/` had grown with no obvious reading order. This page says what each
 top-level file is *for*, so you can go straight to the right one instead of
 grepping. It covers the top-level `docs/*.md` files plus `docs/research/`;

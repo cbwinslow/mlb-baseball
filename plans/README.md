@@ -1,5 +1,8 @@
 # MLB execution plans
 
+> **Status: retired.** The `plans/` workflow is replaced by OpenSpec (`openspec/changes/` + the `NOW / NEXT / LATER` block in `openspec/project.md`). Files here are historical.
+
+
 These numbered plans convert durable doctrine into a long-horizon execution
 sequence. They remain useful architectural/program records, but they are **not**
 all active at once. Newer owner decisions and dated plans may deliberately pause

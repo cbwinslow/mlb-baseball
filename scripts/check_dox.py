@@ -52,6 +52,14 @@ _IGNORED_PARTS = {
     ".venv",
     "__pycache__",
     "node_modules",
+    # Git worktrees under .claude/worktrees/ each hold a full checkout of the
+    # repo, including its own AGENTS.md/*.dox.md tree -- scanning into them
+    # double-counts every DOX file and reports spurious "not listed in parent
+    # index" errors against the worktree's own root.
+    ".claude",
+    # Frozen historical docs (restructure step 3) -- not part of the live
+    # progressive-disclosure contract.
+    "archive",
 }
 
 # Child AGENTS files use the common DOX profile. The root intentionally has a

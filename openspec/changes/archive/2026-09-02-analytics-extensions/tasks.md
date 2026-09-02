@@ -5,4 +5,4 @@
 - [x] `tests/integration/test_analytics_extensions.py` — functional check per extension
 - [x] `tests/integration/test_doctor.py` — doctor-check case
 - [x] ADR-280 in `docs/DECISIONS.md`
-- [ ] Verify: `uv run pytest tests/integration/test_analytics_extensions.py tests/integration/test_doctor.py tests/integration/test_migrations.py -q` passes; `uv run ruff check . && uv run mypy mlb_baseball`
+- [x] Verify (CI #149: `uv run pytest tests/integration/test_analytics_extensions.py tests/integration/test_doctor.py tests/integration/test_migrations.py -q` passes; `uv run ruff check . && uv run mypy mlb_baseball` -- confirmed green on CI)

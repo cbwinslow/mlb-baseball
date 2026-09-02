@@ -389,7 +389,7 @@ where $\Delta RE_{24}$ is the net expected run differential remaining in the hal
   this section's own header claiming a genuine 288-state Markov
   absorbing-chain solution (N=(I-Q)^-1) -- no matrix inversion exists
   anywhere in the actual code. Not yet fixed; tracked in
-  `docs/PACKAGE_VALIDATION_STATUS.md`.
+  `docs/archive/PACKAGE_VALIDATION_STATUS.md`.
 - `gold.game_feature`'s real `home_starter_avg_li`/`home_bullpen_avg_li`
   columns (what `enrich_feature_stage()`/`mlb predict` actually use) were
   rebuilt in ADR-262 on a genuinely real, empirical foundation instead:

@@ -95,8 +95,8 @@ US state) · DuckDB as a build engine, not just an export format.
 - **Workflow: OpenSpec.** Every non-trivial change is an `openspec/
   changes/<name>/` (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`).
   Superpowers `brainstorming` + `test-driven-development` are skills used
-  *inside* a change. The old `plans/` and conductor `/spec` workflows are
-  retired.
+  *inside* a change. The old `docs/archive/plans/` and conductor `/spec`
+  workflows are retired.
 - **Queue:** open `openspec/changes/` folders + the `NOW / NEXT / LATER`
   block below.
 - **One-agent-per-change lock:** a `changes/<name>/` folder + its git
@@ -153,12 +153,12 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 **NOW** — restructure execution (spec §10):
 1. ✅ Bootstrap OpenSpec (#139/#140)
 2. ✅ Repo hygiene — worktrees 14→3, ~16 dead branches deleted, PR queue empty
-3. 🔄 Doc consolidation — **part 1 done** (status banners on 15 superseded /
-   historical docs; `plans/` marked retired). **Part 2 pending:** physically
-   move superseded docs + `plans/` to `docs/archive/` with the reference map
-   in `openspec/changes/doc-consolidation-part2/` — delegatable to a cheap
-   model, Claude reviews. `docs/DECISIONS.md` and `docs/superpowers/specs/`
-   are never rewritten (historical record).
+3. ✅ Doc consolidation — status banners on 15 superseded / historical docs
+   (part 1), then physically moved the superseded docs, the retired `plans/`
+   tree, and the Superpowers plan archive into `docs/archive/` with a
+   reference map in `docs/archive/README.md` and cross-references rewritten
+   (part 2). `docs/DECISIONS.md` and `docs/superpowers/specs/` are never
+   rewritten (historical record).
 4. ✅ Bot prune + dependency/PG-extension audit — ADR-279; issue #142
    (logging); `.coderabbit.yaml`; dependency-review comment fix; owner uninstalls pending
 5. Quarto docs site + `understand-anything` knowledge graph

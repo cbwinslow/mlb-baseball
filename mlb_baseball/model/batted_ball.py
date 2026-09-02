@@ -1,5 +1,5 @@
 """Batted-ball profile rates and quality of contact (BAT-01, OFF-10, ADR-090,
-docs/FEATURE_ADMISSION_QUEUE.md). Point-in-time entering GB%, FB%, LD%, and
+docs/archive/FEATURE_ADMISSION_QUEUE.md). Point-in-time entering GB%, FB%, LD%, and
 HR/FB% for starting pitchers, bullpens, and offensive lineups.
 
 Every value is computed strictly from games preceding the target game, with

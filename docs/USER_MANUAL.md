@@ -7,7 +7,7 @@ getting data out. Every command shown is a real `mlb` subcommand — run
 
 The prediction ladder (Elo / GBM / Markov) and the Astro website are separate,
 currently-paused efforts. This manual does not cover them; see
-`docs/PRODUCT_DIRECTION.md` for their status.
+`openspec/project.md` (and `docs/archive/PRODUCT_DIRECTION.md`) for their status.
 
 ---
 

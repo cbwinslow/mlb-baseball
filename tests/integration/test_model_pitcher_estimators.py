@@ -235,7 +235,7 @@ def test_compute_populates_pitcher_estimators_and_platoons(db_conn):
         # mlb_baseball/sql/team_pitcher_estimators_retrosheet_update.sql; this
         # feeds gbm.py's FEATURE_COLUMNS (starter_siera_diff/bullpen_siera_diff)
         # in production, so the champion model needs retraining to reflect it
-        # — see docs/PACKAGE_VALIDATION_STATUS.md.
+        # — see docs/archive/PACKAGE_VALIDATION_STATUS.md.
         assert siera == Decimal("3.6972")
         assert vs_lhb_k_pct == Decimal("0.3000")  # 6/20
         assert vs_rhb_k_pct == Decimal("0.2000")  # 4/20

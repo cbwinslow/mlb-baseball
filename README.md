@@ -7,8 +7,9 @@ to go further than [baseball.computer](https://baseball.computer) on source
 coverage (Statcast pitch-level data, live MLB StatsAPI, prediction-market
 data — not just Retrosheet/Lahman).
 
-This is a ground-up rebuild; see [docs/NORTH_STAR.md](docs/NORTH_STAR.md) for
-the full vision.
+This is a ground-up rebuild; see [openspec/project.md](openspec/project.md) for
+the current constitution, and [docs/archive/NORTH_STAR.md](docs/archive/NORTH_STAR.md)
+for the original vision.
 
 ## Status
 
@@ -24,20 +25,21 @@ are not being worked on:
   `mlb predict` / `train` / `simulate` command families;
 - a public **Astro website** in the spirit of oddstrader.com.
 
-Start at [docs/MAP.md](docs/MAP.md) and
-[docs/PRODUCT_DIRECTION.md](docs/PRODUCT_DIRECTION.md). What is built vs
-queued: [docs/ROADMAP.md](docs/ROADMAP.md).
+Start at [openspec/project.md](openspec/project.md). Superseded navigation and
+direction docs are kept in [docs/archive/](docs/archive/) —
+[docs/archive/MAP.md](docs/archive/MAP.md),
+[docs/archive/PRODUCT_DIRECTION.md](docs/archive/PRODUCT_DIRECTION.md),
+[docs/archive/ROADMAP.md](docs/archive/ROADMAP.md).
 
 ## Docs
 
-- [docs/MAP.md](docs/MAP.md) — index of `docs/`, grouped by what you're trying to do. Start here if you don't know which file you need.
-- [docs/NORTH_STAR.md](docs/NORTH_STAR.md) — vision, the three build phases, budget constraint
+- [openspec/project.md](openspec/project.md) — the project constitution: product, audience, current phase, workflow. Start here.
 - [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) — every source the pipeline pulls from, cost and license notes
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — schema layering, connector shape, configuration
 - [docs/AUDIT_RUNBOOK.md](docs/AUDIT_RUNBOOK.md) — read-only integrity and coverage validation
 - [docs/KNOWLEDGE_BASE.md](docs/KNOWLEDGE_BASE.md) — source-attributed research and data decisions
 - [docs/DECISIONS.md](docs/DECISIONS.md) — architecture decision log
-- [docs/ROADMAP.md](docs/ROADMAP.md) — build order
+- [docs/archive/](docs/archive/) — frozen historical docs (NORTH_STAR, ROADMAP, MAP, plans, reviews)
 - [CLAUDE.md](CLAUDE.md) — operating rules for making changes to this repo
 
 ## Contributing
@@ -59,7 +61,7 @@ results without blocking a merge.
 
 The project is in an early, data-pipeline-first stage. The public website is a
 planned Astro deliverable; current progress and sequencing are tracked in
-[plans/PROGRESS.md](plans/PROGRESS.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
+[docs/archive/plans/PROGRESS.md](docs/archive/plans/PROGRESS.md) and [docs/archive/ROADMAP.md](docs/archive/ROADMAP.md).
 
 ## License
 

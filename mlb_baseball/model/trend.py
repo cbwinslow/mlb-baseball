@@ -1,5 +1,5 @@
 """Recent-minus-long win-rate trend (ADR-083, admission queue INT-02,
-docs/FEATURE_ADMISSION_QUEUE.md). Pure algebra over two already-approved,
+docs/archive/FEATURE_ADMISSION_QUEUE.md). Pure algebra over two already-approved,
 already-populated gold.game_feature columns per side (win_pct_10 minus
 win_pct) -- no new raw dependency, no join.
 

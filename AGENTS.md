@@ -6,7 +6,7 @@
 > `docs/superpowers/specs/2026-09-02-project-restructure-design.md`.
 >
 > **Workflow is OpenSpec** (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`).
-> `plans/` and conductor `/spec` are retired; `docs/NORTH_STAR.md` is superseded
+> `docs/archive/plans/` and conductor `/spec` are retired; `docs/archive/NORTH_STAR.md` is superseded
 > by `openspec/project.md`. Superpowers `brainstorming` + `test-driven-development`
 > are skills used *inside* a change.
 
@@ -36,7 +36,7 @@ Current priority order:
    is ready.
 
 Do not reopen model/website expansion merely because older plans contain it.
-Use `docs/MAP.md`, `plans/README.md`, and the newest active owner-approved plan to
+Use `docs/archive/MAP.md`, `docs/archive/plans/README.md`, and the newest active owner-approved plan to
 resolve current priority.
 
 ## Global invariants
@@ -150,13 +150,13 @@ copy the same rule into every ancestor.
 
 Start here for deeper shared context:
 
-- `docs/MAP.md` — documentation/navigation map and current focus.
-- `docs/NORTH_STAR.md` — durable product/research principles.
+- `docs/archive/MAP.md` — documentation/navigation map and current focus.
+- `docs/archive/NORTH_STAR.md` — durable product/research principles.
 - `docs/ARCHITECTURE.md` — data/system architecture.
 - `docs/DATA_SOURCES.md` / `docs/SOURCE_RIGHTS.md` — source catalog and rights.
 - `docs/SQL_OWNERSHIP.md` — SQL placement/ownership.
-- `plans/README.md` — current vs paused/historical execution programs.
-- `docs/PROGRESSIVE_CONTEXT_ARCHITECTURE.md` — context/progressive-disclosure design.
+- `docs/archive/plans/README.md` — current vs paused/historical execution programs.
+- `docs/archive/PROGRESSIVE_CONTEXT_ARCHITECTURE.md` — context/progressive-disclosure design.
 
 ## Child DOX Index
 
@@ -166,7 +166,7 @@ Start here for deeper shared context:
 | [`docs/AGENTS.md`](docs/AGENTS.md) | Living docs, ADRs, plans/runbooks, citations, documentation ownership. |
 | [`migrations/AGENTS.md`](migrations/AGENTS.md) | PostgreSQL DDL/schema evolution and migration safety. |
 | [`mlb_baseball/AGENTS.md`](mlb_baseball/AGENTS.md) | Python package architecture and package-level progressive context. |
-| [`plans/AGENTS.md`](plans/AGENTS.md) | Long-horizon/staged execution plans and status semantics. |
+| [`docs/archive/plans/AGENTS.md`](docs/archive/plans/AGENTS.md) | Long-horizon/staged execution plans and status semantics (archived). |
 | [`scripts/AGENTS.md`](scripts/AGENTS.md) | Operational/maintenance scripts and destructive-operation safety. |
 | [`tests/AGENTS.md`](tests/AGENTS.md) | Pytest structure, real PostgreSQL integration, run-specific DB isolation. |
 | [`transforms/AGENTS.md`](transforms/AGENTS.md) | SQLMesh models, audits, incrementality, PIT transformation contracts. |

@@ -1,5 +1,5 @@
 """Plate discipline, pitch counts, and pitch sequence rates (PIT-07, ADR-089,
-docs/FEATURE_ADMISSION_QUEUE.md). Point-in-time entering CSW%, Whiff%, and
+docs/archive/FEATURE_ADMISSION_QUEUE.md). Point-in-time entering CSW%, Whiff%, and
 First-Pitch Strike% for starting pitchers and bullpens.
 
 Every value is computed strictly from games preceding the target game, with

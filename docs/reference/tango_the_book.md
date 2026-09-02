@@ -5,7 +5,7 @@ Percentages in Baseball* (Potomac Books, 2006).
 
 **Not a substitute for computing these from our own Retrosheet data**
 (`gold.run_expectancy_24`, ADR-090). Use these to *check* our computed
-values, per `plans/06`. If a WIRE conversion needs a constant, cite the
+values, per `docs/archive/plans/06-package-validation-and-tieout.md`. If a WIRE conversion needs a constant, cite the
 row below or fit it on our data. Do not copy an invented Engine-package
 weight and call it Tango.
 

@@ -1,4 +1,4 @@
-"""Starter rest and workload (PIT-03, docs/FEATURE_ADMISSION_QUEUE.md).
+"""Starter rest and workload (PIT-03, docs/archive/FEATURE_ADMISSION_QUEUE.md).
 
 Computes starting-pitcher rest days (calendar days since the starting
 pitcher's immediately preceding start) and trailing 7-day workload (sum of

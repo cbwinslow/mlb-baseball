@@ -4,7 +4,7 @@ starter_workload, park, oaa, speed, framing, war, age) are actually wired
 into the same rebuild path `mlb predict` runs daily, not just runnable by
 hand.
 
-Issue: a real production incident (2026-08-19, see plans/PROGRESS.md
+Issue: a real production incident (2026-08-19, see docs/archive/plans/PROGRESS.md
 "Production incident found and fixed") found every enrichment column in
 gold.game_feature NULL for all 217,196 rows after a routine gold.game_feature
 rebuild, because the modules were only ever run as a manual, one-off

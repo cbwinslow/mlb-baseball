@@ -14,7 +14,7 @@ not evidence of a fair experiment or valid backtest.
 Use `mlb_test` for all writes and verification. Several ADRs in
 `docs/DECISIONS.md` verify a new model family with `--fold-years 2015
 2024` specifically -- a small, deliberately bounded smoke-test pair, not
-`plans/04-modeling-simulation-and-experiments.md`'s declared 2016-2024
+`docs/archive/plans/04-modeling-simulation-and-experiments.md`'s declared 2016-2024
 development-fold contract. The two seasons exist only to prove a new
 family runs end to end and produces finite, sane output against real
 production-shaped data; they are not a promotion-track evaluation, and a

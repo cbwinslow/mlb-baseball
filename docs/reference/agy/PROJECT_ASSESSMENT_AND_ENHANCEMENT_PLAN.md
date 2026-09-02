@@ -56,7 +56,7 @@ flowchart TD
 1. **Point-in-Time Correctness & Zero-Leakage Discipline**: Feature engineering explicitly uses expanding and rolling historical windows strictly before game cutoff timestamps (`ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING`), day-collapse `RANGE` frames for doubleheaders, and pregame capture timestamps for market lines.
 2. **Deterministic Dual-Database Isolation**: Absolute physical and logical boundary between `mlb` (production) and `mlb_test` (disposable test database) enforced via `tests/conftest.py::_assert_test_database_url`.
 3. **No Mocking Database Policy**: Integration tests run against a real, dedicated PostgreSQL database with genuine transaction isolation, foreign keys, partition constraints, and idempotency checks (test run twice = exact same state).
-4. **Governed Feature Admission**: Features enter through a ranked, evidence-based admission queue (`docs/FEATURE_ADMISSION_QUEUE.md`) with explicit null policies, denominator guards, hand-calculated test fixtures, and strict promotion thresholds (e.g. >= 0.002 log-loss improvement over Elo).
+4. **Governed Feature Admission**: Features enter through a ranked, evidence-based admission queue (`docs/archive/FEATURE_ADMISSION_QUEUE.md`) with explicit null policies, denominator guards, hand-calculated test fixtures, and strict promotion thresholds (e.g. >= 0.002 log-loss improvement over Elo).
 5. **Durable Architecture Decision Records (ADRs)**: Over 88 documented ADRs in `docs/DECISIONS.md` capturing every trade-off, benchmark, negative result, and bug resolution.
 
 ---

@@ -1,6 +1,6 @@
 """Shared fixtures for tests. Each pytest invocation gets its own isolated,
 disposable database, built via pytest-postgresql's postgresql_noproc fixture
-(see docs/superpowers/plans/2026-08-21-test-db-isolation.md) -- no database
+(see docs/archive/superpowers-plans/2026-08-21-test-db-isolation.md) -- no database
 is shared across concurrent test runs, so there is nothing to lock.
 """
 

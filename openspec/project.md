@@ -163,15 +163,17 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 4. ✅ Bot prune + dependency/PG-extension audit — ADR-279; issue #142
    (logging); `.coderabbit.yaml`; dependency-review comment fix; owner uninstalls pending
 5. MkDocs Material docs site + `understand-anything` knowledge graph
-6. 🟡 Delivery surface first cut (`openspec/changes/delivery-surface/`) —
+6. ✅ Delivery surface first cut (`openspec/changes/delivery-surface/`) —
    `mlb export --preset backbone` (8 of 10 candidate tables; `player_season`/
-   `team_season` excluded on source-rights grounds, see
-   `rights-review.md`), HF publish step, `mlb-research` PyPI loader
-   package, and the DuckDB-WASM query page (`docs/site/query/`) are built
-   and tested. **Not done:** the owner's first real HF publish (needs
-   `HF_TOKEN` + a namespace decision — `cbwinslow/mlb-research` vs an org),
-   pointing the query page / package `"latest"` at it, and the one example
-   notebook (blocked on the publish existing to run against).
+   `team_season` excluded on source-rights grounds, see `rights-review.md`),
+   HF publish step, `mlb-research` PyPI loader package, the DuckDB-WASM
+   query page (`docs/site/query/`), and one example notebook
+   (`notebooks/01-strikeout-rate-by-decade.py`). Published:
+   [huggingface.co/datasets/cbwinslow/mlb-research](https://huggingface.co/datasets/cbwinslow/mlb-research),
+   tag `v0.1.0`. Production `mlb` needed migrations 0094-0099 applied and its
+   first-ever `mlb report` backbone build (12.9M rows, 16.4M source events)
+   before the export had anything to publish — both done as part of this
+   step.
 
 **NEXT** — the milestone proper: capture the grain backbone as
 `openspec/specs/statistic-backbone/spec.md`; Baseball-Reference tie-out

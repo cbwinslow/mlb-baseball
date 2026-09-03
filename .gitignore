@@ -11,6 +11,7 @@ venv/
 mlb.toml
 .mypy_cache/
 .pybaseball_cache/
+__marimo__/
 dist/
 build/
 /logs/

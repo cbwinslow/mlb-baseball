@@ -35,6 +35,9 @@ dev = [
     # not a runtime dependency of mlb_baseball; included here only so
     # `uv sync --extra dev` gives one venv that can run its tests too.
     "mlb-research",
+    # notebooks/*.py (delivery-surface change, task 5.3) -- example recipes
+    # against the published mlb-research dataset, not the ingestion pipeline.
+    "marimo>=0.9",
 ]
 export = [
     "openpyxl>=3.1",

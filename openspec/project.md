@@ -176,8 +176,11 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    step.
 
 **NEXT** — the milestone proper: capture the grain backbone as
-`openspec/specs/statistic-backbone/spec.md`; Baseball-Reference tie-out
-tests (2023 Judge / Cole); `gold.player_season` two-writer ADR (ADR-278
-relation-6, options A/B/C — recommend A).
+`openspec/specs/statistic-backbone/spec.md`; ✅ Baseball-Reference tie-out
+tests (2023 Judge / Cole) — `scripts/verify_baseball_reference_tie_out.py`,
+run against production: both cases match exactly (rate stats to
+Baseball-Reference's own 3-decimal display precision); expand coverage
+beyond these two seasons as a follow-up; `gold.player_season` two-writer
+ADR (ADR-278 relation-6, options A/B/C — recommend A).
 
 **LATER** — Phase 2 (prediction ladder) and beyond. See Longer vision.

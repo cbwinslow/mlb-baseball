@@ -6,8 +6,8 @@ from mlb_baseball import publish
 
 
 class _FakeHfApi:
-    """Records __init__/create_repo/upload_folder calls without touching the
-    network."""
+    """Records __init__/create_repo/upload_folder/create_tag calls without
+    touching the network."""
 
     calls: list[tuple[str, object]] = []
 
@@ -20,6 +20,9 @@ class _FakeHfApi:
     def upload_folder(self, **kwargs):
         _FakeHfApi.calls.append(("upload_folder", kwargs))
         return "https://huggingface.co/datasets/cbwinslow/mlb-research/commit/abc123"
+
+    def create_tag(self, **kwargs):
+        _FakeHfApi.calls.append(("create_tag", kwargs))
 
 
 @pytest.fixture(autouse=True)
@@ -37,9 +40,11 @@ def _make_valid_bundle(tmp_path):
     return bundle_dir
 
 
-def test_publish_backbone_bundle_passes_folder_repo_type_and_revision(monkeypatch, tmp_path):
-    """Verify upload_folder receives the bundle path, repo_type=dataset, and the
-    given tag as revision (task 2.2)."""
+def test_publish_backbone_bundle_creates_repo_uploads_then_tags(monkeypatch, tmp_path):
+    """Verify the full sequence: create_repo (idempotent), upload_folder to
+    the default branch (task 2.2 -- upload_folder(revision=tag) 404s on a
+    tag that doesn't exist yet, confirmed against the real API), then
+    create_tag names that upload `tag`."""
     monkeypatch.setenv("HF_TOKEN", "hf_super_secret_token")
     monkeypatch.setattr("huggingface_hub.HfApi", _FakeHfApi, raising=False)
 
@@ -48,7 +53,7 @@ def test_publish_backbone_bundle_passes_folder_repo_type_and_revision(monkeypatc
     result = publish.publish_backbone_bundle(bundle_dir, tag="v0.1.0")
 
     assert result == "https://huggingface.co/datasets/cbwinslow/mlb-research/commit/abc123"
-    init_call, create_repo_call, upload_call = _FakeHfApi.calls
+    init_call, create_repo_call, upload_call, create_tag_call = _FakeHfApi.calls
     assert init_call == ("__init__", "hf_super_secret_token")
     assert create_repo_call == (
         "create_repo",
@@ -65,7 +70,15 @@ def test_publish_backbone_bundle_passes_folder_repo_type_and_revision(monkeypatc
             "folder_path": str(bundle_dir),
             "repo_id": "cbwinslow/mlb-research",
             "repo_type": "dataset",
-            "revision": "v0.1.0",
+        },
+    )
+    assert create_tag_call == (
+        "create_tag",
+        {
+            "repo_id": "cbwinslow/mlb-research",
+            "tag": "v0.1.0",
+            "repo_type": "dataset",
+            "exist_ok": True,
         },
     )
 
@@ -81,6 +94,7 @@ def test_publish_backbone_bundle_creates_the_repo_before_uploading(monkeypatch, 
 
     call_names = [name for name, _ in _FakeHfApi.calls]
     assert call_names.index("create_repo") < call_names.index("upload_folder")
+    assert call_names.index("upload_folder") < call_names.index("create_tag")
 
 
 def test_publish_backbone_bundle_accepts_custom_repo_id(monkeypatch, tmp_path):
@@ -90,9 +104,10 @@ def test_publish_backbone_bundle_accepts_custom_repo_id(monkeypatch, tmp_path):
     bundle_dir = _make_valid_bundle(tmp_path)
     publish.publish_backbone_bundle(bundle_dir, tag="v0.1.0", repo_id="someorg/mlb-research")
 
-    _, create_repo_call, upload_call = _FakeHfApi.calls
+    _, create_repo_call, upload_call, create_tag_call = _FakeHfApi.calls
     assert create_repo_call[1]["repo_id"] == "someorg/mlb-research"
     assert upload_call[1]["repo_id"] == "someorg/mlb-research"
+    assert create_tag_call[1]["repo_id"] == "someorg/mlb-research"
 
 
 def test_publish_backbone_bundle_requires_hf_token(monkeypatch, tmp_path):
@@ -162,7 +177,7 @@ def test_publish_backbone_bundle_does_not_inspect_data_dir_contents(monkeypatch,
     (bundle_dir / "data" / "player_season.parquet").write_bytes(b"stale")
 
     publish.publish_backbone_bundle(bundle_dir, tag="v0.1.0")
-    assert len(_FakeHfApi.calls) == 3
+    assert len(_FakeHfApi.calls) == 4
 
 
 def test_publish_backbone_bundle_rejects_missing_manifest(monkeypatch, tmp_path):

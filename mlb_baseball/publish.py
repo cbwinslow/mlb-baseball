@@ -83,10 +83,17 @@ def publish_backbone_bundle(
     # is a no-op against an existing repo and creates a fresh public one
     # otherwise -- this is the first publish, so the repo doesn't exist yet.
     api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True, private=False)
+    # upload_folder(revision=tag) requires that revision to already exist --
+    # it does not create one on push (confirmed against the real API: a
+    # RevisionNotFoundError on the very first publish, when the tag can't
+    # exist yet). Push to the default branch, then tag the commit that
+    # produced -- `tag` is a release tag (immutable, task 5's `v0.1.0`), not
+    # a working branch, so create_tag is the correct primitive, not
+    # create_branch.
     commit_info = api.upload_folder(
         folder_path=str(bundle_dir),
         repo_id=repo_id,
         repo_type="dataset",
-        revision=tag,
     )
+    api.create_tag(repo_id=repo_id, tag=tag, repo_type="dataset", exist_ok=True)
     return str(commit_info)

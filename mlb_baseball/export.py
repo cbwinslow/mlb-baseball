@@ -14,6 +14,7 @@ import csv
 import dataclasses
 import json
 import logging
+import shutil
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,6 +45,7 @@ class ExportRelation:
     season_column: str | None = None
     profile: str = "local_research"
     rights_note: str = ""
+    primary_key: tuple[str, ...] | None = None
 
     @property
     def qualified_name(self) -> str:
@@ -117,6 +119,7 @@ RELATIONS: tuple[ExportRelation, ...] = (
         "season",
         "local_research",
         "Batting box line per (game, player, team)",
+        ("game_id", "player_id", "team_id"),
     ),
     ExportRelation(
         "gold",
@@ -124,6 +127,7 @@ RELATIONS: tuple[ExportRelation, ...] = (
         "season",
         "local_research",
         "Pitching box line per (game, charged pitcher, team)",
+        ("game_id", "player_id", "team_id"),
     ),
     ExportRelation(
         "gold",
@@ -131,6 +135,7 @@ RELATIONS: tuple[ExportRelation, ...] = (
         "season",
         "local_research",
         "Season batting line per (player, season, team) + combined row",
+        ("id",),
     ),
     ExportRelation(
         "gold",
@@ -138,6 +143,7 @@ RELATIONS: tuple[ExportRelation, ...] = (
         "season",
         "local_research",
         "Season batting line per (team, season)",
+        ("team_id", "season"),
     ),
     ExportRelation(
         "gold",
@@ -145,6 +151,7 @@ RELATIONS: tuple[ExportRelation, ...] = (
         "season",
         "local_research",
         "Season pitching line per (player, season, team) + combined row",
+        ("id",),
     ),
     ExportRelation(
         "gold",
@@ -152,12 +159,23 @@ RELATIONS: tuple[ExportRelation, ...] = (
         "season",
         "local_research",
         "Season pitching line per (team, season)",
+        ("team_id", "season"),
     ),
     ExportRelation(
-        "gold", "batting_career", None, "local_research", "Career batting line per player"
+        "gold",
+        "batting_career",
+        None,
+        "local_research",
+        "Career batting line per player",
+        ("player_id",),
     ),
     ExportRelation(
-        "gold", "pitching_career", None, "local_research", "Career pitching line per player"
+        "gold",
+        "pitching_career",
+        None,
+        "local_research",
+        "Career pitching line per player",
+        ("player_id",),
     ),
     ExportRelation(
         "core", "game", "season", "local_research", "Conformed games (Retrosheet + MLB API)"
@@ -273,6 +291,48 @@ RELATIONS: tuple[ExportRelation, ...] = (
 
 ALLOWLIST: dict[str, ExportRelation] = {r.qualified_name: r for r in RELATIONS}
 
+# Grain-complete statistic backbone (Plan 03B) HF publish preset
+# (delivery-surface change). Publish eligibility is a redistribution rights
+# decision, reviewed in openspec/changes/delivery-surface/rights-review.md --
+# distinct from ExportRelation.profile above, which governs per-source
+# *intake* gating (MLB_DATA_PROFILE) and is a stricter, source-family-based
+# test unsuited to a derived table's actual redistributable content.
+BACKBONE_SCHEMA_VERSION = "1.0.0"
+
+BACKBONE_CANDIDATES: tuple[str, ...] = (
+    "gold.batting_game",
+    "gold.pitching_game",
+    "gold.batting_season",
+    "gold.pitching_season",
+    "gold.batting_team",
+    "gold.pitching_team",
+    "gold.batting_career",
+    "gold.pitching_career",
+    "gold.player_season",
+    "gold.team_season",
+)
+
+# Excluded, with the reason recorded in the export manifest and log --
+# see rights-review.md for the full evidence.
+BACKBONE_EXCLUDED: dict[str, str] = {
+    "gold.player_season": (
+        "Sourced from raw.bref_batting/raw.bref_pitching (Baseball-Reference via "
+        "pybaseball) and core.player_war (Baseball-Reference WAR). "
+        "docs/SOURCE_RIGHTS.md records no redistribution permission for "
+        "Baseball-Reference data."
+    ),
+    "gold.team_season": (
+        "Traditional totals sourced from raw.lahman_teams; war sourced from "
+        "core.player_war (Baseball-Reference). docs/SOURCE_RIGHTS.md records no "
+        "automated public-safe approval for Lahman, and no permission for "
+        "Baseball-Reference redistribution."
+    ),
+}
+
+BACKBONE_TABLES: tuple[str, ...] = tuple(
+    name for name in BACKBONE_CANDIDATES if name not in BACKBONE_EXCLUDED
+)
+
 
 def resolve_relation(name: str) -> ExportRelation:
     """Validate and resolve a relation name against the allow-list.
@@ -300,9 +360,15 @@ def resolve_relation(name: str) -> ExportRelation:
 
 
 def _build_select_query(
-    rel: ExportRelation, season: int | None = None
+    rel: ExportRelation,
+    season: int | None = None,
+    order_by: tuple[str, ...] | None = None,
 ) -> tuple[sql.Composed, list[Any]]:
-    """Construct a strictly-parameterized SQL query for the given relation."""
+    """Construct a strictly-parameterized SQL query for the given relation.
+
+    ``order_by`` (when given) must be a tuple of the relation's own column
+    names -- callers pass ``rel.primary_key`` to get deterministic row order.
+    """
     query = sql.SQL("SELECT * FROM {}.{}").format(
         sql.Identifier(rel.schema),
         sql.Identifier(rel.table),
@@ -320,6 +386,11 @@ def _build_select_query(
             sql.Identifier(rel.season_column),
         )
         params.append(season)
+    if order_by:
+        query = sql.SQL("{} ORDER BY {}").format(
+            query,
+            sql.SQL(", ").join(sql.Identifier(col) for col in order_by),
+        )
     return query, params
 
 
@@ -351,6 +422,70 @@ def _set_read_only_repeatable_read(conn: psycopg.Connection) -> None:
         conn.commit()
         with conn.cursor() as cur:
             cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+
+
+# PostgreSQL type OID -> pyarrow type, for the columns most common in this
+# project's relations. Used only to correct a column pyarrow would otherwise
+# infer as `null` (every value in the exported result is None) -- pyarrow's
+# own per-batch type inference is left untouched for every column that has
+# at least one non-null value. An untyped `null` column round-trips through
+# duckdb as an unrelated type (e.g. INTEGER), a real schema-drift bug caught
+# by the backbone export's pyarrow/duckdb round-trip test.
+_PG_OID_TO_ARROW_TYPE: dict[int, str] = {
+    16: "bool_",  # boolean
+    20: "int64",  # bigint
+    21: "int16",  # smallint
+    23: "int32",  # integer
+    700: "float32",  # real
+    701: "float64",  # double precision
+    # SHORTCUT: numeric -> float64, not decimal128(precision, scale). This
+    # project's numeric columns (avg/obp/slg/era/... in the backbone tables)
+    # are unconstrained `numeric` in the DDL (no declared precision/scale),
+    # so psycopg's Cursor.description reports none to build an exact
+    # decimal128 from; float64 has ample precision for a handful of rate-stat
+    # decimal digits. Revisit if a numeric column needing exact/high-precision
+    # decimal semantics is added to the backbone preset.
+    1700: "float64",  # numeric
+    1082: "date32",  # date
+    1114: "timestamp_us",  # timestamp without time zone
+    1184: "timestamp_us_utc",  # timestamptz
+    25: "string",  # text
+    1043: "string",  # varchar
+    18: "string",  # "char"
+    19: "string",  # name
+}
+
+
+def _arrow_type_for_oid(oid: int) -> Any:
+    """Resolve a PostgreSQL column type OID to a concrete pyarrow type.
+
+    Falls back to ``pa.string()`` for any OID not in the common-type table
+    above -- safe because this is only ever applied to a column pyarrow
+    already inferred as untyped ``null`` (no real values to lose fidelity on).
+    """
+    import pyarrow as pa
+
+    name = _PG_OID_TO_ARROW_TYPE.get(oid, "string")
+    if name == "bool_":
+        return pa.bool_()
+    if name == "timestamp_us":
+        return pa.timestamp("us")
+    if name == "timestamp_us_utc":
+        return pa.timestamp("us", tz="UTC")
+    return getattr(pa, name)()
+
+
+def _fix_null_typed_columns(table: Any, column_oids: list[int]) -> Any:
+    """Replace any all-``null``-inferred column with its real Postgres type."""
+    import pyarrow as pa
+
+    schema = table.schema
+    changed = False
+    for i, field in enumerate(schema):
+        if pa.types.is_null(field.type):
+            schema = schema.set(i, field.with_type(_arrow_type_for_oid(column_oids[i])))
+            changed = True
+    return table.cast(schema) if changed else table
 
 
 def export_to_csv(
@@ -389,8 +524,13 @@ def export_to_parquet(
     rel: ExportRelation,
     out_path: Path,
     season: int | None = None,
+    order_by: tuple[str, ...] | None = None,
 ) -> int:
-    """Stream relation rows to an Apache Parquet file using PyArrow."""
+    """Stream relation rows to an Apache Parquet file using PyArrow.
+
+    ``order_by`` (e.g. ``rel.primary_key``) makes row order deterministic
+    across repeated exports of the same database state.
+    """
     try:
         import pyarrow as pa
         import pyarrow.parquet as pq
@@ -401,7 +541,7 @@ def export_to_parquet(
         ) from None
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    query, params = _build_select_query(rel, season=season)
+    query, params = _build_select_query(rel, season=season, order_by=order_by)
     _set_read_only_repeatable_read(conn)
 
     row_count = 0
@@ -410,6 +550,21 @@ def export_to_parquet(
             cur.itersize = 5000
             cur.execute(query, params)
             headers = [desc.name for desc in cur.description or []]
+            column_oids = [desc.type_code for desc in cur.description or []]
+            # PostgreSQL numeric (OID 1700) arrives as Python Decimal, and
+            # pyarrow infers a per-batch-minimal decimal128(precision, scale)
+            # from whatever values happen to be in that batch. Two batches of
+            # the same column can infer *different*, mutually-incompatible
+            # precisions -- confirmed for real against production
+            # gold.pitching_season (ArrowInvalid: "Decimal value does not fit
+            # in precision 22"), not just a null-batch edge case. Converting
+            # to float before pyarrow ever sees the value makes every batch
+            # infer the same stable float64, matching the float64 fallback
+            # already used for an all-null numeric batch (see
+            # _PG_OID_TO_ARROW_TYPE's SHORTCUT note: this project's numeric
+            # columns are unconstrained-precision rate stats, ample headroom).
+            _NUMERIC_OID = 1700
+            numeric_col_indexes = [i for i, oid in enumerate(column_oids) if oid == _NUMERIC_OID]
             writer: pq.ParquetWriter | None = None
             try:
                 while True:
@@ -419,16 +574,30 @@ def export_to_parquet(
                             # Empty result set -> write empty table with column names
                             empty_pydict: dict[str, list[Any]] = {h: [] for h in headers}
                             table = pa.Table.from_pydict(empty_pydict)
+                            table = _fix_null_typed_columns(table, column_oids)
                             pq.write_table(table, out_path)
                         break
+                    if numeric_col_indexes:
+                        rows = [
+                            tuple(
+                                float(value)
+                                if i in numeric_col_indexes and value is not None
+                                else value
+                                for i, value in enumerate(row)
+                            )
+                            for row in rows
+                        ]
                     # Transpose rows to column arrays for pyarrow.Table
                     cols = list(zip(*rows, strict=True))
                     batch_dict = {
                         h: list(col_data) for h, col_data in zip(headers, cols, strict=True)
                     }
                     table = pa.Table.from_pydict(batch_dict)
+                    table = _fix_null_typed_columns(table, column_oids)
                     if writer is None:
                         writer = pq.ParquetWriter(out_path, table.schema)
+                    elif table.schema != writer.schema:
+                        table = table.cast(writer.schema)
                     writer.write_table(table)
                     row_count += len(rows)
             finally:
@@ -620,6 +789,166 @@ def export_bundle(
                 if file_path.is_file():
                     zf.write(file_path, arcname=file_path.relative_to(bundle_dir))
         return zip_path
+
+    return bundle_dir
+
+
+_DATASET_CARD_TEMPLATE = """\
+# MLB Research Statistic Backbone
+
+Grain-complete batting and pitching box-score, season, team-season, and \
+career statistics, computed entirely from Retrosheet play-by-play data.
+
+## Source
+
+Every value in this dataset is derived from `raw.retrosheet_event` \
+(Retrosheet play-by-play, 1910-2025). {attribution}
+
+## Coverage
+
+- Seasons: {season_min}-{season_max} (regular season only)
+- Tables: {table_list}
+- Excluded from this release (see `manifest.json`'s `excluded` list for the \
+recorded reason): {excluded_list}
+
+## Licence
+
+Retrosheet's data use policy permits giving away, selling, and commercial \
+products built on its data, with attribution. This repository's own code is \
+AGPL-3.0-or-later. See `docs/SOURCE_RIGHTS.md` in the source repository for \
+the full source-rights ledger.
+
+## Schema version
+
+`{schema_version}`. See `manifest.json` for the exact column names and types \
+per table.
+
+## Links
+
+- Source repository: {repo_url}
+- Methodology / honest limitations: {repo_url}/blob/main/docs/RESEARCH.md
+"""
+
+
+def _write_dataset_card(
+    out_dir: Path,
+    manifest_data: dict[str, Any],
+    *,
+    season_bounds: tuple[int | None, int | None],
+    repo_url: str = "https://github.com/cbwinslow/mlb-baseball",
+) -> Path:
+    """Write the HF-facing dataset card (README.md) for a backbone bundle."""
+    season_min, season_max = season_bounds
+    card = _DATASET_CARD_TEMPLATE.format(
+        attribution=RETROSHEET_ATTRIBUTION,
+        season_min=season_min if season_min is not None else "unknown",
+        season_max=season_max if season_max is not None else "unknown",
+        table_list=", ".join(t["table"] for t in manifest_data["tables"]),
+        excluded_list=(
+            ", ".join(e["table"] for e in manifest_data["excluded"])
+            if manifest_data["excluded"]
+            else "none"
+        ),
+        schema_version=manifest_data["schema_version"],
+        repo_url=repo_url,
+    )
+    card_path = out_dir / "README.md"
+    card_path.write_text(card, encoding="utf-8")
+    return card_path
+
+
+def export_backbone_bundle(
+    conn: psycopg.Connection,
+    *,
+    out_dir: Path | str = Path("backbone_bundle"),
+) -> Path:
+    """Export the publishable subset of the grain-complete statistic backbone.
+
+    Writes ``<out_dir>/data/<table>.parquet`` per eligible table (deterministic
+    row order via each table's primary key), ``<out_dir>/manifest.json``, and
+    ``<out_dir>/README.md`` (the dataset card) -- the layout Hugging Face
+    Datasets expects at a repo root. Ineligible candidates (see
+    ``BACKBONE_EXCLUDED``, reviewed in
+    ``openspec/changes/delivery-surface/rights-review.md``) are recorded in
+    the manifest's ``excluded`` list with their reason, not written.
+
+    SHORTCUT: each table (and the season-bounds query) runs in its own
+    read-only repeatable-read transaction via ``export_to_parquet``, the same
+    pattern ``export_bundle`` already uses -- not one shared snapshot across
+    the whole bundle. A concurrent write (e.g. `mlb report` re-running)
+    during export could make different tables reflect different points in
+    time. Revisit if `export_to_parquet` gains a shared-transaction mode
+    usable by every caller (single-relation CLI export, `export_bundle`,
+    and this function), or if a real cross-table inconsistency is observed.
+    """
+    import pyarrow.parquet as pq
+
+    bundle_dir = Path(out_dir)
+    data_dir = bundle_dir / "data"
+    # A stale file from a prior run (e.g. player_season.parquet written before
+    # this exclusion gate existed) would otherwise survive into a re-run and
+    # get published anyway -- HfApi().upload_folder() uploads the whole
+    # directory regardless of what the fresh manifest says is excluded.
+    if data_dir.exists():
+        shutil.rmtree(data_dir)
+    data_dir.mkdir(parents=True)
+
+    manifest_tables: list[dict[str, Any]] = []
+    manifest_excluded: list[dict[str, Any]] = []
+
+    for qualified_name in BACKBONE_CANDIDATES:
+        bare_table = qualified_name.split(".", 1)[1]
+
+        if qualified_name in BACKBONE_EXCLUDED:
+            reason = BACKBONE_EXCLUDED[qualified_name]
+            logger.info("Excluding %s from backbone bundle: %s", qualified_name, reason)
+            manifest_excluded.append(
+                {"table": bare_table, "relation": qualified_name, "reason": reason}
+            )
+            continue
+
+        rel = resolve_relation(qualified_name)
+        if not _relation_exists(conn, rel.schema, rel.table):
+            raise RuntimeError(
+                f"Backbone export: required table {qualified_name!r} is missing from "
+                "the database. Run migrations/build the statistic backbone first."
+            )
+
+        target_file = data_dir / f"{bare_table}.parquet"
+        row_count = export_to_parquet(conn, rel, target_file, order_by=rel.primary_key)
+        schema = pq.read_schema(target_file)
+        manifest_tables.append(
+            {
+                "table": bare_table,
+                "relation": qualified_name,
+                "file": f"data/{bare_table}.parquet",
+                "row_count": row_count,
+                "columns": [
+                    {"name": name, "type": str(schema.field(name).type)} for name in schema.names
+                ],
+            }
+        )
+
+    season_bounds: tuple[int | None, int | None] = (None, None)
+    with conn.cursor() as cur:
+        cur.execute("SELECT min(season), max(season) FROM gold.batting_game")
+        row = cur.fetchone()
+        if row is not None:
+            season_bounds = (row[0], row[1])
+    conn.commit()
+
+    manifest_data: dict[str, Any] = {
+        "schema_version": BACKBONE_SCHEMA_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "preset": "backbone",
+        "tables": manifest_tables,
+        "excluded": manifest_excluded,
+        "attribution": RETROSHEET_ATTRIBUTION,
+    }
+    manifest_path = bundle_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest_data, indent=2, sort_keys=True) + "\n", "utf-8")
+
+    _write_dataset_card(bundle_dir, manifest_data, season_bounds=season_bounds)
 
     return bundle_dir
 

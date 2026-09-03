@@ -1241,6 +1241,94 @@ def test_export_command_profile_dispatch(monkeypatch, capsys):
     assert "Exported public_safe bundle to export_bundle.zip" in out
 
 
+def test_export_command_preset_dispatch(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    calls = []
+    monkeypatch.setattr(
+        "mlb_baseball.export.export_backbone_bundle",
+        lambda c, out_dir: calls.append(out_dir) or "backbone_bundle",
+    )
+
+    cli.main(["export", "--preset", "backbone", "--out", "bundle_dir"])
+
+    assert calls == ["bundle_dir"]
+    out = capsys.readouterr().out
+    assert "Exported backbone preset bundle to backbone_bundle" in out
+
+
+def test_export_command_preset_publish_dispatch(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr(
+        "mlb_baseball.export.export_backbone_bundle", lambda c, out_dir: "backbone_bundle"
+    )
+    publish_calls = []
+    monkeypatch.setattr(
+        "mlb_baseball.publish.publish_backbone_bundle",
+        lambda bundle_dir, tag: (
+            publish_calls.append((bundle_dir, tag)) or "https://hf.co/commit/abc"
+        ),
+    )
+
+    cli.main(["export", "--preset", "backbone", "--publish", "hf", "--tag", "v0.1.0"])
+
+    assert publish_calls == [("backbone_bundle", "v0.1.0")]
+    out = capsys.readouterr().out
+    assert "Published to Hugging Face (revision=v0.1.0): https://hf.co/commit/abc" in out
+
+
+def test_export_command_preset_publish_passes_custom_repo_id(monkeypatch, capsys):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: conn)
+    monkeypatch.setattr(
+        "mlb_baseball.export.export_backbone_bundle", lambda c, out_dir: "backbone_bundle"
+    )
+    publish_calls = []
+    monkeypatch.setattr(
+        "mlb_baseball.publish.publish_backbone_bundle",
+        lambda bundle_dir, **kwargs: (
+            publish_calls.append((bundle_dir, kwargs)) or "https://hf.co/commit/abc"
+        ),
+    )
+
+    cli.main(
+        [
+            "export",
+            "--preset",
+            "backbone",
+            "--publish",
+            "hf",
+            "--tag",
+            "v0.1.0",
+            "--repo-id",
+            "someorg/mlb-research",
+        ]
+    )
+
+    assert publish_calls == [
+        ("backbone_bundle", {"tag": "v0.1.0", "repo_id": "someorg/mlb-research"})
+    ]
+
+
+def test_export_command_publish_without_tag_errors(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["export", "--preset", "backbone", "--publish", "hf"])
+
+
+def test_export_command_publish_without_preset_errors(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["export", "--publish", "hf", "--tag", "v0.1.0"])
+
+
+def test_export_command_preset_zip_errors(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["export", "--preset", "backbone", "--zip"])
+
+
 def test_export_command_missing_args_exits(capsys):
     with pytest.raises(SystemExit):
         cli.main(["export"])

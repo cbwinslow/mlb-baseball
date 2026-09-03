@@ -64,3 +64,50 @@ Choose a source profile deliberately:
 
 See [SOURCE_RIGHTS.md](SOURCE_RIGHTS.md), [TABLE_CONTRACTS.md](TABLE_CONTRACTS.md),
 and [SQL_OWNERSHIP.md](SQL_OWNERSHIP.md) before publishing derived work.
+
+## Publishing the backbone dataset to Hugging Face
+
+`mlb export --preset backbone` writes the publishable subset of the
+grain-complete statistic backbone (eight of ten candidate tables --
+`gold.player_season`/`gold.team_season` are excluded on source-rights
+grounds, see
+[`openspec/changes/delivery-surface/rights-review.md`](../openspec/changes/delivery-surface/rights-review.md))
+to `<out>/data/<table>.parquet` + `<out>/manifest.json` + `<out>/README.md`,
+the layout a Hugging Face dataset repo expects at its root.
+
+Publishing is **owner-run, not automated** (design.md D3 — a tag-triggered
+CI job is a deliberate follow-up once the manual path is proven):
+
+```bash
+HF_TOKEN=hf_your_write_token mlb export --preset backbone --publish hf --tag v0.1.0
+```
+
+**Never `export HF_TOKEN=...`.** Exporting it into the shell environment
+leaves it readable to every subsequent command in that shell and in shell
+history; prefixing the single command as above scopes it to that one
+process. The publish step reads the credential only from `HF_TOKEN` at
+runtime -- never a CLI flag (would land in shell history and process argv)
+and never logged (`mlb_baseball/publish.py`).
+
+Pass `--repo-id <owner>/<name>` to publish somewhere other than the default
+`cbwinslow/mlb-research` (e.g. once the namespace decision above lands on an
+org account). The publish step refuses to upload a directory that isn't
+shaped exactly like a backbone bundle (`data/`, `manifest.json`, `README.md`
+and nothing else) -- `HfApi().upload_folder()` has no per-file filtering, so
+this is what stops a wrong `--out` from publishing unrelated files.
+
+## Consuming the published dataset (outside this repository)
+
+Two surfaces need no local database or clone of this repository -- see
+`openspec/changes/delivery-surface/` for the change that built them:
+
+- **`mlb-research`** (`packages/mlb-research/`, `pip install mlb-research`) --
+  a standalone Python loader: `mlb_research.load("batting_season",
+  season=2023)` returns a `pandas.DataFrame`. Full API in that package's own
+  [README.md](../packages/mlb-research/README.md).
+- **The DuckDB-WASM query page** (`docs/site/query/`) -- runs visitor SQL
+  against the published Parquet entirely in the browser, published via
+  GitHub Pages (`.github/workflows/pages.yml`). No server, no account.
+
+Both currently point at the dataset's `main` revision; a tagged release
+(`v0.1.0` onward) is the version to pin for reproducible research.

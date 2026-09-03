@@ -108,6 +108,34 @@ def _seed_backbone_data(db_conn):
     db_conn.commit()
 
 
+def _cleanup_backbone_data(db_conn) -> None:
+    """Delete exactly the rows _seed_backbone_data (and _seed_test_data)
+    inserted, including the core.game/core.player/core.team rows. db_conn is
+    function-scoped but the underlying test database is shared for the whole
+    pytest run (tests/AGENTS.md) -- without this, these rows outlive the
+    test and an unrelated later test's own unconditional
+    `DELETE FROM core.game`/`core.team` (a common _reset() pattern in this
+    suite) hits a FK violation against whatever of ours is still there.
+    Deleting core.game/player/team here is safe: every other test that seeds
+    them re-inserts via its own `ON CONFLICT DO NOTHING` call, never assumes
+    a prior test already put them there."""
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM gold.batting_game WHERE game_id = 800001")
+        cur.execute("DELETE FROM gold.pitching_game WHERE game_id = 800001")
+        cur.execute("DELETE FROM gold.batting_season WHERE player_id = 90001 AND season = 2024")
+        cur.execute("DELETE FROM gold.pitching_season WHERE player_id = 90002 AND season = 2024")
+        cur.execute("DELETE FROM gold.batting_team WHERE team_id = 101 AND season = 2024")
+        cur.execute("DELETE FROM gold.pitching_team WHERE team_id = 102 AND season = 2024")
+        cur.execute("DELETE FROM gold.batting_career WHERE player_id = 90001")
+        cur.execute("DELETE FROM gold.pitching_career WHERE player_id = 90002")
+        cur.execute("DELETE FROM gold.player_season WHERE player_id = 90001 AND season = 2024")
+        cur.execute("DELETE FROM gold.team_season WHERE team_id = 101 AND season = 2024")
+        cur.execute("DELETE FROM core.game WHERE id = 800001")
+        cur.execute("DELETE FROM core.player WHERE id IN (90001, 90002)")
+        cur.execute("DELETE FROM core.team WHERE id IN (101, 102)")
+    db_conn.commit()
+
+
 def _type_bucket(type_str: str) -> str:
     """Normalize a pyarrow/duckdb type string into a coarse comparison bucket."""
     t = type_str.lower()
@@ -129,71 +157,98 @@ def test_export_backbone_bundle_manifest_and_excluded(db_conn, tmp_path):
     manifest.json, a README.md dataset card, and records player_season /
     team_season as excluded with their rights reasons (task 1.2)."""
     _seed_backbone_data(db_conn)
-    bundle_dir = tmp_path / "backbone_bundle"
+    try:
+        bundle_dir = tmp_path / "backbone_bundle"
 
-    result = export_backbone_bundle(db_conn, out_dir=bundle_dir)
-    assert result == bundle_dir
+        result = export_backbone_bundle(db_conn, out_dir=bundle_dir)
+        assert result == bundle_dir
 
-    eligible = {
-        "batting_game",
-        "pitching_game",
-        "batting_season",
-        "pitching_season",
-        "batting_team",
-        "pitching_team",
-        "batting_career",
-        "pitching_career",
-    }
-    for table in eligible:
-        assert (bundle_dir / "data" / f"{table}.parquet").exists()
-    assert not (bundle_dir / "data" / "player_season.parquet").exists()
-    assert not (bundle_dir / "data" / "team_season.parquet").exists()
+        eligible = {
+            "batting_game",
+            "pitching_game",
+            "batting_season",
+            "pitching_season",
+            "batting_team",
+            "pitching_team",
+            "batting_career",
+            "pitching_career",
+        }
+        for table in eligible:
+            assert (bundle_dir / "data" / f"{table}.parquet").exists()
+        assert not (bundle_dir / "data" / "player_season.parquet").exists()
+        assert not (bundle_dir / "data" / "team_season.parquet").exists()
 
-    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert {t["table"] for t in manifest["tables"]} == eligible
-    for entry in manifest["tables"]:
-        assert entry["row_count"] >= 1
-        assert entry["columns"]
+        manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+        assert {t["table"] for t in manifest["tables"]} == eligible
+        for entry in manifest["tables"]:
+            assert entry["row_count"] >= 1
+            assert entry["columns"]
 
-    excluded_by_table = {e["table"]: e["reason"] for e in manifest["excluded"]}
-    assert set(excluded_by_table) == {"player_season", "team_season"}
-    assert "Baseball-Reference" in excluded_by_table["player_season"]
-    assert "Lahman" in excluded_by_table["team_season"]
+        excluded_by_table = {e["table"]: e["reason"] for e in manifest["excluded"]}
+        assert set(excluded_by_table) == {"player_season", "team_season"}
+        assert "Baseball-Reference" in excluded_by_table["player_season"]
+        assert "Lahman" in excluded_by_table["team_season"]
 
-    card = (bundle_dir / "README.md").read_text(encoding="utf-8")
-    assert manifest["schema_version"] in card
-    assert "Retrosheet" in card
+        card = (bundle_dir / "README.md").read_text(encoding="utf-8")
+        assert manifest["schema_version"] in card
+        assert "Retrosheet" in card
+    finally:
+        _cleanup_backbone_data(db_conn)
+
+
+def test_export_backbone_bundle_removes_stale_files_from_a_prior_run(db_conn, tmp_path):
+    """A stale data/player_season.parquet left over from before the
+    rights-exclusion gate existed (or a differently-configured earlier run)
+    must not survive a re-export -- the publish step uploads the bundle
+    directory as-is, so a leftover file would ship despite the manifest
+    saying it's excluded."""
+    _seed_backbone_data(db_conn)
+    try:
+        bundle_dir = tmp_path / "backbone_bundle"
+        data_dir = bundle_dir / "data"
+        data_dir.mkdir(parents=True)
+        stale_file = data_dir / "player_season.parquet"
+        stale_file.write_bytes(b"stale rights-restricted content")
+
+        export_backbone_bundle(db_conn, out_dir=bundle_dir)
+
+        assert not stale_file.exists()
+        assert (data_dir / "batting_game.parquet").exists()
+    finally:
+        _cleanup_backbone_data(db_conn)
 
 
 def test_export_backbone_bundle_is_deterministic(db_conn, tmp_path):
     """Re-running the backbone export over the same database state produces
     identical row counts and identical first/last rows per table (task 1.3)."""
     _seed_backbone_data(db_conn)
+    try:
+        dir1 = tmp_path / "run1"
+        dir2 = tmp_path / "run2"
+        export_backbone_bundle(db_conn, out_dir=dir1)
+        export_backbone_bundle(db_conn, out_dir=dir2)
 
-    dir1 = tmp_path / "run1"
-    dir2 = tmp_path / "run2"
-    export_backbone_bundle(db_conn, out_dir=dir1)
-    export_backbone_bundle(db_conn, out_dir=dir2)
+        manifest1 = json.loads((dir1 / "manifest.json").read_text(encoding="utf-8"))
+        manifest2 = json.loads((dir2 / "manifest.json").read_text(encoding="utf-8"))
+        tables1 = {t["table"]: t for t in manifest1["tables"]}
+        tables2 = {t["table"]: t for t in manifest2["tables"]}
+        assert tables1.keys() == tables2.keys()
 
-    manifest1 = json.loads((dir1 / "manifest.json").read_text(encoding="utf-8"))
-    manifest2 = json.loads((dir2 / "manifest.json").read_text(encoding="utf-8"))
-    tables1 = {t["table"]: t for t in manifest1["tables"]}
-    tables2 = {t["table"]: t for t in manifest2["tables"]}
-    assert tables1.keys() == tables2.keys()
+        for table, entry1 in tables1.items():
+            entry2 = tables2[table]
+            assert entry1["row_count"] == entry2["row_count"]
 
-    for table, entry1 in tables1.items():
-        entry2 = tables2[table]
-        assert entry1["row_count"] == entry2["row_count"]
-
-        parquet1 = pq.read_table(dir1 / entry1["file"])
-        parquet2 = pq.read_table(dir2 / entry2["file"])
-        assert parquet1.num_rows == parquet2.num_rows
-        if parquet1.num_rows == 0:
-            continue
-        for idx in (0, -1):
-            row1 = {col: parquet1.column(col)[idx].as_py() for col in parquet1.column_names}
-            row2 = {col: parquet2.column(col)[idx].as_py() for col in parquet2.column_names}
-            assert row1 == row2, f"{table} row {idx} differs between export runs"
+            parquet1 = pq.read_table(dir1 / entry1["file"])
+            parquet2 = pq.read_table(dir2 / entry2["file"])
+            assert parquet1.num_rows == parquet2.num_rows
+            if parquet1.num_rows == 0:
+                continue
+            for idx in (0, -1):
+                row1 = {col: parquet1.column(col)[idx].as_py() for col in parquet1.column_names}
+                row2 = {col: parquet2.column(col)[idx].as_py() for col in parquet2.column_names}
+                assert row1 == row2, f"{table} row {idx} differs between export runs"
+    finally:
+        _cleanup_backbone_data(db_conn)
 
 
 def test_export_backbone_bundle_duckdb_round_trip(db_conn, tmp_path):
@@ -203,20 +258,23 @@ def test_export_backbone_bundle_duckdb_round_trip(db_conn, tmp_path):
     design.md)."""
     duckdb = pytest.importorskip("duckdb")
     _seed_backbone_data(db_conn)
-    bundle_dir = tmp_path / "backbone_roundtrip"
+    try:
+        bundle_dir = tmp_path / "backbone_roundtrip"
 
-    export_backbone_bundle(db_conn, out_dir=bundle_dir)
-    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+        export_backbone_bundle(db_conn, out_dir=bundle_dir)
+        manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
 
-    for entry in manifest["tables"]:
-        parquet_path = bundle_dir / entry["file"]
-        relation = duckdb.sql(f"SELECT * FROM read_parquet('{parquet_path.as_posix()}')")
-        assert relation.columns == [c["name"] for c in entry["columns"]]
-        manifest_types = {c["name"]: c["type"] for c in entry["columns"]}
-        for name, duck_type in zip(relation.columns, relation.types, strict=True):
-            assert _type_bucket(str(duck_type)) == _type_bucket(manifest_types[name]), (
-                f"{entry['table']}.{name}: duckdb={duck_type} manifest={manifest_types[name]}"
-            )
+        for entry in manifest["tables"]:
+            parquet_path = bundle_dir / entry["file"]
+            relation = duckdb.sql(f"SELECT * FROM read_parquet('{parquet_path.as_posix()}')")
+            assert relation.columns == [c["name"] for c in entry["columns"]]
+            manifest_types = {c["name"]: c["type"] for c in entry["columns"]}
+            for name, duck_type in zip(relation.columns, relation.types, strict=True):
+                assert _type_bucket(str(duck_type)) == _type_bucket(manifest_types[name]), (
+                    f"{entry['table']}.{name}: duckdb={duck_type} manifest={manifest_types[name]}"
+                )
+    finally:
+        _cleanup_backbone_data(db_conn)
 
 
 def test_export_relation_csv_round_trip(db_conn, tmp_path):

@@ -15,7 +15,8 @@ import pytest
 def _write_parquet(path: Path, rows: list[dict]) -> None:
     df = pd.DataFrame(rows)  # noqa: F841 -- read by duckdb's replacement scan below
     con = duckdb.connect()
-    con.execute(f"COPY (SELECT * FROM df) TO '{path.as_posix()}' (FORMAT PARQUET)")
+    escaped = mlb_research._escape_duckdb_literal(path.as_posix())
+    con.execute(f"COPY (SELECT * FROM df) TO '{escaped}' (FORMAT PARQUET)")
 
 
 @pytest.fixture(autouse=True)
@@ -131,6 +132,34 @@ def test_load_different_version_is_not_cached_together(monkeypatch, tmp_path):
     assert len(calls) == 2
     assert calls[0]["revision"] == "v0.1.0"
     assert calls[1]["revision"] == "v0.2.0"
+
+
+def test_load_rejects_season_on_career_tables():
+    """batting_career/pitching_career have no season column (first_season/
+    last_season instead) -- load() must raise its own clear error rather
+    than let DuckDB's raw binder error surface."""
+    for table in ("batting_career", "pitching_career"):
+        with pytest.raises(ValueError, match="has no season column"):
+            mlb_research.load(table, season=2024)
+
+
+def test_load_escapes_a_single_quote_in_the_cache_path(monkeypatch, tmp_path):
+    """A local cache path containing a single quote must not break the
+    interpolated DuckDB SQL literal."""
+    quoted_dir = tmp_path / "o'brien"
+    quoted_dir.mkdir()
+    parquet_path = quoted_dir / "batting_game.parquet"
+    _write_parquet(parquet_path, [{"game_id": 1, "player_id": 1, "season": 2023, "h": 1}])
+
+    monkeypatch.setattr(
+        "huggingface_hub.hf_hub_download",
+        lambda **kwargs: str(parquet_path),
+        raising=False,
+    )
+
+    df = mlb_research.load("batting_game", season=2023)
+
+    assert len(df) == 1
 
 
 def test_load_default_version_resolves_to_main_revision(monkeypatch, tmp_path):

@@ -38,12 +38,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _database_url() -> str:
+    """Same precedence `mlb export`/`get_connection()` uses (DATABASE_URL) --
+    this script exercises the real CLI/package/page path against whatever
+    database that would hit, test or production. Read-only: this script and
+    export_backbone_bundle never write to the database. The resolved
+    database name is always printed before connecting (root AGENTS.md:
+    "make the target database explicit before execution") so a shell with
+    DATABASE_URL left pointed at production `mlb` is never ambiguous.
+    """
     url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
     if not url:
         raise SystemExit(
             "DATABASE_URL (or TEST_DATABASE_URL) is required and must point at a "
             "database with the backbone gold tables already built (`mlb report`)."
         )
+    dbname = url.rsplit("/", 1)[-1].split("?", 1)[0]
+    print(f"Target database: {dbname!r} (read-only)")
     return url
 
 

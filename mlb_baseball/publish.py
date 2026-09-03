@@ -17,6 +17,28 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_REPO_ID = "cbwinslow/mlb-research"
 
+# The exact top-level shape export_backbone_bundle() writes. upload_folder()
+# uploads bundle_dir recursively with no filtering -- validating this shape
+# first means an --out pointed at the wrong directory (one with unrelated
+# files, or a whole repo checkout) is refused rather than partially published.
+_EXPECTED_BUNDLE_ENTRIES = frozenset({"data", "manifest.json", "README.md"})
+
+
+def _validate_bundle_shape(bundle_dir: Path) -> None:
+    if not bundle_dir.is_dir():
+        raise RuntimeError(f"Refusing to publish {bundle_dir}: not a directory")
+    actual = {p.name for p in bundle_dir.iterdir()}
+    unexpected = actual - _EXPECTED_BUNDLE_ENTRIES
+    if unexpected:
+        raise RuntimeError(
+            f"Refusing to publish {bundle_dir}: unexpected entries {sorted(unexpected)} -- "
+            "only data/, manifest.json, and README.md are expected in a backbone bundle. "
+            "Use a dedicated --out directory produced by `mlb export --preset backbone`, "
+            "not one containing other files."
+        )
+    if not (bundle_dir / "manifest.json").is_file():
+        raise RuntimeError(f"Refusing to publish {bundle_dir}: no manifest.json found")
+
 
 def publish_backbone_bundle(
     bundle_dir: Path | str,
@@ -30,7 +52,15 @@ def publish_backbone_bundle(
     only -- never a function parameter or CLI flag, so it can't end up in a
     process's argv or an argparse namespace repr. Never logged. Returns the
     commit URL huggingface_hub reports for the upload.
+
+    Refuses to publish a directory that doesn't look like a backbone bundle
+    (``_validate_bundle_shape``) -- ``upload_folder`` uploads everything under
+    ``bundle_dir`` with no filtering, so a wrong ``--out`` could otherwise
+    publish unrelated files.
     """
+    bundle_path = Path(bundle_dir)
+    _validate_bundle_shape(bundle_path)
+
     try:
         from huggingface_hub import HfApi
     except ImportError:

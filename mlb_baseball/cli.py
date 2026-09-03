@@ -684,6 +684,16 @@ def main(argv: list[str] | None = None) -> None:
         help="release tag / revision to publish under (required with --publish)",
     )
     export_parser.add_argument(
+        "--repo-id",
+        type=str,
+        default=None,
+        help=(
+            "HF dataset repo id to publish to (default: "
+            "mlb_baseball.publish.DEFAULT_REPO_ID -- override once the final "
+            "namespace is decided, e.g. an org account)"
+        ),
+    )
+    export_parser.add_argument(
         "--zip",
         action="store_true",
         help="compress export bundle directory into a zip archive",
@@ -3884,6 +3894,11 @@ def main(argv: list[str] | None = None) -> None:
             export_parser.error("--publish requires --preset")
         if args.publish and not args.tag:
             export_parser.error("--publish requires --tag")
+        if args.preset and args.zip:
+            export_parser.error(
+                "--zip is not supported with --preset (the HF publish step uploads the "
+                "bundle directory as-is; a preset bundle is never zipped)"
+            )
 
         if args.preset:
             with get_connection() as conn:
@@ -3894,7 +3909,10 @@ def main(argv: list[str] | None = None) -> None:
             if args.publish == "hf":
                 from mlb_baseball.publish import publish_backbone_bundle
 
-                commit = publish_backbone_bundle(result_path, tag=args.tag)
+                publish_kwargs = {"tag": args.tag}
+                if args.repo_id:
+                    publish_kwargs["repo_id"] = args.repo_id
+                commit = publish_backbone_bundle(result_path, **publish_kwargs)
                 print(f"Published to Hugging Face (revision={args.tag}): {commit}")
         elif args.profile:
             with get_connection() as conn:

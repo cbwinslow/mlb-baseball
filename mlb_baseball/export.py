@@ -14,6 +14,7 @@ import csv
 import dataclasses
 import json
 import logging
+import shutil
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -437,6 +438,13 @@ _PG_OID_TO_ARROW_TYPE: dict[int, str] = {
     23: "int32",  # integer
     700: "float32",  # real
     701: "float64",  # double precision
+    # SHORTCUT: numeric -> float64, not decimal128(precision, scale). This
+    # project's numeric columns (avg/obp/slg/era/... in the backbone tables)
+    # are unconstrained `numeric` in the DDL (no declared precision/scale),
+    # so psycopg's Cursor.description reports none to build an exact
+    # decimal128 from; float64 has ample precision for a handful of rate-stat
+    # decimal digits. Revisit if a numeric column needing exact/high-precision
+    # decimal semantics is added to the backbone preset.
     1700: "float64",  # numeric
     1082: "date32",  # date
     1114: "timestamp_us",  # timestamp without time zone
@@ -839,12 +847,27 @@ def export_backbone_bundle(
     ``BACKBONE_EXCLUDED``, reviewed in
     ``openspec/changes/delivery-surface/rights-review.md``) are recorded in
     the manifest's ``excluded`` list with their reason, not written.
+
+    SHORTCUT: each table (and the season-bounds query) runs in its own
+    read-only repeatable-read transaction via ``export_to_parquet``, the same
+    pattern ``export_bundle`` already uses -- not one shared snapshot across
+    the whole bundle. A concurrent write (e.g. `mlb report` re-running)
+    during export could make different tables reflect different points in
+    time. Revisit if `export_to_parquet` gains a shared-transaction mode
+    usable by every caller (single-relation CLI export, `export_bundle`,
+    and this function), or if a real cross-table inconsistency is observed.
     """
     import pyarrow.parquet as pq
 
     bundle_dir = Path(out_dir)
     data_dir = bundle_dir / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
+    # A stale file from a prior run (e.g. player_season.parquet written before
+    # this exclusion gate existed) would otherwise survive into a re-run and
+    # get published anyway -- HfApi().upload_folder() uploads the whole
+    # directory regardless of what the fresh manifest says is excluded.
+    if data_dir.exists():
+        shutil.rmtree(data_dir)
+    data_dir.mkdir(parents=True)
 
     manifest_tables: list[dict[str, Any]] = []
     manifest_excluded: list[dict[str, Any]] = []

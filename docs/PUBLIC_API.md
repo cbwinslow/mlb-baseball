@@ -89,6 +89,13 @@ process. The publish step reads the credential only from `HF_TOKEN` at
 runtime -- never a CLI flag (would land in shell history and process argv)
 and never logged (`mlb_baseball/publish.py`).
 
+Pass `--repo-id <owner>/<name>` to publish somewhere other than the default
+`cbwinslow/mlb-research` (e.g. once the namespace decision above lands on an
+org account). The publish step refuses to upload a directory that isn't
+shaped exactly like a backbone bundle (`data/`, `manifest.json`, `README.md`
+and nothing else) -- `HfApi().upload_folder()` has no per-file filtering, so
+this is what stops a wrong `--out` from publishing unrelated files.
+
 ## Consuming the published dataset (outside this repository)
 
 Two surfaces need no local database or clone of this repository -- see

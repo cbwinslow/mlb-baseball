@@ -277,6 +277,56 @@ def test_export_backbone_bundle_duckdb_round_trip(db_conn, tmp_path):
         _cleanup_backbone_data(db_conn)
 
 
+def test_export_to_parquet_handles_numeric_precision_drift_across_batches(db_conn, tmp_path):
+    """Regression test for a real production failure: gold.pitching_season
+    export crashed with `ArrowInvalid: Decimal value does not fit in
+    precision 22` when a later 5000-row fetch batch's `numeric` values needed
+    a wider pyarrow-inferred decimal128 precision than an earlier batch's,
+    and export_to_parquet tried to cast the later batch down to the earlier
+    (narrower) writer schema. Seeds >5000 batting_season rows so the export's
+    cur.itersize=5000 spans two real fetchmany() batches: the first 5000 with
+    small-scale `avg` values, the 5001st with a value that independently
+    verified (before this fix) forces pyarrow to infer a wider decimal128
+    for that column -- `avg` is exported as a stable float64 regardless."""
+    _seed_test_data(db_conn)
+    from mlb_baseball.export import export_to_parquet, resolve_relation
+
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO gold.batting_season (player_id, season, team_id, is_combined, avg)
+                SELECT 990001, 3000 + n, NULL, true, 0.500
+                FROM generate_series(1, 5000) AS n
+                """
+            )
+            cur.execute(
+                """
+                INSERT INTO gold.batting_season (player_id, season, team_id, is_combined, avg)
+                VALUES (990001, 8001, NULL, true, 99999999999999.999999999)
+                """
+            )
+        db_conn.commit()
+
+        rel = resolve_relation("gold.batting_season")
+        out_path = tmp_path / "batting_season_precision.parquet"
+
+        row_count = export_to_parquet(db_conn, rel, out_path, order_by=("id",))
+
+        assert row_count == 5001
+        pa = pytest.importorskip("pyarrow")
+        table = pytest.importorskip("pyarrow.parquet").read_table(out_path)
+        assert table.schema.field("avg").type == pa.float64()
+        avg_values = table.column("avg").to_pylist()
+        assert avg_values.count(0.5) == 5000
+        assert 99999999999999.99 < max(avg_values) < 1e17
+    finally:
+        with db_conn.cursor() as cur:
+            cur.execute("DELETE FROM gold.batting_season WHERE season BETWEEN 3001 AND 8001")
+        db_conn.commit()
+        _cleanup_backbone_data(db_conn)
+
+
 def test_export_relation_csv_round_trip(db_conn, tmp_path):
     """Verify export_relation writes valid CSV from real database table."""
     _seed_test_data(db_conn)

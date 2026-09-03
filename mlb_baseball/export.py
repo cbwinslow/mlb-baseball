@@ -551,6 +551,20 @@ def export_to_parquet(
             cur.execute(query, params)
             headers = [desc.name for desc in cur.description or []]
             column_oids = [desc.type_code for desc in cur.description or []]
+            # PostgreSQL numeric (OID 1700) arrives as Python Decimal, and
+            # pyarrow infers a per-batch-minimal decimal128(precision, scale)
+            # from whatever values happen to be in that batch. Two batches of
+            # the same column can infer *different*, mutually-incompatible
+            # precisions -- confirmed for real against production
+            # gold.pitching_season (ArrowInvalid: "Decimal value does not fit
+            # in precision 22"), not just a null-batch edge case. Converting
+            # to float before pyarrow ever sees the value makes every batch
+            # infer the same stable float64, matching the float64 fallback
+            # already used for an all-null numeric batch (see
+            # _PG_OID_TO_ARROW_TYPE's SHORTCUT note: this project's numeric
+            # columns are unconstrained-precision rate stats, ample headroom).
+            _NUMERIC_OID = 1700
+            numeric_col_indexes = [i for i, oid in enumerate(column_oids) if oid == _NUMERIC_OID]
             writer: pq.ParquetWriter | None = None
             try:
                 while True:
@@ -563,6 +577,16 @@ def export_to_parquet(
                             table = _fix_null_typed_columns(table, column_oids)
                             pq.write_table(table, out_path)
                         break
+                    if numeric_col_indexes:
+                        rows = [
+                            tuple(
+                                float(value)
+                                if i in numeric_col_indexes and value is not None
+                                else value
+                                for i, value in enumerate(row)
+                            )
+                            for row in rows
+                        ]
                     # Transpose rows to column arrays for pyarrow.Table
                     cols = list(zip(*rows, strict=True))
                     batch_dict = {

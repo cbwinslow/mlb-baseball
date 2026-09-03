@@ -78,7 +78,12 @@ def publish_backbone_bundle(
         )
 
     logger.info("Publishing %s to %s (revision=%s)", bundle_dir, repo_id, tag)
-    commit_info = HfApi(token=token).upload_folder(
+    api = HfApi(token=token)
+    # upload_folder() assumes the repo already exists; create_repo(exist_ok=True)
+    # is a no-op against an existing repo and creates a fresh public one
+    # otherwise -- this is the first publish, so the repo doesn't exist yet.
+    api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True, private=False)
+    commit_info = api.upload_folder(
         folder_path=str(bundle_dir),
         repo_id=repo_id,
         repo_type="dataset",

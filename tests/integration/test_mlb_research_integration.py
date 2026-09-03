@@ -26,8 +26,8 @@ def test_load_pitching_season_from_a_locally_produced_bundle(db_conn, tmp_path, 
                 """
                 INSERT INTO gold.pitching_season
                     (player_id, season, team_id, is_combined, g, outs, h)
-                VALUES (90002, 2023, 102, false, 1, 27, 5),
-                       (90002, 2023, NULL, true, 1, 27, 5)
+                VALUES (990002, 2023, 900102, false, 1, 27, 5),
+                       (990002, 2023, NULL, true, 1, 27, 5)
                 ON CONFLICT DO NOTHING;
                 """
             )
@@ -57,7 +57,11 @@ def test_load_pitching_season_from_a_locally_produced_bundle(db_conn, tmp_path, 
     finally:
         with db_conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM gold.pitching_season WHERE player_id = 90002 AND season = 2023"
+                "DELETE FROM gold.pitching_season WHERE player_id = 990002 AND season = 2023"
             )
         db_conn.commit()
         _cleanup_backbone_data(db_conn)
+        # _download_table() cached the path under tmp_path, which pytest may
+        # remove once this test ends -- clear so a later load() in this
+        # process doesn't reuse a path that no longer exists.
+        mlb_research._DOWNLOAD_CACHE.clear()

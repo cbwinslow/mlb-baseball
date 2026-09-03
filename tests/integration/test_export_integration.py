@@ -23,8 +23,8 @@ def _seed_test_data(db_conn):
         cur.execute(
             """
             INSERT INTO core.team (id, retro_team_id, league, city, nickname, first_year, last_year)
-            VALUES (101, 'NYA', 'AL', 'New York', 'Yankees', 1903, 2026),
-                   (102, 'BOS', 'AL', 'Boston', 'Red Sox', 1901, 2026)
+            VALUES (900101, 'NYA', 'AL', 'New York', 'Yankees', 1903, 2026),
+                   (900102, 'BOS', 'AL', 'Boston', 'Red Sox', 1901, 2026)
             ON CONFLICT (id) DO NOTHING;
             """
         )
@@ -32,8 +32,8 @@ def _seed_test_data(db_conn):
         cur.execute(
             """
             INSERT INTO core.player (id, retro_id, last_name, first_name)
-            VALUES (90001, 'judga001', 'Judge', 'Aaron'),
-                   (90002, 'coleg001', 'Cole', 'Gerrit')
+            VALUES (990001, 'judga001', 'Judge', 'Aaron'),
+                   (990002, 'coleg001', 'Cole', 'Gerrit')
             ON CONFLICT (id) DO NOTHING;
             """
         )
@@ -45,7 +45,7 @@ def _seed_test_data(db_conn):
                 home_score, away_score, game_type
             )
             VALUES (
-                800001, 'NYA202406010', 2024, '2024-06-01', 0, 101, 102, 5, 3, 'R'
+                980001, 'NYA202406010', 2024, '2024-06-01', 0, 900101, 900102, 5, 3, 'R'
             )
             ON CONFLICT (id) DO NOTHING;
             """
@@ -61,47 +61,47 @@ def _seed_backbone_data(db_conn):
             """
             INSERT INTO gold.batting_game
                 (game_id, player_id, team_id, season, game_date, pa, ab, h)
-            VALUES (800001, 90001, 101, 2024, '2024-06-01', 4, 4, 2)
+            VALUES (980001, 990001, 900101, 2024, '2024-06-01', 4, 4, 2)
             ON CONFLICT DO NOTHING;
 
             INSERT INTO gold.pitching_game (game_id, player_id, team_id, season, game_date, outs, h)
-            VALUES (800001, 90002, 102, 2024, '2024-06-01', 27, 5)
+            VALUES (980001, 990002, 900102, 2024, '2024-06-01', 27, 5)
             ON CONFLICT DO NOTHING;
 
             INSERT INTO gold.batting_season (player_id, season, team_id, is_combined, g, pa, ab, h)
-            VALUES (90001, 2024, 101, false, 1, 4, 4, 2),
-                   (90001, 2024, NULL, true, 1, 4, 4, 2)
+            VALUES (990001, 2024, 900101, false, 1, 4, 4, 2),
+                   (990001, 2024, NULL, true, 1, 4, 4, 2)
             ON CONFLICT DO NOTHING;
 
             INSERT INTO gold.pitching_season (player_id, season, team_id, is_combined, g, outs, h)
-            VALUES (90002, 2024, 102, false, 1, 27, 5),
-                   (90002, 2024, NULL, true, 1, 27, 5)
+            VALUES (990002, 2024, 900102, false, 1, 27, 5),
+                   (990002, 2024, NULL, true, 1, 27, 5)
             ON CONFLICT DO NOTHING;
 
             INSERT INTO gold.batting_team (team_id, season, g, pa, ab, h)
-            VALUES (101, 2024, 1, 4, 4, 2)
+            VALUES (900101, 2024, 1, 4, 4, 2)
             ON CONFLICT DO NOTHING;
 
             INSERT INTO gold.pitching_team (team_id, season, g, outs, h)
-            VALUES (102, 2024, 1, 27, 5)
+            VALUES (900102, 2024, 1, 27, 5)
             ON CONFLICT DO NOTHING;
 
             INSERT INTO gold.batting_career
                 (player_id, seasons, first_season, last_season, g, pa, ab, h)
-            VALUES (90001, 1, 2024, 2024, 1, 4, 4, 2)
+            VALUES (990001, 1, 2024, 2024, 1, 4, 4, 2)
             ON CONFLICT DO NOTHING;
 
             INSERT INTO gold.pitching_career
                 (player_id, seasons, first_season, last_season, g, outs, h)
-            VALUES (90002, 1, 2024, 2024, 1, 27, 5)
+            VALUES (990002, 1, 2024, 2024, 1, 27, 5)
             ON CONFLICT DO NOTHING;
 
             INSERT INTO gold.player_season (player_id, season, is_pitcher, player_name, team, games)
-            VALUES (90001, 2024, false, 'Aaron Judge', 'New York', 1)
+            VALUES (990001, 2024, false, 'Aaron Judge', 'New York', 1)
             ON CONFLICT DO NOTHING;
 
             INSERT INTO gold.team_season (team_id, season, team_city, team_nickname, wins, losses)
-            VALUES (101, 2024, 'New York', 'Yankees', 1, 0)
+            VALUES (900101, 2024, 'New York', 'Yankees', 1, 0)
             ON CONFLICT DO NOTHING;
             """
         )
@@ -120,19 +120,19 @@ def _cleanup_backbone_data(db_conn) -> None:
     them re-inserts via its own `ON CONFLICT DO NOTHING` call, never assumes
     a prior test already put them there."""
     with db_conn.cursor() as cur:
-        cur.execute("DELETE FROM gold.batting_game WHERE game_id = 800001")
-        cur.execute("DELETE FROM gold.pitching_game WHERE game_id = 800001")
-        cur.execute("DELETE FROM gold.batting_season WHERE player_id = 90001 AND season = 2024")
-        cur.execute("DELETE FROM gold.pitching_season WHERE player_id = 90002 AND season = 2024")
-        cur.execute("DELETE FROM gold.batting_team WHERE team_id = 101 AND season = 2024")
-        cur.execute("DELETE FROM gold.pitching_team WHERE team_id = 102 AND season = 2024")
-        cur.execute("DELETE FROM gold.batting_career WHERE player_id = 90001")
-        cur.execute("DELETE FROM gold.pitching_career WHERE player_id = 90002")
-        cur.execute("DELETE FROM gold.player_season WHERE player_id = 90001 AND season = 2024")
-        cur.execute("DELETE FROM gold.team_season WHERE team_id = 101 AND season = 2024")
-        cur.execute("DELETE FROM core.game WHERE id = 800001")
-        cur.execute("DELETE FROM core.player WHERE id IN (90001, 90002)")
-        cur.execute("DELETE FROM core.team WHERE id IN (101, 102)")
+        cur.execute("DELETE FROM gold.batting_game WHERE game_id = 980001")
+        cur.execute("DELETE FROM gold.pitching_game WHERE game_id = 980001")
+        cur.execute("DELETE FROM gold.batting_season WHERE player_id = 990001 AND season = 2024")
+        cur.execute("DELETE FROM gold.pitching_season WHERE player_id = 990002 AND season = 2024")
+        cur.execute("DELETE FROM gold.batting_team WHERE team_id = 900101 AND season = 2024")
+        cur.execute("DELETE FROM gold.pitching_team WHERE team_id = 900102 AND season = 2024")
+        cur.execute("DELETE FROM gold.batting_career WHERE player_id = 990001")
+        cur.execute("DELETE FROM gold.pitching_career WHERE player_id = 990002")
+        cur.execute("DELETE FROM gold.player_season WHERE player_id = 990001 AND season = 2024")
+        cur.execute("DELETE FROM gold.team_season WHERE team_id = 900101 AND season = 2024")
+        cur.execute("DELETE FROM core.game WHERE id = 980001")
+        cur.execute("DELETE FROM core.player WHERE id IN (990001, 990002)")
+        cur.execute("DELETE FROM core.team WHERE id IN (900101, 900102)")
     db_conn.commit()
 
 

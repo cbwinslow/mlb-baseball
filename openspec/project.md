@@ -42,7 +42,8 @@ Parquet on Hugging Face (+ GitHub Releases mirror) → pybaseball-style
 Python loader on PyPI → DuckDB-WASM browser query page → Docker image →
 Marimo notebooks + a MkDocs Material docs site. Coverage target: match
 `pybaseball` / `baseballr`. No hosted DB, no hosted REST API (defer —
-needs revenue).
+needs revenue). Publishing the backbone dataset:
+[`docs/PUBLIC_API.md`](../docs/PUBLIC_API.md#publishing-the-backbone-dataset-to-hugging-face).
 
 ---
 
@@ -162,12 +163,24 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 4. ✅ Bot prune + dependency/PG-extension audit — ADR-279; issue #142
    (logging); `.coderabbit.yaml`; dependency-review comment fix; owner uninstalls pending
 5. MkDocs Material docs site + `understand-anything` knowledge graph
-6. Delivery surface first cut — Parquet→HF, DuckDB-WASM page, PyPI
-   loader skeleton, one notebook
+6. ✅ Delivery surface first cut (`openspec/changes/delivery-surface/`) —
+   `mlb export --preset backbone` (8 of 10 candidate tables; `player_season`/
+   `team_season` excluded on source-rights grounds, see `rights-review.md`),
+   HF publish step, `mlb-research` PyPI loader package, the DuckDB-WASM
+   query page (`docs/site/query/`), and one example notebook
+   (`notebooks/01-strikeout-rate-by-decade.py`). Published:
+   [huggingface.co/datasets/cbwinslow/mlb-research](https://huggingface.co/datasets/cbwinslow/mlb-research),
+   tag `v0.1.0`. Production `mlb` needed migrations 0094-0099 applied and its
+   first-ever `mlb report` backbone build (12.9M rows, 16.4M source events)
+   before the export had anything to publish — both done as part of this
+   step.
 
 **NEXT** — the milestone proper: capture the grain backbone as
-`openspec/specs/statistic-backbone/spec.md`; Baseball-Reference tie-out
-tests (2023 Judge / Cole); `gold.player_season` two-writer ADR (ADR-278
-relation-6, options A/B/C — recommend A).
+`openspec/specs/statistic-backbone/spec.md`; ✅ Baseball-Reference tie-out
+tests (2023 Judge / Cole) — `scripts/verify_baseball_reference_tie_out.py`,
+run against production: both cases match exactly (rate stats to
+Baseball-Reference's own 3-decimal display precision); expand coverage
+beyond these two seasons as a follow-up; `gold.player_season` two-writer
+ADR (ADR-278 relation-6, options A/B/C — recommend A).
 
 **LATER** — Phase 2 (prediction ladder) and beyond. See Longer vision.

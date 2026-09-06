@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MLB Research Statistic Backbone - SQL Query</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    max-width: 960px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    line-height: 1.5;
+  }
+  h1 { font-size: 1.4rem; }
+  textarea {
+    width: 100%;
+    min-height: 6rem;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+    padding: 0.5rem;
+  }
+  button {
+    margin-top: 0.5rem;
+    padding: 0.5rem 1.25rem;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  button:disabled { cursor: not-allowed; opacity: 0.6; }
+  #status { margin: 0.5rem 0; color: #666; font-size: 0.9rem; }
+  #error {
+    white-space: pre-wrap;
+    background: #fee;
+    border: 1px solid #c00;
+    color: #900;
+    padding: 0.75rem;
+    border-radius: 4px;
+    margin: 0.5rem 0;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.9rem;
+  }
+  #error[hidden] { display: none; }
+  #results { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: 0.9rem; }
+  th, td { border: 1px solid #ccc; padding: 0.35rem 0.5rem; text-align: left; }
+  th { background: #f2f2f2; }
+  code { background: #f2f2f2; padding: 0.1rem 0.3rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<h1>MLB Research Statistic Backbone - SQL Query</h1>
+<p>
+  Run SQL directly against the published
+  <a href="https://huggingface.co/datasets/cbwinslow/mlb-research">MLB Research Statistic Backbone</a>
+  dataset, entirely in your browser via
+  <a href="https://duckdb.org/docs/stable/clients/wasm/overview.html">DuckDB-WASM</a>.
+  No server, no account, no data leaves this page except direct requests to
+  Hugging Face for the Parquet row groups your query touches.
+</p>
+<p>
+  Available tables: <code>batting_game</code>, <code>pitching_game</code>,
+  <code>batting_season</code>, <code>pitching_season</code>,
+  <code>batting_team</code>, <code>pitching_team</code>,
+  <code>batting_career</code>, <code>pitching_career</code>.
+</p>
+
+<textarea id="sql" spellcheck="false">SELECT * FROM batting_season WHERE season = 2023 LIMIT 5</textarea>
+<div>
+  <button id="run" disabled>Run</button>
+</div>
+<div id="status">Loading...</div>
+<div id="error" hidden></div>
+<div id="results"></div>
+
+<script type="module" src="query.js"></script>
+</body>
+</html>

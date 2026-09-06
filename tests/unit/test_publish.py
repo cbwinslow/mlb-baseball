@@ -1,8 +1,20 @@
 """Unit tests for the Hugging Face Datasets publish step (delivery-surface)."""
 
+import shutil
+
 import pytest
 
 from mlb_baseball import publish
+
+
+class _FakeCommitInfo:
+    """Stand-in for huggingface_hub's CommitInfo: carries the commit `oid`
+    (create_tag pins the release tag to it) and stringifies to the commit URL."""
+
+    oid = "abc123commitoid"
+
+    def __str__(self):
+        return "https://huggingface.co/datasets/cbwinslow/mlb-research/commit/abc123"
 
 
 class _FakeHfApi:
@@ -19,7 +31,7 @@ class _FakeHfApi:
 
     def upload_folder(self, **kwargs):
         _FakeHfApi.calls.append(("upload_folder", kwargs))
-        return "https://huggingface.co/datasets/cbwinslow/mlb-research/commit/abc123"
+        return _FakeCommitInfo()
 
     def create_tag(self, **kwargs):
         _FakeHfApi.calls.append(("create_tag", kwargs))
@@ -35,6 +47,7 @@ def _make_valid_bundle(tmp_path):
     """A bundle directory shaped exactly like export_backbone_bundle()'s output."""
     bundle_dir = tmp_path / "backbone_bundle"
     (bundle_dir / "data").mkdir(parents=True)
+    (bundle_dir / "data" / "batting_season.parquet").write_bytes(b"PAR1")
     (bundle_dir / "manifest.json").write_text("{}", encoding="utf-8")
     (bundle_dir / "README.md").write_text("# card", encoding="utf-8")
     return bundle_dir
@@ -72,13 +85,15 @@ def test_publish_backbone_bundle_creates_repo_uploads_then_tags(monkeypatch, tmp
             "repo_type": "dataset",
         },
     )
+    # The release tag is pinned to the commit upload_folder produced, and no
+    # exist_ok -- re-publishing to an existing release tag must fail loudly.
     assert create_tag_call == (
         "create_tag",
         {
             "repo_id": "cbwinslow/mlb-research",
             "tag": "v0.1.0",
             "repo_type": "dataset",
-            "exist_ok": True,
+            "revision": "abc123commitoid",
         },
     )
 
@@ -166,10 +181,11 @@ def test_publish_backbone_bundle_rejects_unexpected_files(monkeypatch, tmp_path)
 
 
 def test_publish_backbone_bundle_does_not_inspect_data_dir_contents(monkeypatch, tmp_path):
-    """publish_backbone_bundle only validates the bundle's top-level shape --
-    it trusts export_backbone_bundle's own rmtree-before-write (export.py) to
-    keep data/ free of stale excluded-table files. This documents that
-    boundary rather than duplicating the check here."""
+    """publish_backbone_bundle checks the bundle's shape (data/ exists and holds
+    at least one .parquet, manifest.json + README.md present) but not which
+    tables are in data/ -- it trusts export_backbone_bundle's own
+    rmtree-before-write (export.py) to keep data/ free of stale excluded-table
+    files. This documents that boundary rather than duplicating the check."""
     monkeypatch.setenv("HF_TOKEN", "hf_super_secret_token")
     monkeypatch.setattr("huggingface_hub.HfApi", _FakeHfApi, raising=False)
 
@@ -184,9 +200,50 @@ def test_publish_backbone_bundle_rejects_missing_manifest(monkeypatch, tmp_path)
     monkeypatch.setenv("HF_TOKEN", "hf_super_secret_token")
     monkeypatch.setattr("huggingface_hub.HfApi", _FakeHfApi, raising=False)
 
-    bundle_dir = tmp_path / "empty_bundle"
-    bundle_dir.mkdir()
+    bundle_dir = _make_valid_bundle(tmp_path)
+    (bundle_dir / "manifest.json").unlink()
 
     with pytest.raises(RuntimeError, match="no manifest.json found"):
+        publish.publish_backbone_bundle(bundle_dir, tag="v0.1.0")
+    assert _FakeHfApi.calls == []
+
+
+def test_publish_backbone_bundle_rejects_missing_data_dir(monkeypatch, tmp_path):
+    """A bundle with no data/ directory must be refused before any HfApi call."""
+    monkeypatch.setenv("HF_TOKEN", "hf_super_secret_token")
+    monkeypatch.setattr("huggingface_hub.HfApi", _FakeHfApi, raising=False)
+
+    bundle_dir = _make_valid_bundle(tmp_path)
+    shutil.rmtree(bundle_dir / "data")
+
+    with pytest.raises(RuntimeError, match="no data/ directory found"):
+        publish.publish_backbone_bundle(bundle_dir, tag="v0.1.0")
+    assert _FakeHfApi.calls == []
+
+
+def test_publish_backbone_bundle_rejects_empty_data_dir(monkeypatch, tmp_path):
+    """data/ present but holding no .parquet files must be refused --
+    upload_folder would otherwise publish a release with no tables."""
+    monkeypatch.setenv("HF_TOKEN", "hf_super_secret_token")
+    monkeypatch.setattr("huggingface_hub.HfApi", _FakeHfApi, raising=False)
+
+    bundle_dir = _make_valid_bundle(tmp_path)
+    for parquet in (bundle_dir / "data").glob("*.parquet"):
+        parquet.unlink()
+
+    with pytest.raises(RuntimeError, match="no .parquet files"):
+        publish.publish_backbone_bundle(bundle_dir, tag="v0.1.0")
+    assert _FakeHfApi.calls == []
+
+
+def test_publish_backbone_bundle_rejects_missing_dataset_card(monkeypatch, tmp_path):
+    """A bundle missing README.md (the dataset card) must be refused."""
+    monkeypatch.setenv("HF_TOKEN", "hf_super_secret_token")
+    monkeypatch.setattr("huggingface_hub.HfApi", _FakeHfApi, raising=False)
+
+    bundle_dir = _make_valid_bundle(tmp_path)
+    (bundle_dir / "README.md").unlink()
+
+    with pytest.raises(RuntimeError, match="no README.md"):
         publish.publish_backbone_bundle(bundle_dir, tag="v0.1.0")
     assert _FakeHfApi.calls == []

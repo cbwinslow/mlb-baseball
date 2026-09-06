@@ -36,8 +36,17 @@ def _validate_bundle_shape(bundle_dir: Path) -> None:
             "Use a dedicated --out directory produced by `mlb export --preset backbone`, "
             "not one containing other files."
         )
+    # Every expected entry must be present with the right type -- a bundle
+    # missing data/ or README.md (or with data/ as a file, etc.) would
+    # otherwise upload a broken/incomplete Hugging Face release.
+    if not (bundle_dir / "data").is_dir():
+        raise RuntimeError(f"Refusing to publish {bundle_dir}: no data/ directory found")
+    if not any((bundle_dir / "data").glob("*.parquet")):
+        raise RuntimeError(f"Refusing to publish {bundle_dir}: data/ contains no .parquet files")
     if not (bundle_dir / "manifest.json").is_file():
         raise RuntimeError(f"Refusing to publish {bundle_dir}: no manifest.json found")
+    if not (bundle_dir / "README.md").is_file():
+        raise RuntimeError(f"Refusing to publish {bundle_dir}: no README.md (dataset card) found")
 
 
 def publish_backbone_bundle(
@@ -95,5 +104,9 @@ def publish_backbone_bundle(
         repo_id=repo_id,
         repo_type="dataset",
     )
-    api.create_tag(repo_id=repo_id, tag=tag, repo_type="dataset", exist_ok=True)
+    # Tag the exact commit this publish produced, not whatever the default
+    # branch tip happens to be. No exist_ok: a release tag (v0.1.0, ...) is
+    # immutable, so re-publishing to an existing tag should fail loudly
+    # rather than silently leave the tag pointing at stale data.
+    api.create_tag(repo_id=repo_id, tag=tag, repo_type="dataset", revision=commit_info.oid)
     return str(commit_info)

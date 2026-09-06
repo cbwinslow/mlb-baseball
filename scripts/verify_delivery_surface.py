@@ -37,14 +37,19 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _database_url() -> str:
+def _database_url(*, allow_production: bool = False) -> str:
     """Same precedence `mlb export`/`get_connection()` uses (DATABASE_URL) --
     this script exercises the real CLI/package/page path against whatever
-    database that would hit, test or production. Read-only: this script and
-    export_backbone_bundle never write to the database. The resolved
-    database name is always printed before connecting (root AGENTS.md:
-    "make the target database explicit before execution") so a shell with
-    DATABASE_URL left pointed at production `mlb` is never ambiguous.
+    database that would hit. Read-only: this script and export_backbone_bundle
+    never write to the database. The resolved database name is always printed
+    before connecting (root AGENTS.md: "make the target database explicit
+    before execution").
+
+    Refuses the production database (``mlb``) unless ``--allow-production-read``
+    is passed: a dev shell with ``DATABASE_URL`` left pointed at production
+    would otherwise silently export production tables into a temp bundle.
+    Any other name (``mlb_test``, ``mlb_verify_scratch``, a pytest run-DB) is
+    accepted.
     """
     url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
     if not url:
@@ -53,6 +58,12 @@ def _database_url() -> str:
             "database with the backbone gold tables already built (`mlb report`)."
         )
     dbname = url.rsplit("/", 1)[-1].split("?", 1)[0]
+    if dbname == "mlb" and not allow_production:
+        raise SystemExit(
+            f"Refusing to run against production database {dbname!r}. This script "
+            "exports every backbone table into a temp bundle -- point DATABASE_URL "
+            "at a test/scratch database, or pass --allow-production-read to override."
+        )
     print(f"Target database: {dbname!r} (read-only)")
     return url
 
@@ -161,9 +172,14 @@ def main() -> None:
         action="store_true",
         help="pause with the local query page reachable so you can open it in a browser",
     )
+    parser.add_argument(
+        "--allow-production-read",
+        action="store_true",
+        help="permit running against the production 'mlb' database (read-only; off by default)",
+    )
     args = parser.parse_args()
 
-    database_url = _database_url()
+    database_url = _database_url(allow_production=args.allow_production_read)
     out_dir = args.out or Path(tempfile.mkdtemp(prefix="mlb_backbone_verify_"))
 
     manifest = step_export(database_url, out_dir)

@@ -32,6 +32,12 @@ WITH event_parsed AS (
         )) AS margin_bucket,
         re.bat_event_fl
     FROM raw.retrosheet_event re
+    -- Regular season only. The downstream join to the `games` CTE (from
+    -- gold.game_feature) already drops non-regular games, but scope the
+    -- event read explicitly so postseason / All-Star / Negro League plays
+    -- never enter any prior-window accumulation.
+    JOIN raw.retrosheet_gameinfo gi
+      ON gi.gid = re.game_id AND lower(gi.gametype) = 'regular'
 ),
 
 -- Leverage Index: real, empirically derived from gold.leverage_index

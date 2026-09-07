@@ -1,7 +1,7 @@
 ## 1. Pipeline audit (do first — records the blast radius)
 
-- [ ] 1.1 Walk every `gold` builder (`mlb_baseball/sql/*.sql`, `mlb_baseball/report.py`), every SQLMesh model in `transforms/models/`, every materialised view (`SELECT ... FROM pg_class WHERE relkind IN ('v','m')` whose def references game-level data), and every Python aggregation in `mlb_baseball/model/*.py` + `mlb_baseball/*.py`. Record in `openspec/changes/separate-postseason-stats/game-type-audit.md`: per relation — which `game_type`s it includes, where the filter is (file:line) or that it is missing, and the fix. Verify: the audit file lists every game-aggregating relation with a PASS (explicit filter) or GAP (fix noted).
-- [ ] 1.2 For each GAP found in 1.1, add the explicit `game_type` filter. Verify: re-run the affected builder against a test DB; row counts change only where a postseason game was wrongly included; a targeted integration test covers each fix.
+- [x] 1.1 Walk every `gold` builder (`mlb_baseball/sql/*.sql`, `mlb_baseball/report.py`), every SQLMesh model in `transforms/models/`, every materialised view (`SELECT ... FROM pg_class WHERE relkind IN ('v','m')` whose def references game-level data), and every Python aggregation in `mlb_baseball/model/*.py` + `mlb_baseball/*.py`. Record in `openspec/changes/separate-postseason-stats/game-type-audit.md`: per relation — which `game_type`s it includes, where the filter is (file:line) or that it is missing, and the fix. Verify: the audit file lists every game-aggregating relation with a PASS (explicit filter) or GAP (fix noted).
+- [x] 1.2 For each GAP found in 1.1, add the explicit `game_type` filter. Verify: re-run the affected builder against a test DB; row counts change only where a postseason game was wrongly included; a targeted integration test covers each fix.
 
 ## 2. Fix the raw Baseball-Reference ingest
 

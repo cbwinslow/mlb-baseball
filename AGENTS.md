@@ -1,8 +1,9 @@
 # MLB Baseball — root DOX contract
 
 > **START HERE: `openspec/project.md`** — the project constitution (product,
-> audience, current phase, frozen list, DB standards, workflow, CI gates, merge
-> protocol, tooling). Read it before anything else. Rationale:
+> audience, two-product model, current phase, phased ladder, DB standards,
+> workflow, CI gates, merge protocol, tooling). Read it before anything else.
+> Rationale:
 > `docs/superpowers/specs/2026-09-02-project-restructure-design.md`.
 >
 > **Workflow is OpenSpec** (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`).
@@ -151,8 +152,9 @@ copy the same rule into every ancestor.
 
 Start here for deeper shared context:
 
-- `openspec/project.md` — the constitution: product, audience, current phase,
-  frozen list, workflow, `NOW / NEXT / LATER` queue. Read first.
+- `openspec/project.md` — the constitution: product, audience, two-product
+  model, current phase, phased ladder, workflow, `NOW / NEXT / LATER` queue.
+  Read first.
 - `docs/ARCHITECTURE.md` — data/system architecture.
 - `docs/DATA_SOURCES.md` / `docs/SOURCE_RIGHTS.md` — source catalog and rights.
 - `docs/SQL_OWNERSHIP.md` — SQL placement/ownership.

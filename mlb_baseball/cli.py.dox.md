@@ -103,9 +103,9 @@ A command handler should generally:
 
 It should not embed a second implementation of the domain operation.
 
-## Model / Engine Command Freeze
+## Model / Engine Command Consolidation
 
-The CLI currently exposes a very broad collection of model/metric/Engine-related commands inherited from prior expansion. During the research-database consolidation phase:
+The CLI currently exposes a very broad collection of model/metric/Engine-related commands inherited from prior expansion. During Phase A (see `openspec/project.md`'s phased ladder — the Engine is Phase B, gated):
 
 - do not keep adding one top-level command per new metric/Engine;
 - preserve existing commands for compatibility;

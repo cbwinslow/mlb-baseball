@@ -4,7 +4,9 @@
 
 This subtree contains the current modeling/statistical research implementations, experiments, evaluation helpers, and many historical metric/engine modules. It is a large legacy/research surface and is **not** a license to keep adding new modules indefinitely.
 
-The current project priority is the reproducible research database/toolkit. Predictive-model expansion remains secondary until the research grains, stat ownership, coverage, and researcher-facing API are coherent.
+**Two products** (`openspec/project.md` — "Who it's for"): the walk-forward backtest harness, the point-in-time feature store, the Markov/sim engine, and **one** reference baseline model (Elo v2) are part of the public `mlb-research` toolkit and **ship**. Tuned model weights and configs, backtest results for any non-baseline model, and the model ladder above the baseline are the internal Engine and **stay private**. Apply `project.md`'s one-sentence ship/internal test — do not re-derive it here.
+
+The Engine (Phase B of the ladder) is **SPECULATIVE and gated**: it does not start until Phase A's feature store is stable and versioned, and only after a re-evaluation says go. Until then, model work is limited to what Phase A needs.
 
 ## Ownership
 
@@ -28,14 +30,16 @@ The current project priority is the reproducible research database/toolkit. Pred
 - Do not silently turn missing measurements into zeros.
 - GPU/JIT/parallel acceleration must follow profiling/benchmark evidence; correctness/reproducibility comes first.
 
-## Current Freeze / Consolidation Rule
+## Consolidation Rule (until Phase B opens)
 
-Until the research database v1 gate is met:
+Phase B item 1 — Engine triage into a `meta.metric` registry — is a **sanctioned lane**, but it is gated on Phase A (`openspec/project.md`, phased ladder). Until Phase B opens:
 
 - favor validating, classifying, consolidating, or extracting existing assets;
-- do not expand the large "Engine"/metric catalog except for a directly required research primitive;
+- do not expand the "Engine"/metric catalog except for a directly required Phase A research primitive;
 - new reusable descriptive statistics should target the planned neutral `stats/` package/registry instead of deepening this legacy namespace;
 - preserve useful negative results and provenance rather than rerunning the same failed idea.
+
+When Phase B opens, the triage runs against this whole namespace at once — that is expected, not a violation of the "no mass rewrite" rule; classification is not rewriting.
 
 ## Progressive Context
 
@@ -46,7 +50,7 @@ Before editing a specific modeling module:
 3. If the module has a future `<module>.dox.md` sidecar, read it for exact formula/data/PIT contracts.
 4. Load model/research runbooks or skills only for the task being performed.
 
-Do not create sidecars for every historical Engine module in one mechanical sweep. Start with load-bearing evaluation/PIT modules and modules being actively promoted or decomposed.
+Do not create `.dox.md` sidecars for every historical Engine module in one mechanical sweep. Start with load-bearing evaluation/PIT modules and modules being actively promoted or decomposed. (The Phase B `meta.metric` triage classifies modules into a registry table — that is not the same as writing a sidecar per module.)
 
 ## Work Guidance
 

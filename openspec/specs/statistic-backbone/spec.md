@@ -115,10 +115,12 @@ A Baseball-Reference tie-out gate SHALL exist with two parts:
   any field is outside a small documented tolerance on more than a small
   fraction of them.
 
-The bulk cross-check SHALL exclude seasons from 2020 onward: `gold.player_season`
-from 2021 folds in postseason games (an upstream Baseball-Reference / pybaseball
-date-range issue, tracked and fixed separately), so it is not a valid reference
-for those years.
+The bulk cross-check SHALL exclude the 2020 season (COVID-shortened to 60
+games — not a useful reference). It previously also excluded 2021 onward,
+because `gold.player_season` folded in postseason games for playoff teams;
+the `separate-postseason-stats` change fixed that at the source (`bref.py`
+now pulls a regular-season-only window), so 2021+ is a valid reference again
+and the gate runs through the last completed season.
 
 **Documented limitation.** Exact tie-out is not achievable at the career grain,
 nor for seasons much before 2000: Retrosheet's event record and
@@ -144,7 +146,7 @@ Retrosheet events).
 
 - **WHEN** the bulk cross-check runs over the trustworthy seasons
 - **THEN** for every checked field, the fraction of qualified player-seasons outside tolerance is below the gate's threshold
-- **AND** seasons from 2020 onward are not part of the comparison
+- **AND** the 2020 COVID-shortened season is not part of the comparison
 
 #### Scenario: A missing row fails a cited case
 

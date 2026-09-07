@@ -15,13 +15,14 @@ Two parts:
    team-season, and career grains.
 
 2. **Bulk cross-check** -- for the seasons where ``gold.player_season``
-   (Baseball-Reference lineage, via pybaseball) is trustworthy (2008-2019),
-   the event-derived ``gold.batting_season`` / ``gold.pitching_season`` are
-   compared against it field-by-field for every qualified player-season, and
-   the gate fails if any field is outside tolerance on more than a small
-   fraction of them. 2020 (COVID) and 2021+ are excluded: from 2021
-   ``gold.player_season`` folds in postseason games (see the honest-limitations
-   doc / ADR).
+   (Baseball-Reference lineage, via pybaseball) is trustworthy
+   (2008-2025, skipping 2020), the event-derived ``gold.batting_season`` /
+   ``gold.pitching_season`` are compared against it field-by-field for every
+   qualified player-season, and the gate fails if any field is outside
+   tolerance on more than a small fraction of them. Only the 2020
+   COVID-shortened season is skipped; 2021+ was excluded until
+   ``separate-postseason-stats`` (ADR-282) fixed the postseason-in-
+   ``gold.player_season`` bug at the source.
 
 Known limits, documented, not gated: exact tie-out is not achievable at the
 career grain or for seasons much before ~2000 -- Retrosheet's event record and

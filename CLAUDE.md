@@ -14,11 +14,28 @@ addition to the applicable `AGENTS.md` chain. If the target has a
 
 ## Communicating with the owner
 
-- Give the bottom line first, in plain language.
-- Prefer short, concrete sentences over dense jargon. Add the technical term only
-  when it helps.
-- Clearly separate **what I found** from **what I recommend** when analysis and
-  recommendation are both involved.
+**Plain language is mandatory. The owner is not a specialist and gets confused by
+long, dense, jargon-heavy replies. Keep every response short and simple.**
+
+Hard rules:
+
+- **Lead with one plain sentence** the owner can act on — the answer, the result,
+  or the recommendation. No preamble.
+- **Keep the whole reply short.** Aim for under ~10 lines. Status, a finding, and
+  a next step each get 1–3 short sentences. If it is getting long, stop and send
+  the short version; offer the detail only if asked.
+- **Cut jargon.** If a technical term is unavoidable, define it in a few plain
+  words the first time.
+- **When asking the owner to decide:** give (1) the decision in one plain
+  sentence, (2) at most two choices in plain words, (3) your recommendation.
+  No trade-off tables, no more than ~6 lines for the whole question.
+- **Never dump raw detail** (long tables, multi-part breakdowns, walls of
+  findings) unless the owner explicitly asks to see everything.
+- Separate **what I found** from **what I recommend** when both are involved —
+  but keep each to a sentence or two.
+- When explaining is genuinely needed ("walk me through", "explain"), it can run
+  longer, but still use short sentences and plain words.
+
 - If citing a repository rule as a constraint, quote or point to the exact owning
   file rather than presenting a remembered paraphrase as a hard rule.
 - After finishing work, mention a next step only when evidence shows it is useful;

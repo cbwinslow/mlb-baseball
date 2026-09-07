@@ -122,9 +122,21 @@ knowable before a game*, the backbone is *what actually happened*, at every
 grain a sabermetric researcher expects (game → season → career; player and
 team). Built by `mlb report` from `raw.retrosheet_event`, matching the
 event-flag handling of the already-tied-out team stats
-(`sql/team_woba_retrosheet_update.sql`, ADR-034). See
-[`superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md`](superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md)
-for the staged plan.
+(`sql/team_woba_retrosheet_update.sql`, ADR-034).
+
+**Authoritative contract:**
+[`../openspec/specs/statistic-backbone/spec.md`](../openspec/specs/statistic-backbone/spec.md)
+(grain set, source fidelity, null policy, roll-up direction, validation,
+export profile). Staged build plan:
+[`superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md`](superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md).
+
+**Two season lines, parallel (ADR-281):** `gold.batting_season` /
+`gold.pitching_season` here are the *event-derived* line (Retrosheet, 1910+,
+per-team stint rows + a combined line, `ra9` not `era`). `gold.player_season`
+/ `gold.team_season` (§ elsewhere) are the *Baseball-Reference / Lahman
+"official"* line (2008+, carries `era` and other provider fields). They are
+distinct sources for distinct purposes — neither is a view over or a writer
+into the other.
 
 ### 3.1 `gold.batting_game`
 

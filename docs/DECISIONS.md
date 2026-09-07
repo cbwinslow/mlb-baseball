@@ -2,6 +2,39 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-281: backbone Relation 6 — `gold.player_season` and the event-derived season tables stay parallel
+
+**Decision:** `gold.player_season` / `gold.team_season` (Baseball-Reference /
+Lahman sourced, 2008+) and the event-derived `gold.batting_season` /
+`gold.pitching_season` (Retrosheet, 1910+, team-aware) are **two parallel
+season lines**, each labelled with its source. Neither is defined as a view
+over the other, and neither is a second writer into the other's table. This
+closes the "Relation 6 … still open" item in ADR-278.
+Change record: `openspec/changes/statistic-backbone/`;
+spec: `openspec/specs/statistic-backbone/spec.md`.
+
+**Context:** ADR-278 built the grain-complete backbone but left open whether
+`gold.player_season` should become a view over the new tables or stay a
+parallel "official-source" alternative. Forward plan D3 recommended keeping
+both; this records that as the decision.
+
+**Why not merge them:** they carry genuinely different data. `gold.player_season`
+has `era` and other Baseball-Reference-computed fields the event stream cannot
+reconstruct (no earned-run / reconstructed-inning data in cwevent). The
+event-derived tables have 1910+ coverage, per-`(player, season, team)` stint
+rows plus a combined line, and `ra9` — none of which the BRef line offers
+before 2008. A merge in either direction loses information. Kept apart, the
+two also serve as a mutual cross-check on the overlap years (2008+).
+
+**Cost:** none — no schema or code change. Documentation only:
+`docs/DATA_DICTIONARY.md` and `docs/TABLE_CONTRACTS.md` state the relationship,
+citing this ADR.
+
+**Revisit if:** a `public_safe` Retrosheet-id-keyed variant of the event
+tables lands and a downstream consumer needs a single unified season
+interface — at which point a *read* view that UNIONs the two with a `source`
+discriminator is the move, still never a second writer.
+
 ## ADR-280: enable `pg_trgm` / `unaccent` / `btree_gist` / `tablefunc` as available toolbox
 
 **Decision:** Migration `0099_analytics_extensions.sql` runs `CREATE EXTENSION`
@@ -144,12 +177,11 @@ columns match the season table, rates recomputed from career totals.
 `%(season)s` bind (a career is every season), so `_build_backbone_relation`
 only passes params when the SQL actually contains the bind.
 
-**Relation 6 (the `gold.player_season` decision) is still open** — see the
-"Revisit if" above. The recommendation on the table (forward plan D3) is to
-keep `gold.player_season` as the Baseball-Reference-sourced "official"
-season line and the new tables as the event-computed / full-history /
-team-aware line, recorded in its own ADR. Not yet decided; do not wire the
-two together as a two-writer accident.
+**Relation 6 (the `gold.player_season` decision) is resolved by ADR-281**:
+`gold.player_season` stays the Baseball-Reference-sourced "official" season
+line and the event-derived `gold.batting_season` / `gold.pitching_season` are
+the parallel full-history / team-aware line — two sources, documented as such,
+never wired together as a view or a two-writer.
 
 ## ADR-277: core.market.observed_at — truthful pre-game timestamp for market comparison lines
 

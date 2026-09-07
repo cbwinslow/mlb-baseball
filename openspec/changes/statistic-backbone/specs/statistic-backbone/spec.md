@@ -23,7 +23,10 @@ A player who both bats and pitches SHALL appear in both the batting and the
 pitching relation at each grain. A player who appears for two teams in one
 game SHALL get two game-grain rows (team is part of the key), not a collision.
 
-Coverage is the regular season, 1910 onward.
+Coverage is the regular season. The Retrosheet-event builder covers 1910–2025.
+A 2026-onward builder over `raw.mlb_playbyplay` is planned follow-up work; when
+it lands it SHALL meet the same source-fidelity and null-policy requirements
+below.
 
 #### Scenario: A traded player's season has per-team lines and one combined line
 
@@ -38,11 +41,12 @@ Coverage is the regular season, 1910 onward.
 
 ### Requirement: Statistics are computed from Retrosheet events, not from `core.play`
 
-Batting and pitching lines SHALL be computed from `raw.retrosheet_event` for
-1910–2025 and from `raw.mlb_playbyplay` for 2026 onward, using the same event
-classification (at-bat, batting-event, sacrifice, hit-code, RBI count) as the
-project's already-tied-out team-level statistic builders. The lines SHALL NOT
-be derived from `core.play`, which does not carry that event classification.
+Batting and pitching lines SHALL be computed from `raw.retrosheet_event`
+(1910–2025; and from `raw.mlb_playbyplay` for 2026 onward once that builder
+lands), using the same event classification (at-bat, batting-event, sacrifice,
+hit-code, RBI count) as the project's already-tied-out team-level statistic
+builders. The lines SHALL NOT be derived from `core.play`, which does not carry
+that event classification.
 
 #### Scenario: A backbone line matches the tied-out team builder's numbers
 

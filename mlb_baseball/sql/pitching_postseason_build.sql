@@ -15,6 +15,10 @@
 -- Three row kinds (see migration 0100): per-round, combined (per player-season),
 -- career (per player). Lahman IPouts -> outs; per-9 rates multiply by 27 / outs.
 -- Unlike gold.pitching_season, PitchingPost carries ER, so ERA is real.
+--
+-- raw.lahman_pitching_post columns are text and pandas float-formats any
+-- nullable integer column ("4.0", not "4") whenever the source left blanks in
+-- that column -- so cast via ::numeric::integer, not ::integer directly.
 
 WITH src AS (
     SELECT
@@ -22,25 +26,25 @@ WITH src AS (
         t.id AS team_id,
         pp.yearid::integer AS season,
         pp.round AS round,
-        coalesce(nullif(pp.g,     '')::integer, 0) AS g,
-        coalesce(nullif(pp.gs,    '')::integer, 0) AS gs,
-        coalesce(nullif(pp.cg,    '')::integer, 0) AS cg,
-        coalesce(nullif(pp.sho,   '')::integer, 0) AS sho,
-        coalesce(nullif(pp.bfp,   '')::integer, 0) AS bf,
-        coalesce(nullif(pp.ipouts,'')::integer, 0) AS outs,
-        coalesce(nullif(pp.h,     '')::integer, 0) AS h,
-        coalesce(nullif(pp.r,     '')::integer, 0) AS r,
-        coalesce(nullif(pp.er,    '')::integer, 0) AS er,
-        coalesce(nullif(pp.bb,    '')::integer, 0) AS bb,
-        coalesce(nullif(pp.ibb,   '')::integer, 0) AS ibb,
-        coalesce(nullif(pp.so,    '')::integer, 0) AS so,
-        coalesce(nullif(pp.hr,    '')::integer, 0) AS hr,
-        coalesce(nullif(pp.hbp,   '')::integer, 0) AS hbp,
-        coalesce(nullif(pp.wp,    '')::integer, 0) AS wp,
-        coalesce(nullif(pp.bk,    '')::integer, 0) AS bk,
-        coalesce(nullif(pp.w,     '')::integer, 0) AS w,
-        coalesce(nullif(pp.l,     '')::integer, 0) AS l,
-        coalesce(nullif(pp.sv,    '')::integer, 0) AS sv
+        coalesce(nullif(pp.g,     '')::numeric::integer, 0) AS g,
+        coalesce(nullif(pp.gs,    '')::numeric::integer, 0) AS gs,
+        coalesce(nullif(pp.cg,    '')::numeric::integer, 0) AS cg,
+        coalesce(nullif(pp.sho,   '')::numeric::integer, 0) AS sho,
+        coalesce(nullif(pp.bfp,   '')::numeric::integer, 0) AS bf,
+        coalesce(nullif(pp.ipouts,'')::numeric::integer, 0) AS outs,
+        coalesce(nullif(pp.h,     '')::numeric::integer, 0) AS h,
+        coalesce(nullif(pp.r,     '')::numeric::integer, 0) AS r,
+        coalesce(nullif(pp.er,    '')::numeric::integer, 0) AS er,
+        coalesce(nullif(pp.bb,    '')::numeric::integer, 0) AS bb,
+        coalesce(nullif(pp.ibb,   '')::numeric::integer, 0) AS ibb,
+        coalesce(nullif(pp.so,    '')::numeric::integer, 0) AS so,
+        coalesce(nullif(pp.hr,    '')::numeric::integer, 0) AS hr,
+        coalesce(nullif(pp.hbp,   '')::numeric::integer, 0) AS hbp,
+        coalesce(nullif(pp.wp,    '')::numeric::integer, 0) AS wp,
+        coalesce(nullif(pp.bk,    '')::numeric::integer, 0) AS bk,
+        coalesce(nullif(pp.w,     '')::numeric::integer, 0) AS w,
+        coalesce(nullif(pp.l,     '')::numeric::integer, 0) AS l,
+        coalesce(nullif(pp.sv,    '')::numeric::integer, 0) AS sv
     FROM raw.lahman_pitching_post pp
     LEFT JOIN core.player pd ON pd.bbref_id = pp.playerid
     LEFT JOIN raw.lahman_people lp

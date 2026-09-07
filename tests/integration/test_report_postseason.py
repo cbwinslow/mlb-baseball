@@ -182,6 +182,37 @@ def test_per_round_combined_and_career_rows(db_conn):
     assert (career["g"], career["ab"], career["h"], career["hr"]) == (18, 65, 17, 5)
 
 
+def test_float_formatted_source_counts_are_parsed(db_conn):
+    # raw.lahman_*_post columns are text and pandas float-formats any nullable
+    # integer column ("4.0", not "4") when the source left blanks in it -- true
+    # for so / ibb / hbp / sf / sh / cs / gidp across ~18k real BattingPost rows.
+    # The build must cast via ::numeric::integer or it raises
+    # InvalidTextRepresentation and no postseason relation is built at all.
+    _seed_batting(
+        db_conn,
+        [
+            {
+                **_bat_row(g=7, ab=26, h=6, hr=2, bb=4),
+                "so": "6.0",
+                "ibb": "0.0",
+                "hbp": "1.0",
+                "sf": "0.0",
+                "sh": "0.0",
+                "gidp": "2.0",
+                "yearid": "2019",
+                "round": "WS",
+                "playerid": "bregman01",
+                "teamid": "HOU",
+            },
+        ],
+    )
+    _build(db_conn)
+    combined = next(r for r in _rows(db_conn, 81001) if r["is_combined"])
+    assert combined["so"] == 6
+    # PA = AB + BB + HBP + SF + SH = 26 + 4 + 1 = 31
+    assert combined["pa"] == 31
+
+
 def test_player_resolved_only_via_retro_id_fallback_is_not_dropped(db_conn):
     # Freeman: core.player.bbref_id is NULL; resolves via lahman_people retroid.
     _seed_batting(

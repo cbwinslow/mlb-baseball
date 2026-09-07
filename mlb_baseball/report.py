@@ -758,24 +758,31 @@ def health_check() -> list[Check]:
             """,
         ),
         # --- Postseason contamination guard (separate-postseason-stats / ADR-282) ---
-        # A single team plays at most 162 regular-season games, plus at most
-        # one Game 163 tiebreaker. Anything past 163 games (or a wildly
-        # implausible PA total) in a regular-season relation means postseason
-        # games leaked back in -- the exact regression this change fixes.
+        # Since 1969 a team plays at most 162 regular-season games + one Game 163
+        # tiebreaker. Before 1969 a pennant tie was a best-of-three AND in-full
+        # tie-game replays counted, so both team and player totals legitimately
+        # reach 164-165: 1962 SF (103-62) / LA (102-63) in Lahman Teams, and
+        # Billy Williams / Ron Santo 1965 + Cesar Tovar 1967 at 164 G in the
+        # event-derived season relations. Allow 165 pre-1969, 163 after; a
+        # leaked postseason series adds far more than 2 games so it is still
+        # caught. `pa > 800` is a universal ceiling (the season record is ~778).
         check_no_rows(
             "gold.player_season / gold.team_season are within the regular-season envelope",
             """
             SELECT
               (SELECT count(*) FROM gold.player_season WHERE games > 163 OR pa > 800)
-            + (SELECT count(*) FROM gold.team_season   WHERE wins + losses > 163)
+            + (SELECT count(*) FROM gold.team_season
+                 WHERE wins + losses > CASE WHEN season < 1969 THEN 165 ELSE 163 END)
             """,
         ),
         check_no_rows(
             "gold.batting_season / gold.pitching_season are within the regular-season envelope",
             """
             SELECT
-              (SELECT count(*) FROM gold.batting_season  WHERE g > 163 OR pa > 800)
-            + (SELECT count(*) FROM gold.pitching_season WHERE g > 163)
+              (SELECT count(*) FROM gold.batting_season
+                 WHERE g > CASE WHEN season < 1969 THEN 165 ELSE 163 END OR pa > 800)
+            + (SELECT count(*) FROM gold.pitching_season
+                 WHERE g > CASE WHEN season < 1969 THEN 165 ELSE 163 END)
             """,
         ),
         # --- Postseason relations (Lahman BattingPost / PitchingPost lineage) ---

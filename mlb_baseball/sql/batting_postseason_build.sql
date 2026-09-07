@@ -22,6 +22,10 @@
 --
 -- Lahman BattingPost has no PA column; PA = AB + BB + HBP + SF + SH.
 -- Singles b1 = H - 2B - 3B - HR; TB = H + 2B + 2*3B + 3*HR.
+--
+-- raw.lahman_batting_post columns are text and pandas float-formats any
+-- nullable integer column ("4.0", not "4") whenever the source left blanks in
+-- that column -- so cast via ::numeric::integer, not ::integer directly.
 
 WITH src AS (
     SELECT
@@ -29,23 +33,23 @@ WITH src AS (
         t.id AS team_id,
         bp.yearid::integer AS season,
         bp.round AS round,
-        coalesce(nullif(bp.g,   '')::integer, 0) AS g,
-        coalesce(nullif(bp.ab,  '')::integer, 0) AS ab,
-        coalesce(nullif(bp.r,   '')::integer, 0) AS r,
-        coalesce(nullif(bp.h,   '')::integer, 0) AS h,
-        coalesce(nullif(bp.n2b, '')::integer, 0) AS b2,
-        coalesce(nullif(bp.n3b, '')::integer, 0) AS b3,
-        coalesce(nullif(bp.hr,  '')::integer, 0) AS hr,
-        coalesce(nullif(bp.rbi, '')::integer, 0) AS rbi,
-        coalesce(nullif(bp.sb,  '')::integer, 0) AS sb,
-        coalesce(nullif(bp.cs,  '')::integer, 0) AS cs,
-        coalesce(nullif(bp.bb,  '')::integer, 0) AS bb,
-        coalesce(nullif(bp.ibb, '')::integer, 0) AS ibb,
-        coalesce(nullif(bp.hbp, '')::integer, 0) AS hbp,
-        coalesce(nullif(bp.sf,  '')::integer, 0) AS sf,
-        coalesce(nullif(bp.sh,  '')::integer, 0) AS sh,
-        coalesce(nullif(bp.so,  '')::integer, 0) AS so,
-        coalesce(nullif(bp.gidp,'')::integer, 0) AS gidp
+        coalesce(nullif(bp.g,   '')::numeric::integer, 0) AS g,
+        coalesce(nullif(bp.ab,  '')::numeric::integer, 0) AS ab,
+        coalesce(nullif(bp.r,   '')::numeric::integer, 0) AS r,
+        coalesce(nullif(bp.h,   '')::numeric::integer, 0) AS h,
+        coalesce(nullif(bp.n2b, '')::numeric::integer, 0) AS b2,
+        coalesce(nullif(bp.n3b, '')::numeric::integer, 0) AS b3,
+        coalesce(nullif(bp.hr,  '')::numeric::integer, 0) AS hr,
+        coalesce(nullif(bp.rbi, '')::numeric::integer, 0) AS rbi,
+        coalesce(nullif(bp.sb,  '')::numeric::integer, 0) AS sb,
+        coalesce(nullif(bp.cs,  '')::numeric::integer, 0) AS cs,
+        coalesce(nullif(bp.bb,  '')::numeric::integer, 0) AS bb,
+        coalesce(nullif(bp.ibb, '')::numeric::integer, 0) AS ibb,
+        coalesce(nullif(bp.hbp, '')::numeric::integer, 0) AS hbp,
+        coalesce(nullif(bp.sf,  '')::numeric::integer, 0) AS sf,
+        coalesce(nullif(bp.sh,  '')::numeric::integer, 0) AS sh,
+        coalesce(nullif(bp.so,  '')::numeric::integer, 0) AS so,
+        coalesce(nullif(bp.gidp,'')::numeric::integer, 0) AS gidp
     FROM raw.lahman_batting_post bp
     LEFT JOIN core.player pd ON pd.bbref_id = bp.playerid
     LEFT JOIN raw.lahman_people lp

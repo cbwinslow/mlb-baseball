@@ -96,9 +96,9 @@ shipped.
 - **v1** — the stats download, finished (criteria above). Nearly there.
 - **v1.1** — the platform: point-in-time feature store, walk-forward
   backtest harness, one reference baseline (Elo v2) + model card. Also
-  finish the queued items: `openspec/specs/statistic-backbone/spec.md`,
-  expand the Baseball-Reference tie-out beyond 2023 Judge/Cole, the
-  `gold.player_season` two-writer ADR (ADR-278).
+  finish the queued item: `openspec/specs/statistic-backbone/spec.md`.
+  (The Baseball-Reference tie-out and the `gold.player_season` two-writer
+  question — ADR-281, option A — are both done; see NEXT.)
 - Exit Phase A: v1.1 shipped and versioned in a public release.
 
 **Phase B — the Engine (internal). SPECULATIVE.** Entry: Phase A's
@@ -279,13 +279,17 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    (`reingest-runbook.md`).
 
 **NEXT** — finish v1's remaining milestone work, then v1.1:
-- v1 finishing work: `openspec/specs/statistic-backbone/spec.md`; expand
-  the Baseball-Reference tie-out beyond 2023 Judge/Cole (✅ the harness
-  and the two cases exist — `scripts/verify_baseball_reference_tie_out.py`,
-  both match to Baseball-Reference's 3-decimal display precision; cap raised
-  to 2025 once the postseason re-ingest lands);
-  `gold.player_season` two-writer ADR (ADR-278 relation-6, options
-  A/B/C — recommend A).
+- v1 finishing work: `openspec/specs/statistic-backbone/spec.md`.
+  - Baseball-Reference tie-out gate ✅ — `scripts/verify_baseball_reference_tie_out.py`:
+    Judge 2022 + Cole 2023 cited cases match to Baseball-Reference's 3-decimal
+    display precision; the bulk cross-check runs 2008–2025 and passed against
+    the re-ingested `raw.bref_*` (`separate-postseason-stats`, 2026-09-07).
+    Adding more cited cases at other grains stays open, low priority.
+  - `gold.player_season` two-writer question ✅ — **ADR-281** (option A):
+    `gold.player_season` (BRef/Lahman, 2008+) and the event-derived
+    `gold.batting_season` / `gold.pitching_season` (Retrosheet, 1910+) are
+    parallel lines, one writer each, neither a view or second writer into
+    the other. Implemented and on `main` (PR #158).
 - **v1.1 (the platform):** point-in-time feature store (`feat.*` snapshot
   tables + as-of retrieval + registry + leakage tests); the walk-forward
   backtest harness; one reference baseline model (Elo v2) + model card.

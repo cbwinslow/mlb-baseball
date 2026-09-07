@@ -33,7 +33,13 @@ psql "$DATABASE_URL" -c "DELETE FROM raw.bref_pitching WHERE _season::int >= 202
 #    season, and skips 2008-2020 (still loaded). ~12 HTTP requests, ~2 min.
 uv run mlb ingest bref --mode bootstrap
 
-# 4. Rebuild the gold reporting surface off the clean raw (task 3.1).
+# 4. Apply pending migrations. This change ships 0100 (gold.batting_postseason /
+#    gold.pitching_postseason) + 0101 (ros_team_standings view) -- `mlb report`
+#    TRUNCATEs the postseason tables and errors if they don't exist yet.
+uv run mlb migrate
+
+# 5. Rebuild the gold reporting surface off the clean raw (task 3.1).
+#    Takes ~15-20 min (full retrosheet-event rebuild, 1910+). Run detached.
 uv run mlb report
 ```
 
@@ -44,22 +50,25 @@ result; the scoped version is just faster.
 
 ## Verification (task 2.2 acceptance)
 
+Columns in `raw.bref_batting` / `raw.bref_pitching` are lowercase and stored as
+`text` (source-faithful), so cast to `int` for numeric comparisons.
+
 ```sql
 -- Marcus Semien 2023: must be 162 G / 753 PA (was 179 / 835).
-SELECT name, "G", "PA" FROM raw.bref_batting
+SELECT name, g, pa FROM raw.bref_batting
 WHERE name = 'Marcus Semien' AND _season = '2023';
 
 -- Spot check 3 more deep-playoff-team players:
 --   Corey Seager 2023 (TEX)     -> 119 G
 --   Freddie Freeman 2021 (ATL)  -> 159 G
 --   Jose Altuve 2022 (HOU)      -> 141 G
-SELECT name, _season, "G" FROM raw.bref_batting
+SELECT name, _season, g FROM raw.bref_batting
 WHERE (name, _season) IN
   (('Corey Seager','2023'), ('Freddie Freeman','2021'), ('Jose Altuve','2022'));
 
--- No season line over the regular-season envelope:
-SELECT max("G") FROM raw.bref_batting;   -- <= 163
-SELECT max("G") FROM raw.bref_pitching;  -- <= 163
+-- No season line over the regular-season envelope (cast — column is text):
+SELECT max(g::int) FROM raw.bref_batting;   -- <= 163
+SELECT max(g::int) FROM raw.bref_pitching;  -- <= 163
 ```
 
 Then task 3.1: `SELECT max(games) FROM gold.player_season;` must be ≤ 163, and

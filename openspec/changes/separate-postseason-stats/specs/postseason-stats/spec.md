@@ -10,21 +10,27 @@ contaminating season numbers.
 ### Requirement: Postseason statistics live in their own relations
 
 The system SHALL provide postseason batting and pitching statistic relations at
-the player-season and team-season grains, distinct from the regular-season
-backbone relations. Each SHALL be built from the same Retrosheet-event pipeline
-as the regular-season backbone, filtered to the postseason game types
-(division series, wild card, league championship series, World Series, and the
-pre-division-era pennant playoffs).
+the player-season, team-season, and career grains, distinct from the
+regular-season relations. They SHALL be built from the already-ingested
+postseason source data (`raw.lahman_batting_post` / `raw.lahman_pitching_post` —
+Lahman's `BattingPost` / `PitchingPost`), conforming player and team
+identifiers to the project's `core` dimensions, and SHALL retain the source's
+`round` (wild card / division series / league championship series / World
+Series / pre-division-era pennant playoff).
 
-Each postseason relation SHALL cover a player's or team's entire postseason for
-that season in one row per `(player, season)` / `(team, season)`, and SHALL
-retain enough game-type detail (round) for a researcher to slice by series.
+Each postseason relation SHALL carry one row per `(player, season, round)` plus
+one combined all-rounds row per `(player, season)`; the team grain the same at
+`(team, season)`; the career grain one row per player summing their postseason
+seasons.
+
+An unresolved source identifier SHALL be reported by a health check, never
+silently dropped.
 
 #### Scenario: A player's postseason run is queryable separately
 
 - **WHEN** a researcher queries the postseason batting relation for a player who reached the World Series
-- **THEN** they get one row covering that player's whole postseason (all rounds combined), with the round breakdown available
-- **AND** that player's regular-season line in `gold.batting_season` is unchanged and contains none of those games
+- **THEN** they get one combined row covering that player's whole postseason plus a row per round
+- **AND** that player's regular-season line in `gold.player_season` / `gold.batting_season` is unchanged and contains none of those games
 
 ### Requirement: Regular-season relations never contain postseason games
 

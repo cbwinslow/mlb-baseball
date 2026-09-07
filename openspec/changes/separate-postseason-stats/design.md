@@ -12,10 +12,18 @@ See `proposal.md` — Why, and ADR-282 for the full finding. Current state:
   `gold.game_feature` is 100% `game_type = 'regular'`, ~20 `mlb_baseball/sql/*`
   builders carry an explicit filter, and the event backbone
   (`gold.batting_season` etc.) filters `lower(g.game_type) = 'regular'`.
-- `raw.retrosheet_event` already contains postseason events (`_group =
-  'postseason'`, ~147k rows), and `core.game.game_type` labels every game:
-  regular / spring / exhibition / allstar / **wildcard / divisionseries / lcs /
-  worldseries / championship / playoff**.
+- **Postseason data is already ingested** in dedicated raw tables:
+  `raw.lahman_batting_post` (1884-2025, 18,687 rows; full box line + `round`),
+  `raw.lahman_pitching_post` (1884-2025, 7,474 rows; full line incl. `era`),
+  `raw.lahman_fielding_post`, `raw.lahman_series_post`,
+  `raw.retrosheet_gamelog_post`, and postseason plays in `raw.retrosheet_event`
+  (`_group = 'postseason'`, ~147k rows). `core.game.game_type` labels every
+  game: regular / spring / exhibition / allstar / **wildcard / divisionseries /
+  lcs / worldseries / championship / playoff**.
+- **Nothing combines regular + postseason.** Every `gold` / `core` table was
+  checked; none unions the two. The only contamination is `raw.bref_batting` /
+  `raw.bref_pitching`, from the pybaseball fetch (not from any project-side
+  combine).
 - `raw.bref_war_batting` / `raw.bref_war_pitching` (from `bwar_bat` /
   `bwar_pitch`, Baseball-Reference's downloadable WAR CSV) are **clean** —
   regular season only — but carry only a thin column set (`g`, `pa`, `gs`,
@@ -68,26 +76,32 @@ Alternative considered: leave `raw.bref_*` alone and re-source
 event backbone nor `bref_war` has earned runs), blurs ADR-281's parallel-lines
 line, and is more code than a date change.
 
-### D2 — New relations: `gold.batting_postseason` / `gold.pitching_postseason`
+### D2 — New relations, built from the postseason data we already have
 
-Player-season and team-season grains. Same column shape as the regular-season
-season tables (`gold.batting_season` / `gold.pitching_season`) so a researcher
-can `UNION`/compare directly, plus:
+`gold.batting_postseason` / `gold.pitching_postseason` are built from
+**`raw.lahman_batting_post` / `raw.lahman_pitching_post`** — the same
+Lahman lineage as `gold.player_season`, and the direct parallel to Lahman's
+own `BattingPost` / `PitchingPost`. The builder conforms `playerid` →
+`core.player.id` and `teamid` → `core.team.id` (the crosswalks
+`gold.player_season`'s builder already uses) and keeps Lahman's `round`
+column. No new event-parsing.
 
-- one **per-round** row per `(player, season, round)` where `round` is the
-  `game_type` (`wildcard` / `divisionseries` / `lcs` / `worldseries`), and
-- one **combined** all-rounds row per `(player, season)` — the same
-  `is_combined` pattern the regular-season season tables already use.
+Grains, mirroring the regular-season ladder:
+- `gold.batting_postseason` / `gold.pitching_postseason` — one **per-round**
+  row per `(player, season, round)` plus one **combined** all-rounds row per
+  `(player, season)` (`is_combined` pattern).
+- team-season rows — one combined per `(team, season)` plus per-round.
+- `gold.batting_postseason_career` / `gold.pitching_postseason_career` — one
+  row per player, summing their postseason seasons.
 
-Team grain: one combined row per `(team, season)` plus per-round rows.
-Career grain: `gold.batting_postseason_career` / `gold.pitching_postseason_career`,
-one row per player summing their postseason seasons — mirroring the
-regular-season career tables so the ladder is symmetric.
+Column shape matches the matching regular-season backbone table so a
+researcher can `UNION` / compare directly.
 
-Built by the same event pipeline as the backbone — a new
-`mlb_baseball/sql/{batting,pitching}_postseason_build.sql` that is
-`{batting,pitching}_game_build.sql` with the `game_type` filter inverted and a
-`round` column added, rolled up. Migration(s) add the tables.
+Cross-check (not a build input): `raw.retrosheet_event` postseason plays and
+`raw.retrosheet_gamelog_post` are an independent second copy — a `mlb doctor`
+reconciliation compares the Lahman-built totals against a Retrosheet-event
+rebuild for the modern era, the same pattern `starter.py` already uses for
+regular-season pitching.
 
 This mirrors Lahman's `BattingPost` / `PitchingPost` and Baseball-Reference's
 separate postseason section — the universal convention.

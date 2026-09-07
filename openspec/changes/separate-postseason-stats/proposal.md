@@ -35,12 +35,14 @@ postseason never lands in a regular-season table again.**
   regular-season boundary, not November 30. Re-ingest every affected season
   (2021+; the whole 2008+ range for consistency). `gold.player_season` /
   `gold.team_season` then rebuild clean with no builder change.
-- **New separate postseason relations** in `gold`, built from the same
-  Retrosheet-event pipeline as the regular-season backbone, filtered to the
-  postseason `game_type`s: `gold.batting_postseason` / `gold.pitching_postseason`
-  at the player-season and team-season grains (career optional). One row per
-  `(player, season)` covering that player's whole postseason run;
-  `game_type` / round retained so a researcher can slice by series.
+- **New separate postseason relations** in `gold`, built from the postseason
+  data **already ingested**: `raw.lahman_batting_post` / `raw.lahman_pitching_post`
+  (Lahman's own `BattingPost` / `PitchingPost`, 1884–2025). `gold.batting_postseason`
+  / `gold.pitching_postseason` at the player-season, team-season, and career
+  grains, with Lahman's `round` retained (per-round rows + a combined row).
+  Cross-checked against `raw.retrosheet_event` postseason plays. No new
+  event-parsing — this is the direct parallel to how `gold.player_season` is
+  built from Lahman.
 - **Pipeline audit + guards.** Review every `gold` builder, SQLMesh model,
   materialised view, and Python aggregation that touches game-level data;
   confirm each explicitly scopes `game_type` (regular vs postseason) rather

@@ -197,6 +197,23 @@ def health_check() -> list[Check]:
                     )
                 else:
                     checks.append(Check("serve views", True, "all 6 serving marts present"))
+
+                # serve.ros_team_standings must be regular-season only
+                # (ADR-282 / ADR-283): a single team plays at most 162
+                # regular-season games + at most one Game 163 tiebreaker.
+                if "ros_team_standings" in views:
+                    cur.execute(
+                        "SELECT count(*) FROM serve.ros_team_standings WHERE games_played > 163"
+                    )
+                    (over,) = cur.fetchone() or (0,)
+                    detail = (
+                        "ok"
+                        if over == 0
+                        else f"{over} team-seasons over 163 games (postseason leaked in)"
+                    )
+                    checks.append(
+                        Check("serve.ros_team_standings is regular-season only", over == 0, detail)
+                    )
     except Exception as exc:
         checks.append(Check("serve views", False, str(exc)))
     return checks

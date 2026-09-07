@@ -38,9 +38,19 @@ Method: grep every `mlb_baseball/sql/*.sql` and `mlb_baseball/report.py` /
 | `offense_health_check.sql`, `team_bsr_health_check.sql`, `team_rate_health_check.sql` | range-check diagnostics over `gold.game_feature` columns (regular-only); confirm any event-read denominator is also scoped |
 | `raw.statcast_framing` / `raw.statcast_oaa` / `raw.statcast_sprint_speed` | confirm pybaseball's Savant leaderboard pull is regular-season only (Savant default) — a quick spot check like the `raw.bref_*` one |
 
-## DB views / SQLMesh
+## DB views (`serve.*` serving marts + `gold.game_export`)
 
-- No materialised view or plain view references `player_season` / `team_season` (checked `pg_class`).
+Checked every view in `gold` / `core` / `serve` / `meta` (`pg_class` `relkind
+IN ('v','m')`) for a `core.game` / `core.play` / `raw.retrosheet_event` read.
+
+| View | Reads | Verdict |
+|---|---|---|
+| `gold.game_export` | `gold.game_feature` | PASS -- inherits `game_type = 'regular'` |
+| `serve.daily_betting_grid`, `serve.live_game_tracker` | `gold.game_feature f` (driver) `LEFT JOIN core.game g ON g.id = f.game_id` (scores only) | PASS -- restricted to feature rows (regular) |
+| `serve.ros_team_standings` | `FROM core.game g WHERE g.home_score IS NOT NULL` -- **no game_type filter** | **GAP** -- counted regular + postseason + spring + exhibition; 2023 TEX showed 210 GP / 116 W (real: 162 / 90). Fixed in `migrations/0101_ros_team_standings_regular_season.sql` (`game_type IN ('regular','playoff')` on the `completed` CTE). |
+| `serve.batted_ball_profile`, `serve.matchup_dossier`, `serve.matchup_preview`, `serve.pitcher_arsenal`, `serve.pitcher_card`, `serve.pitcher_prop_market`, `serve.prediction_market_alpha`, `serve.sgp_matchup_grid` | `gold.game_feature` / `gold.prediction` / `gold.*_season` / `core.player` -- no `core.game` / `core.play` / event read | PASS -- built on regular-only relations |
+
+## SQLMesh
 - `transforms/models/park_factor.sql` / `park_factors_weather.sql` reference CTE
   aliases named `team_season_*`, not the gold table; their event/game reads use
   `gametype = 'regular'` (same as the `mlb_baseball/sql` park-factor passes).

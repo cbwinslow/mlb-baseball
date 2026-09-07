@@ -82,20 +82,30 @@ line, and is more code than a date change.
 **`raw.lahman_batting_post` / `raw.lahman_pitching_post`** — the same
 Lahman lineage as `gold.player_season`, and the direct parallel to Lahman's
 own `BattingPost` / `PitchingPost`. The builder conforms `playerid` →
-`core.player.id` and `teamid` → `core.team.id` (the crosswalks
-`gold.player_season`'s builder already uses) and keeps Lahman's `round`
-column. No new event-parsing.
+`core.player.bbref_id` (Lahman's `playerID` is the Baseball-Reference id;
+98.8% batting / 98.9% pitching rows resolve, confirmed against production —
+the rest are 19th-century players) and `teamid` → `core.team.id` via
+`raw.lahman_teams` (`teamid` + `yearid` → `teamidretro` →
+`core.team.retro_team_id`, 100% coverage, confirmed). Lahman's `round` column
+is kept verbatim. No new event-parsing.
 
-Grains, mirroring the regular-season ladder:
+Grains (both **player**-keyed — Lahman's `BattingPost` is player-grain and
+Lahman ships no team postseason table; baseball.computer publishes no
+postseason aggregate at all):
 - `gold.batting_postseason` / `gold.pitching_postseason` — one **per-round**
   row per `(player, season, round)` plus one **combined** all-rounds row per
-  `(player, season)` (`is_combined` pattern).
-- team-season rows — one combined per `(team, season)` plus per-round.
-- `gold.batting_postseason_career` / `gold.pitching_postseason_career` — one
-  row per player, summing their postseason seasons.
+  `(player, season)` (`is_combined` flag, `round = NULL` on the combined row).
+- **career grain** — one row per `(player)` in the same table, summing every
+  postseason season (`is_career` flag, `season = NULL`). One table per stat
+  type, three row kinds distinguished by two booleans — smaller than three
+  separate tables and the same "one relation, flagged grains" shape
+  `gold.batting_season` already uses for its combined row.
 
-Column shape matches the matching regular-season backbone table so a
-researcher can `UNION` / compare directly.
+A postseason **team** total (`SELECT ... WHERE is_combined GROUP BY team_id,
+season`) is a trivial follow-up query and is **not** built here.
+
+Column shape matches the regular-season backbone batting/pitching season
+tables so a researcher can `UNION` / compare directly.
 
 Cross-check (not a build input): `raw.retrosheet_event` postseason plays and
 `raw.retrosheet_gamelog_post` are an independent second copy — a `mlb doctor`
@@ -103,19 +113,32 @@ reconciliation compares the Lahman-built totals against a Retrosheet-event
 rebuild for the modern era, the same pattern `starter.py` already uses for
 regular-season pitching.
 
-This mirrors Lahman's `BattingPost` / `PitchingPost` and Baseball-Reference's
-separate postseason section — the universal convention.
+This mirrors Lahman's `BattingPost` / `PitchingPost` — the universal
+convention. baseball.computer goes no further than a game-level
+`is_postseason` flag; we add the one player total table Lahman itself
+publishes and stop there.
 
 ### D3 — Pipeline audit produces a recorded game-type map
 
 The audit task walks every `gold` builder (`mlb_baseball/sql/*.sql`,
 `mlb_baseball/report.py`), every SQLMesh model in `transforms/`, every
-materialised view, and every Python aggregation in `mlb_baseball/model/*.py`
-and `mlb_baseball/*.py`, and records — in the change's `game-type-audit.md` —
-for each relation: which `game_type`s it includes, where the filter is (or that
-it is missing), and the fix if missing. `gold.game_feature` and the ~20 known
-builders are expected to already be correct; the audit confirms and finds any
-gap.
+materialised view, every Python aggregation in `mlb_baseball/model/*.py`
+and `mlb_baseball/*.py`, **and every model / ML feature builder** (the
+`gold.game_feature` builders, `mlb_baseball/model/features*.py` /
+`ml/**`, anything that reads `core.play` / `core.game` /
+`raw.retrosheet_event` to compute a training feature), and records — in the
+change's `game-type-audit.md` — for each relation: which `game_type`s it
+includes, where the filter is (or that it is missing), and the fix if missing.
+`gold.game_feature` and the ~20 known builders are expected to already be
+correct; the audit confirms and finds any gap. **A model or ML feature that
+folds in postseason performance is a leakage-shaped bug** (a playoff outcome
+inside a "season" or "pre-game" feature) and is treated as `must_fix`, not a
+suggestion.
+
+baseball.computer's rule, adopted verbatim: an aggregate counts a game iff its
+`game_type` is `RegularSeason` or `TiebreakerPlayoff` (Game 163). Every other
+type — wild card, division series, LCS, World Series, other championship,
+All-Star, exhibition, preseason — is excluded.
 
 ### D4 — `mlb doctor` guards
 
@@ -161,6 +184,10 @@ range, one methodology), then `mlb report`. This is owner-run, like the
 
 ## Open Questions
 
-None. The per-season regular-season end-date list and the career-grain
-postseason relations are both in scope (owner's direction: complete, no
-shortcuts).
+None. Scope settled with the owner (2026-09-07): baseball.computer is the
+reference — regular-season-only aggregates everywhere (tables, views, `mlb
+doctor` metrics, model / ML features), tiebreaker Game 163 counts as regular
+season. Postseason gets **one player-grain total table per stat type**
+(player-season + career, the Lahman `BattingPost` parallel); the postseason
+**team** total is a deferred follow-up (a trivial `GROUP BY` off the player
+table, and neither Lahman nor baseball.computer ships one).

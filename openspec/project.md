@@ -3,7 +3,8 @@
 The single source of truth for what this project is, who it's for, and how
 work happens. **Read this first.** Full rationale:
 `docs/superpowers/specs/2026-09-02-project-restructure-design.md`.
-Last set: 2026-09-02.
+Last set: 2026-09-02; two-product model + phased ladder 2026-09-07
+(`openspec/changes/archive/…-two-product-model/`).
 
 ---
 
@@ -21,13 +22,34 @@ verbatim**.
 
 ## Who it's for
 
-**Primary:** the serious analyst (Tango / Retrosheet / FanGraphs /
-academic / r/Sabermetrics tier). Knows the domain, writes SQL or Python,
+This repo is **two products, one database** — "ship the machine, keep the
+output":
+
+**`mlb-research` (public).** The reproducible toolkit an outside analyst
+downloads: the data, the `raw`/`core`/`gold` build SQL, the metric
+definitions + tie-out tests, the point-in-time feature store, the
+walk-forward backtest harness, one reference baseline model, the
+Markov/sim engine, notebooks, data dictionary.
+**Audience:** the serious analyst (Tango / Retrosheet / FanGraphs /
+academic / r/Sabermetrics tier) — knows the domain, writes SQL or Python,
 values correctness and history over polish.
 **Design test:** could a data journalist answer a question, with a
 citation, in 5 minutes?
-**Secondary:** the data scientist who clones the repo for their own
-models (revenue bridge, later phase).
+
+**The Engine (internal).** What we build *with* the toolkit and do not
+give away: tuned models and their configs, novel metrics still in
+validation, market-disagreement / parlay research, the subscriber
+website and its content.
+**Audience:** us — and later, the paying subscriber.
+
+**The line between them — one test:** does this help a stranger build
+their own research database and their own models? → **ships in
+`mlb-research`.** Is it our specific answer, edge, or published content?
+→ **internal Engine.** Code and SQL almost always ship (a reproducible
+harness is a credibility signal, not a giveaway); trained artifacts,
+tuned configs, and backtest results for any model other than the
+reference baseline never ship; a metric ships once we choose to publish
+it (formula + citation), and is private until then.
 
 ## The three differentiators
 
@@ -40,37 +62,90 @@ models (revenue bridge, later phase).
 
 Parquet on Hugging Face (+ GitHub Releases mirror) → pybaseball-style
 Python loader on PyPI → DuckDB-WASM browser query page → Docker image →
-Marimo notebooks + a MkDocs Material docs site. Coverage target: match
-`pybaseball` / `baseballr`. No hosted DB, no hosted REST API (defer —
-needs revenue). Publishing the backbone dataset:
+Marimo notebooks + a MkDocs Material docs site. **v1.1 adds** the
+point-in-time feature store (append-only `feat.*` snapshot tables + an
+as-of retrieval contract + a feature registry + a leakage-test battery)
+and one reference baseline model (Elo v2) + its model card — the pieces
+that make this a research *platform*, not just a download. Coverage
+target: match `pybaseball` / `baseballr`. No hosted DB, no hosted REST
+API (defer — needs revenue). Publishing the backbone dataset:
 [`docs/PUBLIC_API.md`](../docs/PUBLIC_API.md#publishing-the-backbone-dataset-to-hugging-face).
 
 ---
 
-## Current phase — "research database leads" (set 2026-09-02, ~3 months)
+## Current phase — "research database leads" (set 2026-09-02; updated 2026-09-07)
 
-The prediction site and models are **frozen** (see Frozen list). Phase is
-done when: backbone relations 1–6 tied out to Baseball-Reference within a
-documented tolerance; every metric cites its source and has a tie-out
-test; published to Hugging Face; Python loader on PyPI; DuckDB-WASM page
-live; a MkDocs Material docs site published (data dictionary, grain-ladder diagram,
-formula citations, honest-limitations page); ≥5 notebook recipes;
-announced to r/Sabermetrics.
+Phase A of the ladder below. Prediction models and the consumer site are
+Phase B/C — not started; see the ladder.
 
-### Frozen — no work until the phase milestone is met
+**v1 is done when:** backbone relations 1–6 tied out to Baseball-Reference
+within a documented tolerance; every metric cites its source and has a
+tie-out test; published to Hugging Face; Python loader on PyPI;
+DuckDB-WASM page live; a MkDocs Material docs site published (data
+dictionary, grain-ladder diagram, formula citations, honest-limitations
+page); ≥5 notebook recipes. (`v0.1.0` is public; the rest is finishing
+work.)
 
-Prediction models (new `model/*.py` work), the consumer site, new data
-sources not in `docs/DATA_SOURCES.md`, the ~110 "Engine" composite
-packages, markov-v2 / #88, prediction ladder wave 2, SQLMesh
-incrementality. Bug fixes to frozen areas only when they block the
-milestone or break `main`.
+**v1.1 is done when:** the point-in-time feature store is shipped in a
+public release; one reference baseline model (Elo v2) + its model card is
+shipped.
 
-### Longer vision (recorded, not scheduled)
+### Phased ladder
 
-Phase 2 prediction ladder (pitch→season, real-time) · Phase 3 exploratory
-ML (ensembles/voting/DNNs; publish only what clears the bar) · Phase 4
-subscriber betting-advice product (needs legal homework — regulated per
-US state) · DuckDB as a build engine, not just an export format.
+**Phase A — public platform.** Entry: now.
+- **v1** — the stats download, finished (criteria above). Nearly there.
+- **v1.1** — the platform: point-in-time feature store, walk-forward
+  backtest harness, one reference baseline (Elo v2) + model card. Also
+  finish the queued items: `openspec/specs/statistic-backbone/spec.md`,
+  expand the Baseball-Reference tie-out beyond 2023 Judge/Cole, the
+  `gold.player_season` two-writer ADR (ADR-278).
+- Exit Phase A: v1.1 shipped and versioned in a public release.
+
+**Phase B — the Engine (internal). SPECULATIVE.** Entry: Phase A's
+feature store is stable and versioned.
+1. Engine triage + a `meta.metric` registry table — classify the ~110
+   "Engine" composite packages into keep / add-harness / rebuild-on-demand
+   / archive-as-negative-result.
+2. Model ladder through the harness: elastic-net logistic →
+   negative-binomial team runs → Monte Carlo market calculator → CatBoost
+   challenger. Ensembles / DNNs only after tabular models are shown to
+   leave signal on the table.
+3. Hierarchical-Bayes player layer (PyMC).
+4. Plate-appearance multinomial + simulation, feeding the Markov engine
+   (supersedes markov-v2 / #88).
+5. Market time-series schema (`quote_ts` / `suspended` / vig-aware) +
+   model-vs-market disagreement research.
+6. Novel-metric discovery program: constrained-discovery ladder →
+   candidate registry → validation protocol.
+
+Also Phase B: new data sources not in `docs/DATA_SOURCES.md` (with
+source-rights docs), SQLMesh incrementality, DuckDB as a build engine.
+
+**Phase C — live + subscriber product. SPECULATIVE.** Entry: Phase B has
+at least one calibrated model beating the reference baseline on a
+chronological hold-out.
+- Live event log + pure state reducer + replay (`live.event`,
+  `live.prediction`, market replay with latency/fill simulation).
+- The subscriber website. The paid betting-advice piece is additionally
+  gated on the Phase-4 legal homework — regulated per US state.
+
+**SPECULATIVE** means: Phase A (a trustworthy research database) has a
+proven audience — `pybaseball` / `baseballr`. Phases B and C rest on an
+unproven premise: that this operation can produce model / betting
+research people pay for. They stay on the ladder so the ambitions have a
+home and a gate, but the plan does not commit to building them —
+re-evaluate once Phase A has shipped and there is evidence someone wants
+them. **Do not start Phase B work because the ladder lists it**; start it
+because Phase A is done and the re-evaluation said go.
+
+Bug fixes to Phase B/C areas only when they block Phase A or break `main`.
+
+### Longer vision
+
+Everything once recorded here — a real-time prediction ladder,
+ensembles/DNNs, DuckDB as a build engine — is now sequenced into Phases
+B–C above. The one standing gate: Phase C paid betting-advice needs the
+per-US-state legal homework before any of it ships.
 
 ---
 
@@ -91,6 +166,16 @@ US state) · DuckDB as a build engine, not just an export format.
 - Optimize for a target (16 GB laptop + DuckDB on Parquet, or the Docker
   Postgres), not "all hardware".
 
+### Modeling layer (SQL vs Python)
+
+Deterministic aggregation over events that a researcher would recompute
+→ **versioned `.sql`** run by `mlb report` / `mlb conform`, ships in
+Parquet (wOBA, FIP, RE24, WPA, park factors, rolling rates, `feat.*`
+snapshots). Iterative fit, simulation, or stochastic work → **Python**,
+reads the feature tables, writes predictions to `gold.prediction`. This
+is the existing "no SQL strings in Python" + versioned-`.sql` rule
+applied to model code, not a new rule.
+
 ## How work happens
 
 - **Workflow: OpenSpec.** Every non-trivial change is an `openspec/
@@ -108,6 +193,14 @@ US state) · DuckDB as a build engine, not just an export format.
   Resume from `changes/<name>/tasks.md`, never chat scrollback.
 - **Cross-tool memory:** this file + `openspec/specs/` is the shared
   state all tools read. Claude's `.claude/.../memory/` is Claude-only.
+- **Definition of done includes code quality.** Every change leaves the
+  code it writes or touches at standard: lean and single-purpose, no
+  duplication of an existing helper, within the file-size guide
+  (`development-practices.md`), no dead scaffolding or speculative
+  abstraction, `SHORTCUT:` markers carrying a ceiling + trigger. The
+  `changes-review` step checks this per change — a gate, not an
+  aspiration. A one-time full-codebase quality pass is a separate LATER
+  item, run after Phase A.
 
 ## Model roles
 
@@ -131,9 +224,10 @@ a reviewed diff).
 
 Once the owner grants `Bash(gh pr merge:*)`, Claude may merge a PR when
 **all** hold: `test` + `secrets` green; every human and Kilo comment
-addressed; not touching a frozen area; it is Claude's own PR or one the
-owner asked Claude to land. Force-push, closing issues, deleting others'
-branches, or merging into a frozen area still need an explicit ask.
+addressed; not touching a Phase B/C (SPECULATIVE) area without the owner
+asking; it is Claude's own PR or one the owner asked Claude to land.
+Force-push, closing issues, deleting others' branches, or landing work in
+a Phase B/C area still need an explicit ask.
 
 ## Tooling
 
@@ -151,7 +245,7 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 
 ## NOW / NEXT / LATER
 
-**NOW** — restructure execution (spec §10):
+**NOW** — finish v1 (Phase A):
 1. ✅ Bootstrap OpenSpec (#139/#140)
 2. ✅ Repo hygiene — worktrees 14→3, ~16 dead branches deleted, PR queue empty
 3. ✅ Doc consolidation — status banners on 15 superseded / historical docs
@@ -175,12 +269,19 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    before the export had anything to publish — both done as part of this
    step.
 
-**NEXT** — the milestone proper: capture the grain backbone as
-`openspec/specs/statistic-backbone/spec.md`; ✅ Baseball-Reference tie-out
-tests (2023 Judge / Cole) — `scripts/verify_baseball_reference_tie_out.py`,
-run against production: both cases match exactly (rate stats to
-Baseball-Reference's own 3-decimal display precision); expand coverage
-beyond these two seasons as a follow-up; `gold.player_season` two-writer
-ADR (ADR-278 relation-6, options A/B/C — recommend A).
+**NEXT** — finish v1's remaining milestone work, then v1.1:
+- v1 finishing work: `openspec/specs/statistic-backbone/spec.md`; expand
+  the Baseball-Reference tie-out beyond 2023 Judge/Cole (✅ the harness
+  and the two cases exist — `scripts/verify_baseball_reference_tie_out.py`,
+  both match to Baseball-Reference's 3-decimal display precision);
+  `gold.player_season` two-writer ADR (ADR-278 relation-6, options
+  A/B/C — recommend A).
+- **v1.1 (the platform):** point-in-time feature store (`feat.*` snapshot
+  tables + as-of retrieval + registry + leakage tests); the walk-forward
+  backtest harness; one reference baseline model (Elo v2) + model card.
 
-**LATER** — Phase 2 (prediction ladder) and beyond. See Longer vision.
+**LATER**
+- Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).
+  See the phased ladder.
+- A one-time full-codebase quality review ("vibe-code proof" pass), run
+  after Phase A's v1 + v1.1 work.

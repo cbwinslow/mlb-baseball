@@ -59,8 +59,10 @@ results without blocking a merge.
 - Use the public [roadmap project](https://github.com/users/cbwinslow/projects/25)
   to find the current work, and GitHub Discussions for questions and ideas.
 
-The project is in an early, research-database-first stage. Current phase,
-priorities, and what's explicitly frozen are in
+The project is in an early, research-database-first stage: **two products,
+one database** — a public `mlb-research` toolkit and an internal Engine.
+Current phase, priorities, and the phased ladder (Phase A public platform →
+Phase B/C, marked speculative) are in
 [openspec/project.md](openspec/project.md) (`NOW / NEXT / LATER`). The
 historical build log is [docs/archive/plans/PROGRESS.md](docs/archive/plans/PROGRESS.md).
 

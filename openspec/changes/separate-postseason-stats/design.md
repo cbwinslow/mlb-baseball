@@ -80,14 +80,17 @@ can `UNION`/compare directly, plus:
   `is_combined` pattern the regular-season season tables already use.
 
 Team grain: one combined row per `(team, season)` plus per-round rows.
+Career grain: `gold.batting_postseason_career` / `gold.pitching_postseason_career`,
+one row per player summing their postseason seasons — mirroring the
+regular-season career tables so the ladder is symmetric.
 
 Built by the same event pipeline as the backbone — a new
 `mlb_baseball/sql/{batting,pitching}_postseason_build.sql` that is
 `{batting,pitching}_game_build.sql` with the `game_type` filter inverted and a
 `round` column added, rolled up. Migration(s) add the tables.
 
-Career postseason: **deferred**, noted as follow-up (small additive relation;
-not needed for the fix).
+This mirrors Lahman's `BattingPost` / `PitchingPost` and Baseball-Reference's
+separate postseason section — the universal convention.
 
 ### D3 — Pipeline audit produces a recorded game-type map
 
@@ -144,8 +147,6 @@ range, one methodology), then `mlb report`. This is owner-run, like the
 
 ## Open Questions
 
-- **Per-season regular-season end dates** — build the small override list now
-  (2021 tiebreakers, any pre-2022 one-game playoffs that Retrosheet marks
-  `playoff`) or accept the doctor check flags them for a follow-up? Recommend
-  building the list in this change since it is a handful of dates.
-- Career-grain postseason relation — deferred here; confirm that's acceptable.
+None. The per-season regular-season end-date list and the career-grain
+postseason relations are both in scope (owner's direction: complete, no
+shortcuts).

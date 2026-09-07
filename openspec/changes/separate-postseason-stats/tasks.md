@@ -5,7 +5,7 @@
 
 ## 2. Fix the raw Baseball-Reference ingest
 
-- [ ] 2.1 In `mlb_baseball/connectors/bref.py`, replace the `pybaseball.batting_stats_bref` / `pitching_stats_bref` calls with `pybaseball.batting_stats_range` / `pitching_stats_range` over `f"{season}-03-15"` → a regular-season end date (default `f"{season}-10-01"`, with a per-season override map for known late finishes / one-game playoffs — design.md D1). Verify: a unit test with pybaseball mocked asserts the date range passed excludes November; `basedpyright` / `ruff` clean.
+- [ ] 2.1 In `mlb_baseball/connectors/bref.py`, replace the `pybaseball.batting_stats_bref` / `pitching_stats_bref` calls with `pybaseball.batting_stats_range` / `pitching_stats_range` over `f"{season}-03-15"` → a regular-season end date. Build a per-season `_REGULAR_SEASON_END` map (default `f"{season}-10-01"`; explicit entries for every season 2008-2026 from the actual last regular-season game date / any tiebreaker — sourced, not guessed). Verify: a unit test with pybaseball mocked asserts the date range passed excludes November for every season; `basedpyright` / `ruff` clean.
 - [ ] 2.2 Re-ingest `raw.bref_batting` / `raw.bref_pitching` for 2008–2026 after clearing the affected pybaseball `df_cache` entries (owner-run; document the exact commands). Verify: Marcus Semien 2023 in `raw.bref_batting` shows 162 G / 753 PA; a spot check of 3 more deep-playoff-team players across 2021–2025 shows regular-season game counts.
 
 ## 3. Rebuild `gold.player_season` / `gold.team_season` clean
@@ -14,8 +14,8 @@
 
 ## 4. New postseason relations
 
-- [ ] 4.1 Migration(s) creating `gold.batting_postseason` / `gold.pitching_postseason` — same column shape as `gold.batting_season` / `gold.pitching_season` plus a `round` column (`wildcard` / `divisionseries` / `lcs` / `worldseries` / …) and the `is_combined` all-rounds row pattern; player-season and team-season grains. Verify: `mlb migrate` applies cleanly; the tables exist with the documented columns.
-- [ ] 4.2 `mlb_baseball/sql/batting_postseason_build.sql` / `pitching_postseason_build.sql` + wiring into `mlb report` — the `*_game_build.sql` logic with the `game_type` filter set to the postseason types and a `round` dimension, rolled up to season + team + combined. Verify: an integration test seeds a known postseason (e.g. a small fixture) and asserts per-round and combined rows; idempotent rebuild.
+- [ ] 4.1 Migration(s) creating `gold.batting_postseason` / `gold.pitching_postseason` (player-season and team-season grains) and `gold.batting_postseason_career` / `gold.pitching_postseason_career` (player) — same column shape as the matching regular-season backbone tables plus a `round` column (`wildcard` / `divisionseries` / `lcs` / `worldseries` / …) and the `is_combined` all-rounds row pattern. Verify: `mlb migrate` applies cleanly; the tables exist with the documented columns.
+- [ ] 4.2 `mlb_baseball/sql/batting_postseason_build.sql` / `pitching_postseason_build.sql` + wiring into `mlb report` — the `*_game_build.sql` logic with the `game_type` filter set to the postseason types and a `round` dimension, rolled up to season + team + combined + career. Verify: an integration test seeds a known postseason fixture and asserts per-round, combined, and career rows; idempotent rebuild.
 - [ ] 4.3 Tie-out check: pick one well-documented modern postseason run (e.g. a World Series MVP) and assert `gold.batting_postseason` (or pitching) matches that player's Baseball-Reference postseason line. Verify: a case in `scripts/verify_baseball_reference_tie_out.py` or a dedicated check passes.
 
 ## 5. Guards

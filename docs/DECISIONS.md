@@ -2,7 +2,62 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
-## ADR-282: `gold.player_season` / `gold.team_season` include postseason stats from 2021 (bug — fix pending)
+## ADR-283: baseball.computer is the game-type reference — regular-season-only aggregates everywhere
+
+**Decision (2026-09-07).** Adopt [baseball.computer](https://github.com/droher/baseball.computer)
+as the reference implementation for game-type scope. Its `seed_game_types`
+seed maps every game type to `is_regular_season` / `is_postseason`; every one
+of its season / career / team metric tables filters to the regular-season
+types and is documented "Regular season only"; it publishes **no** separate
+postseason aggregate table (postseason stays at the game/event grain behind an
+`is_postseason` flag).
+
+**Rules for this project:**
+
+1. **Regular-season aggregates are regular-season only** — `gold` tables,
+   views, `mlb doctor` metrics, and **every math / ML model feature**. A game
+   counts iff its `core.game.game_type` is `regular` or `playoff` (the Game 163
+   tiebreaker, which MLB and baseball.computer both count as regular season);
+   every postseason series type is excluded.
+2. **Explicit filter, never "the source is clean."** Each relation / feature
+   scopes `game_type` at build time. The audit in the `separate-postseason-stats`
+   change (`game-type-audit.md`) records the scope of every game-aggregating
+   relation and the model / ML layer.
+3. **A model or ML feature that includes postseason performance is a
+   leakage defect** (a playoff outcome inside a season / pre-game feature),
+   fixed at the same bar as any other leakage.
+4. **Postseason gets one player-grain total table per stat type**
+   (`gold.batting_postseason` / `gold.pitching_postseason`), built from
+   Lahman's own `BattingPost` / `PitchingPost` — the one place Lahman itself
+   goes further than baseball.computer. A postseason *team* total is a
+   deferred `GROUP BY` follow-up.
+
+Change record: `openspec/changes/separate-postseason-stats/`. baseball.computer
+`seed_game_types` mapping recorded in `docs/KNOWLEDGE_BASE.md`.
+
+## ADR-282: `gold.player_season` / `gold.team_season` included postseason stats from 2021 — RESOLVED (separate-postseason-stats)
+
+**Resolved 2026-09-07** by the `separate-postseason-stats` change (see ADR-283
+for the standing rule). Fix:
+
+- `mlb_baseball/connectors/bref.py` now calls
+  `pybaseball.batting_stats_range` / `pitching_stats_range` directly over an
+  explicit regular-season window (`{season}-03-15` → the season's last
+  regular-season game, `_REGULAR_SEASON_END`, sourced from `core.game`), not
+  the `batting_stats_bref` / `pitching_stats_bref` wrappers whose fixed
+  March 1 – November 30 window pulled in postseason game-logs. `raw.bref_*`
+  re-ingested for 2008–2026; `gold.player_season` / `gold.team_season` rebuilt.
+- New `gold.batting_postseason` / `gold.pitching_postseason` (Lahman
+  `BattingPost` / `PitchingPost` lineage) carry postseason performance
+  separately.
+- `mlb doctor` gains a regular-season envelope check (no `gold.player_season`
+  row over 163 games) and postseason-relation sanity checks.
+- Model / ML audit: `season.py` and `ros.py` season-game queries gained an
+  explicit `game_type` filter (they had none).
+
+Original finding follows.
+
+### Original finding
 
 **Finding (2026-09-07, during the Baseball-Reference tie-out expansion).** For
 seasons **2021 onward**, `gold.player_season` and `gold.team_season`
@@ -40,20 +95,12 @@ only; they tie out to Baseball-Reference's real published season lines).
 and any model using player/team-season aggregates as features — a
 leakage-shaped error (postseason outcomes inside a "season" feature).
 
-**Decision / fix (pending, its own change).** The owner's direction: fix it,
-**and capture postseason performance properly rather than just dropping it** —
-marked as postseason (`core.game.game_type` already distinguishes playoff
-games). Shape to be settled in that change; candidate approach: the
-event-derived backbone gains explicit `game_type` scope (regular / postseason /
-combined), `gold.player_season` re-sources its regular-season counting stats
-from the corrected backbone and keeps only the Baseball-Reference-only fields
-(`era`, `war`), and a `mlb doctor` check flags any season line whose totals
-exceed a 162-game envelope.
-
-**Interim.** The tie-out gate's bulk cross-check
-(`scripts/verify_baseball_reference_tie_out.py`) excludes 2020+ for this
-reason. `gold.player_season` for 2021+ must be treated as regular+postseason
-until the fix lands.
+**Fix (landed — see the RESOLVED summary above).** `bref.py` pulls a
+regular-season-only Baseball-Reference window; `raw.bref_*` re-ingested and
+`gold.player_season` / `gold.team_season` rebuilt clean; postseason performance
+captured separately in `gold.batting_postseason` / `gold.pitching_postseason`;
+`mlb doctor` envelope + purity guards added. baseball.computer adopted as the
+game-type reference (ADR-283).
 
 ## ADR-281: backbone Relation 6 — `gold.player_season` and the event-derived season tables stay parallel
 

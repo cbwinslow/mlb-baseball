@@ -178,16 +178,20 @@ def _database_url() -> str:
     return url
 
 
-# Bulk cross-check: for the seasons where gold.player_season (Baseball-Reference
-# lineage, via pybaseball) is trustworthy -- 2008-2019 -- the event-derived
-# gold.batting_season / gold.pitching_season must agree with it within a small
-# tolerance. 2020 (COVID short season) and 2021+ are EXCLUDED: from 2021 on,
-# gold.player_season silently folds in postseason games (pybaseball's
-# batting_stats_bref queries a Mar 1 - Nov 30 Baseball-Reference range that
-# Baseball-Reference now populates with playoff game-logs). That contamination
-# is tracked and fixed separately; here it would only add noise.
+# Bulk cross-check: for every season 2008+ the event-derived
+# gold.batting_season / gold.pitching_season must agree with gold.player_season
+# (Baseball-Reference lineage, via pybaseball) within a small tolerance.
+#
+# 2021+ was excluded until the separate-postseason-stats change (ADR-282):
+# gold.player_season folded in postseason games because pybaseball's
+# batting_stats_bref queried a Mar 1 - Nov 30 Baseball-Reference range that
+# B-Ref now populates with playoff game-logs. bref.py now pulls a
+# regular-season-only window and raw.bref_* is re-ingested, so the cap is
+# lifted. 2020 (COVID short season) stays excluded -- its own scheduling
+# oddities, not a postseason issue.
 _XCHECK_MIN_SEASON = 2008
-_XCHECK_MAX_SEASON = 2019
+_XCHECK_MAX_SEASON = 2025
+_XCHECK_SKIP_SEASONS = frozenset({2020})
 # tolerance per field: 0 = must match exactly. Small non-zero allowances cover
 # the handful of decades-old official-scoring corrections Baseball-Reference and
 # Retrosheet each absorbed independently (see the honest-limitations doc). PA/AB
@@ -221,10 +225,18 @@ def _cross_check(conn: psycopg.Connection) -> list[str]:
              AND ps.is_pitcher = {is_pitcher}
             WHERE t.is_combined
               AND t.season BETWEEN %(lo)s AND %(hi)s
+              AND t.season <> ALL(%(skip)s)
               AND {_XCHECK_QUALIFIER[label]}
         """  # noqa: S608 -- field names come from the hardcoded tolerance dicts
         with conn.cursor() as cur:
-            cur.execute(sql, {"lo": _XCHECK_MIN_SEASON, "hi": _XCHECK_MAX_SEASON})
+            cur.execute(
+                sql,
+                {
+                    "lo": _XCHECK_MIN_SEASON,
+                    "hi": _XCHECK_MAX_SEASON,
+                    "skip": list(_XCHECK_SKIP_SEASONS),
+                },
+            )
             columns = [d.name for d in cur.description or []]
             fetched = cur.fetchone()
         assert fetched is not None  # count(*) always returns one row  # noqa: S101

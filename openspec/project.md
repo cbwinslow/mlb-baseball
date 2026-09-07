@@ -269,11 +269,21 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    before the export had anything to publish — both done as part of this
    step.
 
+7. Postseason separation (`openspec/changes/separate-postseason-stats/`,
+   ADR-282 / ADR-283) — `bref.py` pulls a regular-season-only window;
+   `gold.batting_postseason` / `gold.pitching_postseason` built from Lahman
+   `BattingPost` / `PitchingPost`; `mlb doctor` envelope + purity guards;
+   model/ML game-type audit. baseball.computer adopted as the game-type
+   reference (regular-season-only aggregates everywhere). **Owner step
+   outstanding:** re-ingest `raw.bref_*` for 2008–2026 and re-run `mlb report`
+   (`reingest-runbook.md`).
+
 **NEXT** — finish v1's remaining milestone work, then v1.1:
 - v1 finishing work: `openspec/specs/statistic-backbone/spec.md`; expand
   the Baseball-Reference tie-out beyond 2023 Judge/Cole (✅ the harness
   and the two cases exist — `scripts/verify_baseball_reference_tie_out.py`,
-  both match to Baseball-Reference's 3-decimal display precision);
+  both match to Baseball-Reference's 3-decimal display precision; cap raised
+  to 2025 once the postseason re-ingest lands);
   `gold.player_season` two-writer ADR (ADR-278 relation-6, options
   A/B/C — recommend A).
 - **v1.1 (the platform):** point-in-time feature store (`feat.*` snapshot

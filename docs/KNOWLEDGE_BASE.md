@@ -141,8 +141,20 @@ design into this repository.
 - **Use in this project:** Borrow the *practice* of documented models,
   declared sources, tests/audits, and lineage.  Our PostgreSQL raw/core/gold/
   meta design and additional Stats API/Statcast scope remain independent.
+- **Game-type reference (ADR-283):** its `bc/seeds/misc/seed_game_types.csv`
+  is the canonical map we follow — `RegularSeason` and **`TiebreakerPlayoff`**
+  (Game 163) are `is_regular_season = true`; `WildCardSeries`,
+  `DivisionSeries`, `LeagueChampionshipSeries`, `WorldSeries`,
+  `OtherChampionship` are `is_postseason = true`; `Preseason`, `Exhibition`,
+  `AllStarGame`, `Unknown` are neither. Every one of its `metrics_*` season /
+  career / team tables filters to the regular-season types and is documented
+  "Regular season only"; it publishes **no** separate postseason aggregate
+  table (postseason stays at game/event grain behind the flag). Our
+  `core.game.game_type` equivalents: `regular` + `playoff` = regular season;
+  `wildcard` / `divisionseries` / `lcs` / `worldseries` / `championship` =
+  postseason.
 - **Source:** [baseball.computer repository](https://github.com/droher/baseball.computer),
-  accessed 2026-08-10.
+  accessed 2026-08-10; `seed_game_types` re-checked 2026-09-07.
 
 ## Database quality rules
 

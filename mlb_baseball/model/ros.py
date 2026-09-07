@@ -130,6 +130,10 @@ class RestOfSeasonSimulator:
                     "JOIN core.team at ON at.id = g.away_team_id "
                     "WHERE EXTRACT(YEAR FROM g.game_date) = %s "
                     "  AND g.game_date <= %s "
+                    # Regular season only (incl. Game 163 tiebreakers). A
+                    # rest-of-season standings sim must not count postseason
+                    # games as regular-season results.
+                    "  AND g.game_type IN ('regular', 'playoff') "
                     "  AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL "
                     "ORDER BY g.game_date",
                     (season, str(as_of_date)),
@@ -146,6 +150,7 @@ class RestOfSeasonSimulator:
                     "JOIN core.team at ON at.id = g.away_team_id "
                     "WHERE EXTRACT(YEAR FROM g.game_date) = %s "
                     "  AND g.game_date > %s "
+                    "  AND g.game_type IN ('regular', 'playoff') "
                     "ORDER BY g.game_date",
                     (season, str(as_of_date)),
                 )

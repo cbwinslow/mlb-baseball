@@ -138,19 +138,30 @@ per-team stint rows + a combined line, `ra9` not `era`). `gold.player_season`
 distinct sources for distinct purposes — neither is a view over or a writer
 into the other.
 
+**Regular season only.** `gold.player_season`, `gold.team_season`,
+`gold.batting_season` / `gold.pitching_season`, and every grain below them
+count regular-season games only — including the Game 163 tiebreaker, which
+counts as regular season (baseball.computer convention; ADR-283). Postseason
+batting and pitching live in their own relations, `gold.batting_postseason` /
+`gold.pitching_postseason` (§ 3.10). This is enforced by an `mlb doctor`
+envelope check (no season row over 163 games).
+
 **Known limitations:**
 
-- **`gold.player_season` / `gold.team_season` include postseason games from
-  2021 (ADR-282, fix pending).** The event-derived tables here are regular
-  season only and are the accurate season line; the Baseball-Reference-lineage
-  tables overstate 2021+ playoff-team players' totals until the fix lands.
+- **`gold.player_season` / `gold.team_season` included postseason games for
+  2021+ until the `separate-postseason-stats` change (ADR-282) — now RESOLVED.**
+  `mlb_baseball/connectors/bref.py` pulls a regular-season-only
+  Baseball-Reference window and `raw.bref_*` was re-ingested. If a
+  `gold.player_season` row still shows more than 163 games, the re-ingest +
+  `mlb report` rebuild has not been run yet.
 - **Exact tie-out to Baseball-Reference is not achievable at the career grain
   or for seasons much before 2000.** Retrosheet's event record and
   Baseball-Reference's official record have each absorbed decades of
   independent scoring corrections; they differ by small amounts (typically one
   or two on a counting stat per older season). The tie-out gate
-  (`scripts/verify_baseball_reference_tie_out.py`) validates 2008–2019
-  field-by-field and carries two cited modern cases.
+  (`scripts/verify_baseball_reference_tie_out.py`) validates 2008–2025
+  field-by-field (2020 COVID season excepted) and carries two cited modern
+  cases.
 
 ### 3.1 `gold.batting_game`
 
@@ -159,8 +170,9 @@ into the other.
   the rare case of a player appearing for both clubs in one `game_id` (a
   suspended game resumed after a trade) gets two rows instead of colliding.
 - **Temporal semantics**: the actual game result — not point-in-time.
-- **Coverage**: 1910–2025 (Retrosheet events). 2026+ and postseason are
-  separate follow-up builders.
+- **Coverage**: 1910–2025 (Retrosheet events), regular season only. 2026+ is a
+  separate follow-up builder; postseason batting/pitching lives in
+  `gold.batting_postseason` / `gold.pitching_postseason` (§ 3.10).
 - **Counting stats only** — rate stats (AVG/OBP/SLG/…) live in the season and
   career roll-ups where the denominators are meaningful.
 
@@ -188,8 +200,9 @@ into the other.
   regular season only (same key rationale as `gold.batting_game` above). A
   two-way player also gets a `gold.batting_game` row.
 - **Temporal semantics**: the actual game result — not point-in-time.
-- **Coverage**: 1910–2025 (Retrosheet events). 2026+ and postseason are
-  separate follow-up builders.
+- **Coverage**: 1910–2025 (Retrosheet events), regular season only. 2026+ is a
+  separate follow-up builder; postseason batting/pitching lives in
+  `gold.batting_postseason` / `gold.pitching_postseason` (§ 3.10).
 - **`er` / `era` are not produced** — earned runs need reconstructed-inning
   logic that cwevent does not emit. `r` (total runs allowed) and season RA9
   are the honest event-derived figures; ERA is per-player-season from
@@ -306,6 +319,36 @@ into the other.
   career-total components. `gold.pitching_career` has `ra9`, not ERA (same
   no-earned-runs reason as `gold.pitching_season`).
 - **Coverage**: 1910–2025, regular season.
+
+### 3.10 `gold.batting_postseason` / `gold.pitching_postseason`
+
+- **Purpose**: postseason batting and pitching totals, kept entirely separate
+  from the regular-season backbone above (ADR-282 / ADR-283). Built by
+  `mlb report` from **Lahman's own `BattingPost` / `PitchingPost`**
+  (`raw.lahman_batting_post` / `raw.lahman_pitching_post`, 1884+) — the direct
+  parallel to how `gold.player_season` is built from Lahman. Player ids conform
+  via `core.player.bbref_id` (Lahman `playerID` is the Baseball-Reference id),
+  falling back to `raw.lahman_people.retroid` → `core.player.retro_id`
+  (~99.9% resolve); team ids via `raw.lahman_teams`.
+- **Grain**: one table per stat type, three row kinds:
+  - **per-round** — `is_combined = false`, `is_career = false`: one per
+    `(player_id, season, round, team_id)`. `round` is Lahman's raw value
+    (`WS`, `ALCS`, `NLDS1`, `ALWC4`, `NWS` for a Negro League series, …).
+  - **combined** — `is_combined = true`: one per `(player_id, season)`, all
+    that year's rounds summed; `round` and `team_id` NULL.
+  - **career** — `is_career = true`: one per `(player_id)`, every postseason
+    season summed; `season`, `round`, `team_id` NULL.
+- **Columns** mirror `gold.batting_season` / `gold.pitching_season` (counting
+  stats are plain sums, rate stats recomputed at each grain) plus `sb` / `cs`
+  on the batting side. `gold.pitching_postseason` has a **real `era`** (Lahman
+  `PitchingPost` carries earned runs, unlike the event-derived
+  `gold.pitching_season`), alongside `ra9`.
+- **Never contains a regular-season game** — the entire source is postseason.
+  An `mlb doctor` check verifies every `round` is a recognised postseason round.
+- **No postseason team-total relation** yet — it is a `GROUP BY` over the
+  combined rows and a noted follow-up (Lahman and baseball.computer both ship
+  only player-grain postseason data).
+- **Coverage**: 1884–2025.
 
 ---
 

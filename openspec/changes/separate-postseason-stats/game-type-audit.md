@@ -46,6 +46,42 @@ Method: grep every `mlb_baseball/sql/*.sql` and `mlb_baseball/report.py` /
   `gametype = 'regular'` (same as the `mlb_baseball/sql` park-factor passes).
   Confirm during 1.2.
 
+## Model / ML feature layer (task 1.3)
+
+baseball.computer's rule: an aggregate counts a game iff `game_type` is
+`regular` or `playoff` (Game 163 tiebreaker); every postseason series type is
+excluded.
+
+### PASS — reads a regular-season-scoped relation
+
+| File | Reads | Why regular-only |
+|---|---|---|
+| `model/features.py` → `sql/game_feature_rebuild.sql` | `raw.mlb_schedule` (`game_type = 'R'`), `core.game` (`game_type = 'regular'`) | explicit filter on both reads |
+| `model/elo.py` | `gold.game_feature` (+ `core.game` for extra cols only) | inherits game_feature's `regular` scope |
+| `model/age.py`, `experience.py`, `gbm.py`, `stack.py`, `market.py` | `gold.game_feature` / `gold.prediction` | inherit; predictions exist only for game_feature (regular) rows |
+| `model/backtest.py`, `drift.py` | `gold.prediction JOIN core.game` on `f.game_id` / `p.mlb_game_pk` | restricted to the predicted-game set, which is game_feature-derived (regular) |
+| `model/identity.py` | `gold.game_feature`, `gold.prediction` | identity plumbing, not an aggregation |
+| `model/total.py` | `core.game` | `WHERE game_type = 'regular'` |
+| `model/leverage_index.py` → `sql/leverage_index_season_partial.sql` | `core.game`, `raw.retrosheet_event` | both reads `game_type = 'regular'` / `lower(gi.gametype) = 'regular'` |
+| `model/*.py` reading `sql/*_retrosheet_update.sql` (`team_rate`, `bsr`, `offense`, `framing`, `pitch_discipline`, `pitcher_estimators`, `starter_workload`, `statcast_expected`, `war`, `bullpen`, `starter`, `batted_ball`) | those SQL builders | each carries `gametype = 'regular'` (audited in the SQL table above) |
+
+### GAP — fixed in task 1.3
+
+| File | What it feeds | Fix |
+|---|---|---|
+| `model/season.py::load_schedule_from_db` | the season Monte-Carlo sim (win totals, playoff / division / pennant / WS odds) — docstring says "regular season schedule" but the query had no `game_type` filter, so a playoff team's schedule included its October games | added `AND g.game_type IN ('regular', 'playoff')` |
+| `model/ros.py::simulate_ros` (2 queries: completed games ≤ cutoff, remaining games > cutoff) | rest-of-season standings sim — counted postseason games as regular-season results when run on a historical season | added `AND g.game_type IN ('regular', 'playoff')` to both |
+
+### Minor deviation noted (not fixed here)
+
+`sql/game_feature_rebuild.sql`'s `core.game` read uses `game_type = 'regular'`
+exactly, which *excludes* the pre-2022 Game 163 tiebreakers (4 team-seasons:
+2008 CWS/MIN, 2009 MIN/DET, 2013 TB/TEX, 2018 across 4 teams). baseball.computer
+counts those as regular season. This is the *conservative* direction (a real
+regular-season game left out, never a postseason game let in), so it is a
+data-completeness follow-up, not a contamination bug. The `raw.mlb_schedule`
+path (`game_type = 'R'`) already includes them.
+
 ## The core contamination (fixed by task 2, not 1.2)
 
 `gold.player_season` / `gold.team_season` season *counting* stats come from

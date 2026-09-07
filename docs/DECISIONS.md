@@ -2,6 +2,59 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-282: `gold.player_season` / `gold.team_season` include postseason stats from 2021 (bug — fix pending)
+
+**Finding (2026-09-07, during the Baseball-Reference tie-out expansion).** For
+seasons **2021 onward**, `gold.player_season` and `gold.team_season`
+over-report every player's counting stats and under-report the denominators of
+their rate stats: they fold **postseason games** into the season line. Seasons
+**2008–2019 are clean**; 2020 is the short COVID season.
+
+**Evidence.**
+- Marcus Semien 2023: `raw.bref_batting` = 179 G / 835 PA. Real regular season
+  = 162 G / 753 PA. The Rangers played 17 postseason games (won the World
+  Series); 162 + 17 = 179.
+- Justin Verlander 2022: `raw.bref_pitching` = 32 GS / 20-4 / 210 K / 195 IP.
+  Real = 28 GS / 18-4 / 185 K / 175 IP. The Astros made 4 postseason starts
+  for him.
+- "Extra PA vs the event-derived backbone", grouped by team for 2023, tracks
+  each team's playoff depth exactly and is **0.0 for every team that missed
+  the playoffs**.
+- By season: average extra PA for qualified batters is ~0 for 2008–2019 and
+  11–14 (max 77–89, a full World Series run) for 2021–2025.
+
+**Root cause.** `mlb_baseball/connectors/bref.py` loads `raw.bref_batting` /
+`raw.bref_pitching` from `pybaseball.batting_stats_bref(year)` /
+`pitching_stats_bref(year)`. Those functions query Baseball-Reference's
+cumulative daily tool over a **March 1 – November 30** window
+(`league_batting_stats.py`: `end_dt = f'{season}-11-30'`, comment: "postseason
+is definitely over by end of November"). That window spans October–November,
+and Baseball-Reference's daily tool now returns postseason game-logs inside it.
+Baseball-Reference expanded postseason integration into that view around
+2020–21, which is why 2008–2019 (or their still-cached pybaseball pulls) are
+clean and 2021+ are not. This is not a Retrosheet issue — the event-derived
+`gold.batting_season` / `gold.pitching_season` are **correct** (regular season
+only; they tie out to Baseball-Reference's real published season lines).
+
+**Impact.** `gold.player_season` / `gold.team_season` feed `gold.game_feature`
+and any model using player/team-season aggregates as features — a
+leakage-shaped error (postseason outcomes inside a "season" feature).
+
+**Decision / fix (pending, its own change).** The owner's direction: fix it,
+**and capture postseason performance properly rather than just dropping it** —
+marked as postseason (`core.game.game_type` already distinguishes playoff
+games). Shape to be settled in that change; candidate approach: the
+event-derived backbone gains explicit `game_type` scope (regular / postseason /
+combined), `gold.player_season` re-sources its regular-season counting stats
+from the corrected backbone and keeps only the Baseball-Reference-only fields
+(`era`, `war`), and a `mlb doctor` check flags any season line whose totals
+exceed a 162-game envelope.
+
+**Interim.** The tie-out gate's bulk cross-check
+(`scripts/verify_baseball_reference_tie_out.py`) excludes 2020+ for this
+reason. `gold.player_season` for 2021+ must be treated as regular+postseason
+until the fix lands.
+
 ## ADR-281: backbone Relation 6 — `gold.player_season` and the event-derived season tables stay parallel
 
 **Decision:** `gold.player_season` / `gold.team_season` (Baseball-Reference /

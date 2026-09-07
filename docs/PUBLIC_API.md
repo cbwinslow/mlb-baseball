@@ -65,6 +65,22 @@ Choose a source profile deliberately:
 See [SOURCE_RIGHTS.md](SOURCE_RIGHTS.md), [TABLE_CONTRACTS.md](TABLE_CONTRACTS.md),
 and [SQL_OWNERSHIP.md](SQL_OWNERSHIP.md) before publishing derived work.
 
+## Before a release: run the Baseball-Reference tie-out gate
+
+`scripts/verify_baseball_reference_tie_out.py` is the backbone's tie-out gate.
+Run it against a fully-built database (`mlb report` done) before publishing a
+release:
+
+```bash
+DATABASE_URL=postgresql:///mlb uv run python scripts/verify_baseball_reference_tie_out.py
+```
+
+It checks the cited modern player-season cases exactly and cross-checks the
+event-derived season tables against `gold.player_season` field-by-field for
+2008–2019. Known limitations it does **not** gate on are in
+`docs/DATA_DICTIONARY.md` § 3 (career / pre-2000 divergence; the ADR-282
+postseason issue in `gold.player_season`).
+
 ## Publishing the backbone dataset to Hugging Face
 
 `mlb export --preset backbone` writes the publishable subset of the

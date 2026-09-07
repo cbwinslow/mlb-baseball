@@ -138,6 +138,20 @@ per-team stint rows + a combined line, `ra9` not `era`). `gold.player_season`
 distinct sources for distinct purposes — neither is a view over or a writer
 into the other.
 
+**Known limitations:**
+
+- **`gold.player_season` / `gold.team_season` include postseason games from
+  2021 (ADR-282, fix pending).** The event-derived tables here are regular
+  season only and are the accurate season line; the Baseball-Reference-lineage
+  tables overstate 2021+ playoff-team players' totals until the fix lands.
+- **Exact tie-out to Baseball-Reference is not achievable at the career grain
+  or for seasons much before 2000.** Retrosheet's event record and
+  Baseball-Reference's official record have each absorbed decades of
+  independent scoring corrections; they differ by small amounts (typically one
+  or two on a counting stat per older season). The tie-out gate
+  (`scripts/verify_baseball_reference_tie_out.py`) validates 2008–2019
+  field-by-field and carries two cited modern cases.
+
 ### 3.1 `gold.batting_game`
 
 - **Grain**: one batting box-score line per `(game_id, player_id, team_id)`,

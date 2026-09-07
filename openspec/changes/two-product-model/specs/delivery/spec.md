@@ -15,7 +15,9 @@ returned for decision time `t` was derived only from records whose
 availability timestamp is at or before `t`. A missing snapshot SHALL be
 returned as missing, never filled from a later snapshot.
 
-The first public release (v1) is not complete until the feature store ships.
+(The public roadmap in `openspec/project.md` sequences when the feature
+store ships — see its phased ladder. This requirement defines what the
+public distribution is, not when each part lands.)
 
 #### Scenario: The released product includes a usable feature store
 
@@ -39,8 +41,8 @@ hold-out (never a random split), and SHALL state the model's known
 limitations.
 
 The reference baseline exists as the worked example every later model is
-measured against; the first public release (v1) is not complete until it
-and its model card ship.
+measured against. (`openspec/project.md`'s phased ladder sequences when it
+ships.)
 
 #### Scenario: The baseline model ships with an honest model card
 

@@ -22,18 +22,29 @@ entry criteria** instead. Expansions get scheduled, not shot down.
   results for tuned models, market-disagreement / parlay / CLV research, candidate
   metrics still in validation, the model ladder above the baseline, the
   subscriber website and its posts.
-- **v1 redefined.** The first public release is a *research platform*, not a
-  stats dump: it also includes the point-in-time feature store and one reference
-  baseline model (Elo v2) with a model card. The milestone is not "done" until
-  those ship.
-- **`Frozen` list → phased ladder.** Phase A (public platform) → Phase B (Engine,
-  internal) → Phase C (live + subscriber product), each with an explicit entry
-  criterion (phase N starts when phase N−1's public deliverable is stable and
-  versioned). Nothing is deleted — the ~110 Engine packages, the prediction
-  ladder, live betting, and the subscriber site each get a home and a gate.
+- **v1 stays small; v1.1 is the platform.** v1 = the stats download (Parquet on
+  HF + loader + DuckDB-WASM page + docs + notebooks), tightened and finished —
+  it is nearly there (`v0.1.0` is public). **v1.1** adds the point-in-time
+  feature store and one reference baseline model (Elo v2) + model card — the
+  differentiator, the very next milestone. The feature store is not held over v1;
+  it is v1.1's headline.
+- **`Frozen` list → phased ladder.** Phase A (public platform: v1 then v1.1) →
+  Phase B (Engine, internal) → Phase C (live + subscriber product), each with an
+  explicit entry criterion (phase N starts when phase N−1's public deliverable is
+  stable and versioned). Nothing is deleted — the ~110 Engine packages, the
+  prediction ladder, live betting, and the subscriber site each get a home and a
+  gate. **Phases B and C are marked speculative**: Phase A (a trustworthy
+  research database) has demonstrated demand; the model/betting/subscription back
+  half rests on an unproven premise and is re-evaluated once Phase A ships and
+  there is evidence someone wants it.
 - **`announced to r/Sabermetrics` removed** from the phase done-criteria. Not
-  replaced — announcement is a separate later decision, gated on the codebase
-  being tightened first.
+  replaced — announcement is a separate later decision.
+- **Standing code-quality rule.** Add to the definition of done for every
+  OpenSpec change: code written or touched is left lean, single-purpose, free of
+  duplication of existing helpers, within the file-size guide, and free of dead
+  scaffolding — the bar `/code-review` and `/simplify` apply, enforced per change
+  rather than in one late sweep. A one-time full-codebase review is a tracked
+  LATER item, run after this ladder's Phase A work is executed.
 - **SQL vs Python layer split, stated.** Deterministic aggregation over events
   that a researcher would recompute → SQL, and it ships. Iterative fit /
   simulation / stochastic → Python, reads the feature tables, writes predictions
@@ -43,9 +54,10 @@ entry criteria** instead. Expansions get scheduled, not shot down.
   code.
 
 Docs and contract only. No code changes. The feature store, the backtest
-harness, the reference baseline, the Engine triage / `meta.metric` registry, and
-the codebase-quality ("vibe-code proof") review are each **separate later
-changes** — this one only makes them sanctioned lanes.
+harness, the reference baseline, and the Engine triage / `meta.metric` registry
+are each **separate later changes** — this one only makes them sanctioned lanes.
+The codebase-quality bar becomes a standing per-change rule now; a one-time
+full-codebase review is a tracked LATER item.
 
 ## Capabilities
 
@@ -64,9 +76,11 @@ _None._
 ## Impact
 
 - `openspec/project.md` — "Who it's for", "Delivery", "Current phase"
-  done-criteria, "Frozen" → phased ladder, "Longer vision", + a layer-split note.
+  done-criteria, "Frozen" → phased ladder (v1 / v1.1 split; B/C marked
+  speculative), "Longer vision", a layer-split note, a standing code-quality
+  rule in the definition of done, and a LATER item for the full-codebase review.
 - `openspec/specs/delivery/spec.md` — via the delta above.
 - `mlb_baseball/model/AGENTS.md` — ship-vs-internal line for model code.
 - No source code, no migrations, no dependencies. Downstream changes it unblocks:
-  the feature store, the backtest harness + reference baseline, the Engine
-  triage + `meta.metric` registry, and the codebase-quality review.
+  the feature store, the backtest harness + reference baseline, and the Engine
+  triage + `meta.metric` registry.

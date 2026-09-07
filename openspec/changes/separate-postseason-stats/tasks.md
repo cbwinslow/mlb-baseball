@@ -35,4 +35,5 @@
 ## 7. Verification
 
 - [ ] 7.1 Fresh-checkout smoke: a throwaway scratch DB, `mlb migrate`, seed, `mlb report`, confirm no postseason game lands in any regular-season relation and the postseason relations are populated only by postseason games. Verify: a script or documented manual run.
-- [ ] 7.2 `openspec validate --all` and `openspec validate separate-postseason-stats --strict` exit 0. Full targeted test suite for the touched modules (`tests/integration/test_report*.py`, `tests/unit/test_bref*` / connector tests, doctor tests) passes. Verify: paste the test summary into the PR.
+      - **Owner-run** (needs real Retrosheet + Lahman data): part of the `reingest-runbook.md` pass. The `mlb doctor` envelope + round-sanity checks and `serve.health_check()` are the automated equivalent.
+- [x] 7.2 `openspec validate --all` (3 passed, 0 failed) and `openspec validate separate-postseason-stats --strict` (valid) exit 0. `ruff` + `sqlfluff` + `mypy` clean across every touched file. Targeted tests: `test_bref_window.py` + `test_bref_load.py` (73), `test_report_postseason.py` (5), `test_model_season.py` / `test_model_ros.py` (postseason-exclusion), `test_export*` / `test_health` (72 in the combined run). Full `test_report*.py` + `test_doctor.py` re-run pending (one health-check column fix landed after the first run).

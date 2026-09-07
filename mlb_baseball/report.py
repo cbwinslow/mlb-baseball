@@ -767,7 +767,7 @@ def health_check() -> list[Check]:
             """
             SELECT
               (SELECT count(*) FROM gold.player_season WHERE games > 163 OR pa > 800)
-            + (SELECT count(*) FROM gold.team_season   WHERE games > 163)
+            + (SELECT count(*) FROM gold.team_season   WHERE wins + losses > 163)
             """,
         ),
         check_no_rows(

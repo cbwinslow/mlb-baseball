@@ -684,3 +684,69 @@ def test_health_check_returns_checks_without_crashing(db_conn):
     assert len(checks) >= 5
     assert all(hasattr(c, "ok") for c in checks)
     _reset(db_conn)
+
+
+_TEAM_ENVELOPE = "gold.player_season / gold.team_season are within the regular-season envelope"
+_SEASON_ENVELOPE = (
+    "gold.batting_season / gold.pitching_season are within the regular-season envelope"
+)
+
+
+def _check_ok(name):
+    return next(c for c in report.health_check() if c.name == name).ok
+
+
+def test_envelope_check_is_era_scoped_for_pre_1969_tiebreakers_and_tie_replays(db_conn):
+    # Before 1969 a pennant tie was a best-of-three and in-full tie-game
+    # replays counted, so team and player season totals legitimately reach
+    # 164-165: 1962 SF Giants (103-62) in Lahman Teams; Billy Williams 1965
+    # at 164 G. A flat `> 163` threshold flags them as postseason
+    # contamination -- indistinguishable from a real leak. Post-1969 the
+    # ceiling is 163 (one Game 163), and a leaked postseason series adds far
+    # more than 2 games so it is still caught.
+    _reset(db_conn)
+    _ensure_dynamic_tables(db_conn)
+    with db_conn.cursor() as cur:
+        teams = _insert_teams(cur, [("SFN", "San Francisco", "Giants", 1958, 9999, 137)])
+        cur.execute(
+            "INSERT INTO gold.team_season (team_id, season, wins, losses) "
+            "VALUES (%s, 1962, 103, 62)",
+            (teams["SFN"],),
+        )
+        cur.execute(
+            "INSERT INTO core.player (retro_id, first_name, last_name) "
+            "VALUES ('willb101', 'Billy', 'Williams') RETURNING id"
+        )
+        (williams,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO gold.batting_season (player_id, season, is_combined, g, pa) "
+            "VALUES (%s, 1965, true, 164, 719)",
+            (williams,),
+        )
+    db_conn.commit()
+    assert _check_ok(_TEAM_ENVELOPE)
+    assert _check_ok(_SEASON_ENVELOPE)
+
+    # The same 164-165 totals in a modern season ARE postseason contamination.
+    with db_conn.cursor() as cur:
+        teams = _insert_teams(cur, [("SFG", "San Francisco", "Giants", 1958, 9999, 138)])
+        cur.execute(
+            "INSERT INTO gold.team_season (team_id, season, wins, losses) "
+            "VALUES (%s, 2021, 107, 58)",
+            (teams["SFG"],),
+        )
+        cur.execute(
+            "INSERT INTO gold.batting_season (player_id, season, is_combined, g, pa) "
+            "VALUES (%s, 2021, true, 164, 719)",
+            (williams,),
+        )
+    db_conn.commit()
+    assert not _check_ok(_TEAM_ENVELOPE)
+    assert not _check_ok(_SEASON_ENVELOPE)
+
+    # _reset does not clear gold.batting_season (owned by test_report_batting_season.py);
+    # drop this test's rows so its core.player DELETE does not hit the FK.
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM gold.batting_season WHERE player_id = %s", (williams,))
+    db_conn.commit()
+    _reset(db_conn)

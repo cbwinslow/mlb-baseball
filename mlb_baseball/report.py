@@ -425,6 +425,15 @@ _PITCHING_SEASON_SQL = read_sql("pitching_season_build.sql")
 _PITCHING_TEAM_SQL = read_sql("pitching_team_build.sql")
 _BATTING_CAREER_SQL = read_sql("batting_career_build.sql")
 _PITCHING_CAREER_SQL = read_sql("pitching_career_build.sql")
+# Postseason relations (separate-postseason-stats / ADR-282) -- built from
+# Lahman's own BattingPost / PitchingPost, kept entirely apart from the
+# regular-season backbone above.
+_BATTING_POSTSEASON_SQL = read_sql("batting_postseason_build.sql")
+_PITCHING_POSTSEASON_SQL = read_sql("pitching_postseason_build.sql")
+# Recognised Lahman postseason `round` codes: WS / NWS (Negro WS), CS / NNC /
+# NSC (Negro championship), and the league-prefixed rounds -- [AN] league,
+# optional [EWL] sub-division, then C(S) / DS<n> / WC<n> / DIV / P<n>.
+_PS_ROUND_RE = r"^(WS|NWS|CS|NNC|NSC|[AN][EWL]?(C|CS|DS[0-9]|WC[0-9]?|DIV|P[0-9]))$"
 
 
 def _build_backbone_relation(
@@ -520,6 +529,21 @@ def run() -> dict[str, int]:
         )
         counts["gold.pitching_career"] = _build_backbone_relation(
             conn, "gold.pitching_career", _PITCHING_CAREER_SQL, source="gold.pitching_season"
+        )
+        # Postseason relations -- Lahman BattingPost / PitchingPost lineage,
+        # never the event backbone; skip cleanly if Lahman postseason isn't
+        # ingested yet.
+        counts["gold.batting_postseason"] = _build_backbone_relation(
+            conn,
+            "gold.batting_postseason",
+            _BATTING_POSTSEASON_SQL,
+            source="raw.lahman_batting_post",
+        )
+        counts["gold.pitching_postseason"] = _build_backbone_relation(
+            conn,
+            "gold.pitching_postseason",
+            _PITCHING_POSTSEASON_SQL,
+            source="raw.lahman_pitching_post",
         )
         conn.commit()
         result["rows"] = sum(counts.values())
@@ -731,6 +755,108 @@ def health_check() -> list[Check]:
                  WHERE ra9 < 0 OR whip < 0 OR k9 < 0 OR bb9 < 0 OR hr9 < 0 OR k_bb < 0)
             + (SELECT count(*) FROM gold.pitching_career
                  WHERE ra9 < 0 OR whip < 0 OR k9 < 0 OR bb9 < 0 OR hr9 < 0 OR k_bb < 0)
+            """,
+        ),
+        # --- Postseason contamination guard (separate-postseason-stats / ADR-282) ---
+        # Since 1969 a team plays at most 162 regular-season games + one Game 163
+        # tiebreaker. Before 1969 a pennant tie was a best-of-three AND in-full
+        # tie-game replays counted, so both team and player totals legitimately
+        # reach 164-165: 1962 SF (103-62) / LA (102-63) in Lahman Teams, and
+        # Billy Williams / Ron Santo 1965 + Cesar Tovar 1967 at 164 G in the
+        # event-derived season relations. Allow 165 pre-1969, 163 after; a
+        # leaked postseason series adds far more than 2 games so it is still
+        # caught. `pa > 800` is a universal ceiling (the season record is ~778).
+        check_no_rows(
+            "gold.player_season / gold.team_season are within the regular-season envelope",
+            """
+            SELECT
+              (SELECT count(*) FROM gold.player_season
+                 WHERE games > CASE WHEN season < 1969 THEN 165 ELSE 163 END OR pa > 800)
+            + (SELECT count(*) FROM gold.team_season
+                 WHERE wins + losses > CASE WHEN season < 1969 THEN 165 ELSE 163 END)
+            """,
+        ),
+        check_no_rows(
+            "gold.batting_season / gold.pitching_season are within the regular-season envelope",
+            """
+            SELECT
+              (SELECT count(*) FROM gold.batting_season
+                 WHERE g > CASE WHEN season < 1969 THEN 165 ELSE 163 END OR pa > 800)
+            + (SELECT count(*) FROM gold.pitching_season
+                 WHERE g > CASE WHEN season < 1969 THEN 165 ELSE 163 END)
+            """,
+        ),
+        # --- Postseason relations (Lahman BattingPost / PitchingPost lineage) ---
+        check_table_has_rows("gold.batting_postseason"),
+        check_table_has_rows("gold.pitching_postseason"),
+        # tolerance: the handful of Lahman postseason rows whose playerid
+        # resolves neither via core.player.bbref_id nor via
+        # raw.lahman_people.retroid (recent debuts not yet in core.player;
+        # ~15 batting / ~2 pitching against production). The "expected" side
+        # mirrors the builder's own resolution chain, so this is not a
+        # stricter bar than the builder clears -- it exists so a *growth* in
+        # unresolved ids (a crosswalk regression) turns doctor red instead of
+        # silently shrinking the postseason relation.
+        check_join_coverage(
+            "resolvable raw.lahman_batting_post rows get a gold.batting_postseason per-round row",
+            "SELECT count(*) FROM gold.batting_postseason WHERE NOT is_combined AND NOT is_career",
+            """
+            SELECT count(*) FROM raw.lahman_batting_post bp
+            LEFT JOIN core.player pd ON pd.bbref_id = bp.playerid
+            LEFT JOIN raw.lahman_people lp
+                ON lp.playerid = bp.playerid AND lp.retroid <> '' AND pd.id IS NULL
+            LEFT JOIN core.player pr ON pr.retro_id = lp.retroid
+            JOIN raw.lahman_teams lt ON lt.teamid = bp.teamid AND lt.yearid = bp.yearid
+            JOIN core.team t ON t.retro_team_id = lt.teamidretro
+                AND bp.yearid::integer BETWEEN t.first_year AND t.last_year
+            WHERE coalesce(pd.id, pr.id) IS NOT NULL
+            """,
+            tolerance=0,
+        ),
+        check_join_coverage(
+            "resolvable raw.lahman_pitching_post rows get a gold.pitching_postseason per-round row",
+            "SELECT count(*) FROM gold.pitching_postseason WHERE NOT is_combined AND NOT is_career",
+            """
+            SELECT count(*) FROM raw.lahman_pitching_post pp
+            LEFT JOIN core.player pd ON pd.bbref_id = pp.playerid
+            LEFT JOIN raw.lahman_people lp
+                ON lp.playerid = pp.playerid AND lp.retroid <> '' AND pd.id IS NULL
+            LEFT JOIN core.player pr ON pr.retro_id = lp.retroid
+            JOIN raw.lahman_teams lt ON lt.teamid = pp.teamid AND lt.yearid = pp.yearid
+            JOIN core.team t ON t.retro_team_id = lt.teamidretro
+                AND pp.yearid::integer BETWEEN t.first_year AND t.last_year
+            WHERE coalesce(pd.id, pr.id) IS NOT NULL
+            """,
+            tolerance=0,
+        ),
+        check_join_coverage(
+            "gold.batting_postseason: a combined row per player-season, a career row per player",
+            """
+            SELECT
+              (SELECT count(*) FROM gold.batting_postseason WHERE is_combined)
+            + (SELECT count(*) FROM gold.batting_postseason WHERE is_career)
+            """,
+            """
+            SELECT
+              (SELECT count(*) FROM (SELECT DISTINCT player_id, season
+                 FROM gold.batting_postseason WHERE NOT is_combined AND NOT is_career) a)
+            + (SELECT count(DISTINCT player_id) FROM gold.batting_postseason
+                 WHERE NOT is_combined AND NOT is_career)
+            """,
+            tolerance=0,
+        ),
+        # Postseason relations never contain a regular-season game: every
+        # `round` must be a recognised postseason round (_PS_ROUND_RE). A new
+        # Lahman round code (MLB changes the playoff format) turns this yellow
+        # so it gets reviewed and added -- that is the intent, not a false alarm.
+        check_no_rows(
+            "gold.{batting,pitching}_postseason rounds are all recognised postseason rounds",
+            f"""
+            SELECT
+              (SELECT count(*) FROM gold.batting_postseason
+                 WHERE round IS NOT NULL AND round !~ '{_PS_ROUND_RE}')
+            + (SELECT count(*) FROM gold.pitching_postseason
+                 WHERE round IS NOT NULL AND round !~ '{_PS_ROUND_RE}')
             """,
         ),
     ]

@@ -1690,12 +1690,14 @@ def run() -> dict[str, int]:
         # core.player_war references core.player; the whole Plan 03B backbone
         # (gold.batting_game / gold.pitching_game, the season / team
         # roll-ups, and the batting_career / pitching_career roll-ups)
-        # references core.game / core.player / core.team. conform empties the
-        # gold tables it does not itself rebuild for the same reason it
-        # empties gold.game_feature — a full core rebuild reissues every
-        # core.game surrogate id, so any gold row still pointing at an old
-        # one is stale. `mlb report` rebuilds the whole backbone afterward,
-        # like `mlb features` rebuilds gold.game_feature.
+        # references core.game / core.player / core.team. gold.batting_postseason
+        # / gold.pitching_postseason (migration 0100) reference
+        # core.player / core.team too. conform empties the gold tables it does
+        # not itself rebuild for the same reason it empties gold.game_feature —
+        # a full core rebuild reissues every core.game surrogate id, so any gold
+        # row still pointing at an old one is stale. `mlb report` rebuilds the
+        # whole backbone (including the postseason relations) afterward, like
+        # `mlb features` rebuilds gold.game_feature.
         with conn.cursor() as cur:
             cur.execute(
                 "TRUNCATE core.play, core.pitch, core.market, "
@@ -1703,6 +1705,7 @@ def run() -> dict[str, int]:
                 "gold.batting_season, gold.batting_team, "
                 "gold.pitching_season, gold.pitching_team, "
                 "gold.batting_career, gold.pitching_career, "
+                "gold.batting_postseason, gold.pitching_postseason, "
                 "core.game, core.team, core.player, "
                 "core.venue, core.standing, core.team_alias, "
                 "core.player_war"

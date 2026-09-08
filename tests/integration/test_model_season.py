@@ -27,8 +27,8 @@ def _seed_teams_and_season_schedule(db_conn, season=2024):
             for game_num in range(1, 5):
                 cur.execute(
                     "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
-                    "game_number, home_team_id, away_team_id) "
-                    "VALUES (%s, %s, %s, '2024-04-01', %s, %s, %s)",
+                    "game_number, home_team_id, away_team_id, game_type) "
+                    "VALUES (%s, %s, %s, '2024-04-01', %s, %s, %s, 'regular')",
                     (
                         f"{t1}{season}0401{game_num}",
                         f"99{i}{game_num}",
@@ -38,6 +38,20 @@ def _seed_teams_and_season_schedule(db_conn, season=2024):
                         team_id_map[t2],
                     ),
                 )
+        # One postseason game between the first two teams -- load_schedule_from_db
+        # must NOT return it (regular-season sim; ADR-282 / separate-postseason-stats).
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
+            "game_number, home_team_id, away_team_id, game_type) "
+            "VALUES (%s, %s, %s, '2024-10-26', 1, %s, %s, 'worldseries')",
+            (
+                f"{ALL_MLB_TEAMS[0]}{season}1026PS",
+                "99postseason",
+                season,
+                team_id_map[ALL_MLB_TEAMS[0]],
+                team_id_map[ALL_MLB_TEAMS[1]],
+            ),
+        )
     db_conn.commit()
 
 
@@ -46,7 +60,8 @@ def test_load_schedule_from_db_and_simulate_season(db_conn):
     _seed_teams_and_season_schedule(db_conn, season=2024)
 
     schedule = load_schedule_from_db(2024, conn=db_conn)
-    assert len(schedule) == 60  # 15 matchups * 4 games
+    assert len(schedule) == 60  # 15 matchups * 4 games -- the World Series game is excluded
+    assert all(g.game_date == "2024-04-01" for g in schedule)
 
     talents = {t: 0.500 for t in ALL_MLB_TEAMS}
     result = simulate_season_monte_carlo(

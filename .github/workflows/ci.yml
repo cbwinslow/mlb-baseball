@@ -106,6 +106,29 @@ jobs:
       - name: Type-check (mypy)
         run: uv run mypy
 
+  docs:
+    # Build the MkDocs Material site the same way pages.yml does, so a broken
+    # link, a missing snippet marker, or a bad mkdocs.yml is caught on the PR
+    # rather than only when the Pages deploy runs on main.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install the docs toolchain
+        run: uv sync --frozen --extra docs
+
+      - name: Build the docs site (strict)
+        run: uv run mkdocs build --strict
+
   unit:
     runs-on: ubuntu-latest
     permissions:

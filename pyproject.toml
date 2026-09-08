@@ -44,6 +44,14 @@ export = [
     "pyarrow>=16",
     "huggingface-hub>=0.24",
 ]
+docs = [
+    # MkDocs Material docs site (mkdocs-docs-site change) -- build-time only,
+    # not a runtime dependency of mlb_baseball or the shipped mlb-research
+    # package. `.github/workflows/pages.yml` runs `uv sync --extra docs` then
+    # `mkdocs build --strict` into docs/site/.
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+]
 
 [project.scripts]
 mlb = "mlb_baseball.cli:main"

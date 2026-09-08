@@ -33,6 +33,7 @@ direction docs are kept in [docs/archive/](docs/archive/) —
 
 ## Docs
 
+- **[Published docs site](https://cbwinslow.github.io/mlb-baseball/)** — the researcher-facing site: data dictionary, grain ladder, formulas + citations, honest limitations, and an [in-browser SQL query page](https://cbwinslow.github.io/mlb-baseball/query/) over the published dataset.
 - [openspec/project.md](openspec/project.md) — the project constitution: product, audience, current phase, workflow. Start here.
 - [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) — every source the pipeline pulls from, cost and license notes
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — schema layering, connector shape, configuration

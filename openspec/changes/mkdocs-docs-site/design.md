@@ -117,6 +117,24 @@ Change `paths` from `docs/site/**` to `docs/site-src/**`, `mkdocs.yml`, and
 `pyproject.toml` / `uv.lock` (a toolchain bump must redeploy). Keep
 `.github/workflows/pages.yml` in the list and `workflow_dispatch`.
 
+### D7 — the grain-ladder diagram is a hand-authored inline SVG, not Mermaid
+
+The proposal assumed Mermaid (via `pymdownx.superfences` + mkdocs-material's
+native support). In practice that adds a runtime dependency — mkdocs-material
+fetches `mermaid.min.js` from unpkg at page load and renders client-side — and
+the `format: !!python/name:...` custom-fence tag also breaks the repo's plain
+`check-yaml` pre-commit hook. The diagram is five boxes and four arrows; a
+hand-authored inline `<svg>` using `currentColor` / `var(--md-default-fg-color)`
+renders identically in light and dark, needs no JS and no network, has a real
+`<title>`/`<desc>` for accessibility, and is asserted deterministically by the
+docs test (SVG present with every grain label). This also lets `mkdocs.yml` use
+plain `pymdownx.superfences` with no Python-tag YAML, so `check-yaml` needs no
+exclusion.
+
+- **Alternative rejected — keep Mermaid.** A CDN fetch and client-side render for
+  a static five-node diagram, plus a pre-commit-hook carve-out, for no gain over
+  40 lines of SVG.
+
 ## Risks / Trade-offs
 
 - **`mkdocs build` in CI adds a failure mode to Pages deploys** → `--strict`

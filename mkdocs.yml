@@ -1,0 +1,56 @@
+# MkDocs Material docs site for the public `mlb-research` distribution
+# (mkdocs-docs-site change). Source: docs/site-src/. Build output: docs/site/
+# (git-ignored), uploaded to GitHub Pages by .github/workflows/pages.yml.
+site_name: MLB Research
+site_description: >-
+  Documentation for the MLB Research statistic backbone: the published tables,
+  their grains, the formulas and their citations, and the honest limitations.
+site_url: https://cbwinslow.github.io/mlb-baseball/
+repo_url: https://github.com/cbwinslow/mlb-baseball
+repo_name: cbwinslow/mlb-baseball
+edit_uri: edit/main/docs/site-src/
+
+docs_dir: docs/site-src
+site_dir: docs/site
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tracking
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Data dictionary: data-dictionary.md
+  - Grain ladder: grain-ladder.md
+  - Formulas & citations: formulas.md
+  - Honest limitations: limitations.md
+  - Run SQL: query/index.html
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.snippets:
+      base_path: [docs]
+      check_paths: true
+  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+  - md_in_html
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

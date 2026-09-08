@@ -26,9 +26,10 @@ is, at what grain, computed how, and with what limitations.
     columns, source, null policy. Single source of truth stays
     `docs/DATA_DICTIONARY.md`; the site page includes it via a snippet so the
     two never drift.
-  - **Grain ladder** — a Mermaid diagram of game → season-stint →
-    season-combined → team-season → career, with the "rates recomputed from
-    numerators/denominators, never averaged" rule stated.
+  - **Grain ladder** — a diagram of game → season-stint → season-combined →
+    team-season → career, with the "rates recomputed from
+    numerators/denominators, never averaged" rule stated. (Implemented as a
+    hand-authored inline SVG, not Mermaid — see design.md D7.)
   - **Formula citations** — every published metric with its formula and the
     published source it is cited to (Tango/`The Book`, Retrosheet, FanGraphs,
     Baseball-Reference), sourced from `docs/THEORY_AND_METHODOLOGY.md`.

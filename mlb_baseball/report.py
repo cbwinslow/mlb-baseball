@@ -770,7 +770,8 @@ def health_check() -> list[Check]:
             "gold.player_season / gold.team_season are within the regular-season envelope",
             """
             SELECT
-              (SELECT count(*) FROM gold.player_season WHERE games > 163 OR pa > 800)
+              (SELECT count(*) FROM gold.player_season
+                 WHERE games > CASE WHEN season < 1969 THEN 165 ELSE 163 END OR pa > 800)
             + (SELECT count(*) FROM gold.team_season
                  WHERE wins + losses > CASE WHEN season < 1969 THEN 165 ELSE 163 END)
             """,

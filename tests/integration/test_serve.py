@@ -249,3 +249,47 @@ def test_serve_sgp_grid_uses_latest_predictions_and_actual_pitcher_hand(db_conn)
     assert lg["actual_home_win"] is True
 
     _reset(db_conn)
+
+
+def _ros_check(db_conn):
+    return next(
+        c
+        for c in serve.health_check()
+        if c.name == "serve.ros_team_standings is regular-season only"
+    )
+
+
+def test_ros_standings_envelope_check_is_era_scoped(db_conn):
+    # serve.health_check()'s regular-season guard on serve.ros_team_standings
+    # must allow the pre-1969 best-of-three pennant playoff (1962 SF went
+    # 103-62 = 165 decisions) and count decisions, not games_played (pre-1990
+    # tie-game replays pushed games_played to 164 with 162 decisions). A leaked
+    # postseason series is all decisions, so it still trips the check.
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    bos, nya = teams["BOS"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        # 1962 BOS: 165 completed regular-season home wins -> 165 decisions.
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
+            "game_number, game_type, home_team_id, away_team_id, home_score, away_score) "
+            "SELECT 'PRE'||gs, (920000+gs)::text, 1962, DATE '1962-04-10' + gs, 1, "
+            "'regular', %(h)s, %(a)s, 5, 3 FROM generate_series(1, 165) gs",
+            {"h": bos, "a": nya},
+        )
+    db_conn.commit()
+    assert _ros_check(db_conn).ok  # 165 decisions pre-1969 is legitimate
+
+    with db_conn.cursor() as cur:
+        # 2024 NYA: 164 completed regular-season decisions -> postseason leaked in.
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
+            "game_number, game_type, home_team_id, away_team_id, home_score, away_score) "
+            "SELECT 'MOD'||gs, (930000+gs)::text, 2024, DATE '2024-04-01' + gs, 1, "
+            "'regular', %(h)s, %(a)s, 7, 2 FROM generate_series(1, 164) gs",
+            {"h": nya, "a": bos},
+        )
+    db_conn.commit()
+    assert not _ros_check(db_conn).ok  # 164 decisions in 2024 is contamination
+
+    _reset(db_conn)

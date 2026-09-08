@@ -199,17 +199,25 @@ def health_check() -> list[Check]:
                     checks.append(Check("serve views", True, "all 6 serving marts present"))
 
                 # serve.ros_team_standings must be regular-season only
-                # (ADR-282 / ADR-283): a single team plays at most 162
-                # regular-season games + at most one Game 163 tiebreaker.
+                # (ADR-282 / ADR-283). Check *decisions* (wins + losses), not
+                # games_played: pre-1990 tie games were replayed in full and
+                # both counted as games played (1989 PIT / SLN reached 164
+                # games_played, 162 decisions), so games_played has a fuzzy
+                # ceiling, but decisions do not -- since 1969 a team has at
+                # most 162 + one Game 163 = 163 decisions, pre-1969 a
+                # best-of-three pennant playoff reaches 165 (1962 SF 103-62).
+                # A leaked postseason series is all decisions, so it still
+                # trips this. Era-scoped to match report.health_check().
                 if "ros_team_standings" in views:
                     cur.execute(
-                        "SELECT count(*) FROM serve.ros_team_standings WHERE games_played > 163"
+                        "SELECT count(*) FROM serve.ros_team_standings "
+                        "WHERE wins + losses > CASE WHEN season < 1969 THEN 165 ELSE 163 END"
                     )
                     (over,) = cur.fetchone() or (0,)
                     detail = (
                         "ok"
                         if over == 0
-                        else f"{over} team-seasons over 163 games (postseason leaked in)"
+                        else f"{over} team-seasons over the era envelope (postseason leaked in)"
                     )
                     checks.append(
                         Check("serve.ros_team_standings is regular-season only", over == 0, detail)

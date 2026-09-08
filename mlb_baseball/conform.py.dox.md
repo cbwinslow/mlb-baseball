@@ -85,6 +85,26 @@ The order inside `run()` is part of correctness. Important current dependencies 
 
 Do not reorder passes because two functions look independent. Inspect the comments/tests and downstream keys first.
 
+## Player Identity Contract
+
+- `_build_players` runs two passes into `core.player` (truncated centrally by
+  `run()`): `conform_player_insert.sql` admits every `raw.register_people` row
+  with a Retrosheet id; `conform_player_insert_current_season.sql` then admits
+  rows that have an MLBAM id and appear in MLB's own game record
+  (`raw.mlb_boxscore_batting` / `_pitching` / `raw.mlb_playbyplay`). The second
+  pass is savepointed and skipped whole if those optional tables are absent.
+- `core.player.retro_id` is nullable (migration 0103) — NULL for a
+  current-season player admitted on their MLBAM id. It is UNIQUE across
+  non-NULL values and backfills on the next full conform once Retrosheet
+  assigns the real id. `key_retro IS NULL` in the second pass keeps the two
+  passes disjoint; there is no upsert.
+- Do not admit an MLBAM-only register row that never appears in MLB game data
+  (that is every minor-leaguer and foreign-league player). Do not mint a
+  synthetic `retro_id`.
+- `mlb doctor` enforces `core.player regular-season resolution` (tolerance 0)
+  and `core.player.mlbam_id uniqueness`.
+- See ADR-284.
+
 ## Game Identity Contract
 
 - `core.game.retro_game_id` and MLB `game_pk` are distinct identifiers.

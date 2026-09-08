@@ -35,6 +35,8 @@ DYNAMIC_RAW_TABLES = [
     "raw.kalshi_market",
     "raw.kalshi_snapshot",
     "raw.lahman_teams",
+    "raw.mlb_boxscore_batting",
+    "raw.mlb_boxscore_pitching",
     "raw.mlb_playbyplay",
     "raw.mlb_schedule",
     "raw.mlb_standing",
@@ -262,6 +264,114 @@ def test_run_populates_team_player_and_game(db_conn):
 
     assert unresolved[0] == "ATL202504020"
     assert unresolved[3] is None  # "unresolvable" has no core.player row
+
+
+def _create_mlb_game_tables(cur):
+    """The three optional MLB game tables conform's second player pass reads.
+    A real mlb_api run creates them together, and the pass is skipped whole if
+    any is missing -- so tests that exercise it must create all three."""
+    cur.execute(
+        "CREATE TABLE raw.mlb_boxscore_batting (game_pk text, person_id text, _season text)"
+    )
+    cur.execute(
+        "CREATE TABLE raw.mlb_boxscore_pitching (game_pk text, person_id text, _season text)"
+    )
+    cur.execute(
+        "CREATE TABLE raw.mlb_playbyplay "
+        "(game_pk text, _season text, at_bat_index text, inning text, "
+        "half_inning text, batter_id text, pitcher_id text, "
+        "event_type text, event text, away_score text, home_score text, "
+        "balls text, strikes text, outs text)"
+    )
+
+
+def test_conform_admits_current_season_players_with_no_retrosheet_id(db_conn):
+    # Retrosheet assigns key_retro months after a season ends, so a current-
+    # season debut is in raw.register_people with an MLBAM id but no key_retro.
+    # conform_player_insert.sql's first pass (WHERE key_retro IS NOT NULL) drops
+    # them, and backbone-2026-source joins core.player on mlbam_id and lost
+    # ~8.4% of 2026 regular-season player-games this way. They must be admitted
+    # on their MLBAM id with retro_id NULL -- but only the bounded set that
+    # actually appears in MLB's own game record, not every MLBAM-only register
+    # row (that is every minor-leaguer and foreign-league player).
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        _create_mlb_game_tables(cur)
+        cur.execute("INSERT INTO raw.mlb_boxscore_batting VALUES ('777001', '700001', '2026')")
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay VALUES "
+            "('777001', '2026', '0', '1', 'top', '700001', '700003', "
+            "'strikeout', 'Strikeout', '0', '0', '0', '2', '1')"
+        )
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_bbref, key_fangraphs, key_uuid, "
+            "name_last, name_first, birth_year, birth_month, birth_day) VALUES "
+            # batter in a 2026 box score, MLBAM id only -> admitted, retro_id NULL
+            "(NULL, '700001', NULL, NULL, 'uuid-cs-1', 'Okamoto', 'Kazuma', "
+            "'1996', '6', '30'), "
+            # pitcher seen only in play-by-play, MLBAM id only -> admitted
+            "(NULL, '700003', NULL, NULL, 'uuid-cs-3', 'Ward', 'Ryan', "
+            "'1997', '12', '2'), "
+            # MLBAM id only, never appears in any MLB game table -> NOT admitted
+            "(NULL, '700002', NULL, NULL, 'uuid-cs-2', 'Prospect', 'Milb', "
+            "'2004', '1', '1')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT retro_id, mlbam_id, last_name, birth_date "
+            "FROM core.player WHERE mlbam_id IN ('700001', '700003') "
+            "ORDER BY mlbam_id"
+        )
+        assert cur.fetchall() == [
+            (None, "700001", "Okamoto", date(1996, 6, 30)),
+            (None, "700003", "Ward", date(1997, 12, 2)),
+        ]
+        cur.execute("SELECT count(*) FROM core.player WHERE mlbam_id = '700002'")
+        assert cur.fetchone() == (0,)
+
+
+def test_current_season_player_retro_id_backfills_on_the_next_rebuild(db_conn):
+    # core.player is a full truncate-and-rebuild every conform.run(), so once
+    # Retrosheet assigns the player a key_retro (months later), the next rebuild
+    # picks it up with no upsert and no duplicate row -- the mechanism the
+    # migration's column comment promises.
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        _create_mlb_game_tables(cur)
+        cur.execute("INSERT INTO raw.mlb_boxscore_batting VALUES ('777001', '700001', '2026')")
+        cur.execute(
+            "INSERT INTO raw.register_people "
+            "(key_retro, key_mlbam, key_uuid, name_last, name_first) "
+            "VALUES (NULL, '700001', 'uuid-cs-1', 'Okamoto', 'Kazuma')"
+        )
+    db_conn.commit()
+
+    conform.run()
+    conform.run()  # rerun is idempotent
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT retro_id FROM core.player WHERE mlbam_id = '700001'")
+        assert cur.fetchall() == [(None,)]  # exactly one row, still null
+
+        # Retrosheet catches up and assigns the id. The register row now has
+        # BOTH a key_retro AND a raw.mlb_boxscore_batting appearance -- pass 1
+        # (key_retro IS NOT NULL) and pass 2 (key_retro IS NULL) must stay
+        # disjoint so this lands exactly one row, not two.
+        cur.execute(
+            "UPDATE raw.register_people SET key_retro = 'okak001' WHERE key_mlbam = '700001'"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*), min(retro_id) FROM core.player WHERE mlbam_id = '700001'")
+        assert cur.fetchone() == (1, "okak001")  # one row, retro_id backfilled
 
 
 def test_conform_uses_official_supplemental_retrosheet_team_identities(db_conn):
@@ -2838,6 +2948,66 @@ def test_health_check_play_natural_key_flags_a_partition_split_duplicate(db_conn
     # _clean_tables fixture right after this test — no need here too.
 
 
+def _seed_regular_season_boxscore(db_conn, person_id):
+    """One regular-season core.game with a game_pk, plus a box-score batting
+    line for `person_id` in it. Bypasses conform.run() -- the resolution
+    check reads core.game / raw.mlb_boxscore_* directly, so no realistic
+    game fixture is needed to prove it fires."""
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, season, game_date, game_type, game_pk) "
+            "VALUES ('MLB777001', 2026, '2026-04-01', 'regular', '777001')"
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_boxscore_batting (game_pk text, person_id text, _season text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_boxscore_batting VALUES ('777001', %s, '2026')",
+            (person_id,),
+        )
+        cur.execute(
+            "CREATE TABLE raw.mlb_boxscore_pitching (game_pk text, person_id text, _season text)"
+        )
+    db_conn.commit()
+
+
+def test_health_check_flags_an_unresolved_regular_season_player(db_conn):
+    _seed_regular_season_boxscore(db_conn, person_id="700099")  # no core.player row
+
+    check = next(
+        c for c in conform.health_check() if c.name == "core.player regular-season resolution"
+    )
+
+    assert not check.ok
+    assert "1 row" in check.detail
+
+
+def test_health_check_passes_when_every_regular_season_player_resolves(db_conn):
+    _seed_regular_season_boxscore(db_conn, person_id="700099")
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO core.player (mlbam_id) VALUES ('700099')")
+    db_conn.commit()
+
+    check = next(
+        c for c in conform.health_check() if c.name == "core.player regular-season resolution"
+    )
+
+    assert check.ok, check.detail
+
+
+def test_health_check_flags_a_duplicate_core_player_mlbam_id(db_conn):
+    with db_conn.cursor() as cur:
+        # retro_id is nullable post-migration-0103, so a current-season player
+        # is keyed on mlbam_id alone -- which has no UNIQUE constraint.
+        cur.execute("INSERT INTO core.player (mlbam_id) VALUES ('700099'), ('700099')")
+    db_conn.commit()
+
+    check = next(c for c in conform.health_check() if c.name == "core.player.mlbam_id uniqueness")
+
+    assert not check.ok
+    assert "duplicate" in check.detail
+
+
 def test_health_check_includes_join_integrity_safeguards():
     # Verifies the wiring, not full realistic data — every check must be
     # present and callable without crashing, even against a DB with none of
@@ -2853,6 +3023,8 @@ def test_health_check_includes_join_integrity_safeguards():
     assert "core.game team-season wins vs Lahman" in names
     assert "core.game doubleheader identity" in names
     assert "core.game team count vs Lahman" in names
+    assert "core.player regular-season resolution" in names
+    assert "core.player.mlbam_id uniqueness" in names
 
 
 def _seed_conformance_rehearsal(db_conn):

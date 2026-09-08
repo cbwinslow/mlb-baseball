@@ -9,7 +9,7 @@ connection. Each notebook SHALL run end to end from a clean environment with the
 package installed, and SHALL recompute any rate from summed numerators and
 denominators rather than averaging already-computed rates.
 
-#### Scenario: Every example notebook runs against released data only
+#### Scenario: The example notebook runs against released data only
 
 - **WHEN** any notebook under `notebooks/` is executed in a clean environment
   with `mlb-research` installed

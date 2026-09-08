@@ -2,10 +2,15 @@
 and does not leak the internal schema onto the public data-dictionary page
 (mkdocs-docs-site change).
 
-Lives in ``tests/integration/`` because it shells out to ``mkdocs build`` and
-reads the generated tree. It is run by the ``docs`` job in ``ci.yml`` (the only
-job with the ``docs`` extra installed); the Postgres-backed integration shards
-collect it and skip via the ``mkdocs``-missing guard below.
+Lives in ``tests/unit/`` (like the other subprocess-based tests -- e.g.
+``test_daily_update_script.py``, ``test_chadwick_tools.py``): it shells out to
+``mkdocs build`` and reads the generated tree, but touches no network and no
+database, which is what ``tests/AGENTS.md`` means by a unit test.
+``tests/integration/`` is not an option -- its ``conftest.py`` autouse-builds
+and migrates Postgres for every test there, which this test does not need and
+which fails in the Postgres-free ``docs`` CI job that runs it. The ``unit`` job
+collects it and skips via the ``mkdocs``-missing guard below; the ``docs`` job
+(``--extra docs``) runs it for real.
 
 ``mkdocs build --strict`` is exercised in that job too; this test adds the
 guarantees a strict build alone does not give:

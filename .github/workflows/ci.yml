@@ -130,7 +130,7 @@ jobs:
         run: uv run mkdocs build --strict
 
       - name: Verify the built site (query passthrough, snippet bounds)
-        run: uv run pytest tests/integration/test_docs_site.py -q
+        run: uv run pytest tests/unit/test_docs_site.py -q
 
   unit:
     runs-on: ubuntu-latest

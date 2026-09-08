@@ -146,9 +146,12 @@
 - **test collected-but-skipped in CI** (Minor, accepted) — the `unit` job has no
   `docs` extra so `test_docs_site.py` skipped everywhere. The `docs` job now
   `uv sync --extra docs --extra dev` and runs
-  `pytest tests/integration/test_docs_site.py -q` after the build.
-- **move out of `tests/unit/`** (Major, accepted) — moved to
-  `tests/integration/test_docs_site.py`: it shells out to `mkdocs build` and
-  reads the generated tree, which is an end-to-end contract, not unit logic.
-  The Postgres integration shards collect it and skip via the `mkdocs`-missing
-  guard.
+  `pytest tests/unit/test_docs_site.py -q` after the build.
+- **move out of `tests/unit/`** (Major, partially accepted) — first moved to
+  `tests/integration/`, but that dir's `conftest.py` autouse-builds + migrates
+  Postgres for every test, which this DB-free test does not need and which
+  fails in the Postgres-free `docs` CI job. Moved back to `tests/unit/`
+  (precedent: `test_daily_update_script.py` / `test_chadwick_tools.py` are
+  subprocess unit tests; `tests/AGENTS.md`'s unit rule is "no network, normally
+  no DB", which this meets). The real fix for the skipped-in-CI concern is the
+  `docs` job running `pytest tests/unit/test_docs_site.py` explicitly.

@@ -123,11 +123,14 @@ jobs:
           python-version: "3.11"
           enable-cache: true
 
-      - name: Install the docs toolchain
-        run: uv sync --frozen --extra docs
+      - name: Install the docs toolchain (+ pytest for the build test)
+        run: uv sync --frozen --extra docs --extra dev
 
       - name: Build the docs site (strict)
         run: uv run mkdocs build --strict
+
+      - name: Verify the built site (query passthrough, snippet bounds)
+        run: uv run pytest tests/integration/test_docs_site.py -q
 
   unit:
     runs-on: ubuntu-latest

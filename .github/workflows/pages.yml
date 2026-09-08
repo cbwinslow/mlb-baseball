@@ -11,6 +11,9 @@ on:
     branches: [main]
     paths:
       - "docs/site-src/**"
+      # Included into the site from outside docs/site-src/ via pymdownx.snippets
+      # (the data-dictionary page) -- a change here must redeploy Pages.
+      - "docs/DATA_DICTIONARY.md"
       - "mkdocs.yml"
       - "pyproject.toml"
       - "uv.lock"

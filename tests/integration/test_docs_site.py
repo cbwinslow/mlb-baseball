@@ -2,8 +2,13 @@
 and does not leak the internal schema onto the public data-dictionary page
 (mkdocs-docs-site change).
 
-`mkdocs build --strict` is exercised in CI (`ci.yml` `docs` job) too; this test
-adds the guarantees a strict build alone does not give:
+Lives in ``tests/integration/`` because it shells out to ``mkdocs build`` and
+reads the generated tree. It is run by the ``docs`` job in ``ci.yml`` (the only
+job with the ``docs`` extra installed); the Postgres-backed integration shards
+collect it and skip via the ``mkdocs``-missing guard below.
+
+``mkdocs build --strict`` is exercised in that job too; this test adds the
+guarantees a strict build alone does not give:
 
 * the hand-written DuckDB-WASM query page is published byte-for-byte, and
 * the data-dictionary snippet stays bounded to section 3 of

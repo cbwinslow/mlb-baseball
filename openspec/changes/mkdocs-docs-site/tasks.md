@@ -136,3 +136,19 @@
 - **7.3** `git status --porcelain docs/site/` empty after a build;
   `git check-ignore docs/site/index.html` matches; `git ls-files` shows only
   `docs/site-src/query/*` as the tracked query page.
+
+### CodeRabbit review response (PR #167)
+
+- **pages.yml `push.paths`** (Major, accepted) — added `docs/DATA_DICTIONARY.md`;
+  it is snippet-included into the data-dictionary page, so a change to it must
+  redeploy Pages. No other file is included from outside `docs/site-src/` (the
+  formulas/limitations pages only *link* to the canonical docs).
+- **test collected-but-skipped in CI** (Minor, accepted) — the `unit` job has no
+  `docs` extra so `test_docs_site.py` skipped everywhere. The `docs` job now
+  `uv sync --extra docs --extra dev` and runs
+  `pytest tests/integration/test_docs_site.py -q` after the build.
+- **move out of `tests/unit/`** (Major, accepted) — moved to
+  `tests/integration/test_docs_site.py`: it shells out to `mkdocs build` and
+  reads the generated tree, which is an end-to-end contract, not unit logic.
+  The Postgres integration shards collect it and skip via the `mkdocs`-missing
+  guard.

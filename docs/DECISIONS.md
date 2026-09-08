@@ -2,6 +2,58 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-284: current-season players are admitted to `core.player` on their MLBAM id; `retro_id` is nullable
+
+**Decision:** `core.player.retro_id` drops its `NOT NULL` constraint (keeps
+`UNIQUE`). `conform.py` `_build_players` admits a person from
+`raw.register_people` when they have a Retrosheet id **or** they have an MLBAM
+id and appear in MLB's own game record (`raw.mlb_boxscore_batting` /
+`_pitching` / `raw.mlb_playbyplay`). The MLBAM-only pass is a second savepointed
+INSERT (`conform_player_insert_current_season.sql`), not a modified WHERE
+clause, because those raw tables are optional. Migration
+`0103_core_player_nullable_retro.sql`.
+
+**Context (verified 2026-09-07 against production `mlb`).** Retrosheet assigns
+`key_retro` months after a season ends; Chadwick assigns `key_mlbam`
+immediately. The old `conform_player_insert.sql` filter `WHERE key_retro IS NOT
+NULL` therefore dropped every current-season debut and call-up: 105 distinct
+players in 2026 regular-season box scores (~8.4% of batting player-games) did
+not resolve to `core.player`, which blocked `backbone-2026-source` (its 2026
+game builders join `core.player` on `mlbam_id`). All 105 are in
+`raw.register_people` with a `key_mlbam` and none has a `key_retro`. This is
+normal upstream behaviour — pybaseball / baseballr return `key_retro = NaN` for
+recent debuts and consumers key on what they have.
+
+**Rationale.**
+- A NULL `retro_id` is honest and self-correcting: `core.player` is a
+  truncate-and-rebuild every `mlb conform`, so the real id backfills on the
+  next run once Retrosheet catches up. No data migration, no upsert.
+- Multiple NULLs are legal in a Postgres `UNIQUE` column, so the constraint
+  still enforces a real `key_retro` unique. Mirrors ADR-era migration 0045,
+  which did the same for `core.game.retro_game_id` when MLB-only games arrived.
+- **Rejected — synthetic `retro_id`** (`mlbNNNNNN`): pollutes a source-faithful
+  Retrosheet key, risks colliding with a real future id, needs a cleanup pass.
+- **Rejected — re-anchor `core.player` on `chadwick_uuid`**: ~17 files join on
+  `retro_id`; a big migration with no current forcing function.
+- **Rejected — admit every `key_mlbam IS NOT NULL` register row** (~104k):
+  pulls in every minor-leaguer and foreign-league player. The "appears in MLB
+  game data" bound adds ~2,182 (incl. spring-training-only), which carry no
+  regular-season stats.
+- Consumer audit (change `player-identity-current-season/consumer-audit.md`):
+  every `JOIN core.player … ON retro_id = …` is a Retrosheet-era (≤2025)
+  consumer that a NULL-retro 2026 player never reaches; none computes a wrong
+  result. `platoon_splits_update.sql`'s key-on-what-you-have fallback chain
+  improves (a 2026 starter now resolves via `mlbam_id` instead of falling
+  through to the raw id).
+
+**Verification:** `mlb doctor` check `core.player regular-season resolution`
+(tolerance 0) — every player in a regular-season box score resolves to
+`core.player` by `mlbam_id`.
+
+**Revisit if:** `conform._build_players` ever becomes incremental (then the
+second pass needs `ON CONFLICT (chadwick_uuid) DO UPDATE`), or a real need
+appears to re-anchor identity on `chadwick_uuid` / add a DB-level `mlbam_id`
+UNIQUE constraint (a health check guards fan-out for now).
 ## ADR-283: baseball.computer is the game-type reference — regular-season-only aggregates everywhere
 
 **Decision (2026-09-07).** Adopt [baseball.computer](https://github.com/droher/baseball.computer)

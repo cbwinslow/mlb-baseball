@@ -8,12 +8,12 @@ no new data or table; it wraps that existing single-row crosswalk so a
 caller can supply any one ID and get every other ID back, without needing to
 know which column holds which ID system or writing raw SQL by hand.
 
-retro_id is NOT NULL/UNIQUE on core.player (every conformed player has one);
-the other four columns are nullable -- a player who was only matched from
-one source (e.g. Retrosheet-only, no confirmed MLBAM match yet) legitimately
-has NULL in the columns that source doesn't supply. crosswalk() returns that
-row's real NULLs as-is, not a "not found" signal -- "not found" is a bare
-None return for the whole lookup, when no row matches at all.
+Every column is nullable. retro_id is UNIQUE across its non-NULL values but is
+NULL for a current-season player admitted on their MLBAM id before Retrosheet
+processes that season (migration 0103); the other columns are NULL when the
+source that matched the player doesn't supply that ID system. crosswalk()
+returns that row's real NULLs as-is, not a "not found" signal -- "not found"
+is a bare None return for the whole lookup, when no row matches at all.
 """
 
 import psycopg

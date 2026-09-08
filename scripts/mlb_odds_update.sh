@@ -27,12 +27,25 @@ WORKFLOW_BUSY_RE='another ingestion or derived-data stage is active'
 mkdir -p "$REPO_DIR/logs"
 
 exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-    echo "$(date -u +%FT%TZ) odds update already running, skipping this tick" >> "$LOG_FILE"
-    exit 0
+flock -n 200
+rc=$?
+if [ "$rc" -ne 0 ]; then
+    if [ "$rc" -eq 1 ]; then
+        # util-linux flock -n: exit 1 == lock held by another run. Expected
+        # contention (a prior tick still going), not an error -- skip.
+        echo "$(date -u +%FT%TZ) odds update already running, skipping this tick" >> "$LOG_FILE"
+        exit 0
+    fi
+    # Any other status is a real flock failure (bad fd, permissions); surface it
+    # so a silently broken scheduler is not mistaken for a skipped tick.
+    echo "$(date -u +%FT%TZ) odds update: flock failed (rc=$rc)" >> "$LOG_FILE"
+    exit "$rc"
 fi
 
-cd "$REPO_DIR"
+cd "$REPO_DIR" || {
+    echo "$(date -u +%FT%TZ) odds update: cd to $REPO_DIR failed" >> "$LOG_FILE"
+    exit 1
+}
 
 run_source() {
     local source="$1" out rc
@@ -40,7 +53,7 @@ run_source() {
     rc=$?
     if [ "$rc" -eq 0 ]; then
         echo "$(date -u +%FT%TZ) $source update: ok" >> "$LOG_FILE"
-    elif echo "$out" | grep -q "$WORKFLOW_BUSY_RE"; then
+    elif grep -Fq -- "$WORKFLOW_BUSY_RE" <<<"$out"; then
         echo "$(date -u +%FT%TZ) $source update: skipped (mlb workflow lock held)" >> "$LOG_FILE"
     else
         echo "$(date -u +%FT%TZ) $source update: FAILED rc=$rc" >> "$LOG_FILE"

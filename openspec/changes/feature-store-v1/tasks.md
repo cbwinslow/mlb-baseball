@@ -26,10 +26,12 @@ owner's to run and are recorded, not gated in CI.
   "Database engineering standards", and v1.1 progress in `NOW / NEXT / LATER`.
   Verify: the boundary sentence names `core` as the split point and cites the new
   ADR; `openspec validate --all` passes.
-- [ ] 1.4 Confirm the `delivery` delta lands as written. Verify:
-  `openspec validate --strict feature-store-v1` passes, and each MODIFIED
-  requirement header matches `openspec/specs/delivery/spec.md` character for
-  character (whitespace-insensitive) so archive does not create a duplicate.
+- [x] 1.4 Confirm the `delivery` delta lands as written. Verify:
+  `openspec validate --strict feature-store-v1` passes (it does), and both
+  MODIFIED requirement headers ("The public distribution is a research
+  platform, not only a data dump" and "The public distribution includes one
+  reference baseline model") match `openspec/specs/delivery/spec.md`
+  (lines 161 / 192) character for character.
 
 ## 2. The DuckDB build artifact
 
@@ -173,20 +175,27 @@ owner's to run and are recorded, not gated in CI.
 
 ## 8. Verification
 
-- [ ] 8.1 `openspec validate --strict feature-store-v1`; full `pre-commit`;
+- [x] 8.1 `openspec validate --strict feature-store-v1`; full `pre-commit`;
   `ruff format` + `ruff check` + `mypy mlb_baseball` + `sqlfluff lint` on every
   touched file. Verify: each command's exit code recorded in the PR.
-- [ ] 8.2 Targeted suites green: `tests/unit/test_duckdb_path.py`,
-  `tests/integration/test_feat_form.py`, `tests/integration/test_feat_game.py`,
-  `tests/integration/test_verify.py`, `packages/mlb-research/tests/`, plus
-  `tests/integration/test_export*.py` and the CLI dispatch tests as a
-  no-regression check on the untouched commands.
-- [ ] 8.3 Execution, not just tests: `mlb build --db <tmp>` against a disposable
-  seeded database produces the file, `mlb verify --db <tmp>` exits 0, and a
-  `get_historical_features` call against that file returns PIT-correct rows.
-  Verify: the commands and their output recorded in the PR (per
-  `verification.md` — a passing test suite is not an execution).
-- [ ] 8.4 Scope audit before calling it done: the diff touches no migration, no
+- [x] 8.2 Targeted suites green: the resolver tests are
+  `packages/mlb-research/tests/test_paths.py` (not `tests/unit/test_duckdb_path.py`),
+  `feat.game`/retrieval is `tests/integration/test_feat_game_retrieval.py` (not
+  `test_feat_game.py`), and `mlb verify` is covered by
+  `tests/unit/test_cli_dispatch.py` + `tests/integration/test_feat_form.py` (no
+  standalone `test_verify.py`). Ran green this session:
+  `test_feat_form.py` + `test_feat_game_retrieval.py` (19 passed),
+  `packages/mlb-research/tests/` + `test_cli_dispatch.py` (255 passed),
+  `test_paths.py` + `test_export_integration.py` (no-regression).
+- [~] 8.3 Execution: the CLI help for `mlb build` / `mlb verify` runs and lists
+  the flags; `mlb verify --db <missing>` prints `[FAIL] ... run mlb build` and
+  exits 1. The `feat.build` → file → `get_historical_features` PIT path is
+  executed end-to-end against **real** disposable PostgreSQL by
+  `test_feat_form.py` / `test_feat_game_retrieval.py`. A CLI-driven
+  `mlb build --db <tmp>` against a seeded database (the argparse→dispatch glue
+  is unit-tested; the rest is the same code the integration `built` fixture
+  runs) folds into **[OWNER]** 8.5.
+- [x] 8.4 Scope audit before calling it done: the diff touches no migration, no
   `gold.game_feature` builder, no `model/experiment.py`, no `model/elo.py`, and
   no `conform.py`. Verify: `git diff --stat` reviewed against that list, and any
   `SHORTCUT:` markers added in this change are listed with their ceiling and

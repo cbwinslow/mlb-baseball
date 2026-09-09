@@ -42,9 +42,49 @@ GitHub Pages, still no server.
 job feeding an artifact, rather than committing nothing and rebuilding in
 `pages.yml`, may be worth the extra moving part.
 
-**Note on numbering:** ADR-285 is claimed by the `odds-update-cron` change
-(2-hourly Kalshi/Polymarket snapshot cron); this entry is 286 to avoid the
-collision while that change is in review.
+**Note on numbering:** ADR-285 (the 2-hourly odds cron, #165) landed first; this
+entry is 286.
+
+## ADR-285: Kalshi / Polymarket odds on a 2-hourly cron, not just the 06:00 daily job
+
+**Decision:** `scripts/mlb_odds_update.sh` runs `mlb ingest kalshi --mode
+update` and `mlb ingest polymarket --mode update` every 2 hours via crontab
+(`0 */2 * * *`), guarded by `flock`, logging to `logs/mlb_odds_update.log`
+(gitignored). Same cron + flock pattern as ADR-016's `mlb_api` scheduler.
+
+**Context:** both connectors already ran once a day inside
+`mlb_daily_update.sh`'s `mlb update` step (ADR-049's forward-looking snapshot
+capture into `raw.kalshi_snapshot` / `raw.polymarket_snapshot`). One snapshot
+a day is a coarse basis for `_build_market`'s `_latest_before(first_pitch)`
+pick (ADR-052 / ADR-267): a snapshot taken at 06:00 UTC can be 12+ hours stale
+by a 7pm first pitch, and the line moves in that window. Several snapshots a
+day gives the leak-free pre-game price a closer, better anchor.
+
+**Rationale:**
+- **2-hourly, not more.** `core.market` only rebuilds on the full daily
+  `mlb conform` (it is in `conform.run()`'s consolidated TRUNCATE), so a
+  sub-daily raw refresh does not reach `core.market` until the next 06:00
+  build regardless -- the value is snapshot *density* for that one daily
+  pick, and ~8 useful snapshots/day (games are afternoon/evening) captures
+  the pre-game drift without hammering two free APIs. Dial up in the crontab
+  if a use case needs finer resolution.
+- **No `check_recent_run` threshold change.** `kalshi` / `polymarket`
+  `FRESHNESS_THRESHOLD_MINUTES` stays at `DAILY_FRESHNESS_THRESHOLD_MINUTES`
+  (28h): the daily job still keeps `mlb doctor` honest whether or not the
+  2-hourly cron runs. The frequent cron is a pure enhancement; if it
+  silently stops, nothing goes red and no data is lost. Tighten the
+  threshold in a follow-up only if the frequent cron proves reliable and a
+  consumer depends on the density.
+- **`set -uo pipefail`, not `-e`.** The script runs two connectors (one
+  failing must not stop the other) and mlb's cross-workflow lock
+  (`ingest.py::_acquire_workflow_lock`) legitimately rejects a run while the
+  `*/5` `mlb_api` tick or the 06:00 conform holds it -- that is a skipped
+  tick (exit 0), matched by a `grep` on the lock's error text, not a failure.
+
+**Revisit if:** a live in-play odds need appears (that is `mlb live`'s
+territory, a different mechanism), or an incremental `core.market` refresh
+lands (then the frequent cron's raw writes become immediately useful and the
+freshness threshold should tighten).
 
 ## ADR-284: current-season players are admitted to `core.player` on their MLBAM id; `retro_id` is nullable
 

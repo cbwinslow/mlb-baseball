@@ -158,14 +158,15 @@ Until it merges, use the `psql \copy` recipes above.
 
 ## Scheduling
 
-Two cron jobs, two different cadences — see `docs/ARCHITECTURE.md` "Scheduling" and `docs/DECISIONS.md` ADR-016/ADR-023:
+Three cron jobs, three cadences — see `docs/ARCHITECTURE.md` "Scheduling" and `docs/DECISIONS.md` ADR-016/ADR-023/ADR-285:
 
 ```cron
 */5 * * * * /path/to/mlb-baseball/scripts/mlb_api_update.sh
+0 */2 * * * /path/to/mlb-baseball/scripts/mlb_odds_update.sh
 0 6 * * *   /path/to/mlb-baseball/scripts/mlb_daily_update.sh
 ```
 
-Replace `/path/to/mlb-baseball` with this repo's actual path. `mlb_api_update.sh` keeps the current season's schedule/standings and live-game state fresh every 5 minutes (`logs/mlb_api_update.log`). `mlb_daily_update.sh` runs `mlb update` — every connector's `update()`, all of them deliberately cheap (current season or a small full-catalog check, never a full historical re-fetch) — once a day to keep Statcast leaderboards, Baseball-Reference season stats, and similar season-in-progress data fresh (`logs/mlb_daily_update.log`). Both guard against overlapping runs with `flock`. `mlb doctor` reports `mlb_api freshness` as unhealthy if the 5-minute job stops running (no successful run in the last 15 minutes), not just if the last run failed.
+Replace `/path/to/mlb-baseball` with this repo's actual path. `mlb_api_update.sh` keeps the current season's schedule/standings and live-game state fresh every 5 minutes (`logs/mlb_api_update.log`). `mlb_odds_update.sh` re-runs the Kalshi and Polymarket `update()` every 2 hours so `raw.*_snapshot` accrues several pre-game price snapshots a day instead of one (`logs/mlb_odds_update.log`); `core.market` still rebuilds only on the daily conform. `mlb_daily_update.sh` runs `mlb update` — every connector's `update()`, all of them deliberately cheap (current season or a small full-catalog check, never a full historical re-fetch) — once a day to keep Statcast leaderboards, Baseball-Reference season stats, and similar season-in-progress data fresh (`logs/mlb_daily_update.log`). All three guard against overlapping runs with `flock`. `mlb doctor` reports `mlb_api freshness` as unhealthy if the 5-minute job stops running (no successful run in the last 15 minutes), not just if the last run failed.
 
 ## Requirements
 

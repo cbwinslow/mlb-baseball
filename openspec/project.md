@@ -264,8 +264,10 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    `mlb export --preset backbone` (8 of 10 candidate tables; `player_season`/
    `team_season` excluded on source-rights grounds, see `rights-review.md`),
    HF publish step, `mlb-research` PyPI loader package, the DuckDB-WASM
-   query page (`docs/site/query/`), and one example notebook
-   (`notebooks/01-strikeout-rate-by-decade.py`). Published:
+   query page (`docs/site/query/`), and the example notebooks
+   (`notebooks/01`..`05` — K% by decade, the HR era, three true outcomes,
+   BABIP-vs-K% reliability, strikeouts-and-scoring; the ≥5-recipe v1 criterion
+   is met via `openspec/changes/notebook-recipes/`, PR open). Published:
    [huggingface.co/datasets/cbwinslow/mlb-research](https://huggingface.co/datasets/cbwinslow/mlb-research),
    tag `v0.1.0`. Production `mlb` needed migrations 0094-0099 applied and its
    first-ever `mlb report` backbone build (12.9M rows, 16.4M source events)
@@ -296,6 +298,8 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 - **v1.1 (the platform):** point-in-time feature store (`feat.*` snapshot
   tables + as-of retrieval + registry + leakage tests); the walk-forward
   backtest harness; one reference baseline model (Elo v2) + model card.
+  Design input: `docs/research/2026-09-04-modeling-and-realtime-plan.md`
+  (feature-store + backtest-harness sketches; not a contract).
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

@@ -27,6 +27,11 @@ htmlcov/
 .codex/
 .cursor/
 
+# Local code-intelligence indexes and agent tool output -- machine-specific
+# caches, rebuilt on demand, never project state.
+.codegraph/
+/graphify-out/
+
 # Real pg_dump output (mlb_baseball/backup.py) -- can be tens of GB against
 # production; never belongs in git. The one pre-existing small schema-only
 # snapshot already tracked (backups/mlb_schema_20260807.sql) is left as-is,

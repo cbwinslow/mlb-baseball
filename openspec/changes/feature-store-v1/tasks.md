@@ -33,7 +33,7 @@ owner's to run and are recorded, not gated in CI.
 
 ## 2. The DuckDB build artifact
 
-- [ ] 2.1 Failing test first: `tests/unit/test_duckdb_path.py` asserts the
+- [x] 2.1 Failing test first: `tests/unit/test_duckdb_path.py` asserts the
   resolver precedence from design D3 — explicit argument beats
   `MLB_DUCKDB_PATH` beats `~/.mlb/mlb.duckdb`, and the parent directory is
   created on first use. Verify: RED with no resolver, GREEN after it lands; the

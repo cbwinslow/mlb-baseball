@@ -293,6 +293,8 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 - **v1.1 (the platform):** point-in-time feature store (`feat.*` snapshot
   tables + as-of retrieval + registry + leakage tests); the walk-forward
   backtest harness; one reference baseline model (Elo v2) + model card.
+  Design input: `docs/research/2026-09-04-modeling-and-realtime-plan.md`
+  (feature-store + backtest-harness sketches; not a contract).
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

@@ -109,17 +109,17 @@ owner's to run and are recorded, not gated in CI.
 
 ## 5. `get_historical_features`
 
-- [ ] 5.1 Failing unit tests in `packages/mlb-research/tests/`: PIT-correct
+- [x] 5.1 Failing unit tests in `packages/mlb-research/tests/`: PIT-correct
   retrieval on a fixture (a request between two snapshots returns the earlier);
   a request before the first snapshot returns nulls, never a forward fill; one
   output row per input row, in input order; an unknown feature ref raises before
   any query runs, naming the valid refs. Verify: RED, then GREEN.
-- [ ] 5.2 Implement `mlb_research.get_historical_features(entity_df, features,
+- [x] 5.2 Implement `mlb_research.get_historical_features(entity_df, features,
   timestamp_col=..., db=None)` as one parameterized `ASOF LEFT JOIN` per
   relation on `t >= visible_ts`, with `db=None` resolving through the same
   precedence as task 2.1. Verify: 5.1 passes; the function body is one page or
   less; no `merge_asof`, no per-row Python loop over entities.
-- [ ] 5.3 A row whose `created_ts` is after `t` is never returned, even when its
+- [x] 5.3 A row whose `created_ts` is after `t` is never returned, even when its
   `available_ts` is before `t`. Verify: a unit test builds two rows for one
   entity differing only in `created_ts` and asserts the later-created one is
   invisible at a `t` between them — this is the test that fails if `visible_ts`
@@ -132,13 +132,13 @@ owner's to run and are recorded, not gated in CI.
 
 ## 6. Leakage checks and `mlb verify`
 
-- [ ] 6.1 Failing unit tests for `mlb_research.leakage_checks`: the visibility
+- [x] 6.1 Failing unit tests for `mlb_research.leakage_checks`: the visibility
   check fails on a fixture whose builder backdates `created_ts`, and passes on a
   clean one; the doubleheader check fails on a fixture whose builder joins on
   game *date* instead of first-pitch timestamp, and passes on a clean one.
   Verify: RED on the leaky fixture and GREEN on the clean one for each — a check
   that cannot be made to fail is not a check.
-- [ ] 6.2 Implement the two checks as callable functions returning pass/fail plus
+- [x] 6.2 Implement the two checks as callable functions returning pass/fail plus
   the evidence rows, with **no model, no labels, and no sklearn import**.
   Verify: 6.1 passes; `uv run python -c "import mlb_research.leakage_checks"`
   succeeds in an environment without sklearn or xgboost installed.

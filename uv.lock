@@ -1864,7 +1864,7 @@ requires-dist = [
     { name = "pybaseball", specifier = ">=2.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
-    { name = "pytest-postgresql", marker = "extra == 'dev'", specifier = ">=8.1,<9" },
+    { name = "pytest-postgresql", marker = "extra == 'dev'", specifier = ">=8.1,<10" },
     { name = "pytest-split", marker = "extra == 'dev'", specifier = ">=0.9" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "requests", specifier = ">=2.31" },

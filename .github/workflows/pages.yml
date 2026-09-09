@@ -1,9 +1,8 @@
-# Publishes docs/site/ (currently just the DuckDB-WASM query page,
-# delivery-surface change) to GitHub Pages. Static files only -- no build
-# step, no server -- matching the project's $0-hosting rule
-# (openspec/project.md). The MkDocs Material docs site (a later NOW item)
-# will land under the same docs/site/ tree and deploy through this same
-# workflow, not a second one.
+# Builds the MkDocs Material docs site (mkdocs-docs-site change) and publishes
+# it to GitHub Pages. Source lives in docs/site-src/ (including the DuckDB-WASM
+# query page, carried through verbatim); `mkdocs build` writes docs/site/, which
+# is git-ignored and produced fresh here. One workflow, one Pages site -- the
+# $0-hosting rule still holds: GitHub Pages hosting, static output, no server.
 
 name: pages
 
@@ -11,7 +10,13 @@ on:
   push:
     branches: [main]
     paths:
-      - "docs/site/**"
+      - "docs/site-src/**"
+      # Included into the site from outside docs/site-src/ via pymdownx.snippets
+      # (the data-dictionary page) -- a change here must redeploy Pages.
+      - "docs/DATA_DICTIONARY.md"
+      - "mkdocs.yml"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/pages.yml"
   workflow_dispatch: {}
 
@@ -34,10 +39,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install the docs toolchain
+        run: uv sync --frozen --extra docs
+
+      - name: Build the site (strict -- a broken link or missing snippet fails)
+        run: uv run mkdocs build --strict
+
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
-      - name: Upload docs/site/ as the Pages artifact
+      - name: Upload the built site as the Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: docs/site

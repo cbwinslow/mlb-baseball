@@ -117,6 +117,7 @@ This catalog documents the schemas, grains, business keys, temporal semantics, a
 
 ## 3. Grain-Complete Statistic Backbone (`gold.batting_game`, …)
 
+<!-- --8<-- [start:backbone] -->
 The complement to `gold.game_feature`: where `game_feature` is *what was
 knowable before a game*, the backbone is *what actually happened*, at every
 grain a sabermetric researcher expects (game → season → career; player and
@@ -125,10 +126,10 @@ event-flag handling of the already-tied-out team stats
 (`sql/team_woba_retrosheet_update.sql`, ADR-034).
 
 **Authoritative contract:**
-[`../openspec/specs/statistic-backbone/spec.md`](../openspec/specs/statistic-backbone/spec.md)
+[`openspec/specs/statistic-backbone/spec.md`](https://github.com/cbwinslow/mlb-baseball/blob/main/openspec/specs/statistic-backbone/spec.md)
 (grain set, source fidelity, null policy, roll-up direction, validation,
 export profile). Staged build plan:
-[`superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md`](superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md).
+[`docs/superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md`](https://github.com/cbwinslow/mlb-baseball/blob/main/docs/superpowers/specs/2026-09-01-grain-complete-stat-backbone-design.md).
 
 **Two season lines, parallel (ADR-281):** `gold.batting_season` /
 `gold.pitching_season` here are the *event-derived* line (Retrosheet, 1910+,
@@ -349,6 +350,7 @@ envelope check (no season row over 163 games).
   combined rows and a noted follow-up (Lahman and baseball.computer both ship
   only player-grain postseason data).
 - **Coverage**: 1884–2025.
+<!-- --8<-- [end:backbone] -->
 
 ---
 

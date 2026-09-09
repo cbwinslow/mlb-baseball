@@ -2,6 +2,49 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-286: the docs site builds from `docs/site-src/` into `docs/site/` in the Pages workflow
+
+**Decision:** The MkDocs Material documentation site
+(`mkdocs-docs-site` change) has its source in a new `docs/site-src/` tree.
+`mkdocs build` writes to `docs/site/`, which becomes generated output —
+git-ignored, produced fresh by `.github/workflows/pages.yml` before the Pages
+upload. The DuckDB-WASM query page moves from `docs/site/query/` to
+`docs/site-src/query/` and is carried through the build verbatim as a static
+asset; its published URL (`/query/`) is unchanged. The data-dictionary page is a
+`pymdownx.snippets` include of section 3 of `docs/DATA_DICTIONARY.md`, so that
+file stays the single source of truth.
+
+**Context:** `openspec/project.md` names a MkDocs Material docs site as a v1
+"done when" criterion. `pages.yml` previously uploaded `docs/site/` as raw static
+files with no build step, and its own comment said the docs site would "deploy
+through this same workflow, not a second one." The `$0-hosting` rule allows a
+build step on the GitHub-hosted runner — the output is still static, still on
+GitHub Pages, still no server.
+
+**Rationale:**
+- Source in `docs/site-src/` keeps ~30 internal engineering docs under `docs/`
+  out of the public site by default — an `exclude` list over `docs/` would leak a
+  new internal doc the day it is added.
+- `docs/site/` as git-ignored build output keeps content edits to a few source
+  files instead of a ~40-file generated diff, and removes any chance of source
+  and output drifting.
+- One workflow, one Pages site: `pages.yml` gains `uv sync --extra docs` +
+  `mkdocs build --strict`; `ci.yml` gains a `docs` job so a broken build fails on
+  the PR, not only on deploy.
+- A `pytest` guard (`tests/unit/test_docs_site.py`) asserts the query page is
+  published byte-for-byte and that the data-dictionary snippet stays bounded to
+  section 3 (a dropped `[end:backbone]` marker would otherwise splice the
+  internal `raw`/`serve`/`core` schema onto the public page without failing the
+  strict build).
+
+**Revisit if:** the site outgrows a single static build (versioned docs with
+`mike`, a search backend, hundreds of pages) — at which point a dedicated build
+job feeding an artifact, rather than committing nothing and rebuilding in
+`pages.yml`, may be worth the extra moving part.
+
+**Note on numbering:** ADR-285 (the 2-hourly odds cron, #165) landed first; this
+entry is 286.
+
 ## ADR-285: Kalshi / Polymarket odds on a 2-hourly cron, not just the 06:00 daily job
 
 **Decision:** `scripts/mlb_odds_update.sh` runs `mlb ingest kalshi --mode

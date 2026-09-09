@@ -44,3 +44,8 @@ transforms/.cache/
 transforms/logs/
 .mcp.json
 /artifacts/
+
+# MkDocs Material build output (mkdocs-docs-site change). Source lives in
+# docs/site-src/; `mkdocs build` writes here and pages.yml uploads it. Not
+# tracked -- regenerated on every deploy.
+/docs/site/

@@ -226,6 +226,29 @@ def test_build_command_only_features_runs_just_the_feature_build(monkeypatch):
     assert calls == [("feat", {"duckdb_path": "/tmp/x.duckdb", "feature_version": "v2"})]
 
 
+def test_verify_command_help_lists_flags(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["verify", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    for flag in ("--db", "--feature-version", "--skip-tie-out"):
+        assert flag in out
+
+
+def test_verify_command_calls_feat_verify_and_exits_nonzero_on_failure(monkeypatch):
+    seen: dict = {}
+    monkeypatch.setattr(cli.feat, "verify", lambda **kw: (seen.update(kw), False)[1])
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["verify", "--db", "/tmp/x.duckdb", "--skip-tie-out"])
+    assert exc.value.code == 1
+    assert seen == {"duckdb_path": "/tmp/x.duckdb", "feature_version": "v1", "run_tie_out": False}
+
+
+def test_verify_command_clean_pass_exits_zero(monkeypatch):
+    monkeypatch.setattr(cli.feat, "verify", lambda **kw: True)
+    cli.main(["verify"])  # no SystemExit
+
+
 def test_predict_command_calls_model_run(monkeypatch, capsys):
     monkeypatch.setattr(cli.model, "run", lambda: {"gold.game_feature": 1})
 

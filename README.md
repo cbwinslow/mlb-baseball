@@ -96,6 +96,29 @@ which is part of the paused prediction ladder — not needed for research use.
 From there, query the database directly with `psql` or any Postgres client,
 or dump tables to CSV with `psql \copy` (see "Exporting data" below).
 
+### The point-in-time feature store
+
+For model building, `mlb build` composes the steps above and then writes a
+single local **DuckDB** file with the point-in-time feature relations
+(`feat.player_form`, `feat.pitcher_form`, `feat.game`). Three commands:
+
+```bash
+uv run mlb bootstrap   # sources -> your Postgres  (raw + core)
+uv run mlb build       # Postgres -> gold + the DuckDB feature file (default ~/.mlb/mlb.duckdb)
+uv run mlb verify      # leakage checks + the Baseball-Reference tie-out on your own build
+```
+
+`migrate` / `conform` / `report` / `features` still work standalone — `build`
+wraps them. Retrieve features with no server:
+
+```python
+import mlb_research as mr
+X = mr.get_historical_features(games, ["player_form:obp_30d", "pitcher_form:k_minus_bb_pct_30d"])
+```
+
+See [`docs/FEATURE_STORE.md`](docs/FEATURE_STORE.md) and
+[ADR-287](docs/DECISIONS.md) (why the feature layer is DuckDB, not Postgres).
+
 The prediction ladder (`mlb predict` / `train` / `simulate`) is paused — see
 **Status** above. It still runs, but it is not part of the research-database
 workflow and is not being maintained right now.

@@ -108,7 +108,12 @@ def get_historical_features(
     work = entity_df.reset_index(drop=True).copy()
     work["__row__"] = range(len(work))
 
-    con = duckdb.connect(str(db_path), read_only=True)
+    # ATTACH under a fixed alias rather than opening the file as the default
+    # database: a file whose basename collides with the `feat` schema (e.g.
+    # `feat.duckdb`) makes `feat.player_form` ambiguous otherwise.
+    con = duckdb.connect()
+    con.execute(f"ATTACH '{str(db_path).replace(chr(39), chr(39) * 2)}' AS mlb_feat_db (READ_ONLY)")
+    con.execute("USE mlb_feat_db")
     try:
         for view, cols in by_view.items():
             entity_key, table = _VIEWS[view]

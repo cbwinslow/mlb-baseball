@@ -4,13 +4,14 @@ Hand-built fixture: 2 batters + 2 pitchers across 5 regular games (one a
 same-day doubleheader) plus one postseason game, seeded directly into
 core/gold. Rolling windows are small enough to check by hand.
 
-The clock (feat.py): event_ts = game_date + game_number * 3h, available_ts =
-event_ts + 6h. So doubleheader game 1 (event 03:00, available 09:00) is NOT
-available by doubleheader game 2's first pitch (event 06:00) -- game 2's
-windows must exclude it.
+The clock (feat.py): event_ts = game_date + game_number * 3h; a form row's
+available_ts == visible_ts == its event_ts (the value is entering form). The
+6h lag lives in the rolling-window frame: doubleheader game 1 (event 03:00)
+is > game 2's event_ts (06:00) minus 6h, so game 2's windows exclude it.
 """
 
 import os
+from datetime import timedelta
 
 import duckdb
 import pytest
@@ -283,20 +284,37 @@ def test_clock_ordering_holds_on_every_row(built):
         assert bad == 0, relation
 
 
-def test_lag_constant_drives_available_ts_in_both_relations(built, db_conn, tmp_path, monkeypatch):
+def test_lag_constant_drives_the_window_frame_not_available_ts(built, tmp_path, monkeypatch):
+    """The lag lives in the rolling-window frame, not in available_ts (a form
+    row's value is entering form, knowable at first pitch). Proof: a form row's
+    available_ts equals its event_ts regardless of the lag; but shrinking the
+    lag from 6h to 3h lets doubleheader game 1 (event 03:00) into game 2's
+    (event 06:00) window, so game 2's numerators change.
+    """
     dbfile, _counts = built
-    base = _row(
-        dbfile,
-        "SELECT available_ts - event_ts FROM feat.player_form LIMIT 1",
-    )[0]
+    (delta,) = _row(dbfile, "SELECT available_ts - event_ts FROM feat.player_form LIMIT 1")
+    assert delta == timedelta(0)
 
-    monkeypatch.setattr(feat, "AVAILABLE_LAG_HOURS", 9)
-    other = tmp_path / "feat9.duckdb"
+    dh2_6h = _row(
+        dbfile,
+        "SELECT pa_std, so_num_std FROM feat.player_form "
+        "WHERE player_id = 70001 AND retro_game_id = 'TST202404202'",
+    )
+
+    monkeypatch.setattr(feat, "AVAILABLE_LAG_HOURS", 3)
+    other = tmp_path / "feat_lag3.duckdb"
     feat.build(duckdb_path=other, pg_url=os.environ["DATABASE_URL"], feature_version="v1")
-    bat = _row(other, "SELECT available_ts - event_ts FROM feat.player_form LIMIT 1")[0]
-    pit = _row(other, "SELECT available_ts - event_ts FROM feat.pitcher_form LIMIT 1")[0]
-    assert bat == pit
-    assert bat != base
+    (delta3,) = _row(other, "SELECT available_ts - event_ts FROM feat.player_form LIMIT 1")
+    assert delta3 == timedelta(0)  # still event_ts
+    dh2_3h = _row(
+        other,
+        "SELECT pa_std, so_num_std FROM feat.player_form "
+        "WHERE player_id = 70001 AND retro_game_id = 'TST202404202'",
+    )
+    assert dh2_3h != dh2_6h  # game 1 now inside game 2's window
+    # game 1 was pa=3, so=1; with lag 3h it enters game 2's std window
+    assert dh2_3h[0] == dh2_6h[0] + 3
+    assert dh2_3h[1] == dh2_6h[1] + 1
 
 
 def test_pitcher_form_rates_and_fip_like(built):
@@ -377,3 +395,41 @@ def test_health_check_reports_missing_build(tmp_path):
     assert len(checks) == 1
     assert not checks[0].ok
     assert "mlb build" in checks[0].detail
+
+
+def test_leakage_checks_pass_on_a_real_build(built):
+    # Task 6.4: the two store-level leakage checks run green against an
+    # actual `feat.build`, not just hand-built fixtures. CI exercises this
+    # via the normal full-suite run.
+    from mlb_research import leakage_checks
+
+    dbfile, _counts = built
+    results = leakage_checks.run_all(dbfile)
+    assert [r.name for r in results] == ["clock_consistency", "doubleheader_ordering"]
+    assert all(results), [(r.name, r.detail) for r in results if not r.ok]
+
+
+def test_doubleheader_check_goes_red_if_game_1_leaks_into_game_2(built):
+    # The failure mode task 6.4 names: if the builder let the first game of a
+    # doubleheader enter the second game's window, game 2's rolling numerators
+    # would differ from game 1's. Simulate that by bumping one game-2 numerator
+    # in a writable copy of the build and confirm the check catches it.
+    import shutil
+
+    from mlb_research import leakage_checks
+
+    dbfile, _counts = built
+    leaky = dbfile.parent / "leaky.duckdb"
+    shutil.copy(dbfile, leaky)
+    con = duckdb.connect(str(leaky))
+    try:
+        con.execute(
+            "UPDATE feat.player_form SET so_num_std = so_num_std + 1 "
+            "WHERE player_id = 70001 AND retro_game_id = 'TST202404202'"
+        )
+    finally:
+        con.close()
+
+    result = leakage_checks.check_doubleheader_ordering(leaky)
+    assert not result.ok
+    assert not result.evidence.empty

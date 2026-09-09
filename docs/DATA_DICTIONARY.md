@@ -382,3 +382,37 @@ Catalogued as the tables this repo's changes have needed documented; not yet an 
 - **`core.market`**: One matched Polymarket/Kalshi market row per game/side (`game_id`, `source`, `market_ref`, `team_id`), matched to `core.game` by `conform.py`.
   - `implied_probability numeric` — nullable. The market-implied win probability for `team_id`, taken from the latest `raw.{polymarket,kalshi}_snapshot` row captured strictly before the game's real start time; NULL when no pre-game snapshot exists. Never the settled/current price (ADR-052).
   - `observed_at timestamptz` — nullable. The `captured_at` of the `raw.{polymarket,kalshi}_snapshot` row that `implied_probability` was resolved from; the pre-game moment that price was observed. NULL exactly when `implied_probability` is NULL (issue #107).
+
+---
+
+## 7. Point-in-time feature store (`feat.*` — DuckDB, not PostgreSQL)
+
+The feature layer for model building lives in a **local DuckDB file**, not
+PostgreSQL — see [ADR-287](DECISIONS.md) and
+[FEATURE_STORE.md](FEATURE_STORE.md). `mlb build` writes it; models read it
+through `mlb_research.get_historical_features`. It is a derived, reproducible
+artifact: delete the file and rebuild.
+
+- **`feat.player_form`** / **`feat.pitcher_form`**
+  - **Grain**: one row per `(player_id, event_ts, feature_version)` — one row
+    per appearance, holding that player's form *entering* that game.
+  - **Windows are columns, not rows**: `7d`, `30d`, `std` (season-to-date).
+    Every rate ships with its numerator(s) and its exposure (`pa_<w>` / `bf_<w>`)
+    so a PA/BF-based window is re-derivable.
+  - **Clocks**: `event_ts` (game_date + game_number × 3h — fictional absolute
+    time, real doubleheader ordering); `available_ts` = `visible_ts` = `event_ts`
+    (the value is entering form, knowable at first pitch); `created_ts` = build
+    time (audit only in a full rebuild). The 6h box-score lag lives in the
+    rolling-window frame, not the row's own clock.
+  - **Batting**: `k_pct`, `bb_pct`, `obp`, `slg`, `iso`, `babip` per window
+    (NULL when the denominator is 0), plus EB-shrunk `k_pct_shrunk` /
+    `bb_pct_shrunk`. **Pitching**: `k_pct`, `bb_pct`, `k_minus_bb_pct`, `ra9`,
+    `fip_like` per window, plus the two shrunk rates.
+  - **Coverage**: regular season, 1910–2025 (Retrosheet events).
+- **`feat.game`**
+  - **Grain**: one row per `(game_pk, feature_version)` — the curated wide
+    assembly the first notebook and Elo v2 load.
+  - Game context + the four clocks + home/away team entering offensive form
+    (30d) + both starters' entering form (30d) + the `home_win` label. ~26
+    columns. `starter_is_actual = TRUE` in slice 1 (the actual starter, not the
+    probable one).

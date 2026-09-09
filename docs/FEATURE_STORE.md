@@ -31,15 +31,16 @@ clocks, not a framework.
 | Clock | Meaning |
 | --- | --- |
 | `event_ts` | End of the last game the row includes. `game_date` + `game_number × 3h` — a fictional absolute time that preserves same-day (doubleheader) ordering, because Retrosheet does not record first pitch. |
-| `available_ts` | When a model may use the row. `event_ts + 6h` — the box score is available after the game. This lag is the documented per-source assumption; see *Honest limitations*. |
-| `created_ts` | When `mlb build` wrote the row. Guards against a value that a *later* rebuild would change leaking into an *earlier* decision. |
-| `visible_ts` | `GREATEST(available_ts, created_ts)`. Retrieval joins on this: a row is invisible both before the event was known and before the build produced it. |
+| `available_ts` | `event_ts`. The row's value is entering form (prior games only), so it is knowable at first pitch. The 6h box-score lag is not here — it is in the rolling-window frame (which prior games are eligible). |
+| `created_ts` | When `mlb build` wrote the row. Slice 1 (full rebuild) uses it only as audit metadata — `mlb verify` reports its range so a stale file is visible. Incremental builds will fold it into `visible_ts`. |
+| `visible_ts` | `event_ts` (slice 1). Retrieval ASOF-joins on this. When incremental builds land, it will fold in `created_ts` so a late-appended row cannot leak backward. |
 
 ## The relations
 
-All in the `feat` schema of the DuckDB file. One row per
-`(entity_id, event_ts, feature_version)` — **`window` is never a key**; each
-window is its own set of columns.
+All in the `feat` schema of the DuckDB file. `feat.player_form` and
+`feat.pitcher_form` have one row per `(player_id, event_ts, feature_version)`;
+`feat.game` one per `(game_pk, feature_version)`. **`window` is never a key** —
+each window is its own set of columns.
 
 ### `feat.player_form`
 
@@ -70,13 +71,14 @@ Entering form per pitcher, same shape. Windows `7d` / `30d` / `std`:
 
 ### `feat.game`
 
-One row per regular-season game: game context, the four clocks, the home/away
-team's entering offensive form (`home_k_pct_30d`, `away_obp_30d`, …), both
-starters' entering form (`home_starter_k_minus_bb_pct_30d`, …), and the
-`home_win` label. ~34 columns. Its form columns equal what
-`get_historical_features` returns for the same entities at the game's
-`event_ts` — a test enforces that so the assembly and the retrieval path cannot
-drift.
+One row per regular-season game (~26 columns): game context, the four clocks,
+the home/away team's entering offensive form (`home_k_pct_30d`, `away_obp_30d`,
+…), both starters' entering form (`home_starter_k_minus_bb_pct_30d`, …), and
+the `home_win` label. The **starter** columns equal what
+`get_historical_features` returns for that starter at the game's `event_ts` —
+`tests/integration/test_feat_game_retrieval.py` enforces it, so the assembly
+and the retrieval path cannot drift. The team columns are built inline (no
+`feat.team_form` relation in slice 1) and are not part of that contract.
 
 Slice 1 uses the **actual** starting pitcher (`starter_is_actual = TRUE`).
 Elo v2 (slice 3) swaps in the probable starter.
@@ -123,8 +125,8 @@ no labels, no scikit-learn.
 
 | Check | What it proves |
 | --- | --- |
-| `check_clock_consistency` | Every row obeys `event_ts ≤ available_ts ≤ visible_ts` and `created_ts ≤ visible_ts`. A row that fails could be returned for a decision time before the event was known. |
-| `check_doubleheader_ordering` | For two games of the same entity less than a day apart, the earlier game's `available_ts` lands at or after the later game's `event_ts` — game 2 cannot see game 1's box score. |
+| `check_clock_consistency` | Every form row obeys `event_ts ≤ available_ts ≤ visible_ts` (the retrieval key is never earlier than the data it summarises) and `available_ts ≤ created_ts` (the build ran after its inputs existed). A row that fails the first clause could be returned for a decision time before its value was knowable. In slice 1 all three of `event_ts`/`available_ts`/`visible_ts` are equal; the check tightens when incremental builds fold `created_ts` into `visible_ts`. |
+| `check_doubleheader_ordering` | When an entity plays twice on the same date, both rows must have **identical** rolling numerators and exposures — game 1 is not available in time to enter game 2's window, so both see the same prior history. A difference means game 1 leaked forward. |
 
 **What they do not cover:** whether a *model* trained on these features is
 leaking. The "shuffle the labels" and "inject the outcome as a feature" tests
@@ -133,12 +135,15 @@ slice 3.
 
 ## Honest limitations
 
-- **`available_ts` is an assumption, not a measurement.** Retrosheet has no
-  ingest timestamp and no first-pitch time. `event_ts` is a fictional clock
-  (`game_date + game_number × 3h`) that gets *ordering* right; `available_ts`
-  adds a flat 6h. Real same-day timing (a rain-delayed game 1, a split
-  doubleheader) is not modelled. The leakage checks test the mechanism, not the
-  exact lag.
+- **The clock is an assumption, not a measurement.** Retrosheet has no ingest
+  timestamp and no first-pitch time. `event_ts` is a fictional clock
+  (`game_date + game_number × 3h`) that gets *ordering* right; the 6h box-score
+  lag in the window frame is a flat assumption. Real same-day timing (a
+  rain-delayed game 1, a split doubleheader) is not modelled. The leakage
+  checks test the mechanism, not the exact lag. A full rebuild also cannot
+  honour "a record that entered Retrosheet after 2015 is invisible to a 2015
+  decision" — Retrosheet backfills and corrects history, and we do not know
+  when each record landed. That gate arrives with incremental builds.
 - **`std` denominators are tiny in April.** A season-to-date rate after two games
   is noise; use the shrunk column or a longer window early in a season.
 - **wOBA is not in slice 1.** It needs the linear-weights machinery; K%, BB%,

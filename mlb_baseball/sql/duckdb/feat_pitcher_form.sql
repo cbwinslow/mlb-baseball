@@ -186,12 +186,17 @@ SELECT
     season,
     team_id,
     event_ts,
-    event_ts + getvariable('feat_lag_hours') * INTERVAL 1 HOUR AS available_ts,
+    -- This row's VALUE is the pitcher's form *entering* this game -- prior
+    -- completed games only, and the window frame below already excludes any
+    -- game less than feat_lag_hours old. So the value is knowable at first
+    -- pitch: available_ts = event_ts. The feat_lag_hours lag lives only in the
+    -- window frame (which inputs are eligible), not here.
+    event_ts AS available_ts,
+    -- Audit metadata: when THIS build wrote the row. mlb build is a full
+    -- rebuild, so it is uniform across a build and does not gate retrieval.
+    -- Incremental builds (a later slice) will fold it into visible_ts.
     now()::TIMESTAMP AS created_ts,
-    greatest(
-        event_ts + getvariable('feat_lag_hours') * INTERVAL 1 HOUR,
-        now()::TIMESTAMP
-    ) AS visible_ts,
+    event_ts AS visible_ts,
     getvariable('feat_version') AS feature_version,
     100 AS shrink_m,
 

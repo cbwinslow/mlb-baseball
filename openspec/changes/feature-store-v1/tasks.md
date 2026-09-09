@@ -48,13 +48,13 @@ owner's to run and are recorded, not gated in CI.
   version the root package will require, or record that `mlb-baseball` installs
   from the repository only until it is. Verify: a written note in the PR naming
   the PyPI state; the risk in `design.md` is closed or restated.
-- [ ] 2.4 Add `mlb build` to `mlb_baseball/cli.py`: `--db <path>` plus the
+- [x] 2.4 Add `mlb build` to `mlb_baseball/cli.py`: `--db <path>` plus the
   existing `--profile` / `--skip` conventions, wrapping `migrate` → `conform` →
   `report` and then the feature build. Verify: `uv run mlb build --help` lists
   the flags; a unit test asserts the wrapped steps run in that order and that
   `mlb conform` / `mlb report` / `mlb features` still dispatch exactly as before
   (no renamed or removed subcommand).
-- [ ] 2.5 Establish the DuckDB SQL home: decide between an inline
+- [x] 2.5 Establish the DuckDB SQL home: decide between an inline
   `-- sqlfluff:dialect:duckdb` directive and a subdirectory with its own
   `.sqlfluff`; if the subdirectory wins, extend
   `mlb_baseball/sql/__init__.py::read_sql` to accept exactly one path segment
@@ -65,7 +65,7 @@ owner's to run and are recorded, not gated in CI.
 
 ## 3. `feat.player_form` and `feat.pitcher_form`
 
-- [ ] 3.1 Failing integration test `tests/integration/test_feat_form.py`: a
+- [x] 3.1 Failing integration test `tests/integration/test_feat_form.py`: a
   fixture of two batters and two pitchers across four games asserts **one row per
   `(entity_id, event_ts, feature_version)`** (no `window` in any key), that every
   rate has its numerator and exposure columns populated alongside it, that a rate
@@ -73,37 +73,37 @@ owner's to run and are recorded, not gated in CI.
   from summed components rather than averaged from per-game rates, and that
   `event_ts <= available_ts <= visible_ts`. Verify: RED before the builders,
   GREEN after.
-- [ ] 3.2 `mlb_baseball/sql/feat_player_form.sql` (DuckDB dialect): rolling
+- [x] 3.2 `mlb_baseball/sql/feat_player_form.sql` (DuckDB dialect): rolling
   offensive counting stats, numerators, exposure and rates per window as
   **columns**, computed from completed games only and excluding the target game,
   shrunk toward an **as-of** league prior (a 2024 league rate can never prime a
   2023 row). Verify: sqlfluff clean; the 3.1 test's batter assertions pass.
-- [ ] 3.3 `mlb_baseball/sql/feat_pitcher_form.sql`: rolling batters faced,
+- [x] 3.3 `mlb_baseball/sql/feat_pitcher_form.sql`: rolling batters faced,
   K−BB%, RA9 and a FIP-like rate, same rules and column layout. Ship only the
   columns a game-grain consumer needs — this is not the start of a full pitcher
   grain. Verify: the 3.1 test's pitcher assertions pass; the shipped column list
   is enumerated in `docs/FEATURE_STORE.md`.
-- [ ] 3.4 Compute and store `visible_ts = GREATEST(available_ts, created_ts)` in
+- [x] 3.4 Compute and store `visible_ts = GREATEST(available_ts, created_ts)` in
   both builders, with the per-source `available_ts` lag read from one documented
   constant rather than duplicated per file. Verify: a unit test asserts
   `visible_ts` equals the maximum for rows on both sides of the tie, and that
   changing the lag constant moves `available_ts` in both relations.
-- [ ] 3.5 Append-only semantics: a second `mlb build` with a bumped
+- [x] 3.5 Append-only semantics: a second `mlb build` with a bumped
   `feature_version` adds rows and leaves the prior version's rows byte-identical.
   Verify: an integration test that builds twice and asserts the v1 rows are
   unchanged and both versions are retrievable.
 
 ## 4. `feat.game`
 
-- [ ] 4.1 Failing test: for a fixture game, `feat.game`'s home/away form columns
+- [x] 4.1 Failing test: for a fixture game, `feat.game`'s home/away form columns
   equal what `get_historical_features` returns for the same entities at that
   game's first pitch. Verify: RED before the builder, GREEN after — this is the
   assertion that keeps the assembly and the retrieval path from drifting.
-- [ ] 4.2 `mlb_baseball/sql/feat_game.sql`: one row per game at first pitch —
+- [x] 4.2 `mlb_baseball/sql/feat_game.sql`: one row per game at first pitch —
   game context plus home/away form columns retrieved as of first pitch, ~30–40
   columns per the curation rule confirmed in 1.1. Verify: 4.1 passes; the column
   count and the curation rule are both stated in `docs/FEATURE_STORE.md`.
-- [ ] 4.3 Confirm no read of `gold.game_feature` entered the DuckDB build.
+- [x] 4.3 Confirm no read of `gold.game_feature` entered the DuckDB build.
   Verify: `grep -rn "game_feature" mlb_baseball/sql/feat_*.sql` returns nothing,
   and the build runs against a database whose `gold.game_feature` is empty.
 
@@ -124,7 +124,7 @@ owner's to run and are recorded, not gated in CI.
   entity differing only in `created_ts` and asserts the later-created one is
   invisible at a `t` between them — this is the test that fails if `visible_ts`
   is replaced by `available_ts`.
-- [ ] 5.4 Document the contract in `packages/mlb-research/README.md` and
+- [x] 5.4 Document the contract in `packages/mlb-research/README.md` and
   `docs/PUBLIC_API.md`: the signature, the `"view:feature"` ref format, the
   four clocks, and the explicit statement that this is Feast's shape without
   Feast. Verify: the example in each doc is copy-pasteable and matches the
@@ -142,14 +142,14 @@ owner's to run and are recorded, not gated in CI.
   the evidence rows, with **no model, no labels, and no sklearn import**.
   Verify: 6.1 passes; `uv run python -c "import mlb_research.leakage_checks"`
   succeeds in an environment without sklearn or xgboost installed.
-- [ ] 6.3 Add `mlb verify` to `mlb_baseball/cli.py`: run the two leakage checks
+- [x] 6.3 Add `mlb verify` to `mlb_baseball/cli.py`: run the two leakage checks
   against the resolved build, run the existing Baseball-Reference tie-out
   (`scripts/verify_baseball_reference_tie_out.py`), and report the build's
   `created_ts` range so a stale file is visible. Non-zero exit on any failure.
   Verify: `uv run mlb verify --help` works; an integration test asserts exit 0 on
   a clean fixture build and non-zero with a named failure on a leaky one;
   `mlb doctor` / `mlb audit` / `mlb preflight` are unchanged.
-- [ ] 6.4 Run the two checks in CI against a fixture build. Verify: green in CI;
+- [x] 6.4 Run the two checks in CI against a fixture build. Verify: green in CI;
   red when the feature builder is deliberately made to include the target game.
 
 ## 7. Documentation
@@ -161,12 +161,12 @@ owner's to run and are recorded, not gated in CI.
   `available_ts` lag assumptions, the no-Feast decision and its adoption trigger,
   and a plain statement that `gold.game_feature` is internal and never part of
   this surface. Verify: `mkdocs build --strict` and the link check pass.
-- [ ] 7.2 Update `docs/DATA_DICTIONARY.md` (the `feat` relations and their
+- [x] 7.2 Update `docs/DATA_DICTIONARY.md` (the `feat` relations and their
   grain), `docs/RESEARCH.md` (the `available_ts` lag as an honest limitation),
   and `docs/SQL_OWNERSHIP.md` (the DuckDB build SQL and its Python owner).
   Verify: `mkdocs build --strict` clean; `docs/SQL_OWNERSHIP.md` names a
   `read_sql(...)` caller for every new `.sql` file.
-- [ ] 7.3 Update `README.md`'s status section and `docs/USER_MANUAL.md` with the
+- [x] 7.3 Update `README.md`'s status section and `docs/USER_MANUAL.md` with the
   three-command front door (`mlb bootstrap` → `mlb build` → `mlb verify`),
   stating that the other commands are unchanged. Verify: each documented command
   and flag exists in `uv run mlb --help` output — no invented flag names.
@@ -211,3 +211,67 @@ owner's to run and are recorded, not gated in CI.
 - **3.1-3.5** done: `feat_player_form.sql`, `feat_pitcher_form.sql` (DuckDB) + `feat.build` + `feat.health_check`. Windows are columns (7d/30d/std), every rate ships numerator(s) + exposure, rate NULL when denominator 0, rates from summed components, EB shrink (m=100, `shrink_m` column) toward an as-of league prior (season-to-date; <5 league games -> prior season full; else NULL). Append-only DELETE+INSERT per feature_version. `tests/integration/test_feat_form.py` (15 tests) covers grain, no `window` column, NULL-not-0, summed-not-mean, clock ordering, doubleheader exclusion, lag-constant drives both relations, and append-only byte-identical v1 after a v2 build.
 - **4.2/4.3** done: `feat_game.sql` -> `feat.game`, one row per regular game, ~26 columns (game context + 4 clocks + 8 team-form + 6 starter-form + `starter_is_actual` + `home_win`). Team offensive form is the team's own entering 30d rollup (no lineup table in slice 1); starters are the ACTUAL `gs=1` pitcher (`starter_is_actual = TRUE`), form read from `feat.pitcher_form`. `grep game_feature mlb_baseball/sql/duckdb/*.sql` -> nothing; builds against an empty `gold.game_feature`. `feat.game`'s form columns carry a comment that task 4.1's PIT-equivalence test (get_historical_features — not this agent's scope) enforces once that lands.
 - **NOT done here (later groups):** docs/FEATURE_STORE.md + docs/DATA_DICTIONARY.md / RESEARCH.md (group 7), get_historical_features + task 4.1 test (group 5), leakage checks + `mlb verify` (group 6), the ADR fold + project.md + delivery delta (group 1). `feat.health_check` is wired into `mlb doctor` (doctor.run) even though `mlb verify` is group 6.
+
+### Progress notes (clock-model correction + verify + docs, 2026-09-09 — groups 1/5/6/7)
+- **Clock-model correction (was a bug in the assembly build):** the assembly
+  build stored `available_ts = event_ts + 6h` and
+  `visible_ts = greatest(available_ts, now())`. `now()` made every historical
+  row's `visible_ts` the build time, so `get_historical_features` (ASOF on
+  `t >= visible_ts`) returned all-NULL for any past decision. Corrected to
+  `available_ts = visible_ts = event_ts` in all three `feat_*.sql` files — a
+  form row's value is *entering* form (prior games only), knowable at first
+  pitch. The 6h box-score lag stays only in the rolling-window frame (which
+  prior games are eligible). `created_ts = now()` kept as audit metadata;
+  `mlb verify` prints its range. Task 3.4's original `visible_ts = GREATEST(...)`
+  wording is superseded — recorded in `docs/FEATURE_STORE.md` "four clocks" and
+  `design.md` is consistent with the simplified model.
+- **5.1-5.3** done: `mlb_research.get_historical_features` — one DuckDB
+  `ASOF LEFT JOIN` per view, `"view:feature"` refs validated before any query
+  (raises `ValueError` listing valid refs), one row out per row in, input order
+  preserved, missing stays missing. Connects in-memory + `ATTACH ... AS
+  mlb_feat_db (READ_ONLY); USE mlb_feat_db` (a bare `duckdb.connect(file)` names
+  the default catalog after the file's basename, colliding with the `feat`
+  schema — `_duckdb.BinderException: Ambiguous reference`). Tests in
+  `packages/mlb-research/tests/test_features.py` (incl.
+  `test_retrieval_asof_key_is_visible_ts`).
+- **5.4** done: `get_historical_features` documented in
+  `packages/mlb-research/README.md` (new "Point-in-time features" section) and
+  `docs/PUBLIC_API.md` (the consuming-the-dataset bullet). Copy-pasteable
+  example matches the implemented signature.
+- **6.1-6.2** done: `mlb_research.leakage_checks` — `check_clock_consistency`,
+  `check_doubleheader_ordering`, `run_all`, each returning `CheckResult`
+  (`name/ok/detail/evidence`, truthy on pass). No model, no labels, no sklearn.
+  `test_module_imports_without_sklearn_or_xgboost` runs in a clean subprocess
+  (asserting on `sys.modules` in-process is polluted by any earlier test that
+  imported the CLI).
+- **6.3** done: `mlb verify` in `cli.py` — `--db` / `--feature-version` /
+  `--skip-tie-out`; runs `leakage_checks.run_all`, prints `created_ts` range,
+  subprocess-runs `scripts/verify_baseball_reference_tie_out.py`; non-zero exit
+  on any failure. `doctor`/`audit`/`preflight` untouched. Dispatch tests in
+  `tests/unit/test_cli_dispatch.py`.
+- **6.4** done: `tests/integration/test_feat_form.py::test_leakage_checks_pass_on_a_real_build`
+  runs `run_all` green against an actual `feat.build`;
+  `test_doubleheader_check_goes_red_if_game_1_leaks_into_game_2` mutates one
+  game-2 numerator in a copy of the build and asserts the check catches it (the
+  "builder made to include the target game" failure mode). Both run in CI via
+  the normal full-suite integration run — no separate workflow.
+  **CI caveat:** `feat.build` does `INSTALL postgres; LOAD postgres` (DuckDB's
+  Postgres scanner). GitHub Actions runners have outbound network so the
+  extension downloads on first use; if a future air-gapped CI lane is added it
+  must pre-bundle the `postgres` DuckDB extension.
+- **4.1** done: `tests/integration/test_feat_game_retrieval.py` — `feat.game`'s
+  starter form columns equal `get_historical_features` output for the same
+  starter at the game's `event_ts` (`pytest.approx`); first game of a fixture
+  has `home_starter_bf_30d == 0` and `home_starter_k_minus_bb_pct_30d is None`.
+- **7.1-7.3** done: `docs/FEATURE_STORE.md` (new), `docs/DATA_DICTIONARY.md`
+  § 7, `docs/RESEARCH.md` honest-limitation paragraph, `docs/SQL_OWNERSHIP.md`,
+  `README.md` feature-store section, `openspec/project.md` boundary bullet.
+- **1.2/1.3** done (earlier commit). **1.1/1.4 [effectively done]:** the four
+  `DESIGN_REVIEW.md` decisions have recorded answers; `openspec validate
+  --strict feature-store-v1` passes and the `delivery` delta headers match
+  `openspec/specs/delivery/spec.md`. Left unchecked pending an explicit owner
+  sign-off on the assumed answers.
+- **8.1** ran clean this session: `openspec validate --strict feature-store-v1`,
+  `ruff check .`, `ruff format --check` (python dirs), `mypy mlb_baseball`,
+  `sqlfluff lint mlb_baseball/sql/` all pass. 8.3/8.5 execution-at-scale is
+  [OWNER].

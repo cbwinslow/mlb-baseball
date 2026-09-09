@@ -10,9 +10,12 @@
 --   event_ts     = game_date::TIMESTAMP + game_number * INTERVAL 3 HOUR
 --                  (fictional absolute time, real ordering: a single game ->
 --                   midnight, doubleheader game 1 -> 03:00, game 2 -> 06:00)
---   available_ts = event_ts + feat_lag_hours HOUR
---   created_ts   = now() at build time
---   visible_ts   = greatest(available_ts, created_ts)  -- retrieval ASOF key
+--   available_ts = event_ts  -- the row's value is entering form (prior
+--                  games only); it is knowable at first pitch. The
+--                  feat_lag_hours lag lives ONLY in the window frame below.
+--   created_ts   = now() at build time -- audit metadata, uniform across a
+--                  full rebuild, not a retrieval gate (see feat.py)
+--   visible_ts   = event_ts  -- retrieval ASOF key
 --
 -- Windows are COLUMNS, never rows: 7d, 30d, std (season-to-date). Each rate
 -- ships with its numerator(s) and its exposure (pa_<w>) so a PA-based window
@@ -221,12 +224,17 @@ SELECT
     season,
     team_id,
     event_ts,
-    event_ts + getvariable('feat_lag_hours') * INTERVAL 1 HOUR AS available_ts,
+    -- This row's VALUE is the batter's form *entering* this game -- prior
+    -- completed games only, and the window frame below already excludes any
+    -- game less than feat_lag_hours old. So the value is knowable at first
+    -- pitch: available_ts = event_ts. The feat_lag_hours lag lives only in the
+    -- window frame (which inputs are eligible), not here.
+    event_ts AS available_ts,
+    -- Audit metadata: when THIS build wrote the row. mlb build is a full
+    -- rebuild, so it is uniform across a build and does not gate retrieval.
+    -- Incremental builds (a later slice) will fold it into visible_ts.
     now()::TIMESTAMP AS created_ts,
-    greatest(
-        event_ts + getvariable('feat_lag_hours') * INTERVAL 1 HOUR,
-        now()::TIMESTAMP
-    ) AS visible_ts,
+    event_ts AS visible_ts,
     getvariable('feat_version') AS feature_version,
     100 AS shrink_m,
 

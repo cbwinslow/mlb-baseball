@@ -30,12 +30,12 @@ def _build(path, rows):
     con.close()
 
 
-def _row(pid, day, k, *, version="v1", created=None, avail_hours=6):
+def _row(pid, day, k, *, version="v1"):
+    # slice-1 clock model: a form row's value is entering form, so
+    # available_ts == visible_ts == event_ts. created_ts is audit metadata
+    # (uniform across a full rebuild); it does not gate retrieval.
     ev = datetime(2024, 6, day, 0, 0)
-    av = datetime(2024, 6, day, avail_hours, 0)
-    cr = created or datetime(2024, 1, 1)
-    vis = max(av, cr)
-    return (pid, ev, av, cr, vis, version, 100, k, 0.08)
+    return (pid, ev, ev, datetime(2024, 1, 1), ev, version, 100, k, 0.08)
 
 
 def test_returns_the_latest_snapshot_before_the_decision_time(tmp_path):
@@ -71,17 +71,33 @@ def test_one_output_row_per_input_row_in_input_order(tmp_path):
     assert list(out["k_pct_30d"]) == [0.15, 0.20, 0.15]
 
 
-def test_row_created_after_the_decision_time_is_invisible(tmp_path):
+def test_retrieval_asof_key_is_visible_ts(tmp_path):
+    # The ASOF join is on visible_ts, not event_ts or available_ts directly.
+    # In slice 1 those are equal on a real build; here they are set apart so a
+    # regression that joins on the wrong column is caught.
     db = tmp_path / "mlb.duckdb"
-    # same player, one snapshot, but it was written into the build on 6/15
-    _build(db, [_row(1, 1, 0.20, created=datetime(2024, 6, 15))])
-    early = pd.DataFrame({"player_id": [1], "event_timestamp": [datetime(2024, 6, 10)]})
-    late = pd.DataFrame({"player_id": [1], "event_timestamp": [datetime(2024, 6, 20)]})
+    con = duckdb.connect(str(db))
+    con.execute("CREATE SCHEMA feat")
+    con.execute(
+        "CREATE TABLE feat.player_form (player_id BIGINT, event_ts TIMESTAMP, "
+        "available_ts TIMESTAMP, created_ts TIMESTAMP, visible_ts TIMESTAMP, "
+        "feature_version TEXT, k_pct_30d DOUBLE)"
+    )
+    # event_ts 6/1, but visible_ts pushed to 6/20 (as an incremental build's
+    # created_ts would do)
+    con.execute(
+        "INSERT INTO feat.player_form VALUES "
+        "(1, '2024-06-01', '2024-06-01', '2024-06-20', '2024-06-20', 'v1', 0.20)"
+    )
+    con.close()
+    before = pd.DataFrame({"player_id": [1], "event_timestamp": [datetime(2024, 6, 10)]})
+    after = pd.DataFrame({"player_id": [1], "event_timestamp": [datetime(2024, 6, 25)]})
     assert pd.isna(
-        get_historical_features(early, ["player_form:k_pct_30d"], db=db)["k_pct_30d"].iloc[0]
+        get_historical_features(before, ["player_form:k_pct_30d"], db=db)["k_pct_30d"].iloc[0]
     )
     assert (
-        get_historical_features(late, ["player_form:k_pct_30d"], db=db)["k_pct_30d"].iloc[0] == 0.20
+        get_historical_features(after, ["player_form:k_pct_30d"], db=db)["k_pct_30d"].iloc[0]
+        == 0.20
     )
 
 

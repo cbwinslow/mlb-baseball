@@ -4,10 +4,14 @@
 -- variables: see feat_player_form.sql.
 --
 -- This is the curated wide assembly the first notebook loads and Elo v2
--- (slice 3) consumes. Its form columns MUST equal what a point-in-time
--- retrieval at this game's event_ts would return from the form relations --
--- task 4.1's test enforces that once mlb_research.get_historical_features
--- lands (NOT this file's job / not this slice's agent's job).
+-- (slice 3) consumes. Its starter form columns MUST equal what a point-in-time
+-- retrieval at this game's event_ts returns from feat.pitcher_form --
+-- tests/integration/test_feat_game_retrieval.py enforces this. The convergence
+-- holds because a form row's available_ts is its own event_ts (its value is
+-- entering form), so an ASOF join at this game's event_ts lands on exactly the
+-- feat.pitcher_form row this file joins by (player_id, retro_game_id).
+-- The team offensive columns are built inline here (no feat.team_form relation
+-- in slice 1) and are not part of that retrieval-equivalence contract.
 --
 -- Slice-1 simplifications, both deliberate and documented:
 --   * No lineup table exists, so the home/away offensive form is the TEAM's
@@ -139,9 +143,11 @@ SELECT
     gm.home_team_id,
     gm.away_team_id,
     gm.event_ts,
+    -- Pre-game row: everything in it is knowable at first pitch. created_ts is
+    -- audit metadata (uniform across a full rebuild), not a retrieval gate.
     gm.event_ts AS available_ts,
     now()::TIMESTAMP AS created_ts,
-    greatest(gm.event_ts, now()::TIMESTAMP) AS visible_ts,
+    gm.event_ts AS visible_ts,
     getvariable('feat_version') AS feature_version,
 
     th.k_pct_30d  AS home_k_pct_30d,

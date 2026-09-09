@@ -10,14 +10,18 @@ stated decision time without hand-writing the leakage guard.
 The retrieval contract SHALL guarantee that, for every requested
 `(entity, decision time t)` pair:
 
-- every returned feature value was derived only from records that were **both**
-  observable at or before `t` (the baseball event had occurred and its result
-  was available outside the warehouse) **and** already present in the build at
-  or before `t` (a later data delivery cannot change a value already returned
-  for an earlier `t`);
+- every returned feature value was derived only from records observable at or
+  before `t` — the baseball event had occurred and its result was available
+  (a per-source availability lag SHALL be documented, not assumed to be zero);
 - a feature with no qualifying value at `t` is returned as **missing** — never
   filled from a later value, never forward-filled, never defaulted to zero;
 - exactly one output row is returned per requested input row.
+
+Where the feature store is rebuilt **incrementally** (a build that appends to an
+earlier one rather than replacing it), retrieval SHALL additionally exclude any
+value that a data delivery *after* `t` would have changed — a row's ingest
+timestamp gates its visibility. A full rebuild has no such ordering and this
+clause does not apply to it.
 
 Published feature files SHALL be **immutable within a release tag**: a value
 published under a tag is never edited in place. A corrected or redefined
@@ -54,11 +58,11 @@ part ships.)
 - **THEN** the earlier snapshot is returned
 - **AND** the later snapshot is not used, even if no earlier snapshot exists (the result is missing)
 
-#### Scenario: A late data delivery does not leak backward
+#### Scenario: An incremental build does not let a late delivery leak backward
 
-- **WHEN** a source record for an event before decision time `t` enters the build only *after* `t`, and features are requested as of `t`
+- **WHEN** the feature store is built incrementally, a source record for an event before decision time `t` is appended to the store only *after* `t`, and features are requested as of `t`
 - **THEN** the returned feature row is computed as if that record were still absent
-- **AND** a rebuild after that record arrives changes the returned row only for decision times at or after its arrival
+- **AND** a later incremental build that includes the record changes the returned row only for decision times at or after the record was appended
 
 #### Scenario: Two games on the same day are ordered by time, not by date
 

@@ -153,9 +153,9 @@ The build logic is versioned `.sql`, per the project rule, in
 feat.player_form (
   player_id        BIGINT      NOT NULL,
   event_ts         TIMESTAMPTZ NOT NULL,  -- end of the last game included
-  available_ts     TIMESTAMPTZ NOT NULL,  -- event_ts + a documented per-source lag
-  created_ts       TIMESTAMPTZ NOT NULL,  -- when this build wrote the row
-  visible_ts       TIMESTAMPTZ NOT NULL,  -- GREATEST(available_ts, created_ts) -- see D5
+  available_ts     TIMESTAMPTZ NOT NULL,  -- slice 1: = event_ts (lag is in the window frame) -- see D5
+  created_ts       TIMESTAMPTZ NOT NULL,  -- when this build wrote the row (audit)
+  visible_ts       TIMESTAMPTZ NOT NULL,  -- slice 1: = event_ts; incremental: GREATEST(available_ts, created_ts) -- see D5
   feature_version  VARCHAR     NOT NULL,  -- 'v1'
   pa_7d,  pa_30d,  pa_std     INTEGER,    -- exposure, per window
   so_7d,  so_30d,  so_std     INTEGER,    -- numerators, per window
@@ -212,17 +212,32 @@ A row is legitimately visible at `t` iff `available_ts <= t` **AND**
 `created_ts <= t`, which is exactly `GREATEST(available_ts, created_ts) <= t`.
 The build stores that maximum as `visible_ts`.
 
+**Slice-1 correction (full rebuild).** The `created_ts <= t` clause is the
+*incremental-build* guarantee — it stops a record delivered after `t` from
+entering a pre-`t` feature. Slice 1 does only full rebuilds, so there is no
+"delivered after `t`" ordering: every row of a build shares one `created_ts`
+(the build time), which is always *after* every historical `t`. Making
+`visible_ts = GREATEST(available_ts, now())` there would push every historical
+row's visibility to the build time and break all historical retrieval. So
+slice 1 ships **`available_ts = visible_ts = event_ts`** (the box-score lag
+lives only in the rolling-window frame — which prior games feed the row — not
+in the row's own clock), and `created_ts` is audit metadata that `mlb verify`
+reports. The `GREATEST(available_ts, created_ts)` formula above is the target
+`visible_ts` for the incremental-build slice, not slice 1.
+
 Rationale: DuckDB's `ASOF JOIN` takes exactly one inequality plus any number of
 equalities, so two independent inequalities cannot both live in the join
 condition, and the second cannot be pushed into a `WHERE` because `t` varies per
 input row. Folding them into one monotone key keeps retrieval a single ASOF join
 (D6) with the same semantics. `visible_ts` is a derived column, not a fifth
 clock: all four remain stored and queryable, and the leakage checks (D8) assert
-against `available_ts` and `created_ts` directly, not against `visible_ts`.
+the ordering among `event_ts`, `available_ts`, `visible_ts`, and `created_ts`.
 
-The per-source availability lag is a documented assumption, not a measurement —
-Retrosheet has no ingest timestamp. The default is conservative
-(`event_ts + 1 day`), recorded per source in `docs/FEATURE_STORE.md` and in
+The box-score availability lag is a documented assumption, not a measurement —
+Retrosheet has no ingest timestamp. Slice 1 uses **6 hours** (one named
+constant, `feat.AVAILABLE_LAG_HOURS`), applied in the rolling-window frame:
+6h > the 3h doubleheader spacing, so a doubleheader's game 1 cannot enter
+game 2's window. It is recorded in `docs/FEATURE_STORE.md` and in
 `docs/RESEARCH.md`'s honest-limitations content. The leakage checks test the
 mechanism, not the lag's numeric truth.
 
@@ -301,10 +316,13 @@ the 178 families is the internal Engine.
 
 `mlb_research.leakage_checks` ships exactly two:
 
-1. **Visibility enforcement.** For a set of `(entity, t)` requests, assert every
-   row that contributed has `available_ts <= t` and `created_ts <= t`. Fails when
-   `visible_ts` is computed wrong, when a build backdates `created_ts`, or when
-   retrieval drops a predicate.
+1. **Clock consistency.** Assert every stored row obeys
+   `event_ts <= available_ts <= visible_ts` (the retrieval key is never earlier
+   than the data it summarises) and `available_ts <= created_ts` (the build ran
+   after its inputs). Fails when `visible_ts` is computed wrong or a build
+   backdates `created_ts`. In slice 1 the three event/available/visible clocks
+   are equal; the check tightens when the incremental slice folds `created_ts`
+   into `visible_ts`.
 2. **Doubleheader / same-day.** For a same-day doubleheader, assert the features
    retrieved as of game 2's first pitch do not reflect game 1's box score. This
    is the case where a date-grain join silently passes and a timestamp-grain join

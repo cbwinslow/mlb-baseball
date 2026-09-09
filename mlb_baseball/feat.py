@@ -31,11 +31,13 @@ from mlb_baseball import config
 from mlb_baseball.health import Check
 from mlb_baseball.sql import read_sql
 
-# Hours from first pitch (event_ts) to box-score availability (available_ts).
-# A documented assumption, not a measurement -- Retrosheet has no ingest
-# timestamp (design D5, docs/FEATURE_STORE.md). 6h > the 3h doubleheader
-# spacing, so a doubleheader's game 1 box score is not available in time to
-# enter game 2's rolling windows.
+# Hours from first pitch to when a game's box score is available. A documented
+# assumption, not a measurement -- Retrosheet has no ingest timestamp (design
+# D5, docs/FEATURE_STORE.md). It lives ONLY in the rolling-window frames (which
+# prior games are eligible to contribute); a form row's own available_ts is its
+# event_ts, because the row's value is entering form (prior games only) and is
+# knowable at first pitch. 6h > the 3h doubleheader spacing, so a
+# doubleheader's game 1 does not enter game 2's windows.
 AVAILABLE_LAG_HOURS = 6
 
 # EB shrink strength for the k%/bb% shrunk columns (design D4). Stored on
@@ -98,6 +100,74 @@ def build(
         return counts
     finally:
         con.close()
+
+
+def verify(
+    *,
+    duckdb_path: str | os.PathLike[str] | None = None,
+    feature_version: str = "v1",
+    run_tie_out: bool = True,
+) -> bool:
+    """`mlb verify` -- audit a feature-store build the way an outside analyst
+    would audit their own. Prints, returns True iff everything passed.
+
+    1. The two store-level leakage checks (`mlb_research.leakage_checks`) --
+       clock consistency and doubleheader ordering. No model, no labels.
+    2. The build's `created_ts` range, so a stale file is visible.
+    3. Optionally the Baseball-Reference tie-out on the PostgreSQL backbone
+       (`scripts/verify_baseball_reference_tie_out.py`) -- slower, needs a
+       fully-built `gold`; skip with `--skip-tie-out`.
+    """
+    from mlb_research import leakage_checks
+
+    ok = True
+
+    path = _resolved_path_no_create(duckdb_path)
+    if not path.exists():
+        print(f"[FAIL] feature build: none at {path} -- run `mlb build`")
+        return False
+
+    con = duckdb.connect()
+    try:
+        con.execute(f"ATTACH '{_quote(str(path))}' AS mlbfeat (READ_ONLY)")
+        con.execute("USE mlbfeat")
+        rng = con.execute(
+            "SELECT min(created_ts), max(created_ts) FROM feat.player_form "
+            "WHERE feature_version = ?",
+            [feature_version],
+        ).fetchone()
+    finally:
+        con.close()
+    if rng and rng[0] is not None:
+        print(f"[INFO] build created_ts: {rng[0]} .. {rng[1]}  (feature_version={feature_version})")
+
+    for result in leakage_checks.run_all(path, feature_version=feature_version):
+        status = "OK" if result.ok else "FAIL"
+        print(f"[{status}] leakage/{result.name}: {result.detail}")
+        if not result.ok:
+            ok = False
+            for _, row in result.evidence.head(5).iterrows():
+                print(f"        {row.to_dict()}")
+
+    if run_tie_out:
+        import subprocess
+        import sys
+
+        script = (
+            Path(__file__).resolve().parent.parent
+            / "scripts"
+            / "verify_baseball_reference_tie_out.py"
+        )
+        print("[..] Baseball-Reference tie-out (backbone) ...")
+        proc = subprocess.run([sys.executable, str(script)], check=False)
+        if proc.returncode == 0:
+            print("[OK] Baseball-Reference tie-out")
+        else:
+            ok = False
+            print(f"[FAIL] Baseball-Reference tie-out (exit {proc.returncode})")
+
+    print(f"\n{'verify passed' if ok else 'verify FAILED'}")
+    return ok
 
 
 def _resolved_path_no_create(explicit: str | os.PathLike[str] | None) -> Path:

@@ -39,16 +39,25 @@ def _connect(db: str | os.PathLike[str] | None) -> duckdb.DuckDBPyConnection:
     path = resolve_db_path(db)
     if not Path(path).exists():
         raise FileNotFoundError(f"no feature database at {path} — run `mlb build` first.")
-    return duckdb.connect(str(path), read_only=True)
+    # ATTACH under a fixed alias: opening the file as the default database makes
+    # `feat.<table>` ambiguous when the file basename is also `feat`.
+    con = duckdb.connect()
+    con.execute(f"ATTACH '{str(path).replace(chr(39), chr(39) * 2)}' AS mlb_feat_db (READ_ONLY)")
+    con.execute("USE mlb_feat_db")
+    return con
 
 
 def check_clock_consistency(
     db: str | os.PathLike[str] | None = None, *, feature_version: str = "v1"
 ) -> CheckResult:
-    """Every feature row obeys ``event_ts <= available_ts <= visible_ts`` and
-    ``created_ts <= visible_ts``. A row that fails this could be returned for a
-    decision time before the baseball event was known or before the build wrote
-    it — the exact leak ``visible_ts`` exists to prevent.
+    """Every feature row obeys ``event_ts <= available_ts <= visible_ts`` (the
+    retrieval key ``visible_ts`` is never earlier than the data it summarises)
+    and ``available_ts <= created_ts`` (the build ran after the inputs existed).
+    A row that fails the first clause could be returned for a decision time
+    before the baseball event was known — the exact leak ``visible_ts`` exists
+    to prevent. In slice 1 (full rebuild) ``visible_ts = event_ts`` and
+    ``created_ts`` is the build time; incremental builds will fold ``created_ts``
+    into ``visible_ts`` and this check tightens with them.
     """
     con = _connect(db)
     try:
@@ -63,7 +72,7 @@ def check_clock_consistency(
             )
             WHERE NOT (event_ts <= available_ts
                        AND available_ts <= visible_ts
-                       AND created_ts <= visible_ts)
+                       AND available_ts <= created_ts)
             """
             for rel in _FORM_RELATIONS
         ]
@@ -74,7 +83,7 @@ def check_clock_consistency(
     return CheckResult(
         "clock_consistency",
         ok,
-        "all rows obey event_ts <= available_ts <= visible_ts, created_ts <= visible_ts"
+        "all rows obey event_ts <= available_ts <= visible_ts and available_ts <= created_ts"
         if ok
         else f"{len(bad)} row(s) with an inconsistent clock",
         bad,
@@ -84,41 +93,58 @@ def check_clock_consistency(
 def check_doubleheader_ordering(
     db: str | os.PathLike[str] | None = None, *, feature_version: str = "v1"
 ) -> CheckResult:
-    """For two games of the same entity less than a day apart (a doubleheader),
-    the earlier game's box score must not be visible when the later game's
-    features are assembled — its ``available_ts`` must land at or after the later
-    game's ``event_ts``. A violation means game 2 could see game 1.
+    """When an entity plays twice on the same calendar date (a doubleheader),
+    game 1 must not enter game 2's rolling windows — the box score is not
+    available in time. Both games' rows therefore see the *same* prior history,
+    so every rolling numerator and exposure column must be **equal** across the
+    two rows. A difference means game 1 leaked into game 2's window.
+
+    This is checked on the output alone: `feat.*` does not carry per-game
+    lines, but the window-frame lag guarantees the two same-day rows are
+    computed over an identical input set.
     """
     con = _connect(db)
     try:
-        parts = [
-            f"""
-            SELECT '{rel}' AS relation, a.player_id AS entity_key,
-                   a.event_ts AS earlier_event_ts, a.available_ts AS earlier_available_ts,
-                   b.event_ts AS later_event_ts
-            FROM feat.{rel} AS a
-            JOIN feat.{rel} AS b
-              ON a.player_id = b.player_id
-             AND a.feature_version = b.feature_version
-             AND a.event_ts < b.event_ts
-             AND b.event_ts - a.event_ts < INTERVAL 1 DAY
-            WHERE a.feature_version = ?
-              AND a.available_ts < b.event_ts
-            """
-            for rel in _FORM_RELATIONS
-        ]
+        parts = []
+        for rel in _FORM_RELATIONS:
+            num_cols = [
+                r[0]
+                for r in con.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema='feat' AND table_name=? "
+                    "AND (column_name LIKE '%_num_%' OR column_name LIKE 'pa\\_%' ESCAPE '\\' "
+                    "OR column_name LIKE 'bf\\_%' ESCAPE '\\')",
+                    [rel],
+                ).fetchall()
+            ]
+            if not num_cols:
+                continue
+            diff = " OR ".join(f"a.{c} IS DISTINCT FROM b.{c}" for c in num_cols)
+            parts.append(
+                f"""
+                SELECT '{rel}' AS relation, a.player_id AS entity_key,
+                       a.event_ts AS game1_event_ts, b.event_ts AS game2_event_ts
+                FROM feat.{rel} AS a
+                JOIN feat.{rel} AS b
+                  ON a.player_id = b.player_id
+                 AND a.feature_version = b.feature_version
+                 AND a.event_ts < b.event_ts
+                 AND a.event_ts::DATE = b.event_ts::DATE
+                WHERE a.feature_version = ? AND ({diff})
+                """
+            )
+        if not parts:
+            return CheckResult("doubleheader_ordering", True, "no form relations to check")
         bad = con.execute(" UNION ALL ".join(parts), [feature_version] * len(parts)).df()
     finally:
         con.close()
     ok = len(bad) == 0
-    return CheckResult(
-        "doubleheader_ordering",
-        ok,
-        "same-day games are ordered so an earlier game is never visible to a later one"
+    detail = (
+        "same-day games see identical prior history — game 1 never enters game 2's window"
         if ok
-        else f"{len(bad)} same-day pair(s) where the earlier game leaks into the later",
-        bad,
+        else f"{len(bad)} same-day pair(s) whose rolling windows differ (game 1 leaked forward)"
     )
+    return CheckResult("doubleheader_ordering", ok, detail, bad)
 
 
 def run_all(

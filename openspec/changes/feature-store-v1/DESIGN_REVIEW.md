@@ -102,6 +102,26 @@ assumed:
   slice 1 ships two retrieval paths. Slice 2 then only moves the harness across a
   direction that already exists.
 
+## Assumed answers (2026-09-09 — owner may override at review)
+
+Working autonomously per owner instruction ("keep working until done"). Taking
+the recommendation for each of the four open decisions below; any override is a
+small localized change:
+
+1. **DuckDB path:** `--db <path>` > `MLB_DUCKDB_PATH` > `~/.mlb/mlb.duckdb`
+   (parent dir created on first build). One file holds all `feature_version`s.
+2. **`mlb build`:** composes `migrate` -> `conform` -> `report` -> feature build,
+   with `--skip <step>` (repeatable) and `--only-features`. All wrapped commands
+   keep working standalone; nothing renamed or removed. `mlb verify` is new and
+   does not replace `doctor`/`audit`/`preflight`.
+3. **Windows:** `7d`, `30d`, `std` (season-to-date). No `14d`. Pitcher form uses
+   the same day windows plus an exposure column (`bf_30d`) so a start-count
+   window is re-derivable.
+4. **`feat.game` curation:** only columns the reference baseline (Elo v2) and
+   `notebooks/06` consume — home/away team form (wOBA, K%, BB% per window), both
+   probable starters' form (K-BB%, FIP-like, BF), game context + the four clocks.
+   ~34 columns. Bullpen form is NOT in v1 `feat.game` (needs a third relation).
+
 ## Still genuinely open
 
 Four. Each is answerable during implementation from the code plus a one-line

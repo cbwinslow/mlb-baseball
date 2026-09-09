@@ -1,11 +1,15 @@
 ## 1. Audit and registry format
 
-- [ ] 1.1 Write `docs/FEATURE_STORE.md`: an inventory of the existing snapshot /
-  experiment tables (`gold.game_feature`, `gold.game_feature_snapshot`,
-  `meta.feature_snapshot`, `meta.experiment_snapshot`, `meta.experiment*`,
-  `meta.model_run`, `meta.model_evaluation`) — what each is, its grain, and how
-  it maps to Feast vocabulary. Verify: every `meta.*` / snapshot table named in
-  `migrations/` appears with a one-line purpose and a keep/merge/leave note.
+- [x] 1.1 Audit — done 2026-09-09. Findings: `gold.game_feature` is a
+  ~240-column table carrying ~170 registered families in
+  `docs/FEATURE_REGISTRY.md` (the Phase-B Engine) and is read across the paused
+  prediction pipeline; `meta.feature_snapshot` fingerprints it, `meta.experiment*`
+  is a working walk-forward harness with Elo already wired. **Design revised
+  (see D5): `feat.*` is a standalone minimal public layer, `gold.game_feature`
+  is NOT re-parented in this slice.** Still to write: `docs/FEATURE_STORE.md` —
+  the public guide + a table mapping the internal snapshot/experiment tables to
+  Feast vocabulary. Verify: every `meta.*` / snapshot table in `migrations/`
+  appears with a one-line purpose and a keep/merge/leave note.
 - [ ] 1.2 Define the `feature_registry.yaml` schema (Feast-style: per view an
   `entity`; per feature `name`, `version`, `inputs`, `availability`,
   `null_policy`) and a `mlb_research.registry` loader + validator. Verify: unit
@@ -13,7 +17,7 @@
   valid one round-trips.
 - [ ] 1.3 Write the registry entries for every `feat.player_offense` and
   `feat.pitcher_form` feature this change ships. Verify: the validator passes;
-  the feature count matches the built columns (task 7.3 cross-checks).
+  the feature count matches the built columns.
 
 ## 2. `feat` schema
 
@@ -82,22 +86,22 @@
   DB fixture in CI. Verify: green in CI; red when a test builder is made to peek
   one game ahead.
 
-## 7. Re-parent `gold.game_feature`
+## 7. Reconcile with the existing feature machinery (no re-parenting)
 
-- [ ] 7.1 `model/features.py::build` assembles the offensive feature columns via
-  `feat.asof_player_offense` at each game's `feature_cutoff_at`, replacing the
-  bespoke rolling-stat SQL in `game_feature_rebuild.sql`. Keep the old SQL
-  available behind a flag for the diff. Verify: the existing
-  `test_features*.py` / `test_game_feature*` tests pass with the re-parented
-  builder.
-- [ ] 7.2 A diff harness (`scripts/verify_game_feature_reparent.py`) that builds
-  `gold.game_feature` both ways and reports per-column max/mean absolute
-  difference. Verify: the script runs against a test DB and prints the report;
-  a documented tolerance is defined per column.
-- [ ] 7.3 **Owner step (prod tie-out).** Run the diff harness against production
-  `mlb`; confirm every column within tolerance; only then remove the old
-  rolling-stat SQL. Verify: report attached; old SQL deleted in a follow-up
-  commit, not this one.
+_Re-parenting `gold.game_feature` onto `feat.*` was cut from this slice — see
+D5. `gold.game_feature`, its builder, and the ~173 Engine families are untouched
+here._
+
+- [ ] 7.1 In `docs/FEATURE_STORE.md` and `feature_registry.yaml`, cross-
+  reference each published `feat.*` feature to the internal family it re-uses
+  the formula from (`feat.player_offense.woba_30d` ↔ `team_offense_v1`'s wOBA
+  math, at player grain; `feat.pitcher_form.k_minus_bb` ↔ `starter_prior_v1`).
+  Verify: every `feat.*` feature names its formula source; a reviewer can see
+  the public layer duplicates no *definition*, only re-expresses proven ones at
+  a new grain.
+- [ ] 7.2 Note in `docs/FEATURE_STORE.md` that re-parenting `gold.game_feature`
+  onto `feat.*` is a named later change (needs owner sign-off), with the reason
+  (Engine / Phase B scope). Verify: the note is present and links D5.
 
 ## 8. Elo v2
 
@@ -142,8 +146,9 @@
   guide + Feast mapping), `docs/PUBLIC_API.md` (`get_historical_features`,
   publishing the feature Parquet), `docs/RESEARCH.md` (feature-store honest
   limitations — the `available_ts` lag assumption), `docs/DECISIONS.md` (ADR:
-  entity layer is the source of truth, `game_feature` is a cache; `feat.*` is
-  `local_research`), `openspec/project.md` (v1.1 progress). Verify:
+  `feat.*` is a standalone minimal public layer, not a re-org of
+  `gold.game_feature` / the Engine registry; `feat.*` is `local_research`),
+  `openspec/project.md` (v1.1 progress). Verify:
   `openspec validate --all` + `mkdocs build --strict` + `link-check` clean.
 
 ## 11. Verification
@@ -153,11 +158,11 @@
 - [ ] 11.2 Targeted suites green: `test_feat_player_offense.py`,
   `test_feat_pitcher_form.py`, `test_feat_leakage.py`, `test_feat_asof.py`,
   the `get_historical_features` unit tests, `test_elo*.py`,
-  `test_features*.py` / `test_game_feature*`, `test_export*.py`,
+  `test_export*.py`,
   `test_notebook_recipes.py`, `test_doctor.py`.
 - [ ] 11.3 Execution: `notebooks/06-*.py` runs end to end against released data;
   `scripts/build_elo_v2_card.py` writes the card; the leakage battery passes;
   the PG↔DuckDB parity test passes.
-- [ ] 11.4 **Owner steps** (recorded, not CI): the `gold.game_feature`
-  re-parent tie-out against prod (7.3); a full `mlb report` + feature build +
-  HF publish of the v1.1 release; the Elo v2 card built against prod data.
+- [ ] 11.4 **Owner steps** (recorded, not CI): a full `mlb report` + feature
+  build + HF publish of the v1.1 release; the Elo v2 card built against prod
+  data.

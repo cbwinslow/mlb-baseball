@@ -119,21 +119,42 @@ the same fixture on both and asserts identical output.
   Fails the "recipe" the owner chose and the spec's "reproducible without
   PostgreSQL" requirement.
 
-### D5 — `gold.game_feature` becomes a cache built from `feat.*`
+### D5 — `feat.*` is a standalone public layer; `gold.game_feature` is untouched
 
-`model/features.py::build` is re-parented: instead of its bespoke rolling-stat
-SQL, it assembles the offensive feature columns via `feat.asof_player_offense`
-at each game's `feature_cutoff_at`. The wide table and its snapshot flow are
-unchanged downstream.
+**Revised after the task 1.1 audit.** The owner approved "rebuild
+`gold.game_feature` from `feat.*`". The audit then showed what
+`gold.game_feature` actually is:
 
-**Tie-out gate (owner-run against prod, like the Baseball-Reference tie-out):**
-the re-parented `gold.game_feature` must match the current builder's output
-column-by-column within a documented tolerance before the old rolling-stat SQL
-is deleted. Until then both can be built and diffed.
+- ~240 columns, grown over ~242 `ALTER TABLE … ADD COLUMN` migrations;
+- carrying ~170 registered feature families in `docs/FEATURE_REGISTRY.md`
+  (`starter_prior_v1`, `bullpen_v1`, `team_offense_v1`, `plate_discipline_v1`,
+  `pitcher_estimator_platoon_v1`, and the wider Engine — `stuff_model_v1`,
+  `pitch_tunneling_v1`, chart engines, …);
+- read across `export.py`, `live.py`, `pipeline.py`, `conform.py`, `audit.py`,
+  `rehearsal.py`, `field_census.py`, `research.py`, `cli.py`;
+- explicitly the "~110 Engine composite packages" `openspec/project.md` marks
+  for **Phase B** triage — SPECULATIVE, "do not start Phase B work because the
+  ladder lists it."
 
-- **Alternative rejected — leave `game_feature` on its own SQL.** Then there
-  are two definitions of "player rolling wOBA before this game" — one in
-  `feat.*`, one in `game_feature_rebuild.sql`.
+Re-parenting that table is a Phase-B-sized job with blast radius across the
+paused prediction pipeline. It is **out of scope** for a v1.1 public slice.
+
+Instead: `feat.player_offense` / `feat.pitcher_form` are a **new, small,
+standalone layer**. They **reuse the proven formulas and PIT patterns** from the
+classical families — `team_offense_v1`'s rolling within-season wOBA/wRC+
+(FanGraphs linear weights, recreated), `starter_prior_v1`'s FIP + K/BB/HR% from
+prior appearances, `plate_discipline_v1`'s CSW%/whiff — re-expressed at
+**entity grain**, append-only. They do **not** touch `gold.game_feature`, its
+builder, or the Engine registry.
+
+This is the cleaner "two products, one database" split: `feat.*` = the public,
+minimal, reproducible toolkit surface; `gold.game_feature` + the ~173 families =
+the internal Engine.
+
+- **Deferred to its own later change (needs owner sign-off):** re-parenting
+  `gold.game_feature` onto `feat.*` once `feat.*` is stable and versioned.
+- **Alternative rejected — absorb / re-org the Engine registry now.** That is
+  Phase B. This slice ships a curated public subset alongside it.
 
 ### D6 — Elo v2 needs a *minimal* pitcher-form input
 

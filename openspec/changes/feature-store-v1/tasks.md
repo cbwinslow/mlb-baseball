@@ -154,7 +154,7 @@ owner's to run and are recorded, not gated in CI.
 
 ## 7. Documentation
 
-- [ ] 7.1 `docs/FEATURE_STORE.md` (new): the boundary at `core`, the four clocks
+- [x] 7.1 `docs/FEATURE_STORE.md` (new): the boundary at `core`, the four clocks
   and the derived `visible_ts`, the three relations and their columns, the
   windows-are-columns rule and why exposure ships with every rate, the retrieval
   contract, the two leakage checks and what they do *not* cover, the per-source

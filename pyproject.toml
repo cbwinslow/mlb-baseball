@@ -17,6 +17,14 @@ dependencies = [
     "numpy>=1.26",
     "feedparser>=6.0.14",
     "rich>=13.0",
+    # feature-store-v1: the derived feature + model layer is DuckDB-only
+    # (ADR: features live in DuckDB). `mlb build` writes it, `mlb verify` reads it.
+    "duckdb>=1.0",
+    # feature-store-v1: the shipped point-in-time retrieval API and (slice 2)
+    # the walk-forward harness have ONE implementation, in mlb-research;
+    # mlb_baseball depends on it, never the reverse. Resolved from the workspace
+    # in-tree (see [tool.uv.sources]); when both publish, from PyPI.
+    "mlb-research",
 ]
 
 [project.optional-dependencies]
@@ -31,12 +39,8 @@ dev = [
     "sqlfluff>=3.0",
     "pytest-postgresql>=8.1,<10",
     "pytest-split>=0.9",
-    # packages/mlb-research (delivery-surface change) -- a workspace member,
-    # not a runtime dependency of mlb_baseball; included here only so
-    # `uv sync --extra dev` gives one venv that can run its tests too.
-    "mlb-research",
-    # notebooks/*.py (delivery-surface change, task 5.3) -- example recipes
-    # against the published mlb-research dataset, not the ingestion pipeline.
+    # notebooks/*.py (delivery-surface change) -- example recipes against the
+    # published mlb-research dataset, not the ingestion pipeline.
     "marimo>=0.9",
 ]
 export = [

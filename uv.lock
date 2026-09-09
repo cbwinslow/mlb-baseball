@@ -1922,7 +1922,9 @@ name = "mlb-baseball"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "duckdb" },
     { name = "feedparser" },
+    { name = "mlb-research" },
     { name = "mlb-statsapi" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -1941,7 +1943,6 @@ dependencies = [
 dev = [
     { name = "hypothesis" },
     { name = "marimo" },
-    { name = "mlb-research" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -1964,13 +1965,14 @@ export = [
 
 [package.metadata]
 requires-dist = [
+    { name = "duckdb", specifier = ">=1.0" },
     { name = "feedparser", specifier = ">=6.0.14" },
     { name = "huggingface-hub", marker = "extra == 'export'", specifier = ">=0.24" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "marimo", marker = "extra == 'dev'", specifier = ">=0.9" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5" },
-    { name = "mlb-research", marker = "extra == 'dev'", editable = "packages/mlb-research" },
+    { name = "mlb-research", editable = "packages/mlb-research" },
     { name = "mlb-statsapi", specifier = ">=1.7" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "numpy", specifier = ">=1.26" },

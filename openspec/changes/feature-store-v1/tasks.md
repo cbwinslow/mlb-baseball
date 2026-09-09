@@ -38,13 +38,13 @@ owner's to run and are recorded, not gated in CI.
   `MLB_DUCKDB_PATH` beats `~/.mlb/mlb.duckdb`, and the parent directory is
   created on first use. Verify: RED with no resolver, GREEN after it lands; the
   test uses `tmp_path` + `monkeypatch.setenv`, never the real `~/.mlb`.
-- [ ] 2.2 Move `duckdb` into `[project].dependencies` in the root
+- [x] 2.2 Move `duckdb` into `[project].dependencies` in the root
   `pyproject.toml`, and move `mlb-research` out of the `dev` extra into runtime
   dependencies (the `[tool.uv.sources]` workspace entry stays). Verify:
   `uv sync` resolves; `uv run python -c "import duckdb, mlb_research"` works;
   `uv run python -c "import mlb_research, mlb_baseball"` still shows
   `mlb_research` importing without `mlb_baseball` present in its module graph.
-- [ ] 2.3 **[OWNER]** Confirm `mlb-research` is resolvable from PyPI at the
+- [x] 2.3 **[OWNER]** Confirm `mlb-research` is resolvable from PyPI at the
   version the root package will require, or record that `mlb-baseball` installs
   from the repository only until it is. Verify: a written note in the PR naming
   the PyPI state; the risk in `design.md` is closed or restated.
@@ -195,3 +195,11 @@ owner's to run and are recorded, not gated in CI.
   `mlb verify` against the resulting file. Verify: recorded row counts per `feat`
   relation, the `created_ts` range, and both leakage checks passing on real data
   — the first time any of this runs at production scale.
+
+---
+### Progress notes (autonomous build, 2026-09-09)
+- **2.1** done: mlb_research/paths.py + 6 tests (in packages/mlb-research/tests/, not tests/unit/ — the resolver is mlb_research code).
+- **2.2** done: duckdb + mlb-research moved to [project].dependencies; mlb-research removed from dev extra; uv.lock updated; verified mlb_research imports without mlb_baseball.
+- **2.3** [OWNER] resolved by check: mlb-research returns 404 on PyPI. mlb-baseball installs from the repo (workspace source) until both publish; recorded here, risk in design.md stands.
+- **Clock model for a Retrosheet-keyed layer (no real first-pitch times in core.game):** event_ts = game_date::timestamp + game_number * interval '3 hours' (preserves doubleheader order: single game_number 0 -> midnight, DH 1 -> 3am, DH 2 -> 6am); available_ts = event_ts + interval '6 hours' (box score available after the game; a documented per-source lag). This makes DH game 1 invisible to DH game 2 and prior-day games visible. Documented in docs/FEATURE_STORE.md + docs/RESEARCH.md as the honest limitation.
+- Build mechanism: DuckDB ATTACHes the Postgres DB read-only (postgres extension), each feat relation is a DuckDB CREATE-and-load from pg.gold.*; window frame ROWS UNBOUNDED PRECEDING..1 PRECEDING for entering values.

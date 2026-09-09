@@ -12,3 +12,15 @@ mlb_baseball/sql/team_framing_update.sql
 # sqlfluff's grammar doesn't parse.
 mlb_baseball/sql/team_bullpen_live_update.sql
 mlb_baseball/sql/team_bullpen_retrosheet_update.sql
+
+# feature-store-v1: DuckDB-dialect feature-relation builds (run by
+# mlb_baseball/feat.py). Same window-frame limitation as the four files
+# above -- `RANGE BETWEEN INTERVAL <n> DAY PRECEDING AND <expr> PRECEDING`
+# (the availability-lag bound) is valid DuckDB that sqlfluff's grammar
+# can't parse. Executed end-to-end by tests/integration/test_feat_form.py
+# against real DuckDB, which is stronger than a parse check. The sibling
+# mlb_baseball/sql/duckdb/.sqlfluff still scopes `dialect = duckdb` for any
+# future file here that does parse.
+mlb_baseball/sql/duckdb/feat_player_form.sql
+mlb_baseball/sql/duckdb/feat_pitcher_form.sql
+mlb_baseball/sql/duckdb/feat_game.sql

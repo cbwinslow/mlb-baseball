@@ -16,13 +16,13 @@ owner's to run and are recorded, not gated in CI.
   four has a one-line recorded answer in `DESIGN_REVIEW.md`, and any answer that
   differs from the recommendation is reflected in `design.md` before task 2.1
   starts.
-- [ ] 1.2 Fold `adr-features-in-duckdb.md` into `docs/DECISIONS.md` as the next
+- [x] 1.2 Fold `adr-features-in-duckdb.md` into `docs/DECISIONS.md` as the next
   ADR number (currently ADR-287; re-check the maximum at edit time — the file is
   newest-first). Verify: the ADR appears at the top of `docs/DECISIONS.md` in the
   file's existing `## ADR-NNN: <title>` / `**Decision:**` / `**Context:**` /
   `**Rationale:**` / `**Revisit if:**` shape, and no existing ADR number is
   reused.
-- [ ] 1.3 Update `openspec/project.md`: the Postgres/DuckDB boundary in
+- [x] 1.3 Update `openspec/project.md`: the Postgres/DuckDB boundary in
   "Database engineering standards", and v1.1 progress in `NOW / NEXT / LATER`.
   Verify: the boundary sentence names `core` as the split point and cites the new
   ADR; `openspec validate --all` passes.

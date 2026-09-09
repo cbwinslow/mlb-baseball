@@ -1,136 +1,181 @@
 ## Why
 
-`openspec/project.md` defines v1.1 as the release that turns the research
-database into a *platform*: a point-in-time feature store, a walk-forward
-backtest harness, and one reference baseline model (Elo v2) + its model card.
-The `delivery` capability already specifies what the public feature store must
-be — "append-only feature snapshot tables keyed by entity and an availability
-timestamp, an as-of retrieval contract …, a machine-readable feature registry
-…, and a leakage-test battery." None of it ships yet.
+`openspec/project.md` makes v1.1 the release that turns the research database
+into a *platform*: a point-in-time feature set, a walk-forward backtest harness,
+and one reference baseline model (Elo v2) with a model card. None of it ships,
+and the first cut of this change (commits `a3dbe1b`, `7faf584`) was scoped
+against a product framing the owner has since replaced.
 
-Much of the machinery already exists internally, for the paused prediction
-ladder: `gold.game_feature` is a working point-in-time (whole-game) feature
-table, and `meta.experiment` / `meta.experiment_fold` / `meta.model_run` /
-`meta.model_evaluation` plus `model/experiment.py` are a working walk-forward
-harness with calibration/log-loss/Brier scoring and Elo already wired in as a
-baseline family. The gap is not "build a harness" — it is: (1) there is no
-entity-grain, append-only feature layer the spec calls for; (2) none of it is
-packaged or documented for an outside researcher; (3) there is no Elo v2 or
-model card.
+**The product is a framework distributed as code** — the shape of `pybaseball` /
+`baseballr`, but fuller. A user `pip install`s it, runs it, and it bootstraps MLB
+data from the original sources into *their own* local environment. We ship code,
+schema, and build logic; we do not ship data as the primary artifact. Two
+consequences reshape this change:
 
-This change delivers the **first coherent slice**: the feature store at one
-grain (player rolling offensive rates), Feast-shaped so it is familiar to
-anyone who has used a feature store, with Elo v2 as the worked example that
-consumes it and proves it works end to end.
+1. **Redistribution rights stop constraining the feature and model layer.** They
+   constrain exactly one thing: the optional `mlb export` → Hugging Face
+   snapshot, which keeps its existing per-table exclusions
+   (`docs/SOURCE_RIGHTS.md`, `export.py`'s `BACKBONE_EXCLUDED`). The user already
+   has the source data locally because they fetched it. The previous plan treated
+   `feat.*` as a publication problem. It is not one.
+2. **The derived layer does not have to live in PostgreSQL.** Postgres earns its
+   place for `raw` and `core`: `bootstrap` and `conform` (cross-source identity
+   reconciliation) genuinely need a constrained relational engine. Features and
+   models do not — they are recomputable artifacts over a fixed grain, which is
+   what DuckDB is for, and what an analyst with no server can actually run.
+
+The result is far smaller than the first cut: no Postgres `feat` schema, no
+migration, no Feast, no feature-registry YAML, no four-check leakage battery.
+One local DuckDB file, three feature relations, a one-page retrieval function,
+and two leakage checks that test the *store* rather than a model.
+
+This change is **slice 1 of 3** (see the roadmap at the end): the store exists,
+its contract is honest, and a user can verify both on their own build.
 
 ## What Changes
 
-- **New `feat` schema, one grain to start.** `feat.player_offense` —
-  append-only, one row per `(player_id, event_ts, feature_version)`, carrying
-  `available_ts` and `created_ts` (see design D2), rolling offensive counting
-  stats and shrunk rates at several windows (7 / 14 / 30 days and
-  season-to-date), numerators and denominators kept alongside every rate. Built
-  by `mlb_baseball/sql/*.sql`, run by Python — **no SQLMesh model** (ADR-266 /
-  ADR-271). The build SQL is DuckDB-compatible so it also runs over the
-  published Parquet with no Postgres (see design D4).
-- **A Feast-shaped retrieval contract.**
-  `mlb_research.get_historical_features(entity_df, features, timestamp_col=...)`
-  — hand it `(entity, decision-time)` rows, get back a point-in-time-correct
-  frame, one row per input, each feature the latest snapshot with
-  `available_ts <= t` **and** `created_ts <= t`; a missing snapshot returns
-  missing, never filled forward. A `feat.asof_player_offense(player_id, t)` SQL
-  function is the Postgres-side engine; the Python API works on DuckDB-over-
-  Parquet for the packaged case.
-- **A machine-readable feature registry, small and separate.**
-  `feature_registry.yaml` (Feast-style, ships in the package) covering **only
-  the handful of published `feat.*` features**. It is deliberately *not*
-  `docs/FEATURE_REGISTRY.md` — that file catalogs the ~173 internal Engine
-  feature families on `gold.game_feature` and is Phase B territory. The public
-  YAML is the curated toolkit surface; the two are cross-referenced, not merged.
-- **A leakage-test battery that ships and runs.** `mlb_research.leakage_tests`
-  — the `created_ts <= t` guarantee, the embargo check, the "shuffle the
-  labels → score must worsen" test, and the "inject the outcome as a feature →
-  score must collapse" test, runnable by an installing analyst against their
-  own rebuild.
-- **`gold.game_feature` is left alone.** It is a ~240-column internal Engine
-  table wired into ~170 feature families and the paused prediction pipeline
-  (`export`, `live`, `pipeline`, `audit`, …). Re-parenting it onto `feat.*` is a
-  large, Phase-B-adjacent job — out of scope for this slice. `feat.*` is a
-  **new standalone public layer**; it reuses the *formulas and PIT patterns*
-  from the proven classical families (`team_offense_v1`'s rolling wOBA,
-  `starter_prior_v1`'s pitcher form, `plate_discipline_v1`), not their tables.
-  A later change may re-parent `game_feature` once `feat.*` is stable — its own
-  proposal, its own owner sign-off.
-- **Elo v2 + model card.** `model/elo.py` gains a probable-starter adjustment
-  (starter rolling form as of first pitch, from `feat.pitcher_form` — the same
-  math as the existing `starter_prior_v1` family, re-expressed at pitcher grain)
-  and a preseason prior that fades; the model card (calibration, log loss,
-  Brier on a strictly chronological hold-out, vs a home-field baseline and vs
-  the market where available, plus stated limitations) is produced by the
-  existing `model/experiment.py` harness.
-- **Publication.** `mlb export` / the HF dataset gain: the `feat.player_offense`
-  Parquet (the "example"), `feature_registry.yaml`, the leakage-test module, and
-  the Elo v2 model card. A `notebooks/06-*.py` recipe shows `get_historical_
-  features` + a walk-forward score end to end against released data only.
+- **`mlb build` emits one local DuckDB file.** It reads PostgreSQL `core` /
+  `gold`, builds the feature relations, and writes them into a single DuckDB
+  database (default `~/.mlb/mlb.duckdb`, overridable). It wraps the existing
+  `migrate` → `conform` → `report` steps rather than replacing them; those
+  commands keep working unchanged.
+- **A hard boundary at `core`.** PostgreSQL stays authoritative for `raw` and
+  `core`. **The feature and model layer is DuckDB-only** — features are built
+  there, and models read only from there. Recorded as an ADR (drafted in this
+  change as `adr-features-in-duckdb.md`, folded into `docs/DECISIONS.md` at
+  implement time) because it scopes — rather than contradicts — the root
+  `AGENTS.md` invariant "PostgreSQL is the authoritative system of record."
+- **Three feature relations, all in DuckDB.**
+  - `feat.player_form` and `feat.pitcher_form` — one row per
+    `(entity_id, event_ts, feature_version)`.
+  - `feat.game` — a curated wide game-grain assembly (~30–40 columns) built from
+    the two form relations plus game context. This is what the first notebook
+    loads.
+- **Time windows are COLUMNS, never rows.** `woba_7d`, `woba_30d`, `woba_std` —
+  no `window` key anywhere, in no primary key and no index. Every rate carries
+  its numerator **and** its exposure denominator as columns
+  (`woba_30d` alongside `woba_num_30d` and `pa_30d`), so a user can re-derive
+  PA/BF-based windows themselves from what ships.
+- **Append-only.** A formula change is a new `feature_version`, never an
+  `UPDATE`. Rows are frozen at the artifact/release level.
+- **Four clocks.** `event_ts` (end of the last game included), `available_ts`
+  (`event_ts` + a documented per-source lag), `created_ts` (when the build wrote
+  the row), and the decision time the caller supplies at retrieval.
+- **`mlb_research.get_historical_features(entity_df, features, timestamp_col=…)`.**
+  Feast's signature and vocabulary — feature refs `"view:feature"`, one row out
+  per row in, missing stays missing — implemented as a single parameterized
+  DuckDB `ASOF LEFT JOIN` filtered on `available_ts <= t` **and**
+  `created_ts <= t`. About a page of code. **No Feast**, recorded as a decision
+  with its adoption trigger.
+- **Two leakage checks, both about the store.** (1) the `available_ts <= t` /
+  `created_ts <= t` enforcement; (2) the doubleheader / same-day case — game 2
+  cannot see game 1's box score. The "label shuffle" and "inject the outcome"
+  checks are *model* diagnostics, not store checks: they move to a notebook
+  recipe in slice 3 and are not part of the shipped battery.
+- **`mlb verify`.** A new command that runs the leakage checks and the existing
+  tie-out checks against the user's own build, so a stranger can audit their
+  copy without reading our CI.
+- **`mlb_baseball` gains a dependency on `mlb_research`** (not the reverse).
+  `mlb verify` calls the same shipped retrieval API an outside analyst calls —
+  one implementation, both products. `mlb_research` stays free of
+  `mlb_baseball`. Slice 2 moves the harness across this same direction.
+- **`gold.game_feature` is left alone.** It is the internal Engine's
+  ~240-column table carrying 178 registered feature families
+  (`docs/FEATURE_REGISTRY.md`). It is **never** part of the public or DuckDB
+  surface, and re-parenting it onto `feat.*` is explicitly not this work — nor
+  slice 2's, nor slice 3's.
+- **The `delivery` capability is relaxed from an implementation to a
+  guarantee.** The current requirement mandates "append-only feature snapshot
+  tables keyed by entity and an availability timestamp, an as-of retrieval
+  contract, a machine-readable feature registry" — a table shape and a
+  framework. It is rewritten to mandate what must be *true* (see Capabilities).
 
-**Owner-confirmed 2026-09-09:** the feature table keeps raw numerators and never
-edits history (D2); a minimal `feat.pitcher_form` ships now for Elo v2 (D6).
-
-**Revised 2026-09-09 (task 1.1 audit finding):** the owner approved
-"rebuild `gold.game_feature` from `feat.*`", but the audit showed
-`gold.game_feature` is a ~240-column table carrying ~170 registered internal
-"Engine" feature families (`docs/FEATURE_REGISTRY.md`) and feeding the paused
-prediction pipeline — re-parenting it is Phase-B-adjacent and far larger than a
-v1.1 slice. **`feat.*` is now a standalone public layer that reuses the proven
-formulas but not the tables; `gold.game_feature` is untouched.** Re-parenting is
-deferred to its own later change. Back to the owner for D5.
-
-Out of scope (later v1.2+ changes): pitcher / team / matchup feature grains
-beyond the minimum Elo v2 needs; **re-parenting `gold.game_feature` onto
-`feat.*`** (its own later change); consolidating `meta.feature_snapshot` vs
-`meta.experiment_snapshot` vs `gold.game_feature_snapshot` (a separate cleanup —
-the prediction-ladder schema is paused); triaging the ~173 internal Engine
-feature families (Phase B); any model beyond the Elo v2 reference baseline; a
-hosted feature-serving API.
+Out of scope for this slice: the walk-forward harness extraction and Elo v2 (see
+the roadmap); re-parenting `gold.game_feature`; consolidating
+`meta.feature_snapshot` / `meta.experiment_snapshot` /
+`gold.game_feature_snapshot`; triaging the 178 Engine families (Phase B); any
+model; a hosted feature-serving API; team / matchup feature grains.
 
 ## Capabilities
 
 ### New Capabilities
 
-_None — the `delivery` capability already specifies the feature store and the
+_None — the `delivery` capability already covers the feature store and the
 reference baseline._
 
 ### Modified Capabilities
 
-- `delivery`: tighten two requirements. The feature-store requirement gains the
-  **ingest-time (`created_ts`) guarantee** (a feature for decision time `t` uses
-  only records the warehouse had *ingested* by `t`, not merely records whose
-  event time is `<= t`) and the **rebuildable-without-Postgres** guarantee (the
-  packaged build runs on DuckDB over the published Parquet). The reference-
-  baseline requirement gains that the baseline's model card is produced by the
-  same harness the distribution ships, so an analyst can reproduce its numbers.
+- `delivery`: rewrite two requirements.
+  - *The public distribution is a research platform, not only a data dump* —
+    replace the mandated implementation (snapshot tables, registry YAML, a
+    leakage battery) with the mandated **guarantee**: a point-in-time feature
+    set; every value derived only from records both observable and already in
+    the build before its row's stated cutoff; missing stays missing; published
+    files immutable within a release tag; retrieval a documented join
+    demonstrated by a runnable example. No table shape or framework mandated.
+    Also replace "reproducible without a PostgreSQL server" — which the
+    framework-as-code framing makes wrong — with **reproducible from the user's
+    own build** (we ship build logic, and the user runs it against their own
+    environment), plus a separate guarantee that *retrieval* needs no server.
+  - *The public distribution includes one reference baseline model* — add that
+    every input the baseline consumes must be reproducible from the analyst's
+    own build: no project-only feed, no shipped trained artifact, no table whose
+    build logic we withhold.
 
 ## Impact
 
-- **New:** `feat` schema + migration; `feat.player_offense` + minimal
-  `feat.pitcher_form`; `mlb_baseball/sql/feat_*_build.sql`;
-  `feat.asof_*` functions; `feature_registry.yaml`;
-  `mlb_research.get_historical_features` + `mlb_research.leakage_tests`;
-  `docs/FEATURE_STORE.md`; `notebooks/06-*.py`; Elo v2's probable-starter +
-  prior code; `scripts/build_elo_v2_card.py`; `docs/models/elo-v2-card.md`;
-  `tests/integration/test_feat_*.py`, `tests/unit/` for the API and leakage
-  tests.
-- **Changed:** `mlb_baseball/model/elo.py` (v2 — reads `feat.pitcher_form`);
-  `mlb_baseball/model/experiment.py` (register Elo v2 as a baseline family);
-  `mlb_baseball/export.py` + `docs/PUBLIC_API.md` (publish the feature Parquet +
-  registry + card); `openspec/specs/delivery/spec.md` (via the delta);
-  `openspec/project.md` (v1.1 progress); `docs/DATA_DICTIONARY.md` (the `feat`
-  schema); `docs/RESEARCH.md` (the `available_ts` lag limitation);
-  `docs/DECISIONS.md` (an ADR: `feat.*` is a standalone minimal public layer,
-  not a re-org of `gold.game_feature` / the Engine registry).
-- **NOT changed:** `gold.game_feature` and its builder; `model/features.py`; the
-  ~173 internal Engine feature families; `conform.py`; ingestion; the Markov
-  engine; model training. No new runtime dependency. No Phase B/C work.
-- **Published dataset grows:** two new Parquet families (`feat.player_offense`,
-  `feat.pitcher_form`) + three small text artifacts (registry, leakage module,
-  model card).
+- **New:** `mlb build` and `mlb verify` commands; a DuckDB build-path resolver;
+  `mlb_baseball/sql/feat_*.sql` (DuckDB dialect) for the three feature
+  relations; `mlb_research.get_historical_features` +
+  `mlb_research.leakage_checks`; `docs/FEATURE_STORE.md`;
+  `openspec/changes/feature-store-v1/adr-features-in-duckdb.md` (→ `docs/DECISIONS.md`);
+  unit tests for retrieval and the leakage checks; integration tests for the
+  build.
+- **Changed:** `mlb_baseball/cli.py` (two new subcommands; existing ones
+  untouched); `pyproject.toml` (`duckdb` and `mlb-research` become runtime
+  dependencies of `mlb-baseball`, moving out of the `dev` extra);
+  `packages/mlb-research/pyproject.toml` (version bump); `.sqlfluff` (a DuckDB
+  dialect scope for the new SQL only); `openspec/specs/delivery/spec.md` (via
+  the delta); `openspec/project.md` (v1.1 progress + the Postgres/DuckDB
+  boundary); `docs/DATA_DICTIONARY.md`, `docs/RESEARCH.md`,
+  `docs/SQL_OWNERSHIP.md`, `docs/PUBLIC_API.md`, `docs/DECISIONS.md`.
+- **NOT changed:** `gold.game_feature` and its builder; `model/features.py`;
+  `model/experiment.py`; `model/elo.py`; the 178 Engine families; `conform.py`;
+  ingestion; `export.py`'s rights gate; the Markov engine. No new PostgreSQL
+  migration and no `feat` schema in PostgreSQL. No Phase B/C work.
+- **New runtime dependency:** `duckdb` (already adopted tooling per
+  `openspec/project.md`; already a dependency of `mlb-research`).
+
+---
+
+## Roadmap — the other two slices
+
+The full v1.1 scope (DuckDB build artifact, ADR, feature relations, retrieval
+API, harness extraction, dependency inversion, Elo v2, model card, spec
+relaxation, three-command CLI) is more than one reviewable PR. It splits into
+three independently-shippable slices. Only slice 1 is specified in `tasks.md`;
+slices 2 and 3 become their own OpenSpec changes.
+
+**Slice 2 — `feature-store-v1-harness`.** Extract the walk-forward harness out
+of `mlb_baseball/model/experiment.py` (a 1,586-line module that imports sklearn
+and xgboost at module scope) into `mlb_research`: `folds()` (time-ordered, never
+random), the as-of frame assembly, the fit/score loop, log loss / Brier / a
+reliability (calibration) table, and the matched-sample "common games" paired
+comparison. **numpy + pandas only** — model fitting is a caller-supplied
+`fit_fn` / `predict_fn` callback pair, so sklearn, xgboost, and PyMC become the
+*user's* dependency, not the package's. `mlb_baseball` then calls the shared
+harness across the dependency direction slice 1 establishes, so there is one
+implementation and both products use it. About 200 lines of genuinely new code;
+everything else is a move plus a callback seam.
+
+**Slice 3 — `feature-store-v1-baseline`.** Elo v2 and its model card, both pure
+numpy inside `mlb_research`: team Elo plus home field (v1's math, unchanged),
+plus a preseason prior that fades, plus a probable-starter adjustment reading
+`feat.pitcher_form` as of first pitch. The card reports calibration, log loss,
+and Brier on a strictly chronological hold-out, paired against a home-field
+baseline and against the market where available, with a limitations section —
+reproducible by a user running the shipped harness on their own build. Also in
+this slice: the notebook recipe carrying the two *model* leakage diagnostics
+(label shuffle, injected outcome) that slice 1 deliberately keeps out of the
+shipped store battery, and the `mlb export` / Hugging Face wiring that publishes
+the `feat.*` Parquet, the card, and the notebook.

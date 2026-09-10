@@ -8,9 +8,19 @@ it does **not** give you.
 - **Regular season only.** Every backbone relation excludes postseason games.
   Playoff batting and pitching live in separate `gold.batting_postseason` /
   `gold.pitching_postseason` relations (Lahman-sourced, player grain).
-- **1910–2025.** The event-derived builder runs on Retrosheet play-by-play,
-  which begins in 1910. A 2026-onward builder over MLB's play-by-play feed is
-  planned follow-up work and is not shipped yet.
+- **1910 onward, two pipelines.** Game-grain rows for **1910–2025** are built
+  from Retrosheet play-by-play events. **2026 onward** is built from MLB's own
+  official per-game box score (`raw.mlb_boxscore_batting` /
+  `raw.mlb_boxscore_pitching`) — Retrosheet publishes no event file for the
+  in-progress season. Each game row carries a `source` marker
+  (`retrosheet_event` / `mlb_boxscore`); the season / team / career roll-ups
+  aggregate both and are source-agnostic. The 2026 rows are MLB's
+  scorer-assigned line, not event-derived — so a season-to-season comparison
+  across the 2025/2026 boundary is comparing two different pipelines.
+- **~200 recent 2026 games have no box score yet.** The MLB box-score feed
+  lags a few days behind the schedule; `mlb report` re-run as ingest catches
+  up fills them, and an `mlb doctor` join-coverage check makes the gap
+  visible. Not a builder defect.
 - **The 2020 season is real but short.** It is present in the data (60-game
   COVID season) but is excluded from the Baseball-Reference cross-check because
   it is not a useful reference point.
@@ -20,12 +30,19 @@ it does **not** give you.
 A measurement the source data cannot support is left **null with a stated
 reason** — never imputed, never zeroed.
 
-- **No earned-run average.** The Retrosheet event feed does not emit
-  reconstructed-inning data, so the event-derived pitching relations carry
-  `ra9` (runs allowed per 9), not `era`. Official ERA per player-season is in
-  the Baseball-Reference-sourced `gold.player_season` line.
+- **Earned-run average has a coverage cliff.** The Retrosheet event feed does
+  not emit reconstructed-inning data, so `er` and `era` are **null for
+  1910–2025**; `ra9` (runs allowed per 9) is the honest event-derived rate.
+  From **2026** the MLB box score carries scorer-assigned earned runs, so `er`
+  and `era` are populated. A naive average of `era` across the 2025/2026
+  boundary is meaningless — use `ra9`, which is populated for every year.
+  Official ERA per player-season for earlier years is in the
+  Baseball-Reference-sourced `gold.player_season` line. Career `era` exists
+  only for a pitcher whose entire career is 2026 or later. `era` is not
+  carried at the team-season grain at all.
 - **No stolen bases or caught stealing** in the batting relations — baserunning
-  is deferred to a future `gold.baserunning_*` relation.
+  is deferred to a future `gold.baserunning_*` relation, even though the 2026
+  box score carries steals.
 - **Grounded-into-double-play undercounts before 1988** — upstream batted-ball
   coding is sparse in earlier years.
 - **A rate statistic is null when its denominator is zero** (a pitcher with no
@@ -48,6 +65,14 @@ record have each absorbed decades of independent scoring corrections, so they
 differ by small amounts. This is a source-of-record divergence, not a builder
 error.
 
+**2026 is checked against play-by-play, not Baseball-Reference.** There is no
+Baseball-Reference page for the in-progress season, so the 2026 box-score-built
+game lines are cross-checked field-by-field against an independent
+reconstruction from `raw.mlb_playbyplay` events
+(`scripts/verify_mlb_boxscore_tie_out.py`), gated on a small documented
+tolerance over a sample of complete games. This stands in for the
+Baseball-Reference tie-out.
+
 ## Distribution
 
 - **The backbone relations are `local_research`, not `public_safe`.** Their
@@ -63,7 +88,8 @@ error.
 `gold.player_season` / `gold.team_season` (Baseball-Reference / Lahman sourced,
 2008 onward, carrying `era` and other official fields) and the event-derived
 `gold.batting_season` / `gold.pitching_season` (1910 onward, team-aware, `ra9`
-not `era`) are **parallel sources for different purposes**. Neither is a view
+for every year and `era` only from 2026) are **parallel sources for different
+purposes**. Neither is a view
 over, or a second writer into, the other. Each row is labelled with its source.
 
 ## Full write-up

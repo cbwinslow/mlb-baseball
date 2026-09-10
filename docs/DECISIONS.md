@@ -2,6 +2,65 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-289: the 2026-onward statistic backbone is built from MLB's box score; play-by-play is the tie-out
+
+**Decision:** `gold.batting_game` / `gold.pitching_game` — and the season / team /
+career roll-ups above them — are built from **two** game-grain sources:
+`raw.retrosheet_event` for **1910–2025** (unchanged) and MLB's own official
+per-game box score (`raw.mlb_boxscore_batting` / `raw.mlb_boxscore_pitching`) for
+**2026 onward** (`mlb_baseball/sql/batting_game_mlb_build.sql` /
+`pitching_game_mlb_build.sql`, joined to `core.game` on `game_pk`). Each game row
+carries a `source` marker (`retrosheet_event` / `mlb_boxscore`). The MLB
+box-score builder also populates a new `er` column (migration 0102), from which
+`gold.pitching_season` / `gold.pitching_career` compute `era` — NULL through
+2025, populated from 2026. The play-by-play feed (`raw.mlb_playbyplay`) is the
+**independent cross-check** (`scripts/verify_mlb_boxscore_tie_out.py`), not a
+source. (backbone-2026-source.)
+
+**Context / why:**
+
+- **Retrosheet stops at 2025.** Retrosheet does not publish an event file for
+  the in-progress season, so a researcher querying the backbone for the current
+  season got nothing. The `statistic-backbone` spec already named a 2026-onward
+  builder as planned follow-up.
+- **The box score is MLB's official scorer line.** It is complete, carries runs
+  and earned runs directly, and maps to the gold columns with almost no
+  transformation (`pa ← plate_appearances`, `er ← earned_runs`, …). A
+  reconstruction from `raw.mlb_playbyplay` instead would have to parse scoring
+  runners out of free text, choose a policy for the ~180 games with partial
+  play-by-play, and re-derive what MLB already computed.
+- **Methodology stays parallel.** The 1910–2025 builder is validated against an
+  external official line (Baseball-Reference); 2026 has no Baseball-Reference
+  page, so an independent reconstruction from play-by-play events plays that
+  role — *primary record builds the row, an independent source proves it*.
+  Verified against 2026 production: the reconstruction matches the box-score
+  line on PA / AB / H / BB / HR exactly and on SO for all but ~0.02% of
+  player-games.
+- **Two builders, one truncate.** `report._build_backbone_relation_multi` takes
+  an ordered `(build_sql, source)` list, pre-checks each source, `TRUNCATE`s the
+  target once, and appends every build whose source is present. The
+  `g.season <= 2025` / `g.season >= 2026` bounds are the partition line, so the
+  two never write the same key; an `mlb doctor` guard confirms it. A missing
+  source degrades cleanly (a database with no `raw.mlb_boxscore_*` is 1910–2025
+  only, unchanged).
+
+**Consequences / trade-offs:**
+
+- **The 2026 rows are pre-aggregated by MLB's scorer, not event-derived.** The
+  table contract and `docs/site-src/limitations.md` state the split so a
+  researcher comparing a 2025 and a 2026 season knows they came from different
+  pipelines.
+- **`era` coverage cliff.** `er` / `era` are NULL for 1910–2025 and populated
+  from 2026; a career `era` exists only for a wholly-2026+ career; `era` is not
+  carried at the team-season grain. `ra9` (every year) is the cross-era rate.
+  Documented in `docs/TABLE_CONTRACTS.md` and the column comments.
+- **Incomplete box-score ingest.** ~200 recent 2026 regular-season games have no
+  box score yet; `mlb report` re-run as ingest catches up fills them. An
+  `mlb doctor` join-coverage check surfaces the gap.
+- **Out of scope:** postseason / spring / all-star 2026, SB/CS in the batting
+  relations, backfilling `er` for ≤ 2025, and a `public_safe` variant — all
+  unchanged from the existing backbone scope.
+
 ## ADR-288: FanGraphs revived via `fungo`; Python floor moves 3.11 → 3.12
 
 **Decision:** FanGraphs enters the pipeline as the `fangraphs` connector

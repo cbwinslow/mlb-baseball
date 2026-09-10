@@ -882,6 +882,20 @@ def test_batting_game_multi_source_one_row_per_source_no_collision(
 
     assert _check(_NO_DOUBLE_WRITE).ok
 
+    # The two per-source coverage checks must not cross-count: the Retrosheet
+    # check's "actual" is scoped to source='retrosheet_event', the box-score
+    # check's to source='mlb_boxscore'. Both green with one row of each.
+    retro_cov = _check(
+        "raw.retrosheet_event (game, batter, team) triples with a PA and a resolvable "
+        "player get a gold.batting_game row"
+    )
+    box_cov = _check(
+        "raw.mlb_boxscore_batting 2026+ lines with a resolvable player/team "
+        "get an mlb_boxscore-sourced gold.batting_game row"
+    )
+    assert retro_cov.ok, retro_cov.detail
+    assert box_cov.ok, box_cov.detail
+
 
 def test_no_double_write_guard_fails_on_a_seeded_collision(db_conn, _cleanup_game_relations):
     # The guard groups by (game_id, player_id): a player-game written under two

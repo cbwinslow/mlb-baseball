@@ -58,6 +58,7 @@ from mlb_baseball import (
     config,
     conform,
     doctor,
+    feat,
     field_census,
     ingest,
     inventory,
@@ -329,6 +330,45 @@ def main(argv: list[str] | None = None) -> None:
     subparsers.add_parser("conform")
     subparsers.add_parser("report", help="rebuild documented gold research tables")
     subparsers.add_parser("features")
+
+    build_parser = subparsers.add_parser(
+        "build",
+        help="rebuild gold + the local DuckDB feature store (migrate -> conform -> report -> feat)",
+    )
+    build_parser.add_argument(
+        "--db",
+        metavar="PATH",
+        help="DuckDB feature-store path (default: $MLB_DUCKDB_PATH, then ~/.mlb/mlb.duckdb)",
+    )
+    build_parser.add_argument("--feature-version", default="v1")
+    build_parser.add_argument(
+        "--skip",
+        action="append",
+        default=[],
+        choices=["migrate", "conform", "report"],
+        metavar="STEP",
+        help="skip a wrapped step (migrate|conform|report); repeatable",
+    )
+    build_parser.add_argument(
+        "--only-features",
+        action="store_true",
+        help="skip migrate/conform/report and rebuild only the DuckDB feature store",
+    )
+    verify_parser = subparsers.add_parser(
+        "verify",
+        help="audit a local feature-store build: leakage checks + the Baseball-Reference tie-out",
+    )
+    verify_parser.add_argument(
+        "--db",
+        metavar="PATH",
+        help="DuckDB feature-store path (default: $MLB_DUCKDB_PATH, then ~/.mlb/mlb.duckdb)",
+    )
+    verify_parser.add_argument("--feature-version", default="v1")
+    verify_parser.add_argument(
+        "--skip-tie-out",
+        action="store_true",
+        help="run only the leakage checks; skip the slower Baseball-Reference tie-out",
+    )
     subparsers.add_parser("predict")
     subparsers.add_parser("train")
     experiment_parser = subparsers.add_parser(
@@ -3161,6 +3201,30 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "report":
         for table, count in report.run().items():
             print(f"{table}: {count} rows")
+    elif args.command == "build":
+        skip = set(args.skip)
+        if not args.only_features:
+            if "migrate" not in skip:
+                migrate.main(skip=set())
+                print("migrate: done")
+            if "conform" not in skip:
+                for table, count in conform.run().items():
+                    print(f"{table}: {count} rows")
+            if "report" not in skip:
+                for table, count in report.run().items():
+                    print(f"{table}: {count} rows")
+        for relation, count in feat.build(
+            duckdb_path=args.db, feature_version=args.feature_version
+        ).items():
+            print(f"{relation}: {count} rows")
+    elif args.command == "verify":
+        ok = feat.verify(
+            duckdb_path=args.db,
+            feature_version=args.feature_version,
+            run_tie_out=not args.skip_tie_out,
+        )
+        if not ok:
+            sys.exit(1)
     elif args.command == "schema":
         schema_inventory.print_report(partitions=args.partitions)
     elif args.command == "field-census":

@@ -73,6 +73,8 @@ Sources: [arXiv 2511.17733 — The Impacts of Increasingly Complex Matchup Model
 
 Walk-forward / rolling validation (predict period N using only data through N-1) is the consensus approach across every source checked — matches `gold.game_feature`'s point-in-time design and ADR-032's time-based split already. Common failure mode explicitly called out: using "closing line"/same-game stats inflates backtested accuracy without holding up in real prediction — the same class of trap as `core.game.winning_pitcher_id`, already designed around.
 
+**Honest limitation of the `feat.*` feature store (feature-store-v1, ADR-287).** The point-in-time clock is an assumption, not a measurement. Retrosheet records neither a first-pitch time nor an ingest time. `event_ts` is `game_date + game_number × 3h` — a fictional absolute time that gets same-day (doubleheader) *ordering* right; the box-score availability lag is a flat 6h applied in the rolling-window frame. So real same-day timing (a rain delay, a split doubleheader) is not modelled, and a *full rebuild* cannot honour "a record that entered Retrosheet after 2015 is invisible to a 2015 decision" (Retrosheet backfills and corrects history and we do not know when each record landed). The `feat.*` layer is leak-free against its own clock model; that model is conservative but coarse. `mlb verify`'s two checks test the mechanism, not the exact lag.
+
 Source: [How to Build Sports Prediction Models in 2026](https://www.parlaysavant.com/insights/sports-prediction-models-2026)
 
 ## Model stacking / ensembling — "outputs as inputs"

@@ -699,7 +699,9 @@ def health_check() -> list[Check]:
         check_join_coverage(
             "raw.retrosheet_event (game, batter, team) triples with a PA and a resolvable "
             "player get a gold.batting_game row",
-            "SELECT count(*) FROM gold.batting_game",
+            # source-scoped: the 2026+ mlb_boxscore rows are covered by their
+            # own check below (backbone-2026-source).
+            "SELECT count(*) FROM gold.batting_game WHERE source = 'retrosheet_event'",
             """
             SELECT count(*) FROM (
                 SELECT re.game_id, re.bat_id,
@@ -724,7 +726,7 @@ def health_check() -> list[Check]:
         check_join_coverage(
             "raw.retrosheet_event (game, pitcher, team) triples with a batter faced and a "
             "resolvable player get a gold.pitching_game row",
-            "SELECT count(*) FROM gold.pitching_game",
+            "SELECT count(*) FROM gold.pitching_game WHERE source = 'retrosheet_event'",
             """
             SELECT count(*) FROM (
                 SELECT re.game_id, re.resp_pit_id,

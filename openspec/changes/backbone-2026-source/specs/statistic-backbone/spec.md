@@ -1,12 +1,9 @@
-# statistic-backbone Specification
+## RENAMED Requirements
 
-## Purpose
-Defines the grain-complete classical statistic warehouse an outside sabermetric
-researcher queries: which box-score relations exist, at what grain, computed
-from what source, with what null and rights policy, and how each is validated
-against published figures.
+- FROM: `### Requirement: Statistics are computed from Retrosheet events, not from `core.play``
+- TO: `### Requirement: Statistics are computed from a primary game record, not from `core.play``
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: A statistic relation exists at every grain of the ladder
 
@@ -106,20 +103,6 @@ imputed. In particular:
 - **AND** the 2026 row's `era` is populated only because the MLB box score carries scorer-assigned earned runs, never reconstructed or guessed
 - **AND** the coverage cliff is stated in the table contract
 
-### Requirement: Roll-ups flow one direction; rates are recomputed from summed components
-
-Season lines SHALL be aggregated from the game-grain relation; career lines
-SHALL be aggregated from the season relation's combined full-season rows (so a
-traded season counts once). A relation SHALL NOT be built from a sibling
-relation at the same grain. Every rate statistic on a roll-up SHALL be
-recomputed from that grain's summed numerator and denominator, not averaged
-from a finer grain's rates.
-
-#### Scenario: Career batting average is recomputed, not averaged
-
-- **WHEN** a player's career line is built from seasons with different at-bat totals
-- **THEN** the career batting average equals total career hits divided by total career at-bats, not the mean of the season averages
-
 ### Requirement: Each relation is deterministic and validated against a published figure
 
 Rebuilding a relation over unchanged source data SHALL be idempotent
@@ -190,31 +173,3 @@ Retrosheet events or MLB box scores).
 
 - **WHEN** a cited case names a player-season the built database does not contain
 - **THEN** the gate exits non-zero and names the missing case
-
-### Requirement: Backbone relations are `local_research`, not `public_safe`
-
-Every backbone relation SHALL be registered in the `mlb export` allow-list
-with the `local_research` profile, because its builder joins the conformed
-`core` dimensions (which mix non-Retrosheet sources) for surrogate keys, and
-`public_safe` admits Retrosheet-only lineage. A `public_safe` variant keyed by
-Retrosheet identifiers is permitted future work and SHALL NOT be assumed to
-exist.
-
-#### Scenario: A backbone relation is excluded from the public-safe bundle
-
-- **WHEN** the public-safe export preset runs
-- **THEN** the backbone relations are not included, and the exclusion reason (core-dimension lineage) is recorded
-
-### Requirement: The two season lines are parallel sources, not one writer
-
-`gold.player_season` / `gold.team_season` (Baseball-Reference / Lahman
-sourced, 2008 onward, carrying `era` and other official-source fields) and the
-event-derived `gold.batting_season` / `gold.pitching_season` (1910 onward,
-team-aware, `ra9` not `era`) SHALL be documented as distinct season lines
-serving distinct purposes. Neither SHALL be defined as a view over, or a
-second writer into, the other.
-
-#### Scenario: Both season lines are queryable and independently sourced
-
-- **WHEN** a researcher queries a 2015 player-season from `gold.player_season` and from `gold.batting_season`
-- **THEN** both return a line, each labelled with its source, and the docs explain that one is the Baseball-Reference official line and the other is event-computed

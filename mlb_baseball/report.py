@@ -419,6 +419,13 @@ LEFT JOIN raw.mlb_standing ms
 
 _BATTING_GAME_SQL = read_sql("batting_game_build.sql")
 _PITCHING_GAME_SQL = read_sql("pitching_game_build.sql")
+# 2026-onward game grain, from MLB's official per-game box score
+# (raw.mlb_boxscore_batting / _pitching) -- Retrosheet publishes no event file
+# for the in-progress season (backbone-2026-source). Wired alongside the
+# Retrosheet builders as a two-source list in run(); the g.season <= 2025 /
+# g.season >= 2026 bounds keep the two from ever writing the same key.
+_BATTING_GAME_MLB_SQL = read_sql("batting_game_mlb_build.sql")
+_PITCHING_GAME_MLB_SQL = read_sql("pitching_game_mlb_build.sql")
 _BATTING_SEASON_SQL = read_sql("batting_season_build.sql")
 _BATTING_TEAM_SQL = read_sql("batting_team_build.sql")
 _PITCHING_SEASON_SQL = read_sql("pitching_season_build.sql")
@@ -478,6 +485,69 @@ def _build_backbone_relation(
     return count
 
 
+def _build_backbone_relation_multi(
+    conn: psycopg.Connection,
+    table: str,
+    builds: list[tuple[str, str]],
+) -> int:
+    """Truncate-and-rebuild one grain-backbone `gold` relation from more than
+    one source.
+
+    `builds` is an ordered list of `(build_sql, source_table)` pairs. Each
+    source is pre-checked (same posture as `_build_backbone_relation`); the
+    target is TRUNCATEd exactly once, then every build whose source table is
+    present runs in order, appending its rows. Returns the final row count of
+    `table` (the sum across the builds that ran).
+
+    Used for `gold.batting_game` / `gold.pitching_game`, which are built from
+    `raw.retrosheet_event` (<= 2025) and `raw.mlb_boxscore_*` (>= 2026). The
+    season bound in each builder is the partition line, so the two never write
+    the same `(game, player, team)` key. If a configured source is absent: on
+    an empty target the rebuild proceeds from whatever's present (a fresh
+    bootstrap that has one source but not the other); on a non-empty target
+    the rebuild is skipped and the current count returned, so a source table
+    that disappears can't TRUNCATE away rows only it produced. If every source
+    is absent the target is left untouched and 0 is returned. `table` is an
+    internal constant, passed through `sql.Identifier` all the same."""
+    schema, name = table.split(".", 1)
+    ident = sql.Identifier(schema, name)
+    present: list[str] = []
+    missing: list[str] = []
+    for build_sql, source in builds:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass(%s)", (source,))
+            (regclass,) = fetch_one(cur)
+        if regclass is None:
+            missing.append(source)
+        else:
+            present.append(build_sql)
+    if not present:
+        return 0
+    if missing:
+        # A configured source table is gone. Rebuilding from only what's left
+        # would TRUNCATE the target and silently drop the missing source's
+        # rows (e.g. the 2026+ box-score rows if raw.mlb_boxscore_* vanished).
+        # Only safe to proceed when the target is still empty -- a fresh
+        # bootstrap that has ingested one source but not the other yet.
+        with conn.cursor() as cur:
+            cur.execute(sql.SQL("SELECT count(*) FROM {}").format(ident))
+            (existing,) = fetch_one(cur)
+        if existing:
+            print(
+                f"report: {', '.join(missing)} missing but {table} has {existing} rows "
+                f"from it -- skipping rebuild rather than truncate away those rows"
+            )
+            return existing
+        print(f"report: {', '.join(missing)} not present yet -- building {table} without it")
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute(sql.SQL("TRUNCATE {}").format(ident))
+        for build_sql in present:
+            cur.execute(build_sql, {"season": None})
+        cur.execute(sql.SQL("SELECT count(*) FROM {}").format(ident))
+        (count,) = fetch_one(cur)
+    return count
+
+
 def _build_division_standing(conn: psycopg.Connection) -> int:
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(_BUILD_DIVISION_STANDING_SQL)
@@ -504,11 +574,21 @@ def run() -> dict[str, int]:
         _compute_woba(conn)
         _compute_war(conn)
         counts["gold.division_standing"] = _build_division_standing(conn)
-        counts["gold.batting_game"] = _build_backbone_relation(
-            conn, "gold.batting_game", _BATTING_GAME_SQL
+        counts["gold.batting_game"] = _build_backbone_relation_multi(
+            conn,
+            "gold.batting_game",
+            [
+                (_BATTING_GAME_SQL, "raw.retrosheet_event"),
+                (_BATTING_GAME_MLB_SQL, "raw.mlb_boxscore_batting"),
+            ],
         )
-        counts["gold.pitching_game"] = _build_backbone_relation(
-            conn, "gold.pitching_game", _PITCHING_GAME_SQL
+        counts["gold.pitching_game"] = _build_backbone_relation_multi(
+            conn,
+            "gold.pitching_game",
+            [
+                (_PITCHING_GAME_SQL, "raw.retrosheet_event"),
+                (_PITCHING_GAME_MLB_SQL, "raw.mlb_boxscore_pitching"),
+            ],
         )
         # Season / team roll-ups read the game relations just built above.
         counts["gold.batting_season"] = _build_backbone_relation(
@@ -660,6 +740,66 @@ def health_check() -> list[Check]:
             ) s
             """,
             tolerance=0,
+        ),
+        # --- 2026-onward MLB box-score game rows (backbone-2026-source) ---
+        # Join coverage for the source = 'mlb_boxscore' rows only: every
+        # raw.mlb_boxscore_batting line for a 2026+ regular-season game with a
+        # real PA and a resolvable player/team should produce exactly one
+        # gold.batting_game row. The "expected" side mirrors
+        # batting_game_mlb_build.sql's own joins and pa > 0 filter, so a
+        # shortfall means unresolved identity (a real regression), not a
+        # stricter bar than the builder clears. FAILs cleanly if
+        # raw.mlb_boxscore_batting was never ingested, same as the
+        # Retrosheet coverage checks above.
+        check_join_coverage(
+            "raw.mlb_boxscore_batting 2026+ lines with a resolvable player/team "
+            "get an mlb_boxscore-sourced gold.batting_game row",
+            "SELECT count(*) FROM gold.batting_game WHERE source = 'mlb_boxscore'",
+            """
+            SELECT count(*) FROM raw.mlb_boxscore_batting mb
+            JOIN core.game g ON g.game_pk = mb.game_pk
+                AND g.season >= 2026 AND lower(g.game_type) = 'regular'
+            JOIN core.team tm ON tm.mlb_team_id = NULLIF(mb.team_id, '')::integer
+                AND tm.id IN (g.home_team_id, g.away_team_id)
+            JOIN core.player p ON p.mlbam_id = mb.person_id
+            WHERE NULLIF(mb.plate_appearances, '')::integer > 0
+            """,
+            tolerance=0,
+        ),
+        check_join_coverage(
+            "raw.mlb_boxscore_pitching 2026+ lines with a resolvable player/team "
+            "get an mlb_boxscore-sourced gold.pitching_game row",
+            "SELECT count(*) FROM gold.pitching_game WHERE source = 'mlb_boxscore'",
+            """
+            SELECT count(*) FROM raw.mlb_boxscore_pitching mp
+            JOIN core.game g ON g.game_pk = mp.game_pk
+                AND g.season >= 2026 AND lower(g.game_type) = 'regular'
+            JOIN core.team tm ON tm.mlb_team_id = NULLIF(mp.team_id, '')::integer
+                AND tm.id IN (g.home_team_id, g.away_team_id)
+            JOIN core.player p ON p.mlbam_id = mp.person_id
+            WHERE NULLIF(mp.batters_faced, '')::integer > 0
+               OR NULLIF(mp.outs, '')::integer > 0
+            """,
+            tolerance=0,
+        ),
+        # No-double-write guard (backbone-2026-source): the Retrosheet builder
+        # (<= 2025) and the MLB box-score builder (>= 2026) must never both
+        # write the same player-game. Grouped by (game_id, player_id) -- the
+        # full (game_id, player_id, team_id) grain is the PRIMARY KEY, so a
+        # collision there could not produce a row at all; this level catches a
+        # builder season-bound error (e.g. a 2026 row escaping the Retrosheet
+        # builder) that would otherwise abort the whole rebuild on the PK.
+        check_no_rows(
+            "no gold.batting_game / gold.pitching_game player-game is written by both builders",
+            """
+            SELECT
+              (SELECT count(*) FROM (
+                  SELECT game_id, player_id FROM gold.batting_game
+                  GROUP BY game_id, player_id HAVING count(DISTINCT source) > 1) x)
+            + (SELECT count(*) FROM (
+                  SELECT game_id, player_id FROM gold.pitching_game
+                  GROUP BY game_id, player_id HAVING count(DISTINCT source) > 1) y)
+            """,
         ),
         check_table_has_rows("gold.batting_season"),
         # gold.batting_season = one stint row per (player, season, team) plus

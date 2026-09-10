@@ -717,6 +717,15 @@ def test_build_plays_and_pitches_unify_both_sources(db_conn):
         cur.execute("SELECT pitch_type, release_speed FROM core.pitch")
         assert cur.fetchone() == ("FF", Decimal("95.2"))
 
+    # The two core.play coverage checks (GitHub #184) scope `expected` to raw
+    # plays whose game is in core.game -- every raw play here IS for a
+    # resolved game, so both are green (1 of 1 per source).
+    checks = {c.name: c for c in conform.health_check()}
+    retro_cov = checks["core.play retrosheet coverage"]
+    mlb_cov = checks["core.play mlb_api coverage"]
+    assert retro_cov.ok, retro_cov.detail
+    assert mlb_cov.ok, mlb_cov.detail
+
     with db_conn.cursor() as cur:
         for table in [
             "raw.retrosheet_event",

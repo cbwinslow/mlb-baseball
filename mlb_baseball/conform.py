@@ -1804,17 +1804,26 @@ def health_check() -> list[Check]:
         # hasn't run the relevant optional connector yet — consistent with
         # how every other check above already treats "never bootstrapped."
         check_no_duplicate_key("core.game", "game_pk"),
+        # `expected` is scoped to games that exist in core.game -- _build_plays
+        # inner-joins core.game, and a raw play for a game the warehouse does
+        # not recognise (e.g. an Oct-1900 Pittsburgh series Retrosheet has
+        # event data but no schedule/gameinfo row for; a 2026 spring / All-Star
+        # game in raw.mlb_playbyplay that core.game excludes) should NOT land
+        # in core.play. Without the scope the check counted those as expected
+        # and flagged the (correct) gap as row loss. See GitHub #184.
         check_join_coverage(
             "core.play retrosheet coverage",
             "SELECT count(*) FROM core.play WHERE source = 'retrosheet'",
             "SELECT count(*) FROM "
-            "(SELECT DISTINCT ON (game_id, event_id) 1 FROM raw.retrosheet_event "
-            "ORDER BY game_id, event_id, _scope) x",
+            "(SELECT DISTINCT ON (re.game_id, re.event_id) 1 FROM raw.retrosheet_event re "
+            "JOIN core.game g ON g.retro_game_id = re.game_id "
+            "ORDER BY re.game_id, re.event_id, re._scope) x",
         ),
         check_join_coverage(
             "core.play mlb_api coverage",
             "SELECT count(*) FROM core.play WHERE source = 'mlb_api'",
-            "SELECT count(*) FROM raw.mlb_playbyplay",
+            "SELECT count(*) FROM raw.mlb_playbyplay pbp "
+            "JOIN core.game g ON g.game_pk = pbp.game_pk",
         ),
         check_join_coverage(
             "core.pitch coverage",

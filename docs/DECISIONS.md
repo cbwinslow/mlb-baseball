@@ -2,6 +2,72 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-288: FanGraphs revived via `fungo`; Python floor moves 3.11 → 3.12
+
+**Decision:** FanGraphs enters the pipeline as the `fangraphs` connector
+(`mlb_baseball/connectors/fangraphs.py`), built on the **`fungo`** library
+(`fungo>=2.0,<3`, MIT), not `pybaseball`. `fungo` reaches FanGraphs' mobile-app
+JSON API (`https://www.fangraphs.com/api/...`) with `User-Agent: okhttp/4.12.0`
+— the one client Cloudflare's TLS-fingerprint block exempts. Because `fungo`
+requires Python ≥3.12 (and genuinely uses 3.12-only syntax), the project's
+`requires-python` floor moves **3.11 → 3.12**: `pyproject.toml`, the four CI
+`python-version` pins, `.github/workflows/pages.yml`, `.devcontainer/Dockerfile`,
+and `ruff target-version = "py312"` (+ `ignore = ["UP046","UP047"]` so the bump
+does not force a PEP 695 restyle of existing `TypeVar` generics). `curl_cffi`
+(`curl-cffi==0.16.3` at time of writing) comes in transitively — `fungo`'s
+Baseball-Reference submodule imports it at package load; this connector never
+calls that code.
+
+**Context:** `docs/DATA_SOURCES.md` had listed FanGraphs as BROKEN since
+`pybaseball.batting_stats()`/`pitching_stats()` began returning a hard
+`HTTPError ... leaders-legacy.aspx ... 403` — fangraphs.com sits behind
+Cloudflare, which blocks generic HTTP clients outright. `bref.py` covered part
+of the season-stats value, but FanGraphs' WAR/wOBA framework, Guts! constants,
+park factors, and the public projection systems (Steamer, ZiPS, ATC, THE BAT,
+…) had no home, and the projection systems in particular are a moving series
+with no history retained anywhere. The owner approved reviving FanGraphs on
+2026-09-10 after a live `fungo` test confirmed the leaders, Guts!, park-factor,
+and projection endpoints all return real data with no auth.
+
+**Rationale:**
+
+- **`fungo` owns the fragile seam.** The FanGraphs access path is exactly the
+  "fragile endpoint glue" `connectors/AGENTS.md` says to prefer a maintained
+  library for: a Cloudflare-exempt UA, inverted `season`/`season1` params,
+  POST-only splits. `fungo` (MIT, "Production/Stable") maintains all of it and
+  a live parity check passed. Vendoring `fungo/fangraphs/` (~1,900 lines) was
+  considered when the Python-floor conflict surfaced and rejected: it would
+  put the Cloudflare seam back in our tree.
+- **The 3.12 bump is small and already true locally.** The dev venv was
+  already 3.12.3; only CI pinned 3.11. Verified before committing: on 3.12
+  with `fungo` added, `ruff` / `mypy` (214 files) / `sqlfluff` / SQL-ownership
+  / `mkdocs --strict` / 1205 unit tests / a representative integration slice
+  all pass. 3.12 is 2+ years old.
+- **Projections stored as de-duplicated dated snapshots.** `raw.fangraphs_projection`
+  is append-only; a `_row_hash` of the projected values gates each append, so a
+  `(system, stat_group, playerid)` key gets a new snapshot row only when its
+  values moved — the ADR-048 probable-pitcher pattern. This is how the history
+  of a constantly-moving projection is retained without unbounded growth.
+- **Rights: `local_research` only.** FanGraphs' data is reserved; the
+  mobile-app endpoints are undocumented and unauthenticated, not licensed
+  (`docs/SOURCE_RIGHTS.md`, reviewed 2026-09-10). The ingest guard blocks the
+  connector under any non-`local_research` profile, and no `public_safe`
+  export relation may be backed by a `raw.fangraphs_*` table.
+
+**Load-bearing fragility (accepted, documented):** the `okhttp/4.12.0`
+exemption could be withdrawn at any time. `fungo` raises `FangraphsError`
+naming the condition on a 403; the connector re-raises it (never an infinite
+retry) so `mlb doctor` goes red. The fix is then a `fungo` upgrade, not a
+local patch — same class as `bref.py` depending on `pybaseball`'s HTML scrape.
+
+**Deliberately NOT built** (documented in the connector and its sidecar, same
+combinatorial rationale as ADR-020 / ADR-024): `get_player_stats` /
+`get_game_log` (per player per season), the full 292-code split-leaderboard
+catalogue, minor-league leaderboards, and RosterResource depth charts
+(`get_depth_chart` needs a hand-verified 30-team URL-slug table and returns a
+nested React-cache payload, not a leaderboard; MLB Stats API already covers
+rosters/probables).
+
 ## ADR-286: the docs site builds from `docs/site-src/` into `docs/site/` in the Pages workflow
 
 **Decision:** The MkDocs Material documentation site

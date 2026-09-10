@@ -33,8 +33,6 @@ land all available bulk data, retain history, and refresh it on a cron.
     scoped-replace.
   - `raw.fangraphs_prospects` — THE BOARD prospect rankings, per season,
     scoped-replace.
-  - `raw.fangraphs_depth_chart` — RosterResource depth charts, ~30 team pages,
-    captured as a dated snapshot.
   - `raw.fangraphs_projection` — every preseason and rest-of-season projection
     system `fungo` exposes, stored **append-only as a dated snapshot** so the
     evolution of a projection over a season is retained. A run that finds an
@@ -62,7 +60,13 @@ land all available bulk data, retain history, and refresh it on a cron.
 - **Explicitly out of scope** (documented, same combinatorial rationale as
   ADR-020 / ADR-024 for `get_splits` and awards history): the per-player,
   per-season endpoints `get_player_stats` and `get_game_log`; the full
-  292-code split-leaderboard enumeration; minor-league leaderboards. Each is a
+  292-code split-leaderboard enumeration; minor-league leaderboards.
+  **RosterResource depth charts** are also deferred (found during apply):
+  `get_depth_chart` needs a hand-verified 30-team URL-slug table (FanGraphs'
+  own `fungo.constants.TEAMS` has no slug), it 500s on a wrong slug, and it
+  returns a deeply nested React-cache payload (`dataRoster`, `dataLineups`,
+  `dataBullpenUsage`, …) rather than a leaderboard — disproportionate schema
+  work for v1, and MLB Stats API already covers rosters/probables. Each is a
   cheap follow-up if a downstream consumer needs it.
 
 ## Capabilities

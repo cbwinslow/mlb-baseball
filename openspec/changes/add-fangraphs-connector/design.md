@@ -107,7 +107,6 @@ React-cache scrape for depth charts. `fungo` maintains all of it, is MIT
 | `raw.fangraphs_park_factors` | `get_park_factors(s)` | team-season | per-season scoped replace |
 | `raw.fangraphs_park_factors_handedness` | `get_park_factors_by_handedness(s)` | team-season-hand | per-season scoped replace |
 | `raw.fangraphs_prospects` | `get_prospect_board(s)` | player-season | per-season scoped replace |
-| `raw.fangraphs_depth_chart` | `get_depth_chart(page)` per team | team-player, dated | append snapshot (`_captured_date`), de-duped like D3 |
 | `raw.fangraphs_split_batting` / `_split_pitching` | `get_split_leaders(pos, s, split)` for a curated split list | player-season-split | per-season scoped replace, `_split` in key |
 | `raw.fangraphs_projection` | `get_projections(system, stats)` for all 16 systems | player-system-statgroup, dated | append snapshot, de-duped (D3) |
 
@@ -175,15 +174,23 @@ inherits the CLI's pre-request guard) exactly as the others do. No export
 
 ### D6: Error handling and retries
 
-- All network calls go through `net.call_with_retry` (bounded exponential
-  backoff, already used by `bref.py`) wrapping the `fungo` call.
-- A `fungo` `FangraphsError` (the 403 / exemption-withdrawn signal) is caught
-  at the connector's run boundary, logged with its message verbatim, recorded
-  as a failed `track_run`, and **not** retried past `call_with_retry`'s bound
-  — re-raising ends the run so `mlb doctor` shows red. It must never degrade
-  to an infinite retry.
+- **`fungo` already retries transient failures itself** — `fungo.http`
+  (stdlib `urllib`, not `requests`) does bounded exponential backoff
+  (`2**attempt`, 3 attempts) on 5xx / network / timeout and raises
+  immediately on 4xx. So `net.call_with_retry` (which only catches
+  `requests` exceptions) is *not* used here — it would be dead code against a
+  `urllib`-based library. (This corrects the proposal's assumption.) A thin
+  connector wrapper calls the `fungo` function directly.
+- A `fungo` `FangraphsError` (the 403 / exemption-withdrawn signal) or
+  `RequestError` (retries exhausted) is caught at the connector's run
+  boundary, logged with its message verbatim, and re-raised so `track_run`
+  records a failed run and `mlb doctor` shows red. It is never retried again
+  and never degrades to an infinite loop.
 - Per-season failures inside `bootstrap()` are logged and skipped (that season
   only), matching `bref.py`; committed seasons survive.
+- The one exception to "re-raise" is the depth-chart scrape (task 7.2): its
+  failure is logged and skipped without failing the rest of `update()`,
+  because it is the most fragile endpoint (React-cache scrape, no API twin).
 
 ## Risks / Trade-offs
 
@@ -233,8 +240,9 @@ inherits the CLI's pre-request guard) exactly as the others do. No export
   snapshots) — deferable: it does not change the schema, the connector
   approach, or the task list, only a later pruning job. Decide after a month
   of observed growth.
-- Whether to also capture `get_depth_chart` at all in v1 or defer with the
-  other roster-resource surface — leaning include (only ~30 calls), but it is
-  the one endpoint with no API twin (React-cache scrape) so it is the most
-  likely to break. Tasks cover it as a clearly separable sub-step that can be
-  dropped without affecting the rest.
+
+**Resolved during apply:** `get_depth_chart` is **deferred** to a follow-up,
+not built in this change. It needs a hand-verified 30-team URL-slug table
+(`fungo.constants.TEAMS` carries no slug; a wrong slug 500s), and returns a
+deeply nested React-cache payload rather than a leaderboard. Disproportionate
+for v1; MLB Stats API already covers rosters/probables. Task group 7 is struck.

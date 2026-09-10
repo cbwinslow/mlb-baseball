@@ -502,23 +502,43 @@ def _build_backbone_relation_multi(
     Used for `gold.batting_game` / `gold.pitching_game`, which are built from
     `raw.retrosheet_event` (<= 2025) and `raw.mlb_boxscore_*` (>= 2026). The
     season bound in each builder is the partition line, so the two never write
-    the same `(game, player, team)` key. On a database missing one source the
-    matching build skips cleanly; if every source is absent the target is left
-    untouched and 0 is returned (matching the single-source helper). `table` is
-    an internal constant, passed through `sql.Identifier` all the same."""
+    the same `(game, player, team)` key. If a configured source is absent: on
+    an empty target the rebuild proceeds from whatever's present (a fresh
+    bootstrap that has one source but not the other); on a non-empty target
+    the rebuild is skipped and the current count returned, so a source table
+    that disappears can't TRUNCATE away rows only it produced. If every source
+    is absent the target is left untouched and 0 is returned. `table` is an
+    internal constant, passed through `sql.Identifier` all the same."""
     schema, name = table.split(".", 1)
     ident = sql.Identifier(schema, name)
     present: list[str] = []
+    missing: list[str] = []
     for build_sql, source in builds:
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass(%s)", (source,))
             (regclass,) = fetch_one(cur)
         if regclass is None:
-            print(f"report: {source} not present yet -- skipping its {table} build")
+            missing.append(source)
         else:
             present.append(build_sql)
     if not present:
         return 0
+    if missing:
+        # A configured source table is gone. Rebuilding from only what's left
+        # would TRUNCATE the target and silently drop the missing source's
+        # rows (e.g. the 2026+ box-score rows if raw.mlb_boxscore_* vanished).
+        # Only safe to proceed when the target is still empty -- a fresh
+        # bootstrap that has ingested one source but not the other yet.
+        with conn.cursor() as cur:
+            cur.execute(sql.SQL("SELECT count(*) FROM {}").format(ident))
+            (existing,) = fetch_one(cur)
+        if existing:
+            print(
+                f"report: {', '.join(missing)} missing but {table} has {existing} rows "
+                f"from it -- skipping rebuild rather than truncate away those rows"
+            )
+            return existing
+        print(f"report: {', '.join(missing)} not present yet -- building {table} without it")
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(sql.SQL("TRUNCATE {}").format(ident))
         for build_sql in present:
@@ -758,6 +778,7 @@ def health_check() -> list[Check]:
                 AND tm.id IN (g.home_team_id, g.away_team_id)
             JOIN core.player p ON p.mlbam_id = mp.person_id
             WHERE NULLIF(mp.batters_faced, '')::integer > 0
+               OR NULLIF(mp.outs, '')::integer > 0
             """,
             tolerance=0,
         ),

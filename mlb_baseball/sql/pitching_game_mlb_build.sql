@@ -73,7 +73,12 @@ WITH box AS (
        AND tm.id IN (g.home_team_id, g.away_team_id)
     WHERE g.season >= 2026
       AND lower(g.game_type) = 'regular'
-      AND NULLIF(mp.batters_faced, '')::integer > 0
+      -- keep a line with any recorded activity: a pitcher can retire a
+      -- baserunner (pickoff / caught stealing) for outs > 0 with bf = 0.
+      AND (
+            NULLIF(mp.batters_faced, '')::integer > 0
+         OR NULLIF(mp.outs, '')::integer > 0
+      )
       AND (%(season)s::integer IS NULL OR g.season = %(season)s::integer)
 )
 SELECT

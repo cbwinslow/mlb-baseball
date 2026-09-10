@@ -276,16 +276,19 @@ def main() -> None:
         recon = _reconstruct(conn, game_pks)
         box = _box_lines(conn, game_pks)
 
+    # The gate is symmetric: a key present in only one source is a real
+    # defect (a partial play-by-play ingest, or a gold.batting_game row the
+    # builder failed to write), not something to skip past.
+    recon_only = sorted(set(recon) - set(box))
+    box_only = sorted(set(box) - set(recon))
+
     compared = 0
-    missing_box = 0
     field_fail: dict[str, int] = dict.fromkeys(FIELDS, 0)
     worst: list[str] = []
 
-    for key, line in sorted(recon.items()):
-        box_line = box.get(key)
-        if box_line is None:
-            missing_box += 1
-            continue
+    for key in sorted(set(recon) & set(box)):
+        line = recon[key]
+        box_line = box[key]
         compared += 1
         recon_d = line.as_dict()
         for f in FIELDS:
@@ -299,10 +302,19 @@ def main() -> None:
 
     print(f"sampled {len(game_pks)} complete 2026 games")
     print(f"compared {compared} player-games (pbp reconstruction vs mlb_boxscore batting_game)")
-    if missing_box:
-        print(f"  note: {missing_box} reconstructed player-games had no box-score row")
 
     any_failed = False
+    if recon_only:
+        any_failed = True
+        print(f"  <-- FAIL: {len(recon_only)} pbp-reconstructed player-games have no box-score row")
+        for k in recon_only[:15]:
+            print(f"      game {k[0]} player {k[1]}")
+    if box_only:
+        any_failed = True
+        print(f"  <-- FAIL: {len(box_only)} box-score player-games have no pbp reconstruction")
+        for k in box_only[:15]:
+            print(f"      game {k[0]} player {k[1]}")
+
     for f in FIELDS:
         bad = field_fail[f]
         pct = 100.0 * bad / compared if compared else 0.0

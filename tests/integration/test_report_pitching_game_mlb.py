@@ -34,7 +34,7 @@ def _cleanup(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM gold.pitching_game WHERE game_id IN (7860001, 7860002)")
         cur.execute("DELETE FROM core.game WHERE id IN (7860001, 7860002)")
-        cur.execute("DELETE FROM core.player WHERE id IN (76003, 76004)")
+        cur.execute("DELETE FROM core.player WHERE id IN (76003, 76004, 76005)")
         cur.execute("DELETE FROM core.team WHERE id IN (7603, 7604)")
         cur.execute("DROP TABLE IF EXISTS raw.mlb_boxscore_pitching")
     db_conn.commit()
@@ -58,7 +58,8 @@ def _seed(db_conn):
         cur.execute(
             "INSERT INTO core.player (id, mlbam_id, retro_id, last_name, first_name) VALUES "
             "(76003, '700003', 'strp001', 'Starter', 'Sam'), "
-            "(76004, '700004', 'relr001', 'Reliever', 'Rae') ON CONFLICT (id) DO NOTHING"
+            "(76004, '700004', 'relr001', 'Reliever', 'Rae'), "
+            "(76005, '700005', 'pick001', 'Pickoff', 'Pip') ON CONFLICT (id) DO NOTHING"
         )
         cur.execute(
             "INSERT INTO core.game (id, game_pk, season, game_date, game_number, "
@@ -120,6 +121,30 @@ def _seed(db_conn):
                 "games_started": "0",
                 "batters_faced": "0",
                 "outs": "0",
+                "hits": "0",
+                "runs": "0",
+                "earned_runs": "0",
+                "base_on_balls": "0",
+                "intentional_walks": "0",
+                "strike_outs": "0",
+                "home_runs": "0",
+                "hit_batsmen": "0",
+                "wild_pitches": "0",
+                "balks": "0",
+                "wins": "0",
+                "losses": "0",
+                "saves": "0",
+            },
+            # Pip: entered, picked off / caught the runner, was pulled --
+            # a real MLB line with outs > 0 and batters_faced = 0. Must NOT
+            # be dropped (the builder keeps a line with any recorded activity).
+            {
+                "game_pk": "2026101",
+                "team_id": "147",
+                "person_id": "700005",
+                "games_started": "0",
+                "batters_faced": "0",
+                "outs": "1",
                 "hits": "0",
                 "runs": "0",
                 "earned_runs": "0",
@@ -241,7 +266,27 @@ def test_pitching_game_mlb_box_lines_match_hand_math_and_populate_er(db_conn):
         }
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM gold.pitching_game WHERE game_id = 7860001")
-            assert cur.fetchone()[0] == 2  # the bf=0 line produced no row
+            # Sam + Rae + Pip (pickoff, bf=0 outs=1). The all-zero bf=0 outs=0
+            # position-player line is the only one dropped.
+            assert cur.fetchone()[0] == 3
+    finally:
+        _cleanup(db_conn)
+
+
+def test_pitching_game_mlb_keeps_a_line_with_outs_but_no_batters_faced(db_conn):
+    # A pitcher who enters, retires a baserunner (pickoff / caught stealing)
+    # and is pulled has outs > 0 and batters_faced = 0 -- a real MLB line the
+    # builder must not drop.
+    _cleanup(db_conn)
+    _seed(db_conn)
+    try:
+        _build(db_conn)
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "SELECT bf, outs FROM gold.pitching_game "
+                "WHERE game_id = 7860001 AND player_id = 76005"
+            )
+            assert cur.fetchone() == (0, 1)
     finally:
         _cleanup(db_conn)
 
@@ -269,6 +314,6 @@ def test_pitching_game_mlb_rebuild_is_idempotent(db_conn):
         assert _line(db_conn, 7860001, 76003) == first
         with db_conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM gold.pitching_game WHERE game_id = 7860001")
-            assert cur.fetchone()[0] == 2
+            assert cur.fetchone()[0] == 3
     finally:
         _cleanup(db_conn)

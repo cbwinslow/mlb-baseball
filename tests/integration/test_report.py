@@ -794,7 +794,25 @@ def _check(name):
     return next(c for c in report.health_check() if c.name == name)
 
 
-def test_batting_game_multi_source_one_row_per_source_no_collision(db_conn):
+@pytest.fixture
+def _cleanup_game_relations(db_conn):
+    """Both backbone-2026 dispatch tests COMMIT rows into gold.batting_game /
+    gold.pitching_game, and the shared db_conn fixture does not roll back
+    committed data. A finalizer (not a trailing statement) guarantees the
+    cleanup runs even when an assertion fails, so a leaked row can't break a
+    later test's global row-count check. `_reset` does not touch the game
+    relations, so clear them here first."""
+    yield
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM gold.batting_game")
+        cur.execute("DELETE FROM gold.pitching_game")
+    db_conn.commit()
+    _reset(db_conn)
+
+
+def test_batting_game_multi_source_one_row_per_source_no_collision(
+    db_conn, _cleanup_game_relations
+):
     # A 2025 Retrosheet game and a 2026 MLB box-score game, built through the
     # two-source list run() uses: gold.batting_game must carry one row from
     # each builder, each tagged with its own `source`, and the no-double-write
@@ -864,15 +882,8 @@ def test_batting_game_multi_source_one_row_per_source_no_collision(db_conn):
 
     assert _check(_NO_DOUBLE_WRITE).ok
 
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "DELETE FROM gold.batting_game WHERE game_id IN (%s, %s)", (retro_game, box_game)
-        )
-    db_conn.commit()
-    _reset(db_conn)
 
-
-def test_no_double_write_guard_fails_on_a_seeded_collision(db_conn):
+def test_no_double_write_guard_fails_on_a_seeded_collision(db_conn, _cleanup_game_relations):
     # The guard groups by (game_id, player_id): a player-game written under two
     # different `source` values (here, two team stints of a suspended game, one
     # per builder) must turn the check red.
@@ -908,8 +919,3 @@ def test_no_double_write_guard_fails_on_a_seeded_collision(db_conn):
     db_conn.commit()
 
     assert not _check(_NO_DOUBLE_WRITE).ok
-
-    with db_conn.cursor() as cur:
-        cur.execute("DELETE FROM gold.batting_game WHERE game_id = %s", (game,))
-    db_conn.commit()
-    _reset(db_conn)

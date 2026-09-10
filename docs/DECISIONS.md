@@ -2,6 +2,170 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-288: FanGraphs revived via `fungo`; Python floor moves 3.11 → 3.12
+
+**Decision:** FanGraphs enters the pipeline as the `fangraphs` connector
+(`mlb_baseball/connectors/fangraphs.py`), built on the **`fungo`** library
+(`fungo>=2.0,<3`, MIT), not `pybaseball`. `fungo` reaches FanGraphs' mobile-app
+JSON API (`https://www.fangraphs.com/api/...`) with `User-Agent: okhttp/4.12.0`
+— the one client Cloudflare's TLS-fingerprint block exempts. Because `fungo`
+requires Python ≥3.12 (and genuinely uses 3.12-only syntax), the project's
+`requires-python` floor moves **3.11 → 3.12**: `pyproject.toml`, the four CI
+`python-version` pins, `.github/workflows/pages.yml`, `.devcontainer/Dockerfile`,
+and `ruff target-version = "py312"` (+ `ignore = ["UP046","UP047"]` so the bump
+does not force a PEP 695 restyle of existing `TypeVar` generics). `curl_cffi`
+(`curl-cffi==0.16.3` at time of writing) comes in transitively — `fungo`'s
+Baseball-Reference submodule imports it at package load; this connector never
+calls that code.
+
+**Context:** `docs/DATA_SOURCES.md` had listed FanGraphs as BROKEN since
+`pybaseball.batting_stats()`/`pitching_stats()` began returning a hard
+`HTTPError ... leaders-legacy.aspx ... 403` — fangraphs.com sits behind
+Cloudflare, which blocks generic HTTP clients outright. `bref.py` covered part
+of the season-stats value, but FanGraphs' WAR/wOBA framework, Guts! constants,
+park factors, and the public projection systems (Steamer, ZiPS, ATC, THE BAT,
+…) had no home, and the projection systems in particular are a moving series
+with no history retained anywhere. The owner approved reviving FanGraphs on
+2026-09-10 after a live `fungo` test confirmed the leaders, Guts!, park-factor,
+and projection endpoints all return real data with no auth.
+
+**Rationale:**
+
+- **`fungo` owns the fragile seam.** The FanGraphs access path is exactly the
+  "fragile endpoint glue" `connectors/AGENTS.md` says to prefer a maintained
+  library for: a Cloudflare-exempt UA, inverted `season`/`season1` params,
+  POST-only splits. `fungo` (MIT, "Production/Stable") maintains all of it and
+  a live parity check passed. Vendoring `fungo/fangraphs/` (~1,900 lines) was
+  considered when the Python-floor conflict surfaced and rejected: it would
+  put the Cloudflare seam back in our tree.
+- **The 3.12 bump is small and already true locally.** The dev venv was
+  already 3.12.3; only CI pinned 3.11. Verified before committing: on 3.12
+  with `fungo` added, `ruff` / `mypy` (214 files) / `sqlfluff` / SQL-ownership
+  / `mkdocs --strict` / 1205 unit tests / a representative integration slice
+  all pass. 3.12 is 2+ years old.
+- **Projections stored as de-duplicated dated snapshots.** `raw.fangraphs_projection`
+  is append-only; a `_row_hash` of the projected values gates each append, so a
+  `(system, stat_group, playerid)` key gets a new snapshot row only when its
+  values moved — the ADR-048 probable-pitcher pattern. This is how the history
+  of a constantly-moving projection is retained without unbounded growth.
+- **Rights: `local_research` only.** FanGraphs' data is reserved; the
+  mobile-app endpoints are undocumented and unauthenticated, not licensed
+  (`docs/SOURCE_RIGHTS.md`, reviewed 2026-09-10). The ingest guard blocks the
+  connector under any non-`local_research` profile, and no `public_safe`
+  export relation may be backed by a `raw.fangraphs_*` table.
+
+**Load-bearing fragility (accepted, documented):** the `okhttp/4.12.0`
+exemption could be withdrawn at any time. `fungo` raises `FangraphsError`
+naming the condition on a 403; the connector re-raises it (never an infinite
+retry) so `mlb doctor` goes red. The fix is then a `fungo` upgrade, not a
+local patch — same class as `bref.py` depending on `pybaseball`'s HTML scrape.
+
+**Deliberately NOT built** (documented in the connector and its sidecar, same
+combinatorial rationale as ADR-020 / ADR-024): `get_player_stats` /
+`get_game_log` (per player per season), the full 292-code split-leaderboard
+catalogue, minor-league leaderboards, and RosterResource depth charts
+(`get_depth_chart` needs a hand-verified 30-team URL-slug table and returns a
+nested React-cache payload, not a leaderboard; MLB Stats API already covers
+rosters/probables).
+
+## ADR-287: features and models live in DuckDB; PostgreSQL is the system of record for raw source data
+
+**Decision:** PostgreSQL remains authoritative for `raw` and `core`. The derived
+feature layer and everything that reads it does **not** live in PostgreSQL.
+`mlb build` reads PostgreSQL `core` / `gold` and writes the `feat.*` relations
+into a single local DuckDB database file (default `~/.mlb/mlb.duckdb`,
+overridable by `--db` or `MLB_DUCKDB_PATH`). Features are built there; models
+read only from there. There is **no `feat` schema in PostgreSQL**, no migration
+creating one, and no PostgreSQL-side as-of retrieval function. The boundary is
+at `core`: at or below it is PostgreSQL, above it is DuckDB, and `mlb build` is
+the only thing that crosses.
+
+**Context:** The product is a framework distributed as code — the `pybaseball` /
+`baseballr` shape, but fuller. A user `pip install`s it, runs `mlb bootstrap`,
+and it fetches MLB data from the original sources into *their own* environment.
+We ship code, schema, and build logic; the published Hugging Face snapshot is a
+convenience, not the product.
+
+That framing separates two layers that had been treated as one:
+
+- `raw` / `core` is a **system of record**. `conform.py` reconciles identities
+  across Retrosheet, Lahman, the Chadwick register, the MLB Stats API,
+  Polymarket, and Kalshi — cross-source joins, fuzzy team and venue matching, a
+  `game_pk` backfill that lands at an ~85% match rate with the remainder held
+  `NULL` rather than guessed. That needs constraints, transactions, and a real
+  relational engine, and it is not moving.
+- `feat.*` is a **derived, reproducible artifact**. It is write-once, read-heavy,
+  columnar, single-writer, append-only, and thrown away and rebuilt whenever a
+  formula changes. Nothing about it needs what PostgreSQL is good at, and
+  everything about it wants what DuckDB is good at.
+
+The root `AGENTS.md` invariant reads "PostgreSQL is the authoritative system of
+record" and "preserve the `raw` / `core` / `gold` / `meta` layering unless a
+recorded architecture decision changes it." This is that recorded decision.
+
+**Reconciliation with the root invariant — this scopes it, it does not
+contradict it.** The invariant exists to stop source data drifting into
+unconstrained, unversioned, hand-edited stores where provenance is lost. That
+concern applies to *source* data and is fully preserved: every raw record, every
+identity resolution, and every provenance and rights annotation still lives in
+PostgreSQL under the same rules. A `feat.*` row is not source data — it is a
+pure function of `core` plus a versioned formula, carrying its own `created_ts`,
+and reproducible from PostgreSQL at any time by re-running `mlb build`. If the
+DuckDB file is deleted, nothing is lost. If a `raw` table is deleted, everything
+is. That asymmetry is the line the invariant is actually drawing, and this
+decision draws it explicitly rather than leaving it implicit. The
+`raw` / `core` / `gold` / `meta` layering in PostgreSQL is unchanged; `feat` is a
+new layer *outside* it, not a re-arrangement of it.
+
+**Rationale:**
+
+- **The analyst's path becomes real.** The previous plan required the feature
+  build to run on both PostgreSQL and DuckDB from a common SQL subset, with a
+  parity test forever and every future feature constrained to constructs both
+  engines share. One engine, one implementation, no parity test — and DuckDB
+  operators that make the point-in-time join a page of code (`ASOF JOIN`) become
+  usable instead of forbidden.
+- **Redistribution rights stop constraining this layer.** The user fetched the
+  source data themselves under their own terms; the features are derived on their
+  machine. Rights enforcement stays exactly where it belongs — `export.py`'s
+  gate on the optional Hugging Face snapshot, with its existing per-table
+  exclusions (`docs/SOURCE_RIGHTS.md`).
+- **`gold.game_feature` stays where it is.** It is a ~240-column PostgreSQL table
+  carrying 178 registered Engine feature families and feeding the paused
+  prediction pipeline; `openspec/project.md` names it a **Phase B** triage
+  target. This decision does not re-parent, mirror, or export it. `feat.*` is a
+  new, small, public layer that re-expresses a handful of proven *formulas* at
+  entity grain — not those families' tables.
+- **DuckDB is already adopted tooling** (`openspec/project.md`, "Tooling —
+  Adopted") and already a dependency of `packages/mlb-research`. This is not a
+  new adoption; it is using an adopted tool for the job it was adopted for.
+- **The cost is one more place to look for a number.** Accepted, and bounded by
+  a one-sentence boundary rule stated in `openspec/project.md`,
+  `docs/FEATURE_STORE.md`, and this ADR.
+
+**Consequences:**
+
+- `duckdb` becomes a runtime dependency of `mlb-baseball`, and `mlb-research`
+  becomes a runtime dependency of it rather than a `dev`-extra workspace member
+  (the dependency direction is `mlb_baseball` → `mlb_research`, never the
+  reverse, so the shipped retrieval API has one implementation).
+- Feature build logic is versioned `.sql` in DuckDB dialect, needing a
+  dialect-scoped sqlfluff configuration alongside the 97 existing PostgreSQL
+  files in `mlb_baseball/sql/`.
+- A user can have a stale DuckDB file. Mitigated by `created_ts` on every row and
+  by `mlb verify` reporting the build's `created_ts` range.
+- Any future work that wants features inside a PostgreSQL query must either join
+  across engines or re-derive — deliberately, so that "just add it to
+  `gold.game_feature`" stops being the path of least resistance.
+
+**Revisit if:** a concrete requirement appears that genuinely needs features
+inside a PostgreSQL transaction (a live serving path writing predictions
+transactionally alongside features would be the real case — that is Phase C);
+or a feature build outgrows a single machine's memory, at which point the
+question is a different engine, not a different layering; or the two-store
+boundary is measurably confusing users, evidenced by actual questions rather
+than anticipated ones.
+
 ## ADR-286: the docs site builds from `docs/site-src/` into `docs/site/` in the Pages workflow
 
 **Decision:** The MkDocs Material documentation site

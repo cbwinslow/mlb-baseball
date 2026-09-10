@@ -63,10 +63,13 @@ it (formula + citation), and is private until then.
 Parquet on Hugging Face (+ GitHub Releases mirror) → pybaseball-style
 Python loader on PyPI → DuckDB-WASM browser query page → Docker image →
 Marimo notebooks + a MkDocs Material docs site. **v1.1 adds** the
-point-in-time feature store (append-only `feat.*` snapshot tables + an
-as-of retrieval contract + a feature registry + a leakage-test battery)
-and one reference baseline model (Elo v2) + its model card — the pieces
-that make this a research *platform*, not just a download. Coverage
+point-in-time feature store (DuckDB `feat.*` relations, windows as columns,
+a Feast-shaped `get_historical_features` retrieval function, two
+store-level leakage checks — ADR-287, `openspec/changes/feature-store-v1/`),
+the walk-forward backtest harness, and one reference baseline model
+(Elo v2) + its model card — the pieces that make this a research
+*platform*, not just a download. Built in three slices: the feature layer,
+the harness, then Elo v2. Coverage
 target: match `pybaseball` / `baseballr`. No hosted DB, no hosted REST
 API (defer — needs revenue). Publishing the backbone dataset:
 [`docs/PUBLIC_API.md`](../docs/PUBLIC_API.md#publishing-the-backbone-dataset-to-hugging-face).
@@ -151,9 +154,17 @@ per-US-state legal homework before any of it ships.
 
 ## Database engineering standards
 
+- **The boundary is at `core`.** PostgreSQL is the authoritative system of
+  record for `raw` and `core` — ingestion, identity reconciliation,
+  provenance, constraints. The **derived feature and model layer is
+  DuckDB-only**: `mlb build` reads PostgreSQL and writes the `feat.*`
+  relations into one local DuckDB file; features are built there and models
+  read only from there. A `feat.*` row is a reproducible artifact, not source
+  data — deleting the file loses nothing. See **ADR-287**.
 - All build logic in **versioned `.sql` files** run by `mlb report` /
-  `mlb conform`. **No triggers, no stored procedures** for pipeline
-  logic.
+  `mlb conform` / `mlb build`. **No triggers, no stored procedures** for
+  pipeline logic (DuckDB feature SQL follows the same rule — no macros
+  standing in for pipeline logic).
 - **No SQL strings embedded in Python** — `scripts/lint_sql_ownership.py`
   + pre-commit hook enforce it.
 - Normalization by layer: `core` normalized, `gold` deliberately
@@ -295,11 +306,16 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
     `gold.batting_season` / `gold.pitching_season` (Retrosheet, 1910+) are
     parallel lines, one writer each, neither a view or second writer into
     the other. Implemented and on `main` (PR #158).
-- **v1.1 (the platform):** point-in-time feature store (`feat.*` snapshot
-  tables + as-of retrieval + registry + leakage tests); the walk-forward
-  backtest harness; one reference baseline model (Elo v2) + model card.
-  Design input: `docs/research/2026-09-04-modeling-and-realtime-plan.md`
-  (feature-store + backtest-harness sketches; not a contract).
+- **v1.1 (the platform):** point-in-time feature store, walk-forward
+  backtest harness, one reference baseline model (Elo v2) + model card.
+  Sliced in `openspec/changes/feature-store-v1/` (slice 1 = DuckDB `feat.*`
+  layer + `get_historical_features` + leakage checks + `mlb build` /
+  `mlb verify`; slice 2 = harness extraction into `mlb_research`; slice 3 =
+  Elo v2 + model card + publish). Design input:
+  `docs/research/2026-09-04-modeling-and-realtime-plan.md` and two Opus
+  design reviews (`feature-store-v1/DESIGN_REVIEW.md`); ADR-287 for the
+  Postgres/DuckDB boundary. **feat.* is DuckDB-only — no Postgres `feat`
+  schema, no Feast.**
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

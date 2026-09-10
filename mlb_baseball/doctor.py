@@ -271,6 +271,15 @@ def run() -> list[Check]:
     except Exception as exc:
         checks.append(Check("report", False, f"health_check() raised: {exc}"))
 
+    # The DuckDB feature store (feature-store-v1) is a derived build stage too
+    # -- `mlb build` writes it, and it lives outside PostgreSQL.
+    try:
+        from mlb_baseball import feat
+
+        checks.extend(feat.health_check())
+    except Exception as exc:
+        checks.append(Check("feat", False, f"health_check() raised: {exc}"))
+
     try:
         checks.extend(experiment.health_check())
     except Exception as exc:

@@ -84,6 +84,7 @@ Sidecars are added in source-reviewed batches, not generated mechanically merely
 
 - core/hub connectors: `mlb_api.py`, `retrosheet.py`;
 - market sources: `kalshi.py`, `polymarket.py`;
+- FanGraphs: `fangraphs.py` (distinct rights/coverage + the load-bearing `okhttp/4.12.0` Cloudflare exemption — ADR-288);
 - Baseball Savant: `statcast.py`, `statcast_leaderboard.py`;
 - Retrosheet family: `retrosheet_event.py`, `retrosheet_box.py`, `retrosheet_gamelog.py`, `retrosheet_reference.py`, `retrosheet_roster.py`, `retrosheet_schedule.py`, `retrosheet_transaction.py`.
 

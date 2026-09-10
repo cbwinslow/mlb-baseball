@@ -90,8 +90,7 @@ FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 # observed first season per board is recorded in the sidecar after a bootstrap.
 # Tests override these (see bref.FIRST_YEAR for the same pattern).
 LEADERBOARD_FIRST_YEAR = 1871
-PARK_FACTOR_FIRST_YEAR = 1901  # observed: basic board empty before 1901
-PARK_FACTOR_HANDEDNESS_FIRST_YEAR = 2002  # observed: FangraphsError before 2002
+PARK_FACTOR_FIRST_YEAR = 1871
 PROSPECT_FIRST_YEAR = 2010
 SPLIT_FIRST_YEAR = 2002  # FanGraphs' split-stats era
 
@@ -214,18 +213,12 @@ _PARK_FACTOR_BOARDS: list[tuple[str, Callable]] = [
 
 def _load_park_factors(conn: psycopg.Connection, season: int) -> int:
     """Basic and handedness park factors are separate boards with different
-    historical depth — FanGraphs has handedness splits only from 2002 (the
-    production bootstrap), while basic park factors go back to 1901. Isolate
-    the two: a failure on one (a raised ``FangraphsError`` for a year the
-    board doesn't cover) must not roll back the other's committed rows for
-    the same season."""
+    historical depth — FanGraphs has handedness splits only from ~1980, but
+    basic park factors go back to the 1900s. Isolate the two: a failure on one
+    (a raised ``FangraphsError`` for a year the board doesn't cover) must not
+    roll back the other's committed rows for the same season."""
     total = 0
     for table, fn in _PARK_FACTOR_BOARDS:
-        if (
-            table == "raw.fangraphs_park_factors_handedness"
-            and season < PARK_FACTOR_HANDEDNESS_FIRST_YEAR
-        ):
-            continue
         try:
             rows = _fg_call(fn, season)
             df = _frame(rows)

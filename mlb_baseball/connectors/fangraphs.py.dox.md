@@ -79,9 +79,7 @@ Public connector capabilities: `bootstrap()`, `update()`, `health_check()`.
   call; **whole-table replace** every run. All-string values (`fungo` scrapes
   `guts.aspx` with stdlib `html.parser`).
 - `raw.fangraphs_park_factors` / `_park_factors_handedness` — per season,
-  `_season` scoped-replace. Bootstrap starts the basic board at 1901 and
-  skips the handedness board before 2002 (observed coverage); a failure on
-  one board still does not roll back the other.
+  `_season` scoped-replace.
 - `raw.fangraphs_prospects` — THE BOARD, per season, `_season` scoped-replace.
 
 ### Curated splits

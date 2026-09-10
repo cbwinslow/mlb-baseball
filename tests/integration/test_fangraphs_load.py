@@ -201,7 +201,7 @@ def test_load_park_factors_loads_both_boards_per_season(db_conn, monkeypatch):
 
 
 def test_load_park_factors_keeps_basic_when_handedness_board_fails(db_conn, monkeypatch):
-    # FanGraphs has handedness park factors only from 2002; a pre-2002 season
+    # FanGraphs has handedness park factors only from ~1980; a pre-1980 season
     # raises FangraphsError for that board. The basic board's rows for the same
     # season must still land (not be rolled back with the failed board).
     from fungo.exceptions import FangraphsError
@@ -218,7 +218,7 @@ def test_load_park_factors_keeps_basic_when_handedness_board_fails(db_conn, monk
         ],
     )
 
-    total = fangraphs._load_park_factors(db_conn, 2002)
+    total = fangraphs._load_park_factors(db_conn, 1974)
 
     assert total == 3
     with db_conn.cursor() as cur:

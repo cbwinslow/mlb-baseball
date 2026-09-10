@@ -22,7 +22,7 @@
 - [x] 3.3 Implement `update()` reloading only the current season for all three boards; integration-test idempotency — run `update()` twice, assert equal row counts and grain for the current season.
       → `update()` current season only. test_update_reloads_current_season_only + test_update_is_idempotent. Live smoke: fielding stayed 2236/2299/2246 per season across two updates.
 - [x] 3.4 Record the observed earliest season that returns rows for each board (run against real FanGraphs once) and document it in the connector sidecar; verify early-season advanced columns land as SQL NULL, not 0.
-      → Sidecar 'Observed coverage' filled from live smoke (2024-26): pit/fld return rows to 1871; advanced cols null (not 0) for early seasons. Full per-board first season recorded after production bootstrap.
+      → Production bootstrap 2026-09-10 (~28 min): batting/pitching/fielding 1871-2026, prospects 2010-2026, splits 2002-2026, park factors 1901-2026 (basic) / 2002-2026 (handedness). Recorded in the sidecar 'Observed coverage' table. Advanced cols null (not 0) for early seasons.
 
 ## 4. Reference boards (guts, park factors, prospects)
 
@@ -97,6 +97,6 @@ follow-up in proposal.md, design.md, and the connector sidecar.
 - [x] 10.2 Run `ruff` and `mypy` over `mlb_baseball/connectors/fangraphs.py` and the tests; confirm clean.
       → ruff check . clean; mypy 215 files clean; check_dox + sql-ownership lint clean.
 - [x] 10.3 Run one real `mlb ingest fangraphs --mode bootstrap` under `local_research`, then `--mode update` twice; confirm row counts stabilise, projection snapshot dedupe works on the live second run, and `mlb doctor` shows `fangraphs` green. Record real row counts and per-board first seasons in the sidecar.
-      → Live smoke bootstrap 2024-26 (2 splits, 2 proj systems): 42s, all 10 tables populated (batting 4372 / pitching 2580 / fielding 6781 / guts 156 / park 90+90 / prospects 3737 / split 3904+4820 / projection 9096). 2nd _load_projections appended 0; 2nd update kept projection 9096; fielding per-season stable. Column collision fixed (wpa/wpa_pos/wpa_neg, k_bb/k_minus_bb_pct/k_per_bb_plus distinct). fangraphs.health_check() 8/8 green. Numbers recorded in sidecar. NOTE: full-history production bootstrap still to be run by owner.
+      → Full production bootstrap DONE 2026-09-10 against `mlb` (~28 min, ~715k rows): batting 108923 / pitching 52973 / fielding 180956 / guts 156 / park_factors 2752 / park_factors_handedness 750 / prospects 19153 / split_batting 167835 / split_pitching 134827 / projection 50511 (8 preseason + 8 RoS systems). Found + fixed a bug: handedness park-factor failures for pre-2002 rolled back the basic board for the same season (commit 8a2f555); backfilled 1901-2001 basic park factors. Column collision handled (wpa/wpa_pos/wpa_neg etc). health_check 8/8 green. Numbers in sidecar.
 - [x] 10.4 Confirm `openspec validate add-fangraphs-connector --strict` passes and the diff touches no `core`/`gold`/model code.
       → openspec validate add-fangraphs-connector --strict passes. Diff touches connectors (fangraphs.py new, bref.py + registry.py + connectors/AGENTS.md), tests, scripts, docs/DATA_SOURCES + DECISIONS + SOURCE_RIGHTS, pyproject/CI/uv.lock — no core/gold/model/transforms/migrations code.

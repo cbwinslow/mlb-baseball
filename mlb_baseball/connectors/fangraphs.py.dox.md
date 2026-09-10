@@ -172,32 +172,26 @@ Public connector capabilities: `bootstrap()`, `update()`, `health_check()`.
 
 ## Observed coverage
 
-Smoke bootstrap 2026-09-10 (live `fungo`, 2024–2026 only, 2 curated splits, 1
-preseason + 1 RoS projection system) — representative row counts, **not** a
-full history load:
+First production bootstrap: **2026-09-10**, `mlb ingest fangraphs --mode
+bootstrap` against `mlb`, `local_research` profile, ~28 min wall.
 
-| Table | rows (2024–2026) | notes |
-| --- | ---: | --- |
-| `raw.fangraphs_batting` | 4,372 | `qual=0`; `wpa` / `wpa_pos` / `wpa_neg` land distinct |
-| `raw.fangraphs_pitching` | 2,580 | `k_bb` / `k_minus_bb_pct` / `k_per_bb_plus` distinct |
-| `raw.fangraphs_fielding` | 6,781 | ~2,240/season |
-| `raw.fangraphs_guts` | 156 | whole history in one call |
-| `raw.fangraphs_park_factors` | 90 | 30/season |
-| `raw.fangraphs_park_factors_handedness` | 90 | 30/season |
-| `raw.fangraphs_prospects` | 3,737 | THE BOARD; season-varying columns (`schema_drift_policy="ignore"`) |
-| `raw.fangraphs_split_batting` | 3,904 | 2 splits × 3 seasons |
-| `raw.fangraphs_split_pitching` | 4,820 | 2 splits × 3 seasons |
-| `raw.fangraphs_projection` | 9,096 | 2 systems × bat; 2nd pass appended 0 (unchanged) |
+| Table | rows | span | notes |
+| --- | ---: | --- | --- |
+| `raw.fangraphs_batting` | 108,923 | 1871–2026 | `qual=0`; `wpa` / `wpa_pos` / `wpa_neg` distinct |
+| `raw.fangraphs_pitching` | 52,973 | 1871–2026 | `k_bb` / `k_minus_bb_pct` / `k_per_bb_plus` distinct |
+| `raw.fangraphs_fielding` | 180,956 | 1871–2026 | |
+| `raw.fangraphs_guts` | 156 | all seasons | whole history in one call |
+| `raw.fangraphs_park_factors` | 2,752 | 1901–2026 | basic board; deeper history than handedness |
+| `raw.fangraphs_park_factors_handedness` | 750 | 2002–2026 | FanGraphs raises `FangraphsError` ("No Guts table found") for years it doesn't cover (pre-2002); the basic board is loaded independently so it isn't rolled back with the failed year |
+| `raw.fangraphs_prospects` | 19,153 | 2010–2026 | THE BOARD; season-varying columns (`schema_drift_policy="ignore"`) |
+| `raw.fangraphs_split_batting` | 167,835 | 2002–2026 | 10 curated splits |
+| `raw.fangraphs_split_pitching` | 134,827 | 2002–2026 | 10 curated splits |
+| `raw.fangraphs_projection` | 50,511 | snapshot | 8 preseason systems (27,303) + 8 RoS (23,208), `_captured_date` 2026-09-10 |
 
-Board history probe (single calls): `pit` and `fld` return real rows back to
-**1871**; `get_park_factors` back to at least 1871 (16 parks by 1901, 30 by
-2000). Advanced columns are null for early seasons — preserved. The exact
-first season per board and full-history row counts get recorded here after
-the first production `mlb ingest fangraphs --mode bootstrap`.
-
-`bootstrap()` of the smoke slice took 42s; `update()` 11s. Full-history
-bootstrap is proportionally larger (one request per season per board through
-`fungo`'s retry) — a documented one-off, same shape as `statcast` / `mlb_api`.
+Advanced columns are null for early seasons — preserved as genuine nulls,
+never zero-filled. Full-history bootstrap is one request per season per board
+through `fungo`'s retry — a documented one-off, same shape as `statcast` /
+`mlb_api`. The dominant cost is the split boards (25 seasons × 10 splits × 2).
 
 ## Work Guidance
 

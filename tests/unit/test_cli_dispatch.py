@@ -82,6 +82,33 @@ def test_source_profile_failure_names_the_forbidden_source():
         raise AssertionError("expected public_safe to reject bref")
 
 
+def test_public_safe_profile_rejects_fangraphs(monkeypatch):
+    # FanGraphs is local_research only (docs/SOURCE_RIGHTS.md, ADR-288); the
+    # CLI guard must block it before any network request is made.
+    connector = _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"fangraphs": connector})
+
+    try:
+        cli.main(["ingest", "fangraphs", "--profile", "public_safe"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected public_safe to reject fangraphs")
+
+    connector.bootstrap.assert_not_called()
+    connector.update.assert_not_called()
+
+
+def test_source_profile_failure_names_fangraphs():
+    try:
+        require_sources("public_safe", ["fangraphs"], purpose="test")
+    except SourceProfileError as exc:
+        assert "fangraphs" in str(exc)
+        assert "docs/SOURCE_RIGHTS.md" in str(exc)
+    else:
+        raise AssertionError("expected public_safe to reject fangraphs")
+
+
 def test_ingest_mode_backfill_calls_backfill_history(monkeypatch, capsys):
     connector = _fake_connector()
     connector.backfill_history.return_value = {"raw.fake_price": 3}

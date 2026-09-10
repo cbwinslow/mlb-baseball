@@ -35,8 +35,10 @@ tested directly in this environment:
   BROKEN: fangraphs.com now sits behind Cloudflare and returns a hard
   HTTP 403 to pybaseball's scraper (reproduced directly: `HTTPError: Error
   accessing 'https://www.fangraphs.com/leaders-legacy.aspx'. Received
-  status code 403`). Not attempted here — see docs/DATA_SOURCES.md's
-  Deferred section for the confirmed failure.
+  status code 403`). Not attempted here. FanGraphs data instead comes from
+  the separate `fangraphs.py` connector via the `fungo` library, which
+  reaches FanGraphs' mobile-app JSON API (ADR-288) — this pybaseball path
+  stays unused.
 - `pybaseball.batting_stats_bref()`/`pitching_stats_bref()`
   (baseball-reference.com) — confirmed WORKING, reproduced directly with
   real data returned for 2025.

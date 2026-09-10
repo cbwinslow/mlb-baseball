@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "MLB data ingestion pipeline, ML modeling, and an oddstrader-style Astro site."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "psycopg[binary]>=3.1",
     "python-dotenv>=1.0",
@@ -12,6 +12,13 @@ dependencies = [
     "pandas>=2.0",
     "pybaseball>=2.2",
     "MLB-StatsAPI>=1.7",
+    # FanGraphs connector (add-fangraphs-connector): fungo reaches FanGraphs
+    # through its mobile-app JSON API, the one path Cloudflare does not block
+    # (pybaseball's FanGraphs scrape is permanently 403). fungo requires
+    # Python >=3.12, which is why this project's floor moved 3.11 -> 3.12
+    # (ADR-288). curl_cffi comes in transitively (fungo's Baseball-Reference
+    # code imports it at load; this connector never calls that code).
+    "fungo>=2.0,<3",
     "xgboost>=2.0",
     "scikit-learn>=1.4",
     "numpy>=1.26",
@@ -81,10 +88,15 @@ packages = ["mlb_baseball"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+# UP046/UP047 (py312 target, add-fangraphs-connector / ADR-288): don't force
+# PEP 695 `class C[T]` / `def f[T]()` generic syntax on existing TypeVar-based
+# generics. Opting into 3.12 for a dependency is not a mandate to restyle the
+# codebase's generics.
+ignore = ["UP046", "UP047"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages/mlb-research/tests"]

@@ -200,6 +200,34 @@ def test_load_park_factors_loads_both_boards_per_season(db_conn, monkeypatch):
         assert cur.fetchone() == (4,)
 
 
+def test_load_park_factors_keeps_basic_when_handedness_board_fails(db_conn, monkeypatch):
+    # FanGraphs has handedness park factors only from ~1980; a pre-1980 season
+    # raises FangraphsError for that board. The basic board's rows for the same
+    # season must still land (not be rolled back with the failed board).
+    from fungo.exceptions import FangraphsError
+
+    def _boom(season):
+        raise FangraphsError(f"No Guts table found on handedness park factors {season}")
+
+    monkeypatch.setattr(
+        fangraphs,
+        "_PARK_FACTOR_BOARDS",
+        [
+            ("raw.fangraphs_park_factors", lambda season: [{"Team": f"T{i}"} for i in range(3)]),
+            ("raw.fangraphs_park_factors_handedness", _boom),
+        ],
+    )
+
+    total = fangraphs._load_park_factors(db_conn, 1974)
+
+    assert total == 3
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.fangraphs_park_factors")
+        assert cur.fetchone() == (3,)
+        cur.execute("SELECT to_regclass('raw.fangraphs_park_factors_handedness')")
+        assert cur.fetchone() == (None,)
+
+
 def test_load_prospects_per_season_scoped_replace(db_conn, monkeypatch):
     _fake_prospects(monkeypatch, n=3)
     fangraphs._load_prospects(db_conn, 2024)

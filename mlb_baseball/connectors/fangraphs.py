@@ -212,14 +212,26 @@ _PARK_FACTOR_BOARDS: list[tuple[str, Callable]] = [
 
 
 def _load_park_factors(conn: psycopg.Connection, season: int) -> int:
+    """Basic and handedness park factors are separate boards with different
+    historical depth — FanGraphs has handedness splits only from ~1980, but
+    basic park factors go back to the 1900s. Isolate the two: a failure on one
+    (a raised ``FangraphsError`` for a year the board doesn't cover) must not
+    roll back the other's committed rows for the same season."""
     total = 0
     for table, fn in _PARK_FACTOR_BOARDS:
-        rows = _fg_call(fn, season)
-        df = _frame(rows)
-        if df.empty:
-            continue
-        df["_season"] = str(season)
-        total += load_dataframe(conn, table, df, scope_column="_season", scope_value=str(season))
+        try:
+            rows = _fg_call(fn, season)
+            df = _frame(rows)
+            if df.empty:
+                continue
+            df["_season"] = str(season)
+            total += load_dataframe(
+                conn, table, df, scope_column="_season", scope_value=str(season)
+            )
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 — logged + skipped, per-board isolation
+            conn.rollback()
+            print(f"fangraphs: {table} {season} failed ({exc}); skipping")
     return total
 
 

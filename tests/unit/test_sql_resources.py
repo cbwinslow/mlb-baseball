@@ -132,7 +132,29 @@ def test_reads_named_probable_starter_transformation():
     assert "%(fip_constant)s" in sql
 
 
-@pytest.mark.parametrize("name", ["../secret.sql", "subdir/query.sql", ".hidden.sql"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../secret.sql",
+        "/etc/passwd",
+        "a/b/c.sql",
+        "duckdb/../secret.sql",
+        ".hidden.sql",
+        "duckdb/.hidden.sql",
+        "sql\\windows.sql",
+    ],
+)
 def test_rejects_non_resource_sql_names(name):
     with pytest.raises(ValueError, match="invalid SQL resource"):
         read_sql(name)
+
+
+def test_reads_one_subdirectory_segment():
+    # feature-store-v1: the DuckDB-dialect feature builds live one level down
+    # in mlb_baseball/sql/duckdb/. read_sql accepts exactly one leading path
+    # segment; before that change every "/" was rejected outright, so this is
+    # the red-green assertion for the traversal-guard relaxation.
+    sql = read_sql("duckdb/feat_player_form.sql")
+
+    assert "INSERT INTO feat.player_form" in sql
+    assert "getvariable('feat_version')" in sql

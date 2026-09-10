@@ -9,7 +9,22 @@ from importlib.resources import files
 
 
 def read_sql(name: str) -> str:
-    """Return one packaged SQL resource, rejecting traversal-like names."""
-    if "/" in name or "\\" in name or name.startswith("."):
+    """Return one packaged SQL resource, rejecting traversal-like names.
+
+    Accepts a bare filename (``park_factor_update.sql``) or exactly one
+    leading subdirectory segment (``duckdb/feat_player_form.sql`` -- the
+    DuckDB-dialect feature builds run by ``mlb_baseball.feat``). Rejects a
+    second separator, ``..``, an absolute path, and any dot-prefixed segment.
+    """
+    parts = name.split("/")
+    if (
+        "\\" in name
+        or name.startswith("/")
+        or len(parts) > 2
+        or any(part in ("", "..") or part.startswith(".") for part in parts)
+    ):
         raise ValueError(f"invalid SQL resource name: {name!r}")
-    return files(__package__).joinpath(name).read_text(encoding="utf-8")
+    resource = files(__package__)
+    for part in parts:
+        resource = resource.joinpath(part)
+    return resource.read_text(encoding="utf-8")

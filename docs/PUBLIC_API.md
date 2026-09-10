@@ -119,7 +119,10 @@ Two surfaces need no local database or clone of this repository -- see
 
 - **`mlb-research`** (`packages/mlb-research/`, `pip install mlb-research`) --
   a standalone Python loader: `mlb_research.load("batting_season",
-  season=2023)` returns a `pandas.DataFrame`. Full API in that package's own
+  season=2023)` returns a `pandas.DataFrame`. It also exposes
+  `mlb_research.get_historical_features(entity_df, ["player_form:obp_30d", ...])`
+  for point-in-time training rows from a locally built DuckDB feature store
+  (see [FEATURE_STORE.md](FEATURE_STORE.md)). Full API in that package's own
   [README.md](../packages/mlb-research/README.md).
 - **The DuckDB-WASM query page** (`docs/site/query/`) -- runs visitor SQL
   against the published Parquet entirely in the browser, published via

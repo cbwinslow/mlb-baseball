@@ -166,6 +166,89 @@ def test_report_command_calls_report_run(monkeypatch, capsys):
     assert "gold.team_season: 1 rows" in capsys.readouterr().out
 
 
+def test_build_command_help_lists_all_flags(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["build", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    for flag in ("--db", "--feature-version", "--skip", "--only-features"):
+        assert flag in out
+
+
+def test_build_command_runs_wrapped_steps_in_order(monkeypatch, capsys):
+    calls: list = []
+    monkeypatch.setattr(cli.migrate, "main", lambda skip=None: calls.append("migrate"))
+    monkeypatch.setattr(cli.conform, "run", lambda: (calls.append("conform"), {"core.team": 1})[1])
+    monkeypatch.setattr(report, "run", lambda: (calls.append("report"), {"gold.team_season": 2})[1])
+    monkeypatch.setattr(
+        cli.feat,
+        "build",
+        lambda **kw: (calls.append(("feat", kw)), {"feat.player_form": 3})[1],
+    )
+
+    cli.main(["build"])
+
+    assert [c if isinstance(c, str) else c[0] for c in calls] == [
+        "migrate",
+        "conform",
+        "report",
+        "feat",
+    ]
+    assert calls[-1][1] == {"duckdb_path": None, "feature_version": "v1"}
+    out = capsys.readouterr().out
+    assert "core.team: 1 rows" in out
+    assert "feat.player_form: 3 rows" in out
+
+
+def test_build_command_skip_conform_skips_only_that_step(monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(cli.migrate, "main", lambda skip=None: calls.append("migrate"))
+    monkeypatch.setattr(cli.conform, "run", lambda: (calls.append("conform"), {})[1])
+    monkeypatch.setattr(report, "run", lambda: (calls.append("report"), {})[1])
+    monkeypatch.setattr(cli.feat, "build", lambda **kw: (calls.append("feat"), {})[1])
+
+    cli.main(["build", "--skip", "conform"])
+
+    assert calls == ["migrate", "report", "feat"]
+
+
+def test_build_command_only_features_runs_just_the_feature_build(monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(cli.migrate, "main", lambda skip=None: calls.append("migrate"))
+    monkeypatch.setattr(cli.conform, "run", lambda: (calls.append("conform"), {})[1])
+    monkeypatch.setattr(report, "run", lambda: (calls.append("report"), {})[1])
+    monkeypatch.setattr(
+        cli.feat, "build", lambda **kw: (calls.append(("feat", kw)), {"feat.game": 1})[1]
+    )
+
+    cli.main(["build", "--only-features", "--db", "/tmp/x.duckdb", "--feature-version", "v2"])
+
+    assert calls == [("feat", {"duckdb_path": "/tmp/x.duckdb", "feature_version": "v2"})]
+
+
+def test_verify_command_help_lists_flags(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["verify", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    for flag in ("--db", "--feature-version", "--skip-tie-out"):
+        assert flag in out
+
+
+def test_verify_command_calls_feat_verify_and_exits_nonzero_on_failure(monkeypatch):
+    seen: dict = {}
+    monkeypatch.setattr(cli.feat, "verify", lambda **kw: (seen.update(kw), False)[1])
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["verify", "--db", "/tmp/x.duckdb", "--skip-tie-out"])
+    assert exc.value.code == 1
+    assert seen == {"duckdb_path": "/tmp/x.duckdb", "feature_version": "v1", "run_tie_out": False}
+
+
+def test_verify_command_clean_pass_exits_zero(monkeypatch):
+    monkeypatch.setattr(cli.feat, "verify", lambda **kw: True)
+    cli.main(["verify"])  # no SystemExit
+
+
 def test_predict_command_calls_model_run(monkeypatch, capsys):
     monkeypatch.setattr(cli.model, "run", lambda: {"gold.game_feature": 1})
 

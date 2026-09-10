@@ -1,7 +1,8 @@
 ## 1. Dependency
 
-- [ ] 1.1 Add `fungo>=2.0,<3` to `[project.dependencies]` in `pyproject.toml`; run `uv lock` then `uv sync`; verify `python -c "import fungo.fangraphs; print(fungo.fangraphs.get_guts_constants()[:1])"` returns a real row inside the project venv.
-- [ ] 1.2 Confirm `curl_cffi` resolved as a transitive dependency and imports cleanly in CI's Python (`python -c "import curl_cffi"`); note the resolved version in `docs/DECISIONS.md` ADR.
+- [x] 1.1 Add `fungo>=2.0,<3` to `[project.dependencies]` in `pyproject.toml`; run `uv lock` then `uv sync`; verify `python -c "import fungo.fangraphs; print(fungo.fangraphs.get_guts_constants()[:1])"` returns a real row inside the project venv. — done; live `get_guts_constants()` / `get_park_factors(2024)` / `get_leaders('bat',2024,2024,ind=1,qual=0)` all return real data in `.venv`.
+- [x] 1.2 Confirm `curl_cffi` resolved as a transitive dependency and imports cleanly in CI's Python (`python -c "import curl_cffi"`); note the resolved version in `docs/DECISIONS.md` ADR. — `curl-cffi==0.16.3` resolved + imports clean; version to be recorded in ADR-288 (task 9.4).
+- [x] 1.3 **(added during apply)** `fungo` requires Python >=3.12; raise the project floor: `requires-python = ">=3.12"`, four `python-version` pins in `.github/workflows/ci.yml`, `.github/workflows/pages.yml`, `.devcontainer/Dockerfile`, `ruff target-version = "py312"`, `ignore = ["UP046","UP047"]` (avoid a PEP 695 restyle of existing generics). Verify ruff + mypy + sqlfluff + `mkdocs --strict` + full unit suite + representative integration slice all pass on 3.12. — done: ruff clean, mypy 214 files, SQL lint ok, mkdocs strict ok, 1205 unit pass, 32/32 integration slice pass.
 
 ## 2. Connector skeleton
 

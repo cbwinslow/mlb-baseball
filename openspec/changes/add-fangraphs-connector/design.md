@@ -70,13 +70,30 @@ React-cache scrape for depth charts. `fungo` maintains all of it, is MIT
 - **Alternative — keep waiting for a fixed `pybaseball`:** rejected; broken
   since 2025 with no fix in sight, and `pybaseball`'s FanGraphs surface is
   narrower (no Guts!, no projection systems, no Stuff+/PitchingBot columns).
-- **Cost:** `fungo`'s top-level `__init__` imports its `bbref` submodule,
-  which imports `curl_cffi` — so `curl_cffi` becomes a hard dependency even
-  though this connector never calls `fungo.bbref`. `curl_cffi` ships
-  manylinux/macOS/Windows binary wheels; accept it. Import
+- **Cost 1 — `curl_cffi`:** `fungo`'s top-level `__init__` imports its `bbref`
+  submodule, which imports `curl_cffi` — so `curl_cffi` becomes a hard
+  dependency even though this connector never calls `fungo.bbref`. `curl_cffi`
+  ships manylinux/macOS/Windows binary wheels; accept it. Import
   `fungo.fangraphs` submodules directly in the connector; if `curl_cffi`
   proves troublesome in CI, the fallback is a thin lazy-import shim, not
-  vendoring.
+  vendoring. Resolved version at time of writing: `curl_cffi==0.16.3`.
+- **Cost 2 — Python floor moves 3.11 → 3.12** (found during apply, not
+  anticipated in the proposal). `fungo` requires `>=3.12` and genuinely uses
+  3.12-only syntax (PEP 695 in `http.py`), so it cannot be back-fitted to
+  3.11. Adding it forces `requires-python = ">=3.12"`, the four CI
+  `python-version` pins, `pages.yml`, `.devcontainer/Dockerfile`, and
+  `ruff target-version = "py312"`. Verified before committing: the project's
+  dev venv is already 3.12.3; on 3.12 with `fungo` added, `ruff` (one new
+  UP047 in `model/markov/core.py` — suppressed project-wide via
+  `ignore = ["UP046","UP047"]`, PEP 695 restyle is not in scope), `mypy` (214
+  files), `sqlfluff`/SQL-ownership, `mkdocs --strict`, 1205 unit tests, and a
+  representative integration slice (bref/load/doctor/health/ingest/migrations,
+  32 tests) all pass. Owner approved the bump conditional on "nothing breaks".
+  ADR-288 records it.
+- **Alternative — vendor `fungo/fangraphs/` (~1,900 lines) instead of the
+  Python bump:** considered when the floor conflict surfaced. Rejected: we'd
+  own the fragile Cloudflare seam (the thing D1 exists to avoid), and the
+  3.12 bump is small, already true locally, and 3.12 is 2+ years old.
 - Pin `fungo>=2.0,<3` in `pyproject.toml`; let `uv lock` resolve. A `fungo`
   major bump gets a deliberate review (the FanGraphs seam is where breakage
   lands).

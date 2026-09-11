@@ -14,11 +14,44 @@ to live in.
 Every statistic/metric implemented under `mlb_baseball/model/`, and every
 named statistic materialized in a `gold`/`feat` relation, SHALL have exactly
 one catalog entry carrying: a stable `name`; a plain-English `definition`
-(no unexplained jargon); a `formula` or a direct pointer to the code/SQL that
-computes it; a `citation` (source publication + year, or "project-derived"
-if none exists); a `grain`; a `layer` (`gold`, `feat`, or `model`); a
-`status`; and a `visibility`. An entry with a missing mandatory field is
-invalid.
+(no unexplained jargon); a `formula` (a direct pointer to the code/SQL that
+computes it); a `citation` (the formula's published source + year, or
+"project-derived" if none exists); a `data_source` (which raw/core inputs the
+numbers themselves come from — distinct from `citation`, which names the
+idea, not the data); a `grain`; a `layer` (`gold`, `feat`, or `model`); a
+`complexity` (`arithmetic` or `complex`); an `implementation`
+(`sql`/`sqlmesh`/`python`); a `status`; and a `visibility`. An entry with a
+missing mandatory field is invalid.
+
+#### Scenario: A metric's data source is recorded separately from its formula's origin
+
+- **WHEN** a catalog entry is created
+- **THEN** it names both `citation` (whose idea the formula is) and
+  `data_source` (which ingested tables the numbers are computed from), and
+  the two are not conflated into one field
+
+### Requirement: Every shipped value has a reproducible pointer to what produced it
+
+Every catalog entry SHALL carry a generated, version-pinned pointer (a
+`source_permalink`) to the exact file and git revision that computed the
+value, derived from `formula` and the release the catalog was built against —
+never a link to a moving branch. This is in addition to, not instead of,
+`citation`: `citation` says whose formula it is, `source_permalink` proves
+what code actually ran.
+
+#### Scenario: A published value can be traced to the exact code that made it
+
+- **WHEN** a researcher looks up a metric on the public catalog page for a
+  specific published data release
+- **THEN** they find a link to the exact `.sql` or `.py` file, at the git
+  revision that release was built from, that computed that value
+
+#### Scenario: The pointer never silently goes stale
+
+- **WHEN** the underlying implementation file is later changed or moved on
+  the main branch
+- **THEN** a `source_permalink` generated for an already-published release
+  still resolves to the original code, not the changed version
 
 #### Scenario: A metric module with no catalog entry fails CI
 
@@ -78,6 +111,25 @@ non-baseline backtest results.
 - **WHEN** a catalog entry represents a tuned model's fitted parameters, an
   ensemble blend, or backtest results for a non-baseline model
 - **THEN** its catalog entry has `visibility: internal`
+
+### Requirement: The catalog makes SQL/Python misplacement visible, not re-argued
+
+A catalog entry's `complexity` SHALL be `arithmetic` if its formula is a
+deterministic aggregation over already-normalized data that a researcher
+could recompute by hand from the same inputs, and `complex` otherwise
+(iterative fit, simulation, or a stochastic method). `implementation`
+records what actually computes the metric today. Any entry with
+`complexity: arithmetic` and `implementation: python` SHALL be queryable as
+a migration candidate — this requirement does not mandate the migration
+happen in this change, only that the candidate set is derivable from the
+catalog rather than re-discovered by memory each time someone asks.
+
+#### Scenario: A misplaced arithmetic metric is findable
+
+- **WHEN** the catalog is queried for entries where `complexity = 'arithmetic'`
+  and `implementation = 'python'`
+- **THEN** every such entry is returned, and no `complex` entry is included
+  in that result regardless of its `implementation`
 
 ### Requirement: The catalog is queryable in two forms from one source
 

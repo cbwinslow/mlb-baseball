@@ -56,14 +56,24 @@ definition: >
   Plain-English, 1-3 sentences, no unexplained jargon.
 formula: mlb_baseball/model/framing.py::compute   # or an inline formula string
 citation: "Judge, FanGraphs Called Strikes Above Average methodology, 2016"
+data_source: raw.statcast_framing, raw.retrosheet_event   # where the numbers come from, separate from where the formula comes from
 grain: player-season          # or game, career, team-season, etc.
 layer: model                  # gold | feat | model
+complexity: complex           # arithmetic | complex - "arithmetic" = plain math on existing columns; "complex" = needs a model/algorithm
+implementation: python        # sql | sqlmesh | python - what actually computes it today
+should_migrate_to_sql: false  # true only for an "arithmetic" metric still stuck in Python for no good reason
 status: implemented-untested  # published | validated | implemented-untested | negative-result | archived
 visibility: internal          # public | internal
 test_ref: tests/integration/test_model_framing.py::test_...  # required if status: validated
 notes: >
   Optional - known limitations, open questions, why status/visibility is what it is.
 ```
+
+`source_permalink` is not a hand-written field — task 2.4/5.1's tooling
+generates it automatically from `formula`'s file path plus the git tag/commit
+the catalog build ran against, so it can never point at a moving target
+(`main`, which drifts) instead of the exact version that produced a published
+number.
 
 **2. `visibility` is derived from a rule, checked, not asserted freely.**
 The CI check flags (does not silently accept) any entry whose `citation`
@@ -111,6 +121,46 @@ repo, and would be new infra to operate for a problem a few hundred lines of
 project-owned code already solves. This follows the project's "established
 solutions first" rule while still not overbuilding for a team of one.
 
+**7. Every shipped number carries a reproducibility pointer, not just a
+citation.** A citation says whose idea the formula is; it does not prove what
+code actually ran to make the number in front of you. `formula` plus the
+generated `source_permalink` (Decision 1) together answer "show me exactly
+what produced this," pinned to the git tag/release the data was published
+under. This is stronger than "the whole repo is public and AGPL, so it's
+technically reproducible somewhere" — the point is that every individual
+number has a direct, version-pinned pointer someone can click without first
+finding the right historical commit themselves.
+
+**8. `complexity` + `implementation` make the SQL-vs-Python question
+answerable per metric instead of debated in the abstract.** The project's
+existing rule (`openspec/project.md`, "Modeling layer (SQL vs Python)") already
+says deterministic aggregation belongs in versioned `.sql`, iterative/
+stochastic work belongs in Python. Recording each metric's actual
+`implementation` next to its `complexity` turns "is this misplaced?" into a
+query instead of a re-argued judgment call: any `complexity: arithmetic`
+entry with `implementation: python` is a `should_migrate_to_sql` candidate,
+surfaced by the same catalog, not decided file-by-file from memory. This is
+also where SQLMesh formally enters: the project adopted it in principle
+(ADR-050/ADR-266) as the incremental writer for `gold` but has not yet piloted
+it on a real metric. This change does not do that migration — it only makes
+the candidates visible — but recommends (in `tasks.md`) a small, separate
+follow-up: pilot SQLMesh on ~5 already-tagged `should_migrate_to_sql`
+candidates in a throwaway branch before committing to it project-wide, per
+the owner's own "prototype in a branch first" preference.
+
+**9. Do not fork or extend `pybaseball`; ship computed data, not a duplicate
+calculation engine.** Considered: reimplementing this project's metrics as
+`pybaseball`-compatible functions so its users could drop this in directly.
+Rejected for this change — it would couple our release cadence to an external
+project's API shape for a benefit that mostly disappears once data ships
+pre-computed. A downloaded, versioned Parquet/DuckDB file does not need the
+downloader to re-run any formula themselves to get value from it; only *this
+project* needs to re-run the formula, once, before publishing. `pybaseball`-
+style compatibility, if wanted later, is a separate, smaller research
+question (does a thin compatibility shim over the published data pull in
+existing `pybaseball` users cheaply?) — not a prerequisite for this change
+and not decided here.
+
 ## Risks / Trade-offs
 
 - **[Risk] Attempting all ~155 modules in one PR produces an unreviewable
@@ -137,6 +187,19 @@ solutions first" rule while still not overbuilding for a team of one.
 - **[Trade-off] One YAML file per metric is more files to manage than one
   big table.** Accepted — matches the project's existing one-file-per-named-
   resource convention and keeps batched PRs reviewable.
+- **[Risk] A passing test does not prove correct code.** Owner-confirmed:
+  a meaningful share of `mlb_baseball/model/` was originally written by a
+  weaker model (Gemini Flash) whose output quality has since been judged
+  poor. A test authored by the same process that authored the code it tests
+  can be wrong in the same way the code is wrong (both derive the same
+  mistaken formula independently, or the test just re-asserts what the code
+  happens to output). → Mitigation: task 4.2's spot-check is not optional
+  box-ticking — for every batch entry, the reviewer reads the actual
+  implementation against the cited formula by hand before setting `status`;
+  a `validated` claim additionally requires the comparison value came from
+  somewhere other than the code/test pair itself (Decision 3). This makes
+  the first batches slower than "read the docstring and copy the citation,"
+  which is intentional — it is the actual point of doing this at all.
 
 ## Migration Plan
 

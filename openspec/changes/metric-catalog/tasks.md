@@ -19,12 +19,13 @@
 ## 2. Catalog schema and loader
 
 - [ ] 2.1 Define the YAML schema for a metric entry (fields: `name`,
-  `definition`, `formula`, `citation`, `grain`, `layer`, `status`,
-  `visibility`, `test_ref`, `notes`) as a `jsonschema` (or `pydantic`) model
-  in `mlb_baseball/catalog.py`, choosing whichever library adds the smaller
-  new footprint given current `pyproject.toml` deps. Verify: a unit test
-  feeds one valid and several invalid fixtures (missing field, bad `status`
-  enum value, bad `visibility` enum value) and asserts accept/reject.
+  `definition`, `formula`, `citation`, `data_source`, `grain`, `layer`,
+  `complexity`, `implementation`, `status`, `visibility`, `test_ref`,
+  `notes`) as a `jsonschema` (or `pydantic`) model in `mlb_baseball/catalog.py`,
+  choosing whichever library adds the smaller new footprint given current
+  `pyproject.toml` deps. Verify: a unit test feeds one valid and several
+  invalid fixtures (missing field, bad `status`/`visibility`/`complexity`/
+  `implementation` enum value) and asserts accept/reject.
 - [ ] 2.2 Create `mlb_baseball/metrics/` directory with a `README.md`
   documenting the schema (mirrors the doc comment already in `design.md`)
   and a `.gitkeep` or first real entry. Verify: directory exists, README
@@ -51,6 +52,13 @@
   DB populates `meta.metric` from the repo's real
   `mlb_baseball/metrics/*.yaml`; `mlb doctor` gets a cheap check that
   `meta.metric` row count equals the number of `.yaml` files on disk.
+- [ ] 2.6 Generate `source_permalink` (design.md Decision 7): given
+  `formula`'s file path and the git tag/commit the catalog build ran
+  against, build a permanent link (e.g. a GitHub blob URL pinned to that
+  revision) and store it on the loaded `meta.metric` row — never hand-written
+  in the YAML, never pointing at a moving branch. Verify: an integration
+  test builds the catalog at a known fake commit sha and asserts the stored
+  permalink embeds that exact sha, not `main` or `HEAD`.
 
 ## 3. CI catalog-completeness check
 
@@ -92,12 +100,16 @@
   (`model/bsr.py`), catcher framing (`model/framing.py`), Elo (`model/elo.py`),
   win probability/leverage (`model/win_expectancy.py`, `model/leverage.py`,
   `model/wpa.py`), park factors (`model/park.py`). For each: read the module
-  and its test file, determine `status` honestly per the Decision-3 rule
+  and its test file line by line against the cited formula — do not
+  transcribe the docstring's own claim about itself — and record
+  `data_source`, `complexity`, and `implementation` alongside `status`
   (do not default to `validated` — most will land `implemented-untested` or
-  `published` unless a real external tie-out exists), determine `visibility`
-  per the publication rule, cite the real source. Target 15-20 entries.
-  Verify: `check_metric_catalog.py` reports zero gaps for exactly this list;
-  every `validated` entry's `test_ref` passes the Decision-3 check.
+  `published` unless a real external tie-out exists) and `visibility` per
+  the publication rule. Target 15-20 entries. Verify: `check_metric_catalog.py`
+  reports zero gaps for exactly this list; every `validated` entry's
+  `test_ref` passes the Decision-3 check; every `complexity: arithmetic` +
+  `implementation: python` entry is confirmed genuinely misplaced (not
+  mistagged) by re-reading the one line of arithmetic it actually performs.
 - [ ] 4.2 Spot-check at least 3 of the batch's entries by hand against the
   actual code and test file (not the entry's own description) before this
   task is marked complete — catches a copy-paste citation or a status
@@ -129,6 +141,13 @@
   by task 4), sized as multiple future changes, not one. Verify: the queue
   entry states a batch size and says "batched, not big-bang" per the
   project's own existing incremental-porting convention.
+- [ ] 6.3 `openspec/project.md` NOW/NEXT — add a separate, small tracked item:
+  pilot SQLMesh (already adopted in principle, not yet used in practice) on
+  ~5 of task 4's `should_migrate_to_sql` candidates in a throwaway branch,
+  before deciding whether to migrate further. Not part of this change's
+  own tasks — this only records that it's next, per design.md Decision 8.
+  Verify: the queue entry names the 5 candidate metrics and says "branch
+  prototype, not committed to main yet."
 
 ## 7. Full verification
 

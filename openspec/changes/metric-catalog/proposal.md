@@ -45,13 +45,29 @@ owner has been asking for — built from what already exists, not from new work.
   application of it.
 - **A per-metric YAML catalog** (one small file per metric, schema-validated,
   living beside — not replacing — the code) with mandatory fields: `name`,
-  a plain-English `definition`, `formula` (or a pointer to the `.sql`/`.py`
-  that computes it), `citation` (source + year), `grain`, `layer`
-  (`gold`/`feat`/`model`), `status` (`published` / `validated` /
-  `implemented-untested` / `negative-result` / `archived`), and `visibility`
-  (`public` / `internal`) per the rule above. `validated` requires a passing
-  tie-out test against an independent published value within a documented
-  tolerance — this is not a self-certification field.
+  a plain-English `definition`, `formula` (a pointer to the `.sql`/`.py`
+  that computes it), `citation` (the formula's published source + year),
+  `data_source` (which ingested tables the *numbers* come from — kept
+  separate from `citation`, which is about the formula's origin, not the
+  data's), `grain`, `layer` (`gold`/`feat`/`model`), `complexity`
+  (`arithmetic`/`complex` — is this plain math on existing data, or does it
+  need a model/algorithm?), `implementation` (`sql`/`sqlmesh`/`python` — what
+  actually computes it today, so a plain-arithmetic metric still stuck in
+  Python is a query, not a rediscovery), `status` (`published` / `validated`
+  / `implemented-untested` / `negative-result` / `archived`), and
+  `visibility` (`public` / `internal`) per the rule above. `validated`
+  requires a passing tie-out test against an independent published value
+  within a documented tolerance — this is not a self-certification field,
+  and setting it requires actually reading the implementation, not trusting
+  an existing test's pass/fail (a meaningful share of `model/` was
+  originally written by a weaker model whose output has since proven
+  unreliable — a passing test does not establish the code is correct if the
+  same process wrote both).
+- **A generated, version-pinned reproducibility link on every entry**
+  (`source_permalink`): not just a citation naming whose idea a formula is,
+  but a direct pointer to the exact file, at the exact git revision, that
+  computed a published value — so anyone can independently verify or rerun
+  it later, even after the code has since changed.
 - **A CI check** that fails when a `model/` module (or a named `gold`
   statistic) has no catalog entry — the drift guard that keeps the catalog
   from going stale the way the ADR-cross-reference approach did.

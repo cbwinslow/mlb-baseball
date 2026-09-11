@@ -2,6 +2,66 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-291: Metric catalog — gate clarification + YAML/`meta.metric`/docs-page shape
+
+**Decision:** `openspec/changes/metric-catalog/` (proposal/design/spec) pulls
+Phase B ladder step 1 ("Engine triage + a `meta.metric` registry table")
+forward, reframed as pure documentation over already-existing, already-
+running code — no new metric, no modeling change, no tuned parameter, no
+backtest result.
+
+1. **Gate clarification.** `openspec/project.md`'s Phase A/B boundary gets
+   one clarifying sentence: a metric implementing a published, citable
+   formula is Phase A / public regardless of which directory currently
+   implements it (`model/` included); only tuned parameters, blended/
+   ensembled outputs, ranked feature-selection results, and non-baseline
+   backtest results are Phase B / internal. This restates the project's
+   existing publication rule ("a metric ships once we choose to publish it
+   — formula + citation, and is private until then") rather than creating
+   a new one — it corrects an inconsistent application of it, where
+   `model/`'s ~155 mostly-published-sabermetrics modules had been mis-filed
+   as private by directory rather than by the rule that actually governs
+   them. Phase B ladder step 1 is marked satisfied by this change; the full
+   remaining-module triage stays a tracked, batched NEXT-queue item, not a
+   Phase B start.
+2. **Build the catalog now, as documentation-only tooling.** One small
+   schema-validated YAML file per metric under `mlb_baseball/metrics/
+   <name>.yaml` (`name`, `definition`, `formula`, `citation`, `data_source`,
+   `grain`, `layer`, `complexity`, `implementation`, `status`,
+   `visibility`, optional `test_ref`/`notes`) — `citation` (whose idea the
+   formula is) is kept separate from `data_source` (which ingested tables
+   the numbers come from). Validated by `mlb_baseball/catalog.py`'s
+   `MetricEntry` (pydantic — already resolved transitively via sqlmesh's
+   own dependency, so promoting it to a base dependency adds nothing new to
+   `uv.lock`; `jsonschema` is not present in the lock at all and would add
+   several new packages for the same job).
+3. **`meta.metric` and the public docs page are both generated, never
+   hand-maintained.** A migration (`migrations/0106_meta_metric.sql`)
+   creates `meta.metric` (additive); `mlb catalog build` reads every YAML,
+   validates it, and does the project's standard idempotent full-rebuild
+   (`TRUNCATE` + insert every entry in one transaction — same pattern as
+   `conform.py::_build_team_aliases`). Every entry's `source_permalink` is
+   generated at build time from `formula`'s file path plus the git commit
+   the build ran against (a version-pinned GitHub blob URL) — never hand-
+   written, never pointing at a moving branch. `mlb catalog docs` renders
+   the `visibility: public` subset of `meta.metric` as a Markdown page
+   (`docs/site-src/metric-catalog.md`); the two views come from one source
+   of truth and cannot be hand-edited into disagreement.
+4. **A CI completeness check is advisory, not yet blocking.**
+   `scripts/check_metric_catalog.py` reports every `mlb_baseball/model/*.py`
+   module with no catalog entry, plus a visibility-lint (a `citation`
+   naming a recognized public source but `visibility: internal`, or the
+   reverse) — wired into CI (`ci.yml`'s `lint` job) as a non-blocking
+   (`|| true`) step until the first full triage batch lands, per this
+   project's own existing advisory-then-required rollout pattern.
+
+**Scope of this pass:** the tooling (schema, loader, `meta.metric`, CI
+check, docs generator) plus exactly one demonstration entry
+(`mlb_baseball/metrics/fangraphs_guts.yaml`, `published`/`public`, ADR-290).
+The ~15-20-entry flagship batch and the full ~155-module triage are
+explicitly deferred to follow-up, batched changes — see
+`openspec/changes/metric-catalog/tasks.md` groups 4/6.
+
 ## ADR-290: FanGraphs Guts! constants + park factors conform into `gold` reference lookups (Beat 1)
 
 **Decision:** The `fangraphs-conform` change's **Beat 1** surfaces exactly two

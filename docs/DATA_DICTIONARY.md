@@ -398,6 +398,44 @@ envelope check (no season row over 163 games).
 - **Coverage**: 1884–2025.
 <!-- --8<-- [end:backbone] -->
 
+### 3.11 `gold.fangraphs_guts` / `gold.fangraphs_park_factors` — FanGraphs reference lookups
+
+> **`local_research` only (FanGraphs, ADR-288 / ADR-290).** Never `public_safe`,
+> never in the published `mlb-research` dataset, never a reference-baseline-model
+> input. `gold.fangraphs_guts` is a **cross-check / reference**: a publishable
+> wOBA / FIP / park-factor is computed from `core.play`, not from these. A
+> standing test guards the export registry.
+
+- **Purpose**: two reference lookups conformed from the (shipped-in-#173, ADR-288)
+  `raw.fangraphs_*` landing tables. Built by `mlb report`
+  (`report._build_backbone_relation`, truncate-and-replace, idempotent); each
+  skips cleanly on a database that never ingested FanGraphs. This is
+  **fangraphs-conform Beat 1** — projections (`feat.fangraphs_projection`) and
+  the full WAR / wOBA / wRC+ / Stuff+ season-line conform are deferred.
+- **`gold.fangraphs_guts`**
+  - **Grain**: one row per `season` (`season` PK).
+  - **Columns**: FanGraphs' Guts! per-season linear-weight constants —
+    `woba`, `wobascale`, `wbb`, `whbp`, `w1b`, `w2b`, `w3b`, `whr`, `runsb`,
+    `runcs`, `r_pa`, `r_w`, `cfip`, all `numeric`.
+  - **Null policy**: source text cast to numeric **verbatim**; no re-derivation,
+    no interpolation of missing seasons; an empty source value → `NULL`.
+  - **Source**: `raw.fangraphs_guts` (full history 1871+). `mlb doctor` checks
+    every `gold.batting_season` season ≥ 2003 has a row.
+- **`gold.fangraphs_park_factors`**
+  - **Grain**: one row per `(season, team_id)` (composite PK), **`season >= 2003`**
+    (pre-2003 park factors are low value with an unstable franchise set and stay
+    in `raw`).
+  - **Columns**: `basic_5yr`, `pf_3yr`, `pf_1yr` (basic factors) and
+    `pf_1b`, `pf_2b`, `pf_3b`, `pf_hr`, `pf_so`, `pf_bb`, `pf_gb`, `pf_fb`,
+    `pf_ld`, `pf_iffb`, `pf_fip` (component factors), all `numeric`, kept as
+    FanGraphs publishes them.
+  - **Identity / null policy**: `raw.fangraphs_park_factors.team` is a FanGraphs
+    nickname, resolved to `core.team` through the `'fangraphs'` source block in
+    `core.team_alias` (34 aliases; CLE / TBA / WAS carry multiple
+    historically-accurate nicknames). A nickname with **no** alias produces **no
+    row** and is surfaced by an `mlb doctor` join-coverage check — never a null
+    or guessed team.
+
 ---
 
 ## 4. Raw Data Landing Tables (`raw.*`)

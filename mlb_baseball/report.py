@@ -437,6 +437,11 @@ _PITCHING_CAREER_SQL = read_sql("pitching_career_build.sql")
 # regular-season backbone above.
 _BATTING_POSTSEASON_SQL = read_sql("batting_postseason_build.sql")
 _PITCHING_POSTSEASON_SQL = read_sql("pitching_postseason_build.sql")
+# FanGraphs reference lookups (fangraphs-conform Beat 1, ADR-290) -- two
+# local_research-only lookups conformed from the raw.fangraphs_* landing tables
+# (#173). Both skip cleanly on a database that never ingested FanGraphs.
+_GOLD_FANGRAPHS_GUTS_SQL = read_sql("gold_fangraphs_guts.sql")
+_GOLD_FANGRAPHS_PARK_FACTORS_SQL = read_sql("gold_fangraphs_park_factors.sql")
 # Recognised Lahman postseason `round` codes: WS / NWS (Negro WS), CS / NNC /
 # NSC (Negro championship), and the league-prefixed rounds -- [AN] league,
 # optional [EWL] sub-division, then C(S) / DS<n> / WC<n> / DIV / P<n>.
@@ -625,13 +630,80 @@ def run() -> dict[str, int]:
             _PITCHING_POSTSEASON_SQL,
             source="raw.lahman_pitching_post",
         )
+        # FanGraphs reference lookups (fangraphs-conform Beat 1, ADR-290) --
+        # local_research only; skip cleanly if FanGraphs was never ingested.
+        counts["gold.fangraphs_guts"] = _build_backbone_relation(
+            conn,
+            "gold.fangraphs_guts",
+            _GOLD_FANGRAPHS_GUTS_SQL,
+            source="raw.fangraphs_guts",
+        )
+        counts["gold.fangraphs_park_factors"] = _build_backbone_relation(
+            conn,
+            "gold.fangraphs_park_factors",
+            _GOLD_FANGRAPHS_PARK_FACTORS_SQL,
+            source="raw.fangraphs_park_factors",
+        )
         conn.commit()
         result["rows"] = sum(counts.values())
     return counts
 
 
+def _fangraphs_health_checks() -> list[Check]:
+    """Coverage / identity checks for the fangraphs-conform Beat 1 lookups
+    (ADR-290). Each is appended only when its `raw.fangraphs_*` source is
+    present, so `mlb doctor` on a database that never ingested FanGraphs is
+    unchanged (no red, no noise)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.fangraphs_guts')")
+        (guts_present,) = fetch_one(cur)
+        cur.execute("SELECT to_regclass('raw.fangraphs_park_factors')")
+        (pf_present,) = fetch_one(cur)
+
+    checks: list[Check] = []
+    if guts_present is not None:
+        checks.append(check_table_has_rows("gold.fangraphs_guts"))
+        # Every modern batting season should have a FanGraphs Guts! constant
+        # row. season >= 2003 mirrors the park-factor scope; FanGraphs' Guts!
+        # table itself runs 1871+, so a gap here is a build/ingest problem,
+        # not a coverage limit of the source.
+        checks.append(
+            check_no_rows(
+                "every gold.batting_season season >= 2003 has a gold.fangraphs_guts row",
+                """
+                SELECT count(DISTINCT bs.season)
+                FROM gold.batting_season bs
+                LEFT JOIN gold.fangraphs_guts fg ON fg.season = bs.season
+                WHERE bs.season >= 2003 AND fg.season IS NULL
+                """,
+            )
+        )
+    if pf_present is not None:
+        # actual < expected => a raw.fangraphs_park_factors row (season >= 2003)
+        # did not conform, i.e. its FanGraphs nickname has no 'fangraphs'
+        # core.team_alias entry (add it to conform.py::_TEAM_ALIAS_SEED). The
+        # 2003+ franchise set is fully covered by the 34-alias seed, so the
+        # expected side is every 2003+ raw row -- a shortfall is an unresolved
+        # code, never a silent drop. actual > expected => alias fan-out.
+        checks.append(
+            check_join_coverage(
+                "gold.fangraphs_park_factors resolves every raw.fangraphs_park_factors "
+                "team for season >= 2003",
+                "SELECT count(*) FROM gold.fangraphs_park_factors",
+                """
+                SELECT count(*)
+                FROM raw.fangraphs_park_factors pf
+                WHERE NULLIF(pf.season, '')::integer >= 2003
+                """,
+                tolerance=0,
+            )
+        )
+    return checks
+
+
 def health_check() -> list[Check]:
     return [
+        *_fangraphs_health_checks(),
         check_table_has_rows("gold.player_season"),
         check_table_has_rows("gold.team_season"),
         check_table_has_rows("gold.division_standing"),

@@ -10,14 +10,14 @@ owner's to run and are recorded, not gated in CI.
 
 ## 1. Package setup
 
-- [ ] 1.1 Add `numpy>=1.26` to `[project].dependencies` in
+- [x] 1.1 Add `numpy>=1.26` to `[project].dependencies` in
   `packages/mlb-research/pyproject.toml`; add `scikit-learn` to the package's
   dev/test dependency group (create one if none exists) for the tie-out tests
   only. Verify: `uv sync` resolves; `uv run python -c "import numpy, mlb_research"`
   works; `uv run python -c "import mlb_research.backtest"` (once the module
   exists) shows neither `sklearn` nor `xgboost` in `sys.modules` (subprocess
   check, per slice 1's pattern).
-- [ ] 1.2 Create `packages/mlb-research/mlb_research/backtest.py` with the module
+- [x] 1.2 Create `packages/mlb-research/mlb_research/backtest.py` with the module
   docstring stating the contract (model-agnostic, time-ordered only, no DB, no
   model-training import) and the `Fold` / `FoldMetrics` / `BacktestResult`
   dataclasses from design D2. Verify: `import mlb_research.backtest` succeeds;
@@ -25,70 +25,70 @@ owner's to run and are recorded, not gated in CI.
 
 ## 2. Folds and frame assembly
 
-- [ ] 2.1 Failing test `packages/mlb-research/tests/test_backtest.py`:
+- [x] 2.1 Failing test `packages/mlb-research/tests/test_backtest.py`:
   `time_ordered_folds([2016, 2017])` returns two folds, train-through 2015/2016,
   and rejects unsorted or duplicate periods. Port
   `test_calendar_folds_are_strictly_ordered` verbatim against the new name.
   Verify: RED then GREEN.
-- [ ] 2.2 Implement `time_ordered_folds(test_periods, *, key="season")` (design
+- [x] 2.2 Implement `time_ordered_folds(test_periods, *, key="season")` (design
   D4) — same semantics and validation as `experiment.folds()`. Verify: 2.1
   passes.
-- [ ] 2.3 Failing test: given a frame with a null in a `required_cols` column,
+- [x] 2.3 Failing test: given a frame with a null in a `required_cols` column,
   that row is excluded from train and test and counted; a rate column is
   selected by name, not positionally. Verify: RED then GREEN.
-- [ ] 2.4 Implement the per-fold frame split: filter by `time_col` span, assert
+- [x] 2.4 Implement the per-fold frame split: filter by `time_col` span, assert
   `max(train[time_col]) < min(test[time_col])` (lifted from `run()`), drop and
   count `required_cols`-null rows. Verify: 2.3 passes; the separation assertion
   raises on an overlapping fixture.
 
 ## 3. Metrics in numpy
 
-- [ ] 3.1 Move `tests/unit/test_experiment_metrics.py`'s
+- [x] 3.1 Move `tests/unit/test_experiment_metrics.py`'s
   `test_probability_metrics_match_hand_calculation_and_are_deterministic` and
   `test_regression_metrics_match_hand_calculation_and_are_deterministic` into
   `test_backtest.py` against `mlb_research.backtest` (`brier == 0.0625`,
   `log_loss == -log(0.75)`, `mae == 1.25`, `rmse == 1.5`, determinism on a
   fixed seed). Verify: RED (no module) then GREEN.
-- [ ] 3.2 Implement `classification_metrics(y, p, seed)` and
+- [x] 3.2 Implement `classification_metrics(y, p, seed)` and
   `regression_metrics(y, ŷ, seed)` in numpy (design D5 table): log loss, Brier,
   accuracy / MAE, RMSE; the existing reliability-bin and bootstrap-CI code moved
   verbatim; the finite-in-`[0,1]` guard preserved. Verify: 3.1 passes.
-- [ ] 3.3 Implement `calibration(y, p)` — reliability bins (moved verbatim) plus
+- [x] 3.3 Implement `calibration(y, p)` — reliability bins (moved verbatim) plus
   the intercept/slope from a numpy IRLS 1-D logistic fit, keeping the
   `len(y) < 20` / `< 2 classes` → `None` guard and adding an
   iteration-cap → `None` fallback on non-convergence. Verify: a unit test on a
   fixture with a known separable-ish signal asserts a positive slope and finite
   intercept; the small-sample fixture still returns `None`.
-- [ ] 3.4 Tie-out test (imports `sklearn`): on one fixed fixture,
+- [x] 3.4 Tie-out test (imports `sklearn`): on one fixed fixture,
   `classification_metrics` matches `sklearn.metrics.log_loss` /
   `brier_score_loss` / `accuracy_score` within `1e-6`, and `calibration`'s
   slope/intercept match `LogisticRegression(C=1e6, …)` within `1e-3`. Verify:
   the test passes; it is in the dev/test group so CI without sklearn skips it
   cleanly (or sklearn is in the CI test env — state which).
-- [ ] 3.5 Move `_aggregate_metrics` / `_aggregate_regression_metrics` and
+- [x] 3.5 Move `_aggregate_metrics` / `_aggregate_regression_metrics` and
   `test_aggregate_regression_metrics_weighted_by_rows` (`mae == 3.5`,
   `rmse == 4.5`). Verify: the ported test passes.
 
 ## 4. The fit/score loop and the paired comparison
 
-- [ ] 4.1 Failing test: `run_backtest` over a 2-fold synthetic frame with a
+- [x] 4.1 Failing test: `run_backtest` over a 2-fold synthetic frame with a
   trivial `fit_fn` (returns the train mean) / `predict_fn` (broadcasts it)
   returns per-fold + aggregate metrics, the fold plan, and coverage counts; the
   aggregate row count equals the summed test rows. Verify: RED then GREEN.
-- [ ] 4.2 Implement `run_backtest(frame, folds, fit_fn, predict_fn, *, task,
+- [x] 4.2 Implement `run_backtest(frame, folds, fit_fn, predict_fn, *, task,
   time_col, label_col, feature_cols, required_cols=(), seed=0) -> BacktestResult`
   (design D2): per-fold split (task 2.4), `fit_fn` / `predict_fn`, metrics
   seeded `seed + test_period`, `coverage` dict with snapshot/common/excluded
   counts, aggregate. Verify: 4.1 passes; `run_backtest` never imports a
   model-training library (subprocess `sys.modules` check).
-- [ ] 4.3 Failing test: `paired_comparison(pred_a, pred_b, y, keys_a, keys_b)`
+- [x] 4.3 Failing test: `paired_comparison(pred_a, pred_b, y, keys_a, keys_b)`
   scores both models only over the intersecting keys and reports that count.
   Port the intent of `test_common_rows_filters_per_target_spec` /
   `experiment.compare`'s matched-sample logic. Verify: RED then GREEN.
-- [ ] 4.4 Implement `paired_comparison(...)` and move `_common_rows`'s
+- [x] 4.4 Implement `paired_comparison(...)` and move `_common_rows`'s
   column-null filter as a reusable `drop_incomplete(frame, required_cols)`.
   Verify: 4.3 passes.
-- [ ] 4.5 Sequential-model check (design D3): a test where `fit_fn` fits a
+- [x] 4.5 Sequential-model check (design D3): a test where `fit_fn` fits a
   running mean on the chronologically-ordered train frame and `predict_fn`
   walks test rows in `time_col` order predicting-then-updating produces the
   same result as a hand roll, and no future row influences an earlier
@@ -97,14 +97,14 @@ owner's to run and are recorded, not gated in CI.
 
 ## 5. `experiment.py` becomes the adapter
 
-- [ ] 5.1 Re-export the moved names: `from mlb_research.backtest import (...)` as
+- [x] 5.1 Re-export the moved names: `from mlb_research.backtest import (...)` as
   `folds`, `_metrics`, `_regression_metrics`, `_calibration`,
   `_residual_calibration`, `_aggregate_metrics`, `_aggregate_regression_metrics`,
   `_common_rows` (adapting the `spec` arg to `required_cols`). Verify: the
   remaining `tests/unit/test_experiment_metrics.py` imports resolve and its
   non-moved tests (`test_target_registry_specifications`,
   `test_validate_parameters_*`, `test_make_estimator_*`) still pass.
-- [ ] 5.2 Build the evaluation `DataFrame` from `_snapshot_rows()` inside `run()`
+- [x] 5.2 Build the evaluation `DataFrame` from `_snapshot_rows()` inside `run()`
   (`game_instance_key`, `season`, `feature_cutoff_at`, one column per
   `BASE_COLUMNS`, the label). Verify: a unit test asserts the frame's columns,
   dtypes, and row count for a small `SnapshotRow` list.

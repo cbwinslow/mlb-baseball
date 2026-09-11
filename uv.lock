@@ -2004,15 +2004,25 @@ source = { editable = "packages/mlb-research" }
 dependencies = [
     { name = "duckdb" },
     { name = "huggingface-hub" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pandas" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "scikit-learn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "duckdb", specifier = ">=1.0" },
     { name = "huggingface-hub", specifier = ">=0.24" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "pandas", specifier = ">=2.0" },
+    { name = "scikit-learn", marker = "extra == 'dev'", specifier = ">=1.4" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "mlb-statsapi"

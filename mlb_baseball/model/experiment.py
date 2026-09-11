@@ -18,12 +18,13 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from random import Random
 from typing import Any, Literal
 
 import numpy as np
+import pandas as pd
 import psycopg
 import xgboost as xgb
+from mlb_research import backtest as _backtest
 from sklearn.ensemble import (
     ExtraTreesClassifier,
     ExtraTreesRegressor,
@@ -34,13 +35,6 @@ from sklearn.ensemble import (
 )
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import BayesianRidge, LogisticRegression, Ridge
-from sklearn.metrics import (
-    accuracy_score,
-    brier_score_loss,
-    log_loss,
-    mean_absolute_error,
-    root_mean_squared_error,
-)
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import Pipeline
@@ -687,11 +681,32 @@ def _snapshot_rows(conn: psycopg.Connection, snapshot_id: str) -> list[SnapshotR
     ]
 
 
+def _evaluation_frame(rows: Sequence[SnapshotRow], spec: TargetSpec) -> pd.DataFrame:
+    """The tidy, one-row-per-game frame `mlb_research.backtest.run_backtest`
+    evaluates: identity/period/cutoff columns, one column per `BASE_COLUMNS`
+    feature, and the declared target's label."""
+    return pd.DataFrame(
+        {
+            "game_instance_key": [row.game_instance_key for row in rows],
+            "season": [row.season for row in rows],
+            "feature_cutoff_at": [row.feature_cutoff_at for row in rows],
+            **{column: [row.values.get(column) for row in rows] for column in BASE_COLUMNS},
+            "label": [spec.label(row) for row in rows],
+        }
+    )
+
+
 def folds(fold_years: Sequence[int]) -> tuple[Fold, ...]:
-    years = tuple(fold_years)
-    if not years or tuple(sorted(set(years))) != years:
-        raise ExperimentError("fold years must be unique, sorted calendar years")
-    return tuple(Fold(f"season-{year}", year - 1, year) for year in years)
+    """`Fold` boundary math has one implementation, `mlb_research.backtest
+    .time_ordered_folds`; this adapts its result back to `experiment.Fold`
+    (`train_through_season` / `test_season`, not `train_through` / `test`)
+    because that exact shape is a stored contract -- `meta.experiment
+    .fold_plan_json` and `meta.experiment_fold`'s columns are keyed on it."""
+    try:
+        generic_folds = _backtest.time_ordered_folds(fold_years)
+    except ValueError as exc:
+        raise ExperimentError("fold years must be unique, sorted calendar years") from exc
+    return tuple(Fold(fold.name, fold.train_through, fold.test) for fold in generic_folds)
 
 
 def _common_rows(
@@ -1155,121 +1170,17 @@ def _predictions(
     return np.asarray(predictions, dtype=np.float64)
 
 
-def _calibration(y: np.ndarray, probabilities: np.ndarray) -> dict[str, Any]:
-    bins = []
-    for index in range(10):
-        low, high = index / 10, (index + 1) / 10
-        mask = (probabilities >= low) & (
-            (probabilities < high) if index < 9 else (probabilities <= high)
-        )
-        if mask.any():
-            bins.append(
-                {
-                    "low": low,
-                    "high": high,
-                    "count": int(mask.sum()),
-                    "mean_probability": float(probabilities[mask].mean()),
-                    "observed_rate": float(y[mask].mean()),
-                }
-            )
-    if len(y) < 20 or len(np.unique(y)) < 2:
-        return {"bins": bins, "intercept": None, "slope": None}
-    clipped = np.clip(probabilities, 1e-6, 1 - 1e-6)
-    model = LogisticRegression(C=1_000_000, fit_intercept=True, max_iter=1_000).fit(
-        np.log(clipped / (1 - clipped)).reshape(-1, 1), y
-    )
-    return {
-        "bins": bins,
-        "intercept": float(model.intercept_[0]),
-        "slope": float(model.coef_[0][0]),
-    }
-
-
-def _residual_calibration(y: np.ndarray, predictions: np.ndarray) -> dict[str, Any]:
-    """Residual calibration for regression: bin games by predicted-value deciles
-    and report row count, mean prediction, and mean residual (actual - predicted).
-    A well-calibrated model has near-zero mean residual in every bin, not just
-    a low aggregate MAE."""
-    if len(y) == 0:
-        return {"bins": []}
-    quantiles = np.quantile(predictions, np.linspace(0.0, 1.0, 11))
-    bins = []
-    for index in range(10):
-        low, high = float(quantiles[index]), float(quantiles[index + 1])
-        mask = (predictions >= low) & ((predictions < high) if index < 9 else (predictions <= high))
-        if mask.any():
-            bins.append(
-                {
-                    "low": low,
-                    "high": high,
-                    "count": int(mask.sum()),
-                    "mean_prediction": float(predictions[mask].mean()),
-                    "mean_residual": float((y[mask] - predictions[mask]).mean()),
-                }
-            )
-    return {"bins": bins}
-
-
-def _metrics(y: np.ndarray, probabilities: np.ndarray, seed: int) -> dict[str, Any]:
-    if (
-        len(y) == 0
-        or not np.isfinite(probabilities).all()
-        or (probabilities < 0).any()
-        or (probabilities > 1).any()
-    ):
-        raise ExperimentError("model did not produce finite probabilities in [0, 1]")
-    scores = {
-        "rows": int(len(y)),
-        "log_loss": float(log_loss(y, probabilities, labels=[0, 1])),
-        "brier": float(brier_score_loss(y, probabilities)),
-        "accuracy": float(accuracy_score(y, probabilities >= 0.5)),
-        "calibration": _calibration(y, probabilities),
-    }
-    rng = Random(seed)
-    samples = []
-    for _ in range(200):
-        indexes = [rng.randrange(len(y)) for _ in range(len(y))]
-        sample_y, sample_p = y[indexes], probabilities[indexes]
-        samples.append(
-            (
-                float(log_loss(sample_y, sample_p, labels=[0, 1])),
-                float(brier_score_loss(sample_y, sample_p)),
-            )
-        )
-    samples.sort()
-    scores["log_loss_95ci"] = [samples[int(0.025 * 199)][0], samples[int(0.975 * 199)][0]]
-    briers = sorted(sample[1] for sample in samples)
-    scores["brier_95ci"] = [briers[int(0.025 * 199)], briers[int(0.975 * 199)]]
-    return scores
-
-
-def _regression_metrics(y: np.ndarray, predictions: np.ndarray, seed: int) -> dict[str, Any]:
-    if len(y) == 0 or not np.isfinite(predictions).all():
-        raise ExperimentError("model did not produce finite predictions")
-    mae = float(mean_absolute_error(y, predictions))
-    rmse = float(root_mean_squared_error(y, predictions))
-    scores: dict[str, Any] = {
-        "rows": int(len(y)),
-        "mae": mae,
-        "rmse": rmse,
-        "calibration": _residual_calibration(y, predictions),
-    }
-    rng = Random(seed)
-    samples: list[tuple[float, float]] = []
-    for _ in range(200):
-        indexes = [rng.randrange(len(y)) for _ in range(len(y))]
-        sample_y, sample_p = y[indexes], predictions[indexes]
-        samples.append(
-            (
-                float(mean_absolute_error(sample_y, sample_p)),
-                float(root_mean_squared_error(sample_y, sample_p)),
-            )
-        )
-    samples.sort()
-    scores["mae_95ci"] = [samples[int(0.025 * 199)][0], samples[int(0.975 * 199)][0]]
-    rmses = sorted(sample[1] for sample in samples)
-    scores["rmse_95ci"] = [rmses[int(0.025 * 199)], rmses[int(0.975 * 199)]]
-    return scores
+# The pure evaluation math (metrics, calibration, aggregation) has one
+# implementation, `mlb_research.backtest` -- these names are direct
+# re-exports so `experiment.py` keeps its existing call sites and
+# `tests/unit/test_experiment_metrics.py`'s imports resolve unchanged. Their
+# signatures and returned dict shapes are identical to the functions they
+# replace (only `calibration`'s intercept/slope now come from a numpy IRLS
+# fit instead of `sklearn.LogisticRegression`, within tie-out tolerance).
+_calibration = _backtest.calibration
+_residual_calibration = _backtest.residual_calibration
+_metrics = _backtest.classification_metrics
+_regression_metrics = _backtest.regression_metrics
 
 
 def _experiment_id(config: ExperimentConfig) -> str:
@@ -1299,44 +1210,8 @@ def _write_artifact(
     return str(path), digest
 
 
-def _aggregate_metrics(fold_results: dict[str, dict[str, Any]]) -> dict[str, float | int]:
-    rows = sum(int(metrics["rows"]) for metrics in fold_results.values())
-    if rows == 0:
-        raise ExperimentError("cannot aggregate an experiment with no scored rows")
-    return {
-        "rows": rows,
-        "log_loss": sum(
-            float(metrics["log_loss"]) * int(metrics["rows"]) for metrics in fold_results.values()
-        )
-        / rows,
-        "brier": sum(
-            float(metrics["brier"]) * int(metrics["rows"]) for metrics in fold_results.values()
-        )
-        / rows,
-        "accuracy": sum(
-            float(metrics["accuracy"]) * int(metrics["rows"]) for metrics in fold_results.values()
-        )
-        / rows,
-    }
-
-
-def _aggregate_regression_metrics(
-    fold_results: dict[str, dict[str, Any]],
-) -> dict[str, float | int]:
-    rows = sum(int(metrics["rows"]) for metrics in fold_results.values())
-    if rows == 0:
-        raise ExperimentError("cannot aggregate an experiment with no scored rows")
-    return {
-        "rows": rows,
-        "mae": sum(
-            float(metrics["mae"]) * int(metrics["rows"]) for metrics in fold_results.values()
-        )
-        / rows,
-        "rmse": sum(
-            float(metrics["rmse"]) * int(metrics["rows"]) for metrics in fold_results.values()
-        )
-        / rows,
-    }
+_aggregate_metrics = _backtest.aggregate_metrics
+_aggregate_regression_metrics = _backtest.aggregate_regression_metrics
 
 
 def _finalize_failed_run(conn: psycopg.Connection, sql: str, params: tuple[Any, ...]) -> None:

@@ -1,13 +1,17 @@
-import math
 from datetime import UTC, date, datetime
 
-import numpy as np
 import pytest
 
 from mlb_baseball.model import experiment
 
 
 def test_calendar_folds_are_strictly_ordered():
+    # experiment.folds() is a thin adapter over mlb_research.backtest
+    # .time_ordered_folds() (one implementation of the fold-boundary math);
+    # this covers its own contract -- translating back to experiment.Fold's
+    # train_through_season/test_season shape and ExperimentError. The
+    # underlying math itself is covered by
+    # packages/mlb-research/tests/test_backtest.py.
     assert experiment.folds((2016, 2017)) == (
         experiment.Fold("season-2016", 2015, 2016),
         experiment.Fold("season-2017", 2016, 2017),
@@ -16,37 +20,14 @@ def test_calendar_folds_are_strictly_ordered():
         experiment.folds((2017, 2016))
 
 
-def test_probability_metrics_match_hand_calculation_and_are_deterministic():
-    actual = np.array([1, 0])
-    probabilities = np.array([0.75, 0.25])
-
-    first = experiment._metrics(actual, probabilities, seed=7)
-    second = experiment._metrics(actual, probabilities, seed=7)
-
-    # Brier = ((.75 - 1)^2 + (.25 - 0)^2) / 2 = .0625.
-    assert first["brier"] == pytest.approx(0.0625)
-    # Log loss = -log(.75) when both samples receive the same probability
-    # assigned to the observed class.
-    assert first["log_loss"] == pytest.approx(-math.log(0.75))
-    assert first["accuracy"] == 1.0
-    assert first["log_loss_95ci"] == second["log_loss_95ci"]
-    assert first["calibration"]["intercept"] is None
-    assert first["calibration"]["bins"] == [
-        {
-            "low": 0.2,
-            "high": 0.3,
-            "count": 1,
-            "mean_probability": 0.25,
-            "observed_rate": 0.0,
-        },
-        {
-            "low": 0.7,
-            "high": 0.8,
-            "count": 1,
-            "mean_probability": 0.75,
-            "observed_rate": 1.0,
-        },
-    ]
+# test_probability_metrics_match_hand_calculation_and_are_deterministic,
+# test_regression_metrics_match_hand_calculation_and_are_deterministic, and
+# test_aggregate_regression_metrics_weighted_by_rows moved to
+# packages/mlb-research/tests/test_backtest.py: experiment._metrics /
+# _regression_metrics / _aggregate_regression_metrics are now direct
+# re-exports of mlb_research.backtest's classification_metrics /
+# regression_metrics / aggregate_regression_metrics, so the hand-fixture
+# coverage there is coverage here too -- one definition, one test.
 
 
 def test_target_registry_specifications():
@@ -101,40 +82,6 @@ def test_target_registry_specifications():
     )
     assert hw_spec.label(sample_row) == 1.0
     assert rd_spec.label(sample_row) == 3.0
-
-
-def test_regression_metrics_match_hand_calculation_and_are_deterministic():
-    # Hand-computed test vectors:
-    # actual:      [3.0, -1.0, 4.0,  0.0]
-    # predictions: [2.0,  1.0, 4.0, -2.0]
-    # errors (act - pred): [1.0, -2.0, 0.0, 2.0]
-    # abs errors: [1.0, 2.0, 0.0, 2.0] -> MAE = (1 + 2 + 0 + 2) / 4 = 1.25
-    # sq errors:  [1.0, 4.0, 0.0, 4.0] -> MSE = (1 + 4 + 0 + 4) / 4 = 2.25 -> RMSE = 1.5
-    actual = np.array([3.0, -1.0, 4.0, 0.0])
-    predictions = np.array([2.0, 1.0, 4.0, -2.0])
-
-    first = experiment._regression_metrics(actual, predictions, seed=42)
-    second = experiment._regression_metrics(actual, predictions, seed=42)
-
-    assert first["rows"] == 4
-    assert first["mae"] == pytest.approx(1.25)
-    assert first["rmse"] == pytest.approx(1.5)
-    assert first["mae_95ci"] == second["mae_95ci"]
-    assert first["rmse_95ci"] == second["rmse_95ci"]
-    assert len(first["calibration"]["bins"]) > 0
-
-
-def test_aggregate_regression_metrics_weighted_by_rows():
-    fold_results = {
-        "season-2016": {"rows": 10, "mae": 2.0, "rmse": 3.0},
-        "season-2017": {"rows": 30, "mae": 4.0, "rmse": 5.0},
-    }
-    agg = experiment._aggregate_regression_metrics(fold_results)
-    assert agg["rows"] == 40
-    # mae = (10 * 2.0 + 30 * 4.0) / 40 = 140 / 40 = 3.5
-    assert agg["mae"] == pytest.approx(3.5)
-    # rmse = (10 * 3.0 + 30 * 5.0) / 40 = 180 / 40 = 4.5
-    assert agg["rmse"] == pytest.approx(4.5)
 
 
 def test_validate_parameters_for_all_model_families():
@@ -294,6 +241,59 @@ def test_common_rows_filters_per_target_spec():
     # run_differential keeps row_full and row_no_rates (which has runs/wins), drops row_no_runs
     rd_filtered = experiment._common_rows([row_full, row_no_rates, row_no_runs], rd_spec)
     assert [r.game_instance_key for r in rd_filtered] == ["k1", "k2"]
+
+
+def test_evaluation_frame_has_the_expected_shape():
+    values: dict[str, float | None] = {"home_wins": 5.0, "home_win_pct": 0.55}
+    row_a = experiment.SnapshotRow(
+        "k1",
+        "pk1",
+        datetime(2024, 4, 1, 12, 0, tzinfo=UTC),
+        2024,
+        date(2024, 4, 1),
+        1,
+        1,
+        2,
+        5,
+        3,
+        values,
+        True,
+    )
+    row_b = experiment.SnapshotRow(
+        "k2",
+        "pk2",
+        datetime(2024, 4, 2, 12, 0, tzinfo=UTC),
+        2024,
+        date(2024, 4, 2),
+        1,
+        1,
+        2,
+        4,
+        6,
+        values,
+        True,
+    )
+    spec = experiment.TARGET_REGISTRY["home_win"]
+
+    frame = experiment._evaluation_frame([row_a, row_b], spec)
+
+    # Identity/period/cutoff columns, one per BASE_COLUMNS, then the label --
+    # this is the exact frame shape run_backtest scores.
+    assert list(frame.columns) == [
+        "game_instance_key",
+        "season",
+        "feature_cutoff_at",
+        *experiment.BASE_COLUMNS,
+        "label",
+    ]
+    assert len(frame) == 2
+    assert list(frame["game_instance_key"]) == ["k1", "k2"]
+    assert list(frame["season"]) == [2024, 2024]
+    assert list(frame["label"]) == [1.0, 1.0]
+    assert list(frame["home_wins"]) == [5.0, 5.0]
+    # home_rest isn't set on either row -- .values.get() leaves it missing
+    # rather than fabricating a zero.
+    assert frame["home_rest"].isna().all()
 
 
 @pytest.mark.parametrize(

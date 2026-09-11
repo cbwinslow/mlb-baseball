@@ -733,6 +733,9 @@ def _common_rows(
 
 
 def _matrix(rows: Sequence[SnapshotRow]) -> np.ndarray:
+    # Still used by feature_select.py's own stepwise/stability estimator
+    # fitting (SnapshotRow-based, not the DataFrame seam run_backtest owns)
+    # -- not dead code, despite run()/_estimator_factory no longer calling it.
     return np.array(
         [
             [np.nan if row.values[name] is None else row.values[name] for name in BASE_COLUMNS]
@@ -745,6 +748,7 @@ def _matrix(rows: Sequence[SnapshotRow]) -> np.ndarray:
 def _labels(
     rows: Sequence[SnapshotRow], spec: TargetSpec = TARGET_REGISTRY["home_win"]
 ) -> np.ndarray:
+    # Same as _matrix: still used by feature_select.py / feature_select_stepwise.py.
     if spec.task_type == "classification":
         return np.array([int(spec.label(row)) for row in rows], dtype=np.int64)
     return np.array([float(spec.label(row)) for row in rows], dtype=np.float64)
@@ -827,10 +831,10 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
             ]
         )
     if model_family == "svm":
-        # probability=True is required for predict_proba (_probabilities()
-        # calls it unconditionally for every family past the three
-        # hardcoded baselines) -- scikit-learn 1.9 deprecated this in favor
-        # of CalibratedClassifierCV(SVC(), ensemble=False), removal
+        # probability=True is required for predict_proba (_estimator_factory's
+        # classification predict_fn calls it unconditionally for every family
+        # past the four hardcoded baselines) -- scikit-learn 1.9 deprecated
+        # this in favor of CalibratedClassifierCV(SVC(), ensemble=False), removal
         # targeted for 1.11. Not switched to that wrapper yet: nesting SVC
         # inside CalibratedClassifierCV would push kernel/C/etc. behind an
         # `estimator__` prefix in get_params(deep=False), breaking this
@@ -1030,9 +1034,10 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
     unknown = sorted(set(parameters) - set(allowed))
     if unknown:
         raise ExperimentError(f"{model_family} has unsupported parameter(s): {', '.join(unknown)}")
-    # svm's probability=True default isn't just a preference -- _probabilities()
-    # unconditionally calls predict_proba() for every family past the three
-    # hardcoded baselines, which SVC only exposes when probability=True.
+    # svm's probability=True default isn't just a preference --
+    # _estimator_factory's classification predict_fn unconditionally calls
+    # predict_proba() for every family past the four hardcoded baselines,
+    # which SVC only exposes when probability=True.
     # `unknown` alone wouldn't catch an override to False: "probability" is a
     # real SVC constructor parameter, so it passes the generic allowed-set
     # check above -- confirmed directly: SVC(probability=False).predict_proba
@@ -1078,106 +1083,6 @@ def snapshot_integrity(conn: psycopg.Connection) -> dict[str, int]:
         "selection_hash_mismatches": selection_hash_mismatches,
         "row_count_mismatches": row_count_mismatches,
     }
-
-
-def _elo_probabilities(rows: Sequence[SnapshotRow], test_rows: Sequence[SnapshotRow]) -> np.ndarray:
-    """Walk prior outcomes and test games in cutoff order without future leakage."""
-    test_keys = {row.game_instance_key for row in test_rows}
-    ratings: dict[int, float] = {}
-    rating_season: dict[int, int] = {}
-    values: dict[str, float] = {}
-    for row in rows:
-        home = row.home_team_id
-        away = row.away_team_id
-        for team in (home, away):
-            if rating_season.get(team) not in (None, row.season):
-                ratings[team] = (
-                    ratings[team] * (1 - elo.REVERSION_WEIGHT)
-                    + elo.STARTING_ELO * elo.REVERSION_WEIGHT
-                )
-            rating_season[team] = row.season
-        home_elo = ratings.get(home, elo.STARTING_ELO)
-        away_elo = ratings.get(away, elo.STARTING_ELO)
-        probability = elo.expected_win_prob(home_elo, away_elo)
-        if row.game_instance_key in test_keys:
-            values[row.game_instance_key] = probability
-        if row.home_win:
-            score_diff = max(1, row.home_score - row.away_score)
-            mult = elo._mov_multiplier(score_diff, home_elo + elo.HOME_ADVANTAGE, away_elo)
-            ratings[home] = home_elo + elo.K_FACTOR * mult * (1 - probability)
-            ratings[away] = away_elo + elo.K_FACTOR * mult * (probability - 1)
-        else:
-            score_diff = max(1, row.away_score - row.home_score)
-            mult = elo._mov_multiplier(score_diff, away_elo, home_elo + elo.HOME_ADVANTAGE)
-            ratings[home] = home_elo + elo.K_FACTOR * mult * (0 - probability)
-            ratings[away] = away_elo + elo.K_FACTOR * mult * (probability - 0)
-    return np.array([values[row.game_instance_key] for row in test_rows], dtype=np.float64)
-
-
-def _probabilities(
-    config: ExperimentConfig,
-    all_rows: Sequence[SnapshotRow],
-    train_rows: Sequence[SnapshotRow],
-    test_rows: Sequence[SnapshotRow],
-    spec: TargetSpec,
-) -> np.ndarray:
-    parameters = config.parameters or {}
-    if config.model_family == "home_rate":
-        return np.full(len(test_rows), _labels(train_rows, spec).mean(), dtype=np.float64)
-    if config.model_family == "log5":
-        return np.array(
-            [
-                float(
-                    log5.probability(
-                        Decimal(str(row.values["home_win_pct"])),
-                        Decimal(str(row.values["away_win_pct"])),
-                    )
-                )
-                for row in test_rows
-            ],
-            dtype=np.float64,
-        )
-    if config.model_family == "elo":
-        return _elo_probabilities(all_rows, test_rows)
-    estimator = _make_estimator(config.model_family, parameters, config.seed)
-    estimator.fit(_matrix(train_rows), _labels(train_rows, spec))
-    probabilities = estimator.predict_proba(_matrix(test_rows))[:, 1]
-    return np.asarray(probabilities, dtype=np.float64)
-
-
-def _predictions(
-    config: ExperimentConfig,
-    all_rows: Sequence[SnapshotRow],
-    train_rows: Sequence[SnapshotRow],
-    test_rows: Sequence[SnapshotRow],
-    spec: TargetSpec,
-) -> np.ndarray:
-    parameters = config.parameters or {}
-    if config.model_family == "zero":
-        return np.zeros(len(test_rows), dtype=np.float64)
-    if config.model_family == "season_average":
-        preds: list[float] = []
-        for row in test_rows:
-            hw = row.values.get("home_wins") or 0.0
-            hl = row.values.get("home_losses") or 0.0
-            hrf = row.values.get("home_runs_for") or 0.0
-            hra = row.values.get("home_runs_allowed") or 0.0
-            hg = hw + hl
-            h_diff = (hrf - hra) / hg if hg > 0 else 0.0
-
-            aw = row.values.get("away_wins") or 0.0
-            al = row.values.get("away_losses") or 0.0
-            arf = row.values.get("away_runs_for") or 0.0
-            ara = row.values.get("away_runs_allowed") or 0.0
-            ag = aw + al
-            a_diff = (arf - ara) / ag if ag > 0 else 0.0
-
-            preds.append(h_diff - a_diff)
-        return np.array(preds, dtype=np.float64)
-    estimator = _make_estimator(config.model_family, parameters, config.seed)
-    estimator.fit(_matrix(train_rows), _labels(train_rows, spec))
-    predictions = estimator.predict(_matrix(test_rows))
-    return np.asarray(predictions, dtype=np.float64)
 
 
 def _elo_step(ratings: dict[int, float], rating_season: dict[int, int], row: Any) -> float:

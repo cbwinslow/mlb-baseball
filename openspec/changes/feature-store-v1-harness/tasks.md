@@ -120,13 +120,51 @@ owner's to run and are recorded, not gated in CI.
   `tests/integration/test_experiment.py` passes **unchanged** (row counts,
   `aggregate["rows"] == 14`, fold names, artifact SHA naming, resume, failed
   run, `compare`).
-- [ ] 5.5 Rewrite `compare()` to read stored predictions and call
-  `paired_comparison`. Verify: `test_experiment.py::…compare…` assertions pass
-  unchanged.
-- [ ] 5.6 Remove the now-dead `_probabilities` / `_predictions` /
-  `_calibration` / `_metrics` / … definitions from `experiment.py` (they are
-  re-exports now). Verify: `ruff` reports no unused, `grep` shows no local
-  redefinition shadowing the import, `mypy mlb_baseball` clean.
+- [ ] 5.5 **BLOCKED on an owner decision -- not implemented as written.**
+  `compare()`'s current flat per-model-per-fold `metrics_json` listing is a
+  real, load-bearing CLI feature: `mlb experiment compare --snapshot <id>`
+  (`experiment_commands.add_parser("compare", help="show saved fold
+  metrics")` in `cli.py`) prints `row['model']`/`row['fold']` plus
+  `_format_metrics_line(row)`, which reads `log_loss`/`brier` or
+  `mae`/`rmse` directly off each row. A `paired_comparison`-based rewrite is
+  inherently pairwise (it scores exactly two models' predictions over their
+  common keys) and cannot produce that same flat single-model-per-row shape
+  without either breaking `_format_metrics_line` or `compare()` silently
+  becoming a different, differently-shaped function. This also contradicts
+  `proposal.md`'s own "What Changes": "Its public API is unchanged —
+  `run()`, `compare()`, ... all keep their signatures **and behavior**."
+  `compare()` is left unchanged (still reads `meta.experiment_fold
+  .metrics_json`, not raw predictions) pending an owner decision on one of:
+  (a) keep `compare()` as-is and treat `paired_comparison` as a
+  `mlb_research`-shipped utility with no `mlb_baseball` caller yet (it is
+  still directly tested in `packages/mlb-research/tests/test_backtest.py`,
+  task 4.3/4.4); (b) add a **new** CLI subcommand/function for the
+  matched-sample pairwise comparison, leaving `compare()`'s existing output
+  and CLI behavior untouched; (c) accept breaking `mlb experiment compare`'s
+  current output shape as a deliberate, documented behavior change (update
+  `cli.py`, `docs/EXPERIMENT_RUNBOOK.md`, and this proposal's "unchanged"
+  claim together). Verify (once decided): the chosen option's exact
+  contract, plus `tests/integration/test_experiment.py`'s
+  `assert any(row["model"] == model_family for row in comparison)` and any
+  CLI dispatch test for `experiment compare`.
+- [x] 5.6 Removed `_probabilities` / `_predictions` / `_elo_probabilities`
+  (superseded by `_estimator_factory` + `run_backtest`, task 5.4).
+  `_calibration` / `_metrics` / `_regression_metrics` / `_aggregate_metrics` /
+  `_aggregate_regression_metrics` were already re-exports (task 5.1), not
+  local defs to remove. **`_matrix` / `_labels` kept** -- `ruff` alone
+  wouldn't have caught this: `mlb_baseball/model/feature_select.py` and
+  `feature_select_stepwise.py` import both directly for their own
+  SnapshotRow-based stepwise/stability estimator fitting, a separate
+  pipeline this slice doesn't touch. Discovered by running the unit suite
+  after the initial deletion (`ImportError: cannot import name '_labels'`),
+  not by `ruff`/`grep`/`mypy mlb_baseball` alone -- ruff and mypy only see
+  `experiment.py` itself, not cross-module importers; the task's own verify
+  list was insufficient by itself. Verify done: `ruff check` + `ruff format`
+  + `mypy mlb_baseball/model/experiment.py` clean; `grep` for a shadowing
+  local def of the re-exported names is empty;
+  `tests/unit/` (1226 passed), `tests/integration/test_experiment.py` +
+  `test_feature_select.py` + `test_feature_select_stepwise.py` all green
+  (real PostgreSQL).
 
 ## 6. Documentation
 

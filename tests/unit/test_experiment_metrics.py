@@ -407,36 +407,63 @@ _REGRESSION_FAMILIES = (
 )
 
 
+# Captured once from experiment._probabilities/_predictions (the pre-slice-2
+# SnapshotRow-based implementation, byte-for-byte the same math this
+# fixture's _estimator_factory output is now checked against) before those
+# functions were deleted as dead code (task 5.6) -- pins the exact numeric
+# output per family rather than re-deriving it from code this test would
+# then be comparing against itself.
+_EXPECTED_CLASSIFICATION_PREDICTIONS = {
+    "home_rate": [0.6666666667, 0.6666666667, 0.6666666667],
+    "log5": [0.6, 0.6, 0.6],
+    "elo": [0.5353566039, 0.5336110744, 0.5338020016],
+    "logistic": [0.6666684457, 0.6666684457, 0.6666684457],
+    "hist_gradient_boosting": [0.6666666667, 0.6666666667, 0.6666666667],
+    "xgboost": [0.6666666865, 0.6666666865, 0.6666666865],
+    "random_forest": [0.73, 0.73, 0.73],
+    "extra_trees": [1.0, 1.0, 1.0],
+    "gam": [0.9130932256, 0.9130932256, 0.9130932256],
+    "svm": [0.3913451218, 0.4289719063, 0.4294128993],
+    "bayesian": [1.0, 1.0, 1.0],
+    "neural": [0.999995193, 0.9999999968, 1.0],
+}
+_EXPECTED_REGRESSION_PREDICTIONS = {
+    "zero": [0.0, 0.0, 0.0],
+    "season_average": [0.3111111111, 0.3403508772, 0.3666666667],
+    "ridge": [4.7619047619, 6.4761904762, 8.1904761905],
+    "hist_gradient_boosting_regressor": [1.3333333333, 1.3333333333, 1.3333333333],
+    "xgboost_regressor": [5.6289200783, 5.6289200783, 5.6289200783],
+    "random_forest_regressor": [3.12, 3.12, 3.12],
+    "extra_trees_regressor": [6.0, 6.0, 6.0],
+    "gam_regressor": [5.7619047619, 5.7619047619, 5.7619047619],
+    "svm_regressor": [2.4413028222, 2.2231287955, 2.2206527852],
+    "bayesian_regressor": [1.3379647009, 1.3402803847, 1.3425960685],
+    "neural_regressor": [14.0945376978, 21.4599101866, 28.8230956418],
+}
+
+
 @pytest.mark.parametrize("model_family", _CLASSIFICATION_FAMILIES)
 def test_estimator_factory_matches_probabilities_on_a_fixed_fixture(model_family):
     spec = experiment.TARGET_REGISTRY["home_win"]
-    rows = _estimator_factory_fixture_rows()
-    train_rows, test_rows = rows[:3], rows[3:]
     config = experiment.ExperimentConfig(snapshot_id="s", model_family=model_family, seed=0)
-
-    expected = experiment._probabilities(config, rows, train_rows, test_rows, spec)
 
     _, _, train_frame, test_frame = _split_factory_fixture(spec)
     fit_fn, predict_fn = experiment._estimator_factory(config, spec)
     actual = predict_fn(fit_fn(train_frame), test_frame)
 
-    assert np.allclose(actual, expected)
+    assert np.allclose(actual, _EXPECTED_CLASSIFICATION_PREDICTIONS[model_family], atol=1e-9)
 
 
 @pytest.mark.parametrize("model_family", _REGRESSION_FAMILIES)
 def test_estimator_factory_matches_predictions_on_a_fixed_fixture(model_family):
     spec = experiment.TARGET_REGISTRY["run_differential"]
-    rows = _estimator_factory_fixture_rows()
-    train_rows, test_rows = rows[:3], rows[3:]
     config = experiment.ExperimentConfig(snapshot_id="s", model_family=model_family, seed=0)
-
-    expected = experiment._predictions(config, rows, train_rows, test_rows, spec)
 
     _, _, train_frame, test_frame = _split_factory_fixture(spec)
     fit_fn, predict_fn = experiment._estimator_factory(config, spec)
     actual = predict_fn(fit_fn(train_frame), test_frame)
 
-    assert np.allclose(actual, expected)
+    assert np.allclose(actual, _EXPECTED_REGRESSION_PREDICTIONS[model_family], atol=1e-9)
 
 
 @pytest.mark.parametrize(

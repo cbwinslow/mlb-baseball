@@ -310,8 +310,13 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   backtest harness, one reference baseline model (Elo v2) + model card.
   Sliced in `openspec/changes/feature-store-v1/` (slice 1 = DuckDB `feat.*`
   layer + `get_historical_features` + leakage checks + `mlb build` /
-  `mlb verify`; slice 2 = harness extraction into `mlb_research`; slice 3 =
-  Elo v2 + model card + publish). Design input:
+  `mlb verify` ✅; slice 2 = harness extraction into `mlb_research` ✅
+  (`mlb_research.backtest`: `time_ordered_folds`/`run_backtest`/
+  `paired_comparison`, numpy-only metrics/calibration, `experiment.py` now a
+  thin adapter — `feature-store-v1-harness`; one open item, `compare()`'s
+  `paired_comparison` rewrite, blocked on an owner decision, see that
+  change's `tasks.md` task 5.5); slice 3 = Elo v2 + model card + publish, not
+  started). Design input:
   `docs/research/2026-09-04-modeling-and-realtime-plan.md` and two Opus
   design reviews (`feature-store-v1/DESIGN_REVIEW.md`); ADR-287 for the
   Postgres/DuckDB boundary. **feat.* is DuckDB-only — no Postgres `feat`

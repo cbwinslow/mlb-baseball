@@ -156,17 +156,26 @@ relaxation, three-command CLI) is more than one reviewable PR. It splits into
 three independently-shippable slices. Only slice 1 is specified in `tasks.md`;
 slices 2 and 3 become their own OpenSpec changes.
 
-**Slice 2 — `feature-store-v1-harness`.** Extract the walk-forward harness out
-of `mlb_baseball/model/experiment.py` (a 1,586-line module that imports sklearn
-and xgboost at module scope) into `mlb_research`: `folds()` (time-ordered, never
-random), the as-of frame assembly, the fit/score loop, log loss / Brier / a
-reliability (calibration) table, and the matched-sample "common games" paired
-comparison. **numpy + pandas only** — model fitting is a caller-supplied
-`fit_fn` / `predict_fn` callback pair, so sklearn, xgboost, and PyMC become the
-*user's* dependency, not the package's. `mlb_baseball` then calls the shared
-harness across the dependency direction slice 1 establishes, so there is one
-implementation and both products use it. About 200 lines of genuinely new code;
-everything else is a move plus a callback seam.
+**Slice 2 — `feature-store-v1-harness` — done.** Extracted the walk-forward
+harness out of `mlb_baseball/model/experiment.py` into
+`mlb_research.backtest`: `time_ordered_folds()` (time-ordered, never random),
+the as-of frame split, the fit/score loop (`run_backtest`), numpy log loss /
+Brier / a reliability (calibration) table via a hand-rolled IRLS logistic fit
+(replacing the `sklearn.LogisticRegression` call), and the matched-sample
+"common games" paired comparison (`paired_comparison`). **numpy + pandas
+only** — model fitting is a caller-supplied `fit_fn` / `predict_fn` callback
+pair, so sklearn, xgboost, and a hand-written Elo are the *caller's*
+dependency, not the package's; a sequential/stateful model (Elo) gets its
+test rows in cutoff order, predicting before its own update folds in.
+`experiment.py`'s `run()` is now a thin adapter calling the shared harness
+across the dependency direction slice 1 establishes — one implementation,
+both products. `experiment.py`'s public API and `meta.experiment*` writes
+are behaviorally unchanged (`tests/integration/test_experiment.py` passes
+unmodified). One open item carried forward, not resolved in this slice:
+`compare()`'s rewrite to `paired_comparison` conflicts with the CLI's
+existing flat per-model-per-fold output (`mlb experiment compare`) and is
+blocked on an owner decision — see
+`openspec/changes/feature-store-v1-harness/tasks.md` task 5.5.
 
 **Slice 3 — `feature-store-v1-baseline`.** Elo v2 and its model card, both pure
 numpy inside `mlb_research`: team Elo plus home field (v1's math, unchanged),

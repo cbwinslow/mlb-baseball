@@ -11,7 +11,16 @@ The Engine (Phase B of the ladder) is **SPECULATIVE and gated**: it does not sta
 ## Ownership
 
 - Existing model/statistical implementations that have not yet been moved to a neutral `stats/` package.
-- Point-in-time model/evaluation helpers and backtesting logic.
+- Point-in-time model/evaluation helpers and backtesting logic. The pure
+  evaluation math (fold construction, metrics, calibration, aggregation) has
+  **one implementation, `mlb_research.backtest`** (feature-store-v1 slice 2)
+  -- `experiment.py`'s `run()` is that harness's `mlb_baseball`-side adapter:
+  it builds the evaluation `DataFrame` from `meta.experiment_snapshot`,
+  wraps the sklearn/xgboost estimator zoo and the `elo`/`log5`/`home_rate`
+  families as `fit_fn`/`predict_fn` factories, calls
+  `mlb_research.backtest.run_backtest`, and writes the result to
+  `meta.experiment*` exactly as before. Do not reimplement fold/metric math
+  locally; extend `mlb_research.backtest` and re-export.
 - Research prototypes that are still actively validated or used.
 - Compatibility exports currently exposed from `model/__init__.py`.
 

@@ -122,8 +122,14 @@ Two surfaces need no local database or clone of this repository -- see
   season=2023)` returns a `pandas.DataFrame`. It also exposes
   `mlb_research.get_historical_features(entity_df, ["player_form:obp_30d", ...])`
   for point-in-time training rows from a locally built DuckDB feature store
-  (see [FEATURE_STORE.md](FEATURE_STORE.md)). Full API in that package's own
-  [README.md](../packages/mlb-research/README.md).
+  (see [FEATURE_STORE.md](FEATURE_STORE.md)). It also ships
+  `mlb_research.backtest`, a model-agnostic walk-forward evaluation harness
+  (`run_backtest`, `time_ordered_folds`, `paired_comparison`) -- numpy +
+  pandas only, no `sklearn`/`xgboost` import; model fitting is a
+  caller-supplied `fit_fn`/`predict_fn` pair. `mlb_baseball/model/
+  experiment.py` is its `mlb_baseball`-side adapter: the same evaluation
+  math, applied to the local Postgres-backed experiment lab. Full API in
+  that package's own [README.md](../packages/mlb-research/README.md).
 - **The DuckDB-WASM query page** (`docs/site/query/`) -- runs visitor SQL
   against the published Parquet entirely in the browser, published via
   GitHub Pages (`.github/workflows/pages.yml`). No server, no account.

@@ -168,18 +168,18 @@ owner's to run and are recorded, not gated in CI.
 
 ## 6. Documentation
 
-- [ ] 6.1 `packages/mlb-research/README.md`: a "Backtesting" section — the
+- [x] 6.1 `packages/mlb-research/README.md`: a "Backtesting" section — the
   `run_backtest` / `time_ordered_folds` / `paired_comparison` signatures, the
   `fit_fn` / `predict_fn` contract, a copy-pasteable sklearn-callback example
   and a no-sklearn (numpy Elo-style) example. Verify: both examples run in a
   clean env with `mlb-research` + `numpy` only (the sklearn one needs sklearn).
-- [ ] 6.2 `docs/PUBLIC_API.md`: add `mlb_research.backtest` to the consuming
+- [x] 6.2 `docs/PUBLIC_API.md`: add `mlb_research.backtest` to the consuming
   surface. `docs/RESEARCH.md`: the harness is now a shipped, model-agnostic
   surface — its strict time-ordering, the callback seam, "probability quality
   not accuracy". `mlb_baseball/model/AGENTS.md`: the pure evaluation math lives
   in `mlb_research.backtest`; `experiment.py` is its adapter. Verify:
   `mkdocs build --strict` clean; the AGENTS.md child-index / DOX check passes.
-- [ ] 6.3 Note slice 2 done in the `feature-store-v1` roadmap
+- [x] 6.3 Note slice 2 done in the `feature-store-v1` roadmap
   (`proposal.md` — Roadmap) or wherever the roadmap now lives, and update
   `openspec/project.md`'s `NOW / NEXT / LATER` if it tracks the slices. Verify:
   `openspec validate --all` passes.

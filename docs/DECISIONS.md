@@ -2,6 +2,58 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-290: FanGraphs Guts! constants + park factors conform into `gold` reference lookups (Beat 1)
+
+**Decision:** The `fangraphs-conform` change's **Beat 1** surfaces exactly two
+FanGraphs reference lookups from the (shipped-in-#173, ADR-288, so-far-unused)
+`raw.fangraphs_*` landing tables, both `local_research` only:
+
+- **`gold.fangraphs_guts`** — one row per season, conformed verbatim from
+  `raw.fangraphs_guts` (FanGraphs' Guts! per-season wOBA / FIP linear-weight
+  constants). Numeric cast only, no re-derivation, no interpolation of missing
+  seasons. `season` is the key.
+- **`gold.fangraphs_park_factors`** — one row per `(season, team_id)` from
+  `raw.fangraphs_park_factors`, **scoped `season >= 2003`**. `team` is a
+  FanGraphs nickname resolved to `core.team` through a new `'fangraphs'` source
+  block in `core.team_alias` (34 aliases; CLE / TBA / WAS carry multiple
+  historically-accurate nicknames). Component factors kept as published. An
+  unresolved nickname produces no row and is surfaced by an `mlb doctor`
+  join-coverage check, never silently dropped.
+
+Both are built by `mlb report` (`report._build_backbone_relation`,
+truncate-and-replace, idempotent, skips cleanly on a database that never
+ingested FanGraphs). One additive migration (`0104_gold_fangraphs_reference.sql`)
+creates the two tables and swaps `core.team_alias`'s single-column
+`UNIQUE(alias)` for `UNIQUE(alias, source)` — the correct key for a
+multi-source alias crosswalk, needed because FanGraphs shares the strings
+`"Athletics"` / `"Rays"` with the existing `'rebrand'` block.
+
+**Reference / cross-check only.** `gold.fangraphs_guts` is for era-accurate
+*internal* work. A wOBA / FIP / park-factor figure the project **publishes** is
+computed from the project's own `core.play`, not from here. No
+`gold.fangraphs_*` relation may be `public_safe`, appear in the published
+`mlb-research` dataset, or be a reference-baseline-model input; a standing test
+(`tests/unit/test_fangraphs_conform_rights.py`) guards the export registry.
+
+**Deferred to Beat 2 — `feat.fangraphs_projection`:** conforming
+`raw.fangraphs_projection` into a DuckDB `feat.*` relation with as-of
+(`captured_date`) retrieval is explicitly held back, because (a) doing it now
+would bake a can-never-ship (`local_research`) dependency into the walk-forward
+harness's public contract while that interface is still being set; (b) `feat.*`
+is rebuilt by `mlb build`, which *ships as code*, so `feat.fangraphs_projection`
+is "local-by-construction," not automatically "internal-only" — a deliberate
+rights-profile decision Beat 2 must make, not inherit; (c) once the harness has
+a register-a-forecaster interface, projections plug in cleanly as an optional
+forecaster rather than a built-in.
+
+**Also deferred:** the full FanGraphs WAR / wOBA / wRC+ / Stuff+ / PitchingBot
+season-line conform, split leaderboards, THE BOARD prospects, and a
+*project-computed* per-season constants table for the publishable path.
+
+**Not changed here:** `research.py`'s fixed `wOBA = 0.69·uBB + …` weight string.
+A follow-up (its own change) audits every consumer of a fixed weight and
+switches internal / non-published paths to a `gold.fangraphs_guts` join.
+
 ## ADR-289: the 2026-onward statistic backbone is built from MLB's box score; play-by-play is the tie-out
 
 **Decision:** `gold.batting_game` / `gold.pitching_game` — and the season / team /

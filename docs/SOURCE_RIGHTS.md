@@ -23,6 +23,16 @@ specific permitted use, attribution wording, redistribution terms, ML/model
 training permission, generated-content permission, commercial permission, and
 review date in the same pull request.
 
+Derived relations inherit their most-restrictive source. `gold.fangraphs_guts`
+and `gold.fangraphs_park_factors` (fangraphs-conform Beat 1, ADR-290) are
+conformed from `raw.fangraphs_*` and carry FanGraphs' `local_research` posture:
+never `public_safe`, never in the published `mlb-research` dataset, never a
+reference-baseline-model input. `gold.fangraphs_guts` is a cross-check /
+reference only — a wOBA / FIP / park-factor figure the project publishes is
+computed from `core.play`, not from these. A standing test
+(`tests/unit/test_fangraphs_conform_rights.py`) blocks a `public_safe` entry for
+any `gold.fangraphs_*` relation in the export registry.
+
 ## Enforced profiles
 
 - `local_research` is the default and permits owner-controlled research intake.

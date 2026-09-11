@@ -83,13 +83,17 @@ def _split_fold(
     by `time_col` (design D3): a sequential model's `predict_fn` walks test
     rows in this order, predicting from its state before folding that row's
     own outcome in -- leak-free only because the harness, not the caller,
-    guarantees the order.
+    guarantees the order. The sort is stable, so rows sharing the same
+    `time_col` value (e.g. games starting at the same instant) keep their
+    relative order from `frame` rather than an arbitrary one.
     """
     period_col = period_col or time_col
     complete = drop_incomplete(frame, required_cols)
     excluded = len(frame) - len(complete)
-    train = complete[complete[period_col] <= fold.train_through].sort_values(time_col)
-    test = complete[complete[period_col] == fold.test].sort_values(time_col)
+    train = complete[complete[period_col] <= fold.train_through].sort_values(
+        time_col, kind="stable"
+    )
+    test = complete[complete[period_col] == fold.test].sort_values(time_col, kind="stable")
     if len(train) and len(test) and train[time_col].max() >= test[time_col].min():
         raise ValueError(f"{fold.name} violates chronological cutoff separation")
     return train, test, excluded

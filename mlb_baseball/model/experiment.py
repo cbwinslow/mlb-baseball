@@ -683,14 +683,24 @@ def _snapshot_rows(conn: psycopg.Connection, snapshot_id: str) -> list[SnapshotR
 
 def _evaluation_frame(rows: Sequence[SnapshotRow], spec: TargetSpec) -> pd.DataFrame:
     """The tidy, one-row-per-game frame `mlb_research.backtest.run_backtest`
-    evaluates: identity/period/cutoff columns, one column per `BASE_COLUMNS`
-    feature, and the declared target's label."""
+    evaluates: identity/period/cutoff/outcome columns, the `BASE_COLUMNS` +
+    `LOG5_COLUMNS` features every model family in `run()`'s zoo can need
+    (the sklearn/xgboost families read `BASE_COLUMNS` via `feature_cols`;
+    `log5` reads `LOG5_COLUMNS` directly; `elo` needs the team ids and
+    scores to replay its rating walk), and the declared target's label.
+    """
+    feature_columns = tuple(dict.fromkeys((*BASE_COLUMNS, *LOG5_COLUMNS)))
     return pd.DataFrame(
         {
             "game_instance_key": [row.game_instance_key for row in rows],
             "season": [row.season for row in rows],
             "feature_cutoff_at": [row.feature_cutoff_at for row in rows],
-            **{column: [row.values.get(column) for row in rows] for column in BASE_COLUMNS},
+            "home_team_id": [row.home_team_id for row in rows],
+            "away_team_id": [row.away_team_id for row in rows],
+            "home_score": [row.home_score for row in rows],
+            "away_score": [row.away_score for row in rows],
+            "home_win": [row.home_win for row in rows],
+            **{column: [row.values.get(column) for row in rows] for column in feature_columns},
             "label": [spec.label(row) for row in rows],
         }
     )
@@ -1168,6 +1178,161 @@ def _predictions(
     estimator.fit(_matrix(train_rows), _labels(train_rows, spec))
     predictions = estimator.predict(_matrix(test_rows))
     return np.asarray(predictions, dtype=np.float64)
+
+
+def _elo_step(ratings: dict[int, float], rating_season: dict[int, int], row: Any) -> float:
+    """One Elo prediction-then-update step: predict from the current
+    ratings, then fold `row`'s own outcome in. Shared by `_elo_fit`
+    (replaying history to build state) and `_elo_predict` (walking test
+    rows) so both do the exact same math as the original
+    `_elo_probabilities` walk, just split at the fold boundary. Mutates
+    `ratings`/`rating_season` in place; returns the predicted home-win
+    probability, computed before this row's own update."""
+    home, away = row.home_team_id, row.away_team_id
+    for team in (home, away):
+        if rating_season.get(team) not in (None, row.season):
+            ratings[team] = (
+                ratings[team] * (1 - elo.REVERSION_WEIGHT) + elo.STARTING_ELO * elo.REVERSION_WEIGHT
+            )
+        rating_season[team] = row.season
+    home_elo = ratings.get(home, elo.STARTING_ELO)
+    away_elo = ratings.get(away, elo.STARTING_ELO)
+    probability = elo.expected_win_prob(home_elo, away_elo)
+    if row.home_win:
+        score_diff = max(1, row.home_score - row.away_score)
+        mult = elo._mov_multiplier(score_diff, home_elo + elo.HOME_ADVANTAGE, away_elo)
+        ratings[home] = home_elo + elo.K_FACTOR * mult * (1 - probability)
+        ratings[away] = away_elo + elo.K_FACTOR * mult * (probability - 1)
+    else:
+        score_diff = max(1, row.away_score - row.home_score)
+        mult = elo._mov_multiplier(score_diff, away_elo, home_elo + elo.HOME_ADVANTAGE)
+        ratings[home] = home_elo + elo.K_FACTOR * mult * (0 - probability)
+        ratings[away] = away_elo + elo.K_FACTOR * mult * (probability - 0)
+    return probability
+
+
+def _elo_fit(train: pd.DataFrame) -> tuple[dict[int, float], dict[int, int]]:
+    """`fit_fn` for `elo`: replay every train row (already time-ordered by
+    `run_backtest`) to build the ratings state as of the fold boundary."""
+    ratings: dict[int, float] = {}
+    rating_season: dict[int, int] = {}
+    for row in train.itertuples():
+        _elo_step(ratings, rating_season, row)
+    return ratings, rating_season
+
+
+def _elo_predict(state: tuple[dict[int, float], dict[int, int]], test: pd.DataFrame) -> np.ndarray:
+    """`predict_fn` for `elo`: continue the walk over test rows (also
+    time-ordered), copying the fitted state so repeated calls never mutate
+    it. Leak-free because `run_backtest` guarantees time_col order and this
+    predicts before each row's own update."""
+    ratings, rating_season = dict(state[0]), dict(state[1])
+    return np.array(
+        [_elo_step(ratings, rating_season, row) for row in test.itertuples()], dtype=np.float64
+    )
+
+
+def _season_average_predictions(test: pd.DataFrame) -> np.ndarray:
+    """`predict_fn` for `season_average`: a stateless per-row formula, so
+    there is no `fit_fn` state to build."""
+
+    def to_float(value: Any) -> float:
+        # A missing BASE_COLUMNS value is NaN in the DataFrame (not None as
+        # in SnapshotRow.values), and `NaN or 0.0` is NaN (NaN is truthy) --
+        # so this needs pd.notna(), not the original SnapshotRow code's
+        # `value or 0.0` idiom, to treat missing the same way: 0.0.
+        return float(value) if pd.notna(value) else 0.0
+
+    predictions = []
+    for row in test.itertuples():
+        hw, hl = to_float(row.home_wins), to_float(row.home_losses)
+        hrf, hra = to_float(row.home_runs_for), to_float(row.home_runs_allowed)
+        hg = hw + hl
+        h_diff = (hrf - hra) / hg if hg > 0 else 0.0
+
+        aw, al = to_float(row.away_wins), to_float(row.away_losses)
+        arf, ara = to_float(row.away_runs_for), to_float(row.away_runs_allowed)
+        ag = aw + al
+        a_diff = (arf - ara) / ag if ag > 0 else 0.0
+
+        predictions.append(h_diff - a_diff)
+    return np.array(predictions, dtype=np.float64)
+
+
+def _estimator_factory(
+    config: ExperimentConfig, spec: TargetSpec
+) -> tuple[Callable[[pd.DataFrame], Any], Callable[[Any, pd.DataFrame], np.ndarray]]:
+    """One `(fit_fn, predict_fn)` pair per model family, closing over
+    `config`/`spec`, for `mlb_research.backtest.run_backtest`. Reproduces
+    `_probabilities`/`_predictions`/`_elo_probabilities`'s exact math on the
+    DataFrame seam the harness owns."""
+    parameters = config.parameters or {}
+    family = config.model_family
+
+    if family == "home_rate":
+
+        def home_rate_fit(train: pd.DataFrame) -> float:
+            return float(train["label"].to_numpy(dtype=np.float64).mean())
+
+        def home_rate_predict(mean: float, test: pd.DataFrame) -> np.ndarray:
+            return np.full(len(test), mean, dtype=np.float64)
+
+        return home_rate_fit, home_rate_predict
+
+    if family == "log5":
+
+        def log5_fit(_train: pd.DataFrame) -> None:
+            return None
+
+        def log5_predict(_model: None, test: pd.DataFrame) -> np.ndarray:
+            return np.array(
+                [
+                    float(log5.probability(Decimal(str(home)), Decimal(str(away))))
+                    for home, away in zip(test["home_win_pct"], test["away_win_pct"], strict=True)
+                ],
+                dtype=np.float64,
+            )
+
+        return log5_fit, log5_predict
+
+    if family == "elo":
+        return _elo_fit, _elo_predict
+
+    if family == "zero":
+
+        def zero_fit(_train: pd.DataFrame) -> None:
+            return None
+
+        def zero_predict(_model: None, test: pd.DataFrame) -> np.ndarray:
+            return np.zeros(len(test), dtype=np.float64)
+
+        return zero_fit, zero_predict
+
+    if family == "season_average":
+
+        def season_average_fit(_train: pd.DataFrame) -> None:
+            return None
+
+        def season_average_predict(_model: None, test: pd.DataFrame) -> np.ndarray:
+            return _season_average_predictions(test)
+
+        return season_average_fit, season_average_predict
+
+    def estimator_fit(train: pd.DataFrame) -> Any:
+        estimator = _make_estimator(family, parameters, config.seed)
+        labels = train["label"].to_numpy()
+        if spec.task_type == "classification":
+            labels = labels.astype(np.int64)
+        estimator.fit(train[list(BASE_COLUMNS)].to_numpy(dtype=np.float64), labels)
+        return estimator
+
+    def estimator_predict(estimator: Any, test: pd.DataFrame) -> np.ndarray:
+        matrix = test[list(BASE_COLUMNS)].to_numpy(dtype=np.float64)
+        if spec.task_type == "classification":
+            return np.asarray(estimator.predict_proba(matrix)[:, 1], dtype=np.float64)
+        return np.asarray(estimator.predict(matrix), dtype=np.float64)
+
+    return estimator_fit, estimator_predict
 
 
 # The pure evaluation math (metrics, calibration, aggregation) has one

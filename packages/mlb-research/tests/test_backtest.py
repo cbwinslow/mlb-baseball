@@ -48,6 +48,25 @@ def test_split_fold_rejects_overlapping_time_col_values():
         backtest._split_fold(frame, fold, time_col="cutoff", period_col="season")
 
 
+def test_split_fold_sort_is_stable_for_tied_time_col_values():
+    # Games can share an exact start time; a sequential model (Elo) walking
+    # test rows needs a deterministic tie-break, not whatever an unstable
+    # sort happens to produce -- so ties keep their relative order from the
+    # input frame.
+    frame = pd.DataFrame(
+        {
+            "season": [2016] * 6,
+            "cutoff": [1, 1, 1, 1, 1, 1],
+            "row_id": ["f", "e", "d", "c", "b", "a"],
+        }
+    )
+    fold = backtest.Fold("season-2016", 2015, 2016)
+
+    _, test, _ = backtest._split_fold(frame, fold, time_col="cutoff", period_col="season")
+
+    assert list(test["row_id"]) == ["f", "e", "d", "c", "b", "a"]
+
+
 def test_probability_metrics_match_hand_calculation_and_are_deterministic():
     actual = np.array([1, 0])
     probabilities = np.array([0.75, 0.25])

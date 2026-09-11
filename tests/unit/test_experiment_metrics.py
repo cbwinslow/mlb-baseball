@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 
+import numpy as np
 import pytest
 
 from mlb_baseball.model import experiment
@@ -277,23 +278,165 @@ def test_evaluation_frame_has_the_expected_shape():
 
     frame = experiment._evaluation_frame([row_a, row_b], spec)
 
-    # Identity/period/cutoff columns, one per BASE_COLUMNS, then the label --
-    # this is the exact frame shape run_backtest scores.
+    # Identity/period/cutoff/outcome columns, BASE_COLUMNS + LOG5_COLUMNS
+    # (log5 reads home_win_pct/away_win_pct directly, not via BASE_COLUMNS;
+    # elo needs the team ids and scores), then the label -- this is the
+    # exact frame shape run_backtest scores.
     assert list(frame.columns) == [
         "game_instance_key",
         "season",
         "feature_cutoff_at",
+        "home_team_id",
+        "away_team_id",
+        "home_score",
+        "away_score",
+        "home_win",
         *experiment.BASE_COLUMNS,
+        *experiment.LOG5_COLUMNS,
         "label",
     ]
     assert len(frame) == 2
     assert list(frame["game_instance_key"]) == ["k1", "k2"]
     assert list(frame["season"]) == [2024, 2024]
+    assert list(frame["home_team_id"]) == [1, 1]
+    assert list(frame["away_team_id"]) == [2, 2]
+    assert list(frame["home_score"]) == [5, 4]
+    assert list(frame["away_score"]) == [3, 6]
+    assert list(frame["home_win"]) == [True, True]
     assert list(frame["label"]) == [1.0, 1.0]
     assert list(frame["home_wins"]) == [5.0, 5.0]
+    assert list(frame["home_win_pct"]) == [0.55, 0.55]
     # home_rest isn't set on either row -- .values.get() leaves it missing
     # rather than fabricating a zero.
     assert frame["home_rest"].isna().all()
+
+
+def _estimator_factory_fixture_rows() -> list[experiment.SnapshotRow]:
+    # 3 train rows (season 2015) + 3 test rows (season 2016), distinct team
+    # pairs each game so elo's ratings actually move, every BASE_COLUMNS +
+    # LOG5_COLUMNS value populated so both target specs' required_columns
+    # are satisfied.
+    def row(
+        key: str,
+        day: int,
+        season: int,
+        home_team: int,
+        away_team: int,
+        home_score: int,
+        away_score: int,
+        home_win: bool,
+        offset: float,
+    ) -> experiment.SnapshotRow:
+        values: dict[str, float | None] = {
+            "home_wins": 10.0 + offset,
+            "home_losses": 5.0,
+            "away_wins": 8.0,
+            "away_losses": 7.0,
+            "home_runs_for": 40.0 + offset,
+            "home_runs_allowed": 35.0,
+            "away_runs_for": 38.0,
+            "away_runs_allowed": 36.0,
+            "home_rest": 1.0,
+            "away_rest": 1.0,
+            "home_field": 1.0,
+            "home_win_pct": 0.6,
+            "away_win_pct": 0.5,
+        }
+        return experiment.SnapshotRow(
+            key,
+            f"pk-{key}",
+            datetime(season, 4, day, 12, 0, tzinfo=UTC),
+            season,
+            date(season, 4, day),
+            1,
+            home_team,
+            away_team,
+            home_score,
+            away_score,
+            values,
+            home_win,
+        )
+
+    return [
+        row("k1", 1, 2015, 1, 2, 5, 3, True, 0.0),
+        row("k2", 2, 2015, 3, 4, 2, 6, False, 1.0),
+        row("k3", 3, 2015, 2, 1, 7, 1, True, 2.0),
+        row("k4", 1, 2016, 1, 3, 4, 3, True, 3.0),
+        row("k5", 2, 2016, 2, 4, 6, 2, True, 4.0),
+        row("k6", 3, 2016, 4, 1, 3, 5, False, 5.0),
+    ]
+
+
+def _split_factory_fixture(
+    spec: experiment.TargetSpec,
+) -> tuple[list[experiment.SnapshotRow], list[experiment.SnapshotRow], object, object]:
+    rows = _estimator_factory_fixture_rows()
+    train_rows, test_rows = rows[:3], rows[3:]
+    frame = experiment._evaluation_frame(rows, spec)
+    train_frame = frame[frame["season"] <= 2015].sort_values("feature_cutoff_at")
+    test_frame = frame[frame["season"] == 2016].sort_values("feature_cutoff_at")
+    return train_rows, test_rows, train_frame, test_frame
+
+
+_CLASSIFICATION_FAMILIES = (
+    "home_rate",
+    "log5",
+    "elo",
+    "logistic",
+    "hist_gradient_boosting",
+    "xgboost",
+    "random_forest",
+    "extra_trees",
+    "gam",
+    "svm",
+    "bayesian",
+    "neural",
+)
+_REGRESSION_FAMILIES = (
+    "zero",
+    "season_average",
+    "ridge",
+    "hist_gradient_boosting_regressor",
+    "xgboost_regressor",
+    "random_forest_regressor",
+    "extra_trees_regressor",
+    "gam_regressor",
+    "svm_regressor",
+    "bayesian_regressor",
+    "neural_regressor",
+)
+
+
+@pytest.mark.parametrize("model_family", _CLASSIFICATION_FAMILIES)
+def test_estimator_factory_matches_probabilities_on_a_fixed_fixture(model_family):
+    spec = experiment.TARGET_REGISTRY["home_win"]
+    rows = _estimator_factory_fixture_rows()
+    train_rows, test_rows = rows[:3], rows[3:]
+    config = experiment.ExperimentConfig(snapshot_id="s", model_family=model_family, seed=0)
+
+    expected = experiment._probabilities(config, rows, train_rows, test_rows, spec)
+
+    _, _, train_frame, test_frame = _split_factory_fixture(spec)
+    fit_fn, predict_fn = experiment._estimator_factory(config, spec)
+    actual = predict_fn(fit_fn(train_frame), test_frame)
+
+    assert np.allclose(actual, expected)
+
+
+@pytest.mark.parametrize("model_family", _REGRESSION_FAMILIES)
+def test_estimator_factory_matches_predictions_on_a_fixed_fixture(model_family):
+    spec = experiment.TARGET_REGISTRY["run_differential"]
+    rows = _estimator_factory_fixture_rows()
+    train_rows, test_rows = rows[:3], rows[3:]
+    config = experiment.ExperimentConfig(snapshot_id="s", model_family=model_family, seed=0)
+
+    expected = experiment._predictions(config, rows, train_rows, test_rows, spec)
+
+    _, _, train_frame, test_frame = _split_factory_fixture(spec)
+    fit_fn, predict_fn = experiment._estimator_factory(config, spec)
+    actual = predict_fn(fit_fn(train_frame), test_frame)
+
+    assert np.allclose(actual, expected)
 
 
 @pytest.mark.parametrize(

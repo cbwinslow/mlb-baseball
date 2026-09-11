@@ -108,7 +108,7 @@ owner's to run and are recorded, not gated in CI.
   (`game_instance_key`, `season`, `feature_cutoff_at`, one column per
   `BASE_COLUMNS`, the label). Verify: a unit test asserts the frame's columns,
   dtypes, and row count for a small `SnapshotRow` list.
-- [ ] 5.3 Turn each model family into a `(fit_fn, predict_fn)` factory: the
+- [x] 5.3 Turn each model family into a `(fit_fn, predict_fn)` factory: the
   `_make_estimator` sklearn/xgboost zoo, plus `elo` (fit ratings on the ordered
   train frame; `predict_fn` walks test rows predicting-then-updating — same math
   as `_elo_probabilities`), `log5`, `home_rate`, `zero`, `season_average`.

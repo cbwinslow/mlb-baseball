@@ -196,6 +196,13 @@ def test_run_backtest_returns_per_fold_and_aggregate_metrics():
     assert set(result.folds) == {"season-2016", "season-2017"}
     assert result.folds["season-2016"].metrics["rows"] == 2
     assert result.folds["season-2017"].metrics["rows"] == 2
+    assert result.folds["season-2016"].train_rows == 4
+    assert result.folds["season-2016"].test_rows == 2
+    assert result.folds["season-2017"].train_rows == 6
+    assert result.folds["season-2017"].test_rows == 2
+    # train mean of the 2014-2015 rows (1, 3, 2, 4) is 2.5, broadcast to
+    # both 2016 test rows.
+    assert list(result.folds["season-2016"].predictions) == [2.5, 2.5]
     # summed across the two folds' test rows (2 + 2), not the whole frame.
     assert result.aggregate["rows"] == 4
     assert result.fold_plan == [

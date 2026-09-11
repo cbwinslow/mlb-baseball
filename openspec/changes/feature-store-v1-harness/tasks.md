@@ -114,7 +114,7 @@ owner's to run and are recorded, not gated in CI.
   as `_elo_probabilities`), `log5`, `home_rate`, `zero`, `season_average`.
   Verify: a unit test per family that its `predict_fn` output matches the
   current `_probabilities` / `_predictions` output on a fixed fixture.
-- [ ] 5.4 Rewrite `run()`'s fold loop as a `run_backtest(...)` call, keeping
+- [x] 5.4 Rewrite `run()`'s fold loop as a `run_backtest(...)` call, keeping
   every `meta.experiment` / `meta.experiment_fold` insert, `_write_artifact`,
   `provenance.git_sha()`, resume, and failed-run path exactly as before. Verify:
   `tests/integration/test_experiment.py` passes **unchanged** (row counts,

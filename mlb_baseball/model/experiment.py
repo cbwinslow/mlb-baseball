@@ -1420,7 +1420,7 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
             "and source profile"
         )
     all_rows = _snapshot_rows(conn, config.snapshot_id)
-    eligible = _common_rows(all_rows, spec)
+    frame = _evaluation_frame(all_rows, spec)
     experiment_id = _experiment_id(config)
     fold_plan = [asdict(fold) for fold in folds(config.fold_years)]
     with conn.cursor() as cur:
@@ -1469,50 +1469,73 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
             )
     results: dict[str, Any] = {}
     try:
+        generic_folds = tuple(
+            _backtest.Fold(fold.name, fold.train_through_season, fold.test_season)
+            for fold in folds(config.fold_years)
+        )
+        fit_fn, predict_fn = _estimator_factory(config, spec)
+        try:
+            backtest_result = _backtest.run_backtest(
+                frame,
+                generic_folds,
+                fit_fn,
+                predict_fn,
+                task=spec.task_type,
+                time_col="feature_cutoff_at",
+                period_col="season",
+                label_col="label",
+                feature_cols=BASE_COLUMNS,
+                required_cols=spec.required_columns,
+                seed=config.seed,
+            )
+        except ValueError as exc:
+            raise ExperimentError(str(exc)) from exc
+        coverage = {
+            "snapshot_rows": backtest_result.coverage["snapshot_rows"],
+            "common_rows": backtest_result.coverage["common_rows"],
+            "excluded_opening_or_missing_rate_rows": backtest_result.coverage["excluded_rows"],
+        }
+        complete_frame = _backtest.drop_incomplete(frame, spec.required_columns)
         for fold in folds(config.fold_years):
-            train_rows = [row for row in eligible if row.season <= fold.train_through_season]
-            test_rows = [row for row in eligible if row.season == fold.test_season]
-            if not train_rows or not test_rows:
-                raise ExperimentError(f"{fold.name} needs non-empty train and common test rows")
-            if max(row.feature_cutoff_at for row in train_rows) >= min(
-                row.feature_cutoff_at for row in test_rows
-            ):
-                raise ExperimentError(f"{fold.name} violates chronological cutoff separation")
+            fold_result = backtest_result.folds[fold.name]
+            metrics = dict(fold_result.metrics)
+            metrics["coverage"] = coverage
+            # Re-derive this fold's test rows the same deterministic way
+            # run_backtest split them internally (season, then a stable sort
+            # by feature_cutoff_at) so fold_result.predictions -- returned in
+            # that same order -- lines up with the right game identity/
+            # outcome for the stored artifact.
+            test_frame = complete_frame[complete_frame["season"] == fold.test_season].sort_values(
+                "feature_cutoff_at", kind="stable"
+            )
             if spec.task_type == "classification":
-                probabilities = _probabilities(config, eligible, train_rows, test_rows, spec)
-                metrics = _metrics(
-                    _labels(test_rows, spec), probabilities, config.seed + fold.test_season
-                )
-                metrics["coverage"] = {
-                    "snapshot_rows": len(all_rows),
-                    "common_rows": len(eligible),
-                    "excluded_opening_or_missing_rate_rows": len(all_rows) - len(eligible),
-                }
                 predictions = [
                     {
-                        "game_instance_key": row.game_instance_key,
+                        "game_instance_key": key,
                         "probability": float(probability),
-                        "actual_home_win": row.home_win,
+                        "actual_home_win": bool(home_win),
                     }
-                    for row, probability in zip(test_rows, probabilities, strict=True)
+                    for key, probability, home_win in zip(
+                        test_frame["game_instance_key"],
+                        fold_result.predictions,
+                        test_frame["home_win"],
+                        strict=True,
+                    )
                 ]
             else:
-                raw_predictions = _predictions(config, eligible, train_rows, test_rows, spec)
-                metrics = _regression_metrics(
-                    _labels(test_rows, spec), raw_predictions, config.seed + fold.test_season
-                )
-                metrics["coverage"] = {
-                    "snapshot_rows": len(all_rows),
-                    "common_rows": len(eligible),
-                    "excluded_opening_or_missing_rate_rows": len(all_rows) - len(eligible),
-                }
                 predictions = [
                     {
-                        "game_instance_key": row.game_instance_key,
+                        "game_instance_key": key,
                         "prediction": float(prediction),
-                        "actual_run_differential": float(row.home_score - row.away_score),
+                        "actual_run_differential": float(home_score - away_score),
                     }
-                    for row, prediction in zip(test_rows, raw_predictions, strict=True)
+                    for key, prediction, home_score, away_score in zip(
+                        test_frame["game_instance_key"],
+                        fold_result.predictions,
+                        test_frame["home_score"],
+                        test_frame["away_score"],
+                        strict=True,
+                    )
                 ]
             prediction_sha = _sha256(_canonical_json(predictions))
             artifact_uri, artifact_sha = _write_artifact(
@@ -1541,9 +1564,9 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
                         fold.name,
                         fold.train_through_season,
                         fold.test_season,
-                        len(eligible),
-                        len(train_rows),
-                        len(test_rows),
+                        coverage["common_rows"],
+                        fold_result.train_rows,
+                        fold_result.test_rows,
                         json.dumps(metrics),
                         prediction_sha,
                         artifact_uri,
@@ -1551,10 +1574,7 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
                     ),
                 )
             results[fold.name] = metrics
-        if spec.task_type == "classification":
-            aggregate = _aggregate_metrics(results)
-        else:
-            aggregate = _aggregate_regression_metrics(results)
+        aggregate = backtest_result.aggregate
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE meta.experiment SET status = 'success', finished_at = now(), "

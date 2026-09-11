@@ -29,6 +29,9 @@ class Fold:
 class FoldMetrics:
     fold: Fold
     metrics: dict[str, Any]
+    train_rows: int
+    test_rows: int
+    predictions: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -310,6 +313,14 @@ def run_backtest(
     walking `time_col` order has what it needs; a plain sklearn caller does
     `df[feature_cols].to_numpy()` in its own two-line callback -- this
     function only validates `feature_cols` are present.
+
+    Each `FoldMetrics.predictions` is `predict_fn`'s raw output, in that
+    fold's test-frame order (`_split_fold`'s, i.e. sorted by `time_col`) --
+    a caller building an artifact or a `paired_comparison` needs the
+    predictions themselves, not just their aggregated metrics, and can
+    re-derive the matching row identities with its own `_split_fold` call
+    (same fold/time_col/period_col/required_cols in, same deterministic
+    row set and order out).
     """
     missing = [column for column in feature_cols if column not in frame.columns]
     if missing:
@@ -338,7 +349,13 @@ def run_backtest(
             if task == "classification"
             else regression_metrics(labels, predictions, metric_seed)
         )
-        fold_metrics[fold.name] = FoldMetrics(fold=fold, metrics=metrics)
+        fold_metrics[fold.name] = FoldMetrics(
+            fold=fold,
+            metrics=metrics,
+            train_rows=len(train),
+            test_rows=len(test),
+            predictions=predictions,
+        )
 
     aggregator = aggregate_metrics if task == "classification" else aggregate_regression_metrics
     aggregate = aggregator({name: fm.metrics for name, fm in fold_metrics.items()})

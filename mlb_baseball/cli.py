@@ -70,6 +70,9 @@ from mlb_baseball import (
     schema_inventory,
 )
 from mlb_baseball import (
+    catalog as metric_catalog,
+)
+from mlb_baseball import (
     metrics as operational_metrics,
 )
 from mlb_baseball.model import experiment
@@ -330,6 +333,23 @@ def main(argv: list[str] | None = None) -> None:
     subparsers.add_parser("conform")
     subparsers.add_parser("report", help="rebuild documented gold research tables")
     subparsers.add_parser("features")
+
+    catalog_parser = subparsers.add_parser(
+        "catalog", help="the metric catalog (mlb_baseball/metrics/*.yaml <-> meta.metric)"
+    )
+    catalog_commands = catalog_parser.add_subparsers(dest="catalog_command", required=True)
+    catalog_commands.add_parser(
+        "build", help="validate every metrics/*.yaml entry and rebuild meta.metric from it"
+    )
+    catalog_docs = catalog_commands.add_parser(
+        "docs", help="generate the public (visibility: public) catalog Markdown page"
+    )
+    catalog_docs.add_argument(
+        "--output",
+        default="docs/site-src/metric-catalog.md",
+        metavar="PATH",
+        help="where to write the generated page (default: docs/site-src/metric-catalog.md)",
+    )
 
     build_parser = subparsers.add_parser(
         "build",
@@ -3201,6 +3221,14 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "report":
         for table, count in report.run().items():
             print(f"{table}: {count} rows")
+    elif args.command == "catalog":
+        if args.catalog_command == "build":
+            count = metric_catalog.build()
+            print(f"meta.metric: {count} rows")
+        elif args.catalog_command == "docs":
+            with metric_catalog.get_connection() as conn:
+                out_path = metric_catalog.write_docs_page(conn, Path(args.output))
+            print(f"wrote {out_path}")
     elif args.command == "build":
         skip = set(args.skip)
         if not args.only_features:

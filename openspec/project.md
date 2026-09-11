@@ -104,11 +104,25 @@ shipped.
   question — ADR-281, option A — are both done; see NEXT.)
 - Exit Phase A: v1.1 shipped and versioned in a public release.
 
+**Clarification (metric-catalog, ADR-291):** the Phase A/B line is drawn by
+the publication rule above ("a metric ships once we choose to publish it —
+formula + citation"), not by which directory currently implements it. A
+metric implementing a published, citable formula is Phase A / public
+regardless of whether it currently lives under `model/`, `gold`, or
+elsewhere; only tuned parameters, blended/ensembled outputs, ranked
+feature-selection results, and non-baseline backtest results are Phase B /
+internal.
+
 **Phase B — the Engine (internal). SPECULATIVE.** Entry: Phase A's
 feature store is stable and versioned.
 1. Engine triage + a `meta.metric` registry table — classify the ~110
    "Engine" composite packages into keep / add-harness / rebuild-on-demand
-   / archive-as-negative-result.
+   / archive-as-negative-result. **Satisfied by the `metric-catalog` change**
+   (ADR-291): the tooling (YAML schema, loader, `meta.metric`, CI
+   completeness check, generated docs page) shipped as documentation-only,
+   pulled forward ahead of Phase B's entry gate. The full ~155-module
+   triage this step asked for is not done in one pass — it is tracked as an
+   ongoing, batched NEXT-queue item, not a Phase B start.
 2. Model ladder through the harness: elastic-net logistic →
    negative-binomial team runs → Monte Carlo market calculator → CatBoost
    challenger. Ensembles / DNNs only after tabular models are shown to

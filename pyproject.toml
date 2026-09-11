@@ -32,6 +32,11 @@ dependencies = [
     # mlb_baseball depends on it, never the reverse. Resolved from the workspace
     # in-tree (see [tool.uv.sources]); when both publish, from PyPI.
     "mlb-research",
+    # metric-catalog: schema validation for mlb_baseball/metrics/*.yaml
+    # entries (catalog.py). Already resolved transitively via sqlmesh's dev
+    # dependency -- promoting it to a base dependency here adds no new
+    # package to uv.lock, unlike jsonschema (not present at all today).
+    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]

@@ -138,9 +138,15 @@ def predict_fn(model: LogisticRegression, test: pd.DataFrame) -> np.ndarray:
 
 folds = backtest.time_ordered_folds((2016, 2017))
 result = backtest.run_backtest(
-    frame, folds, fit_fn, predict_fn,
-    task="classification", time_col="event_ts", period_col="season",
-    label_col="home_win", feature_cols=("feature_a", "feature_b"),
+    frame,
+    folds,
+    fit_fn,
+    predict_fn,
+    task="classification",
+    time_col="event_ts",
+    period_col="season",
+    label_col="home_win",
+    feature_cols=("feature_a", "feature_b"),
 )
 print(result.aggregate)  # {"rows": ..., "log_loss": ..., "brier": ..., "accuracy": ...}
 ```
@@ -185,9 +191,15 @@ def elo_predict(state: dict[int, float], test: pd.DataFrame) -> np.ndarray:
 
 folds = backtest.time_ordered_folds((2016, 2017))
 result = backtest.run_backtest(
-    frame, folds, elo_fit, elo_predict,
-    task="classification", time_col="event_ts", period_col="season",
-    label_col="home_win", feature_cols=(),
+    frame,
+    folds,
+    elo_fit,
+    elo_predict,
+    task="classification",
+    time_col="event_ts",
+    period_col="season",
+    label_col="home_win",
+    feature_cols=(),
 )
 print(result.aggregate)
 ```

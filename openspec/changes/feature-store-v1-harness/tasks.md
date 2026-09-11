@@ -186,23 +186,39 @@ owner's to run and are recorded, not gated in CI.
 
 ## 7. Verification
 
-- [ ] 7.1 `openspec validate --strict feature-store-v1-harness`; full
-  `pre-commit`; `ruff check` + `ruff format --check` + `mypy mlb_baseball` +
-  (mlb-research) `ruff` on every touched file. Verify: each command's exit code
-  recorded in the PR.
-- [ ] 7.2 Targeted suites green: `packages/mlb-research/tests/test_backtest.py`
-  (new), `tests/unit/test_experiment_metrics.py`,
-  `tests/integration/test_experiment.py`,
-  `tests/integration/test_feature_select*.py` (they import `experiment`), plus
-  `packages/mlb-research/tests/` as a whole. Verify: run and record counts.
-- [ ] 7.3 Dependency-direction check: `uv run python -c "import
-  mlb_research.backtest, sys; assert 'mlb_baseball' not in sys.modules"` and a
-  subprocess assert that importing `mlb_research.backtest` pulls in neither
-  `sklearn` nor `xgboost`. Verify: both pass.
-- [ ] 7.4 Scope audit: the diff touches no migration, no `meta.*` schema, no
-  connector/conform/ingest code, no `model/elo.py` / `model/log5.py` math, and
-  the DuckDB feature store from slice 1. `git diff --stat` reviewed; any
-  `SHORTCUT:` markers listed with ceiling + trigger.
+- [x] 7.1 Exit codes recorded (no PR opened yet; recorded here + in this
+  session's commits instead): `openspec validate --strict
+  feature-store-v1-harness` → 0. `pre-commit run --all-files` → 0 (11 hooks,
+  all Passed). `ruff check` on this session's touched Python files
+  (`mlb_baseball/model/experiment.py`,
+  `packages/mlb-research/mlb_research/backtest.py`,
+  `packages/mlb-research/tests/test_backtest.py`,
+  `tests/unit/test_experiment_metrics.py`) → 0. `ruff format --check` on all
+  13 files this session touched (`git diff --stat
+  fd1f77b..HEAD`) → 0. `mypy mlb_baseball/model/experiment.py` → 0. `mypy
+  packages/mlb-research/mlb_research/backtest.py` → 0. Note: a whole-repo
+  `ruff format --check .` also flags 7 **pre-existing, untouched** files
+  (`docs/archive/superpowers-plans/*`, `docs/research/2026-09-04-*`,
+  `openspec/changes/feature-store-v1/design.md`) with unformatted embedded
+  Python code fences -- out of scope for this change, left as-is.
+- [x] 7.2 Counts recorded, all green: `packages/mlb-research/tests/test_backtest.py`
+  — 12 passed. `tests/unit/test_experiment_metrics.py` — 48 passed.
+  `tests/integration/test_experiment.py` +
+  `tests/integration/test_feature_select.py` +
+  `tests/integration/test_feature_select_stepwise.py` — 39 passed (real
+  PostgreSQL). `packages/mlb-research/tests/` as a whole — 43 passed. Full
+  `tests/unit/` — 1226 passed. No failures, no skips, no xfails.
+- [x] 7.3 Both pass: `mlb_research.backtest` import does not pull in
+  `mlb_baseball` (checked directly); a subprocess import of
+  `mlb_research.backtest` has neither `sklearn` nor `xgboost` in
+  `sys.modules` (same pattern as `test_module_imports_without_sklearn_or_xgboost`
+  in `test_backtest.py`, run standalone here too).
+- [x] 7.4 Scope audit done (`git diff --stat fd1f77b..HEAD`, this session's
+  13 touched files): no migration, no `meta.*` schema change, no
+  connector/conform/ingest code, no `model/elo.py` / `model/log5.py` math
+  change (their functions are called, not modified, from `experiment.py`'s
+  new `_estimator_factory`), no DuckDB feature store file. No `SHORTCUT:`
+  markers in the diff.
 - [ ] 7.5 **[OWNER]** Re-run one real experiment from the lab
   (`mlb experiment run …` against a built database) before and after, and
   confirm `meta.experiment.metrics_json` matches within the D5 tie-out

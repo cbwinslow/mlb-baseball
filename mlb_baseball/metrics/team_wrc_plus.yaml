@@ -1,0 +1,38 @@
+name: team_wrc_plus
+definition: >
+  Weighted Runs Created Plus (wRC+): a team's offense compared to the league
+  average, adjusted for the ballpark it plays in, where 100 is exactly average
+  (110 means 10% better than average, 90 means 10% worse). Built on top of
+  this project's own team wOBA and park-factor features, computed point-in-time
+  entering each game.
+formula: mlb_baseball/model/offense.py::compute_wrc_plus
+citation: "FanGraphs, wRC+ methodology (Sabermetrics Library, https://www.fangraphs.com/library/offense/wrc/)"
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo (1910-2025); raw.mlb_playbyplay (2026+); depends on gold.game_feature's own home_woba/park_factor columns
+grain: team, point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  wRC+ = (((team_wOBA - league_wOBA) / WOBA_SCALE) + 1) / (park_factor/100) * 100.
+  Correctly implements the standard, cited wRC+ formula per direct code read;
+  the module docstring shows the required sanity property algebraically (a
+  league-average team wOBA in a neutral park reduces to exactly 100, which
+  wRC+ requires by definition). WOBA_SCALE is a single fixed value (1.20, the
+  commonly-cited modern-era figure) rather than year-specific, the same
+  fixed-vs-real-weights tradeoff as team_woba (see that entry's notes) --
+  flagged here for the same reason.
+
+  Unlike team_woba, there is no dedicated automated test asserting a specific
+  numeric wRC+ value against any calculation (hand-derived or otherwise) --
+  only a coverage/health-check test
+  (test_health_check_flags_a_wrc_plus_coverage_gap) that a value is present,
+  not that it is correct. "published" here reflects a correctly-implemented,
+  cited formula read directly from source, not any test evidence -- weaker
+  evidence than team_woba's self-consistency test, worth a second look.
+
+  Inherits team_woba's known fixed-weight limitation (this metric is computed
+  from team_woba, which uses a single fixed weight set rather than
+  gold.fangraphs_guts' now-available era-accurate weights -- see team_woba's
+  notes).

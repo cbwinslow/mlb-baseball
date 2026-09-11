@@ -1,0 +1,38 @@
+name: team_war_prior
+definition: >
+  A team's total Wins Above Replacement (WAR) from the season before the game
+  being predicted, used as a model feature. This project does not calculate
+  WAR itself -- it takes Baseball-Reference's own published player WAR values,
+  adds up each team's players, and lags it by one full season so a game is
+  never scored using WAR data that only exists because of games played after
+  it (which would let the model "see the future").
+formula: mlb_baseball/model/war.py::compute
+citation: "Baseball-Reference, WAR Explained (https://www.baseball-reference.com/about/war_explained.shtml)"
+data_source: core.player_war (loaded from raw.bref_war_batting, raw.bref_war_pitching)
+grain: team-season (lagged one season, joined onto a per-game feature row)
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  This module sums and lags an externally-published metric; it does not
+  reimplement Baseball-Reference's own WAR formula (that formula is complex
+  and involves choices Baseball-Reference makes internally). Correctly
+  implemented per direct code read: SUM(war) per team-season, joined through
+  a hand-built bref-to-Retrosheet team-code crosswalk (_BREF_TO_RETRO, current
+  30 teams only -- older, relocated/renamed franchises correctly get NULL
+  rather than a guessed mapping), lagged via `season - 1` so a game always
+  uses the prior season's total, never the current, still-accumulating one.
+  tests/integration/test_model_war.py verifies the lag and the crosswalk with
+  a hand-built fixture (self-consistency, not an external tie-out), so this is
+  "published" (correctly implemented, cited formula) rather than "validated"
+  -- no automated test compares team_war_prior against an independently
+  published team-level WAR total.
+
+  Rights note, not a visibility question: docs/SOURCE_RIGHTS.md / export.py
+  record core.player_war (Baseball-Reference WAR) as local_research only --
+  no redistribution permission. This catalog entry's `visibility: public`
+  describes the formula/citation only (Baseball-Reference's WAR methodology
+  is publicly documented), separate from the data-redistribution rights
+  question tracked in mlb_baseball/export.py's BACKBONE_EXCLUDED.

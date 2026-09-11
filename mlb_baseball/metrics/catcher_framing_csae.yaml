@@ -1,0 +1,39 @@
+name: catcher_framing_csae
+definition: >
+  Called Strikes Above Expected (CSAE%): an in-season, game-by-game estimate
+  of how much extra a team's starting catcher earns above a flat league-average
+  called-strike rate on pitches taken. This is this project's own simplified
+  approximation of catcher framing, built from play-by-play data, not a
+  reproduction of any single publisher's precise framing model.
+formula: mlb_baseball/model/framing.py::compute
+citation: project-derived (inspired by the general "called strikes above average" catcher-framing concept)
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo
+grain: team (starting catcher), point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: implemented-untested
+visibility: internal
+notes: >
+  CSAE% = (called strikes / pitches taken) - 0.3300; framing runs =
+  (called strikes - takes*0.33) * 0.125 (ADR-096). The 0.33 league-average
+  baseline and the 0.125 runs-per-strike constant are this project's own
+  chosen values, not published by any specific source this project can cite
+  -- unlike wSB/UBR/wGDP (comprehensive_baserunning.yaml), which trace to
+  FanGraphs' published methodology, real published catcher-framing models
+  (e.g. Mike Fast's original public work, or Baseball Prospectus/StatCorner's
+  models) control for pitch location, count, pitcher, batter, and umpire --
+  this module's flat 0.33 baseline does none of that. `visibility: internal`
+  and a plain "project-derived" citation reflect that honestly, per this
+  catalog's default-to-internal-when-unsure rule, rather than attaching a
+  citation this specific formula doesn't actually match.
+
+  tests/integration/test_model_framing.py's
+  test_compute_in_season_catcher_framing_matches_hand_calculation hand-derives
+  its own expected value using the same arithmetic the code uses --
+  self-consistency, not an independent tie-out. Correctly implements its own
+  documented (if uncited) formula per direct code read.
+
+  Distinct from catcher_framing_prior_season (the Statcast-sourced,
+  FanGraphs/Baseball-Savant-lineage prior-season value computed in the same
+  module) -- see that entry.

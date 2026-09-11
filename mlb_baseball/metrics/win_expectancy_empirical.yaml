@@ -1,0 +1,34 @@
+name: win_expectancy_empirical
+definition: >
+  For every real game situation (inning, which team is batting, outs, which
+  bases are occupied, and score margin) that has actually happened in this
+  project's historical play-by-play data, the real observed percentage of
+  time the home team went on to win. This is an average of what actually
+  happened, not a fitted formula or a hand-typed lookup table.
+formula: mlb_baseball/model/win_expectancy.py::compute
+citation: >
+  Tango, Lichtman & Dolphin, "The Book: Playing the Percentages in Baseball"
+  (2006) -- empirical win-expectancy tables are a standard sabermetric
+  reference method described in this book.
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo
+grain: (season, inning, half, outs, base state, score-margin bucket)
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Replaces a previously hand-typed, unvalidated leverage lookup table
+  (ADR-262) with a real average over every historical observation of each
+  state. health_check() checks two real sanity bounds against known baseball
+  facts (a tied game in the top of the 1st should show home-field advantage
+  of roughly 0.50-0.58; a near-certain-loss state should be near 0.00) -- both
+  currently pass, but these are broad plausibility ranges, not a tight
+  tolerance against one specific externally-published figure, so this counts
+  as supporting evidence for "published," not a "validated" tie-out.
+
+  tests/integration/test_model_win_expectancy.py's
+  test_compute_populates_real_observed_win_rate seeds two synthetic games and
+  asserts the exact resulting average (1 win / 2 observations = 0.5) --
+  proves the aggregation logic is correct, but is a self-built fixture, not
+  an independent published value.

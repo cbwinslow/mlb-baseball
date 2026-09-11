@@ -1,0 +1,36 @@
+name: fangraphs_park_factors
+definition: >
+  FanGraphs' own published park factors -- one row per team-season showing how
+  much a ballpark inflates or deflates offense (overall, and broken out by hit
+  type: home runs, doubles, triples, walks, strikeouts, batted-ball type).
+  This project stores FanGraphs' numbers as-is; it does not recompute them.
+formula: mlb_baseball/sql/gold_fangraphs_park_factors.sql
+citation: "FanGraphs, park factors (https://www.fangraphs.com/guts.aspx?type=pf)"
+data_source: raw.fangraphs_park_factors
+grain: team-season
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Verbatim numeric conform of FanGraphs' own published park factors -- no
+  re-derivation, component factors kept exactly as FanGraphs publishes them.
+  Scoped to season >= 2003 (pre-2003 FanGraphs park factors are low value and
+  the franchise set is unstable, so those rows are deliberately left
+  unconformed in raw). Not yet independently tie-out tested against a second
+  source, hence "published" rather than "validated" (ADR-290).
+
+  Reference/cross-check only, same posture as gold.fangraphs_guts: no
+  gold.fangraphs_* relation may be public_safe or appear in the published
+  research dataset (docs/SOURCE_RIGHTS.md records no Baseball-Reference/
+  FanGraphs redistribution permission). This catalog entry's `visibility:
+  public` describes the formula/citation only -- it does NOT mean the
+  underlying data may be redistributed; see mlb_baseball/export.py.
+
+  This is a distinct thing from mlb_baseball/model/park.py's own park factor
+  (see the park_factor_project entry in this catalog) -- that one is computed
+  from this project's own core.game data using Pete Palmer's classical
+  home-vs-road run-ratio method and IS usable as a model feature / in
+  publishable output. ADR-290: "a publishable park factor is computed from
+  core.play [or core.game], not from here."

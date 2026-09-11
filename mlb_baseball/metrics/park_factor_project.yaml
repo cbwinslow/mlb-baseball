@@ -1,0 +1,37 @@
+name: park_factor_project
+definition: >
+  How much a ballpark inflates or deflates scoring and specific outcomes (home
+  runs, doubles, triples, and home runs split by batter handedness), computed
+  from this project's own game data (not FanGraphs'), using trailing 1/3/5-year
+  windows so a park's rating is based on real games already played, never
+  future ones. Also includes air-density and effective wind-speed features for
+  the same park/date.
+formula: mlb_baseball/model/park.py::compute
+citation: >
+  Pete Palmer & John Thorn, "The Hidden Game of Baseball" (1984) -- classical
+  home-vs-road run-ratio park factor method.
+data_source: core.game (home/away runs, venue, weather)
+grain: (venue, season), 1/3/5-year trailing windows, joined onto a per-game feature row
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  DISTINCT from gold.fangraphs_park_factors (see that entry) -- FanGraphs'
+  relation is an external, verbatim-conformed reference/cross-check-only
+  relation that may never be public_safe or used as a model input
+  (ADR-290: "a publishable park factor is computed from core.play [or
+  core.game], not from here"). This module IS that publishable park factor:
+  computed from this project's own core.game runs data using Palmer's
+  classical home-run-rate-vs-road-run-rate ratio, regressed to the league
+  scoring environment, extended with component (HR/2B/3B/handedness-split)
+  factors and environmental air-density/wind features (ADR-094). Correctly
+  implements the cited home-vs-road ratio method per direct code read.
+
+  tests/integration/test_model_park.py's
+  test_compute_matches_hand_calculation_and_stays_out_of_its_own_trailing_window
+  hand-derives its own expected value using the same arithmetic the SQL
+  performs -- self-consistency, not an independent tie-out against a real
+  externally-published park-factor number, so "published" rather than
+  "validated".

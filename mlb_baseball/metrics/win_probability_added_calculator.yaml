@@ -1,0 +1,49 @@
+name: win_probability_added_calculator
+definition: >
+  A standalone calculator (run via `mlb wpa` on the command line) that
+  estimates in-game win probability, win-probability-added, and leverage
+  index for a single hand-entered game situation (inning, outs, baserunners,
+  score), using a formula approximation rather than this project's own real
+  historical data. It does not read any of this project's own game data, and
+  is not part of any database build.
+formula: mlb_baseball/model/wpa.py::WinExpectancyEngine.calculate_win_expectancy
+citation: project-derived (a logistic-sigmoid approximation; not a reproduction of any single published win-expectancy formula)
+data_source: none -- takes only CLI-supplied numbers (mlb_baseball/cli.py "wpa" command), never reads gold/core/raw
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  FLAGGED FOR TRIAGE -- same class of finding as bullpen_leverage_volatility_
+  engine (mlb_baseball/model/leverage.py). Read directly against its own
+  docstring's implied claim ("Analytical Markov Win Expectancy... closed-form
+  Markov absorbing chain matrix solutions"): the actual
+  calculate_win_expectancy() method is NOT a Markov-chain solution -- it is a
+  hand-written logistic-sigmoid approximation over score margin, remaining
+  innings, and a crude base/out run-expectancy stand-in (`0.48 * runners -
+  0.28 * outs`), with several uncited constants (1.15, 1.5, home_advantage_
+  boost=0.035). It never queries the database (no `conn` parameter anywhere),
+  operates only on a hand-entered InGameSituation dataclass, and `mlb wpa` is
+  wired into cli.py as a standalone command, not into report.py's gold-table
+  build pipeline.
+
+  This is a DIFFERENT thing from win_expectancy_empirical (gold.win_expectancy)
+  and leverage_index_empirical (gold.leverage_index), which ARE the real,
+  empirically-built, production-integrated equivalents -- do not confuse this
+  module with those by the shared "win expectancy"/"leverage index" naming.
+  The one partially-cited piece is INNING_LEVERAGE_WEIGHTS (a comment credits
+  "Tom Tango / The Book"), but it feeds an analytical approximation that is
+  itself uncited and not independently checked.
+
+  health_check() only asserts the entering-game (top 1st, tied) win
+  expectancy falls in a broad plausible range (0.50-0.56) -- a sanity bound
+  on the code's own output, not a tie-out against any independent source.
+
+  `status: implemented-untested` and `visibility: internal` reflect this
+  honestly. Recommended follow-up: confirm with the owner whether this module
+  should be archived or clearly re-labeled as an illustrative/what-if
+  calculator, distinct from the real production win-expectancy/leverage
+  tables it currently reads as a near-duplicate of by name -- out of scope
+  for this batch to decide.

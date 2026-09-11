@@ -19,6 +19,7 @@ import psycopg
 from mlb_baseball import (
     api,
     backup,
+    catalog,
     conform,
     daemon,
     ingest,
@@ -169,6 +170,39 @@ def _stale_ingestion_runs() -> Check:
     )
 
 
+def _metric_catalog_in_sync() -> Check:
+    """Confirms `meta.metric`'s row count matches the number of
+    `mlb_baseball/metrics/*.yaml` entries on disk (metric-catalog, ADR-291).
+
+    Cheap by design: a count comparison, not a full re-validation of every
+    entry (that's `scripts/check_metric_catalog.py`'s job in CI). Skips
+    cleanly, like `_stale_ingestion_runs` above, on a database that hasn't
+    run `mlb migrate` far enough to have `meta.metric` yet -- a fresh clone
+    or a database mid-migration should not see doctor fail here.
+    """
+    yaml_count = len(list(catalog.METRICS_DIR.glob("*.yaml")))
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT count(*) FROM meta.metric")
+                (row_count,) = fetch_one(cur)
+        except psycopg.errors.UndefinedTable:
+            conn.rollback()
+            return Check(
+                "metric catalog",
+                True,
+                "meta.metric doesn't exist yet — nothing to check",
+            )
+    if row_count != yaml_count:
+        return Check(
+            "metric catalog",
+            False,
+            f"meta.metric has {row_count} rows but {yaml_count} "
+            "mlb_baseball/metrics/*.yaml files exist — run `mlb catalog build`",
+        )
+    return Check("metric catalog", True, f"{row_count} rows, in sync with metrics/*.yaml")
+
+
 def _workflow_lock_state() -> Check:
     """Expose a live workflow conflict without changing its owner or state.
 
@@ -217,6 +251,7 @@ _CORE_CHECKS = [
     ("pg_stat_statements", _pg_stat_statements_enabled),
     ("analytics extensions", _analytics_extensions_enabled),
     ("stale ingestion runs", _stale_ingestion_runs),
+    ("metric catalog", _metric_catalog_in_sync),
     ("workflow lock", _workflow_lock_state),
     ("never-vacuumed tables", check_never_vacuumed),
 ]

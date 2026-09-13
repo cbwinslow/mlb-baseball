@@ -779,7 +779,7 @@ def test_update_skipping_every_connector_is_a_clean_no_op(monkeypatch, capsys):
     assert "nothing to do" in capsys.readouterr().out
 
 
-def test_bootstrap_command_continues_past_a_failing_connector(monkeypatch, capsys):
+def test_bootstrap_command_continues_past_a_failing_connector(monkeypatch, caplog):
     broken = MagicMock()
     broken.bootstrap.side_effect = RuntimeError("simulated failure")
     fine = _fake_connector()
@@ -793,7 +793,7 @@ def test_bootstrap_command_continues_past_a_failing_connector(monkeypatch, capsy
         raise AssertionError("expected SystemExit(1) — a connector failed")
 
     fine.bootstrap.assert_called_once()
-    assert "[broken] FAILED" in capsys.readouterr().out
+    assert "[broken] FAILED" in caplog.text
 
 
 def test_concurrency_groups_keeps_same_server_connectors_together():

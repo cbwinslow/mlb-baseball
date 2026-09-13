@@ -172,6 +172,7 @@ import concurrent.futures
 import gzip
 import hashlib
 import json
+import logging
 import re
 import threading
 from datetime import UTC, date, datetime, timedelta
@@ -199,6 +200,8 @@ from mlb_baseball.load import (
     season_already_loaded,
 )
 from mlb_baseball.net import call_with_retry
+
+logger = logging.getLogger(__name__)
 
 SOURCE = "mlb_api"
 # statsapi.get()'s underlying requests.get() call has no timeout unless
@@ -1220,7 +1223,9 @@ def _load_game_detail_for_season(conn: psycopg.Connection, season: int) -> dict[
     try:
         games = call_with_retry(_timed_schedule, season=season, sportId=1)
     except Exception as exc:
-        print(f"mlb_api: game detail for season {season} failed ({exc}); skipping whole season")
+        logger.error(
+            "mlb_api: game detail for season %s failed (%s); skipping whole season", season, exc
+        )
         return totals
     for game_pk in _started_game_ids(games):
         try:
@@ -1229,7 +1234,7 @@ def _load_game_detail_for_season(conn: psycopg.Connection, season: int) -> dict[
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"mlb_api: game detail for game {game_pk} failed ({exc}); skipping")
+            logger.error("mlb_api: game detail for game %s failed (%s); skipping", game_pk, exc)
     return totals
 
 
@@ -1820,7 +1825,9 @@ def _load_analytics_for_season(
     try:
         games = _analytics_schedule(season)
     except Exception as exc:
-        print(f"mlb_api: analytics for season {season} failed ({exc}); skipping whole season")
+        logger.error(
+            "mlb_api: analytics for season %s failed (%s); skipping whole season", season, exc
+        )
         return totals
     if _linescores_already_landed(conn, season):
         print(f"mlb_api: linescores for season {season} already landed, skipping hydration")
@@ -1830,7 +1837,11 @@ def _load_analytics_for_season(
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"mlb_api: linescores for season {season} failed ({exc}); falling back per game")
+            logger.error(
+                "mlb_api: linescores for season %s failed (%s); falling back per game",
+                season,
+                exc,
+            )
     terminal = _terminal_analytics_games(conn, season)
     # The schedule endpoint can expose the same game more than once in a
     # reschedule/doubleheader-shaped response.  An API item is keyed by game,
@@ -1868,9 +1879,12 @@ def _load_analytics_for_season(
                 )
         except Exception as exc:
             conn.rollback()
-            print(
-                f"mlb_api: analytics batch {batch_number} for season {season} failed ({exc}); "
-                "leaving it for a safe retry"
+            logger.error(
+                "mlb_api: analytics batch %s for season %s failed (%s); "
+                "leaving it for a safe retry",
+                batch_number,
+                season,
+                exc,
             )
     return totals
 
@@ -2046,7 +2060,7 @@ def _load_game_detail_for_today(conn: psycopg.Connection) -> dict[str, int]:
             for table, count in _load_game_detail_for_game(conn, game_pk, season).items():
                 totals[table] = totals.get(table, 0) + count
         except Exception as exc:
-            print(f"mlb_api: game detail for game {game_pk} failed ({exc}); skipping")
+            logger.error("mlb_api: game detail for game %s failed (%s); skipping", game_pk, exc)
     return totals
 
 
@@ -2061,7 +2075,7 @@ def _load_draft_years(conn: psycopg.Connection, current_year: int) -> int:
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"mlb_api: draft {year} failed ({exc}); skipping")
+            logger.error("mlb_api: draft %s failed (%s); skipping", year, exc)
     return total
 
 
@@ -2602,8 +2616,10 @@ def bootstrap() -> dict[str, int]:
                     conn.commit()
                 except Exception as exc:
                     conn.rollback()
-                    print(
-                        f"mlb_api: season {season} failed ({exc}); skipping, continuing bootstrap"
+                    logger.error(
+                        "mlb_api: season %s failed (%s); skipping, continuing bootstrap",
+                        season,
+                        exc,
                     )
             # Reference/personnel/official-stats data — own try/except so a
             # failure here (e.g. one team's coaches call) doesn't roll back
@@ -2625,9 +2641,11 @@ def bootstrap() -> dict[str, int]:
                     conn.commit()
                 except Exception as exc:
                     conn.rollback()
-                    print(
-                        f"mlb_api: {season} reference/personnel/stat data failed ({exc}); "
-                        "skipping, continuing bootstrap"
+                    logger.error(
+                        "mlb_api: %s reference/personnel/stat data failed (%s); "
+                        "skipping, continuing bootstrap",
+                        season,
+                        exc,
                     )
             if season >= FIRST_PLAYBYPLAY_YEAR:
                 if season < current_year and season_already_loaded(
@@ -2677,21 +2695,21 @@ def bootstrap() -> dict[str, int]:
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"mlb_api: venue load failed ({exc}); skipping")
+            logger.error("mlb_api: venue load failed (%s); skipping", exc)
             counts["raw.mlb_venue"] = 0
         try:
             counts["raw.mlb_team_history"] = _load_team_history(conn)
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"mlb_api: team history load failed ({exc}); skipping")
+            logger.error("mlb_api: team history load failed (%s); skipping", exc)
             counts["raw.mlb_team_history"] = 0
         try:
             counts["raw.mlb_person"] = _load_person(conn)
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"mlb_api: person load failed ({exc}); skipping")
+            logger.error("mlb_api: person load failed (%s); skipping", exc)
             counts["raw.mlb_person"] = 0
         # Whole-catalog reference tables and per-team-current tables — also
         # load once, after the season loop, same reasoning as venue/team
@@ -2715,7 +2733,7 @@ def bootstrap() -> dict[str, int]:
                 conn.commit()
             except Exception as exc:
                 conn.rollback()
-                print(f"mlb_api: {label} failed ({exc}); skipping")
+                logger.error("mlb_api: %s failed (%s); skipping", label, exc)
                 counts[label] = 0
         result["rows"] = sum(counts.values())
     return counts

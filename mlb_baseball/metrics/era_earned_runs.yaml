@@ -1,0 +1,41 @@
+name: era_earned_runs
+definition: >
+  Earned Run Average (ERA): the traditional measure of a pitcher's runs
+  allowed per 9 innings, counting only "earned" runs (excluding runs that
+  scored because of a fielding error). This project's own event-derived data
+  (1910-2025) cannot identify earned runs at all, so ERA is NULL for every
+  pitcher-season through 2025 and only populated from 2026 onward, once
+  MLB's own scorer-assigned earned-run figure became available as a source.
+formula: mlb_baseball/sql/pitching_season_build.sql
+citation: "Official MLB statistic (traditional baseball statistic; no single formula author)"
+data_source: raw.mlb_boxscore_pitching (2026+ only; er is NULL for 1910-2025, sourced from raw.retrosheet_event which carries no earned-run data)
+grain: pitcher-game, pitcher-season, pitcher-career
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  era = er * 27 / outs (equivalent to the standard er * 9 / IP). er is a
+  plain SUM of game-level earned runs, nulled for the whole season total if
+  any contributing game lacks it (the `CASE WHEN count(*) = count(er) THEN
+  sum(er) END` guard in pitching_season_build.sql) rather than silently
+  treating a missing game as zero earned runs. Added in migration
+  0102_pitching_er_era.sql (backbone-2026-source change). ra9 (runs allowed
+  per 9, using total runs, not just earned) is the honest cross-era rate
+  populated for every year -- docs/DATA_DICTIONARY.md documents this
+  "era coverage cliff" explicitly, and warns a naive average of era across
+  the 2025/2026 boundary is meaningless.
+
+  NOT independently tie-out tested by either of this project's real tie-out
+  gates: scripts/verify_baseball_reference_tie_out.py's cited Judge/Cole
+  cases and bulk cross-check do not include er/era among their compared
+  fields, and scripts/verify_mlb_boxscore_tie_out.py's play-by-play
+  reconstruction (the 2026-onward gate) only covers batting counting stats
+  (PA/AB/H/BB/SO/HBP/SF/SH/HR) -- neither covers pitching earned runs at all.
+  tests/integration/test_report_pitching_season.py's
+  test_pitching_season_era_populated_for_2026_null_for_retrosheet_era seeds
+  synthetic pitcher-game fixtures and hand-derives the expected era using the
+  same arithmetic the SQL performs -- self-consistency, not an independent
+  tie-out. "published" (correctly implemented, well-documented, standard
+  formula) rather than "validated".

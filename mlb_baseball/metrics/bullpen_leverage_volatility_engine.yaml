@@ -1,0 +1,39 @@
+name: bullpen_leverage_volatility_engine
+definition: >
+  A standalone calculator (run via `mlb leverage` on the command line) that
+  scores a relief pitcher's "volatility" and estimated save-conversion rate
+  from strikeout rate, walk rate, and home-run rate the USER types in on the
+  command line. It does not read any of this project's own game or player
+  data, and is not part of any database build.
+formula: mlb_baseball/model/leverage.py::BullpenLeverageEngine.evaluate_closer_reliability
+citation: project-derived (no external formula cited)
+data_source: none -- takes only CLI-supplied numbers (mlb_baseball/cli.py "leverage" command), never reads gold/core/raw
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  FLAGGED FOR TRIAGE -- a concrete instance of the risk this catalog change
+  exists to catch. Read directly against its own docstring's implied claim
+  (a real "Leverage Index Context Weighting" / "WPA per Leverage" engine):
+  the actual code never queries the database at all (no `conn` parameter
+  anywhere in evaluate_closer_reliability), operates only on a
+  RelieverLeverageProfile dataclass populated either by hand from CLI flags
+  or from its own hardcoded example defaults, and its formula constants
+  (bb_pct*2.2, hr_per_9*0.08, k_factor*1.5, the 50.0/96.0/0.20/35.0/60.0/90.0
+  thresholds) carry no citation to any published source and no derivation
+  from this project's own data. `mlb leverage` is wired into cli.py as a
+  standalone command, not into report.py's gold-table build pipeline.
+
+  This is a DIFFERENT thing from leverage_index_empirical (gold.leverage_index,
+  mlb_baseball/model/leverage_index.py), which IS the real, empirically-built,
+  production-integrated Leverage Index -- do not confuse the two by name.
+
+  `status: implemented-untested` and `visibility: internal` reflect this
+  honestly rather than describing it as a validated or citable statistic.
+  Recommended follow-up: confirm with the owner whether this module should be
+  archived (status: archived) or kept as a documented what-if calculator, per
+  Phase B's planned per-module triage -- out of scope for this batch to
+  decide.

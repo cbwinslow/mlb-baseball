@@ -1,0 +1,56 @@
+name: starter_fip
+definition: >
+  Fielding Independent Pitching (FIP): a starting pitcher's performance
+  measured only from the outcomes a pitcher most directly controls --
+  strikeouts, walks, hit-by-pitches, and home runs -- put on the same scale as
+  ERA. This project computes it point-in-time, entering each game, from games
+  the pitcher has already started that season (ERA itself is not available
+  from this project's own event data before 2026, so FIP stands in for it as
+  a starting-pitcher-quality feature).
+formula: mlb_baseball/model/starter.py::compute
+citation: >
+  Tango, Lichtman & Dolphin, "The Book: Playing the Percentages in Baseball"
+  (2006) -- Fielding Independent Pitching (FIP) formula.
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo (1910-2025); raw.mlb_playbyplay (2026+); health_check reconciles against raw.bref_pitching
+grain: team (starting pitcher), point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  FIP = (13*HR + 3*(BB+HBP) - 2*K) / IP + FIP_constant. Correctly implements
+  the cited formula per direct code read (event_cd-based K/BB/HR counts,
+  event_outs_ct-based innings, resp_pit_id for correctly attributing plays to
+  the pitcher actually charged, confirmed against Chadwick's own field
+  documentation).
+
+  SAME fixed-vs-real-weights issue as team_woba: FIP_CONSTANT is a single
+  fixed 3.10 (a commonly-cited modern value) applied to every season, not a
+  year-specific constant -- the module's own docstring says so directly
+  ("early-20th-century FIP values sit on a slightly different implied run
+  environment than their true era"). This is the same class of gap as
+  team_woba's fixed weights: gold.fangraphs_guts (ADR-290) now carries a real,
+  era-accurate FIP constant per season that this module does not use. Flagged
+  as a known inconsistency worth a follow-up, not fixed here.
+
+  STRONGER evidence than most entries in this batch, but short of
+  "validated": health_check() runs a REAL, currently-passing, automated
+  reconciliation of this module's summed strikeout and outs totals against
+  raw.bref_pitching (Baseball-Reference, an independent source) via `mlb
+  doctor` -- 98.3% of 13,613 real pitcher-seasons match within a small
+  tolerance (documented, calibrated against real production data, the
+  residual traced to Retrosheet's own ~1.7% published-event-file coverage
+  gap, not a bug). This is a real, independent, currently-passing check --
+  but it only reconciles two of FIP's four inputs (strikeouts and outs), not
+  walks, HBP, or home runs, and it never compares the final FIP number
+  itself against any independently published FIP value. "validated" per this
+  catalog's spec requires the metric's own output be tied out, not just a
+  fraction of its inputs, so this stays "published" -- worth a second look
+  given how close this partial evidence comes.
+
+  tests/integration/test_model_starter.py's
+  test_compute_rolling_fip_and_rates_match_hand_calculation hand-derives its
+  own expected FIP value using the same arithmetic the SQL performs --
+  self-consistency, not an independent tie-out; consistent with the
+  self-referential test pattern found across this whole batch.

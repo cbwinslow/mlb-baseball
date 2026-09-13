@@ -1,0 +1,53 @@
+name: batting_rate_stats_bref_tieout
+definition: >
+  A player's core batting rate statistics for a season -- batting average
+  (AVG), on-base percentage (OBP), slugging percentage (SLG), and their sum
+  (OPS) -- computed from this project's own event-level data and checked
+  directly against Baseball-Reference's own published numbers for real
+  players and seasons.
+formula: mlb_baseball/sql/batting_season_build.sql
+citation: "Standard sabermetric/official formulas for AVG, OBP, SLG, OPS (MLB glossary / FanGraphs definitions)"
+data_source: gold.batting_game (raw.retrosheet_event 1910-2025, raw.mlb_boxscore_batting 2026+)
+grain: player-season
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: validated
+visibility: public
+test_ref: scripts/verify_baseball_reference_tie_out.py
+notes: >
+  The strongest evidence in this batch, and confirmed by directly reading
+  what the gate compares (not assumed from its name). AVG = H/AB, OBP =
+  (H+BB+HBP)/(AB+BB+HBP+SF), SLG = TB/AB, OPS = OBP+SLG, all computed as
+  season-grain sums-of-components (never an average of already-aggregated
+  game rates) -- confirmed correct per direct code read of
+  batting_season_build.sql, with every rate correctly NULL on a zero
+  denominator.
+
+  scripts/verify_baseball_reference_tie_out.py is a real, independent,
+  currently-passing gate, not a self-derived test:
+  (1) two CITED CASES read directly from Baseball-Reference's own player
+  pages -- Aaron Judge's 2022 season (g/ab/r/h/hr/rbi/bb exact, avg/obp/slg/
+  ops matched to Baseball-Reference's own 3-decimal display precision) and
+  Gerrit Cole's 2023 season (17 fields including whip, exact) -- with
+  `source_url` naming the exact page each expected value was read from; (2) a
+  BULK CROSS-CHECK comparing this project's event-derived gold.batting_season
+  against gold.player_season (Baseball-Reference lineage, via pybaseball)
+  field-by-field for every qualified player-season 2008-2025 (2020 excluded,
+  COVID-shortened), passing if each field is within a documented tolerance on
+  at least 98% of player-seasons. Per this project's own record
+  (docs/DECISIONS.md, openspec/project.md NOW/NEXT, 2026-09-07/2026-09-11),
+  this gate currently passes: both cited cases match exactly/to display
+  precision, and the bulk cross-check is clean within tolerance across the
+  full 2008-2025 window. This session did not re-run the gate against
+  production (it requires a fully-built database with real ingested data,
+  out of scope for this batch's scratch-DB verification) -- status
+  "validated" rests on reading the gate's own logic plus this project's own
+  dated, recorded passing runs, not a fresh run performed here.
+
+  Coverage/known limits, per the gate's own docstring and
+  docs/DATA_DICTIONARY.md: exact tie-out is not achievable at the career
+  grain or for seasons much before ~2000 (independent decades of scoring
+  corrections on both the Retrosheet and Baseball-Reference sides) -- this
+  entry's `validated` status is scoped to the season grain the gate actually
+  covers, not every grain gold.batting_season/career exposes.

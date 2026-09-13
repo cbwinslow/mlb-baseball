@@ -1,0 +1,46 @@
+name: team_woba
+definition: >
+  Weighted On-Base Average (wOBA): a team's offense measured in one number
+  that weighs each way of reaching base (walk, hit-by-pitch, single, double,
+  triple, home run) by how much it actually tends to help score runs, instead
+  of counting every one the same way batting average does. This project
+  computes a rolling, point-in-time team wOBA entering each game, built from
+  games strictly before it (never leaking games not yet played).
+formula: mlb_baseball/model/offense.py::compute
+citation: >
+  FanGraphs, wOBA methodology (Sabermetrics Library,
+  https://www.fangraphs.com/library/offense/woba/); Tango, Lichtman & Dolphin,
+  "The Book: Playing the Percentages in Baseball" (2006), for the underlying
+  linear-weights concept.
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo (1910-2025); raw.mlb_playbyplay (2026+)
+grain: team, point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  KNOWN LIMITATION, flagged for a follow-up (not fixed here per this batch's
+  scope): the weights used (W_UBB=0.690, W_HBP=0.722, W_1B=0.878, W_2B=1.242,
+  W_3B=1.569, W_HR=2.015 -- defined in offense.py) are a SINGLE FIXED set
+  applied to every season, not FanGraphs' real per-season weights (which
+  genuinely shift year to year, published on FanGraphs' "Guts!" page). The
+  module's own docstring is explicit about this tradeoff and says so directly:
+  "these aren't mistaken for a year-precise reproduction." Since ADR-290,
+  gold.fangraphs_guts now holds exactly the real, era-accurate per-season
+  weights this module would need -- but team_woba has not been updated to
+  join against it. This is a real, live inconsistency worth a follow-up
+  (era-accurate reference data exists but isn't used by the production
+  formula), not something this catalog change fixes.
+
+  Correctly implements the cited formula per direct code read (numerator =
+  weighted sum of unintentional walks/HBP/1B/2B/3B/HR; denominator = AB + uBB
+  + SF + HBP). tests/integration/test_model_offense.py's
+  test_compute_rolling_woba_matches_hand_calculation hand-derives its own
+  expected value using the same arithmetic the code uses -- this is a
+  self-consistency test, not an independent tie-out, so status is "published"
+  rather than "validated". The module docstring separately describes a
+  one-off MANUAL check (computed the real 2023 MLB league-average wOBA
+  directly from raw.retrosheet_event with these weights, got .317, close to
+  the real 2023 league figure) -- good supporting evidence, but not an
+  automated test, so it doesn't change the status call either.

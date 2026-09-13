@@ -29,6 +29,13 @@ Hard rules:
 - **When asking the owner to decide:** give (1) the decision in one plain
   sentence, (2) at most two choices in plain words, (3) your recommendation.
   No trade-off tables, no more than ~6 lines for the whole question.
+- **When asking for permission to do something** (run a command, change data,
+  delete something): describe the action itself in one plain sentence a
+  non-technical person understands — what it does and what it touches — then
+  ask a plain yes/no question. Do not paste code, SQL, or a command as the
+  question, and do not require the owner to read code to know what they are
+  approving. Show the exact command/statement only if asked, or once approved,
+  as a "here's what I'm about to run" notice rather than the question itself.
 - **Never dump raw detail** (long tables, multi-part breakdowns, walls of
   findings) unless the owner explicitly asks to see everything.
 - Separate **what I found** from **what I recommend** when both are involved —

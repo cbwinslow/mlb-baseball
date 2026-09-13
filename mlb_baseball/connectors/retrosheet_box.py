@@ -45,6 +45,7 @@ documented requirement (retrosheet.org/datause.html: "you must have the
 workaround around it.
 """
 
+import logging
 import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -63,6 +64,8 @@ from mlb_baseball.health import (
 )
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
+
+logger = logging.getLogger(__name__)
 
 SOURCE = "retrosheet_box"
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
@@ -206,9 +209,10 @@ def _parse_archive(archive_path: Path, group: str) -> dict[int, dict[str, pd.Dat
                 tables = chadwick_tools.run_cwbox(year_dir, year)
             except RuntimeError as exc:
                 if group == "negro_league" and "Invalid integer value 'NA'" in str(exc):
-                    print(
-                        f"retrosheet_box: skipping official {year} Negro League box file; "
-                        "cwbox output is malformed after unattributable NA values"
+                    logger.warning(
+                        "retrosheet_box: skipping official %s Negro League box file; "
+                        "cwbox output is malformed after unattributable NA values",
+                        year,
                     )
                     continue
                 raise

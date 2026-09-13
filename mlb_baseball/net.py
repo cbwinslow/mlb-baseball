@@ -8,9 +8,12 @@ back under load. A 128-year bootstrap making 128+ requests needs to survive
 one transient failure, not crash the whole run over it.
 """
 
+import logging
 import time
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ATTEMPTS = 4
 DEFAULT_BACKOFF_SECONDS = 5.0
@@ -43,7 +46,14 @@ def _retry_message(
     target: str, exc: Exception | None, wait: float, attempt: int, max_attempts: int
 ) -> None:
     detail = str(exc) if exc is not None else "retryable HTTP response"
-    print(f"net: {target} failed ({detail}); retrying in {wait:.0f}s ({attempt}/{max_attempts})")
+    logger.warning(
+        "net: %s failed (%s); retrying in %.0fs (%s/%s)",
+        target,
+        detail,
+        wait,
+        attempt,
+        max_attempts,
+    )
 
 
 def get_with_retry(

@@ -44,6 +44,7 @@ Matches retrosheet.py's per-year fix (ADR-059) and statcast.py's per-week
 pattern, applied at both levels this connector actually needs it.
 """
 
+import logging
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -61,6 +62,8 @@ from mlb_baseball.health import (
 )
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
+
+logger = logging.getLogger(__name__)
 
 SOURCE = "retrosheet_event"
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
@@ -158,7 +161,9 @@ def _parse_archive(archive_path: Path, group: str) -> dict[int, tuple]:
                 game_df["_group"] = group
                 game_df["_scope"] = scope
             except Exception as exc:
-                print(f"retrosheet_event: {group} {year} failed ({exc}); skipping this year")
+                logger.error(
+                    "retrosheet_event: %s %s failed (%s); skipping this year", group, year, exc
+                )
                 continue
             results[year] = (event_df, game_df)
     return results
@@ -223,7 +228,9 @@ def bootstrap() -> dict[str, int]:
                 conn.commit()
             except Exception as exc:
                 conn.rollback()
-                print(f"retrosheet_event: {filename} failed ({exc}); skipping this archive")
+                logger.error(
+                    "retrosheet_event: %s failed (%s); skipping this archive", filename, exc
+                )
         for filename, group in SPECIAL_ARCHIVES.items():
             try:
                 for table, count in _load_archive(
@@ -233,7 +240,9 @@ def bootstrap() -> dict[str, int]:
                 conn.commit()
             except Exception as exc:
                 conn.rollback()
-                print(f"retrosheet_event: {filename} failed ({exc}); skipping this archive")
+                logger.error(
+                    "retrosheet_event: %s failed (%s); skipping this archive", filename, exc
+                )
         result["rows"] = sum(totals.values())
     return totals
 

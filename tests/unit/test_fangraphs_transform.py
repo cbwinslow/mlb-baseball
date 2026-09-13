@@ -11,26 +11,25 @@ from fungo.exceptions import FangraphsError, RequestError
 from mlb_baseball.connectors import fangraphs
 
 
-def test_fg_call_reraises_and_logs_fangraphs_error(capsys):
+def test_fg_call_reraises_and_logs_fangraphs_error(caplog):
     def blocked():
         raise FangraphsError("HTTP 403 — Cloudflare exemption withdrawn")
 
     with pytest.raises(FangraphsError):
         fangraphs._fg_call(blocked)
 
-    out = capsys.readouterr().out
-    assert "fangraphs:" in out
-    assert "FangraphsError" in out
-    assert "403" in out
+    assert "fangraphs:" in caplog.text
+    assert "FangraphsError" in caplog.text
+    assert "403" in caplog.text
 
 
-def test_fg_call_reraises_request_error(capsys):
+def test_fg_call_reraises_request_error(caplog):
     def exhausted():
         raise RequestError("Failed after 3 retries")
 
     with pytest.raises(RequestError):
         fangraphs._fg_call(exhausted)
-    assert "RequestError" in capsys.readouterr().out
+    assert "RequestError" in caplog.text
 
 
 def test_fg_call_passes_through_success():

@@ -66,6 +66,7 @@ full price-timeseries/line-movement depth for an oddstrader-style product):
 - Forward snapshots (above) keep the series current going forward.
 """
 
+import logging
 import time
 from datetime import UTC, datetime
 
@@ -85,6 +86,8 @@ from mlb_baseball.health import (
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import append_dataframe, load_dataframe
 from mlb_baseball.net import call_with_retry
+
+logger = logging.getLogger(__name__)
 
 SOURCE = "kalshi"
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
@@ -268,7 +271,7 @@ def _run(mode: str) -> dict[str, int]:
                 all_events.extend(fetch_events(ticker))
                 all_markets.extend(fetch_markets(ticker))
             except Exception as exc:
-                print(f"kalshi: {ticker} failed ({exc}); skipping, continuing bootstrap")
+                logger.error("kalshi: %s failed (%s); skipping, continuing bootstrap", ticker, exc)
 
         if all_events:
             counts[EVENT_TABLE] = load_dataframe(conn, EVENT_TABLE, pd.DataFrame(all_events))

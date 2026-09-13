@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 
@@ -80,6 +81,8 @@ from mlb_baseball.health import (
 )
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import append_dataframe, load_dataframe, season_already_loaded
+
+logger = logging.getLogger(__name__)
 
 SOURCE = "fangraphs"
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
@@ -160,7 +163,7 @@ def _fg_call(fn: Callable, *args, **kwargs):
         return fn(*args, **kwargs)
     except (FangraphsError, RequestError) as exc:
         name = getattr(fn, "__name__", repr(fn))
-        print(f"fangraphs: {name}{args!r} failed ({type(exc).__name__}: {exc})")
+        logger.error("fangraphs: %s%r failed (%s: %s)", name, args, type(exc).__name__, exc)
         raise
 
 
@@ -174,7 +177,7 @@ def _run_unit(conn: psycopg.Connection, label: str, fn: Callable, *args) -> int:
         return count
     except Exception as exc:  # noqa: BLE001 — deliberately broad, logged + skipped
         conn.rollback()
-        print(f"fangraphs: {label} failed ({exc}); skipping")
+        logger.error("fangraphs: %s failed (%s); skipping", label, exc)
         return 0
 
 
@@ -231,7 +234,7 @@ def _load_park_factors(conn: psycopg.Connection, season: int) -> int:
             conn.commit()
         except Exception as exc:  # noqa: BLE001 — logged + skipped, per-board isolation
             conn.rollback()
-            print(f"fangraphs: {table} {season} failed ({exc}); skipping")
+            logger.error("fangraphs: %s %s failed (%s); skipping", table, season, exc)
     return total
 
 
@@ -371,7 +374,7 @@ def _load_projections(conn: psycopg.Connection) -> dict[str, int]:
                 conn.commit()
             except Exception as exc:  # noqa: BLE001 — logged + skipped, per-system isolation
                 conn.rollback()
-                print(f"fangraphs: {label} failed ({exc}); skipping")
+                logger.error("fangraphs: %s failed (%s); skipping", label, exc)
     return {PROJECTION_TABLE: appended}
 
 

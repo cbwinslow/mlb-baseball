@@ -42,6 +42,7 @@ abstractions for sources we don't have yet").
 """
 
 import hashlib
+import logging
 from calendar import timegm
 from datetime import UTC, datetime, timedelta
 
@@ -58,6 +59,8 @@ from mlb_baseball.health import (
 )
 from mlb_baseball.ingest import track_run
 from mlb_baseball.net import get_with_retry
+
+logger = logging.getLogger(__name__)
 
 SOURCE = "news"
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
@@ -270,9 +273,15 @@ def _run(conn: psycopg.Connection) -> dict[str, int]:
         except Exception as exc:
             failed += 1
             conn.rollback()
-            print(f"news: {source}/{team or 'league'} feed failed ({url}): {exc}; skipping")
+            logger.error(
+                "news: %s/%s feed failed (%s): %s; skipping",
+                source,
+                team or "league",
+                url,
+                exc,
+            )
     if failed:
-        print(f"news: {failed}/{len(feeds)} feeds failed this run")
+        logger.error("news: %s/%s feeds failed this run", failed, len(feeds))
     return {TABLE: total_rows}
 
 

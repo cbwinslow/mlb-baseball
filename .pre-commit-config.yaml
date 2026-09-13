@@ -15,9 +15,16 @@ repos:
     # development dependencies, so contributors and CI enforce the same rules.
     rev: v0.16.1
     hooks:
+      # exclude: ruff also formats Python code fences inside Markdown, which
+      # would otherwise churn the frozen historical record every time a ruff
+      # bump changes formatting rules (docs/archive/README.md, and
+      # docs/DECISIONS.md / docs/superpowers/specs/ per the root AGENTS.md
+      # "never rewritten" rule).
       - id: ruff
         args: [--fix]
+        exclude: ^(docs/archive/|docs/superpowers/specs/|docs/DECISIONS\.md$)
       - id: ruff-format
+        exclude: ^(docs/archive/|docs/superpowers/specs/|docs/DECISIONS\.md$)
 
   - repo: https://github.com/sqlfluff/sqlfluff
     rev: 3.1.1

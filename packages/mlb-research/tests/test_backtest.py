@@ -215,6 +215,40 @@ def test_run_backtest_returns_per_fold_and_aggregate_metrics():
     assert result.seed == 0
 
 
+def test_run_backtest_rejects_a_predict_fn_with_the_wrong_output_shape():
+    # A caller's predict_fn returning e.g. a (1,) scalar-ish array or a
+    # column-shaped (n, 1) array would otherwise broadcast during metric
+    # arithmetic and fail later, inside calibration or bootstrap indexing,
+    # far from the actual mistake -- catch it at the callback boundary.
+    frame = pd.DataFrame(
+        {
+            "season": [2015, 2015, 2016, 2016],
+            "cutoff": [2015, 2015, 2016, 2016],
+            "value": [1.0, 3.0, 5.0, 7.0],
+        }
+    )
+    folds = backtest.time_ordered_folds((2016,))
+
+    def fit_fn(train):
+        return train["value"].mean()
+
+    def wrong_shape_predict_fn(model, test):
+        return np.full((len(test), 1), model)  # column-shaped, not 1-D
+
+    with pytest.raises(ValueError, match="season-2016"):
+        backtest.run_backtest(
+            frame,
+            folds,
+            fit_fn,
+            wrong_shape_predict_fn,
+            task="regression",
+            time_col="cutoff",
+            period_col="season",
+            label_col="value",
+            feature_cols=("value",),
+        )
+
+
 def test_paired_comparison_scores_only_intersecting_keys():
     # model A scored g1/g2/g3, model B scored g2/g4 -- only g2 overlaps.
     pred_a = np.array([0.6, 0.7, 0.8])

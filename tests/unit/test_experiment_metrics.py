@@ -451,7 +451,9 @@ def test_estimator_factory_matches_probabilities_on_a_fixed_fixture(model_family
     fit_fn, predict_fn = experiment._estimator_factory(config, spec)
     actual = predict_fn(fit_fn(train_frame), test_frame)
 
-    assert np.allclose(actual, _EXPECTED_CLASSIFICATION_PREDICTIONS[model_family], atol=1e-9)
+    assert np.allclose(
+        actual, _EXPECTED_CLASSIFICATION_PREDICTIONS[model_family], rtol=0, atol=1e-9
+    )
 
 
 @pytest.mark.parametrize("model_family", _REGRESSION_FAMILIES)
@@ -463,7 +465,7 @@ def test_estimator_factory_matches_predictions_on_a_fixed_fixture(model_family):
     fit_fn, predict_fn = experiment._estimator_factory(config, spec)
     actual = predict_fn(fit_fn(train_frame), test_frame)
 
-    assert np.allclose(actual, _EXPECTED_REGRESSION_PREDICTIONS[model_family], atol=1e-9)
+    assert np.allclose(actual, _EXPECTED_REGRESSION_PREDICTIONS[model_family], rtol=0, atol=1e-9)
 
 
 @pytest.mark.parametrize(

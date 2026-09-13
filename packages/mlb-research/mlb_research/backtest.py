@@ -342,6 +342,11 @@ def run_backtest(
             raise ValueError(f"{fold.name} needs non-empty train and test rows")
         model = fit_fn(train)
         predictions = np.asarray(predict_fn(model, test))
+        if predictions.shape != (len(test),):
+            raise ValueError(
+                f"{fold.name}: predict_fn returned shape {predictions.shape}, "
+                f"expected ({len(test)},)"
+            )
         labels = test[label_col].to_numpy()
         metric_seed = seed + fold.test
         metrics = (

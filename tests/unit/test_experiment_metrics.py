@@ -1,4 +1,3 @@
-import math
 from datetime import UTC, date, datetime
 
 import numpy as np
@@ -8,6 +7,12 @@ from mlb_baseball.model import experiment
 
 
 def test_calendar_folds_are_strictly_ordered():
+    # experiment.folds() is a thin adapter over mlb_research.backtest
+    # .time_ordered_folds() (one implementation of the fold-boundary math);
+    # this covers its own contract -- translating back to experiment.Fold's
+    # train_through_season/test_season shape and ExperimentError. The
+    # underlying math itself is covered by
+    # packages/mlb-research/tests/test_backtest.py.
     assert experiment.folds((2016, 2017)) == (
         experiment.Fold("season-2016", 2015, 2016),
         experiment.Fold("season-2017", 2016, 2017),
@@ -16,37 +21,14 @@ def test_calendar_folds_are_strictly_ordered():
         experiment.folds((2017, 2016))
 
 
-def test_probability_metrics_match_hand_calculation_and_are_deterministic():
-    actual = np.array([1, 0])
-    probabilities = np.array([0.75, 0.25])
-
-    first = experiment._metrics(actual, probabilities, seed=7)
-    second = experiment._metrics(actual, probabilities, seed=7)
-
-    # Brier = ((.75 - 1)^2 + (.25 - 0)^2) / 2 = .0625.
-    assert first["brier"] == pytest.approx(0.0625)
-    # Log loss = -log(.75) when both samples receive the same probability
-    # assigned to the observed class.
-    assert first["log_loss"] == pytest.approx(-math.log(0.75))
-    assert first["accuracy"] == 1.0
-    assert first["log_loss_95ci"] == second["log_loss_95ci"]
-    assert first["calibration"]["intercept"] is None
-    assert first["calibration"]["bins"] == [
-        {
-            "low": 0.2,
-            "high": 0.3,
-            "count": 1,
-            "mean_probability": 0.25,
-            "observed_rate": 0.0,
-        },
-        {
-            "low": 0.7,
-            "high": 0.8,
-            "count": 1,
-            "mean_probability": 0.75,
-            "observed_rate": 1.0,
-        },
-    ]
+# test_probability_metrics_match_hand_calculation_and_are_deterministic,
+# test_regression_metrics_match_hand_calculation_and_are_deterministic, and
+# test_aggregate_regression_metrics_weighted_by_rows moved to
+# packages/mlb-research/tests/test_backtest.py: experiment._metrics /
+# _regression_metrics / _aggregate_regression_metrics are now direct
+# re-exports of mlb_research.backtest's classification_metrics /
+# regression_metrics / aggregate_regression_metrics, so the hand-fixture
+# coverage there is coverage here too -- one definition, one test.
 
 
 def test_target_registry_specifications():
@@ -101,40 +83,6 @@ def test_target_registry_specifications():
     )
     assert hw_spec.label(sample_row) == 1.0
     assert rd_spec.label(sample_row) == 3.0
-
-
-def test_regression_metrics_match_hand_calculation_and_are_deterministic():
-    # Hand-computed test vectors:
-    # actual:      [3.0, -1.0, 4.0,  0.0]
-    # predictions: [2.0,  1.0, 4.0, -2.0]
-    # errors (act - pred): [1.0, -2.0, 0.0, 2.0]
-    # abs errors: [1.0, 2.0, 0.0, 2.0] -> MAE = (1 + 2 + 0 + 2) / 4 = 1.25
-    # sq errors:  [1.0, 4.0, 0.0, 4.0] -> MSE = (1 + 4 + 0 + 4) / 4 = 2.25 -> RMSE = 1.5
-    actual = np.array([3.0, -1.0, 4.0, 0.0])
-    predictions = np.array([2.0, 1.0, 4.0, -2.0])
-
-    first = experiment._regression_metrics(actual, predictions, seed=42)
-    second = experiment._regression_metrics(actual, predictions, seed=42)
-
-    assert first["rows"] == 4
-    assert first["mae"] == pytest.approx(1.25)
-    assert first["rmse"] == pytest.approx(1.5)
-    assert first["mae_95ci"] == second["mae_95ci"]
-    assert first["rmse_95ci"] == second["rmse_95ci"]
-    assert len(first["calibration"]["bins"]) > 0
-
-
-def test_aggregate_regression_metrics_weighted_by_rows():
-    fold_results = {
-        "season-2016": {"rows": 10, "mae": 2.0, "rmse": 3.0},
-        "season-2017": {"rows": 30, "mae": 4.0, "rmse": 5.0},
-    }
-    agg = experiment._aggregate_regression_metrics(fold_results)
-    assert agg["rows"] == 40
-    # mae = (10 * 2.0 + 30 * 4.0) / 40 = 140 / 40 = 3.5
-    assert agg["mae"] == pytest.approx(3.5)
-    # rmse = (10 * 3.0 + 30 * 5.0) / 40 = 180 / 40 = 4.5
-    assert agg["rmse"] == pytest.approx(4.5)
 
 
 def test_validate_parameters_for_all_model_families():
@@ -294,6 +242,230 @@ def test_common_rows_filters_per_target_spec():
     # run_differential keeps row_full and row_no_rates (which has runs/wins), drops row_no_runs
     rd_filtered = experiment._common_rows([row_full, row_no_rates, row_no_runs], rd_spec)
     assert [r.game_instance_key for r in rd_filtered] == ["k1", "k2"]
+
+
+def test_evaluation_frame_has_the_expected_shape():
+    values: dict[str, float | None] = {"home_wins": 5.0, "home_win_pct": 0.55}
+    row_a = experiment.SnapshotRow(
+        "k1",
+        "pk1",
+        datetime(2024, 4, 1, 12, 0, tzinfo=UTC),
+        2024,
+        date(2024, 4, 1),
+        1,
+        1,
+        2,
+        5,
+        3,
+        values,
+        True,
+    )
+    row_b = experiment.SnapshotRow(
+        "k2",
+        "pk2",
+        datetime(2024, 4, 2, 12, 0, tzinfo=UTC),
+        2024,
+        date(2024, 4, 2),
+        1,
+        1,
+        2,
+        4,
+        6,
+        values,
+        True,
+    )
+    spec = experiment.TARGET_REGISTRY["home_win"]
+
+    frame = experiment._evaluation_frame([row_a, row_b], spec)
+
+    # Identity/period/cutoff/outcome columns, BASE_COLUMNS + LOG5_COLUMNS
+    # (log5 reads home_win_pct/away_win_pct directly, not via BASE_COLUMNS;
+    # elo needs the team ids and scores), then the label -- this is the
+    # exact frame shape run_backtest scores.
+    assert list(frame.columns) == [
+        "game_instance_key",
+        "season",
+        "feature_cutoff_at",
+        "home_team_id",
+        "away_team_id",
+        "home_score",
+        "away_score",
+        "home_win",
+        *experiment.BASE_COLUMNS,
+        *experiment.LOG5_COLUMNS,
+        "label",
+    ]
+    assert len(frame) == 2
+    assert list(frame["game_instance_key"]) == ["k1", "k2"]
+    assert list(frame["season"]) == [2024, 2024]
+    assert list(frame["home_team_id"]) == [1, 1]
+    assert list(frame["away_team_id"]) == [2, 2]
+    assert list(frame["home_score"]) == [5, 4]
+    assert list(frame["away_score"]) == [3, 6]
+    assert list(frame["home_win"]) == [True, True]
+    assert list(frame["label"]) == [1.0, 1.0]
+    assert list(frame["home_wins"]) == [5.0, 5.0]
+    assert list(frame["home_win_pct"]) == [0.55, 0.55]
+    # home_rest isn't set on either row -- .values.get() leaves it missing
+    # rather than fabricating a zero.
+    assert frame["home_rest"].isna().all()
+
+
+def _estimator_factory_fixture_rows() -> list[experiment.SnapshotRow]:
+    # 3 train rows (season 2015) + 3 test rows (season 2016), distinct team
+    # pairs each game so elo's ratings actually move, every BASE_COLUMNS +
+    # LOG5_COLUMNS value populated so both target specs' required_columns
+    # are satisfied.
+    def row(
+        key: str,
+        day: int,
+        season: int,
+        home_team: int,
+        away_team: int,
+        home_score: int,
+        away_score: int,
+        home_win: bool,
+        offset: float,
+    ) -> experiment.SnapshotRow:
+        values: dict[str, float | None] = {
+            "home_wins": 10.0 + offset,
+            "home_losses": 5.0,
+            "away_wins": 8.0,
+            "away_losses": 7.0,
+            "home_runs_for": 40.0 + offset,
+            "home_runs_allowed": 35.0,
+            "away_runs_for": 38.0,
+            "away_runs_allowed": 36.0,
+            "home_rest": 1.0,
+            "away_rest": 1.0,
+            "home_field": 1.0,
+            "home_win_pct": 0.6,
+            "away_win_pct": 0.5,
+        }
+        return experiment.SnapshotRow(
+            key,
+            f"pk-{key}",
+            datetime(season, 4, day, 12, 0, tzinfo=UTC),
+            season,
+            date(season, 4, day),
+            1,
+            home_team,
+            away_team,
+            home_score,
+            away_score,
+            values,
+            home_win,
+        )
+
+    return [
+        row("k1", 1, 2015, 1, 2, 5, 3, True, 0.0),
+        row("k2", 2, 2015, 3, 4, 2, 6, False, 1.0),
+        row("k3", 3, 2015, 2, 1, 7, 1, True, 2.0),
+        row("k4", 1, 2016, 1, 3, 4, 3, True, 3.0),
+        row("k5", 2, 2016, 2, 4, 6, 2, True, 4.0),
+        row("k6", 3, 2016, 4, 1, 3, 5, False, 5.0),
+    ]
+
+
+def _split_factory_fixture(
+    spec: experiment.TargetSpec,
+) -> tuple[list[experiment.SnapshotRow], list[experiment.SnapshotRow], object, object]:
+    rows = _estimator_factory_fixture_rows()
+    train_rows, test_rows = rows[:3], rows[3:]
+    frame = experiment._evaluation_frame(rows, spec)
+    train_frame = frame[frame["season"] <= 2015].sort_values("feature_cutoff_at")
+    test_frame = frame[frame["season"] == 2016].sort_values("feature_cutoff_at")
+    return train_rows, test_rows, train_frame, test_frame
+
+
+_CLASSIFICATION_FAMILIES = (
+    "home_rate",
+    "log5",
+    "elo",
+    "logistic",
+    "hist_gradient_boosting",
+    "xgboost",
+    "random_forest",
+    "extra_trees",
+    "gam",
+    "svm",
+    "bayesian",
+    "neural",
+)
+_REGRESSION_FAMILIES = (
+    "zero",
+    "season_average",
+    "ridge",
+    "hist_gradient_boosting_regressor",
+    "xgboost_regressor",
+    "random_forest_regressor",
+    "extra_trees_regressor",
+    "gam_regressor",
+    "svm_regressor",
+    "bayesian_regressor",
+    "neural_regressor",
+)
+
+
+# Captured once from experiment._probabilities/_predictions (the pre-slice-2
+# SnapshotRow-based implementation, byte-for-byte the same math this
+# fixture's _estimator_factory output is now checked against) before those
+# functions were deleted as dead code (task 5.6) -- pins the exact numeric
+# output per family rather than re-deriving it from code this test would
+# then be comparing against itself.
+_EXPECTED_CLASSIFICATION_PREDICTIONS = {
+    "home_rate": [0.6666666667, 0.6666666667, 0.6666666667],
+    "log5": [0.6, 0.6, 0.6],
+    "elo": [0.5353566039, 0.5336110744, 0.5338020016],
+    "logistic": [0.6666684457, 0.6666684457, 0.6666684457],
+    "hist_gradient_boosting": [0.6666666667, 0.6666666667, 0.6666666667],
+    "xgboost": [0.6666666865, 0.6666666865, 0.6666666865],
+    "random_forest": [0.73, 0.73, 0.73],
+    "extra_trees": [1.0, 1.0, 1.0],
+    "gam": [0.9130932256, 0.9130932256, 0.9130932256],
+    "svm": [0.3913451218, 0.4289719063, 0.4294128993],
+    "bayesian": [1.0, 1.0, 1.0],
+    "neural": [0.999995193, 0.9999999968, 1.0],
+}
+_EXPECTED_REGRESSION_PREDICTIONS = {
+    "zero": [0.0, 0.0, 0.0],
+    "season_average": [0.3111111111, 0.3403508772, 0.3666666667],
+    "ridge": [4.7619047619, 6.4761904762, 8.1904761905],
+    "hist_gradient_boosting_regressor": [1.3333333333, 1.3333333333, 1.3333333333],
+    "xgboost_regressor": [5.6289200783, 5.6289200783, 5.6289200783],
+    "random_forest_regressor": [3.12, 3.12, 3.12],
+    "extra_trees_regressor": [6.0, 6.0, 6.0],
+    "gam_regressor": [5.7619047619, 5.7619047619, 5.7619047619],
+    "svm_regressor": [2.4413028222, 2.2231287955, 2.2206527852],
+    "bayesian_regressor": [1.3379647009, 1.3402803847, 1.3425960685],
+    "neural_regressor": [14.0945376978, 21.4599101866, 28.8230956418],
+}
+
+
+@pytest.mark.parametrize("model_family", _CLASSIFICATION_FAMILIES)
+def test_estimator_factory_matches_probabilities_on_a_fixed_fixture(model_family):
+    spec = experiment.TARGET_REGISTRY["home_win"]
+    config = experiment.ExperimentConfig(snapshot_id="s", model_family=model_family, seed=0)
+
+    _, _, train_frame, test_frame = _split_factory_fixture(spec)
+    fit_fn, predict_fn = experiment._estimator_factory(config, spec)
+    actual = predict_fn(fit_fn(train_frame), test_frame)
+
+    assert np.allclose(
+        actual, _EXPECTED_CLASSIFICATION_PREDICTIONS[model_family], rtol=0, atol=1e-9
+    )
+
+
+@pytest.mark.parametrize("model_family", _REGRESSION_FAMILIES)
+def test_estimator_factory_matches_predictions_on_a_fixed_fixture(model_family):
+    spec = experiment.TARGET_REGISTRY["run_differential"]
+    config = experiment.ExperimentConfig(snapshot_id="s", model_family=model_family, seed=0)
+
+    _, _, train_frame, test_frame = _split_factory_fixture(spec)
+    fit_fn, predict_fn = experiment._estimator_factory(config, spec)
+    actual = predict_fn(fit_fn(train_frame), test_frame)
+
+    assert np.allclose(actual, _EXPECTED_REGRESSION_PREDICTIONS[model_family], rtol=0, atol=1e-9)
 
 
 @pytest.mark.parametrize(

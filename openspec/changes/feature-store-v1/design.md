@@ -252,10 +252,10 @@ mechanism, not the lag's numeric truth.
 
 ```python
 mlb_research.get_historical_features(
-    entity_df,                                  # entity id + a decision-time column
+    entity_df,  # entity id + a decision-time column
     features=["player_form:woba_30d", "pitcher_form:k_minus_bb_30d"],
     timestamp_col="event_timestamp",
-    db=None,                                    # defaults to the resolved build path
+    db=None,  # defaults to the resolved build path
 )  # -> DataFrame, one row per entity_df row, in input order
 ```
 

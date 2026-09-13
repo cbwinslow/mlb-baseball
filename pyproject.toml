@@ -1,7 +1,7 @@
 [project]
 name = "mlb-baseball"
 version = "0.1.0"
-description = "MLB data ingestion pipeline, ML modeling, and an oddstrader-style Astro site."
+description = "Free, self-hosted MLB research database and toolkit: historical and live data ingestion, canonical PostgreSQL schemas, cited statistics, and point-in-time features."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"

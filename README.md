@@ -113,6 +113,7 @@ wraps them. Retrieve features with no server:
 
 ```python
 import mlb_research as mr
+
 X = mr.get_historical_features(games, ["player_form:obp_30d", "pitcher_form:k_minus_bb_pct_30d"])
 ```
 

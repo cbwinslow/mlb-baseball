@@ -88,7 +88,7 @@ Elo v2 (slice 3) swaps in the probable starter.
 ```python
 import mlb_research as mr
 
-games = mr.load("...")   # or your own entity frame: entity id + a decision timestamp
+games = mr.load("...")  # or your own entity frame: entity id + a decision timestamp
 X = mr.get_historical_features(
     games,
     ["player_form:obp_30d", "player_form:k_pct_shrunk_30d", "pitcher_form:k_minus_bb_pct_30d"],

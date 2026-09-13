@@ -38,6 +38,7 @@ moved.
 | `docs/PLAN_02_ACCEPTANCE.md` | `docs/archive/PLAN_02_ACCEPTANCE.md` |
 | `docs/INGESTION_BULK_LOAD_ASSESSMENT.md` | `docs/archive/INGESTION_BULK_LOAD_ASSESSMENT.md` |
 | `docs/PACKAGE_VALIDATION_STATUS.md` | `docs/archive/PACKAGE_VALIDATION_STATUS.md` |
+| `chatgpt-audit.md` (repo root) | `docs/archive/CHATGPT_AUDIT_2026-09.md` — a ChatGPT-generated re-review; findings triaged into issues #202-205 and `openspec/changes/feature-store-public-contract/` |
 
 ### Retired staged-execution plans (`plans/` -> `docs/archive/plans/`)
 

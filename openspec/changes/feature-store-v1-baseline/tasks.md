@@ -146,13 +146,17 @@ it fail for the right reason, then make it pass.
 
 ## 8. Verification
 
-- [ ] 8.1 `openspec validate --strict feature-store-v1-baseline`; full
-  `pre-commit`; `ruff check` + `ruff format --check` + `mypy` on every
-  touched file. Verify: each command's exit code recorded.
-- [ ] 8.2 Targeted suites green:
-  `packages/mlb-research/tests/test_elo.py` (new), plus
-  `packages/mlb-research/tests/` as a whole (no regression in the harness
-  or feature-store tests already there). Verify: run and record counts.
+- [x] 8.1 Exit codes: `openspec validate --strict feature-store-v1-baseline`
+  → 0. `pre-commit run --all-files` → 0 (11 hooks, all Passed). `ruff check`
+  on `elo.py` + `test_elo.py` → 0. `ruff format --check` on all 9 files this
+  branch touched (`git diff --stat
+  feat/feature-store-v1-harness..feat/feature-store-v1-baseline`) → 0.
+  `mypy packages/mlb-research/mlb_research/elo.py` → 0.
+- [x] 8.2 Counts recorded, all green: `packages/mlb-research/tests/test_elo.py`
+  — 17 passed. `packages/mlb-research/tests/` as a whole — 60 passed (no
+  regression in the 43 harness/feature-store tests already there). Full
+  `tests/unit/` (mlb_baseball, untouched by this slice) — 1226 passed,
+  confirming no accidental cross-package breakage.
 - [ ] 8.3 **[OWNER]** Run the model card against a real local `mlb build`
   output (or the production DuckDB build, read-only) and read the rendered
   markdown for plausibility (log loss/Brier in a sane range, calibration

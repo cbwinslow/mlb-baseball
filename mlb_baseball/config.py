@@ -6,6 +6,7 @@ Environment variables always win, which makes CI and one-off runs predictable.
 """
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass
 from datetime import date
@@ -23,6 +24,19 @@ DEFAULT_ANALYTICS_START_YEAR = 1950
 DEFAULT_RETRY_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS = 1.0
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
+# Session-level memory settings for the heavy, run-alone batch rebuilds (`mlb
+# conform`, `mlb predict`; see mlb_baseball/db.py::apply_batch_session_settings).
+# Conservative on purpose (issue #202): this project ships as code other
+# people run on their own machines (openspec/project.md), so the default must
+# be safe on a modest host, not tuned for this project's own 40-core/125GB
+# production box (docs/DECISIONS.md). These defaults are PostgreSQL's own
+# out-of-the-box work_mem/maintenance_work_mem. This project's production
+# host opts into the larger values (work_mem=1GB, maintenance_work_mem=4GB;
+# PR #86) explicitly via its own local mlb.toml -- see mlb.toml.example.
+DEFAULT_BATCH_WORK_MEM = "4MB"
+DEFAULT_BATCH_MAINTENANCE_WORK_MEM = "64MB"
+
+_PG_MEMORY_SIZE_RE = re.compile(r"^[0-9]+\s*(B|kB|MB|GB|TB)?$", re.IGNORECASE)
 
 
 class ConfigError(ValueError):
@@ -41,6 +55,8 @@ class Settings:
     retry_attempts: int
     backoff_seconds: float
     request_timeout_seconds: int
+    batch_work_mem: str = DEFAULT_BATCH_WORK_MEM
+    batch_maintenance_work_mem: str = DEFAULT_BATCH_MAINTENANCE_WORK_MEM
 
 
 _TOML_KEYS = {
@@ -52,6 +68,8 @@ _TOML_KEYS = {
     "retry_attempts",
     "backoff_seconds",
     "request_timeout_seconds",
+    "batch_work_mem",
+    "batch_maintenance_work_mem",
 }
 
 
@@ -119,6 +137,19 @@ def _number(value: object, name: str, minimum: float) -> float:
     return result
 
 
+def _memory_size(value: object, name: str) -> str:
+    """Validate a PostgreSQL memory-size GUC value (e.g. ``"64MB"``,
+    ``"1GB"``). These flow into a `SET {name} = '{value}'` statement
+    (`mlb_baseball/db.py`), so reject anything that isn't a plain integer
+    plus an optional unit before it ever reaches SQL."""
+    text = str(value).strip()
+    if not _PG_MEMORY_SIZE_RE.match(text):
+        raise ConfigError(
+            f"{name} must be a PostgreSQL memory size such as '64MB' or '1GB' (got {value!r})"
+        )
+    return text
+
+
 def load_settings(path: str | Path | None = None) -> Settings:
     """Load TOML first, then apply environment overrides without side effects."""
     values, base = _read_toml(_config_path(path))
@@ -164,6 +195,13 @@ def load_settings(path: str | Path | None = None) -> Settings:
             "request_timeout_seconds",
             1,
             600,
+        ),
+        batch_work_mem=_memory_size(
+            _value(values, "batch_work_mem", DEFAULT_BATCH_WORK_MEM), "batch_work_mem"
+        ),
+        batch_maintenance_work_mem=_memory_size(
+            _value(values, "batch_maintenance_work_mem", DEFAULT_BATCH_MAINTENANCE_WORK_MEM),
+            "batch_maintenance_work_mem",
         ),
     )
 

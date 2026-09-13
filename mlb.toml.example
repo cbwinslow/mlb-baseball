@@ -10,3 +10,16 @@ analytics_start_year = 1950
 retry_attempts = 3
 backoff_seconds = 1.0
 request_timeout_seconds = 5
+
+# `mlb conform` / `mlb predict` session memory tuning (issue #202). Left out,
+# these default to PostgreSQL's own conservative work_mem/maintenance_work_mem
+# so a modest machine can't OOM running this project's code. Uncomment on a
+# host with memory to spare for these run-alone batch rebuilds.
+# batch_work_mem = "64MB"
+# batch_maintenance_work_mem = "256MB"
+
+# This project's own production host (40 cores / 125 GB RAM,
+# docs/DECISIONS.md) opts into its PR #86 tuning explicitly here, instead of
+# relying on any default:
+# batch_work_mem = "1GB"
+# batch_maintenance_work_mem = "4GB"

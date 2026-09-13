@@ -90,7 +90,9 @@ def test_batch_memory_settings_are_overridable_via_env_var(tmp_path, monkeypatch
     assert settings.batch_work_mem == "2GB"
 
 
-def test_invalid_batch_memory_setting_is_rejected(tmp_path):
+def test_invalid_batch_memory_setting_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.delenv("MLB_BATCH_WORK_MEM", raising=False)
+    monkeypatch.delenv("MLB_BATCH_MAINTENANCE_WORK_MEM", raising=False)
     path = tmp_path / "mlb.toml"
     path.write_text("[mlb]\nbatch_work_mem = 'DROP TABLE core.game; --'\n")
 

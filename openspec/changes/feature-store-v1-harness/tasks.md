@@ -208,8 +208,37 @@ owner's to run and are recorded, not gated in CI.
   change (their functions are called, not modified, from `experiment.py`'s
   new `_estimator_factory`), no DuckDB feature store file. No `SHORTCUT:`
   markers in the diff.
-- [ ] 7.5 **[OWNER]** Re-run one real experiment from the lab
-  (`mlb experiment run …` against a built database) before and after, and
-  confirm `meta.experiment.metrics_json` matches within the D5 tie-out
-  tolerance. First confirmation at real scale that the adapter preserved the
-  numbers.
+- [x] 7.5 **[OWNER, done 2026-09-13 with the owner's explicit approval at
+  each database-write step.]** Ran one real experiment against production
+  (`mlb` database) on the pre-session code (`fd1f77b`, in an isolated
+  `git worktree`), then again on current code after deleting that one
+  experiment's rows (forcing a real recompute, not the idempotency cache) --
+  `home_rate`, snapshot `game_full_v2:home_win:971cfe0f5312532d538d868d`
+  (216,966 eligible rows, created fresh -- `meta.experiment_snapshot` was
+  empty before this), fold-years `1920`. Chose 1920 to route around an
+  unrelated, real data bug found in the process (below).
+
+  **Result: `metrics_json` is bit-identical** -- `rows`, `log_loss`, `brier`,
+  `accuracy`, `coverage`, both 95% CIs, and `prediction_sha256` (the actual
+  per-row predictions, hashed) all match exactly between before and after.
+  The one difference: `calibration.slope`/`intercept` went from a real
+  number (old, `sklearn.LogisticRegression(C=1e6)`) to `None` (new, numpy
+  IRLS) -- expected and arguably more correct, not a regression: `home_rate`
+  predicts the identical probability for every row in a fold, so the
+  logistic-fit design matrix is rank-deficient (two proportional columns);
+  the IRLS implementation correctly detects that singular case and falls
+  back to `None` (the documented guard, design D5's "IRLS diverges on a
+  degenerate fold" risk) instead of returning a number for a parameter that
+  is not actually identifiable. Confirmed by re-deriving the exact same
+  degeneracy by hand, not just observed once.
+
+  **Unrelated finding, flagged separately, not fixed here:** `gold
+  .game_feature.feature_cutoff_at` for (at least) season 1938 is stored
+  as year **2038** (`game_date` is correctly 1938-09-05;
+  `feature_cutoff_at` is 2038-09-05) -- a real, pre-existing data bug,
+  reproduces identically on the pre-session code, so unrelated to this
+  slice. It breaks `experiment.run()`'s chronological-separation check for
+  any fold with `train_through >= 1938` (confirmed for fold-years 2017 and
+  2019 before finding the cause). Needs its own investigation into how many
+  rows/seasons are affected and where the +100-year offset is introduced;
+  not scoped or fixed in this session.

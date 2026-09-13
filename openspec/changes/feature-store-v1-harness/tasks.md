@@ -120,33 +120,22 @@ owner's to run and are recorded, not gated in CI.
   `tests/integration/test_experiment.py` passes **unchanged** (row counts,
   `aggregate["rows"] == 14`, fold names, artifact SHA naming, resume, failed
   run, `compare`).
-- [ ] 5.5 **BLOCKED on an owner decision -- not implemented as written.**
-  `compare()`'s current flat per-model-per-fold `metrics_json` listing is a
-  real, load-bearing CLI feature: `mlb experiment compare --snapshot <id>`
-  (`experiment_commands.add_parser("compare", help="show saved fold
-  metrics")` in `cli.py`) prints `row['model']`/`row['fold']` plus
-  `_format_metrics_line(row)`, which reads `log_loss`/`brier` or
-  `mae`/`rmse` directly off each row. A `paired_comparison`-based rewrite is
-  inherently pairwise (it scores exactly two models' predictions over their
-  common keys) and cannot produce that same flat single-model-per-row shape
-  without either breaking `_format_metrics_line` or `compare()` silently
-  becoming a different, differently-shaped function. This also contradicts
-  `proposal.md`'s own "What Changes": "Its public API is unchanged —
-  `run()`, `compare()`, ... all keep their signatures **and behavior**."
-  `compare()` is left unchanged (still reads `meta.experiment_fold
-  .metrics_json`, not raw predictions) pending an owner decision on one of:
-  (a) keep `compare()` as-is and treat `paired_comparison` as a
-  `mlb_research`-shipped utility with no `mlb_baseball` caller yet (it is
-  still directly tested in `packages/mlb-research/tests/test_backtest.py`,
-  task 4.3/4.4); (b) add a **new** CLI subcommand/function for the
-  matched-sample pairwise comparison, leaving `compare()`'s existing output
-  and CLI behavior untouched; (c) accept breaking `mlb experiment compare`'s
-  current output shape as a deliberate, documented behavior change (update
-  `cli.py`, `docs/EXPERIMENT_RUNBOOK.md`, and this proposal's "unchanged"
-  claim together). Verify (once decided): the chosen option's exact
-  contract, plus `tests/integration/test_experiment.py`'s
-  `assert any(row["model"] == model_family for row in comparison)` and any
-  CLI dispatch test for `experiment compare`.
+- [x] 5.5 **Owner decision (2026-09-13): keep `compare()` as-is.** A
+  `paired_comparison`-based rewrite is inherently pairwise (it scores exactly
+  two models' predictions over their common keys) and cannot reproduce
+  `compare()`'s current flat per-model-per-fold `metrics_json` listing --
+  which is a real, load-bearing CLI feature (`mlb experiment compare
+  --snapshot <id>`; `cli.py`'s `_format_metrics_line` reads `log_loss`/
+  `brier`/`mae`/`rmse` directly off each row) -- without breaking it. Owner
+  chose option (a) from the three recorded here previously: `compare()` is
+  untouched (still reads `meta.experiment_fold.metrics_json`, not raw
+  predictions); `paired_comparison` stays a shipped `mlb_research` utility
+  with no `mlb_baseball` caller yet (tested directly in
+  `packages/mlb-research/tests/test_backtest.py`, task 4.3/4.4) --
+  available to slice 3's Elo v2 model card, which needs exactly this shape
+  (comparing two model configs on identical held-out games). No code change
+  from this decision; `proposal.md`'s "signatures and behavior unchanged"
+  claim for `compare()` stands as originally written.
 - [x] 5.6 Removed `_probabilities` / `_predictions` / `_elo_probabilities`
   (superseded by `_estimator_factory` + `run_backtest`, task 5.4).
   `_calibration` / `_metrics` / `_regression_metrics` / `_aggregate_metrics` /

@@ -171,11 +171,12 @@ test rows in cutoff order, predicting before its own update folds in.
 across the dependency direction slice 1 establishes — one implementation,
 both products. `experiment.py`'s public API and `meta.experiment*` writes
 are behaviorally unchanged (`tests/integration/test_experiment.py` passes
-unmodified). One open item carried forward, not resolved in this slice:
-`compare()`'s rewrite to `paired_comparison` conflicts with the CLI's
-existing flat per-model-per-fold output (`mlb experiment compare`) and is
-blocked on an owner decision — see
-`openspec/changes/feature-store-v1-harness/tasks.md` task 5.5.
+unmodified), including `compare()`: a `paired_comparison`-based rewrite
+would have conflicted with the CLI's existing flat per-model-per-fold
+output (`mlb experiment compare`), so per an owner decision (2026-09-13,
+`openspec/changes/feature-store-v1-harness/tasks.md` task 5.5) `compare()`
+is untouched and `paired_comparison` ships as an `mlb_research` utility
+with no `mlb_baseball` caller yet.
 
 **Slice 3 — `feature-store-v1-baseline`.** Elo v2 and its model card, both pure
 numpy inside `mlb_research`: team Elo plus home field (v1's math, unchanged),

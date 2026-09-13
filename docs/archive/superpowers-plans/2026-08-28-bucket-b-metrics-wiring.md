@@ -116,6 +116,7 @@ FIXTURE_HTML = """<table><thead><tr><th>Season</th><th>wOBA</th><th>wOBAScale</t
 <td>.883</td><td>1.244</td><td>1.569</td><td>2.004</td><td>.200</td><td>-.390</td>
 <td>.118</td><td>9.65</td><td>3.185</td></tr></tbody></table>"""
 
+
 def test_bootstrap_lands_one_row_per_season(db_conn, monkeypatch):
     monkeypatch.setattr(fangraphs, "_fetch_guts_html", lambda: FIXTURE_HTML)
     counts = fangraphs.bootstrap(db_conn)
@@ -125,10 +126,13 @@ def test_bootstrap_lands_one_row_per_season(db_conn, monkeypatch):
         cur.execute("SELECT season, woba, whr FROM raw.fangraphs_guts WHERE season = 2023")
         assert cur.fetchone() == (2023, 0.318, 2.004)
 
+
 def test_rerunning_truncates_instead_of_duplicating(db_conn, monkeypatch):
     monkeypatch.setattr(fangraphs, "_fetch_guts_html", lambda: FIXTURE_HTML)
-    fangraphs.bootstrap(db_conn); db_conn.commit()
-    fangraphs.bootstrap(db_conn); db_conn.commit()
+    fangraphs.bootstrap(db_conn)
+    db_conn.commit()
+    fangraphs.bootstrap(db_conn)
+    db_conn.commit()
     with db_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM raw.fangraphs_guts")
         assert cur.fetchone()[0] == 1
@@ -192,8 +196,11 @@ git commit -m "feat(fangraphs): one-time Guts! reference-constant snapshot conne
 import pytest
 from mlb_baseball.model._distribution import percentiles
 
+
 class _FakeConn:
-    def cursor(self): raise AssertionError("should not reach the DB")
+    def cursor(self):
+        raise AssertionError("should not reach the DB")
+
 
 def test_rejects_break_out_of_range():
     with pytest.raises(ValueError, match="between 0 and 1"):
@@ -209,12 +216,15 @@ Run: `uv run pytest tests/unit/test_distribution.py -v` → FAIL (module missing
 ```python
 """Real percentile breakpoints from our own data, so a metric tier
 ('elite = p90') is computed, not guessed (Bucket B rubric, WIRE)."""
+
 from __future__ import annotations
 import psycopg
 from psycopg import sql
 
-def percentiles(conn: psycopg.Connection, *, table: str, expr: str,
-                where: str | None, breaks: tuple[float, ...]) -> dict[float, float]:
+
+def percentiles(
+    conn: psycopg.Connection, *, table: str, expr: str, where: str | None, breaks: tuple[float, ...]
+) -> dict[float, float]:
     for b in breaks:
         if not 0.0 < b < 1.0:
             raise ValueError(f"percentile break must be between 0 and 1, got {b}")
@@ -241,6 +251,7 @@ Run: `uv run pytest tests/unit/test_distribution.py -v` → PASS.
 ```python
 # tests/integration/test_model_distribution.py
 from mlb_baseball.model._distribution import percentiles
+
 
 def test_percentiles_over_a_real_table(db_conn):
     with db_conn.cursor() as cur:
@@ -325,6 +336,7 @@ Against `mlb_test` (or `mlb`, read-only): `SELECT percentile_cont(ARRAY[0.1,0.5,
 # tests/integration/test_model_poptime.py
 from mlb_baseball.model import poptime
 
+
 def test_compute_populates_pop_time_from_prior_season_leaderboard(db_conn):
     # Fixture: 1 catcher-season in raw.statcast_poptime (pop 1.90, elite),
     # a core.player + core.game where that catcher started the prior game,
@@ -334,17 +346,24 @@ def test_compute_populates_pop_time_from_prior_season_leaderboard(db_conn):
     db_conn.commit()
     assert updated >= 1
     with db_conn.cursor() as cur:
-        cur.execute("SELECT home_catcher_pop_time_s, home_catcher_pop_time_tier "
-                    "FROM gold.game_feature WHERE game_id = %s", (current_game_id,))
+        cur.execute(
+            "SELECT home_catcher_pop_time_s, home_catcher_pop_time_tier "
+            "FROM gold.game_feature WHERE game_id = %s",
+            (current_game_id,),
+        )
         pop, tier = cur.fetchone()
     assert pop == 1.90
     assert tier == "ELITE"
 
-def test_compute_is_idempotent(db_conn):
-    ...  # run compute twice, assert identical values and same updated count on the 2nd pass being 0 or equal
 
-def test_compute_no_ops_when_leaderboard_missing(db_conn):
-    ...  # drop/rename raw.statcast_poptime, assert compute returns 0, not a crash
+def test_compute_is_idempotent(
+    db_conn,
+): ...  # run compute twice, assert identical values and same updated count on the 2nd pass being 0 or equal
+
+
+def test_compute_no_ops_when_leaderboard_missing(
+    db_conn,
+): ...  # drop/rename raw.statcast_poptime, assert compute returns 0, not a crash
 ```
 
 - [ ] **Step 3: Run it, verify it fails**
@@ -413,15 +432,17 @@ Pick a real 2024 four-seam fastball from `raw.statcast_pitch` with a Savant-publ
 # tests/integration/test_model_vaa.py
 from mlb_baseball.model import vaa
 
+
 def test_compute_populates_starter_four_seam_vaa(db_conn):
     # Fixture: raw.statcast_pitch rows for one pitcher across 2 prior games
     # (known vy0/vz0/ay/az), a gold.game_feature row for a 3rd game.
     ...
-    updated = vaa.compute(db_conn); db_conn.commit()
+    updated = vaa.compute(db_conn)
+    db_conn.commit()
     with db_conn.cursor() as cur:
         cur.execute("SELECT home_starter_ff_vaa FROM gold.game_feature WHERE game_id = %s", (g3,))
         (v,) = cur.fetchone()
-    assert -6.5 < v < -3.5   # realistic four-seam VAA range
+    assert -6.5 < v < -3.5  # realistic four-seam VAA range
 ```
 
 Plus idempotency + missing-table no-op tests (same shape as Task 5).

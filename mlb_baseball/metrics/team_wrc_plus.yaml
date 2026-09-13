@@ -24,13 +24,17 @@ notes: >
   fixed-vs-real-weights tradeoff as team_woba (see that entry's notes) --
   flagged here for the same reason.
 
-  Unlike team_woba, there is no dedicated automated test asserting a specific
-  numeric wRC+ value against any calculation (hand-derived or otherwise) --
-  only a coverage/health-check test
-  (test_health_check_flags_a_wrc_plus_coverage_gap) that a value is present,
-  not that it is correct. "published" here reflects a correctly-implemented,
-  cited formula read directly from source, not any test evidence -- weaker
-  evidence than team_woba's self-consistency test, worth a second look.
+  Correction to an earlier draft of this entry: tests/integration/
+  test_model_wrc_plus.py::test_compute_wrc_plus_matches_hand_calculation
+  does assert a specific hand-derived numeric value (G4's wRC+, computed by
+  hand via Python Fraction arithmetic in the test's own comment), plus the
+  update count and first-game (G3) NULL behavior -- a self-consistency test
+  against a hand calculation, the same kind of evidence team_woba has, not
+  merely the coverage/health-check test
+  (test_health_check_flags_a_wrc_plus_coverage_gap) that only asserts a
+  value is present. `published` reflects both this self-consistency test
+  and a correctly-implemented, cited formula read directly from source; no
+  independent (e.g. FanGraphs-sourced) tie-out exists yet.
 
   Inherits team_woba's known fixed-weight limitation (this metric is computed
   from team_woba, which uses a single fixed weight set rather than

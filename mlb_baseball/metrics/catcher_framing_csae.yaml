@@ -37,3 +37,12 @@ notes: >
   Distinct from catcher_framing_prior_season (the Statcast-sourced,
   FanGraphs/Baseball-Savant-lineage prior-season value computed in the same
   module) -- see that entry.
+
+  Event-level approximation, per direct read of
+  catcher_framing_csae_update.sql: "called strikes" and "takes" are counted
+  from raw.retrosheet_event rows (`event_cd = '3'` for a strikeout, or
+  `event_tx LIKE '%C%'`/`'%B%'`), not individual called-ball/called-strike
+  pitch tokens from Retrosheet's separate pitch-sequence field. On any
+  plate appearance with more than one called pitch, this undercounts the
+  true called-strike/take totals -- a further reason this stays
+  `implemented-untested` rather than `validated`.

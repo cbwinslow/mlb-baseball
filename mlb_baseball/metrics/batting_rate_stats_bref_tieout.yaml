@@ -51,3 +51,8 @@ notes: >
   corrections on both the Retrosheet and Baseball-Reference sides) -- this
   entry's `validated` status is scoped to the season grain the gate actually
   covers, not every grain gold.batting_season/career exposes.
+
+  `validated` is further scoped to the 2008-2025 window the gate actually
+  runs (`_XCHECK_MIN_SEASON = 2008`, `_XCHECK_MAX_SEASON = 2025` in
+  scripts/verify_baseball_reference_tie_out.py). The 2026+ raw.mlb_boxscore_batting
+  source listed above is not covered by this gate and is not validated.

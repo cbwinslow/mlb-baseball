@@ -178,14 +178,23 @@ output (`mlb experiment compare`), so per an owner decision (2026-09-13,
 is untouched and `paired_comparison` ships as an `mlb_research` utility
 with no `mlb_baseball` caller yet.
 
-**Slice 3 — `feature-store-v1-baseline`.** Elo v2 and its model card, both pure
-numpy inside `mlb_research`: team Elo plus home field (v1's math, unchanged),
-plus a preseason prior that fades, plus a probable-starter adjustment reading
-`feat.pitcher_form` as of first pitch. The card reports calibration, log loss,
-and Brier on a strictly chronological hold-out, paired against a home-field
-baseline and against the market where available, with a limitations section —
-reproducible by a user running the shipped harness on their own build. Also in
-this slice: the notebook recipe carrying the two *model* leakage diagnostics
-(label shuffle, injected outcome) that slice 1 deliberately keeps out of the
-shipped store battery, and the `mlb export` / Hugging Face wiring that publishes
-the `feat.*` Parquet, the card, and the notebook.
+**Slice 3 — `feature-store-v1-baseline` — planned, narrowed (2026-09-13).**
+Elo v2 and its model card, both pure numpy inside `mlb_research`: team Elo
+plus home field (v1's math, unchanged), plus a preseason prior that fades,
+plus a starter-quality adjustment (z-scored `fip_like_30d`, train-fold-only
+statistics). The card backtests Elo v2 with the starter adjustment on vs.
+off (a home-field-only baseline, same model, one config difference) and
+reports a matched-sample `paired_comparison` between the two, with a
+limitations section — reproducible by a user running the shipped harness on
+their own build, no database, no market data.
+
+Narrowed from the original sketch above via brainstorming with the owner:
+investigating `raw.mlb_probable` found roughly five weeks of history, nowhere
+near enough to backtest a probable-starter adjustment against, so the model
+uses the **actual** starter (`feat.game`'s existing `starter_is_actual =
+TRUE`), not the probable one. The notebook recipe carrying the two *model*
+leakage diagnostics (label shuffle, injected outcome), the `mlb export` /
+Hugging Face publish wiring for the card, market comparison, and the
+probable-starter swap itself are all deferred to their own later changes —
+see `openspec/changes/feature-store-v1-baseline/proposal.md` for the full
+scope and reasoning.

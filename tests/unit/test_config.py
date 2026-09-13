@@ -51,3 +51,50 @@ def test_unknown_toml_key_is_actionable(tmp_path):
 
     with pytest.raises(config.ConfigError, match="unknown config setting"):
         config.load_settings(path)
+
+
+def test_batch_memory_defaults_are_conservative(monkeypatch):
+    # issue #202: the default must not be this project's own production
+    # tuning (1GB/4GB) -- that would OOM a modest machine running this
+    # project's code. Default to PostgreSQL's own conservative values.
+    monkeypatch.delenv("MLB_BATCH_WORK_MEM", raising=False)
+    monkeypatch.delenv("MLB_BATCH_MAINTENANCE_WORK_MEM", raising=False)
+
+    settings = config.load_settings(None)
+
+    assert settings.batch_work_mem == config.DEFAULT_BATCH_WORK_MEM == "4MB"
+    assert (
+        settings.batch_maintenance_work_mem == config.DEFAULT_BATCH_MAINTENANCE_WORK_MEM == "64MB"
+    )
+
+
+def test_batch_memory_settings_are_configurable_via_toml(tmp_path, monkeypatch):
+    monkeypatch.delenv("MLB_BATCH_WORK_MEM", raising=False)
+    monkeypatch.delenv("MLB_BATCH_MAINTENANCE_WORK_MEM", raising=False)
+    path = tmp_path / "mlb.toml"
+    path.write_text("[mlb]\nbatch_work_mem = '1GB'\nbatch_maintenance_work_mem = '4GB'\n")
+
+    settings = config.load_settings(path)
+
+    assert settings.batch_work_mem == "1GB"
+    assert settings.batch_maintenance_work_mem == "4GB"
+
+
+def test_batch_memory_settings_are_overridable_via_env_var(tmp_path, monkeypatch):
+    path = tmp_path / "mlb.toml"
+    path.write_text("[mlb]\nbatch_work_mem = '1GB'\n")
+    monkeypatch.setenv("MLB_BATCH_WORK_MEM", "2GB")
+
+    settings = config.load_settings(path)
+
+    assert settings.batch_work_mem == "2GB"
+
+
+def test_invalid_batch_memory_setting_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.delenv("MLB_BATCH_WORK_MEM", raising=False)
+    monkeypatch.delenv("MLB_BATCH_MAINTENANCE_WORK_MEM", raising=False)
+    path = tmp_path / "mlb.toml"
+    path.write_text("[mlb]\nbatch_work_mem = 'DROP TABLE core.game; --'\n")
+
+    with pytest.raises(config.ConfigError, match="batch_work_mem"):
+        config.load_settings(path)

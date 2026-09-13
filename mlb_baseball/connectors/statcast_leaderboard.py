@@ -64,6 +64,7 @@ outcome of the last run rather than treating a valid historical load as stale.
 """
 
 import io
+import logging
 from datetime import date
 
 import pandas as pd
@@ -80,6 +81,8 @@ from mlb_baseball.health import (
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe, season_already_loaded
 from mlb_baseball.net import call_with_retry
+
+logger = logging.getLogger(__name__)
 
 SOURCE = "statcast_leaderboard"
 FIRST_YEAR = 2015
@@ -173,14 +176,14 @@ def _load_season(conn: psycopg.Connection, season: int) -> dict[str, int]:
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"statcast_leaderboard: {table} {season} failed ({exc}); skipping")
+            logger.error("statcast_leaderboard: %s %s failed (%s); skipping", table, season, exc)
             counts[table] = 0
     try:
         counts["raw.statcast_oaa"] = _load_oaa(conn, season)
         conn.commit()
     except Exception as exc:
         conn.rollback()
-        print(f"statcast_leaderboard: raw.statcast_oaa {season} failed ({exc}); skipping")
+        logger.error("statcast_leaderboard: raw.statcast_oaa %s failed (%s); skipping", season, exc)
         counts["raw.statcast_oaa"] = 0
     return counts
 

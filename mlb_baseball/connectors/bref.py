@@ -91,6 +91,7 @@ cron schedule — season stats don't change intra-day — so health_check()
 reports the outcome of the last run rather than treating a valid load as stale.
 """
 
+import logging
 from datetime import date
 
 import psycopg
@@ -105,6 +106,8 @@ from mlb_baseball.health import (
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe, season_already_loaded
 from mlb_baseball.net import call_with_retry
+
+logger = logging.getLogger(__name__)
 
 SOURCE = "bref"
 FIRST_YEAR = 2008
@@ -220,7 +223,7 @@ def _load_season(conn: psycopg.Connection, season: int) -> dict[str, int]:
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"bref: {table} {season} failed ({exc}); skipping")
+            logger.error("bref: %s %s failed (%s); skipping", table, season, exc)
             counts[table] = 0
     return counts
 
@@ -234,7 +237,7 @@ def _load_war(conn: psycopg.Connection) -> dict[str, int]:
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"bref: {table} failed ({exc}); skipping")
+            logger.error("bref: %s failed (%s); skipping", table, exc)
             counts[table] = 0
     return counts
 

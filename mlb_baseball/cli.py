@@ -46,6 +46,8 @@ connections to the *same* server, retrosheet.org).
 import argparse
 import concurrent.futures
 import dataclasses
+import logging
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -83,6 +85,26 @@ from mlb_baseball.source_profiles import (
     active_profile,
     require_sources,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """Wires stdlib logging for the whole `mlb` process, so every module's
+    `logging.getLogger(__name__)` calls (connector failures included) reach
+    stderr with a timestamp/level/module instead of relying on logging's
+    unconfigured "handler of last resort" (bare message, no context).
+    `MLB_LOG_LEVEL` (default INFO) lets an operator raise verbosity for a
+    single run without editing code; an unrecognized value falls back to
+    INFO rather than raising."""
+    level_name = os.environ.get("MLB_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+
 
 # Connector names confirmed (by reading each connector's own network calls,
 # not guessed) to hit the same external server. Running several connectors
@@ -144,7 +166,7 @@ def _run_group(names: list[str], mode: str, profile: str) -> bool:
             require_sources(profile, [name], purpose=f"ingest {name}")
         except SourceProfileError as exc:
             any_failed = True
-            print(f"[{name}] SKIPPED ({exc})")
+            logger.error("[%s] SKIPPED (%s)", name, exc)
             continue
         connector = CONNECTORS[name]
         fn = connector.bootstrap if mode == "bootstrap" else connector.update
@@ -154,7 +176,7 @@ def _run_group(names: list[str], mode: str, profile: str) -> bool:
                 print(f"[{name}] {table}: {count} rows")
         except Exception as exc:
             any_failed = True
-            print(f"[{name}] FAILED ({exc}); continuing with remaining sources")
+            logger.error("[%s] FAILED (%s); continuing with remaining sources", name, exc)
     return any_failed
 
 
@@ -182,7 +204,7 @@ def _run_all(mode: str, profile: str, skip: list[str] | None = None) -> None:
         try:
             results = list(pool.map(lambda names: _run_group(names, mode, profile), groups))
         except Exception as exc:
-            print(f"mlb {mode}: an entire connector group failed unexpectedly ({exc})")
+            logger.error("mlb %s: an entire connector group failed unexpectedly (%s)", mode, exc)
             sys.exit(1)
     if any(results):
         sys.exit(1)
@@ -266,6 +288,7 @@ def _run_experiment_command(args: argparse.Namespace, conn: psycopg.Connection) 
 
 
 def main(argv: list[str] | None = None) -> None:
+    _configure_logging()
     parser = argparse.ArgumentParser(
         prog="mlb",
         formatter_class=argparse.RawDescriptionHelpFormatter,

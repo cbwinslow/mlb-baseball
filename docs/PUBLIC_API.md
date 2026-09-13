@@ -128,7 +128,12 @@ Two surfaces need no local database or clone of this repository -- see
   pandas only, no `sklearn`/`xgboost` import; model fitting is a
   caller-supplied `fit_fn`/`predict_fn` pair. `mlb_baseball/model/
   experiment.py` is its `mlb_baseball`-side adapter: the same evaluation
-  math, applied to the local Postgres-backed experiment lab. Full API in
+  math, applied to the local Postgres-backed experiment lab. It ships one
+  reference baseline model too, `mlb_research.elo` (Elo v2: home field, a
+  fading preseason prior, a starter-quality adjustment) plus
+  `build_model_card`/`render_model_card`, evaluated through the same
+  harness -- no database, no market data, reproducible with the public
+  dataset alone. Full API in
   that package's own [README.md](../packages/mlb-research/README.md).
 - **The DuckDB-WASM query page** (`docs/site/query/`) -- runs visitor SQL
   against the published Parquet entirely in the browser, published via

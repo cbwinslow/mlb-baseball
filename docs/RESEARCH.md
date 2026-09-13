@@ -97,6 +97,26 @@ baseline families as `fit_fn`/`predict_fn` factories. See
 `packages/mlb-research/README.md`'s "Backtesting" section for the API and a
 copy-pasteable example.
 
+**The reference baseline now ships too (feature-store-v1-baseline, a
+narrowed slice 3).** `mlb_research.elo` -- Elo v2, pure numpy, evaluated
+through the harness above as an ordinary `fit_fn`/`predict_fn` pair: v1's
+math unchanged (home field, MOV multiplier, K-factor), plus a preseason
+prior that fades over a team's first `fade_games` games of a season instead
+of jumping straight to it, plus a starter-quality adjustment (the starter's
+entering FIP-like form, z-scored against that fold's own training data,
+never the evaluation period; missing data means no adjustment, not a
+fabricated average). `FADE_GAMES`/`STARTER_WEIGHT` are chosen, not sourced,
+exactly like the underlying model's own unsourced constants.
+`build_model_card`/`render_model_card` backtest Elo v2 with the starter
+adjustment on vs. off (a home-field-only baseline, same model) and report a
+matched-sample comparison -- no database, no market data, reproducible with
+the public dataset alone. Deliberately **not** in this baseline: the
+probable starting pitcher (the only real identity source,
+`raw.mlb_probable`, has about five weeks of history -- nowhere near enough
+to backtest against), a betting-market comparison, and a comparison against
+production Elo v1's `gold.game_feature` ratings. See
+`packages/mlb-research/README.md`'s "Reference baseline: Elo v2" section.
+
 ## Model stacking / ensembling — "outputs as inputs"
 
 A real, standard technique (not something to invent from scratch): train diverse base models (classical formulas, tree-based ML, etc.), then either (a) feed their outputs as *features* into a final model (what `gold.game_feature` already does by construction — Elo/Pythagenpat are themselves engineered features going into the gradient-boosted model), or (b) train a formal meta-learner on top of multiple base models' predictions (stacking proper). (a) is already the v1 plan; (b) is a legitimate later refinement once log5/Elo/Pythagenpat/gradient-boosting baselines all exist independently to stack.

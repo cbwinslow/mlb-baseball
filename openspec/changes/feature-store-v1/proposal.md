@@ -178,7 +178,7 @@ output (`mlb experiment compare`), so per an owner decision (2026-09-13,
 is untouched and `paired_comparison` ships as an `mlb_research` utility
 with no `mlb_baseball` caller yet.
 
-**Slice 3 — `feature-store-v1-baseline` — planned, narrowed (2026-09-13).**
+**Slice 3 — `feature-store-v1-baseline` — done, narrowed (2026-09-13).**
 Elo v2 and its model card, both pure numpy inside `mlb_research`: team Elo
 plus home field (v1's math, unchanged), plus a preseason prior that fades,
 plus a starter-quality adjustment (z-scored `fip_like_30d`, train-fold-only

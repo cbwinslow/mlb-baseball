@@ -24,7 +24,7 @@
 ## 6. Docs
 
 - [x] 6.1 `docs/DATA_DICTIONARY.md` + `docs/TABLE_CONTRACTS.md` — the two relations: grain, source, null policy, `season >= 2003` scope for park factors, and the **`local_research` — never public_safe / published / baseline-model input; `gold.fangraphs_guts` is a reference/cross-check, publishable wOBA is computed from `core.play`** banner. `docs/RESEARCH.md` — the fixed `research.py` weights can be replaced by a `gold.fangraphs_guts` join for internal era-accurate work (follow-up change). `docs/SOURCE_RIGHTS.md` — the derived relations inherit the FanGraphs row's `local_research`. `docs/DECISIONS.md` — ADR-290 (FanGraphs Guts! constants + park factors → `gold` reference lookups, `local_research`; projections deferred to Beat 2; full stat-line conform deferred). Verify: `grep` the new table/column names across `docs/` leaves nothing stale; `openspec validate fangraphs-conform --strict` passes.
-- [ ] 6.2 Sync the delta into `openspec/specs/fangraphs-conform/spec.md` on archive. Verify: `openspec validate --all` after a dry archive.
+- [x] 6.2 Sync the delta into `openspec/specs/fangraphs-conform/spec.md` on archive. **Done 2026-09-13.** New main spec created (capability didn't exist yet); all 6 requirements carried over verbatim. `openspec validate --specs` passes.
 
 ## 7. Verification (owner-run against production)
 

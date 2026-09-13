@@ -95,12 +95,12 @@ it fail for the right reason, then make it pass.
 
 ## 5. Data loading
 
-- [ ] 5.1 Failing test: `load_game_frame(db=<a small fixture DuckDB file with
+- [x] 5.1 Failing test: `load_game_frame(db=<a small fixture DuckDB file with
   a feat.game table>)` returns a `DataFrame` with the columns `elo_v2_fit`/
   `elo_v2_predict` need (team ids, `event_ts`, `season`, `home_win`, starter
   FIP columns, `game_pk`), one row per `feat.game` row. Verify: RED then
   GREEN.
-- [ ] 5.2 Implement `load_game_frame(db=None) -> pd.DataFrame` using
+- [x] 5.2 Implement `load_game_frame(db=None) -> pd.DataFrame` using
   `mlb_research.paths.resolve_db_path` and a direct `duckdb.connect(...)
   .sql("SELECT * FROM feat.game")` (no ASOF join needed — this reads the
   whole table, not a point-in-time entity join). Verify: 5.1 passes; `ruff`

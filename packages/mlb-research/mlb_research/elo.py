@@ -29,11 +29,15 @@ rationale and rejected alternatives.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
+import duckdb
 import numpy as np
 import pandas as pd
+
+from mlb_research.paths import resolve_db_path
 
 STARTING_ELO = 1500.0
 HOME_ADVANTAGE = 24.0
@@ -238,3 +242,16 @@ def elo_v2_predict(
     return np.array(
         [_elo_v2_step(walked, row, config) for row in test.itertuples()], dtype=np.float64
     )
+
+
+def load_game_frame(db: str | os.PathLike[str] | None = None) -> pd.DataFrame:
+    """The whole `feat.game` table (feature-store-v1), one row per
+    regular-season game, as a plain `DataFrame` -- no point-in-time entity
+    join needed here (unlike `get_historical_features`): a backtest wants
+    every row, not an as-of lookup against an entity frame."""
+    path = resolve_db_path(db)
+    con = duckdb.connect(str(path), read_only=True)
+    try:
+        return con.sql("SELECT * FROM feat.game").df()
+    finally:
+        con.close()

@@ -1,6 +1,7 @@
 import subprocess
 import sys
 
+import duckdb
 import numpy as np
 import pandas as pd
 import pytest
@@ -246,3 +247,50 @@ def test_elo_module_imports_without_sklearn_or_xgboost():
         [sys.executable, "-c", code], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def _build_feat_game(path):
+    con = duckdb.connect(str(path))
+    con.execute("CREATE SCHEMA IF NOT EXISTS feat")
+    con.execute(
+        """
+        CREATE TABLE feat.game (
+            game_pk VARCHAR, season INTEGER, event_ts TIMESTAMP,
+            home_team_id BIGINT, away_team_id BIGINT,
+            home_score INTEGER, away_score INTEGER, home_win BOOLEAN,
+            home_starter_fip_like_30d DOUBLE, away_starter_fip_like_30d DOUBLE,
+            starter_is_actual BOOLEAN
+        )
+        """
+    )
+    con.executemany(
+        "INSERT INTO feat.game VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [
+            ("g1", 2019, pd.Timestamp("2019-04-01"), 1, 2, 5, 3, True, 3.5, 4.0, True),
+            ("g2", 2019, pd.Timestamp("2019-04-04"), 2, 1, 4, 6, False, 3.8, 3.6, True),
+        ],
+    )
+    con.close()
+
+
+def test_load_game_frame_returns_one_row_per_feat_game_row(tmp_path):
+    db = tmp_path / "mlb.duckdb"
+    _build_feat_game(db)
+
+    frame = elo.load_game_frame(db=db)
+
+    assert len(frame) == 2
+    for column in (
+        "game_pk",
+        "season",
+        "event_ts",
+        "home_team_id",
+        "away_team_id",
+        "home_score",
+        "away_score",
+        "home_win",
+        "home_starter_fip_like_30d",
+        "away_starter_fip_like_30d",
+    ):
+        assert column in frame.columns
+    assert set(frame["game_pk"]) == {"g1", "g2"}

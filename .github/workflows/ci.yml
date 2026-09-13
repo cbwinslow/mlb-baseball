@@ -88,7 +88,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           enable-cache: true
 
       - name: Install package with dev dependencies
@@ -102,6 +102,12 @@ jobs:
 
       - name: Lint (SQL ownership -- inline SQL that should be a named resource)
         run: uv run python scripts/lint_sql_ownership.py
+
+      - name: Metric catalog completeness + visibility lint (advisory, metric-catalog/ADR-291)
+        # Non-blocking until the first full model/ triage batch lands
+        # (design.md Migration Plan step 3; tasks.md 3.4) -- today it
+        # reports a large, expected gap count, not a real regression.
+        run: uv run python scripts/check_metric_catalog.py || true
 
       - name: Type-check (mypy)
         run: uv run mypy
@@ -120,7 +126,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           enable-cache: true
 
       - name: Install the docs toolchain (+ pytest for the build test)
@@ -143,7 +149,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           enable-cache: true
 
       - name: Install package with dev dependencies
@@ -197,7 +203,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           enable-cache: true
 
       - name: Install package with dev dependencies

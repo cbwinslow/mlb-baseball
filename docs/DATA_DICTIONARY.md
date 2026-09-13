@@ -121,9 +121,15 @@ This catalog documents the schemas, grains, business keys, temporal semantics, a
 The complement to `gold.game_feature`: where `game_feature` is *what was
 knowable before a game*, the backbone is *what actually happened*, at every
 grain a sabermetric researcher expects (game → season → career; player and
-team). Built by `mlb report` from `raw.retrosheet_event`, matching the
-event-flag handling of the already-tied-out team stats
-(`sql/team_woba_retrosheet_update.sql`, ADR-034).
+team). Built by `mlb report`. **Game-grain rows are 1910–2025 from
+`raw.retrosheet_event`** (matching the event-flag handling of the
+already-tied-out team stats, `sql/team_woba_retrosheet_update.sql`, ADR-034)
+**and 2026 onward from MLB's own official per-game box score**
+(`raw.mlb_boxscore_batting` / `raw.mlb_boxscore_pitching`) — Retrosheet
+publishes no event file for the in-progress season (ADR-289). Each game row
+carries a `source` marker (`retrosheet_event` / `mlb_boxscore`); the two
+builders never write the same `(game, player, team)` key. The season / team /
+career roll-ups aggregate the game grain and are source-agnostic.
 
 **Authoritative contract:**
 [`openspec/specs/statistic-backbone/spec.md`](https://github.com/cbwinslow/mlb-baseball/blob/main/openspec/specs/statistic-backbone/spec.md)
@@ -163,6 +169,19 @@ envelope check (no season row over 163 games).
   (`scripts/verify_baseball_reference_tie_out.py`) validates 2008–2025
   field-by-field (2020 COVID season excepted) and carries two cited modern
   cases.
+- **2026-onward game rows are MLB's scorer-assigned box-score line, not
+  event-derived like 1910–2025.** Baseball-Reference has no page for the
+  in-progress season, so correctness is checked against an independent
+  reconstruction from `raw.mlb_playbyplay`
+  (`scripts/verify_mlb_boxscore_tie_out.py`) rather than against
+  Baseball-Reference. A researcher comparing a 2025 season to a 2026 season
+  is comparing two different pipelines.
+- **`era` coverage cliff.** `gold.pitching_game.er` / `gold.pitching_season`
+  and `gold.pitching_career` `era` are NULL through 2025 (the event stream
+  carries no earned-run data) and populated from 2026 (MLB's box score
+  carries scorer-assigned earned runs). `ra9` is the cross-era rate for every
+  year; a naive average of `era` across the 2025/2026 boundary is
+  meaningless.
 
 ### 3.1 `gold.batting_game`
 
@@ -171,9 +190,17 @@ envelope check (no season row over 163 games).
   the rare case of a player appearing for both clubs in one `game_id` (a
   suspended game resumed after a trade) gets two rows instead of colliding.
 - **Temporal semantics**: the actual game result — not point-in-time.
-- **Coverage**: 1910–2025 (Retrosheet events), regular season only. 2026+ is a
-  separate follow-up builder; postseason batting/pitching lives in
-  `gold.batting_postseason` / `gold.pitching_postseason` (§ 3.10).
+- **Coverage**: regular season only. **1910–2025** from `raw.retrosheet_event`
+  (`source = 'retrosheet_event'`), **2026 onward** from
+  `raw.mlb_boxscore_batting` joined to `core.game` on `game_pk`
+  (`source = 'mlb_boxscore'`, `sql/batting_game_mlb_build.sql`). The MLB
+  builder maps `pa ← plate_appearances`, `ab ← at_bats`, `b2 ← doubles`,
+  `b3 ← triples`, `hr ← home_runs`, `tb ← total_bases`, `bb ← base_on_balls`,
+  `so ← strike_outs`, `gidp ← ground_into_double_play`, etc.; `b1 = h − b2 −
+  b3 − hr`. ~215 2026 regular-season games have no box score yet (ingest
+  freshness — an `mlb doctor` join-coverage check, not a builder defect).
+  Postseason batting/pitching lives in `gold.batting_postseason` /
+  `gold.pitching_postseason` (§ 3.10).
 - **Counting stats only** — rate stats (AVG/OBP/SLG/…) live in the season and
   career roll-ups where the denominators are meaningful.
 
@@ -191,8 +218,8 @@ envelope check (no season row over 163 games).
 | `hbp` | `integer` | Hit by pitch (`event_cd` 16) |
 | `sf`, `sh` | `integer` | Sacrifice flies (`sf_fl`); sac bunts (`sh_fl`) |
 | `so` | `integer` | Strikeouts (`event_cd` 3) |
-| `gidp` | `integer` | Grounded into DP (`dp_fl = 'T'` and grounder). Undercounts pre-1988 (sparse `battedball_cd`). |
-| `source` | `text` | Origin of the row — `retrosheet_event` today |
+| `gidp` | `integer` | Grounded into DP (`dp_fl = 'T'` and grounder ≤ 2025; `ground_into_double_play` 2026+). Undercounts pre-1988 (sparse `battedball_cd`). |
+| `source` | `text` | Which builder wrote the row — `retrosheet_event` (≤ 2025) or `mlb_boxscore` (≥ 2026) |
 | `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
 
 ### 3.2 `gold.pitching_game`
@@ -201,13 +228,17 @@ envelope check (no season row over 163 games).
   regular season only (same key rationale as `gold.batting_game` above). A
   two-way player also gets a `gold.batting_game` row.
 - **Temporal semantics**: the actual game result — not point-in-time.
-- **Coverage**: 1910–2025 (Retrosheet events), regular season only. 2026+ is a
-  separate follow-up builder; postseason batting/pitching lives in
-  `gold.batting_postseason` / `gold.pitching_postseason` (§ 3.10).
-- **`er` / `era` are not produced** — earned runs need reconstructed-inning
-  logic that cwevent does not emit. `r` (total runs allowed) and season RA9
-  are the honest event-derived figures; ERA is per-player-season from
-  Baseball-Reference (`gold.player_season`).
+- **Coverage**: regular season only. **1910–2025** from `raw.retrosheet_event`
+  (`source = 'retrosheet_event'`), **2026 onward** from
+  `raw.mlb_boxscore_pitching` (`source = 'mlb_boxscore'`,
+  `sql/pitching_game_mlb_build.sql`): `gs ← games_started`, `bf ←
+  batters_faced`, `outs ← outs`, `er ← earned_runs`, `hbp ← hit_batsmen`,
+  `wp ← wild_pitches`, `bk ← balks`, `w/l/sv ← wins/losses/saves` (the
+  per-game decision). Postseason lives in `gold.pitching_postseason` (§ 3.10).
+- **`er`**: NULL for 1910–2025 — earned runs need reconstructed-inning logic
+  that cwevent does not emit; `r` (total runs allowed) and season RA9 are the
+  honest event-derived figures. Populated from 2026 (MLB's scorer-assigned
+  `earned_runs`). A documented coverage cliff — see § 3 known limitations.
 
 | Column | Type | Definition |
 |---|---|---|
@@ -223,8 +254,9 @@ envelope check (no season row over 163 games).
 | `hbp` | `integer` | Hit batters (`event_cd` 16) |
 | `wp` | `integer` | Wild pitches (`wp_fl = 'T'`) |
 | `bk` | `integer` | Balks (`event_cd` 11) |
-| `w`, `l`, `sv` | `integer` | Win / loss / save from `core.game.{winning,losing,save}_pitcher_id` |
-| `source` | `text` | Origin of the row — `retrosheet_event` today |
+| `w`, `l`, `sv` | `integer` | Win / loss / save — from `core.game.{winning,losing,save}_pitcher_id` (≤ 2025) or the box score's per-game decision (≥ 2026) |
+| `er` | `integer` | Earned runs — NULL for 1910–2025 (event stream has none), `earned_runs` from 2026 |
+| `source` | `text` | Which builder wrote the row — `retrosheet_event` (≤ 2025) or `mlb_boxscore` (≥ 2026) |
 | `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
 
 ### 3.3 `gold.batting_season`
@@ -237,7 +269,8 @@ envelope check (no season row over 163 games).
   "2TM"/"3TM" combined line.
 - **Source**: rolled up from `gold.batting_game` by `mlb report`.
 - **Temporal semantics**: the actual season result — not point-in-time.
-- **Coverage**: 1910–2025, regular season (inherits `gold.batting_game`).
+- **Coverage**: 1910 onward, regular season (inherits `gold.batting_game`;
+  1910–2025 event-derived, 2026+ from the MLB box score).
 - Counting stats are plain sums. Rate stats are computed from this grain's
   summed components — a season AVG is total H / total AB, never the mean of
   game AVGs. Every rate is NULL when its denominator is 0.
@@ -269,7 +302,8 @@ envelope check (no season row over 163 games).
   `gold.batting_game`. Same columns and rate-stat definitions as
   `gold.batting_season` (minus `player_id` / `is_combined`); primary key is
   `(team_id, season)`.
-- **Coverage**: 1910–2025, regular season.
+- **Coverage**: 1910 onward, regular season (1910–2025 event-derived, 2026+
+  from the MLB box score — inherits the game grain, source-agnostic).
 
 ### 3.5 `gold.pitching_season`
 
@@ -277,13 +311,18 @@ envelope check (no season row over 163 games).
   per `(player_id, season, team_id)` plus one `is_combined` full-season row
   per `(player_id, season)` (`team_id` NULL). Rolled up from
   `gold.pitching_game` by `mlb report`.
-- **Coverage**: 1910–2025, regular season.
+- **Coverage**: 1910 onward, regular season (1910–2025 event-derived, 2026+
+  from the MLB box score — inherits the game grain, source-agnostic).
 - Counting stats are plain sums; rate stats computed from this grain's
   summed components, NULL when the denominator is 0.
-- **ERA absent** — `gold.pitching_game` has no earned runs (reconstructed-
-  inning logic cwevent does not emit). `ra9` (runs allowed per 9) is the
-  honest event-derived rate; ERA is per-player-season from Baseball-Reference
-  (`gold.player_season`).
+- **`era` coverage cliff** — `era` is NULL through 2025 (`gold.pitching_game`
+  carries no `er` for the event era) and populated from 2026 as `er × 27 /
+  outs`, but only when every contributing game row has a non-NULL `er`
+  (`CASE WHEN count(*) = count(er)` — a season straddling the boundary, which
+  no real pitcher-season does, reports NULL rather than a partial sum).
+  `ra9` (runs allowed per 9) is the cross-era rate for every year; the
+  Baseball-Reference "official" ERA remains available per player-season from
+  `gold.player_season`.
 
 | Column | Type | Definition |
 |---|---|---|
@@ -293,20 +332,24 @@ envelope check (no season row over 163 games).
 | `is_combined` | `boolean` | `true` = the all-teams full-season line |
 | `g`, `gs` | `integer` | Games pitched (distinct `game_id`); games started |
 | `bf`, `outs`, `h`, `r`, `bb`, `ibb`, `so`, `hr`, `hbp`, `wp`, `bk`, `w`, `l`, `sv` | `integer` | Summed counting stats (`IP` = `outs` / 3) |
-| `ra9` | `numeric` | R × 27 / outs — runs allowed per 9 IP, **not** ERA |
+| `er` | `integer` | Summed earned runs — NULL unless every contributing game row has `er` (so NULL through 2025, populated from 2026) |
+| `ra9` | `numeric` | R × 27 / outs — runs allowed per 9 IP, the cross-era rate |
+| `era` | `numeric` | ER × 27 / outs — NULL through 2025, populated from 2026 (coverage cliff) |
 | `whip` | `numeric` | (H + BB) × 3 / outs |
 | `k9`, `bb9`, `hr9` | `numeric` | SO / BB / HR × 27 / outs |
 | `k_bb` | `numeric` | SO / BB (NULL when BB = 0) |
-| `source` | `text` | `retrosheet_event` today |
+| `source` | `text` | `retrosheet_event` / `mlb_boxscore` (per contributing game grain) |
 | `_built_at` | `timestamptz` | When `mlb report` last rebuilt this row |
 
 ### 3.6 `gold.pitching_team`
 
 - **Grain**: one row per `(team_id, season)`, rolled up from
   `gold.pitching_game`. Same columns and rate definitions as
-  `gold.pitching_season` (minus `player_id` / `is_combined`); primary key
-  `(team_id, season)`.
-- **Coverage**: 1910–2025, regular season.
+  `gold.pitching_season` (minus `player_id` / `is_combined`), **except `er` /
+  `era` are not carried at the team grain** — `ra9` is the team run rate for
+  every year; primary key `(team_id, season)`.
+- **Coverage**: 1910 onward, regular season (1910–2025 event-derived, 2026+
+  from the MLB box score — inherits the game grain, source-agnostic).
 
 ### 3.7 `gold.batting_career` / `gold.pitching_career`
 
@@ -317,9 +360,12 @@ envelope check (no season row over 163 games).
 - Extra columns: `seasons` (distinct seasons played), `first_season`,
   `last_season`. All other counting and rate columns match the
   corresponding season table; rate stats are recomputed from the
-  career-total components. `gold.pitching_career` has `ra9`, not ERA (same
-  no-earned-runs reason as `gold.pitching_season`).
-- **Coverage**: 1910–2025, regular season.
+  career-total components. `gold.pitching_career` carries `ra9` for every
+  career; its `er` / `era` follow the same coverage cliff as
+  `gold.pitching_season` — `era` exists only for a wholly-2026+ career (NULL
+  unless every contributing season has a non-NULL `er`).
+- **Coverage**: 1910 onward, regular season (1910–2025 event-derived, 2026+
+  from the MLB box score — inherits the game grain, source-agnostic).
 
 ### 3.10 `gold.batting_postseason` / `gold.pitching_postseason`
 
@@ -351,6 +397,44 @@ envelope check (no season row over 163 games).
   only player-grain postseason data).
 - **Coverage**: 1884–2025.
 <!-- --8<-- [end:backbone] -->
+
+### 3.11 `gold.fangraphs_guts` / `gold.fangraphs_park_factors` — FanGraphs reference lookups
+
+> **`local_research` only (FanGraphs, ADR-288 / ADR-290).** Never `public_safe`,
+> never in the published `mlb-research` dataset, never a reference-baseline-model
+> input. `gold.fangraphs_guts` is a **cross-check / reference**: a publishable
+> wOBA / FIP / park-factor is computed from `core.play`, not from these. A
+> standing test guards the export registry.
+
+- **Purpose**: two reference lookups conformed from the (shipped-in-#173, ADR-288)
+  `raw.fangraphs_*` landing tables. Built by `mlb report`
+  (`report._build_backbone_relation`, truncate-and-replace, idempotent); each
+  skips cleanly on a database that never ingested FanGraphs. This is
+  **fangraphs-conform Beat 1** — projections (`feat.fangraphs_projection`) and
+  the full WAR / wOBA / wRC+ / Stuff+ season-line conform are deferred.
+- **`gold.fangraphs_guts`**
+  - **Grain**: one row per `season` (`season` PK).
+  - **Columns**: FanGraphs' Guts! per-season linear-weight constants —
+    `woba`, `wobascale`, `wbb`, `whbp`, `w1b`, `w2b`, `w3b`, `whr`, `runsb`,
+    `runcs`, `r_pa`, `r_w`, `cfip`, all `numeric`.
+  - **Null policy**: source text cast to numeric **verbatim**; no re-derivation,
+    no interpolation of missing seasons; an empty source value → `NULL`.
+  - **Source**: `raw.fangraphs_guts` (full history 1871+). `mlb doctor` checks
+    every `gold.batting_season` season ≥ 2003 has a row.
+- **`gold.fangraphs_park_factors`**
+  - **Grain**: one row per `(season, team_id)` (composite PK), **`season >= 2003`**
+    (pre-2003 park factors are low value with an unstable franchise set and stay
+    in `raw`).
+  - **Columns**: `basic_5yr`, `pf_3yr`, `pf_1yr` (basic factors) and
+    `pf_1b`, `pf_2b`, `pf_3b`, `pf_hr`, `pf_so`, `pf_bb`, `pf_gb`, `pf_fb`,
+    `pf_ld`, `pf_iffb`, `pf_fip` (component factors), all `numeric`, kept as
+    FanGraphs publishes them.
+  - **Identity / null policy**: `raw.fangraphs_park_factors.team` is a FanGraphs
+    nickname, resolved to `core.team` through the `'fangraphs'` source block in
+    `core.team_alias` (34 aliases; CLE / TBA / WAS carry multiple
+    historically-accurate nicknames). A nickname with **no** alias produces **no
+    row** and is surfaced by an `mlb doctor` join-coverage check — never a null
+    or guessed team.
 
 ---
 

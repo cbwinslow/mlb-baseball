@@ -104,6 +104,7 @@ def _reset_dynamic_tables(conn):
             "gold.pitching_team",
             "gold.batting_career",
             "gold.pitching_career",
+            "gold.fangraphs_park_factors",
             "core.game",
             "core.team_alias",
             "core.player_war",
@@ -238,7 +239,9 @@ def test_run_populates_team_player_and_game(db_conn):
     assert counts == {
         "core.team": 1,
         "core.venue": 0,
-        "core.team_alias": 1,  # ATL's own Kalshi ticker alias ("ATL" -> "ATL")
+        # ATL's Kalshi ticker alias ("ATL" -> "ATL") plus its FanGraphs
+        # nickname alias ("Braves", fangraphs-conform / ADR-290).
+        "core.team_alias": 2,
         "core.player": 2,
         "core.game": 2,
         "core.standing": 0,
@@ -716,6 +719,15 @@ def test_build_plays_and_pitches_unify_both_sources(db_conn):
         assert cur.fetchone() == ("999001",)
         cur.execute("SELECT pitch_type, release_speed FROM core.pitch")
         assert cur.fetchone() == ("FF", Decimal("95.2"))
+
+    # The two core.play coverage checks (GitHub #184) scope `expected` to raw
+    # plays whose game is in core.game -- every raw play here IS for a
+    # resolved game, so both are green (1 of 1 per source).
+    checks = {c.name: c for c in conform.health_check()}
+    retro_cov = checks["core.play retrosheet coverage"]
+    mlb_cov = checks["core.play mlb_api coverage"]
+    assert retro_cov.ok, retro_cov.detail
+    assert mlb_cov.ok, mlb_cov.detail
 
     with db_conn.cursor() as cur:
         for table in [
@@ -1475,7 +1487,9 @@ def test_build_team_aliases_seeds_only_the_current_team_era(db_conn):
 
     counts = conform.run()
 
-    assert counts["core.team_alias"] == 1  # only ATL (last_year=9999), not MON
+    # Only ATL (last_year=9999), not MON: its Kalshi ticker alias + its
+    # FanGraphs nickname alias ("Braves", fangraphs-conform / ADR-290).
+    assert counts["core.team_alias"] == 2
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT a.alias FROM core.team_alias a "
@@ -1484,9 +1498,10 @@ def test_build_team_aliases_seeds_only_the_current_team_era(db_conn):
         assert cur.fetchall() == []
         cur.execute(
             "SELECT a.alias FROM core.team_alias a "
-            "JOIN core.team t ON t.id = a.team_id WHERE t.retro_team_id = 'ATL'"
+            "JOIN core.team t ON t.id = a.team_id WHERE t.retro_team_id = 'ATL' "
+            "ORDER BY a.source"
         )
-        assert cur.fetchone() == ("ATL",)
+        assert [r[0] for r in cur.fetchall()] == ["Braves", "ATL"]
 
 
 def test_build_team_aliases_rerunning_replaces_instead_of_duplicating(db_conn):
@@ -1497,7 +1512,89 @@ def test_build_team_aliases_rerunning_replaces_instead_of_duplicating(db_conn):
 
     with db_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM core.team_alias")
-        assert cur.fetchone() == (1,)
+        # ATL: one Kalshi ticker alias + one FanGraphs nickname alias (ADR-290).
+        assert cur.fetchone() == (2,)
+
+
+# retro_team_ids of the 30 current franchises the FanGraphs park-factor seed
+# maps into (fangraphs-conform / ADR-290).
+_FANGRAPHS_FRANCHISE_RETRO_IDS = (
+    "ANA",
+    "ARI",
+    "ATL",
+    "BAL",
+    "BOS",
+    "CHA",
+    "CHN",
+    "CIN",
+    "CLE",
+    "COL",
+    "DET",
+    "HOU",
+    "KCA",
+    "LAN",
+    "MIA",
+    "MIL",
+    "MIN",
+    "NYA",
+    "NYN",
+    "OAK",
+    "PHI",
+    "PIT",
+    "SDN",
+    "SEA",
+    "SFN",
+    "SLN",
+    "TBA",
+    "TEX",
+    "TOR",
+    "WAS",
+)
+
+
+def test_fangraphs_park_factor_aliases_each_resolve_to_exactly_one_core_team(db_conn):
+    # Every distinct FanGraphs park-factor `team` nickname (2003+ span) must
+    # resolve to exactly one core.team. The seed carries 34 entries (CLE and
+    # TBA and WAS each have multiple historically-accurate nicknames).
+    fangraphs_seed = [
+        (retro, alias) for retro, alias, source in conform._TEAM_ALIAS_SEED if source == "fangraphs"
+    ]
+    assert len(fangraphs_seed) == 34
+    assert {retro for retro, _ in fangraphs_seed} == set(_FANGRAPHS_FRANCHISE_RETRO_IDS)
+
+    db_conn.rollback()
+    with db_conn.cursor() as cur:
+        # team_alias is routinely wiped between tests in this file
+        # (_reset_dynamic_tables); nothing references it.
+        cur.execute("DELETE FROM core.team_alias")
+        cur.execute("DELETE FROM core.team WHERE id >= 940001")
+        for i, retro in enumerate(_FANGRAPHS_FRANCHISE_RETRO_IDS):
+            cur.execute(
+                "INSERT INTO core.team (id, retro_team_id, league, city, nickname, "
+                "first_year, last_year) VALUES (%s, %s, 'NL', %s, %s, 1901, 9999)",
+                (940001 + i, retro, f"City{i}", f"Nick{i}"),
+            )
+    db_conn.commit()
+
+    conform._build_team_aliases(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        for retro, alias in fangraphs_seed:
+            cur.execute(
+                "SELECT t.retro_team_id FROM core.team_alias a "
+                "JOIN core.team t ON t.id = a.team_id "
+                "WHERE a.source = 'fangraphs' AND lower(a.alias) = lower(%s)",
+                (alias,),
+            )
+            rows = cur.fetchall()
+            assert rows == [(retro,)], (alias, rows)
+
+    db_conn.rollback()
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.team_alias")
+        cur.execute("DELETE FROM core.team WHERE id >= 940001")
+    db_conn.commit()
 
 
 def _seed_mlb_team_id_scenario(db_conn):

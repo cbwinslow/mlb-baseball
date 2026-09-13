@@ -153,6 +153,51 @@ _TEAM_ALIAS_SEED: list[tuple[str, str, str]] = [
     ("ANA", "Los Angeles Angels", "rebrand"),
     ("CLE", "Cleveland Guardians", "rebrand"),
     ("OAK", "Athletics", "rebrand"),
+    # FanGraphs park-factor team nicknames (fangraphs-conform, ADR-290).
+    # gold.fangraphs_park_factors joins raw.fangraphs_park_factors.team to
+    # core.team through these. FanGraphs' park-factor `team` is a plain
+    # nickname and is historically accurate, so a relocated/renamed franchise
+    # needs one row per name it has used since 2003 (the scoped span): CLE is
+    # "Indians" 2003-20 / "Cleveland" 2021 / "Guardians" 2022+, TBA is
+    # "Devil Rays" 2003-07 / "Rays" 2008+, WAS is "Expos" 2003-04 /
+    # "Nationals" 2005+. All 34 aliases verified against the real distinct
+    # `team` values in raw.fangraphs_park_factors. The composite
+    # UNIQUE(alias, source) added in migration 0104 lets "Athletics"/"Rays"
+    # coexist with the identical 'rebrand' strings above.
+    ("ANA", "Angels", "fangraphs"),
+    ("ARI", "Diamondbacks", "fangraphs"),
+    ("ATL", "Braves", "fangraphs"),
+    ("BAL", "Orioles", "fangraphs"),
+    ("BOS", "Red Sox", "fangraphs"),
+    ("CHA", "White Sox", "fangraphs"),
+    ("CHN", "Cubs", "fangraphs"),
+    ("CIN", "Reds", "fangraphs"),
+    ("CLE", "Indians", "fangraphs"),
+    ("CLE", "Cleveland", "fangraphs"),
+    ("CLE", "Guardians", "fangraphs"),
+    ("COL", "Rockies", "fangraphs"),
+    ("DET", "Tigers", "fangraphs"),
+    ("HOU", "Astros", "fangraphs"),
+    ("KCA", "Royals", "fangraphs"),
+    ("LAN", "Dodgers", "fangraphs"),
+    ("MIA", "Marlins", "fangraphs"),
+    ("MIL", "Brewers", "fangraphs"),
+    ("MIN", "Twins", "fangraphs"),
+    ("NYA", "Yankees", "fangraphs"),
+    ("NYN", "Mets", "fangraphs"),
+    ("OAK", "Athletics", "fangraphs"),
+    ("PHI", "Phillies", "fangraphs"),
+    ("PIT", "Pirates", "fangraphs"),
+    ("SDN", "Padres", "fangraphs"),
+    ("SEA", "Mariners", "fangraphs"),
+    ("SFN", "Giants", "fangraphs"),
+    ("SLN", "Cardinals", "fangraphs"),
+    ("TBA", "Devil Rays", "fangraphs"),
+    ("TBA", "Rays", "fangraphs"),
+    ("TEX", "Rangers", "fangraphs"),
+    ("TOR", "Blue Jays", "fangraphs"),
+    ("WAS", "Nationals", "fangraphs"),
+    ("WAS", "Expos", "fangraphs"),
 ]
 
 _MONTH_ABBR = {
@@ -1716,11 +1761,16 @@ def run() -> dict[str, int]:
         # roll-ups, and the batting_career / pitching_career roll-ups)
         # references core.game / core.player / core.team. gold.batting_postseason
         # / gold.pitching_postseason (migration 0100) reference
-        # core.player / core.team too. conform empties the gold tables it does
-        # not itself rebuild for the same reason it empties gold.game_feature —
-        # a full core rebuild reissues every core.game surrogate id, so any gold
-        # row still pointing at an old one is stale. `mlb report` rebuilds the
-        # whole backbone (including the postseason relations) afterward, like
+        # core.player / core.team too. gold.fangraphs_park_factors
+        # (migration 0104) references core.team(id) as well and so must be
+        # named here even though conform never writes it — the FK's mere
+        # existence blocks `TRUNCATE core.team` otherwise (`mlb report`
+        # rebuilds it, like the postseason relations). conform empties the
+        # gold tables it does not itself rebuild for the same reason it
+        # empties gold.game_feature — a full core rebuild reissues every
+        # core.game / core.team surrogate id, so any gold row still pointing
+        # at an old one is stale. `mlb report` rebuilds the whole backbone
+        # (including the postseason and FanGraphs relations) afterward, like
         # `mlb features` rebuilds gold.game_feature.
         with conn.cursor() as cur:
             cur.execute(
@@ -1730,6 +1780,7 @@ def run() -> dict[str, int]:
                 "gold.pitching_season, gold.pitching_team, "
                 "gold.batting_career, gold.pitching_career, "
                 "gold.batting_postseason, gold.pitching_postseason, "
+                "gold.fangraphs_park_factors, "
                 "core.game, core.team, core.player, "
                 "core.venue, core.standing, core.team_alias, "
                 "core.player_war"
@@ -1804,17 +1855,26 @@ def health_check() -> list[Check]:
         # hasn't run the relevant optional connector yet — consistent with
         # how every other check above already treats "never bootstrapped."
         check_no_duplicate_key("core.game", "game_pk"),
+        # `expected` is scoped to games that exist in core.game -- _build_plays
+        # inner-joins core.game, and a raw play for a game the warehouse does
+        # not recognise (e.g. an Oct-1900 Pittsburgh series Retrosheet has
+        # event data but no schedule/gameinfo row for; a 2026 spring / All-Star
+        # game in raw.mlb_playbyplay that core.game excludes) should NOT land
+        # in core.play. Without the scope the check counted those as expected
+        # and flagged the (correct) gap as row loss. See GitHub #184.
         check_join_coverage(
             "core.play retrosheet coverage",
             "SELECT count(*) FROM core.play WHERE source = 'retrosheet'",
             "SELECT count(*) FROM "
-            "(SELECT DISTINCT ON (game_id, event_id) 1 FROM raw.retrosheet_event "
-            "ORDER BY game_id, event_id, _scope) x",
+            "(SELECT DISTINCT ON (re.game_id, re.event_id) 1 FROM raw.retrosheet_event re "
+            "JOIN core.game g ON g.retro_game_id = re.game_id "
+            "ORDER BY re.game_id, re.event_id, re._scope) x",
         ),
         check_join_coverage(
             "core.play mlb_api coverage",
             "SELECT count(*) FROM core.play WHERE source = 'mlb_api'",
-            "SELECT count(*) FROM raw.mlb_playbyplay",
+            "SELECT count(*) FROM raw.mlb_playbyplay pbp "
+            "JOIN core.game g ON g.game_pk = pbp.game_pk",
         ),
         check_join_coverage(
             "core.pitch coverage",

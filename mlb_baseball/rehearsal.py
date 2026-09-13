@@ -64,6 +64,7 @@ def clear_sample(target_url: str) -> None:
             "core.market",
             "gold.game_feature",
             "gold.prediction",
+            "gold.fangraphs_park_factors",  # FK -> core.team (migration 0104)
             "core.game",
             "core.team_alias",
             "core.player_war",

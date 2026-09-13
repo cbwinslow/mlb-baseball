@@ -1,5 +1,8 @@
+import dataclasses
+import json
 import subprocess
 import sys
+from functools import partial
 
 import duckdb
 import numpy as np
@@ -196,12 +199,13 @@ def test_elo_v2_predict_walks_test_rows_in_order_without_mutating_state():
     assert list(first) == list(second)
 
 
-def test_elo_v2_runs_through_run_backtest_and_produces_probability_quality_metrics():
+def _multi_season_frame() -> pd.DataFrame:
     events = list(pd.date_range("2019-04-01", periods=6, freq="3D")) + list(
         pd.date_range("2020-04-01", periods=3, freq="3D")
     )
     frame = pd.DataFrame(
         {
+            "game_pk": [f"g{i}" for i in range(9)],
             "home_team_id": [1, 2, 1, 3, 2, 3, 1, 2, 3],
             "away_team_id": [2, 3, 3, 1, 1, 2, 2, 3, 1],
             "season": [2019] * 6 + [2020] * 3,
@@ -213,6 +217,11 @@ def test_elo_v2_runs_through_run_backtest_and_produces_probability_quality_metri
         }
     )
     frame["home_win"] = frame["home_score"] > frame["away_score"]
+    return frame
+
+
+def test_elo_v2_runs_through_run_backtest_and_produces_probability_quality_metrics():
+    frame = _multi_season_frame()
     folds = backtest.time_ordered_folds((2020,))
 
     result = backtest.run_backtest(
@@ -294,3 +303,58 @@ def test_load_game_frame_returns_one_row_per_feat_game_row(tmp_path):
     ):
         assert column in frame.columns
     assert set(frame["game_pk"]) == {"g1", "g2"}
+
+
+def test_build_model_card_baseline_matches_a_direct_run_backtest_call():
+    frame = _multi_season_frame()
+    folds = backtest.time_ordered_folds((2020,))
+    config = elo.EloV2Config()
+
+    card = elo.build_model_card(frame, folds, config=config)
+
+    baseline_config = dataclasses.replace(config, starter_weight=0.0)
+    direct = backtest.run_backtest(
+        frame,
+        folds,
+        partial(elo.elo_v2_fit, config=baseline_config),
+        partial(elo.elo_v2_predict, config=baseline_config),
+        task="classification",
+        time_col="event_ts",
+        period_col="season",
+        label_col="home_win",
+        feature_cols=("home_starter_fip_like_30d", "away_starter_fip_like_30d"),
+    )
+
+    assert card["baseline"]["aggregate"] == direct.aggregate
+    for name, fold_metrics in direct.folds.items():
+        assert card["baseline"]["folds"][name]["metrics"] == fold_metrics.metrics
+        assert card["baseline"]["folds"][name]["predictions"] == list(fold_metrics.predictions)
+
+
+def test_build_model_card_result_is_json_serializable():
+    frame = _multi_season_frame()
+    folds = backtest.time_ordered_folds((2020,))
+
+    card = elo.build_model_card(frame, folds)
+
+    assert "adjusted" in card and "baseline" in card and "comparison" in card
+    assert card["comparison"]["count"] == 3
+    json.dumps(card)  # round-trips without error
+
+
+def test_render_model_card_includes_metrics_and_limitations():
+    frame = _multi_season_frame()
+    folds = backtest.time_ordered_folds((2020,))
+    card = elo.build_model_card(frame, folds)
+
+    markdown = elo.render_model_card(card)
+
+    assert "log_loss" in markdown or "log loss" in markdown.lower()
+    assert "brier" in markdown.lower()
+    assert "calibration" in markdown.lower()
+    assert str(card["comparison"]["count"]) in markdown
+    # Limitations section: actual starter, no market comparison, unsourced constants.
+    assert "actual" in markdown.lower() and "probable" in markdown.lower()
+    assert "market" in markdown.lower()
+    assert "FADE_GAMES" in markdown or "fade_games" in markdown
+    assert "STARTER_WEIGHT" in markdown or "starter_weight" in markdown

@@ -108,7 +108,7 @@ it fail for the right reason, then make it pass.
 
 ## 6. The model card
 
-- [ ] 6.1 Failing test: `build_model_card(frame, folds)` on a synthetic
+- [x] 6.1 Failing test: `build_model_card(frame, folds)` on a synthetic
   multi-season frame returns a result whose two configurations'
   (`starter_weight` as given vs. `0.0`) `BacktestResult`s are present, and
   whose `starter_weight=0.0` run's per-fold metrics exactly match a direct
@@ -116,17 +116,17 @@ it fail for the right reason, then make it pass.
   `dataclasses.replace(config, starter_weight=0.0)` config on the same
   fixture — proves the model card's "baseline" call is not silently
   different from calling the harness directly. Verify: RED then GREEN.
-- [ ] 6.2 Implement `build_model_card` (design D5): two `run_backtest` calls
+- [x] 6.2 Implement `build_model_card` (design D5): two `run_backtest` calls
   sharing `frame`/`folds`, `paired_comparison` between their predictions
   keyed by `game_pk`, assembled into one JSON-serializable result dict.
   Verify: 6.1 passes; `json.dumps(result)` round-trips without error on a
   real (non-mocked) result.
-- [ ] 6.3 Failing test: `render_model_card(result)` produces a markdown
+- [x] 6.3 Failing test: `render_model_card(result)` produces a markdown
   string containing both configurations' log loss/Brier/calibration, the
   paired-comparison row count, and a limitations section (actual starter
   not probable; no market comparison; `FADE_GAMES`/`STARTER_WEIGHT`
   unsourced). Verify: RED then GREEN.
-- [ ] 6.4 Implement `render_model_card`. Verify: 6.3 passes.
+- [x] 6.4 Implement `render_model_card`. Verify: 6.3 passes.
 
 ## 7. Documentation
 

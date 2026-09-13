@@ -30,14 +30,23 @@ rationale and rejected alternatives.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
+from functools import partial
 from typing import Any
 
 import duckdb
 import numpy as np
 import pandas as pd
 
+from mlb_research import backtest
 from mlb_research.paths import resolve_db_path
+
+_TIME_COL = "event_ts"
+_PERIOD_COL = "season"
+_LABEL_COL = "home_win"
+_FEATURE_COLS = ("home_starter_fip_like_30d", "away_starter_fip_like_30d")
+_KEY_COL = "game_pk"
 
 STARTING_ELO = 1500.0
 HOME_ADVANTAGE = 24.0
@@ -242,6 +251,163 @@ def elo_v2_predict(
     return np.array(
         [_elo_v2_step(walked, row, config) for row in test.itertuples()], dtype=np.float64
     )
+
+
+def _serialize_backtest_result(result: backtest.BacktestResult) -> dict[str, Any]:
+    return {
+        "aggregate": result.aggregate,
+        "coverage": result.coverage,
+        "seed": result.seed,
+        "fold_plan": result.fold_plan,
+        "folds": {
+            name: {
+                "metrics": fm.metrics,
+                "train_rows": fm.train_rows,
+                "test_rows": fm.test_rows,
+                "predictions": fm.predictions.tolist(),
+            }
+            for name, fm in result.folds.items()
+        },
+    }
+
+
+def _fold_test_keys(frame: pd.DataFrame, folds: Sequence[backtest.Fold]) -> dict[str, list[Any]]:
+    """Each fold's test-row `game_pk`s, in the same deterministic order
+    `run_backtest`'s internal split produces (`period_col` membership, then
+    a stable sort by `time_col`) -- so `FoldMetrics.predictions` (returned
+    in that same order) can be matched back to a game identity."""
+    keys: dict[str, list[Any]] = {}
+    for fold in folds:
+        test = frame[frame[_PERIOD_COL] == fold.test].sort_values(_TIME_COL, kind="stable")
+        keys[fold.name] = list(test[_KEY_COL])
+    return keys
+
+
+def _flatten_predictions(
+    result: backtest.BacktestResult, fold_keys: dict[str, list[Any]]
+) -> tuple[list[Any], np.ndarray]:
+    all_keys: list[Any] = []
+    all_predictions: list[float] = []
+    for name, fold_metrics in result.folds.items():
+        all_keys.extend(fold_keys[name])
+        all_predictions.extend(fold_metrics.predictions.tolist())
+    return all_keys, np.array(all_predictions, dtype=np.float64)
+
+
+def build_model_card(
+    frame: pd.DataFrame,
+    folds: Sequence[backtest.Fold],
+    config: EloV2Config | None = None,
+) -> dict[str, Any]:
+    """Design D5: backtest Elo v2 twice -- `config` as given, and again
+    with `starter_weight=0.0` (a home-field-only baseline, same model, one
+    field different) -- then `paired_comparison` the two over identical
+    evaluation games. No database, no market data: `frame` is the caller's
+    own `load_game_frame()` output (or an equivalent `feat.game`-shaped
+    frame)."""
+    config = config or EloV2Config()
+    baseline_config = replace(config, starter_weight=0.0)
+
+    def run(cfg: EloV2Config) -> backtest.BacktestResult:
+        return backtest.run_backtest(
+            frame,
+            folds,
+            partial(elo_v2_fit, config=cfg),
+            partial(elo_v2_predict, config=cfg),
+            task="classification",
+            time_col=_TIME_COL,
+            period_col=_PERIOD_COL,
+            label_col=_LABEL_COL,
+            feature_cols=_FEATURE_COLS,
+        )
+
+    adjusted_result = run(config)
+    baseline_result = run(baseline_config)
+
+    fold_keys = _fold_test_keys(frame, folds)
+    adjusted_keys, adjusted_predictions = _flatten_predictions(adjusted_result, fold_keys)
+    baseline_keys, baseline_predictions = _flatten_predictions(baseline_result, fold_keys)
+    labels_by_key = dict(zip(frame[_KEY_COL], frame[_LABEL_COL].astype(float), strict=True))
+    labels = np.array([labels_by_key[key] for key in adjusted_keys], dtype=np.float64)
+
+    matched = backtest.paired_comparison(
+        adjusted_predictions, baseline_predictions, labels, adjusted_keys, baseline_keys
+    )
+    adjusted_matched_metrics = backtest.classification_metrics(matched["y"], matched["pred_a"], 0)
+    baseline_matched_metrics = backtest.classification_metrics(matched["y"], matched["pred_b"], 0)
+
+    return {
+        "config": {
+            "home_advantage": config.home_advantage,
+            "k_factor": config.k_factor,
+            "reversion_weight": config.reversion_weight,
+            "fade_games": config.fade_games,
+            "starter_weight": config.starter_weight,
+        },
+        "adjusted": _serialize_backtest_result(adjusted_result),
+        "baseline": _serialize_backtest_result(baseline_result),
+        "comparison": {
+            "count": matched["count"],
+            "adjusted_metrics": adjusted_matched_metrics,
+            "baseline_metrics": baseline_matched_metrics,
+            "log_loss_delta": (
+                baseline_matched_metrics["log_loss"] - adjusted_matched_metrics["log_loss"]
+            ),
+        },
+    }
+
+
+def render_model_card(result: dict[str, Any]) -> str:
+    """A plain markdown rendering of `build_model_card`'s result: both
+    configurations' probability-quality metrics, the matched-sample
+    comparison, and a fixed limitations section."""
+    lines = ["# Elo v2 model card", "", "## Configuration"]
+    for key, value in result["config"].items():
+        lines.append(f"- `{key}`: {value}")
+
+    for label, section in (
+        ("Starter adjustment ON", "adjusted"),
+        ("Starter adjustment OFF (home-field baseline)", "baseline"),
+    ):
+        aggregate = result[section]["aggregate"]
+        lines += [
+            "",
+            f"## {label}",
+            f"- rows: {aggregate['rows']}",
+            f"- log loss: {aggregate['log_loss']:.4f}",
+            f"- brier: {aggregate['brier']:.4f}",
+            f"- accuracy: {aggregate['accuracy']:.4f}",
+            "",
+            "### Calibration by fold",
+        ]
+        for fold_name, fold in result[section]["folds"].items():
+            calibration = fold["metrics"]["calibration"]
+            lines.append(
+                f"- {fold_name}: intercept={calibration['intercept']}, slope={calibration['slope']}"
+            )
+
+    comparison = result["comparison"]
+    lines += [
+        "",
+        "## Matched-sample comparison",
+        f"- games compared: {comparison['count']}",
+        f"- adjusted log loss: {comparison['adjusted_metrics']['log_loss']:.4f}",
+        f"- baseline log loss: {comparison['baseline_metrics']['log_loss']:.4f}",
+        f"- log loss delta (baseline - adjusted): {comparison['log_loss_delta']:.4f}",
+        "",
+        "## Limitations",
+        "- Uses the **actual** starting pitcher, not the probable one "
+        "(`feat.game`'s `starter_is_actual = TRUE`) -- a probable-starter "
+        "feed does not yet have enough history to backtest against.",
+        "- No betting-market comparison. The baseline above is Elo v2 with "
+        "the starter adjustment disabled, not an independent model or the "
+        "market.",
+        f"- `FADE_GAMES`={result['config']['fade_games']} and "
+        f"`STARTER_WEIGHT`={result['config']['starter_weight']} are chosen, "
+        "not sourced from published research; revisit with backtesting "
+        "evidence.",
+    ]
+    return "\n".join(lines)
 
 
 def load_game_frame(db: str | os.PathLike[str] | None = None) -> pd.DataFrame:

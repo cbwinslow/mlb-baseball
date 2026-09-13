@@ -130,15 +130,17 @@ Install `numba` with CUDA support. Rewrite the core Markov simulation loop as a 
 from numba import cuda
 import numpy as np
 
+
 def get_device():
     """Return 'cuda' if GPU available, else 'cpu'."""
     try:
         from numba import cuda
+
         if cuda.is_available():
-            return 'cuda'
+            return "cuda"
     except ImportError:
         pass
-    return 'cpu'
+    return "cpu"
 ```
 
 #### 2B. Player-Game Props Prediction System
@@ -276,6 +278,7 @@ def gpu_available() -> bool:
         return False
     try:
         from numba import cuda
+
         return cuda.is_available()
     except ImportError:
         return False

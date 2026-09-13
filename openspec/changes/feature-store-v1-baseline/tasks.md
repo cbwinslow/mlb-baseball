@@ -9,31 +9,31 @@ it fail for the right reason, then make it pass.
 
 ## 1. Module setup
 
-- [ ] 1.1 Create `packages/mlb-research/mlb_research/elo.py` with the module
+- [x] 1.1 Create `packages/mlb-research/mlb_research/elo.py` with the module
   docstring (pure numpy, no database, no `sklearn`/`xgboost`; states
   `FADE_GAMES`/`STARTER_WEIGHT` are chosen, not sourced, same as
   `mlb_baseball/model/elo.py`'s `K_FACTOR`/`REVERSION_WEIGHT`) and the
   `EloV2Config` frozen dataclass (design D2: `home_advantage`, `k_factor`,
   `reversion_weight`, `fade_games=30`, `starter_weight=50.0`). Verify:
   `import mlb_research.elo` succeeds; `ruff` + `mypy` clean.
-- [ ] 1.2 Add `packages/mlb-research/tests/test_elo.py`. Verify: `pytest
+- [x] 1.2 Add `packages/mlb-research/tests/test_elo.py`. Verify: `pytest
   packages/mlb-research/tests/test_elo.py` collects (even with zero tests
   yet).
 
 ## 2. Preseason fade
 
-- [ ] 2.1 Failing test: a team with a known prior-season ending rating,
+- [x] 2.1 Failing test: a team with a known prior-season ending rating,
   walking into a new season, produces `effective_rating == preseason_prior`
   exactly at the season's first game (`n=0`) and converges to the plain
   in-season Elo walk once `n >= fade_games`, with a value strictly between
   the two at a mid-fade game — hand-computed expected values for all three
   points. Verify: RED then GREEN.
-- [ ] 2.2 Implement the fade (design D3): the blend
+- [x] 2.2 Implement the fade (design D3): the blend
   `effective_rating = (1-blend)*preseason_prior + blend*in_season_rating`,
   `blend = min(n/fade_games, 1.0)`, `preseason_prior` computed with v1's
   existing one-time reversion formula at a team's first game of a season.
   Verify: 2.1 passes.
-- [ ] 2.3 Failing test: two teams that have never appeared before (first
+- [x] 2.3 Failing test: two teams that have never appeared before (first
   game of the dataset for both) start at `STARTING_ELO` with `blend=0`
   (i.e. `n=0` for a team's literal first game behaves the same whether or
   not a "prior season" exists). Verify: RED then GREEN; implement any gap 2.2
@@ -41,22 +41,22 @@ it fail for the right reason, then make it pass.
 
 ## 3. Starter-quality adjustment
 
-- [ ] 3.1 Failing test: given a small train frame with known
+- [x] 3.1 Failing test: given a small train frame with known
   `home_starter_fip_like_30d`/`away_starter_fip_like_30d` values,
   `quality_z` of a known FIP value matches a hand-computed z-score
   (mean/std over the pooled home+away train values), sign such that a lower
   FIP (better pitcher) gives a positive z. Verify: RED then GREEN.
-- [ ] 3.2 Implement train-only mean/std computation and `quality_z` (design
+- [x] 3.2 Implement train-only mean/std computation and `quality_z` (design
   D4), computed once per fold inside `elo_v2_fit` and closed over by the
   returned state/callable for use in `elo_v2_predict`. Verify: 3.1 passes.
-- [ ] 3.3 Failing test: a test row with a null `fip_like_30d` for one side
+- [x] 3.3 Failing test: a test row with a null `fip_like_30d` for one side
   gets `quality_z = 0` for that side (unadjusted rating), while the other
   side's real value still applies normally. Verify: RED then GREEN.
-- [ ] 3.4 Failing test: a train fold where pooled `fip_like_30d` values have
+- [x] 3.4 Failing test: a train fold where pooled `fip_like_30d` values have
   zero variance (or fewer than a documented minimum count) does not raise
   or divide by zero — every `quality_z` in that fold is `0`. Verify: RED
   then GREEN; implement the guard (design Risks).
-- [ ] 3.5 Implement `effective_rating = team_rating + starter_weight *
+- [x] 3.5 Implement `effective_rating = team_rating + starter_weight *
   quality_z(...)` feeding into the existing `expected_win_prob` (home
   advantage unchanged, inside that call). Verify: a unit test with
   `starter_weight=0` reproduces the fade-only rating from section 2 exactly

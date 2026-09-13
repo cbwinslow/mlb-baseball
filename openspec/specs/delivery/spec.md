@@ -248,45 +248,146 @@ part ships.)
 - **WHEN** an analyst retrieves features from a feature set with no database server configured or running
 - **THEN** the retrieval succeeds and returns the point-in-time-correct rows
 
-### Requirement: The public distribution includes one reference baseline model
+### Requirement: The shipped backtest harness is model-agnostic and dependency-light
 
-The public distribution SHALL include exactly one reference baseline
-prediction model (Elo with a home-field and probable-starter adjustment),
-its source code, and a model card. The model card SHALL report the model's
-calibration, log loss, and Brier score measured on a strictly chronological
-hold-out (never a random split), and SHALL state the model's known
-limitations.
+The public distribution SHALL include a walk-forward backtest harness in the
+installable package (`mlb-research`), usable by an analyst against their own
+build with no database server and no model-training library installed.
 
-Every input the reference baseline consumes SHALL be reproducible from the
-analyst's own build. The baseline SHALL NOT depend on a project-operated
-service, a private or non-shipped data feed, a shipped trained artifact, or any
-relation whose build logic the distribution withholds.
+The harness SHALL:
 
-The model card's numbers SHALL be reproducible by an installing analyst running
-the walk-forward backtest harness the distribution ships against their own build
-of the card's stated hold-out — reproducing the card's calibration, log loss,
-and Brier score within a documented tolerance.
+- **fit no model itself.** Model fitting and prediction SHALL be supplied by the
+  caller as a `fit_fn` / `predict_fn` callback pair. The package SHALL NOT
+  import `scikit-learn`, `xgboost`, `PyMC`, or any other model-training library
+  at module load or during a backtest run.
+- **split only by time.** Every fold's training rows SHALL fall strictly before
+  its evaluation rows on the caller-named cutoff column. A random or shuffled
+  split SHALL NOT be expressible through the harness API.
+- **never select on the evaluation period.** The harness SHALL expose no
+  parameter or hook that fits, tunes, or chooses features or hyperparameters
+  using rows from a fold's own evaluation period.
+- **take a plain table in.** Input SHALL be a single in-memory tabular frame
+  (one row per evaluation unit, a cutoff-timestamp column, feature columns, a
+  label column). A row missing a required input SHALL be reported as excluded,
+  never imputed or filled.
+- **report probability quality.** For a classification target the harness SHALL
+  report log loss, Brier score, and a binned reliability (calibration) table
+  with an intercept and slope; for a regression target, mean absolute error,
+  root mean squared error, and a residual-decile calibration table. Accuracy MAY
+  be reported but SHALL NOT be the only score. Interval estimates (e.g.
+  bootstrap confidence intervals) SHALL be reproducible from a recorded seed.
+- **support a matched-sample comparison.** The harness SHALL provide a paired
+  comparison of two models' predictions computed over exactly the evaluation
+  units both models scored, so a baseline and a candidate are compared on the
+  same games.
+- **return a serializable result.** A backtest run SHALL return per-fold and
+  aggregate metrics, the fold plan, the included/excluded row counts, and the
+  seed, in a form that serializes to JSON for a model card.
+
+This requirement names the guarantee, not an implementation. It exists so that
+the "an analyst reproduces the model card by running the shipped harness against
+their own build" clause of *The public distribution includes one reference
+baseline model* is actually satisfiable.
+
+#### Scenario: The harness runs with no model-training library installed
+
+- **WHEN** an analyst imports and runs the harness in an environment where `scikit-learn` and `xgboost` are not installed, passing their own `fit_fn` / `predict_fn`
+- **THEN** the backtest completes and returns per-fold and aggregate probability-quality metrics
+- **AND** no import error is raised for a model-training library
+
+#### Scenario: Folds are strictly time-ordered
+
+- **WHEN** a backtest is configured over several evaluation periods
+- **THEN** for every fold, every training row's cutoff timestamp is strictly earlier than every evaluation row's cutoff timestamp
+- **AND** the API offers no option to produce a random or shuffled split
+
+#### Scenario: A missing required input is excluded, not imputed
+
+- **WHEN** the input frame contains a row whose required feature value is null
+- **THEN** that row is omitted from both training and evaluation and counted in the result's excluded-row count
+- **AND** no substitute or filled value is used for it
+
+#### Scenario: Two models are compared on the same games
+
+- **WHEN** an analyst runs the paired comparison of a baseline and a candidate model whose predictions cover overlapping but not identical sets of games
+- **THEN** the comparison metrics are computed only over the games both models scored
+- **AND** the count of those common games is reported
+
+#### Scenario: The reference model card is reproducible from the shipped harness
+
+- **WHEN** an analyst runs the shipped harness against their own build for the reference baseline's stated chronological hold-out
+- **THEN** the calibration, log loss, and Brier score match the published model card within its documented tolerance
+- **AND** the run required no project-operated service and no pre-trained artifact
+
+### Requirement: The public distribution includes one reference baseline model and its model card
+
+The installable package (`mlb-research`) SHALL include one reference baseline
+predictive model (Elo v2) and a reproducible model card reporting its
+evaluation, satisfying the "an analyst reproduces the model card by running
+the shipped harness against their own build" clause the backtest-harness
+requirement names.
+
+The reference model SHALL:
+
+- **fit and predict through the shipped harness.** Elo v2 SHALL be evaluated
+  by calling the package's own walk-forward backtest harness as an ordinary
+  `fit_fn` / `predict_fn` pair — no separate evaluation path.
+- **need no database and no paid or restricted data source.** Elo v2 and its
+  model card SHALL run against the package's own point-in-time feature store
+  output alone. Neither SHALL require a database connection, a market-odds
+  feed, or any source not already part of the public distribution.
+- **report probability quality for two configurations, matched.** The model
+  card SHALL report log loss, Brier score, and calibration for Elo v2 with
+  its starter-quality adjustment enabled, and separately with it disabled (a
+  home-field-only baseline), and SHALL report a matched-sample comparison of
+  the two over identical evaluation games.
+- **treat a missing input as missing, not average.** Where a per-game input
+  the starter adjustment depends on is unavailable, Elo v2 SHALL apply no
+  adjustment for that game rather than substituting a league-average or other
+  fabricated value.
+- **be reproducible from the shipped package alone.** Re-running the model
+  card against the same public feature-store build SHALL reproduce its
+  reported numbers within the harness's documented tolerance, with no
+  project-operated service and no pre-trained artifact required.
+
+This requirement does not require Elo v2 to use a probable starting pitcher,
+compare against betting-market odds, or compare against any other model
+(including the project's own production Elo implementation) — those remain
+explicitly out of scope for this requirement and may be added by a later
+requirement without changing this one.
 
 The reference baseline exists as the worked example every later model is
 measured against. (`openspec/project.md`'s phased ladder sequences when it
 ships.)
+
+#### Scenario: The model card runs from the public package alone
+
+- **WHEN** an analyst installs `mlb-research`, builds the feature store locally, and runs the model card
+- **THEN** it completes and reports Elo v2's log loss, Brier score, and calibration, both with and without the starter adjustment
+- **AND** no database connection, market-data fetch, or non-public dependency is required
+
+#### Scenario: The two configurations are compared on the same games
+
+- **WHEN** the model card backtests Elo v2 with the starter adjustment on and, separately, with it off
+- **THEN** the reported comparison between the two covers exactly the evaluation games both configurations scored
+- **AND** the count of those games is reported alongside the comparison
+
+#### Scenario: A missing starter input produces no adjustment, not a guess
+
+- **WHEN** a game's starter-quality input is unavailable at evaluation time
+- **THEN** Elo v2 predicts that game using the unadjusted team rating
+- **AND** no league-average or other substitute value is used in its place
+
+#### Scenario: Re-running the model card reproduces its numbers
+
+- **WHEN** an analyst re-runs the model card against an unchanged local feature-store build
+- **THEN** the reported log loss, Brier score, and calibration match the previous run within the harness's documented tolerance
 
 #### Scenario: The baseline model ships with an honest model card
 
 - **WHEN** the public distribution is released
 - **THEN** it contains the baseline model's code and a model card
 - **AND** the model card reports calibration, log loss, and Brier score from a chronological hold-out and lists the model's limitations
-
-#### Scenario: The baseline consumes only inputs the analyst can rebuild
-
-- **WHEN** the reference baseline is run in an environment produced solely by the distribution's own bootstrap-and-build path
-- **THEN** every feature it reads is present
-- **AND** it produces predictions without any project-operated service, non-shipped feed, or pre-trained artifact
-
-#### Scenario: An analyst reproduces the model card
-
-- **WHEN** an analyst runs the shipped harness against their own build for the model card's stated hold-out
-- **THEN** the calibration, log loss, and Brier score match the model card within the documented tolerance
 
 ### Requirement: Internal Engine artifacts are never published
 

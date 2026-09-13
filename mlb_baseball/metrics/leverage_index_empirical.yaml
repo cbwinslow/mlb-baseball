@@ -1,0 +1,40 @@
+name: leverage_index_empirical
+definition: >
+  How much a single moment in a game matters to the final result, on a scale
+  where 1.0 is an average moment (a bases-loaded, bottom-of-the-9th, tied game
+  is a very high-leverage moment; a lopsided blowout in the 7th is a very low
+  one). Built from this project's own real, historical win-expectancy swings
+  (win_expectancy_empirical), not a hand-typed table.
+formula: mlb_baseball/model/leverage_index.py::compute
+citation: >
+  Tom Tango, Leverage Index (general concept, described in Tango, Lichtman &
+  Dolphin, "The Book: Playing the Percentages in Baseball," 2006).
+data_source: gold.win_expectancy (itself built from raw.retrosheet_event, raw.retrosheet_gameinfo)
+grain: (inning, half, outs, base state, score-margin bucket)
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Replaces the previously hand-typed, unvalidated leverage table used
+  directly inside run_expectancy.py (ADR-262). Normalized so the sample-
+  weighted average across every state is exactly 1.0, the standard Leverage
+  Index convention. health_check() checks that this normalization holds
+  (weighted average within 0.85-1.15 of 1.0) and that a well-known
+  maximum-leverage situation (bottom 9th, bases loaded, 0 outs, tied) scores
+  well above 1.0 -- both currently pass, and are real sanity checks against
+  known baseball facts, but are plausibility bounds rather than a tie-out
+  against one specific externally-published number, so "published" rather
+  than "validated".
+
+  tests/integration/test_model_leverage_index.py's
+  test_compute_matches_hand_calculation hand-derives its own expected value
+  using the same arithmetic the SQL performs -- self-consistency, not an
+  independent tie-out.
+
+  Distinct from mlb_baseball/model/leverage.py's BullpenLeverageEngine (see
+  that module's own catalog entry, bullpen_leverage_volatility_engine) --
+  that is a separate, NOT-database-integrated CLI calculator with uncited
+  constants; this is the real, production-integrated Leverage Index gold
+  table used elsewhere in the pipeline (e.g. run_expectancy.py).

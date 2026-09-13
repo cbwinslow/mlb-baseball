@@ -1,0 +1,36 @@
+name: catcher_framing_prior_season
+definition: >
+  A team's catcher pitch-framing value (extra strikes earned by good glove
+  positioning, converted to runs) from the season before the game being
+  predicted. This project does not calculate framing itself -- it takes
+  Statcast's own published per-catcher framing runs value, adds up each
+  team's catchers, and lags it by one full season so no game is scored using
+  data that only exists because of games played after it.
+formula: mlb_baseball/model/framing.py::compute
+citation: "Statcast catcher framing runs (rv_tot), via Baseball Savant's catcher framing leaderboard"
+data_source: raw.statcast_framing (via core.player_war's bref/Retrosheet team crosswalk)
+grain: team-season (lagged one season, joined onto a per-game feature row)
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Same posture as team_war_prior: sums and lags an externally-published,
+  per-catcher Statcast value (rv_tot) rather than reimplementing Statcast's
+  own framing model. Team identity resolved by reusing war.py's
+  _BREF_TO_RETRO crosswalk directly (framing.py imports it rather than
+  maintaining a second copy). ADR-045 documents a real, understood coverage
+  gap checked against real 2024 data: only ~52% of catcher rows resolve to a
+  team, traced to rookies/prospects below core.player_war's own
+  minimum-playing-time threshold, not a join bug (confirmed by name against
+  four specific 2024 players).
+
+  No dedicated automated test compares this project's summed/lagged value
+  against an independently published team-level framing total, so this is
+  "published" (correctly implemented per direct code read, cited source)
+  rather than "validated".
+
+  This is a distinct metric, computed in the same module, from
+  catcher_framing_csae (this project's own in-season, project-derived
+  approximation of framing -- see that entry).

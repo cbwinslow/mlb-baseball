@@ -1,0 +1,46 @@
+name: elo_rating
+definition: >
+  A team's Elo skill rating, updated after every game based on whether it won
+  or lost, by how much, and how strong the opponent was. Used as one of this
+  project's baseline win-probability models (a team with a higher rating is
+  favored). Carries over between seasons with a partial reset toward league
+  average at the start of each new season.
+formula: mlb_baseball/model/elo.py::compute_ratings
+citation: "FiveThirtyEight, NFL/MLB Elo methodology (general Elo rating system, margin-of-victory multiplier)"
+data_source: gold.game_feature, core.game
+grain: team, updated sequentially game-by-game
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Genuinely sequential (each game updates two teams' ratings, and later games
+  depend on every team's current state, not just one team's own history) --
+  correctly implemented as a plain Python walk over games in true calendar
+  order, not forced into SQL, per the project's own SQL-vs-Python rule.
+
+  `visibility: internal`, not public, even though the win-probability formula
+  and the margin-of-victory multiplier shape are FiveThirtyEight's published
+  methodology: two of the four core constants are explicitly NOT sourced
+  from anywhere, by the module's own docstring's admission -- K_FACTOR=4 and
+  REVERSION_WEIGHT=0.25 are this project's own chosen starting values,
+  described in the code itself as "real, open, revisit-with-backtesting-
+  evidence choices, not facts." Per this catalog's rule (internal for tuned/
+  project-chosen parameters not themselves published), that tips the whole
+  rating system to internal.
+
+  HOME_ADVANTAGE=24 IS FiveThirtyEight's published MLB value, and the
+  margin-of-victory multiplier is FiveThirtyEight's published general
+  cross-sport formula, used as published (no MLB-specific tuning found
+  published anywhere, per docs/RESEARCH.md).
+
+  tests/unit/test_elo_formula.py checks formula properties (e.g. equal
+  ratings should favor home team, a stronger away team can still be an
+  underdog) -- self-consistency checks of the formula's shape, not a tie-out
+  against a real, independently published Elo rating for any specific team.
+  No automated test or backtest gate cited here confirms this rating beats a
+  documented baseline (project.md's ADR-044 entry does report a log-loss
+  figure for Elo as a comparison baseline for a different model, but that is
+  evaluation for gbm-v1's own gate, not a validation test for elo_rating
+  itself). "implemented-untested" reflects that no independent check exists.

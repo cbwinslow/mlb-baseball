@@ -1,0 +1,47 @@
+name: comprehensive_baserunning
+definition: >
+  A team's baserunning value beyond stolen bases: how often runners take an
+  extra base on a hit (XBT%), Ultimate Base Running (UBR, a run-value score
+  for taking extra bases), weighted stolen-base runs (wSB), weighted
+  ground-into-double-play avoidance (wGDP), and a single combined total
+  (BsR). Computed point-in-time, entering each game, from games already
+  played.
+formula: mlb_baseball/model/bsr.py::compute
+citation: >
+  Tom Tango / FanGraphs Sabermetrics Library -- wSB
+  (https://library.fangraphs.com/offense/wsb/), UBR
+  (https://library.fangraphs.com/offense/ubr/), wGDP
+  (https://library.fangraphs.com/offense/wgdp/), and BsR
+  (https://library.fangraphs.com/offense/bsr/) methodology.
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo
+grain: team, point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  wSB = SB*0.20 + CS*(-0.42) - lgwSB*(1B+uBB+HBP): the fixed run values 0.20
+  (steal) / -0.42 (caught stealing) are Tom Tango's widely-cited constants
+  (FanGraphs' own year-by-year weights aren't published in closed form, per
+  ADR-081). Correctly implements the FanGraphs-cited formula per direct
+  code read, including a real, checked algebraic simplification
+  (`1B+BB+HBP-IBB` = `1B+uBB+HBP` since `BB=uBB+IBB`, so IBB is never
+  separately counted -- confirmed correct, not a shortcut that changes the
+  answer, per ADR-081).
+
+  UBR and wGDP follow FanGraphs' published "actual vs. league-average
+  opportunity rate" structure, but with ONE project-derived constant FanGraphs
+  does not publish: wGDP's run-value-per-erased-runner (0.4153) is derived
+  from this project's own empirically-built 24-state run expectancy matrix
+  (gold.run_expectancy_24, ADR-260), not from a FanGraphs-published number
+  (FanGraphs' library page for wGDP does not publish its own exact constant).
+  UBR's per-extra-base run value (0.20) is a commonly-used estimate, not
+  separately re-derived. Flagged here so this specific constant isn't mistaken
+  for a value FanGraphs itself publishes.
+
+  tests/integration/test_model_bsr.py hand-derives its own expected wSB value
+  using the same arithmetic the SQL performs (self-consistency, not an
+  independent tie-out), so status is "published" rather than "validated".
+  MIN_ATTEMPTS/opportunity-count sample-size gates (5, 10) are chosen
+  floors, not derived or cited numbers.

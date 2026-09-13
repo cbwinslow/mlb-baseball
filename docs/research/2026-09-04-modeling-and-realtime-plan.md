@@ -989,12 +989,14 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
+
 @dataclass(frozen=True)
 class Fold:
     train_end: datetime
     test_start: datetime
     test_end: datetime
     embargo: timedelta
+
 
 def expanding_folds(
     dates: pd.DatetimeIndex,
@@ -1012,16 +1014,17 @@ def expanding_folds(
         test_start += step
     return folds
 
+
 def as_of_frame(events: pd.DataFrame, t_star: datetime) -> pd.DataFrame:
     return events.loc[events["observed_at"] <= t_star].copy()
+
 
 def walk_forward(games, events, folds, fit_fn, predict_fn, score_fn):
     rows = []
     for fold in folds:
         history = games.loc[games["game_start"] <= fold.train_end]
         slate = games.loc[
-            (games["game_start"] >= fold.test_start)
-            & (games["game_start"] < fold.test_end)
+            (games["game_start"] >= fold.test_start) & (games["game_start"] < fold.test_end)
         ]
         if history.empty or slate.empty:
             continue
@@ -1030,13 +1033,15 @@ def walk_forward(games, events, folds, fit_fn, predict_fn, score_fn):
             t_star = game.game_start - timedelta(minutes=15)
             x = as_of_frame(events, t_star)
             p = predict_fn(model, game, x)
-            rows.append({
-                "game_id": game.game_id,
-                "t_star": t_star,
-                "fold_test_start": fold.test_start,
-                "p_home": p,
-                "y_home": game.home_win,
-            })
+            rows.append(
+                {
+                    "game_id": game.game_id,
+                    "t_star": t_star,
+                    "fold_test_start": fold.test_start,
+                    "p_home": p,
+                    "y_home": game.home_win,
+                }
+            )
     pred = pd.DataFrame(rows)
     pred["log_loss"] = -(
         pred.y_home * np.log(pred.p_home.clip(1e-15, 1 - 1e-15))
@@ -1250,6 +1255,7 @@ def get_historical_features(entity_df, features, t_col="event_timestamp"):
         frames.append(asof_join(entity_df, spec, t_col))
     return reduce(lambda a, b: a.merge(b, on=list(entity_df.columns)), frames)
 
+
 training = get_historical_features(
     games[["game_id", "home_starter_id", "event_timestamp"]],
     features=[
@@ -1432,11 +1438,11 @@ class LiveState:
     game_pk: int
     seq: int
     event_ts: datetime
-    status: str                 # scheduled, inprogress, delayed, closed
+    status: str  # scheduled, inprogress, delayed, closed
     inning: int
-    half: str                   # T / B
+    half: str  # T / B
     outs: int
-    bases: tuple[int, int, int] # runner player ids or 0/1
+    bases: tuple[int, int, int]  # runner player ids or 0/1
     score_home: int
     score_away: int
     balls: int
@@ -1677,7 +1683,7 @@ def replay_game(events, quotes, pregame, model, delay: timedelta):
             continue
         ingest_ts = ev.ingest_ts or (ev.event_ts + delay)
         decision_ts = ingest_ts + model.compute_budget
-        p = model.score(state, pregame)          # remaining-game P(home)
+        p = model.score(state, pregame)  # remaining-game P(home)
         quote = last_quote(
             quotes,
             market="ml_home",
@@ -1687,18 +1693,20 @@ def replay_game(events, quotes, pregame, model, delay: timedelta):
         rows.append(Decision(ev, state, p, decision_ts, quote, fill))
     return rows
 
+
 def last_quote(quotes, market, asof):
     q = quotes[(quotes.market == market) & (quotes.quote_ts <= asof)]
     if q.empty:
         return None
     return q.iloc[-1]
 
+
 def classify_fill(quote, decision_ts, state):
     if quote is None:
         return "no_quote"
     if quote.suspended:
         return "suspended"
-    if decision_ts - quote.quote_ts > STALE:     # e.g. 3–8s for ML
+    if decision_ts - quote.quote_ts > STALE:  # e.g. 3–8s for ML
         return "stale"
     return "filled"
 ```

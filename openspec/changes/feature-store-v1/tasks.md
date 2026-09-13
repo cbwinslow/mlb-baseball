@@ -9,13 +9,14 @@ owner's to run and are recorded, not gated in CI.
 
 ## 1. Decisions and contract (do first — everything else is judged against these)
 
-- [ ] 1.1 **[OWNER]** Confirm the four open decisions in `DESIGN_REVIEW.md`
+- [x] 1.1 **[OWNER]** Confirm the four open decisions in `DESIGN_REVIEW.md`
   (DuckDB path + resolver precedence; whether `mlb build` wraps or replaces
   `report`/`conform`/`features` and whether `mlb verify` subsumes `doctor`;
   the day-based window set; the `feat.game` curation rule). Verify: each of the
   four has a one-line recorded answer in `DESIGN_REVIEW.md`, and any answer that
   differs from the recommendation is reflected in `design.md` before task 2.1
-  starts.
+  starts. **Done 2026-09-13.** Owner confirmed all four assumed answers as
+  final, no overrides — see `DESIGN_REVIEW.md` "Owner confirmation".
 - [x] 1.2 Fold `adr-features-in-duckdb.md` into `docs/DECISIONS.md` as the next
   ADR number (currently ADR-287; re-check the maximum at edit time — the file is
   newest-first). Verify: the ADR appears at the top of `docs/DECISIONS.md` in the

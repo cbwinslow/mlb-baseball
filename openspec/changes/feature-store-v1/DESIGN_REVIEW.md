@@ -102,6 +102,11 @@ assumed:
   slice 1 ships two retrieval paths. Slice 2 then only moves the harness across a
   direction that already exists.
 
+## Owner confirmation (2026-09-13)
+
+All four assumed answers below are confirmed as final, as implemented — no
+overrides. Closes task 1.1.
+
 ## Assumed answers (2026-09-09 — owner may override at review)
 
 Working autonomously per owner instruction ("keep working until done"). Taking

@@ -77,6 +77,26 @@ Walk-forward / rolling validation (predict period N using only data through N-1)
 
 Source: [How to Build Sports Prediction Models in 2026](https://www.parlaysavant.com/insights/sports-prediction-models-2026)
 
+**The harness is now a shipped, model-agnostic surface (feature-store-v1
+slice 2).** `mlb_research.backtest` -- installable with `mlb-research`,
+numpy + pandas only, no database, no model-training library import -- is
+the one implementation of this walk-forward discipline: `time_ordered_folds`
+builds strictly time-ordered folds (a random split is not expressible);
+`run_backtest` takes a caller-supplied `fit_fn`/`predict_fn` pair (so
+`sklearn`, `xgboost`, or a hand-written Elo are the *caller's* dependency,
+never the package's) and hands a sequential model its test rows in cutoff
+order, predicting before folding each row's own outcome in; it scores log
+loss, Brier, a calibration table, and accuracy for classification (MAE,
+RMSE, residual calibration for regression) -- probability quality, not
+accuracy alone, matching the discipline above. `mlb_baseball/model/
+experiment.py`'s `run()` is now a thin adapter over the same functions: the
+pure evaluation math (metrics, calibration, fold construction) moved to
+`mlb_research.backtest`, and `experiment.py` supplies the PostgreSQL
+snapshot machinery, the sklearn/xgboost estimator zoo, and the `elo`/`log5`
+baseline families as `fit_fn`/`predict_fn` factories. See
+`packages/mlb-research/README.md`'s "Backtesting" section for the API and a
+copy-pasteable example.
+
 ## Model stacking / ensembling — "outputs as inputs"
 
 A real, standard technique (not something to invent from scratch): train diverse base models (classical formulas, tree-based ML, etc.), then either (a) feed their outputs as *features* into a final model (what `gold.game_feature` already does by construction — Elo/Pythagenpat are themselves engineered features going into the gradient-boosted model), or (b) train a formal meta-learner on top of multiple base models' predictions (stacking proper). (a) is already the v1 plan; (b) is a legitimate later refinement once log5/Elo/Pythagenpat/gradient-boosting baselines all exist independently to stack.

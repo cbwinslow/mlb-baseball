@@ -1811,15 +1811,24 @@ source = { editable = "packages/mlb-research" }
 dependencies = [
     { name = "duckdb" },
     { name = "huggingface-hub" },
+    { name = "numpy" },
     { name = "pandas" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "scikit-learn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "duckdb", specifier = ">=1.0" },
     { name = "huggingface-hub", specifier = ">=0.24" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "pandas", specifier = ">=2.0" },
+    { name = "scikit-learn", marker = "extra == 'dev'", specifier = ">=1.4" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "mlb-statsapi"

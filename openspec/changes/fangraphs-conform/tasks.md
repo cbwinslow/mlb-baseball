@@ -28,8 +28,8 @@
 
 ## 7. Verification (owner-run against production)
 
-- [ ] 7.1 `mlb migrate` + `mlb report` on production `mlb`. Verify: `gold.fangraphs_guts` row count ≈ FanGraphs Guts! history; `gold.fangraphs_park_factors` ~30/modern-season for `season >= 2003`; `mlb doctor` green; a hand wOBA recompute for one 2015 batter using `gold.fangraphs_guts` weights matches FanGraphs' published wOBA within 0.001.
-- [ ] 7.2 Confirm no `gold.fangraphs_*` appears in a `mlb export --profile public_safe` bundle (impossible by the guard; verify anyway).
+- [x] 7.1 `mlb migrate` + `mlb report` on production `mlb`. **Done 2026-09-13.** `mlb migrate` applied `0104_gold_fangraphs_reference.sql` cleanly. First `mlb report` built `gold.fangraphs_guts` (156 rows) but `gold.fangraphs_park_factors` came back 0 rows — `core.team_alias` had never been rebuilt since the `'fangraphs'` alias block (3.1) merged, so no `source='fangraphs'` aliases existed yet. Ran `mlb conform` (owner-authorized) to rebuild `core.team_alias` (69 rows) and every other core table from existing source data, then re-ran `mlb report`: `gold.fangraphs_park_factors` now 720 rows (30 teams × 24 seasons, 2003-2026). `mlb doctor`: both new checks green (`every gold.batting_season season >= 2003 has a gold.fangraphs_guts row: none` missing; `gold.fangraphs_park_factors resolves every raw.fangraphs_park_factors team for season >= 2003: 720 of 720 expected`) — 17 unrelated pre-existing failures elsewhere (Polymarket/Kalshi, model calibration, metric-catalog, feat build) untouched by this change. Hand check: Josh Donaldson 2015 (AB 620, BB 73, IBB 0, HBP 6, SF 10, 1B 100, 2B 41, 3B 2, HR 41) recomputed with the 2015 `gold.fangraphs_guts` weights = 0.397614 vs. FanGraphs' published `woba` 0.397607 — diff 0.000007, within the 0.001 tolerance.
+- [x] 7.2 Confirm no `gold.fangraphs_*` appears in a `mlb export --profile public_safe` bundle (impossible by the guard; verify anyway). **Done 2026-09-13.** `uv run pytest tests/unit/test_fangraphs_conform_rights.py` — 4/4 pass.
 
 ## 8. Deferred — Beat 2
 

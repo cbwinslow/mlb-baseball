@@ -82,7 +82,8 @@ uv run mlb ingest <source> --mode bootstrap    # sources listed in mlb_baseball/
 Two cron jobs (see `README.md` "Scheduling"):
 
 ```cron
-*/5 * * * * /path/to/mlb-baseball/scripts/mlb_api_update.sh   # live season state
+*/5 * * * * /path/to/mlb-baseball/scripts/mlb_api_update.sh    # live season state
+0 */2 * * * /path/to/mlb-baseball/scripts/mlb_odds_update.sh   # Kalshi/Polymarket snapshots
 0 6 * * *   /path/to/mlb-baseball/scripts/mlb_daily_update.sh  # mlb update, once daily
 ```
 

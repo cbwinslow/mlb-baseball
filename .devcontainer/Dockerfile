@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/python:1-3.11-bookworm
+FROM mcr.microsoft.com/devcontainers/python:1-3.12-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CHADWICK_REF=baa7c4b3e89cf2c9871a9f7f853f6980b4226af7

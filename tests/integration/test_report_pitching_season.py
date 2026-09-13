@@ -349,6 +349,168 @@ def test_pitching_season_zero_ip_pitcher_gets_null_rates(db_conn):
         _cleanup(db_conn)
 
 
+def _seed_game_lines_with_er(db_conn, rows):
+    cols = (*_GAME_COLS, "er")
+    with db_conn.cursor() as cur:
+        for row in rows:
+            full = {c: 0 for c in _COUNT_COLS}
+            full["er"] = None
+            full.update(row)
+            cur.execute(
+                "INSERT INTO gold.pitching_game (" + ", ".join(cols) + ") "
+                "VALUES (" + ", ".join(["%s"] * len(cols)) + ")",
+                tuple(full[c] for c in cols),
+            )
+    db_conn.commit()
+
+
+def _era(db_conn, player_id, season, *, team_id):
+    where = "team_id = %s" if team_id is not None else "team_id IS NULL AND is_combined"
+    params = (player_id, season, team_id) if team_id is not None else (player_id, season)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT er, era, ra9 FROM gold.pitching_season "
+            f"WHERE player_id = %s AND season = %s AND {where}",
+            params,
+        )
+        return cur.fetchone()
+
+
+def test_pitching_season_era_populated_for_2026_null_for_retrosheet_era(db_conn):
+    _cleanup(db_conn)
+    _seed_core(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game (id, game_pk, season, game_date, game_number, "
+            "home_team_id, away_team_id, game_type) VALUES "
+            "(7390901, 'PS2026a', 2026, '2026-04-01', 0, 7301, 7302, 'regular'), "
+            "(7390902, 'PS2026b', 2026, '2026-04-02', 0, 7301, 7302, 'regular'), "
+            "(7391910, 'PS1910a', 1910, '1910-04-01', 0, 7301, 7302, 'regular') "
+            "ON CONFLICT (id) DO NOTHING"
+        )
+    db_conn.commit()
+    try:
+        # 2026 pitcher (Pat Solo, 73001): two MLB box-score game lines with er.
+        #   g1: outs 18, r 4, er 3 ; g2: outs 9, r 2, er 2
+        #   season: outs 27, r 6, er 5 -> era = 5 * 27 / 27 = 5.0, ra9 = 6.0
+        _seed_game_lines_with_er(
+            db_conn,
+            [
+                {
+                    "game_id": 7390901,
+                    "player_id": 73001,
+                    "team_id": 7301,
+                    "season": 2026,
+                    "game_date": "2026-04-01",
+                    "gs": 1,
+                    "bf": 25,
+                    "outs": 18,
+                    "h": 6,
+                    "r": 4,
+                    "so": 5,
+                    "er": 3,
+                },
+                {
+                    "game_id": 7390902,
+                    "player_id": 73001,
+                    "team_id": 7301,
+                    "season": 2026,
+                    "game_date": "2026-04-02",
+                    "gs": 0,
+                    "bf": 12,
+                    "outs": 9,
+                    "h": 3,
+                    "r": 2,
+                    "so": 4,
+                    "er": 2,
+                },
+            ],
+        )
+        # 1910 pitcher (Dan Dealt, 73002): a Retrosheet-era line, er NULL.
+        _seed_game_lines_with_er(
+            db_conn,
+            [
+                {
+                    "game_id": 7391910,
+                    "player_id": 73002,
+                    "team_id": 7301,
+                    "season": 1910,
+                    "game_date": "1910-04-01",
+                    "gs": 1,
+                    "bf": 40,
+                    "outs": 27,
+                    "h": 9,
+                    "r": 4,
+                    "so": 3,
+                    "er": None,
+                },
+            ],
+        )
+        _build(db_conn)
+
+        er_2026, era_2026, ra9_2026 = _era(db_conn, 73001, 2026, team_id=None)
+        assert er_2026 == 5
+        assert float(era_2026) == pytest.approx(5.0)
+        assert float(ra9_2026) == pytest.approx(6.0)
+
+        er_1910, era_1910, ra9_1910 = _era(db_conn, 73002, 1910, team_id=None)
+        assert er_1910 is None
+        assert era_1910 is None  # coverage cliff: no earned runs in the event stream
+        assert float(ra9_1910) == pytest.approx(4 * 27 / 27)  # ra9 untouched
+    finally:
+        with db_conn.cursor() as cur:
+            cur.execute("DELETE FROM gold.pitching_season WHERE season IN (1910, 2026)")
+            cur.execute("DELETE FROM gold.pitching_team WHERE season IN (1910, 2026)")
+            cur.execute("DELETE FROM gold.pitching_game WHERE season IN (1910, 2026)")
+            cur.execute("DELETE FROM core.game WHERE id IN (7390901, 7390902, 7391910)")
+        db_conn.commit()
+        _cleanup(db_conn)
+
+
+def test_pitching_season_er_is_nulled_when_a_contributing_game_lacks_it(db_conn):
+    # The CASE WHEN count(*) = count(er) guard: a pitcher-season mixing a
+    # null-er game and a real-er game reports NULL for the whole season total,
+    # not a silently-partial sum.
+    _cleanup(db_conn)
+    _seed_core(db_conn)
+    _seed_game_lines_with_er(
+        db_conn,
+        [
+            {
+                "game_id": 7390001,
+                "player_id": 73001,
+                "team_id": 7301,
+                "season": 2023,
+                "game_date": "2023-04-01",
+                "gs": 1,
+                "bf": 20,
+                "outs": 15,
+                "r": 3,
+                "er": 3,
+            },
+            {
+                "game_id": 7390002,
+                "player_id": 73001,
+                "team_id": 7301,
+                "season": 2023,
+                "game_date": "2023-04-02",
+                "gs": 0,
+                "bf": 6,
+                "outs": 6,
+                "r": 1,
+                "er": None,
+            },
+        ],
+    )
+    try:
+        _build(db_conn)
+        er, era, _ = _era(db_conn, 73001, 2023, team_id=7301)
+        assert er is None
+        assert era is None
+    finally:
+        _cleanup(db_conn)
+
+
 def test_report_health_check_includes_the_pitching_rollups(db_conn):
     _cleanup(db_conn)
     _seed_core(db_conn)

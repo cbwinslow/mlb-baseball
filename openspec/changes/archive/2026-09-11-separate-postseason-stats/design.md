@@ -1,0 +1,193 @@
+## Context
+
+See `proposal.md` — Why, and ADR-282 for the full finding. Current state:
+
+- `raw.bref_batting` / `raw.bref_pitching` (from `pybaseball.batting_stats_bref`
+  / `pitching_stats_bref`) are **regular + postseason** for playoff teams'
+  players, 2021+. pybaseball queries a fixed `{season}-03-01` → `{season}-11-30`
+  Baseball-Reference range; `batting_stats_range` has no season concept, it
+  scrapes whatever games fall in the window.
+- `gold.player_season` / `gold.team_season` (built by `mlb_baseball/report.py`
+  from `raw.bref_*`) inherit the contamination. Nothing else does:
+  `gold.game_feature` is 100% `game_type = 'regular'`, ~20 `mlb_baseball/sql/*`
+  builders carry an explicit filter, and the event backbone
+  (`gold.batting_season` etc.) filters `lower(g.game_type) = 'regular'`.
+- **Postseason data is already ingested** in dedicated raw tables:
+  `raw.lahman_batting_post` (1884-2025, 18,687 rows; full box line + `round`),
+  `raw.lahman_pitching_post` (1884-2025, 7,474 rows; full line incl. `era`),
+  `raw.lahman_fielding_post`, `raw.lahman_series_post`,
+  `raw.retrosheet_gamelog_post`, and postseason plays in `raw.retrosheet_event`
+  (`_group = 'postseason'`, ~147k rows). `core.game.game_type` labels every
+  game: regular / spring / exhibition / allstar / **wildcard / divisionseries /
+  lcs / worldseries / championship / playoff**.
+- **Nothing combines regular + postseason.** Every `gold` / `core` table was
+  checked; none unions the two. The only contamination is `raw.bref_batting` /
+  `raw.bref_pitching`, from the pybaseball fetch (not from any project-side
+  combine).
+- `raw.bref_war_batting` / `raw.bref_war_pitching` (from `bwar_bat` /
+  `bwar_pitch`, Baseball-Reference's downloadable WAR CSV) are **clean** —
+  regular season only — but carry only a thin column set (`g`, `pa`, `gs`,
+  `ra`, `war`, `waa`, `era_plus`; no full box line, no `er`/`era`).
+- A prior session documented the contamination in
+  `mlb_baseball/model/starter.py`'s docstring and absorbed it into a
+  reconciliation tolerance.
+
+## Goals / Non-Goals
+
+**Goals:**
+- `raw.bref_*`, `gold.player_season`, `gold.team_season` become regular-season
+  only.
+- New separate postseason relations, event-derived, at player-season and
+  team-season grains.
+- Every game-aggregating `gold` relation has an explicit, documented
+  `game_type` scope; a `mlb doctor` envelope check guards against regression.
+- A fresh `mlb bootstrap` produces separated data with no manual step.
+
+**Non-Goals:**
+- No change to `gold.game_feature` or any model feature (already regular-only).
+- No postseason *game*-grain relation in this change (season + team only;
+  game-grain postseason box lines are a noted follow-up).
+- No new external data source or dependency.
+- Not reworking ADR-281's two-parallel-season-lines decision — this keeps them
+  parallel, just both regular-season only.
+
+## Decisions
+
+### D1 — Fix `raw.bref_*` at the source: end the query at the regular-season boundary
+
+`mlb_baseball/connectors/bref.py` stops calling `pybaseball.batting_stats_bref`
+/ `pitching_stats_bref` and calls `pybaseball.batting_stats_range` /
+`pitching_stats_range` directly with `f'{season}-03-15'` → a
+**regular-season end date**. `gold.player_season`'s builder needs no change;
+`era` / `whip` / every field stays clean.
+
+End date: the regular season has ended by the first days of October in every
+season (Game 162 is scheduled for late September / Oct 1; the Wild Card round
+opens Oct 1–3). Use **`{season}-10-01`** as the default and allow an override
+per season for the rare late finish (2021's Game 163 tiebreakers were Oct 4–5;
+pre-2022 tiebreaker games — treat those as regular season and set the override).
+The `mlb doctor` envelope check (D4) catches any residual leak; a small
+under-count from a Game 162 played Oct 2 is caught the same way and the
+override fixes it.
+
+Alternative considered: leave `raw.bref_*` alone and re-source
+`gold.player_season`'s counting stats from the event backbone, taking only
+`war` from `raw.bref_war_*`. Rejected — it loses a clean `era` (neither the
+event backbone nor `bref_war` has earned runs), blurs ADR-281's parallel-lines
+line, and is more code than a date change.
+
+### D2 — New relations, built from the postseason data we already have
+
+`gold.batting_postseason` / `gold.pitching_postseason` are built from
+**`raw.lahman_batting_post` / `raw.lahman_pitching_post`** — the same
+Lahman lineage as `gold.player_season`, and the direct parallel to Lahman's
+own `BattingPost` / `PitchingPost`. The builder conforms `playerid` →
+`core.player.bbref_id` (Lahman's `playerID` is the Baseball-Reference id;
+98.8% batting / 98.9% pitching rows resolve, confirmed against production —
+the rest are 19th-century players) and `teamid` → `core.team.id` via
+`raw.lahman_teams` (`teamid` + `yearid` → `teamidretro` →
+`core.team.retro_team_id`, 100% coverage, confirmed). Lahman's `round` column
+is kept verbatim. No new event-parsing.
+
+Grains (both **player**-keyed — Lahman's `BattingPost` is player-grain and
+Lahman ships no team postseason table; baseball.computer publishes no
+postseason aggregate at all):
+- `gold.batting_postseason` / `gold.pitching_postseason` — one **per-round**
+  row per `(player, season, round)` plus one **combined** all-rounds row per
+  `(player, season)` (`is_combined` flag, `round = NULL` on the combined row).
+- **career grain** — one row per `(player)` in the same table, summing every
+  postseason season (`is_career` flag, `season = NULL`). One table per stat
+  type, three row kinds distinguished by two booleans — smaller than three
+  separate tables and the same "one relation, flagged grains" shape
+  `gold.batting_season` already uses for its combined row.
+
+A postseason **team** total (`SELECT ... WHERE is_combined GROUP BY team_id,
+season`) is a trivial follow-up query and is **not** built here.
+
+Column shape matches the regular-season backbone batting/pitching season
+tables so a researcher can `UNION` / compare directly.
+
+Cross-check (not a build input): `raw.retrosheet_event` postseason plays and
+`raw.retrosheet_gamelog_post` are an independent second copy — a `mlb doctor`
+reconciliation compares the Lahman-built totals against a Retrosheet-event
+rebuild for the modern era, the same pattern `starter.py` already uses for
+regular-season pitching.
+
+This mirrors Lahman's `BattingPost` / `PitchingPost` — the universal
+convention. baseball.computer goes no further than a game-level
+`is_postseason` flag; we add the one player total table Lahman itself
+publishes and stop there.
+
+### D3 — Pipeline audit produces a recorded game-type map
+
+The audit task walks every `gold` builder (`mlb_baseball/sql/*.sql`,
+`mlb_baseball/report.py`), every SQLMesh model in `transforms/`, every
+materialised view, every Python aggregation in `mlb_baseball/model/*.py`
+and `mlb_baseball/*.py`, **and every model / ML feature builder** (the
+`gold.game_feature` builders, `mlb_baseball/model/features*.py` /
+`ml/**`, anything that reads `core.play` / `core.game` /
+`raw.retrosheet_event` to compute a training feature), and records — in the
+change's `game-type-audit.md` — for each relation: which `game_type`s it
+includes, where the filter is (or that it is missing), and the fix if missing.
+`gold.game_feature` and the ~20 known builders are expected to already be
+correct; the audit confirms and finds any gap. **A model or ML feature that
+folds in postseason performance is a leakage-shaped bug** (a playoff outcome
+inside a "season" or "pre-game" feature) and is treated as `must_fix`, not a
+suggestion.
+
+baseball.computer's rule, adopted verbatim: an aggregate counts a game iff its
+`game_type` is `RegularSeason` or `TiebreakerPlayoff` (Game 163). Every other
+type — wild card, division series, LCS, World Series, other championship,
+All-Star, exhibition, preseason — is excluded.
+
+### D4 — `mlb doctor` guards
+
+Two new checks in `mlb_baseball/health.py`:
+
+- **Envelope:** fail if any `gold.player_season` row has `games > 162` or `pa`
+  beyond a generous single-season ceiling (~780), or any `gold.team_season`
+  row has `games > 162`. (162 is the hard regular-season max for one team.)
+- **Postseason purity:** fail if any `gold.batting_postseason` /
+  `gold.pitching_postseason` row traces to a game whose `game_type` is not a
+  postseason type.
+
+### D5 — Reconciliation + docs cleanup
+
+`raw.bref_*` being clean means `mlb_baseball/model/starter.py` and
+`mlb_baseball/model/bullpen.py`'s reconciliation health checks no longer need
+the postseason-absorbing tolerance — tighten them and update the docstrings
+(the Blake Snell example becomes "was a source-scope issue, fixed in
+<this change>"). Update `docs/RESEARCH.md`, `docs/DATA_DICTIONARY.md`,
+`docs/TABLE_CONTRACTS.md`, `openspec/project.md`'s NOW block, and mark ADR-282
+resolved.
+
+### D6 — Data rebuild
+
+Clear the pybaseball on-disk `df_cache` for the affected `batting_stats_bref` /
+`pitching_stats_bref` entries, re-ingest `raw.bref_*` for 2008–2026 (whole
+range, one methodology), then `mlb report`. This is owner-run, like the
+`v0.1.0` backbone build.
+
+## Risks / Trade-offs
+
+- **The Oct 1 cutoff is a heuristic** → Mitigation: the doctor envelope check
+  catches both over- (postseason leaked in) and gross under-counts; a per-season
+  override list handles the handful of tiebreaker/late-Game-162 cases; the
+  cross-check against the event backbone (`verify_baseball_reference_tie_out.py`)
+  re-enables its 2020+ comparison once this lands and would surface any residual.
+- **Retrosheet postseason event completeness** varies for older years →
+  Mitigation: the postseason relations inherit the same "deduced-era" caveat as
+  the backbone; scope the tie-out-style validation to the modern era.
+- **A rebuild of `gold.player_season` shifts numbers researchers may have
+  already used** → Mitigation: it is a correction, documented in ADR-282 and
+  the changelog; the pre-fix values were wrong.
+
+## Open Questions
+
+None. Scope settled with the owner (2026-09-07): baseball.computer is the
+reference — regular-season-only aggregates everywhere (tables, views, `mlb
+doctor` metrics, model / ML features), tiebreaker Game 163 counts as regular
+season. Postseason gets **one player-grain total table per stat type**
+(player-season + career, the Lahman `BattingPost` parallel); the postseason
+**team** total is a deferred follow-up (a trivial `GROUP BY` off the player
+table, and neither Lahman nor baseball.computer ships one).

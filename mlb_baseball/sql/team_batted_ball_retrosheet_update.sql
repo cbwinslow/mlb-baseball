@@ -22,6 +22,9 @@ WITH event_parsed AS (
         CASE WHEN re.battedball_cd = 'P' THEN 1 ELSE 0 END AS is_pu,
         CASE WHEN re.event_cd = '23' OR re.h_cd = '4' THEN 1 ELSE 0 END AS is_hr
     FROM raw.retrosheet_event re
+    -- Regular season only (see team_leverage_re24_update.sql for the rationale).
+    JOIN raw.retrosheet_gameinfo gi
+      ON gi.gid = re.game_id AND lower(gi.gametype) = 'regular'
 ),
 
 event_classified AS (

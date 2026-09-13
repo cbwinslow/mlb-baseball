@@ -1,0 +1,101 @@
+# Game-type scope audit (task 1.1)
+
+Every `gold` builder / model aggregation / view that reads game-level data,
+and whether it explicitly scopes `game_type` (regular vs postseason vs other).
+
+Method: grep every `mlb_baseball/sql/*.sql` and `mlb_baseball/report.py` /
+`mlb_baseball/model/*.py` for reads of `core.game`, `raw.retrosheet_event`,
+`raw.retrosheet_gameinfo`, `gold.batting_game` / `gold.pitching_game`,
+`gold.game_feature`; verify the scope by reading each hit.
+
+## PASS — explicit regular-season scope, or inherits one
+
+| Relation / file | How it's scoped |
+|---|---|
+| `gold.batting_game` / `gold.pitching_game` (`{batting,pitching}_game_build.sql`) | `WHERE lower(g.game_type) = 'regular'` on the event read |
+| `gold.batting_season` / `_team` / `_career` (`batting_season_build.sql`, `batting_team_build.sql`, career) | roll up from `gold.batting_game` — inherit |
+| `gold.pitching_season` / `_team` / `_career` | roll up from `gold.pitching_game` — inherit |
+| `gold.game_feature` (`game_feature_rebuild.sql`, legacy rebuilds) | `WHERE ms.game_type = 'R'` / `g.game_type = 'regular'`; verified 100% regular in the DB |
+| `report.py` `_build_team_season` | `raw.lahman_teams` is regular-season only; the park-factor / wOBA passes filter `game_type = 'regular'` AND `gi.gametype = 'regular'` |
+| `report.py` player-season / team-season health checks | `JOIN core.game ... AND lower(g.game_type) = 'regular'` |
+| `win_expectancy_matrix_build.sql` | `JOIN raw.retrosheet_gameinfo gi ON ... AND lower(gi.gametype) = 'regular'` |
+| `team_woba_retrosheet_update.sql`, `team_wrc_plus_retrosheet_update.sql`, `team_rate_retrosheet_update.sql`, `team_bsr_retrosheet_update.sql`, `team_bsr_comprehensive_retrosheet_update.sql`, `team_pitch_discipline_retrosheet_update.sql`, `team_pitcher_estimators_retrosheet_update.sql`, `team_bullpen_retrosheet_update.sql`, `team_starter_retrosheet_update.sql`, `starter_workload_retrosheet_update.sql`, `starter_experience_update.sql`, `starter_outs_reconcile.sql`, `starter_strikeouts_reconcile.sql`, `bullpen_outs_reconcile.sql`, `catcher_framing_csae_update.sql`, `statcast_expected_retrosheet_update.sql`, `leverage_index_matrix_build.sql`, `leverage_index_season_partial.sql`, `markov_*` | each carries a `gametype = 'regular'` / `game_type = 'regular'` filter on the event or game read (verified) |
+| `team_framing_update.sql`, `team_oaa_update.sql`, `team_speed_update.sql`, `team_war_update.sql`, `platoon_splits_update.sql`, `starter_age_update.sql` | source is a **season-aggregate** Statcast leaderboard (`raw.statcast_framing` / `_oaa` / `_sprint_speed`) or `core.player_war` (from clean `raw.bref_war_*`) — Baseball Savant leaderboards are regular-season by default; joins are to `gold.game_feature` (regular-only). Spot-check the Savant tables during 1.2. |
+| `model/total.py`, `model/starter.py`, `model/team_rate.py`, other `model/*.py` | `WHERE game_type = 'regular'` / `gametype = 'regular'` (verified) |
+
+## GAP — reads `raw.retrosheet_event` with no game-type scope → FIX in task 1.2
+
+| File | What it builds | Fix |
+|---|---|---|
+| `run_expectancy_matrix_build.sql` | `gold.run_expectancy_24` — the leaguewide base-out run-expectancy matrix (feeds RE24 / WPA everywhere) | add a join to `raw.retrosheet_gameinfo` (or `core.game`) with `gametype = 'regular'`; this also excludes All-Star / Negro League / spring plays currently swept in via `_group` |
+| `team_leverage_re24_update.sql` | entering-game team RE24 + Leverage Index (`gold.game_feature` columns) | scope the `event_parsed` CTE's `raw.retrosheet_event` read to regular-season games; output rows are already regular-only (final join to `gold.game_feature`), but the `prior_pa` running windows currently accumulate postseason plays |
+| `team_batted_ball_retrosheet_update.sql` | entering-game team batted-ball profile rates (`gold.game_feature` columns) | same fix as `team_leverage_re24_update.sql` |
+
+## VERIFY during task 1.2 (likely fine — diagnostics, not builders)
+
+| File | Note |
+|---|---|
+| `offense_health_check.sql`, `team_bsr_health_check.sql`, `team_rate_health_check.sql` | range-check diagnostics over `gold.game_feature` columns (regular-only); confirm any event-read denominator is also scoped |
+| `raw.statcast_framing` / `raw.statcast_oaa` / `raw.statcast_sprint_speed` | confirm pybaseball's Savant leaderboard pull is regular-season only (Savant default) — a quick spot check like the `raw.bref_*` one |
+
+## DB views (`serve.*` serving marts + `gold.game_export`)
+
+Checked every view in `gold` / `core` / `serve` / `meta` (`pg_class` `relkind
+IN ('v','m')`) for a `core.game` / `core.play` / `raw.retrosheet_event` read.
+
+| View | Reads | Verdict |
+|---|---|---|
+| `gold.game_export` | `gold.game_feature` | PASS -- inherits `game_type = 'regular'` |
+| `serve.daily_betting_grid`, `serve.live_game_tracker` | `gold.game_feature f` (driver) `LEFT JOIN core.game g ON g.id = f.game_id` (scores only) | PASS -- restricted to feature rows (regular) |
+| `serve.ros_team_standings` | `FROM core.game g WHERE g.home_score IS NOT NULL` -- **no game_type filter** | **GAP** -- counted regular + postseason + spring + exhibition; 2023 TEX showed 210 GP / 116 W (real: 162 / 90). Fixed in `migrations/0101_ros_team_standings_regular_season.sql` (`game_type IN ('regular','playoff')` on the `completed` CTE). |
+| `serve.batted_ball_profile`, `serve.matchup_dossier`, `serve.matchup_preview`, `serve.pitcher_arsenal`, `serve.pitcher_card`, `serve.pitcher_prop_market`, `serve.prediction_market_alpha`, `serve.sgp_matchup_grid` | `gold.game_feature` / `gold.prediction` / `gold.*_season` / `core.player` -- no `core.game` / `core.play` / event read | PASS -- built on regular-only relations |
+
+## SQLMesh
+- `transforms/models/park_factor.sql` / `park_factors_weather.sql` reference CTE
+  aliases named `team_season_*`, not the gold table; their event/game reads use
+  `gametype = 'regular'` (same as the `mlb_baseball/sql` park-factor passes).
+  Confirm during 1.2.
+
+## Model / ML feature layer (task 1.3)
+
+baseball.computer's rule: an aggregate counts a game iff `game_type` is
+`regular` or `playoff` (Game 163 tiebreaker); every postseason series type is
+excluded.
+
+### PASS — reads a regular-season-scoped relation
+
+| File | Reads | Why regular-only |
+|---|---|---|
+| `model/features.py` → `sql/game_feature_rebuild.sql` | `raw.mlb_schedule` (`game_type = 'R'`), `core.game` (`game_type = 'regular'`) | explicit filter on both reads |
+| `model/elo.py` | `gold.game_feature` (+ `core.game` for extra cols only) | inherits game_feature's `regular` scope |
+| `model/age.py`, `experience.py`, `gbm.py`, `stack.py`, `market.py` | `gold.game_feature` / `gold.prediction` | inherit; predictions exist only for game_feature (regular) rows |
+| `model/backtest.py`, `drift.py` | `gold.prediction JOIN core.game` on `f.game_id` / `p.mlb_game_pk` | restricted to the predicted-game set, which is game_feature-derived (regular) |
+| `model/identity.py` | `gold.game_feature`, `gold.prediction` | identity plumbing, not an aggregation |
+| `model/total.py` | `core.game` | `WHERE game_type = 'regular'` |
+| `model/leverage_index.py` → `sql/leverage_index_season_partial.sql` | `core.game`, `raw.retrosheet_event` | both reads `game_type = 'regular'` / `lower(gi.gametype) = 'regular'` |
+| `model/*.py` reading `sql/*_retrosheet_update.sql` (`team_rate`, `bsr`, `offense`, `framing`, `pitch_discipline`, `pitcher_estimators`, `starter_workload`, `statcast_expected`, `war`, `bullpen`, `starter`, `batted_ball`) | those SQL builders | each carries `gametype = 'regular'` (audited in the SQL table above) |
+
+### GAP — fixed in task 1.3
+
+| File | What it feeds | Fix |
+|---|---|---|
+| `model/season.py::load_schedule_from_db` | the season Monte-Carlo sim (win totals, playoff / division / pennant / WS odds) — docstring says "regular season schedule" but the query had no `game_type` filter, so a playoff team's schedule included its October games | added `AND g.game_type IN ('regular', 'playoff')` |
+| `model/ros.py::simulate_ros` (2 queries: completed games ≤ cutoff, remaining games > cutoff) | rest-of-season standings sim — counted postseason games as regular-season results when run on a historical season | added `AND g.game_type IN ('regular', 'playoff')` to both |
+
+### Minor deviation noted (not fixed here)
+
+`sql/game_feature_rebuild.sql`'s `core.game` read uses `game_type = 'regular'`
+exactly, which *excludes* the pre-2022 Game 163 tiebreakers (4 team-seasons:
+2008 CWS/MIN, 2009 MIN/DET, 2013 TB/TEX, 2018 across 4 teams). baseball.computer
+counts those as regular season. This is the *conservative* direction (a real
+regular-season game left out, never a postseason game let in), so it is a
+data-completeness follow-up, not a contamination bug. The `raw.mlb_schedule`
+path (`game_type = 'R'`) already includes them.
+
+## The core contamination (fixed by task 2, not 1.2)
+
+`gold.player_season` / `gold.team_season` season *counting* stats come from
+`raw.bref_batting` / `raw.bref_pitching`, which are regular + postseason from
+the pybaseball fetch. Not fixable with a `game_type` filter (raw is pre-summed);
+fixed by ending the Baseball-Reference query at the regular-season boundary
+(task 2) and rebuilding.

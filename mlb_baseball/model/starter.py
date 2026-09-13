@@ -43,19 +43,21 @@ project's own already-documented Retrosheet raw-event-file coverage rate
 (docs/archive/ROADMAP.md, ADR-012: ~98.3% of games have a published raw event
 file; the rest is a genuine gap in what Retrosheet publishes, not a
 parsing limitation) almost exactly, strong independent confirmation the
-reconstruction itself is correct. The remaining, larger mismatches trace
-to a second real cause, also confirmed directly: raw.bref_pitching's
-season row sometimes mixes POSTSEASON innings into a player's stated
-season line for deep playoff runs (confirmed directly: Blake Snell's
-2025 Dodgers row states 17 games/113 K, but only 11 of those 17 games
-are gametype='regular' in Retrosheet's own data -- the other 6 are
-wildcard/divisionseries/lcs/worldseries). This module's own reconstruction
-is correctly regular-season-only; raw.bref_pitching's own scope isn't
-always pure for pitchers whose team went deep, which is a real property
-of the ground-truth source, not a bug here. health_check() below turns
-all of this into a permanent, dynamic reconciliation (ADR-034) against
-every pitcher-season, calibrated against these two real, understood
-causes -- not a one-off check against a single hand-picked pitcher.
+reconstruction itself is correct. The remaining, larger mismatches USED TO trace to a second cause:
+raw.bref_pitching's season row mixed POSTSEASON innings into a
+deep-playoff-team pitcher's stated season line, 2021+ (Blake Snell's
+2025 Dodgers row stated 17 games/113 K, but only 11 of those 17 games
+were gametype='regular' in Retrosheet's own data). That was a
+source-scope bug (ADR-282): pybaseball's Baseball-Reference pull ran
+through November and B-Ref's daily tool now returns postseason
+game-logs. Fixed in the separate-postseason-stats change --
+mlb_baseball/connectors/bref.py now pulls a regular-season-only window
+and raw.bref_pitching is regular season only. After the owner re-ingests
+raw.bref_* the outs / strikeout tolerances below can be re-tightened
+(they still carry margin for that cause); the ~98.3% Retrosheet raw
+event-file coverage gap is the only remaining reason for a non-zero
+tolerance. health_check() below turns this into a permanent, dynamic
+reconciliation (ADR-034) against every pitcher-season.
 
 Scope: raw.retrosheet_event covers 1910-2025 only. The current season
 (2026+) needs the equivalent computed from raw.mlb_playbyplay instead --
@@ -184,12 +186,14 @@ def health_check() -> list[Check]:
     automatically as more seasons/pitchers get ingested.
 
     Tolerance calibrated directly against real production data, not
-    guessed (see this module's docstring for the two real, understood
-    causes: ~1.7% of raw event files genuinely missing from what
-    Retrosheet has published, matching this project's own already-
-    documented coverage rate; and raw.bref_pitching itself sometimes
-    mixing postseason innings into a deep-playoff-team pitcher's season
-    row). tolerance=5 strikeouts (roughly one missing start's worth)
+    guessed. The dominant cause is now the single remaining one: ~1.7% of
+    raw event files genuinely missing from what Retrosheet has published,
+    matching this project's own already-documented coverage rate. The
+    second historical cause -- raw.bref_pitching mixing postseason innings
+    into a deep-playoff-team pitcher's season row -- was fixed in
+    separate-postseason-stats (ADR-282); after the owner re-ingests
+    raw.bref_* these tolerances can be re-measured and tightened.
+    tolerance=5 strikeouts (roughly one missing start's worth)
     reaches exactly 98.3% clean across all 13,613 pitcher-seasons both
     sources cover -- matching ADR-012's coverage figure almost exactly,
     strong independent confirmation this is the same known gap, not a

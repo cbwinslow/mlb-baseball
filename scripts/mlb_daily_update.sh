@@ -62,6 +62,15 @@ run_step() {
 
 echo "$(date -u +%FT%TZ) starting daily update" >> "$LOG_FILE"
 
+# Clear meta.ingestion_run rows left 'running' by a process that was killed
+# (crash / host reboot / SIGKILL) before it could record a terminal state.
+# `mlb doctor` reports these but is deliberately read-only, and `mlb
+# repair-runs` is otherwise a manual step nobody runs -- so a stale row can
+# make `check_last_run` look healthy forever. Only touches rows whose PID is
+# provably dead (see ingest.reap_stale_runs). Exit code is ignored: a
+# repair-runs failure must not skip the actual pipeline. (issue #180)
+"$MLB" repair-runs >> "$LOG_FILE" 2>&1 || true
+
 run_step update "$MLB" update --skip mlb_api
 run_step conform "$MLB" conform
 run_step predict "$MLB" predict

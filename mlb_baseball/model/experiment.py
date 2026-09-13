@@ -18,12 +18,13 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from random import Random
 from typing import Any, Literal
 
 import numpy as np
+import pandas as pd
 import psycopg
 import xgboost as xgb
+from mlb_research import backtest as _backtest
 from sklearn.ensemble import (
     ExtraTreesClassifier,
     ExtraTreesRegressor,
@@ -34,13 +35,6 @@ from sklearn.ensemble import (
 )
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import BayesianRidge, LogisticRegression, Ridge
-from sklearn.metrics import (
-    accuracy_score,
-    brier_score_loss,
-    log_loss,
-    mean_absolute_error,
-    root_mean_squared_error,
-)
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import Pipeline
@@ -687,11 +681,42 @@ def _snapshot_rows(conn: psycopg.Connection, snapshot_id: str) -> list[SnapshotR
     ]
 
 
+def _evaluation_frame(rows: Sequence[SnapshotRow], spec: TargetSpec) -> pd.DataFrame:
+    """The tidy, one-row-per-game frame `mlb_research.backtest.run_backtest`
+    evaluates: identity/period/cutoff/outcome columns, the `BASE_COLUMNS` +
+    `LOG5_COLUMNS` features every model family in `run()`'s zoo can need
+    (the sklearn/xgboost families read `BASE_COLUMNS` via `feature_cols`;
+    `log5` reads `LOG5_COLUMNS` directly; `elo` needs the team ids and
+    scores to replay its rating walk), and the declared target's label.
+    """
+    feature_columns = tuple(dict.fromkeys((*BASE_COLUMNS, *LOG5_COLUMNS)))
+    return pd.DataFrame(
+        {
+            "game_instance_key": [row.game_instance_key for row in rows],
+            "season": [row.season for row in rows],
+            "feature_cutoff_at": [row.feature_cutoff_at for row in rows],
+            "home_team_id": [row.home_team_id for row in rows],
+            "away_team_id": [row.away_team_id for row in rows],
+            "home_score": [row.home_score for row in rows],
+            "away_score": [row.away_score for row in rows],
+            "home_win": [row.home_win for row in rows],
+            **{column: [row.values.get(column) for row in rows] for column in feature_columns},
+            "label": [spec.label(row) for row in rows],
+        }
+    )
+
+
 def folds(fold_years: Sequence[int]) -> tuple[Fold, ...]:
-    years = tuple(fold_years)
-    if not years or tuple(sorted(set(years))) != years:
-        raise ExperimentError("fold years must be unique, sorted calendar years")
-    return tuple(Fold(f"season-{year}", year - 1, year) for year in years)
+    """`Fold` boundary math has one implementation, `mlb_research.backtest
+    .time_ordered_folds`; this adapts its result back to `experiment.Fold`
+    (`train_through_season` / `test_season`, not `train_through` / `test`)
+    because that exact shape is a stored contract -- `meta.experiment
+    .fold_plan_json` and `meta.experiment_fold`'s columns are keyed on it."""
+    try:
+        generic_folds = _backtest.time_ordered_folds(fold_years)
+    except ValueError as exc:
+        raise ExperimentError("fold years must be unique, sorted calendar years") from exc
+    return tuple(Fold(fold.name, fold.train_through, fold.test) for fold in generic_folds)
 
 
 def _common_rows(
@@ -708,6 +733,9 @@ def _common_rows(
 
 
 def _matrix(rows: Sequence[SnapshotRow]) -> np.ndarray:
+    # Still used by feature_select.py's own stepwise/stability estimator
+    # fitting (SnapshotRow-based, not the DataFrame seam run_backtest owns)
+    # -- not dead code, despite run()/_estimator_factory no longer calling it.
     return np.array(
         [
             [np.nan if row.values[name] is None else row.values[name] for name in BASE_COLUMNS]
@@ -720,6 +748,7 @@ def _matrix(rows: Sequence[SnapshotRow]) -> np.ndarray:
 def _labels(
     rows: Sequence[SnapshotRow], spec: TargetSpec = TARGET_REGISTRY["home_win"]
 ) -> np.ndarray:
+    # Same as _matrix: still used by feature_select.py / feature_select_stepwise.py.
     if spec.task_type == "classification":
         return np.array([int(spec.label(row)) for row in rows], dtype=np.int64)
     return np.array([float(spec.label(row)) for row in rows], dtype=np.float64)
@@ -802,10 +831,10 @@ def _make_estimator(model_family: str, parameters: dict[str, Any], seed: int):
             ]
         )
     if model_family == "svm":
-        # probability=True is required for predict_proba (_probabilities()
-        # calls it unconditionally for every family past the three
-        # hardcoded baselines) -- scikit-learn 1.9 deprecated this in favor
-        # of CalibratedClassifierCV(SVC(), ensemble=False), removal
+        # probability=True is required for predict_proba (_estimator_factory's
+        # classification predict_fn calls it unconditionally for every family
+        # past the four hardcoded baselines) -- scikit-learn 1.9 deprecated
+        # this in favor of CalibratedClassifierCV(SVC(), ensemble=False), removal
         # targeted for 1.11. Not switched to that wrapper yet: nesting SVC
         # inside CalibratedClassifierCV would push kernel/C/etc. behind an
         # `estimator__` prefix in get_params(deep=False), breaking this
@@ -1005,9 +1034,10 @@ def _validate_parameters(model_family: str, parameters: dict[str, Any]) -> None:
     unknown = sorted(set(parameters) - set(allowed))
     if unknown:
         raise ExperimentError(f"{model_family} has unsupported parameter(s): {', '.join(unknown)}")
-    # svm's probability=True default isn't just a preference -- _probabilities()
-    # unconditionally calls predict_proba() for every family past the three
-    # hardcoded baselines, which SVC only exposes when probability=True.
+    # svm's probability=True default isn't just a preference --
+    # _estimator_factory's classification predict_fn unconditionally calls
+    # predict_proba() for every family past the four hardcoded baselines,
+    # which SVC only exposes when probability=True.
     # `unknown` alone wouldn't catch an override to False: "probability" is a
     # real SVC constructor parameter, so it passes the generic allowed-set
     # check above -- confirmed directly: SVC(probability=False).predict_proba
@@ -1055,221 +1085,172 @@ def snapshot_integrity(conn: psycopg.Connection) -> dict[str, int]:
     }
 
 
-def _elo_probabilities(rows: Sequence[SnapshotRow], test_rows: Sequence[SnapshotRow]) -> np.ndarray:
-    """Walk prior outcomes and test games in cutoff order without future leakage."""
-    test_keys = {row.game_instance_key for row in test_rows}
+def _elo_step(ratings: dict[int, float], rating_season: dict[int, int], row: Any) -> float:
+    """One Elo prediction-then-update step: predict from the current
+    ratings, then fold `row`'s own outcome in. Shared by `_elo_fit`
+    (replaying history to build state) and `_elo_predict` (walking test
+    rows) so both do the exact same math as the original
+    `_elo_probabilities` walk, just split at the fold boundary. Mutates
+    `ratings`/`rating_season` in place; returns the predicted home-win
+    probability, computed before this row's own update."""
+    home, away = row.home_team_id, row.away_team_id
+    for team in (home, away):
+        if rating_season.get(team) not in (None, row.season):
+            ratings[team] = (
+                ratings[team] * (1 - elo.REVERSION_WEIGHT) + elo.STARTING_ELO * elo.REVERSION_WEIGHT
+            )
+        rating_season[team] = row.season
+    home_elo = ratings.get(home, elo.STARTING_ELO)
+    away_elo = ratings.get(away, elo.STARTING_ELO)
+    probability = elo.expected_win_prob(home_elo, away_elo)
+    if row.home_win:
+        score_diff = max(1, row.home_score - row.away_score)
+        mult = elo._mov_multiplier(score_diff, home_elo + elo.HOME_ADVANTAGE, away_elo)
+        ratings[home] = home_elo + elo.K_FACTOR * mult * (1 - probability)
+        ratings[away] = away_elo + elo.K_FACTOR * mult * (probability - 1)
+    else:
+        score_diff = max(1, row.away_score - row.home_score)
+        mult = elo._mov_multiplier(score_diff, away_elo, home_elo + elo.HOME_ADVANTAGE)
+        ratings[home] = home_elo + elo.K_FACTOR * mult * (0 - probability)
+        ratings[away] = away_elo + elo.K_FACTOR * mult * (probability - 0)
+    return probability
+
+
+def _elo_fit(train: pd.DataFrame) -> tuple[dict[int, float], dict[int, int]]:
+    """`fit_fn` for `elo`: replay every train row (already time-ordered by
+    `run_backtest`) to build the ratings state as of the fold boundary."""
     ratings: dict[int, float] = {}
     rating_season: dict[int, int] = {}
-    values: dict[str, float] = {}
-    for row in rows:
-        home = row.home_team_id
-        away = row.away_team_id
-        for team in (home, away):
-            if rating_season.get(team) not in (None, row.season):
-                ratings[team] = (
-                    ratings[team] * (1 - elo.REVERSION_WEIGHT)
-                    + elo.STARTING_ELO * elo.REVERSION_WEIGHT
-                )
-            rating_season[team] = row.season
-        home_elo = ratings.get(home, elo.STARTING_ELO)
-        away_elo = ratings.get(away, elo.STARTING_ELO)
-        probability = elo.expected_win_prob(home_elo, away_elo)
-        if row.game_instance_key in test_keys:
-            values[row.game_instance_key] = probability
-        if row.home_win:
-            score_diff = max(1, row.home_score - row.away_score)
-            mult = elo._mov_multiplier(score_diff, home_elo + elo.HOME_ADVANTAGE, away_elo)
-            ratings[home] = home_elo + elo.K_FACTOR * mult * (1 - probability)
-            ratings[away] = away_elo + elo.K_FACTOR * mult * (probability - 1)
-        else:
-            score_diff = max(1, row.away_score - row.home_score)
-            mult = elo._mov_multiplier(score_diff, away_elo, home_elo + elo.HOME_ADVANTAGE)
-            ratings[home] = home_elo + elo.K_FACTOR * mult * (0 - probability)
-            ratings[away] = away_elo + elo.K_FACTOR * mult * (probability - 0)
-    return np.array([values[row.game_instance_key] for row in test_rows], dtype=np.float64)
+    for row in train.itertuples():
+        _elo_step(ratings, rating_season, row)
+    return ratings, rating_season
 
 
-def _probabilities(
-    config: ExperimentConfig,
-    all_rows: Sequence[SnapshotRow],
-    train_rows: Sequence[SnapshotRow],
-    test_rows: Sequence[SnapshotRow],
-    spec: TargetSpec,
-) -> np.ndarray:
-    parameters = config.parameters or {}
-    if config.model_family == "home_rate":
-        return np.full(len(test_rows), _labels(train_rows, spec).mean(), dtype=np.float64)
-    if config.model_family == "log5":
-        return np.array(
-            [
-                float(
-                    log5.probability(
-                        Decimal(str(row.values["home_win_pct"])),
-                        Decimal(str(row.values["away_win_pct"])),
-                    )
-                )
-                for row in test_rows
-            ],
-            dtype=np.float64,
-        )
-    if config.model_family == "elo":
-        return _elo_probabilities(all_rows, test_rows)
-    estimator = _make_estimator(config.model_family, parameters, config.seed)
-    estimator.fit(_matrix(train_rows), _labels(train_rows, spec))
-    probabilities = estimator.predict_proba(_matrix(test_rows))[:, 1]
-    return np.asarray(probabilities, dtype=np.float64)
-
-
-def _predictions(
-    config: ExperimentConfig,
-    all_rows: Sequence[SnapshotRow],
-    train_rows: Sequence[SnapshotRow],
-    test_rows: Sequence[SnapshotRow],
-    spec: TargetSpec,
-) -> np.ndarray:
-    parameters = config.parameters or {}
-    if config.model_family == "zero":
-        return np.zeros(len(test_rows), dtype=np.float64)
-    if config.model_family == "season_average":
-        preds: list[float] = []
-        for row in test_rows:
-            hw = row.values.get("home_wins") or 0.0
-            hl = row.values.get("home_losses") or 0.0
-            hrf = row.values.get("home_runs_for") or 0.0
-            hra = row.values.get("home_runs_allowed") or 0.0
-            hg = hw + hl
-            h_diff = (hrf - hra) / hg if hg > 0 else 0.0
-
-            aw = row.values.get("away_wins") or 0.0
-            al = row.values.get("away_losses") or 0.0
-            arf = row.values.get("away_runs_for") or 0.0
-            ara = row.values.get("away_runs_allowed") or 0.0
-            ag = aw + al
-            a_diff = (arf - ara) / ag if ag > 0 else 0.0
-
-            preds.append(h_diff - a_diff)
-        return np.array(preds, dtype=np.float64)
-    estimator = _make_estimator(config.model_family, parameters, config.seed)
-    estimator.fit(_matrix(train_rows), _labels(train_rows, spec))
-    predictions = estimator.predict(_matrix(test_rows))
-    return np.asarray(predictions, dtype=np.float64)
-
-
-def _calibration(y: np.ndarray, probabilities: np.ndarray) -> dict[str, Any]:
-    bins = []
-    for index in range(10):
-        low, high = index / 10, (index + 1) / 10
-        mask = (probabilities >= low) & (
-            (probabilities < high) if index < 9 else (probabilities <= high)
-        )
-        if mask.any():
-            bins.append(
-                {
-                    "low": low,
-                    "high": high,
-                    "count": int(mask.sum()),
-                    "mean_probability": float(probabilities[mask].mean()),
-                    "observed_rate": float(y[mask].mean()),
-                }
-            )
-    if len(y) < 20 or len(np.unique(y)) < 2:
-        return {"bins": bins, "intercept": None, "slope": None}
-    clipped = np.clip(probabilities, 1e-6, 1 - 1e-6)
-    model = LogisticRegression(C=1_000_000, fit_intercept=True, max_iter=1_000).fit(
-        np.log(clipped / (1 - clipped)).reshape(-1, 1), y
+def _elo_predict(state: tuple[dict[int, float], dict[int, int]], test: pd.DataFrame) -> np.ndarray:
+    """`predict_fn` for `elo`: continue the walk over test rows (also
+    time-ordered), copying the fitted state so repeated calls never mutate
+    it. Leak-free because `run_backtest` guarantees time_col order and this
+    predicts before each row's own update."""
+    ratings, rating_season = dict(state[0]), dict(state[1])
+    return np.array(
+        [_elo_step(ratings, rating_season, row) for row in test.itertuples()], dtype=np.float64
     )
-    return {
-        "bins": bins,
-        "intercept": float(model.intercept_[0]),
-        "slope": float(model.coef_[0][0]),
-    }
 
 
-def _residual_calibration(y: np.ndarray, predictions: np.ndarray) -> dict[str, Any]:
-    """Residual calibration for regression: bin games by predicted-value deciles
-    and report row count, mean prediction, and mean residual (actual - predicted).
-    A well-calibrated model has near-zero mean residual in every bin, not just
-    a low aggregate MAE."""
-    if len(y) == 0:
-        return {"bins": []}
-    quantiles = np.quantile(predictions, np.linspace(0.0, 1.0, 11))
-    bins = []
-    for index in range(10):
-        low, high = float(quantiles[index]), float(quantiles[index + 1])
-        mask = (predictions >= low) & ((predictions < high) if index < 9 else (predictions <= high))
-        if mask.any():
-            bins.append(
-                {
-                    "low": low,
-                    "high": high,
-                    "count": int(mask.sum()),
-                    "mean_prediction": float(predictions[mask].mean()),
-                    "mean_residual": float((y[mask] - predictions[mask]).mean()),
-                }
+def _season_average_predictions(test: pd.DataFrame) -> np.ndarray:
+    """`predict_fn` for `season_average`: a stateless per-row formula, so
+    there is no `fit_fn` state to build."""
+
+    def to_float(value: Any) -> float:
+        # A missing BASE_COLUMNS value is NaN in the DataFrame (not None as
+        # in SnapshotRow.values), and `NaN or 0.0` is NaN (NaN is truthy) --
+        # so this needs pd.notna(), not the original SnapshotRow code's
+        # `value or 0.0` idiom, to treat missing the same way: 0.0.
+        return float(value) if pd.notna(value) else 0.0
+
+    predictions = []
+    for row in test.itertuples():
+        hw, hl = to_float(row.home_wins), to_float(row.home_losses)
+        hrf, hra = to_float(row.home_runs_for), to_float(row.home_runs_allowed)
+        hg = hw + hl
+        h_diff = (hrf - hra) / hg if hg > 0 else 0.0
+
+        aw, al = to_float(row.away_wins), to_float(row.away_losses)
+        arf, ara = to_float(row.away_runs_for), to_float(row.away_runs_allowed)
+        ag = aw + al
+        a_diff = (arf - ara) / ag if ag > 0 else 0.0
+
+        predictions.append(h_diff - a_diff)
+    return np.array(predictions, dtype=np.float64)
+
+
+def _estimator_factory(
+    config: ExperimentConfig, spec: TargetSpec
+) -> tuple[Callable[[pd.DataFrame], Any], Callable[[Any, pd.DataFrame], np.ndarray]]:
+    """One `(fit_fn, predict_fn)` pair per model family, closing over
+    `config`/`spec`, for `mlb_research.backtest.run_backtest`. Reproduces
+    `_probabilities`/`_predictions`/`_elo_probabilities`'s exact math on the
+    DataFrame seam the harness owns."""
+    parameters = config.parameters or {}
+    family = config.model_family
+
+    if family == "home_rate":
+
+        def home_rate_fit(train: pd.DataFrame) -> float:
+            return float(train["label"].to_numpy(dtype=np.float64).mean())
+
+        def home_rate_predict(mean: float, test: pd.DataFrame) -> np.ndarray:
+            return np.full(len(test), mean, dtype=np.float64)
+
+        return home_rate_fit, home_rate_predict
+
+    if family == "log5":
+
+        def log5_fit(_train: pd.DataFrame) -> None:
+            return None
+
+        def log5_predict(_model: None, test: pd.DataFrame) -> np.ndarray:
+            return np.array(
+                [
+                    float(log5.probability(Decimal(str(home)), Decimal(str(away))))
+                    for home, away in zip(test["home_win_pct"], test["away_win_pct"], strict=True)
+                ],
+                dtype=np.float64,
             )
-    return {"bins": bins}
+
+        return log5_fit, log5_predict
+
+    if family == "elo":
+        return _elo_fit, _elo_predict
+
+    if family == "zero":
+
+        def zero_fit(_train: pd.DataFrame) -> None:
+            return None
+
+        def zero_predict(_model: None, test: pd.DataFrame) -> np.ndarray:
+            return np.zeros(len(test), dtype=np.float64)
+
+        return zero_fit, zero_predict
+
+    if family == "season_average":
+
+        def season_average_fit(_train: pd.DataFrame) -> None:
+            return None
+
+        def season_average_predict(_model: None, test: pd.DataFrame) -> np.ndarray:
+            return _season_average_predictions(test)
+
+        return season_average_fit, season_average_predict
+
+    def estimator_fit(train: pd.DataFrame) -> Any:
+        estimator = _make_estimator(family, parameters, config.seed)
+        labels = train["label"].to_numpy()
+        if spec.task_type == "classification":
+            labels = labels.astype(np.int64)
+        estimator.fit(train[list(BASE_COLUMNS)].to_numpy(dtype=np.float64), labels)
+        return estimator
+
+    def estimator_predict(estimator: Any, test: pd.DataFrame) -> np.ndarray:
+        matrix = test[list(BASE_COLUMNS)].to_numpy(dtype=np.float64)
+        if spec.task_type == "classification":
+            return np.asarray(estimator.predict_proba(matrix)[:, 1], dtype=np.float64)
+        return np.asarray(estimator.predict(matrix), dtype=np.float64)
+
+    return estimator_fit, estimator_predict
 
 
-def _metrics(y: np.ndarray, probabilities: np.ndarray, seed: int) -> dict[str, Any]:
-    if (
-        len(y) == 0
-        or not np.isfinite(probabilities).all()
-        or (probabilities < 0).any()
-        or (probabilities > 1).any()
-    ):
-        raise ExperimentError("model did not produce finite probabilities in [0, 1]")
-    scores = {
-        "rows": int(len(y)),
-        "log_loss": float(log_loss(y, probabilities, labels=[0, 1])),
-        "brier": float(brier_score_loss(y, probabilities)),
-        "accuracy": float(accuracy_score(y, probabilities >= 0.5)),
-        "calibration": _calibration(y, probabilities),
-    }
-    rng = Random(seed)
-    samples = []
-    for _ in range(200):
-        indexes = [rng.randrange(len(y)) for _ in range(len(y))]
-        sample_y, sample_p = y[indexes], probabilities[indexes]
-        samples.append(
-            (
-                float(log_loss(sample_y, sample_p, labels=[0, 1])),
-                float(brier_score_loss(sample_y, sample_p)),
-            )
-        )
-    samples.sort()
-    scores["log_loss_95ci"] = [samples[int(0.025 * 199)][0], samples[int(0.975 * 199)][0]]
-    briers = sorted(sample[1] for sample in samples)
-    scores["brier_95ci"] = [briers[int(0.025 * 199)], briers[int(0.975 * 199)]]
-    return scores
-
-
-def _regression_metrics(y: np.ndarray, predictions: np.ndarray, seed: int) -> dict[str, Any]:
-    if len(y) == 0 or not np.isfinite(predictions).all():
-        raise ExperimentError("model did not produce finite predictions")
-    mae = float(mean_absolute_error(y, predictions))
-    rmse = float(root_mean_squared_error(y, predictions))
-    scores: dict[str, Any] = {
-        "rows": int(len(y)),
-        "mae": mae,
-        "rmse": rmse,
-        "calibration": _residual_calibration(y, predictions),
-    }
-    rng = Random(seed)
-    samples: list[tuple[float, float]] = []
-    for _ in range(200):
-        indexes = [rng.randrange(len(y)) for _ in range(len(y))]
-        sample_y, sample_p = y[indexes], predictions[indexes]
-        samples.append(
-            (
-                float(mean_absolute_error(sample_y, sample_p)),
-                float(root_mean_squared_error(sample_y, sample_p)),
-            )
-        )
-    samples.sort()
-    scores["mae_95ci"] = [samples[int(0.025 * 199)][0], samples[int(0.975 * 199)][0]]
-    rmses = sorted(sample[1] for sample in samples)
-    scores["rmse_95ci"] = [rmses[int(0.025 * 199)], rmses[int(0.975 * 199)]]
-    return scores
+# The pure evaluation math (metrics, calibration, aggregation) has one
+# implementation, `mlb_research.backtest` -- these names are direct
+# re-exports so `experiment.py` keeps its existing call sites and
+# `tests/unit/test_experiment_metrics.py`'s imports resolve unchanged. Their
+# signatures and returned dict shapes are identical to the functions they
+# replace (only `calibration`'s intercept/slope now come from a numpy IRLS
+# fit instead of `sklearn.LogisticRegression`, within tie-out tolerance).
+_calibration = _backtest.calibration
+_residual_calibration = _backtest.residual_calibration
+_metrics = _backtest.classification_metrics
+_regression_metrics = _backtest.regression_metrics
 
 
 def _experiment_id(config: ExperimentConfig) -> str:
@@ -1299,44 +1280,8 @@ def _write_artifact(
     return str(path), digest
 
 
-def _aggregate_metrics(fold_results: dict[str, dict[str, Any]]) -> dict[str, float | int]:
-    rows = sum(int(metrics["rows"]) for metrics in fold_results.values())
-    if rows == 0:
-        raise ExperimentError("cannot aggregate an experiment with no scored rows")
-    return {
-        "rows": rows,
-        "log_loss": sum(
-            float(metrics["log_loss"]) * int(metrics["rows"]) for metrics in fold_results.values()
-        )
-        / rows,
-        "brier": sum(
-            float(metrics["brier"]) * int(metrics["rows"]) for metrics in fold_results.values()
-        )
-        / rows,
-        "accuracy": sum(
-            float(metrics["accuracy"]) * int(metrics["rows"]) for metrics in fold_results.values()
-        )
-        / rows,
-    }
-
-
-def _aggregate_regression_metrics(
-    fold_results: dict[str, dict[str, Any]],
-) -> dict[str, float | int]:
-    rows = sum(int(metrics["rows"]) for metrics in fold_results.values())
-    if rows == 0:
-        raise ExperimentError("cannot aggregate an experiment with no scored rows")
-    return {
-        "rows": rows,
-        "mae": sum(
-            float(metrics["mae"]) * int(metrics["rows"]) for metrics in fold_results.values()
-        )
-        / rows,
-        "rmse": sum(
-            float(metrics["rmse"]) * int(metrics["rows"]) for metrics in fold_results.values()
-        )
-        / rows,
-    }
+_aggregate_metrics = _backtest.aggregate_metrics
+_aggregate_regression_metrics = _backtest.aggregate_regression_metrics
 
 
 def _finalize_failed_run(conn: psycopg.Connection, sql: str, params: tuple[Any, ...]) -> None:
@@ -1380,7 +1325,7 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
             "and source profile"
         )
     all_rows = _snapshot_rows(conn, config.snapshot_id)
-    eligible = _common_rows(all_rows, spec)
+    frame = _evaluation_frame(all_rows, spec)
     experiment_id = _experiment_id(config)
     fold_plan = [asdict(fold) for fold in folds(config.fold_years)]
     with conn.cursor() as cur:
@@ -1429,50 +1374,73 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
             )
     results: dict[str, Any] = {}
     try:
+        generic_folds = tuple(
+            _backtest.Fold(fold.name, fold.train_through_season, fold.test_season)
+            for fold in folds(config.fold_years)
+        )
+        fit_fn, predict_fn = _estimator_factory(config, spec)
+        try:
+            backtest_result = _backtest.run_backtest(
+                frame,
+                generic_folds,
+                fit_fn,
+                predict_fn,
+                task=spec.task_type,
+                time_col="feature_cutoff_at",
+                period_col="season",
+                label_col="label",
+                feature_cols=BASE_COLUMNS,
+                required_cols=spec.required_columns,
+                seed=config.seed,
+            )
+        except ValueError as exc:
+            raise ExperimentError(str(exc)) from exc
+        coverage = {
+            "snapshot_rows": backtest_result.coverage["snapshot_rows"],
+            "common_rows": backtest_result.coverage["common_rows"],
+            "excluded_opening_or_missing_rate_rows": backtest_result.coverage["excluded_rows"],
+        }
+        complete_frame = _backtest.drop_incomplete(frame, spec.required_columns)
         for fold in folds(config.fold_years):
-            train_rows = [row for row in eligible if row.season <= fold.train_through_season]
-            test_rows = [row for row in eligible if row.season == fold.test_season]
-            if not train_rows or not test_rows:
-                raise ExperimentError(f"{fold.name} needs non-empty train and common test rows")
-            if max(row.feature_cutoff_at for row in train_rows) >= min(
-                row.feature_cutoff_at for row in test_rows
-            ):
-                raise ExperimentError(f"{fold.name} violates chronological cutoff separation")
+            fold_result = backtest_result.folds[fold.name]
+            metrics = dict(fold_result.metrics)
+            metrics["coverage"] = coverage
+            # Re-derive this fold's test rows the same deterministic way
+            # run_backtest split them internally (season, then a stable sort
+            # by feature_cutoff_at) so fold_result.predictions -- returned in
+            # that same order -- lines up with the right game identity/
+            # outcome for the stored artifact.
+            test_frame = complete_frame[complete_frame["season"] == fold.test_season].sort_values(
+                "feature_cutoff_at", kind="stable"
+            )
             if spec.task_type == "classification":
-                probabilities = _probabilities(config, eligible, train_rows, test_rows, spec)
-                metrics = _metrics(
-                    _labels(test_rows, spec), probabilities, config.seed + fold.test_season
-                )
-                metrics["coverage"] = {
-                    "snapshot_rows": len(all_rows),
-                    "common_rows": len(eligible),
-                    "excluded_opening_or_missing_rate_rows": len(all_rows) - len(eligible),
-                }
                 predictions = [
                     {
-                        "game_instance_key": row.game_instance_key,
+                        "game_instance_key": key,
                         "probability": float(probability),
-                        "actual_home_win": row.home_win,
+                        "actual_home_win": bool(home_win),
                     }
-                    for row, probability in zip(test_rows, probabilities, strict=True)
+                    for key, probability, home_win in zip(
+                        test_frame["game_instance_key"],
+                        fold_result.predictions,
+                        test_frame["home_win"],
+                        strict=True,
+                    )
                 ]
             else:
-                raw_predictions = _predictions(config, eligible, train_rows, test_rows, spec)
-                metrics = _regression_metrics(
-                    _labels(test_rows, spec), raw_predictions, config.seed + fold.test_season
-                )
-                metrics["coverage"] = {
-                    "snapshot_rows": len(all_rows),
-                    "common_rows": len(eligible),
-                    "excluded_opening_or_missing_rate_rows": len(all_rows) - len(eligible),
-                }
                 predictions = [
                     {
-                        "game_instance_key": row.game_instance_key,
+                        "game_instance_key": key,
                         "prediction": float(prediction),
-                        "actual_run_differential": float(row.home_score - row.away_score),
+                        "actual_run_differential": float(home_score - away_score),
                     }
-                    for row, prediction in zip(test_rows, raw_predictions, strict=True)
+                    for key, prediction, home_score, away_score in zip(
+                        test_frame["game_instance_key"],
+                        fold_result.predictions,
+                        test_frame["home_score"],
+                        test_frame["away_score"],
+                        strict=True,
+                    )
                 ]
             prediction_sha = _sha256(_canonical_json(predictions))
             artifact_uri, artifact_sha = _write_artifact(
@@ -1501,9 +1469,9 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
                         fold.name,
                         fold.train_through_season,
                         fold.test_season,
-                        len(eligible),
-                        len(train_rows),
-                        len(test_rows),
+                        coverage["common_rows"],
+                        fold_result.train_rows,
+                        fold_result.test_rows,
                         json.dumps(metrics),
                         prediction_sha,
                         artifact_uri,
@@ -1511,10 +1479,7 @@ def run(conn: psycopg.Connection, config: ExperimentConfig) -> dict[str, Any]:
                     ),
                 )
             results[fold.name] = metrics
-        if spec.task_type == "classification":
-            aggregate = _aggregate_metrics(results)
-        else:
-            aggregate = _aggregate_regression_metrics(results)
+        aggregate = backtest_result.aggregate
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE meta.experiment SET status = 'success', finished_at = now(), "

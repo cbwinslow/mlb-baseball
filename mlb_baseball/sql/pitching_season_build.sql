@@ -13,8 +13,16 @@
 -- Counting stats are plain sums. Rate stats are computed from THIS grain's
 -- summed components and are NULL when the denominator is 0 (MLB glossary /
 -- FanGraphs; IP = outs / 3, so per-9-innings rates multiply by 27 / outs).
--- RA9 (runs allowed per 9) is produced, NOT ERA -- gold.pitching_game has no
--- earned runs.
+--
+-- RA9 (runs allowed per 9, from `r`) is produced for every year. ERA is
+-- produced only where every contributing game row carries earned runs:
+-- er = CASE WHEN count(*) = count(er) THEN sum(er) END nulls the whole
+-- season total if any game row lacks er (a pitcher-season mixing a
+-- null-er 2025 Retrosheet game and a real-er 2026 box-score game -- which no
+-- real pitcher-season does, the 2025/2026 boundary is a hard cut -- would
+-- otherwise report a silently-partial total). era is then er * 27 / outs,
+-- so era is NULL through 2025 and populated from 2026 (backbone-2026-source,
+-- migration 0102, docs/TABLE_CONTRACTS.md coverage cliff). ra9 is untouched.
 --
 -- The caller (report._build_backbone_relation) TRUNCATEs gold.pitching_season
 -- first, in the same transaction.
@@ -31,7 +39,8 @@ stint AS (
         sum(gs) AS gs, sum(bf) AS bf, sum(outs) AS outs, sum(h) AS h, sum(r) AS r,
         sum(bb) AS bb, sum(ibb) AS ibb, sum(so) AS so, sum(hr) AS hr,
         sum(hbp) AS hbp, sum(wp) AS wp, sum(bk) AS bk,
-        sum(w) AS w, sum(l) AS l, sum(sv) AS sv
+        sum(w) AS w, sum(l) AS l, sum(sv) AS sv,
+        CASE WHEN count(*) = count(er) THEN sum(er) END AS er
     FROM scoped
     GROUP BY player_id, season, team_id
 ),
@@ -42,7 +51,8 @@ combined AS (
         sum(gs) AS gs, sum(bf) AS bf, sum(outs) AS outs, sum(h) AS h, sum(r) AS r,
         sum(bb) AS bb, sum(ibb) AS ibb, sum(so) AS so, sum(hr) AS hr,
         sum(hbp) AS hbp, sum(wp) AS wp, sum(bk) AS bk,
-        sum(w) AS w, sum(l) AS l, sum(sv) AS sv
+        sum(w) AS w, sum(l) AS l, sum(sv) AS sv,
+        CASE WHEN count(*) = count(er) THEN sum(er) END AS er
     FROM scoped
     GROUP BY player_id, season
 ),
@@ -53,13 +63,14 @@ allrows AS (
 )
 INSERT INTO gold.pitching_season (
     player_id, season, team_id, is_combined, g,
-    gs, bf, outs, h, r, bb, ibb, so, hr, hbp, wp, bk, w, l, sv,
-    ra9, whip, k9, bb9, hr9, k_bb
+    gs, bf, outs, h, r, bb, ibb, so, hr, hbp, wp, bk, w, l, sv, er,
+    ra9, era, whip, k9, bb9, hr9, k_bb
 )
 SELECT
     player_id, season, team_id, is_combined, g,
-    gs, bf, outs, h, r, bb, ibb, so, hr, hbp, wp, bk, w, l, sv,
+    gs, bf, outs, h, r, bb, ibb, so, hr, hbp, wp, bk, w, l, sv, er,
     CASE WHEN outs > 0 THEN r::numeric * 27 / outs END,
+    CASE WHEN outs > 0 AND er IS NOT NULL THEN er::numeric * 27 / outs END,
     CASE WHEN outs > 0 THEN (h + bb)::numeric * 3 / outs END,
     CASE WHEN outs > 0 THEN so::numeric * 27 / outs END,
     CASE WHEN outs > 0 THEN bb::numeric * 27 / outs END,

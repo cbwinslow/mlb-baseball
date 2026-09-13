@@ -82,6 +82,7 @@ from mlb_baseball.health import (
     check_join_coverage,
     check_last_run,
     check_no_duplicate_key,
+    check_no_rows,
     check_recent_run,
     check_table_exists,
     check_table_has_rows,
@@ -152,6 +153,51 @@ _TEAM_ALIAS_SEED: list[tuple[str, str, str]] = [
     ("ANA", "Los Angeles Angels", "rebrand"),
     ("CLE", "Cleveland Guardians", "rebrand"),
     ("OAK", "Athletics", "rebrand"),
+    # FanGraphs park-factor team nicknames (fangraphs-conform, ADR-290).
+    # gold.fangraphs_park_factors joins raw.fangraphs_park_factors.team to
+    # core.team through these. FanGraphs' park-factor `team` is a plain
+    # nickname and is historically accurate, so a relocated/renamed franchise
+    # needs one row per name it has used since 2003 (the scoped span): CLE is
+    # "Indians" 2003-20 / "Cleveland" 2021 / "Guardians" 2022+, TBA is
+    # "Devil Rays" 2003-07 / "Rays" 2008+, WAS is "Expos" 2003-04 /
+    # "Nationals" 2005+. All 34 aliases verified against the real distinct
+    # `team` values in raw.fangraphs_park_factors. The composite
+    # UNIQUE(alias, source) added in migration 0104 lets "Athletics"/"Rays"
+    # coexist with the identical 'rebrand' strings above.
+    ("ANA", "Angels", "fangraphs"),
+    ("ARI", "Diamondbacks", "fangraphs"),
+    ("ATL", "Braves", "fangraphs"),
+    ("BAL", "Orioles", "fangraphs"),
+    ("BOS", "Red Sox", "fangraphs"),
+    ("CHA", "White Sox", "fangraphs"),
+    ("CHN", "Cubs", "fangraphs"),
+    ("CIN", "Reds", "fangraphs"),
+    ("CLE", "Indians", "fangraphs"),
+    ("CLE", "Cleveland", "fangraphs"),
+    ("CLE", "Guardians", "fangraphs"),
+    ("COL", "Rockies", "fangraphs"),
+    ("DET", "Tigers", "fangraphs"),
+    ("HOU", "Astros", "fangraphs"),
+    ("KCA", "Royals", "fangraphs"),
+    ("LAN", "Dodgers", "fangraphs"),
+    ("MIA", "Marlins", "fangraphs"),
+    ("MIL", "Brewers", "fangraphs"),
+    ("MIN", "Twins", "fangraphs"),
+    ("NYA", "Yankees", "fangraphs"),
+    ("NYN", "Mets", "fangraphs"),
+    ("OAK", "Athletics", "fangraphs"),
+    ("PHI", "Phillies", "fangraphs"),
+    ("PIT", "Pirates", "fangraphs"),
+    ("SDN", "Padres", "fangraphs"),
+    ("SEA", "Mariners", "fangraphs"),
+    ("SFN", "Giants", "fangraphs"),
+    ("SLN", "Cardinals", "fangraphs"),
+    ("TBA", "Devil Rays", "fangraphs"),
+    ("TBA", "Rays", "fangraphs"),
+    ("TEX", "Rangers", "fangraphs"),
+    ("TOR", "Blue Jays", "fangraphs"),
+    ("WAS", "Nationals", "fangraphs"),
+    ("WAS", "Expos", "fangraphs"),
 ]
 
 _MONTH_ABBR = {
@@ -289,7 +335,30 @@ def _build_players(conn: psycopg.Connection) -> int:
     # consolidated TRUNCATE, not here — see run()'s comment for why.
     with conn.cursor() as cur:
         cur.execute(read_sql("conform_player_insert.sql"))
-        return cur.rowcount
+        count = cur.rowcount
+    # Second pass: current-season debuts / call-ups that are in
+    # raw.register_people with an MLBAM id but no Retrosheet id yet (Retrosheet
+    # assigns key_retro months after a season ends). Admitted on their MLBAM id
+    # with retro_id NULL, bounded to those that appear in MLB's own game record.
+    # raw.mlb_boxscore_* / raw.mlb_playbyplay are optional (a fresh clone may not
+    # have run mlb_api yet), so this is a separate savepointed INSERT, same
+    # reasoning as _build_venues' enrichment. A later real key_retro is picked
+    # up on the next full rebuild (run() truncates core.player every time).
+    # SHORTCUT: all-or-nothing on the three tables (any missing -> whole pass
+    # skipped). Ceiling: a partial mlb_api ingest with, say, boxscore but not
+    # playbyplay admits nobody. Fine now -- connectors/mlb_api.py loads all
+    # three together per game. Trigger: split into one savepointed INSERT per
+    # source table if partial-ingest states ever become real.
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(read_sql("conform_player_insert_current_season.sql"))
+            count += cur.rowcount
+    except psycopg.errors.UndefinedTable:
+        print(
+            "conform: raw.mlb_boxscore_* / raw.mlb_playbyplay not present yet - "
+            "skipping current-season MLBAM-only players"
+        )
+    return count
 
 
 def _build_games(conn: psycopg.Connection) -> int:
@@ -1690,12 +1759,19 @@ def run() -> dict[str, int]:
         # core.player_war references core.player; the whole Plan 03B backbone
         # (gold.batting_game / gold.pitching_game, the season / team
         # roll-ups, and the batting_career / pitching_career roll-ups)
-        # references core.game / core.player / core.team. conform empties the
+        # references core.game / core.player / core.team. gold.batting_postseason
+        # / gold.pitching_postseason (migration 0100) reference
+        # core.player / core.team too. gold.fangraphs_park_factors
+        # (migration 0104) references core.team(id) as well and so must be
+        # named here even though conform never writes it — the FK's mere
+        # existence blocks `TRUNCATE core.team` otherwise (`mlb report`
+        # rebuilds it, like the postseason relations). conform empties the
         # gold tables it does not itself rebuild for the same reason it
         # empties gold.game_feature — a full core rebuild reissues every
-        # core.game surrogate id, so any gold row still pointing at an old
-        # one is stale. `mlb report` rebuilds the whole backbone afterward,
-        # like `mlb features` rebuilds gold.game_feature.
+        # core.game / core.team surrogate id, so any gold row still pointing
+        # at an old one is stale. `mlb report` rebuilds the whole backbone
+        # (including the postseason and FanGraphs relations) afterward, like
+        # `mlb features` rebuilds gold.game_feature.
         with conn.cursor() as cur:
             cur.execute(
                 "TRUNCATE core.play, core.pitch, core.market, "
@@ -1703,6 +1779,8 @@ def run() -> dict[str, int]:
                 "gold.batting_season, gold.batting_team, "
                 "gold.pitching_season, gold.pitching_team, "
                 "gold.batting_career, gold.pitching_career, "
+                "gold.batting_postseason, gold.pitching_postseason, "
+                "gold.fangraphs_park_factors, "
                 "core.game, core.team, core.player, "
                 "core.venue, core.standing, core.team_alias, "
                 "core.player_war"
@@ -1777,17 +1855,26 @@ def health_check() -> list[Check]:
         # hasn't run the relevant optional connector yet — consistent with
         # how every other check above already treats "never bootstrapped."
         check_no_duplicate_key("core.game", "game_pk"),
+        # `expected` is scoped to games that exist in core.game -- _build_plays
+        # inner-joins core.game, and a raw play for a game the warehouse does
+        # not recognise (e.g. an Oct-1900 Pittsburgh series Retrosheet has
+        # event data but no schedule/gameinfo row for; a 2026 spring / All-Star
+        # game in raw.mlb_playbyplay that core.game excludes) should NOT land
+        # in core.play. Without the scope the check counted those as expected
+        # and flagged the (correct) gap as row loss. See GitHub #184.
         check_join_coverage(
             "core.play retrosheet coverage",
             "SELECT count(*) FROM core.play WHERE source = 'retrosheet'",
             "SELECT count(*) FROM "
-            "(SELECT DISTINCT ON (game_id, event_id) 1 FROM raw.retrosheet_event "
-            "ORDER BY game_id, event_id, _scope) x",
+            "(SELECT DISTINCT ON (re.game_id, re.event_id) 1 FROM raw.retrosheet_event re "
+            "JOIN core.game g ON g.retro_game_id = re.game_id "
+            "ORDER BY re.game_id, re.event_id, re._scope) x",
         ),
         check_join_coverage(
             "core.play mlb_api coverage",
             "SELECT count(*) FROM core.play WHERE source = 'mlb_api'",
-            "SELECT count(*) FROM raw.mlb_playbyplay",
+            "SELECT count(*) FROM raw.mlb_playbyplay pbp "
+            "JOIN core.game g ON g.game_pk = pbp.game_pk",
         ),
         check_join_coverage(
             "core.pitch coverage",
@@ -1938,4 +2025,35 @@ def health_check() -> list[Check]:
             """,
             tolerance=1,
         ),
+        # Every player in a regular-season box score must resolve to a
+        # core.player row on their MLBAM id. This was ~8.4% unresolved before
+        # migration 0103 + conform_player_insert_current_season.sql admitted
+        # current-season debuts on their MLBAM id; tolerance is 0 now.
+        # check_no_rows returns a FAIL if raw.mlb_boxscore_* does not exist yet
+        # (a fresh clone that has not run mlb_api) -- consistent with how the
+        # coverage checks above already treat "never bootstrapped".
+        check_no_rows(
+            "core.player regular-season resolution",
+            """
+            SELECT
+                (SELECT count(*)
+                   FROM raw.mlb_boxscore_batting bb
+                   JOIN core.game g
+                     ON g.game_pk = bb.game_pk AND g.game_type = 'regular'
+                   LEFT JOIN core.player cp ON cp.mlbam_id = bb.person_id
+                  WHERE cp.id IS NULL)
+              + (SELECT count(*)
+                   FROM raw.mlb_boxscore_pitching bp
+                   JOIN core.game g
+                     ON g.game_pk = bp.game_pk AND g.game_type = 'regular'
+                   LEFT JOIN core.player cp ON cp.mlbam_id = bp.person_id
+                  WHERE cp.id IS NULL)
+            """,
+        ),
+        # core.player.mlbam_id has an index but no UNIQUE constraint (not every
+        # historical player has one). conform admits current-season players
+        # keyed on it now, so guard against a register glitch fanning out two
+        # core.player rows for one MLBAM id -- same class as the
+        # core.game.game_pk uniqueness check above.
+        check_no_duplicate_key("core.player", "mlbam_id"),
     ]

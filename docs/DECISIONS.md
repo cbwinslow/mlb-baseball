@@ -2,7 +2,533 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
-## ADR-282: `gold.player_season` / `gold.team_season` include postseason stats from 2021 (bug — fix pending)
+## ADR-291: Metric catalog — gate clarification + YAML/`meta.metric`/docs-page shape
+
+**Decision:** `openspec/changes/metric-catalog/` (proposal/design/spec) pulls
+Phase B ladder step 1 ("Engine triage + a `meta.metric` registry table")
+forward, reframed as pure documentation over already-existing, already-
+running code — no new metric, no modeling change, no tuned parameter, no
+backtest result.
+
+1. **Gate clarification.** `openspec/project.md`'s Phase A/B boundary gets
+   one clarifying sentence: a metric implementing a published, citable
+   formula is Phase A / public regardless of which directory currently
+   implements it (`model/` included); only tuned parameters, blended/
+   ensembled outputs, ranked feature-selection results, and non-baseline
+   backtest results are Phase B / internal. This restates the project's
+   existing publication rule ("a metric ships once we choose to publish it
+   — formula + citation, and is private until then") rather than creating
+   a new one — it corrects an inconsistent application of it, where
+   `model/`'s ~155 mostly-published-sabermetrics modules had been mis-filed
+   as private by directory rather than by the rule that actually governs
+   them. Phase B ladder step 1 is marked satisfied by this change; the full
+   remaining-module triage stays a tracked, batched NEXT-queue item, not a
+   Phase B start.
+2. **Build the catalog now, as documentation-only tooling.** One small
+   schema-validated YAML file per metric under `mlb_baseball/metrics/
+   <name>.yaml` (`name`, `definition`, `formula`, `citation`, `data_source`,
+   `grain`, `layer`, `complexity`, `implementation`, `status`,
+   `visibility`, optional `test_ref`/`notes`) — `citation` (whose idea the
+   formula is) is kept separate from `data_source` (which ingested tables
+   the numbers come from). Validated by `mlb_baseball/catalog.py`'s
+   `MetricEntry` (pydantic — already resolved transitively via sqlmesh's
+   own dependency, so promoting it to a base dependency adds nothing new to
+   `uv.lock`; `jsonschema` is not present in the lock at all and would add
+   several new packages for the same job).
+3. **`meta.metric` and the public docs page are both generated, never
+   hand-maintained.** A migration (`migrations/0106_meta_metric.sql`)
+   creates `meta.metric` (additive); `mlb catalog build` reads every YAML,
+   validates it, and does the project's standard idempotent full-rebuild
+   (`TRUNCATE` + insert every entry in one transaction — same pattern as
+   `conform.py::_build_team_aliases`). Every entry's `source_permalink` is
+   generated at build time from `formula`'s file path plus the git commit
+   the build ran against (a version-pinned GitHub blob URL) — never hand-
+   written, never pointing at a moving branch. `mlb catalog docs` renders
+   the `visibility: public` subset of `meta.metric` as a Markdown page
+   (`docs/site-src/metric-catalog.md`); the two views come from one source
+   of truth and cannot be hand-edited into disagreement.
+4. **A CI completeness check is advisory, not yet blocking.**
+   `scripts/check_metric_catalog.py` reports every `mlb_baseball/model/*.py`
+   module with no catalog entry, plus a visibility-lint (a `citation`
+   naming a recognized public source but `visibility: internal`, or the
+   reverse) — wired into CI (`ci.yml`'s `lint` job) as a non-blocking
+   (`|| true`) step until the first full triage batch lands, per this
+   project's own existing advisory-then-required rollout pattern.
+
+**Scope of this pass:** the tooling (schema, loader, `meta.metric`, CI
+check, docs generator) plus exactly one demonstration entry
+(`mlb_baseball/metrics/fangraphs_guts.yaml`, `published`/`public`, ADR-290).
+The ~15-20-entry flagship batch and the full ~155-module triage are
+explicitly deferred to follow-up, batched changes — see
+`openspec/changes/metric-catalog/tasks.md` groups 4/6.
+
+## ADR-290: FanGraphs Guts! constants + park factors conform into `gold` reference lookups (Beat 1)
+
+**Decision:** The `fangraphs-conform` change's **Beat 1** surfaces exactly two
+FanGraphs reference lookups from the (shipped-in-#173, ADR-288, so-far-unused)
+`raw.fangraphs_*` landing tables, both `local_research` only:
+
+- **`gold.fangraphs_guts`** — one row per season, conformed verbatim from
+  `raw.fangraphs_guts` (FanGraphs' Guts! per-season wOBA / FIP linear-weight
+  constants). Numeric cast only, no re-derivation, no interpolation of missing
+  seasons. `season` is the key.
+- **`gold.fangraphs_park_factors`** — one row per `(season, team_id)` from
+  `raw.fangraphs_park_factors`, **scoped `season >= 2003`**. `team` is a
+  FanGraphs nickname resolved to `core.team` through a new `'fangraphs'` source
+  block in `core.team_alias` (34 aliases; CLE / TBA / WAS carry multiple
+  historically-accurate nicknames). Component factors kept as published. An
+  unresolved nickname produces no row and is surfaced by an `mlb doctor`
+  join-coverage check, never silently dropped.
+
+Both are built by `mlb report` (`report._build_backbone_relation`,
+truncate-and-replace, idempotent, skips cleanly on a database that never
+ingested FanGraphs). One additive migration (`0104_gold_fangraphs_reference.sql`)
+creates the two tables and swaps `core.team_alias`'s single-column
+`UNIQUE(alias)` for `UNIQUE(alias, source)` — the correct key for a
+multi-source alias crosswalk, needed because FanGraphs shares the strings
+`"Athletics"` / `"Rays"` with the existing `'rebrand'` block.
+
+**Reference / cross-check only.** `gold.fangraphs_guts` is for era-accurate
+*internal* work. A wOBA / FIP / park-factor figure the project **publishes** is
+computed from the project's own `core.play`, not from here. No
+`gold.fangraphs_*` relation may be `public_safe`, appear in the published
+`mlb-research` dataset, or be a reference-baseline-model input; a standing test
+(`tests/unit/test_fangraphs_conform_rights.py`) guards the export registry.
+
+**Deferred to Beat 2 — `feat.fangraphs_projection`:** conforming
+`raw.fangraphs_projection` into a DuckDB `feat.*` relation with as-of
+(`captured_date`) retrieval is explicitly held back, because (a) doing it now
+would bake a can-never-ship (`local_research`) dependency into the walk-forward
+harness's public contract while that interface is still being set; (b) `feat.*`
+is rebuilt by `mlb build`, which *ships as code*, so `feat.fangraphs_projection`
+is "local-by-construction," not automatically "internal-only" — a deliberate
+rights-profile decision Beat 2 must make, not inherit; (c) once the harness has
+a register-a-forecaster interface, projections plug in cleanly as an optional
+forecaster rather than a built-in.
+
+**Also deferred:** the full FanGraphs WAR / wOBA / wRC+ / Stuff+ / PitchingBot
+season-line conform, split leaderboards, THE BOARD prospects, and a
+*project-computed* per-season constants table for the publishable path.
+
+**Not changed here:** `research.py`'s fixed `wOBA = 0.69·uBB + …` weight string.
+A follow-up (its own change) audits every consumer of a fixed weight and
+switches internal / non-published paths to a `gold.fangraphs_guts` join.
+
+## ADR-289: the 2026-onward statistic backbone is built from MLB's box score; play-by-play is the tie-out
+
+**Decision:** `gold.batting_game` / `gold.pitching_game` — and the season / team /
+career roll-ups above them — are built from **two** game-grain sources:
+`raw.retrosheet_event` for **1910–2025** (unchanged) and MLB's own official
+per-game box score (`raw.mlb_boxscore_batting` / `raw.mlb_boxscore_pitching`) for
+**2026 onward** (`mlb_baseball/sql/batting_game_mlb_build.sql` /
+`pitching_game_mlb_build.sql`, joined to `core.game` on `game_pk`). Each game row
+carries a `source` marker (`retrosheet_event` / `mlb_boxscore`). The MLB
+box-score builder also populates a new `er` column (migration 0102), from which
+`gold.pitching_season` / `gold.pitching_career` compute `era` — NULL through
+2025, populated from 2026. The play-by-play feed (`raw.mlb_playbyplay`) is the
+**independent cross-check** (`scripts/verify_mlb_boxscore_tie_out.py`), not a
+source. (backbone-2026-source.)
+
+**Context / why:**
+
+- **Retrosheet stops at 2025.** Retrosheet does not publish an event file for
+  the in-progress season, so a researcher querying the backbone for the current
+  season got nothing. The `statistic-backbone` spec already named a 2026-onward
+  builder as planned follow-up.
+- **The box score is MLB's official scorer line.** It is complete, carries runs
+  and earned runs directly, and maps to the gold columns with almost no
+  transformation (`pa ← plate_appearances`, `er ← earned_runs`, …). A
+  reconstruction from `raw.mlb_playbyplay` instead would have to parse scoring
+  runners out of free text, choose a policy for the ~180 games with partial
+  play-by-play, and re-derive what MLB already computed.
+- **Methodology stays parallel.** The 1910–2025 builder is validated against an
+  external official line (Baseball-Reference); 2026 has no Baseball-Reference
+  page, so an independent reconstruction from play-by-play events plays that
+  role — *primary record builds the row, an independent source proves it*.
+  Verified against 2026 production: the reconstruction matches the box-score
+  line on PA / AB / H / BB / HR exactly and on SO for all but ~0.02% of
+  player-games.
+- **Two builders, one truncate.** `report._build_backbone_relation_multi` takes
+  an ordered `(build_sql, source)` list, pre-checks each source, `TRUNCATE`s the
+  target once, and appends every build whose source is present. The
+  `g.season <= 2025` / `g.season >= 2026` bounds are the partition line, so the
+  two never write the same key; an `mlb doctor` guard confirms it. A missing
+  source degrades cleanly (a database with no `raw.mlb_boxscore_*` is 1910–2025
+  only, unchanged).
+
+**Consequences / trade-offs:**
+
+- **The 2026 rows are pre-aggregated by MLB's scorer, not event-derived.** The
+  table contract and `docs/site-src/limitations.md` state the split so a
+  researcher comparing a 2025 and a 2026 season knows they came from different
+  pipelines.
+- **`era` coverage cliff.** `er` / `era` are NULL for 1910–2025 and populated
+  from 2026; a career `era` exists only for a wholly-2026+ career; `era` is not
+  carried at the team-season grain. `ra9` (every year) is the cross-era rate.
+  Documented in `docs/TABLE_CONTRACTS.md` and the column comments.
+- **Incomplete box-score ingest.** ~200 recent 2026 regular-season games have no
+  box score yet; `mlb report` re-run as ingest catches up fills them. An
+  `mlb doctor` join-coverage check surfaces the gap.
+- **Out of scope:** postseason / spring / all-star 2026, SB/CS in the batting
+  relations, backfilling `er` for ≤ 2025, and a `public_safe` variant — all
+  unchanged from the existing backbone scope.
+
+## ADR-288: FanGraphs revived via `fungo`; Python floor moves 3.11 → 3.12
+
+**Decision:** FanGraphs enters the pipeline as the `fangraphs` connector
+(`mlb_baseball/connectors/fangraphs.py`), built on the **`fungo`** library
+(`fungo>=2.0,<3`, MIT), not `pybaseball`. `fungo` reaches FanGraphs' mobile-app
+JSON API (`https://www.fangraphs.com/api/...`) with `User-Agent: okhttp/4.12.0`
+— the one client Cloudflare's TLS-fingerprint block exempts. Because `fungo`
+requires Python ≥3.12 (and genuinely uses 3.12-only syntax), the project's
+`requires-python` floor moves **3.11 → 3.12**: `pyproject.toml`, the four CI
+`python-version` pins, `.github/workflows/pages.yml`, `.devcontainer/Dockerfile`,
+and `ruff target-version = "py312"` (+ `ignore = ["UP046","UP047"]` so the bump
+does not force a PEP 695 restyle of existing `TypeVar` generics). `curl_cffi`
+(`curl-cffi==0.16.3` at time of writing) comes in transitively — `fungo`'s
+Baseball-Reference submodule imports it at package load; this connector never
+calls that code.
+
+**Context:** `docs/DATA_SOURCES.md` had listed FanGraphs as BROKEN since
+`pybaseball.batting_stats()`/`pitching_stats()` began returning a hard
+`HTTPError ... leaders-legacy.aspx ... 403` — fangraphs.com sits behind
+Cloudflare, which blocks generic HTTP clients outright. `bref.py` covered part
+of the season-stats value, but FanGraphs' WAR/wOBA framework, Guts! constants,
+park factors, and the public projection systems (Steamer, ZiPS, ATC, THE BAT,
+…) had no home, and the projection systems in particular are a moving series
+with no history retained anywhere. The owner approved reviving FanGraphs on
+2026-09-10 after a live `fungo` test confirmed the leaders, Guts!, park-factor,
+and projection endpoints all return real data with no auth.
+
+**Rationale:**
+
+- **`fungo` owns the fragile seam.** The FanGraphs access path is exactly the
+  "fragile endpoint glue" `connectors/AGENTS.md` says to prefer a maintained
+  library for: a Cloudflare-exempt UA, inverted `season`/`season1` params,
+  POST-only splits. `fungo` (MIT, "Production/Stable") maintains all of it and
+  a live parity check passed. Vendoring `fungo/fangraphs/` (~1,900 lines) was
+  considered when the Python-floor conflict surfaced and rejected: it would
+  put the Cloudflare seam back in our tree.
+- **The 3.12 bump is small and already true locally.** The dev venv was
+  already 3.12.3; only CI pinned 3.11. Verified before committing: on 3.12
+  with `fungo` added, `ruff` / `mypy` (214 files) / `sqlfluff` / SQL-ownership
+  / `mkdocs --strict` / 1205 unit tests / a representative integration slice
+  all pass. 3.12 is 2+ years old.
+- **Projections stored as de-duplicated dated snapshots.** `raw.fangraphs_projection`
+  is append-only; a `_row_hash` of the projected values gates each append, so a
+  `(system, stat_group, playerid)` key gets a new snapshot row only when its
+  values moved — the ADR-048 probable-pitcher pattern. This is how the history
+  of a constantly-moving projection is retained without unbounded growth.
+- **Rights: `local_research` only.** FanGraphs' data is reserved; the
+  mobile-app endpoints are undocumented and unauthenticated, not licensed
+  (`docs/SOURCE_RIGHTS.md`, reviewed 2026-09-10). The ingest guard blocks the
+  connector under any non-`local_research` profile, and no `public_safe`
+  export relation may be backed by a `raw.fangraphs_*` table.
+
+**Load-bearing fragility (accepted, documented):** the `okhttp/4.12.0`
+exemption could be withdrawn at any time. `fungo` raises `FangraphsError`
+naming the condition on a 403; the connector re-raises it (never an infinite
+retry) so `mlb doctor` goes red. The fix is then a `fungo` upgrade, not a
+local patch — same class as `bref.py` depending on `pybaseball`'s HTML scrape.
+
+**Deliberately NOT built** (documented in the connector and its sidecar, same
+combinatorial rationale as ADR-020 / ADR-024): `get_player_stats` /
+`get_game_log` (per player per season), the full 292-code split-leaderboard
+catalogue, minor-league leaderboards, and RosterResource depth charts
+(`get_depth_chart` needs a hand-verified 30-team URL-slug table and returns a
+nested React-cache payload, not a leaderboard; MLB Stats API already covers
+rosters/probables).
+
+## ADR-287: features and models live in DuckDB; PostgreSQL is the system of record for raw source data
+
+**Decision:** PostgreSQL remains authoritative for `raw` and `core`. The derived
+feature layer and everything that reads it does **not** live in PostgreSQL.
+`mlb build` reads PostgreSQL `core` / `gold` and writes the `feat.*` relations
+into a single local DuckDB database file (default `~/.mlb/mlb.duckdb`,
+overridable by `--db` or `MLB_DUCKDB_PATH`). Features are built there; models
+read only from there. There is **no `feat` schema in PostgreSQL**, no migration
+creating one, and no PostgreSQL-side as-of retrieval function. The boundary is
+at `core`: at or below it is PostgreSQL, above it is DuckDB, and `mlb build` is
+the only thing that crosses.
+
+**Context:** The product is a framework distributed as code — the `pybaseball` /
+`baseballr` shape, but fuller. A user `pip install`s it, runs `mlb bootstrap`,
+and it fetches MLB data from the original sources into *their own* environment.
+We ship code, schema, and build logic; the published Hugging Face snapshot is a
+convenience, not the product.
+
+That framing separates two layers that had been treated as one:
+
+- `raw` / `core` is a **system of record**. `conform.py` reconciles identities
+  across Retrosheet, Lahman, the Chadwick register, the MLB Stats API,
+  Polymarket, and Kalshi — cross-source joins, fuzzy team and venue matching, a
+  `game_pk` backfill that lands at an ~85% match rate with the remainder held
+  `NULL` rather than guessed. That needs constraints, transactions, and a real
+  relational engine, and it is not moving.
+- `feat.*` is a **derived, reproducible artifact**. It is write-once, read-heavy,
+  columnar, single-writer, append-only, and thrown away and rebuilt whenever a
+  formula changes. Nothing about it needs what PostgreSQL is good at, and
+  everything about it wants what DuckDB is good at.
+
+The root `AGENTS.md` invariant reads "PostgreSQL is the authoritative system of
+record" and "preserve the `raw` / `core` / `gold` / `meta` layering unless a
+recorded architecture decision changes it." This is that recorded decision.
+
+**Reconciliation with the root invariant — this scopes it, it does not
+contradict it.** The invariant exists to stop source data drifting into
+unconstrained, unversioned, hand-edited stores where provenance is lost. That
+concern applies to *source* data and is fully preserved: every raw record, every
+identity resolution, and every provenance and rights annotation still lives in
+PostgreSQL under the same rules. A `feat.*` row is not source data — it is a
+pure function of `core` plus a versioned formula, carrying its own `created_ts`,
+and reproducible from PostgreSQL at any time by re-running `mlb build`. If the
+DuckDB file is deleted, nothing is lost. If a `raw` table is deleted, everything
+is. That asymmetry is the line the invariant is actually drawing, and this
+decision draws it explicitly rather than leaving it implicit. The
+`raw` / `core` / `gold` / `meta` layering in PostgreSQL is unchanged; `feat` is a
+new layer *outside* it, not a re-arrangement of it.
+
+**Rationale:**
+
+- **The analyst's path becomes real.** The previous plan required the feature
+  build to run on both PostgreSQL and DuckDB from a common SQL subset, with a
+  parity test forever and every future feature constrained to constructs both
+  engines share. One engine, one implementation, no parity test — and DuckDB
+  operators that make the point-in-time join a page of code (`ASOF JOIN`) become
+  usable instead of forbidden.
+- **Redistribution rights stop constraining this layer.** The user fetched the
+  source data themselves under their own terms; the features are derived on their
+  machine. Rights enforcement stays exactly where it belongs — `export.py`'s
+  gate on the optional Hugging Face snapshot, with its existing per-table
+  exclusions (`docs/SOURCE_RIGHTS.md`).
+- **`gold.game_feature` stays where it is.** It is a ~240-column PostgreSQL table
+  carrying 178 registered Engine feature families and feeding the paused
+  prediction pipeline; `openspec/project.md` names it a **Phase B** triage
+  target. This decision does not re-parent, mirror, or export it. `feat.*` is a
+  new, small, public layer that re-expresses a handful of proven *formulas* at
+  entity grain — not those families' tables.
+- **DuckDB is already adopted tooling** (`openspec/project.md`, "Tooling —
+  Adopted") and already a dependency of `packages/mlb-research`. This is not a
+  new adoption; it is using an adopted tool for the job it was adopted for.
+- **The cost is one more place to look for a number.** Accepted, and bounded by
+  a one-sentence boundary rule stated in `openspec/project.md`,
+  `docs/FEATURE_STORE.md`, and this ADR.
+
+**Consequences:**
+
+- `duckdb` becomes a runtime dependency of `mlb-baseball`, and `mlb-research`
+  becomes a runtime dependency of it rather than a `dev`-extra workspace member
+  (the dependency direction is `mlb_baseball` → `mlb_research`, never the
+  reverse, so the shipped retrieval API has one implementation).
+- Feature build logic is versioned `.sql` in DuckDB dialect, needing a
+  dialect-scoped sqlfluff configuration alongside the 97 existing PostgreSQL
+  files in `mlb_baseball/sql/`.
+- A user can have a stale DuckDB file. Mitigated by `created_ts` on every row and
+  by `mlb verify` reporting the build's `created_ts` range.
+- Any future work that wants features inside a PostgreSQL query must either join
+  across engines or re-derive — deliberately, so that "just add it to
+  `gold.game_feature`" stops being the path of least resistance.
+
+**Revisit if:** a concrete requirement appears that genuinely needs features
+inside a PostgreSQL transaction (a live serving path writing predictions
+transactionally alongside features would be the real case — that is Phase C);
+or a feature build outgrows a single machine's memory, at which point the
+question is a different engine, not a different layering; or the two-store
+boundary is measurably confusing users, evidenced by actual questions rather
+than anticipated ones.
+
+## ADR-286: the docs site builds from `docs/site-src/` into `docs/site/` in the Pages workflow
+
+**Decision:** The MkDocs Material documentation site
+(`mkdocs-docs-site` change) has its source in a new `docs/site-src/` tree.
+`mkdocs build` writes to `docs/site/`, which becomes generated output —
+git-ignored, produced fresh by `.github/workflows/pages.yml` before the Pages
+upload. The DuckDB-WASM query page moves from `docs/site/query/` to
+`docs/site-src/query/` and is carried through the build verbatim as a static
+asset; its published URL (`/query/`) is unchanged. The data-dictionary page is a
+`pymdownx.snippets` include of section 3 of `docs/DATA_DICTIONARY.md`, so that
+file stays the single source of truth.
+
+**Context:** `openspec/project.md` names a MkDocs Material docs site as a v1
+"done when" criterion. `pages.yml` previously uploaded `docs/site/` as raw static
+files with no build step, and its own comment said the docs site would "deploy
+through this same workflow, not a second one." The `$0-hosting` rule allows a
+build step on the GitHub-hosted runner — the output is still static, still on
+GitHub Pages, still no server.
+
+**Rationale:**
+- Source in `docs/site-src/` keeps ~30 internal engineering docs under `docs/`
+  out of the public site by default — an `exclude` list over `docs/` would leak a
+  new internal doc the day it is added.
+- `docs/site/` as git-ignored build output keeps content edits to a few source
+  files instead of a ~40-file generated diff, and removes any chance of source
+  and output drifting.
+- One workflow, one Pages site: `pages.yml` gains `uv sync --extra docs` +
+  `mkdocs build --strict`; `ci.yml` gains a `docs` job so a broken build fails on
+  the PR, not only on deploy.
+- A `pytest` guard (`tests/unit/test_docs_site.py`) asserts the query page is
+  published byte-for-byte and that the data-dictionary snippet stays bounded to
+  section 3 (a dropped `[end:backbone]` marker would otherwise splice the
+  internal `raw`/`serve`/`core` schema onto the public page without failing the
+  strict build).
+
+**Revisit if:** the site outgrows a single static build (versioned docs with
+`mike`, a search backend, hundreds of pages) — at which point a dedicated build
+job feeding an artifact, rather than committing nothing and rebuilding in
+`pages.yml`, may be worth the extra moving part.
+
+**Note on numbering:** ADR-285 (the 2-hourly odds cron, #165) landed first; this
+entry is 286.
+
+## ADR-285: Kalshi / Polymarket odds on a 2-hourly cron, not just the 06:00 daily job
+
+**Decision:** `scripts/mlb_odds_update.sh` runs `mlb ingest kalshi --mode
+update` and `mlb ingest polymarket --mode update` every 2 hours via crontab
+(`0 */2 * * *`), guarded by `flock`, logging to `logs/mlb_odds_update.log`
+(gitignored). Same cron + flock pattern as ADR-016's `mlb_api` scheduler.
+
+**Context:** both connectors already ran once a day inside
+`mlb_daily_update.sh`'s `mlb update` step (ADR-049's forward-looking snapshot
+capture into `raw.kalshi_snapshot` / `raw.polymarket_snapshot`). One snapshot
+a day is a coarse basis for `_build_market`'s `_latest_before(first_pitch)`
+pick (ADR-052 / ADR-267): a snapshot taken at 06:00 UTC can be 12+ hours stale
+by a 7pm first pitch, and the line moves in that window. Several snapshots a
+day gives the leak-free pre-game price a closer, better anchor.
+
+**Rationale:**
+- **2-hourly, not more.** `core.market` only rebuilds on the full daily
+  `mlb conform` (it is in `conform.run()`'s consolidated TRUNCATE), so a
+  sub-daily raw refresh does not reach `core.market` until the next 06:00
+  build regardless -- the value is snapshot *density* for that one daily
+  pick, and ~8 useful snapshots/day (games are afternoon/evening) captures
+  the pre-game drift without hammering two free APIs. Dial up in the crontab
+  if a use case needs finer resolution.
+- **No `check_recent_run` threshold change.** `kalshi` / `polymarket`
+  `FRESHNESS_THRESHOLD_MINUTES` stays at `DAILY_FRESHNESS_THRESHOLD_MINUTES`
+  (28h): the daily job still keeps `mlb doctor` honest whether or not the
+  2-hourly cron runs. The frequent cron is a pure enhancement; if it
+  silently stops, nothing goes red and no data is lost. Tighten the
+  threshold in a follow-up only if the frequent cron proves reliable and a
+  consumer depends on the density.
+- **`set -uo pipefail`, not `-e`.** The script runs two connectors (one
+  failing must not stop the other) and mlb's cross-workflow lock
+  (`ingest.py::_acquire_workflow_lock`) legitimately rejects a run while the
+  `*/5` `mlb_api` tick or the 06:00 conform holds it -- that is a skipped
+  tick (exit 0), matched by a `grep` on the lock's error text, not a failure.
+
+**Revisit if:** a live in-play odds need appears (that is `mlb live`'s
+territory, a different mechanism), or an incremental `core.market` refresh
+lands (then the frequent cron's raw writes become immediately useful and the
+freshness threshold should tighten).
+
+## ADR-284: current-season players are admitted to `core.player` on their MLBAM id; `retro_id` is nullable
+
+**Decision:** `core.player.retro_id` drops its `NOT NULL` constraint (keeps
+`UNIQUE`). `conform.py` `_build_players` admits a person from
+`raw.register_people` when they have a Retrosheet id **or** they have an MLBAM
+id and appear in MLB's own game record (`raw.mlb_boxscore_batting` /
+`_pitching` / `raw.mlb_playbyplay`). The MLBAM-only pass is a second savepointed
+INSERT (`conform_player_insert_current_season.sql`), not a modified WHERE
+clause, because those raw tables are optional. Migration
+`0103_core_player_nullable_retro.sql`.
+
+**Context (verified 2026-09-07 against production `mlb`).** Retrosheet assigns
+`key_retro` months after a season ends; Chadwick assigns `key_mlbam`
+immediately. The old `conform_player_insert.sql` filter `WHERE key_retro IS NOT
+NULL` therefore dropped every current-season debut and call-up: 105 distinct
+players in 2026 regular-season box scores (~8.4% of batting player-games) did
+not resolve to `core.player`, which blocked `backbone-2026-source` (its 2026
+game builders join `core.player` on `mlbam_id`). All 105 are in
+`raw.register_people` with a `key_mlbam` and none has a `key_retro`. This is
+normal upstream behaviour — pybaseball / baseballr return `key_retro = NaN` for
+recent debuts and consumers key on what they have.
+
+**Rationale.**
+- A NULL `retro_id` is honest and self-correcting: `core.player` is a
+  truncate-and-rebuild every `mlb conform`, so the real id backfills on the
+  next run once Retrosheet catches up. No data migration, no upsert.
+- Multiple NULLs are legal in a Postgres `UNIQUE` column, so the constraint
+  still enforces a real `key_retro` unique. Mirrors ADR-era migration 0045,
+  which did the same for `core.game.retro_game_id` when MLB-only games arrived.
+- **Rejected — synthetic `retro_id`** (`mlbNNNNNN`): pollutes a source-faithful
+  Retrosheet key, risks colliding with a real future id, needs a cleanup pass.
+- **Rejected — re-anchor `core.player` on `chadwick_uuid`**: ~17 files join on
+  `retro_id`; a big migration with no current forcing function.
+- **Rejected — admit every `key_mlbam IS NOT NULL` register row** (~104k):
+  pulls in every minor-leaguer and foreign-league player. The "appears in MLB
+  game data" bound adds ~2,182 (incl. spring-training-only), which carry no
+  regular-season stats.
+- Consumer audit (change `player-identity-current-season/consumer-audit.md`):
+  every `JOIN core.player … ON retro_id = …` is a Retrosheet-era (≤2025)
+  consumer that a NULL-retro 2026 player never reaches; none computes a wrong
+  result. `platoon_splits_update.sql`'s key-on-what-you-have fallback chain
+  improves (a 2026 starter now resolves via `mlbam_id` instead of falling
+  through to the raw id).
+
+**Verification:** `mlb doctor` check `core.player regular-season resolution`
+(tolerance 0) — every player in a regular-season box score resolves to
+`core.player` by `mlbam_id`.
+
+**Revisit if:** `conform._build_players` ever becomes incremental (then the
+second pass needs `ON CONFLICT (chadwick_uuid) DO UPDATE`), or a real need
+appears to re-anchor identity on `chadwick_uuid` / add a DB-level `mlbam_id`
+UNIQUE constraint (a health check guards fan-out for now).
+## ADR-283: baseball.computer is the game-type reference — regular-season-only aggregates everywhere
+
+**Decision (2026-09-07).** Adopt [baseball.computer](https://github.com/droher/baseball.computer)
+as the reference implementation for game-type scope. Its `seed_game_types`
+seed maps every game type to `is_regular_season` / `is_postseason`; every one
+of its season / career / team metric tables filters to the regular-season
+types and is documented "Regular season only"; it publishes **no** separate
+postseason aggregate table (postseason stays at the game/event grain behind an
+`is_postseason` flag).
+
+**Rules for this project:**
+
+1. **Regular-season aggregates are regular-season only** — `gold` tables,
+   views, `mlb doctor` metrics, and **every math / ML model feature**. A game
+   counts iff its `core.game.game_type` is `regular` or `playoff` (the Game 163
+   tiebreaker, which MLB and baseball.computer both count as regular season);
+   every postseason series type is excluded.
+2. **Explicit filter, never "the source is clean."** Each relation / feature
+   scopes `game_type` at build time. The audit in the `separate-postseason-stats`
+   change (`game-type-audit.md`) records the scope of every game-aggregating
+   relation and the model / ML layer.
+3. **A model or ML feature that includes postseason performance is a
+   leakage defect** (a playoff outcome inside a season / pre-game feature),
+   fixed at the same bar as any other leakage.
+4. **Postseason gets one player-grain total table per stat type**
+   (`gold.batting_postseason` / `gold.pitching_postseason`), built from
+   Lahman's own `BattingPost` / `PitchingPost` — the one place Lahman itself
+   goes further than baseball.computer. A postseason *team* total is a
+   deferred `GROUP BY` follow-up.
+
+Change record: `openspec/changes/separate-postseason-stats/`. baseball.computer
+`seed_game_types` mapping recorded in `docs/KNOWLEDGE_BASE.md`.
+
+## ADR-282: `gold.player_season` / `gold.team_season` included postseason stats from 2021 — RESOLVED (separate-postseason-stats)
+
+**Resolved 2026-09-07** by the `separate-postseason-stats` change (see ADR-283
+for the standing rule). Fix:
+
+- `mlb_baseball/connectors/bref.py` now calls
+  `pybaseball.batting_stats_range` / `pitching_stats_range` directly over an
+  explicit regular-season window (`{season}-03-15` → the season's last
+  regular-season game, `_REGULAR_SEASON_END`, sourced from `core.game`), not
+  the `batting_stats_bref` / `pitching_stats_bref` wrappers whose fixed
+  March 1 – November 30 window pulled in postseason game-logs. `raw.bref_*`
+  re-ingested for 2008–2026; `gold.player_season` / `gold.team_season` rebuilt.
+- New `gold.batting_postseason` / `gold.pitching_postseason` (Lahman
+  `BattingPost` / `PitchingPost` lineage) carry postseason performance
+  separately.
+- `mlb doctor` gains a regular-season envelope check (no `gold.player_season`
+  row over 163 games) and postseason-relation sanity checks.
+- Model / ML audit: `season.py` and `ros.py` season-game queries gained an
+  explicit `game_type` filter (they had none).
+
+Original finding follows.
+
+### Original finding
 
 **Finding (2026-09-07, during the Baseball-Reference tie-out expansion).** For
 seasons **2021 onward**, `gold.player_season` and `gold.team_season`
@@ -40,20 +566,12 @@ only; they tie out to Baseball-Reference's real published season lines).
 and any model using player/team-season aggregates as features — a
 leakage-shaped error (postseason outcomes inside a "season" feature).
 
-**Decision / fix (pending, its own change).** The owner's direction: fix it,
-**and capture postseason performance properly rather than just dropping it** —
-marked as postseason (`core.game.game_type` already distinguishes playoff
-games). Shape to be settled in that change; candidate approach: the
-event-derived backbone gains explicit `game_type` scope (regular / postseason /
-combined), `gold.player_season` re-sources its regular-season counting stats
-from the corrected backbone and keeps only the Baseball-Reference-only fields
-(`era`, `war`), and a `mlb doctor` check flags any season line whose totals
-exceed a 162-game envelope.
-
-**Interim.** The tie-out gate's bulk cross-check
-(`scripts/verify_baseball_reference_tie_out.py`) excludes 2020+ for this
-reason. `gold.player_season` for 2021+ must be treated as regular+postseason
-until the fix lands.
+**Fix (landed — see the RESOLVED summary above).** `bref.py` pulls a
+regular-season-only Baseball-Reference window; `raw.bref_*` re-ingested and
+`gold.player_season` / `gold.team_season` rebuilt clean; postseason performance
+captured separately in `gold.batting_postseason` / `gold.pitching_postseason`;
+`mlb doctor` envelope + purity guards added. baseball.computer adopted as the
+game-type reference (ADR-283).
 
 ## ADR-281: backbone Relation 6 — `gold.player_season` and the event-derived season tables stay parallel
 

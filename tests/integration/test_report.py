@@ -24,7 +24,20 @@ _DYNAMIC_RAW_TABLES = [
     "raw.mlb_standing",
     "raw.retrosheet_event",
     "raw.retrosheet_gameinfo",
+    "raw.mlb_boxscore_batting",
+    "raw.mlb_boxscore_pitching",
 ]
+
+_MLB_BOX_BAT_COLS = (
+    "game_pk, team_id, person_id, plate_appearances, at_bats, runs, hits, doubles, "
+    "triples, home_runs, total_bases, rbi, base_on_balls, intentional_walks, "
+    "hit_by_pitch, sac_flies, sac_bunts, strike_outs, ground_into_double_play"
+)
+_MLB_BOX_PIT_COLS = (
+    "game_pk, team_id, person_id, games_started, batters_faced, outs, hits, runs, "
+    "earned_runs, base_on_balls, intentional_walks, strike_outs, home_runs, "
+    "hit_batsmen, wild_pitches, balks, wins, losses, saves"
+)
 
 
 def _ensure_dynamic_tables(conn):
@@ -79,6 +92,22 @@ def _ensure_dynamic_tables(conn):
         cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
         if not cur.fetchone()[0]:
             cur.execute("CREATE TABLE raw.retrosheet_gameinfo (gid text, gametype text)")
+        # 2026-onward game-grain source (backbone-2026-source) -- dynamically
+        # created landing tables in production, same as raw.bref_*.
+        cur.execute("SELECT to_regclass('raw.mlb_boxscore_batting')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_boxscore_batting ("
+                + ", ".join(f"{c.strip()} text" for c in _MLB_BOX_BAT_COLS.split(","))
+                + ")"
+            )
+        cur.execute("SELECT to_regclass('raw.mlb_boxscore_pitching')")
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "CREATE TABLE raw.mlb_boxscore_pitching ("
+                + ", ".join(f"{c.strip()} text" for c in _MLB_BOX_PIT_COLS.split(","))
+                + ")"
+            )
     conn.commit()
 
 
@@ -684,3 +713,223 @@ def test_health_check_returns_checks_without_crashing(db_conn):
     assert len(checks) >= 5
     assert all(hasattr(c, "ok") for c in checks)
     _reset(db_conn)
+
+
+_TEAM_ENVELOPE = "gold.player_season / gold.team_season are within the regular-season envelope"
+_SEASON_ENVELOPE = (
+    "gold.batting_season / gold.pitching_season are within the regular-season envelope"
+)
+
+
+def _check_ok(name):
+    return next(c for c in report.health_check() if c.name == name).ok
+
+
+def test_envelope_check_is_era_scoped_for_pre_1969_tiebreakers_and_tie_replays(db_conn):
+    # Before 1969 a pennant tie was a best-of-three and in-full tie-game
+    # replays counted, so team and player season totals legitimately reach
+    # 164-165: 1962 SF Giants (103-62) in Lahman Teams; Billy Williams 1965
+    # at 164 G. A flat `> 163` threshold flags them as postseason
+    # contamination -- indistinguishable from a real leak. Post-1969 the
+    # ceiling is 163 (one Game 163), and a leaked postseason series adds far
+    # more than 2 games so it is still caught.
+    _reset(db_conn)
+    _ensure_dynamic_tables(db_conn)
+    with db_conn.cursor() as cur:
+        teams = _insert_teams(cur, [("SFN", "San Francisco", "Giants", 1958, 9999, 137)])
+        cur.execute(
+            "INSERT INTO gold.team_season (team_id, season, wins, losses) "
+            "VALUES (%s, 1962, 103, 62)",
+            (teams["SFN"],),
+        )
+        cur.execute(
+            "INSERT INTO core.player (retro_id, first_name, last_name) "
+            "VALUES ('willb101', 'Billy', 'Williams') RETURNING id"
+        )
+        (williams,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO gold.batting_season (player_id, season, is_combined, g, pa) "
+            "VALUES (%s, 1965, true, 164, 719)",
+            (williams,),
+        )
+    db_conn.commit()
+    assert _check_ok(_TEAM_ENVELOPE)
+    assert _check_ok(_SEASON_ENVELOPE)
+
+    # The same 164-165 totals in a modern season ARE postseason contamination.
+    with db_conn.cursor() as cur:
+        teams = _insert_teams(cur, [("SFG", "San Francisco", "Giants", 1958, 9999, 138)])
+        cur.execute(
+            "INSERT INTO gold.team_season (team_id, season, wins, losses) "
+            "VALUES (%s, 2021, 107, 58)",
+            (teams["SFG"],),
+        )
+        cur.execute(
+            "INSERT INTO gold.batting_season (player_id, season, is_combined, g, pa) "
+            "VALUES (%s, 2021, true, 164, 719)",
+            (williams,),
+        )
+    db_conn.commit()
+    assert not _check_ok(_TEAM_ENVELOPE)
+    assert not _check_ok(_SEASON_ENVELOPE)
+
+    # _reset does not clear gold.batting_season (owned by test_report_batting_season.py);
+    # drop this test's rows so its core.player DELETE does not hit the FK.
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM gold.batting_season WHERE player_id = %s", (williams,))
+    db_conn.commit()
+    _reset(db_conn)
+
+
+# ---------------------------------------------------------------------------
+# gold.batting_game two-source dispatch (backbone-2026-source)
+# ---------------------------------------------------------------------------
+
+_NO_DOUBLE_WRITE = (
+    "no gold.batting_game / gold.pitching_game player-game is written by both builders"
+)
+
+
+def _check(name):
+    return next(c for c in report.health_check() if c.name == name)
+
+
+@pytest.fixture
+def _cleanup_game_relations(db_conn):
+    """Both backbone-2026 dispatch tests COMMIT rows into gold.batting_game /
+    gold.pitching_game, and the shared db_conn fixture does not roll back
+    committed data. A finalizer (not a trailing statement) guarantees the
+    cleanup runs even when an assertion fails, so a leaked row can't break a
+    later test's global row-count check. `_reset` does not touch the game
+    relations, so clear them here first."""
+    yield
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM gold.batting_game")
+        cur.execute("DELETE FROM gold.pitching_game")
+    db_conn.commit()
+    _reset(db_conn)
+
+
+def test_batting_game_multi_source_one_row_per_source_no_collision(
+    db_conn, _cleanup_game_relations
+):
+    # A 2025 Retrosheet game and a 2026 MLB box-score game, built through the
+    # two-source list run() uses: gold.batting_game must carry one row from
+    # each builder, each tagged with its own `source`, and the no-double-write
+    # guard must stay green.
+    _reset(db_conn)
+    _ensure_dynamic_tables(db_conn)
+    with db_conn.cursor() as cur:
+        teams = _insert_teams(cur, [("NYA", "New York", "Yankees", 1903, 9999, 147)])
+        nya = teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.player (retro_id, mlbam_id, first_name, last_name) "
+            "VALUES ('rsp001', '700501', 'Retro', 'Sheet') RETURNING id"
+        )
+        (retro_player,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO core.player (retro_id, mlbam_id, first_name, last_name) "
+            "VALUES ('mbx001', '700502', 'Box', 'Score') RETURNING id"
+        )
+        (box_player,) = cur.fetchone()
+        # 2025 Retrosheet game -- one single by the retro player.
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, season, game_date, game_number, "
+            "home_team_id, away_team_id, game_type) VALUES "
+            "('RS20250601', 2025, '2025-06-01', 0, %s, %s, 'regular') RETURNING id",
+            (nya, nya),
+        )
+        (retro_game,) = cur.fetchone()
+        cur.execute("INSERT INTO raw.retrosheet_gameinfo VALUES ('RS20250601', 'regular')")
+        cur.execute(
+            "INSERT INTO raw.retrosheet_event (game_id, bat_id, bat_home_id, event_cd, "
+            "bat_event_fl, ab_fl, sf_fl, sh_fl, _season) "
+            "VALUES ('RS20250601', 'rsp001', '1', '20', 'T', 'T', 'F', 'F', '2025')"
+        )
+        # 2026 MLB box-score game -- one single by the box player.
+        cur.execute(
+            "INSERT INTO core.game (game_pk, season, game_date, game_number, "
+            "home_team_id, away_team_id, game_type) VALUES "
+            "('2026777', 2026, '2026-04-07', 0, %s, %s, 'regular') RETURNING id",
+            (nya, nya),
+        )
+        (box_game,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO raw.mlb_boxscore_batting (" + _MLB_BOX_BAT_COLS + ") VALUES "
+            "('2026777', '147', '700502', '1', '1', '0', '1', '0', '0', '0', '1', "
+            "'0', '0', '0', '0', '0', '0', '0', '0')"
+        )
+    db_conn.commit()
+
+    total = report._build_backbone_relation_multi(
+        db_conn,
+        "gold.batting_game",
+        [
+            (report._BATTING_GAME_SQL, "raw.retrosheet_event"),
+            (report._BATTING_GAME_MLB_SQL, "raw.mlb_boxscore_batting"),
+        ],
+    )
+    db_conn.commit()
+
+    assert total == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT source, season FROM gold.batting_game "
+            "WHERE game_id IN (%s, %s) ORDER BY season",
+            (retro_game, box_game),
+        )
+        assert cur.fetchall() == [("retrosheet_event", 2025), ("mlb_boxscore", 2026)]
+
+    assert _check(_NO_DOUBLE_WRITE).ok
+
+    # The two per-source coverage checks must not cross-count: the Retrosheet
+    # check's "actual" is scoped to source='retrosheet_event', the box-score
+    # check's to source='mlb_boxscore'. Both green with one row of each.
+    retro_cov = _check(
+        "raw.retrosheet_event (game, batter, team) triples with a PA and a resolvable "
+        "player get a gold.batting_game row"
+    )
+    box_cov = _check(
+        "raw.mlb_boxscore_batting 2026+ lines with a resolvable player/team "
+        "get an mlb_boxscore-sourced gold.batting_game row"
+    )
+    assert retro_cov.ok, retro_cov.detail
+    assert box_cov.ok, box_cov.detail
+
+
+def test_no_double_write_guard_fails_on_a_seeded_collision(db_conn, _cleanup_game_relations):
+    # The guard groups by (game_id, player_id): a player-game written under two
+    # different `source` values (here, two team stints of a suspended game, one
+    # per builder) must turn the check red.
+    _reset(db_conn)
+    _ensure_dynamic_tables(db_conn)
+    with db_conn.cursor() as cur:
+        teams = _insert_teams(
+            cur,
+            [
+                ("NYA", "New York", "Yankees", 1903, 9999, 147),
+                ("BOS", "Boston", "Red Sox", 1901, 9999, 111),
+            ],
+        )
+        cur.execute(
+            "INSERT INTO core.player (retro_id, first_name, last_name) "
+            "VALUES ('dblw001', 'Double', 'Write') RETURNING id"
+        )
+        (player,) = cur.fetchone()
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, season, game_date, game_number, "
+            "home_team_id, away_team_id, game_type) VALUES "
+            "('DBL2026', 2026, '2026-05-01', 0, %s, %s, 'regular') RETURNING id",
+            (teams["NYA"], teams["BOS"]),
+        )
+        (game,) = cur.fetchone()
+        for team, source in ((teams["NYA"], "retrosheet_event"), (teams["BOS"], "mlb_boxscore")):
+            cur.execute(
+                "INSERT INTO gold.batting_game (game_id, player_id, team_id, season, "
+                "game_date, pa, ab, h, source) "
+                "VALUES (%s, %s, %s, 2026, '2026-05-01', 1, 1, 1, %s)",
+                (game, player, team, source),
+            )
+    db_conn.commit()
+
+    assert not _check(_NO_DOUBLE_WRITE).ok

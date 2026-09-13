@@ -130,18 +130,25 @@ def health_check() -> list[Check]:
     checks: list[Check] = []
     try:
         router = MLBApiRouter()
-        r_health = router.route_request("/api/v1/health", "GET")
+        # Deliberately NOT /api/v1/health here: that route runs the full
+        # doctor.run(), and this function is itself invoked from doctor.run() —
+        # exercising it would be infinite mutual recursion (issue #171).
+        # /forecasts/daily (a real handler) plus an unknown path (the 404
+        # fall-through) prove the router dispatches correctly without the cycle.
         r_fc = router.route_request("/api/v1/forecasts/daily", "GET", {"date": "2026-08-24"})
+        r_missing = router.route_request("/api/v1/__healthcheck_probe__", "GET")
 
-        if r_health.status_code == 200 and r_fc.status_code == 200:
+        if r_fc.status_code == 200 and r_missing.status_code == 404:
             checks.append(
                 Check(
-                    "rest api gateway", True, "REST API routes verified (/health, /forecasts/daily)"
+                    "rest api gateway",
+                    True,
+                    "REST API routes verified (/forecasts/daily dispatch, 404 fall-through)",
                 )
             )
         else:
             checks.append(
-                Check("rest api gateway", False, f"API route failure: {r_health}, {r_fc}")
+                Check("rest api gateway", False, f"API route failure: {r_fc}, {r_missing}")
             )
     except Exception as exc:
         checks.append(Check("rest api gateway", False, str(exc)))

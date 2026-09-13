@@ -1,4 +1,10 @@
--- Rebuild gold.batting_game from raw.retrosheet_event (1910-2025).
+-- Rebuild gold.batting_game from raw.retrosheet_event (1910-2025 only).
+--
+-- 2026 onward is built by sql/batting_game_mlb_build.sql from
+-- raw.mlb_boxscore_batting (Retrosheet publishes no event file for the
+-- in-progress season -- backbone-2026-source). The `g.season <= 2025` bound
+-- below is the partition line: the two builders never write the same
+-- (game, player, team) key.
 --
 -- Truncate-and-replace, transactional, idempotent (running twice produces
 -- identical rows). Optional %(season)s bind scopes the rebuild to one season;
@@ -61,6 +67,7 @@ WITH ev AS (
       AND lower(g.game_type) = 'regular'   -- regular season only, matching the existing
                                     -- gold season tables and Baseball-Reference's
                                     -- convention; postseason/all-star is a follow-up.
+      AND g.season <= 2025          -- 2026+ is raw.mlb_boxscore_batting (backbone-2026-source)
       AND (%(season)s::integer IS NULL OR g.season = %(season)s::integer)
 ),
 batting AS (

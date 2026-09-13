@@ -1,9 +1,12 @@
 """Real DB, real DataFrame/COPY loading — only pybaseball's own HTTP calls
 are mocked. bref.TABLES is monkeypatched to fake callables rather than
-patching pybaseball.batting_stats_bref/pitching_stats_bref directly: the
+patching pybaseball.batting_stats_range/pitching_stats_range directly: the
 module binds each function object into that list at import time, so
 patching the pybaseball attribute afterwards wouldn't reach the
-already-captured reference _load_season actually iterates over."""
+already-captured reference _load_season actually iterates over.
+
+The fakes take (start_dt, end_dt) — _load_table calls the pybaseball range
+functions with the regular-season window, not a bare season int (ADR-282)."""
 
 from datetime import date
 
@@ -54,8 +57,8 @@ def _clean_tables(db_conn):
 
 
 def _fake_tables(monkeypatch, batting_fn=None, pitching_fn=None):
-    batting_fn = batting_fn or (lambda season: _stats_df(3))
-    pitching_fn = pitching_fn or (lambda season: _stats_df(2))
+    batting_fn = batting_fn or (lambda start_dt, end_dt: _stats_df(3))
+    pitching_fn = pitching_fn or (lambda start_dt, end_dt: _stats_df(2))
     monkeypatch.setattr(
         bref, "TABLES", [("raw.bref_batting", batting_fn), ("raw.bref_pitching", pitching_fn)]
     )
@@ -84,8 +87,8 @@ def test_load_season_repairs_mangled_names_before_loading(db_conn, monkeypatch):
     # not leave it for a later cleanup pass.
     _fake_tables(
         monkeypatch,
-        batting_fn=lambda season: _stats_df(1, name="Jos\\xc3\\xa9 Abreu"),
-        pitching_fn=lambda season: _stats_df(1, name="Mike Trout"),
+        batting_fn=lambda start_dt, end_dt: _stats_df(1, name="Jos\\xc3\\xa9 Abreu"),
+        pitching_fn=lambda start_dt, end_dt: _stats_df(1, name="Mike Trout"),
     )
     bref._load_season(db_conn, 2024)
 
@@ -118,7 +121,7 @@ def test_load_season_rerunning_replaces_instead_of_duplicating(db_conn, monkeypa
 
 
 def test_load_season_skips_a_failing_stat_type_and_continues(db_conn, monkeypatch):
-    def flaky(season):
+    def flaky(start_dt, end_dt):
         raise RuntimeError("simulated failure")
 
     _fake_tables(monkeypatch, batting_fn=flaky)
@@ -169,7 +172,9 @@ def test_load_war_skips_a_failing_table_and_continues(db_conn, monkeypatch):
 def test_bootstrap_loads_multiple_seasons(db_conn, monkeypatch):
     monkeypatch.setattr(bref, "FIRST_YEAR", 2025)
     _fake_tables(
-        monkeypatch, batting_fn=lambda season: _stats_df(1), pitching_fn=lambda season: _stats_df(1)
+        monkeypatch,
+        batting_fn=lambda start_dt, end_dt: _stats_df(1),
+        pitching_fn=lambda start_dt, end_dt: _stats_df(1),
     )
     counts = bref.bootstrap()
 
@@ -186,7 +191,9 @@ def test_bootstrap_loads_multiple_seasons(db_conn, monkeypatch):
 def test_update_reloads_current_season_only(db_conn, monkeypatch):
     monkeypatch.setattr(bref, "FIRST_YEAR", 2025)
     _fake_tables(
-        monkeypatch, batting_fn=lambda season: _stats_df(1), pitching_fn=lambda season: _stats_df(1)
+        monkeypatch,
+        batting_fn=lambda start_dt, end_dt: _stats_df(1),
+        pitching_fn=lambda start_dt, end_dt: _stats_df(1),
     )
     bref.bootstrap()
     bref.update()
@@ -199,7 +206,9 @@ def test_update_reloads_current_season_only(db_conn, monkeypatch):
 def test_health_check_reports_last_run_not_freshness(db_conn, monkeypatch):
     monkeypatch.setattr(bref, "FIRST_YEAR", 2026)
     _fake_tables(
-        monkeypatch, batting_fn=lambda season: _stats_df(1), pitching_fn=lambda season: _stats_df(1)
+        monkeypatch,
+        batting_fn=lambda start_dt, end_dt: _stats_df(1),
+        pitching_fn=lambda start_dt, end_dt: _stats_df(1),
     )
     bref.bootstrap()
 

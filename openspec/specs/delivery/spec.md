@@ -146,42 +146,78 @@ released version.
 
 ### Requirement: A runnable example notebook
 
-The project SHALL include at least one notebook that answers a concrete
-analyst question using **only the released delivery surface** (the
+The project SHALL include **at least five** notebooks, each answering a distinct
+concrete analyst question using **only the released delivery surface** (the
 `mlb-research` package or the published Parquet), never a live database
-connection. The notebook SHALL run end to end from a clean environment
-with the package installed.
+connection. Each notebook SHALL run end to end from a clean environment with the
+package installed, and SHALL recompute any rate from summed numerators and
+denominators rather than averaging already-computed rates.
 
 #### Scenario: The example notebook runs against released data only
 
-- **WHEN** the example notebook is executed in a clean environment with `mlb-research` installed
+- **WHEN** any notebook under `notebooks/` is executed in a clean environment
+  with `mlb-research` installed
 - **THEN** it completes without error
-- **AND** it makes no connection to a Postgres database
+- **AND** it makes no connection to a Postgres database and imports no
+  database-layer package
+
+#### Scenario: The notebook set covers at least five distinct questions
+
+- **WHEN** the `notebooks/` directory is listed
+- **THEN** there are at least five runnable notebooks
+- **AND** each answers a different analyst question, not five variations of one
 
 ### Requirement: The public distribution is a research platform, not only a data dump
 
 The public `mlb-research` distribution SHALL include, alongside the Parquet
-tables and loader, a **point-in-time feature store**: append-only feature
-snapshot tables keyed by entity and an availability timestamp, an as-of
-retrieval contract that returns each feature as it stood before a given
-decision time, a machine-readable feature registry (name, entity, version,
-inputs, availability rule, null policy), and a leakage-test battery that
-ships and runs against it.
+tables and loader, a **point-in-time feature set** and a documented as-of
+retrieval contract over it, so an analyst can assemble training data for a
+stated decision time without hand-writing the leakage guard.
 
-The feature store's retrieval contract SHALL guarantee that a feature value
-returned for decision time `t` was derived only from records whose
-availability timestamp is at or before `t`. A missing snapshot SHALL be
-returned as missing, never filled from a later snapshot.
+The retrieval contract SHALL guarantee that, for every requested
+`(entity, decision time t)` pair:
 
-(The public roadmap in `openspec/project.md` sequences when the feature
-store ships — see its phased ladder. This requirement defines what the
-public distribution is, not when each part lands.)
+- every returned feature value was derived only from records observable at or
+  before `t` — the baseball event had occurred and its result was available
+  (a per-source availability lag SHALL be documented, not assumed to be zero);
+- a feature with no qualifying value at `t` is returned as **missing** — never
+  filled from a later value, never forward-filled, never defaulted to zero;
+- exactly one output row is returned per requested input row.
+
+Where the feature store is rebuilt **incrementally** (a build that appends to an
+earlier one rather than replacing it), retrieval SHALL additionally exclude any
+value that a data delivery *after* `t` would have changed — a row's ingest
+timestamp gates its visibility. A full rebuild has no such ordering and this
+clause does not apply to it.
+
+Published feature files SHALL be **immutable within a release tag**: a value
+published under a tag is never edited in place. A corrected or redefined
+feature SHALL be published under a new feature version, and the superseded
+version SHALL remain retrievable at its original tag.
+
+The distribution SHALL ship the feature build logic, not only its output: an
+installing analyst SHALL be able to reproduce the feature set **from their own
+build** of the source data, using only code the distribution ships, and the
+result SHALL match the project-published feature files within a documented
+tolerance. **Retrieval** from a feature set — published or locally built —
+SHALL require no database server.
+
+The retrieval contract SHALL be exercised by at least one runnable example that
+uses only the delivery surface, and the leakage checks that enforce the
+guarantees above SHALL ship with the distribution and be runnable by an analyst
+against their own build.
+
+(This requirement names the guarantee, not an implementation. No particular
+table shape, storage engine, key layout, or third-party feature-store framework
+is mandated — only that the guarantees hold and that the retrieval join is
+documented. The public roadmap in `openspec/project.md` sequences when each
+part ships.)
 
 #### Scenario: The released product includes a usable feature store
 
 - **WHEN** an analyst installs the public distribution and requests features for a set of games at their scheduled first-pitch times
 - **THEN** they receive one feature row per game built only from data available before that game's first pitch
-- **AND** the feature registry and the leakage-test battery are present in the distribution
+- **AND** the leakage checks that enforce the point-in-time guarantee are present in the distribution and runnable against their own build
 
 #### Scenario: As-of retrieval does not leak the future
 
@@ -189,18 +225,163 @@ public distribution is, not when each part lands.)
 - **THEN** the earlier snapshot is returned
 - **AND** the later snapshot is not used, even if no earlier snapshot exists (the result is missing)
 
-### Requirement: The public distribution includes one reference baseline model
+#### Scenario: An incremental build does not let a late delivery leak backward
 
-The public distribution SHALL include exactly one reference baseline
-prediction model (Elo with a home-field and probable-starter adjustment),
-its source code, and a model card. The model card SHALL report the model's
-calibration, log loss, and Brier score measured on a strictly chronological
-hold-out (never a random split), and SHALL state the model's known
-limitations.
+- **WHEN** the feature store is built incrementally, a source record for an event before decision time `t` is appended to the store only *after* `t`, and features are requested as of `t`
+- **THEN** the returned feature row is computed as if that record were still absent
+- **AND** a later incremental build that includes the record changes the returned row only for decision times at or after the record was appended
+
+#### Scenario: Two games on the same day are ordered by time, not by date
+
+- **WHEN** features are requested as of the first pitch of the second game of a same-day doubleheader
+- **THEN** the returned row reflects no result from the first game of that doubleheader
+- **AND** features requested as of the following day's first pitch do reflect it
+
+#### Scenario: An analyst reproduces the feature set from their own build
+
+- **WHEN** an analyst runs the distribution's documented bootstrap-and-build path against their own environment
+- **THEN** the feature set is produced locally by shipped code
+- **AND** it matches the project-published feature files within the documented tolerance
+
+#### Scenario: Retrieval needs no database server
+
+- **WHEN** an analyst retrieves features from a feature set with no database server configured or running
+- **THEN** the retrieval succeeds and returns the point-in-time-correct rows
+
+### Requirement: The shipped backtest harness is model-agnostic and dependency-light
+
+The public distribution SHALL include a walk-forward backtest harness in the
+installable package (`mlb-research`), usable by an analyst against their own
+build with no database server and no model-training library installed.
+
+The harness SHALL:
+
+- **fit no model itself.** Model fitting and prediction SHALL be supplied by the
+  caller as a `fit_fn` / `predict_fn` callback pair. The package SHALL NOT
+  import `scikit-learn`, `xgboost`, `PyMC`, or any other model-training library
+  at module load or during a backtest run.
+- **split only by time.** Every fold's training rows SHALL fall strictly before
+  its evaluation rows on the caller-named cutoff column. A random or shuffled
+  split SHALL NOT be expressible through the harness API.
+- **never select on the evaluation period.** The harness SHALL expose no
+  parameter or hook that fits, tunes, or chooses features or hyperparameters
+  using rows from a fold's own evaluation period.
+- **take a plain table in.** Input SHALL be a single in-memory tabular frame
+  (one row per evaluation unit, a cutoff-timestamp column, feature columns, a
+  label column). A row missing a required input SHALL be reported as excluded,
+  never imputed or filled.
+- **report probability quality.** For a classification target the harness SHALL
+  report log loss, Brier score, and a binned reliability (calibration) table
+  with an intercept and slope; for a regression target, mean absolute error,
+  root mean squared error, and a residual-decile calibration table. Accuracy MAY
+  be reported but SHALL NOT be the only score. Interval estimates (e.g.
+  bootstrap confidence intervals) SHALL be reproducible from a recorded seed.
+- **support a matched-sample comparison.** The harness SHALL provide a paired
+  comparison of two models' predictions computed over exactly the evaluation
+  units both models scored, so a baseline and a candidate are compared on the
+  same games.
+- **return a serializable result.** A backtest run SHALL return per-fold and
+  aggregate metrics, the fold plan, the included/excluded row counts, and the
+  seed, in a form that serializes to JSON for a model card.
+
+This requirement names the guarantee, not an implementation. It exists so that
+the "an analyst reproduces the model card by running the shipped harness against
+their own build" clause of *The public distribution includes one reference
+baseline model* is actually satisfiable.
+
+#### Scenario: The harness runs with no model-training library installed
+
+- **WHEN** an analyst imports and runs the harness in an environment where `scikit-learn` and `xgboost` are not installed, passing their own `fit_fn` / `predict_fn`
+- **THEN** the backtest completes and returns per-fold and aggregate probability-quality metrics
+- **AND** no import error is raised for a model-training library
+
+#### Scenario: Folds are strictly time-ordered
+
+- **WHEN** a backtest is configured over several evaluation periods
+- **THEN** for every fold, every training row's cutoff timestamp is strictly earlier than every evaluation row's cutoff timestamp
+- **AND** the API offers no option to produce a random or shuffled split
+
+#### Scenario: A missing required input is excluded, not imputed
+
+- **WHEN** the input frame contains a row whose required feature value is null
+- **THEN** that row is omitted from both training and evaluation and counted in the result's excluded-row count
+- **AND** no substitute or filled value is used for it
+
+#### Scenario: Two models are compared on the same games
+
+- **WHEN** an analyst runs the paired comparison of a baseline and a candidate model whose predictions cover overlapping but not identical sets of games
+- **THEN** the comparison metrics are computed only over the games both models scored
+- **AND** the count of those common games is reported
+
+#### Scenario: The reference model card is reproducible from the shipped harness
+
+- **WHEN** an analyst runs the shipped harness against their own build for the reference baseline's stated chronological hold-out
+- **THEN** the calibration, log loss, and Brier score match the published model card within its documented tolerance
+- **AND** the run required no project-operated service and no pre-trained artifact
+
+### Requirement: The public distribution includes one reference baseline model and its model card
+
+The installable package (`mlb-research`) SHALL include one reference baseline
+predictive model (Elo v2) and a reproducible model card reporting its
+evaluation, satisfying the "an analyst reproduces the model card by running
+the shipped harness against their own build" clause the backtest-harness
+requirement names.
+
+The reference model SHALL:
+
+- **fit and predict through the shipped harness.** Elo v2 SHALL be evaluated
+  by calling the package's own walk-forward backtest harness as an ordinary
+  `fit_fn` / `predict_fn` pair — no separate evaluation path.
+- **need no database and no paid or restricted data source.** Elo v2 and its
+  model card SHALL run against the package's own point-in-time feature store
+  output alone. Neither SHALL require a database connection, a market-odds
+  feed, or any source not already part of the public distribution.
+- **report probability quality for two configurations, matched.** The model
+  card SHALL report log loss, Brier score, and calibration for Elo v2 with
+  its starter-quality adjustment enabled, and separately with it disabled (a
+  home-field-only baseline), and SHALL report a matched-sample comparison of
+  the two over identical evaluation games.
+- **treat a missing input as missing, not average.** Where a per-game input
+  the starter adjustment depends on is unavailable, Elo v2 SHALL apply no
+  adjustment for that game rather than substituting a league-average or other
+  fabricated value.
+- **be reproducible from the shipped package alone.** Re-running the model
+  card against the same public feature-store build SHALL reproduce its
+  reported numbers within the harness's documented tolerance, with no
+  project-operated service and no pre-trained artifact required.
+
+This requirement does not require Elo v2 to use a probable starting pitcher,
+compare against betting-market odds, or compare against any other model
+(including the project's own production Elo implementation) — those remain
+explicitly out of scope for this requirement and may be added by a later
+requirement without changing this one.
 
 The reference baseline exists as the worked example every later model is
 measured against. (`openspec/project.md`'s phased ladder sequences when it
 ships.)
+
+#### Scenario: The model card runs from the public package alone
+
+- **WHEN** an analyst installs `mlb-research`, builds the feature store locally, and runs the model card
+- **THEN** it completes and reports Elo v2's log loss, Brier score, and calibration, both with and without the starter adjustment
+- **AND** no database connection, market-data fetch, or non-public dependency is required
+
+#### Scenario: The two configurations are compared on the same games
+
+- **WHEN** the model card backtests Elo v2 with the starter adjustment on and, separately, with it off
+- **THEN** the reported comparison between the two covers exactly the evaluation games both configurations scored
+- **AND** the count of those games is reported alongside the comparison
+
+#### Scenario: A missing starter input produces no adjustment, not a guess
+
+- **WHEN** a game's starter-quality input is unavailable at evaluation time
+- **THEN** Elo v2 predicts that game using the unadjusted team rating
+- **AND** no league-average or other substitute value is used in its place
+
+#### Scenario: Re-running the model card reproduces its numbers
+
+- **WHEN** an analyst re-runs the model card against an unchanged local feature-store build
+- **THEN** the reported log loss, Brier score, and calibration match the previous run within the harness's documented tolerance
 
 #### Scenario: The baseline model ships with an honest model card
 
@@ -227,3 +408,51 @@ excluded.
 - **WHEN** the public distribution is released
 - **THEN** it contains the reference baseline's model card and evaluation numbers
 - **AND** it contains no backtest results, calibration numbers, or model cards for any other model
+
+### Requirement: Published documentation site
+
+The project SHALL publish a static documentation website that an outside
+analyst can read **without cloning the repository or running anything**,
+covering at minimum:
+
+- a **data dictionary** of every table in the published backbone set — its
+  grain, its columns and their types, its source, and its null policy;
+- a **grain-ladder** explanation with a diagram, stating that season, team, and
+  career figures are recomputed from the finer grain's numerators and
+  denominators and never averaged from already-computed rates;
+- **formula citations** — for every metric the project publishes, its formula
+  and the published source it is cited to;
+- an **honest-limitations** page — coverage boundaries, regular-season-only
+  scope, known tie-out tolerances, and the "a missing measurement is not zero"
+  rule.
+
+The site SHALL be deployed at no hosting cost through the same static
+GitHub Pages workflow that publishes the in-browser query page — not a second
+workflow or a paid service. The in-browser query page SHALL remain reachable at
+its existing path after the documentation site is published.
+
+The data-dictionary content SHALL have a single source of truth in the
+repository: the published page SHALL be generated from that source, not
+maintained as a second hand-edited copy that can drift.
+
+#### Scenario: A visitor reads the documented backbone without cloning the repo
+
+- **WHEN** a visitor opens the published documentation site
+- **THEN** they can read the data dictionary, the grain-ladder diagram, the
+  cited formulas, and the honest-limitations page as rendered web pages
+- **AND** no step requires cloning the repository, installing a package, or
+  running a build
+
+#### Scenario: The query page still works after the docs site ships
+
+- **WHEN** the documentation site is deployed
+- **THEN** the in-browser SQL query page is still reachable at its previous path
+- **AND** it still runs queries entirely client-side against the published
+  dataset
+
+#### Scenario: The data dictionary cannot silently drift
+
+- **WHEN** a column is added, renamed, or removed from a published backbone table
+  and the repository's canonical data-dictionary source is updated
+- **THEN** rebuilding the site reflects that change on the published
+  data-dictionary page with no separate edit to the site

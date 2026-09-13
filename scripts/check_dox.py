@@ -29,6 +29,7 @@ REQUIRED_SIDECARS = (
     "mlb_baseball/load.py.dox.md",
     "mlb_baseball/public.py.dox.md",
     "mlb_baseball/registry.py.dox.md",
+    "mlb_baseball/connectors/fangraphs.py.dox.md",
     "mlb_baseball/connectors/kalshi.py.dox.md",
     "mlb_baseball/connectors/mlb_api.py.dox.md",
     "mlb_baseball/connectors/polymarket.py.dox.md",

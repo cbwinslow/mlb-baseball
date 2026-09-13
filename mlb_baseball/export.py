@@ -177,6 +177,26 @@ RELATIONS: tuple[ExportRelation, ...] = (
         "Career pitching line per player",
         ("player_id",),
     ),
+    # Postseason relations (separate-postseason-stats / ADR-282) -- Lahman
+    # BattingPost / PitchingPost lineage, kept entirely apart from the
+    # regular-season backbone. Per-round + combined (per player-season) +
+    # career rows in one table each.
+    ExportRelation(
+        "gold",
+        "batting_postseason",
+        "season",
+        "local_research",
+        "Postseason batting: per (player, season, round) + combined + career (Lahman)",
+        ("player_id", "season", "round", "is_combined", "is_career"),
+    ),
+    ExportRelation(
+        "gold",
+        "pitching_postseason",
+        "season",
+        "local_research",
+        "Postseason pitching: per (player, season, round) + combined + career (Lahman)",
+        ("player_id", "season", "round", "is_combined", "is_career"),
+    ),
     ExportRelation(
         "core", "game", "season", "local_research", "Conformed games (Retrosheet + MLB API)"
     ),

@@ -33,6 +33,7 @@ direction docs are kept in [docs/archive/](docs/archive/) —
 
 ## Docs
 
+- **[Published docs site](https://cbwinslow.github.io/mlb-baseball/)** — the researcher-facing site: data dictionary, grain ladder, formulas + citations, honest limitations, and an [in-browser SQL query page](https://cbwinslow.github.io/mlb-baseball/query/) over the published dataset.
 - [openspec/project.md](openspec/project.md) — the project constitution: product, audience, current phase, workflow. Start here.
 - [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) — every source the pipeline pulls from, cost and license notes
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — schema layering, connector shape, configuration
@@ -94,6 +95,29 @@ prediction-feature matrix) are additionally populated by `mlb features`,
 which is part of the paused prediction ladder — not needed for research use.
 From there, query the database directly with `psql` or any Postgres client,
 or dump tables to CSV with `psql \copy` (see "Exporting data" below).
+
+### The point-in-time feature store
+
+For model building, `mlb build` composes the steps above and then writes a
+single local **DuckDB** file with the point-in-time feature relations
+(`feat.player_form`, `feat.pitcher_form`, `feat.game`). Three commands:
+
+```bash
+uv run mlb bootstrap   # sources -> your Postgres  (raw + core)
+uv run mlb build       # Postgres -> gold + the DuckDB feature file (default ~/.mlb/mlb.duckdb)
+uv run mlb verify      # leakage checks + the Baseball-Reference tie-out on your own build
+```
+
+`migrate` / `conform` / `report` / `features` still work standalone — `build`
+wraps them. Retrieve features with no server:
+
+```python
+import mlb_research as mr
+X = mr.get_historical_features(games, ["player_form:obp_30d", "pitcher_form:k_minus_bb_pct_30d"])
+```
+
+See [`docs/FEATURE_STORE.md`](docs/FEATURE_STORE.md) and
+[ADR-287](docs/DECISIONS.md) (why the feature layer is DuckDB, not Postgres).
 
 The prediction ladder (`mlb predict` / `train` / `simulate`) is paused — see
 **Status** above. It still runs, but it is not part of the research-database
@@ -157,14 +181,15 @@ Until it merges, use the `psql \copy` recipes above.
 
 ## Scheduling
 
-Two cron jobs, two different cadences — see `docs/ARCHITECTURE.md` "Scheduling" and `docs/DECISIONS.md` ADR-016/ADR-023:
+Three cron jobs, three cadences — see `docs/ARCHITECTURE.md` "Scheduling" and `docs/DECISIONS.md` ADR-016/ADR-023/ADR-285:
 
 ```cron
 */5 * * * * /path/to/mlb-baseball/scripts/mlb_api_update.sh
+0 */2 * * * /path/to/mlb-baseball/scripts/mlb_odds_update.sh
 0 6 * * *   /path/to/mlb-baseball/scripts/mlb_daily_update.sh
 ```
 
-Replace `/path/to/mlb-baseball` with this repo's actual path. `mlb_api_update.sh` keeps the current season's schedule/standings and live-game state fresh every 5 minutes (`logs/mlb_api_update.log`). `mlb_daily_update.sh` runs `mlb update` — every connector's `update()`, all of them deliberately cheap (current season or a small full-catalog check, never a full historical re-fetch) — once a day to keep Statcast leaderboards, Baseball-Reference season stats, and similar season-in-progress data fresh (`logs/mlb_daily_update.log`). Both guard against overlapping runs with `flock`. `mlb doctor` reports `mlb_api freshness` as unhealthy if the 5-minute job stops running (no successful run in the last 15 minutes), not just if the last run failed.
+Replace `/path/to/mlb-baseball` with this repo's actual path. `mlb_api_update.sh` keeps the current season's schedule/standings and live-game state fresh every 5 minutes (`logs/mlb_api_update.log`). `mlb_odds_update.sh` re-runs the Kalshi and Polymarket `update()` every 2 hours so `raw.*_snapshot` accrues several pre-game price snapshots a day instead of one (`logs/mlb_odds_update.log`); `core.market` still rebuilds only on the daily conform. `mlb_daily_update.sh` runs `mlb update` — every connector's `update()`, all of them deliberately cheap (current season or a small full-catalog check, never a full historical re-fetch) — once a day to keep Statcast leaderboards, Baseball-Reference season stats, and similar season-in-progress data fresh (`logs/mlb_daily_update.log`). All three guard against overlapping runs with `flock`. `mlb doctor` reports `mlb_api freshness` as unhealthy if the 5-minute job stops running (no successful run in the last 15 minutes), not just if the last run failed.
 
 ## Requirements
 

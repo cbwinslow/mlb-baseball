@@ -349,6 +349,129 @@ def test_pitching_career_sums_combined_rows_and_recomputes_rates(db_conn):
         _cleanup(db_conn)
 
 
+def _seed_pitching_season_with_er(db_conn, rows):
+    cols = (
+        "player_id",
+        "season",
+        "team_id",
+        "is_combined",
+        "g",
+        "gs",
+        "bf",
+        "outs",
+        "h",
+        "r",
+        "bb",
+        "ibb",
+        "so",
+        "hr",
+        "hbp",
+        "wp",
+        "bk",
+        "w",
+        "l",
+        "sv",
+        "er",
+    )
+    with db_conn.cursor() as cur:
+        for row in rows:
+            full = {c: 0 for c in cols}
+            full["team_id"] = None
+            full["er"] = None
+            full.update(row)
+            cur.execute(
+                "INSERT INTO gold.pitching_season (" + ", ".join(cols) + ") "
+                "VALUES (" + ", ".join(["%s"] * len(cols)) + ")",
+                tuple(full[c] for c in cols),
+            )
+    db_conn.commit()
+
+
+def test_pitching_career_era_only_for_a_wholly_2026_plus_career(db_conn):
+    _cleanup(db_conn)
+    _seed_core(db_conn)
+    # Career Old Arm (74002):
+    #   2026 combined: outs 486, r 70, er 60 -> so far all-2026
+    #   2027 combined: outs 243, r 30, er 25
+    #   career: outs 729, r 100, er 85 -> era = 85 * 27 / 729, ra9 = 100 * 27 / 729
+    _seed_pitching_season_with_er(
+        db_conn,
+        [
+            {
+                "player_id": 74002,
+                "season": 2026,
+                "is_combined": True,
+                "g": 28,
+                "gs": 28,
+                "bf": 720,
+                "outs": 486,
+                "h": 160,
+                "r": 70,
+                "so": 190,
+                "er": 60,
+            },
+            {
+                "player_id": 74002,
+                "season": 2027,
+                "is_combined": True,
+                "g": 14,
+                "gs": 14,
+                "bf": 360,
+                "outs": 243,
+                "h": 80,
+                "r": 30,
+                "so": 95,
+                "er": 25,
+            },
+        ],
+    )
+    # Career Long Career (74001): 2025 (er NULL) + 2026 (er 30) -> mixed.
+    _seed_pitching_season_with_er(
+        db_conn,
+        [
+            {
+                "player_id": 74001,
+                "season": 2025,
+                "is_combined": True,
+                "g": 30,
+                "gs": 30,
+                "bf": 800,
+                "outs": 540,
+                "h": 180,
+                "r": 80,
+                "so": 200,
+                "er": None,
+            },
+            {
+                "player_id": 74001,
+                "season": 2026,
+                "is_combined": True,
+                "g": 28,
+                "gs": 28,
+                "bf": 700,
+                "outs": 480,
+                "h": 150,
+                "r": 60,
+                "so": 180,
+                "er": 30,
+            },
+        ],
+    )
+    try:
+        _build(db_conn)
+        c = _row(db_conn, "pitching_career", 74002, ["er", "era", "ra9"])
+        assert c["er"] == 85
+        assert float(c["era"]) == pytest.approx(85 * 27 / 729)
+        assert float(c["ra9"]) == pytest.approx(100 * 27 / 729)
+
+        mixed = _row(db_conn, "pitching_career", 74001, ["er", "era", "ra9"])
+        assert mixed["er"] is None
+        assert mixed["era"] is None  # any pre-2026 season nulls the career ERA
+        assert float(mixed["ra9"]) == pytest.approx(140 * 27 / 1020)  # ra9 still there
+    finally:
+        _cleanup(db_conn)
+
+
 def test_career_rebuild_is_idempotent(db_conn):
     _cleanup(db_conn)
     _seed_core(db_conn)

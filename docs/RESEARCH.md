@@ -73,7 +73,49 @@ Sources: [arXiv 2511.17733 — The Impacts of Increasingly Complex Matchup Model
 
 Walk-forward / rolling validation (predict period N using only data through N-1) is the consensus approach across every source checked — matches `gold.game_feature`'s point-in-time design and ADR-032's time-based split already. Common failure mode explicitly called out: using "closing line"/same-game stats inflates backtested accuracy without holding up in real prediction — the same class of trap as `core.game.winning_pitcher_id`, already designed around.
 
+**Honest limitation of the `feat.*` feature store (feature-store-v1, ADR-287).** The point-in-time clock is an assumption, not a measurement. Retrosheet records neither a first-pitch time nor an ingest time. `event_ts` is `game_date + game_number × 3h` — a fictional absolute time that gets same-day (doubleheader) *ordering* right; the box-score availability lag is a flat 6h applied in the rolling-window frame. So real same-day timing (a rain delay, a split doubleheader) is not modelled, and a *full rebuild* cannot honour "a record that entered Retrosheet after 2015 is invisible to a 2015 decision" (Retrosheet backfills and corrects history and we do not know when each record landed). The `feat.*` layer is leak-free against its own clock model; that model is conservative but coarse. `mlb verify`'s two checks test the mechanism, not the exact lag.
+
 Source: [How to Build Sports Prediction Models in 2026](https://www.parlaysavant.com/insights/sports-prediction-models-2026)
+
+**The harness is now a shipped, model-agnostic surface (feature-store-v1
+slice 2).** `mlb_research.backtest` -- installable with `mlb-research`,
+numpy + pandas only, no database, no model-training library import -- is
+the one implementation of this walk-forward discipline: `time_ordered_folds`
+builds strictly time-ordered folds (a random split is not expressible);
+`run_backtest` takes a caller-supplied `fit_fn`/`predict_fn` pair (so
+`sklearn`, `xgboost`, or a hand-written Elo are the *caller's* dependency,
+never the package's) and hands a sequential model its test rows in cutoff
+order, predicting before folding each row's own outcome in; it scores log
+loss, Brier, a calibration table, and accuracy for classification (MAE,
+RMSE, residual calibration for regression) -- probability quality, not
+accuracy alone, matching the discipline above. `mlb_baseball/model/
+experiment.py`'s `run()` is now a thin adapter over the same functions: the
+pure evaluation math (metrics, calibration, fold construction) moved to
+`mlb_research.backtest`, and `experiment.py` supplies the PostgreSQL
+snapshot machinery, the sklearn/xgboost estimator zoo, and the `elo`/`log5`
+baseline families as `fit_fn`/`predict_fn` factories. See
+`packages/mlb-research/README.md`'s "Backtesting" section for the API and a
+copy-pasteable example.
+
+**The reference baseline now ships too (feature-store-v1-baseline, a
+narrowed slice 3).** `mlb_research.elo` -- Elo v2, pure numpy, evaluated
+through the harness above as an ordinary `fit_fn`/`predict_fn` pair: v1's
+math unchanged (home field, MOV multiplier, K-factor), plus a preseason
+prior that fades over a team's first `fade_games` games of a season instead
+of jumping straight to it, plus a starter-quality adjustment (the starter's
+entering FIP-like form, z-scored against that fold's own training data,
+never the evaluation period; missing data means no adjustment, not a
+fabricated average). `FADE_GAMES`/`STARTER_WEIGHT` are chosen, not sourced,
+exactly like the underlying model's own unsourced constants.
+`build_model_card`/`render_model_card` backtest Elo v2 with the starter
+adjustment on vs. off (a home-field-only baseline, same model) and report a
+matched-sample comparison -- no database, no market data, reproducible with
+the public dataset alone. Deliberately **not** in this baseline: the
+probable starting pitcher (the only real identity source,
+`raw.mlb_probable`, has about five weeks of history -- nowhere near enough
+to backtest against), a betting-market comparison, and a comparison against
+production Elo v1's `gold.game_feature` ratings. See
+`packages/mlb-research/README.md`'s "Reference baseline: Elo v2" section.
 
 ## Model stacking / ensembling — "outputs as inputs"
 
@@ -92,7 +134,7 @@ gbm-v1 (ADR-033) barely beat Elo despite having 10 features to Elo's 2 — the c
 - Cui, A. Y. (2020). *Forecasting Outcomes of Major League Baseball Games Using Machine Learning.* EAS 499 Senior Capstone Thesis, University of Pennsylvania (Wharton/SEAS). [PDF](https://fisher.wharton.upenn.edu/wp-content/uploads/2020/09/Thesis_Andrew-Cui.pdf) — **does not** support the claim as previously cited here. Across all three of its models, OBP is the most important feature and ISO typically second; the thesis's own words: "the pitching covariates show similar but generally weak feature importance, which is sensible since they are aggregate numbers from the prior season." That's the same lagged-aggregate leakage trap this section already diagnoses below — the thesis is evidence *for* building the rolling within-season pitcher stat this project built, not evidence that pitcher quality is a top predictor in the abstract.
 - Li, S.-F., Huang, M.-L., & Li, Y.-Z. (2022). "Exploring and Selecting Features to Predict the Next Outcomes of MLB Games." *Entropy*, 24(2), 288. https://doi.org/10.3390/e24020288 — the paper's headline finding is that winning percentage, not a pitching stat, is the only feature its recursive feature elimination selects for every one of 30 team-specific datasets; ERA/WHIP-type features appear in some team subsets but "varied by team." More a validation of this project's Elo/log5/Pythagenpat baseline layer than a pointer toward pitcher quality specifically.
 
-Net: 2 of 4 sources checked support "starting pitcher quality is a top predictor," and the two that don't (Cui 2020, Li et al. 2022) both point at *why* — a lagged season aggregate is a weak signal, exactly the leakage trap the next sentence below already diagnoses and the reason this project built a rolling within-season signal instead of using `raw.bref_pitching` directly. FIP/xFIP/SIERA (defense-independent pitching — strikeouts, walks, home runs are what a pitcher actually controls, per DIPS theory) are more predictive of *future* performance than ERA. **What we have**: `raw.bref_pitching` (full traditional stat line) and `raw.statcast_pitcher_expected` (Statcast's own `xera`, 2015+) both exist but are **season aggregates** — same leakage trap as `core.player_war` (ADR-032): usable only as a prior-season lag, not mid-season. For a genuine point-in-time, no-leakage, *within-season* signal, `core.play` has per-event data (`pitcher_id`, `event_code` — confirmed directly against real data: `3`=K, `14`/`15`=BB/IBB, `23`=HR, `2`/`16`/`18`-`22`=other PA-ending outcomes) back to 1901, enough to compute a rolling strikeout-rate/walk-rate/home-run-rate for a starter's own prior starts this season, the same window-function shape already used for team win%. Getting a true innings-pitched-denominated FIP requires reconstructing IP from out-sequences, real added complexity; a per-batter-faced K%/BB%/HR% composite is a legitimate, simpler proxy in the same spirit, at the cost of not being on a familiar ERA-like scale.
+Net: 2 of 4 sources checked support "starting pitcher quality is a top predictor," and the two that don't (Cui 2020, Li et al. 2022) both point at *why* — a lagged season aggregate is a weak signal, exactly the leakage trap the next sentence below already diagnoses and the reason this project built a rolling within-season signal instead of using `raw.bref_pitching` directly. FIP/xFIP/SIERA (defense-independent pitching — strikeouts, walks, home runs are what a pitcher actually controls, per DIPS theory) are more predictive of *future* performance than ERA. **What we have**: `raw.bref_pitching` (full traditional stat line, **regular season only** since ADR-282 — it previously folded in postseason innings for deep-playoff-team pitchers 2021+) and `raw.statcast_pitcher_expected` (Statcast's own `xera`, 2015+) both exist but are **season aggregates** — same leakage trap as `core.player_war` (ADR-032): usable only as a prior-season lag, not mid-season. For a genuine point-in-time, no-leakage, *within-season* signal, `core.play` has per-event data (`pitcher_id`, `event_code` — confirmed directly against real data: `3`=K, `14`/`15`=BB/IBB, `23`=HR, `2`/`16`/`18`-`22`=other PA-ending outcomes) back to 1901, enough to compute a rolling strikeout-rate/walk-rate/home-run-rate for a starter's own prior starts this season, the same window-function shape already used for team win%. Getting a true innings-pitched-denominated FIP requires reconstructing IP from out-sequences, real added complexity; a per-batter-faced K%/BB%/HR% composite is a legitimate, simpler proxy in the same spirit, at the cost of not being on a familiar ERA-like scale.
 
 **Bullpen quality and fatigue** — research (InsidethePen usage-tracking analysis) is direct: relievers now handle 40%+ of innings, and WHIP/K%/BB% predict bullpen betting value better than ERA; fatigue (pitches thrown in the last 5 days, back-to-back appearances) measurably reduces effectiveness independent of quality. Buildable from `core.play` the same way as starter quality (identify a team's non-starting pitchers' appearances, roll up rate stats + a recency/workload count) — a real, separate, second piece of engineering from starter quality, not a byproduct of it.
 
@@ -112,6 +154,7 @@ Net: 2 of 4 sources checked support "starting pitcher quality is a top predictor
 2. ✅ **Starting pitcher true FIP + K%/BB%/HR%** — built (`mlb_baseball/model/starter.py`, ADR-034). Both approaches, not a forced choice — true FIP on the reserved `home_starter_era` column plus the raw rates in new `home_starter_k_pct`/`bb_pct`/`hr_pct` columns (migration 0016). Verified against real deGrom 2018 data, then at full scale (13,613 pitcher-seasons) against `raw.bref_pitching`, wired as a permanent `mlb doctor` reconciliation. **Known gap**: `raw.retrosheet_event` covers 1910-2025 only — 2026 (the live season) needs the equivalent from `raw.mlb_playbyplay`, a separate parsing task, not yet built.
 3. ✅ **Park factors** — built (`mlb_baseball/model/park.py`, ADR-035). Trailing 3-year window, purely derived from `core.game`'s own historical scores, zero external dependency. Verified against real 2024 data: Coors Field correctly ranks highest (135.4), matching wide sabermetric consensus.
 4. ✅ **Team offensive true talent → team wOBA** — built (`mlb_baseball/model/offense.py`, ADR-036), better than originally planned: a genuine within-season rolling number from `raw.retrosheet_event`, not a season-lagged Statcast aggregate. FanGraphs' own published formula, recreated (not scraped — confirmed they don't support scraping/API access at all). Verified: real 2023 league-average wOBA computed at .317, matching the known real value; real 2024 team values all land in .295-.333.
+   - **Era-accurate weights now available (ADR-290).** `research.py` documents a single fixed linear-weight set (`wOBA = 0.69·uBB + 0.72·HBP + …`); the real weights drift year to year. `gold.fangraphs_guts` (fangraphs-conform Beat 1) carries the full per-season set. For **internal** era-accurate work the fixed weights in `research.py` / `model/offense.py` can be replaced by a `gold.fangraphs_guts` join — a follow-up change (audit every consumer first). It stays a **cross-check** for any figure the project *publishes*: a published wOBA must be computed from `core.play`, not from FanGraphs' constants (`local_research`).
 5. ✅ **wRC+** — built (`mlb_baseball/model/offense.py::compute_wrc_plus`, ADR-037). Park- and league-adjusted team wOBA. Sanity-checked algebraically (a league-average hitter in a neutral park must reduce to exactly 100 by definition — a real regression test, not just a manual check) and verified against real 2024 data: every value in 86.9-103.6, clustered around 100.
 6. ✅ **Prior-season team WAR** — built (`mlb_baseball/model/war.py`, ADR-038). Closes the last ADR-032-reserved `gold.game_feature` column. Surfaced a real, separate team-identity crosswalk gap along the way: `core.player_war.team_code` uses bref's own abbreviations (`NYY`, `CHC`), genuinely different from Retrosheet's (`NYA`, `CHN`) that `core.team` uses — confirmed by direct comparison, not assumed. Verified: 2023's Braves and Rangers (both real, well-known strong teams) correctly rank highest entering 2024.
 7. ✅ **Bullpen quality/fatigue** — built (`mlb_baseball/model/bullpen.py`, ADR-039). Team-level, not pitcher-level, by deliberate design — which reliever a manager uses today is an in-game decision, so per-pitcher composition would leak. Rolling season-to-date relief FIP/K%/BB% plus a trailing-3-day relief-outs fatigue signal, both no-leakage by the same construction as starter.py. Caught a real design bug pre-verification: without a full team-game backbone, both signals would silently go NULL for any specific game where a team happened to use zero relievers, regardless of real prior history — fixed before it ever ran against real data.

@@ -63,10 +63,13 @@ it (formula + citation), and is private until then.
 Parquet on Hugging Face (+ GitHub Releases mirror) → pybaseball-style
 Python loader on PyPI → DuckDB-WASM browser query page → Docker image →
 Marimo notebooks + a MkDocs Material docs site. **v1.1 adds** the
-point-in-time feature store (append-only `feat.*` snapshot tables + an
-as-of retrieval contract + a feature registry + a leakage-test battery)
-and one reference baseline model (Elo v2) + its model card — the pieces
-that make this a research *platform*, not just a download. Coverage
+point-in-time feature store (DuckDB `feat.*` relations, windows as columns,
+a Feast-shaped `get_historical_features` retrieval function, two
+store-level leakage checks — ADR-287, `openspec/changes/feature-store-v1/`),
+the walk-forward backtest harness, and one reference baseline model
+(Elo v2) + its model card — the pieces that make this a research
+*platform*, not just a download. Built in three slices: the feature layer,
+the harness, then Elo v2. Coverage
 target: match `pybaseball` / `baseballr`. No hosted DB, no hosted REST
 API (defer — needs revenue). Publishing the backbone dataset:
 [`docs/PUBLIC_API.md`](../docs/PUBLIC_API.md#publishing-the-backbone-dataset-to-hugging-face).
@@ -96,16 +99,30 @@ shipped.
 - **v1** — the stats download, finished (criteria above). Nearly there.
 - **v1.1** — the platform: point-in-time feature store, walk-forward
   backtest harness, one reference baseline (Elo v2) + model card. Also
-  finish the queued items: `openspec/specs/statistic-backbone/spec.md`,
-  expand the Baseball-Reference tie-out beyond 2023 Judge/Cole, the
-  `gold.player_season` two-writer ADR (ADR-278).
+  finish the queued item: `openspec/specs/statistic-backbone/spec.md`.
+  (The Baseball-Reference tie-out and the `gold.player_season` two-writer
+  question — ADR-281, option A — are both done; see NEXT.)
 - Exit Phase A: v1.1 shipped and versioned in a public release.
+
+**Clarification (metric-catalog, ADR-291):** the Phase A/B line is drawn by
+the publication rule above ("a metric ships once we choose to publish it —
+formula + citation"), not by which directory currently implements it. A
+metric implementing a published, citable formula is Phase A / public
+regardless of whether it currently lives under `model/`, `gold`, or
+elsewhere; only tuned parameters, blended/ensembled outputs, ranked
+feature-selection results, and non-baseline backtest results are Phase B /
+internal.
 
 **Phase B — the Engine (internal). SPECULATIVE.** Entry: Phase A's
 feature store is stable and versioned.
 1. Engine triage + a `meta.metric` registry table — classify the ~110
    "Engine" composite packages into keep / add-harness / rebuild-on-demand
-   / archive-as-negative-result.
+   / archive-as-negative-result. **Satisfied by the `metric-catalog` change**
+   (ADR-291): the tooling (YAML schema, loader, `meta.metric`, CI
+   completeness check, generated docs page) shipped as documentation-only,
+   pulled forward ahead of Phase B's entry gate. The full ~155-module
+   triage this step asked for is not done in one pass — it is tracked as an
+   ongoing, batched NEXT-queue item, not a Phase B start.
 2. Model ladder through the harness: elastic-net logistic →
    negative-binomial team runs → Monte Carlo market calculator → CatBoost
    challenger. Ensembles / DNNs only after tabular models are shown to
@@ -151,9 +168,17 @@ per-US-state legal homework before any of it ships.
 
 ## Database engineering standards
 
+- **The boundary is at `core`.** PostgreSQL is the authoritative system of
+  record for `raw` and `core` — ingestion, identity reconciliation,
+  provenance, constraints. The **derived feature and model layer is
+  DuckDB-only**: `mlb build` reads PostgreSQL and writes the `feat.*`
+  relations into one local DuckDB file; features are built there and models
+  read only from there. A `feat.*` row is a reproducible artifact, not source
+  data — deleting the file loses nothing. See **ADR-287**.
 - All build logic in **versioned `.sql` files** run by `mlb report` /
-  `mlb conform`. **No triggers, no stored procedures** for pipeline
-  logic.
+  `mlb conform` / `mlb build`. **No triggers, no stored procedures** for
+  pipeline logic (DuckDB feature SQL follows the same rule — no macros
+  standing in for pipeline logic).
 - **No SQL strings embedded in Python** — `scripts/lint_sql_ownership.py`
   + pre-commit hook enforce it.
 - Normalization by layer: `core` normalized, `gold` deliberately
@@ -256,29 +281,65 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    rewritten (historical record).
 4. ✅ Bot prune + dependency/PG-extension audit — ADR-279; issue #142
    (logging); `.coderabbit.yaml`; dependency-review comment fix; owner uninstalls pending
-5. MkDocs Material docs site + `understand-anything` knowledge graph
+5. MkDocs Material docs site (built in `openspec/changes/mkdocs-docs-site/`
+   — index, data dictionary, grain ladder, formulas + citations, honest
+   limitations; deploys through `pages.yml`; PR open) + `understand-anything`
+   knowledge graph (still open)
 6. ✅ Delivery surface first cut (`openspec/changes/delivery-surface/`) —
    `mlb export --preset backbone` (8 of 10 candidate tables; `player_season`/
    `team_season` excluded on source-rights grounds, see `rights-review.md`),
    HF publish step, `mlb-research` PyPI loader package, the DuckDB-WASM
-   query page (`docs/site/query/`), and one example notebook
-   (`notebooks/01-strikeout-rate-by-decade.py`). Published:
+   query page (`docs/site/query/`), and the example notebooks
+   (`notebooks/01`..`05` — K% by decade, the HR era, three true outcomes,
+   BABIP-vs-K% reliability, strikeouts-and-scoring; the ≥5-recipe v1 criterion
+   is met via `openspec/changes/notebook-recipes/`, PR open). Published:
    [huggingface.co/datasets/cbwinslow/mlb-research](https://huggingface.co/datasets/cbwinslow/mlb-research),
    tag `v0.1.0`. Production `mlb` needed migrations 0094-0099 applied and its
    first-ever `mlb report` backbone build (12.9M rows, 16.4M source events)
    before the export had anything to publish — both done as part of this
    step.
 
+7. Postseason separation (`openspec/changes/separate-postseason-stats/`,
+   ADR-282 / ADR-283) — `bref.py` pulls a regular-season-only window;
+   `gold.batting_postseason` / `gold.pitching_postseason` built from Lahman
+   `BattingPost` / `PitchingPost`; `mlb doctor` envelope + purity guards;
+   model/ML game-type audit. baseball.computer adopted as the game-type
+   reference (regular-season-only aggregates everywhere). **Owner step
+   outstanding:** re-ingest `raw.bref_*` for 2008–2026 and re-run `mlb report`
+   (`reingest-runbook.md`).
+
 **NEXT** — finish v1's remaining milestone work, then v1.1:
-- v1 finishing work: `openspec/specs/statistic-backbone/spec.md`; expand
-  the Baseball-Reference tie-out beyond 2023 Judge/Cole (✅ the harness
-  and the two cases exist — `scripts/verify_baseball_reference_tie_out.py`,
-  both match to Baseball-Reference's 3-decimal display precision);
-  `gold.player_season` two-writer ADR (ADR-278 relation-6, options
-  A/B/C — recommend A).
-- **v1.1 (the platform):** point-in-time feature store (`feat.*` snapshot
-  tables + as-of retrieval + registry + leakage tests); the walk-forward
-  backtest harness; one reference baseline model (Elo v2) + model card.
+- v1 finishing work: `openspec/specs/statistic-backbone/spec.md`.
+  - Baseball-Reference tie-out gate ✅ — `scripts/verify_baseball_reference_tie_out.py`:
+    Judge 2022 + Cole 2023 cited cases match to Baseball-Reference's 3-decimal
+    display precision; the bulk cross-check runs 2008–2025 and passed against
+    the re-ingested `raw.bref_*` (`separate-postseason-stats`, 2026-09-07).
+    Adding more cited cases at other grains stays open, low priority.
+  - `gold.player_season` two-writer question ✅ — **ADR-281** (option A):
+    `gold.player_season` (BRef/Lahman, 2008+) and the event-derived
+    `gold.batting_season` / `gold.pitching_season` (Retrosheet, 1910+) are
+    parallel lines, one writer each, neither a view or second writer into
+    the other. Implemented and on `main` (PR #158).
+- **v1.1 (the platform):** point-in-time feature store, walk-forward
+  backtest harness, one reference baseline model (Elo v2) + model card.
+  Sliced in `openspec/changes/feature-store-v1/` (slice 1 = DuckDB `feat.*`
+  layer + `get_historical_features` + leakage checks + `mlb build` /
+  `mlb verify` ✅; slice 2 = harness extraction into `mlb_research` ✅
+  (`mlb_research.backtest`: `time_ordered_folds`/`run_backtest`/
+  `paired_comparison`, numpy-only metrics/calibration, `experiment.py` now a
+  thin adapter — `feature-store-v1-harness`; `compare()` stays unchanged,
+  owner decision 2026-09-13, that change's `tasks.md` task 5.5);
+  slice 3 = Elo v2 + model card ✅ (`mlb_research.elo`: v1's math + a
+  fading preseason prior + a train-fold-z-scored starter-quality
+  adjustment; `build_model_card`/`render_model_card` via the slice-2
+  harness — `feature-store-v1-baseline`, narrowed from the original slice 3
+  sketch: probable-starter identity, the leakage notebook, HF publish
+  wiring, and any market/production-Elo comparison are deferred to their
+  own later changes; see that change's `proposal.md`). Design input:
+  `docs/research/2026-09-04-modeling-and-realtime-plan.md` and two Opus
+  design reviews (`feature-store-v1/DESIGN_REVIEW.md`); ADR-287 for the
+  Postgres/DuckDB boundary. **feat.* is DuckDB-only — no Postgres `feat`
+  schema, no Feast.**
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

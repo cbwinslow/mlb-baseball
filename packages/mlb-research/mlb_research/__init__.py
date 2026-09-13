@@ -15,6 +15,10 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from mlb_research import leakage_checks
+from mlb_research.features import get_historical_features
+from mlb_research.paths import resolve_db_path
+
 __version__ = "0.1.0"
 
 DEFAULT_REPO_ID = "cbwinslow/mlb-research"
@@ -120,4 +124,11 @@ def load(
     return con.execute(f"SELECT * FROM read_parquet('{posix_path}')").df()
 
 
-__all__ = ["BACKBONE_TABLES", "DEFAULT_REPO_ID", "load"]
+__all__ = [
+    "BACKBONE_TABLES",
+    "DEFAULT_REPO_ID",
+    "get_historical_features",
+    "leakage_checks",
+    "load",
+    "resolve_db_path",
+]

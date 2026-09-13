@@ -1,4 +1,12 @@
--- Rebuild gold.pitching_game from raw.retrosheet_event (1910-2025).
+-- Rebuild gold.pitching_game from raw.retrosheet_event (1910-2025 only).
+--
+-- 2026 onward is built by sql/pitching_game_mlb_build.sql from
+-- raw.mlb_boxscore_pitching (backbone-2026-source). The `g.season <= 2025`
+-- bound below is the partition line between the two builders.
+--
+-- `er` (added in migration 0102) is left NULL by this builder -- the event
+-- stream carries no earned-run data. The box-score builder populates it for
+-- 2026+.
 --
 -- Truncate-and-replace (caller TRUNCATEs first, same transaction),
 -- transactional, idempotent. Optional %(season)s bind scopes the rebuild.
@@ -52,6 +60,7 @@ WITH ev AS (
     JOIN raw.retrosheet_event re ON re.game_id = g.retro_game_id
     WHERE g.retro_game_id IS NOT NULL
       AND lower(g.game_type) = 'regular'
+      AND g.season <= 2025          -- 2026+ is raw.mlb_boxscore_pitching (backbone-2026-source)
       AND (%(season)s::integer IS NULL OR g.season = %(season)s::integer)
 ),
 pitching AS (

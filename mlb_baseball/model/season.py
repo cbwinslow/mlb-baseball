@@ -397,6 +397,11 @@ def load_schedule_from_db(
                 JOIN core.team ht ON ht.id = g.home_team_id
                 JOIN core.team at ON at.id = g.away_team_id
                 WHERE g.season = %s
+                  -- Regular season only (incl. Game 163 tiebreakers, which
+                  -- count as regular season, per baseball.computer's
+                  -- seed_game_types). A season win-total / playoff-odds sim
+                  -- must not fold in October postseason games.
+                  AND g.game_type IN ('regular', 'playoff')
                   AND ht.retro_team_id NOT IN ('ALS', 'NLS')
                   AND at.retro_team_id NOT IN ('ALS', 'NLS')
                 ORDER BY g.game_date, g.game_number

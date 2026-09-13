@@ -1,0 +1,13 @@
+# DuckDB-dialect scope for mlb_baseball/sql/duckdb/ ONLY. The sibling files
+# in mlb_baseball/sql/ stay `dialect = postgres` (repo-root .sqlfluff). These
+# files are run by mlb_baseball/feat.py via read_sql("duckdb/<name>.sql") and
+# use DuckDB-only syntax (ASOF JOIN, getvariable(), INTERVAL <n> HOUR). They
+# take build-time parameters from DuckDB session variables feat.py sets
+# (feat_version, feat_lag_hours), not from psycopg placeholders -- and they
+# contain no `%` character, so the inherited placeholder templater is a
+# no-op here (sqlfluff forbids overriding `templater` in a subdirectory
+# .sqlfluff, so `dialect` is all this file changes).
+[sqlfluff]
+dialect = duckdb
+max_line_length = 100
+exclude_rules = layout,aliasing,references,structure,capitalisation,ambiguous

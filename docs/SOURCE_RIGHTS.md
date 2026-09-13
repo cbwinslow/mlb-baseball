@@ -11,6 +11,7 @@ unauthenticated or the project currently uses it for noncommercial research.
 | Chadwick Register | License and redistribution terms need a pinned-release review. | yes | no | no |
 | MLB Stats API and Baseball Savant/Statcast | MLB terms prohibit automated scripts collecting or interacting with MLB Digital Properties. | yes, owner-risk research only | no | no |
 | Baseball-Reference via pybaseball | No permission evidence recorded for automated collection, predictive ML, or redistribution. | yes, owner-risk research only | no | no |
+| FanGraphs via fungo | Reached through the FanGraphs mobile-app JSON API (`fungo`, the one Cloudflare-exempt client). No permission evidence recorded for automated collection, redistribution, model training, or generated content. FanGraphs' site terms reserve its data; the mobile-app endpoints are undocumented and unauthenticated, not licensed. Reviewed 2026-09-10 (ADR-288). | yes, owner-risk research only | no | no |
 | Polymarket / Kalshi | Public read access is not a redistribution, content, or commercial-display license. | yes, owner-risk research only | no | no |
 | RSS/news feeds | Feed access does not establish rights to republish summaries, derived NLP features, or commercial content. | yes, owner-risk research only | no | no |
 
@@ -21,6 +22,16 @@ Before changing a row to public-safe, retain the source's current terms,
 specific permitted use, attribution wording, redistribution terms, ML/model
 training permission, generated-content permission, commercial permission, and
 review date in the same pull request.
+
+Derived relations inherit their most-restrictive source. `gold.fangraphs_guts`
+and `gold.fangraphs_park_factors` (fangraphs-conform Beat 1, ADR-290) are
+conformed from `raw.fangraphs_*` and carry FanGraphs' `local_research` posture:
+never `public_safe`, never in the published `mlb-research` dataset, never a
+reference-baseline-model input. `gold.fangraphs_guts` is a cross-check /
+reference only — a wOBA / FIP / park-factor figure the project publishes is
+computed from `core.play`, not from these. A standing test
+(`tests/unit/test_fangraphs_conform_rights.py`) blocks a `public_safe` entry for
+any `gold.fangraphs_*` relation in the export registry.
 
 ## Enforced profiles
 

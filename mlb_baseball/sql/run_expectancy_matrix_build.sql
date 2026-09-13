@@ -1,5 +1,11 @@
 -- Builds the empirical 24 base-out run expectancy table (gold.run_expectancy_24)
 -- from raw.retrosheet_event for all seasons.
+--
+-- Regular season only: the join to raw.retrosheet_gameinfo with
+-- lower(gi.gametype) = 'regular' excludes postseason, All-Star, and Negro
+-- League play-by-play that also lands in raw.retrosheet_event (via the
+-- allpost / allstar / Negro League archives, _group != 'pbp'). Matches the
+-- scope of win_expectancy_matrix_build.sql and the gold season tables.
 
 WITH event_half_inning AS (
     SELECT
@@ -21,6 +27,8 @@ WITH event_half_inning AS (
             ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
         ) AS runs_rest_of_inning
     FROM raw.retrosheet_event re
+    JOIN raw.retrosheet_gameinfo gi
+      ON gi.gid = re.game_id AND lower(gi.gametype) = 'regular'
     WHERE re.outs_ct::integer BETWEEN 0 AND 2
 ),
 

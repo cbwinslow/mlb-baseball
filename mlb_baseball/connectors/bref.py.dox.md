@@ -24,8 +24,9 @@ Public connector capabilities:
 ## Source / Library Contract
 
 - Transport/parser: installed `pybaseball` Baseball-Reference functions.
-- `batting_stats_bref()` / `pitching_stats_bref()` are Baseball-Reference scrapers, not FanGraphs.
-- Their underlying pybaseball range functions enforce a **2008+** lower bound. This is a library/source-access constraint, not a project decision that earlier baseball does not exist.
+- `batting_stats_range()` / `pitching_stats_range()` are Baseball-Reference scrapers, not FanGraphs. The connector calls these directly with an explicit **regular-season-only** window (`_SEASON_START` → `_REGULAR_SEASON_END`), not the `batting_stats_bref()` / `pitching_stats_bref()` convenience wrappers, which query a fixed `{season}-03-01` → `{season}-11-30` window that now pulls postseason game-logs into the season line (ADR-282; fixed in the `separate-postseason-stats` change).
+- `_REGULAR_SEASON_END` is a per-season map of each season's actual last regular-season game date (including pre-2022 Game 163 tiebreakers, which count as regular season), sourced from `core.game`. A season with no entry falls back to `{season}-10-01`; the `mlb doctor` envelope check on `gold.player_season` catches any leak and is the trigger to add that season's real end date.
+- These functions enforce a **2008+** lower bound. This is a library/source-access constraint, not a project decision that earlier baseball does not exist.
 - Baseball-Reference WAR functions (`bwar_bat()` / `bwar_pitch()`) use a separate source path and return full historical WAR data in one call, currently reaching back to 1871.
 - FanGraphs pybaseball leader scrapers have been observed failing behind Cloudflare and are intentionally not substituted here.
 - Several other pybaseball Baseball-Reference helpers were evaluated and excluded because they are broken, redundant, or combinatorially expensive; do not re-add them without re-verifying current upstream behavior/value.
@@ -35,9 +36,10 @@ Public connector capabilities:
 
 ### Season stats
 
-- `raw.bref_batting` and `raw.bref_pitching` are fetched one season at a time.
+- `raw.bref_batting` and `raw.bref_pitching` are fetched one season at a time, over the regular-season-only date window.
 - `_season` is added and is the scoped-replace key.
 - Past seasons can be skipped when already loaded; current season refreshes.
+- **Regular season only** (since `separate-postseason-stats`). Postseason batting/pitching lives in `raw.lahman_batting_post` / `raw.lahman_pitching_post` and the `gold.batting_postseason` / `gold.pitching_postseason` relations, never here.
 - These are source season aggregates and should not be treated as a substitute for point-in-time game-by-game history.
 
 ### WAR tables
@@ -90,6 +92,7 @@ Do not generalize this repair to other connectors or fields without reproducing 
 
 ## Known Quirks / Decisions
 
+- ADR-282 / `separate-postseason-stats`: the `batting_stats_bref()` window ran through Nov 30 and Baseball-Reference's daily tool began returning postseason game-logs inside it around 2020-21, so `raw.bref_batting` / `raw.bref_pitching` counted regular + postseason in one line for playoff-team players, 2021+. Fixed by pulling an explicit regular-season window; re-ingested for 2008-2026.
 - Season-stat lower bound 2008 is a pybaseball implementation constraint.
 - WAR source has much deeper historical coverage and a different load shape.
 - The narrow name repair exists because of a reproduced upstream encoding bug.
@@ -106,6 +109,8 @@ Do not generalize this repair to other connectors or fields without reproducing 
 
 For changes, verify:
 
+- the pull window never reaches November for any season (`tests/unit/test_bref_window.py`);
+- every completed season has an explicit sourced `_REGULAR_SEASON_END` entry;
 - 2008 boundary for season tables;
 - season-scoped rerun idempotency and historical skip/current refresh;
 - WAR full-history replacement;

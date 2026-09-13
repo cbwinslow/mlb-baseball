@@ -51,3 +51,21 @@ def test_api_health_check():
     assert len(checks) == 1
     assert checks[0].ok is True
     assert "REST API routes verified" in checks[0].detail
+
+
+def test_api_health_check_does_not_invoke_doctor_run(monkeypatch):
+    """Regression for #171: api.health_check() is called *from* doctor.run(),
+    so it must not hit the /api/v1/health route (which runs doctor.run()) —
+    that was infinite mutual recursion. If it ever calls doctor.run() again,
+    this blows up instead of silently recursing to the stack limit."""
+    import mlb_baseball.doctor as doctor_mod
+
+    def _boom(*_a, **_k):
+        raise AssertionError("api.health_check() must not call doctor.run() (issue #171)")
+
+    monkeypatch.setattr(doctor_mod, "run", _boom)
+
+    checks = health_check()
+
+    assert len(checks) == 1
+    assert checks[0].ok is True

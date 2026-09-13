@@ -63,7 +63,22 @@ def test_runs_all_three_steps_in_order_and_skips_mlb_api(tmp_path):
     rc, calls, _ = _run(tmp_path)
     assert rc == 0
     lines = calls.strip().splitlines()
-    assert lines == ["update --skip mlb_api", "conform", "predict"]
+    # repair-runs clears crashed 'running' rows before the pipeline (issue #180);
+    # it precedes the three tracked steps and its exit code is ignored.
+    assert lines == ["repair-runs", "update --skip mlb_api", "conform", "predict"]
+
+
+def test_repair_runs_failure_does_not_stop_the_pipeline(tmp_path):
+    rc, calls, _ = _run(tmp_path, fail_step="repair-runs")
+    # repair-runs failed, but update/conform/predict still ran and rc is 0
+    # (its `|| true` swallows the failure; it is not a tracked step).
+    assert rc == 0
+    assert calls.strip().splitlines() == [
+        "repair-runs",
+        "update --skip mlb_api",
+        "conform",
+        "predict",
+    ]
 
 
 def test_a_failing_step_does_not_skip_the_later_steps(tmp_path):

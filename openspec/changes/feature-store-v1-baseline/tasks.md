@@ -130,17 +130,17 @@ it fail for the right reason, then make it pass.
 
 ## 7. Documentation
 
-- [ ] 7.1 `packages/mlb-research/README.md`: a "Reference baseline: Elo v2"
+- [x] 7.1 `packages/mlb-research/README.md`: a "Reference baseline: Elo v2"
   section under or near "Backtesting" — `EloV2Config`, `elo_v2_fit`/
   `elo_v2_predict` as a `fit_fn`/`predict_fn` pair, `build_model_card`/
   `render_model_card`, a copy-pasteable example running the card against a
   local `mlb build` output. Verify: the example runs in a clean env with
   `mlb-research` only (no `sklearn`/`xgboost`/database).
-- [ ] 7.2 `docs/PUBLIC_API.md` / `docs/RESEARCH.md` / `mlb_baseball/model/
+- [x] 7.2 `docs/PUBLIC_API.md` / `docs/RESEARCH.md` / `mlb_baseball/model/
   AGENTS.md`: note the reference baseline now ships in `mlb_research.elo`,
   point to it; `mlb_baseball/model/elo.py` (v1) is unchanged and separate.
   Verify: `mkdocs build --strict` clean.
-- [ ] 7.3 Update `openspec/project.md`'s `NOW/NEXT/LATER` (slice 3 done, this
+- [x] 7.3 Update `openspec/project.md`'s `NOW/NEXT/LATER` (slice 3 done, this
   narrowed scope) and `openspec/changes/feature-store-v1/proposal.md`'s
   Roadmap section (slice 3 entry). Verify: `openspec validate --all` passes.
 

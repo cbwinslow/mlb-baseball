@@ -329,11 +329,13 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   `paired_comparison`, numpy-only metrics/calibration, `experiment.py` now a
   thin adapter — `feature-store-v1-harness`; `compare()` stays unchanged,
   owner decision 2026-09-13, that change's `tasks.md` task 5.5);
-  slice 3 = Elo v2 + model card, planning done, not yet implemented --
-  `feature-store-v1-baseline`, narrowed from the original slice 3 sketch:
-  probable-starter identity, the leakage notebook, HF publish wiring, and
-  any market/production-Elo comparison are deferred to their own later
-  changes; see that change's `proposal.md`). Design input:
+  slice 3 = Elo v2 + model card ✅ (`mlb_research.elo`: v1's math + a
+  fading preseason prior + a train-fold-z-scored starter-quality
+  adjustment; `build_model_card`/`render_model_card` via the slice-2
+  harness — `feature-store-v1-baseline`, narrowed from the original slice 3
+  sketch: probable-starter identity, the leakage notebook, HF publish
+  wiring, and any market/production-Elo comparison are deferred to their
+  own later changes; see that change's `proposal.md`). Design input:
   `docs/research/2026-09-04-modeling-and-realtime-plan.md` and two Opus
   design reviews (`feature-store-v1/DESIGN_REVIEW.md`); ADR-287 for the
   Postgres/DuckDB boundary. **feat.* is DuckDB-only — no Postgres `feat`

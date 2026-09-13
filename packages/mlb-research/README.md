@@ -204,6 +204,47 @@ result = backtest.run_backtest(
 print(result.aggregate)
 ```
 
+## Reference baseline: Elo v2
+
+`mlb_research.elo` ships one reference predictive model — pure numpy, same
+dependency discipline as `mlb_research.backtest` (no database, no
+`sklearn`/`xgboost`). It's team Elo plus home field (the published 538-style
+math, unchanged), plus two additions:
+
+- a **preseason prior that fades**: instead of jumping straight to a
+  reversion-blended rating at a new season's first game, a team's rating
+  smoothly blends from that prior to the plain in-season Elo walk over its
+  first `fade_games` games;
+- a **starter-quality adjustment**: each side's rating is nudged by its
+  starter's entering form, z-scored against that fold's own training data
+  (never the evaluation period) — a missing value means no adjustment, not a
+  fabricated average.
+
+`FADE_GAMES` and `STARTER_WEIGHT` are chosen, not sourced from published
+research — flagged as such in the module, exactly like the underlying Elo
+model's own `K_FACTOR` / `REVERSION_WEIGHT`.
+
+`EloV2Config`, `elo_v2_fit`, and `elo_v2_predict` are an ordinary
+`fit_fn`/`predict_fn` pair for `mlb_research.backtest.run_backtest` — Elo is
+exactly the sequential, predict-before-update model that seam was built for.
+`build_model_card` runs the backtest twice (starter adjustment on vs. off,
+the "home-field baseline") and reports a matched-sample comparison between
+them; `render_model_card` renders the result to markdown.
+
+```python
+from mlb_research import backtest, elo
+
+# frame: your own feat.game-shaped DataFrame (or elo.load_game_frame(),
+# which reads it from a local `mlb build` output) -- game_pk, season,
+# event_ts, home_team_id, away_team_id, home_score, away_score, home_win,
+# home_starter_fip_like_30d, away_starter_fip_like_30d.
+frame = elo.load_game_frame()
+
+folds = backtest.time_ordered_folds((2019, 2020))
+card = elo.build_model_card(frame, folds)
+print(elo.render_model_card(card))
+```
+
 ## Data rights
 
 The published dataset excludes `player_season` (Baseball-Reference) and

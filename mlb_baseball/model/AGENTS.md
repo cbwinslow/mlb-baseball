@@ -21,6 +21,15 @@ The Engine (Phase B of the ladder) is **SPECULATIVE and gated**: it does not sta
   `mlb_research.backtest.run_backtest`, and writes the result to
   `meta.experiment*` exactly as before. Do not reimplement fold/metric math
   locally; extend `mlb_research.backtest` and re-export.
+- The reference baseline model itself now ships as `mlb_research.elo`
+  (Elo v2: v1's math unchanged, plus a fading preseason prior and a
+  starter-quality adjustment, feature-store-v1-baseline) with its model
+  card (`build_model_card`/`render_model_card`), evaluated through
+  `mlb_research.backtest`. `model/elo.py` in this subtree (v1, Postgres,
+  writes `gold.game_feature.home_elo`/`away_elo`) is a **separate**
+  implementation feeding production feature engineering, not this shipped
+  baseline -- do not conflate the two, and do not add Elo math to a third
+  place.
 - Research prototypes that are still actively validated or used.
 - Compatibility exports currently exposed from `model/__init__.py`.
 

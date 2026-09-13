@@ -65,30 +65,30 @@ it fail for the right reason, then make it pass.
 
 ## 4. `fit_fn` / `predict_fn` for `run_backtest`
 
-- [ ] 4.1 Failing test: `elo_v2_fit(train, config)` replays a small
+- [x] 4.1 Failing test: `elo_v2_fit(train, config)` replays a small
   chronologically-ordered train frame (reusing the sequential-walk pattern
   from `mlb_research.backtest`'s own Elo test, `test_run_backtest_delivers_
   test_rows_in_time_col_order_for_sequential_models`) and returns a state
   whose ratings match a hand roll incorporating both the fade (section 2)
   and the starter adjustment (section 3). Verify: RED then GREEN.
-- [ ] 4.2 Failing test: `elo_v2_predict(state, test, config)` walks test rows
+- [x] 4.2 Failing test: `elo_v2_predict(state, test, config)` walks test rows
   in the order given (relying on `run_backtest` to have sorted them),
   predicts before updating with each row's own outcome, and calling it twice
   from the same fitted state (as the model card's two configurations will,
   design D5) produces identical results both times — the state is not
   mutated by a call. Verify: RED then GREEN.
-- [ ] 4.3 Implement `elo_v2_fit` / `elo_v2_predict` (design D2), reusing
+- [x] 4.3 Implement `elo_v2_fit` / `elo_v2_predict` (design D2), reusing
   `mlb_baseball/model/elo.py`'s `_mov_multiplier` shape and constants
   (`HOME_ADVANTAGE`, default `K_FACTOR`, `REVERSION_WEIGHT`) translated into
   this module — pure numpy, no import from `mlb_baseball`. Verify: 4.1 and
   4.2 pass.
-- [ ] 4.4 Integration test: `run_backtest(frame, folds, elo_v2_fit_fn,
+- [x] 4.4 Integration test: `run_backtest(frame, folds, elo_v2_fit_fn,
   elo_v2_predict_fn, task="classification", ...)` over a synthetic
   multi-season frame with team ids, `event_ts`, `season`, `home_win`, and
   starter FIP columns completes and returns per-fold and aggregate
   probability-quality metrics, matching a hand roll of the same fold on the
   same fixture. Verify: RED then GREEN.
-- [ ] 4.5 Dependency-direction check: subprocess `sys.modules` assertion that
+- [x] 4.5 Dependency-direction check: subprocess `sys.modules` assertion that
   importing `mlb_research.elo` pulls in neither `sklearn` nor `xgboost`
   (same pattern as `mlb_research.backtest`'s own
   `test_module_imports_without_sklearn_or_xgboost`). Verify: passes.

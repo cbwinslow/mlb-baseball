@@ -1,6 +1,10 @@
+import subprocess
+import sys
+
 import numpy as np
+import pandas as pd
 import pytest
-from mlb_research import elo
+from mlb_research import backtest, elo
 
 
 def test_elo_v2_config_has_documented_defaults():
@@ -109,3 +113,136 @@ def test_effective_rating_with_zero_starter_weight_ignores_quality_z():
         assert elo._effective_rating(rating, quality_z, starter_weight=0.0) == rating
 
     assert elo._effective_rating(rating, 2.0, starter_weight=50.0) == rating + 100.0
+
+
+def test_elo_v2_fit_matches_a_hand_rolled_single_game_update():
+    # A single training game between two brand-new teams. Only one row of
+    # FIP data exists, well under MIN_FIP_SAMPLES, so _fip_mean_std
+    # neutralizes the starter adjustment here -- this isolates the fade +
+    # rating-update math (starter adjustment is covered on its own in
+    # section 3, and combined with a real z-score once the fixture has
+    # enough rows, later in this section).
+    train = pd.DataFrame(
+        {
+            "home_team_id": [1],
+            "away_team_id": [2],
+            "season": [2020],
+            "home_score": [5],
+            "away_score": [3],
+            "home_win": [True],
+            "home_starter_fip_like_30d": [3.0],
+            "away_starter_fip_like_30d": [4.5],
+        }
+    )
+    config = elo.EloV2Config()
+
+    state = elo.elo_v2_fit(train, config)
+
+    # Hand roll, using the already-independently-tested pure functions:
+    # both teams are brand new -> preseason prior == STARTING_ELO, blend=0
+    # at their first game -> effective rating == STARTING_ELO for both;
+    # quality_z is 0 for both (too few FIP samples), so starter_weight
+    # (whatever it is) has no effect here.
+    probability = elo.expected_win_prob(elo.STARTING_ELO, elo.STARTING_ELO, config.home_advantage)
+    score_diff = 5 - 3
+    mult = elo._mov_multiplier(
+        score_diff, elo.STARTING_ELO + config.home_advantage, elo.STARTING_ELO
+    )
+    expected_home = elo.STARTING_ELO + config.k_factor * mult * (1 - probability)
+    expected_away = elo.STARTING_ELO + config.k_factor * mult * (probability - 1)
+
+    assert state.ratings[1] == pytest.approx(expected_home)
+    assert state.ratings[2] == pytest.approx(expected_away)
+    assert state.games_this_season[1] == 1
+    assert state.games_this_season[2] == 1
+
+
+def test_elo_v2_predict_walks_test_rows_in_order_without_mutating_state():
+    train = pd.DataFrame(
+        {
+            "home_team_id": [1],
+            "away_team_id": [2],
+            "season": [2020],
+            "home_score": [5],
+            "away_score": [3],
+            "home_win": [True],
+            "home_starter_fip_like_30d": [3.0],
+            "away_starter_fip_like_30d": [4.5],
+        }
+    )
+    test = pd.DataFrame(
+        {
+            "home_team_id": [1],
+            "away_team_id": [2],
+            "season": [2020],
+            "home_score": [2],
+            "away_score": [6],
+            "home_win": [False],
+            "home_starter_fip_like_30d": [3.2],
+            "away_starter_fip_like_30d": [4.1],
+        }
+    )
+    config = elo.EloV2Config()
+    state = elo.elo_v2_fit(train, config)
+
+    first = elo.elo_v2_predict(state, test, config)
+    second = elo.elo_v2_predict(state, test, config)
+
+    assert first.shape == (1,)
+    assert 0.0 <= first[0] <= 1.0
+    # Calling predict twice from the same fitted state gives the same
+    # answer both times -- the state passed in was not mutated in place.
+    assert list(first) == list(second)
+
+
+def test_elo_v2_runs_through_run_backtest_and_produces_probability_quality_metrics():
+    events = list(pd.date_range("2019-04-01", periods=6, freq="3D")) + list(
+        pd.date_range("2020-04-01", periods=3, freq="3D")
+    )
+    frame = pd.DataFrame(
+        {
+            "home_team_id": [1, 2, 1, 3, 2, 3, 1, 2, 3],
+            "away_team_id": [2, 3, 3, 1, 1, 2, 2, 3, 1],
+            "season": [2019] * 6 + [2020] * 3,
+            "event_ts": events,
+            "home_score": [5, 3, 6, 2, 4, 7, 3, 5, 2],
+            "away_score": [3, 4, 2, 5, 2, 6, 6, 1, 4],
+            "home_starter_fip_like_30d": [3.5, 4.0, 3.2, 4.5, 3.8, 4.1, 3.6, 3.9, 4.2],
+            "away_starter_fip_like_30d": [4.0, 3.5, 4.2, 3.6, 4.1, 3.9, 4.0, 4.3, 3.7],
+        }
+    )
+    frame["home_win"] = frame["home_score"] > frame["away_score"]
+    folds = backtest.time_ordered_folds((2020,))
+
+    result = backtest.run_backtest(
+        frame,
+        folds,
+        elo.elo_v2_fit,
+        elo.elo_v2_predict,
+        task="classification",
+        time_col="event_ts",
+        period_col="season",
+        label_col="home_win",
+        feature_cols=("home_starter_fip_like_30d", "away_starter_fip_like_30d"),
+    )
+
+    assert result.aggregate["rows"] == 3
+    fold_metrics = result.folds["season-2020"]
+    assert fold_metrics.metrics["rows"] == 3
+    assert 0.0 <= fold_metrics.metrics["accuracy"] <= 1.0
+    assert all(0.0 <= p <= 1.0 for p in fold_metrics.predictions)
+
+
+def test_elo_module_imports_without_sklearn_or_xgboost():
+    # Run in a clean interpreter: another test in this process may already
+    # have imported sklearn/xgboost transitively, which says nothing about
+    # what mlb_research.elo itself pulls in.
+    code = (
+        "import sys; import mlb_research.elo; "
+        "assert 'sklearn' not in sys.modules, 'elo imported sklearn'; "
+        "assert 'xgboost' not in sys.modules, 'elo imported xgboost'"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr

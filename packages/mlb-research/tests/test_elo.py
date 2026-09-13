@@ -20,6 +20,16 @@ def test_elo_v2_config_has_documented_defaults():
     assert config.starter_weight == elo.STARTER_WEIGHT
 
 
+def test_elo_v2_config_rejects_non_positive_fade_games():
+    # fade_games=0 divides by zero in _faded_rating on a team's first game
+    # past its preseason prior; negative values invert/extrapolate the
+    # blend. Reject both at construction, not on the first bad prediction.
+    with pytest.raises(ValueError, match="fade_games"):
+        elo.EloV2Config(fade_games=0)
+    with pytest.raises(ValueError, match="fade_games"):
+        elo.EloV2Config(fade_games=-1)
+
+
 def test_faded_rating_blends_from_preseason_prior_to_in_season_rating():
     preseason_prior = 1550.0
     in_season_rating = 1620.0
@@ -75,6 +85,19 @@ def test_quality_z_is_neutral_for_a_missing_starter_value():
     # since _quality_z scores each side independently.
     assert elo._quality_z(None, mean=4.0, std=1.0) == 0.0
     assert elo._quality_z(3.0, mean=4.0, std=1.0) != 0.0
+
+
+def test_quality_z_is_neutral_for_a_nan_starter_value():
+    # A pandas DataFrame represents a missing float as NaN, not None --
+    # row.home_starter_fip_like_30d from .itertuples() is float('nan'),
+    # and `nan is None` is False, so the None-only check above does not
+    # catch this in practice. Without this guard, NaN silently propagates
+    # into the effective rating, the predicted probability, and both
+    # teams' updated ratings -- corrupting every later prediction for
+    # those teams, not just this one row.
+    result = elo._quality_z(float("nan"), mean=4.0, std=1.0)
+    assert result == 0.0
+    assert not np.isnan(result)
 
 
 def test_fip_mean_std_pools_home_and_away_train_values():

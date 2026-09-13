@@ -65,6 +65,10 @@ class EloV2Config:
     fade_games: int = FADE_GAMES
     starter_weight: float = STARTER_WEIGHT
 
+    def __post_init__(self) -> None:
+        if self.fade_games <= 0:
+            raise ValueError(f"fade_games must be positive, got {self.fade_games}")
+
 
 def _preseason_prior(prior_rating: float, reversion_weight: float) -> float:
     """v1's one-time reversion blend toward `STARTING_ELO`, unchanged --
@@ -92,8 +96,12 @@ def _quality_z(fip_like: float | None, mean: float, std: float) -> float:
     from that fold's own train rows only (`_fip_mean_std`), never the
     evaluation period. Missing input or a degenerate (zero/undefined)
     `std` -- guarded by the caller, `_fip_mean_std` -- yields no
-    adjustment, not a fabricated average."""
-    if fip_like is None or std == 0:
+    adjustment, not a fabricated average. `pd.isna` (not `fip_like is
+    None`) catches both a literal `None` and a pandas `NaN` -- a
+    DataFrame column's missing float value from `.itertuples()` is
+    `float('nan')`, and `nan is None` is `False`, so a `None`-only check
+    would silently let `NaN` propagate into the rating instead."""
+    if fip_like is None or pd.isna(fip_like) or std == 0:
         return 0.0
     return -(fip_like - mean) / std
 

@@ -168,7 +168,7 @@ def test_load_archive_accepts_an_authoritatively_empty_year(db_conn, tmp_path):
     assert box.manifest.load_manifest(box.SOURCE)["1871box.zip"]["status"] == "loaded"
 
 
-def test_known_unparseable_year_is_explicitly_skipped(monkeypatch, tmp_path, capsys):
+def test_known_unparseable_year_is_explicitly_skipped(monkeypatch, tmp_path, caplog):
     archive_path = tmp_path / "allebr.zip"
     with zipfile.ZipFile(archive_path, "w") as zf:
         zf.writestr("1938.EBR", "id,FAKE193801010\n")
@@ -182,4 +182,4 @@ def test_known_unparseable_year_is_explicitly_skipped(monkeypatch, tmp_path, cap
     )
 
     assert box._parse_archive(archive_path, "negro_league") == {}
-    assert "skipping official 1938 Negro League" in capsys.readouterr().out
+    assert "skipping official 1938 Negro League" in caplog.text

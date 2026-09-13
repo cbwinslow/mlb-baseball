@@ -67,6 +67,7 @@ rate limit exists to violate; the pause is cheap insurance regardless,
 adding at most a few minutes to a multi-hour full-history bootstrap.
 """
 
+import logging
 import time
 from datetime import date, timedelta
 
@@ -83,6 +84,8 @@ from mlb_baseball.health import (
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe, season_already_loaded
 from mlb_baseball.net import call_with_retry
+
+logger = logging.getLogger(__name__)
 
 SOURCE = "statcast"
 FIRST_STATCAST_YEAR = 2008
@@ -136,7 +139,9 @@ def _load_season(conn: psycopg.Connection, season: int) -> int:
             conn.commit()
         except Exception as exc:
             conn.rollback()
-            print(f"statcast: {season} {start}-{end} failed ({exc}); skipping this week")
+            logger.error(
+                "statcast: %s %s-%s failed (%s); skipping this week", season, start, end, exc
+            )
         # A deliberate pause between chunks, not a reaction to an observed
         # block — Baseball Savant publishes no documented rate limit
         # (confirmed: robots.txt has no Disallow/Crawl-delay, and this

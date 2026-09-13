@@ -57,6 +57,7 @@ single year's failure — drift-related or not — no longer takes down every
 other year with it. See docs/DECISIONS.md for the ADR.
 """
 
+import logging
 import zipfile
 from datetime import date
 from pathlib import Path
@@ -75,6 +76,8 @@ from mlb_baseball.health import (
 )
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import load_dataframe
+
+logger = logging.getLogger(__name__)
 
 SOURCE = "retrosheet"
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
@@ -142,7 +145,7 @@ def bootstrap() -> dict[str, int]:
                 conn.commit()
             except Exception as exc:
                 conn.rollback()
-                print(f"retrosheet: {year} failed ({exc}); skipping this year")
+                logger.error("retrosheet: %s failed (%s); skipping this year", year, exc)
         result["rows"] = sum(totals.values())
     return totals
 

@@ -1,0 +1,16 @@
+name: outfield_arm_accuracy_engine
+definition: >
+  A standalone calculator for a custom outfield arm-accuracy score and
+  estimated runner-freeze runs from caller-provided throwing measurements.
+formula: mlb_baseball/model/arm_accuracy.py::OutfieldArmAccuracyEngine.evaluate_arm
+citation: project-derived (no source for ASI/RFSV coefficients or tiers)
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-fielder calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  This is distinct from a Statcast fielding conform: its benchmarks and run
+  values are locally authored, and it is not wired to a database build.

@@ -1,0 +1,18 @@
+name: starter_age
+definition: >
+  Each probable starting pitcher's age on the date of a game, calculated from
+  the resolved player birth date. The value is present only when both the
+  starter identity and birth date are known.
+formula: mlb_baseball/model/age.py::compute
+citation: project-derived (calendar-date age calculation)
+data_source: gold.game_feature (resolved starter IDs), core.player.birth_date
+grain: game, one home and one away starting-pitcher age entering the game
+layer: gold
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  A real, database-integrated point-in-time feature. The integration tests
+  verify day-count arithmetic, NULL behavior, upcoming games, and idempotency,
+  but do not tie a published age feature to an independent external value.

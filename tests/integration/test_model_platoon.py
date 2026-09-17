@@ -15,8 +15,9 @@ def _ensure_tables(db_conn):
         cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
         cur.execute(
             "CREATE TABLE raw.statcast_pitch ("
-            "game_date text, home_team text, away_team text, "
-            "pitcher text, p_throws text, woba_value text, woba_denom text)"
+            "game_date text, home_team text, away_team text, game_pk text, "
+            "inning_topbot text, pitcher text, p_throws text, "
+            "woba_value text, woba_denom text)"
         )
     db_conn.commit()
 
@@ -158,6 +159,88 @@ def test_platoon_throws_lookup_does_not_fan_out_when_one_pitcher_starts_twice(
         )
         got = cur.fetchall()
     assert got == [("G1", "L", "R"), ("G2", "L", "R")]
+
+    _reset(db_conn)
+
+
+def test_platoon_offense_splits_use_real_woba_by_pitcher_hand_not_team_total(db_conn):
+    """Regression for the bug where home/away_offense_woba_vs_lhp and
+    _vs_rhp were both silently set to the team's overall wOBA, regardless
+    of pitcher hand -- not a real platoon split at all. Also proves the
+    computation is zero-lookahead: a later game's own plate appearances
+    must not leak into the value stored on that same game's row.
+    """
+    _ensure_tables(db_conn)
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    bos_id = teams["BOS"]
+    nya_id = teams["NYA"]
+
+    with db_conn.cursor() as cur:
+        # A prior game (earlier date), BOS at home (bats in the bottom half).
+        cur.execute(
+            "INSERT INTO core.game (season, game_date, home_team_id, away_team_id, game_pk) "
+            "VALUES (2024, '2024-04-01', %(home)s, %(away)s, 'PRIOR_PK')",
+            {"home": bos_id, "away": nya_id},
+        )
+
+        # The target game being updated (later date), BOS again at home.
+        cur.execute(
+            "INSERT INTO core.game (season, game_date, home_team_id, away_team_id, game_pk) "
+            "VALUES (2024, '2024-05-01', %(home)s, %(away)s, 'TARGET_PK') RETURNING id",
+            {"home": bos_id, "away": nya_id},
+        )
+        (target_game_id,) = cur.fetchone()
+
+        # 15 prior PA vs LHP at 0.400 wOBA each (rate = 0.400) and 15 prior
+        # PA vs RHP at 0.200 wOBA each (rate = 0.200) -- MIN_PLATOON_PA (15)
+        # exactly met for both hands, and the two rates are deliberately far
+        # apart so a bug that collapses them to one value is unmistakable.
+        for _ in range(15):
+            cur.execute(
+                "INSERT INTO raw.statcast_pitch "
+                "(game_pk, inning_topbot, p_throws, woba_value, woba_denom) "
+                "VALUES ('PRIOR_PK', 'Bot', 'L', '0.400', '1')"
+            )
+            cur.execute(
+                "INSERT INTO raw.statcast_pitch "
+                "(game_pk, inning_topbot, p_throws, woba_value, woba_denom) "
+                "VALUES ('PRIOR_PK', 'Bot', 'R', '0.200', '1')"
+            )
+
+        # One plate appearance in the TARGET game itself, deliberately a
+        # huge outlier (0.999). If this leaked into the "prior" rate it
+        # would visibly drag vs_lhp away from 0.400.
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch "
+            "(game_pk, inning_topbot, p_throws, woba_value, woba_denom) "
+            "VALUES ('TARGET_PK', 'Bot', 'L', '0.999', '1')"
+        )
+
+        cur.execute(
+            "INSERT INTO gold.game_feature ("
+            "game_instance_key, game_id, season, game_date, home_team_id, away_team_id, "
+            "home_woba) VALUES ('G_TARGET', %(game_id)s, 2024, '2024-05-01', "
+            "%(home)s, %(away)s, 0.310)",
+            {"game_id": target_game_id, "home": bos_id, "away": nya_id},
+        )
+    db_conn.commit()
+
+    rows = platoon.compute(db_conn)
+    assert rows >= 1
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_offense_woba_vs_lhp, home_offense_woba_vs_rhp "
+            "FROM gold.game_feature WHERE game_instance_key = 'G_TARGET'"
+        )
+        vs_lhp, vs_rhp = cur.fetchone()
+
+    assert vs_lhp is not None and vs_rhp is not None
+    # Not the team's overall wOBA (0.310) copied into both columns -- the bug.
+    assert abs(float(vs_lhp) - 0.400) < 1e-4
+    assert abs(float(vs_rhp) - 0.200) < 1e-4
+    assert vs_lhp != vs_rhp
 
     _reset(db_conn)
 

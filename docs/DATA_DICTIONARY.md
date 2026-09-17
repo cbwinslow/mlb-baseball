@@ -2,6 +2,11 @@
 
 This catalog documents the schemas, grains, business keys, temporal semantics, and field definitions across all layers of the MLB Research & Forecasting Platform: `raw`, `core`, `gold`, `meta`, and `serve`.
 
+For a specific statistic's plain-English definition, formula citation, and
+validation status (not schema/column-level detail), see the generated
+[metric catalog](site-src/metric-catalog.md) (`meta.metric`, built by
+`mlb catalog build`) rather than this document.
+
 ---
 
 ## 1. Schema Architecture & Layer Taxonomy

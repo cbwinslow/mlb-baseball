@@ -1,0 +1,83 @@
+name: team_bullpen_quality_fatigue
+definition: >
+  A team's bullpen measured two ways, both point-in-time entering each
+  game and built strictly from games already played: quality -- rolling
+  season-to-date strikeout rate, walk rate, and Fielding Independent
+  Pitching (FIP) across every relief appearance (any pitcher who was not
+  that game's starter) -- and fatigue -- a trailing 3-calendar-day count of
+  relief outs, a workload proxy for how taxed the bullpen is entering
+  today's game.
+formula: mlb_baseball/model/bullpen.py::compute
+citation: >
+  Tango, Lichtman & Dolphin, "The Book: Playing the Percentages in
+  Baseball" (2006), for the FIP formula; the module's own docstring also
+  cites "InsidethePen usage-tracking analysis" (named only, no URL or
+  specific article given) as the research rationale for tracking bullpen
+  quality/workload as a team-level feature at all -- see notes.
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo (1910-2025); raw.mlb_playbyplay (2026+ compute_live/compute_upcoming)
+grain: team, point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Quality's FIP is the same standard formula as starter_fip: FIP =
+  (13*HR + 3*(BB+HBP) - 2*K) / IP + FIP_CONSTANT (FIP_CONSTANT = 3.10, the
+  same fixed modern value used by starter_fip and team_woba, not a
+  year-specific one -- same known limitation as those two entries, not
+  fixed here). Correctly implements the cited formula per direct code read
+  of team_bullpen_retrosheet_update.sql (K/BB/HBP/HR via event_cd, outs via
+  event_outs_ct, relief-only via `resp_pit_id IS DISTINCT FROM` that game's
+  resolved starter). k_pct/bb_pct are simple rate-over-batters-faced, not
+  independently published constants, so nothing there needs a citation.
+
+  Team-level (not pitcher-level) by deliberate design, per the module's own
+  docstring: which reliever a manager uses today is decided in-game, after
+  the point this feature is computed for, so a per-pitcher feature would
+  leak the very decision it is trying to predict around.
+
+  Fatigue's 3-day trailing window (FATIGUE_WINDOW_DAYS=3) is a project
+  -chosen parameter, not itself published: the docstring says it was
+  "chosen to match the 'pitches thrown in the last 5 days, back-to-back
+  appearances' workload window the research above describes, narrowed to
+  what's cheaply and unambiguously derivable ... at team grain from event
+  data" -- i.e. the cited research's own window is 5 days, and this module
+  deliberately uses 3 instead because a precise per-pitcher pitch-count/
+  back-to-back signal isn't available yet. The "InsidethePen usage-tracking
+  analysis" citation is named only in the docstring, with no URL or
+  specific article, so this session could not independently verify its
+  claims (relievers handle 40%+ of innings; WHIP/K%/BB% predict bullpen
+  betting value better than ERA) -- treat it as the project's own stated
+  research rationale for the feature's existence and shape, not a verified
+  external source for a specific number. `visibility: public` is kept
+  because the metric's dominant, directly measurable component (FIP) is a
+  correctly implemented, properly cited, standard published formula; the
+  3-day fatigue window is flagged here as the project-narrowed piece rather
+  than pushing the whole entry to internal.
+
+  Unlike starter_fip, health_check() here explicitly does NOT reconcile
+  against any external source -- its own docstring says raw.bref_pitching
+  has no team-season total that splits a swingman's starts from relief
+  outings, so an independent tie-out isn't possible with this project's
+  current data. Instead it checks two internal-consistency properties:
+  relief outs + that game's starter's outs exactly reconcile to the team's
+  total outs pitched (tolerance=0, confirmed by
+  test_reconcile_splits_relief_across_multiple_pitchers against a
+  multi-reliever fixture, and per the test's own comment, checked
+  row-for-row identical to the prior query shape against all of production,
+  406,516/406,516 rows), and that upcoming games with real prior relief
+  history actually get a resolved bullpen feature (tolerance=5, a known
+  -acceptable-gap threshold, not zero).
+
+  tests/integration/test_model_bullpen.py hand-derives its own expected
+  FIP/k_pct/bb_pct/fatigue values using the same arithmetic the SQL
+  performs -- self-consistency, not an independent tie-out, so status is
+  "published" rather than "validated," consistent with team_woba/
+  starter_fip's precedent in this catalog. Test coverage is thorough and
+  specifically targets real found bugs: a doubleheader-ordering regression
+  for the rolling quality window (issue #9 item 6, both insertion-order and
+  NULL-game_number variants), a same-date doubleheader fatigue-window
+  regression (ADR-042), an uncovered-game-must-not-fabricate-a-zero
+  regression (issue #29), and explicit leakage-safety tests for
+  compute_upcoming (only history strictly before the target game's date).

@@ -1,0 +1,58 @@
+name: spin_decomposition_engine
+definition: >
+  A standalone calculator (run via `mlb spin` on the command line) that
+  splits a hand-typed total spin rate and spin-efficiency percentage into
+  "active" (transverse, Magnus-effect-producing) spin and "gyro" (bullet)
+  spin components, then buckets the pitch into an archetype label. It does
+  not read this project's own ingested Statcast spin-rate data, and is not
+  part of any database build.
+formula: mlb_baseball/model/spin.py::SpinDecompositionEngine.decompose_spin
+citation: project-derived (no external formula cited)
+data_source: >
+  none. mlb_baseball/cli.py's "spin" command only lets the user set
+  --spin (total_spin_rpm, default 2600.0), --efficiency
+  (spin_efficiency_pct, default 35.0), and --pitch-type; both numeric
+  inputs are CLI-typed, never read from core.play_pitch.release_spin_rate
+  (migrations/0006_core_play_pitch.sql), the column this project's own
+  Statcast connector (mlb_baseball/connectors/statcast.py) actually
+  populates with real per-pitch spin-rate measurements.
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The task brief for this batch assumed pitch spin rate "is a direct
+  Statcast-measured quantity" and this module might just aggregate a real
+  ingested column -- verified false by direct code and cli.py read: neither
+  total_spin_rpm nor spin_efficiency_pct is ever read from the database.
+  Both are supplied per-call, either by the CLI caller or by the class's own
+  dataclass field defaults (2350.0 rpm / 85.0%). Same disconnected-CLI-toy
+  pattern already documented for umpire_zone_run_bias.yaml, leverage.py, and
+  most of batch 2's other standalone engines.
+
+  The arithmetic itself is a real, correct Pythagorean identity given an
+  already-known spin_efficiency_pct: gyro_rpm = total_spin_rpm *
+  sqrt(1 - eff_ratio**2), the geometric complement of active_rpm =
+  total_spin_rpm * eff_ratio. This mirrors the structure of Baseball
+  Savant's own published Active Spin% concept
+  (https://baseballsavant.mlb.com/leaderboard/active-spin), but the code
+  cites no source for that concept or for this exact decomposition, and no
+  measured spin_efficiency_pct from this project's own data ever reaches it
+  -- so citation is "project-derived", not attributed to Baseball Savant.
+
+  The archetype thresholds (spin_efficiency_pct >= 88.0 -> PURE_MAGNUS,
+  <= 45.0 -> GYRO_BULLET, otherwise HYBRID_MOVEMENT) carry no citation to
+  any published bucket definition and are not derived from this project's
+  own data -- treat them as uncited constants, same category as the other
+  uncited "magic number" formulas flagged elsewhere in this catalog.
+
+  active_spin.py, spin_align.py, and gyro_spin.py are separate modules
+  (covered elsewhere in this catalog effort) -- do not conflate their
+  entries with this one.
+
+  tests/unit/test_spin.py's two scenario tests and health_check() assert
+  exact arithmetic/archetype outputs for hand-picked synthetic inputs --
+  correct proof the arithmetic is implemented as written, not independent
+  validation against any pitcher's real measured spin decomposition.

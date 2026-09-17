@@ -1,0 +1,67 @@
+name: run_expectancy_24
+definition: >
+  RE24: how many runs a play added or subtracted compared to the average
+  number of runs teams have actually scored the rest of the inning from the
+  same base-out situation (one of the 24 combinations of 0/1/2 outs and 8
+  baserunner patterns), built from this project's own real historical
+  play-by-play rather than a published table. This project uses it two
+  ways, entering each still-unplayed game: (1) a team's rolled-up bullpen
+  RE24 (runs prevented in relief so far this season) and batting RE24 (runs
+  produced so far this season), and (2) each starting pitcher's/bullpen's
+  average entering Leverage Index, reusing the project's own empirical
+  leverage_index_empirical table.
+formula: mlb_baseball/model/run_expectancy.py::compute
+citation: >
+  Tango, Lichtman & Dolphin, "The Book: Playing the Percentages in
+  Baseball" (2006) -- RE24 methodology; cross-checked against FanGraphs'
+  RE24 library page (https://library.fangraphs.com/misc/re24/, fetched and
+  verified directly 2026-08-25 per the SQL's own comment) for the exact
+  definition used here: RE24 = RE(state after the play) - RE(state before
+  the play) + runs scored on the play, cumulative (not a per-PA rate), and
+  a pitcher's RE24 is exactly the negative of the batting team's RE24 for
+  the same plays.
+data_source: >
+  raw.retrosheet_event, raw.retrosheet_gameinfo (builds the per-season
+  gold.run_expectancy_24 matrix and the point-in-time bullpen/batting
+  RE24 rollups); gold.leverage_index (for the average-entering-Leverage-
+  Index columns -- see leverage_index_empirical.yaml for that table's own
+  catalog entry, not re-derived here)
+grain: >
+  gold.run_expectancy_24 matrix: (season, outs_before, base_state).
+  gold.game_feature columns: team (bullpen/batting) and starting pitcher,
+  point-in-time entering each game.
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Correctly implements the cited RE24 definition per direct code read: the
+  "after" state is found via LEAD() over the real event sequence within a
+  game (not reconstructed from base1/2/3_run_id runner-destination
+  columns, whose exact semantics the SQL's own comment says could not be
+  independently confirmed), explicitly gated on outs_after < 3 so a play
+  that ends the half-inning correctly gets RE(after) = 0 rather than
+  accidentally picking up the next half-inning's leadoff state. A
+  pitcher's/bullpen's RE24 is computed as the negative of the RE24
+  conceded to the batters it faced, matching the cited source directly.
+
+  The average-entering-Leverage-Index columns (home_starter_avg_li, etc.)
+  are NOT a separate computation -- they are a rolling-window average of
+  gold.leverage_index, which is its own already-cataloged entry
+  (leverage_index_empirical); this module only consumes it.
+
+  MIN_STARTER_PA=30 / MIN_BULLPEN_PA=40 / MIN_BATTING_PA=50 (the minimum
+  prior plate appearances required before a rolled-up rate is populated)
+  are chosen floors, not derived or cited numbers -- same category of gap
+  as comprehensive_baserunning's MIN_ATTEMPTS gates.
+
+  tests/integration/test_model_run_expectancy.py's
+  test_compute_real_bullpen_and_batting_re24 hand-derives its expected
+  -8.5000/+8.5000 RE24 totals using the exact same
+  RE(after)-RE(before)+runs arithmetic the SQL performs, from 3
+  hand-picked gold.run_expectancy_24 fixture rows -- self-consistency
+  (and a real check that the join/rollup wiring is correct), not an
+  independent tie-out against a real, externally published RE24 number.
+  Consistent with the self-referential test pattern found across this
+  whole batch, hence "published" rather than "validated".

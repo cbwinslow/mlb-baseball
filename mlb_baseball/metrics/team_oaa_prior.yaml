@@ -1,0 +1,57 @@
+name: team_oaa_prior
+definition: >
+  A team's total Statcast Outs Above Average (OAA) -- a fielding value earned
+  or lost on batted balls -- from the season before the game being predicted,
+  used as a point-in-time defensive-quality model feature. This project does
+  not calculate OAA itself; it takes Baseball Savant's own already-published
+  per-player-position OAA runs value, sums it up for each team, and lags it by
+  one full season so a game is never scored using defensive data that only
+  exists because of games played after it.
+formula: mlb_baseball/model/oaa.py::compute
+citation: "Baseball Savant / Statcast, Outs Above Average (OAA), https://baseballsavant.mlb.com/leaderboard/outs_above_average"
+data_source: raw.statcast_oaa (joined to core.team via a 3-entry Savant-nickname remap for D-backs/Rays/Guardians)
+grain: team-season (lagged one season, joined onto a per-game feature row)
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  This module sums and lags an externally-published Statcast metric; it does
+  not reimplement Statcast's own OAA methodology (which is itself a fitted
+  catch-probability model over batted-ball distance/hang-time/direction
+  tracking data -- genuinely "complex" if this project ever built it from
+  scratch). `complexity: arithmetic` correctly describes what this module
+  actually does (a plain SUM across raw.statcast_oaa rows, joined and lagged
+  one season in team_oaa_update.sql), not what Statcast's underlying model
+  does -- same posture as team_war_prior.yaml and
+  catcher_framing_prior_season.yaml.
+
+  Correctly implemented per direct code read of team_oaa_update.sql: sums
+  `fielding_runs_prevented` per player per season across ALL of a player's
+  position rows for that season (raw.statcast_oaa is one row per
+  player-season-per-position, e.g. `_scope` values like "2016_3"/"2016_4" --
+  confirmed a real data shape, not a duplicate-row bug, per ADR-040), then
+  sums across a team's players; excludes `display_team_name = '---'`
+  placeholder rows (players with no clear primary team that season) rather
+  than guessing a team; remaps Savant's short nicknames ("D-backs", "Rays",
+  "Guardians") to core.team.nickname's three divergent cases
+  (Diamondbacks/Devil Rays/Indians) via a 3-entry CASE, every other name
+  matching verbatim; and lags via `season = game.season - 1` in the same
+  UPDATE, so a game only ever uses the prior season's total.
+
+  tests/integration/test_model_oaa.py's
+  test_compute_sums_multi_position_rows_and_remaps_savant_short_names inserts
+  synthetic raw.statcast_oaa rows (4, -1, 2 for one team, hand-picked by the
+  test) and asserts the summed gold.game_feature.home_oaa_prior equals 5 --
+  this is a self-consistency check of the SQL's sum/join/lag/remap logic
+  against data the test itself constructed, not an independent tie-out
+  against a real, externally-published team-level OAA total, hence
+  "published" rather than "validated". It does separately prove two real
+  correctness properties with real PostgreSQL: multi-position rows are
+  summed (not deduplicated), and a later season's row (2024) does not leak
+  into a 2024 game (only the prior, 2023, season counts). A second test,
+  test_compute_excludes_unresolved_team_placeholder_rows, confirms `'---'`
+  rows are excluded rather than guessed into a team total. ADR-040 also
+  documents a pre-landing manual check of the three name-mismatches directly
+  against real production data, separate from the automated test suite.

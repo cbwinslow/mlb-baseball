@@ -1,17 +1,21 @@
 name: platoon_splits
 definition: >
   For each game, which hand each starting pitcher throws with (looked up
-  from Statcast pitch data), and how much each team's overall offensive
-  quality (wOBA, entering the game) differs from the opposing starter's
+  from Statcast pitch data), each team's own real season-to-date wOBA
+  specifically against left-handed and against right-handed pitching, and
+  how much that offense-vs-hand wOBA differs from the opposing starter's
   wOBA allowed specifically against that handedness of batter. A positive
   difference means the offense's matchup looks favorable.
 formula: mlb_baseball/model/platoon.py::compute
 citation: project-derived (no external formula cited)
 data_source: >
-  raw.statcast_pitch (starting pitcher throwing hand); gold.game_feature
-  (home_woba/away_woba, already point-in-time -- see team_woba.yaml; and
-  home/away_starter_vs_lhb_woba / vs_rhb_woba, computed by
-  mlb_baseball/model/pitcher_estimators.py, not by this module)
+  raw.statcast_pitch (starting pitcher throwing hand; and, as of the fix
+  below, every plate appearance's own woba_value/woba_denom and the
+  actual opposing pitcher's p_throws, aggregated per batting team via
+  core.game.game_pk); gold.game_feature (home_woba/away_woba, already
+  point-in-time -- see team_woba.yaml; and home/away_starter_vs_lhb_woba /
+  vs_rhb_woba, computed by mlb_baseball/model/pitcher_estimators.py, not
+  by this module)
 grain: team-game, point-in-time entering each game (reuses already point-in-time inputs)
 layer: gold
 complexity: arithmetic
@@ -32,17 +36,23 @@ notes: >
   catalog's rule, "published" requires an actual citation, so this stays
   "implemented-untested" rather than "published".
 
-  Concrete red flag found by direct code read, not a docstring claim: the
-  home_offense_woba_vs_lhp and home_offense_woba_vs_rhp columns (and the
-  away equivalents) are both set to the exact same value,
-  `COALESCE(gf.home_woba, 0.320)` -- i.e. the offense's own wOBA vs LHP and
-  vs RHP are never actually split by pitcher handedness at all; both
-  columns just duplicate the team's overall wOBA regardless of which hand
-  is looked up. Only the *pitcher*-side inputs
-  (home/away_starter_vs_lhb_woba / vs_rhb_woba, from a different module)
-  and the final home/away_platoon_matchup_woba_diff columns are actually
-  handedness-aware. A consumer reading "home_offense_woba_vs_lhp" as a real
-  split would be misled.
+  **Fixed 2026-09-17** (found during this catalog batch, then fixed
+  directly -- not just documented): home_offense_woba_vs_lhp and
+  home_offense_woba_vs_rhp (and the away equivalents) were both set to the
+  exact same value, `COALESCE(gf.home_woba, 0.320)` -- the offense's own
+  wOBA vs LHP and vs RHP were never actually split by pitcher handedness at
+  all; both columns just duplicated the team's overall wOBA regardless of
+  which hand was looked up. platoon_splits_update.sql now aggregates
+  Statcast's own per-PA woba_value/woba_denom by batting team and the
+  actual opposing pitcher's throwing hand (every pitcher who pitched, not
+  just the starter), rolled up as a zero-lookahead season-to-date rate
+  (MIN_PLATOON_PA=15, matching the pitcher-side threshold), NULL below
+  threshold or before Statcast coverage (2015) rather than a fabricated
+  default. See the fix PR for the regression test that reproduces the
+  original bug mechanism directly. `status`/`visibility` stay
+  implemented-untested/internal -- the fix makes the inputs real, but the
+  final matchup_woba_diff subtraction is still an uncited project formula
+  with no independent tie-out.
 
   tests/integration/test_model_platoon.py::test_platoon_splits_hand_calculated_math
   hand-verifies the matchup-diff arithmetic (0.350-0.310=0.040,

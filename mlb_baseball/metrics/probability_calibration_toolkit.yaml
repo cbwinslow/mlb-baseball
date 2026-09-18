@@ -1,0 +1,37 @@
+name: probability_calibration_toolkit
+definition: >
+  A standalone model-calibration toolkit: Platt (sigmoid) scaling to
+  recalibrate a classifier's raw probabilities, a Home Field Advantage
+  log-odds decomposer/recalibrator, symmetric mirror-game data
+  augmentation (double-training to cancel tree-model home/away bias),
+  and reliability diagnostics (Expected/Max Calibration Error, Brier
+  score, Brier Skill Score, binned reliability curve).
+formula: mlb_baseball/model/calibration.py::evaluate_calibration
+citation: >
+  Platt, J., "Probabilistic Outputs for Support Vector Machines," (1999)
+  -- Platt scaling; Brier, G.W., "Verification of Forecasts Expressed in
+  Terms of Probability," Monthly Weather Review (1950) -- Brier score;
+  Guo et al., "On Calibration of Modern Neural Networks" (2017) --
+  Expected/Max Calibration Error via binned reliability diagrams. All
+  four are correctly implemented, standard, citable calibration
+  techniques.
+data_source: none -- takes caller-supplied y_true/y_prob arrays; no gold/core/raw read
+grain: not applicable (operates on an arbitrary prediction sample)
+layer: model
+complexity: complex
+implementation: python
+status: published
+visibility: public
+notes: >
+  Unusual for this batch's "standalone engine" pattern: the core
+  calibration math (Platt scaling's sigmoid fit, ECE/MCE binning, Brier
+  score/skill score) directly and correctly implements real, cited,
+  general-purpose ML calibration formulas -- not project-invented
+  coefficients. The HomeAdvantageCalibrator's specific numbers (the
+  0.535 empirical MLB home-win-rate baseline, and the 0.5576
+  "model_implicit_home_rate" default) are project/model-specific
+  constants tied to this project's own training data, not independently
+  cited external figures, but the log-odds decomposition mechanism
+  itself is standard. This is generic model-training infrastructure
+  used across the project's ML models, not a single per-player/per-game
+  statistic like most other catalog entries.

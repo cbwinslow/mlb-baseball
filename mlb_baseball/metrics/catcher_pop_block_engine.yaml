@@ -1,0 +1,22 @@
+name: catcher_pop_block_engine
+definition: >
+  A standalone calculator for catcher dirt-ball recovery: block-to-throw
+  time (clean pop time + block recovery time), a runner-advancement
+  deterrence percentage, and a Block-to-Throw Surplus Value (BTSV) run
+  estimate, from caller-provided pop time, recovery time, and season
+  totals of wild pitches prevented / dirt caught-stealing / passed balls.
+formula: mlb_baseball/model/catcher_pop.py::CatcherPopAndBlockEngine.evaluate_catcher
+citation: >
+  project-derived. No citation is given for the 2.50s deterrence
+  benchmark, the 45.0-point deterrence-per-half-second scaling, or the
+  BTSV run weights (+0.28 runs per wild pitch prevented, +0.44 per dirt
+  caught-stealing, -0.35 per passed ball).
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same "standalone caller-input engine" shape as the rest of this batch.

@@ -1,0 +1,26 @@
+name: bvp_arsenal_interaction_engine
+definition: >
+  A standalone batter-vs-pitcher (BvP) micro-matchup calculator combining
+  a Log5-style platoon-baseline prior, Empirical Bayes shrinkage of
+  observed head-to-head wOBA (M=350 PA), and a pitch-mix arsenal
+  interaction adjustment, into a composite matchup wOBA and expected
+  K%/BB%.
+formula: mlb_baseball/model/bvp.py::EmpiricalBayesBvPEngine.evaluate_matchup
+citation: >
+  project-derived. The Log5 odds-ratio combination method (Bill James)
+  and Empirical Bayes shrinkage are real, general statistical
+  techniques, but this module's specific shrinkage constant (350 PA),
+  the arsenal run-value-to-wOBA conversion factor (1.0 RV/100 pitches ->
+  ~0.035 wOBA, via an assumed 3.9 pitches/PA), and the K%/BB%
+  back-out coefficients (0.40, 0.30) are not sourced from a cited
+  external model.
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same "real general technique, invented project-specific constants"
+  shape as batter_platoon_shrinkage_engine (splits.py) from batch 6.

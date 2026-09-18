@@ -1,0 +1,30 @@
+name: player_similarity_clustering_engine
+definition: >
+  A standalone toolkit with two independent parts: (1) a weighted,
+  standardized-Euclidean nearest-neighbor "pitcher comps" finder over a
+  caller-provided repertoire vector (velocity, IVB, sweep, drop,
+  extension) and candidate library, and (2) a 9-quadrant strike-zone
+  whiff-rate profiler that buckets caller-provided (px, pz, is_whiff)
+  swing observations into a 3x3 zone grid.
+formula: mlb_baseball/model/cluster.py::PitcherSimilarityEngine.find_pitcher_comps
+citation: >
+  project-derived. Weighted standardized-distance nearest-neighbor
+  similarity is a real, general statistical technique (a Mahalanobis-
+  style distance under a diagonal-covariance assumption, as the module's
+  own docstring implies), but this module's specific FEATURE_WEIGHTS
+  (0.30/0.25/0.20/0.15/0.10) and FEATURE_STDS (2.5/3.0/4.0/4.5/0.4), and
+  the similarity-percentage decay constant (exp(-dist/1.5)), are not
+  sourced from a cited external comps methodology. The 9-quadrant zone
+  profiler's boundaries are plain strike-zone geometry (real Statcast
+  px/pz coordinate conventions), not a citable formula in itself.
+data_source: none -- caller-supplied dataclass fields/candidate library; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Bundles two independent tools (pitcher-comp finder, batter zone
+  profiler) under one catalog entry for this batch's gap-closing pass,
+  same treatment as season_monte_carlo_simulation in batch 6.

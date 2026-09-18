@@ -1,0 +1,28 @@
+name: bullpen_fip_quality
+definition: >
+  Team-level bullpen quality: rolling K%, BB%, and a FIP-style ERA estimator
+  over relief innings (every plate appearance charged to a pitcher who
+  was not that game's starter), computed strictly from relief appearances
+  before the target game.
+formula: mlb_baseball/model/bullpen.py::compute
+citation: >
+  Tango, Lichtman & Dolphin, "The Book: Playing the Percentages in
+  Baseball" (2006) -- Fielding Independent Pitching (FIP) formula, same
+  citation as starter_fip, reused here at bullpen grain.
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo (1910-2025); raw.mlb_playbyplay (live/upcoming 2026+)
+grain: team bullpen, point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Same FIP_CONSTANT=3.10 fixed-value caveat as starter_fip: a single
+  modern constant applied to every season/team, not era-adjusted. No
+  independent tie-out exists for team-level bullpen FIP specifically
+  (raw.bref_pitching has no team-bullpen-season total to compare against
+  -- see bullpen.py's health_check() docstring); health_check() instead
+  proves relief-outs + starter-outs reconcile exactly to the team's total
+  outs pitched, an internal-consistency check, not an external one.
+  "published" (correctly implements a real, cited formula) rather than
+  "validated".

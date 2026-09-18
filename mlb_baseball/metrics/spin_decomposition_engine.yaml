@@ -1,0 +1,30 @@
+name: spin_decomposition_engine
+definition: >
+  A standalone calculator decomposing a pitch's total spin rate into
+  active (transverse/Magnus) and gyro (bullet) components from a
+  caller-provided total spin rate and spin-efficiency percentage, plus a
+  three-way pitch-archetype classification (pure Magnus, hybrid,
+  gyro-bullet).
+formula: mlb_baseball/model/spin.py::SpinDecompositionEngine.decompose_spin
+citation: >
+  project-derived. The active-spin/gyro-spin decomposition itself is a
+  real Statcast concept (active_rpm = total*efficiency,
+  gyro_rpm = total*sqrt(1-efficiency^2), from the standard Pythagorean
+  spin-vector relationship), but the archetype-tier cutoffs (88%, 45%
+  spin efficiency) are not sourced from a cited external model.
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Conceptually overlaps with active_spin_engine.yaml
+  (mlb_baseball/model/active_spin.py) -- a separate class computing a
+  related but not identical active-spin/gyro-angle/ASMI calculation from
+  a different set of caller inputs (total + active RPM directly, vs.
+  this module's total RPM + efficiency %). Two independent, non-shared
+  implementations of overlapping spin-decomposition concepts; worth a
+  future look at whether one should be consolidated into the other, not
+  resolved in this documentation-only change.

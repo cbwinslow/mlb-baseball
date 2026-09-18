@@ -11,6 +11,7 @@ import psycopg
 
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import Check
+from mlb_baseball.model.pitcher_estimators import MIN_PLATOON_PA
 from mlb_baseball.sql import read_sql
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ def compute(conn: psycopg.Connection) -> int:
         if not table_exists:
             return 0
 
-        cur.execute(_PLATOON_UPDATE_SQL)
+        cur.execute(_PLATOON_UPDATE_SQL, {"min_platoon_pa": MIN_PLATOON_PA})
         rowcount = cur.rowcount
 
     conn.commit()

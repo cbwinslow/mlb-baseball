@@ -1,0 +1,26 @@
+name: batter_platoon_shrinkage_engine
+definition: >
+  A standalone calculator for a batter's "true-talent" platoon wOBA split
+  (vs LHP / vs RHP) using Empirical Bayes shrinkage toward a league
+  handedness prior, plus a three-tier platoon-vulnerability
+  classification, from caller-provided observed splits.
+formula: mlb_baseball/model/splits.py::BatterPlatoonEngine.evaluate_platoon_talent
+citation: >
+  project-derived. Empirical Bayes shrinkage toward a league prior
+  (shrunk = (PA_obs*wOBA_obs + M*Prior) / (PA_obs + M), M~1000 PA) is a
+  standard, real statistical technique, but the specific league
+  handedness-advantage priors (+/-0.025 for LHB, +/-0.015 for RHB) and the
+  platoon-tier cutoffs (0.030, 0.055) are not sourced from a cited
+  external model.
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same "standalone caller-input engine" shape as the rest of this batch:
+  the shrinkage method itself is real and citable, but this module's own
+  numeric priors/thresholds are unsourced, so the entry stays internal
+  per the citation rule.

@@ -1,0 +1,26 @@
+name: babip_luck_regression_engine
+definition: >
+  A standalone calculator for expected BABIP (xBABIP) from caller-provided
+  line-drive rate, hard-hit rate, sprint speed, ground-ball rate, and
+  infield-fly rate, plus a "luck delta" (actual BABIP minus expected) and a
+  five-tier regression classification (e.g. severe positive/negative
+  regression).
+formula: mlb_baseball/model/babip.py::BABIPRegressionEngine.evaluate_babip
+citation: >
+  project-derived. The general idea that BABIP correlates with batted-ball
+  trajectory (line-drive rate, hard-hit rate, speed) is real sabermetric
+  territory, but the specific xBABIP linear formula
+  (0.220 + 0.380*LD + 0.120*HardHit + 0.006*(Speed-27) - 0.140*IFFB +
+  0.040*GB) and the regression-tier cutoffs (+/-0.020, +/-0.045) are not
+  sourced from any cited external model.
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same "standalone caller-input engine" shape as active_spin_engine and the
+  rest of batch 5: not wired to a raw/core/gold database build, no
+  demonstrated external tie-out for its coefficients.

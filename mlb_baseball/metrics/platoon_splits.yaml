@@ -54,6 +54,23 @@ notes: >
   final matchup_woba_diff subtraction is still an uncited project formula
   with no independent tie-out.
 
+  **Second fix 2026-09-18** (CodeRabbit review finding on the fix above,
+  verified and fixed, not just documented): the rolling window in the
+  09-17 fix was still built directly from games with qualifying Statcast
+  PA, so a mid-season game with a per-game data gap -- core.game exists,
+  but raw.statcast_pitch has zero qualifying rows for that game_pk -- had
+  no "current" position in the window at all, and the LEFT JOIN in the
+  final UPDATE dropped that one game's value to NULL even when the team
+  had a perfectly good season-to-date rate from an earlier qualifying
+  game. `team_game_spine` now enumerates every game from `core.game`
+  (offense_pa's own source) and LEFT JOINs offense_pa onto it, so a gapped
+  game contributes zero PA without losing its position in the window. A
+  new regression test
+  (`test_platoon_offense_splits_survive_a_game_with_no_qualifying_pa`)
+  reproduces the exact mechanism: a qualifying game, then a gap game with
+  no Statcast rows, then a target game -- asserts the target still
+  carries the season-to-date rate through the gap.
+
   tests/integration/test_model_platoon.py::test_platoon_splits_hand_calculated_math
   hand-verifies the matchup-diff arithmetic (0.350-0.310=0.040,
   0.330-0.280=0.050) against the SQL's actual output, and a second test

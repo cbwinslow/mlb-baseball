@@ -1,0 +1,16 @@
+name: arm_slot_engine
+definition: >
+  A standalone geometry calculator that classifies a pitcher's arm slot and
+  scores release-point consistency from caller-provided release coordinates.
+formula: mlb_baseball/model/arm_slot.py::PitcherArmSlotEngine.evaluate_arm_slot
+citation: project-derived (no source for shoulder-height assumption or consistency score)
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-pitcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The trigonometric angle is directly computed, but the 82%-of-height
+  shoulder estimate, dispersion scoring, and tier cutoffs are uncited.

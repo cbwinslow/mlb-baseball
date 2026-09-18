@@ -1,0 +1,33 @@
+name: vaa_flatness_engine
+definition: >
+  A standalone calculator estimating a pitch's Vertical Approach Angle
+  from caller-provided release height, plate-crossing height, induced
+  vertical break, and velocity (not Statcast's own vy0/ay/vz0/az
+  kinematics), plus a whiff-boost estimate and a four-tier "flatness"
+  classification.
+formula: mlb_baseball/model/vaa.py::VerticalApproachAngleEngine.evaluate_vaa
+citation: >
+  project-derived. Uses a different, self-derived flight-time/Magnus-lift
+  approximation (not the Chamberlain/Pavlidis closed-form kinematics
+  formula this same file also implements correctly -- see starter_vaa)
+  to back out an approximate vertical velocity at the plate from release
+  height, plate height, and induced vertical break. The whiff-boost
+  coefficients and tier cutoffs (-4.30/-4.80/-7.00 degrees) are not
+  sourced.
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  A genuine finding worth flagging: this class computes "VAA" using an
+  entirely different formula than the same module's own pitch_vaa_degrees
+  (the real, cited, gold-integrated implementation -- see starter_vaa),
+  and is not wired to raw.statcast_pitch at all. The two could disagree
+  on the same physical pitch, since this approximates vertical velocity
+  from release/plate height and induced break rather than using measured
+  Statcast acceleration components directly. Not reconciled or fixed
+  here -- documentation-only change; worth a follow-up decision on
+  whether this class should be removed in favor of pitch_vaa_degrees.

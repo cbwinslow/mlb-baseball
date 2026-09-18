@@ -1,0 +1,31 @@
+name: team_rate_stats
+definition: >
+  Team-level OBP, SLG, ISO, BABIP, BB%, and K%, plus a runs-for/
+  runs-allowed run environment, computed point-in-time (rolling,
+  within-season, strictly from games before the one it's attached to)
+  from raw per-plate-appearance event data, gated by a minimum-sample
+  threshold (MIN_PA=10, MIN_AB=8, MIN_BIP=8).
+formula: mlb_baseball/model/team_rate.py::compute
+citation: "Official MLB statistics (OBP, SLG, ISO, BABIP, BB%, K%; traditional baseball statistics, no single formula author)"
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo (1910-2025 only; no 2026+ raw.mlb_playbyplay equivalent exists yet)
+grain: team, point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Strong evidence, documented in the module's own docstring but NOT
+  backed by an automated, currently-passing test: the module's author
+  reconstructed Ronald Acuna Jr.'s full real 2023 season directly from
+  raw.retrosheet_event using this exact formula and matched his official
+  MLB Stats API line exactly (AB=643, H=217, BB=80, HBP=9, SF=3, SO=84,
+  PA=735, OBP=.416, SLG=.596) -- a real one-time manual reconciliation,
+  not an automated regression test, so it cannot satisfy this catalog's
+  "validated" bar (which requires a named, currently-passing test_ref).
+  tests/integration/test_model_team_rate.py's
+  test_compute_rolling_rate_stats_match_hand_calculation and
+  test_compute_babip_matches_hand_calculation hand-derive expected values
+  using the same arithmetic the SQL performs -- self-consistency, not an
+  independent tie-out. "published" rather than "validated", same posture
+  as starter_fip/team_woba/era_earned_runs.

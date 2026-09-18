@@ -1,0 +1,25 @@
+name: effective_velocity_extension_engine
+definition: >
+  A standalone calculator translating a pitcher's release extension
+  (distance down the mound) and radar velocity into a flight-time-based
+  "perceived" (effective) velocity and a three-tier extension
+  classification, from caller-provided inputs.
+citation: >
+  project-derived. The code names a real referenced concept ("Perry
+  Husband / Statcast model" for Effective Velocity), but the specific
+  +1.25 mph-per-foot-of-extension coefficient, the 0.955 flight-drag
+  factor, and the tier cutoffs (7.0ft / 5.7ft) are not sourced from any
+  cited paper or Statcast published formula.
+formula: mlb_baseball/model/extension.py::PitcherExtensionEngine.evaluate_effective_velocity
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same "standalone caller-input engine" shape as the rest of this batch;
+  its physical distance/velocity conversion (60.5 - extension - 1.4 ft
+  flight path, mph-to-ft/s conversion) is genuine kinematics, but the
+  effective-velocity coefficient and tier boundaries are invented.

@@ -1,0 +1,39 @@
+name: season_monte_carlo_simulation
+definition: >
+  Simulates remaining/full 162-game MLB regular-season schedules across
+  all 30 teams (via `mlb season-sim`), evaluating tie-breakers, division
+  championships, wild-card berths, and the 12-team postseason bracket, to
+  produce regular-season win-total distributions.
+formula: mlb_baseball/model/season.py::simulate_season_monte_carlo
+citation: >
+  project-derived orchestration. Two of its component formulas are real
+  cited published methods used internally: Bill James' Log5 win
+  probability (log5_game_win_prob) and the Pythagorean win-percentage
+  expectation with the Smyth-Patel exponent refinement
+  (pythagorean_team_win_pct). The Monte Carlo scheduling/bracket
+  simulation architecture itself, and a third formula in this module
+  (marcel_project_rate, a Marcel-style rate projection), are not
+  independently cited or tied out here.
+data_source: core.game/raw.mlb_schedule via load_schedule_from_db(); falls back to generate_balanced_schedule() if no schedule is found
+grain: season, per-team win/loss distribution and postseason-berth probability
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Wired into a real CLI command (`mlb season-sim` in cli.py), but the CLI
+  invocation as shipped passes a placeholder team_true_talents dict
+  (every team fixed at 0.500) rather than a real per-team strength
+  estimate -- so the CLI's own default output does not yet produce
+  differentiated team projections; a caller must supply real talent
+  estimates for this to be meaningful. health_check() only asserts the
+  30-team division mapping and a Pythagorean sanity value (4.5 RS/RA ->
+  exactly 0.500), not anything about the simulation's own output
+  distribution.
+
+  This module bundles at least three separately-citable named formulas
+  (Log5, Pythagorean, Marcel) plus the simulation harness under one
+  catalog entry for this batch's gap-closing pass; log5_game_win_prob and
+  pythagorean_team_win_pct in particular could warrant their own
+  standalone `public`/`published` entries in a future batch.

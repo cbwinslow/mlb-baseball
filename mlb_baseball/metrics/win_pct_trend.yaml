@@ -1,0 +1,25 @@
+name: win_pct_trend
+definition: >
+  Recent-minus-long win-rate trend per side: trailing-10-game win rate
+  minus season-to-date win rate, both already-populated
+  gold.game_feature columns. Positive means a team is playing better
+  lately than its season rate; negative means worse.
+formula: mlb_baseball/model/trend.py::compute
+citation: >
+  project-derived (ADR-083, admission queue INT-02). Pure algebra over
+  two already-populated columns (win_pct_10, win_pct), not itself a
+  named external statistic.
+data_source: gold.game_feature (win_pct_10, win_pct; no new raw dependency)
+grain: game, home/away recent-minus-long win-rate delta
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: implemented-untested
+visibility: internal
+notes: >
+  Same shape as diff.py, restricted to the one rolling-vs-expanding rate
+  pair this project has today (win_pct_10 vs win_pct); other rate
+  families (OBP/SLG/FIP/etc.) only have an expanding version so far.
+  health_check() is an algebraic parity assertion
+  (home_win_pct_trend == home_win_pct_10 - home_win_pct), a real,
+  currently-passing self-consistency check, not an external tie-out.

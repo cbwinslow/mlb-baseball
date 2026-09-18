@@ -1,0 +1,27 @@
+name: xslg_power_engine
+definition: >
+  A standalone calculator for expected slugging (xSLG) and expected
+  isolated power (xISO) from caller-provided contact-quality bin counts
+  (barrel, solid contact, flare/burner, under, topped, weak), plus a
+  "true power conversion efficiency" ratio (actual ISO / expected xISO)
+  and a power-profile tier.
+formula: mlb_baseball/model/xslg.py::XSLGPowerEngine.evaluate_power
+citation: >
+  project-derived. Real Statcast xSLG/xBA models are built from a
+  continuous exit-velocity/launch-angle regression against actual
+  outcomes, not this module's approach of six hand-picked per-bin
+  weights (e.g. barrel=2.500 total bases, solid_contact=1.250) averaged
+  by bin count -- no citation is given for these specific weights or for
+  the 0.68 in-play-rate scaling factor used to convert per-ball-in-play
+  ISO to a per-PA ISO.
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same "standalone caller-input engine" shape as the rest of this batch;
+  the contact-quality-bin concept is Statcast-recognizable, but this is
+  not the same method Statcast's own public xSLG uses.

@@ -1,0 +1,55 @@
+name: catcher_block_to_throw_engine
+definition: >
+  A catcher's total "block-to-throw" time on a ball in the dirt (clean
+  pop time plus block-recovery time), converted into a runner-advancement
+  deterrence percentage and a seasonal "Block-to-Throw Surplus Value"
+  (BTSV) run estimate from wild-pitches-prevented, dirt caught-stealing,
+  and passed-ball counts, computed from hand-typed inputs via the
+  `mlb catcher-pop` CLI command rather than from this project's own
+  ingested defensive data.
+formula: mlb_baseball/model/catcher_pop.py::CatcherPopAndBlockEngine.evaluate_catcher
+citation: >
+  project-derived (no external formula cited). This scores a genuinely
+  different catching skill than mlb_baseball/model/poptime.py (cataloged
+  separately in this batch as catcher_pop_time_csaa.yaml): poptime.py
+  scores a catcher's straight stolen-base throw-out pop time, while this
+  module scores ball-in-the-dirt blocking/recovery and wild-pitch
+  prevention -- it is a distinct module, not a duplicate. No specific
+  published formula was found for the deterrence-percentage slope, the
+  per-event run weights (wild pitch prevented +0.28, dirt caught stealing
+  +0.44, passed ball -0.35), or "Block-to-Throw Surplus Value" as a named
+  statistic.
+data_source: >
+  none -- takes only CLI-supplied counts (mlb_baseball/cli.py
+  "catcher-pop" command: --pop/--recovery/--wp-saved/--dirt-cs/--pb) or
+  the CatcherPopAndBlockMetrics dataclass's hardcoded defaults. Never
+  reads any raw/core/gold table.
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  docs/DECISIONS.md's ADR-193 entry (the source-of-record decision log
+  for this module) still documents the deterrence formula as anchored at
+  2.30 seconds: "Det% = max(0, 100 - ((t_total - 2.30)/0.50)*45)." The
+  actual code anchors at 2.50 seconds, matching its own inline comment
+  ("benchmark is 2.50 seconds"), and
+  test_default_metrics_produce_near_neutral_deterrence is an explicit
+  regression test pinning the 2.50s anchor and documenting the prior
+  2.30s mismatch in its own docstring. This reads as a real fix applied
+  to the code and its test without the ADR log being updated to match --
+  a stale-documentation finding, not a currently-live bug in the code.
+
+  Hand-verified the rest of the arithmetic against both scenario tests
+  and health_check(): the Realmuto-archetype case (pop=1.87, recovery=
+  0.58, wp_prevented=22, dirt_cs=5, pb=0) gives total_time=2.45s,
+  deterrence=100.0 (capped), btsv=8.36 runs, tier
+  WALL_AND_CANNON_BACKSTOP -- matches
+  test_elite_catcher_classified_as_wall_and_cannon. The slow-catcher case
+  (pop=2.12, recovery=0.90, wp_prevented=3, dirt_cs=0, pb=5) gives
+  btsv=-0.91 and tier SLOW_RECOVERY_LIABILITY via the `passed_balls >= 4`
+  branch (not the btsv <= -1.00 branch, since -0.91 does not clear that
+  threshold) -- matches test_slow_catcher_triggers_liability_tier. No
+  arithmetic bug found beyond the stale-ADR anchor value noted above.

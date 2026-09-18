@@ -72,7 +72,10 @@ def conform_database() -> Mapping[str, int]:
 
 
 def build_features() -> Mapping[str, int]:
-    """Rebuild point-in-time game features in the configured database."""
+    """Rebuild the legacy `gold.game_feature` relation (the internal
+    prediction-pipeline feature stage) — not the point-in-time research
+    feature store. For that, see `mlb build` / `docs/FEATURE_STORE.md`.
+    """
     return model.run_features()
 
 

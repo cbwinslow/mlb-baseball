@@ -1,0 +1,80 @@
+name: pitch_movement_profile
+definition: >
+  A starting pitcher's and each team's bullpen's rolling fastball Induced
+  Vertical Break (IVB), breaking-ball drop and spin rate, and the vertical
+  separation between them (fastball IVB minus breaking-ball drop), plus each
+  batting lineup's swing rate on pitches in the strike-zone "Heart" versus
+  well outside it ("Chase"). Computed strictly from games played before the
+  target game, using only real pitch-tracking data.
+formula: mlb_baseball/model/pitch_movement.py::compute
+citation: >
+  MLB.com Statcast Glossary, "Induced Vertical Break (IVB)"
+  (https://www.mlb.com/glossary/statcast/induced-vertical-break), for the
+  pfx_z-based movement/drop/separation definitions; Tom Tango & MLB Advanced
+  Media (2018), "Statcast Attack Zones: Heart, Shadow, Chase, Waste", for the
+  Heart (zone 5) / Chase (zones 11-14) swing-rate zone convention -- the same
+  convention already cited by pitcher_command_attack_zones.yaml (command.py).
+data_source: >
+  raw.statcast_pitch (pitcher, zone, pitch_type, pfx_z, release_spin_rate,
+  type, inning_topbot columns), joined through core.game / core.player into
+  gold.game_feature via mlb_baseball/sql/pitch_movement_update.sql.
+grain: >
+  game (per starting pitcher, per fielding team's bullpen, and per batting
+  team), rolling season-to-date window entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  This module (SHP-01, docs/DECISIONS.md ADR-098) bundles several related
+  sub-metrics that all come from the same raw.statcast_pitch rolling-window
+  query: Fastball IVB = AVG(pfx_z * 12.0) over FF/SI/FC; Curve Drop =
+  AVG(pfx_z * 12.0) over CU/KC/SL/ST/SV; Vertical Separation = Fastball IVB -
+  Curve Drop; breaking-ball Spin Rate = AVG(release_spin_rate) over the same
+  breaking-ball pitch types; Batting Chase% / Heart Swing% = swing rate on
+  pitches in zones 11-14 / zone 5 respectively. Verified by direct hand
+  arithmetic against tests/integration/test_model_pitch_movement.py's fixture
+  (10 FF @ pfx_z=1.30ft, 10 CU @ -0.80ft/2700rpm, 15 SL @ -0.50ft/2500rpm at
+  zone 14, 12+3 more FF at zone 5) -- independently recomputing the weighted
+  averages gives curve_drop=-7.44in, spin=2580rpm, vert_separation=23.04in,
+  chase%=10/25=0.4000, heart_swing%=12/15=0.8000, matching the test's
+  asserted values exactly, and matching the SQL's own arithmetic (this is a
+  self-consistency check against the code's own formula, not an independent
+  external tie-out, hence "published" not "validated").
+
+  IMPORTANT CITATION CORRECTION: docs/RESEARCH.md's own citation for SHP-01
+  is "Alan Nathan (Physics of Baseball, 2016), 'Magnus Force and Trajectory
+  Analysis'" -- a live web search for that exact title turned up no such
+  paper. Alan Nathan is a real baseball-physics researcher
+  (baseball.physics.illinois.edu) but his actual published titles are things
+  like "Effect of the Magnus Force in the PITCHf/x Tracking System" and
+  "Analysis of Baseball Trajectories" -- the RESEARCH.md citation string
+  looks like an invented composite of real author + real general topic, not
+  a real paper. Rather than repeat that unverifiable citation here, this
+  entry cites MLB's own Statcast glossary definition of IVB, which is
+  directly verifiable and is in fact the more precise source for what this
+  code computes (pfx_z x 12, MLBAM's own "induced" vertical break convention)
+  -- treat any RESEARCH.md citation with a specific paper title as unverified
+  until checked directly, consistent with this catalog effort's broader
+  finding that some of this project's own citations were not independently
+  checked when written.
+
+  Zone numbering (5 = Heart, 11-14 = Chase) matches command.py's own
+  convention exactly (see pitcher_command_attack_zones.yaml) -- no
+  inconsistency between the two modules. Unlike command.py's Heart% filter,
+  this module's heart_pitches_seen / chase_pitches_seen counts have NO
+  pitch_number special-casing (no equivalent of the COM-01 Heart% bug found
+  in pitcher_command_update.sql); read directly, they are plain zone
+  predicates.
+
+  Min-sample gates (FB IVB >= 10 pitches, breaking drop/spin >= 5, Chase% >=
+  25 pitches seen, Heart Swing% >= 15 pitches seen) are uncited,
+  project-chosen thresholds, not part of either cited source.
+
+  `home_starter_velo_delta` / bullpen velo-delta live in command.py
+  (pitcher_command_attack_zones.yaml), not here -- this module has no
+  velocity columns at all, only movement/break/spin/discipline. Also
+  distinct from mlb_baseball/model/velo_delta.py (a disconnected CLI-only
+  calculator, catalogued separately in this batch under its own name) -- no
+  naming collision, no shared code path.

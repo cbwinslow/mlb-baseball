@@ -1,0 +1,108 @@
+name: pitcher_estimators
+definition: >
+  A starting pitcher's (and each team's bullpen's) rolling xFIP and SIERA --
+  two ERA estimators built only from strikeout, walk, hit-by-pitch, and
+  batted-ball-type rates, meant to strip out the noise of balls in play and
+  defense -- plus each starter's own strikeout rate and simplified wOBA
+  allowed specifically against left-handed and right-handed batters.
+  Computed strictly from games played before the target game, from real
+  Retrosheet play-by-play data.
+formula: mlb_baseball/model/pitcher_estimators.py::compute
+citation: >
+  xFIP: FanGraphs Sabermetrics Library, "xFIP"
+  (https://library.fangraphs.com/pitching/xfip/) -- ((13*(FB*lgHR/FB%)) +
+  3*(BB+HBP) - 2*K) / IP + constant. SIERA: Matt Swartz & Eric Seidman,
+  "Introducing SIERA" (Baseball Prospectus, 2010,
+  https://www.baseballprospectus.com/news/article/10045/introducing-siera-part-5/)
+  -- the full published polynomial with its netGB=(GB-FB-PU) interaction
+  terms. Platoon wOBA: Tom Tango, Mitchel Lichtman & Andrew Dolphin, "The
+  Book: Playing the Percentages in Baseball" (2006) -- the commonly-cited
+  fixed/"classic" wOBA linear weights (0.69/0.72/0.89/1.27/1.62/2.10 for
+  uBB/HBP/1B/2B/3B/HR).
+data_source: >
+  raw.retrosheet_event, raw.retrosheet_gameinfo (bat_hand_cd /
+  resp_bat_hand_cd, event_cd, battedball_cd, event_outs_ct), joined through
+  core.game / core.player into gold.game_feature via
+  mlb_baseball/sql/team_pitcher_estimators_retrosheet_update.sql. Gated off
+  entirely (compute() returns 0) if raw.retrosheet_event lacks a
+  bat_hand_cd column.
+grain: >
+  game (per starting pitcher and per pitching team's bullpen; platoon splits
+  are starter-only), rolling season-to-date window entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  SIERA VERIFIED CORRECT AGAINST THE PUBLISHED FORMULA, including a detail
+  easy to get wrong: independently re-derived Swartz & Seidman's coefficients
+  via a live web search of the Baseball Prospectus source rather than
+  trusting memory, confirming (a) the interaction-term signs are +10.130 for
+  the K*netGB term and -5.195 for the BB*netGB term (matching the code
+  exactly), and (b) the +/-6.664 squared-netGB term is negative when
+  netGB=(GB-FB-PU) is positive and positive when netGB is negative -- the
+  code's `CASE WHEN (prior_gb - prior_fb - prior_pu) > 0 THEN -1 ELSE 1 END`
+  matches this exactly. The test file's own inline comment documents that an
+  earlier shipped version (ADR-090) HAD the wrong coefficients on both
+  interaction terms (-9.096/-3.037 instead of +10.130/-5.195) and used raw
+  GB% instead of net GB% -- a real production bug, already found and fixed
+  by a prior "Plan 06" tie-out (2026-08-25) before this catalog batch, not
+  something this batch discovered. Status stays "published" rather than
+  "validated" because the test's fixture (PA=40, hand-picked event counts)
+  is a hand-calculated self-consistency check tied to a specific published
+  formula, not an independent tie-out against a real pitcher's already-
+  published SIERA number.
+
+  xFIP FORMULA DEVIATION (real, not a transcription bug): the published xFIP
+  formula requires that season's actual league-average HR/FB rate and that
+  season's actual FIP constant (both of which genuinely vary year to year --
+  league HR/FB has ranged roughly 9%-15%+ across seasons, e.g. the 2019
+  "juiced ball" year). This code hardcodes both as fixed values for every
+  season: 0.105 (10.5%) for lgHR/FB and 3.10 for the constant, with no
+  season join and no comment acknowledging the simplification (unlike
+  team_woba.yaml's offense.py, which has the analogous fixed-weight
+  limitation but says so directly in its own docstring). Notably, this
+  project ALREADY ingests a real season-specific FIP constant --
+  gold.fangraphs_guts.cfip (migrations/0104_gold_fangraphs_reference.sql,
+  ADR-290) -- that this module does not join against; league HR/FB rate
+  itself is not currently in that table. Hand-verified the arithmetic is
+  otherwise applied correctly: fixture PA=40, K=10, BB=4, HBP=1, FB=10,
+  outs=18 -> (13*(0.105*10) + 3*(4+1) - 2*10)/(18/3) + 3.10 =
+  (13.65+15-20)/6 + 3.10 = 4.5417, matching the test's asserted
+  Decimal("4.5417") exactly. The formula's STRUCTURE and cited coefficients
+  (13, 3, 2) are correct; the INPUTS are a materially simplified
+  approximation of a formula whose entire point is normalizing to a
+  season-specific league rate. Flagged here rather than downgrading status,
+  because this is the same category of known, disclosed-in-catalog
+  simplification this project already accepted for team_woba -- but unlike
+  team_woba this one has no code-level disclosure, so raise with the owner.
+
+  Platoon wOBA: verified the exact weights (0.69/0.72/0.89/1.27/1.62/2.10)
+  against the fixture -- vs_lhb_woba = (0.69*2 + 0.72*1 + 0.89*3 + 1.27*1 +
+  2.10*1)/20 = 8.14/20 = 0.4070, vs_rhb_woba = (0.69*2 + 0.89*2 + 1.27*1 +
+  1.62*1)/20 = 6.05/20 = 0.3025, both matching the test exactly. These are
+  "The Book"'s well-known constant/non-seasonal wOBA weights (a slightly
+  different fixed set than offense.py/team_woba.yaml uses, e.g. 0.69 here
+  vs 0.690 there for uBB -- both are legitimate published "classic" weight
+  sets, not a contradiction). vs_lhb_k_pct / vs_rhb_k_pct are plain K/PA
+  descriptive rates, not a cited formula.
+
+  This module's home/away_starter_vs_lhb_woba and vs_rhb_woba columns are
+  the exact columns platoon_splits.yaml (mlb_baseball/model/platoon.py, a
+  separate module) reads as an input for its own matchup-diff subtraction --
+  expected division of labor, not a duplicate entry. This entry covers only
+  what pitcher_estimators.py itself computes: xFIP, SIERA, and the starter's
+  own platoon K%/wOBA-allowed splits.
+
+  Sample-size gates (MIN_STARTER_PA=30, MIN_BULLPEN_PA=40, MIN_PLATOON_PA=15,
+  plus prior_outs>=9 for xFIP) are uncited, project-chosen thresholds, not
+  part of either cited source.
+
+  Minor unverified observation, not confirmed as an active bug: this SQL
+  filters `g.game_type = 'regular'` (no `lower()`), while
+  migrations/0089_core_game_type_lower_index.sql notes six other SQL files
+  in this codebase defensively use `lower(g.game_type) = 'regular'` --
+  flagged for the owner to check whether core.game.game_type is guaranteed
+  lowercase (in which case this is harmless) or whether this file is an
+  outlier that could silently under-count games.

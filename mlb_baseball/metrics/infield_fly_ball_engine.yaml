@@ -1,0 +1,53 @@
+name: infield_fly_ball_engine
+definition: >
+  A pitcher's Infield Fly Ball rate (IFFB% = infield popups / total fly
+  balls allowed), plus a derived seasonal "surplus runs saved" estimate
+  and an induction tier, computed from hand-typed popup/fly-ball/PA counts
+  via the `mlb iffb` CLI command rather than from this project's own
+  ingested batted-ball data.
+formula: mlb_baseball/model/iffb.py::InfieldFlyBallEngine.evaluate_iffb
+citation: >
+  The IFFB% ratio itself (infield fly balls / total fly balls allowed) is
+  FanGraphs' standard, publicly documented batted-ball statistic
+  (FanGraphs batted-ball glossary, "IFFB%",
+  https://www.fangraphs.com/guts.aspx?type=cn). The 9.5% league-average
+  baseline, the 0.22-runs-per-percentage-point conversion used for
+  "popup surplus runs," and the induction-tier cutoffs (14.0% / 11.5% /
+  6.0% IFFB%, and the -1.5 / 0.8 / 2.2 run thresholds) carry no external
+  citation.
+data_source: >
+  none -- takes only CLI-supplied counts (mlb_baseball/cli.py "iffb"
+  command: --iffb, --fb, --pa) or the PitcherIFFBMetrics dataclass's
+  hardcoded defaults. Never reads any raw/core/gold table of this
+  project's own ingested batted-ball classifications.
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Read directly against the module's own claims: despite the docstring's
+  "Automatic Out Run Value Engine" framing, the code never queries the
+  database -- the "pitcher" it evaluates is whatever iffb_count/fb_count
+  the CLI caller types in, with no connection to any real pitcher's
+  actual observed batted-ball mix.
+
+  Hand-verified the arithmetic against both unit tests and health_check():
+  iffb_count=29, fb_count=180 -> iffb_pct = round(29/180*100, 1) = 16.1,
+  delta = 16.1 - 9.5 = 6.6, surplus_runs = round((6.6/100)*180*0.22, 2) =
+  2.61 -- all match test_elite_popup_artist_classified_as_elite_inducer's
+  assertions (iffb_pct > 15.0, delta > 5.0, surplus_runs > 2.0, tier
+  ELITE_POPUP_INDUCER). The low-IFFB% case (iffb_count=7, fb_count=175)
+  likewise reproduces exactly: iffb_pct=4.0, surplus_runs=-2.12, tier
+  WARNING_TRACK_VULNERABLE. Unlike some other modules in this batch, no
+  arithmetic bug was found here -- the headline IFFB% ratio is correct
+  and matches its cited published definition exactly; only the
+  surrounding run-value/tier layer is uncited.
+
+  Same disconnected-CLI-calculator pattern as
+  outfield_catch_probability_engine.yaml and catcher_pop_time_csaa.yaml
+  (prior entries in this catalog): a real, correctly-implemented rate
+  stat wrapped in an uncited run-value model and presented as a
+  data-driven "Engine," but never wired to this project's own ingested
+  batted-ball data or any database build.

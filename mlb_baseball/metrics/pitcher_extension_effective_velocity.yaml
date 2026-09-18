@@ -1,0 +1,53 @@
+name: pitcher_extension_effective_velocity
+definition: >
+  A standalone calculator (run via `mlb extension` on the command line) that
+  converts a hand-typed release extension (feet) and radar velocity into a
+  time-to-plate and an "effective perceived velocity" -- the radar speed
+  adjusted for how much extra or less reaction time a batter gets from a
+  longer or shorter release point, using a fixed +1.25 mph per +1.0 ft of
+  extension rule-of-thumb. It does not read any of this project's own
+  ingested Statcast release-extension data, and is not part of any database
+  build.
+formula: mlb_baseball/model/extension.py::PitcherExtensionEngine.evaluate_effective_velocity
+citation: project-derived (the code's own comment credits "Perry Husband /
+  Statcast model" for the general Effective Velocity concept, but Husband's
+  published Effective Velocity methodology is a distinct, more detailed
+  pitch-location-aware calculation this project does not reproduce; the
+  +1.25 mph-per-foot coefficient and the flight-time kinematics here are
+  this project's own simplified approximation, not a verified reproduction
+  of his or Baseball Savant's actual formula)
+data_source: none -- takes only CLI-supplied numbers (mlb_baseball/cli.py
+  "extension" command), never reads gold/core/raw
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same class of finding as the other standalone `mlb <command>` calculators
+  in this batch: wired into cli.py as its own "extension" command, never
+  queries the database (no `conn` parameter anywhere in
+  evaluate_effective_velocity), and PitcherExtensionProfile's
+  release_extension_ft is a hand-typed number, not read from this project's
+  real raw.statcast_pitch release_extension column, even though release
+  extension is itself a real, directly Statcast-measured quantity
+  (Trackman/Hawkeye measures it from the actual release point -- it is not
+  something a formula needs to derive).
+
+  The flight-distance/time-to-plate kinematics (60.5 ft rubber-to-plate
+  minus extension minus a 1.4 ft contact-zone offset, average velocity
+  ~0.955x radar velocity to account for air drag) are plausible simplified
+  physics but are not cited to a specific published source.
+  tests/unit/test_extension.py pins exact expected values for the 1.25
+  mph/ft coefficient and confirms a real ADR-153 regression fix (the anchor
+  extension moved from an incorrect 6.0 ft to the field's own documented 6.2
+  ft MLB average, so a league-average pitcher now correctly produces a zero
+  velocity delta) -- solid self-consistency and regression coverage, but
+  still internal to the module's own constants, not a tie-out against any
+  independently published Effective Velocity value.
+
+  `status: implemented-untested` and `visibility: internal` reflect that
+  this is an uncited approximation of a real concept, standalone from the
+  project's actual ingested extension data, consistent with the other
+  flagged calculators in this catalog.

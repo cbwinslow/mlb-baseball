@@ -1,29 +1,55 @@
 name: outfield_catch_probability_engine
 definition: >
-  A standalone calculator for Statcast-style outfield catch probability
-  from caller-provided distance needed, hang time, directional angle,
-  and sprint speed, plus a 6-tier "star rating" (5-Star through Routine)
-  and an Outs Above Average (OAA) credit for the individual play.
+  A standalone calculator (run via `mlb catch-prob` on the command line)
+  that estimates a fielder's probability of catching a fly ball from
+  hand-typed distance, hang time, sprint speed, and direction-angle inputs,
+  assigns a Statcast-style star rating, and derives an implied Outs Above
+  Average credit for the single play. It does not read this project's own
+  ingested Statcast outfield-tracking data, and is not part of any database
+  build.
 formula: mlb_baseball/model/catch_prob.py::OutfieldCatchProbEngine.evaluate_opportunity
-citation: >
-  project-derived. Statcast's real 5-Star catch probability system is a
-  logistic model fit on measured player-tracking data; this module's
-  star-rating percentage bands (<=25%/26-50%/51-75%/76-90%/91-95%/>95%)
-  match Statcast's own published bands, but the underlying probability
-  formula itself (a hand-picked time_needed formula with a 0.60s fixed
-  reaction constant, an angle penalty of up to 0.70s, and a
-  logistic steepness of k=6.5) is not the real Statcast model and is not
-  sourced.
-data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
-grain: not applicable (stateless per-call calculation)
+citation: project-derived (no external formula cited)
+data_source: >
+  none -- takes only CLI-supplied numbers (mlb_baseball/cli.py
+  "catch-prob" command: --dist, --hang, --speed, --angle),
+  never reads gold/core/raw.
+grain: not applicable (stateless per-call calculation, no stored grain)
 layer: model
-complexity: complex
+complexity: arithmetic
 implementation: python
 status: implemented-untested
 visibility: internal
 notes: >
-  The star-rating band boundaries are a real, citable piece of Statcast's
-  own published methodology (Baseball Savant's Catch Probability
-  glossary), but the probability value they're applied to in this module
-  is a project-derived approximation, not Statcast's actual model -- so
-  the entry stays internal per the citation rule pending a real tie-out.
+  The task brief for this batch expected this to be either a real fitted
+  Statcast catch-probability model or an honestly-labeled simplified proxy
+  -- it is the latter, and the module's own docstring/class names ("5-Star
+  Catch Probability", "OAA Added") imply more than the code delivers. Real
+  Baseball Savant Catch Probability is a model fit on a large sample of
+  actual tracked outfield plays
+  (https://baseballsavant.mlb.com/catch_probability), and real Outs Above
+  Average is likewise aggregated/regressed across many plays with
+  adjustments Statcast does not fully publish -- neither is a single
+  closed-form formula. This module instead computes a hand-built logistic
+  curve (time_needed = 0.60 + distance_needed_ft / (sprint_speed_fps*0.92)
+  + (direction_angle_deg/180.0)*0.70; z = (hang_time_s - time_needed)*6.5;
+  prob = sigmoid(z)) whose constants (0.60s base reaction/transfer time,
+  the 0.92 effective-speed derate, the 0.70 angle penalty coefficient, and
+  the 6.5 logistic steepness) carry no citation to any published fitted
+  model -- they read as plausible hand-tuned values, not derived ones. The
+  "oaa_added" output is a single-play proxy (1 - prob if caught, else
+  -prob), not the real, multi-play-aggregated Statcast OAA statistic.
+
+  One piece IS a genuine match to a published convention, worth noting
+  honestly rather than lumping in with the uncited arithmetic: the star
+  rating cutoffs (5-Star <=25%, 4-Star 26-50%, 3-Star 51-75%, 2-Star
+  76-90%, 1-Star 91-95%, Routine 96-100%) match Baseball Savant's own
+  publicly documented Catch Probability star-rating buckets. Only the
+  bucket boundaries are a real cited convention -- the probability value
+  that gets sorted into them is this module's own uncited formula, not
+  Statcast's.
+
+  tests/unit/test_catch_prob.py's two scenario tests and health_check()
+  assert exact star-rating/probability-range outputs for hand-picked
+  synthetic OutfieldPlayOpportunity inputs -- correct proof the arithmetic
+  is implemented as written, not independent validation against any real
+  fielder's real observed catch probability or OAA.

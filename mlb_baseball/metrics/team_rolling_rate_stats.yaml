@@ -1,0 +1,78 @@
+name: team_rolling_rate_stats
+definition: >
+  A team's rolling on-base percentage (OBP), slugging (SLG), isolated power
+  (ISO), walk rate (BB%), strikeout rate (K%), and batting average on balls
+  in play (BABIP), plus its rolling runs-for and runs-allowed averages,
+  each computed point-in-time entering a game from games strictly before
+  it. Small-sample rates (fewer than 10 plate appearances, 8 at-bats, or 8
+  balls in play) are left NULL rather than reported as a misleadingly
+  precise ratio.
+formula: mlb_baseball/model/team_rate.py::compute
+citation: >
+  Standard sabermetric formulas. OBP and SLG follow the Official Baseball
+  Rules' definitions; ISO, BABIP, and the plate-discipline rate stats
+  (BB%/K%) follow FanGraphs' published Sabermetrics Library definitions
+  (ISO: https://www.fangraphs.com/library/offense/iso/; BABIP:
+  https://www.fangraphs.com/library/pitching/babip/; plate discipline:
+  https://www.fangraphs.com/library/offense/plate-discipline/).
+data_source: >
+  raw.retrosheet_event, raw.retrosheet_gameinfo (1910-2025, rate stats via
+  team_rate.py::compute); gold.game_feature's own already-computed
+  win/loss/runs sums (runs-for/allowed averages via
+  team_rate.py::compute_run_environment, no additional raw dependency)
+grain: team, point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Correctly implements the cited formulas per direct code read of
+  mlb_baseball/sql/team_rate_retrosheet_update.sql: OBP =
+  (H+BB+HBP)/PA, SLG = TB/AB, ISO = SLG - AVG, BABIP =
+  (H-HR)/(AB-SO-HR+SF), BB% = BB/PA, K% = SO/PA, with PA = AB+BB+HBP+SF.
+  Every event_cd FILTER is correctly gated on bat_event_fl='T' (required to
+  avoid double-counting Retrosheet's own non-batter-event artifact rows,
+  per ADR-034), and the rolling window orders by
+  (game_date, COALESCE(game_number, 0), game_id) rather than raw insertion
+  order -- confirmed by two real regression tests
+  (test_compute_orders_doubleheader_by_game_number_not_insertion_order,
+  test_compute_orders_doubleheader_by_coalesced_game_number_when_number_
+  is_null) that reproduce two real historical ordering bugs (issue #28: a
+  doubleheader's second game inserted before its first; a NULL
+  game_number, genuinely present for ~10,020 games from 1901-1909 in real
+  production data, sorting after a non-NULL sibling under NULLS LAST).
+  compute_run_environment() is a pure derived UPDATE off gold.game_feature's
+  already-computed win/loss/runs columns, verified correct by direct read
+  of team_run_environment_update.sql.
+
+  MIN_PA=10 / MIN_AB=8 / MIN_BIP=8 (ADR-062/063) are chosen floors, not
+  derived or cited numbers -- same posture as comprehensive_baserunning's
+  MIN_ATTEMPTS gates. PA deliberately excludes sacrifice bunts and
+  catcher's interference (raw.retrosheet_event's ab_fl/sf_fl flags don't
+  separately expose them here) -- a documented gap, not a silent
+  approximation.
+
+  tests/integration/test_model_team_rate.py's hand-calculation tests
+  (test_compute_rolling_rate_stats_match_hand_calculation,
+  test_compute_babip_matches_hand_calculation) hand-derive expected values
+  using the same arithmetic the SQL performs -- self-consistency, not an
+  independent tie-out, so status is "published" rather than "validated."
+
+  The module's own docstring separately claims a one-off manual
+  reconciliation of Ronald Acuna Jr.'s full 2023 season, reconstructed from
+  raw.retrosheet_event and compared exactly against the MLB Stats API. Per
+  this catalog's honesty rule, that claim is NOT taken at face value: no
+  automated test in tests/integration/test_model_team_rate.py (or anywhere
+  else in the repository -- searched for "acuna"/"acunr001") performs this
+  comparison. It is a narrative docstring claim only, exactly the same
+  self-report pattern flagged for team_woba's .317 manual check, and it
+  does not change the status call.
+
+  Unlike win_probability_added_calculator/bullpen_leverage_volatility_
+  engine and this batch's own stolen_base_physics_engine/
+  stadium_weather_physics_engine/zone_swing_vulnerability_engine, this
+  module IS wired into the real production build pipeline
+  (mlb_baseball/model/__init__.py's compute/health_check registries feed
+  gold.game_feature), not a standalone CLI what-if calculator -- confirmed
+  by direct read of model/__init__.py.

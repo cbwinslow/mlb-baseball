@@ -1,0 +1,61 @@
+name: statcast_expected_quality_of_contact
+definition: >
+  An in-season, point-in-time entering estimate of a starting pitcher's,
+  bullpen's, and offense's HardHit%, Barrel%, xBA, xSLG, and xwOBA, built
+  entirely from Retrosheet's coarse batted-ball-type codes (ground ball/fly
+  ball/line drive/pop up) and a fixed table of "expected outcome per
+  batted-ball type" constants this project assigns -- not a read of Baseball
+  Savant's own Statcast-measured exit-velocity/launch-angle expected-stat
+  columns, despite the module's "Statcast" name.
+formula: mlb_baseball/model/statcast_expected.py::compute
+citation: project-derived (module and column names borrow Baseball Savant's
+  Statcast terminology -- HardHit%, Barrel%, xBA, xSLG, xwOBA -- but the
+  actual computation never reads Statcast's exit-velocity/launch-angle data
+  or reproduces its published expected-stat model; it substitutes a
+  hand-built table of average-outcome-by-batted-ball-type constants, so no
+  Baseball Savant citation applies to what this code actually does)
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo
+grain: game, point-in-time entering each game (starting pitcher / team
+  bullpen / team offense, rolled up over the current season's prior games
+  only)
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: implemented-untested
+visibility: internal
+notes: >
+  IMPORTANT NAMING MISMATCH -- read directly against the module's own
+  docstring ("Statcast Quality of Contact & Expected Metrics ... HardHit%,
+  Barrel%, xwOBA, xBA, xSLG"): this project has a real Statcast pitch-level
+  table (raw.statcast_pitch, mlb_baseball/connectors/statcast.py,
+  2015-present, including Baseball Savant's own already-computed
+  estimated_ba_using_speedangle / estimated_woba_using_speedangle columns)
+  that this module does not read at all. Instead,
+  mlb_baseball/sql/statcast_expected_retrosheet_update.sql derives
+  everything from raw.retrosheet_event's battedball_cd (G/F/L/P) and
+  event_cd/h_cd outcome codes, assigning each batted-ball type a fixed
+  constant "expected" batting-average/slugging/wOBA-contact value (e.g. line
+  drive xBA=0.685, fly ball=0.210, ground ball=0.235, pop up=0.020) that this
+  project chose and does not cite to any specific published source.
+  "HardHit%" here means "line drive, triple, or home run rate", and
+  "Barrel%" means "extra-base line drive, triple, or home run rate" -- both
+  are outcome-based proxies unrelated to Statcast's real definitions (95+
+  mph exit velocity; a specific exit-velocity/launch-angle combination),
+  because Retrosheet has no exit-velocity or launch-angle data to compute
+  the real thing from.
+
+  The zero-lookahead point-in-time mechanics are real and correctly
+  implemented: `ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING`
+  partitioned by entity/season, with explicit doubleheader game_number
+  tie-breaking, and minimum-sample-size gates (>=5 BIP, >=10 AB/PA) before
+  emitting a rate instead of NULL. tests/integration/test_model_statcast_
+  expected.py directly verifies a game with no preceding games gets NULL (no
+  lookahead) and hand-derives the game-2 expected values using the same
+  constants the SQL uses -- self-consistency, not an independent tie-out
+  against real Statcast xBA/xwOBA/xSLG values for the same plate
+  appearances, which is the correct validation this module would need before
+  any of this could honestly be called "Statcast" data.
+
+  `status: implemented-untested` and `visibility: internal` reflect that
+  this is a home-grown Retrosheet-only proxy dressed in Statcast naming, not
+  a citable Baseball Savant pass-through or reimplementation.

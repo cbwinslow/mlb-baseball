@@ -1,0 +1,53 @@
+name: pitch_discipline
+definition: >
+  A pitching team's Called-Strike-plus-Whiff rate (CSW%), Whiff rate
+  (swinging strikes per swing), and First-Pitch Strike rate for its
+  starting pitcher and its bullpen, computed entering each game strictly
+  from that pitcher's/team's own games already played that season
+  (point-in-time safe, with doubleheaders ordered chronologically).
+formula: mlb_baseball/model/pitch_discipline.py::compute
+citation: >
+  Pitcher List, "CSW Rate: An Intro to an Important New Metric" (2018,
+  the article that coined CSW%) for which pitch outcomes count toward
+  CSW%'s numerator; Whiff% and First-Pitch Strike% follow standard,
+  widely published FanGraphs/Baseball Savant pitching-glossary
+  definitions.
+data_source: raw.retrosheet_event (pitch_seq_tx column), raw.retrosheet_gameinfo
+grain: team-game (starting pitcher and bullpen scored separately), point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Despite the module name, this does NOT compute the chase%/Zone%/Contact%
+  family of plate-discipline stats (those need pitch-location data -- in
+  or out of the strike zone -- which Retrosheet's pitch_seq_tx sequence
+  codes don't carry). It computes CSW%, Whiff%, and First-Pitch Strike%
+  instead, derived purely from Retrosheet's per-pitch outcome codes
+  (B/C/F/H/I/K/L/M/O/P/Q/R/S/T/U/V/X/Y).
+
+  ADR-263 (2026-08-25) found and fixed a real correctness bug in this
+  SQL's predecessor: the pitch-count whitelist excluded `H` (hit batter --
+  a real thrown pitch per Retrosheet's own event-file spec,
+  retrosheet.org/eventfile.htm) and the CSW keep-set excluded `T` (foul
+  tip, which Pitcher List's own published CSW definition explicitly lists
+  as counting toward CSW%). Both were confirmed by direct comparison
+  against Retrosheet's spec and Pitcher List's original article, not taken
+  on the code's own say-so.
+  tests/integration/test_model_pitch_discipline.py::test_compute_counts_foul_tips_and_hit_batters_per_verified_csw_formula
+  is a genuine regression guard: it hand-derives the corrected value from
+  the cited sources AND explicitly asserts the pre-fix (buggy) value is
+  wrong (0.4286 vs. the corrected 0.4545), not just that the current code
+  reproduces itself.
+
+  MIN_STARTER_PITCHES/MIN_STARTER_SWINGS/MIN_STARTER_PA (20/10/5) and
+  MIN_BULLPEN_PITCHES/MIN_BULLPEN_SWINGS (30/15) are chosen sample-size
+  floors below which a rate is withheld as NULL rather than published on
+  a tiny sample; they are not derived or cited numbers.
+
+  Both tests hand-derive expected values using the same pitch-code mapping
+  the SQL implements (self-consistency against a cited external
+  definition, not an independent tie-out against a second source's
+  already-computed CSW%/Whiff%/FStrike% for a real pitcher-season), so
+  status is "published" rather than "validated".

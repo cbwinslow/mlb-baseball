@@ -1,0 +1,64 @@
+name: stadium_weather_physics_engine
+definition: >
+  A standalone calculator that decomposes wind speed/direction into
+  stadium-relative tailwind and crosswind components, estimates an air-
+  density index from temperature/humidity/pressure/altitude, and converts
+  both into an estimated fly-ball distance change and a home-run/total-runs
+  scaling multiplier for a single hand-entered stadium and weather scenario.
+  It does not read this project's own ingested game or weather data, and is
+  not part of any database build.
+formula: mlb_baseball/model/weather.py::StadiumWeatherPhysicsEngine.compute_weather_impact
+citation: >
+  Partially grounded in published baseball-physics methodology: the wind-
+  vector decomposition is standard trigonometric projection, and the air-
+  density calculation follows Alan M. Nathan's baseball trajectory/air-
+  density methodology (University of Illinois,
+  baseball.physics.illinois.edu -- a Magnus-Tetens vapor-pressure
+  approximation plus an altitude scale-height exponential decay term; the
+  module's own comment credits an "Alan Nathan formulation"). The downstream
+  distance-to-HR-rate and distance-to-runs-rate scaling coefficients (3.0
+  ft per mph of tailwind, 0.35 ft per ADI point, 0.015 HR-multiplier per ft,
+  0.006 runs-multiplier per ft) are uncited, project-invented linear
+  approximations, not drawn from Nathan's or any other published coefficient
+  set.
+data_source: none -- takes only in-code/CLI-supplied StadiumOrientation/WeatherConditions values (`mlb weather` in cli.py), never reads gold/core/raw
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Coors Field altitude and Wrigley Field wind are real, well-documented
+  baseball effects (extra carry from thin air at altitude; wind blowing out
+  toward a short porch), and this module's wind-vector geometry
+  (meteorological wind-from convention, tailwind = speed * cos(relative
+  angle)) and air-density formula structure are physically sound and
+  resemble Alan Nathan's published trajectory-calculator methodology --
+  real, if partial, grounding, unlike stolen_base_physics_engine or
+  zone_swing_vulnerability_engine's fully uncited internals.
+
+  However, the conversion from air density/wind to an actual fly-ball
+  distance change (3.0 ft per mph of tailwind; 0.35 ft per 1-point ADI
+  drop), and from that distance change to a home-run-rate or total-runs
+  multiplier (1.5% HR-multiplier per ft; 0.6% runs-multiplier per ft),
+  carries no citation and no derivation from this project's own data --
+  these are the module's own invented linear approximations layered on top
+  of a real physics core. Same "real cited core + uncited tuned constants"
+  shape as team_woba/starter_fip, but with more of the pipeline uncited and,
+  critically, data_source: none -- no ingested data at all, unlike
+  team_woba/starter_fip which read raw.retrosheet_event.
+
+  Both unit tests (test_wrigley_field_wind_blowing_out_and_in,
+  test_coors_field_altitude_thin_air) and health_check() only assert the
+  module's own output falls within a broad plausible range for hand-picked
+  scenarios -- self-consistency, not an independent tie-out against any
+  measured wind/carry/scoring dataset.
+
+  `mlb weather` is wired into cli.py as a standalone what-if command and
+  into `mlb doctor` only via its own synthetic scenario, not into
+  report.py's gold-table build pipeline. Following the
+  win_probability_added_calculator/bullpen_leverage_volatility_engine
+  precedent for this class of module: implemented-untested/internal,
+  because the citable piece (air-density physics) is inseparable, in the
+  shipped output, from the uncited scaling layer built on top of it.

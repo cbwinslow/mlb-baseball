@@ -1,0 +1,51 @@
+name: defensive_alignment_suppression_engine
+definition: >
+  A standalone calculator (run via `mlb shift` on the command line) that
+  estimates a batter's expected BABIP, ground-ball out rate, and runs
+  prevented per game under a chosen defensive alignment (standard, shaded
+  pull, infield in, outfield deep), from a batter's pull rate/speed/hard-hit
+  rate and a team's Outs Above Average, all typed in by the USER. It does
+  not read any of this project's own batted-ball or defensive-positioning
+  data, and is not part of any database build.
+formula: mlb_baseball/model/shift.py::DefensiveAlignmentEngine.evaluate_defensive_matchup
+citation: project-derived (no external formula cited)
+data_source: none -- takes only CLI-supplied numbers (mlb_baseball/cli.py "shift" command), never reads gold/core/raw
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same pattern as the other three standalone CLI engines flagged in this
+  batch. Every coefficient is a hand-typed, uncited constant: shaded-pull
+  suppression of -0.022 BABIP for pull>=48% hitters (else only -0.005),
+  infield-in penalty of +0.045 BABIP, outfield-deep penalty of +0.012 BABIP,
+  +0.010 BABIP per ft/s of sprint speed above 27.0, +0.15 BABIP scaling on
+  hard-hit rate above league average, and an OAA-to-BABIP conversion of
+  -0.012 BABIP per +10 team OAA. None of these numbers trace to a cited
+  source -- checked docs/RESEARCH.md (no SHIFT-01 entry at all) and
+  docs/DECISIONS.md (ADR-140 lists the same numbers as "Mathematical
+  Formulations" with no Citations section, same pattern as aging.py's
+  ADR-145 and reliever.py's ADR-138).
+
+  This is a real, well-studied public research area (post shift-ban BABIP
+  studies, pre-ban shift-effectiveness analyses from FanGraphs/Baseball
+  Savant/Baseball Prospectus quantifying actual measured BABIP suppression
+  by shift type and by team), so an honest external citation and a
+  data-driven fit were both available paths the module could have taken --
+  it took neither. `mlb shift --alignment shaded_pull --pull-pct 0.52
+  --team-oaa 6.0` in cli.py builds its `DefensiveAlignmentProfile` and
+  `BatterBattedBallTendencies` entirely from CLI flags, never touches the
+  database, and is not part of report.py's gold-table build pipeline.
+
+  tests/unit/test_shift.py checks that the hand-typed formula moves in the
+  expected direction (shaded pull suppresses BABIP for a heavy pull hitter;
+  infield-in raises it) -- self-consistency of the invented formula, not a
+  tie-out against any independently published shift-effectiveness study.
+
+  `status: implemented-untested` and `visibility: internal` reflect this
+  honestly. Recommended follow-up: either replace the coefficients with a
+  fit against this project's own real batted-ball/shift data and cite the
+  public research this area already has, or archive as a what-if
+  calculator; out of scope for this batch to decide.

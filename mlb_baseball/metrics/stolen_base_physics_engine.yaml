@@ -1,0 +1,60 @@
+name: stolen_base_physics_engine
+definition: >
+  A standalone kinematic calculator (not tied to any real player/pitcher
+  data) that estimates a stolen-base attempt's success probability,
+  breakeven success rate, and expected run value from hand-entered or
+  default runner sprint speed, pitcher delivery time, and catcher pop time,
+  then recommends a go/no-go "green light." It does not read this project's
+  own ingested game data and is not part of any database build.
+formula: mlb_baseball/model/baserunning.py::BaseStealingPhysicsEngine.evaluate_steal_attempt
+citation: >
+  project-derived (no external formula cited; the run-expectancy breakeven
+  values used per out-state are hardcoded literals in the module, not
+  sourced from this project's own gold.run_expectancy_24 table or any
+  published run-expectancy matrix)
+data_source: none -- takes only in-code/CLI-supplied RunnerStealProfile/PitcherDeliveryProfile/CatcherArmProfile values (`mlb steal` in cli.py), never reads gold/core/raw
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Genuinely a DIFFERENT module from mlb_baseball/model/bsr.py, already
+  cataloged as comprehensive_baserunning: bsr.py computes production,
+  point-in-time team baserunning run-value stats (wSB/XBT%/UBR/wGDP/BsR)
+  from real ingested raw.retrosheet_event data into gold.game_feature.
+  baserunning.py is an unrelated pre-pitch race-timing physics simulator
+  that never touches ingested data at all -- same relationship as
+  win_probability_added_calculator/bullpen_leverage_volatility_engine have
+  to win_expectancy_empirical/leverage_index_empirical. Not a duplicate or
+  superseded version of comprehensive_baserunning; do not confuse the two
+  by shared "baserunning" naming.
+
+  Its logistic success-probability curve (k_logistic=11.5),
+  accel_time_penalty (0.25s), tag_time_s (0.15s), and the per-disengagement
+  lead/jump adjustments (+2.0ft/-0.08s jump improvement at 2 disengagements,
+  +0.8ft/-0.03s at 1) are all uncited, hand-tuned constants with no
+  derivation or citation given anywhere in the module.
+
+  The 24-state run-expectancy figures used for the breakeven calculation
+  (e.g. re_current=0.86/re_success=1.10/re_fail=0.26 at 0 outs) are
+  hardcoded literals in this module, not read from this project's own
+  empirically-built gold.run_expectancy_24 table (ADR-260) that
+  comprehensive_baserunning's own wGDP calculation already uses -- a real,
+  live inconsistency: this project has real run-expectancy data it simply
+  does not use here.
+
+  Both unit tests (test_elite_runner_against_slow_delivery_and_
+  disengagements, test_slow_runner_against_quick_slide_step_gets_red_light)
+  and health_check() only assert the engine's own output falls in a broad
+  plausible range for hand-picked scenario inputs -- self-consistency
+  against the code's own arithmetic, not an independent tie-out against any
+  measured stolen-base outcome data.
+
+  `mlb steal` is wired into cli.py as a standalone what-if command and into
+  `mlb doctor` only via its own synthetic scenario, not into report.py's
+  gold-table build pipeline. Following the win_probability_added_calculator
+  / bullpen_leverage_volatility_engine precedent for this class of module:
+  implemented-untested/internal reflects this honestly rather than
+  describing it as a validated or citable statistic.

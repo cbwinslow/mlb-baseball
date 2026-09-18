@@ -1,26 +1,59 @@
 name: bvp_arsenal_interaction_engine
 definition: >
-  A standalone batter-vs-pitcher (BvP) micro-matchup calculator combining
-  a Log5-style platoon-baseline prior, Empirical Bayes shrinkage of
-  observed head-to-head wOBA (M=350 PA), and a pitch-mix arsenal
-  interaction adjustment, into a composite matchup wOBA and expected
-  K%/BB%.
+  A standalone calculator (run via `mlb bvp` on the command line) that
+  projects a hitter's expected wOBA against a specific pitcher by combining a
+  Log5 platoon-baseline prior, empirical-Bayes shrinkage of any hand-entered
+  head-to-head at-bat history toward that prior, and a run-value adjustment
+  from the pitcher's hand-typed pitch-mix percentages against the batter's
+  hand-typed per-pitch-type run values. It does not read any of this
+  project's own ingested player or Statcast data -- every input is typed on
+  the command line -- and is not part of any database build.
 formula: mlb_baseball/model/bvp.py::EmpiricalBayesBvPEngine.evaluate_matchup
-citation: >
-  project-derived. The Log5 odds-ratio combination method (Bill James)
-  and Empirical Bayes shrinkage are real, general statistical
-  techniques, but this module's specific shrinkage constant (350 PA),
-  the arsenal run-value-to-wOBA conversion factor (1.0 RV/100 pitches ->
-  ~0.035 wOBA, via an assumed 3.9 pitches/PA), and the K%/BB%
-  back-out coefficients (0.40, 0.30) are not sourced from a cited
-  external model.
-data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
-grain: not applicable (stateless per-call calculation)
+citation: project-derived (the platoon-baseline step reproduces Bill James'
+  published Log5 odds-ratio method -- see mlb_baseball/model/props.py's
+  citation "Bill James / Tom Tango, The Book (2007)" for the same technique
+  applied elsewhere in this project -- but the empirical-Bayes shrinkage
+  constant and the arsenal-interaction run-value-to-wOBA conversion are this
+  project's own uncited choices, so the composite formula as a whole is not a
+  reproduction of any single published matchup model)
+data_source: none -- takes only CLI-supplied numbers (mlb_baseball/cli.py
+  "bvp" command), never reads gold/core/raw
+grain: not applicable (stateless per-call calculation, no stored grain)
 layer: model
 complexity: complex
 implementation: python
 status: implemented-untested
 visibility: internal
 notes: >
-  Same "real general technique, invented project-specific constants"
-  shape as batter_platoon_shrinkage_engine (splits.py) from batch 6.
+  Same class of finding as bullpen_leverage_volatility_engine (leverage.py)
+  and win_probability_added_calculator (wpa.py): a real formula-shaped module
+  wired into cli.py as a standalone "what-if" command (`mlb bvp`), not into
+  report.py's gold-table build pipeline, and it never queries the database
+  (no `conn` parameter anywhere in evaluate_matchup).
+
+  calculate_log5_platoon_prior() is a correct, direct implementation of Bill
+  James' Log5 odds-ratio method applied to batter/pitcher wOBA-vs-hand inputs
+  against a league-average wOBA -- the one genuinely citable piece.
+  SHRINKAGE_PA_CONSTANT = 350.0 (the empirical-Bayes regression weight) has no
+  citation or derivation in the code; sabermetric research on wOBA-component
+  stabilization (e.g. Russell Carleton, Baseball Prospectus) generally puts
+  full-wOBA stabilization somewhere in a comparable 200-450 PA range, so 350
+  is plausible but unverified against any specific published number.
+
+  The arsenal-interaction run-value-to-wOBA conversion
+  (`woba_delta_arsenal = (net_rv100 / 100.0) * 3.5`) sits under two
+  contradictory comments in the source -- one says "1 run per 100 pitches
+  translates to approx +0.008 wOBA", the next says "1.0 RV/100 pitches =
+  ~0.035 wOBA delta" -- and the code implements the second (0.035), not the
+  first (0.008): a 4x internal inconsistency in the module's own explanation
+  of its own formula. Neither number is cited to a published run-value-to-
+  wOBA conversion table.
+
+  tests/unit/test_bvp.py checks shrinkage direction/magnitude and the
+  arsenal interaction arithmetic against hand-picked expected ranges/values,
+  plus the health check -- self-consistency with the code's own constants,
+  not an external tie-out against real BvP or platoon data.
+
+  `status: implemented-untested` and `visibility: internal` reflect this
+  honestly, matching the two prior flagged CLI-calculator entries
+  (bullpen_leverage_volatility_engine, win_probability_added_calculator).

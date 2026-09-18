@@ -1,53 +1,68 @@
 name: pitcher_command_attack_zones
 definition: >
-  Rolling Heart%, Shadow%, Chase%, fastball velocity, and velocity delta
-  (fastball minus offspeed) for starting pitchers and bullpens, computed
-  point-in-time (strictly prior games, season-to-date) from Statcast
-  pitch-tracking zone codes, gated below 20 qualifying pitches (10 for
-  velocity, 25 for bullpen rates).
+  A starting pitcher's (and each team's bullpen's) rolling strike-zone
+  command entering a game: what share of pitches land in the heart of the
+  zone, on its edges ("shadow"), or well outside it ("chase"), plus average
+  fastball velocity and the velocity gap between a pitcher's fastball and
+  their off-speed pitches. Computed strictly from games played before the
+  target game, using only real pitch-tracking data.
 formula: mlb_baseball/model/command.py::compute
 citation: >
-  Statcast Attack Zones (Heart/Shadow/Chase/Waste), Baseball Savant's
-  own published zone-profile terminology and zone-code numbering
-  (zone 5 = Heart; zones 1-4/6-9 = Shadow; zones 11-14 = Chase/Waste).
-data_source: raw.statcast_pitch (zone, pitch_type, release_speed columns)
-grain: team (starting pitcher, bullpen), point-in-time entering each game
+  Tom Tango & MLB Advanced Media (2018), "Statcast Attack Zones: Heart,
+  Shadow, Chase, Waste"; Jeff Long, Harry Pavlidis, Martin Alonso (Baseball
+  Prospectus, 2017), "Pitch Tunneling and Velocity Differentials" (per
+  docs/RESEARCH.md, COM-01, ADR-097).
+data_source: raw.statcast_pitch (joined through core.game, core.player into gold.game_feature)
+grain: game (per starting pitcher and per fielding team's bullpen), rolling entering-game window
 layer: gold
 complexity: arithmetic
 implementation: sql
-status: implemented-untested
+status: published
 visibility: public
 notes: >
-  A genuine correctness bug found by reading
-  mlb_baseball/sql/pitcher_command_update.sql directly, not caught by
-  the existing test suite: the starter-level heart_pitches count is
+  Real production module, not a standalone calculator: `command.py::compute`
+  is wired into the gold-table build (writes
+  gold.game_feature.home/away_starter_{heart,shadow,chase}_pct,
+  *_fastball_velo, *_velo_delta and the bullpen equivalents) and reads real
+  ingested Statcast pitch data via `raw.statcast_pitch`
+  (mlb_baseball/connectors/statcast.py), gated by minimum-sample thresholds
+  (>=20 pitches for the zone percentages, >=10/>=5 fastball/off-speed pitches
+  for velocities) before it will fill in a value. Velocity Delta is fastball
+  velocity (FF/SI/FC) minus a separately-averaged off-speed velocity
+  (CH/FS/SL/CU/ST/SV), matching the cited formula; hand-verified this against
+  the integration test's own numbers (95.00 - 84.33 = 10.67 mph), which the
+  test's own inline comment mis-describes as "10.00" -- the code is right,
+  the comment is stale/wrong.
 
-    count(*) FILTER (WHERE zone IN ('5')
-      OR (zone IN ('1','2','3','4','6','7','8','9') AND pitch_number::int = 1))
+  **Fixed 2026-09-18** (found during this catalog batch, then fixed
+  directly -- PR #215): `heart_pitches` in pitcher_command_update.sql used
+  to be `count(*) FILTER (WHERE zone = '5' OR (zone IN (1,2,3,4,6,7,8,9)
+  AND pitch_number = 1))` -- i.e. it also counted any *first pitch of a
+  plate appearance* that landed in the Shadow zone as if it were a
+  Heart-zone pitch. This had no basis in the cited Attack Zones definition
+  or in this project's own documented formula (docs/RESEARCH.md #9:
+  "Heart% = Pitches in Zone 5 / Total Pitches", no first-pitch exception),
+  and it double-counted those pitches into both `heart_pitches` and
+  `shadow_pitches` (the Shadow filter is independent of `pitch_number`).
+  The old `tests/integration/test_model_command.py` never exercised this
+  because every synthetic pitch in its fixture used `pitch_number='2'`, so
+  the bug was untested and silently inflated home/away starter Heart% (and
+  double-counted Shadow%) in real games, where pitch_number=1 is the
+  single most common value. `heart_pitches` now matches the bullpen-side
+  formula exactly (`zone = '5'`, nothing else), and a new regression test
+  (`test_compute_does_not_double_count_first_pitch_shadow_zone_as_heart`)
+  reproduces the original bug mechanism and asserts Heart% + Shadow% +
+  Chase% sum to exactly 1.0. `status` is now `published` rather than
+  `implemented-untested`: all five sub-metrics (Heart%, Shadow%, Chase%,
+  Fastball Velo, Velo Delta) correctly implement the cited source.
 
-  -- i.e. any Shadow-zone pitch that happens to be the first pitch of the
-  plate appearance is ALSO counted as a Heart pitch, while the same row
-  is independently counted in shadow_pitches (zone IN (1,2,3,4,6,7,8,9)
-  AND zone != 5, with no pitch_number condition). A first-pitch
-  Shadow-zone pitch is double-counted across Heart and Shadow, so
-  home_starter_heart_pct + home_starter_shadow_pct + home_starter_chase_pct
-  does not partition to 100% of pitches whenever any qualifying game had
-  a first-pitch Shadow-zone pitch. The bullpen-level aggregate
-  (bp_heart in bullpen_daily) does NOT have this bug -- it correctly
-  filters to zone = '5' only, no pitch_number clause.
+  Also note the citation says "Heart, Shadow, Chase, Waste" (four zones) but
+  the implementation only has three buckets -- zones 11-14 ("Chase" here)
+  absorb what Savant's own glossary would split further into Chase and
+  Waste. Minor simplification, not flagged as a correctness bug.
 
-  tests/integration/test_model_command.py's
-  test_compute_matches_hand_calculation_and_gates_below_min_samples does
-  not catch this: every seeded pitch in its fixture uses pitch_number='2'
-  for every row, so the buggy pitch_number::int = 1 branch is never
-  exercised. Not fixed here -- documentation-only change; flagged as a
-  real finding for a follow-up fix.
-
-  Otherwise correctly SQL-executed (implementation: sql, matching the
-  CodeRabbit finding from batch 5's starter_age/team_batted_ball_profile)
-  and point-in-time safe (ROWS BETWEEN UNBOUNDED PRECEDING AND 1
-  PRECEDING). The zone-code citation itself is correct and public, but
-  given the confirmed double-counting defect above, this stays
-  "implemented-untested" rather than "published" -- the headline
-  Heart%/Shadow%/Chase% split cannot currently be trusted to sum
-  correctly, so a stronger status would overstate confidence.
+  Min-sample thresholds (20/10/5) are uncited project-chosen gates, not part
+  of either external citation; `visibility: public` reflects that the
+  formula's substance is drawn from real published sabermetric sources, per
+  the catalog's own rule that a directory/threshold detail doesn't override
+  a genuinely-cited formula.

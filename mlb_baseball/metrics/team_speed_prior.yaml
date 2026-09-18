@@ -1,0 +1,45 @@
+name: team_speed_prior
+definition: >
+  A team's prior-season baserunning speed: each player's Baseball Savant
+  Sprint Speed (feet per second), averaged across the team's roster and
+  weighted by each player's number of competitive Statcast-tracked runs,
+  lagged one full season so a game's prediction never uses speed data that
+  only exists because of games played after it.
+formula: mlb_baseball/model/speed.py::compute
+citation: >
+  Baseball Savant, Sprint Speed leaderboard/glossary
+  (https://baseballsavant.mlb.com/sprint_speed_leaderboard)
+data_source: raw.statcast_sprint_speed
+grain: team-season (lagged one season, joined onto a per-game feature row)
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  This project ingests Baseball Savant's own already-computed player-season
+  sprint_speed values -- Sprint Speed itself is Baseball Savant's own fitted
+  "feet per second in a player's fastest one-second window" measurement,
+  derived by MLB Advanced Media from raw Statcast tracking data this project
+  does not itself re-derive -- and takes a competitive-runs-weighted team
+  average of them. That is a legitimate simple aggregation of an externally
+  computed, externally fitted number, not a reimplementation of Sprint
+  Speed's own underlying tracking-data methodology; hence "arithmetic", not
+  "complex".
+
+  `raw.statcast_sprint_speed.team_id` is confirmed (per the module's own
+  docstring and a direct code read of team_speed_update.sql) to match
+  `core.team.mlb_team_id` verbatim for all 30 current teams -- unlike
+  war.py's bref/Retrosheet crosswalk or oaa.py's three-name remap, no
+  crosswalk table is involved here. Zero-competitive-run rows are correctly
+  excluded from the weighted average (division safety, and a 0-sample row
+  carries no real speed signal).
+
+  tests/integration/test_model_speed.py verifies the competitive-runs
+  weighting with a hand-built two-player fixture (28.0 ft/s at 150 runs,
+  30.0 ft/s at 10 runs -> 28.125, confirmed by direct arithmetic, not an
+  external tie-out) and separately confirms the one-season lag prevents a
+  2024 row from leaking into a 2024 game. That is self-consistency against
+  the SQL's own arithmetic, not an independent comparison to a real team's
+  already-published Sprint Speed number, so status is "published" rather
+  than "validated".

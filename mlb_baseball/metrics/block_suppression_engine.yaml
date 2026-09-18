@@ -1,0 +1,16 @@
+name: block_suppression_engine
+definition: >
+  A standalone catcher dirt-ball calculator that combines caller-provided
+  blocking, recovery, and advancement-prevention rates into custom scores.
+formula: mlb_baseball/model/block_suppress.py::CatcherBlockSuppressEngine.evaluate_blocking
+citation: project-derived (no source for DBWR/BAPR coefficients or tiers)
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-catcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The 88%/0.85-second/75% benchmarks and run weights are custom constants,
+  not a cited Statcast catcher-blocking implementation.

@@ -1,0 +1,29 @@
+name: base_stealing_physics_engine
+definition: >
+  A standalone calculator for stolen-base success probability from
+  caller-provided runner sprint speed/lead/jump, pitcher delivery time and
+  disengagement count, and catcher pop time -- plus a run-expectancy
+  breakeven rate and a "green light" recommendation.
+formula: mlb_baseball/model/baserunning.py::BaseStealingPhysicsEngine.evaluate_steal_attempt
+citation: >
+  project-derived. Steal breakeven-rate reasoning is standard sabermetric
+  territory, but this module's specific run-expectancy-by-out-state table
+  (e.g. RE 0.86/1.10/0.26 for 0 outs) is a hand-typed approximation, not
+  built from this project's own empirical gold.win_expectancy/RE24 tables
+  (see win_expectancy_empirical, leverage_index_empirical), and the
+  logistic success-probability curve's k=11.5 slope and the disengagement-
+  lead-distance adjustments (+0.8ft/+2.0ft) are not sourced.
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Worth a follow-up look: this module re-derives its own hand-typed RE
+  table instead of reusing the project's real empirical
+  win_expectancy_empirical/leverage_index_empirical gold tables that
+  already exist for exactly this purpose (ADR-262 replaced an earlier
+  hand-typed leverage table for the same reason). Not fixed here --
+  documentation-only change.

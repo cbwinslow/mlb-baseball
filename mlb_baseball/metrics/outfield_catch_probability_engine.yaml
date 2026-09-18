@@ -1,0 +1,29 @@
+name: outfield_catch_probability_engine
+definition: >
+  A standalone calculator for Statcast-style outfield catch probability
+  from caller-provided distance needed, hang time, directional angle,
+  and sprint speed, plus a 6-tier "star rating" (5-Star through Routine)
+  and an Outs Above Average (OAA) credit for the individual play.
+formula: mlb_baseball/model/catch_prob.py::OutfieldCatchProbEngine.evaluate_opportunity
+citation: >
+  project-derived. Statcast's real 5-Star catch probability system is a
+  logistic model fit on measured player-tracking data; this module's
+  star-rating percentage bands (<=25%/26-50%/51-75%/76-90%/91-95%/>95%)
+  match Statcast's own published bands, but the underlying probability
+  formula itself (a hand-picked time_needed formula with a 0.60s fixed
+  reaction constant, an angle penalty of up to 0.70s, and a
+  logistic steepness of k=6.5) is not the real Statcast model and is not
+  sourced.
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The star-rating band boundaries are a real, citable piece of Statcast's
+  own published methodology (Baseball Savant's Catch Probability
+  glossary), but the probability value they're applied to in this module
+  is a project-derived approximation, not Statcast's actual model -- so
+  the entry stays internal per the citation rule pending a real tie-out.

@@ -1,0 +1,31 @@
+name: umpire_bias_adjustment_engine
+definition: >
+  A standalone calculator that applies a caller-provided home-plate
+  umpire's already-known strike-zone-bias profile (zone expansion,
+  run-impact-per-game, K/BB rate multipliers) to adjust a game's baseline
+  run total and starter strikeout props, plus a three-way zone
+  classification (pitcher-friendly, hitter-friendly, neutral).
+formula: mlb_baseball/model/umpire.py::UmpireBiasEngine.evaluate_game_adjustment
+citation: >
+  project-derived. This module does not estimate umpire zone bias from
+  any data itself -- it assumes the caller already has real,
+  independently-derived umpire tendency figures (games_behind_plate,
+  zone_horizontal_expansion_in, run_impact_per_game, etc.) and only does
+  the downstream arithmetic (baseline_total + run_impact,
+  base_ks * k_rate_multiplier) plus threshold-based classification. No
+  citation is given for where those input figures themselves would come
+  from, or for the classification thresholds (+/-0.40in zone expansion,
+  +/-0.25 runs).
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Distinct from the rest of this batch's standalone engines in one way:
+  it does not even attempt to derive its core input (umpire bias) from
+  data -- that estimation work does not exist anywhere in this codebase
+  yet. This module is purely the "given a known bias, adjust the line"
+  half.

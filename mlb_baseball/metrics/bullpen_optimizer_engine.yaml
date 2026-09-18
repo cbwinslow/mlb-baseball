@@ -1,0 +1,16 @@
+name: bullpen_optimizer_engine
+definition: >
+  A standalone live bullpen ranking calculator that scores caller-provided
+  relievers using handedness, FIP, strikeout/walk rates, rest, and workload.
+formula: mlb_baseball/model/bullpen_opt.py::BullpenOptimizerEngine.optimize_bullpen
+citation: project-derived (no source for matchup, quality, or fatigue weights)
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless live-situation recommendation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  This is a recommendation calculator, not a validated tactical model. Its
+  fixed score weights are uncited and it is not connected to live data.

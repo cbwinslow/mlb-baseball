@@ -1,0 +1,27 @@
+name: bullpen_fatigue_workload
+definition: >
+  Team-level bullpen fatigue: a trailing 3-calendar-day count of outs
+  recorded by the team's relief pitchers, a workload proxy for how taxed
+  the bullpen is entering today's game.
+formula: mlb_baseball/model/bullpen.py::compute
+citation: >
+  project-derived. Methodology informed by InsideThePen bullpen
+  usage-tracking research (ADR-039, docs/RESEARCH.md's feature backlog
+  item 7: relievers handling 40%+ of innings, recent workload measurably
+  reducing effectiveness), but the specific 3-day window is this
+  project's own narrowing of that research to what's cheaply derivable
+  from team-grain event data (no per-pitcher pitch-count/back-to-back
+  tracking exists yet), not itself a cited external formula.
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo (1910-2025); raw.mlb_playbyplay (live/upcoming 2026+)
+grain: team bullpen, trailing 3-calendar-day window entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: implemented-untested
+visibility: internal
+notes: >
+  Same compute()/SQL resource as bullpen_fip_quality (one function writes
+  both columns); split into a separate catalog entry because this half
+  has no citable external formula the way FIP does. ADR-042 replaced an
+  earlier O(n^2) lateral-join version of this window with a
+  collapse-to-team-day-first version for production-scale performance.

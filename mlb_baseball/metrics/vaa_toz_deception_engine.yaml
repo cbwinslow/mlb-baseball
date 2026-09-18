@@ -1,0 +1,65 @@
+name: vaa_toz_deception_engine
+definition: >
+  A standalone calculator (run via `mlb vaa-toz` on the command line) that
+  takes a pitcher's release height, velocity, and induced vertical break as
+  hand-typed inputs and produces an invented "top-of-zone" approach-angle
+  estimate, a 0-160 "flatness index" score, a whiff-rate multiplier, and an
+  archetype label (e.g. "DEADLY_FLAT_RISING_HEATER"). It does not read this
+  project's own ingested Statcast pitch data, and is not part of any
+  database build.
+formula: mlb_baseball/model/vaa_toz.py::PitcherTOZVAAEngine.evaluate_toz_vaa
+citation: project-derived (no external formula cited)
+data_source: >
+  none. mlb_baseball/cli.py's "vaa-toz" command only lets the user set
+  --rel-z, --velo, --ivb, --plate-z, --ext (all CLI-typed dataclass fields
+  on PitcherTOZVAAMetrics); none of them is ever read from
+  raw.statcast_pitch or core.play_pitch, the tables this project's own
+  Statcast connector (mlb_baseball/connectors/statcast.py) actually
+  populates with real per-pitch release/kinematic measurements.
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same disconnected-CLI-toy pattern already documented for
+  spin_decomposition_engine.yaml, umpire_zone_run_bias.yaml, and several
+  other standalone `model/` engines: wired into `mlb_baseball/cli.py` (the
+  `vaa-toz` subcommand, ~line 6706) and into `doctor.py`'s health-check
+  aggregation, but never into `report.py` / `gold.game_feature` / the real
+  build pipeline. `health_check()` only re-runs the class against two
+  hardcoded fixture pitchers and checks their tier labels, so it proves the
+  Python still executes, not that the underlying model means anything.
+
+  Checked docs/DECISIONS.md ADR-204 (the only project doc that documents
+  this module) directly: it restates the exact same formula as the code
+  (`VAA_TOZ ~= -4.90 - 0.90*(z_rel-5.8) + 0.12*(IVB-16.0) + 0.04*(v_rel-93.5)`,
+  TOZ-FI and whiff-boost formulas with coefficients 18.0/2.2/1.2/250, and the
+  tier thresholds -4.20/115.0/-4.75/-5.80) but cites no author, no paper, no
+  external source for any of these numbers -- they are presented as if
+  self-evidently correct ("Mathematical Formulations & Methodology") with no
+  citation at all. Also checked docs/RESEARCH.md's citation catalog directly
+  for any VAA-TOZ-01 / Package 116 entry -- there is none, unlike SHP-01 and
+  COM-01, which both have real cited formulas in that file. No regression fit
+  or published research backs the -0.90/0.12/0.04/18.0/2.2/1.2/250 constants;
+  they read as hand-picked "plausible" numbers, not a derived model.
+
+  IMPORTANT -- do not confuse with starter_vaa.yaml: `vaa.py`
+  (mlb_baseball/model/vaa.py, cataloged separately as starter_vaa.yaml) is a
+  DIFFERENT file computing a DIFFERENT, real, cited, database-integrated
+  formula (Chamberlain/Pavlidis' actual VAA trigonometry from real Statcast
+  vy0/ay/vz0/az kinematics, written to gold.game_feature). This module
+  (vaa_toz.py) shares only the letters "VAA" and the general concept of
+  "pitch approach angle at the top of the zone" -- it is a completely
+  separate, uncited, disconnected calculator with its own invented
+  "TOZ-FI"/whiff-multiplier scoring on top, not a top-of-zone variant or
+  extension of vaa.py's real formula. Named `vaa_toz_deception_engine` here
+  (matching the class docstring's own "VAA Deception Engine" language and
+  test file title) specifically so it cannot be confused with `starter_vaa`
+  in the catalog index.
+
+  tests/unit/test_vaa_toz.py's three tests assert the tier-label output for
+  two hand-picked archetype fixtures and confirm the health check runs --
+  self-consistent proof the arithmetic matches what the code itself
+  computes, not any external validation of the underlying model.

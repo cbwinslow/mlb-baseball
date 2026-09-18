@@ -1,0 +1,61 @@
+name: platoon_split_shrinkage_engine
+definition: >
+  An Empirical Bayes shrinkage estimate of a batter's "true-talent" wOBA
+  split vs. LHP and vs. RHP -- regressing the batter's observed
+  vs-LHP/vs-RHP wOBA splits toward hand-set, handedness-based league
+  priors using a fixed 1000-PA stabilization weight -- plus a resulting
+  platoon-vulnerability tier, computed from hand-typed splits via the
+  `mlb platoon` CLI command rather than from this project's own ingested
+  plate-appearance data.
+formula: mlb_baseball/model/splits.py::BatterPlatoonEngine.evaluate_platoon_talent
+citation: >
+  Empirical Bayes / credibility-weighted shrinkage toward a league prior
+  is a standard technique for regressing small-sample platoon splits in
+  sabermetrics (see Tango, Lichtman & Dolphin, "The Book: Playing the
+  Percentages in Baseball" (2007), chapter on platoon effects and
+  regression to the mean; also Tom Tango's published "stabilization
+  point" research). The specific M=1000 PA stabilization weight and the
+  handedness-based prior deltas used here (LHB: -0.025/+0.025 wOBA vs
+  LHP/RHP; RHB: +0.015/-0.015 wOBA vs LHP/RHP) are this project's own
+  hand-chosen values, not drawn from a specific cited source.
+data_source: >
+  none -- takes only CLI-supplied splits (mlb_baseball/cli.py "platoon"
+  command: --bats/--overall/--pa-lhp/--woba-lhp/--pa-rhp/--woba-rhp) or
+  the BatterPlatoonRawStats dataclass's hardcoded defaults. Never reads
+  raw/core/gold plate-appearance data.
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Important naming/identity check for this batch: this module's docstring
+  labels it "PLATOON-01, ADR-155," and docs/DECISIONS.md's ADR-155 entry
+  claims that engine was "Built ... in mlb_baseball/model/platoon.py"
+  with verification in "tests/unit/test_platoon.py." Both of those file
+  references are stale/wrong -- no tests/unit/test_platoon.py exists in
+  this repository, and mlb_baseball/cli.py's `mlb platoon` subcommand
+  (~line 8431) imports BatterPlatoonEngine/BatterPlatoonRawStats from
+  mlb_baseball.model.splits, confirming splits.py (this file) is the real
+  PLATOON-01/ADR-155 implementation. It is a wholly separate module from
+  mlb_baseball/model/platoon.py (PLT-01, ADR-101, a different,
+  SQL/database-integrated engine that writes gold.game_feature and is
+  cataloged separately as platoon_splits.yaml) -- despite the confusingly
+  similar names, splits.py is not platoon.py under an old filename, and
+  it is not a generic multi-purpose split calculator despite its own
+  filename; it only computes vs-LHP/vs-RHP platoon splits.
+
+  Given the prior finding in platoon_splits.yaml that platoon.py's SQL
+  duplicated one wOBA column into both handedness sides, this module was
+  checked specifically for the same failure mode. It does not have it:
+  prior_vs_lhp and prior_vs_rhp are genuinely different expressions per
+  handedness, and shrunk_lhp/shrunk_rhp each pull from their own distinct
+  pa_vs_lhp/woba_vs_lhp vs. pa_vs_rhp/woba_vs_rhp fields. Hand-recomputed
+  both unit tests: the LHB case (pa_lhp=100, woba_lhp=0.220, pa_rhp=400,
+  woba_rhp=0.370, overall=0.340) gives shrunk_lhp=0.306, shrunk_rhp=0.366,
+  delta=0.060 (EXTREME_PLATOON) -- matches
+  test_lhb_platoon_split_shrunk_toward_prior exactly. The switch-hitter
+  case reduces to delta=0.001 (PLATOON_NEUTRAL) -- matches
+  test_switch_hitter_maintains_neutral_platoon_profile exactly. No
+  arithmetic bug found.

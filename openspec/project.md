@@ -340,6 +340,14 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   design reviews (`feature-store-v1/DESIGN_REVIEW.md`); ADR-287 for the
   Postgres/DuckDB boundary. **feat.* is DuckDB-only — no Postgres `feat`
   schema, no Feast.**
+- **Metric catalog triage, batch 2+ (`metric-catalog`, ADR-291):** the
+  `metric-catalog` change's first batch cataloged 16 of ~155 `model/`
+  modules (WAR, wOBA/wRC+, baserunning, framing, Elo, win expectancy/
+  leverage, park factors, tie-outs). The remaining ~135-140 modules are
+  triaged in future batches of roughly 15-20 modules each — batched, not
+  big-bang — each landing as its own small PR of `mlb_baseball/metrics/*.yaml`
+  entries with real code/test reads backing every `status`/`visibility`
+  call, the same way batch 1 was scored.
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

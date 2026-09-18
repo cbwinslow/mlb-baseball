@@ -1,5 +1,14 @@
 -- Strike Zone Command and Attack Zone Metrics (COM-01).
 -- Point-in-time entering metrics for starting pitchers and bullpens from pitch-tracking data.
+--
+-- heart_pitches (bug fix, 2026-09-17): previously also counted any
+-- first-pitch-of-plate-appearance (pitch_number = 1) landing in the Shadow
+-- zone as Heart, on top of it already being counted in shadow_pitches --
+-- double-counting those pitches into both buckets, with no basis in the
+-- cited formula (docs/RESEARCH.md #9: "Heart% = Pitches in Zone 5 / Total
+-- Pitches", no first-pitch exception). The bullpen version of this same
+-- metric (bp_heart, below) never had this clause -- heart_pitches now
+-- matches it exactly: zone = '5', nothing else.
 
 WITH regular_games AS (
     SELECT g.id AS game_id, g.season, g.game_date, g.game_number, g.retro_game_id, g.game_pk,
@@ -17,7 +26,7 @@ pitch_daily AS (
         sp.pitcher AS pitcher_mlbam_id,
         -- Pitch location classifications
         count(*) AS total_pitches,
-        count(*) FILTER (WHERE sp.zone IN ('5') OR (sp.zone IN ('1','2','3','4','6','7','8','9') AND sp.pitch_number::int = 1)) AS heart_pitches,
+        count(*) FILTER (WHERE sp.zone = '5') AS heart_pitches,
         count(*) FILTER (WHERE sp.zone IN ('1','2','3','4','6','7','8','9') AND sp.zone != '5') AS shadow_pitches,
         count(*) FILTER (WHERE sp.zone IN ('11','12','13','14')) AS chase_pitches,
         -- Velocities

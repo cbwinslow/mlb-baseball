@@ -1,0 +1,85 @@
+name: platoon_splits
+definition: >
+  For each game, which hand each starting pitcher throws with (looked up
+  from Statcast pitch data), each team's own real season-to-date wOBA
+  specifically against left-handed and against right-handed pitching, and
+  how much that offense-vs-hand wOBA differs from the opposing starter's
+  wOBA allowed specifically against that handedness of batter. A positive
+  difference means the offense's matchup looks favorable.
+formula: mlb_baseball/model/platoon.py::compute
+citation: project-derived (no external formula cited)
+data_source: >
+  raw.statcast_pitch (starting pitcher throwing hand; and, as of the fix
+  below, every plate appearance's own woba_value/woba_denom and the
+  actual opposing pitcher's p_throws, aggregated per batting team via
+  core.game.game_pk); gold.game_feature (home_woba/away_woba, already
+  point-in-time -- see team_woba.yaml; and home/away_starter_vs_lhb_woba /
+  vs_rhb_woba, computed by mlb_baseball/model/pitcher_estimators.py, not
+  by this module)
+grain: team-game, point-in-time entering each game (reuses already point-in-time inputs)
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: implemented-untested
+visibility: internal
+notes: >
+  Not one of the standalone, non-database-integrated CLI calculators found
+  elsewhere in this batch (babip_luck_scanner, bullpen_leverage_volatility_
+  engine, win_probability_added_calculator) -- this module IS wired into
+  the real report.py/gold.game_feature build pipeline (model/__init__.py)
+  and reads real raw/gold tables. The gap here is different: the platoon-
+  splits CONCEPT is extensively documented in sabermetric literature (Tango,
+  Lichtman & Dolphin's "The Book" devotes a chapter to it), but the specific
+  formula this module computes -- team wOBA minus the opposing starter's
+  wOBA-allowed vs. that handedness -- is a simple, uncited, project-derived
+  subtraction, not itself drawn from a single published source. Per this
+  catalog's rule, "published" requires an actual citation, so this stays
+  "implemented-untested" rather than "published".
+
+  **Fixed 2026-09-17** (found during this catalog batch, then fixed
+  directly -- not just documented): home_offense_woba_vs_lhp and
+  home_offense_woba_vs_rhp (and the away equivalents) were both set to the
+  exact same value, `COALESCE(gf.home_woba, 0.320)` -- the offense's own
+  wOBA vs LHP and vs RHP were never actually split by pitcher handedness at
+  all; both columns just duplicated the team's overall wOBA regardless of
+  which hand was looked up. platoon_splits_update.sql now aggregates
+  Statcast's own per-PA woba_value/woba_denom by batting team and the
+  actual opposing pitcher's throwing hand (every pitcher who pitched, not
+  just the starter), rolled up as a zero-lookahead season-to-date rate
+  (MIN_PLATOON_PA=15, matching the pitcher-side threshold), NULL below
+  threshold or before Statcast coverage (2015) rather than a fabricated
+  default. See the fix PR for the regression test that reproduces the
+  original bug mechanism directly. `status`/`visibility` stay
+  implemented-untested/internal -- the fix makes the inputs real, but the
+  final matchup_woba_diff subtraction is still an uncited project formula
+  with no independent tie-out.
+
+  **Second fix 2026-09-18** (CodeRabbit review finding on the fix above,
+  verified and fixed, not just documented): the rolling window in the
+  09-17 fix was still built directly from games with qualifying Statcast
+  PA, so a mid-season game with a per-game data gap -- core.game exists,
+  but raw.statcast_pitch has zero qualifying rows for that game_pk -- had
+  no "current" position in the window at all, and the LEFT JOIN in the
+  final UPDATE dropped that one game's value to NULL even when the team
+  had a perfectly good season-to-date rate from an earlier qualifying
+  game. `team_game_spine` now enumerates every game from `core.game`
+  (offense_pa's own source) and LEFT JOINs offense_pa onto it, so a gapped
+  game contributes zero PA without losing its position in the window. A
+  new regression test
+  (`test_platoon_offense_splits_survive_a_game_with_no_qualifying_pa`)
+  reproduces the exact mechanism: a qualifying game, then a gap game with
+  no Statcast rows, then a target game -- asserts the target still
+  carries the season-to-date rate through the gap.
+
+  tests/integration/test_model_platoon.py::test_platoon_splits_hand_calculated_math
+  hand-verifies the matchup-diff arithmetic (0.350-0.310=0.040,
+  0.330-0.280=0.050) against the SQL's actual output, and a second test
+  (test_platoon_throws_lookup_does_not_fan_out_when_one_pitcher_starts_twice)
+  is a real regression test for a specific fixed production bug (a
+  correlated per-row LIMIT 1 lookup against 13.5M Statcast rows with no
+  pitcher index, measured taking 80+ minutes in production before being
+  replaced with the current one-pass DISTINCT ON). Both are genuine,
+  currently-passing checks of implementation correctness, but neither is an
+  independent tie-out against an externally published value, and the
+  vs-handedness offense columns' identified gap above means "implemented-
+  untested" is the honest status even before that distinction matters.

@@ -1,0 +1,58 @@
+name: catcher_pop_time_csaa
+definition: >
+  A standalone calculator (run via `mlb pop-time` on the command line) that
+  converts a catcher's pop time (seconds to throw out a runner at second
+  base) into an expected caught-stealing percentage and a seasonal "Caught
+  Stealing Above Average" (CSAA) run value, using a hand-tuned logistic
+  formula. It does not read this project's own ingested catcher pop-time
+  data or any other game/player data, and is not part of any database build.
+formula: mlb_baseball/model/poptime.py::CatcherPopTimeEngine.evaluate_pop_time
+citation: >
+  project-derived. The underlying "pop time" measurement (release-to-catch
+  time on a stolen-base attempt) is itself a well-documented, published
+  Statcast/Baseball Savant metric, and this project separately ingests the
+  real thing as raw.statcast_poptime (mlb_baseball/connectors/
+  statcast_leaderboard.py, via pybaseball's statcast_catcher_poptime()). But
+  this module's logistic CS% conversion and its 0.22-runs-per-CS-swing CSAA
+  weighting are not drawn from any specific cited published formula.
+data_source: >
+  none -- takes only CLI-supplied numbers (mlb_baseball/cli.py "pop-time"
+  command: --pop/--arm/--att) or the CatcherPopTimeMetrics dataclass's
+  hardcoded defaults (pop_time_s=1.95 etc.). It never reads
+  raw.statcast_poptime, the project's own real ingested Statcast pop-time
+  source, or any other raw/core/gold table.
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Read directly against the module's own docstring (which frames this as a
+  "Statcast Pop Time... Engine"): the code never queries the database, and
+  the "catcher" it evaluates is whatever pop_time_s/arm_velocity_mph/
+  attempts_faced the CLI caller types in -- it has no connection to any real
+  catcher's actual observed pop time, even though this project separately
+  ingests that exact data (raw.statcast_poptime).
+
+  exp_cs is a logistic sigmoid of (benchmark_slide_time - pop_time_s) * 12.0,
+  with an intercept solved (per POPTIME-01/ADR-173's documented fix) so that
+  delta_t=0 maps to the real league-average CS% of ~21% rather than 50% --
+  that specific fix is well-reasoned and internally consistent. But the 12.0
+  slope, the 0.22-runs-per-CS-swing CSAA constant, and the tier cutoffs
+  (<=1.89s / >2.06s pop time, +-3.0/+-1.0/-2.5 CSAA runs) are all uncited,
+  hand-chosen values with no traceable published source.
+
+  tests/unit/test_poptime.py's five tests (including the POPTIME-01
+  regression tests for the intercept fix and the strict "< benchmark"
+  boundary) all pass hand-picked synthetic CatcherPopTimeMetrics through the
+  same formula being tested and check tier-label/threshold self-consistency
+  -- correct self-consistency proof, not an independent tie-out against a
+  real catcher's real observed CS% at a given real pop time. health_check()
+  is the same pattern (two synthetic profiles, tier-label smoke check).
+
+  Same class of issue as bullpen_leverage_volatility_engine.yaml (a prior
+  entry in this catalog): a standalone CLI what-if calculator dressed up as
+  a data-driven "Engine." Recommended follow-up for the owner: either wire
+  this to raw.statcast_poptime for real catchers, or document/retitle it
+  explicitly as a what-if calculator rather than an evaluation engine.

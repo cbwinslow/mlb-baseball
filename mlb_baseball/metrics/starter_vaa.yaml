@@ -1,39 +1,69 @@
 name: starter_vaa
 definition: >
-  Entering four-seam Vertical Approach Angle (VAA, in degrees) for each
-  game's listed starters: the angle a pitch crosses the front of home
-  plate at, computed point-in-time (season-to-date, strictly excluding
-  the current game) from Statcast kinematics, gated below MIN_STARTER_FF=20
-  qualifying four-seam pitches.
+  A starting pitcher's four-seam fastball Vertical Approach Angle (VAA) --
+  the downward angle, in degrees, at which the pitch crosses the front of
+  home plate, computed from real Statcast pitch-tracking kinematics. A
+  flatter (less negative) VAA is associated with more swings-and-misses at
+  the top of the strike zone. This project computes it point-in-time,
+  entering each game, as the four-seam-pitch-count-weighted mean VAA over
+  the pitcher's prior starts that season, NULL below 20 four-seamers.
 formula: mlb_baseball/model/vaa.py::compute
 citation: >
   Alex Chamberlain, FanGraphs (1 Feb 2022), crediting Harry Pavlidis --
-  published closed-form VAA formula from Statcast release velocities/
-  accelerations measured at y=50ft:
-  vy_f = -sqrt(vy0^2 - 2*ay*(50 - 17/12)); t = (vy_f - vy0)/ay;
+  vertical approach angle from Statcast's 9-parameter pitch kinematics
+  (vy0, ay, vz0, az) evaluated at the front of home plate (yf = 17/12 ft
+  from y0 = 50 ft): vy_f = -sqrt(vy0^2 - 2*ay*(y0-yf)); t = (vy_f-vy0)/ay;
   vz_f = vz0 + az*t; VAA = -atan(vz_f/vy_f) in degrees.
-data_source: raw.statcast_pitch (vy0, ay, vz0, az columns required; 0 rows if missing)
-grain: team (starting pitcher), point-in-time entering each game
+data_source: >
+  raw.statcast_pitch (vy0, ay, vz0, az, pitch_type='FF' columns), joined
+  through core.game / core.player, written to
+  gold.game_feature.home_starter_ff_vaa / away_starter_ff_vaa via
+  mlb_baseball/sql/starter_vaa_update.sql.
+grain: pitcher (starting pitcher), point-in-time entering each game
 layer: gold
 complexity: arithmetic
 implementation: sql
 status: published
 visibility: public
 notes: >
-  mlb_baseball/model/vaa.py::pitch_vaa_degrees implements the exact cited
-  formula in Python (used for the module's own self-check), and
-  compute() executes the equivalent arithmetic in SQL
-  (starter_vaa_update.sql) against raw.statcast_pitch -- correctly
-  implements the cited published formula per direct code read.
-  tests/integration/test_model_vaa.py's
-  test_compute_is_point_in_time_and_matches_python_formula hand-derives
-  the expected VAA using pitch_vaa_degrees() and compares it to the SQL
-  output -- self-consistency between two implementations of the same
-  formula, not an independent external tie-out against a published VAA
-  value. "published" rather than "validated".
+  Correctly implements the cited Chamberlain/Pavlidis formula: the pure
+  Python helper pitch_vaa_degrees() and the production SQL
+  (starter_vaa_update.sql, dispatched by vaa.py::compute) use the identical
+  vy_f/t/vz_f/VAA algebra -- confirmed by direct comparison of the two, and
+  by docs/DECISIONS.md ADR-270, which explicitly documents wiring this
+  formula into gold.game_feature. PIT correctness (entering each game, prior
+  starts only, NULL below MIN_STARTER_FF=20 four-seamers) is real and
+  tested: tests/integration/test_model_vaa.py::
+  test_compute_is_point_in_time_and_matches_python_formula inserts two
+  games for the same starter and asserts the first game's VAA is NULL (no
+  prior starts) while the second game's VAA matches
+  vaa.pitch_vaa_degrees() computed from the first game's pitches.
 
-  This module also contains a second, unrelated VAA calculator
-  (VerticalApproachAngleEngine, catalogued separately as
-  vaa_flatness_engine) that computes VAA from a completely different,
-  uncited approximation and is NOT wired to this compute()/gold path --
-  see that entry's notes for the inconsistency this creates.
+  tests/unit/test_vaa_physics.py::
+  test_pitch_vaa_degrees_matches_hand_calculated_kinematics independently
+  re-derives the same formula by hand for one fixed input
+  (vy0=-130, ay=30, vz0=-8, az=-20 -> VAA ~= -7.6233 deg) and checks
+  pitch_vaa_degrees() against it -- this is a real, careful hand
+  verification of the arithmetic, but it re-derives the same formula the
+  code implements rather than checking against an independently-published
+  VAA value for a real pitch (e.g. a specific pitcher's known Baseball
+  Savant VAA), so this stays "published" rather than "validated" per this
+  catalog's spec.
+
+  IMPORTANT: this same file (mlb_baseball/model/vaa.py) ALSO defines
+  VerticalApproachAngleEngine.evaluate_vaa(), a completely different,
+  uncited "Magnus approximation" formula (using release_height_ft,
+  plate_z_ft, pfx_z_in, release_velo_mph -- not vy0/ay/vz0/az) that backs
+  the CLI command `mlb vaa` and is tested only by tests/unit/test_vaa.py's
+  self-consistent archetype-tier assertions on hand-picked inputs. This
+  catalog entry covers ONLY the cited, database-integrated formula
+  (pitch_vaa_degrees / compute -> gold.game_feature). docs/DECISIONS.md
+  ADR-270 explicitly addresses this split ("Fold VAA-01 into the real
+  pipeline as degrees, not the invented flatness/whiff-boost index ... The
+  CLI `mlb vaa` engine and its display tiers stay as display-only.") -- do
+  not conflate the two formulas sharing this file and this "VAA" name.
+
+  Also per vaa.py's own comment: this entering-VAA feature is "Not added to
+  gbm.FEATURE_COLUMNS until a chronological retrain beats Elo" (ADR-270) --
+  it is computed and stored in gold.game_feature but not yet consumed by
+  the production game model.

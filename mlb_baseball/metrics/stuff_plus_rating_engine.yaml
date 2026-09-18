@@ -1,0 +1,55 @@
+name: stuff_plus_rating_engine
+definition: >
+  A standalone calculator (run via `mlb stuff` on the command line) that
+  rates a single hand-entered pitch's raw physical quality -- velocity,
+  break, extension -- against fixed per-pitch-type benchmarks on a
+  100-is-average scale ("Stuff+"), separately rates where the pitch was
+  located relative to the ball-strike count ("Location+"), and blends the two
+  60/40 into a composite ("Pitching+"). It does not read any of this
+  project's own pitch-tracking data, and is not part of any database build.
+formula: mlb_baseball/model/stuff.py::PhysicalPitchRatingEngine.evaluate_pitch
+citation: project-derived (no external formula cited; not a reproduction of any single published Stuff+/Location+ model)
+data_source: none -- takes only hand-entered PitchPhysicsVector inputs (mlb_baseball/cli.py "stuff" command, or hardcoded examples in health_check()/pipeline.py), never reads gold/core/raw
+grain: not applicable (stateless per-pitch calculation against hardcoded league-baseline constants, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  FLAGGED FOR TRIAGE -- same class of finding already caught for
+  win_probability_added_calculator.yaml and bullpen_leverage_volatility_
+  engine.yaml. Real, publicly discussed Stuff+-family metrics (e.g. the
+  original Eno Sarris/Max Bay "Stuff+" at The Athletic, PitchingBot,
+  Driveline's model, or Statcast's own pitch-level run-value work) are all
+  fitted statistical/ML models trained to predict run value or an outcome
+  probability from pitch characteristics -- genuinely "complex" per this
+  catalog's definition. This module instead uses fixed, hand-picked weights
+  (`0.50 * velocity z-score + 0.45 * movement z-score + 0.05 * extension
+  bonus`) against a hardcoded PITCH_TYPE_BASELINES table of mean/stddev
+  values per pitch type, scaled by an arbitrary "15-point standard
+  deviation" the code's own docstring compares to IQ/wRC+ scaling.
+  `complexity: arithmetic` correctly reflects what this code actually does
+  (deterministic, hand-computable z-score arithmetic against fixed
+  constants), not what a real fitted Stuff+ model does. None of the specific
+  PITCH_TYPE_BASELINES numbers (e.g. four-seam velo_mean=94.2,
+  ivb_std=2.8) are cited to a source; they land in a plausible real-MLB
+  neighborhood but their exact decimal precision looks hand-picked rather
+  than pulled from one specific season's real Statcast aggregate.
+
+  Location+'s count-dependent scoring (e.g. +1.2 for a 2-strike shadow-zone
+  pitch, -1.5 for a 2-strike meatball, the 60/40 Pitching+ blend weight) is
+  entirely project-chosen with no citation found.
+
+  Confirmed by direct grep: the only callers of PitchPhysicsVector are `mlb
+  stuff` (cli.py, hand-typed --velo/--ivb/--hb flags), the module's own
+  health_check(), and pipeline.py's self-check phase (one hardcoded sample
+  pitch) -- never a real ingested pitch from raw/core/gold.
+
+  tests/unit/test_stuff.py checks relative ordering on hand-picked synthetic
+  pitches (an "elite" fastball scores > 120 Stuff+, a "subpar" one < 90; a
+  2-strike shadow-zone pitch scores higher Location+ than a meatball) --
+  self-consistency checks of the code's own formula shape, not a tie-out
+  against any independently published Stuff+/Location+ value for a real
+  pitch. `status: implemented-untested` reflects that no independent check
+  exists.

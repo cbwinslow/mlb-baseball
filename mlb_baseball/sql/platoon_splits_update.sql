@@ -22,6 +22,23 @@
 -- that hand, or before Statcast coverage begins (2015), the value is
 -- correctly NULL -- an honest missing measurement, not a fabricated
 -- default.
+--
+-- team_game_spine (review fix, 2026-09-18): the rolling window must be
+-- anchored on every game the team actually played, not on
+-- offense_team_game_agg rows alone. A game with zero qualifying Statcast
+-- PA for that team -- a per-game ingestion gap, not a season-long coverage
+-- gap -- previously had no row at all in offense_team_game_agg, so it
+-- never got a "current" position in the window and the LEFT JOIN in the
+-- final UPDATE produced NULL for that one game even when the team had a
+-- perfectly good season-to-date rate from earlier games. The spine is
+-- built from core.game directly (the same source offense_pa already
+-- joins through), not from gold.game_feature/game_starters: gold's build
+-- order relative to core.game is not this query's concern, and offense_pa
+-- already depends on core.game, not gold.game_feature. LEFT JOINing
+-- offense_pa onto the spine keeps every played game addressable by the
+-- window while contributing zero PA from a gapped game -- correct, since
+-- a game with no captured PA has nothing to add to the running total
+-- either way.
 
 WITH starter_throws AS (
     SELECT DISTINCT ON (pitcher)
@@ -86,19 +103,36 @@ offense_pa AS (
         AND sp.p_throws IN ('L', 'R')
 ),
 
+-- Every game the team actually played, home or away, regardless of
+-- whether Statcast captured any qualifying PA for it. This is the spine
+-- the rolling window walks; offense_pa is left-joined onto it so a
+-- per-game data gap contributes zero PA (correct) without also removing
+-- that game's "current" position in the partition (the bug).
+team_game_spine AS (
+    SELECT id AS game_id, season, game_date, game_number, home_team_id AS batting_team_id
+    FROM core.game
+    WHERE home_team_id IS NOT NULL
+    UNION ALL
+    SELECT id AS game_id, season, game_date, game_number, away_team_id AS batting_team_id
+    FROM core.game
+    WHERE away_team_id IS NOT NULL
+),
+
 offense_team_game_agg AS (
     SELECT
-        game_id,
-        season,
-        game_date,
-        game_number,
-        batting_team_id,
-        SUM(woba_value) FILTER (WHERE p_throws = 'L') AS woba_val_lhp,
-        SUM(woba_denom) FILTER (WHERE p_throws = 'L') AS woba_den_lhp,
-        SUM(woba_value) FILTER (WHERE p_throws = 'R') AS woba_val_rhp,
-        SUM(woba_denom) FILTER (WHERE p_throws = 'R') AS woba_den_rhp
-    FROM offense_pa
-    GROUP BY game_id, season, game_date, game_number, batting_team_id
+        s.game_id,
+        s.season,
+        s.game_date,
+        s.game_number,
+        s.batting_team_id,
+        SUM(op.woba_value) FILTER (WHERE op.p_throws = 'L') AS woba_val_lhp,
+        SUM(op.woba_denom) FILTER (WHERE op.p_throws = 'L') AS woba_den_lhp,
+        SUM(op.woba_value) FILTER (WHERE op.p_throws = 'R') AS woba_val_rhp,
+        SUM(op.woba_denom) FILTER (WHERE op.p_throws = 'R') AS woba_den_rhp
+    FROM team_game_spine AS s
+    LEFT JOIN offense_pa AS op
+        ON op.game_id = s.game_id AND op.batting_team_id = s.batting_team_id
+    GROUP BY s.game_id, s.season, s.game_date, s.game_number, s.batting_team_id
 ),
 
 offense_team_rolling AS (

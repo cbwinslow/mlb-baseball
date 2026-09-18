@@ -245,6 +245,90 @@ def test_platoon_offense_splits_use_real_woba_by_pitcher_hand_not_team_total(db_
     _reset(db_conn)
 
 
+def test_platoon_offense_splits_survive_a_game_with_no_qualifying_pa(db_conn):
+    """Regression for a review finding on the wOBA-by-hand fix above: the
+    rolling window used to be built directly from offense_team_game_agg
+    (rows only exist where Statcast has qualifying PA), so a mid-season game
+    with a per-game data gap -- core.game/gold.game_feature exist, but
+    raw.statcast_pitch has zero qualifying rows for that game_pk -- had no
+    "current" position in the window at all, and the final LEFT JOIN dropped
+    it to NULL even though the team had a perfectly good season-to-date rate
+    from an earlier qualifying game. The fix anchors the window on every
+    game the team actually played (team_game_spine, from game_starters), not
+    on offense_team_game_agg rows alone.
+    """
+    _ensure_tables(db_conn)
+    _reset(db_conn)
+    teams = _seed_teams(db_conn)
+    bos_id = teams["BOS"]
+    nya_id = teams["NYA"]
+
+    with db_conn.cursor() as cur:
+        # Earliest game: 15 qualifying PA vs LHP establishes a real rate.
+        cur.execute(
+            "INSERT INTO core.game (season, game_date, home_team_id, away_team_id, game_pk) "
+            "VALUES (2024, '2024-04-01', %(home)s, %(away)s, 'QUALIFYING_PK')",
+            {"home": bos_id, "away": nya_id},
+        )
+        for _ in range(15):
+            cur.execute(
+                "INSERT INTO raw.statcast_pitch "
+                "(game_pk, inning_topbot, p_throws, woba_value, woba_denom) "
+                "VALUES ('QUALIFYING_PK', 'Bot', 'L', '0.400', '1')"
+            )
+
+        # Middle game: BOS played it, but Statcast captured zero qualifying
+        # PA for this game_pk -- a per-game ingestion gap, not a
+        # season-long coverage gap.
+        cur.execute(
+            "INSERT INTO core.game (season, game_date, home_team_id, away_team_id, game_pk) "
+            "VALUES (2024, '2024-04-15', %(home)s, %(away)s, 'GAP_PK') RETURNING id",
+            {"home": bos_id, "away": nya_id},
+        )
+        (gap_game_id,) = cur.fetchone()
+
+        # Target game: comes after the gap; its stored rate should still
+        # reflect the earlier qualifying game.
+        cur.execute(
+            "INSERT INTO core.game (season, game_date, home_team_id, away_team_id, game_pk) "
+            "VALUES (2024, '2024-05-01', %(home)s, %(away)s, 'AFTER_GAP_PK') RETURNING id",
+            {"home": bos_id, "away": nya_id},
+        )
+        (target_game_id,) = cur.fetchone()
+
+        cur.execute(
+            "INSERT INTO gold.game_feature ("
+            "game_instance_key, game_id, season, game_date, home_team_id, away_team_id) "
+            "VALUES ('G_GAP', %(game_id)s, 2024, '2024-04-15', %(home)s, %(away)s)",
+            {"game_id": gap_game_id, "home": bos_id, "away": nya_id},
+        )
+        cur.execute(
+            "INSERT INTO gold.game_feature ("
+            "game_instance_key, game_id, season, game_date, home_team_id, away_team_id) "
+            "VALUES ('G_AFTER_GAP', %(game_id)s, 2024, '2024-05-01', %(home)s, %(away)s)",
+            {"game_id": target_game_id, "home": bos_id, "away": nya_id},
+        )
+    db_conn.commit()
+
+    rows = platoon.compute(db_conn)
+    assert rows >= 1
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_offense_woba_vs_lhp "
+            "FROM gold.game_feature WHERE game_instance_key = 'G_AFTER_GAP'"
+        )
+        (vs_lhp,) = cur.fetchone()
+
+    # Before the fix this was NULL: the gap game had no row in
+    # offense_team_game_agg, so it never got a "current" position in the
+    # window and the LEFT JOIN in the final UPDATE dropped it.
+    assert vs_lhp is not None
+    assert abs(float(vs_lhp) - 0.400) < 1e-4
+
+    _reset(db_conn)
+
+
 def test_platoon_health_check_bounds(db_conn):
     _ensure_tables(db_conn)
     _reset(db_conn)

@@ -1,0 +1,69 @@
+name: player_prop_log5_poisson_projection
+definition: >
+  A per-game probability forecast for an individual player's box-score
+  outcome -- a starting pitcher's strikeouts or outs recorded, or a
+  batter's hits/total bases/home run chance -- expressed as an expected
+  value plus an over/under probability at several lines. It combines two
+  textbook building blocks (a Log5 matchup-rate composition and a Poisson
+  count distribution) with several additional adjustment terms this
+  project invented itself and has not tied out against real outcomes.
+formula: mlb_baseball/model/props.py::predict_pitcher_strikeouts
+citation: >
+  Log5 odds-ratio matchup composition: Bill James / Tom Tango, The Book
+  (2007). Poisson count distribution for strikeouts: Albert & Bennett,
+  Curve Ball (2001). The module docstring also cites "FanGraphs Sabermetric
+  Library" for park/component multipliers, but no FanGraphs park-factor
+  table is actually read anywhere in this file (park_hr_factor is a plain
+  caller-supplied float, default 100.0) -- that citation does not describe
+  code that exists here.
+data_source: >
+  gold.game_feature, core.player (via fetch_game_pitcher_props) for the
+  pitcher-strikeout path only. predict_pitcher_outs and predict_batter_props
+  are pure functions with no fetch_* counterpart in this module -- outs
+  props are reachable only through hand-entered CLI flags (cli.py "props"
+  command, --pitcher-fip/--opp-wrc), and batter props are not wired to any
+  CLI command or database read at all.
+grain: player-game
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Read directly against the code rather than the docstring's claim of a
+  unified "Player-Game Props Prediction System": log5_matchup_rate and the
+  poisson_pmf/poisson_cdf/poisson_over_prob trio are correctly implemented
+  per their cited sources -- tests/unit/test_props.py::test_log5_matchup_rate_precision
+  and ::test_poisson_pmf_and_cdf_deterministic_math hand-derive the same
+  closed-form values and match to 3 decimal places. That is self-consistency
+  against the formula's own definition, not an external tie-out against an
+  independently published prop probability (same distinction
+  team_war_prior.yaml draws), so "published" rather than "validated" would
+  describe those two primitives alone.
+
+  But the three functions that actually produce a shippable prop
+  (predict_pitcher_strikeouts, predict_pitcher_outs, predict_batter_props)
+  layer several uncited, project-invented coefficients on top of that cited
+  core: rest-day batters-faced deltas (+1.0 / -2.0 / -1.5), a
+  pitcher_outs_7d workload penalty (-1.5), an outs FIP adjustment
+  (`(4.00 - fip) * 0.8`), an opponent wRC+ adjustment (`(100 - wrc) * 0.03`),
+  a hit-rate approximation (`obp * 0.72`), a total-bases approximation
+  (`slg * 0.85`), and a home-run-rate approximation (`iso * 0.25 *
+  park_hr_factor / 100`). None of these specific constants are sourced from
+  Bill James/Tango, Albert & Bennett, or FanGraphs -- they are this
+  project's own uncited tuning choices, and no automated test compares any
+  of predict_pitcher_strikeouts/predict_pitcher_outs/predict_batter_props's
+  actual output against a real observed game or an independently published
+  prop line. Hence `status: implemented-untested` for the module as a
+  whole (the primitives it is built from are individually sound; the
+  composite prediction has not been checked against anything outside its
+  own code) and `visibility: internal` (the shipped output is not the
+  cited textbook formula alone).
+
+  This module only ever outputs probabilities/expected values about a
+  player's own on-field performance -- no stake, bankroll, fair-odds, or
+  expected-value-of-a-bet computation appears anywhere in props.py. That
+  distinguishes it from mlb_baseball/model/parlay.py and
+  mlb_baseball/model/portfolio.py (excluded from this catalog as betting/
+  staking calculators, not baseball statistics) even though all three
+  modules share the "PROP/PARLAY/PORT" ADR-106/125/113 naming family.

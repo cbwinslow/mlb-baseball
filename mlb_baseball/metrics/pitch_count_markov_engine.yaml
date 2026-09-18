@@ -1,0 +1,24 @@
+name: pitch_count_markov_engine
+definition: >
+  A standalone Monte Carlo / absorbing-Markov-chain simulator of a
+  pitch-by-pitch plate appearance across the 12 ball-strike count states,
+  with count-dependent pitch-outcome probabilities (ball, called strike,
+  swinging strike, foul, ball in play, HBP) from caller-provided base
+  rates.
+formula: mlb_baseball/model/count.py::PitchCountMarkovEngine
+citation: >
+  project-derived. Modeling at-bat progression as an absorbing Markov
+  chain over count states is a recognizable general technique, but this
+  module's specific per-count outcome probabilities (e.g. hitter-count
+  whiff_base_rate*0.70, pitcher-count 1.35x, fixed called_strike/foul/
+  ball/HBP splits per count bucket) are not sourced from any cited
+  external pitch-outcome model.
+data_source: none -- caller-supplied base rates; no gold/core/raw read
+grain: not applicable (stateless per-call simulation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same "standalone caller-input engine" shape as the rest of this batch.

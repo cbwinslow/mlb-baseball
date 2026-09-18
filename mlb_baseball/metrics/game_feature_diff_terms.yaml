@@ -1,0 +1,25 @@
+name: game_feature_diff_terms
+definition: >
+  Home-minus-away interaction terms (e.g. elo_diff, woba_diff,
+  starter_siera_diff) computed by pure subtraction over gold.game_feature
+  column pairs that are already independently approved and populated.
+formula: mlb_baseball/model/diff.py::compute
+citation: >
+  project-derived (ADR-081, ADR-099, INT-01/INT-02 admission-queue
+  interaction-term engineering). Pure algebra over other already-cited
+  columns, not itself a named external statistic.
+data_source: gold.game_feature (already-populated column pairs; no new raw dependency)
+grain: game, home-minus-away per interaction term
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: implemented-untested
+visibility: internal
+notes: >
+  Same "derive from a prior step's own output, no new join" shape as
+  starter_age/trend. health_check() is an algebraic parity assertion: for
+  every one of the ~22 diff columns, proves the stored value exactly
+  equals home minus away wherever both sides are populated -- a real,
+  currently-passing check, but of self-consistency, not of any external
+  value (there is no external value to tie a home-minus-away model
+  feature to).

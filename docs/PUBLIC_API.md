@@ -12,11 +12,15 @@ The supported import surface is deliberately small and exported from
 | `migrate_database()` | Apply package migrations to the configured local database. |
 | `ingest_source()` | Run one registered connector after profile validation. |
 | `conform_database()` | Build canonical `core` relations from landed `raw` data. |
-| `build_features()` | Rebuild point-in-time `gold.game_feature` rows. |
+| `build_features()` | Rebuild the legacy `gold.game_feature` relation (internal Engine/prediction-pipeline feature stage) — not the point-in-time research feature store. |
 | `run_predictions()` | Run the feature stage and append prediction snapshots. |
 | `get_connection()` | Obtain a normal psycopg connection for researcher SQL. |
 | `inventory_tables()` / `inventory_runs()` | Inspect landed relations and recent connector runs. |
 | `health_checks()` | Run read-only operational health checks. |
+
+The point-in-time research feature store is not built via this Python API: it
+is built via the CLI (`mlb build`) into DuckDB `feat.*` and retrieved via
+`mlb_research.get_historical_features` — see `docs/FEATURE_STORE.md`.
 
 Everything else is implementation detail, including connector modules, loaders,
 advisory-lock functions, and individual conformance builders. Their imports

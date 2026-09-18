@@ -9,7 +9,7 @@ data_source: raw.retrosheet_event.battedball_cd, raw.retrosheet_gameinfo
 grain: game, team/pitcher role, season-to-date entering the game
 layer: gold
 complexity: arithmetic
-implementation: python
+implementation: sql
 status: published
 visibility: public
 notes: >

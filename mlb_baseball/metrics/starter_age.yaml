@@ -9,7 +9,7 @@ data_source: gold.game_feature (resolved starter IDs), core.player.birth_date
 grain: game, one home and one away starting-pitcher age entering the game
 layer: gold
 complexity: arithmetic
-implementation: python
+implementation: sql
 status: implemented-untested
 visibility: internal
 notes: >

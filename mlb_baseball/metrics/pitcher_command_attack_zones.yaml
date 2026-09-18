@@ -1,0 +1,53 @@
+name: pitcher_command_attack_zones
+definition: >
+  Rolling Heart%, Shadow%, Chase%, fastball velocity, and velocity delta
+  (fastball minus offspeed) for starting pitchers and bullpens, computed
+  point-in-time (strictly prior games, season-to-date) from Statcast
+  pitch-tracking zone codes, gated below 20 qualifying pitches (10 for
+  velocity, 25 for bullpen rates).
+formula: mlb_baseball/model/command.py::compute
+citation: >
+  Statcast Attack Zones (Heart/Shadow/Chase/Waste), Baseball Savant's
+  own published zone-profile terminology and zone-code numbering
+  (zone 5 = Heart; zones 1-4/6-9 = Shadow; zones 11-14 = Chase/Waste).
+data_source: raw.statcast_pitch (zone, pitch_type, release_speed columns)
+grain: team (starting pitcher, bullpen), point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: implemented-untested
+visibility: public
+notes: >
+  A genuine correctness bug found by reading
+  mlb_baseball/sql/pitcher_command_update.sql directly, not caught by
+  the existing test suite: the starter-level heart_pitches count is
+
+    count(*) FILTER (WHERE zone IN ('5')
+      OR (zone IN ('1','2','3','4','6','7','8','9') AND pitch_number::int = 1))
+
+  -- i.e. any Shadow-zone pitch that happens to be the first pitch of the
+  plate appearance is ALSO counted as a Heart pitch, while the same row
+  is independently counted in shadow_pitches (zone IN (1,2,3,4,6,7,8,9)
+  AND zone != 5, with no pitch_number condition). A first-pitch
+  Shadow-zone pitch is double-counted across Heart and Shadow, so
+  home_starter_heart_pct + home_starter_shadow_pct + home_starter_chase_pct
+  does not partition to 100% of pitches whenever any qualifying game had
+  a first-pitch Shadow-zone pitch. The bullpen-level aggregate
+  (bp_heart in bullpen_daily) does NOT have this bug -- it correctly
+  filters to zone = '5' only, no pitch_number clause.
+
+  tests/integration/test_model_command.py's
+  test_compute_matches_hand_calculation_and_gates_below_min_samples does
+  not catch this: every seeded pitch in its fixture uses pitch_number='2'
+  for every row, so the buggy pitch_number::int = 1 branch is never
+  exercised. Not fixed here -- documentation-only change; flagged as a
+  real finding for a follow-up fix.
+
+  Otherwise correctly SQL-executed (implementation: sql, matching the
+  CodeRabbit finding from batch 5's starter_age/team_batted_ball_profile)
+  and point-in-time safe (ROWS BETWEEN UNBOUNDED PRECEDING AND 1
+  PRECEDING). The zone-code citation itself is correct and public, but
+  given the confirmed double-counting defect above, this stays
+  "implemented-untested" rather than "published" -- the headline
+  Heart%/Shadow%/Chase% split cannot currently be trusted to sum
+  correctly, so a stronger status would overstate confidence.

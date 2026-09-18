@@ -1,0 +1,19 @@
+name: team_batted_ball_profile
+definition: >
+  Rolling ground-ball, fly-ball, line-drive, and home-run-per-fly-ball rates
+  for starting pitchers, bullpens, and batting lineups, calculated strictly
+  from games before the target game.
+formula: mlb_baseball/model/batted_ball.py::compute
+citation: "FanGraphs, Batted Ball statistics glossary (GB%, FB%, LD%, HR/FB)"
+data_source: raw.retrosheet_event.battedball_cd, raw.retrosheet_gameinfo
+grain: game, team/pitcher role, season-to-date entering the game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  The Python entry point executes the named SQL resource
+  team_batted_ball_retrosheet_update.sql with explicit sample-size floors.
+  It is production-integrated and PIT-safe; the existing tests are
+  self-consistency/coverage checks rather than an independent published tie-out.

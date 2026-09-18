@@ -1,0 +1,43 @@
+name: ballpark_carry_scanner_engine
+definition: >
+  A standalone calculator that checks whether a caller-provided batted-ball
+  trajectory (exit velocity, launch angle, spray angle, nominal carry
+  distance) would clear the outfield fence at each of a hardcoded set of
+  MLB stadium profiles (fence distances by field, plus an elevation
+  carry boost for Coors Field), reporting an "X/N ballparks" home-run
+  percentage.
+formula: mlb_baseball/model/carry.py::BallparkCarryScannerEngine.scan_ballparks
+citation: >
+  project-derived. The linear left-field/right-field-to-center-field
+  fence-distance interpolation by spray angle, the flat 4ft
+  clearance-margin requirement, and the Coors Field elevation boost
+  (16.0 ft) are not sourced from a cited external carry/physics model.
+data_source: none -- caller-supplied dataclass fields; MLB_STADIUM_PROFILES is a hardcoded in-module list, not gold/core/raw
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Two genuine discrepancies between the module's own stated scope and
+  what it actually does, found by reading the code directly (not just
+  the docstring):
+
+  1. The docstring and class name advertise a "30-ballpark" /
+  "X/30 Ballparks" scan, but MLB_STADIUM_PROFILES hardcodes only 8
+  stadiums (its own comment calls it "a representative sample"). The
+  denominator in scan_summary/hr_percentage is
+  len(MLB_STADIUM_PROFILES) == 8, not 30, so the reported "X/N" ratio is
+  correct arithmetic but not the 30-park scan the naming implies.
+
+  2. StadiumFenceProfile carries lf_wall_h/rf_wall_h (wall height) fields,
+  explicitly set for Fenway's 37ft Green Monster and Oracle Park's 24ft
+  wall, but scan_ballparks()'s clearance check
+  (effective_distance >= fence_dist + 4.0) never reads either field --
+  wall height is modeled in the data but has zero effect on the actual
+  HR/out determination.
+
+  Not fixed here -- documentation-only change; worth a follow-up
+  decision on whether to expand to the real 30 parks and wire in wall
+  height, or rename/rescope the module to match what it actually does.

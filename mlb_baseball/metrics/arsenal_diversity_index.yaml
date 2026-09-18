@@ -1,0 +1,40 @@
+name: arsenal_diversity_index
+definition: >
+  A standalone calculator for a pitcher's repertoire diversity from a
+  caller-provided pitch-type frequency mix: a normalized Gini-Simpson
+  Diversity Index (0 to 1) and Shannon entropy in bits, plus an
+  over-reliance predictability flag and a three-tier repertoire
+  classification.
+formula: mlb_baseball/model/diversity.py::ArsenalDiversityEngine.evaluate_diversity
+citation: >
+  Simpson, E.H., "Measurement of Diversity," Nature 163 (1949) --
+  Gini-Simpson Index (1 - sum(p^2), normalized to [0,1] via k/(k-1) for
+  k categories); Shannon, C.E., "A Mathematical Theory of
+  Communication," Bell System Technical Journal (1948) -- Shannon
+  entropy (-sum(p*log2(p))). Both are correctly implemented, standard,
+  citable formulas applied here to a pitcher's pitch-mix frequencies.
+data_source: none -- caller-supplied pitch-frequency dict; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: published
+visibility: public
+notes: >
+  The diversity_index and entropy_bits outputs themselves directly and
+  correctly implement the cited Gini-Simpson/Shannon formulas -- real
+  math, not project-invented coefficients (unusual for this batch's
+  "standalone engine" pattern). The predictability threshold (any single
+  pitch >=62% frequency) and the repertoire-tier cutoffs (k>=4 and
+  ADI>=0.80 for "Five-Pitch Chameleon", etc.) layered on top are
+  project-derived and not sourced. "published" reflects the core
+  index/entropy calculation; the tiering is an internal-grade add-on,
+  same posture as fangraphs_guts carrying an internal derived layer on
+  top of a cited base constant.
+
+  One dead-code note found while reading the source: the empty-frequency
+  branch guards `mix.pitch_name if hasattr(mix, "pitch_name") else
+  mix.pitcher_name`, but DiversityArsenalMix has no pitch_name field at
+  all, so hasattr is always False and this always falls through to the
+  correct mix.pitcher_name -- harmless, but confusing dead code
+  referencing a field that never exists. Not fixed here.

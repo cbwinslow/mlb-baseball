@@ -1,0 +1,25 @@
+name: pitch_tunneling_engine
+definition: >
+  A standalone calculator for pitch-tunneling deception between a pair of
+  pitches: 3D release-point distance, trajectory separation at the
+  point-of-commitment (23.8 ft from the plate), plate-break separation,
+  a 0-100 tunneling-quality score, and an estimated whiff-rate boost,
+  from caller-provided release/break coordinates for each pitch.
+formula: mlb_baseball/model/tunnel.py::PitchTunnelingEngine.evaluate_tunnel_pair
+citation: >
+  project-derived. Pitch tunneling and a point-of-commitment decision
+  plane are real, recognizable Statcast/analytics concepts, but this
+  module's specific point-of-commitment factor (0.30, meant to
+  approximate ~55% of flight time / ~30% of total movement), the
+  tunneling-quality-score formula, and the whiff-boost thresholds
+  (poc_dist<=8.5in, plate_dist>=16.0in) are not sourced from a cited
+  external model.
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same "standalone caller-input engine" shape as the rest of this batch.

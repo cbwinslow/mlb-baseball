@@ -1,0 +1,63 @@
+name: travel_fatigue_engine
+definition: >
+  A standalone calculator (run via `mlb travel` on the command line) that
+  scores a team's circadian/schedule fatigue -- time zones crossed, hours
+  of rest between games, doubleheader Game 2, and consecutive game days
+  without an off-day -- into a 0-100 fatigue index, a tier
+  (FRESH/MODERATE/SEVERE), and estimated wOBA/FIP performance drag. Every
+  input is typed in by the CLI caller; it does not read any of this
+  project's own schedule, travel, or game data.
+formula: mlb_baseball/model/travel.py::TravelFatigueEngine.assess_travel_fatigue
+citation: "project-derived (no external formula cited)"
+data_source: none -- takes only CLI-supplied numbers (mlb_baseball/cli.py "travel" command), never reads gold/core/raw
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Read directly against the module's own docstring claim (a real
+  "Doubleheader & Travel Fatigue Decay Modeler" implementing "Time Zone
+  Crossing & Circadian Jet-Lag Modeling", "Rest Turnaround Penalties", and
+  "Doubleheader Game 2 Performance Degradation"): the actual code never
+  queries the database at all (no `conn` parameter anywhere in
+  assess_travel_fatigue), operates only on a TeamTravelScheduleState
+  dataclass populated by hand from CLI flags (`--tz`, `--rest`, `--is-dh2`,
+  `--days`), and every one of its point values (1TZ=+6, 2TZ=+15, 3TZ=+28,
+  short-turnaround +22/+8, doubleheader-G2 +35, long-stretch +20/+10, the
+  50/25 tier thresholds, and the woba_drag=-score/100*5.0 /
+  fip_pen=score/100*0.45 drag formulas) carries no citation to any
+  published source and no derivation from this project's own data. `mlb
+  travel` is wired into cli.py as a standalone command, not into any
+  gold-table build pipeline (features.py/offense.py/bullpen.py etc.) --
+  confirmed by grepping the whole repository for TravelFatigueEngine /
+  assess_travel_fatigue / `model.travel`: the only hits are cli.py, this
+  module, and its own unit test.
+
+  Team travel/circadian fatigue IS a real, published sabermetric and sports
+  -science research area (e.g. the widely cited Recht, Lew & Schwartz 1995
+  Nature short report on West-coast MLB teams losing more often in early
+  East-coast games after eastward travel, and later jet-lag/circadian
+  studies). This module's own docstring does not cite any of that
+  literature, and its specific point-value formula does not resemble any
+  published relationship this session could identify -- it is an invented
+  scoring rubric that happens to touch the same real-world factors (time
+  zones, short turnarounds, doubleheaders, consecutive game days), not an
+  implementation of a specific published finding.
+
+  Unlike the reliever.py leverage engine this catalog batch previously
+  flagged (bullpen_leverage_volatility_engine.yaml), this module IS wired
+  into `mlb doctor`'s health checks (doctor.py calls
+  travel.health_check()) -- but that check is a self-referential smoke
+  test: it runs the engine on one hardcoded synthetic "exhausted team"
+  input and asserts the same deterministic formula still returns SEVERE
+  with a large enough drag. It proves the code has not broken, not that the
+  fatigue index means anything for a real team/game.
+
+  `status: implemented-untested` and `visibility: internal` reflect this
+  honestly rather than describing it as a validated or citable statistic.
+  Recommended follow-up, out of scope for this batch to decide: confirm
+  with the owner whether this should be archived or kept as a documented
+  what-if calculator, and whether it is worth wiring to real schedule/
+  travel data and a cited circadian-fatigue relationship if kept.

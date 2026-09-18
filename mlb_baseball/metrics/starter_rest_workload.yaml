@@ -1,0 +1,60 @@
+name: starter_rest_workload
+definition: >
+  How many calendar days a starting pitcher has rested since their
+  immediately preceding start, and how many outs they have recorded (in any
+  role) over the trailing 7 calendar days, both computed strictly
+  point-in-time as of the moment they take the mound for a given game.
+formula: mlb_baseball/model/starter_workload.py::compute
+citation: "project-derived (no external formula cited)"
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo (1910-2025); raw.mlb_playbyplay (2026+ compute_live); raw.mlb_probable + raw.mlb_schedule (compute_probable, upcoming games)
+grain: player (starting pitcher), point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: internal
+notes: >
+  Two straightforward quantities, correctly implemented per direct code
+  read: rest_days is a plain LAG()-based calendar-day difference between a
+  pitcher's consecutive starts (resp_pit_start_fl = 'T' only); outs_7d is a
+  trailing sum of event_outs_ct across ANY appearance (start or relief) in
+  the 7 calendar days strictly before the target game, reusing ADR-042's
+  day-collapse-then-RANGE-frame pattern from bullpen fatigue (team_bullpen)
+  to avoid doubleheader peer-row ambiguity. Units are outs, not pitches --
+  the module's own docstring is explicit that this project's ingested
+  Retrosheet source has no pitch-by-pitch counts, so outs is used as a
+  directly-verifiable proxy rather than an ungrounded imputation.
+
+  `citation: project-derived` and `visibility: internal` because, unlike
+  comprehensive_baserunning or starter_fip, no part of this formula traces
+  to a published source: "rest days since last start" and "outs in a
+  trailing 7-day window" are this project's own chosen framing, and
+  WORKLOAD_WINDOW_DAYS=7 is a project-chosen parameter (rationale given in
+  the docstring -- covers a starter's prior turn in a 5-day rotation plus
+  recent relief work -- but not derived from any cited study). This sits in
+  a well-studied real research area (pitch-count/rest-day workload and
+  injury/performance correlation, e.g. ASMI/Fleisig-style research), but
+  this module does not cite or reproduce any specific published
+  relationship -- it is a raw, defensible workload/rest proxy, not a
+  validated risk model.
+
+  Unusually strong test coverage for this batch: five deterministic
+  hand-calculated fixtures across four code paths (compute/Retrosheet,
+  compute with a same-day doubleheader per ADR-042, compute_live/2026
+  play-by-play, compute_probable/upcoming-game probable-starter path), each
+  hand-deriving the expected rest_days/outs_7d value and asserting it
+  exactly -- plus two dedicated leakage-safety tests
+  (test_compute_probable_only_uses_history_strictly_before_target_game_date)
+  that construct an intervening start AND a future start on purpose and
+  assert neither leaks into the target game's rest/workload value. This is
+  thorough self-consistency evidence (the tests use the same arithmetic the
+  SQL performs, not an independent external source), so status stays
+  "published" rather than "validated" per this catalog's definition --
+  there is no independently published rest-days/outs-7d figure for any real
+  pitcher to tie out against.
+
+  health_check() is a genuine internal-consistency check (non-negative
+  values, >=90% May+ coverage for resolved starters, checked independently
+  on both home and away sides after a real bug -- issue #9 item 3 -- where
+  the away side previously reported no check at all when healthy), not an
+  external reconciliation.

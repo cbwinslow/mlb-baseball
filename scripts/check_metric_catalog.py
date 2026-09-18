@@ -61,6 +61,16 @@ EXCLUDED_MODULES = {
     "feature_select_stepwise.py",  # ditto, stepwise variant
     "identity.py",  # cross-source ID reconciliation, not a metric
     "provenance.py",  # source/citation bookkeeping, not a metric itself
+    "market.py",  # copies core.market.implied_probability into gold.prediction as a
+    # comparison baseline; the odds->probability conversion itself lives in conform.py,
+    # not here -- this module has no formula of its own (metric-catalog batch 4)
+    "parlay.py",  # same-game-parlay joint-probability/EV wagering calculator -- bet
+    # payout math, not a baseball statistic (metric-catalog batch 4)
+    "portfolio.py",  # fractional-Kelly bankroll/staking allocator -- money-management
+    # math, not a baseball statistic (metric-catalog batch 4)
+    "nrfi.py",  # NRFI/YRFI fair-odds and recommended-side betting calculator, not a
+    # descriptive stat -- its own code comment calls it a "Bucket B exploratory
+    # calculator" (metric-catalog batch 4)
 }
 
 # Small allow-list of substrings that, if present in `citation`, indicate a

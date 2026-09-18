@@ -1,0 +1,45 @@
+name: batter_two_strike_approach
+definition: >
+  A standalone calculator (run via `mlb two-strike` on the command line)
+  that takes a batter's early-count vs. two-strike whiff rate, swing length,
+  and two-strike strikeout rate -- numbers the USER types in -- and combines
+  them into a "Two-Strike Battle Efficiency" (TSBE) score, an estimated
+  seasonal run value, and an approach-archetype label. It does not compute
+  any two-strike splits from this project's own ingested pitch-level or
+  plate-appearance data, and is not part of any database build.
+formula: mlb_baseball/model/two_strike.py::TwoStrikeApproachEngine.evaluate_two_strike
+citation: >
+  project-derived (no external formula cited). Two-strike batting-approach
+  splits are not a standardized published sabermetric with one canonical
+  formula the way TTO or win expectancy are; this project invented its own
+  TSBE composite score.
+data_source: >
+  none -- takes only CLI-supplied numbers (mlb_baseball/cli.py "two-strike"
+  command: --early-whiff/--two-whiff/--early-len/--two-len/--k-pct/--pa) or
+  the BatterTwoStrikeMetrics dataclass's hardcoded defaults. It does not
+  compute swing-length or whiff-rate deltas from this project's own ingested
+  Statcast/pitch-level data.
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  TSBE = 100 + whiff_delta*2.5 + length_delta*18.0 - (two_strike_k_pct -
+  40.0)*1.5; surplus_runs = ((40.0 - two_strike_k_pct)/100) * PA * 0.32. The
+  2.5/18.0/1.5 weights, the 40.0% "league average" two-strike K rate, and
+  the 0.32-runs-per-strikeout-saved constant are all uncited, hand-chosen
+  values -- no citation or derivation from this project's own data is given
+  anywhere in the module.
+
+  Same data disconnect as the other three modules in this batch: the
+  BatterTwoStrikeMetrics the engine evaluates is whatever the CLI caller
+  types in, not a real batter's real observed early-count/two-strike split.
+
+  tests/unit/test_two_strike.py's two scenario tests (a "Steven Kwan
+  Archetype" contact battler and a "Long Swing Slugger") and health_check()
+  all feed hand-picked synthetic inputs through the same formula being
+  tested and assert tier-label/threshold self-consistency -- correct
+  self-consistency proof, not an independent tie-out against a real
+  batter's actual observed two-strike performance.

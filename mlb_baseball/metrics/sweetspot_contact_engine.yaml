@@ -1,0 +1,55 @@
+name: sweetspot_contact_engine
+definition: >
+  A standalone calculator (run via `mlb sweetspot` on the command line) that
+  takes a batter's Sweet-Spot% (share of batted balls with an 8-32 degree
+  launch angle, a real Statcast concept), Hard-Hit%, and Ideal Contact Rate
+  -- all typed in by the user, not computed from data -- and blends them
+  into a single "Contact Quality Score" plus a launch-path label like "Line
+  Drive Machine". It does not read any of this project's own batted-ball
+  data, and is not part of any database build.
+formula: mlb_baseball/model/sweetspot.py::SweetSpotEngine.evaluate_contact
+citation: >
+  project-derived -- Sweet-Spot% itself (8-32 degree launch angle) is a real,
+  published Baseball Savant / Statcast glossary concept, but this module
+  does not compute Sweet-Spot% or Ideal Contact Rate from any batted-ball
+  data; both arrive as already-known numbers the caller supplies. The one
+  thing the code actually computes -- the 0.70/0.30 "Contact Quality Score"
+  blend of ICR and Sweet-Spot%, and the launch-path archetype thresholds --
+  is an uncited, project-invented composite with no external source. See
+  notes.
+data_source: >
+  none -- takes only CLI-supplied numbers (mlb_baseball/cli.py "sweetspot"
+  command), never reads gold/core/raw.
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  FLAGGED FOR TRIAGE -- same class of finding as bullpen_leverage_volatility_
+  engine and xslg_power_engine. A notable extra red flag specific to this
+  module: docs/DECISIONS.md ADR-175 presents "Ideal Contact Rate: ICR =
+  N(EV>=95mph AND 8<=LA<=32) / N_BBE * 100%" as this module's own math, but
+  SweetSpotEngine.evaluate_contact never performs that computation --
+  BatterContactGeometry.ideal_contact_rate and .sweet_spot_pct are plain
+  constructor inputs (CLI flags or the dataclass's own placeholder
+  defaults), passed straight through to the output unchanged. The only real
+  computation here is contact_quality_score (icr*0.70 +
+  sweet_spot_pct*100*0.30) and the archetype/elite-flag thresholds. This is
+  exactly the "docstring/ADR claims a computation the code doesn't actually
+  perform" pattern this catalog exists to catch -- read the ADR's math
+  section as aspirational, not as evidence of what the code does.
+
+  The code never queries the database (no `conn` parameter anywhere), and
+  `mlb sweetspot` is wired into cli.py as a standalone command, not into any
+  gold-table build pipeline.
+
+  ADR-175's own "Verification" line is "3/3 unit tests in
+  tests/unit/test_sweetspot.py passing" -- its own unit tests, not an
+  independent check. Both tests only assert that hand-picked example inputs
+  (already high in both ICR and Sweet-Spot%, or already low-sweet-spot/
+  high-hard-hit) land in the archetype the code was written to put them in
+  -- self-consistency, not a tie-out against any real batter's actual
+  outcomes. `status: implemented-untested` and `visibility: internal`
+  reflect this honestly.

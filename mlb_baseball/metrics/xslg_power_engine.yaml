@@ -1,27 +1,61 @@
 name: xslg_power_engine
 definition: >
-  A standalone calculator for expected slugging (xSLG) and expected
-  isolated power (xISO) from caller-provided contact-quality bin counts
-  (barrel, solid contact, flare/burner, under, topped, weak), plus a
-  "true power conversion efficiency" ratio (actual ISO / expected xISO)
-  and a power-profile tier.
+  A standalone calculator (run via `mlb xslg` on the command line) that turns
+  six manually-typed counts of batted-ball contact-quality categories
+  (barrel, solid contact, flare/burner, under, topped, weak) into an
+  estimated expected slugging percentage (xSLG) and expected isolated power
+  (xISO), then compares that estimate to a real ISO value the user also
+  types in to produce a "power efficiency" score and a label like "Elite
+  Barrel Slugger". It does not read any of this project's own batted-ball
+  data, and is not part of any database build.
 formula: mlb_baseball/model/xslg.py::XSLGPowerEngine.evaluate_power
 citation: >
-  project-derived. Real Statcast xSLG/xBA models are built from a
-  continuous exit-velocity/launch-angle regression against actual
-  outcomes, not this module's approach of six hand-picked per-bin
-  weights (e.g. barrel=2.500 total bases, solid_contact=1.250) averaged
-  by bin count -- no citation is given for these specific weights or for
-  the 0.68 in-play-rate scaling factor used to convert per-ball-in-play
-  ISO to a per-PA ISO.
-data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
-grain: not applicable (stateless per-call calculation)
+  project-derived -- borrows real Statcast contact-quality category names
+  (Barrel / Solid Contact / Flare-Burner / Under / Topped / Weak, from
+  Baseball Savant's batted-ball classification) and the "xSLG"/"xISO" names
+  themselves, but the actual per-category weights that turn those counts
+  into a number (2.50 / 1.25 / 0.65 / 0.18 / 0.15 / 0.10 for xSLG; 0.750 /
+  0.520 / 0.620 / 0.120 / 0.180 / 0.100 for xBA; the 0.68 BBE-to-PA scaling
+  factor) are not published anywhere -- they do not match Baseball Savant's
+  real methodology, which fits expected stats from exit velocity, launch
+  angle, and sometimes sprint speed via a nearest-neighbor model on
+  individual batted-ball events, not a linear combination of six category
+  counts. See notes.
+data_source: >
+  none -- takes only CLI-supplied counts (mlb_baseball/cli.py "xslg"
+  command), never reads gold/core/raw.
+grain: not applicable (stateless per-call calculation, no stored grain)
 layer: model
-complexity: complex
+complexity: arithmetic
 implementation: python
 status: implemented-untested
 visibility: internal
 notes: >
-  Same "standalone caller-input engine" shape as the rest of this batch;
-  the contact-quality-bin concept is Statcast-recognizable, but this is
-  not the same method Statcast's own public xSLG uses.
+  FLAGGED FOR TRIAGE -- same class of finding as bullpen_leverage_volatility_
+  engine and win_probability_added_calculator (mlb_baseball/model/leverage.py,
+  wpa.py): a same-file docstring/ADR write-up (docs/DECISIONS.md ADR-187)
+  presents this as if it is Statcast's real xSLG, but the code never queries
+  the database (no `conn` parameter anywhere in evaluate_power), operates
+  only on a hand-typed BatterContactBins dataclass (CLI flags or the
+  dataclass's own placeholder defaults, e.g. barrel_count=25), and `mlb
+  xslg` is wired into cli.py as a standalone command, not into any gold-table
+  build pipeline.
+
+  This is a DIFFERENT thing from the real `home_starter_xslg` /
+  `away_starter_xslg` / `home_offense_xslg` / `away_offense_xslg` feature
+  columns referenced in mlb_baseball/model/statcast_expected.py,
+  experiment.py, and gbm.py -- those are computed elsewhere from real
+  Statcast data and are out of scope for this entry; do not confuse the two
+  by the shared "xslg" name.
+
+  ADR-187's own "Verification" line is "3/3 unit tests in
+  tests/unit/test_xslg.py passing" -- i.e. its own unit tests, not an
+  independent check. Those tests (test_elite_barrel_slugger_evaluates_
+  properly, test_undervalued_power_ceiling_triggers_for_unlucky_slugger)
+  only assert that hand-picked example inputs -- chosen specifically to be
+  barrel-heavy or ISO-depressed -- land in the tier the code was written to
+  put them in; this proves the thresholds are internally self-consistent,
+  not that the underlying per-category weights estimate real slugging
+  outcomes. `status: implemented-untested` and `visibility: internal`
+  reflect this honestly rather than treating it as a validated or citable
+  Statcast reproduction.

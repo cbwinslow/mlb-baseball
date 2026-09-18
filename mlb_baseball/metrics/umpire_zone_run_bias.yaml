@@ -1,0 +1,57 @@
+name: umpire_zone_run_bias
+definition: >
+  A standalone calculator (run via `mlb umpire` on the command line) that
+  adjusts a game's total-runs line and each starter's strikeout line based
+  on a single horizontal strike-zone-expansion input the USER types in. It
+  does not read this project's own ingested umpire data, and is not part of
+  any database build.
+formula: mlb_baseball/model/umpire.py::UmpireBiasEngine.evaluate_game_adjustment
+citation: >
+  project-derived (no external formula cited). The module's own docstring
+  ("Individual Umpire Strike Zone & Run Bias Modeler") implies it is built
+  on published individual-umpire strike-zone research (real public work
+  exists in this space, e.g. Mark T. Williams' Boston University umpire
+  accuracy studies or Brian Mills' published umpire-consistency research),
+  but the code cites none of it and does not implement anything from it --
+  see notes.
+data_source: >
+  none. mlb_baseball/cli.py's "umpire" command only lets the user set
+  --expansion-in (zone_horizontal_expansion_in); run_impact_per_game and
+  k_rate_multiplier/bb_rate_multiplier are then themselves *derived* from
+  that one input via additional uncited linear formulas
+  (-0.55 * expansion_in/0.6, 1.0 +- expansion_in*0.08) rather than read from
+  data. raw.mlb_umpire and raw.retrosheet_umpire (this project's real
+  ingested umpire tables) hold only per-game plate/base umpire *assignment*
+  identities, not zone-expansion or run-impact statistics, and this module
+  reads neither table.
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Every number this module claims about a specific umpire is either typed
+  in directly or back-derived from one CLI flag via uncited constants -- it
+  never measures anything about a real umpire's real ball/strike calls.
+  This is a materially different, and more synthetic, situation than the
+  pop-time/TTO/two-strike modules in this batch: those at least accept
+  caller-supplied numbers that *could* plausibly come from real observation;
+  here even the run_impact_per_game and K/BB multipliers the engine consumes
+  are manufactured from a single expansion-inches slider inside cli.py
+  itself (lines ~4732-4742), not supplied as independently observed facts.
+
+  Half of UmpireProfile's fields are entirely unused by
+  evaluate_game_adjustment: zone_vertical_expansion_in,
+  called_strike_accuracy_pct, bb_rate_multiplier, and games_behind_plate are
+  all accepted on the dataclass and never read anywhere in the calculation
+  -- only zone_horizontal_expansion_in, run_impact_per_game, and
+  k_rate_multiplier feed the output. So despite the "strike zone dimensions"
+  framing, the model only ever reasons about one horizontal-expansion number
+  and a run-impact figure the caller must already know.
+
+  tests/unit/test_umpire.py's two scenario tests and health_check() assert
+  exact arithmetic outputs for hand-picked synthetic UmpireProfile inputs --
+  correct self-consistency proof that the arithmetic is implemented as
+  written, not independent validation against any real umpire's real
+  observed run impact or zone bias.

@@ -1,0 +1,45 @@
+name: babip_luck_scanner
+definition: >
+  A standalone calculator (run via `mlb babip` on the command line) that
+  compares a batter's actual BABIP (batting average on balls in play) to an
+  "expected" xBABIP estimated from line-drive rate, hard-hit rate, sprint
+  speed, ground-ball rate, and infield-fly rate the USER types in on the
+  command line, then classifies the gap into a regression tier (e.g.
+  "SEVERE_POSITIVE_REGRESSION", "buy-low candidate"). It does not read any
+  of this project's own game or player data, and is not part of any
+  database build.
+formula: mlb_baseball/model/babip.py::BABIPRegressionEngine.evaluate_babip
+citation: project-derived (no external formula cited)
+data_source: none -- takes only CLI-supplied numbers (mlb_baseball/cli.py "babip" command), never reads gold/core/raw
+grain: not applicable (stateless per-call calculation, no stored grain)
+layer: model
+complexity: arithmetic
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same class of finding as bullpen_leverage_volatility_engine
+  (mlb_baseball/model/leverage.py) and win_probability_added_calculator
+  (mlb_baseball/model/wpa.py) -- a standalone CLI what-if calculator, not a
+  database-integrated feature. The xBABIP formula (0.220 + 0.380*LD% +
+  0.120*HardHit% + 0.006*(SprintSpeed_fps-27.0) - 0.140*IFFB% + 0.040*GB%)
+  and the regression-tier cutoffs (+/-0.020, +/-0.045) carry no citation to
+  any published xBABIP model -- no resemblance confirmed to Statcast's own
+  xBA/xwOBA methodology, Baseball Prospectus's DRA-adjacent work, or any
+  specific sabermetric paper -- and no derivation from this project's own
+  data. The module docstring's framing ("Trajectory-Based Expected BABIP",
+  "strictly ... point-in-time correctness with zero lookahead leakage") is
+  not supported by the actual code: `evaluate_babip` takes no timestamp or
+  cutoff of any kind, `BatterBABIPInputs.actual_babip` is itself a
+  hand-typed number (not read from any real batter's actual balls in play),
+  and `mlb babip` is wired into cli.py as a standalone command, never into
+  report.py's gold-table build pipeline.
+
+  tests/unit/test_babip.py only checks that two hand-picked, extreme input
+  combinations land in the expected tier bucket -- self-consistency of the
+  same uncited arithmetic, not a tie-out against any independently sourced
+  BABIP or xBABIP value. `status: implemented-untested` and
+  `visibility: internal` reflect this honestly rather than describing it as
+  a validated or citable statistic, even though real BABIP itself (Voros
+  McCracken's DIPS work) is a genuinely citable concept this module's name
+  evokes but does not actually implement.

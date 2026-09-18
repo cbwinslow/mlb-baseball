@@ -1,0 +1,57 @@
+name: log5_win_probability
+definition: >
+  This project's simplest win-probability baseline: given only two teams'
+  season winning percentages entering a still-undecided game, estimate the
+  home team's probability of winning, with no training step. First model
+  in the project's build order specifically because it is simple enough to
+  prove the prediction pipeline end to end before anything more complex.
+formula: mlb_baseball/model/log5.py::probability
+citation: >
+  Bill James, "log5" method (proposed axiomatically, 1981); independently
+  re-derived constructively (via a neutral-proxy-team thought experiment)
+  and validated against 204,858 real, decisive MLB games (1871-2013,
+  97.90% efficiency ratio) by a SABR paper (Richards), per
+  docs/RESEARCH.md -- verified this citation is real and that
+  docs/RESEARCH.md states the same defining property (`P(x, .500) == x`)
+  the code's own docstring cites, rather than taking the docstring's claim
+  on faith.
+data_source: gold.game_feature (home_win_pct, away_win_pct); writes gold.prediction
+grain: game (one prediction per still-undecided game with both teams' win_pct known)
+layer: model
+complexity: arithmetic
+implementation: python
+status: published
+visibility: public
+notes: >
+  Correctly implements the cited odds-ratio form per direct code read:
+  algebraically satisfies P(x, .500) == x for every x, which the
+  previously shipped "log5-v1" form (home^2/(home^2+away^2)) provably does
+  NOT satisfy (e.g. .5902 instead of .600 for a .600 team vs. a .500
+  team) -- log5-v1 is kept in history as a known-invalid predecessor, not
+  silently relabeled. The degenerate 0/0 case (two teams equal at exactly
+  0 or exactly 1 -- confirmed to occur in real production
+  gold.game_feature data, not hypothetical) is explicitly special-cased to
+  0.5, the same value the formula already returns for two equal teams at
+  every other winning percentage.
+
+  Real duplicate-implementation risk, not hypothetical: `predict()` cannot
+  call back into `probability()` per row (a plain SQL INSERT ... SELECT),
+  so the identical arithmetic is re-typed inline as raw SQL text inside
+  log5.py rather than calling the tested Python function. The two copies
+  are currently consistent (confirmed by direct comparison of both
+  expressions) and one specific historical bug was found and fixed in the
+  SQL copy only (the (1,1) undefeated-vs-undefeated 0/0 case was
+  originally excluded only for (0,0), which would have aborted the whole
+  INSERT and silently blocked every other game's prediction that run --
+  tests/integration/test_model_log5.py::test_predict_handles_two_undefeated_teams_without_aborting_the_whole_run
+  regression-tests this exact mechanism), but nothing enforces the two
+  copies stay in sync going forward.
+
+  `status: published` rather than `validated`: tests/unit/test_log5_formula.py,
+  tests/unit/test_log5_properties.py (Hypothesis-based), and
+  tests/pgtap/log5.pg all verify the formula's own mathematical identities
+  (P(x,.500)=x, symmetry, boundedness, the two degenerate-case fixes) --
+  strong, real evidence the *formula* is correctly transcribed, but none
+  of them reproduce a specific number from the cited SABR paper itself
+  (e.g. the paper's own 97.90% efficiency figure) against this project's
+  output, which is what this catalog's "validated" requires.

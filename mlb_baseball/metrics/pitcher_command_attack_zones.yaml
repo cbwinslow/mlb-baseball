@@ -17,7 +17,7 @@ grain: game (per starting pitcher and per fielding team's bullpen), rolling ente
 layer: gold
 complexity: arithmetic
 implementation: sql
-status: implemented-untested
+status: published
 visibility: public
 notes: >
   Real production module, not a standalone calculator: `command.py::compute`
@@ -34,25 +34,27 @@ notes: >
   test's own inline comment mis-describes as "10.00" -- the code is right,
   the comment is stale/wrong.
 
-  SUSPECTED PRODUCTION BUG, found by reading the SQL directly rather than
-  trusting the docstring: `heart_pitches` in pitcher_command_update.sql is
-  `count(*) FILTER (WHERE zone = '5' OR (zone IN (1,2,3,4,6,7,8,9) AND
-  pitch_number = 1))` -- i.e. it also counts any *first pitch of a plate
-  appearance* that lands in the Shadow zone as if it were a Heart-zone
-  pitch. This has no basis in the cited Attack Zones definition or in this
-  project's own documented formula (docs/RESEARCH.md #9: "Heart% = Pitches
-  in Zone 5 / Total Pitches", no first-pitch exception), and it double-counts
-  those pitches into both `heart_pitches` and `shadow_pitches` (the Shadow
-  filter is independent of `pitch_number`). tests/integration/test_model_command.py
-  never exercises this because every synthetic pitch in the fixture uses
-  `pitch_number='2'`, so the bug is untested and would silently inflate
-  home/away starter Heart% (and double-count Shadow%) in real games, where
-  pitch_number=1 is the single most common value. Not fixed as part of this
-  catalog batch (out of scope), but flagged here and should be raised with
-  the owner. This is the reason `status` is `implemented-untested` rather
-  than `published` despite the real citation: four of the five sub-metrics
-  (Shadow%, Chase%, Fastball Velo, Velo Delta) look correctly implemented
-  against the cited source, but Heart% does not.
+  **Fixed 2026-09-18** (found during this catalog batch, then fixed
+  directly -- PR #215): `heart_pitches` in pitcher_command_update.sql used
+  to be `count(*) FILTER (WHERE zone = '5' OR (zone IN (1,2,3,4,6,7,8,9)
+  AND pitch_number = 1))` -- i.e. it also counted any *first pitch of a
+  plate appearance* that landed in the Shadow zone as if it were a
+  Heart-zone pitch. This had no basis in the cited Attack Zones definition
+  or in this project's own documented formula (docs/RESEARCH.md #9:
+  "Heart% = Pitches in Zone 5 / Total Pitches", no first-pitch exception),
+  and it double-counted those pitches into both `heart_pitches` and
+  `shadow_pitches` (the Shadow filter is independent of `pitch_number`).
+  The old `tests/integration/test_model_command.py` never exercised this
+  because every synthetic pitch in its fixture used `pitch_number='2'`, so
+  the bug was untested and silently inflated home/away starter Heart% (and
+  double-counted Shadow%) in real games, where pitch_number=1 is the
+  single most common value. `heart_pitches` now matches the bullpen-side
+  formula exactly (`zone = '5'`, nothing else), and a new regression test
+  (`test_compute_does_not_double_count_first_pitch_shadow_zone_as_heart`)
+  reproduces the original bug mechanism and asserts Heart% + Shadow% +
+  Chase% sum to exactly 1.0. `status` is now `published` rather than
+  `implemented-untested`: all five sub-metrics (Heart%, Shadow%, Chase%,
+  Fastball Velo, Velo Delta) correctly implement the cited source.
 
   Also note the citation says "Heart, Shadow, Chase, Waste" (four zones) but
   the implementation only has three buckets -- zones 11-14 ("Chase" here)

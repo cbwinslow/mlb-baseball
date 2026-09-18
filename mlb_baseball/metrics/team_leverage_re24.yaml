@@ -1,0 +1,29 @@
+name: team_leverage_re24
+definition: >
+  Point-in-time average entering Leverage Index (LI) and RE24 (run
+  expectancy added over the 24 base/out states) for starting pitchers,
+  bullpens, and offensive lineups, rolled up from this project's own
+  empirical win_expectancy_empirical / leverage_index_empirical gold
+  tables.
+formula: mlb_baseball/model/run_expectancy.py::compute
+citation: >
+  Tango, Lichtman & Dolphin, "The Book: Playing the Percentages in
+  Baseball" (2006) -- RE24 and Leverage Index, same citation as
+  leverage_index_empirical/win_expectancy_empirical, aggregated here to
+  team/starter/bullpen/batting grain.
+data_source: gold.run_expectancy_24, gold.win_expectancy, raw.retrosheet_event, raw.retrosheet_gameinfo
+grain: team (starter, bullpen, batting lineup), point-in-time entering each game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: published
+visibility: public
+notes: >
+  Builds gold.run_expectancy_24 on first use if empty
+  (run_expectancy_matrix_build.sql), then rolls up already-computed
+  per-play LI/RE24 to team grain via team_leverage_re24_update.sql --
+  same "aggregate an already-populated prior step" shape as
+  starter_fip/team_woba. health_check() checks leverage index stays
+  non-negative for both sides; no independent tie-out against an external
+  RE24/LI figure exists (min-PA gates: MIN_STARTER_PA=30, MIN_BULLPEN_PA=40,
+  MIN_BATTING_PA=50).

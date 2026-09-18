@@ -1,0 +1,26 @@
+name: batter_swing_decision_engine
+definition: >
+  A standalone calculator for a batter's Swing Decision Value (SDV) per
+  100 pitches across the four Statcast attack zones (Heart, Shadow,
+  Chase, Waste), from caller-provided swing frequencies in each zone,
+  plus a four-way plate-discipline archetype classification (Disciplined
+  Slugger, Passive Walker, Free Swinger, Vulnerable Chaser).
+formula: mlb_baseball/model/decision.py::BatterSwingDecisionEngine.evaluate_batter_discipline
+citation: >
+  project-derived. The four-zone Attack Zone framework itself (Heart/
+  Shadow/Chase/Waste) is real, cited Statcast terminology (see
+  pitcher_command_attack_zones), but this module's specific per-zone
+  run-value weights (e.g. (heart_swing_pct-0.72)*0.28*0.22) and MLB-
+  average benchmarks are not sourced from a cited external swing-
+  decision-value model.
+data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
+grain: not applicable (stateless per-call calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Same "real framework, invented weights" shape as
+  contact_damage_classification_engine and outfield_catch_probability_engine
+  in this batch.

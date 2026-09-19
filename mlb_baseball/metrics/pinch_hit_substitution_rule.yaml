@@ -1,0 +1,27 @@
+name: pinch_hit_substitution_rule
+definition: >
+  A rule-based pinch-hit recommendation: from the current batter's and each
+  bench player's wOBA against the opposing pitcher's handedness, the inning
+  and the leverage index, it recommends the bench player with the largest wOBA
+  gain if that gain clears a threshold, and otherwise recommends no change.
+formula: mlb_baseball/model/sub.py::TacticalSubstitutionEngine.evaluate_pinch_hit
+citation: >
+  project-derived. The idea of platoon-based pinch hitting is standard
+  baseball strategy, but the rule and its constants are this project's own
+  uncited choices: only from the 7th inning on; a bench player is considered
+  only if the wOBA gain exceeds 0.020 when leverage index is at least 1.2 and
+  0.045 otherwise.
+data_source: "none -- caller-supplied BatterCard wOBA splits, inning and leverage index; no gold/core/raw read"
+grain: not applicable (stateless per-decision calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Comment and code disagree: an in-code comment says a +0.025 gain is
+  required and high leverage means LI >= 2.0 with +0.020, while the code uses
+  LI >= 1.2 and thresholds of 0.020 and 0.045. The code is what runs.
+  is_defense_first on BatterCard is never read. Three unit tests
+  (tests/unit/test_sub.py) cover a late high-leverage recommendation, an
+  early-inning refusal, and health_check on hand-picked inputs.

@@ -92,6 +92,9 @@ EXCLUDED_MODULES = {
     "simulate.py",  # vectorized/GPU Monte Carlo half-inning/game simulation *engine* --
     # shared compute backend for sim_predict.py/ros.py's own named outputs, not
     # itself a single statistic (metric-catalog batch 8)
+    "total.py",  # XGBoost run-total regression train()/predict() pipeline with a naive
+    # park-factor baseline -- a learned model like gbm.py, not one citable formula
+    # (metric-catalog batch 11)
     "hedge.py",  # live in-game hedging/middle-betting/arbitrage calculator -- wagering
     # math, not a baseball statistic (metric-catalog batch 8)
     "shop.py",  # multi-sportsbook line-shopping/best-price comparator -- wagering

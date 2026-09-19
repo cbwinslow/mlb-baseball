@@ -1,0 +1,28 @@
+name: starter_career_experience
+definition: >
+  Each probable starting pitcher's career batters faced and innings pitched
+  entering a game: the running total of every regular-season appearance
+  (starts and relief) that pitcher made strictly before that game, over the
+  Retrosheet-covered years only.
+formula: mlb_baseball/model/experience.py::compute
+citation: project-derived (cumulative career totals; ADR-085 and the feature admission queue item PLN-04 "prior MLB PA/IP" record the rationale, not a published formula)
+data_source: raw.retrosheet_event, raw.retrosheet_gameinfo, core.game (written into gold.game_feature via mlb_baseball/sql/starter_experience_update.sql)
+grain: game, one home and one away starting-pitcher career total entering the game
+layer: gold
+complexity: arithmetic
+implementation: sql
+status: implemented-untested
+visibility: internal
+notes: >
+  Point-in-time safe by construction: the window is ROWS UNBOUNDED PRECEDING
+  to 1 PRECEDING, ordered by game date, game number, then game id, so a
+  doubleheader nightcap cannot leak into its first game (a bug fixed during
+  review; the season-partitioned window in the sibling starter-stats SQL has
+  the same tie-break gap, tracked as issue #67). Innings are outs / 3.0, so
+  6 2/3 innings is 6.33. Counts regular-season games only and only years
+  Retrosheet covers, so a pitcher's pre-coverage career is not included; a
+  debut appearance yields NULL rather than zero. Six real-PostgreSQL
+  integration tests (tests/integration/test_model_experience.py) check
+  carry-forward across seasons, doubleheader ordering, idempotency, both
+  missing-table gates, and the plausibility health check, but no external
+  published career total is tied to.

@@ -43,7 +43,7 @@ Per `AGENTS.md` and `docs/SQL_OWNERSHIP.md`:
 - **`team_bsr_comprehensive_retrosheet_update.sql`**: Computes weighted stolen base runs (wSB) and ultimate base running (UBR) into total BsR.
 - **`int_diff_update.sql`**: Vectorized single-pass algebraic update calculating all 23 symmetric home-minus-away difference columns.
 - **`market_upcoming_games.sql`**: Upcoming `gold.game_feature` rows (`home_win IS NULL`) joined to the latest `raw.mlb_schedule` first-pitch time, the live Kalshi/Polymarket match input (ADR-267).
-- **`statcast_expected_retrosheet_update.sql`**: Computes Barrels/PA, Hard-Hit%, and xwOBA for batters, starters, and relief units.
+- **`statcast_expected_update.sql`**: Computes HardHit%/Barrel%/xBA/xSLG/xwOBA for starters, bullpens, and offenses from `raw.statcast_pitch`'s own Baseball Savant expected-stat columns (renamed 2026-09-19; previously proxied these from Retrosheet's coarse batted-ball codes -- see `mlb_baseball/metrics/statcast_expected_quality_of_contact.yaml`).
 
 ### 3.2 Markov Chain & Simulation Queries
 - **`markov_transition_counts.sql`**: Groups Retrosheet play-by-play events by pre-state `(outs, b1, b2, b3)` and post-state `(post_outs, post_b1, post_b2, post_b3, runs)` to estimate base/out transition probability matrices.

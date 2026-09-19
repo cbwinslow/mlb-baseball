@@ -1,189 +1,194 @@
+"""Regression coverage for mlb_baseball.model.statcast_expected -- Statcast
+quality of contact & expected metrics (HardHit%, Barrel%, xBA, xSLG, xwOBA)
+for starters, bullpens, and offenses (STA-03).
+
+statcast_expected_update.sql reads Baseball Savant's own pre-computed
+per-batted-ball expected-stat columns straight from raw.statcast_pitch
+(estimated_ba_using_speedangle, estimated_slg_using_speedangle,
+estimated_woba_using_speedangle, launch_speed, launch_speed_angle) -- it used
+to derive a synthetic proxy from raw.retrosheet_event's coarse batted-ball-type
+codes via an uncited constant table instead (see
+mlb_baseball/metrics/statcast_expected_quality_of_contact.yaml). Deliberately,
+no raw.retrosheet_event/raw.retrosheet_gameinfo table exists anywhere in this
+file -- compute() succeeding without them is itself proof the module no
+longer depends on that source.
+"""
+
 from decimal import Decimal
 
-import psycopg
-
-from mlb_baseball.model import features, statcast_expected
+from mlb_baseball.model import statcast_expected
 
 
-def _reset(conn: psycopg.Connection) -> None:
-    with conn.cursor() as cur:
+def _ensure_statcast_pitch_table(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
         cur.execute(
-            "DELETE FROM gold.game_feature "
-            "WHERE game_id IN (SELECT id FROM core.game WHERE season = 2024)"
+            "CREATE TABLE raw.statcast_pitch ("
+            "game_pk text, pitcher text, inning_topbot text, events text, bb_type text, "
+            "launch_speed text, launch_speed_angle text, "
+            "estimated_ba_using_speedangle text, estimated_slg_using_speedangle text, "
+            "estimated_woba_using_speedangle text, _season text)"
         )
-        cur.execute("DELETE FROM core.game WHERE season = 2024")
-        cur.execute("DELETE FROM core.player WHERE retro_id IN ('degro001', 'scher001')")
-        cur.execute("DELETE FROM core.team WHERE retro_team_id IN ('ATL', 'NYM')")
-        cur.execute("DELETE FROM core.venue WHERE retro_park_id = 'ATL01'")
-        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event CASCADE")
-        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gameinfo CASCADE")
+    db_conn.commit()
 
 
-def test_compute_noop_when_raw_missing(db_conn):
+def _reset(db_conn):
+    db_conn.rollback()
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.statcast_pitch')")
+        if cur.fetchone()[0]:
+            cur.execute("DELETE FROM raw.statcast_pitch")
+        cur.execute("DELETE FROM gold.prediction")
+        cur.execute("DELETE FROM gold.game_feature")
+        cur.execute("DELETE FROM core.game")
+        cur.execute("DELETE FROM core.player")
+        cur.execute("DELETE FROM core.team")
+    db_conn.commit()
+
+
+def test_compute_noop_when_statcast_pitch_missing(db_conn):
+    # Regression: compute() used to gate on raw.retrosheet_event/
+    # raw.retrosheet_gameinfo existing; it must now gate on raw.statcast_pitch,
+    # the table this module actually reads.
     _reset(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
+    db_conn.commit()
+
     assert statcast_expected.compute(db_conn) == 0
 
 
-def test_compute_populates_statcast_expected_metrics(db_conn):
+def test_compute_reads_real_statcast_expected_stat_columns(db_conn):
+    # G1: home starter (mlbam 1001) faces 12 PA:
+    #   5 batted balls (bb_type populated):
+    #     2 barrels (launch_speed=100 >= 95mph hard-hit, launch_speed_angle='6'
+    #       -- Savant's own Barrel classification, not a reimplemented EV/LA
+    #       window), each with real Savant per-BIP xBA=0.800/xSLG=2.000/
+    #       xwOBA=1.200
+    #     3 weak-contact balls (launch_speed=80, launch_speed_angle='2'
+    #       "Topped" -- not hard-hit, not barrel), each xBA=0.100/xSLG=0.100/
+    #       xwOBA=0.100
+    #   5 strikeouts (events='strikeout' -- count toward AB/PA, contribute 0)
+    #   1 walk (events='walk'), 1 HBP (events='hit_by_pitch')
+    #
+    # Entering G2 (only G1 precedes it):
+    #   bip_cnt=5, hard_hit_cnt=2, barrel_cnt=2 -> hard_hit_pct = barrel_pct = 0.4000
+    #   ab_cnt = 5 (BIP) + 5 (K) = 10
+    #   xba_sum = 2*0.800 + 3*0.100 = 1.900 -> xba = 1.900 / 10 = 0.1900
+    #   xslg_sum = 2*2.000 + 3*0.100 = 4.300 -> xslg = 4.300 / 10 = 0.4300
+    #   pa_cnt = 10 (AB) + 1 (BB) + 1 (HBP) = 12
+    #   xwoba_contact_sum = 2*1.200 + 3*0.100 = 2.700
+    #   xwoba = (2.700 + 0.69*1 + 0.72*1) / 12 = 4.110 / 12 = 0.3425
     _reset(db_conn)
+    _ensure_statcast_pitch_table(db_conn)
     with db_conn.cursor() as cur:
         cur.execute(
-            "CREATE TABLE raw.retrosheet_event ("
-            "game_id text, inn_ct integer, bat_home_id text, resp_pit_id text, "
-            "resp_pit_start_fl text, event_id integer, outs_ct text, event_outs_ct text, "
-            "event_runs_ct text, base1_run_id text, base2_run_id text, base3_run_id text, "
-            "bat_event_fl text, event_cd text, battedball_cd text, h_cd text, "
-            "bat_hand_cd text, resp_bat_hand_cd text, _season text)"
+            "INSERT INTO core.team "
+            "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 9999, 144), "
+            "('NYA', 'New York', 'Yankees', 1913, 9999, 147) "
+            "RETURNING id, retro_team_id"
+        )
+        teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+        atl, nya = teams["ATL"], teams["NYA"]
+        cur.execute(
+            "INSERT INTO core.player (retro_id, mlbam_id, first_name, last_name) "
+            "VALUES ('pitc001', '1001', 'Ace', 'Pitcher'), "
+            "('pitc002', '1002', 'Away', 'Pitcher') "
+            "RETURNING id, mlbam_id"
+        )
+        players = {mlbam_id: player_id for player_id, mlbam_id in cur.fetchall()}
+        p1, p2 = players["1001"], players["1002"]
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', '7001', 2024, '2024-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', '7002', 2024, '2024-04-08', %(atl)s, %(nya)s, 4, 2, 'regular')",
+            {"atl": atl, "nya": nya},
         )
         cur.execute(
-            "CREATE TABLE raw.retrosheet_gameinfo "
-            "(gid text, gametype text, visteam text, hometeam text, _season text)"
+            "INSERT INTO gold.game_feature "
+            "(game_instance_key, mlb_game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_starter_id, away_starter_id, game_id) "
+            "SELECT g.retro_game_id, g.game_pk::bigint, g.season, g.game_date, "
+            "g.home_team_id, g.away_team_id, %(p1)s, %(p2)s, g.id FROM core.game g",
+            {"p1": p1, "p2": p2},
         )
 
-        cur.execute(
-            "INSERT INTO core.venue (retro_park_id, name, city, state) "
-            "VALUES ('ATL01', 'Truist Park', 'Atlanta', 'GA') RETURNING id"
-        )
-        (venue_id,) = cur.fetchone()
-        cur.execute(
-            "INSERT INTO core.team (retro_team_id, city, nickname, first_year, last_year) "
-            "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 2025) RETURNING id"
-        )
-        (home_team_id,) = cur.fetchone()
-        cur.execute(
-            "INSERT INTO core.team (retro_team_id, city, nickname, first_year, last_year) "
-            "VALUES ('NYM', 'New York', 'Mets', 1962, 2025) RETURNING id"
-        )
-        (away_team_id,) = cur.fetchone()
-
-        cur.execute(
-            "INSERT INTO core.player (retro_id, first_name, last_name) "
-            "VALUES ('degro001', 'Jacob', 'deGrom') RETURNING id"
-        )
-        (home_sp_id,) = cur.fetchone()
-        cur.execute(
-            "INSERT INTO core.player (retro_id, first_name, last_name) "
-            "VALUES ('scher001', 'Max', 'Scherzer') RETURNING id"
-        )
-        (away_sp_id,) = cur.fetchone()
-
-        # Insert 2 games
-        cur.execute(
-            "INSERT INTO core.game ("
-            "retro_game_id, season, game_date, game_number, home_score, away_score, "
-            "game_type, home_team_id, away_team_id, venue_id) "
-            "VALUES ('ATL202405010', 2024, '2024-05-01', 0, 5, 3, 'regular', %s, %s, %s) "
-            "RETURNING id",
-            (home_team_id, away_team_id, venue_id),
-        )
-        (g1_id,) = cur.fetchone()
-        cur.execute(
-            "INSERT INTO core.game ("
-            "retro_game_id, season, game_date, game_number, home_score, away_score, "
-            "game_type, home_team_id, away_team_id, venue_id) "
-            "VALUES ('ATL202405080', 2024, '2024-05-08', 0, 4, 2, 'regular', %s, %s, %s) "
-            "RETURNING id",
-            (home_team_id, away_team_id, venue_id),
-        )
-        (g2_id,) = cur.fetchone()
-
-        cur.execute(
-            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype, visteam, hometeam, _season) "
-            "VALUES ('ATL202405010', 'regular', 'NYM', 'ATL', '2024'), "
-            "       ('ATL202405080', 'regular', 'NYM', 'ATL', '2024')"
-        )
-    db_conn.commit()
-
-    features.build(db_conn)
-
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "UPDATE gold.game_feature f SET home_starter_id = p.id "
-            "FROM core.game g, core.player p "
-            "WHERE g.id = f.game_id AND p.retro_id = 'degro001'"
-        )
-        cur.execute(
-            "UPDATE gold.game_feature f SET away_starter_id = p.id "
-            "FROM core.game g, core.player p "
-            "WHERE g.id = f.game_id AND p.retro_id = 'scher001'"
-        )
-    db_conn.commit()
-
-    with db_conn.cursor() as cur:
-        # 50 events for starter degro001 in game 1:
-        # 10 line drives (battedball_cd='L', event_cd='20')
-        # 5 barrels / HRs (battedball_cd='L', event_cd='23', h_cd='4')
-        # 10 fly balls (battedball_cd='F', event_cd='2')
-        # 10 ground balls (battedball_cd='G', event_cd='2')
-        # 5 popups (battedball_cd='P', event_cd='2')
-        # 6 strikeouts (event_cd='3')
-        # 3 walks (event_cd='14')
-        # 1 HBP (event_cd='16')
-        starter_events = (
-            [("20", "L", "0", "0")] * 10
-            + [("23", "L", "4", "0")] * 5
-            + [("2", "F", "0", "1")] * 10
-            + [("2", "G", "0", "1")] * 10
-            + [("2", "P", "0", "1")] * 5
-            + [("3", None, "0", "1")] * 6
-            + [("14", None, "0", "0")] * 3
-            + [("16", None, "0", "0")] * 1
-        )
-
-        event_id = 1
-        for e_cd, bb_cd, h_cd, outs in starter_events:
-            cur.execute(
-                "INSERT INTO raw.retrosheet_event ("
-                "game_id, inn_ct, bat_home_id, resp_pit_id, resp_pit_start_fl, event_id, "
-                "event_outs_ct, event_runs_ct, bat_event_fl, event_cd, battedball_cd, h_cd, "
-                "bat_hand_cd, _season) "
-                "VALUES ('ATL202405010', 1, '0', 'degro001', 'T', %s, %s, '0', 'T', %s, "
-                "%s, %s, 'R', '2024')",
-                (event_id, outs, e_cd, bb_cd, h_cd),
+        pitches = []
+        # 2 barrels: hard-hit (EV >= 95) and Savant's own Barrel classification
+        # (launch_speed_angle = '6'), not a home-grown EV/LA window.
+        for _ in range(2):
+            pitches.append(
+                "('7001', '1001', 'Top', 'home_run', 'line_drive', "
+                "'100.0', '6', '0.800', '2.000', '1.200', '2024')"
             )
-            event_id += 1
-
-        # Seed G2 event for starter degro001
-        cur.execute(
-            "INSERT INTO raw.retrosheet_event ("
-            "game_id, inn_ct, bat_home_id, resp_pit_id, resp_pit_start_fl, event_id, "
-            "event_outs_ct, event_runs_ct, bat_event_fl, event_cd, battedball_cd, h_cd, "
-            "bat_hand_cd, _season) "
-            "VALUES ('ATL202405080', 1, '0', 'degro001', 'T', 1, '1', '0', 'T', '3', "
-            "NULL, '0', 'R', '2024')"
+        # 3 weak-contact outs: not hard-hit, not barrel.
+        for _ in range(3):
+            pitches.append(
+                "('7001', '1001', 'Top', 'field_out', 'ground_ball', "
+                "'80.0', '2', '0.100', '0.100', '0.100', '2024')"
+            )
+        # 5 strikeouts.
+        for _ in range(5):
+            pitches.append(
+                "('7001', '1001', 'Top', 'strikeout', NULL, NULL, NULL, NULL, NULL, NULL, '2024')"
+            )
+        # 1 walk, 1 HBP.
+        pitches.append(
+            "('7001', '1001', 'Top', 'walk', NULL, NULL, NULL, NULL, NULL, NULL, '2024')"
+        )
+        pitches.append(
+            "('7001', '1001', 'Top', 'hit_by_pitch', NULL, NULL, NULL, NULL, NULL, NULL, '2024')"
         )
 
-        db_conn.commit()
+        # G2 minimal row so the rolling window has a (game, pitcher) position
+        # to attach the rolled-forward-from-G1 rate to -- the window excludes
+        # the current row, so this pitch contributes nothing to its own game's
+        # displayed rate.
+        pitches.append(
+            "('7002', '1001', 'Top', 'field_out', 'fly_ball', "
+            "'70.0', '2', '0.050', '0.050', '0.050', '2024')"
+        )
+        pitches.append(
+            "('7002', '1002', 'Bot', 'field_out', 'fly_ball', "
+            "'70.0', '2', '0.050', '0.050', '0.050', '2024')"
+        )
+
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch "
+            "(game_pk, pitcher, inning_topbot, events, bb_type, launch_speed, "
+            "launch_speed_angle, estimated_ba_using_speedangle, "
+            "estimated_slg_using_speedangle, estimated_woba_using_speedangle, _season) "
+            f"VALUES {', '.join(pitches)}"
+        )
+    db_conn.commit()
 
     updated = statcast_expected.compute(db_conn)
-    assert updated >= 2
+    db_conn.commit()
+    assert updated >= 1
 
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT home_starter_hard_hit_pct, home_starter_barrel_pct, home_starter_xba, "
-            "       home_starter_xslg, home_starter_xwoba "
-            "FROM gold.game_feature WHERE game_id = %s",
-            (g1_id,),
+            "SELECT g.retro_game_id, f.home_starter_hard_hit_pct, f.home_starter_barrel_pct, "
+            "f.home_starter_xba, f.home_starter_xslg, f.home_starter_xwoba "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "ORDER BY g.retro_game_id"
         )
-        row_g1 = cur.fetchone()
-        # Zero lookahead: Game 1 has no preceding games, so rates should be NULL
-        assert all(v is None for v in row_g1)
+        rows = {r[0]: r[1:] for r in cur.fetchall()}
 
-        cur.execute(
-            "SELECT home_starter_hard_hit_pct, home_starter_barrel_pct, home_starter_xba, "
-            "       home_starter_xslg, home_starter_xwoba "
-            "FROM gold.game_feature WHERE game_id = %s",
-            (g2_id,),
-        )
-        row_g2 = cur.fetchone()
-        hard_hit_pct, barrel_pct, xba, xslg, xwoba = row_g2
+    # Zero lookahead: G1 has no preceding games, so every rate is NULL.
+    assert rows["G1"] == (None, None, None, None, None)
+    assert rows["G2"] == (
+        Decimal("0.4000"),
+        Decimal("0.4000"),
+        Decimal("0.1900"),
+        Decimal("0.4300"),
+        Decimal("0.3425"),
+    )
 
-        # Verify against hand-calculated fixtures
-        assert hard_hit_pct == Decimal("0.3750")  # 15 / 40
-        assert barrel_pct == Decimal("0.1250")  # 5 / 40
-        assert xba == Decimal("0.3565")  # 16.40 / 46
-        assert xslg == Decimal("0.8065")  # 37.10 / 46
-        assert xwoba == Decimal("0.5058")  # 25.29 / 50
+    _reset(db_conn)
 
 
 def test_health_check_passes():

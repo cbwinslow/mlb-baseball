@@ -51,7 +51,7 @@ notes: >
   catalog's spec.
 
   IMPORTANT: this same file (mlb_baseball/model/vaa.py) ALSO defines
-  VerticalApproachAngleEngine.evaluate_vaa(), a completely different,
+  ApproximateVAAEngine.evaluate_vaa(), a completely different,
   uncited "Magnus approximation" formula (using release_height_ft,
   plate_z_ft, pfx_z_in, release_velo_mph -- not vy0/ay/vz0/az) that backs
   the CLI command `mlb vaa` and is tested only by tests/unit/test_vaa.py's

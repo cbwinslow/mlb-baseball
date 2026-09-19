@@ -5,7 +5,7 @@ definition: >
   vertical break, and velocity (not Statcast's own vy0/ay/vz0/az
   kinematics), plus a whiff-boost estimate and a four-tier "flatness"
   classification.
-formula: mlb_baseball/model/vaa.py::VerticalApproachAngleEngine.evaluate_vaa
+formula: mlb_baseball/model/vaa.py::ApproximateVAAEngine.evaluate_vaa
 citation: >
   project-derived. Uses a different, self-derived flight-time/Magnus-lift
   approximation (not the Chamberlain/Pavlidis closed-form kinematics
@@ -22,12 +22,20 @@ implementation: python
 status: implemented-untested
 visibility: internal
 notes: >
-  A genuine finding worth flagging: this class computes "VAA" using an
+  Resolved (2026-09-19, issue #220): this class computes "VAA" using an
   entirely different formula than the same module's own pitch_vaa_degrees
   (the real, cited, gold-integrated implementation -- see starter_vaa),
   and is not wired to raw.statcast_pitch at all. The two could disagree
   on the same physical pitch, since this approximates vertical velocity
   from release/plate height and induced break rather than using measured
-  Statcast acceleration components directly. Not reconciled or fixed
-  here -- documentation-only change; worth a follow-up decision on
-  whether this class should be removed in favor of pitch_vaa_degrees.
+  Statcast acceleration components directly.
+
+  Kept, not removed: it backs the CLI `mlb vaa` scouting calculator, for
+  which release/plate height + induced break (not raw Statcast
+  acceleration components) is exactly the intended input -- ADR-270
+  already recorded this as a deliberate "display-only" split, not an
+  oversight. Renamed VerticalApproachAngleEngine -> ApproximateVAAEngine
+  and both classes' docstrings (plus the module docstring) now cross-
+  reference each other explicitly so a reader can't mistake one for the
+  other or wire this one into raw.statcast_pitch / gold.game_feature by
+  mistake.

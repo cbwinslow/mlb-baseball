@@ -1,15 +1,15 @@
 """Unit tests for Pitcher Vertical Approach Angle Engine (VAA-01, ADR-180)."""
 
 from mlb_baseball.model.vaa import (
+    ApproximateVAAEngine,
     PitchApproachKinematics,
-    VerticalApproachAngleEngine,
     health_check,
 )
 
 
 def test_high_rising_fastball_has_flat_vaa_and_whiff_boost():
     """Verify low release height with high IVB at top of zone yields flat VAA."""
-    engine = VerticalApproachAngleEngine()
+    engine = ApproximateVAAEngine()
 
     rising_fb = PitchApproachKinematics(
         pitcher_id="p1",
@@ -30,7 +30,7 @@ def test_high_rising_fastball_has_flat_vaa_and_whiff_boost():
 
 def test_steep_downhill_pitch_classified_as_steep():
     """Verify tall release height with negative IVB yields steep downhill VAA."""
-    engine = VerticalApproachAngleEngine()
+    engine = ApproximateVAAEngine()
 
     steep = PitchApproachKinematics(
         pitcher_id="p2",

@@ -8,6 +8,14 @@ Provides pitch flight trajectory modeling, vertical approach angle, and flatness
 
 Adheres strictly to object-oriented encapsulation, polymorphic protocols, and
 point-in-time correctness with zero lookahead leakage.
+
+This module has two independent VAA calculators (issue #220, 2026-09-19 --
+see `ApproximateVAAEngine`'s class docstring for the full distinction):
+`pitch_vaa_degrees()` / `compute()` is the real, cited, gold-integrated
+formula from Statcast kinematics; `ApproximateVAAEngine.evaluate_vaa()` is a
+separate, uncited scouting-input approximation backing the CLI `mlb vaa`
+command only (ADR-270). They can disagree on the same physical pitch --
+never conflate the two.
 """
 
 from __future__ import annotations
@@ -44,6 +52,10 @@ def pitch_vaa_degrees(*, vy0: float, ay: float, vz0: float, az: float) -> float 
     y0 = 50, yf = 17/12 (front of the plate). Typical four-seam VAA is
     about −4.5° to −6°. Returns None when the kinematics are unusable
     (zero ay, negative discriminant, zero plate-y velocity).
+
+    This is the real formula, from measured Statcast acceleration
+    components -- not `ApproximateVAAEngine.evaluate_vaa()`'s scouting-input
+    approximation elsewhere in this module (see module docstring).
     """
     if ay == 0.0:
         return None
@@ -95,14 +107,33 @@ class BaseVAAEngine(Protocol):
         ...
 
 
-class VerticalApproachAngleEngine:
-    """Calculates home plate Vertical Approach Angle and flatness advantage (VAA-01)."""
+class ApproximateVAAEngine:
+    """Rename (2026-09-19, issue #220; was `VerticalApproachAngleEngine`).
+
+    Estimates VAA from scouting-report-style inputs -- release height,
+    plate-crossing height, induced vertical break, velocity -- using a
+    self-derived flight-time/Magnus-lift approximation, NOT the cited
+    Chamberlain/Pavlidis closed-form kinematics formula
+    (`pitch_vaa_degrees()` / `compute()`, below) that this same module
+    correctly implements from real Statcast `vy0`/`ay`/`vz0`/`az`. The two
+    can disagree on the same physical pitch.
+
+    Kept deliberately separate per ADR-270 ("The CLI `mlb vaa` engine and
+    its display tiers stay as display-only"): this is the CLI `mlb vaa`
+    scouting calculator, for when only release/plate height and induced
+    break are known and Statcast's raw acceleration components aren't
+    available -- it is not a substitute for `pitch_vaa_degrees()` and must
+    never be wired to `raw.statcast_pitch` or `gold.game_feature`, where a
+    real kinematics-derived VAA is required. See `starter_vaa.yaml` /
+    `vaa_flatness_engine.yaml` for the full catalog-level distinction.
+    """
 
     def evaluate_vaa(
         self,
         kinematics: PitchApproachKinematics,
     ) -> VAAEvaluationResult:
-        """Compute trajectory VAA at plate crossing."""
+        """Approximate trajectory VAA at plate crossing (see class docstring:
+        this is NOT the cited pitch_vaa_degrees() kinematics formula)."""
         # 1. Physics-based VAA Approximation:
         # Distance ~ 54.5 ft flight from release to plate front.
         # Geometric drop slope + IVB aerodynamic lift effect - gravity acceleration
@@ -183,7 +214,7 @@ def health_check() -> list[Check]:
     """CLI formula self-check plus, when gold columns exist, domain bounds."""
     checks: list[Check] = []
     try:
-        engine = VerticalApproachAngleEngine()
+        engine = ApproximateVAAEngine()
         flat_fastball = PitchApproachKinematics(
             "p1",
             "Spencer Strider Archetype",

@@ -7623,11 +7623,11 @@ def main(argv: list[str] | None = None) -> None:
         import json as json_lib
 
         from mlb_baseball.model.vaa import (
+            ApproximateVAAEngine,
             PitchApproachKinematics,
-            VerticalApproachAngleEngine,
         )
 
-        vaa_eng = VerticalApproachAngleEngine()
+        vaa_eng = ApproximateVAAEngine()
         vaa_m = PitchApproachKinematics(
             "p1",
             "Target Pitcher",

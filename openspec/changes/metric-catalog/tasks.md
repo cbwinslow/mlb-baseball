@@ -76,19 +76,33 @@
   matches a known-public-source allow-list but `visibility: internal`, or
   the reverse. Verify: a unit test fixture pair (one correctly public, one
   deliberately mismatched) produces the expected flag/no-flag.
-- [ ] 3.3 The Decision-3 check: for every `status: validated` entry, confirm
+- [x] 3.3 The Decision-3 check: for every `status: validated` entry, confirm
   `test_ref` names a real, currently-passing test; best-effort flag (not
   hard-fail) a `validated` entry whose named test only compares against a
   value computed in the same test body (self-referential), rather than an
   externally-sourced fixture constant. Verify: one fixture pair (a real
   external-fixture tie-out test vs. a self-derived-value test) produces the
   expected flag.
-  **Status (2026-09-17):** not started — `scripts/check_metric_catalog.py`
-  has no `test_ref`/self-referential-test check yet (only `find_gaps` and
-  `lint_visibility`). Low urgency today: the batch has exactly one
-  `validated` entry (`batting_rate_stats_bref_tieout`), and it is backed by
-  a real external-fixture tie-out (`scripts/verify_baseball_reference_tie_out.py`),
-  confirmed by direct read, not by this automated check.
+  **Status (2026-09-19):** done — `scripts/check_metric_catalog.py` gained
+  `check_validated_test_refs()`: hard-fails (contributes to exit code) if a
+  `validated` entry's `test_ref` file doesn't exist on disk, and separately
+  emits an advisory warning (never changes exit code) when the named test's
+  source has none of `EXTERNAL_FIXTURE_MARKERS` (the existing
+  `PUBLIC_CITATION_MARKERS` plus `source_url`/`tie_out`/`tie-out`) — a
+  static proxy for "this test only hand-derives its own expected value"
+  per design.md Decision 3. Wired into `main()` alongside `lint_visibility`
+  (same advisory-warnings-block pattern). Five new unit tests in
+  `tests/unit/test_check_metric_catalog.py` cover: non-validated entries
+  skipped, missing-file hard error, no warning for a fixture with a
+  `source_url`/citation marker, warning for a self-derived-value fixture,
+  and `::function_name` suffix stripping. Confirmed against the real
+  catalog: the one existing `validated` entry
+  (`batting_rate_stats_bref_tieout`, `test_ref:
+  scripts/verify_baseball_reference_tie_out.py`) produces no error and no
+  warning (that script's own `source_url` field is a real marker hit).
+  `ruff check`/`ruff format --check`/`mypy` clean;
+  `pytest tests/unit/test_check_metric_catalog.py tests/unit/test_catalog.py`
+  34/34 passed.
 - [x] 3.4 Wire `check_metric_catalog.py` into CI as an advisory (non-blocking)
   check for this PR (per `design.md`'s Migration Plan step 3 — promote to
   required once the first full triage pass lands, tracked separately, not in

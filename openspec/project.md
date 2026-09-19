@@ -340,14 +340,25 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   design reviews (`feature-store-v1/DESIGN_REVIEW.md`); ADR-287 for the
   Postgres/DuckDB boundary. **feat.* is DuckDB-only — no Postgres `feat`
   schema, no Feast.**
-- **Metric catalog triage, batch 2+ (`metric-catalog`, ADR-291):** the
-  `metric-catalog` change's first batch cataloged 16 of ~155 `model/`
-  modules (WAR, wOBA/wRC+, baserunning, framing, Elo, win expectancy/
-  leverage, park factors, tie-outs). The remaining ~135-140 modules are
-  triaged in future batches of roughly 15-20 modules each — batched, not
-  big-bang — each landing as its own small PR of `mlb_baseball/metrics/*.yaml`
-  entries with real code/test reads backing every `status`/`visibility`
-  call, the same way batch 1 was scored.
+- **Metric catalog triage, batch 9+ (`metric-catalog`, ADR-291):** this was
+  stale at "16 of ~155" through 2026-09-17; corrected 2026-09-19 against
+  `scripts/check_metric_catalog.py`'s own completeness count, the real gate.
+  Eight batches have landed as PRs against this one still-open change (not
+  as separate OpenSpec changes — see that change's `design.md` Migration
+  Plan and `tasks.md` task 6.2, which superseded an earlier, unfollowed note
+  suggesting separate changes): batch 1 (16, flagship: WAR, wOBA/wRC+,
+  baserunning, framing, Elo, win expectancy/leverage, park factors,
+  tie-outs) through batch 7 (16), then batch 8 (12 real entries — drift,
+  entropy, exp_resist, ext_perceive, fatigue_drop, first_pitch_ambush,
+  first_step, foul_attrition, fstrike, gyro_spin, haa, heat_check — plus 7
+  confirmed non-metric modules added to `EXCLUDED_MODULES` with reasons:
+  `features.py`/`gbm.py`/`neural.py`/`stack.py`/`simulate.py` as
+  orchestration/model-training/simulation-engine infra, `hedge.py`/`shop.py`
+  as betting tools). Current state: 97 of 132 tracked `model/` modules
+  have a catalog entry (116 YAML files — a few modules carry two), 35
+  remain — triaged in future batches of roughly 15-20 modules
+  each, the same way batch 8 was scored (real per-module code + test reads,
+  not docstring transcription).
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

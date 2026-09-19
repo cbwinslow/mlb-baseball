@@ -1,0 +1,20 @@
+name: heat_check_engine
+definition: >
+  A standalone in-zone-fastball calculator that turns user-supplied contact,
+  hard-hit, and whiff rates on zone fastballs into an In-Zone Heat
+  Vulnerability & Smash Index (IZHSMI) and an estimated runs-produced value.
+formula: mlb_baseball/model/heat_check.py::BatterHeatCheckEngine.evaluate_heat_check
+citation: project-derived (no published source defines an IZHSMI-style composite)
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-batter calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The whiff/hard-hit/contact benchmark constants (20.0% / 42.0% / 80.0%) and
+  point weights (2.4/1.8/1.2) are this project's own uncited blend. Three
+  unit tests (tests/unit/test_heat_check.py) confirm the tier thresholds
+  fire on hand-picked punisher/vulnerable-batter inputs, not against an
+  external benchmark.

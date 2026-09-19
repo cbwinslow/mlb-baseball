@@ -81,6 +81,21 @@ EXCLUDED_MODULES = {
     "nrfi.py",  # NRFI/YRFI fair-odds and recommended-side betting calculator, not a
     # descriptive stat -- its own code comment calls it a "Bucket B exploratory
     # calculator" (metric-catalog batch 4)
+    "features.py",  # gold.game_feature ETL builder (TRUNCATE + SQL rebuild) -- an
+    # ingestion/build step, not a statistic itself (metric-catalog batch 8)
+    "gbm.py",  # gradient-boosted model train()/predict() pipeline against psycopg --
+    # a learned black-box model, not one citable formula (metric-catalog batch 8)
+    "neural.py",  # HierarchicalTreeResidualCombiner neural-net model combiner --
+    # same model-training-infra reasoning as gbm.py (metric-catalog batch 8)
+    "stack.py",  # BayesianConvexStacker ensemble meta-learner train()/predict() --
+    # combines other models' outputs, not a single named statistic (metric-catalog batch 8)
+    "simulate.py",  # vectorized/GPU Monte Carlo half-inning/game simulation *engine* --
+    # shared compute backend for sim_predict.py/ros.py's own named outputs, not
+    # itself a single statistic (metric-catalog batch 8)
+    "hedge.py",  # live in-game hedging/middle-betting/arbitrage calculator -- wagering
+    # math, not a baseball statistic (metric-catalog batch 8)
+    "shop.py",  # multi-sportsbook line-shopping/best-price comparator -- wagering
+    # tooling, not a baseball statistic (metric-catalog batch 8)
 }
 
 # Small allow-list of substrings that, if present in `citation`, indicate a

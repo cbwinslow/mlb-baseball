@@ -1,0 +1,26 @@
+name: first_pitch_ambush_command_engine
+definition: >
+  A standalone 0-0-count calculator that turns user-supplied first-pitch
+  strike rate, first-pitch opponent hard-hit rate, and first-pitch opponent
+  slugging into a First-Pitch Command & Ambush Resistance Index (FPCARI) and
+  an estimated runs-saved value from 0-0 count leverage.
+formula: mlb_baseball/model/first_pitch_ambush.py::PitcherFirstPitchAmbushEngine.evaluate_first_pitch_ambush
+citation: >
+  project-derived. Distinct from the separately-cataloged
+  first_pitch_strike_surplus_engine's F-Strike%-vs-baseline run-value model
+  (model/fstrike.py) -- this module scores 0-0 damage suppression
+  (hard-hit%/SLG allowed on the first pitch), not F-Strike% alone. No published source defines an
+  FPCARI-style composite; its benchmark constants (60.0% strike, 44.0%
+  hard-hit, 0.520 SLG) and point weights (1.8/1.2/45.0) are this project's
+  own uncited blend.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-pitcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Three unit tests (tests/unit/test_first_pitch_ambush.py) confirm the tier
+  thresholds fire on hand-picked commander/ambushed-pitcher inputs, not
+  against an external benchmark.

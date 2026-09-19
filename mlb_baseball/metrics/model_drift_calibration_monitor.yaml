@@ -1,0 +1,29 @@
+name: model_drift_calibration_monitor
+definition: >
+  A rolling-window health monitor for a prediction model's calibration: tracks
+  Brier score, log loss, Expected Calibration Error (ECE), and Platt-calibration
+  slope/intercept over sliding chronological windows of that model's own past
+  predictions, and classifies current health as HEALTHY/WARNING/DEGRADED/CRITICAL.
+formula: mlb_baseball/model/drift.py::ModelDriftMonitor.evaluate_predictions
+citation: >
+  Reuses model/calibration.py's already-cited Platt scaling and Brier score
+  primitives (see probability_calibration_toolkit.yaml: Platt 1999, Brier 1950)
+  via PlattCalibrator/evaluate_calibration. The rolling-window framing itself,
+  its default window/step sizes (40 games / 15-game step), the ECE
+  warning/critical thresholds (0.045 / 0.075), and the Platt-slope
+  over/underconfidence cutoffs (0.50 / 2.00) are this project's own uncited
+  choices, not drawn from a published model-drift-monitoring standard.
+data_source: "gold.prediction (via evaluate_model_from_db, joined to core.game.game_date) or caller-supplied prediction arrays"
+grain: per model_version, sliding chronological window over that model's decided predictions
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Four unit tests (tests/unit/test_drift.py) cover a well-calibrated series
+  (asserts HEALTHY), a deliberately overconfident series (asserts a
+  DEGRADED/CRITICAL/WARNING status and an overconfidence/ECE warning message),
+  a mocked-DB fetch path, and health_check() -- all self-consistent checks
+  against the module's own thresholds, not an externally-sourced drift
+  benchmark, so status stays implemented-untested rather than validated.

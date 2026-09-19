@@ -340,10 +340,10 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   design reviews (`feature-store-v1/DESIGN_REVIEW.md`); ADR-287 for the
   Postgres/DuckDB boundary. **feat.* is DuckDB-only — no Postgres `feat`
   schema, no Feast.**
-- **Metric catalog triage, batch 9+ (`metric-catalog`, ADR-291):** this was
+- **Metric catalog triage, batch 10+ (`metric-catalog`, ADR-291):** this was
   stale at "16 of ~155" through 2026-09-17; corrected 2026-09-19 against
   `scripts/check_metric_catalog.py`'s own completeness count, the real gate.
-  Eight batches have landed as PRs against this one still-open change (not
+  Nine batches have landed as PRs against this one still-open change (not
   as separate OpenSpec changes — see that change's `design.md` Migration
   Plan and `tasks.md` task 6.2, which superseded an earlier, unfollowed note
   suggesting separate changes): batch 1 (16, flagship: WAR, wOBA/wRC+,
@@ -354,10 +354,12 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   confirmed non-metric modules added to `EXCLUDED_MODULES` with reasons:
   `features.py`/`gbm.py`/`neural.py`/`stack.py`/`simulate.py` as
   orchestration/model-training/simulation-engine infra, `hedge.py`/`shop.py`
-  as betting tools). Current state: 97 of 132 tracked `model/` modules
-  have a catalog entry (116 YAML files — a few modules carry two), 35
-  remain — triaged in future batches of roughly 15-20 modules
-  each, the same way batch 8 was scored (real per-module code + test reads,
+  as betting tools), then batch 9 (14 uniform engines: high_heat,
+  intent_leak, lead_snap, low_scoop, oppo_gap, oppo_liner, outfield_target,
+  pivot_dp, pull_air, pull_barrel, pull_gb, pull_slice, lineup_protect,
+  swing_tempo). Current state: 111 of 132 tracked `model/` modules have a
+  catalog entry (130 YAML files — a few modules carry two), 21 remain, triaged in future batches of
+  roughly 15-20 modules each, the same way batches 8-9 were scored (real per-module code + test reads,
   not docstring transcription).
 
 **LATER**

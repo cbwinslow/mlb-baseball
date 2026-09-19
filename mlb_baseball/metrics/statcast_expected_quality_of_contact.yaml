@@ -1,20 +1,42 @@
 name: statcast_expected_quality_of_contact
 definition: >
   An in-season, point-in-time entering estimate of a starting pitcher's,
-  bullpen's, and offense's HardHit%, Barrel%, xBA, xSLG, and xwOBA, built
-  entirely from Retrosheet's coarse batted-ball-type codes (ground ball/fly
-  ball/line drive/pop up) and a fixed table of "expected outcome per
-  batted-ball type" constants this project assigns -- not a read of Baseball
-  Savant's own Statcast-measured exit-velocity/launch-angle expected-stat
-  columns, despite the module's "Statcast" name.
+  bullpen's, and offense's HardHit%, Barrel%, xBA, xSLG, and xwOBA, computed
+  from Baseball Savant's own per-batted-ball expected-stat columns in
+  raw.statcast_pitch (estimated_ba_using_speedangle,
+  estimated_slg_using_speedangle, estimated_woba_using_speedangle,
+  launch_speed, launch_speed_angle) rather than a Retrosheet batted-ball-type
+  proxy.
 formula: mlb_baseball/model/statcast_expected.py::compute
-citation: project-derived (module and column names borrow Baseball Savant's
-  Statcast terminology -- HardHit%, Barrel%, xBA, xSLG, xwOBA -- but the
-  actual computation never reads Statcast's exit-velocity/launch-angle data
-  or reproduces its published expected-stat model; it substitutes a
-  hand-built table of average-outcome-by-batted-ball-type constants, so no
-  Baseball Savant citation applies to what this code actually does)
-data_source: raw.retrosheet_event, raw.retrosheet_gameinfo
+  (mlb_baseball/sql/statcast_expected_update.sql)
+citation: >
+  Hard-Hit% and Barrel% use MLB's published Statcast glossary definitions
+  (https://www.mlb.com/glossary/statcast/hard-hit-rate: exit velocity >= 95
+  mph; https://www.mlb.com/glossary/statcast/barrel: Savant's own Barrel
+  classification, read directly from launch_speed_angle = 6 rather than
+  reimplemented from an exit-velocity/launch-angle window). xBA/xSLG are
+  Baseball Savant's own per-batted-ball estimated_ba_using_speedangle /
+  estimated_slg_using_speedangle values, read as-is. xwOBA's batted-ball
+  numerator is Savant's own estimated_woba_using_speedangle; its non-contact
+  terms (uBB=0.69, HBP=0.72) reuse this project's existing fixed wOBA
+  linear-weight set (docs/RESEARCH.md; also used identically in
+  mlb_baseball/sql/team_pitcher_estimators_retrosheet_update.sql) rather than
+  a new invented constant. The season-to-date AB/PA-denominator aggregation
+  itself is project-derived (not copied from one single published aggregate
+  formula), matching platoon_splits.yaml's own precedent for the same
+  distinction -- see status/visibility below.
+data_source: >
+  raw.statcast_pitch (mlb_baseball/connectors/statcast.py; Baseball
+  Savant/Statcast is `local_research`/owner-risk-only per
+  docs/SOURCE_RIGHTS.md, not public_safe -- confirmed directly against
+  production: estimated_ba_using_speedangle / estimated_slg_using_speedangle
+  / estimated_woba_using_speedangle / launch_speed / launch_speed_angle are
+  all real, well-populated columns 2015-present, 0 rows in the pre-2015
+  PITCHf/x era, matching the connector's documented era boundary), joined
+  through core.game.game_pk and gold.game_feature.home/away_starter_id ->
+  core.player.mlbam_id (same established join pattern already used by
+  mlb_baseball/sql/pitcher_command_update.sql and
+  mlb_baseball/sql/platoon_splits_update.sql).
 grain: game, point-in-time entering each game (starting pitcher / team
   bullpen / team offense, rolled up over the current season's prior games
   only)
@@ -24,38 +46,63 @@ implementation: sql
 status: implemented-untested
 visibility: internal
 notes: >
-  IMPORTANT NAMING MISMATCH -- read directly against the module's own
-  docstring ("Statcast Quality of Contact & Expected Metrics ... HardHit%,
-  Barrel%, xwOBA, xBA, xSLG"): this project has a real Statcast pitch-level
-  table (raw.statcast_pitch, mlb_baseball/connectors/statcast.py,
-  2015-present, including Baseball Savant's own already-computed
-  estimated_ba_using_speedangle / estimated_woba_using_speedangle columns)
-  that this module does not read at all. Instead,
-  mlb_baseball/sql/statcast_expected_retrosheet_update.sql derives
-  everything from raw.retrosheet_event's battedball_cd (G/F/L/P) and
-  event_cd/h_cd outcome codes, assigning each batted-ball type a fixed
-  constant "expected" batting-average/slugging/wOBA-contact value (e.g. line
-  drive xBA=0.685, fly ball=0.210, ground ball=0.235, pop up=0.020) that this
-  project chose and does not cite to any specific published source.
-  "HardHit%" here means "line drive, triple, or home run rate", and
-  "Barrel%" means "extra-base line drive, triple, or home run rate" -- both
-  are outcome-based proxies unrelated to Statcast's real definitions (95+
-  mph exit velocity; a specific exit-velocity/launch-angle combination),
-  because Retrosheet has no exit-velocity or launch-angle data to compute
-  the real thing from.
+  **Fixed 2026-09-19** (found during the metric-catalog docs project, then
+  fixed directly): this module's own docstring always claimed "Statcast
+  Quality of Contact & Expected Metrics" but never read raw.statcast_pitch --
+  mlb_baseball/sql/statcast_expected_retrosheet_update.sql (now renamed
+  statcast_expected_update.sql) instead derived everything from
+  raw.retrosheet_event's battedball_cd (G/F/L/P) and event_cd/h_cd outcome
+  codes, assigning each batted-ball type a fixed constant "expected"
+  batting-average/slugging/wOBA-contact value (e.g. line drive xBA=0.685,
+  fly ball=0.210) that this project chose and did not cite to any specific
+  published source. "HardHit%" meant "line drive, triple, or home run
+  rate" and "Barrel%" meant "extra-base line drive, triple, or home run
+  rate" -- both outcome-based proxies unrelated to Statcast's real
+  definitions, because Retrosheet has no exit-velocity or launch-angle data
+  to compute the real thing from.
 
-  The zero-lookahead point-in-time mechanics are real and correctly
-  implemented: `ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING`
-  partitioned by entity/season, with explicit doubleheader game_number
-  tie-breaking, and minimum-sample-size gates (>=5 BIP, >=10 AB/PA) before
-  emitting a rate instead of NULL. tests/integration/test_model_statcast_
-  expected.py directly verifies a game with no preceding games gets NULL (no
-  lookahead) and hand-derives the game-2 expected values using the same
-  constants the SQL uses -- self-consistency, not an independent tie-out
-  against real Statcast xBA/xwOBA/xSLG values for the same plate
-  appearances, which is the correct validation this module would need before
-  any of this could honestly be called "Statcast" data.
+  The rewrite reads raw.statcast_pitch directly (confirmed by direct
+  production query that the needed columns exist and are well-populated,
+  not merely assumed from the connector docstring) and reuses the exact
+  same terminal-pitch-per-PA / rolling-window / min-sample-gate machinery
+  this project already established for raw.statcast_pitch-sourced rolling
+  metrics (pitcher_command_update.sql, platoon_splits_update.sql), including
+  platoon_splits' own 2026-09-18 team_game_spine fix (anchoring the offense
+  rollup on every game a team played, not just games with a qualifying
+  Statcast PA) applied proactively here since it is the identical
+  per-team-per-game rolling shape. compute()'s existence gate now checks
+  raw.statcast_pitch instead of raw.retrosheet_event/raw.retrosheet_gameinfo,
+  and mlb_baseball/model/statcast_expected.py.
 
-  `status: implemented-untested` and `visibility: internal` reflect that
-  this is a home-grown Retrosheet-only proxy dressed in Statcast naming, not
-  a citable Baseball Savant pass-through or reimplementation.
+  The zero-lookahead point-in-time mechanics are unchanged and remain
+  correct: `ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING` partitioned by
+  entity/season, explicit doubleheader game_number tie-breaking, and
+  minimum-sample-size gates (>=5 BIP, >=10 AB/PA) before emitting a rate
+  instead of NULL. tests/integration/test_model_statcast_expected.py no
+  longer creates raw.retrosheet_event/raw.retrosheet_gameinfo at all --
+  compute() succeeding without them is itself regression proof the module no
+  longer depends on that source -- and hand-derives the game-2 expected
+  values from real Savant-shaped per-batted-ball inputs (barrel/hard-hit via
+  launch_speed/launch_speed_angle, xBA/xSLG/xwOBA via the estimated_*
+  columns), not from a Retrosheet-battedball-type constant table.
+
+  `status` stays `implemented-untested` (not `published`) for the same
+  reason platoon_splits.yaml's fix did: the per-batted-ball inputs are now
+  genuinely Baseball Savant's own cited, published values, but the
+  season-to-date AB/PA aggregation combining them is still this project's
+  own derivation, not copied from one single published aggregate-xwOBA
+  formula. `visibility` stays `internal` for an additional, independent
+  reason: raw.statcast_pitch is `local_research`/owner-risk-only
+  (docs/SOURCE_RIGHTS.md), not `public_safe`, so a metric built directly
+  from it cannot be marked public regardless of formula quality.
+
+  `transforms/models/statcast_expected.sql` (an SQLMesh model claiming the
+  same STA-03 output) still has the OLD Retrosheet-proxy formula and was
+  deliberately NOT touched by this fix -- it is not referenced by any wired
+  pipeline/build/test found in this repository (only its own definition and
+  one docs/SQL_AND_TRANSFORMS_GUIDE.md table row mention it), so updating it
+  was out of this bounded fix's scope. It is now a known-stale duplicate of
+  the canonical Python-invoked formula (`transforms/AGENTS.md`'s "one
+  canonical definition" rule already flags duplicating a formula in SQL and
+  Python) -- a follow-up should either delete it or rewire it and add parity
+  tests, not treat it as a second source of truth in the meantime.

@@ -1,7 +1,12 @@
 """Statcast Quality of Contact & Expected Metrics (STA-03).
 
 Computes point-in-time entering HardHit%, Barrel%, xwOBA, xBA, and xSLG for starting
-pitchers, bullpens, and offenses.
+pitchers, bullpens, and offenses from raw.statcast_pitch -- Baseball Savant's own
+per-batted-ball expected-stat columns (estimated_ba_using_speedangle,
+estimated_slg_using_speedangle, estimated_woba_using_speedangle, launch_speed,
+launch_speed_angle), not a Retrosheet-derived proxy (see
+mlb_baseball/sql/statcast_expected_update.sql and
+mlb_baseball/metrics/statcast_expected_quality_of_contact.yaml).
 Every value is computed strictly from games preceding the target game, with
 doubleheader chronological tie-breaking.
 """
@@ -29,17 +34,15 @@ def compute(conn: psycopg.Connection) -> int:
     Returns the number of rows updated in gold.game_feature.
     """
     with conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.retrosheet_event')")
-        (event_exists,) = fetch_one(cur)
-        cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
-        (gameinfo_exists,) = fetch_one(cur)
-        if not event_exists or not gameinfo_exists:
+        cur.execute("SELECT to_regclass('raw.statcast_pitch')")
+        (statcast_pitch_exists,) = fetch_one(cur)
+        if not statcast_pitch_exists:
             logger.warning(
-                "raw.retrosheet_event missing; skipping Statcast expected metrics enrichment"
+                "raw.statcast_pitch missing; skipping Statcast expected metrics enrichment"
             )
             return 0
 
-        sql = read_sql("statcast_expected_retrosheet_update.sql")
+        sql = read_sql("statcast_expected_update.sql")
         cur.execute(sql)
         rowcount = cur.rowcount
 

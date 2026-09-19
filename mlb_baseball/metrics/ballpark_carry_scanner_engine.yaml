@@ -2,16 +2,23 @@ name: ballpark_carry_scanner_engine
 definition: >
   A standalone calculator that checks whether a caller-provided batted-ball
   trajectory (exit velocity, launch angle, spray angle, nominal carry
-  distance) would clear the outfield fence at each of a hardcoded set of
-  MLB stadium profiles (fence distances by field, plus an elevation
-  carry boost for Coors Field), reporting an "X/N ballparks" home-run
-  percentage.
+  distance) would clear the outfield fence at each of all 30 current MLB
+  stadium profiles (fence distances and wall heights by field, plus an
+  elevation carry boost for Coors Field), reporting an "X/30 ballparks"
+  home-run percentage.
 formula: mlb_baseball/model/carry.py::BallparkCarryScannerEngine.scan_ballparks
 citation: >
-  project-derived. The linear left-field/right-field-to-center-field
-  fence-distance interpolation by spray angle, the flat 4ft
-  clearance-margin requirement, and the Coors Field elevation boost
-  (16.0 ft) are not sourced from a cited external carry/physics model.
+  Stadium fence distances per Legion Report's 2026 all-30-park table
+  (https://legionreport.com/mlb-stadium-capacity/), cross-checked against
+  Wikipedia's per-park center-field figures; Kauffman Stadium reflects the
+  Royals' 2026 fence relocation per contemporaneous reporting (see the
+  module docstring for the full sourcing note and the specific Fenway/
+  Oracle Park corrections made against that table). The linear left-field/
+  right-field-to-center-field fence-distance and wall-height interpolation
+  by spray angle, the base 4ft clearance-margin requirement, its
+  per-foot-of-above-standard-wall-height scaling, and the Coors Field
+  elevation boost (16.0 ft) remain project-derived, not sourced from a
+  cited external carry/physics model.
 data_source: none -- caller-supplied dataclass fields; MLB_STADIUM_PROFILES is a hardcoded in-module list, not gold/core/raw
 grain: not applicable (stateless per-call calculation)
 layer: model
@@ -20,24 +27,29 @@ implementation: python
 status: implemented-untested
 visibility: internal
 notes: >
-  Two genuine discrepancies between the module's own stated scope and
-  what it actually does, found by reading the code directly (not just
-  the docstring):
+  Both discrepancies filed in issue #220 (found during metric-catalog
+  triage) are now fixed (2026-09-19):
 
-  1. The docstring and class name advertise a "30-ballpark" /
-  "X/30 Ballparks" scan, but MLB_STADIUM_PROFILES hardcodes only 8
-  stadiums (its own comment calls it "a representative sample"). The
-  denominator in scan_summary/hr_percentage is
-  len(MLB_STADIUM_PROFILES) == 8, not 30, so the reported "X/N" ratio is
-  correct arithmetic but not the 30-park scan the naming implies.
+  1. MLB_STADIUM_PROFILES now lists all 30 current MLB venues (was 8,
+  labeled "a representative sample"); `total = len(MLB_STADIUM_PROFILES)`
+  is now genuinely 30, matching the module's own "X/30 Ballparks" naming.
 
-  2. StadiumFenceProfile carries lf_wall_h/rf_wall_h (wall height) fields,
-  explicitly set for Fenway's 37ft Green Monster and Oracle Park's 24ft
-  wall, but scan_ballparks()'s clearance check
-  (effective_distance >= fence_dist + 4.0) never reads either field --
-  wall height is modeled in the data but has zero effect on the actual
-  HR/out determination.
+  2. `scan_ballparks()`'s clearance check now reads `lf_wall_h`/`rf_wall_h`
+  via a new `_estimate_wall_height()` (same LF/CF/RF spray-angle
+  interpolation as the existing fence-distance estimate, standard-8ft CF
+  wall assumed at every park): the required clearance margin is
+  `4.0 + max(0.0, wall_height - 8.0)`, so a fly ball that would clear a
+  standard fence by the old flat 4ft margin can now be correctly ruled an
+  out at a tall-walled park (Fenway's 37ft Green Monster, Daikin Park's
+  ~19ft Crawford Boxes, Oracle Park's 24ft RF wall, PNC Park's 21ft
+  Clemente Wall) -- see `tests/unit/test_carry.py`'s Green Monster
+  regression pair.
 
-  Not fixed here -- documentation-only change; worth a follow-up
-  decision on whether to expand to the real 30 parks and wire in wall
-  height, or rename/rescope the module to match what it actually does.
+  Remaining known limitation, not part of issue #220: the clearance model
+  is still a flat distance-plus-margin heuristic, not a real height-at-
+  the-fence trajectory calculation (no batted-ball launch physics/drag
+  model) -- it uses wall height as an added distance requirement, not an
+  actual height comparison. This keeps the fix proportionate to the filed
+  bug (wall height data was being ignored entirely) without rewriting the
+  module's whole clearance model into a project-derived physics engine
+  that a real cited source doesn't back either.

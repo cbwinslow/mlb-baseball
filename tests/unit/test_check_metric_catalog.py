@@ -17,6 +17,7 @@ _spec.loader.exec_module(check_metric_catalog)
 
 find_gaps = check_metric_catalog.find_gaps
 lint_visibility = check_metric_catalog.lint_visibility
+check_validated_test_refs = check_metric_catalog.check_validated_test_refs
 
 _BASE_FIELDS = {
     "name": "some_metric",
@@ -103,3 +104,69 @@ def test_lint_visibility_flags_no_public_citation_marked_public():
 def test_lint_visibility_recognizes_each_allow_list_marker(marker):
     entries = [_entry(citation=f"{marker}, some year", visibility="public")]
     assert lint_visibility(entries) == []
+
+
+# --- check_validated_test_refs (Decision 3) -----------------------------
+
+
+def _validated_entry(**overrides) -> MetricEntry:
+    fields = {"status": "validated", "test_ref": "test_something.py"}
+    fields.update(overrides)
+    return _entry(**fields)
+
+
+def test_check_validated_test_refs_ignores_non_validated_entries(tmp_path):
+    # No file on disk at all -- would error if status were validated.
+    entries = [_entry(status="implemented-untested", test_ref=None)]
+    errors, warnings = check_validated_test_refs(entries, repo_root=tmp_path)
+    assert errors == []
+    assert warnings == []
+
+
+def test_check_validated_test_refs_errors_on_missing_file(tmp_path):
+    entries = [_validated_entry(name="missing_test", test_ref="tests/does_not_exist.py")]
+    errors, warnings = check_validated_test_refs(entries, repo_root=tmp_path)
+    assert len(errors) == 1
+    assert "missing_test" in errors[0]
+    assert warnings == []
+
+
+def test_check_validated_test_refs_no_warning_for_external_fixture_test(tmp_path):
+    test_file = tmp_path / "test_tieout.py"
+    test_file.write_text(
+        "def test_matches_baseball_reference():\n"
+        "    # source_url: https://www.baseball-reference.com/players/j/judgeaa01.shtml\n"
+        "    expected = 0.311  # Baseball-Reference, 2022 season page\n"
+        "    assert compute() == expected\n"
+    )
+    entries = [_validated_entry(name="real_tieout", test_ref="test_tieout.py")]
+    errors, warnings = check_validated_test_refs(entries, repo_root=tmp_path)
+    assert errors == []
+    assert warnings == []
+
+
+def test_check_validated_test_refs_flags_self_referential_test(tmp_path):
+    test_file = tmp_path / "test_self.py"
+    test_file.write_text(
+        "def test_matches_its_own_math():\n"
+        "    expected = compute_formula(1, 2)\n"
+        "    assert compute_formula(1, 2) == expected\n"
+    )
+    entries = [_validated_entry(name="self_referential", test_ref="test_self.py")]
+    errors, warnings = check_validated_test_refs(entries, repo_root=tmp_path)
+    assert errors == []
+    assert len(warnings) == 1
+    assert "self_referential" in warnings[0]
+
+
+def test_check_validated_test_refs_strips_function_suffix_from_test_ref(tmp_path):
+    test_file = tmp_path / "test_tieout.py"
+    test_file.write_text("# Retrosheet source_url cited above\n")
+    entries = [
+        _validated_entry(
+            name="real_tieout", test_ref="test_tieout.py::test_matches_baseball_reference"
+        )
+    ]
+    errors, warnings = check_validated_test_refs(entries, repo_root=tmp_path)
+    assert errors == []
+    assert warnings == []

@@ -29,6 +29,16 @@ Two independent checks:
    Judgment calls exist on both sides of this line, so this only surfaces
    the mismatch for human review -- it does not fail CI on its own.
 
+3. **Validated test_ref check (Decision 3).** For every `status: validated`
+   entry (schema already requires `test_ref` to be set): hard-fail if
+   `test_ref`'s file does not exist on disk; otherwise, best-effort
+   (advisory only, never changes the exit code) flag entries whose named
+   test's source has no recognizable external-fixture marker (a cited
+   public source, a `source_url` field, or similar) -- a static proxy for
+   "this test only hand-derives its own expected value" (design.md
+   Decision 3). A human/reviewing agent makes the final call; this narrows
+   the review, it does not replace it.
+
 Wired into CI (`.github/workflows/ci.yml`, `lint` job) as an advisory
 (`|| true`) step: it must run and report every PR, but must not block merge
 until the first full triage pass has landed (design.md Migration Plan step
@@ -87,6 +97,21 @@ PUBLIC_CITATION_MARKERS = (
     "Baseball Prospectus",
 )
 
+# Substrings that, if present anywhere in a `test_ref` test's source file,
+# indicate the test compares against a real externally-sourced value rather
+# than one it derives from its own inputs (design.md Decision 3). Reuses the
+# same public-source names as PUBLIC_CITATION_MARKERS plus the field/comment
+# conventions this project's own tie-out tests already use to name their
+# source (e.g. `scripts/verify_baseball_reference_tie_out.py`'s `source_url`).
+# Best-effort and advisory only -- a citation-shaped string in a test's
+# source is evidence, not proof, that the comparison value itself came from
+# that source.
+EXTERNAL_FIXTURE_MARKERS = PUBLIC_CITATION_MARKERS + (
+    "source_url",
+    "tie_out",
+    "tie-out",
+)
+
 
 def _formula_path(formula: str) -> str:
     """Strip an optional `::function_name` suffix, leaving the file path."""
@@ -129,6 +154,43 @@ def lint_visibility(entries: list[MetricEntry]) -> list[str]:
     return warnings
 
 
+def check_validated_test_refs(
+    entries: list[MetricEntry], repo_root: Path = REPO_ROOT
+) -> tuple[list[str], list[str]]:
+    """Decision-3 check for every `status: validated` entry.
+
+    Returns `(errors, warnings)`:
+
+    - `errors` (hard-fail, contributes to the exit code): `test_ref`'s file
+      does not exist on disk -- the schema already requires `status:
+      validated` to set `test_ref` (see `MetricEntry`), so a missing file
+      means the named test cannot be a real, currently-passing one.
+    - `warnings` (advisory, never changes the exit code): the named test's
+      source file has no recognizable external-fixture marker -- a static,
+      best-effort proxy for "this test only hand-derives its own expected
+      value" rather than comparing against a real externally-sourced one.
+    """
+    errors = []
+    warnings = []
+    for entry in entries:
+        if entry.status != "validated":
+            continue
+        test_ref = entry.test_ref
+        assert test_ref is not None  # enforced by MetricEntry's own validator
+        test_path = repo_root / test_ref.split("::", 1)[0]
+        if not test_path.is_file():
+            errors.append(f"{entry.name}: test_ref {test_ref!r} does not exist on disk")
+            continue
+        source = test_path.read_text(encoding="utf-8")
+        if not any(marker in source for marker in EXTERNAL_FIXTURE_MARKERS):
+            warnings.append(
+                f"{entry.name}: test_ref {test_ref!r} has no recognizable "
+                "external-fixture marker -- double check it isn't a self-referential "
+                "test that only compares against a value it derives itself"
+            )
+    return errors, warnings
+
+
 def main() -> int:
     try:
         entries = load_all(METRICS_DIR)
@@ -138,12 +200,20 @@ def main() -> int:
 
     model_files = find_model_files()
     gaps = find_gaps(model_files, entries)
-    warnings = lint_visibility(entries)
+    visibility_warnings = lint_visibility(entries)
+    test_ref_errors, test_ref_warnings = check_validated_test_refs(entries)
 
+    warnings = visibility_warnings + test_ref_warnings
     if warnings:
-        print("Visibility lint (advisory -- does not fail this check):")
+        print("Advisory lint (does not fail this check):")
         for warning in warnings:
             print(f"  {warning}")
+        print()
+
+    if test_ref_errors:
+        print("Validated test_ref check: entries with a missing test_ref file:")
+        for error in test_ref_errors:
+            print(f"  {error}")
         print()
 
     if gaps:
@@ -158,6 +228,8 @@ def main() -> int:
             "each file above (or add it to EXCLUDED_MODULES in this script with a reason, "
             "if it is genuinely not a single named statistic)."
         )
+
+    if gaps or test_ref_errors:
         return 1
 
     print(f"Metric catalog completeness: {len(model_files)} module(s), no gaps.")

@@ -162,9 +162,13 @@ def check_validated_test_refs(
     Returns `(errors, warnings)`:
 
     - `errors` (hard-fail, contributes to the exit code): `test_ref`'s file
-      does not exist on disk -- the schema already requires `status:
-      validated` to set `test_ref` (see `MetricEntry`), so a missing file
-      means the named test cannot be a real, currently-passing one.
+      does not exist on disk, or resolves outside `repo_root` (an absolute
+      path or a `../` escape -- CodeRabbit review, PR #224: an existing file
+      outside the repository would otherwise satisfy this check and let a
+      `validated` entry bypass the "real, in-repository test" requirement
+      entirely) -- the schema already requires `status: validated` to set
+      `test_ref` (see `MetricEntry`), so either case means the named test
+      cannot be a real, currently-passing one.
     - `warnings` (advisory, never changes the exit code): the named test's
       source file has no recognizable external-fixture marker -- a static,
       best-effort proxy for "this test only hand-derives its own expected
@@ -172,12 +176,18 @@ def check_validated_test_refs(
     """
     errors = []
     warnings = []
+    resolved_root = repo_root.resolve()
     for entry in entries:
         if entry.status != "validated":
             continue
         test_ref = entry.test_ref
         assert test_ref is not None  # enforced by MetricEntry's own validator
-        test_path = repo_root / test_ref.split("::", 1)[0]
+        test_path = (repo_root / test_ref.split("::", 1)[0]).resolve()
+        try:
+            test_path.relative_to(resolved_root)
+        except ValueError:
+            errors.append(f"{entry.name}: test_ref {test_ref!r} resolves outside the repository")
+            continue
         if not test_path.is_file():
             errors.append(f"{entry.name}: test_ref {test_ref!r} does not exist on disk")
             continue

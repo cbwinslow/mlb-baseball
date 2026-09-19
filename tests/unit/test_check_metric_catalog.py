@@ -131,6 +131,30 @@ def test_check_validated_test_refs_errors_on_missing_file(tmp_path):
     assert warnings == []
 
 
+def test_check_validated_test_refs_rejects_path_escaping_repo_root(tmp_path):
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    outside_file = tmp_path / "outside_test.py"
+    outside_file.write_text("source_url = 'real'\n")  # would pass every other check
+    entries = [_validated_entry(name="escapes_repo", test_ref="../outside_test.py")]
+    errors, warnings = check_validated_test_refs(entries, repo_root=repo_root)
+    assert len(errors) == 1
+    assert "escapes_repo" in errors[0]
+    assert warnings == []
+
+
+def test_check_validated_test_refs_rejects_absolute_path(tmp_path):
+    outside_file = tmp_path / "outside_test.py"
+    outside_file.write_text("source_url = 'real'\n")
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    entries = [_validated_entry(name="absolute_escape", test_ref=str(outside_file))]
+    errors, warnings = check_validated_test_refs(entries, repo_root=repo_root)
+    assert len(errors) == 1
+    assert "absolute_escape" in errors[0]
+    assert warnings == []
+
+
 def test_check_validated_test_refs_no_warning_for_external_fixture_test(tmp_path):
     test_file = tmp_path / "test_tieout.py"
     test_file.write_text(

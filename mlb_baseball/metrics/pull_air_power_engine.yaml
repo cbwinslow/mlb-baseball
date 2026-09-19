@@ -19,8 +19,8 @@ implementation: python
 status: implemented-untested
 visibility: internal
 notes: >
-  The docstring's line about pulled air balls converting exit velocity into
-  home runs about 3x more effectively appears only as a code comment and is
-  not used in the calculation. Three unit tests
+  An inline code comment in evaluate_pull_air says pulled air balls convert
+  exit velocity into home runs about 3x more effectively; that claim is not
+  used in the calculation. Three unit tests
   (tests/unit/test_pull_air.py) cover a pull-air slugger, an all-fields
   hitter, and health_check on hand-picked inputs.

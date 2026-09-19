@@ -1,0 +1,22 @@
+name: putaway_execution_engine
+definition: >
+  A standalone two-strike location calculator that turns user-supplied
+  shadow-zone, chase-zone, heart-zone and waste-pitch shares into a Two-
+  Strike Putaway Execution Rating (TSPER) and an estimated runs-saved value;
+  heart-zone pitches and excess waste pitches are penalized.
+formula: mlb_baseball/model/putaway_exec.py::PitcherPutawayExecutionEngine.evaluate_putaway_execution
+citation: >
+  project-derived (no published source defines a TSPER-style composite)
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-pitcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The 66.0% whiff-intent (shadow plus chase), 20.0% heart and 14.0% waste
+  benchmarks, point weights (2.4/3.2/1.5) and the 0.0028 runs-per-pitch
+  conversion are this project's own uncited blend. Three unit tests
+  (tests/unit/test_putaway_exec.py) cover a sniper, a heart-mistake-prone
+  pitcher, and health_check on hand-picked inputs.

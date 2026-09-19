@@ -1,0 +1,20 @@
+name: catcher_wall_block_engine
+definition: >
+  A standalone dirt-ball-blocking calculator that turns user-supplied block
+  rate, runner-advance suppression and passed-ball rate into a Catcher Wall
+  Blocking Efficiency Index (CWBEI) and an estimated runs-saved value.
+formula: mlb_baseball/model/wall_block.py::CatcherWallBlockEngine.evaluate_wall_block
+citation: >
+  project-derived. Separate from catcher_blocking_engine and
+  block_suppression_engine (model/blocking.py, model/block_suppress.py). The
+  82.0% / 86.0% / 3.5 per 1000 benchmarks, point weights (2.2/1.6/4.5) and
+  the 0.0036 runs conversion are uncited.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-catcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Three unit tests (tests/unit/test_wall_block.py) on hand-picked inputs.

@@ -1,0 +1,22 @@
+name: seam_shifted_wake_latent_engine
+definition: >
+  A standalone latent-movement calculator that turns a user-supplied gap
+  between optical and inferred spin-axis tilt, plus observed versus pure-
+  Magnus break, into a Seam-Shifted Wake Latent Movement Rating (SSWLMR).
+formula: mlb_baseball/model/ssw_latent.py::PitcherSswLatentEngine.evaluate_ssw
+citation: >
+  project-derived. Seam-shifted wake is a publicly discussed topic (see
+  seam_shifted_wake_engine), but no source defines SSWLMR; its 35-minute /
+  3.5 inch benchmarks and point weights (0.9/8.0) are this project's own
+  uncited choices. The pure-Magnus break is a caller-supplied input, not
+  computed here.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-pitcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  pitch_count_evaluated is a dataclass field the calculation never reads.
+  Four unit tests (tests/unit/test_ssw_latent.py) on hand-picked inputs.

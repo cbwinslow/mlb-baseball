@@ -1,0 +1,21 @@
+name: fastball_velo_drift_engine
+definition: >
+  A standalone fastball-fatigue calculator that compares early-game and
+  late-game fastball velocity and spin rate into a 0-100 Fastball Velocity
+  Retention Index (FVRI) and an assumed late-game home-run multiplier.
+formula: mlb_baseball/model/velo_drift.py::FastballVeloDriftEngine.evaluate_velo_drift
+citation: >
+  The velocity and spin drift are plain differences. FVRI (12 points per 0.5
+  mph lost, 6 points per 50 rpm lost) and the home-run multiplier (1 plus
+  0.20 per mph lost) are this project's own uncited constants. Separate from
+  velo_delta_disruption_engine (model/velo_delta.py).
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-pitcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  pitch_count_total is a dataclass field the calculation never reads. Three
+  unit tests (tests/unit/test_velo_drift.py) on hand-picked inputs.

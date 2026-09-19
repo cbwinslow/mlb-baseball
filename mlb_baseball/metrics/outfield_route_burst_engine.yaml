@@ -1,0 +1,22 @@
+name: outfield_route_burst_engine
+definition: >
+  A standalone outfield-range calculator that turns user-supplied reaction
+  time, burst velocity and route efficiency into a Burst-Route Fielding
+  Efficiency Index (BRFEI) and an estimated runs-saved value.
+formula: mlb_baseball/model/route_burst.py::OutfielderRouteBurstEngine.evaluate_route_burst
+citation: >
+  project-derived. Reaction, burst and route efficiency are real Statcast
+  outfield-jump concepts, but this module takes them as given inputs and
+  defines its own composite: the 0.44 s / 27.0 ft/s / 93.0% benchmarks,
+  point weights (120.0/4.5/1.8) and the 0.0018 runs conversion are uncited.
+  Overlaps conceptually with first_step_burst_engine (model/first_step.py),
+  which is a separate module.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-fielder calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Four unit tests (tests/unit/test_route_burst.py) on hand-picked inputs.

@@ -1,0 +1,20 @@
+name: outfield_wall_defense_engine
+definition: >
+  A standalone wall-defense tally: home-run robberies, extra-base wall
+  catches and unsuccessful wall crashes are weighted (+1.65, +0.75, -0.65
+  runs) into a total runs-saved value, plus a wall-catch success percentage
+  and tier.
+formula: mlb_baseball/model/wall.py::OutfieldWallEngine.evaluate_wall_defense
+citation: >
+  project-derived. The 1.65 / 0.75 / -0.65 run values are uncited constants;
+  they are not derived from the run-expectancy tables elsewhere in this
+  catalog (run_expectancy_24).
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-fielder calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Three unit tests (tests/unit/test_wall.py) on hand-picked inputs.

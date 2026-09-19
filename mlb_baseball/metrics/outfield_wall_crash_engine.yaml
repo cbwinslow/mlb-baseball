@@ -1,0 +1,24 @@
+name: outfield_wall_crash_engine
+definition: >
+  A standalone wall-catch calculator that turns user-supplied wall catch
+  rate, wall collision rate and deceleration cushion into a Wall Crash
+  Fearlessness Index (WCFI), surplus catches, and an estimated runs-saved
+  value.
+formula: mlb_baseball/model/wall_crash.py::OutfielderWallCrashEngine.evaluate_wall_crash
+citation: >
+  project-derived. The 65.0% / 30.0% / 4.6 ft benchmarks, point weights
+  (2.8/1.2/12.0) and the 0.85 runs-per-robbed-extra-base-hit value are this
+  project's own uncited choices.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-fielder calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  By design the score rewards a higher wall-collision rate (+1.2 points per
+  percentage point) as fearlessness, so a fielder who crashes more scores
+  higher independent of outcome; that is a modeling choice, not a published
+  finding. Separate from outfield_wall_defense_engine. Four unit tests
+  (tests/unit/test_wall_crash.py) on hand-picked inputs.

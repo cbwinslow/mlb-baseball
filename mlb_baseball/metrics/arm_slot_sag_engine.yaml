@@ -1,0 +1,21 @@
+name: arm_slot_sag_engine
+definition: >
+  A standalone late-outing arm-slot calculator that turns user-supplied
+  early and late arm-slot angles and release positions into an Arm Slot
+  Fatigue Sag Index (ASFSI) and an estimated runs-saved value.
+formula: mlb_baseball/model/slot_sag.py::PitcherSlotSagEngine.evaluate_slot_sag
+citation: >
+  project-derived (no published source defines an ASFSI-style composite).
+  Separate from arm_slot_engine (model/arm_slot.py) and fatigue_drop_engine.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-pitcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The 1.5 degree / 1.2 inch benchmarks, point weights (8.0/6.0) and the
+  0.0035 runs-per-late-pitch conversion are this project's own uncited
+  choices. Three unit tests (tests/unit/test_slot_sag.py) on hand-picked
+  inputs.

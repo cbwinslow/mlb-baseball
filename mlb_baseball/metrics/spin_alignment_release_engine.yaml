@@ -1,0 +1,23 @@
+name: spin_alignment_release_engine
+definition: >
+  A standalone arsenal-consistency calculator that turns user-supplied spin-
+  axis spread, release-height spread and release-side spread across a
+  pitcher's pitches into an Arsenal Spin Alignment and Release Consistency
+  Index (ASARCI) and a whiff-boost multiplier.
+formula: mlb_baseball/model/spin_align.py::PitcherSpinAlignEngine.evaluate_spin_align
+citation: >
+  project-derived. The idea that consistent release points make pitches
+  harder to tell apart is discussed in pitch-tunneling work (see
+  pitch_tunneling_engine), but ASARCI, its 28-minute / 1.5 in / 1.8 in
+  benchmarks, point weights (1.4/15.0/12.0) and the 0.0035 multiplier slope
+  are this project's own uncited choices.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-pitcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  pitch_arsenal_size is a dataclass field the calculation never reads. Three
+  unit tests (tests/unit/test_spin_align.py) on hand-picked inputs.

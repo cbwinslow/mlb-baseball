@@ -1,0 +1,19 @@
+name: outfield_wall_leap_engine
+definition: >
+  A standalone wall-leap calculator that turns user-supplied vertical leap
+  apex, timing error and above-the-wall catch rate into a Wall Leap Timing
+  and Elevation Index (WLTEI) and an estimated robbed-runs value.
+formula: mlb_baseball/model/wall_leap.py::OutfielderWallLeapEngine.evaluate_wall_leap
+citation: >
+  project-derived. The 18.0 in / 95 ms / 35.0% benchmarks, point weights
+  (1.8/0.6/1.2) and the 0.0085 runs-per-opportunity conversion are this
+  project's own uncited choices.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-fielder calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Three unit tests (tests/unit/test_wall_leap.py) on hand-picked inputs.

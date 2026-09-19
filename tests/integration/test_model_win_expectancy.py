@@ -9,10 +9,23 @@ from mlb_baseball.model import win_expectancy
 
 
 def _reset(db_conn):
+    # Regression: this used to DELETE FROM core.team without first clearing
+    # gold.prediction/gold.game_feature, which both FK-reference core.team.
+    # Harmless as long as this file's own tests never leave a dangling
+    # game_feature row behind -- but any other test file in the same shard
+    # that creates an 'ATL'/'NYA' core.team row referenced by an uncleaned
+    # gold.game_feature row (real observed CI failure: ForeignKeyViolation
+    # on game_feature_home_team_id_fkey) would make this DELETE fail, since
+    # every pytest process in this suite shares one disposable database
+    # (tests/AGENTS.md). Clear the dependent tables first, matching the
+    # established pattern other integration `_reset()` helpers already use
+    # (e.g. tests/integration/test_model_command.py).
     db_conn.rollback()
     with db_conn.cursor() as cur:
         for table in ("raw.retrosheet_event", "raw.retrosheet_gameinfo"):
             cur.execute(f"DROP TABLE IF EXISTS {table}")
+        cur.execute("DELETE FROM gold.prediction")
+        cur.execute("DELETE FROM gold.game_feature")
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team WHERE retro_team_id IN ('ATL', 'NYA')")
         cur.execute("DELETE FROM gold.win_expectancy")

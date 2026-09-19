@@ -1,8 +1,9 @@
 name: umpire_zone_run_bias
 definition: >
   A standalone calculator (run via `mlb umpire` on the command line) that
-  adjusts a game's total-runs line and each starter's strikeout line based
-  on a single horizontal strike-zone-expansion input the USER types in. It
+  adjusts a game's total-runs line and each starter's strikeout line from
+  independently observed umpire zone/run-impact/K-rate figures the USER
+  types in (--expansion-in, --run-impact-per-game, --k-rate-multiplier). It
   does not read this project's own ingested umpire data, and is not part of
   any database build.
 formula: mlb_baseball/model/umpire.py::UmpireBiasEngine.evaluate_game_adjustment
@@ -15,15 +16,14 @@ citation: >
   but the code cites none of it and does not implement anything from it --
   see notes.
 data_source: >
-  none. mlb_baseball/cli.py's "umpire" command only lets the user set
-  --expansion-in (zone_horizontal_expansion_in); run_impact_per_game and
-  k_rate_multiplier/bb_rate_multiplier are then themselves *derived* from
-  that one input via additional uncited linear formulas
-  (-0.55 * expansion_in/0.6, 1.0 +- expansion_in*0.08) rather than read from
-  data. raw.mlb_umpire and raw.retrosheet_umpire (this project's real
-  ingested umpire tables) hold only per-game plate/base umpire *assignment*
-  identities, not zone-expansion or run-impact statistics, and this module
-  reads neither table.
+  none. mlb_baseball/cli.py's "umpire" command takes zone_horizontal_expansion_in,
+  run_impact_per_game, and k_rate_multiplier as three independent, directly
+  caller-supplied CLI flags (--expansion-in, --run-impact-per-game,
+  --k-rate-multiplier); none is derived from another. raw.mlb_umpire and
+  raw.retrosheet_umpire (this project's real ingested umpire tables) hold only
+  per-game plate/base umpire *assignment* identities, not zone-expansion or
+  run-impact statistics, and this module still reads neither table -- it
+  remains a standalone calculator, not a database-integrated one.
 grain: not applicable (stateless per-call calculation, no stored grain)
 layer: model
 complexity: arithmetic
@@ -31,27 +31,49 @@ implementation: python
 status: implemented-untested
 visibility: internal
 notes: >
-  Every number this module claims about a specific umpire is either typed
-  in directly or back-derived from one CLI flag via uncited constants -- it
-  never measures anything about a real umpire's real ball/strike calls.
-  This is a materially different, and more synthetic, situation than the
-  pop-time/TTO/two-strike modules in this batch: those at least accept
-  caller-supplied numbers that *could* plausibly come from real observation;
-  here even the run_impact_per_game and K/BB multipliers the engine consumes
-  are manufactured from a single expansion-inches slider inside cli.py
-  itself (lines ~4732-4742), not supplied as independently observed facts.
+  Every number this module reports about a specific umpire is typed in
+  directly by the caller -- it never measures anything about a real
+  umpire's real ball/strike calls, and this catalog entry stays
+  "implemented-untested"/internal rather than "published" because there is
+  no citable published formula for converting a zone-expansion figure into
+  run-impact or K-rate (the module's docstring gestures at published
+  individual-umpire strike-zone research, e.g. Mark T. Williams' Boston
+  University umpire accuracy studies or Brian Mills' umpire-consistency
+  research, but implements none of it).
 
-  Half of UmpireProfile's fields are entirely unused by
-  evaluate_game_adjustment: zone_vertical_expansion_in,
-  called_strike_accuracy_pct, bb_rate_multiplier, and games_behind_plate are
-  all accepted on the dataclass and never read anywhere in the calculation
-  -- only zone_horizontal_expansion_in, run_impact_per_game, and
-  k_rate_multiplier feed the output. So despite the "strike zone dimensions"
-  framing, the model only ever reasons about one horizontal-expansion number
-  and a run-impact figure the caller must already know.
+  **Fixed 2026-09-19** (found during this catalog batch, then fixed
+  directly): previously, mlb_baseball/cli.py's "umpire" command only
+  exposed --expansion-in and *manufactured* run_impact_per_game and
+  k_rate_multiplier/bb_rate_multiplier from that single input via uncited
+  linear formulas (-0.55 * expansion_in/0.6, 1.0 +- expansion_in*0.08,
+  cli.py lines ~4732-4742) -- so two umpires who typed the same
+  --expansion-in always got identical, fabricated run-impact and K-rate
+  numbers regardless of what was actually true about them. cli.py now takes
+  --run-impact-per-game and --k-rate-multiplier as their own independent
+  flags (default 0.0 / 1.0, i.e. "no observed effect" -- an honest
+  neutral/missing default per root AGENTS.md, not a guess) so the caller
+  must supply their own independently observed figures rather than have the
+  tool invent them from the zone-width slider.
+
+  Also fixed: half of UmpireProfile's fields were entirely unused by
+  evaluate_game_adjustment (zone_vertical_expansion_in,
+  called_strike_accuracy_pct, bb_rate_multiplier, games_behind_plate were
+  accepted on the dataclass and never read anywhere in the calculation).
+  These are now removed from UmpireProfile entirely rather than left as
+  misleading dead fields implying the engine reasons about vertical zone,
+  accuracy, walk rate, or sample size -- it only ever consumes
+  umpire_id/umpire_name/zone_horizontal_expansion_in/run_impact_per_game/
+  k_rate_multiplier, and the dataclass now matches that exactly
+  (tests/unit/test_umpire.py::test_umpire_profile_has_no_fields_unread_by_the_engine).
 
   tests/unit/test_umpire.py's two scenario tests and health_check() assert
   exact arithmetic outputs for hand-picked synthetic UmpireProfile inputs --
   correct self-consistency proof that the arithmetic is implemented as
   written, not independent validation against any real umpire's real
-  observed run impact or zone bias.
+  observed run impact or zone bias. New regression coverage
+  (tests/unit/test_cli_dispatch.py::test_umpire_command_uses_directly_supplied_run_impact_and_k_multiplier
+  and ::test_umpire_command_bare_defaults_are_neutral_no_observed_effect)
+  exercises the real `mlb umpire` CLI dispatch to prove run_impact_per_game
+  and k_rate_multiplier now come from their own flags, not from
+  --expansion-in, and that omitting them yields a neutral no-adjustment
+  result rather than a fabricated one.

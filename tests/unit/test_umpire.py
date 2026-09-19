@@ -1,5 +1,9 @@
 """Unit tests for Individual Umpire Strike Zone & Run Bias Modeler (UMP-01, ADR-136)."""
 
+import dataclasses
+
+import pytest
+
 from mlb_baseball.model.umpire import (
     UmpireBiasEngine,
     UmpireProfile,
@@ -14,13 +18,9 @@ def test_pitcher_friendly_umpire_run_suppression():
     ump = UmpireProfile(
         umpire_id="u1",
         umpire_name="Pitcher Pal",
-        games_behind_plate=100,
         zone_horizontal_expansion_in=0.80,
-        zone_vertical_expansion_in=0.30,
-        called_strike_accuracy_pct=92.0,
         run_impact_per_game=-0.50,
         k_rate_multiplier=1.08,
-        bb_rate_multiplier=0.90,
     )
 
     adj = engine.evaluate_game_adjustment(
@@ -41,13 +41,9 @@ def test_hitter_friendly_umpire_run_boost():
     ump = UmpireProfile(
         umpire_id="u2",
         umpire_name="Tight Zone",
-        games_behind_plate=85,
         zone_horizontal_expansion_in=-0.60,
-        zone_vertical_expansion_in=-0.20,
-        called_strike_accuracy_pct=95.0,
         run_impact_per_game=+0.45,
         k_rate_multiplier=0.94,
-        bb_rate_multiplier=1.12,
     )
 
     adj = engine.evaluate_game_adjustment(ump, baseline_total=8.0, home_starter_base_ks=7.0)
@@ -64,3 +60,32 @@ def test_umpire_health_check():
     assert len(checks) == 1
     assert checks[0].ok is True
     assert "Umpire adjustments verified" in checks[0].detail
+
+
+def test_umpire_profile_has_no_fields_unread_by_the_engine():
+    """Regression: UmpireProfile used to accept games_behind_plate,
+    zone_vertical_expansion_in, called_strike_accuracy_pct, and
+    bb_rate_multiplier without evaluate_game_adjustment ever reading them
+    (mlb_baseball/metrics/umpire_zone_run_bias.yaml). Every field on the
+    dataclass must now be one the engine actually consumes.
+    """
+    field_names = {f.name for f in dataclasses.fields(UmpireProfile)}
+    assert field_names == {
+        "umpire_id",
+        "umpire_name",
+        "zone_horizontal_expansion_in",
+        "run_impact_per_game",
+        "k_rate_multiplier",
+    }
+
+
+def test_umpire_profile_rejects_the_removed_dead_fields():
+    with pytest.raises(TypeError):
+        UmpireProfile(
+            umpire_id="u1",
+            umpire_name="Ghost Field",
+            zone_horizontal_expansion_in=0.5,
+            run_impact_per_game=0.0,
+            k_rate_multiplier=1.0,
+            bb_rate_multiplier=1.0,  # type: ignore[call-arg]
+        )

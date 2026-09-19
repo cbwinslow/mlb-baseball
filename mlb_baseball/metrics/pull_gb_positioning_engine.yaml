@@ -1,0 +1,26 @@
+name: pull_gb_positioning_engine
+definition: >
+  A standalone infield-positioning calculator that turns user-supplied pull-
+  groundball, groundball, and hard-pulled-groundball rates into a
+  recommended infield depth in feet (clamped to 135-165), a Groundball Trap
+  Index (GBTI), and an estimated runs-saved value.
+formula: mlb_baseball/model/pull_gb.py::InfieldPositioningGBEngine.evaluate_positioning
+citation: >
+  project-derived (no published source defines a GBTI-style composite or
+  this depth formula). Distinct from the shift and spray catalog entries
+  (model/shift.py, model/spray.py).
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-batter calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The depth formula (150 ft baseline plus 0.55 ft per point of hard-pulled-
+  GB rate above 35%), the 48.0% / 42.0% / 35.0% benchmarks, point weights
+  (2.4/1.5/1.1) and the 0.26 runs-per-groundball value are this project's
+  own uncited choices. A long in-code comment records a fix adding an
+  intermediate AGGRESSIVE_PULL_SHADING tier for high GBTI without a fully
+  pull-dominant profile; a dedicated regression test covers it. Four unit
+  tests (tests/unit/test_pull_gb.py).

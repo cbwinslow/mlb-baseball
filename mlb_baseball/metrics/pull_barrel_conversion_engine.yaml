@@ -1,0 +1,25 @@
+name: pull_barrel_conversion_engine
+definition: >
+  A standalone pull-side power calculator that turns user-supplied pulled-
+  fly-ball rate, pull barrel rate, and oppo barrel rate into a Pull-Air
+  Barrel Conversion Index (PABCI), surplus home runs from pulling fly balls,
+  and an estimated runs value.
+formula: mlb_baseball/model/pull_barrel.py::BatterPullBarrelEngine.evaluate_pull_barrel
+citation: >
+  project-derived. Barrels are a real, publicly documented Statcast concept,
+  but this module only consumes barrel rates as given inputs; the PABCI
+  composite, the 0.28 home-runs-per-surplus-air-ball rate, and the tier
+  cutoffs are its own uncited choices. The 1.40 runs-per-home-run multiplier
+  is in the range of published linear-weights home-run values but is not
+  cited to a source here.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-batter calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  total_bbe_count is a dataclass field that the calculation never reads.
+  Three unit tests (tests/unit/test_pull_barrel.py) cover a power crusher, a
+  popup-risk hitter, and health_check on hand-picked inputs.

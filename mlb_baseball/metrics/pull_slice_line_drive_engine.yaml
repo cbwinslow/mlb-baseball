@@ -1,0 +1,20 @@
+name: pull_slice_line_drive_engine
+definition: >
+  A standalone pulled-line-drive calculator that turns user-supplied pull
+  line-drive rate, fair-territory conversion rate, and hard-hit rate into a
+  Pull Line-Drive Slice Rating (PLDSR) and an estimated runs-produced value.
+formula: mlb_baseball/model/pull_slice.py::BatterPullSliceEngine.evaluate_pull_slice
+citation: >
+  project-derived (no published source defines a PLDSR-style composite)
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-batter calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The 70.0% conversion / 18.0% pull-LD / 50.0% hard-hit benchmarks, point
+  weights (2.0/1.8/1.4) and the 0.0035 runs conversion are this project's
+  own uncited blend. Three unit tests (tests/unit/test_pull_slice.py) cover
+  a pull surgeon, a hooking slicer, and health_check on hand-picked inputs.

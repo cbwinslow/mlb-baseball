@@ -1,10 +1,11 @@
 name: gyro_spin_engine
 definition: >
   A standalone pitch-spin-axis calculator that converts user-supplied spin
-  efficiency percentage and total spin rate into a gyro degree (angle
-  between the spin axis and the direction of Magnus deflection) and its
-  active (Magnus-producing) vs gyroscopic (non-deflecting) spin-rate split,
-  plus an aerodynamic tier.
+  efficiency percentage and total spin rate into a gyro angle measured from
+  pure transverse spin (the cosine of the angle equals the spin-efficiency
+  fraction, so 0 degrees is fully transverse and 90 degrees is pure
+  gyro/bullet spin) and its active (Magnus-producing) vs gyroscopic
+  (non-deflecting) spin-rate split, plus an aerodynamic tier.
 formula: mlb_baseball/model/gyro_spin.py::PitchGyroSpinEngine.evaluate_gyro_spin
 citation: >
   Spin efficiency and gyro degree are real, publicly documented Statcast/

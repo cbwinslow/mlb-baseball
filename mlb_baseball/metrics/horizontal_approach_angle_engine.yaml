@@ -1,0 +1,30 @@
+name: horizontal_approach_angle_engine
+definition: >
+  The horizontal-plane counterpart to Vertical Approach Angle (VAA): a
+  physics-derived Horizontal Approach Angle (HAA) at home plate, computed
+  from release point, horizontal (Magnus) break, and plate-crossing
+  location via kinematic equations of motion, plus a derived "cross-body
+  deception" score and approach-angle tier.
+formula: mlb_baseball/model/haa.py::HorizontalApproachAngleEngine.evaluate_haa
+citation: >
+  The kinematic derivation itself (constant-acceleration equations of
+  motion solving for horizontal velocity at plate crossing from release
+  position, Magnus-break-implied horizontal acceleration, and flight time)
+  is real physics, the same approach already cited for Vertical Approach
+  Angle in starter_vaa.yaml/vaa_flatness_engine.yaml (model/vaa.py, a
+  separate module) -- not this project's own invention. Unlike VAA, HAA is
+  not a commonly published Baseball Savant leaderboard statistic. The
+  "cross-body deception score" formula (|release_x|*18.0 + |HAA|*12.0) and
+  the approach-tier cutoffs (3.0 deg + 2.0 ft release, 2.0 deg) are this
+  project's own uncited constants layered on top of the real physics.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-pitch-type calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Three unit tests (tests/unit/test_haa.py) confirm the tier thresholds
+  fire on hand-picked sweeper/overhand-pitcher inputs, not against an
+  external benchmark.

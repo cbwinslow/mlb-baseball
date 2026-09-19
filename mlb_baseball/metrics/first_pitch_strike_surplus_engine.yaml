@@ -1,0 +1,27 @@
+name: first_pitch_strike_surplus_engine
+definition: >
+  A standalone first-pitch-strike-rate (F-Strike%) run-value calculator:
+  scales a pitcher's F-Strike% delta from a 60.5% league baseline by an
+  assumed run-expectancy swing per count, producing a seasonal and
+  per-100-batters-faced surplus-runs figure and a command tier.
+formula: mlb_baseball/model/fstrike.py::FirstPitchStrikeEngine.evaluate_fstrike
+citation: >
+  F-Strike% itself is a real, publicly documented FanGraphs plate-discipline
+  statistic (https://www.fangraphs.com/guts.aspx?type=cn, "F-Strike%"). The
+  0.068 runs/PA run-expectancy swing between a 0-1 and 1-0 count echoes real
+  count-value research (e.g. Tom Tango's run-value-by-count tables) but this
+  module cites no specific source for that exact figure, the 60.5% league
+  baseline, or the command-tier cutoffs (0.660/0.625/0.560 F-Strike%) --
+  those are this project's own uncited choices layered on top of a real
+  public statistic.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-pitcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Four unit tests (tests/unit/test_fstrike.py) confirm the tier thresholds
+  fire on hand-picked pounder/passive-reliever inputs, not against an
+  external benchmark.

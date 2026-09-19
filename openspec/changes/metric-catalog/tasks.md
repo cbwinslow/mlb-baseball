@@ -182,17 +182,21 @@
 ## 7. Full verification
 
 - [x] 7.1 `ruff`/`mypy`/`sqlfluff` clean on all new/changed files.
-- [ ] 7.2 Full test suite touching new code passes (unit tests for
+- [x] 7.2 Full test suite touching new code passes (unit tests for
   `catalog.py`'s schema validation, integration tests for the loader and
   `meta.metric`, the CI check script's own fixture tests).
-  **Status (2026-09-17):** unit tests confirmed passing — `tests/unit/
+  **Status (2026-09-19):** unit tests confirmed passing — `tests/unit/
   test_catalog.py` (schema validation) and `tests/unit/
   test_check_metric_catalog.py` (CI check fixtures), 29/29. The integration
-  suite (`tests/integration/test_catalog_loader.py`, and integration tests
-  generally in this session's environment) hangs past a 90s timeout on the
-  `postgresql_noproc` test-DB fixture — an environment issue in this session,
-  not something this change's code changed; unconfirmed here, needs a run in
-  an environment where the fixture completes.
+  suite `tests/integration/test_catalog_loader.py` now confirmed passing too
+  — 4/4 (`test_load_populates_meta_metric_from_yaml_fixtures`,
+  `test_load_is_idempotent_full_rebuild`,
+  `test_load_raises_naming_file_and_field_for_invalid_third_fixture`,
+  `test_source_permalink_embeds_exact_fake_commit_sha_not_head`) in 121.56s.
+  The earlier 90s-timeout hang (2026-09-17 note) was this session's own
+  default command timeout, not a code or fixture defect — the
+  `postgresql_noproc` disposable-DB setup just takes ~2 minutes here; running
+  with a longer timeout clears it. No code change needed.
 - [x] 7.3 `openspec validate metric-catalog --strict` passes.
 - [ ] 7.4 Owner review: read the generated public catalog page and confirm
   the plain-English definitions are actually plain English, and that the

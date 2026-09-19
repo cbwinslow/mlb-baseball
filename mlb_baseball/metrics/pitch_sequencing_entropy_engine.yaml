@@ -1,0 +1,34 @@
+name: pitch_sequencing_entropy_engine
+definition: >
+  A pitcher's Shannon entropy over their pitch-mix frequencies (how random/
+  unpredictable their pitch selection is), normalized to [0, 1] against the
+  maximum possible entropy for that many pitch types, plus a derived 0-100
+  "predictability" score and an estimated contact-rate penalty for throwing a
+  predictable mix.
+formula: mlb_baseball/model/entropy.py::PitchSequencingEntropyEngine.evaluate_arsenal_entropy
+citation: >
+  Shannon, C.E., "A Mathematical Theory of Communication," Bell System
+  Technical Journal (1948) -- Shannon entropy (H = -sum(p*log2(p))), the same
+  real technique already cited by arsenal_diversity_index.yaml (model/diversity.py,
+  a separate module) applied to the same kind of pitch-mix input. Only the
+  entropy calculation itself is a citable formula; the derived
+  "predictability_score" (a linear rescale of normalized entropy) and the
+  "repetition_contact_penalty_pct" (5.0 + predictability_score * 0.12) are this
+  module's own uncited constants. The module's own docstring also claims
+  "Count-Conditioned Information Gain & Markov Transition Entropy" and a
+  "Pitcher Tunneling Predictability Scoring" -- neither is actually implemented
+  here; only evaluate_arsenal_entropy exists, so those claims do not describe
+  code that runs.
+data_source: "none -- caller-supplied PitchArsenalDistribution (pitch-mix shares); no gold/core/raw read"
+grain: per pitcher, stateless per-arsenal calculation
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  tests/unit/test_entropy.py hand-verifies the entropy formula against its
+  own textbook identity (4 equally-thrown pitches -> log2(4) = 2.0 bits
+  exactly) -- a real, deterministic correctness check of the Shannon formula,
+  but not an externally-sourced tie-out, so status stays implemented-untested
+  per this catalog's convention rather than validated.

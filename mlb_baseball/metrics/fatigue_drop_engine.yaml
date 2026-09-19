@@ -1,0 +1,25 @@
+name: fatigue_drop_engine
+definition: >
+  A standalone late-game arm-fatigue calculator that turns user-supplied
+  late-game (75th+ pitch) velocity drop, release-height drop, and strike
+  rate into a Pitcher Arm Fatigue Inefficiency Index (PAFII) and an
+  estimated late-inning runs-saved value.
+formula: mlb_baseball/model/fatigue_drop.py::PitcherFatigueDropEngine.evaluate_fatigue_drop
+citation: >
+  project-derived. Separate from the already-cataloged
+  pitcher_workload_fatigue_engine.yaml (model/fatigue.py) -- this module
+  scores late-game velocity/release-height decay specifically, not workload.
+  No published source defines a PAFII-style composite; its benchmark
+  constants (1.5 mph velo drop, 1.8 in release drop, 61.0% strike rate) and
+  point weights (12.0/8.0/1.5) are this project's own uncited blend.
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-pitcher calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Three unit tests (tests/unit/test_fatigue_drop.py) confirm the tier
+  thresholds fire on hand-picked workhorse/collapser inputs, not against an
+  external benchmark.

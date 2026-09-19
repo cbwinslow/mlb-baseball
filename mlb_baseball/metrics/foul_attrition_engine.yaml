@@ -1,0 +1,23 @@
+name: foul_attrition_engine
+definition: >
+  A standalone two-strike pitch-extraction calculator that turns
+  user-supplied multi-foul-PA rate, pitches-per-PA, and two-strike foul rate
+  into a Batter Foul Attrition Index (BFAI), surplus pitches extracted above
+  benchmark, and an estimated Starter Removal Acceleration Runs (SRAR)
+  value.
+formula: mlb_baseball/model/foul_attrition.py::BatterFoulAttritionEngine.evaluate_attrition
+citation: project-derived (no published source defines a BFAI/SRAR-style composite)
+data_source: "none -- caller-supplied dataclass fields; no gold/core/raw read"
+grain: not applicable (stateless per-batter calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The multi-foul/pitches-per-PA/foul-rate benchmark constants (11.0% /
+  3.95 / 42.0%) and point weights (3.2/35.0/0.8), plus the surplus-pitch
+  run-value conversion (0.032 runs/pitch), are this project's own uncited
+  blend. Four unit tests (tests/unit/test_foul_attrition.py) confirm the
+  tier thresholds fire on hand-picked grinder/hacker inputs, not against an
+  external benchmark.

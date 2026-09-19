@@ -1093,15 +1093,14 @@ def test_spray_heatmap_command_parses_all_its_own_arguments(capsys):
     assert "Generated Vector SVG Spray Chart Heatmap" in capsys.readouterr().out
 
 
-def test_umpire_command_uses_directly_supplied_run_impact_and_k_multiplier(capsys):
+def test_umpire_command_run_impact_is_independent_of_expansion_in(capsys):
     # Regression test: `mlb umpire` used to manufacture run_impact_per_game
-    # and k_rate_multiplier from --expansion-in via uncited linear formulas
-    # (-0.55 * expansion_in/0.6, 1.0 +- expansion_in*0.08) instead of taking
-    # them as independently observed inputs
-    # (mlb_baseball/metrics/umpire_zone_run_bias.yaml). With the same
-    # --expansion-in, two different --run-impact-per-game/--k-rate-multiplier
-    # pairs must now produce different adjusted totals/K lines -- proving the
-    # numbers come from the caller, not from --expansion-in.
+    # from --expansion-in via an uncited linear formula
+    # (-0.55 * expansion_in/0.6) instead of taking it as an independently
+    # observed input (mlb_baseball/metrics/umpire_zone_run_bias.yaml). Same
+    # --expansion-in and --k-rate-multiplier, only --run-impact-per-game
+    # differs -- isolates that this one flag drives run_delta/adjusted_total,
+    # not --expansion-in.
     cli.main(
         [
             "umpire",
@@ -1110,7 +1109,7 @@ def test_umpire_command_uses_directly_supplied_run_impact_and_k_multiplier(capsy
             "--run-impact-per-game",
             "-1.20",
             "--k-rate-multiplier",
-            "1.50",
+            "1.00",
             "--base-total",
             "8.5",
             "--json",
@@ -1139,6 +1138,49 @@ def test_umpire_command_uses_directly_supplied_run_impact_and_k_multiplier(capsy
     assert '"adjusted_total": 7.3' in out_a
     assert '"run_delta": 0.3' in out_b
     assert '"adjusted_total": 8.8' in out_b
+
+
+def test_umpire_command_k_rate_multiplier_is_independent_of_expansion_in(capsys):
+    # Regression test: `mlb umpire` used to manufacture k_rate_multiplier
+    # from --expansion-in via an uncited linear formula
+    # (1.0 + expansion_in*0.08) instead of taking it as an independently
+    # observed input. Same --expansion-in and --run-impact-per-game, only
+    # --k-rate-multiplier differs -- isolates that this flag drives the
+    # printed Starter K Multiplier line (the JSON branch doesn't expose
+    # k_rate_multiplier at all, so this must use the plain-text path).
+    cli.main(
+        [
+            "umpire",
+            "--expansion-in",
+            "0.6",
+            "--run-impact-per-game",
+            "0.0",
+            "--k-rate-multiplier",
+            "1.50",
+            "--base-total",
+            "8.5",
+        ]
+    )
+    out_a = capsys.readouterr().out
+
+    cli.main(
+        [
+            "umpire",
+            "--expansion-in",
+            "0.6",
+            "--run-impact-per-game",
+            "0.0",
+            "--k-rate-multiplier",
+            "0.80",
+            "--base-total",
+            "8.5",
+        ]
+    )
+    out_b = capsys.readouterr().out
+
+    assert out_a != out_b
+    assert "Starter K Multiplier: 1.50x" in out_a
+    assert "Starter K Multiplier: 0.80x" in out_b
 
 
 def test_umpire_command_bare_defaults_are_neutral_no_observed_effect(capsys):

@@ -1,0 +1,32 @@
+name: strike_zone_kde_density
+definition: >
+  A smoothed density map of where a set of pitches crossed the plate: a
+  bivariate Gaussian kernel density estimate over plate-crossing x/z
+  coordinates on a 25 by 25 grid, plus the share of those pitches falling in
+  four fixed attack zones (Heart, Shadow, Chase, Waste) and the peak-density
+  location.
+formula: mlb_baseball/model/heatmap.py::StrikeZoneKDEMonitor.compute_density_grid
+citation: >
+  Kernel density estimation with Silverman's rule-of-thumb bandwidth
+  (1.06 * standard deviation * n^-0.2) is a standard published technique
+  (Silverman, Density Estimation for Statistics and Data Analysis, 1986); the
+  code implements that rule directly. The attack-zone boundaries (Heart within
+  0.55 ft and 1.83-3.17 ft; Shadow within 0.958 ft and 1.25-3.75 ft; Chase
+  within 1.458 ft and 0.75-4.25 ft) are this project's own fixed rectangles
+  around a nominal 17 inch wide, 1.5-3.5 ft tall zone, not a published
+  definition, and the 0.15 ft floor on the standard deviation is uncited.
+data_source: "none -- caller-supplied plate_x and plate_z sequences; no gold/core/raw read"
+grain: not applicable (stateless calculation over a caller-supplied pitch set)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  The zone rectangles ignore each batter's individual strike zone height. The
+  grid is normalized to sum to 1, so the earlier division by the KDE
+  normalizing constant does not change the reported values. Separate from
+  pitcher_command_attack_zones (model/command.py), which also uses a
+  Heart/Shadow/Chase/Waste vocabulary. Two unit tests
+  (tests/unit/test_heatmap.py) cover zone classification and the density grid
+  on hand-picked inputs; none compares against an external KDE implementation.

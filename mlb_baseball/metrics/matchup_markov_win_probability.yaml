@@ -1,0 +1,32 @@
+name: matchup_markov_win_probability
+definition: >
+  A game's home-win probability from simulating it 5,000 times with a
+  plate-appearance Markov model: each batting side's outcome distribution
+  (this team batting against the opposing starter, shrunk toward a league
+  prior) is estimated only from events strictly before the game date, and the
+  home-win share of the simulated games is written as model version
+  markov-v1.
+formula: mlb_baseball/model/sim_predict.py::simulate_matchup
+citation: >
+  project-derived (ADR-272). Markov-chain baseball run-scoring models are a
+  long-published family, but this module cites no specific source for its
+  design; the empirical-Bayes shrinkage, the 50-plate-appearance minimum
+  before using the starter's own sample, the two-season lookback and the
+  5,000-game simulation count are this project's own choices. The
+  outcome-distribution and simulation code live in model/markov.py.
+data_source: raw Retrosheet events via model/markov.py; gold.game_feature, core.team, core.player (probable starters); output to gold.prediction
+grain: game, one home-win probability per still-undecided game per run
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Point-in-time by design: the cutoff is the game's own date, seeds derive
+  from the game key so a rerun is identical, and a game with no league prior
+  is skipped rather than defaulted to 0.5. Ten tests, mostly real-PostgreSQL
+  integration tests (tests/integration/test_model_sim_predict.py), check upcoming-only scoping,
+  determinism, skip behavior, a later-season-leakage guard, and a fixture
+  game score. A holdout evaluation script exists (scripts/eval_markov_holdout.py)
+  but its results were not checked here, so no calibration or accuracy claim
+  is made and status stays implemented-untested.

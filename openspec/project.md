@@ -340,10 +340,10 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   design reviews (`feature-store-v1/DESIGN_REVIEW.md`); ADR-287 for the
   Postgres/DuckDB boundary. **feat.* is DuckDB-only — no Postgres `feat`
   schema, no Feast.**
-- **Metric catalog triage, batch 11+ (`metric-catalog`, ADR-291):** this was
+- **Metric catalog triage, complete (`metric-catalog`, ADR-291):** this was
   stale at "16 of ~155" through 2026-09-17; corrected 2026-09-19 against
   `scripts/check_metric_catalog.py`'s own completeness count, the real gate.
-  Ten batches have landed as PRs against this one still-open change (not
+  Eleven batches have landed as PRs against this one still-open change (not
   as separate OpenSpec changes — see that change's `design.md` Migration
   Plan and `tasks.md` task 6.2, which superseded an earlier, unfollowed note
   suggesting separate changes): batch 1 (16, flagship: WAR, wOBA/wRC+,
@@ -359,11 +359,16 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   pivot_dp, pull_air, pull_barrel, pull_gb, pull_slice, lineup_protect,
   swing_tempo), then batch 10 (15 uniform engines: the putaway, ssw, wall,
   release/velo-drift, route-burst, slot-sag, spin-align and slash-oppo
-  modules). Current state: 126 of 132 tracked `model/` modules have a
-  catalog entry (145 YAML files — a few modules carry two), 6 remain, each
-  needing an individual read rather than a template: experience, heatmap,
-  ros, sim_predict, sub, total (real per-module code + test reads,
-  not docstring transcription).
+  modules), then batch 11 (the six odd-shaped modules, each read
+  individually: experience, heatmap as two entries, ros, sim_predict, sub;
+  total.py joined the exclusions as an XGBoost pipeline like gbm.py).
+  Current state: `scripts/check_metric_catalog.py` reports 131 tracked
+  `model/` modules and no gaps (151 YAML files; a few modules carry two).
+  Left over: the check is still advisory in CI (`|| true`) and can be
+  promoted to required now that the first full triage pass has landed
+  (`design.md` Migration Plan step 3); only one entry is `validated` (the
+  Baseball-Reference tie-out); promoting any other metric needs a real
+  external tie-out per entry.
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

@@ -1,0 +1,35 @@
+name: rest_of_season_simulation
+definition: >
+  A point-in-time Monte Carlo projection of the rest of an MLB season, run
+  from the actual standings as of a cutoff date: projected final wins (mean
+  and 10th/90th percentile), division-title, wild-card, playoff, pennant and
+  World Series probabilities, and the division magic number for each team.
+formula: mlb_baseball/model/ros.py::RestOfSeasonSimulator.simulate_ros
+citation: >
+  project-derived composition of standard techniques. Pythagorean win
+  percentage and log5 game probabilities are reused from model/season.py
+  (see season_monte_carlo_simulation and log5_win_probability); the magic
+  number is the conventional (162 + 1) - leader wins - trailer losses. The
+  shrinkage of Pythagorean talent toward .500 with weight N / (N + 60), the
+  0.035 home-field advantage, and the use of team talent as the tiebreaker
+  in seeding are this module's own uncited choices, and the playoff bracket
+  is a simplified 12-team resolution, not the real tiebreaker rules.
+data_source: core.game, core.team (completed and remaining games for the season)
+grain: team, per season and as-of date
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  Regular-season scoping was checked: the query counts game_type 'regular'
+  plus 'playoff' (the Game 163 tiebreaker, counted as regular season by
+  project convention, migration 0101), and a real-PostgreSQL integration test
+  (tests/integration/test_model_ros.py) asserts postseason games are excluded
+  from current standings. Four unit tests cover the magic-number arithmetic,
+  the Pythagorean property, a mocked-DB run, and health_check. Observation
+  from reading, not run: when the database holds no remaining games, the
+  fallback schedule gives each team `needed` home games against rotating
+  opponents while those opponents also gain a game, so each team appears to
+  play up to about twice its needed games, which would inflate projected
+  wins on that path. Only the real-schedule path is covered by tests.

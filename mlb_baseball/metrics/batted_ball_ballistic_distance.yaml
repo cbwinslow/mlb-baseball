@@ -1,0 +1,31 @@
+name: batted_ball_ballistic_distance
+definition: >
+  An estimated landing distance and field coordinates for a batted ball from
+  its exit velocity, launch angle and spray angle, using the vacuum-projectile
+  range formula scaled by a fixed aerodynamic-efficiency factor by launch-angle
+  band and an air-density adjustment, plus hard-hit (95+ mph) and barrel flags.
+formula: mlb_baseball/model/heatmap.py::BattedBallBallisticsEngine.compute_field_coordinates
+citation: >
+  The vacuum range formula (v0^2 * sin(2 * theta) / g) is textbook
+  projectile physics. The aerodynamic-efficiency factors (0.66 for 20-35
+  degrees, 0.62 for 10-20, 0.52 for 35-45, 0.35 above 45), the 0.85 ground-ball
+  factor and the 0.22% per air-density-index-point drag term are hard-coded
+  and uncited; a code comment attributes them to "Alan Nathan physics
+  calibration", which this review could not verify. The hard-hit threshold
+  (95 mph) matches the publicly documented Statcast definition; the barrel test
+  approximates Statcast's published barrel (98+ mph in an expanding
+  launch-angle window), but the exact window expansion used here was not
+  checked against MLB's glossary.
+data_source: "none -- caller-supplied exit velocity, launch angle, spray angle; no gold/core/raw read"
+grain: not applicable (stateless per-batted-ball calculation)
+layer: model
+complexity: complex
+implementation: python
+status: implemented-untested
+visibility: internal
+notes: >
+  This is a coarse approximation, not a trajectory simulation with drag and
+  spin, so estimated distances should not be compared with Statcast's
+  projected distance without a tie-out. One unit test
+  (tests/unit/test_heatmap.py) checks a barrel-style trajectory on
+  hand-picked inputs.

@@ -10,17 +10,23 @@ from mlb_baseball.health import Check
 
 @dataclasses.dataclass(frozen=True)
 class UmpireProfile:
-    """Historical strike zone tendencies and run scoring impact for a home plate umpire."""
+    """Caller-supplied strike zone/run-impact figures for a home plate umpire.
+
+    Every field here must be independently observed/measured by the caller --
+    this module does not read this project's own ingested umpire tables
+    (raw.mlb_umpire / raw.retrosheet_umpire hold assignment identities only,
+    not zone or run-impact statistics) and does not derive one field from
+    another. Only these three fields are used by
+    ``UmpireBiasEngine.evaluate_game_adjustment``; do not add a field here
+    unless the engine actually reads it (see mlb_baseball/metrics/
+    umpire_zone_run_bias.yaml).
+    """
 
     umpire_id: str
     umpire_name: str
-    games_behind_plate: int
     zone_horizontal_expansion_in: float  # +0.8 in = wide zone (pitcher friendly), -0.5 in = tight
-    zone_vertical_expansion_in: float  # +0.5 in = tall zone
-    called_strike_accuracy_pct: float  # e.g. 93.5%
     run_impact_per_game: float  # Expected run delta on game total (e.g. -0.35 runs)
     k_rate_multiplier: float  # e.g. 1.04x strikeout boost
-    bb_rate_multiplier: float  # e.g. 0.94x walk reduction
 
 
 @dataclasses.dataclass(frozen=True)
@@ -96,13 +102,9 @@ def health_check() -> list[Check]:
         pitcher_ump = UmpireProfile(
             umpire_id="u1",
             umpire_name="Wide Zone Ump",
-            games_behind_plate=120,
             zone_horizontal_expansion_in=0.75,
-            zone_vertical_expansion_in=0.20,
-            called_strike_accuracy_pct=92.5,
             run_impact_per_game=-0.42,
             k_rate_multiplier=1.06,
-            bb_rate_multiplier=0.92,
         )
 
         adj = engine.evaluate_game_adjustment(

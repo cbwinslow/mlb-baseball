@@ -978,7 +978,28 @@ def main(argv: list[str] | None = None) -> None:
         "--expansion-in",
         type=float,
         default=0.6,
-        help="horizontal zone expansion in (default: 0.6)",
+        help="horizontal zone expansion in, an independently observed figure (default: 0.6)",
+    )
+    ump_parser.add_argument(
+        "--run-impact-per-game",
+        type=float,
+        default=0.0,
+        help=(
+            "this umpire's independently observed/measured run impact on the game "
+            "total, runs (default: 0.0 -- no observed effect; this is NOT derived "
+            "from --expansion-in, supply your own measured value)"
+        ),
+    )
+    ump_parser.add_argument(
+        "--k-rate-multiplier",
+        type=float,
+        default=1.0,
+        help=(
+            "this umpire's independently observed/measured strikeout-rate "
+            "multiplier, e.g. 1.05 = 5%% more Ks (default: 1.0 -- no observed "
+            "effect; this is NOT derived from --expansion-in, supply your own "
+            "measured value)"
+        ),
     )
     ump_parser.add_argument("--json", action="store_true", help="output umpire adjustment as JSON")
 
@@ -4732,13 +4753,9 @@ def main(argv: list[str] | None = None) -> None:
         u_prof = UmpireProfile(
             umpire_id="u1",
             umpire_name=args.name,
-            games_behind_plate=110,
             zone_horizontal_expansion_in=args.expansion_in,
-            zone_vertical_expansion_in=0.10,
-            called_strike_accuracy_pct=92.8,
-            run_impact_per_game=round(-0.55 * (args.expansion_in / 0.6), 2),
-            k_rate_multiplier=round(1.0 + (args.expansion_in * 0.08), 2),
-            bb_rate_multiplier=round(1.0 - (args.expansion_in * 0.08), 2),
+            run_impact_per_game=args.run_impact_per_game,
+            k_rate_multiplier=args.k_rate_multiplier,
         )
         u_adj = u_eng.evaluate_game_adjustment(u_prof, baseline_total=args.base_total)
 

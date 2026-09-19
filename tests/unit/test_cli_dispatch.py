@@ -1093,6 +1093,64 @@ def test_spray_heatmap_command_parses_all_its_own_arguments(capsys):
     assert "Generated Vector SVG Spray Chart Heatmap" in capsys.readouterr().out
 
 
+def test_umpire_command_uses_directly_supplied_run_impact_and_k_multiplier(capsys):
+    # Regression test: `mlb umpire` used to manufacture run_impact_per_game
+    # and k_rate_multiplier from --expansion-in via uncited linear formulas
+    # (-0.55 * expansion_in/0.6, 1.0 +- expansion_in*0.08) instead of taking
+    # them as independently observed inputs
+    # (mlb_baseball/metrics/umpire_zone_run_bias.yaml). With the same
+    # --expansion-in, two different --run-impact-per-game/--k-rate-multiplier
+    # pairs must now produce different adjusted totals/K lines -- proving the
+    # numbers come from the caller, not from --expansion-in.
+    cli.main(
+        [
+            "umpire",
+            "--expansion-in",
+            "0.6",
+            "--run-impact-per-game",
+            "-1.20",
+            "--k-rate-multiplier",
+            "1.50",
+            "--base-total",
+            "8.5",
+            "--json",
+        ]
+    )
+    out_a = capsys.readouterr().out
+
+    cli.main(
+        [
+            "umpire",
+            "--expansion-in",
+            "0.6",
+            "--run-impact-per-game",
+            "0.30",
+            "--k-rate-multiplier",
+            "1.00",
+            "--base-total",
+            "8.5",
+            "--json",
+        ]
+    )
+    out_b = capsys.readouterr().out
+
+    assert out_a != out_b
+    assert '"run_delta": -1.2' in out_a
+    assert '"adjusted_total": 7.3' in out_a
+    assert '"run_delta": 0.3' in out_b
+    assert '"adjusted_total": 8.8' in out_b
+
+
+def test_umpire_command_bare_defaults_are_neutral_no_observed_effect(capsys):
+    # Missing measurement must not become a guess (root AGENTS.md): with no
+    # --run-impact-per-game/--k-rate-multiplier supplied, the umpire must be
+    # neutral (no adjustment), not a value fabricated from --expansion-in.
+    cli.main(["umpire", "--base-total", "8.5", "--json"])
+    out = capsys.readouterr().out
+    assert '"adjusted_total": 8.5' in out
+    assert '"run_delta": 0.0' in out
+
+
 # Regression coverage for the ~130 calculator-style subcommands (pure-Python
 # scoring engines with no DB/network I/O) added across the recent package
 # batch. None of these had any dispatch-level test before this pass, which is

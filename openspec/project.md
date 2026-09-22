@@ -364,11 +364,22 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   total.py joined the exclusions as an XGBoost pipeline like gbm.py).
   Current state: `scripts/check_metric_catalog.py` reports 131 tracked
   `model/` modules and no gaps (151 YAML files; a few modules carry two).
-  Left over: the check is still advisory in CI (`|| true`) and can be
-  promoted to required now that the first full triage pass has landed
-  (`design.md` Migration Plan step 3); only one entry is `validated` (the
-  Baseball-Reference tie-out); promoting any other metric needs a real
-  external tie-out per entry.
+  Promoted to a required CI check 2026-09-22 (`design.md` Migration Plan
+  step 3, now that the first full triage pass has landed) — see the
+  `ci/require-metric-catalog-check` branch/PR. Only one entry is
+  `validated` (the Baseball-Reference tie-out); promoting any other metric
+  needs a real external tie-out per entry.
+- **SQLMesh pilot on metric-catalog candidates — deferred, no candidates
+  found (metric-catalog tasks.md 6.3):** the original queue item asked to
+  pilot SQLMesh on ~5 of the triage's `should_migrate_to_sql` candidates.
+  Checked 2026-09-17 against every entry in `mlb_baseball/metrics/*.yaml`:
+  `should_migrate_to_sql` is `false`/absent on all of them, and the only
+  two `implementation: python` entries are `complexity: complex`, not
+  `arithmetic`, so neither qualifies. Naming 5 candidates anyway would be
+  fabricated evidence, so this is deferred rather than done as originally
+  scoped. Owner decision needed: revisit scope (e.g. pilot on a different
+  criterion), or leave this open until a future triage batch surfaces a
+  genuine `arithmetic` + `implementation: python` candidate.
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

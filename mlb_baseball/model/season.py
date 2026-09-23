@@ -5,13 +5,23 @@ evaluates tie-breakers, division championships, wild card berths, and simulates
 the complete 12-team MLB postseason bracket (Wild Card Series best-of-3, Division
 Series best-of-5, League Championship best-of-7, World Series best-of-7).
 
-Provides point-in-time team strength modeling using Log5 Pythagorean expectations
-and generates regular-season win total distributions for long-term futures markets.
+Provides point-in-time team strength modeling using Log5 and Pythagorean
+expectations and generates regular-season win total distributions.
+
+`team_strength_asof()` computes each team's real true-talent win percentage
+from its own real runs-scored/runs-allowed up to a point-in-time cutoff, via
+the already-cited `pythagorean_team_win_pct()` below -- replacing the flat
+`{t: 0.500 for t in ALL_MLB_TEAMS}` placeholder `mlb season-sim` used to pass
+to `simulate_season_monte_carlo()` (metric-catalog triage, 2026-09-23; see
+mlb_baseball/metrics/season_monte_carlo_simulation.yaml). A team with no
+qualifying games before the cutoff gets the same 0.500 value, but as an
+explicitly logged fallback, not a computed estimate.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import logging
 import time
 
 import numpy as np
@@ -19,6 +29,8 @@ import psycopg
 
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import Check
+
+logger = logging.getLogger(__name__)
 
 # 30 Active MLB Franchises by League & Division
 MLB_DIVISIONS: dict[str, dict[str, list[str]]] = {
@@ -507,6 +519,81 @@ def pythagorean_team_win_pct(
     if (rs_exp + ra_exp) <= 0:
         return 0.500
     return float(np.clip(rs_exp / (rs_exp + ra_exp), 0.200, 0.800))
+
+
+def team_strength_asof(
+    season: int,
+    as_of: str,
+    conn: psycopg.Connection,
+) -> dict[str, float]:
+    """Real per-team true-talent win percentage from real runs, as of a point-in-time cutoff.
+
+    For each of the 30 teams, aggregates `core.game.home_score`/`away_score`
+    for `game_type IN ('regular', 'playoff')` games (the same regular-season
+    definition `load_schedule_from_db` uses -- Game 163 tiebreakers count as
+    regular season) with `game_date < as_of` -- strictly before the cutoff,
+    so the cutoff's own games never leak in -- and feeds the resulting real
+    runs-scored/runs-allowed-per-game into the already-cited
+    `pythagorean_team_win_pct()`.
+
+    A team with zero qualifying games before the cutoff gets the same 0.500
+    `simulate_season_monte_carlo()` always defaulted to, but as an explicit,
+    logged fallback -- not a computed estimate this function has no evidence
+    for.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH team_games AS (
+                SELECT ht.retro_team_id AS team, g.home_score AS rs, g.away_score AS ra
+                FROM core.game g
+                JOIN core.team ht ON ht.id = g.home_team_id
+                WHERE g.season = %(season)s
+                  AND g.game_type IN ('regular', 'playoff')
+                  AND g.game_date < %(as_of)s
+                  AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL
+                UNION ALL
+                SELECT at.retro_team_id AS team, g.away_score AS rs, g.home_score AS ra
+                FROM core.game g
+                JOIN core.team at ON at.id = g.away_team_id
+                WHERE g.season = %(season)s
+                  AND g.game_type IN ('regular', 'playoff')
+                  AND g.game_date < %(as_of)s
+                  AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL
+            )
+            SELECT
+                team,
+                AVG(rs::double precision) AS rs_per_g,
+                AVG(ra::double precision) AS ra_per_g,
+                COUNT(*) AS n
+            FROM team_games
+            GROUP BY team
+            """,
+            {"season": season, "as_of": as_of},
+        )
+        by_team = {row[0]: (row[1], row[2], row[3]) for row in cur.fetchall()}
+
+    talents: dict[str, float] = {}
+    fallback_teams: list[str] = []
+    for team in ALL_MLB_TEAMS:
+        if team in by_team and by_team[team][2] > 0:
+            rs_per_g, ra_per_g, _n = by_team[team]
+            talents[team] = pythagorean_team_win_pct(rs_per_g, ra_per_g)
+        else:
+            talents[team] = 0.500
+            fallback_teams.append(team)
+
+    if fallback_teams:
+        logger.info(
+            "team_strength_asof: %d team(s) had no qualifying games before %s "
+            "(season=%s) -- using 0.500 league-average fallback: %s",
+            len(fallback_teams),
+            as_of,
+            season,
+            ", ".join(sorted(fallback_teams)),
+        )
+
+    return talents
 
 
 def health_check() -> list[Check]:

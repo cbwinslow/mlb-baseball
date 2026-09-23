@@ -1,13 +1,22 @@
 """Batter BABIP Expected Luck Deficit & Regression Scanner (BABIP-LUCK-01, ADR-179).
 
-Provides batted ball trajectory modeling, expected BABIP (xBABIP), and luck deficit evaluation:
-1. Trajectory-Based Expected BABIP (xBABIP from Line Drive%, Hard-Hit%, Sprint Speed, and IFFB%).
-2. BABIP Luck Deficit (Actual BABIP - Expected xBABIP).
+Provides real actual-vs-expected BABIP comparison and luck-regression tiering:
+1. Real actual BABIP (`(H - HR) / (AB - K - HR + SF)`, the standard public
+   definition) and real expected BABIP (mean of Statcast's own published
+   xBA model, `estimated_ba_using_speedangle`, over the same non-HR balls in
+   play) via `babip_from_statcast()`. Cited: Statcast's Expected Statistics
+   methodology -- the same source `model/statcast_expected.py` already cites.
+   Populated in `raw.statcast_pitch` from the 2015 season on.
+2. BABIP Luck Deficit (Actual BABIP - Expected BABIP).
 3. Positive and Negative Regression Candidate Identification (Buy-Low vs Sell-High).
 4. Regression Tiers (Severe Positive Regression, Fair Value Neutral, Severe Negative Regression).
 
-Adheres strictly to object-oriented encapsulation, polymorphic protocols, and
-point-in-time correctness with zero lookahead leakage.
+This module has two independent evaluation paths that must not be conflated:
+`babip_from_statcast()` reads a real batter's real Statcast data;
+`BABIPRegressionEngine.evaluate_babip()` is a hand-typed what-if/scouting
+calculator (the CLI `mlb babip --whatif` path) using an uncited linear
+formula. Both return a `BABIPEvaluationResult` whose `data_source` field
+says which path produced it -- metric-catalog triage, 2026-09-23.
 """
 
 from __future__ import annotations
@@ -15,12 +24,17 @@ from __future__ import annotations
 import dataclasses
 from typing import Protocol
 
+import psycopg
+
 from mlb_baseball.health import Check
+
+DATA_SOURCE_STATCAST = "statcast_expected_ba"
+DATA_SOURCE_WHATIF = "hand_typed_whatif"
 
 
 @dataclasses.dataclass(frozen=True)
 class BatterBABIPInputs:
-    """Observed BABIP and trajectory distribution inputs for a batter."""
+    """Observed BABIP and trajectory distribution inputs for a batter (what-if input)."""
 
     batter_id: str
     batter_name: str
@@ -43,6 +57,8 @@ class BABIPEvaluationResult:
     babip_luck_delta: float  # Actual BABIP - Expected xBABIP
     regression_tier: str  # e.g. "SEVERE_POSITIVE_REGRESSION", "FAIR_VALUE_NEUTRAL"
     is_buy_low_candidate: bool
+    data_source: str  # DATA_SOURCE_STATCAST or DATA_SOURCE_WHATIF -- see module docstring
+    balls_in_play: int = 0  # real non-HR BIP sample size (0 for what-if)
 
 
 class BaseBABIPEngine(Protocol):
@@ -56,16 +72,35 @@ class BaseBABIPEngine(Protocol):
         ...
 
 
+def _classify_regression_tier(delta: float) -> tuple[str, bool]:
+    """Classify an actual-minus-expected BABIP delta into a regression tier."""
+    if delta <= -0.045:
+        return "SEVERE_POSITIVE_REGRESSION", True
+    if delta <= -0.020:
+        return "MODERATE_UNDERPERFORMER", True
+    if delta >= 0.045:
+        return "SEVERE_NEGATIVE_REGRESSION", False
+    if delta >= 0.020:
+        return "MODERATE_OVERPERFORMER", False
+    return "FAIR_VALUE_NEUTRAL", False
+
+
 class BABIPRegressionEngine:
-    """Calculates expected xBABIP and regression candidate tiers (BABIP-LUCK-01)."""
+    """What-if xBABIP calculator from hand-typed trajectory-rate inputs (BABIP-LUCK-01).
+
+    Estimates an expected BABIP from an uncited linear formula over
+    caller-supplied rate inputs. This is NOT the real Statcast-derived
+    expected BABIP (`babip_from_statcast()`, below) -- see module docstring.
+    Never wired to `raw.statcast_pitch`; scouting/what-if input only.
+    """
 
     def evaluate_babip(
         self,
         inputs: BatterBABIPInputs,
     ) -> BABIPEvaluationResult:
-        """Compute trajectory xBABIP and luck deficit."""
-        # 1. Expected xBABIP Model
-        # Baseline ~ 0.220 + 0.380*LD + 0.120*HardHit + 0.006*(Speed - 27.0) - 0.140*IFFB + 0.040*GB
+        """Compute a what-if xBABIP and luck deficit from hand-typed rate inputs."""
+        # Uncited baseline (project-derived, see module/class docstring):
+        # 0.220 + 0.380*LD + 0.120*HardHit + 0.006*(Speed - 27.0) - 0.140*IFFB + 0.040*GB
         speed_delta = inputs.sprint_speed_fps - 27.0
         xbabip = (
             0.220
@@ -77,25 +112,8 @@ class BABIPRegressionEngine:
         )
         xbabip = round(xbabip, 3)
 
-        # 2. Luck Delta
         delta = round(inputs.actual_babip - xbabip, 3)
-
-        # 3. Regression Tiers
-        if delta <= -0.045:
-            tier = "SEVERE_POSITIVE_REGRESSION"
-            buy_low = True
-        elif delta <= -0.020:
-            tier = "MODERATE_UNDERPERFORMER"
-            buy_low = True
-        elif delta >= 0.045:
-            tier = "SEVERE_NEGATIVE_REGRESSION"
-            buy_low = False
-        elif delta >= 0.020:
-            tier = "MODERATE_OVERPERFORMER"
-            buy_low = False
-        else:
-            tier = "FAIR_VALUE_NEUTRAL"
-            buy_low = False
+        tier, buy_low = _classify_regression_tier(delta)
 
         return BABIPEvaluationResult(
             batter_name=inputs.batter_name,
@@ -104,7 +122,89 @@ class BABIPRegressionEngine:
             babip_luck_delta=delta,
             regression_tier=tier,
             is_buy_low_candidate=buy_low,
+            data_source=DATA_SOURCE_WHATIF,
         )
+
+
+def babip_from_statcast(
+    batter_mlbam_id: str,
+    date_from: str,
+    date_to: str,
+    conn: psycopg.Connection,
+) -> BABIPEvaluationResult | None:
+    """Compute a real batter's real actual-vs-expected BABIP from Statcast data.
+
+    Actual BABIP uses the standard public definition, `(H - HR) / (AB - K -
+    HR + SF)`, computed here as (non-HR batted-ball hits) / (non-HR
+    batted-ball events) -- `raw.statcast_pitch.bb_type IS NOT NULL` is
+    Savant's own reliable batted-ball-event marker (already relied on by
+    `mlb_baseball/sql/statcast_expected_update.sql`), so this matches the
+    public formula except for the rare sac-bunt edge case, a simplification
+    shared by most public BABIP calculators. Confirmed directly against
+    production (2026-09-23): `raw.statcast_pitch.babip_value` is itself a
+    real Statcast-native 0/1 "counts as a BABIP hit" flag -- 1 on
+    single/double/triple, 0 on outs/strikeouts, and 0 on home runs (excluded
+    from BABIP by definition) -- independently confirming the hit
+    classification used below (`events IN ('single', 'double', 'triple')`).
+    `estimated_ba_using_speedangle` coverage on real batted balls is ~91%
+    (2023 spot check), not 100%; `AVG()` here naturally skips the NULLs
+    rather than treating them as zero.
+
+    Expected BABIP is the mean of Statcast's own xBA model
+    (`estimated_ba_using_speedangle`) over that same non-HR balls-in-play
+    population -- Statcast's Expected Statistics methodology, the same
+    source `model/statcast_expected.py` cites.
+
+    Returns None when no batted-ball data exists for this batter/range (e.g.
+    a season before Statcast began publishing expected stats, 2015) rather
+    than fabricating a value.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE bb_type IS NOT NULL AND events <> 'home_run')
+                    AS bip_n,
+                COUNT(*) FILTER (
+                    WHERE bb_type IS NOT NULL
+                      AND events IN ('single', 'double', 'triple')
+                ) AS hits_n,
+                AVG(NULLIF(estimated_ba_using_speedangle, '')::double precision)
+                    FILTER (WHERE bb_type IS NOT NULL AND events <> 'home_run')
+                    AS mean_xba,
+                MAX(player_name) AS player_name
+            FROM raw.statcast_pitch
+            WHERE batter = %(batter_id)s
+              AND game_date BETWEEN %(date_from)s AND %(date_to)s
+              AND events IS NOT NULL
+            """,
+            {
+                "batter_id": batter_mlbam_id,
+                "date_from": date_from,
+                "date_to": date_to,
+            },
+        )
+        row = cur.fetchone()
+
+    if row is None or not row[0] or row[2] is None:
+        return None
+
+    bip_n, hits_n, mean_xba, player_name = row
+    actual_babip = round(hits_n / bip_n, 3)
+    expected_babip = round(float(mean_xba), 3)
+    delta = round(actual_babip - expected_babip, 3)
+    tier, buy_low = _classify_regression_tier(delta)
+
+    return BABIPEvaluationResult(
+        batter_name=player_name or batter_mlbam_id,
+        actual_babip=actual_babip,
+        expected_xbabip=expected_babip,
+        babip_luck_delta=delta,
+        regression_tier=tier,
+        is_buy_low_candidate=buy_low,
+        data_source=DATA_SOURCE_STATCAST,
+        balls_in_play=int(bip_n),
+    )
 
 
 def health_check() -> list[Check]:

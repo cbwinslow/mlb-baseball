@@ -1,16 +1,40 @@
 name: arm_slot_engine
 definition: >
-  A standalone geometry calculator that classifies a pitcher's arm slot and
-  scores release-point consistency from caller-provided release coordinates.
-formula: mlb_baseball/model/arm_slot.py::PitcherArmSlotEngine.evaluate_arm_slot
-citation: project-derived (no source for shoulder-height assumption or consistency score)
-data_source: none -- caller-supplied dataclass fields; no gold/core/raw read
-grain: not applicable (stateless per-pitcher calculation)
+  Classifies a real pitcher's real arm-slot angle from Baseball Savant's own
+  published per-pitch Arm Angle measurement, and scores release-point
+  consistency from that same real data's stddev. A separate hand-typed
+  what-if calculator (caller-supplied release coordinates and an uncited
+  shoulder-height assumption) remains available for scouting-input use only.
+formula: mlb_baseball/model/arm_slot.py::arm_slot_from_statcast
+citation: >
+  Real path: Baseball Savant's published Arm Angle methodology
+  (baseballsavant.mlb.com/leaderboard/pitcher-arm-angles), Hawk-Eye
+  biomechanic release-point tracking. What-if path: project-derived (no
+  source for the 82%-of-height shoulder estimate); the release-consistency
+  score's 0-100 scaling and tier cutoffs are project-derived on both paths
+  -- no published source found (metric-catalog triage literature check,
+  2026-09-23).
+data_source: >
+  raw.statcast_pitch.arm_angle (real path, populated 2020-present); none --
+  caller-supplied dataclass fields (what-if path)
+grain: per pitcher, per caller-specified date range (real path); stateless per-call (what-if path)
 layer: model
 complexity: complex
 implementation: python
-status: implemented-untested
-visibility: internal
+status: published
+visibility: public
 notes: >
-  The trigonometric angle is directly computed, but the 82%-of-height
-  shoulder estimate, dispersion scoring, and tier cutoffs are uncited.
+  Fixed 2026-09-23 (metric-catalog triage follow-up): the module used to
+  derive arm slot entirely from an uncited "shoulder is 82% of height"
+  geometric assumption and never read real data. `arm_slot_from_statcast()`
+  now reads Statcast's own real, published Arm Angle column directly.
+  `status: published` reflects the real angle citation; not `validated`
+  because no independent tie-out against a specific known published
+  pitcher value was run this pass. The release-consistency score remains
+  project-derived on both paths (see citation) -- kept separate from the
+  cited angle so no claim implies a citation it does not have. Pre-2020
+  pitchers/seasons have no real `arm_angle` data and the real path returns
+  an explicit "no data" result rather than a fabricated value. The
+  hand-typed what-if calculator, `PitcherArmSlotEngine.evaluate_arm_slot`
+  (same file), remains available for scouting-input use only and stays
+  uncited (project-derived), same as before this fix.

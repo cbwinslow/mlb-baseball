@@ -133,7 +133,13 @@ games AS (
         g.away_score,
         (g.game_date::TIMESTAMP + coalesce(g.game_number, 0) * INTERVAL 3 HOUR) AS event_ts
     FROM pg.core.game AS g
-    WHERE g.game_type = 'regular'
+    -- game_pk is retro_game_id (below); a game the current season hasn't
+    -- been reconciled against Retrosheet for yet has no id here, not a
+    -- fabricated one -- already documented as "coverage is the regular
+    -- season, 1910-2025" (docs/FEATURE_STORE.md, Honest limitations).
+    -- Confirmed on real production data: all 2,347 regular-season rows with
+    -- a NULL retro_game_id are the in-progress 2026 season.
+    WHERE g.game_type = 'regular' AND g.retro_game_id IS NOT NULL
 )
 
 SELECT

@@ -1,51 +1,24 @@
-"""Unit tests for Pitcher Vertical Approach Angle Engine (VAA-01, ADR-180)."""
+"""Unit tests for the real Chamberlain/Pavlidis VAA formula (VAA-01, ADR-180)."""
 
-from mlb_baseball.model.vaa import (
-    ApproximateVAAEngine,
-    PitchApproachKinematics,
-    health_check,
-)
+from mlb_baseball.model.vaa import health_check, pitch_vaa_degrees
 
 
-def test_high_rising_fastball_has_flat_vaa_and_whiff_boost():
-    """Verify low release height with high IVB at top of zone yields flat VAA."""
-    engine = ApproximateVAAEngine()
+def test_typical_four_seam_fastball_vaa_in_expected_range():
+    """A typical modern four-seam's VAA should fall in the docstring's -4.5 to -6 deg range."""
+    vaa = pitch_vaa_degrees(vy0=-130.0, ay=25.5, vz0=-5.8, az=-17.5)
 
-    rising_fb = PitchApproachKinematics(
-        pitcher_id="p1",
-        pitcher_name="Joe Ryan Archetype",
-        pitch_type="FF",
-        release_height_ft=5.4,
-        plate_z_ft=3.4,
-        pfx_z_in=20.0,
-        release_velo_mph=95.0,
-    )
-
-    res = engine.evaluate_vaa(rising_fb)
-
-    assert res.calculated_vaa_deg > -4.50
-    assert res.whiff_boost_pct > 1.5
-    assert res.approach_tier == "ELITE_FLAT_RISING_VAA"
+    assert vaa is not None
+    assert -6.5 <= vaa <= -4.0
 
 
-def test_steep_downhill_pitch_classified_as_steep():
-    """Verify tall release height with negative IVB yields steep downhill VAA."""
-    engine = ApproximateVAAEngine()
+def test_zero_ay_returns_none():
+    """Degenerate kinematics (zero vertical acceleration) must return None, not crash."""
+    assert pitch_vaa_degrees(vy0=-130.0, ay=0.0, vz0=-5.8, az=-17.5) is None
 
-    steep = PitchApproachKinematics(
-        pitcher_id="p2",
-        pitcher_name="Tall Curveballer",
-        pitch_type="CU",
-        release_height_ft=6.5,
-        plate_z_ft=1.4,
-        pfx_z_in=-12.0,
-        release_velo_mph=79.0,
-    )
 
-    res = engine.evaluate_vaa(steep)
-
-    assert res.calculated_vaa_deg < -7.00
-    assert res.approach_tier == "STEEP_DOWNHILL"
+def test_negative_discriminant_returns_none():
+    """An unphysical vy0 too small for the plate distance must return None, not raise."""
+    assert pitch_vaa_degrees(vy0=-1.0, ay=25.5, vz0=-5.8, az=-17.5) is None
 
 
 def test_vaa_health_check():

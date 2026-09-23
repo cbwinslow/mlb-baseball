@@ -294,21 +294,25 @@ def test_available_ts_equals_event_ts(built):
 
 
 _WOBBLE_TEAMS = [(7301, "WBA"), (7302, "WBB")]
-_WOBBLE_PLAYER = (73001, "wob001")
-# id, retro, date, game_number, pa -- a boundary game exactly 7 days before a
-# 3-game day (production data never has 3 games/day, but the mechanism this
+_WOBBLE_BATTER = (73001, "wob001")
+_WOBBLE_PITCHER = (73002, "wob002")
+# id, retro, date, game_number, pa/bf -- a boundary game exactly 7 days before
+# a 3-game day (production data never has 3 games/day, but the mechanism this
 # reproduces -- ordering/bounding a rolling window by raw event_ts, which
 # carries the fictional game_number*3h same-day offset -- doesn't care how
 # many legs there are, and this shape pins down both failure modes in one
 # fixture: g_a/g_b/g_c must all see identical prior history (none of them
 # should see each other), and all three must see g_prior (exactly 7 days
-# back) identically too.
+# back) identically too. The pitcher's bf and the batter's pa reuse the same
+# numbers so both relations' 7d windows are checked against the same
+# expected value.
 _WOBBLE_GAMES = [
     (7940001, "WOB202404010", "2024-04-01", 0, 9),  # g_prior, 7 days before below
     (7940002, "WOB202404080", "2024-04-08", 0, 11),  # g_a, 00:00
     (7940003, "WOB202404081", "2024-04-08", 1, 5),  # g_b, 03:00
     (7940004, "WOB202404082", "2024-04-08", 2, 7),  # g_c, 06:00
 ]
+_WOBBLE_SAME_DAY_RETRO_IDS = ("WOB202404080", "WOB202404081", "WOB202404082")
 
 
 def test_rolling_window_start_does_not_wobble_with_same_day_offset(db_conn):
@@ -321,13 +325,22 @@ def test_rolling_window_start_does_not_wobble_with_same_day_offset(db_conn):
     real instances, a 3-game day). Both are the same root cause: the window
     must be ordered and bounded by the *calendar day*
     (date_trunc('day', event_ts)), not the fictional intraday clock.
+
+    Covers all three relations that copy this window pattern
+    (feat_player_form.sql, feat_pitcher_form.sql, feat_game.sql's team-form
+    window) -- each is a separately maintained copy of the same SQL shape,
+    so a regression in any one of them needs its own assertion here.
     """
     game_ids = [g[0] for g in _WOBBLE_GAMES]
     db_conn.rollback()
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM gold.batting_game WHERE game_id = ANY(%s)", (game_ids,))
+        cur.execute("DELETE FROM gold.pitching_game WHERE game_id = ANY(%s)", (game_ids,))
         cur.execute("DELETE FROM core.game WHERE id = ANY(%s)", (game_ids,))
-        cur.execute("DELETE FROM core.player WHERE id = %s", (_WOBBLE_PLAYER[0],))
+        cur.execute(
+            "DELETE FROM core.player WHERE id = ANY(%s)",
+            ([_WOBBLE_BATTER[0], _WOBBLE_PITCHER[0]],),
+        )
         cur.execute("DELETE FROM core.team WHERE id = ANY(%s)", ([t for t, _ in _WOBBLE_TEAMS],))
         for tid, retro in _WOBBLE_TEAMS:
             cur.execute(
@@ -336,9 +349,9 @@ def test_rolling_window_start_does_not_wobble_with_same_day_offset(db_conn):
                 (tid, retro),
             )
         cur.execute(
-            "INSERT INTO core.player (id, retro_id, last_name, first_name) "
-            "VALUES (%s, %s, 'W', 'X')",
-            _WOBBLE_PLAYER,
+            "INSERT INTO core.player (id, retro_id, last_name, first_name) VALUES "
+            "(%s, %s, 'W', 'X'), (%s, %s, 'W', 'Y')",
+            (*_WOBBLE_BATTER, *_WOBBLE_PITCHER),
         )
         for gid, retro, date, gn, pa in _WOBBLE_GAMES:
             cur.execute(
@@ -352,34 +365,65 @@ def test_rolling_window_start_does_not_wobble_with_same_day_offset(db_conn):
                 "gold.batting_game",
                 _BAT_COLS,
                 gid,
-                _WOBBLE_PLAYER[0],
+                _WOBBLE_BATTER[0],
                 _WOBBLE_TEAMS[0][0],
                 date,
                 {"pa": pa, "ab": pa},
+            )
+            _insert_line(
+                cur,
+                "gold.pitching_game",
+                _PIT_COLS,
+                gid,
+                _WOBBLE_PITCHER[0],
+                _WOBBLE_TEAMS[0][0],
+                date,
+                {"bf": pa, "gs": 1},
             )
     db_conn.commit()
     try:
         with tempfile.TemporaryDirectory() as tmp:
             dbfile = os.path.join(tmp, "wobble.duckdb")
             feat.build(duckdb_path=dbfile, pg_url=os.environ["DATABASE_URL"], feature_version="v1")
-            rows = _q(
+            batter_rows = _q(
                 dbfile,
                 "SELECT retro_game_id, pa_7d FROM feat.player_form "
                 "WHERE player_id = ? ORDER BY retro_game_id",
-                [_WOBBLE_PLAYER[0]],
+                [_WOBBLE_BATTER[0]],
             )
-        got = dict(rows)
-        # g_a/g_b/g_c (today's three legs) must all see only g_prior (pa=9),
-        # never each other, regardless of which leg is which.
-        assert got["WOB202404080"] == 9
-        assert got["WOB202404081"] == 9
-        assert got["WOB202404082"] == 9
+            pitcher_rows = _q(
+                dbfile,
+                "SELECT retro_game_id, bf_7d FROM feat.pitcher_form "
+                "WHERE player_id = ? ORDER BY retro_game_id",
+                [_WOBBLE_PITCHER[0]],
+            )
+            game_rows = _q(
+                dbfile,
+                "SELECT game_pk, home_obp_30d FROM feat.game "
+                "WHERE game_pk = ANY(?) ORDER BY game_pk",
+                [list(_WOBBLE_SAME_DAY_RETRO_IDS)],
+            )
+        got_batter = dict(batter_rows)
+        got_pitcher = dict(pitcher_rows)
+        got_game_obp = dict(game_rows)
+        # g_a/g_b/g_c (today's three legs) must all see only g_prior (pa/bf=9),
+        # never each other, regardless of which leg is which -- for both the
+        # player-grain relations (feat_player_form.sql / feat_pitcher_form.sql)
+        # and the team-grain window feat_game.sql builds inline.
+        for retro_id in _WOBBLE_SAME_DAY_RETRO_IDS:
+            assert got_batter[retro_id] == 9
+            assert got_pitcher[retro_id] == 9
+        assert len(set(got_game_obp.values())) == 1  # all three legs' team OBP agree
     finally:
         db_conn.rollback()
         with db_conn.cursor() as cur:
             cur.execute("DELETE FROM gold.batting_game WHERE game_id = ANY(%s)", (game_ids,))
+            cur.execute("DELETE FROM gold.pitching_game WHERE game_id = ANY(%s)", (game_ids,))
             cur.execute("DELETE FROM core.game WHERE id = ANY(%s)", (game_ids,))
-            cur.execute("DELETE FROM core.player WHERE id = %s", (_WOBBLE_PLAYER[0],))
+            cur.execute(
+                "DELETE FROM core.player WHERE id = ANY(%s)",
+                ([_WOBBLE_BATTER[0], _WOBBLE_PITCHER[0]],),
+            )
             cur.execute(
                 "DELETE FROM core.team WHERE id = ANY(%s)", ([t for t, _ in _WOBBLE_TEAMS],)
             )

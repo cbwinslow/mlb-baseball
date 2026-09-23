@@ -2,6 +2,126 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-292: `core.team_franchise` — franchise identity, by analogy to `mlb_team_id`/player identity
+
+**Decision:** `core.team` gains `franchise_id` (nullable FK), and a new
+`core.team_franchise` table gets one row per real MLB franchise (not per
+team-era): a stable `franchise_id` (Lahman's own `franchid`), a
+`franchise_name`, a `current_retro_team_id` (the franchise's newest
+resolved code), and a `legacy_retro_team_id` (its oldest resolved code).
+Built by a new `conform.py` step (`_build_team_franchises`, same pattern
+as `_build_team_alias`), from data already ingested
+(`raw.lahman_teams_franchises` + `raw.lahman_teams.franchid`/`teamidretro`,
+already confirmed matching `core.team.retro_team_id`) — no new source.
+Migration `0107_team_franchise.sql`. See
+`openspec/changes/team-franchise-crosswalk/`.
+
+**Context:** PR #242 hand-patched a real bug — `mlb season-sim` crashing/
+mis-simulating on the Athletics' 2025 relocation (`OAK` → `ATH`) — with an
+inline `CASE WHEN 'ATH' THEN 'OAK'` in `mlb_baseball/model/season.py`.
+That pattern already existed in two other places (`report.py`'s
+`gold.team_season` build query and its own health-check mirror), each a
+separately hand-typed, easy-to-miss-a-spot literal. ADR-013 already named
+the underlying gap when `core.team`'s one-row-per-team-era design was
+chosen: "No franchise-continuity table yet linking e.g. Boston/Milwaukee/
+Atlanta Braves — a known, deliberate gap until something needs it." This
+is that gap being closed, following the exact precedent ADR-029 set for
+player identity (`core.player`'s Chadwick Register crosswalk) and team
+identity (`core.team.mlb_team_id`).
+
+**Rationale:**
+- **`current_retro_team_id` is the era with the greatest `first_year`, not
+  `core.team.last_year = 9999`.** Verified directly against real
+  production data: Retrosheet's own source file still marks the Athletics'
+  retired `OAK` code "currently active" (`last_year = 9999`) — a real
+  staleness, not a hypothetical — while the real 2025 code is `ATH`. A
+  franchise's `first_year` is set once, at that era's start, and isn't
+  subject to the same staleness `last_year`'s shared-sentinel convention
+  is.
+- **Sourced from Lahman's own `franchid`, not `mlb_team_id` alone.**
+  `mlb_team_id` (ADR-029) is already a correct, populated franchise anchor
+  for all 30 current teams, and would resolve the immediate Athletics case
+  on its own — but it's null for 106 of 152 `core.team` rows (every
+  pre-1901 team-era). Lahman's `franchid` already covers the same
+  question back to 1871 and is already ingested and already confirmed
+  joining cleanly to `core.team.retro_team_id`, so it covers strictly more
+  of `core.team` for zero new ingestion cost.
+- **`legacy_retro_team_id` was added mid-implementation, not part of the
+  original design.** Wiring the actual consumers surfaced that "the
+  current code" is the wrong anchor for two of them: `gold.team_season`
+  has `UNIQUE (team_id, season)` and was already deliberately anchoring
+  every Athletics season on the old `OAK` row (accepting that its
+  `team_city`/`team_nickname` columns say "Oakland" even for the 2025
+  season, rather than let a relocation change `team_id`); `season.py`'s
+  `ALL_MLB_TEAMS`/`MLB_DIVISIONS` (a static list, modernizing it separately
+  scoped and deferred) is still keyed on `OAK` and would crash the
+  simulation on an unrecognized `ATH` key. Anchoring either on
+  `current_retro_team_id` instead would have been a real, unrequested
+  behavior change (old seasons would start showing "Sacramento", or the
+  simulation would need an immediate unplanned edit to `ALL_MLB_TEAMS`).
+  Owner decision: both resolve through `legacy_retro_team_id`, preserving
+  exact current behavior; `_build_team_aliases` (below) is the one
+  consumer that correctly wants `current_retro_team_id`, since it exists
+  specifically to match an external source's live, current-season ticker.
+- **A second, previously undiscovered bug from the identical root cause
+  was found and fixed in the same change, not left for later:**
+  `_build_team_aliases`'s existing seed query picked its target row with
+  `WHERE retro_team_id = %s AND last_year = 9999` — the same stale-active
+  assumption. For the Athletics, this attached the real Kalshi `"ATH"`
+  ticker alias to the **old `OAK` row's** `team_id`, not the real 2025
+  `ATH` row's. Since `_game_lookup` keys off `core.game`'s actual, correct,
+  per-season `home_team_id`/`away_team_id` (confirmed directly: 2025
+  Athletics home games already resolve to the `ATH` row, 2023/2024 games
+  to `OAK`), that mismatch meant real 2025 Kalshi Athletics markets
+  silently failed to match their games — no crash, just a quiet coverage
+  gap in exactly the data this table exists to serve. Fixed by resolving
+  each seed alias's target through `core.team_franchise` (falling back to
+  the seed's own row when franchise resolution isn't available, e.g.
+  Lahman not yet ingested — `core.team_alias` must keep working without
+  it, per ADR-029).
+- **A new `mlb doctor` check, scoped to what Lahman actually covers.**
+  Fails when a `core.team` row's `retro_team_id` has a real
+  `raw.lahman_teams` match (a franchise link is expected) but
+  `franchise_id` is still null after conform runs — surfacing a future
+  new/renamed team the Lahman crosswalk hasn't caught up to yet, instead
+  of it silently resolving wrong downstream. Does not fail for a row with
+  no `raw.lahman_teams` match at all (the pre-1969 Negro League gap this
+  project already documents and accepts elsewhere).
+- **Explicitly deferred, not silently rolled in:** making
+  `ALL_MLB_TEAMS`/`MLB_DIVISIONS` dynamically derived from the database
+  (a new expansion team is a content update, not a code-resolution bug),
+  and point-in-time division/league realignment history (teams switching
+  divisions over time is a separate, larger problem this change doesn't
+  touch). Also deferred: rewiring `mlb_baseball/model/season.py`'s
+  `team_strength_asof`/`team_wins_asof` (PR #242's still-open `--as-of`
+  work) to use this crosswalk instead of their own inline `CASE WHEN` —
+  those functions don't exist on `main` yet at the time of this change: a
+  follow-up once #242 merges.
+
+**Verified against real production data**: `core.team` rows for
+`retro_team_id IN ('OAK', 'ATH')` both carry `mlb_team_id = 133`, and
+`raw.lahman_teams` already has a real 2025 row (`teamidretro='ATH'`,
+`franchid='OAK'`) — Lahman's own data isn't lagging this relocation.
+`core.game` already resolves 2023/2024 Athletics home games to the `OAK`
+row and 2025 games to the `ATH` row correctly on its own. New integration
+tests cover: the Athletics relocation shape end to end (franchise
+resolution, alias-target fix, and the health check, together);
+`_build_team_aliases`'s alias-target regression specifically; the two
+documented non-contiguous-era code-reuse cases from ADR-013 (`HOU`
+1962-2012 vs 2013-2021, `MIL` 1970-1997 vs 1998-2021 — both real code
+*reuse*, a genuinely different case from a code *change*); both health
+check branches; and `report.py`/`season.py`'s consumer-side behavior
+staying unchanged.
+
+**Revisit if:** PR #242 merges (rewire `team_strength_asof`/
+`team_wins_asof` onto this crosswalk, retiring their own inline
+`CASE WHEN`); `ALL_MLB_TEAMS`/`MLB_DIVISIONS` are ever made
+database-derived (at that point re-evaluate whether `season.py`/
+`report.py` should switch from `legacy_retro_team_id` to
+`current_retro_team_id`); or `mlb_team_id` and Lahman's `franchid` are
+ever found to disagree for a real row (not observed in this change; would
+be worth a `mlb doctor` sanity check at that point, not before).
+
 ## ADR-291: Metric catalog — gate clarification + YAML/`meta.metric`/docs-page shape
 
 **Decision:** `openspec/changes/metric-catalog/` (proposal/design/spec) pulls

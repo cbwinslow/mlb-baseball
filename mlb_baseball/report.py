@@ -149,11 +149,15 @@ def _build_player_season(conn: psycopg.Connection) -> int:
 # ---------------------------------------------------------------------------
 
 # raw.lahman_teams.teamidretro matches core.team.retro_team_id exactly for
-# every current team except the Athletics' 2025 relocation ('ATH', bare,
-# same gap conform.py's own _TEAM_ALIAS_SEED documents for Kalshi/
-# Polymarket) -- remapped inline here rather than touching the shared seed
-# list, the same "small, local, cheap fix" call oaa.py's own 3-name remap
-# already made for a different source's team-name quirk.
+# every current team except a relocated/reissued franchise (e.g. the
+# Athletics' 2025 'ATH' code, bare) -- every era of a franchise must land
+# under the SAME team_id (gold.team_season has UNIQUE (team_id, season)),
+# so this resolves each row's code to that franchise's legacy_retro_team_id
+# (its ORIGINAL code, not the newest -- team-franchise-crosswalk design.md:
+# this table already anchors on the older code, so team_city/team_nickname
+# keep showing "Oakland"/"Athletics" even for the 2025 season, same as
+# before this fix, not "Sacramento") via core.team_franchise, instead of a
+# hand-typed CASE WHEN literal that only covered this one known relocation.
 _BUILD_TEAM_SEASON_BASE_SQL = """
 INSERT INTO gold.team_season (
     team_id, season, team_city, team_nickname, league,
@@ -171,7 +175,16 @@ SELECT
     NULLIF(lt.hr, '')::numeric::integer, NULLIF(lt.era, '')::numeric
 FROM raw.lahman_teams lt
 JOIN core.team t
-    ON t.retro_team_id = (CASE WHEN lt.teamidretro = 'ATH' THEN 'OAK' ELSE lt.teamidretro END)
+    ON t.retro_team_id = COALESCE(
+        (
+            SELECT tf.legacy_retro_team_id
+            FROM core.team seed_t
+            JOIN core.team_franchise tf ON tf.id = seed_t.franchise_id
+            WHERE seed_t.retro_team_id = lt.teamidretro
+            LIMIT 1
+        ),
+        lt.teamidretro
+    )
     AND lt.yearid::integer BETWEEN t.first_year AND t.last_year
 WHERE lt.teamidretro IS NOT NULL AND lt.teamidretro != ''
   -- A handful of Negro League teams (e.g. Toledo Crawfords, 1939) appear
@@ -745,8 +758,15 @@ def health_check() -> list[Check]:
             """
             SELECT count(*) FROM raw.lahman_teams lt
             JOIN core.team t
-                ON t.retro_team_id = (
-                    CASE WHEN lt.teamidretro = 'ATH' THEN 'OAK' ELSE lt.teamidretro END
+                ON t.retro_team_id = COALESCE(
+                    (
+                        SELECT tf.legacy_retro_team_id
+                        FROM core.team seed_t
+                        JOIN core.team_franchise tf ON tf.id = seed_t.franchise_id
+                        WHERE seed_t.retro_team_id = lt.teamidretro
+                        LIMIT 1
+                    ),
+                    lt.teamidretro
                 )
                 AND lt.yearid::integer BETWEEN t.first_year AND t.last_year
             WHERE lt.teamidretro IS NOT NULL AND lt.teamidretro != ''

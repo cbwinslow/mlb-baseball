@@ -35,6 +35,7 @@ DYNAMIC_RAW_TABLES = [
     "raw.kalshi_market",
     "raw.kalshi_snapshot",
     "raw.lahman_teams",
+    "raw.lahman_teams_franchises",
     "raw.mlb_boxscore_batting",
     "raw.mlb_boxscore_pitching",
     "raw.mlb_playbyplay",
@@ -110,7 +111,11 @@ def _reset_dynamic_tables(conn):
             "core.player_war",
             "core.standing",
             "core.player",
+            # core.team_franchise is referenced by core.team.franchise_id,
+            # so core.team must clear first, same reasoning as core.venue
+            # below.
             "core.team",
+            "core.team_franchise",
             "core.venue",
         ):
             cur.execute(f"DELETE FROM {table}")
@@ -239,6 +244,10 @@ def test_run_populates_team_player_and_game(db_conn):
     assert counts == {
         "core.team": 1,
         "core.venue": 0,
+        # No raw.lahman_teams/raw.lahman_teams_franchises seeded in this
+        # test -- core.team_franchise degrades to 0, same as every other
+        # optional build step here.
+        "core.team_franchise": 0,
         # ATL's Kalshi ticker alias ("ATL" -> "ATL") plus its FanGraphs
         # nickname alias ("Braves", fangraphs-conform / ADR-290).
         "core.team_alias": 2,
@@ -416,6 +425,151 @@ def test_conform_uses_official_supplemental_retrosheet_team_identities(db_conn):
         ]
         cur.execute("SELECT home_team_id FROM core.game WHERE retro_game_id = 'ATH202504010'")
         assert cur.fetchone()[0] is not None
+
+
+def _create_lahman_franchise_tables(cur):
+    # Full enough column set for every existing conform.health_check()
+    # check that reads raw.lahman_teams (w/l/g/lgid), not just the columns
+    # this file's own franchise queries use (yearid/franchid/teamidretro) --
+    # conform.health_check() builds its whole Check list eagerly, so every
+    # check's SQL runs even when a test only cares about one of them.
+    cur.execute(
+        "CREATE TABLE raw.lahman_teams "
+        "(yearid text, franchid text, teamidretro text, w text, l text, g text, lgid text)"
+    )
+    cur.execute("CREATE TABLE raw.lahman_teams_franchises (franchid text, franchname text)")
+
+
+def test_team_franchise_resolves_current_code_and_fixes_alias_target(db_conn):
+    """core.team_franchise.current_retro_team_id must be the era with the
+    greatest first_year, NOT whichever era core.team.last_year marks
+    active (real production data confirmed the retired 'OAK' code is
+    still last_year = 9999 while 'ATH' is the real 2025 code) -- and the
+    fix must also correct _build_team_aliases's same-cause bug (PR #242
+    review / team-franchise-crosswalk design.md): the seeded 'OAK' Kalshi
+    alias for the Athletics' current ticker must resolve to the *ATH* row's
+    team_id, not the old OAK row's.
+    """
+    _reset_dynamic_tables(db_conn)
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        # OAK: primary TEAMABR row, same last_year as ATL (the seeded max),
+        # so conform_team_insert.sql promotes it to the 9999 "currently
+        # active" sentinel -- exactly the stale-source-data shape found in
+        # real production.
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('OAK', 'AL', 'Oakland', 'Athletics', '1968', '2025')"
+        )
+        # ATH: supplemental TEAM{year}.TXT row, same shape as the real
+        # 2025 Athletics relocation (see the test above).
+        cur.execute(
+            "CREATE TABLE raw.retrosheet_team0 "
+            "(team text, city text, nickname text, first_g text, last_g text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team0 VALUES "
+            "('ATH', 'Sacramento', 'Athletics', '20250327', '20250928')"
+        )
+        _create_lahman_franchise_tables(cur)
+        cur.execute("INSERT INTO raw.lahman_teams_franchises VALUES ('OAK', 'Athletics')")
+        cur.execute(
+            "INSERT INTO raw.lahman_teams (yearid, franchid, teamidretro) VALUES "
+            "('2024', 'OAK', 'OAK'), "
+            "('2025', 'OAK', 'ATH')"
+        )
+        # ATL (from _seed_raw_tables) has no raw.lahman_teams row at all --
+        # a real, documented gap (see the team-identity spec's "honestly
+        # unresolved" scenario) that must stay franchise_id NULL, not
+        # guessed.
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT franchise_id, franchise_name, current_retro_team_id FROM core.team_franchise"
+        )
+        assert cur.fetchall() == [("OAK", "Athletics", "ATH")]
+
+        cur.execute(
+            "SELECT retro_team_id, first_year, tf.current_retro_team_id "
+            "FROM core.team t JOIN core.team_franchise tf ON tf.id = t.franchise_id "
+            "WHERE t.retro_team_id IN ('OAK', 'ATH') ORDER BY t.retro_team_id"
+        )
+        assert cur.fetchall() == [("ATH", 2025, "ATH"), ("OAK", 1968, "ATH")]
+
+        cur.execute("SELECT franchise_id FROM core.team WHERE retro_team_id = 'ATL'")
+        assert cur.fetchone() == (None,)
+
+        # The Kalshi "ATH" ticker alias (seeded from ("OAK", "ATH",
+        # "kalshi_ticker")) must resolve to the ATH row's team_id, not the
+        # OAK row's -- otherwise _game_lookup's real 2025 core.game
+        # home/away_team_id (also the ATH row, per the test above) never
+        # matches it.
+        cur.execute(
+            "SELECT t.retro_team_id FROM core.team_alias ta "
+            "JOIN core.team t ON t.id = ta.team_id "
+            "WHERE ta.alias = 'ATH' AND ta.source = 'kalshi_ticker'"
+        )
+        assert cur.fetchone() == ("ATH",)
+
+    db_conn.commit()  # release db_conn's read transaction before conform.run() TRUNCATEs
+    conform.run()  # rerun is idempotent
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.team_franchise")
+        assert cur.fetchone() == (1,)
+
+    # A clean, fully-conformed run (OAK/ATH both resolved, ATL honestly
+    # left unresolved with no Lahman coverage) must not trip the
+    # expected-but-unresolved health check.
+    check = next(
+        c
+        for c in conform.health_check()
+        if c.name == "core.team rows with an expected but unresolved franchise link"
+    )
+    assert check.ok, check.detail
+
+
+def test_team_franchise_disambiguates_reused_code_across_league_change_eras(db_conn):
+    """A code Retrosheet reuses across two distinct eras of the SAME
+    franchise (HOU: NL 1962-2012 / AL 2013-2021, MIL: AL 1970-1997 / NL
+    1998-2021 -- both real, per docs/DECISIONS.md ADR-013) is a case
+    genuinely different from a code *change* (OAK/ATH): both eras share
+    one code and must resolve to the same franchise, disambiguated by year
+    range, not by an ambiguous code-only join.
+    """
+    _reset_dynamic_tables(db_conn)
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.retrosheet_team VALUES "
+            "('HOU', 'NL', 'Houston', 'Colt .45s', '1962', '2012'), "
+            "('HOU', 'AL', 'Houston', 'Astros', '2013', '2025')"
+        )
+        _create_lahman_franchise_tables(cur)
+        cur.execute("INSERT INTO raw.lahman_teams_franchises VALUES ('HOU', 'Astros')")
+        cur.execute(
+            "INSERT INTO raw.lahman_teams (yearid, franchid, teamidretro) VALUES "
+            "('1962', 'HOU', 'HOU'), ('2012', 'HOU', 'HOU'), "
+            "('2013', 'HOU', 'HOU'), ('2021', 'HOU', 'HOU')"
+        )
+    db_conn.commit()
+
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT current_retro_team_id FROM core.team_franchise WHERE franchise_id = 'HOU'"
+        )
+        assert cur.fetchone() == ("HOU",)
+
+        cur.execute(
+            "SELECT t.first_year, t.last_year, tf.franchise_id "
+            "FROM core.team t JOIN core.team_franchise tf ON tf.id = t.franchise_id "
+            "WHERE t.retro_team_id = 'HOU' ORDER BY t.first_year"
+        )
+        assert cur.fetchall() == [(1962, 2012, "HOU"), (2013, 9999, "HOU")]
 
 
 def test_conform_adds_only_completed_spring_games_and_links_statcast_pitches(db_conn):
@@ -3087,6 +3241,59 @@ def test_health_check_passes_when_every_regular_season_player_resolves(db_conn):
 
     check = next(
         c for c in conform.health_check() if c.name == "core.player regular-season resolution"
+    )
+
+    assert check.ok, check.detail
+
+
+def test_health_check_flags_a_team_with_an_expected_but_unresolved_franchise_link(db_conn):
+    """A core.team row whose retro_team_id has a real raw.lahman_teams match
+    (a franchise link is expected to resolve) but franchise_id is still null
+    must fail -- bypasses conform.run() entirely, since the check's own SQL
+    reads core.team/raw.lahman_teams directly (team-identity spec:
+    "expected-but-unresolved")."""
+    _reset_dynamic_tables(db_conn)
+    with db_conn.cursor() as cur:
+        _create_lahman_franchise_tables(cur)
+        cur.execute(
+            "INSERT INTO core.team (retro_team_id, city, nickname, first_year, last_year) "
+            "VALUES ('OAK', 'Oakland', 'Athletics', 1968, 9999)"
+        )
+        cur.execute(
+            "INSERT INTO raw.lahman_teams (yearid, franchid, teamidretro) "
+            "VALUES ('2024', 'OAK', 'OAK')"
+        )
+    db_conn.commit()
+
+    check = next(
+        c
+        for c in conform.health_check()
+        if c.name == "core.team rows with an expected but unresolved franchise link"
+    )
+
+    assert not check.ok
+    assert "1" in check.detail
+
+
+def test_health_check_passes_for_a_team_with_no_lahman_coverage(db_conn):
+    """A core.team row whose retro_team_id has NO raw.lahman_teams match at
+    all (a real, documented gap -- pre-1969 Negro League team-eras) must
+    NOT fail the check, per the team-identity spec's "known, documented
+    historical gap" scenario."""
+    _reset_dynamic_tables(db_conn)
+    with db_conn.cursor() as cur:
+        _create_lahman_franchise_tables(cur)
+        cur.execute(
+            "INSERT INTO core.team (retro_team_id, city, nickname, first_year, last_year) "
+            "VALUES ('CAG', 'Chicago', 'American Giants', 1913, 1949)"
+        )
+        # No raw.lahman_teams row for 'CAG' at all.
+    db_conn.commit()
+
+    check = next(
+        c
+        for c in conform.health_check()
+        if c.name == "core.team rows with an expected but unresolved franchise link"
     )
 
     assert check.ok, check.detail

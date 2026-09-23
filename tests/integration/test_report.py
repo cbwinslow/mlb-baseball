@@ -21,6 +21,7 @@ _DYNAMIC_RAW_TABLES = [
     "raw.bref_batting",
     "raw.bref_pitching",
     "raw.lahman_teams",
+    "raw.lahman_teams_franchises",
     "raw.mlb_standing",
     "raw.retrosheet_event",
     "raw.retrosheet_gameinfo",
@@ -132,7 +133,10 @@ def _reset(conn):
             "core.player_war",
             "core.game",
             "core.player",
+            # core.team_franchise is referenced by core.team.franchise_id,
+            # so core.team must clear first.
             "core.team",
+            "core.team_franchise",
             "core.venue",
         ):
             cur.execute(f"DELETE FROM {table}")
@@ -397,10 +401,14 @@ def test_build_player_season_excludes_rows_with_no_resolvable_player(db_conn):
 
 
 def test_build_team_season_base_from_lahman_computes_win_pct_and_remaps_athletics(db_conn):
-    # 'ATH' (the Athletics' bare 2025 post-relocation code -- same gap
-    # conform.py's own _TEAM_ALIAS_SEED documents for Kalshi/Polymarket)
-    # must resolve via core.team's real 'OAK' retro_team_id, not silently
-    # drop the row.
+    # 'ATH' (the Athletics' bare 2025 post-relocation code) must resolve to
+    # the franchise's stable legacy_retro_team_id ('OAK') via
+    # core.team_franchise -- gold.team_season has UNIQUE (team_id, season),
+    # so every era of one franchise's history must share one team_id -- not
+    # silently drop the row. Seeds the same core.team_franchise/franchise_id
+    # shape conform.py's own _build_team_franchises would produce (this
+    # test calls _build_team_season_base directly, not through conform.run(),
+    # so that data must be seeded by hand here).
     _reset(db_conn)
     _ensure_dynamic_tables(db_conn)
     with db_conn.cursor() as cur:
@@ -409,7 +417,18 @@ def test_build_team_season_base_from_lahman_computes_win_pct_and_remaps_athletic
             [
                 ("LAN", "Los Angeles", "Dodgers", 1958, 9999, 119),
                 ("OAK", "Oakland", "Athletics", 1968, 9999, 133),
+                ("ATH", "Sacramento", "Athletics", 2025, 2025, 133),
             ],
+        )
+        cur.execute(
+            "INSERT INTO core.team_franchise "
+            "(franchise_id, franchise_name, current_retro_team_id, legacy_retro_team_id) "
+            "VALUES ('OAK', 'Athletics', 'ATH', 'OAK') RETURNING id"
+        )
+        (franchise_id,) = cur.fetchone()
+        cur.execute(
+            "UPDATE core.team SET franchise_id = %s WHERE retro_team_id IN ('OAK', 'ATH')",
+            (franchise_id,),
         )
         cur.execute(
             "INSERT INTO raw.lahman_teams (yearid, lgid, teamidretro, w, l, r, ra, hr, era) "

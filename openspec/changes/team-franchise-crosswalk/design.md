@@ -76,6 +76,30 @@ doctor` sanity assertion, not a hard requirement of this change).
 which era is actually current. `first_year` is set once, from the era's
 own start, and isn't subject to the same staleness.
 
+**Added during implementation: `core.team_franchise` also carries
+`legacy_retro_team_id` (the resolved era with the *smallest* `first_year`
+— the franchise's original code), alongside `current_retro_team_id`.**
+Discovered while wiring the consumers this change was meant to fix:
+`report.py`'s `gold.team_season` (`UNIQUE (team_id, season)`) and
+`season.py`'s `load_schedule_from_db` both need one *stable* `core.team`
+row per franchise across a relocation, for reasons independent of "what's
+the real current code" — `gold.team_season` was already deliberately
+anchoring every Athletics season on the old `OAK` row (accepting that its
+`team_city`/`team_nickname` columns show "Oakland" even for the 2025 row,
+rather than let a relocation change `team_id`), and `season.py`'s
+`ALL_MLB_TEAMS`/`MLB_DIVISIONS` (out of scope for this change, still
+hardcoded to `OAK`) would crash on an unrecognized `ATH` key. Anchoring
+both on `current_retro_team_id` (`ATH`) would flip which years show the
+wrong city in `gold.team_season` (old seasons would show "Sacramento"
+instead) and would crash the simulation outright — both real regressions,
+not neutral. Owner decision: anchor both on `legacy_retro_team_id`
+instead, preserving their exact current behavior while still removing the
+hand-patched `CASE WHEN` duplication in favor of one real crosswalk table.
+`current_retro_team_id` remains what `_build_team_aliases` uses (that
+consumer needs the real current code, to match an external source's
+live ticker) — the two columns serve genuinely different, already-real
+consumer needs, not redundant data.
+
 **One row per franchise in `core.team_franchise`, built and truncated the
 same way `core.team_alias` already is** (a plain builder function called
 from `run()`, truncated centrally) — follows this file's existing

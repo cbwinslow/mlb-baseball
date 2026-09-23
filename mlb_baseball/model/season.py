@@ -25,7 +25,7 @@ MLB_DIVISIONS: dict[str, dict[str, list[str]]] = {
     "AL": {
         "AL East": ["BAL", "BOS", "NYA", "TBA", "TOR"],
         "AL Central": ["CHA", "CLE", "DET", "KCA", "MIN"],
-        "AL West": ["HOU", "ANA", "OAK", "SEA", "TEX", "ATH"],
+        "AL West": ["HOU", "ANA", "OAK", "SEA", "TEX"],
     },
     "NL": {
         "NL East": ["ATL", "MIA", "NYN", "PHI", "WAS"],
@@ -390,12 +390,25 @@ def load_schedule_from_db(
             cur.execute(
                 """
                 SELECT
-                    ht.retro_team_id AS home_team,
-                    at.retro_team_id AS away_team,
+                    -- A relocated/reissued franchise (e.g. the Athletics'
+                    -- 2025 OAK -> ATH code) must resolve to the SAME code
+                    -- across every season, or ALL_MLB_TEAMS/MLB_DIVISIONS
+                    -- (a static list still keyed on the franchise's
+                    -- original code -- modernizing it is separately scoped)
+                    -- won't recognize the newer code and this simulation
+                    -- crashes. core.team_franchise.legacy_retro_team_id is
+                    -- that franchise's original code; COALESCE falls back
+                    -- to the row's own code when no franchise link is
+                    -- resolvable (e.g. Lahman data not yet ingested), same
+                    -- as this project's other franchise-crosswalk fallbacks.
+                    COALESCE(htf.legacy_retro_team_id, ht.retro_team_id) AS home_team,
+                    COALESCE(atf.legacy_retro_team_id, at.retro_team_id) AS away_team,
                     g.game_date
                 FROM core.game g
                 JOIN core.team ht ON ht.id = g.home_team_id
                 JOIN core.team at ON at.id = g.away_team_id
+                LEFT JOIN core.team_franchise htf ON htf.id = ht.franchise_id
+                LEFT JOIN core.team_franchise atf ON atf.id = at.franchise_id
                 WHERE g.season = %s
                   -- Regular season only (incl. Game 163 tiebreakers, which
                   -- count as regular season, per baseball.computer's

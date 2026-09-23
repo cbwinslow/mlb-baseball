@@ -55,20 +55,44 @@ source data that has not yet caught up to a real code reissue).
 - **THEN** `core.team_franchise.current_retro_team_id` is that era's
   `retro_team_id`
 
+### Requirement: A franchise also has a stable legacy code for consumers that require one fixed identity across a relocation
+
+`core.team_franchise.legacy_retro_team_id` SHALL be the `retro_team_id` of
+the team-era row with the smallest `first_year` among that franchise's
+resolved `core.team` rows (the franchise's original code) — the opposite
+end from `current_retro_team_id`.
+
+A consumer that must key a franchise's full history to one fixed
+`core.team` row for reasons independent of "what code is current today"
+(for example a table whose uniqueness constraint spans a team identifier
+and a season, or a caller with its own separate, already-established
+current-code convention it is not this change's job to update) SHALL
+resolve through `legacy_retro_team_id`, not `current_retro_team_id` — so
+adding this crosswalk does not, by itself, change what such a consumer
+already outputs today.
+
+#### Scenario: A franchise's original code anchors its stable identity
+
+- **WHEN** a franchise has two `core.team` eras with different
+  `retro_team_id` values
+- **THEN** `core.team_franchise.legacy_retro_team_id` for that franchise is
+  the older era's `retro_team_id`
+
 ### Requirement: A historical or old-coded team resolves to the correct current code in downstream results
 
-Any consumer that reports or simulates using "the current code for a team"
-(the season simulation and the season/team reports) SHALL resolve a real
-game or record filed under a franchise's older `retro_team_id` to that
-franchise's `current_retro_team_id`, so the franchise's full real history is
-represented under one code rather than being split or dropped.
+Any consumer that specifically needs "the franchise's real, current code"
+(for example matching an external source's live ticker/alias) SHALL
+resolve a real record filed under a franchise's older `retro_team_id` to
+that franchise's `current_retro_team_id`, so the franchise's full real
+history is represented under one code rather than being split or dropped.
 
-#### Scenario: Games recorded under a franchise's old code are not lost or split
+#### Scenario: An external source's current-season reference resolves to the current code
 
-- **WHEN** a franchise has real `core.game` rows recorded under both its
-  older and newer `retro_team_id`
-- **THEN** a season simulation or report requested for that franchise's
-  current code reflects games recorded under both codes
+- **WHEN** a franchise has real records filed under both its older and
+  newer `retro_team_id`, and a consumer needs the franchise's current,
+  real-world code
+- **THEN** that consumer resolves to `core.team_franchise.current_retro_team_id`,
+  not an older retired code
 
 ### Requirement: An expected-but-unresolved franchise link is surfaced, not silent
 

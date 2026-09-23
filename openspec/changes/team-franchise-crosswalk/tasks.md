@@ -1,6 +1,6 @@
 ## 1. Schema
 
-- [ ] 1.1 Add migration `migrations/0107_team_franchise.sql`: `core.team_franchise`
+- [x] 1.1 Add migration `migrations/0107_team_franchise.sql`: `core.team_franchise`
       (`id bigserial PRIMARY KEY`, `franchise_id text NOT NULL UNIQUE`,
       `franchise_name text`, `current_retro_team_id text`) and
       `core.team.franchise_id bigint REFERENCES core.team_franchise (id)`
@@ -11,17 +11,18 @@
 
 ## 2. Franchise resolution (`conform.py`)
 
-- [ ] 2.1 Add a new SQL resource (e.g. `conform_team_franchise_insert.sql`)
+- [x] 2.1 Add a new SQL resource (e.g. `conform_team_franchise_insert.sql`)
       that builds one `core.team_franchise` row per distinct `franchid`
       present in `raw.lahman_teams_franchises`, joined through
       `raw.lahman_teams.franchid`/`teamidretro` to `core.team.retro_team_id`
-      to compute `current_retro_team_id` as the `retro_team_id` of the
-      resolved `core.team` row with the greatest `first_year` for that
-      `franchid` (per design.md's Decisions — NOT `last_year = 9999`).
-      Verify: a deterministic hand fixture with two synthetic team-eras for
-      one franchise (older era `last_year = 9999`, newer era with a later
-      `first_year`) asserts the newer era's code wins.
-- [ ] 2.2 Add `_build_team_franchises(conn)` in `conform.py` (same shape as
+      to compute `current_retro_team_id` (greatest `first_year`) and
+      `legacy_retro_team_id` (smallest `first_year`) for that `franchid`
+      (per design.md's Decisions — NOT `last_year = 9999`). Verify: a
+      deterministic hand fixture with two synthetic team-eras for one
+      franchise (older era `last_year = 9999`, newer era with a later
+      `first_year`) asserts the newer era's code wins for
+      `current_retro_team_id` and the older wins for `legacy_retro_team_id`.
+- [x] 2.2 Add `_build_team_franchises(conn)` in `conform.py` (same shape as
       `_build_team_aliases`: catches `UndefinedTable` for the optional
       `raw.lahman_teams_franchises`/`raw.lahman_teams` prerequisites,
       returns the row count), and a backfill `UPDATE core.team SET
@@ -31,7 +32,7 @@
       `core.team_franchise` and `core.team.franchise_id` with non-zero
       counts; re-running produces identical counts (idempotent, matching
       this file's existing pattern).
-- [ ] 2.3 Fix `_build_team_aliases`'s row-selection predicate: replace
+- [x] 2.3 Fix `_build_team_aliases`'s row-selection predicate: replace
       `WHERE retro_team_id = %s AND last_year = 9999` with a join through
       the new franchise resolution so an alias attaches to the franchise's
       *current* era's `team_id`, not whichever era `last_year` happens to
@@ -39,7 +40,7 @@
       OAK(1968-9999)/ATH(2025-2025) shape as `test_conform.py`'s existing
       ATH fixture asserts the seeded `"ATH"` Kalshi alias resolves to the
       `ATH`-row's `team_id`, not the `OAK`-row's.
-- [ ] 2.4 Real-Postgres integration test: seed the two documented
+- [x] 2.4 Real-Postgres integration test: seed the two documented
       non-contiguous-era cases from ADR-013 (HOU 1962-2012 vs 2013-2021,
       MIL 1970-1997 vs 1998-2021) and confirm each era still resolves to
       the correct distinct franchise/current-code (a case genuinely
@@ -48,19 +49,32 @@
 
 ## 3. Consumers
 
-- [ ] 3.1 Update `mlb_baseball/model/season.py` (`load_schedule_from_db`,
-      `team_strength_asof`, `team_wins_asof`) to resolve each team's
-      current code via a join through `core.team_franchise` instead of the
-      inline `CASE WHEN 'ATH' THEN 'OAK'` added in the prior fix; delete
-      that inline SQL. Verify: `tests/integration/test_model_season.py`'s
-      existing `test_ath_team_code_normalizes_to_oak` (and the rest of that
-      file) still passes unchanged in behavior.
-- [ ] 3.2 Update `mlb_baseball/report.py`'s two existing
+- [x] 3.1 **Scope note (owner decision, apply session):** this branch was
+      cut from `main`, which does not yet have `team_strength_asof`/
+      `team_wins_asof`/the `--as-of` `CASE WHEN` fix — those only exist on
+      the still-open PR #242 branch. Updating them is deferred to a
+      follow-up once #242 merges and rebases onto this change, not done
+      here. What main *does* have: `load_schedule_from_db` (no ATH
+      handling at all today) and the leftover duplicate `"ATH"` entry in
+      `MLB_DIVISIONS["AL"]["AL West"]`. Update `load_schedule_from_db` to
+      resolve both home/away team codes through
+      `core.team_franchise.legacy_retro_team_id` (NOT `current_retro_team_id`
+      — see design.md's "Added during implementation": `ALL_MLB_TEAMS`/
+      `MLB_DIVISIONS` are still hardcoded to `OAK` and updating them is
+      separately out of scope, so normalizing schedule output to the
+      *current* code would crash the simulation on an unrecognized `ATH`
+      key). Remove the duplicate `"ATH"` entry from `MLB_DIVISIONS`.
+      Verify: a real-Postgres integration test seeding an `ATH`-coded 2025
+      game confirms `load_schedule_from_db` returns `"OAK"` for it, and
+      `simulate_season_monte_carlo` runs without a `KeyError`.
+- [x] 3.2 Update `mlb_baseball/report.py`'s two existing
       `CASE WHEN lt.teamidretro = 'ATH' THEN 'OAK' ELSE lt.teamidretro END`
-      sites to resolve through `core.team_franchise` instead. Verify:
-      `tests/integration/test_report.py`'s existing ATH-related test still
-      passes.
-- [ ] 3.3 Confirm no other call site duplicates this same hand-patch
+      sites to resolve through `core.team_franchise.legacy_retro_team_id`
+      (owner decision: preserves `gold.team_season`'s existing anchor
+      choice and `team_city`/`team_nickname` values exactly — see
+      design.md). Verify: `tests/integration/test_report.py`'s existing
+      ATH-related test still passes with unchanged output.
+- [x] 3.3 Confirm no other call site duplicates this same hand-patch
       (`grep -rn "ATH" --include=*.py mlb_baseball/`) and update any found.
       Verify: the grep after this task shows only the new resolver's own
       code, test fixtures, and the untouched `conform.py`/`carry.py`
@@ -69,7 +83,7 @@
 
 ## 4. Health check
 
-- [ ] 4.1 Add an `mlb doctor` check: fails when a `core.team` row's
+- [x] 4.1 Add an `mlb doctor` check: fails when a `core.team` row's
       `retro_team_id` has a matching `raw.lahman_teams` row (a crosswalk
       is expected) but `core.team.franchise_id` is still null; does not
       fail for a row with no `raw.lahman_teams` match at all (per the
@@ -80,19 +94,33 @@
 
 ## 5. Cross-cutting verification
 
-- [ ] 5.1 Run `uv run pytest tests/unit/test_season.py
+- [x] 5.1 Run `uv run pytest tests/unit/test_season.py
       tests/integration/test_conform.py tests/integration/test_model_season.py
       tests/integration/test_report.py -v` and record actual pass/fail output.
-- [ ] 5.2 Run `uv run ruff check mlb_baseball/conform.py
+      Result: 96 passed (one pre-existing test, `test_run_populates_team_player_and_game`,
+      needed a one-line update for `run()`'s new `core.team_franchise` counts
+      key — real, expected, fixed in the same run).
+- [x] 5.2 Run `uv run ruff check mlb_baseball/conform.py
       mlb_baseball/model/season.py mlb_baseball/report.py` and
       `uv run mypy mlb_baseball/conform.py mlb_baseball/model/season.py
       mlb_baseball/report.py`, and record actual output.
-- [ ] 5.3 Run `mlb conform` end to end against the test database and
-      confirm `mlb doctor` passes cleanly afterward.
-- [ ] 5.4 Add a new ADR to `docs/DECISIONS.md` (style of ADR-013/028/029)
+- [x] 5.3 **Scope note:** did not run the raw `mlb conform`/`mlb doctor`
+      CLI directly — this repo's `.env` `DATABASE_URL` points at
+      production `mlb`, and `conform.run()` performs a destructive
+      TRUNCATE + full rebuild; running it there would be an unauthorized
+      destructive action, not a verification step. Equivalent coverage
+      already exists and ran clean (task 5.1): `test_run_populates_team_player_and_game`
+      (full `conform.run()`, asserts the new `core.team_franchise` counts
+      key), `test_multi_source_conformance_rehearsal_ties_out_across_grains`
+      (broad end-to-end rehearsal), and this change's own franchise test
+      (runs `conform.run()` twice for idempotency, then calls
+      `conform.health_check()` directly and asserts the new check passes
+      cleanly on a realistically-conformed database) — all against the
+      real disposable test database pytest owns, never production.
+- [x] 5.4 Add a new ADR to `docs/DECISIONS.md` (style of ADR-013/028/029)
       recording this decision, including the `_build_team_aliases`
       side-bug found while designing this change.
-- [ ] 5.5 Update `mlb_baseball/AGENTS.md` or `conform.py`'s DOX (if one
+- [x] 5.5 Update `mlb_baseball/AGENTS.md` or `conform.py`'s DOX (if one
       exists) to document the new `_build_team_franchises` step and
       `core.team_franchise`'s purpose, following this project's "update
       the owning DOX in the same change" rule.

@@ -129,21 +129,40 @@ its permanent franchise, from data already ingested
 (`raw.lahman_teams_franchises` + `raw.lahman_teams.franchid`/`teamidretro`).
 
 - `current_retro_team_id` is the franchise's newest resolved era (greatest
-  `first_year`) — the real, current code. Use this only when a consumer
-  specifically needs "what code does this franchise use right now" (e.g.
-  matching an external source's live ticker/alias, as `_build_team_aliases`
-  does).
-- `legacy_retro_team_id` is the franchise's oldest resolved era (smallest
-  `first_year`) — a stable anchor for a consumer that must key a
-  franchise's *whole* history to one fixed `core.team` row for reasons
-  independent of "what's current" (e.g. `gold.team_season`'s
-  `UNIQUE (team_id, season)`, or a caller with its own separate,
-  already-established code convention this table's mere existence is not
-  license to silently change). `report.py`'s `gold.team_season` build and
-  `mlb_baseball/model/season.py`'s `load_schedule_from_db` both resolve
-  through `legacy_retro_team_id`, on purpose — do not "fix" them to use
-  `current_retro_team_id` without checking what depends on their existing
-  output first (see docs/DECISIONS.md ADR-292).
+  `first_year`) — the real, current code. Use this **only** for a
+  consumer with no season/year context of its own that specifically needs
+  "what code does this franchise use right now" (e.g. matching an
+  external source's live ticker/alias, as `_build_team_aliases` does).
+  **Do not** use it as a general substitute for season-scoped resolution
+  below — a franchise can have more than one historical code change
+  (confirmed directly: the Athletics alone span `PHA` 1901-1954, `KC1`
+  1955-1967, `OAK` 1968-2024, `ATH` 2025, all one franchise), so
+  `current_retro_team_id` is only correct for "right now," not for
+  resolving a specific past season.
+- **A season-scoped consumer resolves each row to its OWN era directly,
+  not through any single franchise-wide anchor column.** `core.team`
+  already carries one row per era with its own matching `retro_team_id`
+  and year range — for the whole history above, not just the most recent
+  code. `report.py`'s `gold.team_season` build (and its health-check
+  mirror) join via a `LATERAL` that prefers a direct
+  `retro_team_id` + year-range match on `core.team`, falling back to any
+  `core.team` row sharing the same `franchise_id` (still year-scoped)
+  only when a row's own code has no matching `core.team` row yet. An
+  earlier version of this fix routed everything through a
+  `legacy_retro_team_id` column (the franchise's OLDEST era,
+  unconditionally) — reverted after review found it silently
+  misattributes or drops every OTHER era's real data for any franchise
+  with more than one historical code change, not just the Athletics' most
+  recent one (see docs/DECISIONS.md ADR-292's "reverted design" note).
+- `mlb_baseball/model/season.py`'s `load_schedule_from_db` does **not**
+  go through `core.team_franchise` at all: `ALL_MLB_TEAMS`/`MLB_DIVISIONS`
+  is a hand-maintained Python list with no season-awareness of its own
+  (modernizing it is separately scoped and deferred), so no query derived
+  from this table can know which single code that list happens to
+  hardcode. It keeps a narrow, explicit
+  `CASE WHEN retro_team_id = 'ATH' THEN 'OAK' ELSE retro_team_id END`
+  inline instead — the same shape as the original hand-patched fix this
+  change otherwise replaces.
 - **Never use `core.team.last_year = 9999` to mean "the current era."**
   It is Retrosheet's own "currently active" sentinel and can lag a real
   code reissue — confirmed directly for the Athletics, whose retired

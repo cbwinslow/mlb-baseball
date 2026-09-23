@@ -149,15 +149,19 @@ def _build_player_season(conn: psycopg.Connection) -> int:
 # ---------------------------------------------------------------------------
 
 # raw.lahman_teams.teamidretro matches core.team.retro_team_id exactly for
-# every current team except a relocated/reissued franchise (e.g. the
-# Athletics' 2025 'ATH' code, bare) -- every era of a franchise must land
-# under the SAME team_id (gold.team_season has UNIQUE (team_id, season)),
-# so this resolves each row's code to that franchise's legacy_retro_team_id
-# (its ORIGINAL code, not the newest -- team-franchise-crosswalk design.md:
-# this table already anchors on the older code, so team_city/team_nickname
-# keep showing "Oakland"/"Athletics" even for the 2025 season, same as
-# before this fix, not "Sacramento") via core.team_franchise, instead of a
-# hand-typed CASE WHEN literal that only covered this one known relocation.
+# nearly every row: core.team already has one row per team-era with its own
+# matching retro_team_id and year range (confirmed directly: the Athletics
+# alone have distinct rows for 'PHA' 1901-1954, 'KC1' 1955-1967, 'OAK'
+# 1968-2024, 'ATH' 2025, all one franchise). The LATERAL below prefers that
+# direct, year-scoped match; it falls back to any core.team row sharing the
+# same franchise (again year-scoped) only for a code with no row of its own
+# yet -- a new relocation/reissue Retrosheet's own team files haven't
+# caught up to. (An earlier version of this query redirected every era
+# through core.team_franchise.legacy_retro_team_id unconditionally --
+# removed after review found that silently misattributed every OTHER era
+# of a multi-relocation franchise, e.g. every real PHA/KC1/OAK Athletics
+# season, not just the one relocation this was meant to cover. See
+# migration 0107's comment.)
 _BUILD_TEAM_SEASON_BASE_SQL = """
 INSERT INTO gold.team_season (
     team_id, season, team_city, team_nickname, league,
@@ -174,18 +178,25 @@ SELECT
     NULLIF(lt.r, '')::numeric::integer, NULLIF(lt.ra, '')::numeric::integer,
     NULLIF(lt.hr, '')::numeric::integer, NULLIF(lt.era, '')::numeric
 FROM raw.lahman_teams lt
-JOIN core.team t
-    ON t.retro_team_id = COALESCE(
-        (
-            SELECT tf.legacy_retro_team_id
-            FROM core.team seed_t
-            JOIN core.team_franchise tf ON tf.id = seed_t.franchise_id
-            WHERE seed_t.retro_team_id = lt.teamidretro
-            LIMIT 1
-        ),
-        lt.teamidretro
-    )
-    AND lt.yearid::integer BETWEEN t.first_year AND t.last_year
+JOIN LATERAL (
+    SELECT t.id, t.city, t.nickname
+    FROM core.team t
+    WHERE lt.yearid::integer BETWEEN t.first_year AND t.last_year
+      AND (
+          t.retro_team_id = lt.teamidretro
+          -- Fallback keyed on lt's OWN franchid (always present on a real
+          -- raw.lahman_teams row), not on finding another core.team row
+          -- for the same code first -- that row is exactly what's missing
+          -- in the case this fallback exists for.
+          OR t.franchise_id = (
+              SELECT tf.id FROM core.team_franchise tf
+              WHERE tf.franchise_id = lt.franchid
+              LIMIT 1
+          )
+      )
+    ORDER BY (t.retro_team_id = lt.teamidretro) DESC, t.first_year DESC
+    LIMIT 1
+) t ON true
 WHERE lt.teamidretro IS NOT NULL AND lt.teamidretro != ''
   -- A handful of Negro League teams (e.g. Toledo Crawfords, 1939) appear
   -- twice for the same (teamidretro, yearid) under two different league
@@ -757,18 +768,21 @@ def health_check() -> list[Check]:
             "SELECT count(*) FROM gold.team_season",
             """
             SELECT count(*) FROM raw.lahman_teams lt
-            JOIN core.team t
-                ON t.retro_team_id = COALESCE(
-                    (
-                        SELECT tf.legacy_retro_team_id
-                        FROM core.team seed_t
-                        JOIN core.team_franchise tf ON tf.id = seed_t.franchise_id
-                        WHERE seed_t.retro_team_id = lt.teamidretro
-                        LIMIT 1
-                    ),
-                    lt.teamidretro
-                )
-                AND lt.yearid::integer BETWEEN t.first_year AND t.last_year
+            JOIN LATERAL (
+                SELECT t.id
+                FROM core.team t
+                WHERE lt.yearid::integer BETWEEN t.first_year AND t.last_year
+                  AND (
+                      t.retro_team_id = lt.teamidretro
+                      OR t.franchise_id = (
+                          SELECT tf.id FROM core.team_franchise tf
+                          WHERE tf.franchise_id = lt.franchid
+                          LIMIT 1
+                      )
+                  )
+                ORDER BY (t.retro_team_id = lt.teamidretro) DESC, t.first_year DESC
+                LIMIT 1
+            ) t ON true
             WHERE lt.teamidretro IS NOT NULL AND lt.teamidretro != ''
             """,
             tolerance=449,

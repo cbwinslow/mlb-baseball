@@ -11,17 +11,23 @@
 
 ## 2. Franchise resolution (`conform.py`)
 
-- [x] 2.1 Add a new SQL resource (e.g. `conform_team_franchise_insert.sql`)
+- [x] 2.1 Add a new SQL resource (`conform_team_franchise_insert.sql`)
       that builds one `core.team_franchise` row per distinct `franchid`
       present in `raw.lahman_teams_franchises`, joined through
       `raw.lahman_teams.franchid`/`teamidretro` to `core.team.retro_team_id`
-      to compute `current_retro_team_id` (greatest `first_year`) and
-      `legacy_retro_team_id` (smallest `first_year`) for that `franchid`
-      (per design.md's Decisions — NOT `last_year = 9999`). Verify: a
-      deterministic hand fixture with two synthetic team-eras for one
-      franchise (older era `last_year = 9999`, newer era with a later
-      `first_year`) asserts the newer era's code wins for
-      `current_retro_team_id` and the older wins for `legacy_retro_team_id`.
+      to compute `current_retro_team_id` (greatest `first_year`) for that
+      `franchid` (per design.md's Decisions — NOT `last_year = 9999`).
+      **Amended post-review:** an initial version also computed
+      `legacy_retro_team_id` (smallest `first_year`) for task 3.1/3.2 to
+      anchor on. Reverted before merge: automated review (CodeRabbit) and
+      real production data showed a franchise can have more than one
+      historical code change (the Athletics span `PHA`/`KC1`/`OAK`/`ATH`),
+      so an unconditional "oldest era" anchor misattributes every other
+      era's real data, not just the one relocation being fixed. See
+      design.md's "Reverted design" and ADR-292. Verify: a deterministic
+      hand fixture with two synthetic team-eras for one franchise (older
+      era `last_year = 9999`, newer era with a later `first_year`) asserts
+      the newer era's code wins for `current_retro_team_id`.
 - [x] 2.2 Add `_build_team_franchises(conn)` in `conform.py` (same shape as
       `_build_team_aliases`: catches `UndefinedTable` for the optional
       `raw.lahman_teams_franchises`/`raw.lahman_teams` prerequisites,
@@ -56,24 +62,33 @@
       follow-up once #242 merges and rebases onto this change, not done
       here. What main *does* have: `load_schedule_from_db` (no ATH
       handling at all today) and the leftover duplicate `"ATH"` entry in
-      `MLB_DIVISIONS["AL"]["AL West"]`. Update `load_schedule_from_db` to
-      resolve both home/away team codes through
-      `core.team_franchise.legacy_retro_team_id` (NOT `current_retro_team_id`
-      — see design.md's "Added during implementation": `ALL_MLB_TEAMS`/
-      `MLB_DIVISIONS` are still hardcoded to `OAK` and updating them is
-      separately out of scope, so normalizing schedule output to the
-      *current* code would crash the simulation on an unrecognized `ATH`
-      key). Remove the duplicate `"ATH"` entry from `MLB_DIVISIONS`.
-      Verify: a real-Postgres integration test seeding an `ATH`-coded 2025
-      game confirms `load_schedule_from_db` returns `"OAK"` for it, and
-      `simulate_season_monte_carlo` runs without a `KeyError`.
+      `MLB_DIVISIONS["AL"]["AL West"]`. Remove the duplicate `"ATH"` entry
+      from `MLB_DIVISIONS`. **`load_schedule_from_db` deliberately does
+      NOT resolve through `core.team_franchise`** (amended post-review —
+      see task 2.1/design.md): `ALL_MLB_TEAMS`/`MLB_DIVISIONS` is a
+      hand-maintained Python list with no season-awareness the franchise
+      table could resolve against, so keeps a narrow, explicit
+      `CASE WHEN retro_team_id = 'ATH' THEN 'OAK' ELSE retro_team_id END`
+      inline — the same shape as the original hand-patched fix this
+      change otherwise replaces. Verify: a real-Postgres integration test
+      seeding an `ATH`-coded 2025 game confirms `load_schedule_from_db`
+      returns `"OAK"` for it, and `simulate_season_monte_carlo` runs
+      without a `KeyError`.
 - [x] 3.2 Update `mlb_baseball/report.py`'s two existing
       `CASE WHEN lt.teamidretro = 'ATH' THEN 'OAK' ELSE lt.teamidretro END`
-      sites to resolve through `core.team_franchise.legacy_retro_team_id`
-      (owner decision: preserves `gold.team_season`'s existing anchor
-      choice and `team_city`/`team_nickname` values exactly — see
-      design.md). Verify: `tests/integration/test_report.py`'s existing
-      ATH-related test still passes with unchanged output.
+      sites to resolve each row to its own matching, year-scoped
+      `core.team` era via a `LATERAL` join, falling back to a same-franchise
+      row (via `core.team.franchise_id`) only when a row's own code has no
+      matching `core.team` row yet (amended post-review — see task
+      2.1/design.md: an initial version routed everything through
+      `core.team_franchise.legacy_retro_team_id`, which silently
+      misattributed every other era of a multiply-relocated franchise's
+      data). Verify: `tests/integration/test_report.py`'s existing
+      ATH-related test, updated to assert each era resolves to its own
+      real team_id/city (a real accuracy improvement over the old
+      "Oakland forever" anchor, not a preserved quirk), plus new coverage
+      for a franchise with more than one historical relocation and for the
+      no-own-row-yet fallback path.
 - [x] 3.3 Confirm no other call site duplicates this same hand-patch
       (`grep -rn "ATH" --include=*.py mlb_baseball/`) and update any found.
       Verify: the grep after this task shows only the new resolver's own

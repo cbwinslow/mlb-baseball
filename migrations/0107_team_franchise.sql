@@ -29,22 +29,30 @@
 -- project's established precedent is an honest NULL over a fabricated
 -- link.
 --
--- legacy_retro_team_id (the franchise's OLDEST resolved era's code) is a
--- separate anchor from current_retro_team_id (the newest), added after
--- the initial design: report.py's gold.team_season and season.py's
--- schedule loader both need every era of a franchise's history to key off
--- ONE stable core.team row for their own existing reasons (gold.team_season
--- has UNIQUE (team_id, season); season.py's ALL_MLB_TEAMS/MLB_DIVISIONS
--- are a static list still keyed on the Athletics' old 'OAK' code, and
--- updating that list is separately scoped, out of this change) -- and for
--- both, the already-established stable anchor is the OLDEST code, not the
--- newest (owner decision, team-franchise-crosswalk implementation).
+-- current_retro_team_id exists for a consumer that specifically needs a
+-- franchise's real, current code with no season/year context of its own
+-- (e.g. matching an external source's live ticker/alias -- see
+-- _build_team_aliases). It intentionally does NOT try to be a
+-- season-independent "the" identity for a franchise: a franchise that has
+-- relocated/reissued a code more than once (confirmed directly: the
+-- Athletics alone span 'PHA' 1901-1954, 'KC1' 1955-1967, 'OAK' 1968-2024,
+-- 'ATH' 2025 -- all under Lahman's one franchise_id 'OAK') already has one
+-- real core.team row per era with its own matching retro_team_id and year
+-- range. A season-scoped consumer (report.py's gold.team_season,
+-- season.py's schedule loader) should resolve each row/season to ITS OWN
+-- era directly -- core.team's existing (retro_team_id, first_year,
+-- last_year) rows already do that correctly on their own -- not redirect
+-- everything to one single franchise-wide anchor code, which would
+-- silently misattribute or drop every other era's data. (An earlier
+-- version of this migration/design also added legacy_retro_team_id, an
+-- "oldest era" anchor; removed after review found it does exactly that
+-- misattribution for any franchise with more than one historical code
+-- change, not just the Athletics' most recent one.)
 CREATE TABLE core.team_franchise (
     id bigserial PRIMARY KEY,
     franchise_id text NOT NULL UNIQUE,
     franchise_name text,
-    current_retro_team_id text,
-    legacy_retro_team_id text
+    current_retro_team_id text
 );
 
 ALTER TABLE core.team ADD COLUMN franchise_id bigint REFERENCES core.team_franchise (id);

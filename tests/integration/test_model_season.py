@@ -94,17 +94,19 @@ def test_load_schedule_from_db_and_simulate_season(db_conn):
 
 def test_load_schedule_from_db_normalizes_relocated_franchise_code(db_conn):
     """A franchise's newer/reissued code (the Athletics' real 2025 'ATH')
-    must resolve to core.team_franchise.legacy_retro_team_id ('OAK'), not
-    the raw code -- ALL_MLB_TEAMS/MLB_DIVISIONS are still keyed on 'OAK'
-    (modernizing that static list is separately scoped), so returning the
-    raw 'ATH' code here would make simulate_season_monte_carlo crash with
-    an unrecognized team key (PR #242 CodeRabbit review;
-    team-franchise-crosswalk)."""
+    must resolve to 'OAK', not the raw code -- ALL_MLB_TEAMS/MLB_DIVISIONS
+    are still keyed on 'OAK' (modernizing that static list is separately
+    scoped), so returning the raw 'ATH' code here would make
+    simulate_season_monte_carlo crash with an unrecognized team key
+    (PR #242 CodeRabbit review; team-franchise-crosswalk). Deliberately NOT
+    resolved through core.team_franchise -- that table's current/legacy
+    codes describe a franchise's *real* history and can't know which one
+    code a hand-maintained Python list happens to hardcode; see the inline
+    comment on load_schedule_from_db's query for the full reasoning."""
     season = 2025
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team")
-        cur.execute("DELETE FROM core.team_franchise")
         for team in ALL_MLB_TEAMS:
             retro_id = "ATH" if team == "OAK" else team
             cur.execute(
@@ -114,16 +116,6 @@ def test_load_schedule_from_db_normalizes_relocated_franchise_code(db_conn):
             )
         cur.execute("SELECT id, retro_team_id FROM core.team")
         team_id_map = {row[1]: row[0] for row in cur.fetchall()}
-        cur.execute(
-            "INSERT INTO core.team_franchise "
-            "(franchise_id, franchise_name, current_retro_team_id, legacy_retro_team_id) "
-            "VALUES ('OAK', 'Athletics', 'ATH', 'OAK') RETURNING id"
-        )
-        (franchise_id,) = cur.fetchone()
-        cur.execute(
-            "UPDATE core.team SET franchise_id = %s WHERE retro_team_id = 'ATH'",
-            (franchise_id,),
-        )
         opponent = ALL_MLB_TEAMS[1] if ALL_MLB_TEAMS[1] != "OAK" else ALL_MLB_TEAMS[2]
         cur.execute(
             "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
@@ -148,5 +140,4 @@ def test_load_schedule_from_db_normalizes_relocated_franchise_code(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team")
-        cur.execute("DELETE FROM core.team_franchise")
     db_conn.commit()

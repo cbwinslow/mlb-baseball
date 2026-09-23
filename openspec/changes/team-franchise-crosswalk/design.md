@@ -76,29 +76,52 @@ doctor` sanity assertion, not a hard requirement of this change).
 which era is actually current. `first_year` is set once, from the era's
 own start, and isn't subject to the same staleness.
 
-**Added during implementation: `core.team_franchise` also carries
-`legacy_retro_team_id` (the resolved era with the *smallest* `first_year`
-— the franchise's original code), alongside `current_retro_team_id`.**
-Discovered while wiring the consumers this change was meant to fix:
-`report.py`'s `gold.team_season` (`UNIQUE (team_id, season)`) and
-`season.py`'s `load_schedule_from_db` both need one *stable* `core.team`
-row per franchise across a relocation, for reasons independent of "what's
-the real current code" — `gold.team_season` was already deliberately
-anchoring every Athletics season on the old `OAK` row (accepting that its
-`team_city`/`team_nickname` columns show "Oakland" even for the 2025 row,
-rather than let a relocation change `team_id`), and `season.py`'s
-`ALL_MLB_TEAMS`/`MLB_DIVISIONS` (out of scope for this change, still
-hardcoded to `OAK`) would crash on an unrecognized `ATH` key. Anchoring
-both on `current_retro_team_id` (`ATH`) would flip which years show the
-wrong city in `gold.team_season` (old seasons would show "Sacramento"
-instead) and would crash the simulation outright — both real regressions,
-not neutral. Owner decision: anchor both on `legacy_retro_team_id`
-instead, preserving their exact current behavior while still removing the
-hand-patched `CASE WHEN` duplication in favor of one real crosswalk table.
-`current_retro_team_id` remains what `_build_team_aliases` uses (that
-consumer needs the real current code, to match an external source's
-live ticker) — the two columns serve genuinely different, already-real
-consumer needs, not redundant data.
+**Revised after review (this superseded an earlier, shipped-then-reverted
+design — see below): season-scoped consumers resolve each row to its OWN
+era directly; only `_build_team_aliases` resolves through
+`current_retro_team_id`.** `report.py`'s `gold.team_season` build (and its
+health-check mirror) now join `raw.lahman_teams` to `core.team` via a
+`LATERAL` that prefers a direct `retro_team_id` + year-range match, and
+only falls back to any `core.team` row sharing the same `franchise_id`
+(still year-range-scoped) when the row's own code has no matching
+`core.team` row yet. Since `core.team` already carries one row per era
+with its own correct code and year range, this direct match succeeds for
+essentially every row in real data (confirmed: `PHA` 1901-1954, `KC1`
+1955-1967, `OAK` 1968-2024, and `ATH` 2025 — all one franchise — each
+already have their own `core.team` row) — the franchise fallback exists
+only as a safety net for a genuinely new code Retrosheet's own team files
+haven't caught up to yet. `season.py`'s `load_schedule_from_db` does not
+use `core.team_franchise` at all: a narrow, explicit
+`CASE WHEN retro_team_id = 'ATH' THEN 'OAK' ELSE retro_team_id END`
+(the same shape as the original hand-patched fix) stays inline, because
+`ALL_MLB_TEAMS`/`MLB_DIVISIONS` is a static Python list with no
+season-awareness the franchise table could resolve against in the first
+place — see "Reverted design" below for why deriving that list's expected
+code from the franchise table doesn't work. `current_retro_team_id`
+remains exactly right for `_build_team_aliases`, which has no season
+context at all (a ticker is either valid today or not) and genuinely
+needs "the franchise's real, current code."
+
+**Reverted design (kept here so this mistake isn't rediscovered): a
+`legacy_retro_team_id` column that unconditionally anchored every era of
+a franchise on its OLDEST resolved code.** Added mid-implementation to
+solve what looked like the same problem for `report.py`/`season.py` as
+`current_retro_team_id` solves for `_build_team_aliases`, and initially
+verified only against the Athletics' single, most recent relocation
+(`OAK` → `ATH`). Automated review (CodeRabbit) then found, and real
+production data confirmed directly, that Lahman's `franchid` groups
+*every* historical code a franchise has ever used under one franchise
+row — the Athletics alone span four (`PHA`/`KC1`/`OAK`/`ATH`), the
+Dodgers span three (`BR3`/`BRO`/`LAN`). Anchoring on the oldest
+(`legacy_retro_team_id`) would have redirected *all* of those franchises'
+real modern-era `gold.team_season` rows onto their earliest historical
+`core.team` row's year range, silently dropping every season outside it
+(e.g. every real 1968-2024 Oakland Athletics season, and the Dodgers'
+entire Los Angeles era) — a far larger regression than the one-season gap
+the original hand-patched `CASE WHEN` had. Caught and fixed before merge,
+not after; new tests explicitly cover a franchise with more than one
+historical relocation, not just `OAK`/`ATH` (per the review's own
+request).
 
 **One row per franchise in `core.team_franchise`, built and truncated the
 same way `core.team_alias` already is** (a plain builder function called

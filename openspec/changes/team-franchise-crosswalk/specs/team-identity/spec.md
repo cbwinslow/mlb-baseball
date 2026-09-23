@@ -55,42 +55,54 @@ source data that has not yet caught up to a real code reissue).
 - **THEN** `core.team_franchise.current_retro_team_id` is that era's
   `retro_team_id`
 
-### Requirement: A franchise also has a stable legacy code for consumers that require one fixed identity across a relocation
+### Requirement: A season-scoped consumer resolves a record to its own era, not to a single franchise-wide anchor
 
-`core.team_franchise.legacy_retro_team_id` SHALL be the `retro_team_id` of
-the team-era row with the smallest `first_year` among that franchise's
-resolved `core.team` rows (the franchise's original code) — the opposite
-end from `current_retro_team_id`.
+A consumer that resolves a dated/seasoned external record (for example
+Lahman's own per-season team statistics) to a `core.team` row SHALL
+prefer a direct match on that record's own `retro_team_id`, scoped to the
+`core.team` era whose year range contains the record's season. It SHALL
+fall back to another `core.team` row sharing the same `franchise_id`
+(still scoped to that season) only when the record's own `retro_team_id`
+has no matching `core.team` row at all for that season.
 
-A consumer that must key a franchise's full history to one fixed
-`core.team` row for reasons independent of "what code is current today"
-(for example a table whose uniqueness constraint spans a team identifier
-and a season, or a caller with its own separate, already-established
-current-code convention it is not this change's job to update) SHALL
-resolve through `legacy_retro_team_id`, not `current_retro_team_id` — so
-adding this crosswalk does not, by itself, change what such a consumer
-already outputs today.
+The system SHALL NOT unconditionally resolve every era of a franchise to
+one single anchor code (neither the oldest nor the newest), because a
+franchise can have more than one historical code change — resolving
+everything to one anchor would misattribute or drop every other era's
+real records, not just the one relocation being handled.
 
-#### Scenario: A franchise's original code anchors its stable identity
+#### Scenario: Each era of a multiply-relocated franchise resolves to its own record
 
-- **WHEN** a franchise has two `core.team` eras with different
-  `retro_team_id` values
-- **THEN** `core.team_franchise.legacy_retro_team_id` for that franchise is
-  the older era's `retro_team_id`
+- **WHEN** a franchise has three or more `core.team` eras, each with its
+  own distinct `retro_team_id` and year range, and dated records exist for
+  more than one of those eras
+- **THEN** each record resolves to the `core.team` row for its own era,
+  not to any other era's row
 
-### Requirement: A historical or old-coded team resolves to the correct current code in downstream results
+#### Scenario: A record whose own code has no matching era yet falls back within its franchise
 
-Any consumer that specifically needs "the franchise's real, current code"
-(for example matching an external source's live ticker/alias) SHALL
-resolve a real record filed under a franchise's older `retro_team_id` to
-that franchise's `current_retro_team_id`, so the franchise's full real
-history is represented under one code rather than being split or dropped.
+- **WHEN** a dated record's `retro_team_id` has no matching `core.team`
+  row, but another `core.team` row shares that record's franchise and its
+  year range contains the record's season
+- **THEN** the record resolves to that other row, rather than being
+  silently dropped
+
+### Requirement: A historical or old-coded team resolves to the correct current code for a consumer with no season context of its own
+
+A consumer that specifically needs "the franchise's real, current code"
+with no season/year of its own to scope by (for example matching an
+external source's live ticker/alias) SHALL resolve to that franchise's
+`current_retro_team_id`.
+
+This requirement is distinct from season-scoped resolution above: it
+applies only to a consumer that has no season context to resolve
+against in the first place, not to a general substitute for it.
 
 #### Scenario: An external source's current-season reference resolves to the current code
 
 - **WHEN** a franchise has real records filed under both its older and
-  newer `retro_team_id`, and a consumer needs the franchise's current,
-  real-world code
+  newer `retro_team_id`, and a consumer with no season context needs the
+  franchise's current, real-world code
 - **THEN** that consumer resolves to `core.team_franchise.current_retro_team_id`,
   not an older retired code
 

@@ -390,25 +390,39 @@ def load_schedule_from_db(
             cur.execute(
                 """
                 SELECT
-                    -- A relocated/reissued franchise (e.g. the Athletics'
-                    -- 2025 OAK -> ATH code) must resolve to the SAME code
-                    -- across every season, or ALL_MLB_TEAMS/MLB_DIVISIONS
-                    -- (a static list still keyed on the franchise's
-                    -- original code -- modernizing it is separately scoped)
-                    -- won't recognize the newer code and this simulation
-                    -- crashes. core.team_franchise.legacy_retro_team_id is
-                    -- that franchise's original code; COALESCE falls back
-                    -- to the row's own code when no franchise link is
-                    -- resolvable (e.g. Lahman data not yet ingested), same
-                    -- as this project's other franchise-crosswalk fallbacks.
-                    COALESCE(htf.legacy_retro_team_id, ht.retro_team_id) AS home_team,
-                    COALESCE(atf.legacy_retro_team_id, at.retro_team_id) AS away_team,
+                    -- ALL_MLB_TEAMS/MLB_DIVISIONS (below in this module) are
+                    -- a static list of the 30 *current* team codes, still
+                    -- keyed on 'OAK' -- modernizing that list is separately
+                    -- scoped and deferred (see openspec/changes/
+                    -- team-franchise-crosswalk/). A real code this static
+                    -- list doesn't recognize (today, only the Athletics'
+                    -- 2025 'ATH') would make simulate_season_monte_carlo
+                    -- raise KeyError building its team index.
+                    --
+                    -- This is deliberately NOT resolved through
+                    -- core.team_franchise: that table's job is finding a
+                    -- franchise's real code for a given season (see
+                    -- report.py's gold.team_season build, which needs
+                    -- exactly that), but this static Python list has no
+                    -- season-awareness of its own and no principled way to
+                    -- derive "the one code this specific hardcoded list
+                    -- happens to already contain" from the franchise table
+                    -- -- a franchise can have more than one historical code
+                    -- change (confirmed directly: the Athletics alone span
+                    -- 'PHA' 1901-1954, 'KC1' 1955-1967, 'OAK' 1968-2024,
+                    -- 'ATH' 2025), and neither "oldest" nor "newest" would
+                    -- reliably land on whichever one ALL_MLB_TEAMS already
+                    -- hardcodes. A narrow, explicit literal -- the same
+                    -- shape as the fix this replaced -- is the honest
+                    -- answer until ALL_MLB_TEAMS itself is modernized.
+                    CASE WHEN ht.retro_team_id = 'ATH' THEN 'OAK' ELSE ht.retro_team_id END
+                        AS home_team,
+                    CASE WHEN at.retro_team_id = 'ATH' THEN 'OAK' ELSE at.retro_team_id END
+                        AS away_team,
                     g.game_date
                 FROM core.game g
                 JOIN core.team ht ON ht.id = g.home_team_id
                 JOIN core.team at ON at.id = g.away_team_id
-                LEFT JOIN core.team_franchise htf ON htf.id = ht.franchise_id
-                LEFT JOIN core.team_franchise atf ON atf.id = at.franchise_id
                 WHERE g.season = %s
                   -- Regular season only (incl. Game 163 tiebreakers, which
                   -- count as regular season, per baseball.computer's

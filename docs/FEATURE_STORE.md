@@ -31,7 +31,7 @@ clocks, not a framework.
 | Clock | Meaning |
 | --- | --- |
 | `event_ts` | End of the last game the row includes. `game_date` + `game_number × 3h` — a fictional absolute time that preserves same-day (doubleheader) ordering, because Retrosheet does not record first pitch. |
-| `available_ts` | `event_ts`. The row's value is entering form (prior games only), so it is knowable at first pitch. The 6h box-score lag is not here — it is in the rolling-window frame (which prior games are eligible). |
+| `available_ts` | `event_ts`. The row's value is entering form (prior games only), so it is knowable at first pitch. The box-score lag is not here — it is in the rolling-window frame (which prior games are eligible): every window excludes the entering game's own calendar day in full. |
 | `created_ts` | When `mlb build` wrote the row. Slice 1 (full rebuild) uses it only as audit metadata — `mlb verify` reports its range so a stale file is visible. Incremental builds will fold it into `visible_ts`. |
 | `visible_ts` | `event_ts` (slice 1). Retrieval ASOF-joins on this. When incremental builds land, it will fold in `created_ts` so a late-appended row cannot leak backward. |
 
@@ -137,10 +137,15 @@ slice 3.
 
 - **The clock is an assumption, not a measurement.** Retrosheet has no ingest
   timestamp and no first-pitch time. `event_ts` is a fictional clock
-  (`game_date + game_number × 3h`) that gets *ordering* right; the 6h box-score
-  lag in the window frame is a flat assumption. Real same-day timing (a
-  rain-delayed game 1, a split doubleheader) is not modelled. The leakage
-  checks test the mechanism, not the exact lag. A full rebuild also cannot
+  (`game_date + game_number × 3h`) that gets *ordering* right; every rolling
+  window frame excludes the entering game's whole calendar day (ordered and
+  bounded by `date_trunc('day', event_ts)`, not raw `event_ts` — an earlier
+  version ordered by raw `event_ts`, which let a same-day multi-game offset
+  wobble the window's own N-days-ago start; fixed and confirmed against
+  production data, 2026-09-23). Real same-day timing (a rain-delayed game 1,
+  a split doubleheader) is not modelled — every leg of a multi-game day
+  simply sees identical prior history. The leakage checks test the
+  mechanism. A full rebuild also cannot
   honour "a record that entered Retrosheet after 2015 is invisible to a 2015
   decision" — Retrosheet backfills and corrects history, and we do not know
   when each record landed. That gate arrives with incremental builds.

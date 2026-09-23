@@ -234,12 +234,19 @@ clock: all four remain stored and queryable, and the leakage checks (D8) assert
 the ordering among `event_ts`, `available_ts`, `visible_ts`, and `created_ts`.
 
 The box-score availability lag is a documented assumption, not a measurement —
-Retrosheet has no ingest timestamp. Slice 1 uses **6 hours** (one named
-constant, `feat.AVAILABLE_LAG_HOURS`), applied in the rolling-window frame:
-6h > the 3h doubleheader spacing, so a doubleheader's game 1 cannot enter
-game 2's window. It is recorded in `docs/FEATURE_STORE.md` and in
-`docs/RESEARCH.md`'s honest-limitations content. The leakage checks test the
-mechanism, not the lag's numeric truth.
+Retrosheet has no ingest timestamp. **Corrected post-launch (2026-09-23):**
+slice 1 originally used a **6 hours** named constant (`feat.AVAILABLE_LAG_HOURS`)
+subtracted from `event_ts` for the rolling-window frame's end bound. That
+worked for the frame's *end* bound (6h > the 3h doubleheader spacing) but a
+game's fictional intraday offset also shifted the frame's *start* bound (N
+days ago), so two legs of the same doubleheader could see different amounts
+of N-days-ago history — confirmed on real production data (~21% of 7d-window
+doubleheader pairs disagreed) the first time `mlb build` ran at full scale.
+Every window is now ordered and bounded by `date_trunc('day', event_ts)`,
+excluding the entering game's whole calendar day rather than approximating
+it with an hour count; `AVAILABLE_LAG_HOURS`/`feat_lag_hours` is removed.
+See `docs/FEATURE_STORE.md` and `docs/RESEARCH.md`'s honest-limitations
+content. The leakage checks test the mechanism, not a lag's numeric truth.
 
 - **Alternative rejected — a correlated subquery per entity row.** Correct, but
   turns a single vectorized join into per-row work and gives up the operator

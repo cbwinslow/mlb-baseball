@@ -1,8 +1,10 @@
 -- feat.pitcher_form -- one row per (player_id, event_ts, feature_version).
 -- Pitcher-grain twin of feat_player_form.sql: identical clock, identical
--- windows (7d, 30d, std), identical availability-aware frame end
--- (feat_lag_hours HOUR PRECEDING), identical append-only semantics. See
--- feat_player_form.sql for the full contract narrative.
+-- windows (7d, 30d, std), identical availability-aware frame end (every
+-- window orders and bounds by date_trunc('day', event_ts) and ends at
+-- 1 DAY PRECEDING, excluding the entering game's whole calendar day),
+-- identical append-only semantics. See feat_player_form.sql for the full
+-- contract narrative.
 --
 -- Ships only what a game-grain consumer (feat.game / Elo v2) needs -- this is
 -- not the start of a full pitcher grain. Exposure is bf_<w> (batters faced)
@@ -97,9 +99,8 @@ league_running AS (
     FROM league_ts
     WINDOW w AS (
         PARTITION BY season
-        ORDER BY event_ts
-        RANGE BETWEEN UNBOUNDED PRECEDING
-            AND getvariable('feat_lag_hours') * INTERVAL 1 HOUR PRECEDING
+        ORDER BY date_trunc('day', event_ts)
+        RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 1 DAY PRECEDING
     )
 ),
 
@@ -144,21 +145,18 @@ windowed AS (
     WINDOW
         w7 AS (
             PARTITION BY src.player_id
-            ORDER BY src.event_ts
-            RANGE BETWEEN INTERVAL 7 DAY PRECEDING
-                AND getvariable('feat_lag_hours') * INTERVAL 1 HOUR PRECEDING
+            ORDER BY date_trunc('day', src.event_ts)
+            RANGE BETWEEN INTERVAL 7 DAY PRECEDING AND INTERVAL 1 DAY PRECEDING
         ),
         w30 AS (
             PARTITION BY src.player_id
-            ORDER BY src.event_ts
-            RANGE BETWEEN INTERVAL 30 DAY PRECEDING
-                AND getvariable('feat_lag_hours') * INTERVAL 1 HOUR PRECEDING
+            ORDER BY date_trunc('day', src.event_ts)
+            RANGE BETWEEN INTERVAL 30 DAY PRECEDING AND INTERVAL 1 DAY PRECEDING
         ),
         wstd AS (
             PARTITION BY src.player_id, src.season
-            ORDER BY src.event_ts
-            RANGE BETWEEN UNBOUNDED PRECEDING
-                AND getvariable('feat_lag_hours') * INTERVAL 1 HOUR PRECEDING
+            ORDER BY date_trunc('day', src.event_ts)
+            RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 1 DAY PRECEDING
         )
 ),
 
@@ -187,10 +185,9 @@ SELECT
     team_id,
     event_ts,
     -- This row's VALUE is the pitcher's form *entering* this game -- prior
-    -- completed games only, and the window frame below already excludes any
-    -- game less than feat_lag_hours old. So the value is knowable at first
-    -- pitch: available_ts = event_ts. The feat_lag_hours lag lives only in the
-    -- window frame (which inputs are eligible), not here.
+    -- completed games only, and the window frame above already excludes
+    -- every game on this row's own calendar day. So the value is knowable
+    -- at first pitch: available_ts = event_ts.
     event_ts AS available_ts,
     -- Audit metadata: when THIS build wrote the row. mlb build is a full
     -- rebuild, so it is uniform across a build and does not gate retrieval.

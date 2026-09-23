@@ -285,3 +285,39 @@ owner's to run and are recorded, not gated in CI.
   `ruff check .`, `ruff format --check` (python dirs), `mypy mlb_baseball`,
   `sqlfluff lint mlb_baseball/sql/` all pass. 8.3/8.5 execution-at-scale is
   [OWNER].
+
+### Task 8.5 execution (2026-09-23) — real production build, three bugs found and fixed
+
+First-ever full-scale `mlb build` + `mlb verify` against production `mlb`
+(migrate/conform/report -> feat.build, ~1hr; see PR #235/#236/#237):
+
+- Found (unrelated to this change, but blocking): the daily cron's
+  `conform`/`predict` steps had been failing 3 days running on a lock race
+  with the every-5-minute `mlb_api` cron. Fixed in PR #235.
+- Found: `feat_game.sql` crashed (`NOT NULL constraint failed: game.game_pk`)
+  on the 2,347 real 2026-season games with no `retro_game_id` yet (Retrosheet
+  hasn't published this season -- already the documented "coverage is
+  1910-2025" limitation, just not enforced in SQL). Fixed in PR #236.
+- Found the big one: `mlb verify` FAILED its doubleheader leakage check --
+  59,591 real pairs where the two legs of a doubleheader had different
+  rolling-window numerators. Root cause: every window ordered/bounded its
+  `RANGE` frame by raw `event_ts` (which carries the fictional
+  `game_number*3h` same-day offset), so the frame's *own* N-days-ago start
+  wobbled with that offset between two same-day legs (~21% of 7d-window,
+  ~7% of 30d-window doubleheader pairs disagreed) -- **this section 2.1's
+  original text above and the D5/D8 wording in design.md describing
+  `feat.AVAILABLE_LAG_HOURS`/`feat_lag_hours` as the mechanism are
+  superseded by this fix; see the "Corrected post-launch" note in
+  design.md's D5 section.** Fixed in PR #237: every window now orders and
+  bounds by `date_trunc('day', event_ts)`, excluding the entering game's
+  whole calendar day; `AVAILABLE_LAG_HOURS`/`feat_lag_hours` removed as dead
+  code rather than left unread.
+- Re-ran the full production build after all three fixes: `mlb verify`
+  passes clean (both leakage checks OK, Baseball-Reference tie-out OK);
+  independently re-queried the built DuckDB file directly and confirmed 0
+  mismatches across all 223,505 real doubleheader pairs in `player_form`
+  and 5,883 in `pitcher_form` (7d/30d/std all clean).
+- Recorded counts: `feat.player_form` 4,351,397 rows, `feat.pitcher_form`
+  1,186,589 rows, `feat.game` 220,191 rows, `feature_version=v1`,
+  `created_ts` 2026-09-23 03:48:03 (single instant, full rebuild).
+- 8.3/8.5 now done pending PR #235/#236/#237 merge.

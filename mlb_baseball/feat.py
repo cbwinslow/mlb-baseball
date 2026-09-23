@@ -13,10 +13,8 @@ The boundary is design decision D2: PostgreSQL stays authoritative for
 touches PostgreSQL ``gold.game_feature`` or writes to PostgreSQL at all.
 
 Build-time parameters travel to the versioned ``.sql`` files as DuckDB session
-variables (``feat_version``, ``feat_lag_hours``), not as psycopg placeholders
--- these files are DuckDB dialect and live in ``mlb_baseball/sql/duckdb/``.
-``AVAILABLE_LAG_HOURS`` is the single source of truth for the box-score
-availability lag; all three relations read it through ``feat_lag_hours``.
+variables (``feat_version``), not as psycopg placeholders -- these files are
+DuckDB dialect and live in ``mlb_baseball/sql/duckdb/``.
 """
 
 from __future__ import annotations
@@ -30,15 +28,6 @@ from mlb_research.paths import resolve_db_path
 from mlb_baseball import config
 from mlb_baseball.health import Check
 from mlb_baseball.sql import read_sql
-
-# Hours from first pitch to when a game's box score is available. A documented
-# assumption, not a measurement -- Retrosheet has no ingest timestamp (design
-# D5, docs/FEATURE_STORE.md). It lives ONLY in the rolling-window frames (which
-# prior games are eligible to contribute); a form row's own available_ts is its
-# event_ts, because the row's value is entering form (prior games only) and is
-# knowable at first pitch. 6h > the 3h doubleheader spacing, so a
-# doubleheader's game 1 does not enter game 2's windows.
-AVAILABLE_LAG_HOURS = 6
 
 # EB shrink strength for the k%/bb% shrunk columns (design D4). Stored on
 # every row as shrink_m; kept here so the value has one home.
@@ -83,7 +72,6 @@ def build(
         con.execute("INSTALL postgres")
         con.execute("LOAD postgres")
         con.execute("SET VARIABLE feat_version = ?", [feature_version])
-        con.execute("SET VARIABLE feat_lag_hours = ?", [AVAILABLE_LAG_HOURS])
         con.execute(f"ATTACH '{_quote(str(db_path))}' AS mlbfeat")
         con.execute(f"ATTACH '{_quote(url)}' AS pg (TYPE postgres, READ_ONLY)")
         con.execute("USE mlbfeat")

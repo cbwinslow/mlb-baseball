@@ -90,3 +90,54 @@ def test_load_schedule_from_db_and_simulate_season(db_conn):
         cur.execute("DELETE FROM core.game")
         cur.execute("DELETE FROM core.team")
     db_conn.commit()
+
+
+def test_load_schedule_from_db_normalizes_relocated_franchise_code(db_conn):
+    """A franchise's newer/reissued code (the Athletics' real 2025 'ATH')
+    must resolve to 'OAK', not the raw code -- ALL_MLB_TEAMS/MLB_DIVISIONS
+    are still keyed on 'OAK' (modernizing that static list is separately
+    scoped), so returning the raw 'ATH' code here would make
+    simulate_season_monte_carlo crash with an unrecognized team key
+    (PR #242 CodeRabbit review; team-franchise-crosswalk). Deliberately NOT
+    resolved through core.team_franchise -- that table's current/legacy
+    codes describe a franchise's *real* history and can't know which one
+    code a hand-maintained Python list happens to hardcode; see the inline
+    comment on load_schedule_from_db's query for the full reasoning."""
+    season = 2025
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.game")
+        cur.execute("DELETE FROM core.team")
+        for team in ALL_MLB_TEAMS:
+            retro_id = "ATH" if team == "OAK" else team
+            cur.execute(
+                "INSERT INTO core.team (retro_team_id, city, nickname, first_year, last_year) "
+                "VALUES (%s, %s, %s, 1901, 2030) RETURNING id",
+                (retro_id, team, "Team"),
+            )
+        cur.execute("SELECT id, retro_team_id FROM core.team")
+        team_id_map = {row[1]: row[0] for row in cur.fetchall()}
+        opponent = ALL_MLB_TEAMS[1] if ALL_MLB_TEAMS[1] != "OAK" else ALL_MLB_TEAMS[2]
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
+            "game_number, home_team_id, away_team_id, game_type) "
+            "VALUES ('ATH20250401', '99ath1', %s, '2025-04-01', 1, %s, %s, 'regular')",
+            (season, team_id_map["ATH"], team_id_map[opponent]),
+        )
+    db_conn.commit()
+
+    schedule = load_schedule_from_db(season, conn=db_conn)
+
+    assert len(schedule) == 1
+    assert schedule[0].home_team == "OAK"
+    assert schedule[0].away_team == opponent
+
+    talents = {t: 0.500 for t in ALL_MLB_TEAMS}
+    result = simulate_season_monte_carlo(
+        schedule=schedule, team_true_talents=talents, n_simulations=50, seed=1, season=season
+    )
+    assert result.season == season
+
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.game")
+        cur.execute("DELETE FROM core.team")
+    db_conn.commit()

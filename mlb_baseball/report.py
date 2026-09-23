@@ -149,11 +149,19 @@ def _build_player_season(conn: psycopg.Connection) -> int:
 # ---------------------------------------------------------------------------
 
 # raw.lahman_teams.teamidretro matches core.team.retro_team_id exactly for
-# every current team except the Athletics' 2025 relocation ('ATH', bare,
-# same gap conform.py's own _TEAM_ALIAS_SEED documents for Kalshi/
-# Polymarket) -- remapped inline here rather than touching the shared seed
-# list, the same "small, local, cheap fix" call oaa.py's own 3-name remap
-# already made for a different source's team-name quirk.
+# nearly every row: core.team already has one row per team-era with its own
+# matching retro_team_id and year range (confirmed directly: the Athletics
+# alone have distinct rows for 'PHA' 1901-1954, 'KC1' 1955-1967, 'OAK'
+# 1968-2024, 'ATH' 2025, all one franchise). The LATERAL below prefers that
+# direct, year-scoped match; it falls back to any core.team row sharing the
+# same franchise (again year-scoped) only for a code with no row of its own
+# yet -- a new relocation/reissue Retrosheet's own team files haven't
+# caught up to. (An earlier version of this query redirected every era
+# through core.team_franchise.legacy_retro_team_id unconditionally --
+# removed after review found that silently misattributed every OTHER era
+# of a multi-relocation franchise, e.g. every real PHA/KC1/OAK Athletics
+# season, not just the one relocation this was meant to cover. See
+# migration 0107's comment.)
 _BUILD_TEAM_SEASON_BASE_SQL = """
 INSERT INTO gold.team_season (
     team_id, season, team_city, team_nickname, league,
@@ -170,9 +178,25 @@ SELECT
     NULLIF(lt.r, '')::numeric::integer, NULLIF(lt.ra, '')::numeric::integer,
     NULLIF(lt.hr, '')::numeric::integer, NULLIF(lt.era, '')::numeric
 FROM raw.lahman_teams lt
-JOIN core.team t
-    ON t.retro_team_id = (CASE WHEN lt.teamidretro = 'ATH' THEN 'OAK' ELSE lt.teamidretro END)
-    AND lt.yearid::integer BETWEEN t.first_year AND t.last_year
+JOIN LATERAL (
+    SELECT t.id, t.city, t.nickname
+    FROM core.team t
+    WHERE lt.yearid::integer BETWEEN t.first_year AND t.last_year
+      AND (
+          t.retro_team_id = lt.teamidretro
+          -- Fallback keyed on lt's OWN franchid (always present on a real
+          -- raw.lahman_teams row), not on finding another core.team row
+          -- for the same code first -- that row is exactly what's missing
+          -- in the case this fallback exists for.
+          OR t.franchise_id = (
+              SELECT tf.id FROM core.team_franchise tf
+              WHERE tf.franchise_id = lt.franchid
+              LIMIT 1
+          )
+      )
+    ORDER BY (t.retro_team_id = lt.teamidretro) DESC, t.first_year DESC
+    LIMIT 1
+) t ON true
 WHERE lt.teamidretro IS NOT NULL AND lt.teamidretro != ''
   -- A handful of Negro League teams (e.g. Toledo Crawfords, 1939) appear
   -- twice for the same (teamidretro, yearid) under two different league
@@ -744,11 +768,21 @@ def health_check() -> list[Check]:
             "SELECT count(*) FROM gold.team_season",
             """
             SELECT count(*) FROM raw.lahman_teams lt
-            JOIN core.team t
-                ON t.retro_team_id = (
-                    CASE WHEN lt.teamidretro = 'ATH' THEN 'OAK' ELSE lt.teamidretro END
-                )
-                AND lt.yearid::integer BETWEEN t.first_year AND t.last_year
+            JOIN LATERAL (
+                SELECT t.id
+                FROM core.team t
+                WHERE lt.yearid::integer BETWEEN t.first_year AND t.last_year
+                  AND (
+                      t.retro_team_id = lt.teamidretro
+                      OR t.franchise_id = (
+                          SELECT tf.id FROM core.team_franchise tf
+                          WHERE tf.franchise_id = lt.franchid
+                          LIMIT 1
+                      )
+                  )
+                ORDER BY (t.retro_team_id = lt.teamidretro) DESC, t.first_year DESC
+                LIMIT 1
+            ) t ON true
             WHERE lt.teamidretro IS NOT NULL AND lt.teamidretro != ''
             """,
             tolerance=449,

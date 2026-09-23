@@ -315,16 +315,68 @@ def _build_venues(conn: psycopg.Connection) -> int:
     return count
 
 
+def _build_team_franchises(conn: psycopg.Connection) -> int:
+    """Populate core.team_franchise and backfill core.team.franchise_id.
+
+    One row per real franchise (Lahman's own franchid), not per team-era —
+    see migrations/0107_team_franchise.sql and
+    openspec/changes/team-franchise-crosswalk/. Optional, like
+    core.venue/core.team_alias: raw.lahman_teams/raw.lahman_teams_franchises
+    are not hard PREREQUISITES, so a fresh clone that hasn't bootstrapped
+    lahman yet leaves core.team_franchise empty and every core.team.franchise_id
+    NULL rather than failing the whole conform run.
+    """
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(read_sql("conform_team_franchise_insert.sql"))
+            cur.execute(read_sql("conform_team_franchise_backfill.sql"))
+            cur.execute("SELECT count(*) FROM core.team_franchise")
+            return fetch_one(cur)[0]
+    except psycopg.errors.UndefinedTable:
+        print(
+            "conform: raw.lahman_teams/raw.lahman_teams_franchises not present yet "
+            "— core.team_franchise left empty, core.team.franchise_id left NULL"
+        )
+        return 0
+
+
 def _build_team_aliases(conn: psycopg.Connection) -> int:
     # core.team_alias itself is truncated centrally by run()'s single
     # consolidated TRUNCATE, not here — see run()'s comment for why.
     with conn.cursor() as cur:
-        cur.executemany(
+        # Resolve each seed alias's target team_id through core.team_franchise
+        # when available, so an alias attaches to the franchise's real
+        # *current* era (e.g. the Athletics' 2025 'ATH' row), not whichever
+        # era core.team.last_year happens to mark active (its 9999
+        # "currently active" sentinel can lag a real code reissue — see
+        # _build_team_franchises). Falls back to the seed code's own latest
+        # row when franchise resolution isn't available (e.g. lahman not
+        # ingested yet), matching this function's previous behavior exactly
+        # — team_alias must keep working without it, per ADR-029.
+        cur.execute(
             """
-            INSERT INTO core.team_alias (team_id, alias, source)
-            SELECT id, %s, %s FROM core.team WHERE retro_team_id = %s AND last_year = 9999
-            """,
-            [(alias, source, retro_id) for retro_id, alias, source in _TEAM_ALIAS_SEED],
+            WITH latest_row_per_code AS (
+                SELECT DISTINCT ON (retro_team_id) retro_team_id, id, franchise_id
+                FROM core.team
+                ORDER BY retro_team_id, first_year DESC
+            )
+            SELECT
+                seed.retro_team_id AS seed_code,
+                COALESCE(via_franchise.id, seed.id) AS team_id
+            FROM latest_row_per_code seed
+            LEFT JOIN core.team_franchise tf ON tf.id = seed.franchise_id
+            LEFT JOIN latest_row_per_code via_franchise
+                ON via_franchise.retro_team_id = tf.current_retro_team_id
+            """
+        )
+        team_id_by_seed_code: dict[str, int] = dict(cur.fetchall())
+        cur.executemany(
+            "INSERT INTO core.team_alias (team_id, alias, source) VALUES (%s, %s, %s)",
+            [
+                (team_id_by_seed_code[retro_id], alias, source)
+                for retro_id, alias, source in _TEAM_ALIAS_SEED
+                if retro_id in team_id_by_seed_code
+            ],
         )
         cur.execute("SELECT count(*) FROM core.team_alias")
         return fetch_one(cur)[0]
@@ -1783,6 +1835,7 @@ def run() -> dict[str, int]:
                 "gold.fangraphs_park_factors, "
                 "core.game, core.team, core.player, "
                 "core.venue, core.standing, core.team_alias, "
+                "core.team_franchise, "
                 "core.player_war"
             )
         counts = {
@@ -1792,6 +1845,9 @@ def run() -> dict[str, int]:
         # Must run before _build_games — its LEFT JOIN needs core.venue
         # already populated to resolve venue_id.
         counts["core.venue"] = _build_venues(conn)
+        # Must run before _build_team_aliases — that function now resolves
+        # each alias through core.team_franchise (see its docstring).
+        counts["core.team_franchise"] = _build_team_franchises(conn)
         counts["core.team_alias"] = _build_team_aliases(conn)
         counts["core.game"] = _build_games(conn)
         _backfill_game_pk(conn)
@@ -1844,6 +1900,28 @@ def health_check() -> list[Check]:
         # core.standing depends on raw.mlb_standing (optional) — same
         # reasoning.
         check_table_exists("core.standing"),
+        # core.team_franchise depends on raw.lahman_teams/
+        # raw.lahman_teams_franchises (optional) — same reasoning.
+        check_table_exists("core.team_franchise"),
+        # A core.team row whose retro_team_id has a real raw.lahman_teams
+        # match (so a franchise link is expected to resolve) but still has
+        # a null franchise_id after conform runs — surfaces a future
+        # new/renamed team the Lahman crosswalk hasn't caught up to yet,
+        # instead of it silently resolving to the wrong current code
+        # downstream (team-identity spec, "expected-but-unresolved").
+        # Scoped to rows raw.lahman_teams actually covers — a real,
+        # documented gap (pre-1969 Negro League team-eras) never matches
+        # and must not fail this check.
+        check_no_rows(
+            "core.team rows with an expected but unresolved franchise link",
+            """
+            SELECT count(*) FROM core.team t
+            WHERE t.franchise_id IS NULL
+              AND EXISTS (
+                  SELECT 1 FROM raw.lahman_teams lt WHERE lt.teamidretro = t.retro_team_id
+              )
+            """,
+        ),
         # Join-integrity safeguard added after a research-database review
         # found two real, silent bugs this way: a non-unique join key
         # (core.game.game_pk) letting two doubleheader games collide onto

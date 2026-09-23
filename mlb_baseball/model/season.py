@@ -25,7 +25,7 @@ MLB_DIVISIONS: dict[str, dict[str, list[str]]] = {
     "AL": {
         "AL East": ["BAL", "BOS", "NYA", "TBA", "TOR"],
         "AL Central": ["CHA", "CLE", "DET", "KCA", "MIN"],
-        "AL West": ["HOU", "ANA", "OAK", "SEA", "TEX", "ATH"],
+        "AL West": ["HOU", "ANA", "OAK", "SEA", "TEX"],
     },
     "NL": {
         "NL East": ["ATL", "MIA", "NYN", "PHI", "WAS"],
@@ -390,8 +390,35 @@ def load_schedule_from_db(
             cur.execute(
                 """
                 SELECT
-                    ht.retro_team_id AS home_team,
-                    at.retro_team_id AS away_team,
+                    -- ALL_MLB_TEAMS/MLB_DIVISIONS (below in this module) are
+                    -- a static list of the 30 *current* team codes, still
+                    -- keyed on 'OAK' -- modernizing that list is separately
+                    -- scoped and deferred (see openspec/changes/
+                    -- team-franchise-crosswalk/). A real code this static
+                    -- list doesn't recognize (today, only the Athletics'
+                    -- 2025 'ATH') would make simulate_season_monte_carlo
+                    -- raise KeyError building its team index.
+                    --
+                    -- This is deliberately NOT resolved through
+                    -- core.team_franchise: that table's job is finding a
+                    -- franchise's real code for a given season (see
+                    -- report.py's gold.team_season build, which needs
+                    -- exactly that), but this static Python list has no
+                    -- season-awareness of its own and no principled way to
+                    -- derive "the one code this specific hardcoded list
+                    -- happens to already contain" from the franchise table
+                    -- -- a franchise can have more than one historical code
+                    -- change (confirmed directly: the Athletics alone span
+                    -- 'PHA' 1901-1954, 'KC1' 1955-1967, 'OAK' 1968-2024,
+                    -- 'ATH' 2025), and neither "oldest" nor "newest" would
+                    -- reliably land on whichever one ALL_MLB_TEAMS already
+                    -- hardcodes. A narrow, explicit literal -- the same
+                    -- shape as the fix this replaced -- is the honest
+                    -- answer until ALL_MLB_TEAMS itself is modernized.
+                    CASE WHEN ht.retro_team_id = 'ATH' THEN 'OAK' ELSE ht.retro_team_id END
+                        AS home_team,
+                    CASE WHEN at.retro_team_id = 'ATH' THEN 'OAK' ELSE at.retro_team_id END
+                        AS away_team,
                     g.game_date
                 FROM core.game g
                 JOIN core.team ht ON ht.id = g.home_team_id

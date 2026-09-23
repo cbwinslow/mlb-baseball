@@ -58,9 +58,11 @@
 - [x] 3.1 **Scope note (owner decision, apply session):** this branch was
       cut from `main`, which does not yet have `team_strength_asof`/
       `team_wins_asof`/the `--as-of` `CASE WHEN` fix — those only exist on
-      the still-open PR #242 branch. Updating them is deferred to a
-      follow-up once #242 merges and rebases onto this change, not done
-      here. What main *does* have: `load_schedule_from_db` (no ATH
+      the still-open PR #242 branch. They were NOT rewired onto the
+      crosswalk when #242 merged with this change: like
+      `load_schedule_from_db` they feed the static `ALL_MLB_TEAMS` list, so
+      they correctly keep the same narrow inline literal (no follow-up
+      needed). What main *does* have: `load_schedule_from_db` (no ATH
       handling at all today) and the leftover duplicate `"ATH"` entry in
       `MLB_DIVISIONS["AL"]["AL West"]`. Remove the duplicate `"ATH"` entry
       from `MLB_DIVISIONS`. **`load_schedule_from_db` deliberately does

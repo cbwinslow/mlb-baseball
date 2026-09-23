@@ -95,9 +95,8 @@ team_roll AS (
     FROM team_game
     WINDOW w AS (
         PARTITION BY team_id
-        ORDER BY event_ts
-        RANGE BETWEEN INTERVAL 30 DAY PRECEDING
-            AND getvariable('feat_lag_hours') * INTERVAL 1 HOUR PRECEDING
+        ORDER BY date_trunc('day', event_ts)
+        RANGE BETWEEN INTERVAL 30 DAY PRECEDING AND INTERVAL 1 DAY PRECEDING
     )
 ),
 

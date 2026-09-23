@@ -1707,16 +1707,24 @@ def main(argv: list[str] | None = None) -> None:
 
         with get_connection() as conn:
             sched = season.load_schedule_from_db(args.season, conn=conn)
-            if not sched:
+            if sched:
+                # Point-in-time: simulate only the real remaining schedule --
+                # games already played before `as_of` must not be
+                # re-randomized (PR #242 review). A synthetic schedule (the
+                # fallback below) has no real game_date to filter by.
+                sched = [g for g in sched if g.game_date is not None and g.game_date >= as_of]
+            else:
                 sched = season.generate_balanced_schedule(season.ALL_MLB_TEAMS)
 
             talents = season.team_strength_asof(args.season, as_of, conn)
+            starting_wins = season.team_wins_asof(args.season, as_of, conn)
             res = season.simulate_season_monte_carlo(
                 schedule=sched,
                 team_true_talents=talents,
                 n_simulations=args.sims,
                 seed=args.seed,
                 season=args.season,
+                starting_wins=starting_wins,
             )
 
         if args.json:
@@ -3189,11 +3197,15 @@ def main(argv: list[str] | None = None) -> None:
             with get_connection() as asl_conn:
                 asl_res = arm_slot_from_statcast(args.pitcher, date_from, date_to, asl_conn)
             if asl_res is None:
-                print(
+                asl_no_data_msg = (
                     f"No real Statcast arm_angle data for pitcher {args.pitcher} "
                     f"between {date_from} and {date_to}."
                 )
-                return
+                if args.json:
+                    print(json_lib.dumps({"error": "no_data", "detail": asl_no_data_msg}))
+                else:
+                    print(asl_no_data_msg)
+                sys.exit(1)
         else:
             asl_eng = PitcherArmSlotEngine()
             asl_m = PitcherArmSlotMetrics(
@@ -3314,11 +3326,15 @@ def main(argv: list[str] | None = None) -> None:
             with get_connection() as babip_conn:
                 babip_res = babip_from_statcast(args.batter, date_from, date_to, babip_conn)
             if babip_res is None:
-                print(
+                babip_no_data_msg = (
                     f"No real Statcast batted-ball data for batter {args.batter} "
                     f"between {date_from} and {date_to}."
                 )
-                return
+                if args.json:
+                    print(json_lib.dumps({"error": "no_data", "detail": babip_no_data_msg}))
+                else:
+                    print(babip_no_data_msg)
+                sys.exit(1)
         else:
             babip_eng = BABIPRegressionEngine()
             babip_m = BatterBABIPInputs(
@@ -3559,11 +3575,15 @@ def main(argv: list[str] | None = None) -> None:
                     args.pitcher, args.pitch_a, args.pitch_b, date_from, date_to, tun_conn
                 )
             if tun_res is None:
-                print(
+                tun_no_data_msg = (
                     f"No real Statcast kinematics for pitcher {args.pitcher}'s "
                     f"{args.pitch_a}/{args.pitch_b} between {date_from} and {date_to}."
                 )
-                return
+                if args.json:
+                    print(json_lib.dumps({"error": "no_data", "detail": tun_no_data_msg}))
+                else:
+                    print(tun_no_data_msg)
+                sys.exit(1)
         else:
             tun_eng = PitchTunnelingEngine()
             ff_p = PitchFlightVector(

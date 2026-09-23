@@ -14,7 +14,7 @@ Provides real actual-vs-expected BABIP comparison and luck-regression tiering:
 This module has two independent evaluation paths that must not be conflated:
 `babip_from_statcast()` reads a real batter's real Statcast data;
 `BABIPRegressionEngine.evaluate_babip()` is a hand-typed what-if/scouting
-calculator (the CLI `mlb babip --whatif` path) using an uncited linear
+calculator (the CLI `mlb babip` path when `--batter` is omitted) using an uncited linear
 formula. Both return a `BABIPEvaluationResult` whose `data_source` field
 says which path produced it -- metric-catalog triage, 2026-09-23.
 """

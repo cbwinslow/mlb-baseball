@@ -62,7 +62,70 @@ def test_arm_slot_from_statcast_averages_real_arm_angle(db_conn):
     assert result.pitcher_name == "Ace Pitcher"
     assert result.arm_slot_angle_deg == 35.0  # mean of 34.0/36.0/35.0, not the out-of-window 80.0
     assert result.sample_size == 3
-    assert result.arm_slot_tier == "THREE_QUARTERS"
+    # Savant's arm_angle is degrees from HORIZONTAL (0=sidearm, 90=overhand);
+    # _classify_tier expects degrees from VERTICAL (0=overhand, 90+=submarine),
+    # so 35.0 real degrees converts to 90-35=55 before tiering (PR #242 review).
+    assert result.arm_slot_tier == "LOW_THREE_QUARTERS"
+
+    _reset(db_conn)
+
+
+def test_arm_slot_from_statcast_low_angle_is_sidearm_not_over_the_top(db_conn):
+    """A real LOW Savant arm_angle (near horizontal) must tier as SIDEARM, not OVER_THE_TOP.
+
+    Regression for the inverted-convention bug (PR #242 CodeRabbit review):
+    passing Savant's raw degrees straight into _classify_tier without
+    converting from its horizontal convention to _classify_tier's vertical
+    one silently flipped sidearm and over-the-top pitchers.
+    """
+    _reset(db_conn)
+    _ensure_statcast_pitch_table(db_conn)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch "
+            "(game_pk, pitcher, player_name, game_date, arm_angle, game_year) "
+            "VALUES ('7020', '1003', 'Low Slot Reliever', '2024-04-05', '8.0', '2024')"
+        )
+    db_conn.commit()
+
+    result = arm_slot_from_statcast(
+        pitcher_mlbam_id="1003",
+        date_from="2024-04-01",
+        date_to="2024-04-30",
+        conn=db_conn,
+    )
+
+    assert result is not None
+    assert result.arm_slot_angle_deg == 8.0
+    assert result.arm_slot_tier == "SIDEARM"
+
+    _reset(db_conn)
+
+
+def test_arm_slot_from_statcast_high_angle_is_over_the_top_not_sidearm(db_conn):
+    """A real HIGH Savant arm_angle (near vertical) must tier as OVER_THE_TOP, not SIDEARM."""
+    _reset(db_conn)
+    _ensure_statcast_pitch_table(db_conn)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch "
+            "(game_pk, pitcher, player_name, game_date, arm_angle, game_year) "
+            "VALUES ('7021', '1004', 'Drop-and-Drive Starter', '2024-04-05', '82.0', '2024')"
+        )
+    db_conn.commit()
+
+    result = arm_slot_from_statcast(
+        pitcher_mlbam_id="1004",
+        date_from="2024-04-01",
+        date_to="2024-04-30",
+        conn=db_conn,
+    )
+
+    assert result is not None
+    assert result.arm_slot_angle_deg == 82.0
+    assert result.arm_slot_tier == "OVER_THE_TOP"
 
     _reset(db_conn)
 

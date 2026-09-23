@@ -23,7 +23,7 @@ Provides pitch trajectory overlap and tunneling metrics:
 This module has two independent evaluation paths that must not be conflated:
 `tunnel_pair_from_statcast()` reads a real pitcher's two real pitch types;
 `PitchTunnelingEngine.evaluate_tunnel_pair()` is a hand-typed what-if
-calculator (the CLI `mlb tunnel --whatif` path). Both return a
+calculator (the CLI `mlb tunnel` path when `--pitcher` is omitted). Both return a
 `PitchTunnelEvaluation` whose `data_source` field says which path produced
 it.
 """
@@ -204,35 +204,50 @@ class PitchTunnelingEngine:
         )
 
 
-def _avg_pitch_kinematics(
+def _pitch_type_summary(
     pitcher_mlbam_id: str,
     pitch_type: str,
     date_from: str,
     date_to: str,
     conn: psycopg.Connection,
 ) -> dict[str, float] | None:
-    """Average real Statcast kinematics for one pitcher's one pitch type over a date range."""
+    """Real per-pitch-type summary: average release/plate position and average
+    Tunnel Point position, computed one real pitch at a time.
+
+    Fixed 2026-09-23 (PR #242 review): this used to average each kinematic
+    column independently in SQL, then solve one trajectory from the averaged
+    inputs. Because `_position_at_y` is a nonlinear function of the
+    kinematics, and the query did not require `vx0`/`vz0`/`ax`/`az` to be
+    non-null, that could silently mix incompatible pitches (each column's
+    AVG() drawing from a different, independently-NULL-filtered row set) or
+    pass a NULL into the trajectory math. This version requires complete
+    kinematics on every row, computes each real pitch's own real Tunnel
+    Point position, and only then averages the resulting real positions --
+    release/plate positions are linear (inputs vs. outputs give the same
+    average either way), but the Tunnel Point position is not, so it must be
+    computed per pitch first.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT
-                AVG(release_pos_x::double precision) AS x0,
-                AVG(release_pos_z::double precision) AS z0,
-                AVG(vx0::double precision) AS vx0,
-                AVG(vy0::double precision) AS vy0,
-                AVG(vz0::double precision) AS vz0,
-                AVG(ax::double precision) AS ax,
-                AVG(ay::double precision) AS ay,
-                AVG(az::double precision) AS az,
-                AVG(plate_x::double precision) AS plate_x,
-                AVG(plate_z::double precision) AS plate_z,
-                COUNT(*) AS n
+                release_pos_x::double precision,
+                release_pos_z::double precision,
+                vx0::double precision,
+                vy0::double precision,
+                vz0::double precision,
+                ax::double precision,
+                ay::double precision,
+                az::double precision,
+                plate_x::double precision,
+                plate_z::double precision
             FROM raw.statcast_pitch
             WHERE pitcher = %(pitcher_id)s
               AND pitch_type = %(pitch_type)s
               AND game_date BETWEEN %(date_from)s AND %(date_to)s
-              AND vy0 IS NOT NULL AND ay IS NOT NULL
               AND release_pos_x IS NOT NULL AND release_pos_z IS NOT NULL
+              AND vx0 IS NOT NULL AND vy0 IS NOT NULL AND vz0 IS NOT NULL
+              AND ax IS NOT NULL AND ay IS NOT NULL AND az IS NOT NULL
               AND plate_x IS NOT NULL AND plate_z IS NOT NULL
             """,
             {
@@ -242,13 +257,43 @@ def _avg_pitch_kinematics(
                 "date_to": date_to,
             },
         )
-        row = cur.fetchone()
+        rows = cur.fetchall()
 
-    if row is None or row[-1] == 0 or row[0] is None:
+    if not rows:
         return None
 
-    keys = ("x0", "z0", "vx0", "vy0", "vz0", "ax", "ay", "az", "plate_x", "plate_z", "n")
-    return dict(zip(keys, row, strict=True))
+    release_xs: list[float] = []
+    release_zs: list[float] = []
+    plate_xs: list[float] = []
+    plate_zs: list[float] = []
+    tunnel_xs: list[float] = []
+    tunnel_zs: list[float] = []
+    for x0, z0, vx0, vy0, vz0, ax, ay, az, plate_x, plate_z in rows:
+        pos = _position_at_y(
+            x0=x0, z0=z0, vx0=vx0, vy0=vy0, vz0=vz0, ax=ax, ay=ay, az=az, yf=_YF_TUNNEL_FT
+        )
+        if pos is None:
+            continue
+        release_xs.append(x0)
+        release_zs.append(z0)
+        plate_xs.append(plate_x)
+        plate_zs.append(plate_z)
+        tunnel_xs.append(pos[0])
+        tunnel_zs.append(pos[1])
+
+    n = len(tunnel_xs)
+    if n == 0:
+        return None
+
+    return {
+        "release_x": sum(release_xs) / n,
+        "release_z": sum(release_zs) / n,
+        "plate_x": sum(plate_xs) / n,
+        "plate_z": sum(plate_zs) / n,
+        "tunnel_x": sum(tunnel_xs) / n,
+        "tunnel_z": sum(tunnel_zs) / n,
+        "n": n,
+    }
 
 
 def tunnel_pair_from_statcast(
@@ -261,52 +306,28 @@ def tunnel_pair_from_statcast(
 ) -> PitchTunnelEvaluation | None:
     """Evaluate a real pitcher's two real pitch types' tunneling from Statcast kinematics.
 
-    Averages each pitch type's real release/kinematics/plate-crossing
-    columns over the date range, then computes release distance, real
-    Tunnel Point separation (via `_position_at_y`, exact projectile-motion
-    kinematics -- not the what-if path's `poc_factor` approximation), and
-    real plate-break separation (from real `plate_x`/`plate_z`, not
-    release + movement addition).
+    For each pitch type, computes every qualifying real pitch's own real
+    Tunnel Point position (exact projectile-motion kinematics -- not the
+    what-if path's `poc_factor` approximation) and averages the real
+    resulting positions (see `_pitch_type_summary`), then computes release
+    distance (from average real release position), Tunnel Point separation
+    (from the averaged real Tunnel Point positions), and plate-break
+    separation (from average real `plate_x`/`plate_z`).
 
     Returns None when either pitch type has no usable kinematics coverage
     for this pitcher/range, rather than fabricating a value.
     """
-    a = _avg_pitch_kinematics(pitcher_mlbam_id, pitch_type_a, date_from, date_to, conn)
-    b = _avg_pitch_kinematics(pitcher_mlbam_id, pitch_type_b, date_from, date_to, conn)
+    a = _pitch_type_summary(pitcher_mlbam_id, pitch_type_a, date_from, date_to, conn)
+    b = _pitch_type_summary(pitcher_mlbam_id, pitch_type_b, date_from, date_to, conn)
     if a is None or b is None:
         return None
 
-    dx_rel = (a["x0"] - b["x0"]) * 12.0
-    dz_rel = (a["z0"] - b["z0"]) * 12.0
+    dx_rel = (a["release_x"] - b["release_x"]) * 12.0
+    dz_rel = (a["release_z"] - b["release_z"]) * 12.0
     rel_dist_in = float(math.sqrt(dx_rel**2 + dz_rel**2))
 
-    pos_a = _position_at_y(
-        x0=a["x0"],
-        z0=a["z0"],
-        vx0=a["vx0"],
-        vy0=a["vy0"],
-        vz0=a["vz0"],
-        ax=a["ax"],
-        ay=a["ay"],
-        az=a["az"],
-        yf=_YF_TUNNEL_FT,
-    )
-    pos_b = _position_at_y(
-        x0=b["x0"],
-        z0=b["z0"],
-        vx0=b["vx0"],
-        vy0=b["vy0"],
-        vz0=b["vz0"],
-        ax=b["ax"],
-        ay=b["ay"],
-        az=b["az"],
-        yf=_YF_TUNNEL_FT,
-    )
-    if pos_a is None or pos_b is None:
-        return None
-
-    dx_poc = (pos_a[0] - pos_b[0]) * 12.0
-    dz_poc = (pos_a[1] - pos_b[1]) * 12.0
+    dx_poc = (a["tunnel_x"] - b["tunnel_x"]) * 12.0
+    dz_poc = (a["tunnel_z"] - b["tunnel_z"]) * 12.0
     poc_dist_in = float(math.sqrt(dx_poc**2 + dz_poc**2))
 
     dx_plate = (a["plate_x"] - b["plate_x"]) * 12.0

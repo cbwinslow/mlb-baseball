@@ -37,7 +37,7 @@ MLB_DIVISIONS: dict[str, dict[str, list[str]]] = {
     "AL": {
         "AL East": ["BAL", "BOS", "NYA", "TBA", "TOR"],
         "AL Central": ["CHA", "CLE", "DET", "KCA", "MIN"],
-        "AL West": ["HOU", "ANA", "OAK", "SEA", "TEX", "ATH"],
+        "AL West": ["HOU", "ANA", "OAK", "SEA", "TEX"],
     },
     "NL": {
         "NL East": ["ATL", "MIA", "NYN", "PHI", "WAS"],
@@ -235,14 +235,29 @@ def simulate_season_monte_carlo(
     n_simulations: int = 10000,
     seed: int | None = 0,
     season: int = 2024,
+    starting_wins: dict[str, int] | None = None,
 ) -> SeasonSimulationResult:
-    """Run vectorized Monte Carlo simulations for a full 162-game MLB season."""
+    """Run vectorized Monte Carlo simulations for the given schedule.
+
+    `starting_wins`, when given, adds each team's already-real win count
+    (e.g. from `team_wins_asof`) on top of every simulation's schedule
+    outcome -- required for a point-in-time run where `schedule` holds only
+    the *remaining* games: without it, a team's already-real wins would be
+    invisible to both the final win totals and the in-simulation division/
+    wild-card standings, silently discarding real information a caller
+    already has. A team missing from `starting_wins` gets 0 (fully
+    prospective simulation, e.g. a full preseason schedule).
+    """
     start_time = time.perf_counter()
     rng = np.random.default_rng(seed)
 
     teams = sorted(team_true_talents.keys())
     team_idx_map = {t: i for i, t in enumerate(teams)}
     n_teams = len(teams)
+    starting_wins_arr = np.array(
+        [0 if starting_wins is None else starting_wins.get(t, 0) for t in teams],
+        dtype=np.int16,
+    )
 
     # Precalculate game probability array
     n_games = len(schedule)
@@ -278,6 +293,7 @@ def simulate_season_monte_carlo(
         sim_wins = np.zeros(n_teams, dtype=np.int16)
         np.add.at(sim_wins, home_indices[sim_home_wins], 1)
         np.add.at(sim_wins, away_indices[~sim_home_wins], 1)
+        sim_wins = sim_wins + starting_wins_arr
         win_counts[sim_idx] = sim_wins
 
         # Determine Standings for AL and NL
@@ -402,8 +418,16 @@ def load_schedule_from_db(
             cur.execute(
                 """
                 SELECT
-                    ht.retro_team_id AS home_team,
-                    at.retro_team_id AS away_team,
+                    -- core.team's real retro_team_id for the Athletics is the
+                    -- bare 'ATH' Retrosheet code since their 2025 relocation;
+                    -- ALL_MLB_TEAMS/MLB_DIVISIONS key the franchise as 'OAK'
+                    -- (same remap report.py/conform.py already use for this
+                    -- gap), so an unnormalized 'ATH' here would either drop
+                    -- every A's game or crash the simulation's team lookup.
+                    CASE WHEN ht.retro_team_id = 'ATH' THEN 'OAK' ELSE ht.retro_team_id END
+                        AS home_team,
+                    CASE WHEN at.retro_team_id = 'ATH' THEN 'OAK' ELSE at.retro_team_id END
+                        AS away_team,
                     g.game_date
                 FROM core.game g
                 JOIN core.team ht ON ht.id = g.home_team_id
@@ -545,7 +569,10 @@ def team_strength_asof(
         cur.execute(
             """
             WITH team_games AS (
-                SELECT ht.retro_team_id AS team, g.home_score AS rs, g.away_score AS ra
+                -- 'ATH' -> 'OAK': see load_schedule_from_db's comment.
+                SELECT CASE WHEN ht.retro_team_id = 'ATH' THEN 'OAK' ELSE ht.retro_team_id END
+                           AS team,
+                       g.home_score AS rs, g.away_score AS ra
                 FROM core.game g
                 JOIN core.team ht ON ht.id = g.home_team_id
                 WHERE g.season = %(season)s
@@ -553,7 +580,9 @@ def team_strength_asof(
                   AND g.game_date < %(as_of)s
                   AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL
                 UNION ALL
-                SELECT at.retro_team_id AS team, g.away_score AS rs, g.home_score AS ra
+                SELECT CASE WHEN at.retro_team_id = 'ATH' THEN 'OAK' ELSE at.retro_team_id END
+                           AS team,
+                       g.away_score AS rs, g.home_score AS ra
                 FROM core.game g
                 JOIN core.team at ON at.id = g.away_team_id
                 WHERE g.season = %(season)s
@@ -594,6 +623,58 @@ def team_strength_asof(
         )
 
     return talents
+
+
+def team_wins_asof(
+    season: int,
+    as_of: str,
+    conn: psycopg.Connection,
+) -> dict[str, int]:
+    """Each team's real win count from real completed games before a point-in-time cutoff.
+
+    Same `game_type IN ('regular', 'playoff')` / strict `game_date < as_of`
+    semantics as `team_strength_asof` (see its docstring). A team with no
+    qualifying games gets 0, not a missing key.
+
+    Feeds `simulate_season_monte_carlo(..., starting_wins=...)` so a
+    point-in-time `mlb season-sim --as-of` run adds each team's already-real
+    wins on top of simulating only the real *remaining* schedule, instead of
+    re-randomizing games that already happened.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH team_results AS (
+                -- 'ATH' -> 'OAK': see load_schedule_from_db's comment.
+                SELECT CASE WHEN ht.retro_team_id = 'ATH' THEN 'OAK' ELSE ht.retro_team_id END
+                           AS team,
+                       (g.home_score > g.away_score) AS won
+                FROM core.game g
+                JOIN core.team ht ON ht.id = g.home_team_id
+                WHERE g.season = %(season)s
+                  AND g.game_type IN ('regular', 'playoff')
+                  AND g.game_date < %(as_of)s
+                  AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL
+                UNION ALL
+                SELECT CASE WHEN at.retro_team_id = 'ATH' THEN 'OAK' ELSE at.retro_team_id END
+                           AS team,
+                       (g.away_score > g.home_score) AS won
+                FROM core.game g
+                JOIN core.team at ON at.id = g.away_team_id
+                WHERE g.season = %(season)s
+                  AND g.game_type IN ('regular', 'playoff')
+                  AND g.game_date < %(as_of)s
+                  AND g.home_score IS NOT NULL AND g.away_score IS NOT NULL
+            )
+            SELECT team, COUNT(*) FILTER (WHERE won) AS wins
+            FROM team_results
+            GROUP BY team
+            """,
+            {"season": season, "as_of": as_of},
+        )
+        by_team: dict[str, int] = dict(cur.fetchall())
+
+    return {team: int(by_team.get(team, 0)) for team in ALL_MLB_TEAMS}
 
 
 def health_check() -> list[Check]:

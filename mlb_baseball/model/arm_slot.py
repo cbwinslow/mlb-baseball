@@ -15,7 +15,7 @@ Provides arm slot angle classification and release-point consistency scoring:
 This module has two independent evaluation paths that must not be conflated:
 `arm_slot_from_statcast()` reads a real pitcher's real Statcast arm-angle
 data; `PitcherArmSlotEngine.evaluate_arm_slot()` is a hand-typed what-if/
-scouting calculator (the CLI `mlb arm-slot --whatif` path) that estimates an
+scouting calculator (the CLI `mlb arm-slot` path when `--pitcher` is omitted) that estimates an
 angle from caller-supplied release coordinates and an uncited shoulder-height
 assumption. Both return an `ArmSlotEvaluationResult` whose `data_source`
 field says which path produced it -- never trust the tier/angle without
@@ -182,7 +182,14 @@ def arm_slot_from_statcast(
 
     mean_angle, stddev_angle, n, player_name = row
     angle_deg = round(float(mean_angle), 1)
-    tier = _classify_tier(angle_deg)
+    # Savant's own arm_angle convention is degrees from HORIZONTAL (0 deg =
+    # true sidearm, 90 deg = true over-the-top, negative = submarine) --
+    # the opposite sense from _classify_tier's degrees-from-VERTICAL
+    # convention (0 deg = overhand, 90 deg+ = sidearm/submarine) that the
+    # what-if path above already produces via atan2(dx, dz). Convert for
+    # classification only; arm_slot_angle_deg below still reports Savant's
+    # real published value unchanged (CodeRabbit PR #242 review).
+    tier = _classify_tier(90.0 - angle_deg)
     # Consistency scale is not comparable to the what-if path's inches-based
     # scale above -- arm_angle's real stddev is in degrees. Project-derived,
     # same as the what-if score (see module docstring); only ordering

@@ -5,6 +5,7 @@ from mlb_baseball.model.season import (
     load_schedule_from_db,
     simulate_season_monte_carlo,
     team_strength_asof,
+    team_wins_asof,
 )
 
 
@@ -203,6 +204,102 @@ def test_team_strength_asof_excludes_games_on_or_after_cutoff(db_conn):
     # Only G1 (3-1 win) qualifies; the strong Pythagorean strength proves G2/G3
     # (the 0-10 losses on and after the cutoff) did not leak in.
     assert talents_before_cutoff_games[team_a] > 0.600
+
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.game")
+        cur.execute("DELETE FROM core.team")
+    db_conn.commit()
+
+
+def test_team_wins_asof_counts_real_wins_before_cutoff_only(db_conn):
+    """Verify real win counting, with a strict cutoff (no-lookahead) and a 0-win default."""
+    team_id_map = _seed_teams(db_conn)
+    team_a, team_b, never_plays = ALL_MLB_TEAMS[0], ALL_MLB_TEAMS[1], ALL_MLB_TEAMS[2]
+    season = 2024
+
+    with db_conn.cursor() as cur:
+        # team_a wins 2, loses 1, all before the cutoff.
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
+            "game_number, home_team_id, away_team_id, home_score, away_score, game_type) "
+            "VALUES ('W1', '9101', %s, '2024-04-01', 1, %s, %s, 5, 1, 'regular')",
+            (season, team_id_map[team_a], team_id_map[team_b]),
+        )
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
+            "game_number, home_team_id, away_team_id, home_score, away_score, game_type) "
+            "VALUES ('W2', '9102', %s, '2024-04-02', 1, %s, %s, 1, 4, 'regular')",
+            (season, team_id_map[team_b], team_id_map[team_a]),
+        )
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
+            "game_number, home_team_id, away_team_id, home_score, away_score, game_type) "
+            "VALUES ('L1', '9103', %s, '2024-04-03', 1, %s, %s, 6, 2, 'regular')",
+            (season, team_id_map[team_b], team_id_map[team_a]),
+        )
+        # A win for team_a ON the cutoff date must not count (strict <).
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
+            "game_number, home_team_id, away_team_id, home_score, away_score, game_type) "
+            "VALUES ('W3', '9104', %s, '2024-04-10', 1, %s, %s, 9, 0, 'regular')",
+            (season, team_id_map[team_a], team_id_map[team_b]),
+        )
+    db_conn.commit()
+
+    wins = team_wins_asof(season=season, as_of="2024-04-10", conn=db_conn)
+
+    assert len(wins) == 30
+    assert wins[team_a] == 2
+    assert wins[team_b] == 1
+    assert wins[never_plays] == 0
+
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.game")
+        cur.execute("DELETE FROM core.team")
+    db_conn.commit()
+
+
+def test_ath_team_code_normalizes_to_oak(db_conn):
+    """Real `core.team` rows key the Athletics as 'ATH' since their 2025 relocation, but
+    ALL_MLB_TEAMS/MLB_DIVISIONS key the franchise as 'OAK'. load_schedule_from_db,
+    team_strength_asof, and team_wins_asof must normalize 'ATH' -> 'OAK' or the
+    Athletics' real games are either dropped or crash team_true_talents/team_idx_map
+    lookups downstream (PR #242 CodeRabbit review).
+    """
+    season = 2025
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.game")
+        cur.execute("DELETE FROM core.team")
+        for team in ALL_MLB_TEAMS:
+            retro_id = "ATH" if team == "OAK" else team
+            cur.execute(
+                "INSERT INTO core.team (retro_team_id, city, nickname, first_year, last_year) "
+                "VALUES (%s, %s, %s, 1901, 2030) RETURNING id",
+                (retro_id, team, "Team"),
+            )
+        cur.execute("SELECT id, retro_team_id FROM core.team")
+        team_id_map = {row[1]: row[0] for row in cur.fetchall()}
+        opponent = ALL_MLB_TEAMS[1] if ALL_MLB_TEAMS[1] != "OAK" else ALL_MLB_TEAMS[2]
+
+        cur.execute(
+            "INSERT INTO core.game (retro_game_id, game_pk, season, game_date, "
+            "game_number, home_team_id, away_team_id, home_score, away_score, game_type) "
+            "VALUES ('ATH1', '9201', %s, '2025-04-01', 1, %s, %s, 5, 1, 'regular')",
+            (season, team_id_map["ATH"], team_id_map[opponent]),
+        )
+    db_conn.commit()
+
+    schedule = load_schedule_from_db(season, conn=db_conn)
+    assert any(g.home_team == "OAK" for g in schedule)
+    assert not any(g.home_team == "ATH" or g.away_team == "ATH" for g in schedule)
+
+    talents = team_strength_asof(season=season, as_of="2025-12-01", conn=db_conn)
+    assert "ATH" not in talents
+    assert talents["OAK"] > 0.500  # OAK won 5-1; real runs must attribute to the 'OAK' key
+
+    wins = team_wins_asof(season=season, as_of="2025-12-01", conn=db_conn)
+    assert "ATH" not in wins
+    assert wins["OAK"] == 1
 
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM core.game")

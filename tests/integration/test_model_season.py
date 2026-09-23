@@ -292,6 +292,9 @@ def test_ath_team_code_normalizes_to_oak(db_conn):
     schedule = load_schedule_from_db(season, conn=db_conn)
     assert any(g.home_team == "OAK" for g in schedule)
     assert not any(g.home_team == "ATH" or g.away_team == "ATH" for g in schedule)
+    assert len(schedule) == 1
+    assert schedule[0].home_team == "OAK"
+    assert schedule[0].away_team == opponent
 
     talents = team_strength_asof(season=season, as_of="2025-12-01", conn=db_conn)
     assert "ATH" not in talents
@@ -300,6 +303,17 @@ def test_ath_team_code_normalizes_to_oak(db_conn):
     wins = team_wins_asof(season=season, as_of="2025-12-01", conn=db_conn)
     assert "ATH" not in wins
     assert wins["OAK"] == 1
+
+    # End-to-end: the normalized schedule must not crash
+    # simulate_season_monte_carlo with a KeyError on an unrecognized team.
+    result = simulate_season_monte_carlo(
+        schedule=schedule,
+        team_true_talents={t: 0.500 for t in ALL_MLB_TEAMS},
+        n_simulations=50,
+        seed=1,
+        season=season,
+    )
+    assert result.season == season
 
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM core.game")

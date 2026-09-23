@@ -1,5 +1,6 @@
 """Shared run-tracking for connectors. See docs/ARCHITECTURE.md "Connector contract"."""
 
+import math
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -80,6 +81,28 @@ def _release_source_lock(conn: psycopg.Connection, source: str) -> None:
         cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (f"mlb-ingest:{source}",))
 
 
+def _resolve_workflow_lock_timeout_seconds() -> float:
+    """A malformed MLB_WORKFLOW_LOCK_TIMEOUT_SECONDS must not crash this
+    widely-imported module at import time, and a non-positive/non-finite
+    value must not silently disable the timeout (`lock_timeout = '0ms'`
+    means "wait forever" to PostgreSQL, the opposite of a bounded wait) --
+    fall back to the default instead of either.
+    """
+    raw = os.environ.get("MLB_WORKFLOW_LOCK_TIMEOUT_SECONDS")
+    if raw is None:
+        return 30.0
+    try:
+        value = float(raw)
+    except ValueError:
+        return 30.0
+    if not math.isfinite(value) or value <= 0:
+        return 30.0
+    return value
+
+
+WORKFLOW_LOCK_TIMEOUT_SECONDS = _resolve_workflow_lock_timeout_seconds()
+
+
 def _acquire_workflow_lock(
     conn: psycopg.Connection, workflow: Literal["shared", "exclusive"]
 ) -> None:
@@ -89,6 +112,14 @@ def _acquire_workflow_lock(
     feature/prediction workflows take the exclusive form, so they cannot read
     a changing raw layer or overlap each other.  Locks are session-scoped and
     therefore survive the commits used for ingestion-run bookkeeping.
+
+    Blocks up to WORKFLOW_LOCK_TIMEOUT_SECONDS instead of failing on the
+    first try: the every-5-minute mlb_api connector holds its shared lock
+    for the ~20s its run takes, and the once-daily update->conform->predict
+    sequence can start close enough to that tick to collide (production,
+    2026-09-20 onward: conform/predict failed 3 days running on this exact
+    race). A short bounded wait rides that out; a genuinely stuck stage
+    still fails, just after the timeout instead of instantly.
     """
     # A full real-Postgres suite mutates its disposable database extensively.
     # Reserve it before any normal workflow can start, rather than letting an
@@ -99,11 +130,20 @@ def _acquire_workflow_lock(
             if not fetch_one(cur)[0]:
                 raise RuntimeError("workflow: mlb_test is reserved by a running test suite")
             cur.execute("SELECT pg_advisory_unlock_shared(hashtext('mlb-test-suite'))")
-    function = "pg_try_advisory_lock_shared" if workflow == "shared" else "pg_try_advisory_lock"
+    function = "pg_advisory_lock_shared" if workflow == "shared" else "pg_advisory_lock"
     with conn.cursor() as cur:
-        cur.execute(f"SELECT {function}(hashtext(%s))", ("mlb-workflow:raw-core-model",))
-        if not fetch_one(cur)[0]:
-            raise RuntimeError("workflow: another ingestion or derived-data stage is active")
+        # SET is a utility statement -- Postgres doesn't accept a bound
+        # parameter for its value, so the (internally-computed, not
+        # user-supplied) millisecond count is inlined directly.
+        timeout_ms = int(WORKFLOW_LOCK_TIMEOUT_SECONDS * 1000)
+        cur.execute(f"SET LOCAL lock_timeout = '{timeout_ms}ms'")
+        try:
+            cur.execute(f"SELECT {function}(hashtext(%s))", ("mlb-workflow:raw-core-model",))
+        except psycopg.errors.LockNotAvailable:
+            conn.rollback()
+            raise RuntimeError(
+                "workflow: another ingestion or derived-data stage is active"
+            ) from None
 
 
 def _release_workflow_lock(

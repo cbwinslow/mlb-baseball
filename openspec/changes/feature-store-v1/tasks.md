@@ -201,10 +201,18 @@ owner's to run and are recorded, not gated in CI.
   no `conform.py`. Verify: `git diff --stat` reviewed against that list, and any
   `SHORTCUT:` markers added in this change are listed with their ceiling and
   trigger.
-- [ ] 8.5 **[OWNER]** A full `mlb build` against production `mlb`, then
+- [x] 8.5 **[OWNER]** A full `mlb build` against production `mlb`, then
   `mlb verify` against the resulting file. Verify: recorded row counts per `feat`
   relation, the `created_ts` range, and both leakage checks passing on real data
   — the first time any of this runs at production scale.
+  **Done 2026-09-23:** `mlb build --only-features` (migrate/conform/report
+  skipped — already current) against production `mlb`, then `mlb verify`.
+  Row counts: `feat.player_form` 4,351,397; `feat.pitcher_form` 1,186,589;
+  `feat.game` 220,191. `created_ts` recorded as `2026-09-23 04:44:20.219475`
+  (feature_version `v1`). Both leakage checks passed
+  (`clock_consistency`, `doubleheader_ordering`), plus the Baseball-Reference
+  tie-out (2 cited cases exact, bulk cross-check within tolerance on
+  ≥98% of ~7,150 player-seasons, 2008-2025).
 
 ---
 ### Progress notes (autonomous build, 2026-09-09)

@@ -3183,9 +3183,9 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         if args.pitcher:
-            season = args.season or datetime.date.today().year
-            date_from = args.date_from or f"{season}-01-01"
-            date_to = args.date_to or f"{season}-12-31"
+            asl_season = args.season or datetime.date.today().year
+            date_from = args.date_from or f"{asl_season}-01-01"
+            date_to = args.date_to or f"{asl_season}-12-31"
             with get_connection() as asl_conn:
                 asl_res = arm_slot_from_statcast(args.pitcher, date_from, date_to, asl_conn)
             if asl_res is None:
@@ -3308,9 +3308,9 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         if args.batter:
-            season = args.season or datetime.date.today().year
-            date_from = args.date_from or f"{season}-01-01"
-            date_to = args.date_to or f"{season}-12-31"
+            babip_season = args.season or datetime.date.today().year
+            date_from = args.date_from or f"{babip_season}-01-01"
+            date_to = args.date_to or f"{babip_season}-12-31"
             with get_connection() as babip_conn:
                 babip_res = babip_from_statcast(args.batter, date_from, date_to, babip_conn)
             if babip_res is None:
@@ -3551,9 +3551,9 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         if args.pitcher:
-            season = args.season or datetime.date.today().year
-            date_from = args.date_from or f"{season}-01-01"
-            date_to = args.date_to or f"{season}-12-31"
+            tun_season = args.season or datetime.date.today().year
+            date_from = args.date_from or f"{tun_season}-01-01"
+            date_to = args.date_to or f"{tun_season}-12-31"
             with get_connection() as tun_conn:
                 tun_res = tunnel_pair_from_statcast(
                     args.pitcher, args.pitch_a, args.pitch_b, date_from, date_to, tun_conn

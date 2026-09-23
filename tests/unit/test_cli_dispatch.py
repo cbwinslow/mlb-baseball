@@ -1013,79 +1013,13 @@ def test_backup_keep_zero_is_rejected_before_running_pg_dump(monkeypatch, tmp_pa
 
 
 # Regression coverage for the calculator-style subcommands added alongside
-# BULLPEN-BRIDGE-01/LINEUP-PROTECT-01/SWING-TEMPO-01/SPRAY-HEATMAP-01: these
-# went straight through cli.main() with only their underlying engine classes
-# unit-tested, so a missing `import dataclasses` in cli.py's --json branches
-# shipped undetected. See CLAUDE.md Testing: every new subcommand needs a
-# dispatch-level test through real argparse.
-
-
-def test_lineup_protect_command_parses_all_its_own_arguments(capsys):
-    cli.main(
-        ["lineup-protect", "--woba", "0.340", "--zone", "48.0", "--fstrike", "62.0", "--pa", "150"]
-    )
-    assert "PII Score" in capsys.readouterr().out
-
-
-def test_lineup_protect_command_json_output(capsys):
-    cli.main(["lineup-protect", "--json"])
-    out = capsys.readouterr().out
-    assert '"pii_score"' in out
-    assert '"protection_tier"' in out
-
-
-def test_bullpen_bridge_command_parses_all_its_own_arguments(capsys):
-    cli.main(
-        [
-            "bullpen-bridge",
-            "--hold",
-            "70.0",
-            "--leverage",
-            "55.0",
-            "--inherited",
-            "25.0",
-            "--innings",
-            "90.0",
-        ]
-    )
-    assert (
-        "BRIDGE_SEQUENCING" in capsys.readouterr().out or "BRIDGE_CHAIN" in capsys.readouterr().out
-    )
-
-
-def test_bullpen_bridge_command_json_output_matches_its_own_defaults(capsys):
-    # Regression test: the --inherited default (30.0, printed in its own
-    # --help text) must equal the formula's own anchor, or a neutral/default
-    # bullpen reads as near-elite (bsei_score) while being tagged "average"
-    # (bridge_tier) at the same time -- see ADR-256 fix.
-    cli.main(["bullpen-bridge", "--json"])
-    out = capsys.readouterr().out
-    assert '"bsei_score": 100.0' in out
-    assert '"bridge_tier": "AVERAGE_BRIDGE_SEQUENCING"' in out
-
-
-def test_swing_tempo_command_parses_all_its_own_arguments(capsys):
-    cli.main(
-        [
-            "swing-tempo",
-            "--std",
-            "2.0",
-            "--consistency",
-            "95.0",
-            "--contact",
-            "80.0",
-            "--swings",
-            "250",
-        ]
-    )
-    assert "STCI Score" in capsys.readouterr().out
-
-
-def test_swing_tempo_command_json_output(capsys):
-    cli.main(["swing-tempo", "--json"])
-    out = capsys.readouterr().out
-    assert '"stci_score"' in out
-    assert '"tempo_tier"' in out
+# SPRAY-HEATMAP-01: these went straight through cli.main() with only their
+# underlying engine classes unit-tested, so a missing `import dataclasses` in
+# cli.py's --json branches shipped undetected. See CLAUDE.md Testing: every
+# new subcommand needs a dispatch-level test through real argparse.
+# (The former lineup-protect/bullpen-bridge/swing-tempo/umpire dedicated
+# tests here covered metric-catalog triage removals -- see
+# mlb_baseball/metrics/TRIAGE_BACKLOG.md -- and were removed with them.)
 
 
 def test_spray_heatmap_command_parses_all_its_own_arguments(capsys):
@@ -1093,243 +1027,52 @@ def test_spray_heatmap_command_parses_all_its_own_arguments(capsys):
     assert "Generated Vector SVG Spray Chart Heatmap" in capsys.readouterr().out
 
 
-def test_umpire_command_run_impact_is_independent_of_expansion_in(capsys):
-    # Regression test: `mlb umpire` used to manufacture run_impact_per_game
-    # from --expansion-in via an uncited linear formula
-    # (-0.55 * expansion_in/0.6) instead of taking it as an independently
-    # observed input (mlb_baseball/metrics/umpire_zone_run_bias.yaml). Same
-    # --expansion-in and --k-rate-multiplier, only --run-impact-per-game
-    # differs -- isolates that this one flag drives run_delta/adjusted_total,
-    # not --expansion-in.
-    cli.main(
-        [
-            "umpire",
-            "--expansion-in",
-            "0.6",
-            "--run-impact-per-game",
-            "-1.20",
-            "--k-rate-multiplier",
-            "1.00",
-            "--base-total",
-            "8.5",
-            "--json",
-        ]
-    )
-    out_a = capsys.readouterr().out
-
-    cli.main(
-        [
-            "umpire",
-            "--expansion-in",
-            "0.6",
-            "--run-impact-per-game",
-            "0.30",
-            "--k-rate-multiplier",
-            "1.00",
-            "--base-total",
-            "8.5",
-            "--json",
-        ]
-    )
-    out_b = capsys.readouterr().out
-
-    assert out_a != out_b
-    assert '"run_delta": -1.2' in out_a
-    assert '"adjusted_total": 7.3' in out_a
-    assert '"run_delta": 0.3' in out_b
-    assert '"adjusted_total": 8.8' in out_b
-
-
-def test_umpire_command_k_rate_multiplier_is_independent_of_expansion_in(capsys):
-    # Regression test: `mlb umpire` used to manufacture k_rate_multiplier
-    # from --expansion-in via an uncited linear formula
-    # (1.0 + expansion_in*0.08) instead of taking it as an independently
-    # observed input. Same --expansion-in and --run-impact-per-game, only
-    # --k-rate-multiplier differs -- isolates that this flag drives the
-    # printed Starter K Multiplier line (the JSON branch doesn't expose
-    # k_rate_multiplier at all, so this must use the plain-text path).
-    cli.main(
-        [
-            "umpire",
-            "--expansion-in",
-            "0.6",
-            "--run-impact-per-game",
-            "0.0",
-            "--k-rate-multiplier",
-            "1.50",
-            "--base-total",
-            "8.5",
-        ]
-    )
-    out_a = capsys.readouterr().out
-
-    cli.main(
-        [
-            "umpire",
-            "--expansion-in",
-            "0.6",
-            "--run-impact-per-game",
-            "0.0",
-            "--k-rate-multiplier",
-            "0.80",
-            "--base-total",
-            "8.5",
-        ]
-    )
-    out_b = capsys.readouterr().out
-
-    assert out_a != out_b
-    assert "Starter K Multiplier: 1.50x" in out_a
-    assert "Starter K Multiplier: 0.80x" in out_b
-
-
-def test_umpire_command_bare_defaults_are_neutral_no_observed_effect(capsys):
-    # Missing measurement must not become a guess (root AGENTS.md): with no
-    # --run-impact-per-game/--k-rate-multiplier supplied, the umpire must be
-    # neutral (no adjustment), not a value fabricated from --expansion-in.
-    cli.main(["umpire", "--base-total", "8.5", "--json"])
-    out = capsys.readouterr().out
-    assert '"adjusted_total": 8.5' in out
-    assert '"run_delta": 0.0' in out
-
-
-# Regression coverage for the ~130 calculator-style subcommands (pure-Python
-# scoring engines with no DB/network I/O) added across the recent package
-# batch. None of these had any dispatch-level test before this pass, which is
-# exactly the gap that let a missing `import dataclasses` in cli.py ship
-# undetected (see the lineup-protect/bullpen-bridge/swing-tempo tests above).
-# Each of these runs through real argparse via cli.main() with its own bare
+# Regression coverage for the calculator-style subcommands still in the
+# CLI (pure-Python scoring engines with no DB/network I/O). None of these
+# had any dispatch-level test before this pass, which is exactly the gap
+# that let a missing `import dataclasses` in cli.py ship undetected. Each of
+# these runs through real argparse via cli.main() with its own bare
 # defaults and asserts it doesn't crash and produces output -- a deliberately
 # lighter check than a full-argument test, sized to their number.
 CALCULATOR_STYLE_COMMANDS = [
-    "active-spin",
-    "aging",
-    "air-trap",
-    "ambush",
-    "arm",
-    "arm-accuracy",
-    "arm-align",
     "arm-slot",
-    "arsenal",
     "attack-9x9",
     "babip",
     "barrel-grid",
-    "blast-angle",
-    "block",
-    "block-suppress",
     "break-diamond",
     "break-plot",
-    "bullpen",
-    "bullpen-opt",
-    "bunt",
-    "bunt-charge",
-    "bvp",
-    "carry",
-    "catcher-pop",
-    "catch-prob",
-    "catch-xchg",
-    "chase-recog",
-    "cluster",
-    "clutch",
-    "contact-depth",
-    "count",
-    "damage",
-    "decision",
-    "dp-footwork",
-    "entropy",
-    "exp-resist",
-    "extension",
-    "ext-perceive",
-    "fatigue",
-    "fatigue-drop",
-    "first-pitch-ambush",
-    "first-step",
     "flight-3d",
     "flow-mix",
-    "foul-attrition",
-    "fstrike",
-    "gyro-spin",
-    "haa",
-    "heat-check",
     "heatmap",
     "hedge",
     "hexbin",
-    "high-heat",
-    "iffb",
-    "intent-leak",
     "la-ev-contour",
-    "lead-snap",
-    "leverage",
-    "low-scoop",
     "matchup-card",
     "neural",
     "nrfi",
     "odds-chart",
-    "oppo-gap",
-    "oppo-liner",
-    "outfield-target",
     "parlay",
-    "pivot-dp",
-    "platoon",
     "polar-compass",
-    "pop-time",
-    "pull-air",
-    "pull-barrel",
-    "pull-gb",
-    "pull-slice",
-    "putaway",
-    "putaway-depth",
-    "putaway-exec",
     "radar",
     "re24-heatmap",
-    "rel-drift",
     "release-box",
     "research",
-    "route-burst",
     "score-flow",
     "separation-plot",
     "serve-api",
-    "shift",
     "shop",
-    "slash-oppo",
-    "slot-sag",
-    "spin",
-    "spin-align",
     "spin-clock",
     "spin-polar",
-    "spray",
     "spray-iso",
     "spray-rose",
-    "ssw",
-    "ssw-latent",
-    "steal",
     "stuff",
-    "sub",
-    "sweetspot",
-    "travel",
-    "tto",
     "tunnel",
     "tunnel-box",
     "tunnel-decision",
-    "two-strike",
-    "umpire",
-    "vaa",
-    "vaa-toz",
-    "velo-delta",
-    "velo-drift",
     "visual",
-    "wall",
-    "wall-block",
-    "wall-crash",
-    "wall-leap",
-    "weather",
-    "wpa",
     "wpa-replay",
-    "xslg",
     "zone-isometric",
     "zone-surface",
-    "zone-swing",
-    "zone-whiff",
 ]
 
 

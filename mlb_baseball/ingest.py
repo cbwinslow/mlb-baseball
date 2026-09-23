@@ -1,5 +1,6 @@
 """Shared run-tracking for connectors. See docs/ARCHITECTURE.md "Connector contract"."""
 
+import math
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -80,7 +81,26 @@ def _release_source_lock(conn: psycopg.Connection, source: str) -> None:
         cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (f"mlb-ingest:{source}",))
 
 
-WORKFLOW_LOCK_TIMEOUT_SECONDS = float(os.environ.get("MLB_WORKFLOW_LOCK_TIMEOUT_SECONDS", "30"))
+def _resolve_workflow_lock_timeout_seconds() -> float:
+    """A malformed MLB_WORKFLOW_LOCK_TIMEOUT_SECONDS must not crash this
+    widely-imported module at import time, and a non-positive/non-finite
+    value must not silently disable the timeout (`lock_timeout = '0ms'`
+    means "wait forever" to PostgreSQL, the opposite of a bounded wait) --
+    fall back to the default instead of either.
+    """
+    raw = os.environ.get("MLB_WORKFLOW_LOCK_TIMEOUT_SECONDS")
+    if raw is None:
+        return 30.0
+    try:
+        value = float(raw)
+    except ValueError:
+        return 30.0
+    if not math.isfinite(value) or value <= 0:
+        return 30.0
+    return value
+
+
+WORKFLOW_LOCK_TIMEOUT_SECONDS = _resolve_workflow_lock_timeout_seconds()
 
 
 def _acquire_workflow_lock(

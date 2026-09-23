@@ -149,15 +149,23 @@ def test_workflow_lock_waits_out_a_briefly_held_lock(db_conn, monkeypatch):
     exactly this race before WORKFLOW_LOCK_TIMEOUT_SECONDS existed)."""
     monkeypatch.setattr(ingest_module, "WORKFLOW_LOCK_TIMEOUT_SECONDS", 2.0)
     source = f"test_workflow_brief_{uuid.uuid4().hex}"
+    # A fixed sleep here would be a false-pass risk on a slow/loaded runner:
+    # if opening the holder's connection and entering track_run (which is
+    # where the shared lock is actually acquired) took longer than the
+    # sleep, the main thread's exclusive acquire would run uncontended and
+    # the test would pass without exercising the bounded wait it exists to
+    # prove. Wait on confirmed lock acquisition instead.
+    lock_held = threading.Event()
 
     def hold_then_release():
         with psycopg.connect(os.environ["DATABASE_URL"]) as holder_conn:
             with track_run(holder_conn, source, "update"):
+                lock_held.set()
                 time.sleep(0.5)
 
     holder = threading.Thread(target=hold_then_release)
     holder.start()
-    time.sleep(0.1)  # let the holder actually acquire the lock first
+    assert lock_held.wait(timeout=5), "holder never acquired its shared lock"
     try:
         with track_run(db_conn, "model", "features", workflow="exclusive") as result:
             result["rows"] = 0

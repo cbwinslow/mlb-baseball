@@ -35,9 +35,17 @@ traversal and malformed archives.
 
 #### Scenario: Cached source is reused
 
-- WHEN an artifact with the expected identity and bytes already exists locally
+- WHEN an artifact with the expected identity already exists locally
+- AND the client recomputes its SHA-256 and it matches the recorded metadata
 - THEN the client reuses it without a second network fetch and returns the same
   content hash
+
+#### Scenario: Modified cached source is not trusted
+
+- WHEN a locally cached artifact's recomputed SHA-256 differs from its recorded
+  metadata
+- THEN the client SHALL NOT return it as valid and SHALL fetch it again or fail
+  with an integrity error
 
 ### Requirement: Raw records are parsed losslessly
 

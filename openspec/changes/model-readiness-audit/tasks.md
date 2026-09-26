@@ -1,8 +1,8 @@
 ## 1. Establish the declared training contract
 
-- [ ] 1.1 Inventory the current `feat.game`, `feat.player_form`, and `feat.pitcher_form` schemas plus their existing test, catalog, source, and point-in-time evidence; record the observed result in the change and verify every candidate column is assigned admitted, excluded, or needs-evidence.
-- [ ] 1.2 Define and load a versioned `game-win-v1` feature-set declaration beside the public `mlb_research` package; require entity/grain, source relation, availability semantics, null policy, coverage window, and evidence references for every selected field. Verify valid and missing-field fixtures accept/reject as expected.
-- [ ] 1.3 Implement feature-set validation that rejects labels, post-game fields, market outcomes, and `gold.game_feature` compatibility columns for the first game-win set. Verify parameterized unit tests cover each prohibited category and an allowed `feat.*` field.
+- [x] 1.1 Inventory the current `feat.game`, `feat.player_form`, and `feat.pitcher_form` schemas plus their existing test, catalog, source, and point-in-time evidence; record the observed result in the change and verify every candidate column is assigned admitted, excluded, or needs-evidence.
+- [x] 1.2 Define and load a versioned `game-win-v1` feature-set declaration beside the public `mlb_research` package; require entity/grain, source relation, availability semantics, null policy, coverage window, and evidence references for every selected field. Verify valid and missing-field fixtures accept/reject as expected.
+- [x] 1.3 Implement feature-set validation that rejects labels, post-game fields, market outcomes, and `gold.game_feature` compatibility columns for the first game-win set. Verify parameterized unit tests cover each prohibited category and an allowed `feat.*` field.
 
 ## 2. Produce model-readiness evidence
 

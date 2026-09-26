@@ -385,6 +385,12 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   three. `stuff_plus_rating_engine` is a weak fit: it takes hand-entered
   inputs and never reads the database. First step: tag the three
   `should_migrate_to_sql: true`, then plan the pilot.
+- **Plate-appearance engine (`openspec/changes/play-engine/`) — owner go
+  decision 2026-09-26:** a calibrated, point-in-time probability of each
+  plate-appearance outcome for a batter, pitcher and situation; Markov and Monte
+  Carlo simulation run on it. Scope is this engine only, not the rest of Phase B.
+  Gated on the model-readiness verification (`model-readiness-audit` tasks 4.2 and
+  4.3). Publishing to PyPI / Hugging Face is tabled by the owner.
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

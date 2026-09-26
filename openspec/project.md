@@ -281,10 +281,11 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    rewritten (historical record).
 4. ✅ Bot prune + dependency/PG-extension audit — ADR-279; issue #142
    (logging); `.coderabbit.yaml`; dependency-review comment fix; owner uninstalls pending
-5. MkDocs Material docs site (built in `openspec/changes/mkdocs-docs-site/`
-   — index, data dictionary, grain ladder, formulas + citations, honest
-   limitations; deploys through `pages.yml`; PR open) + `understand-anything`
-   knowledge graph (still open)
+5. MkDocs Material docs site — ✅ done (built in
+   `openspec/changes/archive/2026-09-11-mkdocs-docs-site/` — index, data
+   dictionary, grain ladder, formulas + citations, honest limitations;
+   deploys through `pages.yml`; merged/archived PR #167). `understand-anything`
+   knowledge graph — still open, not yet generated.
 6. ✅ Delivery surface first cut (`openspec/changes/delivery-surface/`) —
    `mlb export --preset backbone` (8 of 10 candidate tables; `player_season`/
    `team_season` excluded on source-rights grounds, see `rights-review.md`),

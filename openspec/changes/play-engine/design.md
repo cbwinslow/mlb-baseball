@@ -43,8 +43,10 @@ classes (on-base or not) is simpler but cannot feed a run simulation. The code
 mapping is verified against Chadwick documentation and real counts in task 1.1
 before anything is built on it.
 
-**D2. Seasons.** Train 2015–2023, test 2024–2025. Advanced pitch data exists from
-about 2015. Tuning uses walk-forward folds inside 2015–2023 only. The 2026 MLB
+**D2. Seasons.** Fit on 2015–2021, validate on 2022–2023, test once on 2024–2025.
+Advanced pitch data exists from about 2015. Every choice (rung, feature group,
+hyperparameter) is made on the validation seasons; the test seasons only confirm
+the finally selected engine. The 2026 MLB
 API rows are a later forward check, not part of this change.
 
 **D3. Ratings blend first.** Odds-ratio blend of batter rate, pitcher rate and
@@ -79,9 +81,19 @@ existing `docs/research/feature_admission_sources.md` and
 work is reused.
 
 **D8. Simulation reuses what is sound.** A base-out chain over the 24 base-out
-states, with the engine supplying outcome probabilities and empirical tables
-supplying runner advancement. Existing `model/markov/core.py` is reused where its
-math is sound; anything not reused is noted.
+states. The engine supplies the outcome-class probabilities for each plate
+appearance. Two empirical tables, both estimated from training seasons only,
+connect them to the chain:
+- *Advancement table:* for each outcome class and starting base-out state, the
+  distribution of the resulting base-out state and runs scored, estimated from
+  plate-appearance-ending events only. Double plays and other in-play results are
+  part of the "out in play" class distribution rather than separate classes.
+- *Between-appearance events:* steals, caught stealing, pickoffs, wild pitches,
+  passed balls and balks are not engine classes. They are simulated as a separate
+  event process with a per-base-out-state rate per plate appearance, so simulated
+  run totals stay comparable to real games.
+Existing `model/markov/core.py` is reused where its math is sound; anything not
+reused is noted.
 
 **D10. Read the sources, use their examples.** Each formula is read from its primary
 source and reproduced from a worked example in it, then checked against real
@@ -108,7 +120,7 @@ so a result cannot pick its own pass mark.
 - [Untested metrics in the catalog] → Only catalogued, cited entries are used as
   inputs. Anything `implemented-untested` needs a passing test first.
 - [Prerequisite gate not yet run] → The readiness verification (#246 tasks 4.2 and
-  4.3) is run before the feature-group stage.
+  4.3) is run and its relevant blockers cleared before the first dataset build.
 - [Scope creep back into Phase B generally] → The stop rule in the proposal;
   extra ideas go to the later list.
 

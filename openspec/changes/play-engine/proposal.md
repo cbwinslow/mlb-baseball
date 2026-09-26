@@ -33,8 +33,9 @@ Carlo simulation and later pitch-level or player-projection work run on it.
   (strikeout, walk, hit-by-pitch, single, double, triple, home run, and
   in-play outs). Baserunning events (steals, pickoffs, wild pitches) are not
   plate-appearance outcomes and are excluded.
-- Add a scoring protocol: train 2015–2023, test 2024–2025 walk-forward, judged
-  by multiclass log loss and calibration. Nothing is tuned on the test seasons.
+- Add a scoring protocol: fit on 2015–2021, choose everything on 2022–2023
+  validation, then score the selected engine once on 2024–2025, judged by
+  multiclass log loss and calibration. Nothing is chosen on the test seasons.
 - Build the engine in a ladder. Each rung must beat the one before it on the
   test seasons or is recorded as a negative result and not adopted:
   1. league-average baseline;
@@ -56,9 +57,10 @@ Carlo simulation and later pitch-level or player-projection work run on it.
 This change is done when all of the following are true and recorded:
 
 1. The dataset builds reproducibly and passes the leakage checks.
-2. The ratings blend beats the league-average baseline on the test seasons.
-3. The gradient-boosted engine beats the ratings blend on the test seasons, or
-   the failure is recorded and the ratings blend is the shipped engine.
+2. The ratings blend beats the league-average baseline on the validation seasons.
+3. The gradient-boosted engine beats the ratings blend on the validation seasons,
+   or the failure is recorded and the ratings blend is the shipped engine. The
+   shipped engine is then confirmed once on 2024–2025.
 4. Predicted probabilities are calibrated on the test seasons within a
    documented tolerance.
 5. The simulation reproduces test-season runs per game and home win rate within
@@ -93,8 +95,8 @@ odds, and any new data source.
 - Reads `core.play`, `core.pitch`, `feat.player_form`, `feat.pitcher_form` and
   the metric catalog. Adds no new data source, paid service, or hosted service.
 - Depends on the model-readiness change (#246) verification, tasks 4.2 and 4.3,
-  being run first. If that gate reports blockers, they are cleared before the
-  feature-group stage.
+  being run first. If that gate reports blockers, the relevant ones are cleared before
+  the first dataset build.
 - Publishing to PyPI or Hugging Face is out of scope (owner tabled on
   2026-09-26).
 - Updates `openspec/project.md` NOW/NEXT to record the owner's go decision and

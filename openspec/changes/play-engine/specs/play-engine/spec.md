@@ -26,8 +26,11 @@ exclusion SHALL be documented.
 
 #### Scenario: The leakage check is run on the dataset
 
-- **WHEN** the existing point-in-time leakage checks are run against the dataset
+- **WHEN** leakage checks are run against the assembled dataset, covering every
+  input and every join timestamp
 - **THEN** no input available only after the plate appearance is present
+- **AND** every batter and pitcher form row joined to a plate appearance is
+  from before that plate appearance's calendar day
 
 #### Scenario: A player has no prior history
 
@@ -37,16 +40,19 @@ exclusion SHALL be documented.
 
 ### Requirement: Evaluation is chronological and the test seasons are never used for tuning
 
-The engine SHALL be trained on 2015–2023 and scored on 2024–2025 walk-forward.
-Feature choices and hyperparameters SHALL be selected using only seasons before
-the test seasons. Tolerances used to judge the finish line SHALL be written down
-before the test seasons are scored.
+The engine SHALL be developed on 2015–2023 and scored on 2024–2025 walk-forward.
+Within 2015–2023, 2015–2021 SHALL be used for fitting and 2022–2023 SHALL be the
+validation seasons on which every choice is made: adopting or rejecting a rung,
+choosing a feature group, and setting hyperparameters. The selected engine SHALL
+then be scored on 2024–2025 once, as the final report. Tolerances used to judge
+the finish line SHALL be written down before the test seasons are scored.
 
 #### Scenario: A feature or setting is chosen
 
 - **WHEN** a feature group or hyperparameter is selected
-- **THEN** the selection used only 2015–2023 data
-- **AND** the test seasons were not scored to make the choice
+- **THEN** the selection used only the 2022–2023 validation seasons, fitted on
+  2015–2021
+- **AND** the 2024–2025 test seasons were not scored to make the choice
 
 #### Scenario: Tolerances are recorded
 
@@ -59,13 +65,14 @@ before the test seasons are scored.
 The engine SHALL be built as: a league-average baseline, then a ratings blend of
 batter, pitcher, league and park, then a gradient-boosted multiclass model. A
 rung SHALL be adopted only if it has a lower multiclass log loss than the rung
-before it on the test seasons, measured with a paired comparison. A rung that
+before it on the validation seasons, measured with a paired comparison. The
+finally selected engine SHALL be confirmed once on the test seasons. A rung that
 does not beat the one before SHALL be recorded as a negative result and not
 adopted.
 
 #### Scenario: A rung beats the previous rung
 
-- **WHEN** the ratings blend has lower test-season log loss than the
+- **WHEN** the ratings blend has lower validation-season log loss than the
   league-average baseline in the paired comparison
 - **THEN** it is adopted as the current engine
 

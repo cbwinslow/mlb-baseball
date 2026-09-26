@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS feat.game (
     home_bb_pct_30d DOUBLE, away_bb_pct_30d DOUBLE,
     home_obp_30d    DOUBLE, away_obp_30d    DOUBLE,
     home_slg_30d    DOUBLE, away_slg_30d    DOUBLE,
+    -- Audit denominators: metadata for null-policy verification, never model inputs.
+    home_pa_30d INTEGER, away_pa_30d INTEGER,
+    home_obp_denom_30d INTEGER, away_obp_denom_30d INTEGER,
+    home_ab_30d INTEGER, away_ab_30d INTEGER,
 
     home_starter_k_minus_bb_pct_30d DOUBLE,
     home_starter_fip_like_30d       DOUBLE,
@@ -95,9 +99,8 @@ team_roll AS (
     FROM team_game
     WINDOW w AS (
         PARTITION BY team_id
-        ORDER BY event_ts
-        RANGE BETWEEN INTERVAL 30 DAY PRECEDING
-            AND getvariable('feat_lag_hours') * INTERVAL 1 HOUR PRECEDING
+        ORDER BY date_trunc('day', event_ts)
+        RANGE BETWEEN INTERVAL 30 DAY PRECEDING AND INTERVAL 1 DAY PRECEDING
     )
 ),
 
@@ -105,6 +108,11 @@ team_form AS (
     SELECT
         team_id,
         game_id,
+        pa_30d,
+        ab_30d,
+        bb_30d,
+        hbp_30d,
+        sf_30d,
         CASE WHEN pa_30d > 0 THEN so_30d::DOUBLE / pa_30d END AS k_pct_30d,
         CASE WHEN pa_30d > 0 THEN bb_30d::DOUBLE / pa_30d END AS bb_pct_30d,
         CASE WHEN (ab_30d + bb_30d + hbp_30d + sf_30d) > 0
@@ -133,7 +141,13 @@ games AS (
         g.away_score,
         (g.game_date::TIMESTAMP + coalesce(g.game_number, 0) * INTERVAL 3 HOUR) AS event_ts
     FROM pg.core.game AS g
-    WHERE g.game_type = 'regular'
+    -- game_pk is retro_game_id (below); a game the current season hasn't
+    -- been reconciled against Retrosheet for yet has no id here, not a
+    -- fabricated one -- already documented as "coverage is the regular
+    -- season, 1910-2025" (docs/FEATURE_STORE.md, Honest limitations).
+    -- Confirmed on real production data: all 2,347 regular-season rows with
+    -- a NULL retro_game_id are the in-progress 2026 season.
+    WHERE g.game_type = 'regular' AND g.retro_game_id IS NOT NULL
 )
 
 SELECT
@@ -158,6 +172,12 @@ SELECT
     ta.obp_30d    AS away_obp_30d,
     th.slg_30d    AS home_slg_30d,
     ta.slg_30d    AS away_slg_30d,
+    th.pa_30d AS home_pa_30d,
+    ta.pa_30d AS away_pa_30d,
+    (th.ab_30d + th.bb_30d + th.hbp_30d + th.sf_30d) AS home_obp_denom_30d,
+    (ta.ab_30d + ta.bb_30d + ta.hbp_30d + ta.sf_30d) AS away_obp_denom_30d,
+    th.ab_30d AS home_ab_30d,
+    ta.ab_30d AS away_ab_30d,
 
     pfh.k_minus_bb_pct_30d AS home_starter_k_minus_bb_pct_30d,
     pfh.fip_like_30d       AS home_starter_fip_like_30d,

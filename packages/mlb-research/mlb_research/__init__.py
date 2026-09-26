@@ -16,6 +16,13 @@ import duckdb
 import pandas as pd
 
 from mlb_research import leakage_checks
+from mlb_research.feature_sets import (
+    GAME_WIN_V1,
+    FeatureField,
+    FeatureSet,
+    get_feature_set,
+    validate_for_game_win,
+)
 from mlb_research.features import get_historical_features
 from mlb_research.paths import resolve_db_path
 
@@ -127,8 +134,13 @@ def load(
 __all__ = [
     "BACKBONE_TABLES",
     "DEFAULT_REPO_ID",
+    "FeatureField",
+    "FeatureSet",
+    "GAME_WIN_V1",
     "get_historical_features",
+    "get_feature_set",
     "leakage_checks",
     "load",
     "resolve_db_path",
+    "validate_for_game_win",
 ]

@@ -1,9 +1,12 @@
 import os
+import threading
+import time
 import uuid
 
 import psycopg
 import pytest
 
+from mlb_baseball import ingest as ingest_module
 from mlb_baseball.ingest import reap_stale_runs, record_items, track_run
 
 
@@ -118,7 +121,12 @@ def test_track_run_rejects_overlapping_runs_for_the_same_source(db_conn):
             result["rows"] = 1
 
 
-def test_workflow_lock_serializes_connectors_and_derived_stages(db_conn):
+def test_workflow_lock_serializes_connectors_and_derived_stages(db_conn, monkeypatch):
+    # A held-forever lock in these tests would otherwise make each rejection
+    # wait out the full production timeout -- keep it short here so the
+    # bounded-wait behavior (WORKFLOW_LOCK_TIMEOUT_SECONDS) doesn't slow the
+    # suite down while still proving a genuinely stuck stage is rejected.
+    monkeypatch.setattr(ingest_module, "WORKFLOW_LOCK_TIMEOUT_SECONDS", 0.3)
     source = f"test_workflow_{uuid.uuid4().hex}"
     with psycopg.connect(os.environ["DATABASE_URL"]) as second_conn:
         with track_run(db_conn, source, "bootstrap"):
@@ -132,7 +140,40 @@ def test_workflow_lock_serializes_connectors_and_derived_stages(db_conn):
                     pass
 
 
-def test_workflow_lock_serializes_two_exclusive_derived_stages(db_conn):
+def test_workflow_lock_waits_out_a_briefly_held_lock(db_conn, monkeypatch):
+    """The real production failure mode: the every-5-minute mlb_api connector
+    holds the shared lock for only the ~20s its run takes, and the daily
+    update->conform->predict sequence can start just after that tick fires.
+    An exclusive acquire must wait for a brief hold to clear, not fail on
+    the first try (2026-09-20..22 conform/predict failed 3 days running on
+    exactly this race before WORKFLOW_LOCK_TIMEOUT_SECONDS existed)."""
+    monkeypatch.setattr(ingest_module, "WORKFLOW_LOCK_TIMEOUT_SECONDS", 2.0)
+    source = f"test_workflow_brief_{uuid.uuid4().hex}"
+    # A fixed sleep here would be a false-pass risk on a slow/loaded runner:
+    # if opening the holder's connection and entering track_run (which is
+    # where the shared lock is actually acquired) took longer than the
+    # sleep, the main thread's exclusive acquire would run uncontended and
+    # the test would pass without exercising the bounded wait it exists to
+    # prove. Wait on confirmed lock acquisition instead.
+    lock_held = threading.Event()
+
+    def hold_then_release():
+        with psycopg.connect(os.environ["DATABASE_URL"]) as holder_conn:
+            with track_run(holder_conn, source, "update"):
+                lock_held.set()
+                time.sleep(0.5)
+
+    holder = threading.Thread(target=hold_then_release)
+    holder.start()
+    assert lock_held.wait(timeout=5), "holder never acquired its shared lock"
+    try:
+        with track_run(db_conn, "model", "features", workflow="exclusive") as result:
+            result["rows"] = 0
+    finally:
+        holder.join()
+
+
+def test_workflow_lock_serializes_two_exclusive_derived_stages(db_conn, monkeypatch):
     """Two exclusive-mode derived stages must reject each other too, not just
     an exclusive stage against a shared connector.
 
@@ -146,6 +187,7 @@ def test_workflow_lock_serializes_two_exclusive_derived_stages(db_conn):
     regardless of source) can -- this is the real, previously-unverified
     coverage gap for conform/features/predict/train/evaluate all correctly
     excluding one another, not just excluding ingestion connectors."""
+    monkeypatch.setattr(ingest_module, "WORKFLOW_LOCK_TIMEOUT_SECONDS", 0.3)
     with psycopg.connect(os.environ["DATABASE_URL"]) as second_conn:
         with track_run(db_conn, "core", "bootstrap", workflow="exclusive"):
             with pytest.raises(RuntimeError, match="another ingestion or derived-data stage"):

@@ -10,8 +10,11 @@ This is Feast's `get_historical_features` signature and vocabulary without the
 Feast dependency (see ``openspec/changes/feature-store-v1/`` — no Feast, with a
 recorded adoption trigger). The point-in-time correctness lives in the DuckDB
 `ASOF LEFT JOIN` on ``decision_time >= visible_ts`` plus the entity-key equality;
-``visible_ts`` is ``GREATEST(available_ts, created_ts)`` so a row is invisible
-both before the baseball event was known and before the build wrote it.
+in the current full-rebuild feature version ``visible_ts = event_ts``.
+``created_ts`` is audit metadata, not a historical availability claim: the
+source does not record when Retrosheet data became available.  An incremental
+version may use a stricter visibility clock only when that availability can be
+measured (see ``docs/FEATURE_STORE.md``).
 """
 
 from __future__ import annotations

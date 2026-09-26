@@ -30,6 +30,13 @@ _GAMES = [
     (7920002, "GRT202405100", "2024-05-10", 0, 7202, 7201, 1, 4, "regular"),
     (7920003, "GRT202405200", "2024-05-20", 0, 7201, 7202, 5, 5, "regular"),
     (7920004, "GRT202405280", "2024-05-28", 0, 7202, 7201, 2, 6, "regular"),
+    # Not yet reconciled against Retrosheet -- what every game in the
+    # current, still-in-progress season looks like in production until
+    # Retrosheet publishes its event files (docs/FEATURE_STORE.md, "Coverage
+    # is the regular season, 1910-2025"). 2,347 real core.game rows hit this
+    # exact NULL on 2026-09-23; feat_game.sql must exclude the row, not crash
+    # on game.game_pk's NOT NULL constraint.
+    (7920005, None, "2024-06-01", 0, 7201, 7202, 0, 0, "regular"),
 ]
 # per game per pitcher: bf, outs, so, bb
 _LINES = {
@@ -172,3 +179,13 @@ def test_first_game_has_no_prior_form(built):
     con.close()
     assert bf == 0  # no prior appearances -> 0 exposure
     assert kbb is None  # ...and the rate is NULL, not 0
+
+
+def test_a_game_without_a_retro_id_yet_is_excluded_not_crashed(built):
+    con = _attach(built)
+    total = con.execute("SELECT count(*) FROM feat.game").fetchone()[0]
+    con.close()
+    # 5 rows in core.game, one (7920005) with no retro_game_id -- the build
+    # must silently exclude it rather than raise a NOT NULL constraint error
+    # on game.game_pk.
+    assert total == 4

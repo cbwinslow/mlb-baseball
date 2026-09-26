@@ -299,14 +299,17 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    before the export had anything to publish — both done as part of this
    step.
 
-7. Postseason separation (`openspec/changes/separate-postseason-stats/`,
+7. ✅ Postseason separation (`openspec/changes/archive/2026-09-11-separate-postseason-stats/`,
    ADR-282 / ADR-283) — `bref.py` pulls a regular-season-only window;
    `gold.batting_postseason` / `gold.pitching_postseason` built from Lahman
    `BattingPost` / `PitchingPost`; `mlb doctor` envelope + purity guards;
    model/ML game-type audit. baseball.computer adopted as the game-type
-   reference (regular-season-only aggregates everywhere). **Owner step
-   outstanding:** re-ingest `raw.bref_*` for 2008–2026 and re-run `mlb report`
-   (`reingest-runbook.md`).
+   reference (regular-season-only aggregates everywhere). Owner re-ingest
+   step done — verified 2026-09-23 against production `mlb`:
+   `raw.bref_batting`/`raw.bref_pitching` 2021–2026 spot checks match
+   `reingest-runbook.md` exactly (e.g. Semien 2023 = 162 G, not 179),
+   `gold.player_season` max games = 163, and `gold.batting_postseason` /
+   `gold.pitching_postseason` exist.
 
 **NEXT** — finish v1's remaining milestone work, then v1.1:
 - v1 finishing work: `openspec/specs/statistic-backbone/spec.md`.

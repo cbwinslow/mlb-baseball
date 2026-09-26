@@ -21,6 +21,7 @@ _DYNAMIC_RAW_TABLES = [
     "raw.bref_batting",
     "raw.bref_pitching",
     "raw.lahman_teams",
+    "raw.lahman_teams_franchises",
     "raw.mlb_standing",
     "raw.retrosheet_event",
     "raw.retrosheet_gameinfo",
@@ -61,7 +62,7 @@ def _ensure_dynamic_tables(conn):
         if not cur.fetchone()[0]:
             cur.execute(
                 "CREATE TABLE raw.lahman_teams (yearid text, lgid text, teamidretro text, "
-                "w text, l text, r text, ra text, hr text, era text)"
+                "franchid text, w text, l text, r text, ra text, hr text, era text)"
             )
         cur.execute("SELECT to_regclass('raw.mlb_standing')")
         if not cur.fetchone()[0]:
@@ -132,7 +133,10 @@ def _reset(conn):
             "core.player_war",
             "core.game",
             "core.player",
+            # core.team_franchise is referenced by core.team.franchise_id,
+            # so core.team must clear first.
             "core.team",
+            "core.team_franchise",
             "core.venue",
         ):
             cur.execute(f"DELETE FROM {table}")
@@ -396,11 +400,22 @@ def test_build_player_season_excludes_rows_with_no_resolvable_player(db_conn):
 # ---------------------------------------------------------------------------
 
 
-def test_build_team_season_base_from_lahman_computes_win_pct_and_remaps_athletics(db_conn):
-    # 'ATH' (the Athletics' bare 2025 post-relocation code -- same gap
-    # conform.py's own _TEAM_ALIAS_SEED documents for Kalshi/Polymarket)
-    # must resolve via core.team's real 'OAK' retro_team_id, not silently
-    # drop the row.
+def test_build_team_season_base_from_lahman_computes_win_pct_and_resolves_relocated_codes(
+    db_conn,
+):
+    # A relocated/reissued franchise's real code (e.g. the Athletics' bare
+    # 2025 'ATH') must resolve to core.team's OWN matching, year-scoped row
+    # -- not get silently dropped, and not get collapsed onto some OTHER
+    # era's team_id. core.team already has one row per era with its own
+    # matching retro_team_id and year range (confirmed directly against
+    # real production data: the Athletics alone span 'PHA' 1901-1954,
+    # 'KC1' 1955-1967, 'OAK' 1968-2024, 'ATH' 2025 -- all one franchise),
+    # so each Lahman row's own code/year should resolve to ITS OWN
+    # core.team row and get that row's real city/nickname, not an older
+    # era's. (An earlier version of this fix redirected every era through
+    # one franchise-wide "legacy" anchor code -- reverted after review
+    # found that misattributes every other era of a multi-relocation
+    # franchise's data, not just the one relocation being tested.)
     _reset(db_conn)
     _ensure_dynamic_tables(db_conn)
     with db_conn.cursor() as cur:
@@ -409,12 +424,24 @@ def test_build_team_season_base_from_lahman_computes_win_pct_and_remaps_athletic
             [
                 ("LAN", "Los Angeles", "Dodgers", 1958, 9999, 119),
                 ("OAK", "Oakland", "Athletics", 1968, 9999, 133),
+                ("ATH", "Sacramento", "Athletics", 2025, 2025, 133),
             ],
+        )
+        cur.execute(
+            "INSERT INTO core.team_franchise "
+            "(franchise_id, franchise_name, current_retro_team_id) "
+            "VALUES ('OAK', 'Athletics', 'ATH') RETURNING id"
+        )
+        (franchise_id,) = cur.fetchone()
+        cur.execute(
+            "UPDATE core.team SET franchise_id = %s WHERE retro_team_id IN ('OAK', 'ATH')",
+            (franchise_id,),
         )
         cur.execute(
             "INSERT INTO raw.lahman_teams (yearid, lgid, teamidretro, w, l, r, ra, hr, era) "
             "VALUES "
             "('2024', 'NL', 'LAN', '98', '64', '842', '659', '210', '3.71'), "
+            "('2024', 'AL', 'OAK', '46', '116', '585', '813', '135', '5.51'), "
             "('2025', 'AL', 'ATH', '76', '86', '733', '744', '219', '4.71')"
         )
     db_conn.commit()
@@ -422,15 +449,89 @@ def test_build_team_season_base_from_lahman_computes_win_pct_and_remaps_athletic
     updated = report._build_team_season_base(db_conn)
     db_conn.commit()
 
-    assert updated == 2
+    assert updated == 3
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT team_id, wins, losses, win_pct, runs, runs_allowed, hr, era "
-            "FROM gold.team_season WHERE season = 2024"
+            "SELECT team_id, team_city, team_nickname, wins, losses, "
+            "win_pct, runs, runs_allowed, hr, era "
+            "FROM gold.team_season WHERE season = 2024 AND team_id = %s",
+            (teams["LAN"],),
         )
         row = cur.fetchone()
         # win_pct = 98 / (98+64) = 0.60494, rounded to 3 places = 0.605
-        assert row == (teams["LAN"], 98, 64, Decimal("0.605"), 842, 659, 210, Decimal("3.71"))
+        assert row == (
+            teams["LAN"],
+            "Los Angeles",
+            "Dodgers",
+            98,
+            64,
+            Decimal("0.605"),
+            842,
+            659,
+            210,
+            Decimal("3.71"),
+        )
+
+        # The 2024 OAK row (still real Oakland Athletics data) resolves to
+        # its OWN team_id and city -- not collapsed onto anything else.
+        cur.execute(
+            "SELECT team_id, team_city, wins, losses FROM gold.team_season "
+            "WHERE season = 2024 AND team_id = %s",
+            (teams["OAK"],),
+        )
+        assert cur.fetchone() == (teams["OAK"], "Oakland", 46, 116)
+
+        # The 2025 ATH row resolves to its OWN real team_id/city
+        # ("Sacramento") -- a real accuracy improvement over the old
+        # design, which force-mapped it onto the retired OAK row's city.
+        cur.execute(
+            "SELECT team_id, team_city, wins, losses FROM gold.team_season "
+            "WHERE season = 2025 AND team_id = %s",
+            (teams["ATH"],),
+        )
+        assert cur.fetchone() == (teams["ATH"], "Sacramento", 76, 86)
+
+    _reset(db_conn)
+
+
+def test_build_team_season_base_falls_back_to_franchise_for_a_code_with_no_own_row_yet(db_conn):
+    """A Lahman row whose own code has no matching core.team row yet (a new
+    relocation/reissue Retrosheet's own team files haven't caught up to)
+    must fall back to another core.team row sharing the same franchise for
+    that year, instead of being silently dropped."""
+    _reset(db_conn)
+    _ensure_dynamic_tables(db_conn)
+    with db_conn.cursor() as cur:
+        teams = _insert_teams(
+            cur,
+            [("OAK", "Oakland", "Athletics", 1968, 9999, 133)],
+        )
+        cur.execute(
+            "INSERT INTO core.team_franchise "
+            "(franchise_id, franchise_name, current_retro_team_id) "
+            "VALUES ('OAK', 'Athletics', 'OAK') RETURNING id"
+        )
+        (franchise_id,) = cur.fetchone()
+        cur.execute(
+            "UPDATE core.team SET franchise_id = %s WHERE retro_team_id = 'OAK'",
+            (franchise_id,),
+        )
+        # 'ATH' has no core.team row at all in this fixture -- simulating a
+        # brand-new code Lahman already uses but conform.py hasn't landed a
+        # matching core.team row for yet. franchid is what the fallback
+        # actually keys on (real raw.lahman_teams rows always carry it).
+        cur.execute(
+            "INSERT INTO raw.lahman_teams "
+            "(yearid, lgid, teamidretro, franchid, w, l, r, ra, hr, era) "
+            "VALUES ('2025', 'AL', 'ATH', 'OAK', '76', '86', '733', '744', '219', '4.71')"
+        )
+    db_conn.commit()
+
+    updated = report._build_team_season_base(db_conn)
+    db_conn.commit()
+
+    assert updated == 1
+    with db_conn.cursor() as cur:
         cur.execute("SELECT team_id, wins, losses FROM gold.team_season WHERE season = 2025")
         assert cur.fetchone() == (teams["OAK"], 76, 86)
 

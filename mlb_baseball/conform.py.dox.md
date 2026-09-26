@@ -15,6 +15,7 @@ Primary outputs currently include:
 - `core.team`
 - `core.player`
 - `core.venue`
+- `core.team_franchise`
 - `core.team_alias`
 - `core.game`
 - `core.standing`
@@ -71,17 +72,20 @@ The order inside `run()` is part of correctness. Important current dependencies 
 
 1. build teams and players;
 2. build venues before games so game rows can resolve canonical venue IDs;
-3. seed team aliases;
-4. build games;
-5. backfill MLB `game_pk` using increasingly strong/appropriate evidence;
-6. derive canonical MLB team IDs from resolved games;
-7. use numeric MLB team identity to resolve remaining game/team-name drift;
-8. build completed spring games and standings after team-ID backfills;
-9. bulk-build play/pitch facts with index drop/rebuild optimization around large writes;
-10. backfill play win probability;
-11. build market rows using corrected game/team identities and PIT-safe price snapshots;
-12. build WAR bridges;
-13. commit once the coherent rebuild is complete.
+3. build team franchises (`core.team_franchise` + `core.team.franchise_id`) —
+   must run after teams, before team aliases (below), since alias
+   resolution now depends on it;
+4. seed team aliases;
+5. build games;
+6. backfill MLB `game_pk` using increasingly strong/appropriate evidence;
+7. derive canonical MLB team IDs from resolved games;
+8. use numeric MLB team identity to resolve remaining game/team-name drift;
+9. build completed spring games and standings after team-ID backfills;
+10. bulk-build play/pitch facts with index drop/rebuild optimization around large writes;
+11. backfill play win probability;
+12. build market rows using corrected game/team identities and PIT-safe price snapshots;
+13. build WAR bridges;
+14. commit once the coherent rebuild is complete.
 
 Do not reorder passes because two functions look independent. Inspect the comments/tests and downstream keys first.
 
@@ -113,11 +117,75 @@ Do not reorder passes because two functions look independent. Inspect the commen
 - Numeric MLB team IDs are preferred over current display-name matching once a trustworthy bridge exists.
 - Doubleheader/game identity collisions are a known silent-risk class; preserve duplicate/grouped health checks and tests.
 
+## Team Franchise Contract
+
+`core.team` is one row per team-era (`retro_team_id`, `first_year`,
+`last_year`); Retrosheet reuses `retro_team_id` across non-contiguous eras
+(e.g. `HOU` NL 1962-2012 vs AL 2013-2021, `MIL` AL 1970-1997 vs NL
+1998-2021 — real code *reuse*), and reissues a franchise a genuinely new
+code on relocation (the Athletics: `OAK` through 2024, `ATH` from 2025 —
+real code *change*). `core.team_franchise` links every resolvable era to
+its permanent franchise, from data already ingested
+(`raw.lahman_teams_franchises` + `raw.lahman_teams.franchid`/`teamidretro`).
+
+- `current_retro_team_id` is the franchise's newest resolved era (greatest
+  `first_year`) — the real, current code. Use this **only** for a
+  consumer with no season/year context of its own that specifically needs
+  "what code does this franchise use right now" (e.g. matching an
+  external source's live ticker/alias, as `_build_team_aliases` does).
+  **Do not** use it as a general substitute for season-scoped resolution
+  below — a franchise can have more than one historical code change
+  (confirmed directly: the Athletics alone span `PHA` 1901-1954, `KC1`
+  1955-1967, `OAK` 1968-2024, `ATH` 2025, all one franchise), so
+  `current_retro_team_id` is only correct for "right now," not for
+  resolving a specific past season.
+- **A season-scoped consumer resolves each row to its OWN era directly,
+  not through any single franchise-wide anchor column.** `core.team`
+  already carries one row per era with its own matching `retro_team_id`
+  and year range — for the whole history above, not just the most recent
+  code. `report.py`'s `gold.team_season` build (and its health-check
+  mirror) join via a `LATERAL` that prefers a direct
+  `retro_team_id` + year-range match on `core.team`, falling back to any
+  `core.team` row sharing the same `franchise_id` (still year-scoped)
+  only when a row's own code has no matching `core.team` row yet. An
+  earlier version of this fix routed everything through a
+  `legacy_retro_team_id` column (the franchise's OLDEST era,
+  unconditionally) — reverted after review found it silently
+  misattributes or drops every OTHER era's real data for any franchise
+  with more than one historical code change, not just the Athletics' most
+  recent one (see docs/DECISIONS.md ADR-292's "reverted design" note).
+- `mlb_baseball/model/season.py`'s `load_schedule_from_db` does **not**
+  go through `core.team_franchise` at all: `ALL_MLB_TEAMS`/`MLB_DIVISIONS`
+  is a hand-maintained Python list with no season-awareness of its own
+  (modernizing it is separately scoped and deferred), so no query derived
+  from this table can know which single code that list happens to
+  hardcode. It keeps a narrow, explicit
+  `CASE WHEN retro_team_id = 'ATH' THEN 'OAK' ELSE retro_team_id END`
+  inline instead — the same shape as the original hand-patched fix this
+  change otherwise replaces.
+- **Never use `core.team.last_year = 9999` to mean "the current era."**
+  It is Retrosheet's own "currently active" sentinel and can lag a real
+  code reissue — confirmed directly for the Athletics, whose retired
+  `OAK` row is still `last_year = 9999` while `ATH` is the real 2025 code.
+  `first_year` does not have this staleness problem.
+- `core.team.franchise_id` is nullable; a real, documented subset of rows
+  (pre-1969 Negro League team-eras) has no Lahman franchise crosswalk at
+  all and stays NULL rather than guessed. `mlb doctor` flags a row only
+  when a crosswalk was actually expected (a matching `raw.lahman_teams`
+  row exists) and still resolved to NULL — see Health/Reconciliation
+  Contract below.
+
 ## Team Alias Contract
 
 `_TEAM_ALIAS_SEED` exists only for external sources without a shared stable numeric ID (not as a universal naming dictionary). Entries are evidence-backed aliases/ticker codes seen in real market/MLB source data, including rebrand/relocation cases.
 
 Do not expand it speculatively or use it where an existing numeric crosswalk is available.
+
+Alias targets resolve through `core.team_franchise`'s `current_retro_team_id`
+first (so an alias for a relocated franchise attaches to its real current
+era's `team_id`), falling back to the seed code's own row when franchise
+resolution isn't available (e.g. Lahman not yet ingested) — this table
+must keep working without it, per ADR-029.
 
 ## Market / Point-in-Time Contract
 
@@ -154,7 +222,9 @@ Any change here requires dedicated PIT/leakage regression tests.
 - duplicate `game_pk` / grouped doubleheader identity problems;
 - Retrosheet/MLB/Statcast/WAR join coverage loss;
 - team-season win/count reconciliation against independent Lahman facts;
-- natural-key duplicates hidden by partition-key constraints.
+- natural-key duplicates hidden by partition-key constraints;
+- a `core.team` row whose franchise link should have resolved (a real
+  `raw.lahman_teams` match exists) but didn't.
 
 When adding a new high-value conformed source/output, add an actionable health/tie-out check where possible.
 

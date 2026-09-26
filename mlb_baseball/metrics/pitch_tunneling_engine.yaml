@@ -1,61 +1,56 @@
 name: pitch_tunneling_engine
 definition: >
-  A standalone calculator (run via `mlb tunnel` on the command line) that
-  compares two pitch types from the same pitcher and scores how well they
-  "tunnel" -- how similar their flight paths look to a hitter at release and
-  at a hypothetical decision point partway to the plate, before breaking
-  apart in different directions late. It takes hand-entered release point,
-  velocity, and break numbers for a single pitch pair. It does not read any
-  of this project's own pitch-tracking data, and is not part of any database
-  build.
-formula: mlb_baseball/model/tunnel.py::PitchTunnelingEngine.evaluate_tunnel_pair
-citation: project-derived (no external formula cited)
-data_source: none -- takes only hand-entered PitchFlightVector inputs (mlb_baseball/cli.py "tunnel" command, or hardcoded examples in health_check()/pipeline.py), never reads gold/core/raw
-grain: not applicable (stateless per-pitch-pair calculation, no stored grain)
+  Evaluates a real pitcher's two real pitch types' tunneling (`mlb tunnel
+  --pitcher`) using real release/trajectory kinematics from Statcast: how
+  similar their flight paths look to a hitter at release and at the real
+  Tunnel Point (23.8 ft / 175ms before the plate, Baseball Prospectus's
+  published definition), before breaking apart via their real plate-crossing
+  positions. A separate hand-typed what-if calculator (the pre-fix `mlb
+  tunnel` behavior, hand-entered release/velocity/break numbers and a
+  `poc_factor` approximation) remains available for scouting-input use only.
+formula: mlb_baseball/model/tunnel.py::tunnel_pair_from_statcast
+citation: >
+  Real path: tunnel-point definition and Break:Tunnel Ratio from Baseball
+  Prospectus, Long/Pavlidis/Judge, "Introducing Pitch Tunnels" (2017);
+  tunnel-point trajectory position computed via the same closed-form
+  projectile-motion kinematics `model/vaa.py::pitch_vaa_degrees()` already
+  uses (real vx0/vy0/vz0/ax/ay/az), not an approximation. The 0-100
+  `tunneling_quality_score` scaling, `whiff_boost_pct`, and the elite-tunnel
+  thresholds (POC <= 8.5in, plate split >= 16.0in) remain project-derived --
+  no published source for those specific numbers was found (literature
+  check, 2026-09-23). What-if path: project-derived throughout (no external
+  formula cited), unchanged from before this fix.
+data_source: >
+  raw.statcast_pitch (pitcher, pitch_type, release_pos_x/z, vx0/vy0/vz0,
+  ax/ay/az, plate_x/z) for the real path; none -- hand-entered
+  PitchFlightVector inputs only for the what-if path
+grain: per pitcher, per pitch-type pair, per caller-specified date range (real path); stateless per-pitch-pair (what-if path)
 layer: model
-complexity: arithmetic
+complexity: complex
 implementation: python
-status: implemented-untested
-visibility: internal
+status: published
+visibility: public
 notes: >
-  FLAGGED FOR TRIAGE -- same class of finding already caught for
-  win_probability_added_calculator.yaml and bullpen_leverage_volatility_
-  engine.yaml. Confirmed by direct grep across the repository: nothing
-  anywhere constructs a PitchFlightVector from raw.statcast_pitch or any
-  other ingested table. The only callers are `mlb tunnel` (cli.py, hand-typed
-  --ff_velo/--ff_ivb/--ff_hb-style flags), the module's own health_check(),
-  and pipeline.py's self-check phase -- all hardcoded/manually-entered
-  example numbers, never a real pitch.
+  Fixed 2026-09-23 (metric-catalog triage follow-up): the module used to be
+  a standalone CLI what-if calculator only, with an uncited `poc_factor =
+  0.30` linear approximation and no real data read. `tunnel_pair_from_
+  statcast()` now computes release distance, real Tunnel Point separation
+  (exact kinematics, not the approximation), and real plate-break separation
+  (from real `plate_x`/`plate_z`) for a real pitcher's real pitches.
+  `break_tunnel_ratio` (new field on `PitchTunnelEvaluation`) is BP's
+  published Break:Tunnel Ratio -- (plate separation - Tunnel Point
+  separation) / Tunnel Point separation. `status: published` reflects that
+  citation; not `validated` because no independent tie-out against a
+  specific known published pitcher pair's tunnel numbers was run this pass.
+  The 0-100 score scaling, whiff-boost formula, and elite-tunnel thresholds
+  remain project-derived on both paths (see citation) -- kept separate from
+  the cited ratio so no claim implies a citation it does not have. The
+  `poc_factor = 0.30` approximation remains on the hand-typed what-if path
+  only (`PitchTunnelingEngine.evaluate_tunnel_pair`, same file), now
+  explicitly labeled as such (`data_source: hand_typed_whatif` on its
+  result) rather than presented as a real pitcher's data.
 
-  The Point-of-Commitment factor (`poc_factor = 0.30`) is derived in a code
-  comment from the author's own approximate physics argument ("ball has
-  traveled ~55% of flight time by 23.8 ft... movement is ~(0.55)^2 = ~30% of
-  total plate movement") -- a hand-derived approximation, not sourced to any
-  cited aerodynamic model. The `tunneling_quality_score` formula
-  (`(late_break_ratio / 6.0) * 100 - release_dist * 5.0`, clipped 0-100), the
-  `whiff_boost_pct` formula, and the elite-tunnel thresholds (POC <= 8.5 in,
-  plate split >= 16.0 in) are uncited project-chosen constants; no published
-  source for these specific numbers was found.
-
-  Observation, not a citation the module itself makes: the general shape here
-  -- release-point distance, separation at a ~23.8 ft decision point, plate
-  break separation, and a plate-break-to-tunnel-separation ratio -- resembles
-  the publicly known "pitch tunnels" sabermetric concept (Baseball
-  Prospectus, Long/Pavlidis/Judge, "Introducing Pitch Tunnels," 2017), which
-  also defines a tunnel point near this distance and a break:tunnel-style
-  ratio. The module contains no citation to that or any other source
-  anywhere in its code or docstring, and its actual scoring formula and
-  thresholds do not match any published BP number this review could find --
-  per this catalog's default-to-internal-when-unsure rule and the explicit
-  instruction not to imply official standing for an uncited approximation,
-  `citation: project-derived` and `visibility: internal` reflect that
-  honestly rather than crediting a specific published formula this code does
-  not actually reproduce.
-
-  tests/unit/test_tunnel.py checks formula properties on hand-picked
-  synthetic pitch pairs (identical release points give
-  release_distance_in == 0.0; a mismatched arm slot degrades the score and
-  clears is_elite_tunnel) -- self-consistency checks of the code's own
-  arithmetic, not a tie-out against any independently published
-  tunnel-quality value for a real pitcher pair. `status: implemented-untested`
-  reflects that no independent check exists.
+  `complexity` changed from `arithmetic` to `complex`: the real path solves
+  a closed-form kinematics equation (not a deterministic aggregation over
+  already-normalized data), matching this catalog's own `complexity`
+  definition.

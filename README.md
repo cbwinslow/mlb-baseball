@@ -106,6 +106,8 @@ single local **DuckDB** file with the point-in-time feature relations
 uv run mlb bootstrap   # sources -> your Postgres  (raw + core)
 uv run mlb build       # Postgres -> gold + the DuckDB feature file (default ~/.mlb/mlb.duckdb)
 uv run mlb verify      # leakage checks + the Baseball-Reference tie-out on your own build
+uv run mlb readiness --db ./mlb.duckdb --database-url "$DATABASE_URL" --format json
+                       # read-only declared-feature admission report; no rebuild or writes
 ```
 
 `migrate` / `conform` / `report` / `features` still work standalone — `build`

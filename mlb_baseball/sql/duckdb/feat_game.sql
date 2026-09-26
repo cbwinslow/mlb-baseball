@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS feat.game (
     home_bb_pct_30d DOUBLE, away_bb_pct_30d DOUBLE,
     home_obp_30d    DOUBLE, away_obp_30d    DOUBLE,
     home_slg_30d    DOUBLE, away_slg_30d    DOUBLE,
+    -- Audit denominators: metadata for null-policy verification, never model inputs.
+    home_pa_30d INTEGER, away_pa_30d INTEGER,
+    home_obp_denom_30d INTEGER, away_obp_denom_30d INTEGER,
+    home_ab_30d INTEGER, away_ab_30d INTEGER,
 
     home_starter_k_minus_bb_pct_30d DOUBLE,
     home_starter_fip_like_30d       DOUBLE,
@@ -104,6 +108,11 @@ team_form AS (
     SELECT
         team_id,
         game_id,
+        pa_30d,
+        ab_30d,
+        bb_30d,
+        hbp_30d,
+        sf_30d,
         CASE WHEN pa_30d > 0 THEN so_30d::DOUBLE / pa_30d END AS k_pct_30d,
         CASE WHEN pa_30d > 0 THEN bb_30d::DOUBLE / pa_30d END AS bb_pct_30d,
         CASE WHEN (ab_30d + bb_30d + hbp_30d + sf_30d) > 0
@@ -163,6 +172,12 @@ SELECT
     ta.obp_30d    AS away_obp_30d,
     th.slg_30d    AS home_slg_30d,
     ta.slg_30d    AS away_slg_30d,
+    th.pa_30d AS home_pa_30d,
+    ta.pa_30d AS away_pa_30d,
+    (th.ab_30d + th.bb_30d + th.hbp_30d + th.sf_30d) AS home_obp_denom_30d,
+    (ta.ab_30d + ta.bb_30d + ta.hbp_30d + ta.sf_30d) AS away_obp_denom_30d,
+    th.ab_30d AS home_ab_30d,
+    ta.ab_30d AS away_ab_30d,
 
     pfh.k_minus_bb_pct_30d AS home_starter_k_minus_bb_pct_30d,
     pfh.fip_like_30d       AS home_starter_fip_like_30d,

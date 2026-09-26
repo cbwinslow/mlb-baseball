@@ -45,6 +45,7 @@ connections to the *same* server, retrosheet.org).
 
 import argparse
 import concurrent.futures
+import json as json_module
 import logging
 import os
 import sys
@@ -53,6 +54,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import psycopg
+from mlb_research.feature_sets import get_feature_set
 
 from mlb_baseball import (
     backup,
@@ -67,6 +69,7 @@ from mlb_baseball import (
     model,
     player,
     progress_table,
+    readiness,
     report,
     schema_inventory,
 )
@@ -410,6 +413,27 @@ def main(argv: list[str] | None = None) -> None:
         "--skip-tie-out",
         action="store_true",
         help="run only the leakage checks; skip the slower Baseball-Reference tie-out",
+    )
+    readiness_parser = subparsers.add_parser(
+        "readiness",
+        help="read-only admission report for a declared feature set and explicit build",
+    )
+    readiness_parser.add_argument(
+        "--db",
+        required=True,
+        metavar="PATH",
+        help="explicit DuckDB feature-store artifact to evaluate",
+    )
+    readiness_parser.add_argument(
+        "--database-url",
+        required=True,
+        metavar="URL",
+        help="explicit PostgreSQL URL for the read-only backbone tie-out (never printed)",
+    )
+    readiness_parser.add_argument("--feature-set", default="game-win", choices=["game-win"])
+    readiness_parser.add_argument("--feature-version", default="v1")
+    readiness_parser.add_argument(
+        "--format", choices=["text", "json"], default="text", help="report rendering"
     )
     subparsers.add_parser("predict")
     subparsers.add_parser("train")
@@ -1536,6 +1560,28 @@ def main(argv: list[str] | None = None) -> None:
             run_tie_out=not args.skip_tie_out,
         )
         if not ok:
+            sys.exit(1)
+    elif args.command == "readiness":
+        feature_set = get_feature_set(args.feature_set, args.feature_version)
+        readiness_report = readiness.evaluate_feature_set(
+            artifact=args.db,
+            feature_set=feature_set,
+            feature_version=args.feature_version,
+            backbone_tie_out=lambda: readiness.run_backbone_tie_out(database_url=args.database_url),
+        )
+        if args.format == "json":
+            print(json_module.dumps(readiness_report.to_dict(), sort_keys=True))
+        else:
+            print(
+                f"readiness: {readiness_report.status} "
+                f"({readiness_report.feature_set}:{readiness_report.feature_version})"
+            )
+            for readiness_check in readiness_report.checks:
+                print(
+                    f"[{'OK' if readiness_check.ok else 'FAIL'}] "
+                    f"{readiness_check.name}: {readiness_check.detail}"
+                )
+        if not readiness_report.ready:
             sys.exit(1)
     elif args.command == "schema":
         schema_inventory.print_report(partitions=args.partitions)

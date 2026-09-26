@@ -103,11 +103,14 @@ jobs:
       - name: Lint (SQL ownership -- inline SQL that should be a named resource)
         run: uv run python scripts/lint_sql_ownership.py
 
-      - name: Metric catalog completeness + visibility lint (advisory, metric-catalog/ADR-291)
-        # Non-blocking until the first full model/ triage batch lands
-        # (design.md Migration Plan step 3; tasks.md 3.4) -- today it
-        # reports a large, expected gap count, not a real regression.
-        run: uv run python scripts/check_metric_catalog.py || true
+      - name: Metric catalog completeness + visibility lint (required, metric-catalog/ADR-291)
+        # Required as of 2026-09-22: the first full model/ triage batch
+        # landed (11 batches, 131 modules tracked, 0 gaps -- PR #228), per
+        # design.md Migration Plan step 3 / tasks.md 3.4. The script's own
+        # visibility lint stays advisory internally (never changes its exit
+        # code) -- only completeness gaps and missing validated test_refs
+        # fail this step.
+        run: uv run python scripts/check_metric_catalog.py
 
       - name: Type-check (mypy)
         run: uv run mypy

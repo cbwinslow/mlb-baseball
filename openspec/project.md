@@ -368,11 +368,23 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   total.py joined the exclusions as an XGBoost pipeline like gbm.py).
   Current state: `scripts/check_metric_catalog.py` reports 131 tracked
   `model/` modules and no gaps (151 YAML files; a few modules carry two).
-  Left over: the check is still advisory in CI (`|| true`) and can be
-  promoted to required now that the first full triage pass has landed
-  (`design.md` Migration Plan step 3); only one entry is `validated` (the
-  Baseball-Reference tie-out); promoting any other metric needs a real
-  external tie-out per entry.
+  Promoted to a required CI check 2026-09-22 (`design.md` Migration Plan
+  step 3, now that the first full triage pass has landed) — see the
+  `ci/require-metric-catalog-check` branch/PR. Only one entry is
+  `validated` (the Baseball-Reference tie-out); promoting any other metric
+  needs a real external tie-out per entry.
+- **SQLMesh pilot on metric-catalog candidates — ready, 3 candidates
+  (metric-catalog tasks.md 6.3):** pilot SQLMesh on the catalog's
+  `should_migrate_to_sql` candidates in a throwaway branch (branch prototype,
+  not committed to main yet), before deciding whether to migrate further.
+  Re-checked 2026-09-26 against `mlb_baseball/metrics/*.yaml`: no entry has
+  `should_migrate_to_sql: true` set yet, but three entries meet the design
+  rule (`complexity: arithmetic` + `implementation: python`):
+  `babip_luck_scanner`, `log5_win_probability`, `stuff_plus_rating_engine`.
+  That is fewer than the ~5 the task expected, so the pilot starts on these
+  three. `stuff_plus_rating_engine` is a weak fit: it takes hand-entered
+  inputs and never reads the database. First step: tag the three
+  `should_migrate_to_sql: true`, then plan the pilot.
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

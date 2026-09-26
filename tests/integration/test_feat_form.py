@@ -5,18 +5,22 @@ same-day doubleheader) plus one postseason game, seeded directly into
 core/gold. Rolling windows are small enough to check by hand.
 
 The clock (feat.py): event_ts = game_date + game_number * 3h; a form row's
-available_ts == visible_ts == its event_ts (the value is entering form). The
-6h lag lives in the rolling-window frame: doubleheader game 1 (event 03:00)
-is > game 2's event_ts (06:00) minus 6h, so game 2's windows exclude it.
+available_ts == visible_ts == its event_ts (the value is entering form).
+Every rolling window is ordered and bounded by date_trunc('day', event_ts),
+excluding the entering game's whole calendar day (see feat_player_form.sql).
 """
 
 import os
+import tempfile
 from datetime import timedelta
 
 import duckdb
 import pytest
+from mlb_research.feature_sets import GAME_WIN_V1
 
 from mlb_baseball import feat
+from mlb_baseball.health import Check
+from mlb_baseball.readiness import evaluate_feature_set
 
 SEASON = 2024
 
@@ -213,6 +217,45 @@ def test_build_returns_row_counts(built):
     }
 
 
+def test_readiness_evaluator_accepts_a_clean_disposable_feature_build(built):
+    dbfile, _counts = built
+
+    result = evaluate_feature_set(
+        artifact=dbfile,
+        feature_set=GAME_WIN_V1,
+        feature_version="v1",
+        backbone_tie_out=lambda: Check("backbone_tie_out", True, "fixture tie-out passed"),
+    )
+
+    assert result.status == "ready"
+    assert result.blockers == ()
+    assert any(item.expected_null_rows for item in result.coverage)
+
+
+def test_readiness_evaluator_blocks_an_unexplained_feature_null(built):
+    dbfile, _counts = built
+    con = duckdb.connect()
+    try:
+        con.execute(f"ATTACH '{dbfile}' AS mlbfeat")
+        con.execute("USE mlbfeat")
+        con.execute(
+            "UPDATE feat.game SET home_k_pct_30d = NULL, home_pa_30d = 10 "
+            "WHERE game_pk = 'TST202404150' AND feature_version = 'v1'"
+        )
+    finally:
+        con.close()
+
+    result = evaluate_feature_set(
+        artifact=dbfile,
+        feature_set=GAME_WIN_V1,
+        feature_version="v1",
+        backbone_tie_out=lambda: Check("backbone_tie_out", True, "fixture tie-out passed"),
+    )
+
+    assert result.status == "not_ready"
+    assert "feature_null_policy" in {check.name for check in result.blockers}
+
+
 def test_one_row_per_player_event_version_and_no_window_column(built):
     dbfile, _counts = built
     cols = {r[0] for r in _q(dbfile, "PRAGMA table_info('feat.player_form')")}
@@ -284,37 +327,149 @@ def test_clock_ordering_holds_on_every_row(built):
         assert bad == 0, relation
 
 
-def test_lag_constant_drives_the_window_frame_not_available_ts(built, tmp_path, monkeypatch):
-    """The lag lives in the rolling-window frame, not in available_ts (a form
-    row's value is entering form, knowable at first pitch). Proof: a form row's
-    available_ts equals its event_ts regardless of the lag; but shrinking the
-    lag from 6h to 3h lets doubleheader game 1 (event 03:00) into game 2's
-    (event 06:00) window, so game 2's numerators change.
-    """
+def test_available_ts_equals_event_ts(built):
+    """A form row's value is entering form (prior games only), knowable at
+    first pitch -- so available_ts is always exactly event_ts."""
     dbfile, _counts = built
     (delta,) = _row(dbfile, "SELECT available_ts - event_ts FROM feat.player_form LIMIT 1")
     assert delta == timedelta(0)
 
-    dh2_6h = _row(
-        dbfile,
-        "SELECT pa_std, so_num_std FROM feat.player_form "
-        "WHERE player_id = 70001 AND retro_game_id = 'TST202404202'",
-    )
 
-    monkeypatch.setattr(feat, "AVAILABLE_LAG_HOURS", 3)
-    other = tmp_path / "feat_lag3.duckdb"
-    feat.build(duckdb_path=other, pg_url=os.environ["DATABASE_URL"], feature_version="v1")
-    (delta3,) = _row(other, "SELECT available_ts - event_ts FROM feat.player_form LIMIT 1")
-    assert delta3 == timedelta(0)  # still event_ts
-    dh2_3h = _row(
-        other,
-        "SELECT pa_std, so_num_std FROM feat.player_form "
-        "WHERE player_id = 70001 AND retro_game_id = 'TST202404202'",
-    )
-    assert dh2_3h != dh2_6h  # game 1 now inside game 2's window
-    # game 1 was pa=3, so=1; with lag 3h it enters game 2's std window
-    assert dh2_3h[0] == dh2_6h[0] + 3
-    assert dh2_3h[1] == dh2_6h[1] + 1
+_WOBBLE_TEAMS = [(7301, "WBA"), (7302, "WBB")]
+_WOBBLE_BATTER = (73001, "wob001")
+_WOBBLE_PITCHER = (73002, "wob002")
+# id, retro, date, game_number, pa/bf -- a boundary game exactly 7 days before
+# a 3-game day (production data never has 3 games/day, but the mechanism this
+# reproduces -- ordering/bounding a rolling window by raw event_ts, which
+# carries the fictional game_number*3h same-day offset -- doesn't care how
+# many legs there are, and this shape pins down both failure modes in one
+# fixture: g_a/g_b/g_c must all see identical prior history (none of them
+# should see each other), and all three must see g_prior (exactly 7 days
+# back) identically too. The pitcher's bf and the batter's pa reuse the same
+# numbers so both relations' 7d windows are checked against the same
+# expected value.
+_WOBBLE_GAMES = [
+    (7940001, "WOB202404010", "2024-04-01", 0, 9),  # g_prior, 7 days before below
+    (7940002, "WOB202404080", "2024-04-08", 0, 11),  # g_a, 00:00
+    (7940003, "WOB202404081", "2024-04-08", 1, 5),  # g_b, 03:00
+    (7940004, "WOB202404082", "2024-04-08", 2, 7),  # g_c, 06:00
+]
+_WOBBLE_SAME_DAY_RETRO_IDS = ("WOB202404080", "WOB202404081", "WOB202404082")
+
+
+def test_rolling_window_start_does_not_wobble_with_same_day_offset(db_conn):
+    """Regression for a real production bug (2026-09-23): ordering/bounding
+    the 7d/30d window by raw event_ts (which encodes game_number*3h) let the
+    window's *own* N-days-ago start shift with that offset, so two same-day
+    legs could get different amounts of history from a boundary game -- 21%
+    of real 7d-window doubleheader pairs disagreed. It also let a game
+    exactly at the old lag-hours boundary leak into a later same-day leg (2
+    real instances, a 3-game day). Both are the same root cause: the window
+    must be ordered and bounded by the *calendar day*
+    (date_trunc('day', event_ts)), not the fictional intraday clock.
+
+    Covers all three relations that copy this window pattern
+    (feat_player_form.sql, feat_pitcher_form.sql, feat_game.sql's team-form
+    window) -- each is a separately maintained copy of the same SQL shape,
+    so a regression in any one of them needs its own assertion here.
+    """
+    game_ids = [g[0] for g in _WOBBLE_GAMES]
+    db_conn.rollback()
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM gold.batting_game WHERE game_id = ANY(%s)", (game_ids,))
+        cur.execute("DELETE FROM gold.pitching_game WHERE game_id = ANY(%s)", (game_ids,))
+        cur.execute("DELETE FROM core.game WHERE id = ANY(%s)", (game_ids,))
+        cur.execute(
+            "DELETE FROM core.player WHERE id = ANY(%s)",
+            ([_WOBBLE_BATTER[0], _WOBBLE_PITCHER[0]],),
+        )
+        cur.execute("DELETE FROM core.team WHERE id = ANY(%s)", ([t for t, _ in _WOBBLE_TEAMS],))
+        for tid, retro in _WOBBLE_TEAMS:
+            cur.execute(
+                "INSERT INTO core.team (id, retro_team_id, league, city, nickname, "
+                "first_year, last_year) VALUES (%s, %s, 'AL', 'W', 'X', 1901, 2026)",
+                (tid, retro),
+            )
+        cur.execute(
+            "INSERT INTO core.player (id, retro_id, last_name, first_name) VALUES "
+            "(%s, %s, 'W', 'X'), (%s, %s, 'W', 'Y')",
+            (*_WOBBLE_BATTER, *_WOBBLE_PITCHER),
+        )
+        for gid, retro, date, gn, pa in _WOBBLE_GAMES:
+            cur.execute(
+                "INSERT INTO core.game (id, retro_game_id, season, game_date, game_number, "
+                "home_team_id, away_team_id, home_score, away_score, game_type) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 0, 'regular')",
+                (gid, retro, SEASON, date, gn, _WOBBLE_TEAMS[0][0], _WOBBLE_TEAMS[1][0]),
+            )
+            _insert_line(
+                cur,
+                "gold.batting_game",
+                _BAT_COLS,
+                gid,
+                _WOBBLE_BATTER[0],
+                _WOBBLE_TEAMS[0][0],
+                date,
+                {"pa": pa, "ab": pa},
+            )
+            _insert_line(
+                cur,
+                "gold.pitching_game",
+                _PIT_COLS,
+                gid,
+                _WOBBLE_PITCHER[0],
+                _WOBBLE_TEAMS[0][0],
+                date,
+                {"bf": pa, "gs": 1},
+            )
+    db_conn.commit()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            dbfile = os.path.join(tmp, "wobble.duckdb")
+            feat.build(duckdb_path=dbfile, pg_url=os.environ["DATABASE_URL"], feature_version="v1")
+            batter_rows = _q(
+                dbfile,
+                "SELECT retro_game_id, pa_7d FROM feat.player_form "
+                "WHERE player_id = ? ORDER BY retro_game_id",
+                [_WOBBLE_BATTER[0]],
+            )
+            pitcher_rows = _q(
+                dbfile,
+                "SELECT retro_game_id, bf_7d FROM feat.pitcher_form "
+                "WHERE player_id = ? ORDER BY retro_game_id",
+                [_WOBBLE_PITCHER[0]],
+            )
+            game_rows = _q(
+                dbfile,
+                "SELECT game_pk, home_obp_30d FROM feat.game "
+                "WHERE game_pk = ANY(?) ORDER BY game_pk",
+                [list(_WOBBLE_SAME_DAY_RETRO_IDS)],
+            )
+        got_batter = dict(batter_rows)
+        got_pitcher = dict(pitcher_rows)
+        got_game_obp = dict(game_rows)
+        # g_a/g_b/g_c (today's three legs) must all see only g_prior (pa/bf=9),
+        # never each other, regardless of which leg is which -- for both the
+        # player-grain relations (feat_player_form.sql / feat_pitcher_form.sql)
+        # and the team-grain window feat_game.sql builds inline.
+        for retro_id in _WOBBLE_SAME_DAY_RETRO_IDS:
+            assert got_batter[retro_id] == 9
+            assert got_pitcher[retro_id] == 9
+        assert len(set(got_game_obp.values())) == 1  # all three legs' team OBP agree
+    finally:
+        db_conn.rollback()
+        with db_conn.cursor() as cur:
+            cur.execute("DELETE FROM gold.batting_game WHERE game_id = ANY(%s)", (game_ids,))
+            cur.execute("DELETE FROM gold.pitching_game WHERE game_id = ANY(%s)", (game_ids,))
+            cur.execute("DELETE FROM core.game WHERE id = ANY(%s)", (game_ids,))
+            cur.execute(
+                "DELETE FROM core.player WHERE id = ANY(%s)",
+                ([_WOBBLE_BATTER[0], _WOBBLE_PITCHER[0]],),
+            )
+            cur.execute(
+                "DELETE FROM core.team WHERE id = ANY(%s)", ([t for t, _ in _WOBBLE_TEAMS],)
+            )
+        db_conn.commit()
 
 
 def test_pitcher_form_rates_and_fip_like(built):

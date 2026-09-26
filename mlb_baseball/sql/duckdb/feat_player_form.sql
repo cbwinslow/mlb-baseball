@@ -3,27 +3,36 @@
 -- ATTACHed READ_ONLY as `pg`. Build-time parameters come from DuckDB session
 -- variables feat.py sets before running this file:
 --   getvariable('feat_version')    -- the feature_version tag ('v1')
---   getvariable('feat_lag_hours')  -- hours from first pitch to box-score
---                                     availability (feat.AVAILABLE_LAG_HOURS)
 --
 -- Clock (design D5, and the progress note in tasks.md):
 --   event_ts     = game_date::TIMESTAMP + game_number * INTERVAL 3 HOUR
 --                  (fictional absolute time, real ordering: a single game ->
 --                   midnight, doubleheader game 1 -> 03:00, game 2 -> 06:00)
 --   available_ts = event_ts  -- the row's value is entering form (prior
---                  games only); it is knowable at first pitch. The
---                  feat_lag_hours lag lives ONLY in the window frame below.
+--                  games only); it is knowable at first pitch. Every window
+--                  frame below excludes the entering game's own calendar
+--                  day entirely (see "Windows are COLUMNS" below), which is
+--                  what makes that true.
 --   created_ts   = now() at build time -- audit metadata, uniform across a
 --                  full rebuild, not a retrieval gate (see feat.py)
 --   visible_ts   = event_ts  -- retrieval ASOF key
 --
 -- Windows are COLUMNS, never rows: 7d, 30d, std (season-to-date). Each rate
 -- ships with its numerator(s) and its exposure (pa_<w>) so a PA-based window
--- is re-derivable. Every window frame ends at `feat_lag_hours HOUR PRECEDING`
--- rather than CURRENT ROW: that single bound excludes the entering game AND
--- any earlier same-day line whose box score is not yet available (the
--- doubleheader case -- game 1 is invisible to game 2). Rates are computed
--- from summed numerators / summed denominators, never averaged from per-game
+-- is re-derivable. Every window frame orders and bounds by
+-- date_trunc('day', event_ts), never raw event_ts, and ends at
+-- `1 DAY PRECEDING`: that excludes every game on the entering game's own
+-- calendar day (the doubleheader/tripleheader case -- no same-day leg can
+-- see another) while including all of the day before, uniformly for every
+-- leg of a multi-game day. Ordering by the fictional intraday event_ts
+-- offset directly (game_number * 3h) was the original design and is WRONG:
+-- it makes the 7d/30d window's *start* wobble by that same offset between a
+-- day's legs, silently dropping or keeping a several-day-old boundary game
+-- for one leg but not the other (confirmed on real production data,
+-- 2026-09-23: ~21% of 7d-window and ~7% of 30d-window doubleheader pairs
+-- disagreed). It also let a game exactly at the old hour-based boundary
+-- leak in on true 3+-game days (2 real instances). Rates are computed from
+-- summed numerators / summed denominators, never averaged from per-game
 -- rates. A rate is NULL when its denominator is 0.
 --
 -- EB shrink (k% and bb% only): (num + m*prior) / (denom + m), m = 100, stored
@@ -115,7 +124,7 @@ league_ts AS (
 ),
 
 -- season-to-date league totals as of each event_ts (availability-aware:
--- the frame ends feat_lag_hours before the row, same rule as the player
+-- excludes the entering row's own calendar day, same rule as the player
 -- windows)
 league_running AS (
     SELECT
@@ -128,9 +137,8 @@ league_running AS (
     FROM league_ts
     WINDOW w AS (
         PARTITION BY season
-        ORDER BY event_ts
-        RANGE BETWEEN UNBOUNDED PRECEDING
-            AND getvariable('feat_lag_hours') * INTERVAL 1 HOUR PRECEDING
+        ORDER BY date_trunc('day', event_ts)
+        RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 1 DAY PRECEDING
     )
 ),
 
@@ -182,21 +190,18 @@ windowed AS (
     WINDOW
         w7 AS (
             PARTITION BY src.player_id
-            ORDER BY src.event_ts
-            RANGE BETWEEN INTERVAL 7 DAY PRECEDING
-                AND getvariable('feat_lag_hours') * INTERVAL 1 HOUR PRECEDING
+            ORDER BY date_trunc('day', src.event_ts)
+            RANGE BETWEEN INTERVAL 7 DAY PRECEDING AND INTERVAL 1 DAY PRECEDING
         ),
         w30 AS (
             PARTITION BY src.player_id
-            ORDER BY src.event_ts
-            RANGE BETWEEN INTERVAL 30 DAY PRECEDING
-                AND getvariable('feat_lag_hours') * INTERVAL 1 HOUR PRECEDING
+            ORDER BY date_trunc('day', src.event_ts)
+            RANGE BETWEEN INTERVAL 30 DAY PRECEDING AND INTERVAL 1 DAY PRECEDING
         ),
         wstd AS (
             PARTITION BY src.player_id, src.season
-            ORDER BY src.event_ts
-            RANGE BETWEEN UNBOUNDED PRECEDING
-                AND getvariable('feat_lag_hours') * INTERVAL 1 HOUR PRECEDING
+            ORDER BY date_trunc('day', src.event_ts)
+            RANGE BETWEEN UNBOUNDED PRECEDING AND INTERVAL 1 DAY PRECEDING
         )
 ),
 
@@ -225,10 +230,9 @@ SELECT
     team_id,
     event_ts,
     -- This row's VALUE is the batter's form *entering* this game -- prior
-    -- completed games only, and the window frame below already excludes any
-    -- game less than feat_lag_hours old. So the value is knowable at first
-    -- pitch: available_ts = event_ts. The feat_lag_hours lag lives only in the
-    -- window frame (which inputs are eligible), not here.
+    -- completed games only, and the window frame above already excludes
+    -- every game on this row's own calendar day. So the value is knowable
+    -- at first pitch: available_ts = event_ts.
     event_ts AS available_ts,
     -- Audit metadata: when THIS build wrote the row. mlb build is a full
     -- rebuild, so it is uniform across a build and does not gate retrieval.

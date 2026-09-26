@@ -1,8 +1,11 @@
-# Feature registry
+# Legacy Engine feature registry
 
-This registry records the first reusable feature family. It is intentionally
-narrow: later feature families must be registered separately rather than being
-silently added to `gold.game_feature`.
+This registry records legacy/internal Engine feature families on PostgreSQL
+`gold.game_feature`. It is **not** a point-in-time training contract and is
+not an admissible source for `game-win:v1`. For the public DuckDB model surface
+and the versioned admission workflow, see [FEATURE_STORE.md](FEATURE_STORE.md).
+Later legacy families must still be registered separately rather than silently
+added to `gold.game_feature`.
 
 The read-only [`mlb field-census`](RAW_CORE_GOLD_FIELD_CENSUS.md) and
 [feature-admission queue](archive/FEATURE_ADMISSION_QUEUE.md) are the gate before a

@@ -28,7 +28,12 @@ uv run openspec validate model-readiness-audit --strict
 
 `tests/integration/test_feat_form.py` is run separately because it builds the
 feature artifact from a disposable PostgreSQL database and can take several
-minutes. Its final result belongs in this record before archiving.
+minutes:
+
+```text
+uv run pytest tests/integration/test_feat_form.py -q
+# 20 passed in 320.35s
+```
 
 The required real-evidence run remains intentionally pending: it needs an
 owner-designated, fully-built verification database and its explicit target

@@ -372,17 +372,18 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   `ci/require-metric-catalog-check` branch/PR. Only one entry is
   `validated` (the Baseball-Reference tie-out); promoting any other metric
   needs a real external tie-out per entry.
-- **SQLMesh pilot on metric-catalog candidates — deferred, no candidates
-  found (metric-catalog tasks.md 6.3):** the original queue item asked to
-  pilot SQLMesh on ~5 of the triage's `should_migrate_to_sql` candidates.
-  Checked 2026-09-17 against every entry in `mlb_baseball/metrics/*.yaml`:
-  `should_migrate_to_sql` is `false`/absent on all of them, and the only
-  two `implementation: python` entries are `complexity: complex`, not
-  `arithmetic`, so neither qualifies. Naming 5 candidates anyway would be
-  fabricated evidence, so this is deferred rather than done as originally
-  scoped. Owner decision needed: revisit scope (e.g. pilot on a different
-  criterion), or leave this open until a future triage batch surfaces a
-  genuine `arithmetic` + `implementation: python` candidate.
+- **SQLMesh pilot on metric-catalog candidates — ready, 3 candidates
+  (metric-catalog tasks.md 6.3):** pilot SQLMesh on the catalog's
+  `should_migrate_to_sql` candidates in a throwaway branch (branch prototype,
+  not committed to main yet), before deciding whether to migrate further.
+  Re-checked 2026-09-26 against `mlb_baseball/metrics/*.yaml`: no entry has
+  `should_migrate_to_sql: true` set yet, but three entries meet the design
+  rule (`complexity: arithmetic` + `implementation: python`):
+  `babip_luck_scanner`, `log5_win_probability`, `stuff_plus_rating_engine`.
+  That is fewer than the ~5 the task expected, so the pilot starts on these
+  three. `stuff_plus_rating_engine` is a weak fit: it takes hand-entered
+  inputs and never reads the database. First step: tag the three
+  `should_migrate_to_sql: true`, then plan the pilot.
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

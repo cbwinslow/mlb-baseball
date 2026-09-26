@@ -66,9 +66,11 @@ def _position_at_y(
 
     Same closed-form projectile-motion solve as `vaa.py::pitch_vaa_degrees()`,
     generalized from a fixed target (the plate) to an arbitrary one (the
-    Tunnel Point). Returns None when the kinematics are unusable (zero ay,
-    negative discriminant, zero plate-y velocity) -- the same degenerate
-    cases VAA guards against.
+    Tunnel Point). `x0` and `z0` are positions at Statcast's kinematics
+    reference plane, y = 50 ft (not `release_pos_x`/`release_pos_z`, which
+    are measured at the actual release point). Returns None when the
+    kinematics are unusable (zero ay, negative discriminant, zero plate-y
+    velocity) -- the same degenerate cases VAA guards against.
     """
     if ay == 0.0:
         return None
@@ -268,18 +270,43 @@ def _pitch_type_summary(
     plate_zs: list[float] = []
     tunnel_xs: list[float] = []
     tunnel_zs: list[float] = []
-    for x0, z0, vx0, vy0, vz0, ax, ay, az, plate_x, plate_z in rows:
-        pos = _position_at_y(
-            x0=x0, z0=z0, vx0=vx0, vy0=vy0, vz0=vz0, ax=ax, ay=ay, az=az, yf=_YF_TUNNEL_FT
+    for release_x, release_z, vx0, vy0, vz0, ax, ay, az, plate_x, plate_z in rows:
+        # Statcast's velocity and acceleration vectors are measured at y=50
+        # ft, whereas release_pos_* is measured at the physical release
+        # point. Anchor the y=50 trajectory at the independently measured
+        # plate location instead of treating release_pos_* as a y=50 value.
+        plate_offset = _position_at_y(
+            x0=0.0,
+            z0=0.0,
+            vx0=vx0,
+            vy0=vy0,
+            vz0=vz0,
+            ax=ax,
+            ay=ay,
+            az=az,
+            yf=_YF_PLATE_FT,
         )
-        if pos is None:
+        tunnel_offset = _position_at_y(
+            x0=0.0,
+            z0=0.0,
+            vx0=vx0,
+            vy0=vy0,
+            vz0=vz0,
+            ax=ax,
+            ay=ay,
+            az=az,
+            yf=_YF_TUNNEL_FT,
+        )
+        if plate_offset is None or tunnel_offset is None:
             continue
-        release_xs.append(x0)
-        release_zs.append(z0)
+        x50 = plate_x - plate_offset[0]
+        z50 = plate_z - plate_offset[1]
+        release_xs.append(release_x)
+        release_zs.append(release_z)
         plate_xs.append(plate_x)
         plate_zs.append(plate_z)
-        tunnel_xs.append(pos[0])
-        tunnel_zs.append(pos[1])
+        tunnel_xs.append(x50 + tunnel_offset[0])
+        tunnel_zs.append(z50 + tunnel_offset[1])
 
     n = len(tunnel_xs)
     if n == 0:

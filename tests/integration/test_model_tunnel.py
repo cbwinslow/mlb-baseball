@@ -159,6 +159,76 @@ def test_tunnel_pair_from_statcast_computes_real_kinematics_separation(db_conn):
 def test_tunnel_pair_from_statcast_returns_none_when_no_coverage(db_conn):
     """A pitcher/pitch-type/date-range with no kinematics coverage gets an honest None."""
     _reset(db_conn)
+
+
+def test_tunnel_pair_from_statcast_anchors_kinematics_at_plate_not_release(db_conn):
+    """A release-coordinate difference alone cannot create tunnel separation.
+
+    Statcast's velocity/acceleration vectors use y=50 ft as their reference
+    plane, while release_pos_* is recorded earlier in flight.  These pitches
+    have identical kinematics and measured plate positions but deliberately
+    different release positions; the real tunnel point must therefore match.
+    """
+    _reset(db_conn)
+    _ensure_statcast_pitch_table(db_conn)
+
+    rows = [
+        _row(
+            "7010",
+            "1003",
+            "FF",
+            "2024-04-05",
+            -2.0,
+            6.0,
+            4.0,
+            -130.0,
+            -6.0,
+            -2.0,
+            25.0,
+            -16.0,
+            0.3,
+            2.5,
+        ),
+        _row(
+            "7011",
+            "1003",
+            "SL",
+            "2024-04-05",
+            -4.0,
+            4.0,
+            4.0,
+            -130.0,
+            -6.0,
+            -2.0,
+            25.0,
+            -16.0,
+            0.3,
+            2.5,
+        ),
+    ]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch "
+            "(game_pk, pitcher, pitch_type, game_date, release_pos_x, release_pos_z, "
+            "vx0, vy0, vz0, ax, ay, az, plate_x, plate_z, game_year) "
+            f"VALUES {', '.join(rows)}"
+        )
+    db_conn.commit()
+
+    result = tunnel_pair_from_statcast(
+        pitcher_mlbam_id="1003",
+        pitch_type_a="FF",
+        pitch_type_b="SL",
+        date_from="2024-04-01",
+        date_to="2024-04-30",
+        conn=db_conn,
+    )
+
+    assert result is not None
+    assert result.release_distance_in > 20.0
+    assert result.tunnel_distance_at_poc_in == 0.0
+
+    _reset(db_conn)
     _ensure_statcast_pitch_table(db_conn)
 
     result = tunnel_pair_from_statcast(

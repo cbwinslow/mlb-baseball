@@ -106,11 +106,12 @@ identity (`core.team.mlb_team_id`).
   (a new expansion team is a content update, not a code-resolution bug),
   and point-in-time division/league realignment history (teams switching
   divisions over time is a separate, larger problem this change doesn't
-  touch). Also deferred: rewiring `mlb_baseball/model/season.py`'s
-  `team_strength_asof`/`team_wins_asof` (PR #242's still-open `--as-of`
-  work) to use this crosswalk instead of their own inline `CASE WHEN` —
-  those functions don't exist on `main` yet at the time of this change: a
-  follow-up once #242 merges.
+  touch). `team_strength_asof`/`team_wins_asof` (PR #242's `--as-of` work, not
+  on `main` when this landed) were NOT rewired onto this crosswalk, on
+  purpose: like `load_schedule_from_db`, they feed the static
+  `ALL_MLB_TEAMS` list, so they keep the same narrow inline
+  `CASE WHEN 'ATH' THEN 'OAK'` (confirmed when #242 was merged with this
+  change — no rewiring needed).
 
 **Verified against real production data**: `core.team` rows for
 `retro_team_id IN ('OAK', 'ATH')` both carry `mlb_team_id = 133`, and
@@ -127,12 +128,10 @@ documented non-contiguous-era code-reuse cases from ADR-013 (`HOU`
 check branches; and `report.py`/`season.py`'s consumer-side behavior
 staying unchanged.
 
-**Revisit if:** PR #242 merges (rewire `team_strength_asof`/
-`team_wins_asof` onto this crosswalk, retiring their own inline
-`CASE WHEN`); `ALL_MLB_TEAMS`/`MLB_DIVISIONS` are ever made
-database-derived (at that point re-evaluate whether `season.py`/
-`report.py` should switch from `legacy_retro_team_id` to
-`current_retro_team_id`); or `mlb_team_id` and Lahman's `franchid` are
+**Revisit if:** `ALL_MLB_TEAMS`/`MLB_DIVISIONS` are ever made
+database-derived (at that point `season.py`'s three inline
+`CASE WHEN 'ATH' THEN 'OAK'` sites can be retired in favor of a
+season-scoped crosswalk lookup); or `mlb_team_id` and Lahman's `franchid` are
 ever found to disagree for a real row (not observed in this change; would
 be worth a `mlb doctor` sanity check at that point, not before).
 

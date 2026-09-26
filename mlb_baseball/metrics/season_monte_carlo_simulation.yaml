@@ -14,26 +14,46 @@ citation: >
   simulation architecture itself, and a third formula in this module
   (marcel_project_rate, a Marcel-style rate projection), are not
   independently cited or tied out here.
-data_source: core.game/raw.mlb_schedule via load_schedule_from_db(); falls back to generate_balanced_schedule() if no schedule is found
+data_source: >
+  core.game/raw.mlb_schedule via load_schedule_from_db() (schedule); falls
+  back to generate_balanced_schedule() if no schedule is found.
+  core.game.home_score/away_score via team_strength_asof() (real per-team
+  runs-scored/runs-allowed, added 2026-09-23 -- see notes).
 grain: season, per-team win/loss distribution and postseason-berth probability
 layer: model
 complexity: complex
 implementation: python
-status: implemented-untested
+status: published
 visibility: internal
 notes: >
-  Wired into a real CLI command (`mlb season-sim` in cli.py), but the CLI
-  invocation as shipped passes a placeholder team_true_talents dict
-  (every team fixed at 0.500) rather than a real per-team strength
-  estimate -- so the CLI's own default output does not yet produce
-  differentiated team projections; a caller must supply real talent
-  estimates for this to be meaningful. health_check() only asserts the
-  30-team division mapping and a Pythagorean sanity value (4.5 RS/RA ->
-  exactly 0.500), not anything about the simulation's own output
-  distribution.
+  Fixed 2026-09-23 (metric-catalog triage follow-up): `mlb season-sim`'s CLI
+  invocation used to pass a placeholder `team_true_talents` dict (every team
+  fixed at 0.500), so its default output never produced differentiated team
+  projections even though two of the module's formulas were already real
+  and cited. `team_strength_asof()` now computes each team's real
+  true-talent win percentage from that team's own real
+  `core.game.home_score`/`away_score` up to a caller-specified point-in-time
+  cutoff (`--as-of`, strict `game_date < as_of`, so the cutoff's own games
+  never leak in), fed through the already-cited `pythagorean_team_win_pct()`
+  -- `cli.py`'s `season-sim` handler now calls this instead of the flat
+  0.500 dict. A team with zero qualifying games before the cutoff still
+  gets 0.500, but as an explicit, logged fallback, not a silent default
+  that looks like real computed talent.
 
-  This module bundles at least three separately-citable named formulas
-  (Log5, Pythagorean, Marcel) plus the simulation harness under one
-  catalog entry for this batch's gap-closing pass; log5_game_win_prob and
-  pythagorean_team_win_pct in particular could warrant their own
-  standalone `public`/`published` entries in a future batch.
+  `status` promoted to `published`: the CLI's default real-world path now
+  actually executes a real, cited formula (Pythagorean) against real data,
+  correctly implemented (integration-tested with real differentiated
+  run/win-pct data and a no-lookahead check), not yet independently
+  tie-out tested against a specific known published team's real strength
+  (hence not `validated`). `visibility` stays `internal`: this entry still
+  bundles the uncited Monte Carlo orchestration and `marcel_project_rate`
+  under one catalog record with the now-more-real Pythagorean/Log5 usage,
+  and per this catalog's own prior reasoning here, splitting Log5 and
+  Pythagorean into their own standalone `public` entries (unchanged
+  suggestion from before this fix) is the right way to make those two
+  formulas visible without overclaiming the whole bundled module.
+
+  health_check() still only asserts the 30-team division mapping and a
+  Pythagorean sanity value (4.5 RS/RA -> exactly 0.500), not anything about
+  team_strength_asof() or the simulation's own output distribution --
+  real-Postgres integration tests cover that instead (test_model_season.py).

@@ -23,6 +23,32 @@ into a single DuckDB file (default `~/.mlb/mlb.duckdb`; override with `--db` or
 `$MLB_DUCKDB_PATH`). Models read only from that file. There is no `feat` schema
 in PostgreSQL.
 
+## Declared model-ready feature sets
+
+The store is a broad research surface; a model must not silently select every
+numeric column from it. `mlb_research.get_feature_set("game-win", "v1")`
+is the first versioned, public allow-list. It contains only eight pre-game
+team batting rates from `feat.game`, excludes `home_win`, identifiers/clocks,
+actual-starter fields, market data, and every legacy `gold.game_feature`
+column. Each admitted field declares its grain, source, availability, coverage,
+evidence reference, and the audit denominator that explains a legitimate null.
+
+Before fitting, run the read-only admission gate against a feature build and a
+fully-built backbone database you name explicitly:
+
+```bash
+uv run mlb readiness \
+  --db ./mlb.duckdb \
+  --database-url "$DATABASE_URL" \
+  --feature-set game-win --feature-version v1 --format json
+```
+
+It never rebuilds, ingests, conforms, migrates, or writes PostgreSQL. The JSON
+report includes named integrity, leakage, backbone tie-out, coverage, and
+null-policy checks; it redacts the connection source and artifact path. A
+`ready` result means this **declared dataset** is suitable for a separate
+chronological model experiment, not that a fitted model is accurate.
+
 ## The four clocks
 
 Every feature row carries four timestamps. Point-in-time correctness is these
@@ -82,6 +108,11 @@ and the retrieval path cannot drift. The team columns are built inline (no
 
 Slice 1 uses the **actual** starting pitcher (`starter_is_actual = TRUE`).
 Elo v2 (slice 3) swaps in the probable starter.
+
+The team rate fields carry six companion denominator columns (`*_pa_30d`,
+`*_obp_denom_30d`, `*_ab_30d`). They are audit metadata, not declared model
+inputs: `mlb readiness` uses them to prove that a NULL rate is caused by the
+field's documented zero denominator rather than a missing calculation.
 
 ## Retrieval
 
@@ -155,3 +186,17 @@ slice 3.
   OBP, SLG, ISO, BABIP ship instead. Numerators ship so you can add wOBA
   yourself.
 - **Coverage is the regular season, 1910–2025** — the Retrosheet event range.
+
+## Completion gates
+
+This project deliberately has finite finish lines:
+
+1. A **feature version** is complete when its declaration is complete, this
+   admission report is `ready` for its stated build/window, and its limitations
+   are published. Any new input requires a new feature-set version.
+2. A **model candidate** is complete only after it declares chronological
+   folds, baseline, log loss, Brier score, calibration, and a promotion rule
+   before fitting; its result is promote, retain-baseline, or negative.
+3. The project-level Phase-A exit remains the v1/v1.1 criteria in
+   [`openspec/project.md`](../openspec/project.md). A readiness result does not
+   replace those database and public-delivery gates.

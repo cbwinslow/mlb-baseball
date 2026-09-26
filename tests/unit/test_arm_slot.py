@@ -1,8 +1,11 @@
 """Unit tests for Pitcher Arm Slot Angle & Release Consistency Engine (ARM-SLOT-01, ADR-192)."""
 
 from mlb_baseball.model.arm_slot import (
+    DATA_SOURCE_STATCAST,
+    DATA_SOURCE_WHATIF,
     PitcherArmSlotEngine,
     PitcherArmSlotMetrics,
+    _consistency_score,
     health_check,
 )
 
@@ -25,6 +28,8 @@ def test_sidearm_pitcher_evaluates_as_sidearm():
     assert 70.0 <= res.arm_slot_angle_deg <= 90.0
     assert res.arm_slot_tier == "SIDEARM"
     assert res.release_consistency_score > 70.0
+    assert res.data_source == DATA_SOURCE_WHATIF
+    assert res.sample_size == 0
 
 
 def test_overhand_pitcher_evaluates_as_over_the_top():
@@ -45,6 +50,26 @@ def test_overhand_pitcher_evaluates_as_over_the_top():
     assert res.arm_slot_angle_deg < 30.0
     assert res.arm_slot_tier == "OVER_THE_TOP"
     assert res.is_elite_release_tunnel is True
+    assert res.data_source == DATA_SOURCE_WHATIF
+
+
+def test_whatif_result_is_never_labeled_as_real_statcast_data():
+    """Verify the hand-typed what-if path is distinguishable from real Statcast data."""
+    engine = PitcherArmSlotEngine()
+    res = engine.evaluate_arm_slot(PitcherArmSlotMetrics("p3", "Anyone"))
+
+    assert res.data_source != DATA_SOURCE_STATCAST
+    assert res.data_source == DATA_SOURCE_WHATIF
+
+
+def test_consistency_score_lower_stddev_yields_higher_score():
+    """Verify the shared consistency-score heuristic is monotonic in stddev."""
+    low_stddev_score, low_is_elite = _consistency_score(1.5, scale=8.0)
+    high_stddev_score, high_is_elite = _consistency_score(9.0, scale=8.0)
+
+    assert low_stddev_score > high_stddev_score
+    assert low_is_elite is True
+    assert high_is_elite is False
 
 
 def test_arm_slot_health_check():

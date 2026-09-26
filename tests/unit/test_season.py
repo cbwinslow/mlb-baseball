@@ -153,3 +153,45 @@ def test_pythagorean_team_win_pct():
     # 2. 5.0 RS vs 4.0 RA -> ~0.600
     wpct = pythagorean_team_win_pct(5.0, 4.0)
     assert 0.58 <= wpct <= 0.62
+
+
+def test_starting_wins_added_on_top_of_simulated_remainder():
+    """Verify a team's already-real wins are added to every simulation's win total.
+
+    Regression: `--as-of` used to only affect team-strength estimation, while
+    the simulation itself still re-randomized already-completed real games
+    (PR #242 review). `starting_wins` must land in both the reported win
+    totals and the in-simulation standings math, not just be discarded.
+    """
+    talents = {team: 0.500 for team in ALL_MLB_TEAMS}
+    schedule = generate_balanced_schedule(ALL_MLB_TEAMS)
+    leader = ALL_MLB_TEAMS[0]
+
+    baseline = simulate_season_monte_carlo(
+        schedule=schedule, team_true_talents=talents, n_simulations=200, seed=7, season=2024
+    )
+    boosted = simulate_season_monte_carlo(
+        schedule=schedule,
+        team_true_talents=talents,
+        n_simulations=200,
+        seed=7,
+        season=2024,
+        starting_wins={leader: 20},
+    )
+
+    # Same seed/schedule/talents -> the simulated component is identical;
+    # the only difference is the +20 starting-wins offset landing on top.
+    assert boosted.team_projections[leader].mean_wins == pytest.approx(
+        baseline.team_projections[leader].mean_wins + 20, abs=1e-9
+    )
+    # A team with no starting_wins entry is unaffected.
+    other = ALL_MLB_TEAMS[1]
+    assert boosted.team_projections[other].mean_wins == pytest.approx(
+        baseline.team_projections[other].mean_wins, abs=1e-9
+    )
+    # The boost must also reach playoff-seeding math, not just the final
+    # reported total: a +20-win boost should never *lower* a leader's real
+    # playoff odds relative to the unboosted baseline.
+    boosted_playoff = boosted.team_projections[leader].make_playoffs_prob
+    baseline_playoff = baseline.team_projections[leader].make_playoffs_prob
+    assert boosted_playoff >= baseline_playoff

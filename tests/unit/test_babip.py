@@ -1,8 +1,11 @@
 """Unit tests for Batter BABIP Luck Deficit Engine (BABIP-LUCK-01, ADR-179)."""
 
 from mlb_baseball.model.babip import (
+    DATA_SOURCE_STATCAST,
+    DATA_SOURCE_WHATIF,
     BABIPRegressionEngine,
     BatterBABIPInputs,
+    _classify_regression_tier,
     health_check,
 )
 
@@ -29,6 +32,8 @@ def test_unlucky_slugger_classified_as_severe_positive_regression():
     assert res.babip_luck_delta < -0.080
     assert res.regression_tier == "SEVERE_POSITIVE_REGRESSION"
     assert res.is_buy_low_candidate is True
+    assert res.data_source == DATA_SOURCE_WHATIF
+    assert res.balls_in_play == 0
 
 
 def test_lucky_blooper_classified_as_severe_negative_regression():
@@ -53,6 +58,25 @@ def test_lucky_blooper_classified_as_severe_negative_regression():
     assert res.babip_luck_delta > 0.080
     assert res.regression_tier == "SEVERE_NEGATIVE_REGRESSION"
     assert res.is_buy_low_candidate is False
+    assert res.data_source == DATA_SOURCE_WHATIF
+
+
+def test_whatif_result_is_never_labeled_as_real_statcast_data():
+    """Verify the hand-typed what-if path is distinguishable from real Statcast data."""
+    engine = BABIPRegressionEngine()
+    res = engine.evaluate_babip(BatterBABIPInputs("b3", "Anyone"))
+
+    assert res.data_source != DATA_SOURCE_STATCAST
+    assert res.data_source == DATA_SOURCE_WHATIF
+
+
+def test_classify_regression_tier_shared_by_both_paths():
+    """Verify the shared tier-classification thresholds used by both real and what-if paths."""
+    assert _classify_regression_tier(-0.050) == ("SEVERE_POSITIVE_REGRESSION", True)
+    assert _classify_regression_tier(-0.025) == ("MODERATE_UNDERPERFORMER", True)
+    assert _classify_regression_tier(0.000) == ("FAIR_VALUE_NEUTRAL", False)
+    assert _classify_regression_tier(0.025) == ("MODERATE_OVERPERFORMER", False)
+    assert _classify_regression_tier(0.050) == ("SEVERE_NEGATIVE_REGRESSION", False)
 
 
 def test_babip_health_check():

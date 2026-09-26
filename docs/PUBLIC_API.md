@@ -21,6 +21,10 @@ The supported import surface is deliberately small and exported from
 The point-in-time research feature store is not built via this Python API: it
 is built via the CLI (`mlb build`) into DuckDB `feat.*` and retrieved via
 `mlb_research.get_historical_features` — see `docs/FEATURE_STORE.md`.
+Its first declared training allow-list is
+`mlb_research.get_feature_set("game-win", "v1")`; run `mlb readiness` with
+an explicit DuckDB artifact and PostgreSQL tie-out target before fitting a
+model candidate.
 
 Everything else is implementation detail, including connector modules, loaders,
 advisory-lock functions, and individual conformance builders. Their imports

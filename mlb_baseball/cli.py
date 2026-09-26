@@ -45,6 +45,7 @@ connections to the *same* server, retrosheet.org).
 
 import argparse
 import concurrent.futures
+import json as json_module
 import logging
 import os
 import sys
@@ -53,6 +54,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import psycopg
+from mlb_research.feature_sets import get_feature_set
 
 from mlb_baseball import (
     backup,
@@ -67,6 +69,7 @@ from mlb_baseball import (
     model,
     player,
     progress_table,
+    readiness,
     report,
     schema_inventory,
 )
@@ -411,6 +414,27 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="run only the leakage checks; skip the slower Baseball-Reference tie-out",
     )
+    readiness_parser = subparsers.add_parser(
+        "readiness",
+        help="read-only admission report for a declared feature set and explicit build",
+    )
+    readiness_parser.add_argument(
+        "--db",
+        required=True,
+        metavar="PATH",
+        help="explicit DuckDB feature-store artifact to evaluate",
+    )
+    readiness_parser.add_argument(
+        "--database-url",
+        required=True,
+        metavar="URL",
+        help="explicit PostgreSQL URL for the read-only backbone tie-out (never printed)",
+    )
+    readiness_parser.add_argument("--feature-set", default="game-win", choices=["game-win"])
+    readiness_parser.add_argument("--feature-version", default="v1")
+    readiness_parser.add_argument(
+        "--format", choices=["text", "json"], default="text", help="report rendering"
+    )
     subparsers.add_parser("predict")
     subparsers.add_parser("train")
     experiment_parser = subparsers.add_parser(
@@ -589,6 +613,13 @@ def main(argv: list[str] | None = None) -> None:
     )
     season_parser.add_argument(
         "--seed", type=int, default=0, help="random seed for reproducibility"
+    )
+    season_parser.add_argument(
+        "--as-of",
+        type=str,
+        default=None,
+        help="point-in-time cutoff date (YYYY-MM-DD) for real per-team strength -- only games "
+        "before this date count (default: today)",
     )
     season_parser.add_argument("--json", action="store_true", help="output result as JSON")
 
@@ -1108,6 +1139,18 @@ def main(argv: list[str] | None = None) -> None:
         "--disp", type=float, default=1.3, help="release dispersion std inches (default: 1.3)"
     )
     asl_parser.add_argument(
+        "--pitcher",
+        type=str,
+        default=None,
+        help="real pitcher MLBAM id -- reads real Statcast arm_angle data instead of the "
+        "hand-typed --rel-x/--rel-z/--height/--disp what-if inputs above",
+    )
+    asl_parser.add_argument(
+        "--season", type=int, default=None, help="season year for --pitcher (default: current)"
+    )
+    asl_parser.add_argument("--date-from", type=str, default=None, help="override --season start")
+    asl_parser.add_argument("--date-to", type=str, default=None, help="override --season end")
+    asl_parser.add_argument(
         "--json", action="store_true", help="output arm slot evaluation as JSON"
     )
 
@@ -1158,6 +1201,18 @@ def main(argv: list[str] | None = None) -> None:
     babip_parser.add_argument(
         "--speed", type=float, default=27.5, help="Sprint Speed ft/s (default: 27.5)"
     )
+    babip_parser.add_argument(
+        "--batter",
+        type=str,
+        default=None,
+        help="real batter MLBAM id -- reads real actual/expected BABIP from Statcast data "
+        "instead of the hand-typed --actual/--ld/--hard-hit/--speed what-if inputs above",
+    )
+    babip_parser.add_argument(
+        "--season", type=int, default=None, help="season year for --batter (default: current)"
+    )
+    babip_parser.add_argument("--date-from", type=str, default=None, help="override --season start")
+    babip_parser.add_argument("--date-to", type=str, default=None, help="override --season end")
     babip_parser.add_argument("--json", action="store_true", help="output BABIP evaluation as JSON")
 
     # Matchup comparison scouting card (COMPARE-CARD-01)
@@ -1273,6 +1328,24 @@ def main(argv: list[str] | None = None) -> None:
     tun_parser.add_argument(
         "--sl-hb", type=float, default=-8.0, help="slider HB in (default: -8.0)"
     )
+    tun_parser.add_argument(
+        "--pitcher",
+        type=str,
+        default=None,
+        help="real pitcher MLBAM id -- reads real Statcast kinematics for --pitch-a/--pitch-b "
+        "instead of the hand-typed --ff-*/--sl-* what-if inputs above",
+    )
+    tun_parser.add_argument(
+        "--pitch-a", type=str, default="FF", help="first pitch type for --pitcher"
+    )
+    tun_parser.add_argument(
+        "--pitch-b", type=str, default="SL", help="second pitch type for --pitcher"
+    )
+    tun_parser.add_argument(
+        "--season", type=int, default=None, help="season year for --pitcher (default: current)"
+    )
+    tun_parser.add_argument("--date-from", type=str, default=None, help="override --season start")
+    tun_parser.add_argument("--date-to", type=str, default=None, help="override --season end")
     tun_parser.add_argument("--json", action="store_true", help="output tunneling result as JSON")
 
     # REST API server (API-01)
@@ -1488,6 +1561,28 @@ def main(argv: list[str] | None = None) -> None:
         )
         if not ok:
             sys.exit(1)
+    elif args.command == "readiness":
+        feature_set = get_feature_set(args.feature_set, args.feature_version)
+        readiness_report = readiness.evaluate_feature_set(
+            artifact=args.db,
+            feature_set=feature_set,
+            feature_version=args.feature_version,
+            backbone_tie_out=lambda: readiness.run_backbone_tie_out(database_url=args.database_url),
+        )
+        if args.format == "json":
+            print(json_module.dumps(readiness_report.to_dict(), sort_keys=True))
+        else:
+            print(
+                f"readiness: {readiness_report.status} "
+                f"({readiness_report.feature_set}:{readiness_report.feature_version})"
+            )
+            for readiness_check in readiness_report.checks:
+                print(
+                    f"[{'OK' if readiness_check.ok else 'FAIL'}] "
+                    f"{readiness_check.name}: {readiness_check.detail}"
+                )
+        if not readiness_report.ready:
+            sys.exit(1)
     elif args.command == "schema":
         schema_inventory.print_report(partitions=args.partitions)
     elif args.command == "field-census":
@@ -1648,23 +1743,34 @@ def main(argv: list[str] | None = None) -> None:
             counts = backfill_game_instance_keys(conn, args.batch_size)
         print(" ".join(f"{name}={count}" for name, count in counts.items()))
     elif args.command == "season-sim":
+        import datetime
         import json as json_lib
 
         from mlb_baseball.db import get_connection
         from mlb_baseball.model import season
 
+        as_of = args.as_of or datetime.date.today().isoformat()
+
         with get_connection() as conn:
             sched = season.load_schedule_from_db(args.season, conn=conn)
-            if not sched:
+            if sched:
+                # Point-in-time: simulate only the real remaining schedule --
+                # games already played before `as_of` must not be
+                # re-randomized (PR #242 review). A synthetic schedule (the
+                # fallback below) has no real game_date to filter by.
+                sched = [g for g in sched if g.game_date is not None and g.game_date >= as_of]
+            else:
                 sched = season.generate_balanced_schedule(season.ALL_MLB_TEAMS)
 
-            talents = {t: 0.500 for t in season.ALL_MLB_TEAMS}
+            talents = season.team_strength_asof(args.season, as_of, conn)
+            starting_wins = season.team_wins_asof(args.season, as_of, conn)
             res = season.simulate_season_monte_carlo(
                 schedule=sched,
                 team_true_talents=talents,
                 n_simulations=args.sims,
                 seed=args.seed,
                 season=args.season,
+                starting_wins=starting_wins,
             )
 
         if args.json:
@@ -3120,35 +3226,61 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Generated Vector SVG 12-Hour Spin Clock Dial ({len(chart.svg_content)} bytes)")
 
     elif args.command == "arm-slot":
+        import datetime
         import json as json_lib
 
+        from mlb_baseball.db import get_connection
         from mlb_baseball.model.arm_slot import (
             PitcherArmSlotEngine,
             PitcherArmSlotMetrics,
+            arm_slot_from_statcast,
         )
 
-        asl_eng = PitcherArmSlotEngine()
-        asl_m = PitcherArmSlotMetrics(
-            "p1",
-            "Target Pitcher",
-            release_x_ft=args.rel_x,
-            release_z_ft=args.rel_z,
-            pitcher_height_in=args.height,
-            release_dispersion_std_in=args.disp,
-        )
-        asl_res = asl_eng.evaluate_arm_slot(asl_m)
+        if args.pitcher:
+            asl_season = args.season or datetime.date.today().year
+            date_from = args.date_from or f"{asl_season}-01-01"
+            date_to = args.date_to or f"{asl_season}-12-31"
+            with get_connection() as asl_conn:
+                asl_res = arm_slot_from_statcast(args.pitcher, date_from, date_to, asl_conn)
+            if asl_res is None:
+                asl_no_data_msg = (
+                    f"No real Statcast arm_angle data for pitcher {args.pitcher} "
+                    f"between {date_from} and {date_to}."
+                )
+                if args.json:
+                    print(json_lib.dumps({"error": "no_data", "detail": asl_no_data_msg}))
+                else:
+                    print(asl_no_data_msg)
+                sys.exit(1)
+        else:
+            asl_eng = PitcherArmSlotEngine()
+            asl_m = PitcherArmSlotMetrics(
+                "p1",
+                "Target Pitcher",
+                release_x_ft=args.rel_x,
+                release_z_ft=args.rel_z,
+                pitcher_height_in=args.height,
+                release_dispersion_std_in=args.disp,
+            )
+            asl_res = asl_eng.evaluate_arm_slot(asl_m)
 
         if args.json:
             asl_out = {
+                "data_source": asl_res.data_source,
                 "arm_slot_angle_deg": asl_res.arm_slot_angle_deg,
                 "tier": asl_res.arm_slot_tier,
                 "consistency_score": asl_res.release_consistency_score,
                 "is_elite_tunnel": asl_res.is_elite_release_tunnel,
+                "sample_size": asl_res.sample_size,
             }
             print(json_lib.dumps(asl_out, indent=2))
         else:
+            mode_tag = "REAL STATCAST DATA" if args.pitcher else "WHAT-IF / SCOUTING INPUT"
             print(f"\n{'=' * 84}")
-            print(f"     PITCHER ARM SLOT & RELEASE CONSISTENCY [{asl_res.arm_slot_tier}]")
+            asl_title = (
+                f"PITCHER ARM SLOT & RELEASE CONSISTENCY [{asl_res.arm_slot_tier}] ({mode_tag})"
+            )
+            print(f"     {asl_title}")
             hdr_as = (
                 f"     Arm Slot Angle: {asl_res.arm_slot_angle_deg:.1f}° "
                 f"| Release Consistency: {asl_res.release_consistency_score:.1f}/100 "
@@ -3159,6 +3291,8 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  • Arm Slot Classification : {asl_res.arm_slot_tier}")
             tunnel_txt = "YES" if asl_res.is_elite_release_tunnel else "NO"
             print(f"  • Elite Release Tunnel    : {tunnel_txt}")
+            if args.pitcher:
+                print(f"  • Real Pitches Averaged   : {asl_res.sample_size}")
 
     elif args.command == "zone-surface":
         from mlb_baseball.visual import (
@@ -3221,36 +3355,59 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Generated Vector SVG Game WPA Replay Flow ({len(chart.svg_content)} bytes)")
 
     elif args.command == "babip":
+        import datetime
         import json as json_lib
 
+        from mlb_baseball.db import get_connection
         from mlb_baseball.model.babip import (
             BABIPRegressionEngine,
             BatterBABIPInputs,
+            babip_from_statcast,
         )
 
-        babip_eng = BABIPRegressionEngine()
-        babip_m = BatterBABIPInputs(
-            "b1",
-            "Target Hitter",
-            actual_babip=args.actual,
-            ld_pct=args.ld,
-            hard_hit_pct=args.hard_hit,
-            sprint_speed_fps=args.speed,
-        )
-        babip_res = babip_eng.evaluate_babip(babip_m)
+        if args.batter:
+            babip_season = args.season or datetime.date.today().year
+            date_from = args.date_from or f"{babip_season}-01-01"
+            date_to = args.date_to or f"{babip_season}-12-31"
+            with get_connection() as babip_conn:
+                babip_res = babip_from_statcast(args.batter, date_from, date_to, babip_conn)
+            if babip_res is None:
+                babip_no_data_msg = (
+                    f"No real Statcast batted-ball data for batter {args.batter} "
+                    f"between {date_from} and {date_to}."
+                )
+                if args.json:
+                    print(json_lib.dumps({"error": "no_data", "detail": babip_no_data_msg}))
+                else:
+                    print(babip_no_data_msg)
+                sys.exit(1)
+        else:
+            babip_eng = BABIPRegressionEngine()
+            babip_m = BatterBABIPInputs(
+                "b1",
+                "Target Hitter",
+                actual_babip=args.actual,
+                ld_pct=args.ld,
+                hard_hit_pct=args.hard_hit,
+                sprint_speed_fps=args.speed,
+            )
+            babip_res = babip_eng.evaluate_babip(babip_m)
 
         if args.json:
             babip_out = {
+                "data_source": babip_res.data_source,
                 "actual_babip": babip_res.actual_babip,
                 "expected_xbabip": babip_res.expected_xbabip,
                 "luck_delta": babip_res.babip_luck_delta,
                 "tier": babip_res.regression_tier,
                 "is_buy_low": babip_res.is_buy_low_candidate,
+                "balls_in_play": babip_res.balls_in_play,
             }
             print(json_lib.dumps(babip_out, indent=2))
         else:
+            mode_tag = "REAL STATCAST DATA" if args.batter else "WHAT-IF / SCOUTING INPUT"
             print(f"\n{'=' * 84}")
-            print(f"     BABIP EXPECTED LUCK SCANNER [{babip_res.regression_tier}]")
+            print(f"     BABIP EXPECTED LUCK SCANNER [{babip_res.regression_tier}] ({mode_tag})")
             hdr_ba = (
                 f"     Actual BABIP: {babip_res.actual_babip:.3f} "
                 f"| Expected xBABIP: {babip_res.expected_xbabip:.3f} "
@@ -3259,7 +3416,11 @@ def main(argv: list[str] | None = None) -> None:
             print(hdr_ba)
             print(f"{'=' * 84}\n")
             print(f"  • Regression Tier    : {babip_res.regression_tier}")
-            print(f"  • Buy-Low Candidate  : {'YES' if babip_res.is_buy_low_candidate else 'NO'}\n")
+            print(f"  • Buy-Low Candidate  : {'YES' if babip_res.is_buy_low_candidate else 'NO'}")
+            if args.batter:
+                print(f"  • Real Balls In Play : {babip_res.balls_in_play}\n")
+            else:
+                print()
 
     elif args.command == "matchup-card":
         from mlb_baseball.visual import (
@@ -3441,47 +3602,72 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     elif args.command == "tunnel":
+        import datetime
         import json as json_lib
 
+        from mlb_baseball.db import get_connection
         from mlb_baseball.model.tunnel import (
             PitchFlightVector,
             PitchTunnelingEngine,
+            tunnel_pair_from_statcast,
         )
 
-        tun_eng = PitchTunnelingEngine()
-        ff_p = PitchFlightVector(
-            "FF",
-            velocity_mph=args.ff_velo,
-            release_x_ft=-2.1,
-            release_z_ft=6.0,
-            ivb_in=args.ff_ivb,
-            hb_in=args.ff_hb,
-        )
-        sl_p = PitchFlightVector(
-            "SL",
-            velocity_mph=args.sl_velo,
-            release_x_ft=-2.1,
-            release_z_ft=6.0,
-            ivb_in=args.sl_ivb,
-            hb_in=args.sl_hb,
-        )
-        tun_res = tun_eng.evaluate_tunnel_pair(ff_p, sl_p)
+        if args.pitcher:
+            tun_season = args.season or datetime.date.today().year
+            date_from = args.date_from or f"{tun_season}-01-01"
+            date_to = args.date_to or f"{tun_season}-12-31"
+            with get_connection() as tun_conn:
+                tun_res = tunnel_pair_from_statcast(
+                    args.pitcher, args.pitch_a, args.pitch_b, date_from, date_to, tun_conn
+                )
+            if tun_res is None:
+                tun_no_data_msg = (
+                    f"No real Statcast kinematics for pitcher {args.pitcher}'s "
+                    f"{args.pitch_a}/{args.pitch_b} between {date_from} and {date_to}."
+                )
+                if args.json:
+                    print(json_lib.dumps({"error": "no_data", "detail": tun_no_data_msg}))
+                else:
+                    print(tun_no_data_msg)
+                sys.exit(1)
+        else:
+            tun_eng = PitchTunnelingEngine()
+            ff_p = PitchFlightVector(
+                "FF",
+                velocity_mph=args.ff_velo,
+                release_x_ft=-2.1,
+                release_z_ft=6.0,
+                ivb_in=args.ff_ivb,
+                hb_in=args.ff_hb,
+            )
+            sl_p = PitchFlightVector(
+                "SL",
+                velocity_mph=args.sl_velo,
+                release_x_ft=-2.1,
+                release_z_ft=6.0,
+                ivb_in=args.sl_ivb,
+                hb_in=args.sl_hb,
+            )
+            tun_res = tun_eng.evaluate_tunnel_pair(ff_p, sl_p)
 
         if args.json:
             tun_out = {
+                "data_source": tun_res.data_source,
                 "pair": tun_res.pitch_pair_label,
                 "release_dist": tun_res.release_distance_in,
                 "poc_separation": tun_res.tunnel_distance_at_poc_in,
                 "plate_separation": tun_res.plate_break_separation_in,
+                "break_tunnel_ratio": tun_res.break_tunnel_ratio,
                 "tunnel_score": tun_res.tunneling_quality_score,
                 "whiff_boost": tun_res.whiff_boost_pct,
                 "is_elite": tun_res.is_elite_tunnel,
             }
             print(json_lib.dumps(tun_out, indent=2))
         else:
+            mode_tag = "REAL STATCAST DATA" if args.pitcher else "WHAT-IF / SCOUTING INPUT"
             print(f"\n{'=' * 84}")
             tun_tag = "ELITE TUNNEL" if tun_res.is_elite_tunnel else "STANDARD"
-            print(f"     PITCH ARSENAL TUNNELING [{tun_tag}]")
+            print(f"     PITCH ARSENAL TUNNELING [{tun_tag}] ({mode_tag})")
             hdr_tun = (
                 f"     Pair: {tun_res.pitch_pair_label} "
                 f"| POC Dist: {tun_res.tunnel_distance_at_poc_in:.1f}in "
@@ -3489,8 +3675,10 @@ def main(argv: list[str] | None = None) -> None:
             )
             print(hdr_tun)
             print(f"{'=' * 84}\n")
-            print(f"  • POC Separation (23.8ft): {tun_res.tunnel_distance_at_poc_in:.1f} in")
+            poc_in = tun_res.tunnel_distance_at_poc_in
+            print(f"  • POC Separation (Tunnel Point, 23.8ft): {poc_in:.1f} in")
             print(f"  • Plate Break Split     : {tun_res.plate_break_separation_in:.1f} in")
+            print(f"  • Break:Tunnel Ratio     : {tun_res.break_tunnel_ratio:.2f}")
             print(f"  • Whiff Boost Multiplier : +{tun_res.whiff_boost_pct:.1f}%\n")
 
     elif args.command == "serve-api":

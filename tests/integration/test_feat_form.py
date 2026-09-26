@@ -16,8 +16,11 @@ from datetime import timedelta
 
 import duckdb
 import pytest
+from mlb_research.feature_sets import GAME_WIN_V1
 
 from mlb_baseball import feat
+from mlb_baseball.health import Check
+from mlb_baseball.readiness import evaluate_feature_set
 
 SEASON = 2024
 
@@ -212,6 +215,45 @@ def test_build_returns_row_counts(built):
         "feat.pitcher_form": 10,
         "feat.game": 5,
     }
+
+
+def test_readiness_evaluator_accepts_a_clean_disposable_feature_build(built):
+    dbfile, _counts = built
+
+    result = evaluate_feature_set(
+        artifact=dbfile,
+        feature_set=GAME_WIN_V1,
+        feature_version="v1",
+        backbone_tie_out=lambda: Check("backbone_tie_out", True, "fixture tie-out passed"),
+    )
+
+    assert result.status == "ready"
+    assert result.blockers == ()
+    assert any(item.expected_null_rows for item in result.coverage)
+
+
+def test_readiness_evaluator_blocks_an_unexplained_feature_null(built):
+    dbfile, _counts = built
+    con = duckdb.connect()
+    try:
+        con.execute(f"ATTACH '{dbfile}' AS mlbfeat")
+        con.execute("USE mlbfeat")
+        con.execute(
+            "UPDATE feat.game SET home_k_pct_30d = NULL, home_pa_30d = 10 "
+            "WHERE game_pk = 'TST202404150' AND feature_version = 'v1'"
+        )
+    finally:
+        con.close()
+
+    result = evaluate_feature_set(
+        artifact=dbfile,
+        feature_set=GAME_WIN_V1,
+        feature_version="v1",
+        backbone_tie_out=lambda: Check("backbone_tie_out", True, "fixture tie-out passed"),
+    )
+
+    assert result.status == "not_ready"
+    assert "feature_null_policy" in {check.name for check in result.blockers}
 
 
 def test_one_row_per_player_event_version_and_no_window_column(built):

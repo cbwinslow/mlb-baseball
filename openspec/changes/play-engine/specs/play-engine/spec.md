@@ -94,6 +94,27 @@ the finish line.
 - **THEN** a reliability result is reported for each outcome class alongside
   log loss
 
+### Requirement: Every formula is tied to its published source and to real database values
+
+Each formula the engine uses (the ratings blend, shrinkage, park adjustment and
+any advanced input) SHALL be read from its primary source. It SHALL be reproduced
+by a test that uses a worked example from that source, and checked against real
+values from the project database. Where the primary source cannot be read (for
+example a paywalled book), the entry SHALL say it was cited from a secondary
+source and SHALL NOT claim a tie-out it did not perform.
+
+#### Scenario: A formula is added
+
+- **WHEN** a formula is added to the engine
+- **THEN** its primary source is cited and a test reproduces a worked example
+  from that source within a documented tolerance
+- **AND** the same formula is checked against real values from the database
+
+#### Scenario: The primary source cannot be read
+
+- **WHEN** the primary source is unavailable
+- **THEN** the citation is marked as secondary and no source tie-out is claimed
+
 ### Requirement: Each feature group is admitted separately, with a cited source and a measured effect
 
 A feature group SHALL be added to the engine only after: its source is cited, it

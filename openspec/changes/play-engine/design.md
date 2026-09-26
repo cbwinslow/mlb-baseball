@@ -83,6 +83,12 @@ states, with the engine supplying outcome probabilities and empirical tables
 supplying runner advancement. Existing `model/markov/core.py` is reused where its
 math is sound; anything not reused is noted.
 
+**D10. Read the sources, use their examples.** Each formula is read from its primary
+source and reproduced from a worked example in it, then checked against real
+values in `mlb`. Open-access papers and web pages are read directly. A paywalled
+book cannot be, so it is cited as a secondary source unless the owner supplies the
+excerpt; no tie-out is claimed that was not done.
+
 **D9. Tolerances are committed before scoring.** Task 1.3 writes the calibration
 and simulation tolerances into this change before the test seasons are scored,
 so a result cannot pick its own pass mark.
@@ -108,6 +114,6 @@ so a result cannot pick its own pass mark.
 
 ## Migration Plan
 
-No production data changes. The dataset and models are built in DuckDB or
+No production data changes. The engine is read-only against production `mlb`; tests use the repository's disposable per-run PostgreSQL fixtures (`tests/AGENTS.md`), never production. The dataset and models are built in DuckDB or
 disposable files, read-only against production `mlb`. Each stage merges as its
 own small pull request; rollback is reverting that pull request.

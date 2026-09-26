@@ -21,18 +21,28 @@ def test_game_win_v1_is_a_complete_game_feature_allow_list():
 def test_feature_set_rejects_missing_or_duplicate_contract_fields():
     with pytest.raises(ValueError, match="<view>:<column>"):
         FeatureField(
-            "bad-ref", "feature", "game", "feat.game", "before", "NULL", "1910-2025", "test"
+            "bad-ref",
+            "feature",
+            "game",
+            "feat.game",
+            "before",
+            "NULL",
+            "denom",
+            "1910-2025",
+            "test",
         )
     with pytest.raises(ValueError, match="must not be empty"):
-        FeatureField("game:x", "feature", "", "feat.game", "before", "NULL", "1910-2025", "test")
+        FeatureField(
+            "game:x", "feature", "", "feat.game", "before", "NULL", "denom", "1910-2025", "test"
+        )
 
     field = FeatureField(
-        "game:x", "feature", "game", "feat.game", "before", "NULL", "1910-2025", "test"
+        "game:x", "feature", "game", "feat.game", "before", "NULL", "denom", "1910-2025", "test"
     )
     with pytest.raises(ValueError, match="duplicate"):
-        FeatureSet("x", "v1", "target", "coverage", (field, field), ("label",))
+        FeatureSet("x", "v1", "target", "coverage", 1910, 2025, (field, field), ("label",))
     with pytest.raises(ValueError, match="exclusions"):
-        FeatureSet("x", "v1", "target", "coverage", (field,), ())
+        FeatureSet("x", "v1", "target", "coverage", 1910, 2025, (field,), ())
 
 
 def test_feature_set_lookup_is_versioned_and_names_available_sets():
@@ -51,8 +61,10 @@ def test_feature_set_lookup_is_versioned_and_names_available_sets():
     ],
 )
 def test_game_win_validator_rejects_prohibited_feature_categories(ref, role, source_relation):
-    field = FeatureField(ref, role, "game", source_relation, "before", "NULL", "1910-2025", "test")
-    feature_set = FeatureSet("bad", "v1", "target", "coverage", (field,), ("label",))
+    field = FeatureField(
+        ref, role, "game", source_relation, "before", "NULL", "denom", "1910-2025", "test"
+    )
+    feature_set = FeatureSet("bad", "v1", "target", "coverage", 1910, 2025, (field,), ("label",))
 
     with pytest.raises(ValueError, match="ineligible game-win feature set"):
         validate_for_game_win(feature_set)

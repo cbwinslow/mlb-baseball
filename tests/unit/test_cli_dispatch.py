@@ -1,8 +1,10 @@
 """Pure dispatch-logic tests — connectors are faked out, no network/DB involved."""
 
+import json
 import threading
 import time
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -274,6 +276,41 @@ def test_verify_command_calls_feat_verify_and_exits_nonzero_on_failure(monkeypat
 def test_verify_command_clean_pass_exits_zero(monkeypatch):
     monkeypatch.setattr(cli.feat, "verify", lambda **kw: True)
     cli.main(["verify"])  # no SystemExit
+
+
+def test_readiness_command_help_lists_explicit_targets(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["readiness", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "--db PATH" in out
+    assert "--database-url URL" in out
+
+
+def test_readiness_command_renders_stable_json(monkeypatch, capsys):
+    from mlb_baseball.readiness import ReadinessCheck, ReadinessReport
+
+    report = ReadinessReport(
+        "game-win",
+        "v1",
+        Path("/secret/path/build.duckdb"),
+        (ReadinessCheck("feature_artifact", True, "present"),),
+    )
+    monkeypatch.setattr(cli.readiness, "evaluate_feature_set", lambda **_: report)
+
+    cli.main(
+        [
+            "readiness",
+            "--db",
+            "/secret/path/build.duckdb",
+            "--database-url",
+            "postgresql://secret",
+            "--format",
+            "json",
+        ]
+    )
+
+    assert json.loads(capsys.readouterr().out) == report.to_dict()
 
 
 def test_predict_command_calls_model_run(monkeypatch, capsys):

@@ -26,7 +26,7 @@ fabricated current-season row merely to fill this gap.
 | --- | --- | --- |
 | `game_pk`, `season`, `game_date`, `event_ts`, `available_ts`, `created_ts`, `visible_ts`, `feature_version` | excluded | Entity, partition, clock, and reproducibility metadata; not predictive inputs. |
 | `home_team_id`, `away_team_id` | excluded | Entity identifiers; retain for joins and chronological evaluation only, not the first portable feature set. |
-| `home_k_pct_30d`, `away_k_pct_30d`, `home_bb_pct_30d`, `away_bb_pct_30d`, `home_obp_30d`, `away_obp_30d`, `home_slg_30d`, `away_slg_30d` | needs-evidence | Team batting aggregates from prior completed regular-season `gold.batting_game` rows, recomputed from numerators/denominators. They are point-in-time candidates, but task 2.3 must measure coverage and declared early-season null behavior before admission. |
+| `home_k_pct_30d`, `away_k_pct_30d`, `home_bb_pct_30d`, `away_bb_pct_30d`, `home_obp_30d`, `away_obp_30d`, `home_slg_30d`, `away_slg_30d` | admitted to `game-win-v1` | Team batting aggregates from prior completed regular-season `gold.batting_game` rows, recomputed from numerators/denominators. The builder now carries their denominator audit metadata; readiness profiles coverage/nulls per season and blocks unexplained in-window nulls. A full verification-build profile remains task 4.2. |
 | `home_starter_k_minus_bb_pct_30d`, `away_starter_k_minus_bb_pct_30d`, `home_starter_fip_like_30d`, `away_starter_fip_like_30d`, `home_starter_bf_30d`, `away_starter_bf_30d` | excluded from `game-win-v1` | Their current assembly uses the *actual* starter (`starter_is_actual = TRUE`). Actual historical starters are valid descriptive data but not proven pre-game available inputs; a later version may admit probable-starter fields only with an availability contract. |
 | `starter_is_actual` | excluded | Provenance flag, not a predictor; it also documents why the starter columns above are excluded. |
 | `home_win` | excluded | Completed-game outcome label; never a training feature. |
@@ -45,9 +45,10 @@ retrieval key, decision timestamp, null policy, and coverage evidence.
 - **Existing:** deterministic hand fixtures, build idempotency/version
   coexistence, leakage checks, rate/null invariants, actual starter retrieval
   equivalence, and test-database integration coverage.
-- **Still required for admission:** a real-build per-season/per-feature
-  coverage profile; declared null-policy mapping; current backbone tie-outs;
-  and a generated researcher-facing declaration.
+- **Still required before release/freeze:** a real-build per-season/per-feature
+  coverage profile and current backbone tie-outs against the explicitly named
+  verification target (task 4.2). The declaration, null-policy mapping, and
+  generated report interface now exist and are fixture-tested.
 
 ## Organization findings to carry into task 3.1
 

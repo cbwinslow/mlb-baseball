@@ -191,6 +191,16 @@ _RATE_DENOM_CHECKS: dict[str, tuple[tuple[str, str], ...]] = {
         ("k_pct_std", "bf_std"),
         ("bb_pct_30d", "bf_30d"),
     ),
+    "feat.game": (
+        ("home_k_pct_30d", "home_pa_30d"),
+        ("away_k_pct_30d", "away_pa_30d"),
+        ("home_bb_pct_30d", "home_pa_30d"),
+        ("away_bb_pct_30d", "away_pa_30d"),
+        ("home_obp_30d", "home_obp_denom_30d"),
+        ("away_obp_30d", "away_obp_denom_30d"),
+        ("home_slg_30d", "home_ab_30d"),
+        ("away_slg_30d", "away_ab_30d"),
+    ),
 }
 
 

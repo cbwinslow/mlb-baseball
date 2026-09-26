@@ -24,6 +24,7 @@ class FeatureField:
     source_relation: str
     availability: str
     null_policy: str
+    null_denominator: str
     coverage: str
     evidence_ref: str
 
@@ -38,6 +39,7 @@ class FeatureField:
             "source_relation",
             "availability",
             "null_policy",
+            "null_denominator",
             "coverage",
             "evidence_ref",
         ):
@@ -53,12 +55,16 @@ class FeatureSet:
     version: str
     target: str
     coverage: str
+    coverage_start: int
+    coverage_end: int
     fields: tuple[FeatureField, ...]
     exclusions: tuple[str, ...]
 
     def __post_init__(self) -> None:
         if not self.name or not self.version or not self.target or not self.coverage:
             raise ValueError("feature set name, version, target, and coverage must not be empty")
+        if self.coverage_start > self.coverage_end:
+            raise ValueError("feature set coverage start must not be after its end")
         if not self.fields:
             raise ValueError("feature set must admit at least one field")
         refs = tuple(field.ref for field in self.fields)
@@ -93,37 +99,47 @@ _TEAM_RATE_EVIDENCE = (
 _TEAM_RATE_AVAILABILITY = (
     "Entering 30-day regular-season team form; the entire entering calendar day is excluded."
 )
-_TEAM_RATE_NULL_POLICY = (
-    "NULL when the team has no qualifying prior plate appearances in the 30-day window."
-)
 _TEAM_RATE_COVERAGE = "Regular season, 1910-2025 where feat.game has a Retrosheet game key."
+
+
+def _team_rate_field(column: str, denominator: str, null_policy: str) -> FeatureField:
+    return FeatureField(
+        ref=f"game:{column}",
+        role="feature",
+        grain="game",
+        source_relation="feat.game",
+        availability=_TEAM_RATE_AVAILABILITY,
+        null_policy=null_policy,
+        null_denominator=denominator,
+        coverage=_TEAM_RATE_COVERAGE,
+        evidence_ref=_TEAM_RATE_EVIDENCE,
+    )
+
 
 GAME_WIN_V1 = FeatureSet(
     name="game-win",
     version="v1",
     target="Pre-game home-win probability",
     coverage="Regular-season games with feat.game coverage, 1910-2025.",
-    fields=tuple(
-        FeatureField(
-            ref=f"game:{column}",
-            role="feature",
-            grain="game",
-            source_relation="feat.game",
-            availability=_TEAM_RATE_AVAILABILITY,
-            null_policy=_TEAM_RATE_NULL_POLICY,
-            coverage=_TEAM_RATE_COVERAGE,
-            evidence_ref=_TEAM_RATE_EVIDENCE,
-        )
-        for column in (
-            "home_k_pct_30d",
-            "away_k_pct_30d",
-            "home_bb_pct_30d",
-            "away_bb_pct_30d",
+    coverage_start=1910,
+    coverage_end=2025,
+    fields=(
+        _team_rate_field("home_k_pct_30d", "home_pa_30d", "NULL when prior 30-day PA is 0."),
+        _team_rate_field("away_k_pct_30d", "away_pa_30d", "NULL when prior 30-day PA is 0."),
+        _team_rate_field("home_bb_pct_30d", "home_pa_30d", "NULL when prior 30-day PA is 0."),
+        _team_rate_field("away_bb_pct_30d", "away_pa_30d", "NULL when prior 30-day PA is 0."),
+        _team_rate_field(
             "home_obp_30d",
+            "home_obp_denom_30d",
+            "NULL when prior 30-day AB + BB + HBP + SF is 0.",
+        ),
+        _team_rate_field(
             "away_obp_30d",
-            "home_slg_30d",
-            "away_slg_30d",
-        )
+            "away_obp_denom_30d",
+            "NULL when prior 30-day AB + BB + HBP + SF is 0.",
+        ),
+        _team_rate_field("home_slg_30d", "home_ab_30d", "NULL when prior 30-day AB is 0."),
+        _team_rate_field("away_slg_30d", "away_ab_30d", "NULL when prior 30-day AB is 0."),
     ),
     exclusions=(
         "home_win is the outcome label, never a feature.",

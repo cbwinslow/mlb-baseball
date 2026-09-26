@@ -79,10 +79,23 @@ class FeatureSet:
         return tuple(field.ref for field in self.fields)
 
 
+_GAME_WIN_ADMITTED_REFS = frozenset(
+    f"game:{side}_{rate}_30d"
+    for side in ("home", "away")
+    for rate in ("k_pct", "bb_pct", "obp", "slg")
+)
+
+
 def validate_for_game_win(feature_set: FeatureSet) -> None:
-    """Reject fields that cannot be pre-game inputs to the first game-win set."""
+    """Reject fields that cannot be pre-game inputs to the first game-win set.
+
+    Eligibility never rests on the caller-supplied role alone: every field must
+    also be one of the team-form columns whose pre-game availability is proven.
+    """
     problems: list[str] = []
     for field in feature_set.fields:
+        if field.ref not in _GAME_WIN_ADMITTED_REFS:
+            problems.append(f"{field.ref}: not an admitted game-win input")
         if field.role != "feature":
             problems.append(f"{field.ref}: role {field.role!r} is not a pre-game feature")
         if field.source_relation == "gold.game_feature":

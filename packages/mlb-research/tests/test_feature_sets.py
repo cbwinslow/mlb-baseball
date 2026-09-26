@@ -68,3 +68,22 @@ def test_game_win_validator_rejects_prohibited_feature_categories(ref, role, sou
 
     with pytest.raises(ValueError, match="ineligible game-win feature set"):
         validate_for_game_win(feature_set)
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "game:closing_price",
+        "game:final_score",
+        "game:home_starter_bf_30d",
+        "game:home_starter_fip_like_30d",
+    ],
+)
+def test_game_win_validator_rejects_misclassified_fields_declared_as_features(ref):
+    field = FeatureField(
+        ref, "feature", "game", "feat.game", "before", "NULL", "denom", "1910-2025", "test"
+    )
+    feature_set = FeatureSet("bad", "v1", "target", "coverage", 1910, 2025, (field,), ("label",))
+
+    with pytest.raises(ValueError, match="not an admitted game-win input"):
+        validate_for_game_win(feature_set)

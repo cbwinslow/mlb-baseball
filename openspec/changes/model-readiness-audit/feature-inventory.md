@@ -3,8 +3,8 @@
 Observed from `mlb_baseball/sql/duckdb/feat_game.sql`,
 `feat_player_form.sql`, `feat_pitcher_form.sql`, `docs/FEATURE_STORE.md`,
 and the feature-store integration tests on 2026-09-26. This is an evidence
-inventory, not the `game-win-v1` declaration; task 1.2 will make the final
-allow-list only after task 2.3 measures real coverage.
+inventory. The eight team rates below are already published in `GAME_WIN_V1`;
+their per-season coverage and null profile is still owed by task 2.3 / 4.2.
 
 ## Canonical model surface
 

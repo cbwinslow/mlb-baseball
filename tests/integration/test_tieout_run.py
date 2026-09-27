@@ -17,7 +17,8 @@ ALL_LEVELS = ("season", "game", "player_game")
 TABLES = {
     "raw.retrosheet_event": (
         "game_id text, event_id text, event_cd text, bat_event_fl text, "
-        "event_runs_ct text, bat_id text, pit_id text, _season text, _scope text"
+        "event_runs_ct text, bat_id text, resp_bat_id text, pit_id text, _season text, "
+        "_scope text"
     ),
     "raw.retrosheet_plays": (
         "gid text, batter text, pa text, k text, walk text, hr text, runs text, _season text"
@@ -64,19 +65,25 @@ def raw_tables(db_conn, drop_tables_after):
 
         P = "pppp0001"  # the pitcher in every event
         events = [
-            # game A: strikeout, walk, home run (1 run), a stolen base (not a batter event)
-            (A, "1", "3", "T", "0", "aaaaa001", P, "2019", "pbp"),
-            (A, "2", "14", "T", "0", "bbbbb001", P, "2019", "pbp"),
-            (A, "3", "23", "T", "1", "ccccc001", P, "2019", "pbp"),
-            (A, "4", "4", "F", "0", "ccccc001", P, "2019", "pbp"),
+            # game A: strikeout, walk, home run (1 run), a stolen base (not a batter event).
+            # The home run is a mid-plate-appearance substitution: ccsub001 is literally
+            # at the plate (bat_id) but ccccc001 is the responsible batter Retrosheet
+            # credits the result to (resp_bat_id), matching the CSV product's `batter`
+            # (ccccc001, see the `plays`/`batting` fixtures below) -- reproduces the real
+            # mechanism behind the ~250 false player_game failures a real run found
+            # (openspec/changes/raw-source-tieout/results-2015-2025.md).
+            (A, "1", "3", "T", "0", "aaaaa001", "aaaaa001", P, "2019", "pbp"),
+            (A, "2", "14", "T", "0", "bbbbb001", "bbbbb001", P, "2019", "pbp"),
+            (A, "3", "23", "T", "1", "ccsub001", "ccccc001", P, "2019", "pbp"),
+            (A, "4", "4", "F", "0", "ccccc001", "ccccc001", P, "2019", "pbp"),
             # game B: single, out
-            (B, "1", "20", "T", "0", "ddddd001", P, "2019", "pbp"),
-            (B, "2", "2", "T", "0", "ddddd001", P, "2019", "pbp"),
+            (B, "1", "20", "T", "0", "ddddd001", "ddddd001", P, "2019", "pbp"),
+            (B, "2", "2", "T", "0", "ddddd001", "ddddd001", P, "2019", "pbp"),
             # game C (postseason): strikeout, home run (1 run)
-            (C, "1", "3", "T", "0", "eeeee001", P, "2019", "postseason"),
-            (C, "2", "23", "T", "1", "eeeee001", P, "2019", "postseason"),
+            (C, "1", "3", "T", "0", "eeeee001", "eeeee001", P, "2019", "postseason"),
+            (C, "2", "23", "T", "1", "eeeee001", "eeeee001", P, "2019", "postseason"),
             # a Negro-League-style duplicate copy of game B's first event (register E2)
-            (B, "1", "20", "T", "0", "ddddd001", P, "2019", "negro_league"),
+            (B, "1", "20", "T", "0", "ddddd001", "ddddd001", P, "2019", "negro_league"),
         ]
         _insert(cur, "raw.retrosheet_event", events)
 
@@ -132,7 +139,10 @@ def raw_tables(db_conn, drop_tables_after):
         _insert(
             cur,
             "raw.retrosheet_roster",
-            [(p, "2019") for p in ("aaaaa001", "bbbbb001", "ccccc001", "ddddd001", "eeeee001")],
+            [
+                (p, "2019")
+                for p in ("aaaaa001", "bbbbb001", "ccccc001", "ccsub001", "ddddd001", "eeeee001")
+            ],
         )
         _insert(cur, "raw.retrosheet_allplayers", [(P, "2019")])
     db_conn.commit()
@@ -277,6 +287,42 @@ def test_two_opposite_game_errors_cancel_in_the_season_total_but_are_both_report
     assert code == 1, text
     assert f"game 2019/{A} k: event 1 vs csv_plays 0" in text
     assert f"game 2019/{B} k: event 0 vs csv_plays 1" in text
+
+
+def test_a_mid_plate_appearance_substitution_is_credited_to_the_responsible_batter(
+    db_conn, raw_tables
+):
+    """Game A's home run is bat_id=ccsub001 / resp_bat_id=ccccc001 (a substitute
+    finishes the plate appearance; Retrosheet credits the result to the
+    responsible batter). The CSV product already credits ccccc001. If the
+    player-game comparison grouped by bat_id instead of resp_bat_id -- the real
+    bug a production run found (results-2015-2025.md) -- this would report both
+    ccsub001 (extra) and ccccc001 (missing) as mismatches; grouped correctly, it
+    passes and nobody named ccsub001 appears in the identity check either."""
+    code, text = _run(db_conn=db_conn, levels=ALL_LEVELS)
+
+    assert code == 0, text
+    assert "ccsub001" not in text
+    assert f"player_game 2019/{A}/ccccc001" not in text
+
+
+def test_crediting_the_substitute_instead_of_the_responsible_batter_fails(db_conn, raw_tables):
+    """Same fixture, with resp_bat_id reverted to the substitute's own id --
+    simulating the pre-fix behaviour of grouping by bat_id. Proves the check
+    actually discriminates the two conventions rather than passing regardless."""
+    _update(
+        db_conn,
+        f"UPDATE raw.retrosheet_event SET resp_bat_id = 'ccsub001' "
+        f"WHERE game_id = '{A}' AND event_id = '3'",
+    )
+
+    code, text = _run(db_conn=db_conn, levels=ALL_LEVELS)
+
+    assert code == 1, text
+    assert f"player_game 2019/{A}/ccsub001 hr: event 1 vs csv_plays absent" in text
+    # ccccc001 still has a key (its non-batter stolen-base event, event 4) so it
+    # reads as a real 0-vs-1 mismatch rather than "absent".
+    assert f"player_game 2019/{A}/ccccc001 hr: event 0 vs csv_plays 1" in text
 
 
 def test_a_missing_roster_identifier_is_listed_with_season_and_example_game(db_conn, raw_tables):

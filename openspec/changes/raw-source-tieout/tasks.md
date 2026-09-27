@@ -6,7 +6,7 @@
 
 ## 2. The gate
 
-- [ ] 2.1 Add `mlb_baseball/tieout.py` with the register, the comparison logic (pure functions over counts) and read-only query runners; verify unit tests cover match, unexplained mismatch, explained mismatch, register entry whose rule stops matching, and "not comparable".
+- [x] 2.1 Add `mlb_baseball/tieout.py` with the register, the comparison logic (pure functions over counts) and read-only query runners; verify unit tests cover match, unexplained mismatch, explained mismatch, register entry whose rule stops matching, and "not comparable".
 - [ ] 2.2 Add `scripts/verify_retrosheet_tie_out.py` (explicit database target, read-only transaction, season range option, non-zero exit on failure, elapsed-time output); verify a dry run against a disposable database prints the target and exits 0 on a clean fixture.
 - [ ] 2.3 Add season-total comparisons across events, CSV plays, CSV batting, game logs (regular and postseason) and box scores where they overlap; verify with a two-source fixture, including a planted mismatch that fails.
 - [ ] 2.4 Add per-game and per-player-game comparisons (run for every season, never skipped because the season total matched or is in the register) and the roster identity check; verify with a fixture that a missing roster identifier and a single dropped strikeout are both reported with season and game, and that two opposite game-level errors inside a matching season total are both reported.

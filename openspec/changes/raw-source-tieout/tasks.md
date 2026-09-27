@@ -15,7 +15,7 @@
 
 ## 3. Test gaps
 
-- [ ] 3.1 Add pinned column-contract tests for the event, game, and CSV tables (disposable database and the connector's field list; production is covered by 2.6); verify a test fails when a column is renamed in a fixture.
+- [x] 3.1 Add pinned column-contract tests for the event, game, and CSV tables (disposable database and the connector's field list; production is covered by 2.6); verify a test fails when a column is renamed in a fixture.
 - [ ] 3.2 Close the audit gaps that could hide incorrect data (at minimum an integration test that loads a small real event fixture and checks known counts); verify the new tests pass and each gap in `audit.md` is marked closed or has an issue number.
 
 ## 4. Real run and record

@@ -1583,7 +1583,7 @@ def test_populated_checks_cover_every_backbone_relation(monkeypatch):
 
     seen = []
     monkeypatch.setattr(
-        report, "check_table_has_rows", lambda table: seen.append(table) or Check(table, True, "")
+        report, "check_table_populated", lambda table: seen.append(table) or Check(table, True, "")
     )
 
     assert [c.name for c in report.populated_checks()] == list(report.BACKBONE_RELATIONS)

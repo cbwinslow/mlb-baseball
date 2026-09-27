@@ -34,6 +34,7 @@ from mlb_baseball.health import (
     check_join_coverage,
     check_no_rows,
     check_table_has_rows,
+    check_table_populated,
 )
 from mlb_baseball.ingest import track_run
 from mlb_baseball.model.offense import W_1B, W_2B, W_3B, W_HBP, W_HR, W_UBB, WOBA_SCALE
@@ -747,7 +748,7 @@ def populated_checks() -> list[Check]:
     Cheap enough to end every scheduled run: a `conform` that emptied the
     backbone with no `report` after it is the failure this exists to catch.
     """
-    return [check_table_has_rows(relation) for relation in BACKBONE_RELATIONS]
+    return [check_table_populated(relation) for relation in BACKBONE_RELATIONS]
 
 
 def health_check() -> list[Check]:

@@ -221,6 +221,8 @@ def test_build_refuses_an_empty_backbone_against_real_postgres(db_conn, tmp_path
             feat.build(duckdb_path=dbfile, pg_url=os.environ["DATABASE_URL"], feature_version="v1")
         assert "gold.batting_game" in str(excinfo.value)
         assert "gold.pitching_game" in str(excinfo.value)
+        # a refused build leaves no empty file for `mlb verify` to trip on
+        assert not dbfile.exists()
     finally:
         _cleanup(db_conn)
 

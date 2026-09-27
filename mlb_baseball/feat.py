@@ -98,10 +98,12 @@ def build(
         con.execute("INSTALL postgres")
         con.execute("LOAD postgres")
         con.execute("SET VARIABLE feat_version = ?", [feature_version])
-        con.execute(f"ATTACH '{_quote(str(db_path))}' AS mlbfeat")
         con.execute(f"ATTACH '{_quote(url)}' AS pg (TYPE postgres, READ_ONLY)")
-        con.execute("USE mlbfeat")
+        # Before the feature file is attached: ATTACH creates the file, and a
+        # refused build must not leave an empty one for `mlb verify` to trip on.
         _require_sources(con)
+        con.execute(f"ATTACH '{_quote(str(db_path))}' AS mlbfeat")
+        con.execute("USE mlbfeat")
         con.execute("CREATE SCHEMA IF NOT EXISTS feat")
 
         counts: dict[str, int] = {}

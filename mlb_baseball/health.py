@@ -37,6 +37,22 @@ def check_table_has_rows(table: str) -> Check:
     return Check(table, True, f"{count} rows")
 
 
+def check_table_populated(table: str) -> Check:
+    """Like :func:`check_table_has_rows` but stops at the first row instead of
+    counting every row -- for frequent checks over multi-million-row tables."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(f"SELECT EXISTS (SELECT 1 FROM {table})")  # noqa: S608
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(table, False, "table does not exist — never bootstrapped?")
+            (populated,) = fetch_one(cur)
+    if not populated:
+        return Check(table, False, "0 rows — emptied by conform and not refilled by report?")
+    return Check(table, True, "has rows")
+
+
 def check_table_exists(table: str) -> Check:
     """Like check_table_has_rows, but doesn't require any rows — for genuinely
     sparse/event-driven tables where 0 rows is a valid healthy state (e.g.

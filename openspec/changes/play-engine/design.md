@@ -80,10 +80,23 @@ Three findings that change how the dataset is built (task 2.3):
   row (no nulls, 2015–2025). Task 2.3 checks whether these already give the
   side actually batted for a switch hitter, which would replace the
   `raw.retrosheet_allplayers` fallback assumption in the risk list.
-- `core.play` includes postseason and all-star games (about 1.5% of rows). Task
-  2.3 decides whether the dataset is regular season only; the default is to
-  filter on `core.game.game_type = 'regular'` unless the decision is recorded
-  otherwise.
+- `core.play` includes postseason and all-star games (about 1.8% of rows).
+  ADR-283 already decides this: model features and training use regular-season
+  games only (`core.game.game_type` in `regular`, `playoff`), and postseason
+  performance inside a model input is a leakage defect. The dataset applies that
+  filter explicitly (task 2.3).
+
+The raw layer is not changed by any of this. The mapping is a label list used
+only by the new engine, downstream of `core`.
+
+Independent tie-out of the raw sources, 2015–2025, read-only: the play-by-play
+events (`cwevent`) and Retrosheet's own per-player batting files
+(`raw.retrosheet_batting`) agree exactly on plate appearances, strikeouts and
+home runs in every season. Retrosheet's game logs are regular season only and
+run lower on home runs by exactly the postseason total from
+`raw.retrosheet_gamelog_post` (for example 2015: 5,003 vs 4,909, difference 94,
+postseason 94). The box-score tables (`raw.retrosheet_box_*`) stop at 1961, so
+they cannot tie out the modern seasons.
 
 **D2. Seasons.** Fit on 2015–2021, validate on 2022–2023, test once on 2024–2025.
 Advanced pitch data exists from about 2015. Every choice (rung, feature group,

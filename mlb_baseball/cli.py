@@ -575,7 +575,12 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="use exact distinct-season coverage for registered historical tables",
     )
-    subparsers.add_parser("doctor")
+    doctor_parser = subparsers.add_parser("doctor")
+    doctor_parser.add_argument(
+        "--populated",
+        action="store_true",
+        help="run only the fast check that every backbone relation has rows",
+    )
     audit_parser = subparsers.add_parser(
         "audit", help="run read-only game-identity and data-quality checks"
     )
@@ -1699,7 +1704,7 @@ def main(argv: list[str] | None = None) -> None:
             strategy=strategy, populated_only=not args.all, watch=args.watch
         )
     elif args.command == "doctor":
-        checks = doctor.run()
+        checks = report.populated_checks() if args.populated else doctor.run()
         failed = [c for c in checks if not c.ok]
         for check in checks:
             status = "OK" if check.ok else "FAIL"

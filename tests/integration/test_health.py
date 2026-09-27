@@ -11,6 +11,7 @@ from mlb_baseball.health import (
     check_recent_run,
     check_table_exists,
     check_table_has_rows,
+    check_table_populated,
     check_totals_reconcile,
 )
 
@@ -76,6 +77,26 @@ def test_check_table_has_rows_false_when_table_never_created():
     # Calling it again must still work cleanly too (no lingering bad state).
     result_again = check_table_has_rows("raw.test_health_never_created")
     assert not result_again.ok
+
+
+def test_check_table_populated_true_false_and_missing(db_conn, drop_tables_after):
+    # Existence-based sibling of check_table_has_rows for the daily backbone
+    # check: same pass/fail answer without counting multi-million-row tables.
+    full = drop_tables_after("raw.test_health_populated_full")
+    empty = drop_tables_after("raw.test_health_populated_empty")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {full} (id int)")
+        cur.execute(f"INSERT INTO {full} VALUES (1)")
+        cur.execute(f"CREATE TABLE {empty} (id int)")
+    db_conn.commit()
+
+    assert check_table_populated(full).ok
+    empty_result = check_table_populated(empty)
+    assert not empty_result.ok
+    assert "0 rows" in empty_result.detail
+    missing = check_table_populated("raw.test_health_populated_never_created")
+    assert not missing.ok
+    assert "never bootstrapped" in missing.detail
 
 
 def test_check_table_has_rows_false_when_empty(db_conn, drop_tables_after):

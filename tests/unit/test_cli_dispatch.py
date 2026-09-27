@@ -1554,6 +1554,43 @@ def test_doctor_command_reports_all_checks_passed(monkeypatch, capsys):
     assert "0/0 checks passed" in capsys.readouterr().out
 
 
+def test_doctor_populated_runs_only_the_backbone_row_checks(monkeypatch, capsys):
+    from mlb_baseball.health import Check
+
+    monkeypatch.setattr("mlb_baseball.doctor.run", lambda: pytest.fail("full doctor must not run"))
+    monkeypatch.setattr(
+        "mlb_baseball.report.populated_checks",
+        lambda: [
+            Check("gold.batting_game", False, "0 rows"),
+            Check("gold.pitching_game", False, "0 rows"),
+            Check("core.game", True, "5 rows"),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["doctor", "--populated"])
+
+    out = capsys.readouterr().out
+    assert excinfo.value.code == 1
+    assert "[FAIL] gold.batting_game" in out
+    assert "[FAIL] gold.pitching_game" in out
+    assert "[OK] core.game" in out
+
+
+def test_populated_checks_cover_every_backbone_relation(monkeypatch):
+    from mlb_baseball import report
+    from mlb_baseball.health import Check
+
+    seen = []
+    monkeypatch.setattr(
+        report, "check_table_populated", lambda table: seen.append(table) or Check(table, True, "")
+    )
+
+    assert [c.name for c in report.populated_checks()] == list(report.BACKBONE_RELATIONS)
+    assert seen == list(report.BACKBONE_RELATIONS)
+    assert {"core.game", "gold.batting_game", "gold.pitching_game"} <= set(seen)
+
+
 def test_pipeline_command_parses_all_its_own_arguments(monkeypatch, capsys):
     from mlb_baseball.pipeline import MasterPipelineReport
 

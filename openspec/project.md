@@ -399,7 +399,11 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   (`report`), and `conform` has crashed daily since 2026-09-24 because migration
   0107 is not applied. Fix the daily job, make the feature build refuse an empty
   source, measure step timings, then decide incremental rebuilds on evidence.
-  Production catch-up (migrate, `mlb report`) needs an explicit owner yes.
+  Phase 1 code and the production catch-up landed 2026-09-27; next: three clean
+  scheduled runs, the step-timing profile, and the incremental go / no-go. The
+  readiness re-run is not ready on one bounded null-policy blocker (pre-1950
+  games without batting lines) — see
+  `model-readiness-audit/verification-2026-09-27.md`.
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

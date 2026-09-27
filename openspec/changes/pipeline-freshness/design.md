@@ -33,7 +33,12 @@ incremental decision below; new tools; changing public table contracts.
 
 **D1. Daily order is `migrate → update → conform → report → predict`.** Reuse the
 existing commands and the existing `run_step` shape in
-`scripts/mlb_daily_update.sh`; each step stays independently tracked. `mlb
+`scripts/mlb_daily_update.sh`; each step stays independently tracked, with two
+explicit gates because `run_step` alone records a failure and carries on: a
+failed `migrate` stops every later step (they would run against the old
+schema) and exits non-zero; `report` runs only when `conform` succeeded
+(`report` over an emptied `core` would only rebuild empties). `update` and
+`predict` keep their current independent behaviour. `mlb
 build` already wraps migrate/conform/report, but it also builds features and
 has different failure handling, so the daily job keeps its own steps.
 
@@ -43,8 +48,9 @@ runs them last and exits non-zero on any empty relation. No new health
 framework.
 
 **D3. The feature build validates its source first.** `mlb_baseball/feat.py`
-counts the source relations it reads before building and raises with the
-relation name when one is empty.
+counts every source relation it reads (`core.game`, `gold.batting_game`,
+`gold.pitching_game`) before building and raises with the relation name when
+one is empty. `conform` can empty `core.game` too, so it is covered.
 
 **D4. Measure, then decide.** Step timings go into the daily log. Phase 3 is
 decided from those numbers plus one read-only profile of where `conform` and
@@ -58,7 +64,11 @@ without a measured gain. This is a recorded decision, not an open question.
 **D6. If incremental is adopted (Phase 3), the approach is season-level
 replace, not a new framework.** Frozen history (seasons that cannot change) is
 left alone; the current season's rows are deleted and rebuilt; `core.game`
-is upserted on `retro_game_id` so ids for frozen seasons never change. This is
+is upserted on its natural key so ids for frozen seasons never change. The key
+is `retro_game_id` when present and `game_pk` when it is not: production has
+236,846 games, 11,969 of them with no `retro_game_id` (MLB-only games), none
+with neither, and both columns carry a unique index
+(`game_retro_game_id_key`, `core_game_game_pk_key`). This is
 smaller and safer than migrating everything to SQLMesh, and it can still be
 moved into SQLMesh later. It is adopted only if the equality test in the
 spec passes. Open questions to answer in Phase 3 before building: which

@@ -1,6 +1,6 @@
 ## 1. Phase 1 — stop the recurring empties
 
-- [ ] 1.1 Add a failing test that the feature build raises, naming the relation, when `gold.batting_game` or `gold.pitching_game` is empty; then implement the source check in `mlb_baseball/feat.py`. Verify the test passes and the existing feature-store tests still pass.
+- [ ] 1.1 Add a failing test that the feature build raises, naming the relation, when any of `core.game`, `gold.batting_game` or `gold.pitching_game` is empty (one case per relation); then implement the source check in `mlb_baseball/feat.py`. Verify the test passes and the existing feature-store tests still pass.
 - [ ] 1.2 Update `scripts/mlb_daily_update.sh` to run `migrate`, then `update`, `conform`, `report`, `predict`, each as its own tracked step, and end with the populated check. Verify with the existing daily-script tests plus a new test that `report` follows `conform` and an empty relation makes the run exit non-zero.
 - [ ] 1.3 Make the populated check name every empty backbone relation and reuse the existing `mlb doctor` checks. Verify with a test against a disposable database with one relation emptied.
 - [ ] 1.4 Update `docs/ARCHITECTURE.md` "Scheduling" and the daily script header to the new order. Verify with `scripts/check_dox.py` and the docs build.

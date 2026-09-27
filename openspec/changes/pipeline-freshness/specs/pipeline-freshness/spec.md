@@ -12,6 +12,12 @@ The scheduled pipeline SHALL apply all pending migrations before it runs any
 step that depends on the current schema. A migration failure SHALL stop the
 dependent steps and be reported.
 
+#### Scenario: A migration fails
+
+- **WHEN** a pending migration fails
+- **THEN** `conform`, `report` and `predict` do not run in that scheduled run
+- **AND** the run exits non-zero and names the failed migration
+
 #### Scenario: A new table is required by conform
 
 - **WHEN** the code on disk requires a table that migrations have not yet created
@@ -43,9 +49,9 @@ The feature-store build SHALL fail with a message naming the empty source
 relation when a source it reads is empty. It SHALL NOT produce a feature
 relation with zero rows from an empty source without failing.
 
-#### Scenario: Backbone tables are empty
+#### Scenario: A source relation is empty
 
-- **WHEN** `gold.batting_game` or `gold.pitching_game` has zero rows and the feature build runs
+- **WHEN** `core.game`, `gold.batting_game` or `gold.pitching_game` has zero rows and the feature build runs
 - **THEN** the build fails naming the empty relation
 - **AND** no zero-row feature relation is reported as a success
 
@@ -63,7 +69,8 @@ slow steps can be identified from evidence.
 
 If incremental rebuilds are adopted, an incremental catch-up over unchanged
 frozen history SHALL produce exactly the rows a full rebuild produces, with
-stable game ids for frozen seasons, and a full rebuild SHALL remain available.
+stable game ids for frozen seasons (including games identified only by
+`game_pk`), and a full rebuild SHALL remain available.
 
 #### Scenario: Incremental equals full
 

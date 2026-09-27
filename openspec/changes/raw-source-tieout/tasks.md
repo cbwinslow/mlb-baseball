@@ -2,7 +2,7 @@
 
 - [x] 1.1 Write `audit.md` in this change: for each raw Retrosheet table, which behaviors the existing tests prove and which they do not (landing, reload scope, missing input, column names, content correctness), citing the test files; verify every `raw.retrosheet_*` table appears in it.
 - [x] 1.2 Record which raw table each `core.play` and `core.game` column is built from, citing `conform.py` lines; verify each cited line exists.
-- [ ] 1.3 Commit the pass mark for every comparison (exact match) and the initial explained-differences register (game-log regular season only; box scores end 1961; any others found) before the full-history run; verify they appear in git history before the first full run.
+- [x] 1.3 Commit the pass mark for every comparison (exact match) and the initial explained-differences register (game-log regular season only; box scores end 1961; any others found) before the full-history run; verify they appear in git history before the first full run.
 
 ## 2. The gate
 

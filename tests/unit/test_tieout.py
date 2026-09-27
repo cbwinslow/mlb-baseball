@@ -16,6 +16,7 @@ from mlb_baseball.tieout import (
     Series,
     TieOutError,
     assess,
+    check_columns,
     compare,
     coverage,
     series_from_rows,
@@ -408,3 +409,28 @@ def test_overflow_alone_fails_even_when_every_kept_difference_is_explained():
 
     assert not result.unexplained and not result.stale
     assert not result.passed
+
+
+def test_check_columns_passes_a_table_matching_its_contract_exactly():
+    contract = {"raw.retrosheet_roster": frozenset({"player_id", "team_id", "_season"})}
+    actual = {"raw.retrosheet_roster": frozenset({"player_id", "team_id", "_season"})}
+
+    assert check_columns(actual, contract) == []
+
+
+def test_check_columns_reports_a_missing_and_an_extra_column():
+    contract = {"raw.retrosheet_roster": frozenset({"player_id", "team_id", "_season"})}
+    actual = {"raw.retrosheet_roster": frozenset({"player_id", "_season", "bats"})}
+
+    problems = check_columns(actual, contract)
+
+    assert any("raw.retrosheet_roster is missing column(s) team_id" in p for p in problems)
+    assert any("raw.retrosheet_roster has unexpected column(s) bats" in p for p in problems)
+
+
+def test_check_columns_reports_a_table_absent_from_the_database():
+    contract = {"raw.retrosheet_roster": frozenset({"player_id"})}
+
+    problems = check_columns(actual={}, contract=contract)
+
+    assert problems == ["schema contract: raw.retrosheet_roster does not exist in this database"]

@@ -14,7 +14,7 @@ Nothing here writes. Every query runs on a connection from
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
 import psycopg
@@ -30,11 +30,13 @@ from mlb_baseball.tieout import (
     Series,
     TieOutError,
     assess,
+    check_columns,
     compare,
     coverage,
     fetch_series,
     merge_comparisons,
 )
+from mlb_baseball.tieout_schema_contract import RAW_SCHEMA_CONTRACT
 
 Log = Callable[[str], None]
 
@@ -47,9 +49,10 @@ FIRST_SEASON = 1871
 LAST_SEASON = 2025  # Retrosheet's most recent published season (see passmarks.md section 3)
 
 # "season", "game", "player_game" (tieout.LEVELS) select which Series
-# comparisons run; "core" is a runner-level toggle for the core.play/core.game
-# completeness check (task 2.5), which is not a Series comparison level.
-RUN_LEVELS = (*LEVELS, "core")
+# comparisons run; "core" and "schema" are runner-level toggles, not Series
+# comparison levels: "core" is the core.play/core.game completeness check
+# (task 2.5), "schema" is the pinned-column production check (task 2.6).
+RUN_LEVELS = (*LEVELS, "core", "schema")
 
 
 @dataclass(frozen=True)
@@ -468,6 +471,48 @@ def _note_event_games_not_in_core(
     )
 
 
+def fetch_actual_columns(
+    conn: psycopg.Connection, tables: Iterable[str]
+) -> dict[str, frozenset[str]]:
+    """Read ``information_schema.columns`` (read-only) for the given unqualified
+    ``raw`` table names. A table with no rows in the result simply is not a key
+    of the returned dict -- ``check_columns`` treats that as "does not exist"."""
+    found: dict[str, set[str]] = {}
+    with conn.cursor() as cur:
+        cur.execute(read_sql("tieout_schema_columns.sql"), {"tables": list(tables)})
+        rows = cur.fetchall()
+    conn.rollback()
+    for table_name, column_name in rows:
+        found.setdefault(f"raw.{table_name}", set()).add(column_name)
+    return {table: frozenset(columns) for table, columns in found.items()}
+
+
+def run_schema_check(
+    conn: psycopg.Connection,
+    report: Report,
+    log: Log,
+    contract: Mapping[str, frozenset[str]] | None = None,
+) -> None:
+    """Read-only production schema check (task 2.6, design D6): every
+    ``raw.retrosheet_*`` table this gate compares must have exactly the pinned
+    column set in ``mlb_baseball.tieout_schema_contract.RAW_SCHEMA_CONTRACT``
+    (the default), so the gate never silently certifies data whose columns it
+    never checked. ``contract`` is overridable for tests, which pin a small
+    fixture table rather than all ten real production tables.
+    """
+    if contract is None:
+        contract = RAW_SCHEMA_CONTRACT
+    started = time.monotonic()
+    tables = sorted(name.removeprefix("raw.") for name in contract)
+    actual = fetch_actual_columns(conn, tables)
+    problems = check_columns(actual, contract)
+    report.problems.extend(problems)
+    log(
+        f"  schema contract check: {len(contract)} table(s), {len(problems)} problem(s) "
+        f"in {time.monotonic() - started:.1f}s"
+    )
+
+
 def run_tieout(
     conn: psycopg.Connection,
     *,
@@ -499,6 +544,8 @@ def run_tieout(
         run_identity_check(conn, lo, hi, report, log)
     if "core" in wanted:
         run_core_check(conn, lo, hi, register, report, log)
+    if "schema" in wanted:
+        run_schema_check(conn, report, log)
     return report
 
 

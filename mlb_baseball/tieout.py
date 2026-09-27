@@ -565,6 +565,35 @@ E1 = Entry(
 INITIAL_REGISTER = Register(entries=(E1,))
 
 
+def check_columns(
+    actual: Mapping[str, frozenset[str]], contract: Mapping[str, frozenset[str]]
+) -> list[str]:
+    """Compare pinned column sets against what a table actually has (task 2.6,
+    design D6). ``contract`` maps a table name to the columns it must have
+    exactly; ``actual`` maps the same table names to what a live
+    ``information_schema`` read found.
+
+    A table absent from ``actual`` entirely, a pinned column the table no
+    longer has, and a column the table now has that is not pinned are all
+    reported -- an unpinned new column is exactly the case this check exists
+    to catch, not something to pass through silently.
+    """
+    problems: list[str] = []
+    for table in sorted(contract):
+        expected = contract[table]
+        found = actual.get(table)
+        if found is None:
+            problems.append(f"schema contract: {table} does not exist in this database")
+            continue
+        missing = sorted(expected - found)
+        extra = sorted(found - expected)
+        if missing:
+            problems.append(f"schema contract: {table} is missing column(s) {', '.join(missing)}")
+        if extra:
+            problems.append(f"schema contract: {table} has unexpected column(s) {', '.join(extra)}")
+    return problems
+
+
 # --- Read-only database access ------------------------------------------------
 
 

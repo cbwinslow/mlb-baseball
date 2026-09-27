@@ -149,13 +149,25 @@ class Comparison:
     seasons: frozenset[str]
     keys_compared: int
     differences: tuple[Difference, ...]
+    # Differences found beyond ``max_differences`` that were counted but not kept.
+    # Any overflow fails the comparison: it can never pass by being large.
+    overflow: int = 0
 
 
-def compare(a: Series, b: Series, *, seasons: Collection[str]) -> Comparison:
+def compare(
+    a: Series,
+    b: Series,
+    *,
+    seasons: Collection[str],
+    max_differences: int | None = None,
+) -> Comparison:
     """Compare two series exactly, key by key, for the given seasons.
 
     Only facts both sources supply are compared. The caller decides ``seasons``
     (normally ``coverage(...).comparable``); keys outside them are ignored.
+    ``max_differences`` bounds memory when a source is badly broken: further
+    differences are counted in ``overflow`` (which fails the comparison) rather
+    than kept.
     """
     if a.level != b.level:
         raise ValueError(f"cannot compare {a.level} with {b.level}")
@@ -163,6 +175,7 @@ def compare(a: Series, b: Series, *, seasons: Collection[str]) -> Comparison:
     facts = tuple(sorted(a.facts & b.facts))
     keys = {k for k in a.counts if k[0] in wanted} | {k for k in b.counts if k[0] in wanted}
     differences: list[Difference] = []
+    overflow = 0
     for key in sorted(keys):
         row_a = a.counts.get(key)
         row_b = b.counts.get(key)
@@ -170,9 +183,12 @@ def compare(a: Series, b: Series, *, seasons: Collection[str]) -> Comparison:
             value_a = None if row_a is None else row_a.get(fact, 0)
             value_b = None if row_b is None else row_b.get(fact, 0)
             if (value_a or 0) != (value_b or 0):
-                differences.append(
-                    Difference(a.level, key, fact, a.source, value_a, b.source, value_b)
-                )
+                if max_differences is not None and len(differences) >= max_differences:
+                    overflow += 1
+                else:
+                    differences.append(
+                        Difference(a.level, key, fact, a.source, value_a, b.source, value_b)
+                    )
     return Comparison(
         a_source=a.source,
         b_source=b.source,
@@ -181,6 +197,44 @@ def compare(a: Series, b: Series, *, seasons: Collection[str]) -> Comparison:
         seasons=wanted,
         keys_compared=len(keys),
         differences=tuple(differences),
+        overflow=overflow,
+    )
+
+
+def merge_comparisons(
+    parts: Sequence[Comparison], *, max_differences: int | None = None
+) -> Comparison:
+    """Combine per-season comparisons of the same pair and level into one, so
+    the register is applied once over the whole run."""
+    if not parts:
+        raise ValueError("nothing to merge")
+    first = parts[0]
+    for part in parts[1:]:
+        if (part.a_source, part.b_source, part.level, part.facts) != (
+            first.a_source,
+            first.b_source,
+            first.level,
+            first.facts,
+        ):
+            raise ValueError("cannot merge comparisons of different pairs, levels or facts")
+    kept: list[Difference] = []
+    overflow = 0
+    for part in parts:
+        overflow += part.overflow
+        for diff in part.differences:
+            if max_differences is not None and len(kept) >= max_differences:
+                overflow += 1
+            else:
+                kept.append(diff)
+    return Comparison(
+        a_source=first.a_source,
+        b_source=first.b_source,
+        level=first.level,
+        facts=first.facts,
+        seasons=frozenset().union(*(part.seasons for part in parts)),
+        keys_compared=sum(part.keys_compared for part in parts),
+        differences=tuple(kept),
+        overflow=overflow,
     )
 
 
@@ -274,7 +328,7 @@ class Assessment:
 
     @property
     def passed(self) -> bool:
-        return not self.unexplained and not self.stale
+        return not self.unexplained and not self.stale and self.comparison.overflow == 0
 
     @property
     def compared_anything(self) -> bool:
@@ -393,6 +447,10 @@ class Report:
 
     assessments: list[Assessment] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+    # Findings that are listed but are not a comparison between two sources
+    # (for example unresolved player identifiers). They never pass or fail the
+    # gate by themselves and are printed so they can be triaged.
+    notes: list[str] = field(default_factory=list)
 
     def add(self, assessment: Assessment) -> None:
         self.assessments.append(assessment)
@@ -436,8 +494,14 @@ class Report:
                 out.append(f"  <-- FAIL  ... {len(a.unexplained) - sample} more unexplained")
             for item in a.stale[:sample]:
                 out.append(f"  <-- FAIL  stale register entry: {item.describe()}")
+            if c.overflow:
+                out.append(
+                    f"  <-- FAIL  {c.overflow} further differences were counted but not kept"
+                )
             for season, source in a.not_comparable:
                 out.append(f"            not comparable: {season} covered only by {source}")
+        for note in self.notes:
+            out.append(f"  note: {note}")
         for problem in self.problems:
             out.append(f"  <-- FAIL  {problem}")
         if not any(a.compared_anything for a in self.assessments):

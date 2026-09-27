@@ -345,3 +345,66 @@ def test_open_readonly_requires_an_explicit_database_name_and_url():
         tieout.open_readonly("postgresql:///x", expect_db="")
     with pytest.raises(TieOutError, match="database URL"):
         tieout.open_readonly("", expect_db="mlb")
+
+
+# --- merging per-season comparisons and the difference cap -------------------
+
+
+def _season_pair(season, a_k, b_k):
+    return (
+        _game("event", {(season, "G1"): {"k": a_k}}, facts=("k",)),
+        _game("batting", {(season, "G1"): {"k": b_k}}, facts=("k",)),
+    )
+
+
+def test_merged_per_season_comparisons_are_assessed_once_over_all_seasons():
+    parts = []
+    for season, a_k, b_k in (("2018", 1, 1), ("2019", 2, 3)):
+        a, b = _season_pair(season, a_k, b_k)
+        parts.append(compare(a, b, seasons=[season]))
+
+    merged = tieout.merge_comparisons(parts)
+    result = assess(merged, NO_ENTRIES, {})
+
+    assert merged.keys_compared == 2
+    assert merged.seasons == {"2018", "2019"}
+    assert [d.key[0] for d in result.unexplained] == ["2019"]
+    assert {r.season: r.status for r in result.seasons} == {"2018": "match", "2019": "unexplained"}
+
+
+def test_merging_different_pairs_is_a_programming_error():
+    a, b = _season_pair("2019", 1, 1)
+    other = compare(a, _game("gamelog", {("2019", "G1"): {"k": 1}}, facts=("k",)), seasons=["2019"])
+
+    with pytest.raises(ValueError, match="different pairs"):
+        tieout.merge_comparisons([compare(a, b, seasons=["2019"]), other])
+    with pytest.raises(ValueError, match="nothing to merge"):
+        tieout.merge_comparisons([])
+
+
+def test_differences_beyond_the_cap_are_counted_and_fail_the_comparison():
+    a = _game("event", {("2019", f"G{i}"): {"k": 1} for i in range(10)}, facts=("k",))
+    b = _game("batting", {("2019", f"G{i}"): {"k": 2} for i in range(10)}, facts=("k",))
+
+    comparison = compare(a, b, seasons=["2019"], max_differences=3)
+    result = assess(comparison, NO_ENTRIES, {})
+
+    assert len(comparison.differences) == 3
+    assert comparison.overflow == 7
+    assert not result.passed
+    report = Report()
+    report.add(result)
+    assert any("7 further differences" in line for line in report.lines())
+
+
+def test_overflow_alone_fails_even_when_every_kept_difference_is_explained():
+    events = _season("event", {"2019": {"hr": 6873}})
+    regular = _season("gamelog", {"2019": {"hr": 6767}})
+    ctx = _e1_context({"2019": {"hr": 106}})
+    comparison = compare(events, regular, seasons=["2019"])
+    with_overflow = tieout.Comparison(**{**comparison.__dict__, "overflow": 1})
+
+    result = assess(with_overflow, INITIAL_REGISTER, ctx)
+
+    assert not result.unexplained and not result.stale
+    assert not result.passed

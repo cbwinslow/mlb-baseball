@@ -9,12 +9,13 @@
 - [ ] 2.1 Add `mlb_baseball/tieout.py` with the register, the comparison logic (pure functions over counts) and read-only query runners; verify unit tests cover match, unexplained mismatch, explained mismatch, register entry whose rule stops matching, and "not comparable".
 - [ ] 2.2 Add `scripts/verify_retrosheet_tie_out.py` (explicit database target, read-only transaction, season range option, non-zero exit on failure, elapsed-time output); verify a dry run against a disposable database prints the target and exits 0 on a clean fixture.
 - [ ] 2.3 Add season-total comparisons across events, CSV plays, CSV batting, game logs (regular and postseason) and box scores where they overlap; verify with a two-source fixture, including a planted mismatch that fails.
-- [ ] 2.4 Add per-game and per-player-game comparisons and the roster identity check; verify with a fixture that a missing roster identifier and a single dropped strikeout are both reported with season and game.
-- [ ] 2.5 Add the `core` completeness check (`core.play`, `core.game` vs raw; duplicates; sampled attribute equality); verify with a fixture where one play is dropped and one is duplicated.
+- [ ] 2.4 Add per-game and per-player-game comparisons (run for every season, never skipped because the season total matched or is in the register) and the roster identity check; verify with a fixture that a missing roster identifier and a single dropped strikeout are both reported with season and game, and that two opposite game-level errors inside a matching season total are both reported.
+- [ ] 2.5 Add the `core` completeness check (`core.play`, `core.game` vs raw; plate-appearance counts plus a keyed comparison of every scoped event row including non-batter plays; duplicates; sampled attribute equality); verify with a fixture where one baserunning play is dropped with plate-appearance counts unchanged, and one play is duplicated.
+- [ ] 2.6 Add the read-only production schema check for each compared `raw.retrosheet_*` table against the pinned column contract; verify with a fixture table that has an extra and a missing column.
 
 ## 3. Test gaps
 
-- [ ] 3.1 Add pinned column-contract tests for the event, game, and CSV tables; verify a test fails when a column is renamed in a fixture.
+- [ ] 3.1 Add pinned column-contract tests for the event, game, and CSV tables (disposable database and the connector's field list; production is covered by 2.6); verify a test fails when a column is renamed in a fixture.
 - [ ] 3.2 Close the audit gaps that could hide incorrect data (at minimum an integration test that loads a small real event fixture and checks known counts); verify the new tests pass and each gap in `audit.md` is marked closed or has an issue number.
 
 ## 4. Real run and record

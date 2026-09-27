@@ -40,6 +40,13 @@ postseason files), and the box scores where they exist.
 - **THEN** the gate exits with a non-zero status
 - **AND** the report names the season, game or player, the sources and both values
 
+#### Scenario: Season totals agree but games do not
+
+- **WHEN** a season's totals match, or are explained by a register entry, but two
+  game-level counts differ in opposite directions
+- **THEN** the per-game comparison still runs for that season and reports both
+  games as unexplained
+
 #### Scenario: Sources do not overlap
 
 - **WHEN** a season has only one source for a fact
@@ -79,6 +86,13 @@ raw values.
   `core` for a season
 - **THEN** they are equal, or the difference is in the register
 
+#### Scenario: A non-batter play is dropped
+
+- **WHEN** a baserunning event present in raw is absent from `core.play`, while
+  plate-appearance counts still match
+- **THEN** the keyed comparison of every scoped event row fails and names the
+  game and play index
+
 #### Scenario: conform dropped or duplicated rows
 
 - **WHEN** `core` has fewer, more or duplicated rows than raw for a season
@@ -96,6 +110,13 @@ shift cannot pass unnoticed.
 - **WHEN** the parsed field list for a raw table no longer matches the pinned
   contract
 - **THEN** the test fails and names the differing columns
+
+#### Scenario: Production columns differ from the contract
+
+- **WHEN** the gate reads a production `raw.retrosheet_*` table whose columns
+  differ from the pinned contract
+- **THEN** the gate fails and names the table and the differing columns, without
+  certifying that table's counts
 
 ### Requirement: Player identities in events resolve to rosters
 

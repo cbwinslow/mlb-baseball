@@ -52,18 +52,22 @@ parses arguments and prints the report. This follows `scripts/AGENTS.md`. *Alter
 everything in the script, as the two older gates do, is faster but leaves the logic
 harder to test and reuse.
 
-**D2. Three comparison levels, cheapest first.** Season totals first (a handful of
-grouped queries), then per-game counts, then per player-game, each only where the
-level above found nothing to explain or where asked. Per-game and per-player-game
-queries are restricted to the season range requested, because `retrosheet_plays`
-scans are slow (a season-filtered count timed out at 30 seconds in restricted
-mode); the script sets its own longer timeout and reports elapsed time.
+**D2. Three comparison levels, cheapest first, none skipped.** Season totals run
+first (a handful of grouped queries), then per-game counts, then per player-game,
+for **every** season in the requested range. A season-total match, or a season
+total explained by a register entry, never excuses the lower levels: two
+game-level errors can cancel inside one season total. Cheapest-first only orders
+the work and the report. Per-game and per-player-game queries are restricted to
+the season range requested, because `retrosheet_plays` scans are slow (a
+season-filtered count timed out at 30 seconds in restricted mode); the script
+sets its own longer timeout and reports elapsed time.
 
 **D3. Exact match is the default pass mark.** Counts from two sources of the same
 game are the same fact, so the tolerance is zero. Any allowed difference is an
 explicit register entry: `id`, sources, fact, seasons, cause, evidence, and a
-rule that reproduces it (for example "game-log minus event home runs equals
-postseason game-log home runs, per season"). A register entry that stops
+rule that reproduces it (for example "event home runs minus regular-season
+game-log home runs equals postseason game-log home runs, per season", because
+events include postseason games and the regular-season game logs do not). A register entry that stops
 matching its rule fails the gate, so a stale excuse cannot hide a new problem.
 Tolerances are committed to this change before the full-history run (task 2.1).
 *Alternative:* a percentage tolerance would let real losses hide inside it.
@@ -72,20 +76,29 @@ Tolerances are committed to this change before the full-history run (task 2.1).
 overlap. The 2015–2025 range runs first because the play-engine depends on it;
 older eras run after and their differences are triaged, not blocked on.
 
-**D5. Core check compares to raw, not to a third opinion.** `core.play`
-plate-appearance rows per season equal the event rows with the batter-event flag
-(plus the documented event-code set), `core.game` counts equal the distinct games in
-raw for the same scope, duplicates are counted with `GROUP BY ... HAVING`, and a
-sampled set of attributes is compared value-for-value. The check states which
+**D5. Core check compares to raw, not to a third opinion.** Two `core.play`
+checks run: (a) plate-appearance rows per season equal the event rows with the
+batter-event flag (plus the documented event-code set), and (b) a full keyed
+comparison of **every** scoped event row (batter and non-batter, so baserunning
+plays too) against `core.play` by game and play index, reporting keys present on
+one side only. `conform.py` inserts every distinct event into `core.play`, so
+count (a) alone would miss a dropped baserunning play. `core.game` counts equal
+the distinct games in raw for the same scope, duplicates are counted with
+`GROUP BY ... HAVING`, and a sampled set of attributes is compared
+value-for-value. The check states which
 raw table each `core` table is built from, taken from `conform.py`, and cites the
 line.
 
-**D6. Column contract is a test, not a script.** The pinned field lists (Chadwick
-`cwevent` field spec used by the connector; CSV headers) become test constants
-checked against `information_schema` in the disposable database and against the
-connector's configured field list. Production is not needed for that check.
-*Alternative:* checking production column names at gate time adds nothing the
-test does not, and couples the gate to whichever migration is applied.
+**D6. Column contract is a test, plus a production schema check in the gate.** The
+pinned field lists (Chadwick `cwevent` field spec used by the connector; CSV
+headers) become test constants checked against `information_schema` in the
+disposable database and against the connector's configured field list. That test
+proves the code's contract but not the data: raw Retrosheet tables are created
+and extended from the columns loaded, so production can differ from a fresh
+fixture after a source-header change. The gate therefore also reads production's
+`information_schema` (read-only) for each `raw.retrosheet_*` table it compares
+and fails on any column missing from, or unexpected against, the pinned contract,
+so the gate only certifies data whose columns it has checked.
 
 **D7. Audit before new tests.** Task 1.1 writes a per-table matrix of what
 existing tests prove; only gaps that could hide incorrect data get new tests

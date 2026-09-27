@@ -43,6 +43,48 @@ classes (on-base or not) is simpler but cannot feed a run simulation. The code
 mapping is verified against Chadwick documentation and real counts in task 1.1
 before anything is built on it.
 
+*Verified mapping (task 1.1, 2026-09-27).* Codes are Chadwick `EVENT_CD`
+(cwevent documentation, "Event type" table):
+
+| Class | Codes | Note |
+| --- | --- | --- |
+| strikeout | 3 | includes strikeouts where the batter reaches (dropped third strike) |
+| walk | 14 | |
+| hit by pitch | 16 | |
+| single / double / triple / home run | 20 / 21 / 22 / 23 | |
+| out in play | 2, 19 | 2 = generic out (includes sacrifices, double plays); 19 = fielder's choice |
+| other | 17, 18 | 17 = interference, 18 = reached on error |
+| excluded (intentional walk) | 15 | managerial choice |
+| excluded (not a plate appearance) | 4–6, 8–13 | steals, defensive indifference, caught stealing, pickoff, wild pitch, passed ball, balk, other advance, foul error |
+| absent / obsolete | 0, 1, 7, 24 | not present in 2015–2025 |
+
+Checks run read-only against production `mlb`:
+
+- Codes {2, 3, 14–23} match Chadwick's own batter-event flag
+  (`raw.retrosheet_event.bat_event_fl = 'T'`) exactly: every code in that set is
+  flagged true, every code 4–13 false, and the per-season counts equal
+  `core.play` for all 11 seasons 2015–2025 (1,939,010 plate appearances).
+- Shares are plausible against known league rates: strikeout 20.5% (2015) to
+  23.6% (2020), walk plus intentional walk about 7.7–9.2%, home run 2.7–3.6%,
+  hit by pitch 0.9–1.2%, intentional walk 0.26–0.53%.
+- No null `batter_id` or `pitcher_id` in these rows.
+
+Three findings that change how the dataset is built (task 2.3):
+
+- `core.play` Retrosheet rows for 2015–2025 have **null** outs, balls, strikes
+  and scores. The base-out state is therefore taken from
+  `raw.retrosheet_event` (`outs_ct`, `start_bases_cd`, never null in these
+  seasons), joined to `core.play` by game and `play_index` = `event_id`. The
+  join is verified in task 2.3.
+- `raw.retrosheet_event` also carries `bat_hand_cd` and `pit_hand_cd` on every
+  row (no nulls, 2015–2025). Task 2.3 checks whether these already give the
+  side actually batted for a switch hitter, which would replace the
+  `raw.retrosheet_allplayers` fallback assumption in the risk list.
+- `core.play` includes postseason and all-star games (about 1.5% of rows). Task
+  2.3 decides whether the dataset is regular season only; the default is to
+  filter on `core.game.game_type = 'regular'` unless the decision is recorded
+  otherwise.
+
 **D2. Seasons.** Fit on 2015–2021, validate on 2022–2023, test once on 2024–2025.
 Advanced pitch data exists from about 2015. Every choice (rung, feature group,
 hyperparameter) is made on the validation seasons; the test seasons only confirm

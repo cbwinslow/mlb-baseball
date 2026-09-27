@@ -366,8 +366,9 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   modules), then batch 11 (the six odd-shaped modules, each read
   individually: experience, heatmap as two entries, ros, sim_predict, sub;
   total.py joined the exclusions as an XGBoost pipeline like gbm.py).
-  Current state: `scripts/check_metric_catalog.py` reports 131 tracked
-  `model/` modules and no gaps (151 YAML files; a few modules carry two).
+  Current state: `scripts/check_metric_catalog.py` reports 39 tracked
+  `model/` modules and no gaps (50 YAML files; a few modules carry two;
+  re-checked 2026-09-27).
   Promoted to a required CI check 2026-09-22 (`design.md` Migration Plan
   step 3, now that the first full triage pass has landed) — see the
   `ci/require-metric-catalog-check` branch/PR. Only one entry is
@@ -390,7 +391,15 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   plate-appearance outcome for a batter, pitcher and situation; Markov and Monte
   Carlo simulation run on it. Scope is this engine only, not the rest of Phase B.
   Gated on the model-readiness verification (`model-readiness-audit` tasks 4.2 and
-  4.3). Publishing to PyPI / Hugging Face is tabled by the owner.
+  4.3). Publishing to PyPI / Hugging Face is tabled by the owner. **Paused
+  2026-09-27 behind `pipeline-freshness`**: the readiness run found the backbone
+  tables empty in production. Resume notes: `openspec/changes/play-engine/resume-notes.md`.
+- **Pipeline freshness (`openspec/changes/pipeline-freshness/`) — do first:**
+  the daily job empties the backbone tables (`conform`) and never refills them
+  (`report`), and `conform` has crashed daily since 2026-09-24 because migration
+  0107 is not applied. Fix the daily job, make the feature build refuse an empty
+  source, measure step timings, then decide incremental rebuilds on evidence.
+  Production catch-up (migrate, `mlb report`) needs an explicit owner yes.
 
 **LATER**
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

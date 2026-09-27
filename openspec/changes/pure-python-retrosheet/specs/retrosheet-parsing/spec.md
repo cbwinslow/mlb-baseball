@@ -6,7 +6,7 @@ Defines the reusable Python surface for acquiring and interpreting official
 Retrosheet files without requiring a system Chadwick installation. The
 capability is deliberately independent of the mlb-baseball warehouse.
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: The Retrosheet package installs without native Chadwick
 

@@ -313,6 +313,8 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    `gold.pitching_postseason` exist.
 
 **NEXT** — finish v1's remaining milestone work, then v1.1:
+
+> Latest session handoff (state, findings, ordered next steps, open issues): `openspec/HANDOFF.md`.
 - v1 finishing work: `openspec/specs/statistic-backbone/spec.md`.
   - Baseball-Reference tie-out gate ✅ — `scripts/verify_baseball_reference_tie_out.py`:
     Judge 2022 + Cole 2023 cited cases match to Baseball-Reference's 3-decimal

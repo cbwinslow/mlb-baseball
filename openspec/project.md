@@ -313,6 +313,8 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
    `gold.pitching_postseason` exist.
 
 **NEXT** — finish v1's remaining milestone work, then v1.1:
+
+> Latest session handoff (state, findings, ordered next steps, open issues): `openspec/HANDOFF.md`.
 - v1 finishing work: `openspec/specs/statistic-backbone/spec.md`.
   - Baseball-Reference tie-out gate ✅ — `scripts/verify_baseball_reference_tie_out.py`:
     Judge 2022 + Cole 2023 cited cases match to Baseball-Reference's 3-decimal
@@ -401,11 +403,16 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   source, measure step timings, then decide incremental rebuilds on evidence.
   Phase 1 code and the production catch-up landed 2026-09-27; next: three clean
   scheduled runs, the step-timing profile, and the incremental go / no-go. The
-  readiness re-run is not ready on one bounded null-policy blocker (pre-1950
-  games without batting lines) — see
+  readiness re-run is not ready on one bounded null-policy blocker (3,750
+  games, 3,707 of them 1935–1949 and nearly all Negro League, with no play-by-play; 1,586 of
+  them do have box scores our backbone does not use) — see
   `model-readiness-audit/verification-2026-09-27.md`.
 
 **LATER**
+- Backbone lines from Retrosheet box scores for box-only games (1,586 games,
+  1920–1949, mostly Negro League): the game-level backbone is built from
+  play-by-play only. Would be a `statistic-backbone` change; not needed for the
+  2015+ plate-appearance engine.
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).
   See the phased ladder.
 - A one-time full-codebase quality review ("vibe-code proof" pass), run

@@ -72,6 +72,7 @@ _GID = {g[0] for g in _GAMES}
 def _cleanup(db_conn):
     db_conn.rollback()
     with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM gold.batting_game WHERE game_id = ANY(%s)", (list(_GID),))
         cur.execute("DELETE FROM gold.pitching_game WHERE game_id = ANY(%s)", (list(_GID),))
         cur.execute("DELETE FROM core.game WHERE id = ANY(%s)", (list(_GID),))
         cur.execute("DELETE FROM core.player WHERE id = ANY(%s)", ([p[0] for p in _PLAYERS],))
@@ -113,6 +114,14 @@ def built(db_conn, tmp_path):
                 f"INSERT INTO gold.pitching_game ({', '.join(names)}) "
                 f"VALUES ({', '.join(['%s'] * len(names))})",
                 (gid, pid, team_id, SEASON, by_id[gid][2], *(vals[c] for c in _PIT_COLS)),
+            )
+            # feat.build refuses an empty source (pipeline-freshness 1.1): the
+            # backbone must carry batting lines too, even though these tests
+            # only read starter columns. Both players double as the batter.
+            cur.execute(
+                "INSERT INTO gold.batting_game (game_id, player_id, team_id, season, "
+                "game_date, pa, ab, so) VALUES (%s, %s, %s, %s, %s, 4, 4, 1)",
+                (gid, pid, team_id, SEASON, by_id[gid][2]),
             )
     db_conn.commit()
     dbfile = tmp_path / "mlb.duckdb"

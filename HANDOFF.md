@@ -1,30 +1,45 @@
 # Session handoff — 2026-09-27
 
-Branch: `feat/raw-source-tieout`. Everything below is committed; nothing is
-sitting uncommitted. Read this instead of re-deriving context.
+Branch: `feat/raw-source-tieout`. Everything below is committed (`HEAD` is
+`8e69164`); nothing is sitting uncommitted except an untracked `.idea/`
+(IDE config, not ours, left alone). Read this instead of re-deriving context.
 
 ## 1. `raw-source-tieout` OpenSpec change — in progress, on track
 
 Read `openspec/changes/raw-source-tieout/tasks.md` for the live checklist.
 
-**Done (tasks 1.1–2.6, all committed):** the full read-only Retrosheet
+**Done (tasks 1.1–3.1, all committed):** the full read-only Retrosheet
 tie-out gate exists (`mlb_baseball/tieout.py`, `mlb_baseball/tieout_run.py`,
 `scripts/verify_retrosheet_tie_out.py`), covering season/game/player-game
 comparisons across every redundant Retrosheet source, a `core.play`/`core.game`
-completeness check, and (just finished this session) a pinned production
-column-contract check (`mlb_baseball/tieout_schema_contract.py`) that reads
-real `information_schema` and fails on any unexpected/missing column. All of
-it has real-Postgres integration tests, not mocks.
+completeness check, a pinned production column-contract check
+(`mlb_baseball/tieout_schema_contract.py`, task 2.6), and — just finished this
+session — pinned column-contract tests for the event/game/CSV tables against
+the connector's own real output in the disposable test database
+(`mlb_baseball/tieout_connector_columns.py`, `tests/integration/
+test_tieout_connector_columns.py`, task 3.1). All of it has real-Postgres
+integration tests, not mocks.
 
-**Next task is 3.1** (pinned column-contract tests for the disposable
-database against the connector's own field list — production side is already
-covered by 2.6), then 3.2 (close audit gaps), then 4.x (real runs against
-production `mlb` for 2015–2025 and history, recorded in
-`results-2015-2025.md`/`results-history.md`).
+**A real finding from task 3.1, already documented, no action needed:**
+production's `raw.retrosheet_event` has 3 legacy columns (`run1_auto_fl`,
+`run2_auto_fl`, `run3_auto_fl`) that a fresh load can no longer produce, left
+over from before ADR-060 narrowed `CWEVENT_EXTENDED_FIELDS` from `0-66` to
+`0-63`. Re-tested ADR-060's claimed `cwevent` failure directly against the
+currently installed Chadwick 0.10.0 binary and a modern (2024) fixture:
+`-x 0-66` succeeds and does **not** reproduce the failure. This is not treated
+as evidence the ADR-060 fix was wrong (the original failure may be specific to
+the older/deduced event file that triggered it, not retested here) — flagged
+in `audit.md` finding G10 and a dated comment in `chadwick_tools.py` so it
+isn't rediscovered as a mystery. Also resolved audit finding G9 in the same
+change (the pinned column contract is the *union* of every era's columns,
+since `load.py` only ever adds columns via `ALTER TABLE`, never drops one —
+no per-era allowed set needed).
 
-**Loose end already resolved this session, no action needed:** three
-unused draft SQL files from task 2.4 (`tieout_game_core_*.sql`) were found
-dead (never referenced in `tieout_run.py`) and deleted.
+**Next task is 3.2** (close the remaining audit gaps — at minimum an
+integration test that loads a small real event fixture and checks known
+counts; verify each gap in `audit.md` is marked closed or has an issue
+number), then 4.x (real runs against production `mlb` for 2015–2025 and
+history, recorded in `results-2015-2025.md`/`results-history.md`).
 
 **PRs:** #261 (this change's planning) and #262 (play-engine event-code
 mapping) are both merged. Nothing outstanding there.
@@ -45,13 +60,20 @@ Fully diagnosed with real measurements, not guesses:
   minutes 53 seconds**, because the forced checkpoint has to flush everything
   dirty in `shared_buffers` cluster-wide, and that was competing with two
   real concurrent jobs at the time (see below).
-- **Why it happened this morning specifically:** your own crontab runs
-  `mlb_daily_update.sh` (update → conform → predict) at 6am — confirmed via
-  `pg_stat_activity`, an `mlb conform` process was actively inserting into
-  `core.play` right when this was measured. At the same time, an unrelated
-  `research-db acs-bulk-load` job (a *different* project, `opendiscourse`, 6
-  workers) was also running — it isn't in any crontab I can see, so it was
-  started some other way. Both were fighting the same disks.
+- **Reconfirmed again this session:** while running task 3.1's tests, a real
+  `mlb` production cron `INSERT` and an unrelated `opendiscourse` pytest run
+  were both active at once, and one test run hit a genuine (if rare)
+  `psycopg.errors.ObjectInUse` on the disposable database's template during
+  setup. Retried once and it passed cleanly (8/8) — same root cause as below,
+  not a new bug, not code-related (the same tests had already passed 4/4 in
+  isolation moments earlier).
+- **Why it happened originally:** your own crontab runs `mlb_daily_update.sh`
+  (update → conform → predict) at 6am — confirmed via `pg_stat_activity`, an
+  `mlb conform` process was actively inserting into `core.play` right when
+  this was measured. At the same time, an unrelated `research-db
+  acs-bulk-load` job (a *different* project, `opendiscourse`, 6 workers) was
+  also running — it isn't in any crontab I can see, so it was started some
+  other way. Both were fighting the same disks.
 - **Fixed already (committed, `2f4c430`):** `tests/conftest.py` was setting
   `synchronous_commit = off` *after* running migrations instead of before, so
   every migration commit (~100+) paid full WAL-flush latency for nothing.
@@ -69,11 +91,11 @@ Fully diagnosed with real measurements, not guesses:
   just our database's own files.
 - **Conclusion, agreed with the owner:** the real fix is preventing heavy
   jobs from overlapping in the first place, not tuning the test database
-  further.
+  further. See section 3.
 
 ## 3. New, agreed next feature: an MLB-scoped job queue/coordinator
 
-**Decision made this session (owner's explicit direction):** build a small
+**Decision made last session (owner's explicit direction):** build a small
 job-queue/coordinator system, but scoped to *this* project only — living
 **inside the `mlb` Postgres database** and shipped as part of the `mlb`
 repo, not a separate cross-project `infra` tool. The owner will build the
@@ -81,7 +103,7 @@ equivalent for `opendiscourse` separately themselves (it doesn't currently
 have any scheduled jobs). Do not build a shared cross-repo `ops` database —
 that idea was proposed and explicitly rejected in favor of this.
 
-**What it needs to do**, per the owner's own words this session:
+**What it needs to do**, per the owner's own words:
 - Space out / coordinate `mlb`'s own cron jobs (`mlb_api_update.sh` every 5
   min, `mlb_daily_update.sh` at 6am, plus any future heavy job) so they don't
   overlap and don't each fight the disk at once.
@@ -100,7 +122,7 @@ that idea was proposed and explicitly rejected in favor of this.
   two jobs from colliding — a lock/queue is still needed on top either way.
   Don't assume switching everything to pg_cron alone solves this.
 
-**Not started yet.** This is new scope, not yet proposed as an OpenSpec
+**Still not started.** This is new scope, not yet proposed as an OpenSpec
 change. Per this project's workflow (`openspec/project.md`), the next step
 should be `/opsx:propose` for this (something like
 `mlb-job-coordinator` or similar name) before writing code, covering: the
@@ -110,7 +132,7 @@ it and how, retry semantics, and how it's tested.
 ## 4. Where to pick up next
 
 1. Read this file, then `openspec/changes/raw-source-tieout/tasks.md`.
-2. Either continue `raw-source-tieout` task 3.1, or propose the new
+2. Either continue `raw-source-tieout` task 3.2, or propose the new
    job-coordinator change (`/opsx:propose`) per the owner's direction in
    section 3 above — ask the owner which they want first if unclear.
 3. Nothing is uncommitted; nothing is mid-edit; no background jobs need

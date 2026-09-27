@@ -207,6 +207,24 @@ def _row(dbfile, sql, params=None):
     return rows[0]
 
 
+def test_build_refuses_an_empty_backbone_against_real_postgres(db_conn, tmp_path):
+    """Regression for the 2026-09-27 incident: after `conform` empties the gold
+    backbone the build must fail loudly, not report `feat.player_form: 0 rows`."""
+    _seed(db_conn)
+    dbfile = tmp_path / "feat.duckdb"
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute("DELETE FROM gold.batting_game")
+            cur.execute("DELETE FROM gold.pitching_game")
+        db_conn.commit()
+        with pytest.raises(feat.EmptySourceError) as excinfo:
+            feat.build(duckdb_path=dbfile, pg_url=os.environ["DATABASE_URL"], feature_version="v1")
+        assert "gold.batting_game" in str(excinfo.value)
+        assert "gold.pitching_game" in str(excinfo.value)
+    finally:
+        _cleanup(db_conn)
+
+
 def test_build_returns_row_counts(built):
     _dbfile, counts = built
     # 2 batters * 5 regular games, 2 pitchers * 5 regular games, 5 games.

@@ -48,6 +48,32 @@ def _quote(value: str) -> str:
     return value.replace("'", "''")
 
 
+# Every PostgreSQL relation the three feature builds read. `conform` empties
+# all of them (a full core rebuild re-issues every game id) and `report`
+# refills the two gold ones, so a build started between the two would
+# otherwise "succeed" with zero rows (production incident, 2026-09-27).
+_SOURCE_RELATIONS = ("core.game", "gold.batting_game", "gold.pitching_game")
+
+
+class EmptySourceError(RuntimeError):
+    """A source relation the feature build reads has no rows."""
+
+
+def _require_sources(con: duckdb.DuckDBPyConnection) -> None:
+    """Fail, naming every empty source relation, before any feature is built."""
+    empty = []
+    for relation in _SOURCE_RELATIONS:
+        # relation is a module constant, never caller input
+        row = con.execute(f"SELECT EXISTS (SELECT 1 FROM pg.{relation})").fetchone()  # noqa: S608
+        if row is None or not row[0]:
+            empty.append(relation)
+    if empty:
+        raise EmptySourceError(
+            f"feature build source is empty: {', '.join(empty)} -- run `mlb conform` "
+            "then `mlb report` to rebuild it"
+        )
+
+
 def build(
     *,
     duckdb_path: str | os.PathLike[str] | None = None,
@@ -75,6 +101,7 @@ def build(
         con.execute(f"ATTACH '{_quote(str(db_path))}' AS mlbfeat")
         con.execute(f"ATTACH '{_quote(url)}' AS pg (TYPE postgres, READ_ONLY)")
         con.execute("USE mlbfeat")
+        _require_sources(con)
         con.execute("CREATE SCHEMA IF NOT EXISTS feat")
 
         counts: dict[str, int] = {}

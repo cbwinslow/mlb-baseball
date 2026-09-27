@@ -725,6 +725,31 @@ def _fangraphs_health_checks() -> list[Check]:
     return checks
 
 
+# The game-level backbone and its roll-ups: what `conform` empties and `report`
+# refills. The postseason relations are excluded on purpose -- they come from
+# Lahman and are skipped cleanly when Lahman postseason is not ingested.
+BACKBONE_RELATIONS = (
+    "core.game",
+    "gold.batting_game",
+    "gold.pitching_game",
+    "gold.batting_season",
+    "gold.batting_team",
+    "gold.pitching_season",
+    "gold.pitching_team",
+    "gold.batting_career",
+    "gold.pitching_career",
+)
+
+
+def populated_checks() -> list[Check]:
+    """One row-count check per backbone relation (`mlb doctor --populated`).
+
+    Cheap enough to end every scheduled run: a `conform` that emptied the
+    backbone with no `report` after it is the failure this exists to catch.
+    """
+    return [check_table_has_rows(relation) for relation in BACKBONE_RELATIONS]
+
+
 def health_check() -> list[Check]:
     return [
         *_fangraphs_health_checks(),

@@ -20,5 +20,5 @@
 ## 4. Verify against real evidence and close the gate
 
 - [x] 4.1 Run focused unit/integration tests, catalog validation, formatter/lint/type checks, and OpenSpec validation for all changed paths. Verify all commands and results are recorded in the change.
-- [ ] 4.2 Against an explicitly designated, fully-built verification database (never an ambiguous target), run the existing Baseball-Reference and 2026 box-score tie-outs, `mlb build`, and the new readiness report. Record the exact build/version, result, coverage profile, and any honest blockers.
+- [x] 4.2 Against an explicitly designated, fully-built verification database (never an ambiguous target), run the existing Baseball-Reference and 2026 box-score tie-outs, `mlb build`, and the new readiness report. Record the exact build/version, result, coverage profile, and any honest blockers. Recorded in `verification-2026-09-27.md`: not ready, one bounded blocker (null policy, 3,750 games with no batting lines); the rest passed, including the Baseball-Reference tie-out.
 - [ ] 4.3 If the report is ready, freeze `game-win-v1` and open the separate first-ML-experiment proposal; if not ready, record the bounded blockers and create only the focused follow-up changes required to clear them. Verify no model implementation begins in this change.

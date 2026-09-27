@@ -403,14 +403,14 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   source, measure step timings, then decide incremental rebuilds on evidence.
   Phase 1 code and the production catch-up landed 2026-09-27; next: three clean
   scheduled runs, the step-timing profile, and the incremental go / no-go. The
-  readiness re-run is not ready on one bounded null-policy blocker (3,707
-  1935–1949 games, nearly all Negro League, with no play-by-play; 1,547 of
+  readiness re-run is not ready on one bounded null-policy blocker (3,750
+  games, 3,707 of them 1935–1949 and nearly all Negro League, with no play-by-play; 1,586 of
   them do have box scores our backbone does not use) — see
   `model-readiness-audit/verification-2026-09-27.md`.
 
 **LATER**
-- Backbone lines from Retrosheet box scores for box-only games (1,547 games,
-  1935–1949, mostly Negro League): the game-level backbone is built from
+- Backbone lines from Retrosheet box scores for box-only games (1,586 games,
+  1920–1949, mostly Negro League): the game-level backbone is built from
   play-by-play only. Would be a `statistic-backbone` change; not needed for the
   2015+ plate-appearance engine.
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).

@@ -33,11 +33,11 @@ nothing from the last session is lost.
    ok, predict, `mlb doctor --populated`, per-step timings). Watch the first
    real run: 2026-09-28 06:00 UTC, `logs/mlb_daily_update.log`.
 2. **Feature build refuses empty sources** (`feat.EmptySourceError`).
-3. **Readiness (game-win v1) is "not ready" on one bounded blocker:** 3,707
-   1935–1949 games missing from the play-by-play-built backbone. Rechecked
-   against `raw.retrosheet_batting`, box tables and Retrosheet docs: nearly all
-   Negro League; 1,547 have full box scores we do not use, 1,889 partial stats,
-   271 nothing; 1954/1979 gaps are forfeits. Raw data has no error. Full table:
+3. **Readiness (game-win v1) is "not ready" on one bounded blocker:** 3,750
+   games (1910–2025) missing from the play-by-play-built backbone. Rechecked
+   against `raw.retrosheet_batting`, box tables and Retrosheet docs: 3,707 are
+   1935–1949 and nearly all Negro League; 1,586 have full box scores we do not
+   use, 1,886 partial stats, 266 nothing, 12 forfeits (incl. 1954 and 1979). Raw data has no error. Full table:
    `openspec/changes/model-readiness-audit/verification-2026-09-27.md`.
    2015+ has zero unexplained nulls, so the plate-appearance engine is clear.
 4. Metric catalog real counts: 39 tracked modules, 50 YAML files.
@@ -46,7 +46,7 @@ nothing from the last session is lost.
 
 - #256 Readiness gate rule for "no full box score" — **owner decision needed**
   (recommended: gate treats it as an explained null; do not cut to 1950+).
-- #257 Backbone lines from box scores for the 1,547 box-only games.
+- #257 Backbone lines from box scores for the 1,586 box-only games.
 - #258 Negro League games in the regular pool; `core.team.league` blank;
   confirm raw-file provenance.
 - #259 pipeline-freshness follow-ups (3 clean runs, timing profile, incremental

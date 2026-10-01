@@ -6,7 +6,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 - Branch `feat/retrosheet-state-engine-impl` (worktree `/home/cbwinslow/workspace/mlb-pure-python`;
   never touch `/home/cbwinslow/workspace/mlb`). Not pushed yet, no PR yet. Pushing a branch and opening
   a PR is pre-authorized; merging needs the owner's "merge" per PR.
-- tasks.md: sections 1, 2, 3.1-3.5 done. Remaining: 3.6, 4.1-4.4, 5.1-5.4.
+- tasks.md: sections 1, 2, 3.1-3.6 done (2019 all 164 columns match). Remaining: 4.1-4.4, 5.1-5.4.
 - Engine: `packages/retrosheetpy/src/retrosheetpy/{state,outcome,fielding}.py`. `event_rows(records, strict=True)`
   yields one dict per play keyed by cwevent column names (+ `UNSUPPORTED`, `STATE_UNCERTAIN` extras; diagnostic
   mode = `strict=False`).

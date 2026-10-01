@@ -76,3 +76,33 @@ Chadwick's output; each lists a play that showed it. No Chadwick code was copied
   an out is `P` on `/IF`, `G` on a sacrifice bunt, a force `n(m)` or more than one fielder,
   otherwise `F`; `/LDP` is `L` and `/GDP`, `/GTP`, `/FO` are `G`. Other plays stay blank.
   (NYN201908200, ARI201905180, HOU201905220)
+
+## Extended fields (`cwevent -x 0-66`), 2019: 0 mismatches over 192,025 plays
+
+- **Counters count plays before this one**: `GAME_PA_CT`, `INN_PA_CT` and `INN_RUNS_CT` are the
+  team's completed plate appearances, the half-inning's plate appearances and its runs
+  *before* the play; `FATE_RUNS_CT` is the runs scored in the rest of the half-inning,
+  not counting this play. `INN_END_FL` is the last play of a half-inning in the file.
+- **`PA_NEW_FL`** is `T` unless the previous play was a non-batter event of the same half
+  (a steal, wild pitch ...). **`PA_TRUNC_FL`** is `T` for every non-batter play after the last
+  batter event of a half-inning (the plate appearance never finished).
+- **Pitch splits (33-44)** come from this play's `PITCH_SEQ_TX` only: `B` called ball, `I`
+  intentional, `P` pitchout, `H` hit batter (each also a ball), `V` an "other" ball that is
+  *not* counted in the ball total; strikes `C` called, `S M Q` swinging, `F L O R T` foul,
+  `X Y` in play, `K` other. `1 2 3 . * + > N` count nothing. (`I Q R Y K` never occur in
+  2019: assumed, to be confirmed on older seasons.)
+- **Force flags** are set only by a `/FO` or `/GDP` out: the base after each runner retired
+  in the fielding chain who was forced (every lower base occupied). With no chain marker
+  (`FC1/FO.2X3(1E5)`) the out advances are used. `/DP`, `/GTP` and strikeouts set nothing.
+  (HOU201905220, BAL201908190, MIN201904300, NYN201907280)
+- **Batter safe on error**: a first event `E`, or a fielded out whose `BX` advance has an
+  error in its parentheses (`36(1)/FO/G3.2-3;BX1(6E1)`). Not for hits with `BX2(74)`.
+- **Runner lineup/position**: lineup slot of the runner; position is the one he was listed at
+  when he reached (a pinch hitter 11, a pinch runner 12), shown as 0 unless a pinch hitter is
+  batting now (Chadwick: `ph_flag`); a pinch runner for the DH is 10. (ANA201904090, ANA201909260)
+- **Responsible catcher** travels with the runner like the responsible pitcher, including
+  the shift back after a retired runner (PIT201909050, SFN201909240).
+- **`PIT_START_FL`** is true only for a pitcher who started the game *as pitcher*; a position
+  player who pitches is `F` (ANA201907250). `BAT_START_FL` is true for any starter.
+- **`UNKNOWN_OUT_EXC_FL`**: a `99` fielding unknown anywhere in the play (`CS2(99)`,
+  `BX2(99)`); **`UNCERTAIN_PLAY_EXC_FL`**: a `#` marker (fixtures `ladj`, `deduced`).

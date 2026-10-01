@@ -7,13 +7,17 @@ API alone, and pins that neither package imports the other.
 
 import dataclasses
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-import retrosheetpy
-from retrosheetpy import Artifact, PlayRecord, Product, read_event_file
-
 REPO = Path(__file__).resolve().parents[2]
+# mlb_baseball deliberately does not depend on retrosheetpy (task 6.1), so the root
+# environment does not install it; load the pure-Python source straight from the tree.
+sys.path.insert(0, str(REPO / "packages/retrosheetpy/src"))
+import retrosheetpy  # noqa: E402
+from retrosheetpy import Artifact, PlayRecord, Product, read_event_file  # noqa: E402
+
 FIXTURE = REPO / "packages/retrosheetpy/tests/fixtures/events/regular_2007.evt"
 
 

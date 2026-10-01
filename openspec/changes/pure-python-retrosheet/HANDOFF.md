@@ -1,60 +1,75 @@
-# Handoff — start of `pure-python-retrosheet` (2026-10-01)
+# Handoff — `pure-python-retrosheet` (updated 2026-10-01, after section 3)
 
-Nothing is built yet. This note gets a fresh session started fast.
+12 of 29 tasks done (sections 1-3). Next: finish review round 2, then section 4.
 
 ## Where to work
-- **Worktree:** `/home/cbwinslow/workspace/mlb-pure-python`
-  (branch `feat/pure-python-retrosheet`, cut from `origin/main`).
-  Work ONLY here. Do not touch `/home/cbwinslow/workspace/mlb`: another
-  session is using it for the `raw-source-tieout` change (uncommitted edits
-  to `mlb_baseball/tieout*.py` and related SQL/tests).
-- **Same repo, separate package.** The new code lives in a new folder under
-  `packages/` (like the existing `packages/mlb-research`) and is added to the
-  existing uv workspace in the root `pyproject.toml` (`[tool.uv.workspace]`).
-  It must never import `mlb_baseball` and must not need PostgreSQL, pandas,
-  a compiler, or the Chadwick programs. It can be published on its own later.
+- **Worktree:** `/home/cbwinslow/workspace/mlb-pure-python`, branch
+  `feat/pure-python-retrosheet`. Work ONLY here. Do not touch
+  `/home/cbwinslow/workspace/mlb` (another session, `raw-source-tieout`).
+- **Nothing is pushed yet.** Pushing the branch and opening the PR is
+  pre-authorized; merging, force-push, branch deletion are not.
+- Owner wants short, plain-language replies (see `CLAUDE.md`).
 
-## What to read first (in this order)
-1. `openspec/project.md` (constitution), root `AGENTS.md`, `CLAUDE.md`
-   (owner wants short, plain-language replies).
-2. This change: `proposal.md`, `design.md`, `research.md`, `tasks.md`
-   (all in this folder), then `specs/`.
-3. `packages/mlb-research/pyproject.toml` as the model for a workspace
-   package; `mlb_baseball/connectors/` Retrosheet connector and its DOX
-   sidecars for how the current code uses Chadwick (read, don't edit).
+## What exists (package `retrosheetpy`, `packages/retrosheetpy/`)
+- Name decided: distribution and import `retrosheetpy` (free on PyPI; `retropy`
+  and `pyretrosheet` are taken). Recorded in `design.md` D9.
+- `catalog.py`: `Product`, `Resource`, `resolve()` — official URLs.
+- `client.py`: `Client` (cached, SHA-256 verified download, injectable `fetch`),
+  `iter_zip_members` (rejects traversal/corrupt data, guarded streams).
+- `records.py`: lossless line reader `iter_records` / `read_event_file` /
+  `iter_event_zip`; typed records; strict vs diagnostic mode; `RecordStats`.
+  `com`/`info` use a free-text fallback because ~27 real lines have irregular
+  quoting; structured records (play/start/sub/id/data) stay strict.
+- `errors.py`, `artifact.py`, `py.typed`, README (Retrosheet attribution),
+  `API.md`, `AGENTS.md` (listed in root `AGENTS.md`).
+- Tests: 77 pass; fixtures are one real game per era in `tests/fixtures/events/`.
 
-## The task, in plain words
-Today our raw-event and box-score loading needs the Chadwick C programs
-(`cwevent`, `cwgame`, `cwbox`) installed on the computer. This change builds
-a Python-only package that can find and download official Retrosheet files,
-read their lines without losing any text, and break each play description
-into parts. It also builds a test harness that compares its answers with
-Chadwick 0.10.0 and with Retrosheet's own parsed CSVs. This slice does NOT
-switch the production connectors away from Chadwick.
+## Evidence so far
+- Real corpus (postseason, All-Star, Negro League, 1910s zips): 2,882,270 lines
+  parse in STRICT mode with zero unsupported. Record types seen: id, version,
+  info, start, sub, play, data, com, badj, ladj, presadj.
+- Live download verified against retrosheet.org (4 files, cache reuse works).
+- Wheel builds, installs with zero dependencies, tests pass on Python 3.11.
+- `ruff`, `ruff format`, `mypy --strict` clean on the package.
+- `openspec validate pure-python-retrosheet --strict` passes. The CLI is at
+  `~/.nvm/versions/node/v24.16.0/bin/openspec` (put it on PATH).
+- Root unit suite: 1034 pass; 2 unrelated failures (`openpyxl` not installed
+  here: `test_export_health_check`, `test_excel_row_limit_guard`).
+- Review round 1 (independent agent) found 7 real issues; all fixed in
+  `34d922e`.
 
-## Order of work (from `tasks.md`, 29 tasks, none done)
-1. Section 1: pick the package name (check PyPI; do not reuse `pyretrosheet`),
-   scaffold it, README/attribution, small public API note.
-2. Section 2: official file client (typed Artifact model, safe cached
-   download, zip handling; tests use tiny captured archives, never live web).
-3. Section 3: lossless record reader (id/info/start/sub/play/data/com...).
-   Unknown record types must fail loudly in strict mode, never be skipped.
-4. Section 4: play-syntax parser, no game-state logic, raw tokens preserved.
-   Do not copy Chadwick code (4.4).
-5. Section 5: comparison harness vs Chadwick 0.10.0 and Retrosheet CSVs.
-6. Sections 6-7: boundary proof, checks, Slice B go/no-go note.
-Use test-first for behaviour (the tasks say so). Tick `tasks.md` as you go.
+## Commands
+- Package tests: `uv run --package retrosheetpy --with pytest pytest packages/retrosheetpy/tests -q -p no:cacheprovider`
+- Root tests need dev extra: `uv run --extra dev python -m pytest tests/unit packages -q -p no:cacheprovider`
+- Lint/type: `uvx ruff check packages/retrosheetpy`, `uvx ruff format --check packages/retrosheetpy`, `uvx mypy --strict packages/retrosheetpy/src`
+- NOTE: in this shell `ls` is rewritten by an RTK hook and can print wrong
+  counts; use `find` for file counts.
+- Downloaded real archives for local experiments are in the session scratchpad
+  (`.../scratchpad/dl`, may be gone); re-download with `Client` if needed.
+  Also real event files exist at `~/.pyretrosheet/data` (1950) and
+  `/tmp/retrosheet_event_pbp_*` (2000s).
 
-## Rules that matter here
-- One change = one branch = one PR. Commit on `feat/pure-python-retrosheet`;
-  pushing the branch and opening the PR is pre-authorized. Do not merge,
-  force-push, or delete branches.
-- Chadwick on this machine is 0.10.0 (read-only use for reference output).
+## Next steps
+1. **Review round 2** (agreed in principle, not yet run): independent read-only
+   review of ONLY commit `34d922e`'s changes (client.py, records.py). Fix real
+   findings, then continue.
+2. **Section 4** (tasks 4.1-4.5): play-syntax parser, no game-state logic, raw
+   tokens preserved, structured `ParseError` with stage/location. Write from
+   Retrosheet docs (retrosheet.org/eventfile.htm); do NOT copy Chadwick code.
+   Test first. 4.5 needs a parse-coverage run over: modern season, early/dead-ball
+   season, deduced season, postseason, Negro League; record every unsupported
+   syntax family. Reader speed is ~70k lines/s (measure before optimizing).
+3. Sections 5-7: Chadwick 0.10.0 differential harness (dev/test only, skip if
+   absent; Chadwick is at `~/.local/bin/cwevent`), Retrosheet CSV crosswalk,
+   coverage report, boundary proof (no production change), final verification,
+   Slice B go/no-go note.
+
+## Rules to keep
 - Never claim tests/lint/type checks passed unless they actually ran.
-- Don't use the shared production database for this change; it needs none.
-- Update the nearest DOX/AGENTS file if you add a new directory with its own
-  contract (the new package folder should get a short `AGENTS.md`).
-
-## Suggested first step
-Section 1.1 and 1.2: decide the package name, scaffold the empty package,
-confirm `uv sync` and a trivial import test work in the worktree, commit.
+- Package must never import `mlb_baseball`, pandas, psycopg, or native code.
+- Unknown record/play syntax must raise (strict) or surface as an explicit
+  unsupported node; never skipped.
+- Tick `tasks.md` boxes only when behavior is fully done.
+- Known, accepted limits: a bad HTML response for a plain-text product would be
+  cached (hash recorded); no download size cap.
+- This handoff file is a one-off note; consider deleting it before the PR.

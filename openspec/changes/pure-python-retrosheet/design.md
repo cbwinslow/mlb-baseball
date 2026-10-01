@@ -72,7 +72,9 @@ derived-stat interpretation.
 ### D3 — Retrosheet specification is the contract; Chadwick is an oracle
 
 Implementation behavior comes from Retrosheet's published file and event
-documentation. Chadwick source code is not copied or transliterated.
+documentation. Chadwick source may be read to understand behavior (owner decision,
+2026-10-01), but it is never copied or transliterated; our code is written
+independently and checked by comparing output with Chadwick.
 
 Chadwick 0.10.0 is executed in differential tests to reveal disagreements.
 Retrosheet's official parsed CSVs and its Chadwick crosswalk provide a second

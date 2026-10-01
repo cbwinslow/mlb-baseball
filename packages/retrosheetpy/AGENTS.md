@@ -7,8 +7,10 @@ change: `openspec/changes/pure-python-retrosheet/`.
 
 - Never import `mlb_baseball`, pandas, psycopg, or any native/compiled
   dependency. Core dependencies stay standard-library only.
-- Chadwick is a test-time reference only. Do not copy or transliterate its
-  source; implement from Retrosheet documentation.
+- Chadwick is a test-time reference only. Reading its source to understand
+  behavior is allowed (owner decision, 2026-10-01). Do not copy, paste, or
+  translate it line by line (GPL-2.0 vs our AGPL); write our own code from what
+  you learned and prove equality by comparing output with Chadwick.
 - Unknown record or play syntax must raise (strict) or surface as an explicit
   unsupported node. Never skip silently.
 - Tests must not hit the live Retrosheet site; use small captured fixtures.

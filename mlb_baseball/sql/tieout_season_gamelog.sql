@@ -34,11 +34,17 @@ WITH gl AS (
     FROM raw.retrosheet_gamelog
     WHERE _season BETWEEN %(lo)s::text AND %(hi)s::text
 )
+-- A negative count is Retrosheet's "not recorded" sentinel (-1): a season's
+-- total for a fact is NULL (not recorded, never compared) if any game in it has
+-- a negative value for that fact, same as tieout_game_gamelog.sql.
 SELECT
     _season AS season,
-    sum(v_homeruns::numeric::integer + h_homeruns::numeric::integer) AS hr,
-    sum(v_strikeouts::numeric::integer + h_strikeouts::numeric::integer) AS k,
-    sum(v_walks::numeric::integer + h_walks::numeric::integer) AS bb,
+    CASE WHEN bool_and(v_homeruns::numeric >= 0 AND h_homeruns::numeric >= 0)
+        THEN sum(v_homeruns::numeric::integer + h_homeruns::numeric::integer) END AS hr,
+    CASE WHEN bool_and(v_strikeouts::numeric >= 0 AND h_strikeouts::numeric >= 0)
+        THEN sum(v_strikeouts::numeric::integer + h_strikeouts::numeric::integer) END AS k,
+    CASE WHEN bool_and(v_walks::numeric >= 0 AND h_walks::numeric >= 0)
+        THEN sum(v_walks::numeric::integer + h_walks::numeric::integer) END AS bb,
     sum(v_score::integer + h_score::integer) AS r,
     count(*) AS g
 FROM gl

@@ -163,8 +163,14 @@ def compare(
     *,
     seasons: Collection[str],
     max_differences: int | None = None,
+    restrict_to: Collection[Key] | None = None,
 ) -> Comparison:
     """Compare two series exactly, key by key, for the given seasons.
+
+    ``restrict_to`` limits the comparison to those keys. It is for a source that
+    is only a sample of the games (the box scores): comparing the sample against
+    a full season would call every other game "absent", which is a coverage
+    fact, not a disagreement.
 
     Only facts both sources supply are compared. The caller decides ``seasons``
     (normally ``coverage(...).comparable``); keys outside them are ignored.
@@ -177,6 +183,8 @@ def compare(
     wanted = frozenset(seasons)
     facts = tuple(sorted(a.facts & b.facts))
     keys = {k for k in a.counts if k[0] in wanted} | {k for k in b.counts if k[0] in wanted}
+    if restrict_to is not None:
+        keys &= set(restrict_to)
     differences: list[Difference] = []
     overflow = 0
     unrecorded = 0
@@ -351,23 +359,40 @@ def assess(
     *,
     only_a: Collection[str] = (),
     only_b: Collection[str] = (),
+    rollup: Mapping[tuple[str, str], tuple[int, tuple[str, ...]]] | None = None,
 ) -> Assessment:
     """Judge a comparison: every difference must be explained by a register
     entry, and every prediction of a register entry must actually appear.
 
     ``only_a`` / ``only_b`` are seasons one source covers alone; they are
     reported as *not comparable*, never as a pass.
+
+    ``rollup`` is the game-level result for the same pair (see ``rollup_games``):
+    a season-level difference is also explained when it equals, exactly, the sum
+    of the game-level differences the register explained in that season. Each
+    game-level explanation is already checked (and can go stale) on its own, so
+    the roll-up adds no new excuse; it only lets the season total agree with
+    the games it is made of.
     """
     explained: list[tuple[Difference, str]] = []
     unexplained: list[Difference] = []
     found_by_entry: dict[tuple[str, str, Key, str], Difference] = {}
     for diff in comparison.differences:
         entry = register.find(diff, ctx)
-        if entry is None:
-            unexplained.append(diff)
-        else:
+        if entry is not None:
             explained.append((diff, entry.id))
             found_by_entry[(entry.id, diff.level, diff.key, diff.fact)] = diff
+            continue
+        rolled = (rollup or {}).get((diff.key[0], diff.fact)) if diff.level == "season" else None
+        if rolled is not None and rolled[0] == diff.a_number - diff.b_number:
+            explained.append((diff, "+".join(rolled[1])))
+            # Every entry that explained one of the games satisfies its own
+            # prediction for this season total (E1 predicts the post-season
+            # share of it even when other entries explain more).
+            for entry_id in rolled[1]:
+                found_by_entry[(entry_id, diff.level, diff.key, diff.fact)] = diff
+        else:
+            unexplained.append(diff)
 
     stale: list[StaleEntry] = []
     difference_at = {(d.level, d.key, d.fact): d for d in comparison.differences}
@@ -405,6 +430,21 @@ def assess(
         not_comparable=not_comparable,
         seasons=_season_results(comparison, explained, unexplained, stale, only_a, only_b),
     )
+
+
+def rollup_games(assessment: Assessment) -> dict[tuple[str, str], tuple[int, tuple[str, ...]]]:
+    """Sum, per ``(season, fact)``, the game-level differences a register entry
+    explained (``a - b``), with the ids of the entries involved. Used to explain
+    the season total of the same pair (see ``assess``)."""
+    totals: dict[tuple[str, str], int] = defaultdict(int)
+    ids: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for diff, entry_id in assessment.explained:
+        if diff.level != "game":
+            continue
+        slot = (diff.key[0], diff.fact)
+        totals[slot] += diff.a_number - diff.b_number
+        ids[slot].add(entry_id)
+    return {slot: (total, tuple(sorted(ids[slot]))) for slot, total in totals.items()}
 
 
 def _season_results(
@@ -576,7 +616,152 @@ E1 = Entry(
     expects=_e1_expects,
 )
 
-INITIAL_REGISTER = Register(entries=(E1,))
+_SCORECARD_SOURCES = frozenset({"csv_batting", "gameinfo", "gamelog"})
+
+
+def _game_of(key: Key) -> Key:
+    """The (season, game_id) part of a game or player-game key."""
+    return key[:2]
+
+
+def _no_play_by_play(game: Key, ctx: Context) -> bool:
+    """True when neither play-by-play product holds the game, and the CSV plays
+    series was actually loaded for that season (so "absent" is a measurement)."""
+    event = ctx.get(("event", "game"))
+    plays = ctx.get(("csv_plays", "game"))
+    if event is None or plays is None or game[0] not in plays.seasons():
+        return False
+    return game not in event.counts and game not in plays.counts
+
+
+def _is_event_vs_scorecard(a_source: str, b_source: str) -> bool:
+    return a_source == "event" and b_source in _SCORECARD_SOURCES
+
+
+def _e4_explains(diff: Difference, ctx: Context) -> bool:
+    """E4: a game that has no play-by-play in either product.
+
+    Retrosheet publishes scorecard-level data (game info, per-player batting
+    lines) for some games it has no play-by-play for. The game is then absent
+    from the event files **and** from the CSV plays, two independent
+    play-by-play products, while a scorecard source lists it. The value the
+    scorecard source holds for the game is the whole difference.
+    """
+    if diff.a_value is not None:
+        return False
+    scorecard = ctx.get((diff.b_source, "game"))
+    game = _game_of(diff.key)
+    return scorecard is not None and game in scorecard.counts and _no_play_by_play(game, ctx)
+
+
+def _e4_expects(comparison: Comparison, ctx: Context) -> Iterable[Expectation]:
+    if comparison.level != "game":
+        return
+    scorecard = ctx.get((comparison.b_source, "game"))
+    if scorecard is None:
+        return
+    for key, row in scorecard.counts.items():
+        if key[0] not in comparison.seasons or not _no_play_by_play(key, ctx):
+            continue
+        for fact, value in row.items():
+            if value and fact in comparison.facts:
+                yield Expectation("game", key, fact)
+
+
+E4 = Entry(
+    id="E4",
+    summary="Game with a scorecard but no play-by-play in any product",
+    cause=(
+        "Retrosheet publishes game info and player batting lines for games (exhibitions, "
+        "Negro League and other games, mostly 1912-1949) it has no play-by-play for; both "
+        "play-by-play products (event files and CSV plays) lack the game."
+    ),
+    evidence=(
+        "Run 2 of task 4.2 (1871-2014): in 1921, 24 games are in csv_batting but in neither "
+        "event nor csv_plays, and their plate appearances sum to 1,753, exactly the "
+        "event-vs-csv_batting plate-appearance difference (98,837 - 97,084). The games' "
+        "gametypes are mostly exhibition, regular (Negro League clubs), championship and lcs."
+    ),
+    facts=frozenset({"pa", "k", "bb", "hr", "r", "g"}),
+    levels=frozenset({"game", "player_game"}),
+    applies_to=_is_event_vs_scorecard,
+    explains=_e4_explains,
+    expects=_e4_expects,
+)
+
+
+def _is_vs_regular_gamelog(_a_source: str, b_source: str) -> bool:
+    return b_source == "gamelog"
+
+
+def _not_a_gamelog_game(game: Key, ctx: Context) -> bool:
+    """True when neither the regular-season nor the post-season game log lists
+    the game, the game log was loaded for its season, and the game is one the
+    game logs are not meant to hold: an exhibition, or a game neither of whose
+    teams appears in the season's game logs at all (a Negro League club)."""
+    regular = ctx.get(("gamelog", "game"))
+    post = ctx.get(("gamelog_post", "game"))
+    meta = ctx.get(("gamemeta", "game"))
+    if regular is None or post is None or meta is None or game[0] not in regular.seasons():
+        return False
+    if game in regular.counts or game in post.counts:
+        return False
+    flags = meta.counts.get(game)
+    return flags is not None and bool(flags.get("exh") or flags.get("nogl"))
+
+
+def _e5_explains(diff: Difference, ctx: Context) -> bool:
+    """E5: a game the major-league game logs are not meant to hold.
+
+    ``retrosheet_gamelog`` and ``retrosheet_gamelog_post`` list major-league
+    championship, postseason and all-star games. Game info and the play-by-play
+    products also list exhibitions and Negro League games.
+    """
+    if diff.b_value is not None:
+        return False
+    other = ctx.get((diff.a_source, "game"))
+    game = _game_of(diff.key)
+    return other is not None and game in other.counts and _not_a_gamelog_game(game, ctx)
+
+
+def _e5_expects(comparison: Comparison, ctx: Context) -> Iterable[Expectation]:
+    if comparison.level != "game":
+        return
+    other = ctx.get((comparison.a_source, "game"))
+    if other is None:
+        return
+    for key, row in other.counts.items():
+        if key[0] not in comparison.seasons or not _not_a_gamelog_game(key, ctx):
+            continue
+        for fact, value in row.items():
+            if value and fact in comparison.facts:
+                yield Expectation("game", key, fact)
+
+
+E5 = Entry(
+    id="E5",
+    summary="Game the major-league game logs are not meant to hold",
+    cause=(
+        "The game logs list major-league games only. Game info and the play-by-play "
+        "products also list exhibition games and Negro League games."
+    ),
+    evidence=(
+        "Run 2 of task 4.2 (1871-2014, checked 2026-10-01): 7,682 game-info games are in "
+        "neither game log. 7,681 are exhibitions (2,371) or games whose two clubs never "
+        "appear in that season's game logs (7,674; for example PH5, MEM, KCM, CAG, HOM, BLG, "
+        "NW2, BIR), and 1,877 of them are in retrosheet_game under the negro_league group. "
+        "The one exception, BRO190009190 (1900-09-19, SLN at BRO 9-0), is a regular "
+        "major-league game the game log lacks; it is not covered by this entry and is "
+        "reported as a difference."
+    ),
+    facts=frozenset({"hr", "k", "bb", "r", "g"}),
+    levels=frozenset({"game"}),
+    applies_to=_is_vs_regular_gamelog,
+    explains=_e5_explains,
+    expects=_e5_expects,
+)
+
+INITIAL_REGISTER = Register(entries=(E1, E4, E5))
 
 
 def check_columns(

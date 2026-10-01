@@ -24,7 +24,9 @@ from mlb_baseball.sql import read_sql
 from mlb_baseball.tieout import (
     INITIAL_REGISTER,
     LEVELS,
+    Assessment,
     Comparison,
+    Coverage,
     Register,
     Report,
     Series,
@@ -35,6 +37,7 @@ from mlb_baseball.tieout import (
     coverage,
     fetch_series,
     merge_comparisons,
+    rollup_games,
 )
 from mlb_baseball.tieout_schema_contract import RAW_SCHEMA_CONTRACT
 
@@ -64,6 +67,10 @@ class SourceSpec:
     resource: str
     facts: frozenset[str]
     context_only: bool = False  # loaded so a register rule can read it, never compared
+    # A source that holds only some of a season's games (the box scores). It is
+    # compared only on the games it has, at game and player-game level; a season
+    # total of a sample is not a measurement of the season.
+    sample: bool = False
 
 
 def _facts(*names: str) -> frozenset[str]:
@@ -95,7 +102,9 @@ SOURCES: tuple[SourceSpec, ...] = (
         _facts("hr", "k", "bb", "r", "g"),
         context_only=True,
     ),
-    SourceSpec("box", "season", "tieout_season_box.sql", _facts("hr", "k", "bb", "r", "g")),
+    SourceSpec(
+        "box", "season", "tieout_season_box.sql", _facts("hr", "k", "bb", "r", "g"), sample=True
+    ),
     SourceSpec("event", "game", "tieout_game_event.sql", _facts("pa", "k", "bb", "hr", "r", "g")),
     SourceSpec(
         "csv_plays", "game", "tieout_game_csv_plays.sql", _facts("pa", "k", "bb", "hr", "r", "g")
@@ -115,7 +124,12 @@ SOURCES: tuple[SourceSpec, ...] = (
         _facts("hr", "k", "bb", "r", "g"),
         context_only=True,
     ),
-    SourceSpec("box", "game", "tieout_game_box.sql", _facts("hr", "k", "bb", "r", "g")),
+    SourceSpec(
+        "gamemeta", "game", "tieout_game_meta.sql", _facts("exh", "nogl"), context_only=True
+    ),
+    SourceSpec(
+        "box", "game", "tieout_game_box.sql", _facts("hr", "k", "bb", "r", "g"), sample=True
+    ),
     # Runs scored are not attributed to a batter in the event table, and box
     # scores carry no plate-appearance count, so those facts are simply not
     # compared at player-game level (only facts both sides supply are).
@@ -129,7 +143,7 @@ SOURCES: tuple[SourceSpec, ...] = (
         "tieout_player_csv_batting.sql",
         _facts("pa", "k", "bb", "hr", "r"),
     ),
-    SourceSpec("box", "player_game", "tieout_player_box.sql", _facts("hr", "k", "bb")),
+    SourceSpec("box", "player_game", "tieout_player_box.sql", _facts("hr", "k", "bb"), sample=True),
 )
 
 # Upper bound on differences kept per pair and level (see tieout.compare). Reaching
@@ -163,6 +177,7 @@ def pairs_for(level: str) -> list[tuple[str, str]]:
         and b in available
         and not available[a].context_only
         and not available[b].context_only
+        and (level != "season" or not (available[a].sample or available[b].sample))
     ]
 
 
@@ -182,29 +197,68 @@ def load_source(conn: psycopg.Connection, spec: SourceSpec, lo: int, hi: int, lo
     return series
 
 
-def run_season_level(
+def load_season_level(
     conn: psycopg.Connection,
     lo: int,
     hi: int,
-    register: Register,
-    report: Report,
     ctx: dict[tuple[str, str], Series],
     log: Log,
 ) -> dict[str, Series]:
-    """Compare every configured pair of sources at season-total level and return
-    the loaded series by source name (they decide which seasons are comparable)."""
+    """Load every season-total source and return the series by source name (they
+    decide which seasons are comparable)."""
     log(f"season totals, {lo}-{hi}")
     loaded = {
         name: load_source(conn, spec, lo, hi, log) for name, spec in sources_for("season").items()
     }
     for name, series in loaded.items():
         ctx[(name, "season")] = series
+    return loaded
+
+
+def assess_season_level(
+    loaded: dict[str, Series],
+    register: Register,
+    ctx: dict[tuple[str, str], Series],
+    rollups: Mapping[tuple[str, str], Mapping[tuple[str, str], tuple[int, tuple[str, ...]]]],
+) -> list[Assessment]:
+    """Compare every configured pair at season-total level. ``rollups`` holds each
+    pair's game-level result (empty when the game level did not run), so a
+    season total is explained when it equals the games the register explained."""
+    out: list[Assessment] = []
     for a_name, b_name in pairs_for("season"):
         a, b = loaded[a_name], loaded[b_name]
         cov = coverage(a, b)
         comparison = compare(a, b, seasons=cov.comparable)
-        report.add(assess(comparison, register, ctx, only_a=cov.only_a, only_b=cov.only_b))
-    return loaded
+        out.append(
+            assess(
+                comparison,
+                register,
+                ctx,
+                only_a=cov.only_a,
+                only_b=cov.only_b,
+                rollup=rollups.get((a_name, b_name)),
+            )
+        )
+    return out
+
+
+def _plan_coverage(
+    a: str, b: str, specs: Mapping[str, SourceSpec], season_series: Mapping[str, Series]
+) -> Coverage:
+    """Seasons a pair is compared for at game and player-game level. A sample
+    source (box scores) has no trustworthy season total, so every season the other
+    source covers is tried and only the games the sample holds are compared. A
+    season only the sample covers is *not comparable*, as for any other pair."""
+    if specs[a].sample or specs[b].sample:
+        sample, other = (a, b) if specs[a].sample else (b, a)
+        covered = frozenset(season_series[other].seasons())
+        alone = frozenset(season_series[sample].seasons()) - covered
+        return Coverage(
+            comparable=covered,
+            only_a=alone if sample == a else frozenset(),
+            only_b=alone if sample == b else frozenset(),
+        )
+    return coverage(season_series[a], season_series[b])
 
 
 def run_detail_level(
@@ -213,29 +267,35 @@ def run_detail_level(
     lo: int,
     hi: int,
     register: Register,
-    report: Report,
     ctx: dict[tuple[str, str], Series],
     season_series: dict[str, Series],
     log: Log,
-) -> None:
+) -> tuple[
+    list[Assessment], dict[tuple[str, str], dict[tuple[str, str], tuple[int, tuple[str, ...]]]]
+]:
     """Compare every pair at ``game`` or ``player_game`` level, one season at a time.
 
     Which seasons a pair can be compared for comes from the season-total
     coverage, and a season total that matched (or was explained) never skips
     this level: two opposite errors can cancel inside one season total.
+
+    At game level every loaded series is kept in ``ctx`` so the register can ask
+    whether a game exists in some other source. Returns the assessments and, per
+    pair, the game-level roll-up the season level uses.
     """
     specs = sources_for(level)
     for name, spec in specs.items():
         if spec.context_only:
             ctx[(name, level)] = load_source(conn, spec, lo, hi, log)
     plans = {
-        (a, b): coverage(season_series[a], season_series[b])
+        (a, b): _plan_coverage(a, b, specs, season_series)
         for a, b in pairs_for(level)
-        if a in season_series and b in season_series
+        if (specs[a].sample or a in season_series) and (specs[b].sample or b in season_series)
     }
     seasons = sorted(set().union(*(cov.comparable for cov in plans.values())), key=int)
     log(f"{level} level: {len(seasons)} seasons, {len(plans)} pairs")
     parts: dict[tuple[str, str], list[Comparison]] = {pair: [] for pair in plans}
+    kept: dict[str, dict[tuple[str, ...], Mapping[str, int | None]]] = {}
     for season in seasons:
         year = int(season)
         needed = sorted(
@@ -253,16 +313,25 @@ def run_detail_level(
             for name in needed
         }
         log(f"  {level} {season}: {', '.join(f'{n} {len(loaded[n].counts)}' for n in needed)}")
+        if level == "game":
+            for name, series in loaded.items():
+                kept.setdefault(name, {}).update(series.counts)
         for pair, cov in plans.items():
             if season in cov.comparable:
+                sample = next((n for n in pair if specs[n].sample), None)
                 parts[pair].append(
                     compare(
                         loaded[pair[0]],
                         loaded[pair[1]],
                         seasons=[season],
                         max_differences=DIFFERENCE_CAP,
+                        restrict_to=None if sample is None else set(loaded[sample].counts),
                     )
                 )
+    for name, counts in kept.items():
+        ctx[(name, level)] = Series(name, level, specs[name].facts, counts)
+    assessments: list[Assessment] = []
+    rollups: dict[tuple[str, str], dict[tuple[str, str], tuple[int, tuple[str, ...]]]] = {}
     for (a_name, b_name), cov in plans.items():
         if parts[(a_name, b_name)]:
             merged = merge_comparisons(parts[(a_name, b_name)], max_differences=DIFFERENCE_CAP)
@@ -270,7 +339,11 @@ def run_detail_level(
             empty_a = Series(a_name, level, specs[a_name].facts, {})
             empty_b = Series(b_name, level, specs[b_name].facts, {})
             merged = compare(empty_a, empty_b, seasons=[])
-        report.add(assess(merged, register, ctx, only_a=cov.only_a, only_b=cov.only_b))
+        assessment = assess(merged, register, ctx, only_a=cov.only_a, only_b=cov.only_b)
+        assessments.append(assessment)
+        if level == "game":
+            rollups[(a_name, b_name)] = rollup_games(assessment)
+    return assessments, rollups
 
 
 def run_identity_check(
@@ -536,10 +609,22 @@ def run_tieout(
         raise TieOutError(f"season range is empty: {lo} > {hi}")
     report = Report()
     ctx: dict[tuple[str, str], Series] = {}
-    season_series = run_season_level(conn, lo, hi, register, report, ctx, log)
+    season_series = load_season_level(conn, lo, hi, ctx, log)
+    detail: dict[str, list[Assessment]] = {}
+    rollups: dict[tuple[str, str], dict[tuple[str, str], tuple[int, tuple[str, ...]]]] = {}
     for level in ("game", "player_game"):
         if level in wanted:
-            run_detail_level(conn, level, lo, hi, register, report, ctx, season_series, log)
+            detail[level], found = run_detail_level(
+                conn, level, lo, hi, register, ctx, season_series, log
+            )
+            rollups.update(found)
+    # Season totals are judged last, after the game level, so a season total can be
+    # explained by the games the register explained; the report lists them first.
+    for assessment in assess_season_level(season_series, register, ctx, rollups):
+        report.add(assessment)
+    for level in ("game", "player_game"):
+        for assessment in detail.get(level, ()):
+            report.add(assessment)
     if "player_game" in wanted:
         run_identity_check(conn, lo, hi, report, log)
     if "core" in wanted:

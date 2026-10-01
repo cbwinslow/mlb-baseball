@@ -29,16 +29,18 @@ TABLES = {
         "gid text, id text, stattype text, b_pa text, b_k text, b_w text, b_hr text, "
         "b_r text, _season text"
     ),
-    "raw.retrosheet_gameinfo": "gid text, vruns text, hruns text, _season text",
+    "raw.retrosheet_gameinfo": (
+        "gid text, vruns text, hruns text, _season text, visteam text, hometeam text, gametype text"
+    ),
     "raw.retrosheet_gamelog": (
         "date text, game_number text, h_team text, v_homeruns text, h_homeruns text, "
         "v_strikeouts text, h_strikeouts text, v_walks text, h_walks text, v_score text, "
-        "h_score text, _season text"
+        "h_score text, _season text, v_team text"
     ),
     "raw.retrosheet_gamelog_post": (
         "date text, game_number text, h_team text, v_homeruns text, h_homeruns text, "
         "v_strikeouts text, h_strikeouts text, v_walks text, h_walks text, v_score text, "
-        "h_score text"
+        "h_score text, v_team text"
     ),
     "raw.retrosheet_box_game": (
         "game_id text, _season text, _scope text, linescore_away_runs text, "
@@ -121,7 +123,11 @@ def raw_tables(db_conn, drop_tables_after):
         _insert(
             cur,
             "raw.retrosheet_gameinfo",
-            [(A, "0", "1", "2019"), (B, "0", "0", "2019"), (C, "1", "0", "2019")],
+            [
+                (A, "0", "1", "2019", "NYN", "ATL", "regular"),
+                (B, "0", "0", "2019", "NYA", "BOS", "regular"),
+                (C, "1", "0", "2019", "ATL", "HOU", "lcs"),
+            ],
         )
         _insert(
             cur,
@@ -145,14 +151,15 @@ def raw_tables(db_conn, drop_tables_after):
                     "0",
                     "1",
                     "2019",
+                    "NYN",
                 ),
-                ("20190402", "0", "BOS", "0", "0", "0", "0", "0", "0", "0", "0", "2019"),
+                ("20190402", "0", "BOS", "0", "0", "0", "0", "0", "0", "0", "0", "2019", "NYA"),
             ],
         )
         _insert(
             cur,
             "raw.retrosheet_gamelog_post",
-            [("20191012", "0", "HOU", "1", "0", "1", "0", "0", "0", "1", "0")],
+            [("20191012", "0", "HOU", "1", "0", "1", "0", "0", "0", "1", "0", "ATL")],
         )
 
         # a 1930 box score no other source covers
@@ -203,7 +210,9 @@ def _update(db_conn, sql):
 
 
 def test_consistent_sources_pass_and_report_the_explained_postseason_gap(db_conn, raw_tables):
-    code, text = _run(db_conn=db_conn, lo=1900, hi=2025)
+    # The box scores are a sample, compared at game level; their only-box season
+    # is reported there, not at season level.
+    code, text = _run(db_conn=db_conn, levels=("season", "game"), lo=1900, hi=2025)
 
     assert code == 0, text
     assert "Retrosheet tie-out PASSED" in text
@@ -575,7 +584,7 @@ def test_a_season_with_one_null_counting_stats_game_is_not_comparable_via_gamelo
     assert ("2020",) not in series.counts
 
 
-def test_the_one_null_game_is_excluded_but_its_clean_season_mates_are_not(
+def test_the_one_null_game_is_kept_with_blank_counting_stats_and_its_mates_are_intact(
     db_conn, gamelog_with_a_null_game
 ):
     series = fetch_series(
@@ -589,8 +598,117 @@ def test_the_one_null_game_is_excluded_but_its_clean_season_mates_are_not(
 
     assert ("2020", "ATL202004010") in series.counts
     assert ("2020", "ATL202004020") in series.counts
-    assert ("2020", "ATL202004030") not in series.counts
+    # The game is still in the game log (so it is not "absent"), its score and
+    # game count are real, and its counting stats are blank, never zero.
+    assert series.counts[("2020", "ATL202004030")] == {
+        "hr": None,
+        "k": None,
+        "bb": None,
+        "r": 7,
+        "g": 1,
+    }
     assert series.counts[("2020", "ATL202004010")] == {"hr": 1, "k": 11, "bb": 3, "r": 4, "g": 1}
+
+
+# --- games one source lists and the others do not (register E4 / E5) --------
+
+NEGRO_GAME = "KCM201904050"  # two clubs that are in no game log, and no play-by-play
+
+
+@pytest.fixture
+def scorecard_only_game(db_conn, raw_tables):
+    """A game only game info and CSV batting list: no event, no CSV plays, no game log."""
+    with db_conn.cursor() as cur:
+        _insert(
+            cur,
+            "raw.retrosheet_gameinfo",
+            [(NEGRO_GAME, "3", "5", "2019", "PH5", "KCM", "regular")],
+        )
+        _insert(
+            cur,
+            "raw.retrosheet_batting",
+            [
+                (NEGRO_GAME, "negrp101", "value", "4", "1", "1", "0", "2", "2019"),
+                (NEGRO_GAME, "negrp102", "value", "5", "0", "0", "1", "3", "2019"),
+            ],
+        )
+    db_conn.commit()
+
+
+def test_a_game_with_no_play_by_play_is_explained_at_every_level_and_the_gate_passes(
+    db_conn, scorecard_only_game
+):
+    code, text = _run(db_conn=db_conn, levels=ALL_LEVELS, lo=2019, hi=2019)
+
+    assert code == 0, text
+    assert "explained by E4" in text  # event vs csv_batting / game info
+    assert "explained by E5" in text  # game info vs the game log
+    assert "explained by E1+E5" in text  # the season total: postseason game + this game
+
+
+def test_a_game_the_csv_plays_do_hold_is_not_excused(db_conn, scorecard_only_game):
+    with db_conn.cursor() as cur:
+        _insert(
+            cur,
+            "raw.retrosheet_plays",
+            [(NEGRO_GAME, "negrp101", "1", "0", "0", "0", "1", "2019")],
+        )
+    db_conn.commit()
+
+    code, text = _run(db_conn=db_conn, levels=("season", "game"), lo=2019, hi=2019)
+
+    assert code == 1, text
+    assert "<-- FAIL" in text
+
+
+def test_e4_and_e5_need_the_game_level_to_have_run(db_conn, scorecard_only_game):
+    code, text = _run(db_conn=db_conn, levels=("season",), lo=2019, hi=2019)
+
+    assert code == 1, text  # nothing can explain a season total without the games
+
+
+# --- gamelog "-1 = not recorded" sentinel -----------------------------------
+
+
+def test_a_negative_gamelog_count_is_not_recorded_not_a_count(db_conn, drop_tables_after):
+    drop_tables_after("raw.retrosheet_gamelog")
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gamelog")
+        cur.execute(f"CREATE TABLE raw.retrosheet_gamelog ({TABLES['raw.retrosheet_gamelog']})")
+        _insert(
+            cur,
+            "raw.retrosheet_gamelog",
+            [
+                # visiting team's strikeouts unknown (-1), everything else recorded
+                ("19120401", "0", "BOS", "0", "1", "-1", "6", "2", "1", "3", "1", "1912", "NYA"),
+                ("19120402", "0", "BOS", "1", "0", "5", "6", "2", "1", "2", "4", "1912", "NYA"),
+            ],
+        )
+    db_conn.commit()
+
+    games = fetch_series(
+        db_conn,
+        "gamelog",
+        "game",
+        ("hr", "k", "bb", "r", "g"),
+        read_sql("tieout_game_gamelog.sql"),
+        {"lo": 1912, "hi": 1912},
+    )
+    season = fetch_series(
+        db_conn,
+        "gamelog",
+        "season",
+        ("hr", "k", "bb", "r", "g"),
+        read_sql("tieout_season_gamelog.sql"),
+        {"lo": 1912, "hi": 1912},
+    )
+
+    assert games.counts[("1912", "BOS191204010")]["k"] is None  # not -1 + 6 = 5
+    assert games.counts[("1912", "BOS191204010")]["hr"] == 1
+    assert games.counts[("1912", "BOS191204020")]["k"] == 11
+    assert season.counts[("1912",)]["k"] is None  # one unrecorded game: no season total
+    assert season.counts[("1912",)]["hr"] == 2
+    assert season.counts[("1912",)]["g"] == 2
 
 
 # --- safety and the entry point ---------------------------------------------

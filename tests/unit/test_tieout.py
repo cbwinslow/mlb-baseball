@@ -19,6 +19,7 @@ from mlb_baseball.tieout import (
     check_columns,
     compare,
     coverage,
+    rollup_games,
     series_from_rows,
 )
 
@@ -161,6 +162,213 @@ def test_e1_explains_a_postseason_game_present_only_in_the_event_source():
 
     assert result.passed, result.unexplained
     assert {d.fact for d, _ in result.explained} == {"k", "g"}
+
+
+# --- E4: a game with a scorecard but no play-by-play ------------------------
+
+_BAT = ("pa", "k", "bb", "hr", "r", "g")
+_SCORED = {"pa": 70, "k": 5, "bb": 3, "hr": 1, "r": 6, "g": 1}
+_PLAYED = {"pa": 75, "k": 8, "bb": 4, "hr": 2, "r": 7, "g": 1}
+
+
+def _e4_context(*, plays_games, batting_games, event_games=None):
+    """Every series the register may consult; the event files default to the games
+    the CSV plays hold (they agree except where a test says otherwise)."""
+    return {
+        ("event", "game"): _game(
+            "event", plays_games if event_games is None else event_games, _BAT
+        ),
+        ("csv_plays", "game"): _game("csv_plays", plays_games, _BAT),
+        ("csv_batting", "game"): _game("csv_batting", batting_games, _BAT),
+    }
+
+
+def _e4_pair(extra_in_batting=True):
+    played = {("1921", "NYA192105010"): _PLAYED}
+    scored = dict(played)
+    if extra_in_batting:
+        scored[("1921", "PH5192105020")] = _SCORED
+    return _game("event", played, _BAT), _game("csv_batting", scored, _BAT), played, scored
+
+
+def test_e4_explains_a_game_missing_from_both_play_by_play_products():
+    event, batting, played, scored = _e4_pair()
+    ctx = _e4_context(plays_games=played, batting_games=scored)
+
+    result = _run(event, batting, register=INITIAL_REGISTER, ctx=ctx)
+
+    assert result.passed, (result.unexplained, result.stale)
+    assert {entry for _, entry in result.explained} == {"E4"}
+    assert {d.fact for d, _ in result.explained} == set(_BAT)
+
+
+def test_e4_does_not_excuse_a_game_the_csv_plays_do_have():
+    event, batting, played, scored = _e4_pair()
+    ctx = _e4_context(
+        plays_games={**played, ("1921", "PH5192105020"): _SCORED}, batting_games=scored
+    )
+
+    result = _run(event, batting, register=INITIAL_REGISTER, ctx=ctx)
+
+    assert not result.passed
+    assert not result.explained
+
+
+def test_e4_needs_the_csv_plays_loaded_for_that_season():
+    event, batting, played, scored = _e4_pair()
+    ctx = _e4_context(plays_games=played, batting_games=scored)
+    ctx[("csv_plays", "game")] = _game("csv_plays", {("1922", "OTHER"): _PLAYED}, _BAT)
+
+    result = _run(event, batting, register=INITIAL_REGISTER, ctx=ctx)
+
+    assert not result.passed
+
+
+def test_e4_does_not_excuse_a_game_that_differs_in_value_rather_than_in_presence():
+    event = _game("event", {("1921", "NYA192105010"): _PLAYED}, _BAT)
+    batting = _game("csv_batting", {("1921", "NYA192105010"): {**_PLAYED, "k": 9}}, _BAT)
+    ctx = _e4_context(
+        plays_games={("1921", "NYA192105010"): _PLAYED},
+        batting_games={("1921", "NYA192105010"): {**_PLAYED, "k": 9}},
+    )
+
+    result = _run(event, batting, register=INITIAL_REGISTER, ctx=ctx)
+
+    assert not result.passed
+    assert [d.fact for d in result.unexplained] == ["k"]
+
+
+def test_e4_also_explains_that_games_player_lines():
+    event = Series("event", "player_game", frozenset({"pa"}), {})
+    batting = Series(
+        "csv_batting",
+        "player_game",
+        frozenset({"pa"}),
+        {("1921", "PH5192105020", "smitj101"): {"pa": 4}},
+    )
+    ctx = _e4_context(
+        plays_games={("1921", "NYA192105010"): _PLAYED},
+        batting_games={("1921", "PH5192105020"): _SCORED},
+    )
+
+    result = _run(event, batting, register=INITIAL_REGISTER, ctx=ctx)
+
+    assert result.passed, result.unexplained
+
+
+# --- E5: a game the major-league game logs are not meant to hold ------------
+
+
+def _e5_context(meta_flags, *, gamelog_games, post_games=None):
+    return {
+        ("gamelog", "game"): _game("gamelog", gamelog_games),
+        ("gamelog_post", "game"): _game("gamelog_post", post_games or {}),
+        ("gamemeta", "game"): _game("gamemeta", meta_flags, ("exh", "nogl")),
+        ("gameinfo", "game"): _game(
+            "gameinfo",
+            {
+                ("1930", "KCM193005010"): {"r": 9, "g": 1},
+                ("1930", "NYA193005010"): {"r": 4, "g": 1},
+            },
+            ("r", "g"),
+        ),
+    }
+
+
+def _e5_pair():
+    info = _game(
+        "gameinfo",
+        {("1930", "KCM193005010"): {"r": 9, "g": 1}, ("1930", "NYA193005010"): {"r": 4, "g": 1}},
+        ("r", "g"),
+    )
+    log = _game("gamelog", {("1930", "NYA193005010"): {"r": 4, "g": 1}}, ("r", "g"))
+    return info, log
+
+
+def test_e5_explains_a_game_whose_clubs_are_not_in_the_game_logs_and_rolls_up_to_the_season():
+    info, log = _e5_pair()
+    ctx = _e5_context(
+        {("1930", "KCM193005010"): {"exh": 0, "nogl": 1}}, gamelog_games=dict(log.counts)
+    )
+
+    game = _run(info, log, register=INITIAL_REGISTER, ctx=ctx)
+    assert game.passed, (game.unexplained, game.stale)
+    assert {entry for _, entry in game.explained} == {"E5"}
+
+    season_info = _season("gameinfo", {"1930": {"r": 13, "g": 2}}, ("r", "g"))
+    season_log = _season("gamelog", {"1930": {"r": 4, "g": 1}}, ("r", "g"))
+    comparison = compare(season_info, season_log, seasons=["1930"])
+    season = assess(comparison, INITIAL_REGISTER, ctx, rollup=rollup_games(game))
+    assert season.passed, season.unexplained
+    assert {entry for _, entry in season.explained} == {"E5"}
+
+
+def test_e5_does_not_excuse_a_major_league_game_the_game_log_lacks():
+    info, log = _e5_pair()
+    ctx = _e5_context(
+        {("1930", "KCM193005010"): {"exh": 0, "nogl": 0}}, gamelog_games=dict(log.counts)
+    )
+
+    result = _run(info, log, register=INITIAL_REGISTER, ctx=ctx)
+
+    assert not result.passed
+    assert not result.explained
+
+
+def test_e5_does_not_excuse_a_game_that_is_in_the_game_log_with_other_numbers():
+    info = _game("gameinfo", {("1930", "NYA193005010"): {"r": 4, "g": 1}}, ("r", "g"))
+    log = _game("gamelog", {("1930", "NYA193005010"): {"r": 5, "g": 1}}, ("r", "g"))
+    ctx = _e5_context(
+        {("1930", "NYA193005010"): {"exh": 1, "nogl": 1}}, gamelog_games=dict(log.counts)
+    )
+
+    result = _run(info, log, register=INITIAL_REGISTER, ctx=ctx)
+
+    assert not result.passed
+
+
+def test_a_season_difference_the_explained_games_do_not_add_up_to_stays_unexplained():
+    season_info = _season("gameinfo", {"1930": {"r": 14, "g": 2}}, ("r", "g"))
+    season_log = _season("gamelog", {"1930": {"r": 4, "g": 1}}, ("r", "g"))
+    comparison = compare(season_info, season_log, seasons=["1930"])
+
+    result = assess(
+        comparison,
+        NO_ENTRIES,
+        {},
+        rollup={("1930", "r"): (9, ("E5",)), ("1930", "g"): (1, ("E5",))},
+    )
+
+    assert [d.fact for d in result.unexplained] == ["r"]
+    assert [(d.fact, e) for d, e in result.explained] == [("g", "E5")]
+
+
+# --- a sample source is compared only on the games it holds -----------------
+
+
+def test_a_sample_source_is_compared_only_on_the_keys_it_holds():
+    full = _game(
+        "event",
+        {("1916", "BOS191604120"): {"k": 10}, ("1916", "BOS191604130"): {"k": 5}},
+        ("k",),
+    )
+    sample = _game("box", {("1916", "BOS191604120"): {"k": 10}}, ("k",))
+
+    unrestricted = compare(full, sample, seasons=["1916"])
+    restricted = compare(full, sample, seasons=["1916"], restrict_to=set(sample.counts))
+
+    assert len(unrestricted.differences) == 1
+    assert restricted.differences == ()
+    assert restricted.keys_compared == 1
+
+
+def test_a_sample_game_that_disagrees_is_still_a_difference():
+    full = _game("event", {("1916", "BOS191604120"): {"k": 10}}, ("k",))
+    sample = _game("box", {("1916", "BOS191604120"): {"k": 9}}, ("k",))
+
+    restricted = compare(full, sample, seasons=["1916"], restrict_to=set(sample.counts))
+
+    assert [(d.a_value, d.b_value) for d in restricted.differences] == [(10, 9)]
 
 
 # --- stale register entry ---------------------------------------------------

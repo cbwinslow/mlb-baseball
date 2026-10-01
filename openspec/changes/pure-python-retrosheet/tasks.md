@@ -74,20 +74,20 @@ then implement the smallest passing behavior.
 
 ## 6. mlb-baseball boundary proof
 
-- [ ] 6.1 Add no production dependency or connector switch in this slice.
-- [ ] 6.2 Write an integration-contract test or documented spike showing how
+- [x] 6.1 Add no production dependency or connector switch in this slice.
+- [x] 6.2 Write an integration-contract test or documented spike showing how
   mlb_baseball can consume Artifact metadata and a stream of parsed records
   without the new package importing mlb_baseball.
-- [ ] 6.3 Confirm the current official-CSV connector and current
+- [x] 6.3 Confirm the current official-CSV connector and current
   Chadwick-backed event/box connectors remain behaviorally unchanged.
 
 ## 7. Verification
 
-- [ ] 7.1 Run the package unit/fixture suite, ruff, format check, and type check.
-- [ ] 7.2 Run root tests that guard uv workspace/package discovery.
-- [ ] 7.3 Run OpenSpec strict validation for this change and all specs.
-- [ ] 7.4 Review the final diff for native build dependencies, copied Chadwick
+- [x] 7.1 Run the package unit/fixture suite, ruff, format check, and type check.
+- [x] 7.2 Run root tests that guard uv workspace/package discovery.
+- [x] 7.3 Run OpenSpec strict validation for this change and all specs.
+- [x] 7.4 Review the final diff for native build dependencies, copied Chadwick
   implementation text, silent unsupported-event handling, or accidental
   PostgreSQL/mlb_baseball coupling.
-- [ ] 7.5 Record a Slice B go/no-go note based on parse coverage and the measured
+- [x] 7.5 Record a Slice B go/no-go note based on parse coverage and the measured
   complexity of the remaining state-engine parity work.

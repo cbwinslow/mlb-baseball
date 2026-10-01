@@ -26,6 +26,7 @@ _RUNNER_EVENTS = frozenset(
         EventKind.DEFENSIVE_INDIFFERENCE,
     }
 )
+UNKNOWN_PLAY = "99"
 MAX_PUTOUTS = 3
 MAX_ASSISTS = 10
 MAX_ERRORS = 3
@@ -107,7 +108,9 @@ def _primary(credit: Credit, event: PrimaryEvent, play: Play) -> None:
     thrown = any(m.kind is ModifierKind.THROW for m in play.modifiers) or any(
         m.code == "TH" for m in play.modifiers
     )
-    if kind is EventKind.FIELDED_OUT:
+    if kind is EventKind.FIELDED_OUT and event.fielders == UNKNOWN_PLAY:
+        pass  # "99": an out whose fielding is unknown; no one is credited
+    elif kind is EventKind.FIELDED_OUT:
         credit.fielded_by = _digit(event.chain[0].fielders[0])
         _chain_credit(credit, event)
     elif kind is EventKind.ERROR:

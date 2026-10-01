@@ -55,7 +55,7 @@ then implement the smallest passing behavior.
 - [x] 4.4 Port no implementation code from Chadwick. Tests are derived from
   Retrosheet documentation, captured source records, and observable reference
   outputs.
-- [ ] 4.5 Run parse-coverage measurement over at least one modern season, one
+- [x] 4.5 Run parse-coverage measurement over at least one modern season, one
   dead-ball/early covered season, one deduced-data season, postseason, and Negro
   League play-by-play. Record every unsupported syntax family.
 

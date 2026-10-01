@@ -261,3 +261,27 @@ def test_every_fixture_play_parses_strictly_and_rebuilds_exactly(path):
             assert p.rebuild() == rec.event and not p.unsupported()
             n += 1
     assert n > 20
+
+
+def test_fielding_credit_with_throw_note_and_observed_bf_modifier():
+    a = parse_play("S8/L.2-H;BX2(826/TH)").advances[1]
+    assert [(x.kind, x.text) for x in a.params] == [(ParamKind.FIELDING_THROW, "826/TH")]
+    m = parse_play("K/BF").modifiers[0]
+    assert (m.kind, m.code) == (ModifierKind.CODE, "BF")
+
+
+@pytest.mark.parametrize(
+    "text,stage",
+    [
+        ("99//FL", "play-modifier"),  # empty modifier
+        ("14/SH/B.1-2", "play-modifier"),
+        ("D7/L7lD", "play-modifier"),  # lowercase typo in source
+        ("K/REV", "play-modifier"),
+        ("6/#", "play-modifier"),  # modifier made only of a marker
+    ],
+)
+def test_rare_source_irregularities_stay_visible_as_unsupported(text, stage):
+    with pytest.raises(ParseError) as ei:
+        parse_play(text)
+    assert ei.value.stage == stage
+    assert parse_play(text, strict=False).unsupported()

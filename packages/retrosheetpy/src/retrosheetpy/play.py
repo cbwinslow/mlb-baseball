@@ -67,6 +67,7 @@ class AdvanceKind(StrEnum):
 
 class ParamKind(StrEnum):
     FIELDING = "fielding"  # fielders handling the ball, e.g. (26)
+    FIELDING_THROW = "fielding_throw"  # fielders plus a throw note, e.g. (826/TH)
     ERROR = "error"  # (E5) or (E5/TH)
     THROW = "throw"  # (TH) (TH3) (THH)
     UNEARNED = "unearned"  # UR, TUR
@@ -175,6 +176,7 @@ def _clean(text: str) -> str:
 # --- parameters ---------------------------------------------------------------
 
 _P_FIELDING = re.compile(r"[0-9U]+")
+_P_FIELDING_THROW = re.compile(r"[0-9U]+/TH[123BH]?")
 _P_ERROR = re.compile(r"[0-9U]*E[0-9U]?(?:/TH[123BH]?)?")
 _P_THROW = re.compile(r"TH[123BH]?")
 _P_INTERFERENCE = re.compile(r"[0-9U]/B?INT")
@@ -184,6 +186,8 @@ def _parse_param(raw: str) -> Param:
     text = _clean(raw[1:-1])
     if _P_FIELDING.fullmatch(text):
         kind = ParamKind.FIELDING
+    elif _P_FIELDING_THROW.fullmatch(text):
+        kind = ParamKind.FIELDING_THROW
     elif _P_ERROR.fullmatch(text):
         kind = ParamKind.ERROR
     elif _P_THROW.fullmatch(text):
@@ -297,6 +301,8 @@ _KNOWN_CODES = frozenset(
     "AP BP BG BGDP BINT BL BOOT BPDP BR C COUB COUF COUR DP F FDP FINT FL FO G GDP GTP IF INT "
     "IPHR L LDP LTP MREV NDP OBS P PASS RINT SF SH TH TP UINT UREV".split()
 )
+# Not in the published list but frequent in source files (e.g. K/BF); meaning not interpreted.
+_OBSERVED_CODES = frozenset({"BF"})
 _M_ERROR = re.compile(r"E([0-9U])")
 _M_THROW = re.compile(r"TH([123BH])")
 _M_RELAY = re.compile(rf"R({_F}+)")
@@ -312,7 +318,7 @@ def _parse_modifier(raw: str) -> Modifier:
         text, strength = text[:-1], "hard"
     elif text.endswith("-"):
         text, strength = text[:-1], "soft"
-    if text in _KNOWN_CODES:
+    if text in _KNOWN_CODES or text in _OBSERVED_CODES:
         return Modifier(raw, ModifierKind.CODE, code=text, strength=strength)
     m = _M_ERROR.fullmatch(text)
     if m:

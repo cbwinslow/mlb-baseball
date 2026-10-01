@@ -111,7 +111,8 @@ Chadwick's output; each lists a play that showed it. No Chadwick code was copied
   pitcher and catcher then on the field, `RUN_n_AUTO_FL` true, origin event 0. A pinch runner
   substituted before the first play takes over his base, is flagged `PR_RUN` with the runner he
   replaced, and keeps the auto mark. The auto mark travels with the responsible pitcher/catcher
-  when a retired runner shifts them back (batter on a fielder's choice inherits it).
+  when exactly one runner is retired and the others shift back (batter on a fielder's choice
+  inherits it); after a double play the survivors do not inherit it (SLN202107210, TEX202108190).
   (BAL202008010, CHN202009160, ANA202009040; 2020 full season 0 mismatches)
 - **Responsible batter, refined**: a pinch hitter finishing a count is not charged only when the
   announced count has 2 strikes (strikeout) or 3 balls (walk). `NP` at 2-2 then a walk by the

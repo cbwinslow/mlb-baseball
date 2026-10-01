@@ -616,15 +616,21 @@ def _shift_pitchers(state: GameState, moves: Moves, new_bases: list[Runner | Non
     """
     if not any(r is not None and d == 0 for r, d in zip(state.bases, moves.run_dest, strict=True)):
         return
+    retired = sum(
+        r is not None and d == 0 for r, d in zip(state.bases, moves.run_dest, strict=True)
+    )
     pool = [
         (runner.resp_pit, runner.resp_cat, runner.auto)
         for runner, d in zip(reversed(state.bases), reversed(moves.run_dest), strict=True)
         if runner is not None and d < SCORED
     ]
-    for i, base in enumerate(b for b in (2, 1, 0) if new_bases[b] is not None):
+    survivors = [b for b in (2, 1, 0) if new_bases[b] is not None]
+    for i, base in enumerate(survivors):
         runner = new_bases[base]
         assert runner is not None
-        new_bases[base] = replace(runner, resp_pit=pool[i][0], resp_cat=pool[i][1], auto=pool[i][2])
+        new_bases[base] = replace(
+            runner, resp_pit=pool[i][0], resp_cat=pool[i][1], auto=pool[i][2] and retired == 1
+        )
 
 
 def _inferred_battedball(play: Play) -> str:

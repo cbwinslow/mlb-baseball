@@ -17,13 +17,17 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   all Chadwick tools, byte-identical; owner wants short plain replies, options + recommendation, and a
   reminder to clear context around 200k.
 
-## Next: older decades (tasks 4.3, 4.4)
-**2020 full season = 0 mismatches over 68,599 plays** (auto runner `radj`, refined responsible-batter
-rule, pitcher-as-DH-runner rule; all in `results.md`; 2019 still 0, 258 tests pass, ruff/mypy clean).
-2 new fixtures `auto_runner`, `auto_runner_pr`. Next: 2021-2025 (2020seve.zip holds 2020s decade; run
-each year with `--out`), then older decades one batch at a time (2010s other years, 2000s, ...).
-Still unproven: `BAT_LAST_ID` when the home team bats first (`htbf`), pitch chars `I Q R Y K`.
-Known open: `B`/`B1S` (48 plays, 1976, task 4.3). Fix by rule, never by tuning on a held-out season.
+## Next: 2021-2025 and older decades (tasks 4.3, 4.4)
+2019 and 2020 = 0 mismatches (rules in `results.md`; fixtures `auto_runner`, `auto_runner_pr`).
+First held-out run of the rest (2020seve.zip holds 2020-2025; `season_report.py ZIP YEAR`):
+2021 = 11 mismatches (all single odd plays: CHN202104250 `43/GDP.1X2(364)` BASE2_FORCE_FL;
+CHA202108270 fate ids; SLN202104080 `PO2(E1/TH).2-H(E8)(NR)` ERR2_CD; MIN202107110 resp batter;
+PHI202104040 resp pitcher after IW; MIN202108160 RUN2_AUTO_FL), 2022 = 161 (+7 errors),
+2023 = 345 (+7), 2024 = 148, 2025 = 302 (+6). Errors are two-way player (Ohtani) "batter is not
+in the lineup": the 2022+ rule lets the DH stay when the pitcher leaves; needs a rule + fixture.
+Do 2021 first, then the Ohtani errors, then 2022-2025, then older decades. Still unproven: `BAT_LAST_ID`
+when home bats first (`htbf`), pitch chars `I Q R Y K`; known open `B`/`B1S` (1976, 4.3).
+Fix by rule; any rule tuned on a year means that year is no longer held out (say so in results.md).
 
 ## How to work (what worked)
 1. Add the new columns to the engine; run the season check; read the mismatches; find the rule; record it.

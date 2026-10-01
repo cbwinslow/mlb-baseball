@@ -48,9 +48,9 @@ convenience commands are additions that never change that output.
   Chadwick does with them and handle them the same way, or surface them explicitly.
 - No `mlb_baseball` change, no database, no new dependency, no connector switch.
 
-Reading Chadwick source to understand behaviour is allowed; copying or
-line-by-line translating it is not (GPL-2.0 versus this project's AGPL-3.0).
-Equality is proven by output, not by resemblance of code.
+The rules come from Chadwick's own C source, translated to Python (design D3,
+owner decision 2026-10-01; GPL-2.0-or-later source, notices kept). Equality is
+still proven by output against `cwevent`.
 
 ## Capabilities
 

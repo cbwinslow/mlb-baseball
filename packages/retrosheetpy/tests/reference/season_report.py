@@ -5,6 +5,8 @@ Development-time only (needs ``cwevent`` on PATH and a Retrosheet event zip):
     uv run --package retrosheetpy python packages/retrosheetpy/tests/reference/season_report.py \
         ZIP YEAR [--out report.json] [--fields A,B,...]
 
+Checks the Chadwick port (retrosheetpy.cw) on all 164 columns.
+
 Prints one summary line per event file and a total; ``--out`` writes the full JSON
 (field counts and example plays). Exit status is 1 if any mismatch, misaligned game
 or engine error is found, so a season is "validated" only when it exits 0.
@@ -21,11 +23,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
 from chadwick_reference import ChadwickReference  # noqa: E402
-from implemented_fields import IMPLEMENTED  # noqa: E402
 from retrosheetpy import iter_zip_members, read_event_file  # noqa: E402
+from retrosheetpy.cw.events import COLUMNS  # noqa: E402
+from retrosheetpy.cw.events import event_rows as rows_of  # noqa: E402
 from retrosheetpy.errors import ParseError  # noqa: E402
 from retrosheetpy.records import is_event_filename  # noqa: E402
-from retrosheetpy.state import event_rows  # noqa: E402
 from retrosheetpy.validation import compare_rows  # noqa: E402
 
 
@@ -36,7 +38,7 @@ def main() -> int:
     ap.add_argument("--out")
     ap.add_argument("--fields")
     args = ap.parse_args()
-    fields = args.fields.split(",") if args.fields else list(IMPLEMENTED)
+    fields = args.fields.split(",") if args.fields else list(COLUMNS)
     ref = ChadwickReference.find()
     if ref is None:
         sys.exit("cwevent not found on PATH")
@@ -52,7 +54,7 @@ def main() -> int:
             path.write_bytes(member.read())
             entry: dict[str, object] = {}
             try:
-                ours = list(event_rows(read_event_file(path)))
+                ours = list(rows_of(read_event_file(path)))
                 theirs = ref.events(path, args.year)
                 result = compare_rows(f"chadwick {ref.version}", ours, theirs, fields)
                 entry = result.to_dict()

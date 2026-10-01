@@ -263,7 +263,7 @@ def _e5_context(meta_flags, *, gamelog_games, post_games=None):
     return {
         ("gamelog", "game"): _game("gamelog", gamelog_games),
         ("gamelog_post", "game"): _game("gamelog_post", post_games or {}),
-        ("gamemeta", "game"): _game("gamemeta", meta_flags, ("exh", "nogl")),
+        ("gamemeta", "game"): _game("gamemeta", meta_flags, ("exh", "nogl", "fft")),
         ("gameinfo", "game"): _game(
             "gameinfo",
             {
@@ -301,6 +301,19 @@ def test_e5_explains_a_game_whose_clubs_are_not_in_the_game_logs_and_rolls_up_to
     season = assess(comparison, INITIAL_REGISTER, ctx, rollup=rollup_games(game))
     assert season.passed, season.unexplained
     assert {entry for _, entry in season.explained} == {"E5"}
+
+
+def test_e5_explains_a_forfeit_the_game_log_does_not_hold():
+    info, log = _e5_pair()
+    ctx = _e5_context(
+        {("1930", "KCM193005010"): {"exh": 0, "nogl": 0, "fft": 1}},
+        gamelog_games=dict(log.counts),
+    )
+
+    result = _run(info, log, register=INITIAL_REGISTER, ctx=ctx)
+
+    assert result.passed, (result.unexplained, result.stale)
+    assert {entry for _, entry in result.explained} == {"E5"}
 
 
 def test_e5_does_not_excuse_a_major_league_game_the_game_log_lacks():
@@ -649,3 +662,202 @@ def test_check_columns_reports_a_table_absent_from_the_database():
     problems = check_columns(actual={}, contract=contract)
 
     assert problems == ["schema contract: raw.retrosheet_roster does not exist in this database"]
+
+
+# --- E1 with a blank season total, E4/E6/E7 box-score games, E8 ---------------
+
+
+def test_e1_predicts_nothing_where_the_regular_season_total_is_blank():
+    events = _season("event", {"1910": {"k": 9400}})
+    regular = _season("gamelog", {"1910": {"k": None}})
+    ctx = _e1_context({"1910": {"k": 55}})
+    ctx[("gamelog", "season")] = regular
+
+    result = _run(events, regular, register=INITIAL_REGISTER, ctx=ctx)
+
+    assert result.passed, (result.unexplained, result.stale)
+
+
+def _level(source, level, rows, facts):
+    return Series(
+        source=source,
+        level=level,
+        facts=frozenset(facts),
+        counts={tuple(key): dict(values) for key, values in rows.items()},
+    )
+
+
+def _box_context(*, event_games, info_games, plays_games, box_games):
+    facts = ("r", "g")
+    return {
+        ("event", "game"): _level("event", "game", event_games, facts),
+        ("gameinfo", "game"): _level("gameinfo", "game", info_games, facts),
+        ("csv_plays", "game"): _level("csv_plays", "game", plays_games, facts),
+        ("box", "game"): _level("box", "game", box_games, facts),
+    }
+
+
+_ANCHOR = {
+    ("1943", "NYA194307010"): {"r": 3, "g": 1},
+    ("1926", "CHN192601015"): {"r": 4, "g": 1},
+}
+
+
+def test_e4_explains_a_box_score_game_that_no_play_by_play_holds():
+    box_games = {**_ANCHOR, ("1943", "HSL194307111"): {"r": 5, "g": 1}}
+    ctx = _box_context(
+        event_games=_ANCHOR, info_games=_ANCHOR, plays_games=_ANCHOR, box_games=box_games
+    )
+
+    result = _run(
+        _game("event", _ANCHOR, ("r", "g")),
+        _game("box", box_games, ("r", "g")),
+        register=INITIAL_REGISTER,
+        ctx=ctx,
+    )
+
+    assert result.passed, (result.unexplained, result.stale)
+    assert {entry for _, entry in result.explained} == {"E4"}
+
+
+def test_e6_explains_a_game_only_the_box_scores_hold_and_nothing_else_does():
+    box_games = {**_ANCHOR, ("1943", "HSL194307111"): {"r": 5, "g": 1}}
+    ctx = _box_context(
+        event_games=_ANCHOR, info_games=_ANCHOR, plays_games=_ANCHOR, box_games=box_games
+    )
+
+    result = _run(
+        _game("gameinfo", _ANCHOR, ("r", "g")),
+        _game("box", box_games, ("r", "g")),
+        register=INITIAL_REGISTER,
+        ctx=ctx,
+    )
+
+    assert result.passed, (result.unexplained, result.stale)
+    assert {entry for _, entry in result.explained} == {"E6"}
+
+
+def test_e6_does_not_excuse_a_game_that_game_info_holds_under_another_season():
+    info = {**_ANCHOR, ("1925", "PRG192601010"): {"r": 12, "g": 1}}
+    box_games = {**_ANCHOR, ("1926", "PRG192601010"): {"r": 12, "g": 1}}
+    ctx = _box_context(
+        event_games=_ANCHOR, info_games=info, plays_games=_ANCHOR, box_games=box_games
+    )
+    ctx[("csv_plays", "game")] = _level(
+        "csv_plays", "game", {**_ANCHOR, ("1926", "X"): {"r": 0, "g": 1}}, ("r", "g")
+    )
+
+    result = _run(
+        _game("gameinfo", info, ("r", "g")),
+        _game("box", box_games, ("r", "g")),
+        register=Register(entries=(tieout.E6,)),
+        ctx=ctx,
+    )
+
+    assert not result.passed
+
+
+def test_e7_explains_the_second_season_copy_of_a_new_year_game():
+    event = {
+        **_ANCHOR,
+        ("1925", "PRG192601010"): {"r": 12, "g": 1},
+    }
+    box_games = {
+        **_ANCHOR,
+        ("1925", "PRG192601010"): {"r": 12, "g": 1},
+        ("1926", "PRG192601010"): {"r": 12, "g": 1},
+    }
+    ctx = _box_context(event_games=event, info_games=event, plays_games=event, box_games=box_games)
+
+    result = _run(
+        _game("event", event, ("r", "g")),
+        _game("box", box_games, ("r", "g")),
+        register=INITIAL_REGISTER,
+        ctx=ctx,
+    )
+
+    assert result.passed, (result.unexplained, result.stale)
+    assert {entry for _, entry in result.explained} == {"E7"}
+
+
+def test_e7_does_not_excuse_a_game_the_box_lists_in_one_season_only():
+    event = {**_ANCHOR, ("1925", "PRG192601010"): {"r": 12, "g": 1}}
+    box_games = {**_ANCHOR, ("1926", "PRG192601010"): {"r": 12, "g": 1}}
+    ctx = _box_context(event_games=event, info_games=event, plays_games=event, box_games=box_games)
+
+    result = _run(
+        _game("event", event, ("r", "g")),
+        _game("box", box_games, ("r", "g")),
+        register=Register(entries=(tieout.E7,)),
+        ctx=ctx,
+    )
+
+    assert not result.passed
+
+
+_E8_KEY = ("1947", "BRO194707200")
+
+
+def _pa_games(event_pa, csv_pa):
+    return (
+        _game("event", {_E8_KEY: {"pa": event_pa}}, ("pa",)),
+        _game("csv_plays", {_E8_KEY: {"pa": csv_pa}}, ("pa",)),
+    )
+
+
+def test_e8_explains_the_one_plate_appearance_in_the_1947_game():
+    event, plays = _pa_games(69, 68)
+
+    result = _run(event, plays, register=Register(entries=(tieout.E8,)))
+
+    assert result.passed, (result.unexplained, result.stale)
+    assert {entry for _, entry in result.explained} == {"E8"}
+
+
+def test_e8_does_not_excuse_a_bigger_gap_and_is_stale_when_the_sources_agree():
+    event, plays = _pa_games(70, 68)
+    bigger = _run(event, plays, register=Register(entries=(tieout.E8,)))
+    assert not bigger.passed
+
+    event, plays = _pa_games(68, 68)
+    agree = _run(event, plays, register=Register(entries=(tieout.E8,)))
+    assert [item.entry_id for item in agree.stale] == ["E8"]
+
+
+def test_e4_and_e7_explain_a_player_the_box_holds_even_when_the_game_total_is_left_out():
+    # The box game total leaves out a game with a -1 count (BLS...), but its player
+    # rows stay; PRG... is listed under both seasons in the box game totals.
+    event_games = {**_ANCHOR, ("1925", "PRG192601020"): {"r": 5, "g": 1}}
+    box_games = {
+        **_ANCHOR,
+        ("1925", "PRG192601020"): {"r": 5, "g": 1},
+        ("1926", "PRG192601020"): {"r": 5, "g": 1},
+    }
+    ctx = _box_context(
+        event_games=event_games,
+        info_games=event_games,
+        plays_games=event_games,
+        box_games=box_games,
+    )
+    event_players = _level(
+        "event",
+        "player_game",
+        {("1925", "PRG192601020", "a1"): {"k": 1}, ("1926", "CHN192601015", "c1"): {"k": 2}},
+        ("k",),
+    )
+    box_players = _level(
+        "box",
+        "player_game",
+        {
+            ("1925", "PRG192601020", "a1"): {"k": 1},
+            ("1926", "PRG192601020", "a1"): {"k": 1},
+            ("1925", "BLS192510111", "b1"): {"k": 3},
+            ("1926", "CHN192601015", "c1"): {"k": 2},
+        },
+        ("k",),
+    )
+
+    result = _run(event_players, box_players, register=INITIAL_REGISTER, ctx=ctx)
+
+    assert result.passed, (result.unexplained, result.stale)
+    assert {entry for _, entry in result.explained} == {"E4", "E7"}

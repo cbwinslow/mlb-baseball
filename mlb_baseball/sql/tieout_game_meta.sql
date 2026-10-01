@@ -6,6 +6,9 @@
 -- nogl: 1 when neither club appears in that season's regular-season or
 --       post-season game logs at all, so the game is not one the major-league
 --       game logs are meant to hold (Negro League clubs, for example).
+-- fft:  1 when the game info marks the game a forfeit (forfeit = 'Y'). A
+--       forfeit is an awarded score, not a game played, so it has no lineups
+--       and no play-by-play.
 WITH teams AS (
     SELECT _season AS season, h_team AS team FROM raw.retrosheet_gamelog
     UNION
@@ -22,7 +25,8 @@ SELECT
     (NOT EXISTS (
         SELECT 1 FROM teams t
         WHERE t.season = g._season AND t.team IN (g.hometeam, g.visteam)
-    ))::integer AS nogl
+    ))::integer AS nogl,
+    (g.forfeit = 'Y')::integer AS fft
 FROM raw.retrosheet_gameinfo g
 WHERE g._season BETWEEN %(lo)s::text AND %(hi)s::text
 ORDER BY g.gid

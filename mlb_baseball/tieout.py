@@ -34,6 +34,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any, Literal
 
 import psycopg
@@ -84,8 +85,17 @@ class Series:
                     f"expected {width}"
                 )
 
-    def seasons(self) -> set[str]:
-        return {key[0] for key in self.counts}
+    @cached_property
+    def _season_set(self) -> frozenset[str]:
+        return frozenset(key[0] for key in self.counts)
+
+    def seasons(self) -> frozenset[str]:
+        return self._season_set
+
+    @cached_property
+    def game_ids(self) -> frozenset[str]:
+        """Game ids held at game or player-game level, in any season."""
+        return frozenset(key[1] for key in self.counts if len(key) > 1)
 
 
 @dataclass(frozen=True)
@@ -591,10 +601,21 @@ def _e1_expects(comparison: Comparison, ctx: Context) -> Iterable[Expectation]:
     post = ctx.get(("gamelog_post", comparison.level))
     if post is None:
         return
+    regular = ctx.get(("gamelog", comparison.level))
     for key, row in post.counts.items():
         for fact, value in row.items():
-            if value != 0 and fact in _E1_FACTS:
-                yield Expectation(comparison.level, key, fact)
+            if value == 0 or fact not in _E1_FACTS:
+                continue
+            # A regular-season total left blank ("not recorded", for example a
+            # season with a game whose strikeouts are -1) is never compared, so
+            # there is no difference for E1 to predict.
+            if (
+                regular is not None
+                and key in regular.counts
+                and regular.counts[key].get(fact) is None
+            ):
+                continue
+            yield Expectation(comparison.level, key, fact)
 
 
 E1 = Entry(
@@ -616,7 +637,7 @@ E1 = Entry(
     expects=_e1_expects,
 )
 
-_SCORECARD_SOURCES = frozenset({"csv_batting", "gameinfo", "gamelog"})
+_SCORECARD_SOURCES = frozenset({"csv_batting", "gameinfo", "gamelog", "box"})
 
 
 def _game_of(key: Key) -> Key:
@@ -625,13 +646,14 @@ def _game_of(key: Key) -> Key:
 
 
 def _no_play_by_play(game: Key, ctx: Context) -> bool:
-    """True when neither play-by-play product holds the game, and the CSV plays
-    series was actually loaded for that season (so "absent" is a measurement)."""
+    """True when neither play-by-play product holds the game (under any season),
+    and the CSV plays series was actually loaded for that season (so "absent" is
+    a measurement)."""
     event = ctx.get(("event", "game"))
     plays = ctx.get(("csv_plays", "game"))
     if event is None or plays is None or game[0] not in plays.seasons():
         return False
-    return game not in event.counts and game not in plays.counts
+    return game[1] not in event.game_ids and game[1] not in plays.game_ids
 
 
 def _is_event_vs_scorecard(a_source: str, b_source: str) -> bool:
@@ -647,11 +669,9 @@ def _e4_explains(diff: Difference, ctx: Context) -> bool:
     play-by-play products, while a scorecard source lists it. The value the
     scorecard source holds for the game is the whole difference.
     """
-    if diff.a_value is not None:
+    if diff.a_value is not None or diff.b_value is None:
         return False
-    scorecard = ctx.get((diff.b_source, "game"))
-    game = _game_of(diff.key)
-    return scorecard is not None and game in scorecard.counts and _no_play_by_play(game, ctx)
+    return _no_play_by_play(_game_of(diff.key), ctx)
 
 
 def _e4_expects(comparison: Comparison, ctx: Context) -> Iterable[Expectation]:
@@ -680,7 +700,10 @@ E4 = Entry(
         "Run 2 of task 4.2 (1871-2014): in 1921, 24 games are in csv_batting but in neither "
         "event nor csv_plays, and their plate appearances sum to 1,753, exactly the "
         "event-vs-csv_batting plate-appearance difference (98,837 - 97,084). The games' "
-        "gametypes are mostly exhibition, regular (Negro League clubs), championship and lcs."
+        "gametypes are mostly exhibition, regular (Negro League clubs), championship and lcs. "
+        "Run 5 (1871-1961): 63 of the 65 games the box scores hold that the event files lack "
+        "are in no play-by-play product either (58 are in game info; 5 only in the box "
+        "scores); box scores are a sample, so only games they hold are compared."
     ),
     facts=frozenset({"pa", "k", "bb", "hr", "r", "g"}),
     levels=frozenset({"game", "player_game"}),
@@ -697,8 +720,9 @@ def _is_vs_regular_gamelog(_a_source: str, b_source: str) -> bool:
 def _not_a_gamelog_game(game: Key, ctx: Context) -> bool:
     """True when neither the regular-season nor the post-season game log lists
     the game, the game log was loaded for its season, and the game is one the
-    game logs are not meant to hold: an exhibition, or a game neither of whose
-    teams appears in the season's game logs at all (a Negro League club)."""
+    game logs are not meant to hold: an exhibition, a game neither of whose
+    teams appears in the season's game logs at all (a Negro League club), or a
+    forfeit (an awarded score, not a game played)."""
     regular = ctx.get(("gamelog", "game"))
     post = ctx.get(("gamelog_post", "game"))
     meta = ctx.get(("gamemeta", "game"))
@@ -707,7 +731,7 @@ def _not_a_gamelog_game(game: Key, ctx: Context) -> bool:
     if game in regular.counts or game in post.counts:
         return False
     flags = meta.counts.get(game)
-    return flags is not None and bool(flags.get("exh") or flags.get("nogl"))
+    return flags is not None and bool(flags.get("exh") or flags.get("nogl") or flags.get("fft"))
 
 
 def _e5_explains(diff: Difference, ctx: Context) -> bool:
@@ -750,9 +774,9 @@ E5 = Entry(
         "neither game log. 7,681 are exhibitions (2,371) or games whose two clubs never "
         "appear in that season's game logs (7,674; for example PH5, MEM, KCM, CAG, HOM, BLG, "
         "NW2, BIR), and 1,877 of them are in retrosheet_game under the negro_league group. "
-        "The one exception, BRO190009190 (1900-09-19, SLN at BRO 9-0), is a regular "
-        "major-league game the game log lacks; it is not covered by this entry and is "
-        "reported as a difference."
+        "BRO190009190 (1900-09-19, SLN at BRO 9-0) is a forfeit: the game info marks it "
+        "forfeit = Y and it has no lineups, play-by-play or box score, so it is covered "
+        "here as an awarded score, not a game played."
     ),
     facts=frozenset({"hr", "k", "bb", "r", "g"}),
     levels=frozenset({"game"}),
@@ -761,7 +785,172 @@ E5 = Entry(
     expects=_e5_expects,
 )
 
-INITIAL_REGISTER = Register(entries=(E1, E4, E5))
+
+def _e6_explains(diff: Difference, ctx: Context) -> bool:
+    """E6: a game only the box scores hold. Game info lacks it (in any season) and
+    so does every play-by-play product."""
+    if diff.a_value is not None:
+        return False
+    box = ctx.get(("box", "game"))
+    info = ctx.get(("gameinfo", "game"))
+    game = _game_of(diff.key)
+    return (
+        box is not None
+        and info is not None
+        and game in box.counts
+        and game[1] not in info.game_ids
+        and _no_play_by_play(game, ctx)
+    )
+
+
+def _e6_expects(comparison: Comparison, ctx: Context) -> Iterable[Expectation]:
+    box = ctx.get(("box", "game"))
+    info = ctx.get(("gameinfo", "game"))
+    if box is None or info is None:
+        return
+    for key, row in box.counts.items():
+        if key[0] not in comparison.seasons:
+            continue
+        if key[1] in info.game_ids or not _no_play_by_play(key, ctx):
+            continue
+        for fact, value in row.items():
+            if value and fact in comparison.facts:
+                yield Expectation("game", key, fact)
+
+
+E6 = Entry(
+    id="E6",
+    summary="Game that only the box scores hold",
+    cause=(
+        "Retrosheet publishes box scores for some Negro League games it has no game info "
+        "and no play-by-play for."
+    ),
+    evidence=(
+        "Run 5 of task 4.2 (1871-1961): five box-score games are in neither game info nor "
+        "the event files nor CSV plays (BIR194703270, CAG194708040, HOM194509200, "
+        "HSL194307111, NW2194708140)."
+    ),
+    facts=frozenset({"r", "g"}),
+    levels=frozenset({"game"}),
+    applies_to=lambda a, b: a == "gameinfo" and b == "box",
+    explains=_e6_explains,
+    expects=_e6_expects,
+)
+
+
+def _other_season_of(game: Key, held: Series) -> str | None:
+    """A season other than ``game``'s under which ``held`` has the same game id."""
+    for key in held.counts:
+        if len(key) > 1 and key[1] == game[1] and key[0] != game[0]:
+            return key[0]
+    return None
+
+
+def _e7_explains(diff: Difference, ctx: Context) -> bool:
+    """E7: a game the box scores list under two seasons.
+
+    A game dated at the turn of the year (1926-01-01, in the 1925 season) is held by
+    the other products under one season and by the box scores under both. The copy
+    under the season the other source does not use is the whole difference.
+    """
+    if diff.a_value is not None or diff.b_value is None or diff.b_source != "box":
+        return False
+    held = ctx.get((diff.a_source, "game"))
+    box = ctx.get(("box", "game"))
+    game = _game_of(diff.key)
+    if held is None or box is None or game in held.counts:
+        return False
+    other = _other_season_of(game, held)
+    # The difference itself shows the box holds this key; the game under the other
+    # season in the box scores proves the box lists the game twice.
+    return other is not None and (other, game[1]) in box.counts
+
+
+def _e7_expects(comparison: Comparison, ctx: Context) -> Iterable[Expectation]:
+    if comparison.level != "game":
+        return
+    held = ctx.get((comparison.a_source, "game"))
+    box = ctx.get(("box", "game"))
+    if held is None or box is None:
+        return
+    for key, row in box.counts.items():
+        if key[0] not in comparison.seasons or key in held.counts or key[1] not in held.game_ids:
+            continue
+        other = _other_season_of(key, held)
+        if other is None or (other, key[1]) not in box.counts:
+            continue
+        for fact, value in row.items():
+            if value and fact in comparison.facts:
+                yield Expectation("game", key, fact)
+
+
+E7 = Entry(
+    id="E7",
+    summary="Game the box scores list under two seasons",
+    cause=(
+        "A game dated at the turn of the year belongs to one season in game info and the "
+        "event files but is listed under both seasons in the box scores."
+    ),
+    evidence=(
+        "Run 5 of task 4.2 (1871-1961): PRG192601010 and PRG192601170 are dated 1926-01-01 "
+        "and 1926-01-17, held by game info and the event files under season 1925, and held by "
+        "the box scores under both 1925 and 1926."
+    ),
+    facts=frozenset({"hr", "k", "bb", "r", "g"}),
+    levels=frozenset({"game", "player_game"}),
+    applies_to=lambda a, b: b == "box",
+    explains=_e7_explains,
+    expects=_e7_expects,
+)
+
+# E8 is pinned to one game and one size on purpose: it fails the moment the data or
+# the CSV build changes, so it can never quietly excuse something else.
+_E8_GAME: Key = ("1947", "BRO194707200")
+_E8_PLAYER = "kurow101"
+
+
+def _e8_explains(diff: Difference, ctx: Context) -> bool:
+    """E8: one plate appearance the event files count and the CSV products do not."""
+    if _game_of(diff.key) != _E8_GAME or diff.fact != "pa":
+        return False
+    if diff.level == "player_game" and diff.key[2] != _E8_PLAYER:
+        return False
+    return (
+        diff.a_value is not None and diff.b_value is not None and diff.a_number - diff.b_number == 1
+    )
+
+
+def _e8_expects(comparison: Comparison, ctx: Context) -> Iterable[Expectation]:
+    if comparison.level == "game":
+        yield Expectation("game", _E8_GAME, "pa")
+    elif comparison.level == "player_game":
+        yield Expectation("player_game", (*_E8_GAME, _E8_PLAYER), "pa")
+
+
+E8 = Entry(
+    id="E8",
+    summary="Unknown-batter play counted as a plate appearance by Chadwick, not by the CSV",
+    cause=(
+        "The 1947 Brooklyn event file has `play,9,0,kurow101,00,X,99#` (an unrecorded "
+        "play). Chadwick cwevent 0.10.0 gives it event code 2 and counts it as a plate "
+        "appearance; Retrosheet's own CSV plays and batting products leave it out."
+    ),
+    evidence=(
+        "Run 5 of task 4.2: BRO194707200 pa is 69 in the event files and 68 in CSV plays "
+        "and CSV batting; kurow101 is 4 vs 3. Raw line 7516 of 1947BRO.EVN (1940seve.zip "
+        "downloaded 2026-10-01) is the only `99#` row in the game; cwevent run on that "
+        "file gives bat_event_fl T for it. Not yet checked against Retrosheet's published "
+        "notes."
+    ),
+    facts=frozenset({"pa"}),
+    levels=frozenset({"game", "player_game"}),
+    applies_to=lambda a, b: a == "event" and b in {"csv_plays", "csv_batting"},
+    explains=_e8_explains,
+    expects=_e8_expects,
+)
+
+
+INITIAL_REGISTER = Register(entries=(E1, E4, E5, E6, E7, E8))
 
 
 def check_columns(

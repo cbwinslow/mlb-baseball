@@ -30,7 +30,8 @@ TABLES = {
         "b_r text, _season text"
     ),
     "raw.retrosheet_gameinfo": (
-        "gid text, vruns text, hruns text, _season text, visteam text, hometeam text, gametype text"
+        "gid text, vruns text, hruns text, _season text, visteam text, hometeam text, "
+        "gametype text, forfeit text"
     ),
     "raw.retrosheet_gamelog": (
         "date text, game_number text, h_team text, v_homeruns text, h_homeruns text, "

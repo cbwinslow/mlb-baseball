@@ -13,6 +13,7 @@ Nothing here writes. Every query runs on a connection from
 
 from __future__ import annotations
 
+import sys
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -125,7 +126,7 @@ SOURCES: tuple[SourceSpec, ...] = (
         context_only=True,
     ),
     SourceSpec(
-        "gamemeta", "game", "tieout_game_meta.sql", _facts("exh", "nogl"), context_only=True
+        "gamemeta", "game", "tieout_game_meta.sql", _facts("exh", "nogl", "fft"), context_only=True
     ),
     SourceSpec(
         "box", "game", "tieout_game_box.sql", _facts("hr", "k", "bb", "r", "g"), sample=True
@@ -649,6 +650,7 @@ def execute(
     levels: Iterable[str],
     dry_run: bool,
     statement_timeout_ms: int,
+    show_all: bool = False,
     out: Log = _print,
 ) -> int:
     """Entry point behind the script. Returns the process exit code:
@@ -675,7 +677,7 @@ def execute(
             return 2
     finally:
         conn.close()
-    for line in report.lines():
+    for line in report.lines(sample=sys.maxsize if show_all else 15):
         out(line)
     elapsed = time.monotonic() - started
     out(f"elapsed {elapsed:.1f}s")

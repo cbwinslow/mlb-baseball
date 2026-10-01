@@ -56,6 +56,11 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         help="verify the target is read-only and is the expected database, then stop",
     )
     parser.add_argument(
+        "--show-all",
+        action="store_true",
+        help="print every difference instead of the first 15 per comparison",
+    )
+    parser.add_argument(
         "--statement-timeout-minutes",
         type=int,
         default=DEFAULT_TIMEOUT_MINUTES,
@@ -77,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         levels=[level.strip() for level in args.levels.split(",") if level.strip()],
         dry_run=args.dry_run,
         statement_timeout_ms=args.statement_timeout_minutes * 60_000,
+        show_all=args.show_all,
     )
 
 

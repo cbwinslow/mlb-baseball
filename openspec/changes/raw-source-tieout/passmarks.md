@@ -97,6 +97,85 @@ can check.
   before it is relied on. Missing before that year is accepted; missing after it is
   a failure.
 
+### E1 (amended by run 8): a blank regular-season total predicts nothing
+
+E1 predicts that event total minus regular-season game-log total equals the
+postseason total. Where a season's regular-season game-log total for a fact is
+blank ("not recorded": Retrosheet's `-1` in at least one game, as for strikeouts in
+1910, 1911 and 1915) the total is never compared, so E1 predicts no difference
+for that fact and season. The rule is otherwise unchanged.
+
+### E4. Game with a scorecard but no play-by-play in any product
+
+- **Sources:** event files vs CSV batting, game info, game logs, **box scores**.
+- **Fact:** plate appearances, strikeouts, walks, home runs, runs, games; game and
+  player-game level.
+- **Cause:** Retrosheet publishes scorecard data (game info, player batting lines,
+  box scores) for exhibition and Negro League games it has no play-by-play for.
+- **Evidence:** run 2 (1921: 24 such games, 1,753 plate appearances, exactly the
+  event vs CSV batting gap). Run 5 (1871-1961): 63 of the 65 games the box scores hold
+  that the event files lack are in no play-by-play product (58 in game info, 5 only in
+  the box scores).
+- **Rule:** the game is in neither `retrosheet_event` nor `retrosheet_plays` (any
+  season); the scorecard source's value is the whole difference.
+
+### E5. Game the major-league game logs are not meant to hold
+
+- **Sources:** game info and the play-by-play products vs the game logs.
+- **Fact:** home runs, strikeouts, walks, runs, games; game level (season totals are
+  explained when they equal the sum of explained games).
+- **Cause:** the game logs list major-league games only. Game info also lists
+  exhibitions, Negro League games, and **forfeits** (an awarded score, not a game played).
+- **Evidence:** run 2/4 (1871-2014): 7,682 game-info games are in neither game log;
+  exhibitions, clubs that never appear in that season's game logs, and one forfeit,
+  `BRO190009190` (1900-09-19, SLN at BRO 9-0), which game info marks `forfeit = Y` and
+  which has no lineups, play-by-play or box score.
+- **Rule:** the game is flagged exhibition, club-absent or forfeit in game info and is
+  absent from both game logs.
+
+### E6. Game that only the box scores hold
+
+- **Sources:** game info vs box scores. **Fact:** runs, games; game level.
+- **Cause:** box scores exist for some Negro League games with no game info and no
+  play-by-play.
+- **Evidence:** run 5: BIR194703270, CAG194708040, HOM194509200, HSL194307111,
+  NW2194708140.
+- **Rule:** game info lacks the game in every season and no play-by-play product holds it.
+
+### E7. Game the box scores list under two seasons
+
+- **Sources:** event files, game info, CSV products vs box scores. **Fact:** home runs,
+  strikeouts, walks, runs, games; game and player-game level.
+- **Cause:** a game dated at the turn of the year (1926-01-01, 1926-01-02, 1926-01-03,
+  1926-01-17: PRG192601010, ...020, ...030, ...170) belongs to season 1925 in game info
+  and the event files; the box scores list it under both 1925 and 1926.
+- **Evidence:** run 5; checked in production: both box scopes (`1925_negro_league`,
+  `1926_negro_league`) hold the game with identical players.
+- **Rule:** the other source holds the game under a different season, and the box
+  scores hold it under that season too; the copy under the other season is the whole
+  difference.
+
+### E8. Unknown-batter play counted by Chadwick but not by the CSV
+
+- **Sources:** event files vs CSV plays and CSV batting. **Fact:** plate appearances;
+  game and player-game level; one game only.
+- **Cause:** the 1947 Brooklyn file has `play,9,0,kurow101,00,X,99#` (an unrecorded
+  play). Chadwick `cwevent` 0.10.0 treats it as a plate appearance (event code 2,
+  `bat_event_fl` T); Retrosheet's CSV products leave it out.
+- **Evidence:** run 5: `BRO194707200` 69 vs 68, `kurow101` 4 vs 3. Raw line 7516 of
+  `1947BRO.EVN` from `1940seve.zip` (downloaded 2026-10-01); `cwevent` on that file
+  reproduces the 69. Not yet checked against Retrosheet's published notes.
+- **Rule:** pinned to `BRO194707200` / `kurow101`, event larger by exactly 1. It fails
+  if the data or the CSV build ever changes.
+
+### Not an entry: stale loads are reloaded, not excused
+
+`TBA200205030` (2002) once differed because our database held an older copy of the
+2000s event archive; Retrosheet had since corrected the file (`OA/G6.2-H...` became
+`OA.2-H...`, which lets the run score). The 2000s archive was reloaded on 2026-10-01
+(105 of 1,936,585 event rows changed, none added or removed). A difference caused by a
+stale load is fixed by reloading through the connector, never by an entry.
+
 ## 3. Coverage boundaries (reported as "not comparable", never as a pass)
 
 A source that does not cover a season cannot agree or disagree for it. These are

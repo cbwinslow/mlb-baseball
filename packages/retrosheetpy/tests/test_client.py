@@ -117,3 +117,23 @@ def test_corrupt_zip_rejected(tmp_path):
     p.write_bytes(b"PK\x03\x04garbage")
     with pytest.raises(InvalidArchiveError):
         list(iter_zip_members(p))
+
+
+def test_unreadable_cache_metadata_is_not_trusted(tmp_path):
+    fetch = FakeFetch(make_zip({"x.csv": b"1"}))
+    client = Client(tmp_path, fetch=fetch)
+    art = client.download(RES)
+    art.local_path.with_name(art.local_path.name + ".json").write_text("{not json")
+    client.download(RES)
+    assert len(fetch.calls) == 2
+    with pytest.raises(IntegrityError):
+        art.local_path.with_name(art.local_path.name + ".json").write_text("{}")
+        client.download(RES, refetch_on_mismatch=False)
+
+
+def test_cache_for_different_seasons_does_not_collide(tmp_path):
+    fetch = FakeFetch(make_zip({"x.csv": b"1"}))
+    client = Client(tmp_path, fetch=fetch)
+    a = client.download(resolve(Product.YEARLY_CSV, season=1950))
+    b = client.download(resolve(Product.YEARLY_CSV, season=1951))
+    assert a.local_path != b.local_path and len(fetch.calls) == 2

@@ -6,6 +6,7 @@ import os
 import urllib.request
 import zipfile
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import IO
@@ -14,7 +15,7 @@ from retrosheetpy.artifact import Artifact
 from retrosheetpy.catalog import Resource
 from retrosheetpy.errors import IntegrityError, InvalidArchiveError, UnsafeArchiveMemberError
 
-USER_AGENT = "retrosheetpy (+https://github.com/cbwinslow/mlb-baseball)"
+USER_AGENT = "retrosheetpy/0.0.1"
 
 Fetch = Callable[[str], bytes]
 
@@ -57,11 +58,14 @@ class Client:
         data, meta = self._paths(res)
         if not (data.is_file() and meta.is_file()):
             return None
-        art = Artifact.from_json(meta.read_text())
-        if art.source_url == res.url and _sha256_file(data) == art.sha256:
-            return Artifact(**{**art.__dict__, "local_path": data})
+        try:
+            art = Artifact.from_json(meta.read_text())
+        except (ValueError, KeyError, TypeError):
+            art = None  # unreadable metadata: the cached bytes cannot be trusted
+        if art is not None and art.source_url == res.url and _sha256_file(data) == art.sha256:
+            return replace(art, local_path=data)
         if not refetch_on_mismatch:
-            raise IntegrityError(f"{data} does not match its recorded SHA-256")
+            raise IntegrityError(f"{data} does not match its recorded metadata")
         return None
 
     def download(

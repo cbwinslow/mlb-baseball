@@ -8,7 +8,6 @@ yielded as an explicit ``UnsupportedRecord`` (diagnostic).
 
 import csv
 import re
-import zipfile
 from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
@@ -196,6 +195,7 @@ def iter_records(
         rtype = raw.split(",", 1)[0]
         base: dict[str, object] = {"raw": raw, "source": source, "line_no": line_no}
         record: Record | None
+        fields: list[str] = []
         stage = "record-type"
         try:
             fields = _split(raw) if raw else []
@@ -223,7 +223,7 @@ def iter_records(
             record = UnsupportedRecord(
                 **base,  # type: ignore[arg-type]
                 record_type=rtype,
-                fields=tuple(fields[1:]) if raw and not reason.startswith("unreadable") else (),
+                fields=tuple(fields[1:]),
                 reason=reason,
             )
         if stats is not None:
@@ -259,12 +259,6 @@ def iter_event_zip(
     Roster/team members (``.ROS``, ``TEAMyyyy``) use other formats and are
     not event records; they are ignored by name, not by content.
     """
-    try:
-        for name, member in iter_zip_members(path):
-            if is_event_filename(name):
-                yield from iter_records(member, source=name, strict=strict, stats=stats)
-    except zipfile.BadZipFile as exc:  # pragma: no cover - iter_zip_members wraps this
-        raise ParseError(
-            str(exc), stage="archive", source=str(path), line_no=0,
-            game_id=None, record_type="", raw="",
-        ) from exc  # fmt: skip
+    for name, member in iter_zip_members(path):
+        if is_event_filename(name):
+            yield from iter_records(member, source=name, strict=strict, stats=stats)

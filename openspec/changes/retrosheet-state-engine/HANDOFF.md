@@ -1,4 +1,4 @@
-# Handoff — `retrosheet-state-engine` (updated 2026-10-01, third session)
+# Handoff — `retrosheet-state-engine` (updated 2026-10-01, fourth session)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start."
 
@@ -17,17 +17,13 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   all Chadwick tools, byte-identical; owner wants short plain replies, options + recommendation, and a
   reminder to clear context around 200k.
 
-## Remaining: extended fields (task 3.6, `cwevent -x 0-66`), see `field-table.md`
-All base fields (-f 0-96) now match, including text-derived ones (EVENT_CD, SB/CS/PK flags,
-batted ball; merged into rows via `crosswalk.chadwick_fields`). Still to build, in one new
-module fed by the per-game `pending` list in `event_rows` (many need look-ahead per half-inning):
-team ids/BAT_LAST_ID, INN_NEW/END_FL, START_BAT/FLD_SCORE_CT, INN_RUNS_CT, GAME_PA_CT, INN_PA_CT,
-PA_NEW/TRUNC_FL, START/END_BASES_CD, BAT/RESP_BAT/PIT/RESP_PIT_START_FL, BAT_ON_DECK/IN_HOLD_ID,
-RUN1-3_FLD_CD/LINEUP_CD/ORIGIN_EVENT_ID/RESP_CAT_ID, pitch-count splits (33-44, from PITCH_SEQ_TX),
-FLD_ID, BASE2-4_FORCE_FL, BAT_SAFE_ERR_FL, BAT/RUN1-3_FATE_ID, FATE_RUNS_CT, ASS6-10_FLD_CD,
-UNKNOWN_OUT_EXC_FL, UNCERTAIN_PLAY_EXC_FL, COUNT_TX, RUN1-3_AUTO_FL (`radj` extra-inning runner is
-not yet applied to the state: handle when a half-inning starts). Add each to
-`tests/implemented_fields.py` only once it matches. Runner state: `Runner(player_id, resp_pit)`.
+## Next: wider seasons (tasks 4.3, 4.4) and the auto runner
+Extended fields are done and match on 2019 (new module `extended.py`, rules in `results.md`).
+Not yet proven, only matching on 2019 where they never occur: `radj` (extra-inning automatic
+runner, 2020+: not applied to the state yet; needs `Runner.auto`, origin 0, responsible pitcher
+and cat, listed position), `BAT_LAST_ID` when the home team bats first (`htbf`), pitch chars
+`I Q R Y K` in the splits. Run 2020, then older decades, one batch at a time; fix by rule, never
+by tuning on a held-out season. Known open: `B`/`B1S` (48 plays, 1976, task 4.3).
 
 ## How to work (what worked)
 1. Add the new columns to the engine; run the season check; read the mismatches; find the rule; record it.

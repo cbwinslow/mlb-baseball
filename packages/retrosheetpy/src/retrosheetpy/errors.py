@@ -15,3 +15,27 @@ class InvalidArchiveError(RetrosheetError):
 
 class UnsafeArchiveMemberError(RetrosheetError):
     """A zip member name would escape the archive (absolute path or '..')."""
+
+
+class ParseError(RetrosheetError):
+    """A source line could not be parsed. Carries enough to find it again."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stage: str,
+        source: str,
+        line_no: int,
+        game_id: str | None,
+        record_type: str,
+        raw: str,
+    ):
+        super().__init__(f"{source}:{line_no} [{stage}] {message}: {raw!r}")
+        self.message = message
+        self.stage = stage
+        self.source = source
+        self.line_no = line_no
+        self.game_id = game_id
+        self.record_type = record_type
+        self.raw = raw

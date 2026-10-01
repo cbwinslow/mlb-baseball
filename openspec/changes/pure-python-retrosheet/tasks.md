@@ -33,14 +33,14 @@ then implement the smallest passing behavior.
 
 ## 3. Lossless raw record framing
 
-- [ ] 3.1 Define typed record models for id, info, start, sub, play, data,
+- [x] 3.1 Define typed record models for id, info, start, sub, play, data,
   comment, and adjustment/metadata records encountered in the current
   Retrosheet corpus.
-- [ ] 3.2 Implement a streaming record reader that yields records with source
+- [x] 3.2 Implement a streaming record reader that yields records with source
   file, line number, game id when known, and exact raw text.
-- [ ] 3.3 Unknown record types fail in strict mode and become explicit
+- [x] 3.3 Unknown record types fail in strict mode and become explicit
   UnsupportedRecord values in diagnostic mode. They are never skipped.
-- [ ] 3.4 Add fixture tests spanning regular, postseason, deduced, All-Star, and
+- [x] 3.4 Add fixture tests spanning regular, postseason, deduced, All-Star, and
   Negro League event files where those formats differ materially.
 
 ## 4. Play syntax model

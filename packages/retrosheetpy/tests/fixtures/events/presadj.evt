@@ -1,0 +1,113 @@
+id,WS1190906170
+version,1
+info,inputprogvers,"version 7RS(19) of 07/07/92"
+info,visteam,SLA
+info,hometeam,WS1
+info,date,1909/06/17
+info,site,WAS08
+info,number,0
+info,starttime,0:00PM
+info,daynight,day
+info,usedh,false
+info,umphome,eganr101
+info,ump1b,sherj901
+info,ump2b,(none)
+info,ump3b,(none)
+info,scorer,"102,208,222,408,408a,427"
+info,translator,"Jim Herdman"
+info,inputter,"Jim Herdman"
+info,inputtime,2025/11/30 8:39AM
+info,howscored,park
+info,pitches,none
+info,temp,0
+info,winddir,unknown
+info,windspeed,-1
+info,fieldcond,unknown
+info,precip,unknown
+info,sky,unknown
+info,timeofgame,65
+info,attendance,2424
+info,wp,groob101
+info,lp,grahb102
+info,save,
+info,gwrbi,
+start,mcalj101,"Jack McAleese",0,1,8
+start,hartr102,"Roy Hartzell",0,2,9
+start,patth103,"Ham Patterson",0,3,7
+start,ferrh101,"Hobe Ferris",0,4,5
+start,willj106,"Jimmy Williams",0,5,4
+start,jonet103,"Tom Jones",0,6,3
+start,wallb101,"Bobby Wallace",0,7,6
+start,crigl101,"Lou Criger",0,8,2
+start,grahb102,"Bill Grahame",0,9,1
+start,browg102,"George Browne",1,1,7
+start,conrw101,"Wid Conroy",1,2,5
+start,unglb101,"Bob Unglaub",1,3,4
+start,donaj103,"Jiggs Donahue",1,4,3
+start,mcbrg101,"George McBride",1,5,6
+start,milac101,"Clyde Milan",1,6,8
+start,streg101,"Gabby Street",1,7,2
+start,blanc103,"Cliff Blankenship",1,8,9
+start,groob101,"Bob Groom",1,9,1
+play,1,0,mcalj101,??,,6E3
+play,1,0,hartr102,??,,S.1-2
+play,1,0,patth103,??,,6(1)3/GDP.2-3
+play,1,0,ferrh101,??,,K
+play,1,1,browg102,??,,S6
+play,1,1,conrw101,??,,S1/BG.1-2
+play,1,1,unglb101,??,,99/SH.2-3;1-2
+play,1,1,donaj103,??,,FC4/G4.3XH(42);2-3;B-2
+play,1,1,mcbrg101,??,,S9.3-H;2X3(92)
+play,2,0,willj106,??,,99
+play,2,0,jonet103,??,,99
+play,2,0,wallb101,??,,E2
+play,2,0,crigl101,??,,E4.1-2
+play,2,0,grahb102,??,,3/G
+play,2,1,milac101,??,,99
+play,2,1,streg101,??,,99
+play,2,1,blanc103,??,,99
+play,3,0,mcalj101,??,,99
+play,3,0,hartr102,??,,S
+play,3,0,patth103,??,,4(1)3/GDP
+play,3,1,groob101,??,,S5/G5S
+play,3,1,browg102,??,,43.1-2
+play,3,1,conrw101,??,,9/F
+play,3,1,unglb101,??,,D7/L.2-H
+play,3,1,donaj103,??,,99
+play,4,0,ferrh101,??,,99
+play,4,0,willj106,??,,S
+play,4,0,jonet103,??,,WP.1-3
+play,4,0,jonet103,??,,S7.3-H
+play,4,0,wallb101,??,,46(1)/FO
+play,4,0,crigl101,??,,S7.1X3(75)
+play,4,1,mcbrg101,??,,W
+play,4,1,milac101,??,,99/SH.1-2
+play,4,1,streg101,??,,S.2-H
+play,4,1,blanc103,??,,99
+play,4,1,groob101,??,,99
+play,5,0,grahb102,??,,K
+play,5,0,mcalj101,??,,99
+play,5,0,hartr102,??,,K
+play,5,1,browg102,??,,S8
+play,5,1,conrw101,??,,13/SH.1-2
+play,5,1,unglb101,??,,NP
+sub,howeh101,"Harry Howell",0,9,1
+presadj,howeh101,2
+play,5,1,unglb101,??,,PO2(E1).2-3
+play,5,1,unglb101,??,,T8/F8D.3-H
+play,5,1,donaj103,??,,S.3-H
+play,5,1,mcbrg101,??,,WP.1-3
+play,5,1,mcbrg101,??,,2/FL
+play,5,1,milac101,??,,E5/TH/G5S.3-3;B-1
+play,5,1,streg101,??,,CSH(242)
+com,"$Attempted double-steal"
+play,6,0,patth103,??,,99
+play,6,0,ferrh101,??,,S
+play,6,0,willj106,??,,E9/F.1-2
+play,6,0,jonet103,??,,NP
+sub,altrn101,"Nick Altrock",1,8,9
+play,6,0,jonet103,??,,6(1)3/GDP.2-3
+com,"$Game called due to rain"
+data,er,grahb102,3
+data,er,howeh101,2
+data,er,groob101,1

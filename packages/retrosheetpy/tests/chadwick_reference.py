@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 FIELDS = "0-96"  # every standard cwevent field (see `cwevent -d`)
+EXTENDED = "0-66"  # every extended (-x) field
 
 
 class ChadwickReference:
@@ -42,7 +43,18 @@ class ChadwickReference:
             shutil.copyfile(event_file, work / f"{year}XXX.EVN")
             (work / f"TEAM{year}").write_text("")
             run = subprocess.run(
-                [self.cwevent, "-q", "-y", str(year), "-n", "-f", FIELDS, f"{year}XXX.EVN"],
+                [
+                    self.cwevent,
+                    "-q",
+                    "-y",
+                    str(year),
+                    "-n",
+                    "-f",
+                    FIELDS,
+                    "-x",
+                    EXTENDED,
+                    f"{year}XXX.EVN",
+                ],
                 cwd=work,
                 capture_output=True,
                 text=True,

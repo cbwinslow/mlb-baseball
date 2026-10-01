@@ -166,3 +166,90 @@ def compare_plays_csv(records: Iterable[Record], rows: Iterable[Row]) -> Compari
     return compare(
         "retrosheet plays.csv", records, rows, game_col="gid", event_col="event", derive=csv_fields
     )
+
+
+def _group_rows(rows: Iterable[Row], game_col: str, event_col: str) -> dict[str, list[Row]]:
+    games: dict[str, list[Row]] = {}
+    for row in rows:
+        if row[event_col] != "NP":
+            games.setdefault(row[game_col], []).append(row)
+    return games
+
+
+def compare_rows(
+    reference: str,
+    ours: Iterable[Row],
+    theirs: Iterable[Row],
+    fields: Iterable[str],
+    *,
+    game_col: str = "GAME_ID",
+    event_col: str = "EVENT_TX",
+) -> Comparison:
+    """Compare whole event rows over ``fields``, game by game.
+
+    ``ours`` and ``theirs`` are row mappings keyed by ``cwevent`` column name. Every
+    column in ``fields`` must exist in every row on both sides; a missing column
+    raises ``ValueError`` naming the side and column instead of being skipped.
+    Games whose event texts do not line up one-to-one are counted as misaligned and
+    their rows are not field-compared. ``NP`` rows are dropped from both sides.
+    """
+    wanted = list(fields)
+    ours_by_game = _group_rows(ours, game_col, event_col)
+    theirs_by_game = _group_rows(theirs, game_col, event_col)
+    for side, by_game in (("our rows", ours_by_game), ("reference rows", theirs_by_game)):
+        for rows in by_game.values():
+            for row in rows:
+                for name in wanted:
+                    if name not in row:
+                        raise ValueError(
+                            f"{reference}: {side} have no column {name!r}; "
+                            "refusing to skip it silently"
+                        )
+    out = Comparison(reference)
+    for game_id in sorted(ours_by_game.keys() | theirs_by_game.keys()):
+        mine, ref = ours_by_game.get(game_id, []), theirs_by_game.get(game_id, [])
+        if not ref:
+            out.games_only_ours += 1
+            continue
+        if not mine:
+            out.games_only_reference += 1
+            continue
+        out.games += 1
+        ours_tx = [r[event_col] for r in mine]
+        ref_tx = [r[event_col] for r in ref]
+        if ours_tx != ref_tx:
+            out.games_misaligned += 1
+            if len(out.misaligned_examples) < MAX_EXAMPLES:
+                idx = next(
+                    (i for i, (a, b) in enumerate(zip(ours_tx, ref_tx, strict=False)) if a != b),
+                    min(len(ours_tx), len(ref_tx)),
+                )
+                out.misaligned_examples.append(
+                    {
+                        "game_id": game_id,
+                        "ours": len(mine),
+                        "reference": len(ref),
+                        "first_difference": idx,
+                        "ours_event": ours_tx[idx] if idx < len(ours_tx) else None,
+                        "reference_event": ref_tx[idx] if idx < len(ref_tx) else None,
+                    }
+                )
+            continue
+        for index, (mine_row, ref_row) in enumerate(zip(mine, ref, strict=True), start=1):
+            out.plays_compared += 1
+            for name in wanted:
+                stat = out.fields.setdefault(name, FieldStat())
+                stat.compared += 1
+                if mine_row[name] != ref_row[name]:
+                    stat.mismatches += 1
+                    if len(stat.examples) < MAX_EXAMPLES:
+                        stat.examples.append(
+                            {
+                                "game_id": game_id,
+                                "play_index": index,
+                                "event": ref_row[event_col],
+                                "ours": mine_row[name],
+                                "reference": ref_row[name],
+                            }
+                        )
+    return out

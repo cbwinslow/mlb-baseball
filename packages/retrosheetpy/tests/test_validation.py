@@ -4,7 +4,7 @@ import pytest
 from retrosheetpy import iter_records, parse_play
 from retrosheetpy.crosswalk import chadwick_fields, csv_fields
 from retrosheetpy.report import build_report, main
-from retrosheetpy.validation import compare_chadwick, compare_plays_csv
+from retrosheetpy.validation import compare_chadwick, compare_plays_csv, compare_rows
 
 
 def cw(event):
@@ -150,3 +150,39 @@ def test_compare_refuses_to_skip_a_missing_reference_column():
     rows = [{"GAME_ID": "ABC202001010", "EVENT_TX": "K"}]
     with pytest.raises(ValueError, match="no column"):
         compare_chadwick(recs, rows, version="x")
+
+
+def _event_row(event, **o):
+    return {"GAME_ID": "ABC202001010", "EVENT_TX": event, "OUTS_CT": "0", "INN_CT": "1", **o}
+
+
+FIELDS = ["OUTS_CT", "INN_CT"]
+
+
+def test_compare_rows_matches_and_counts_whole_rows():
+    rows = [_event_row("K"), _event_row("S8", OUTS_CT="1")]
+    out = compare_rows("t", rows, [dict(r) for r in rows], FIELDS)
+    assert out.mismatches == 0 and out.plays_compared == 2
+    assert out.fields["OUTS_CT"].compared == 2 and out.fields["INN_CT"].compared == 2
+
+
+def test_compare_rows_reports_a_differing_field_with_context():
+    ours = [_event_row("K"), _event_row("S8", OUTS_CT="1")]
+    ref = [_event_row("K"), _event_row("S8", OUTS_CT="2")]
+    out = compare_rows("t", ours, ref, FIELDS)
+    assert out.fields["OUTS_CT"].mismatches == 1 and out.fields["INN_CT"].mismatches == 0
+    assert out.fields["OUTS_CT"].examples[0]["play_index"] == 2
+
+
+@pytest.mark.parametrize("side", ["ours", "reference"])
+def test_compare_rows_rejects_a_dropped_column_on_either_side(side):
+    full = [_event_row("K")]
+    dropped = [{k: v for k, v in full[0].items() if k != "OUTS_CT"}]
+    args = (dropped, full) if side == "ours" else (full, dropped)
+    with pytest.raises(ValueError, match="OUTS_CT"):
+        compare_rows("t", *args, FIELDS)
+
+
+def test_compare_rows_flags_misaligned_games_without_comparing_them():
+    out = compare_rows("t", [_event_row("K")], [_event_row("S8")], FIELDS)
+    assert out.games_misaligned == 1 and out.plays_compared == 0

@@ -14,7 +14,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from chadwick_reference import FIELDS, ChadwickReference  # noqa: E402
+from chadwick_reference import EXTENDED, FIELDS, ChadwickReference  # noqa: E402
 
 FIXTURES = HERE.parent / "fixtures" / "events"
 OUT = HERE / "chadwick"
@@ -25,7 +25,12 @@ def main() -> None:
     if ref is None:
         sys.exit("cwevent not found on PATH")
     OUT.mkdir(exist_ok=True)
-    manifest: dict[str, object] = {"chadwick_version": ref.version, "fields": FIELDS, "files": {}}
+    manifest: dict[str, object] = {
+        "chadwick_version": ref.version,
+        "fields": FIELDS,
+        "extended": EXTENDED,
+        "files": {},
+    }
     for evt in sorted(FIXTURES.glob("*.evt")):
         text = evt.read_bytes()
         year = int(re.search(rb"^id,[A-Z0-9]{3}(\d{4})", text, re.M).group(1))  # type: ignore[union-attr]

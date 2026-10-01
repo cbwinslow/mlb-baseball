@@ -39,6 +39,14 @@ def test_captured_chadwick_matches_current_fixtures():
         )
 
 
+@pytest.mark.parametrize("name", NAMES)
+def test_captured_chadwick_has_all_164_columns(name):
+    manifest = json.loads((CHADWICK / "MANIFEST.json").read_text())
+    assert (manifest["fields"], manifest["extended"]) == ("0-96", "0-66")
+    rows = read_rows(CHADWICK / f"{name}.csv")
+    assert len(rows[0]) == 97 + 67 and len(set(rows[0])) == 164
+
+
 @pytest.mark.parametrize("directory", [CHADWICK, PLAYS_CSV])
 def test_captured_csvs_match_manifest_hashes(directory):
     files = json.loads((directory / "MANIFEST.json").read_text())["files"]

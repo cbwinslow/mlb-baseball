@@ -1664,3 +1664,27 @@ def test_restore_command_with_yes_calls_backup_restore_not_real_pg_restore(
 
     assert calls == [(dump_file, True)]
     assert "Restore complete." in capsys.readouterr().out
+
+
+def test_ingest_refresh_sets_downloads_aside_before_bootstrap(monkeypatch, capsys):
+    connector = _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
+    calls = []
+    monkeypatch.setattr(cli.manifest, "supersede", lambda source: calls.append(source) or None)
+
+    cli.main(["ingest", "fake", "--refresh"])
+
+    assert calls == ["fake"]
+    connector.bootstrap.assert_called_once()
+    assert "refresh: nothing cached" in capsys.readouterr().out
+
+
+def test_ingest_refresh_is_refused_outside_bootstrap_mode(monkeypatch):
+    connector = _fake_connector()
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
+    monkeypatch.setattr(cli.manifest, "supersede", lambda source: pytest.fail("must not run"))
+
+    with pytest.raises(SystemExit):
+        cli.main(["ingest", "fake", "--mode", "update", "--refresh"])
+
+    connector.update.assert_not_called()

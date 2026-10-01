@@ -73,6 +73,34 @@ def save_manifest(source: str, manifest: dict) -> None:
     temporary.replace(path)
 
 
+def supersede(source: str) -> Path | None:
+    """Set a source's cached downloads aside so the next bootstrap fetches and
+    reloads every archive again.
+
+    A normal bootstrap trusts a loaded archive and skips it, and ``download`` trusts a
+    cached file whose hash matches its manifest entry. Neither notices a publisher
+    that republished a "closed" archive (Retrosheet regenerated every file on
+    2026-08-09). Files and the manifest move to
+    ``downloads/<source>/_superseded/<UTC timestamp>/`` instead of being deleted, so a
+    rollback is a reload from those files. Returns that directory, or None when
+    nothing was cached.
+    """
+    source_dir = DOWNLOADS_ROOT / source
+    entries = load_manifest(source)
+    present = [name for name in entries if (source_dir / name).is_file()]
+    if not entries and not present:
+        return None
+    target = source_dir / "_superseded" / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    target.mkdir(parents=True)
+    for name in present:
+        (target / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source_dir / name), str(target / name))
+    manifest_file = _manifest_path(source)
+    if manifest_file.exists():
+        shutil.move(str(manifest_file), str(target / "manifest.json"))
+    return target
+
+
 def schema_fingerprint(columns: list[str]) -> str:
     return _sha256("\x1f".join(columns).encode())
 

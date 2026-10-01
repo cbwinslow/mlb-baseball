@@ -37,6 +37,8 @@ Registered connectors are expected to expose the standard connector behavior use
 - `update()`
 - `health_check()`
 
+`mlb ingest <source> --refresh` (bootstrap mode only) calls `manifest.supersede(source)` first: the source's cached downloads and manifest move to `downloads/<source>/_superseded/<UTC timestamp>/` (kept, so rollback is a reload from them) and the connector's bootstrap then fetches and loads every archive again. A normal bootstrap skips archives marked loaded and `download()` trusts a cached file whose hash matches, so neither notices a publisher that republished a "closed" archive (Retrosheet regenerated all files on 2026-08-09). Loads still replace by scope inside the connector's own transactions. Use it deliberately against the intended database; it is not part of `bootstrap`/`update` orchestration.
+
 Some connectors may additionally expose an expensive/manual `backfill` mode. Backfill must remain opt-in and must not accidentally run as part of routine bootstrap/update.
 
 When adding a connector, update the explicit registry and applicable source/profile/docs/tests. Do not build a second plugin-discovery framework inside the CLI.

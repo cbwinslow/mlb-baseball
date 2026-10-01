@@ -65,6 +65,7 @@ from mlb_baseball import (
     field_census,
     ingest,
     inventory,
+    manifest,
     migrate,
     model,
     player,
@@ -325,6 +326,13 @@ def main(argv: list[str] | None = None) -> None:
     ingest_parser.add_argument("source", choices=sorted(CONNECTORS))
     ingest_parser.add_argument(
         "--mode", choices=["bootstrap", "update", "backfill"], default="bootstrap"
+    )
+    ingest_parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="with --mode bootstrap: set this source's cached downloads aside "
+        "(downloads/<source>/_superseded/) and fetch + reload every archive, including ones "
+        "already loaded. Use when the publisher has republished files.",
     )
     ingest_parser.add_argument(
         "--stage",
@@ -1508,7 +1516,16 @@ def main(argv: list[str] | None = None) -> None:
                     )
         elif args.start_year or args.end_year or args.workers:
             parser.error("--start-year, --end-year, and --workers require --stage analytics")
+        elif args.refresh and args.mode != "bootstrap":
+            parser.error("--refresh applies to --mode bootstrap")
         elif args.mode == "bootstrap":
+            if args.refresh:
+                moved = manifest.supersede(args.source)
+                print(
+                    f"refresh: previous downloads set aside in {moved}"
+                    if moved
+                    else "refresh: nothing cached"
+                )
             fn = connector.bootstrap
         elif args.mode == "update":
             fn = connector.update

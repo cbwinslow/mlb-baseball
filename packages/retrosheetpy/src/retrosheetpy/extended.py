@@ -68,7 +68,7 @@ def force_fields(play: Play, occupied: tuple[bool, bool, bool]) -> dict[str, str
     first = play.events[0]
     if {m.code for m in play.modifiers} & {"FO", "GDP"}:
         retired: list[str | None] = [step.runner for step in first.chain if step.runner]
-        if first.kind in (EventKind.FIELDED_OUT, EventKind.FIELDERS_CHOICE) and not retired:
+        if first.kind is EventKind.FIELDERS_CHOICE and not retired:
             retired = [a.from_base for a in play.advances if a.kind is AdvanceKind.OUT]
         for runner in retired:
             if runner is not None and runner.isdigit() and all(occupied[: int(runner)]):

@@ -24,6 +24,8 @@ _RUNNER_EVENTS = frozenset(
         EventKind.BALK,
         EventKind.OTHER_ADVANCE,
         EventKind.DEFENSIVE_INDIFFERENCE,
+        EventKind.PICKOFF,
+        EventKind.PICKOFF_CAUGHT_STEALING,
     }
 )
 UNKNOWN_PLAY = "99"

@@ -120,3 +120,18 @@ Chadwick's output; each lists a play that showed it. No Chadwick code was copied
 - **Pitcher who bats in the DH slot**: a player already in the game (the pitcher) who pinch
   runs for the DH leaves the pitcher slot, takes the DH batting slot, and is listed 0, not 10
   (CIN202007260).
+
+## 2021: first held-out season (11 mismatches, fixed by rule; 2021 is now tuned, not held out)
+
+- **Force flag, no chain marker**: the out-advance fallback is for a fielder's choice only
+  (`FC1/FO.2X3(1E5)`). `43/GDP.1X2(364)` sets nothing (CHN202104250).
+- **Caught stealing safe on an error with (UR)**: the runner's destination is 5 (unearned run),
+  like a steal of home (CHA202108270 `CSH(13E4)(UR)`).
+- **Error on an advance after a pickoff**: coded `D`, as for other runner events
+  (SLN202104080 `PO2(E1/TH).2-H(E8)(NR)`).
+- **Full count, pinch hitter**: a strikeout at 3-2 still charges the batter who started the count
+  (SLN201907150, 2019); a walk at 3-2 charges the pinch hitter (MIN202107110).
+- **Intentional walk after a pitching change at 2-0 or worse** charges the earlier pitcher,
+  like an ordinary walk (PHI202104040).
+- **Auto mark after a double play**: runners already on base inherit it, the batter does not
+  (MIN202108160; SLN202107210 and TEX202108190 still hold).

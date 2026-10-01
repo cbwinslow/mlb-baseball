@@ -221,7 +221,7 @@ def _runner_event_moves(
         dest[origin] = _scored_code(target, event.params)
     elif kind in (EventKind.CAUGHT_STEALING, EventKind.PICKOFF_CAUGHT_STEALING):
         if origin in dest:
-            dest[origin] = target if safe_by_error else 0
+            dest[origin] = _scored_code(target, event.params) if safe_by_error else 0
     elif kind is EventKind.PICKOFF and target in dest and not safe_by_error:
         dest[target] = 0
 
@@ -488,14 +488,16 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
             raise
         unsupported = f"{exc.stage}: {exc.message}"
     first_kind = play.events[0].kind if play else None
-    # A substitute batter finishing a count of 2 strikes by strikeout, or of 3 balls by walk,
-    # is not charged with it: the batter who started the count is.
+    # A substitute batter finishing a count of 2 strikes by strikeout, or of 3 balls (and fewer
+    # than 2 strikes) by walk, is not charged with it: the batter who started the count is.
     decided = (first_kind is EventKind.STRIKEOUT and state.pa_count[1:] == "2") or (
-        first_kind is EventKind.WALK and state.pa_count[:1] == "3"
+        first_kind is EventKind.WALK and state.pa_count[:1] == "3" and state.pa_count[1:] != "2"
     )
     resp_bat = state.pa_batter if decided else None
     resp_bat = resp_bat or rec.player_id
-    resp_pit = state.pa_pitcher if first_kind is EventKind.WALK else None
+    resp_pit = (
+        state.pa_pitcher if first_kind in (EventKind.WALK, EventKind.INTENTIONAL_WALK) else None
+    )
     resp_pit = resp_pit or fielding.fielders[1] or ""
     batter_pos = batting.order[slot].position  # type: ignore[union-attr]
     row: dict[str, str] = {
@@ -612,7 +614,8 @@ def _shift_pitchers(state: GameState, moves: Moves, new_bases: list[Runner | Non
     Runners still on base, lead runner first, take the pitchers of the runners who were on
     base before the play (those who scored leave theirs behind). A batter who reaches thus
     ends up with the pitcher of the runner he replaced and his own pitcher drops out. The
-    automatic-runner mark travels with them.
+    automatic-runner mark travels with them, except that after a double play the batter
+    does not take it.
     """
     if not any(r is not None and d == 0 for r, d in zip(state.bases, moves.run_dest, strict=True)):
         return
@@ -628,8 +631,9 @@ def _shift_pitchers(state: GameState, moves: Moves, new_bases: list[Runner | Non
     for i, base in enumerate(survivors):
         runner = new_bases[base]
         assert runner is not None
+        inherits = retired == 1 or runner.origin != state.events + 1
         new_bases[base] = replace(
-            runner, resp_pit=pool[i][0], resp_cat=pool[i][1], auto=pool[i][2] and retired == 1
+            runner, resp_pit=pool[i][0], resp_cat=pool[i][1], auto=pool[i][2] and inherits
         )
 
 

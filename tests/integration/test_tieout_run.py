@@ -10,6 +10,8 @@ source covers.
 import pytest
 
 from mlb_baseball import tieout_run
+from mlb_baseball.sql import read_sql
+from mlb_baseball.tieout import fetch_series
 from tests.conftest import TEST_DATABASE_URL
 
 ALL_LEVELS = ("season", "game", "player_game")
@@ -106,7 +108,13 @@ def raw_tables(db_conn, drop_tables_after):
             # an 'official' variant of the same player-game must not be counted
             (A, "aaaaa001", "official", "1", "9", "9", "9", "9", "2019"),
             (B, "ddddd001", "value", "2", "0", "0", "0", "0", "2019"),
-            (C, "eeeee001", "value", "2", "1", "0", "1", "1", "2019"),
+            # "N.0"-formatted, not "N": every pre-1982 row in production is like
+            # this (a real Retrosheet CSV formatting quirk, not fractional data --
+            # results-history.md, task 4.2). Same numeric values as a plain "2",
+            # "1", "0", "1", "1" row would be; proves the cast handles the format
+            # rather than crashing outright, the way it did on the first
+            # full-history run.
+            (C, "eeeee001", "value", "2.0", "1.0", "0.0", "1.0", "1.0", "2019"),
         ]
         _insert(cur, "raw.retrosheet_batting", batting)
 
@@ -119,8 +127,25 @@ def raw_tables(db_conn, drop_tables_after):
             cur,
             "raw.retrosheet_gamelog",
             [
-                # regular season only: games A and B (home team, date, game number)
-                ("20190401", "0", "ATL", "0", "1", "1", "0", "0", "1", "0", "1", "2019"),
+                # regular season only: games A and B (home team, date, game number).
+                # Game A's four counting stats are "N.0"-formatted, not "N" -- the
+                # same real Retrosheet quirk as retrosheet_batting (1901-1979 in
+                # production; not fractional data, results-history.md task 4.2),
+                # same numeric values as plain "0","1","1","0","0","1" would be.
+                (
+                    "20190401",
+                    "0",
+                    "ATL",
+                    "0.0",
+                    "1.0",
+                    "1.0",
+                    "0.0",
+                    "0.0",
+                    "1.0",
+                    "0",
+                    "1",
+                    "2019",
+                ),
                 ("20190402", "0", "BOS", "0", "0", "0", "0", "0", "0", "0", "0", "2019"),
             ],
         )
@@ -341,6 +366,231 @@ def test_a_player_missing_from_one_source_shows_as_absent(db_conn, raw_tables):
 
     assert code == 1, text
     assert f"player_game 2019/{A}/bbbbb001 pa: event 1 vs csv_batting absent" in text
+
+
+# --- box's '-1' sentinel means "not recorded", not a literal negative count ---
+
+
+@pytest.fixture
+def box_with_a_sentinel_batter(db_conn, drop_tables_after):
+    """Two 1920 box-score games: X1 is clean; X2 has one batter whose
+    strikeouts were never recorded ('-1', a real Retrosheet sentinel -- see
+    tieout_season_box.sql, found by the first full-history run's k total
+    coming out negative, task 4.2)."""
+    drop_tables_after("raw.retrosheet_box_game")
+    drop_tables_after("raw.retrosheet_box_batting")
+    with db_conn.cursor() as cur:
+        for table in ("raw.retrosheet_box_game", "raw.retrosheet_box_batting"):
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
+            cur.execute(f"CREATE TABLE {table} ({TABLES[table]})")
+        _insert(
+            cur,
+            "raw.retrosheet_box_game",
+            [
+                ("X1192004010", "1920", "na", "2", "3"),
+                ("X2192004020", "1920", "na", "1", "1"),
+            ],
+        )
+        _insert(
+            cur,
+            "raw.retrosheet_box_batting",
+            [
+                ("X1192004010", "na", "p1", "1", "2", "1"),
+                ("X1192004010", "na", "p2", "0", "1", "0"),
+                ("X2192004020", "na", "p3", "0", "1", "0"),
+                ("X2192004020", "na", "p4", "0", "-1", "1"),  # strikeouts unrecorded
+            ],
+        )
+    db_conn.commit()
+
+
+def test_a_season_with_one_sentinel_batter_is_not_comparable_via_box(
+    db_conn, box_with_a_sentinel_batter
+):
+    series = fetch_series(
+        db_conn,
+        "box",
+        "season",
+        ("hr", "k", "bb", "r", "g"),
+        read_sql("tieout_season_box.sql"),
+        {"lo": 1920, "hi": 1920},
+    )
+
+    assert ("1920",) not in series.counts
+
+
+def test_only_the_sentinel_game_is_excluded_at_game_level(db_conn, box_with_a_sentinel_batter):
+    series = fetch_series(
+        db_conn,
+        "box",
+        "game",
+        ("hr", "k", "bb", "r", "g"),
+        read_sql("tieout_game_box.sql"),
+        {"lo": 1920, "hi": 1920},
+    )
+
+    assert ("1920", "X1192004010") in series.counts
+    assert ("1920", "X2192004020") not in series.counts
+    assert series.counts[("1920", "X1192004010")] == {"hr": 1, "k": 3, "bb": 1, "r": 5, "g": 1}
+
+
+def test_only_the_sentinel_players_own_row_is_excluded_at_player_level(
+    db_conn, box_with_a_sentinel_batter
+):
+    series = fetch_series(
+        db_conn,
+        "box",
+        "player_game",
+        ("hr", "k", "bb"),
+        read_sql("tieout_player_box.sql"),
+        {"lo": 1920, "hi": 1920},
+    )
+
+    assert ("1920", "X2192004020", "p3") in series.counts
+    assert ("1920", "X2192004020", "p4") not in series.counts
+    assert ("1920", "X1192004010", "p1") in series.counts
+    assert ("1920", "X1192004010", "p2") in series.counts
+
+
+# --- event's pre-1910 rows are sparse postseason leftovers, not a season -----
+
+
+@pytest.fixture
+def event_with_a_pre_1910_postseason_game(db_conn, drop_tables_after):
+    """1909 has one real (sparse) postseason event row -- like production's
+    actual 1905-1909 World Series rows (results-history.md, task 4.2) -- plus
+    a normal 1910 regular-season game, which is when this connector's own
+    documented coverage actually starts (tieout_season_event.sql)."""
+    drop_tables_after("raw.retrosheet_event")
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_event")
+        cur.execute(f"CREATE TABLE raw.retrosheet_event ({TABLES['raw.retrosheet_event']})")
+        _insert(
+            cur,
+            "raw.retrosheet_event",
+            [
+                (
+                    "DET190910120",
+                    "1",
+                    "3",
+                    "T",
+                    "0",
+                    "wagnh101",
+                    "wagnh101",
+                    "P",
+                    "1909",
+                    "postseason",
+                ),
+                (
+                    "PIT191004150",
+                    "1",
+                    "23",
+                    "T",
+                    "1",
+                    "clarf101",
+                    "clarf101",
+                    "P",
+                    "1910",
+                    "pbp",
+                ),
+            ],
+        )
+    db_conn.commit()
+
+
+def test_a_pre_1910_postseason_game_is_not_a_comparable_season(
+    db_conn, event_with_a_pre_1910_postseason_game
+):
+    series = fetch_series(
+        db_conn,
+        "event",
+        "season",
+        ("pa", "k", "bb", "hr", "r", "g"),
+        read_sql("tieout_season_event.sql"),
+        {"lo": 1900, "hi": 2025},
+    )
+
+    assert ("1909",) not in series.counts
+    assert series.counts[("1910",)] == {"pa": 1, "k": 0, "bb": 0, "hr": 1, "r": 1, "g": 1}
+
+
+def test_the_pre_1910_game_is_excluded_at_game_level_too(
+    db_conn, event_with_a_pre_1910_postseason_game
+):
+    series = fetch_series(
+        db_conn,
+        "event",
+        "game",
+        ("pa", "k", "bb", "hr", "r", "g"),
+        read_sql("tieout_game_event.sql"),
+        {"lo": 1900, "hi": 2025},
+    )
+
+    assert ("1909", "DET190910120") not in series.counts
+    assert ("1910", "PIT191004150") in series.counts
+
+
+# --- gamelog NULL counting stats (some real 19th/20th-century games have none) ---
+
+
+@pytest.fixture
+def gamelog_with_a_null_game(db_conn, drop_tables_after):
+    """A season with two clean games and one where the six counting-stat
+    columns are all NULL (a real, permanent gap for some games -- see
+    tieout_season_gamelog.sql/tieout_game_gamelog.sql). Not part of the big
+    shared `raw_tables` fixture: only raw.retrosheet_gamelog is needed here."""
+    drop_tables_after("raw.retrosheet_gamelog")
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.retrosheet_gamelog")
+        cur.execute(f"CREATE TABLE raw.retrosheet_gamelog ({TABLES['raw.retrosheet_gamelog']})")
+        _insert(
+            cur,
+            "raw.retrosheet_gamelog",
+            [
+                ("20200401", "0", "ATL", "1", "0", "5", "6", "2", "1", "3", "1", "2020"),
+                ("20200402", "0", "ATL", "0", "2", "7", "4", "1", "3", "2", "4", "2020"),
+                # the null game: real games like this exist (results-history.md,
+                # task 4.2) -- scores are known, counting stats are not.
+                ("20200403", "0", "ATL", None, None, None, None, None, None, "5", "2", "2020"),
+            ],
+        )
+    db_conn.commit()
+
+
+def test_a_season_with_one_null_counting_stats_game_is_not_comparable_via_gamelog(
+    db_conn, gamelog_with_a_null_game
+):
+    series = fetch_series(
+        db_conn,
+        "gamelog",
+        "season",
+        ("hr", "k", "bb", "r", "g"),
+        read_sql("tieout_season_gamelog.sql"),
+        {"lo": 2020, "hi": 2020},
+    )
+
+    # The whole season is dropped (not a crash, not a season total silently
+    # short by the null game's real count) -- even though two of its three
+    # games are perfectly clean.
+    assert ("2020",) not in series.counts
+
+
+def test_the_one_null_game_is_excluded_but_its_clean_season_mates_are_not(
+    db_conn, gamelog_with_a_null_game
+):
+    series = fetch_series(
+        db_conn,
+        "gamelog",
+        "game",
+        ("hr", "k", "bb", "r", "g"),
+        read_sql("tieout_game_gamelog.sql"),
+        {"lo": 2020, "hi": 2020},
+    )
+
+    assert ("2020", "ATL202004010") in series.counts
+    assert ("2020", "ATL202004020") in series.counts
+    assert ("2020", "ATL202004030") not in series.counts
+    assert series.counts[("2020", "ATL202004010")] == {"hr": 1, "k": 11, "bb": 3, "r": 4, "g": 1}
 
 
 # --- safety and the entry point ---------------------------------------------

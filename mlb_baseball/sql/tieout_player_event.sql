@@ -12,12 +12,14 @@
 -- raw.retrosheet_event's own resp_bat_id column, not a real data
 -- disagreement. Runs scored are not attributed to a batter in the event
 -- table, so r is not a player-game fact for this source. Called once per
--- season.
+-- season. Seasons before 1910 are excluded -- see tieout_season_event.sql for
+-- why (this connector's own documented coverage starts in 1910).
 WITH ev AS (
     SELECT DISTINCT ON (game_id, event_id)
         game_id, event_id, event_cd, bat_event_fl, resp_bat_id, _season
     FROM raw.retrosheet_event
     WHERE _season::integer BETWEEN %(lo)s AND %(hi)s
+        AND _season::integer >= 1910
     ORDER BY game_id, event_id, _scope
 )
 SELECT

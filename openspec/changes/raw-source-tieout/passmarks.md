@@ -109,7 +109,7 @@ listed so a gap is stated, not hidden. *(checked 2026-09-27 from production)*
 | `retrosheet_gamelog_post` | 1903 | 2025 | 122 seasons |
 | `retrosheet_gameinfo` (CSV product) | 1898 | 2025 | 128 seasons |
 | `retrosheet_batting` (CSV product) | 1898 | 2025 | 128 seasons |
-| `retrosheet_game` / `retrosheet_event` | 1900 | 2025 | 123 seasons; by group: `pbp` 1910–2025, `postseason` 1900–2025, `allstar` 1933–2025, `negro_league` 1903–1961 |
+| `retrosheet_game` / `retrosheet_event` | 1910 (gate) | 2025 | rows exist back to 1900, but the gate treats 1910 as the real start: every row before 1910 is `_group` `postseason` or `negro_league` (never `pbp`, zero exceptions -- checked by the first full-history run, task 4.2), so a pre-1910 season only ever holds a handful of World Series/Negro-League games, not the comprehensive regular season the CSV/game-log products have back to 1898. `tieout_season_event.sql`/`tieout_game_event.sql`/`tieout_player_event.sql` exclude seasons before 1910 for this reason. By group: `pbp` 1910–2025, `postseason` 1900–2025, `allstar` 1933–2025, `negro_league` 1903–1961 |
 | `retrosheet_plays` (CSV product) | not measured | not measured | 1898 onward per the connector docstring; the table is too slow to scan in the read-only tool, so the gate measures it |
 
 A season that only one source covers is reported "not comparable". 2026 is not

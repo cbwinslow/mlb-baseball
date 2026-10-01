@@ -3,12 +3,27 @@
 from retrosheetpy.artifact import Artifact
 from retrosheetpy.catalog import Product, Resource, resolve
 from retrosheetpy.client import Client, iter_zip_members
+from retrosheetpy.coverage import PlayCoverage
 from retrosheetpy.errors import (
     IntegrityError,
     InvalidArchiveError,
     ParseError,
     RetrosheetError,
     UnsafeArchiveMemberError,
+)
+from retrosheetpy.play import (
+    Advance,
+    AdvanceKind,
+    ChainStep,
+    EventKind,
+    Modifier,
+    ModifierKind,
+    Param,
+    ParamKind,
+    Play,
+    PrimaryEvent,
+    parse_play,
+    parse_play_record,
 )
 from retrosheetpy.records import (
     AdjustmentRecord,
@@ -33,6 +48,19 @@ from retrosheetpy.records import (
 __version__ = "0.0.1"
 
 __all__ = [
+    "PlayCoverage",
+    "Advance",
+    "AdvanceKind",
+    "ChainStep",
+    "EventKind",
+    "Modifier",
+    "ModifierKind",
+    "Param",
+    "ParamKind",
+    "Play",
+    "PrimaryEvent",
+    "parse_play",
+    "parse_play_record",
     "AdjustmentRecord",
     "CommentRecord",
     "DataRecord",

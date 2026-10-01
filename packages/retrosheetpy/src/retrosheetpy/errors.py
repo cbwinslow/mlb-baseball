@@ -30,8 +30,11 @@ class ParseError(RetrosheetError):
         game_id: str | None,
         record_type: str,
         raw: str,
+        token: str | None = None,
+        offset: int | None = None,
     ):
-        super().__init__(f"{source}:{line_no} [{stage}] {message}: {raw!r}")
+        where = f" at offset {offset} ({token!r})" if offset is not None else ""
+        super().__init__(f"{source}:{line_no} [{stage}] {message}{where}: {raw!r}")
         self.message = message
         self.stage = stage
         self.source = source
@@ -39,3 +42,5 @@ class ParseError(RetrosheetError):
         self.game_id = game_id
         self.record_type = record_type
         self.raw = raw
+        self.token = token  # the offending piece of ``raw``, when known
+        self.offset = offset  # its character offset inside ``raw``, when known

@@ -71,3 +71,8 @@ Chadwick's output; each lists a play that showed it. No Chadwick code was copied
   KCA201903310, CHA201905270, DET201908150)
 - **`presadj,pitcher,base`**: sets the responsible pitcher of the runner on that base
   (fixture `presadj`, a 1919 game).
+- **Batted ball with no trajectory in the text** (`BATTEDBALL_CD`): a fielder's choice or an
+  error is `G` (`F` if an outfielder made the error); `FLE` is `P` (`F` for an outfielder);
+  an out is `P` on `/IF`, `G` on a sacrifice bunt, a force `n(m)` or more than one fielder,
+  otherwise `F`; `/LDP` is `L` and `/GDP`, `/GTP`, `/FO` are `G`. Other plays stay blank.
+  (NYN201908200, ARI201905180, HOU201905220)

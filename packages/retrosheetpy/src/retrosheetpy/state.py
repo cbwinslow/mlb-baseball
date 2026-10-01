@@ -14,6 +14,7 @@ interpreted raises ``ParseError`` (stage ``state``) in strict mode.
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
 
+from retrosheetpy.crosswalk import chadwick_fields
 from retrosheetpy.errors import ParseError
 from retrosheetpy.fielding import fielding_fields
 from retrosheetpy.outcome import outcome_fields
@@ -457,6 +458,10 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
         row.update(outcome_fields(play, moves.batter_event, moves.batter_dest, moves.run_dest))
         row.update(fielding_fields(play))
         row.update(play_text_fields(play))
+        row.update({"BATTEDBALL_CD": "", "BATTEDBALL_LOC_TX": ""})
+        row.update({k: str(v) for k, v in chadwick_fields(play).items()})
+        if not row["BATTEDBALL_CD"]:
+            row["BATTEDBALL_CD"] = _inferred_battedball(play)
     batter_slot = batting.order[slot]
     assert batter_slot is not None
     removed = batter_slot.replaced if batter_slot.fresh else None
@@ -503,6 +508,34 @@ def _shift_pitchers(state: GameState, moves: Moves, new_bases: list[Runner | Non
         runner = new_bases[base]
         assert runner is not None
         new_bases[base] = replace(runner, resp_pit=pool[i])
+
+
+def _inferred_battedball(play: Play) -> str:
+    """The batted-ball type of a play with no trajectory in the text.
+
+    A fielder's choice is a ground ball; so is an error, unless an outfielder made it (then a
+    fly ball). A foul fly error is a pop-up, or a fly ball if an outfielder dropped it. An out
+    is a pop-up on an infield fly, a line drive on a line-drive double play, a ground ball on
+    a sacrifice bunt, a force out, a ground-ball double or triple play, or an out with more
+    than one fielder (so also an unknown `99`), and otherwise a fly ball.
+    """
+    first = play.events[0]
+    if first.kind is EventKind.FIELDERS_CHOICE:
+        return "G"
+    if first.kind is EventKind.ERROR:
+        return "F" if (first.error_fielder or "0") >= "7" else "G"
+    if first.kind is EventKind.FOUL_FLY_ERROR:
+        return "F" if first.fielders >= "7" else "P"
+    if first.kind is not EventKind.FIELDED_OUT:
+        return ""
+    codes = {m.code for m in play.modifiers}
+    if "IF" in codes:
+        return "P"
+    if "LDP" in codes:
+        return "L"
+    if codes & {"SH", "FO", "GDP", "GTP"} or len(first.chain[0].fielders) > 1:
+        return "G"
+    return "F"
 
 
 def _after_play(

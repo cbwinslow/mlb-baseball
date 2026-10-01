@@ -9,6 +9,29 @@ so until they exist the package cannot replace Chadwick. The Slice B go/no-go no
 (`pure-python-retrosheet/slice-b-go-no-go.md`) recommends doing it now, with a
 hard equality target.
 
+## Long-term goal and roadmap
+
+The owner's goal is for `retrosheetpy` to be a free, pip-installable, pure-Python
+replacement for the Chadwick tools, with byte-identical output, that other
+baseball researchers can use on its own (no dependency on mlb-baseball, no
+database, no native code). It also becomes a one-stop shop for Retrosheet files:
+download, organize into a local folder, parse, and hand back usable data.
+
+This change is step 1 of a series, each its own OpenSpec change:
+
+1. **This change:** `cwevent` equivalent and the game-state engine it needs.
+2. **CLI and one-stop data access:** `retrosheetpy` command namespace with
+   Chadwick-compatible commands and options, a default cache folder
+   (overridable), and a "get a season" command that downloads, unpacks,
+   organizes and parses; a Python API returning plain data (pandas only as an
+   optional extra).
+3. **Other Chadwick tools** (`cwgame`, `cwbox`, `cwdaily`, `cwcomp`, `cwsub`),
+   each proven identical to Chadwick on real seasons, reusing the engine.
+4. **PyPI release:** packaging, metadata, versioning, docs, clean-install tests.
+
+Chadwick-style commands must match Chadwick's output exactly; extra options and
+convenience commands are additions that never change that output.
+
 ## What Changes
 
 - Add a game-state engine to `packages/retrosheetpy`: it walks a game's records

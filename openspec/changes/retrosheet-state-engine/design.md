@@ -22,8 +22,11 @@ data must be downloaded.
 
 - Performance tuning (about 70k lines/s is accepted unless measurement says the
   full-history run is impractical).
-- Box-score output (`cwbox`/`cwgame` equivalents), dataframes, PostgreSQL loads,
-  switching any connector to the new engine.
+- The CLI, default cache folder, "get a season" command, the other Chadwick
+  tools (`cwgame`, `cwbox`, `cwdaily`, ...) and PyPI release: later steps in the
+  roadmap in `proposal.md`. The engine API is kept plain and reusable so they can
+  build on it.
+- Dataframes, PostgreSQL loads, switching any mlb_baseball connector to the engine.
 - Fields that need team/roster files, unless the exclusion list says otherwise.
 
 ## Decisions

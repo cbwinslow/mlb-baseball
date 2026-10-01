@@ -138,6 +138,7 @@ class GameState:
     )
     pa_count: str = ""  # the count announced by an NP line for the plate appearance in progress
     pa_pitcher: str | None = None  # pitcher on the field when the count was announced by NP
+    pa_half: tuple[int, int] = (0, 0)  # (inning, side) in which the NP line was seen
     uncertain: bool = False  # an earlier play in this game could not be interpreted
     half_pa: int = 0  # plate appearances completed in this half-inning
     pa_hand: str | None = None
@@ -439,7 +440,11 @@ def event_rows(records: Iterable[Record], *, strict: bool = True) -> Iterator[di
                 charged_back = balls >= 2 and balls > strikes
                 pitcher = state.teams[1 - rec.team].fielders[1] if charged_back else None
                 state = replace(
-                    state, pa_batter=rec.player_id, pa_pitcher=pitcher, pa_count=rec.count
+                    state,
+                    pa_batter=rec.player_id,
+                    pa_pitcher=pitcher,
+                    pa_count=rec.count,
+                    pa_half=(rec.inning, rec.team),
                 )
         elif isinstance(rec, PlayRecord):
             if state is None:
@@ -457,7 +462,7 @@ def _flush(pending: list[tuple[PlayRecord, dict[str, str]]]) -> Iterator[dict[st
     yield from rows
 
 
-def _charged_base(base: int, state: GameState, moves: Moves | None, choice: bool) -> int:
+def _charged_base(base: int, state: GameState, moves: Moves | None, fc: frozenset[int]) -> int:
     """The base whose runner's pitcher, catcher and automatic mark are shown for ``base``.
 
     Normally its own. When the runner on third is retired on a fielder's choice and the runner
@@ -465,7 +470,7 @@ def _charged_base(base: int, state: GameState, moves: Moves | None, choice: bool
     first the second-base runner's (or the third-base runner's if second is empty and the
     runner from first scores).
     """
-    if moves is None or not choice or base == 3:
+    if moves is None or 3 not in fc or base == 3:
         return base
     third_out = state.bases[2] is not None and moves.run_dest[2] == 0
     if not third_out:
@@ -518,18 +523,21 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
             raise
         unsupported = f"{exc.stage}: {exc.message}"
     first_kind = play.events[0].kind if play else None
-    choice = first_kind is EventKind.FIELDERS_CHOICE or (
-        play is not None and any(step.runner for step in play.events[0].chain)
-    )
+    fc = _fc_bases(play) if play is not None else frozenset[int]()
     # A substitute batter finishing a count of 2 strikes by strikeout, or of 3 balls (and fewer
     # than 2 strikes) by walk, is not charged with it: the batter who started the count is.
-    decided = (first_kind is EventKind.STRIKEOUT and state.pa_count[1:] == "2") or (
-        first_kind is EventKind.WALK and state.pa_count[:1] == "3" and state.pa_count[1:] != "2"
+    # An NP line counts only in the half-inning it was seen in.
+    announced = state.pa_half == (rec.inning, rec.team)
+    pa_count = state.pa_count if announced else ""
+    decided = (first_kind is EventKind.STRIKEOUT and pa_count[1:] == "2") or (
+        first_kind is EventKind.WALK and pa_count[:1] == "3" and pa_count[1:] != "2"
     )
     resp_bat = state.pa_batter if decided else None
     resp_bat = resp_bat or rec.player_id
     resp_pit = (
-        state.pa_pitcher if first_kind in (EventKind.WALK, EventKind.INTENTIONAL_WALK) else None
+        state.pa_pitcher
+        if announced and first_kind in (EventKind.WALK, EventKind.INTENTIONAL_WALK)
+        else None
     )
     resp_pit = resp_pit or fielding.fielders[1] or ""
     batter_pos = batting.order[slot].position  # type: ignore[union-attr]
@@ -590,7 +598,7 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
         runner = state.bases[n - 1]
         row[f"PR_RUN{n}_FL"] = "T" if mark else "F"
         row[f"REMOVED_FOR_PR_RUN{n}_ID"] = mark[1] if mark else ""
-        shown = state.bases[_charged_base(n, state, moves, choice) - 1] if runner else None
+        shown = state.bases[_charged_base(n, state, moves, fc) - 1] if runner else None
         row[f"RUN{n}_RESP_PIT_ID"] = shown.resp_pit if shown else ""
     for pos in range(2, 10):
         row[f"POS{pos}_FLD_ID"] = fielding.fielders[pos] or ""
@@ -622,7 +630,7 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
         listed = runner.position if runner else 0
         row[f"RUN{n}_FLD_CD"] = str(0 if listed > DH and row["PH_FL"] == "F" else listed)
         row[f"RUN{n}_ORIGIN_EVENT_ID"] = str(runner.origin) if runner else "0"
-        shown = state.bases[_charged_base(n, state, moves, choice) - 1] if runner else None
+        shown = state.bases[_charged_base(n, state, moves, fc) - 1] if runner else None
         row[f"RUN{n}_RESP_CAT_ID"] = shown.resp_cat if shown else ""
         row[f"RUN{n}_AUTO_FL"] = "T" if shown and shown.auto else "F"
     pa_hand = state.pa_hand or "?"
@@ -634,51 +642,92 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
         # The play was not understood, so nothing about the state after it is known.
         uncertain = replace(state, events=state.events + 1, uncertain=True)
         return uncertain, row
-    advance_outs = frozenset(
-        int(adv.from_base)
-        for adv in play.advances
-        if first_kind is not EventKind.FIELDERS_CHOICE
-        and adv.kind is AdvanceKind.OUT
-        and adv.from_base in ("1", "2", "3")
-        and not _safe_on_error(adv.params)
-    )
     return (
-        _after_play(state, rec, moves, slot, row["RESP_PIT_ID"], choice, batter_pos, advance_outs),
+        _after_play(state, rec, moves, slot, row["RESP_PIT_ID"], fc, batter_pos),
         row,
     )
 
 
-def _shift_pitchers(
-    state: GameState,
-    moves: Moves,
-    new_bases: list[Runner | None],
-    advance_outs: frozenset[int],
-) -> None:
-    """A runner retired on a ball in play passes his pitcher back to those behind him.
+def _fc_bases(play: Play) -> frozenset[int]:
+    """Bases whose runner, if retired on this play, passes his pitcher back (a force or choice).
 
-    Runners still on base, lead runner first, take the pitchers of the runners who were on
-    base before the play. Those who scored leave theirs behind. A
-    batter who reaches thus ends up with the pitcher of the runner he replaced and his own
-    pitcher drops out. The automatic-runner mark travels the same way, except that a runner put
-    out by an advance (`3XH(...)`) rather than in the fielding chain does not pass it on.
+    A runner retired in a fielding chain (``64(1)3``) counts, but not when the first marker is
+    the batter's own out (``(B)``) unless it is a ground-ball double play; a runner retired by an
+    advance (``3XH``) counts on a fielder's choice only.
     """
-    if not any(r is not None and d == 0 for r, d in zip(state.bases, moves.run_dest, strict=True)):
-        return
-    ranked = [
-        (base, runner, d)
-        for base, runner, d in reversed(
-            list(zip((1, 2, 3), state.bases, moves.run_dest, strict=True))
+    first = play.events[0]
+    markers = [step.runner for step in first.chain if step.runner]
+    flagged = {int(m) for m in markers if m != "B"}
+    if markers and markers[0] == "B" and "GDP" not in {m.code for m in play.modifiers}:
+        flagged.clear()
+    if first.kind is EventKind.FIELDERS_CHOICE:
+        flagged |= {
+            int(adv.from_base)
+            for adv in play.advances
+            if adv.kind is AdvanceKind.OUT
+            and adv.from_base in ("1", "2", "3")
+            and not _safe_on_error(adv.params)
+        }
+    return frozenset(flagged)
+
+
+def _advance_runners(
+    state: GameState,
+    rec: PlayRecord,
+    moves: Moves,
+    resp_pit: str,
+    batter_position: int,
+    fc: frozenset[int],
+) -> list[Runner | None]:
+    """The runners on first, second and third once ``moves`` have happened.
+
+    Bases are handled from third down, as scorers leave and runners move up. A runner retired
+    on a force or fielder's choice (``fc``) hands his pitcher, catcher and automatic mark to the
+    next runner behind him, who hands his on in turn, down to the batter.
+    """
+    catcher = state.teams[1 - state.side].fielders[2] or ""
+    batter = Runner(rec.player_id, resp_pit, catcher, state.events + 1, position=batter_position)
+    slots: list[Runner | None] = [batter, *state.bases]
+    dest = [moves.batter_dest if moves.batter_event else 0, *moves.run_dest]
+
+    def out(base: int) -> bool:
+        return state.bases[base - 1] is not None and dest[base] == 0
+
+    def reassign(base: int) -> None:
+        giver = slots[base]
+        assert giver is not None
+        target = next((b for b in range(base - 1, 0, -1) if slots[b] is not None), 0)
+        if target:
+            reassign(target)
+        taker = slots[target]
+        assert taker is not None
+        slots[target] = replace(
+            taker, resp_pit=giver.resp_pit, resp_cat=giver.resp_cat, auto=giver.auto
         )
-        if runner is not None and d < SCORED
-    ]
-    survivors = [b for b in (2, 1, 0) if new_bases[b] is not None]
-    marks = [runner.auto for base, runner, _ in ranked if base not in advance_outs]
-    for i, base in enumerate(survivors):
-        runner = new_bases[base]
-        assert runner is not None
-        if i < len(ranked):
-            runner = replace(runner, resp_pit=ranked[i][1].resp_pit, resp_cat=ranked[i][1].resp_cat)
-        new_bases[base] = replace(runner, auto=i < len(marks) and marks[i])
+
+    if dest[3] >= SCORED or out(3):
+        if out(3) and 3 in fc:
+            reassign(3)
+        slots[3] = None
+    if dest[2] == 3:
+        slots[3] = slots[2]
+    if dest[2] >= 3 or out(2):
+        if out(2) and 2 in fc:
+            reassign(2)
+        slots[2] = None
+    if dest[1] in (2, 3):
+        slots[dest[1]] = slots[1]
+    if dest[1] >= 2 or out(1):
+        if out(1) and 1 in fc:
+            reassign(1)
+        slots[1] = None
+    for back, target in ((3, 2), (3, 1), (2, 1)):
+        if dest[back] == target:
+            slots[target] = slots[back]
+            slots[back] = None
+    if 1 <= dest[0] <= 3:
+        slots[dest[0]] = slots[0]
+    return [slots[1], slots[2], slots[3]]
 
 
 def _inferred_battedball(play: Play) -> str:
@@ -715,24 +764,11 @@ def _after_play(
     moves: Moves,
     slot: int,
     resp_pit: str,
-    choice: bool,
+    fc: frozenset[int],
     batter_position: int,
-    advance_outs: frozenset[int],
 ) -> GameState:
     """The state once ``moves`` have happened."""
-    new_bases: list[Runner | None] = [None, None, None]
-    for base in (1, 2, 3):
-        runner = state.bases[base - 1]
-        d = moves.run_dest[base - 1]
-        if runner is not None and 1 <= d <= 3:
-            new_bases[d - 1] = runner
-    if moves.batter_event and 1 <= moves.batter_dest <= 3:
-        catcher = state.teams[1 - state.side].fielders[2] or ""
-        new_bases[moves.batter_dest - 1] = Runner(
-            rec.player_id, resp_pit, catcher, state.events + 1, position=batter_position
-        )
-    if choice:
-        _shift_pitchers(state, moves, new_bases, advance_outs)
+    new_bases = _advance_runners(state, rec, moves, resp_pit, batter_position, fc)
     batting = state.teams[state.side]
     if moves.batter_event:
         order = list(batting.order)

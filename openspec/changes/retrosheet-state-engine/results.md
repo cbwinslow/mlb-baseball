@@ -155,3 +155,18 @@ Chadwick's output; each lists a play that showed it. No Chadwick code was copied
   (`POCS3(1655)`: assists 1, 6, 5; OAK202205030).
 - Walk charged to the earlier pitcher: Chadwick sets it when a pitching sub follows a play with
   count 2-0, 2-1 or 3-x (`state.walk_pitcher`), and our NP-count rule matches that.
+
+## 2023-2024: 2019-2024 all 0 mismatches
+
+- **Pitcher/catcher/auto handoff is Chadwick's retire-and-reassign, not "shift survivors"**
+  (read in `gameiter.c` for understanding; own code in `_advance_runners`). Bases are processed
+  from third down. A runner retired on a force or fielder's choice (`_fc_bases`: a chain marker
+  `(n)`, not when the first marker is the batter's `(B)` unless the play is a GDP; for an `FC`
+  event the out advances) hands his pitcher, catcher and auto mark to the next occupied base
+  below, which hands its own down in turn, down to the batter. Scorers stay in the chain until
+  they leave. This replaced the earlier survivor-pool rules (which approximated it).
+- **Pitch `A`** (2023 automatic strike) is an "other" strike (`PA_OTHER_STRIKE_CT`) but not a
+  pitch thrown (`PA_STRIKE_CT`).
+- **An NP line counts only in the half-inning it was seen in**: a plate appearance cut short by
+  the third out (a caught stealing) must not make the next half's batter "charged" to it
+  (COL202406160, five plays in 2024).

@@ -16,6 +16,7 @@ _BALLS = {
     "H": ("PA_HITBATTER_BALL_CT",),
 }
 _OTHER_BALL = "V"
+_AUTO_STRIKE = "A"  # an automatic strike is an "other" strike but not a pitch thrown
 _STRIKES = {
     "C": "PA_CALLED_STRIKE_CT",
     "S": "PA_SWINGMISS_STRIKE_CT",
@@ -56,6 +57,8 @@ def pitch_counts(pitches: str) -> dict[str, str]:
                 count[column] += 1
         elif ch == _OTHER_BALL:
             count["PA_OTHER_BALL_CT"] += 1
+        elif ch == _AUTO_STRIKE:
+            count["PA_OTHER_STRIKE_CT"] += 1
         elif ch in _STRIKES:
             count["PA_STRIKE_CT"] += 1
             count[_STRIKES[ch]] += 1

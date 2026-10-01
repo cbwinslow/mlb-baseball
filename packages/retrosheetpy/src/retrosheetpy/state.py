@@ -15,6 +15,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
 
 from retrosheetpy.errors import ParseError
+from retrosheetpy.fielding import fielding_fields
 from retrosheetpy.outcome import outcome_fields
 from retrosheetpy.play import (
     AdvanceKind,
@@ -421,6 +422,7 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
     }
     if play is not None and moves is not None:
         row.update(outcome_fields(play, moves.batter_event, moves.batter_dest, moves.run_dest))
+        row.update(fielding_fields(play))
     for pos in range(2, 10):
         row[f"POS{pos}_FLD_ID"] = fielding.fielders[pos] or ""
     pa_hand = state.pa_hand or "?"

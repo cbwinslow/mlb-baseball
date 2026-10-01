@@ -39,3 +39,13 @@ Chadwick's output; each lists a play that showed it. No Chadwick code was copied
 - **RBI**: runs scored, minus `(NR)`, plus `(RBI)`; none by default on strikeouts,
   ground-ball double plays, or non-batter events; after an error only the runner from
   third counts by default.
+- **Fielded-by (`FLD_CD`)**: first fielder of the play; 0 for strikeouts and home runs.
+- **Putouts and assists**: per out, each fielder who threw to a *different* fielder gets
+  one assist and the last fielder gets the putout; in a chain the fielder who made one out
+  throws for the next (`64(1)3`: assists 6, 4; putouts 4, 3). Assists are not de-duplicated
+  across outs (`CSH(13253)/DP.1X3(34)` credits fielder 3 twice). An unassisted `3(1)3` has no
+  assist. A strikeout earns no putout when the batter reaches (`K+WP.B-1`).
+- **Errors**: `5E3` is type D (dropped) with an assist to 5; `E5` is F; `/TH` makes T.
+  An error inside a fielding string (`2X3(5E4)`) gives assists to the fielders before it.
+  After a runner-only event (`SB`, `WP`, `OA`) a bare `(E4)` is D; for pickoffs `E1`/`E2`
+  are T and others D.

@@ -104,7 +104,7 @@ select = ["E", "F", "I", "UP", "B"]
 ignore = ["UP046", "UP047"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "packages/mlb-research/tests"]
+testpaths = ["tests", "packages/mlb-research/tests", "packages/retrosheetpy/tests"]
 # host/user for pytest-postgresql's postgresql_noproc fixture are resolved
 # in tests/conftest.py (falling back to "localhost" / getpass.getuser()),
 # not hardcoded here -- a hardcoded postgresql_user would be one specific

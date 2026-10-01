@@ -1,0 +1,60 @@
+{
+  "files": {
+    "allstar.evt": {
+      "game_id": "NLS195207080",
+      "rows": 44,
+      "source_url": "https://www.retrosheet.org/downloads/1952/1952csvs.zip",
+      "source_sha256": "58fb1fb9c44eb01971397eb3c7c31f907baf8553295f94ee770f9b9207630c63",
+      "csv_sha256": "2d17fad62cf30eec5796bc8f656a8734191516077703ba4b05d36c0aadacf82d"
+    },
+    "deduced.evt": {
+      "game_id": "CHF191509122",
+      "rows": 41,
+      "source_url": "https://www.retrosheet.org/downloads/1915/1915csvs.zip",
+      "source_sha256": "f4f6d3d64913ce6e5748d429b347f7d9020aa9ba7a653a6621d4b845b92d05c4",
+      "csv_sha256": "18cd31ba9c3b8fceeb69ffa872bb70131ac5e727acca27e0c57aecc316e18f9b"
+    },
+    "ladj.evt": {
+      "game_id": "BSN191008020",
+      "rows": 74,
+      "source_url": "https://www.retrosheet.org/downloads/1910/1910csvs.zip",
+      "source_sha256": "9b881289d70d17539cfe10cd676835653d7faf29f7d4b5e356db56c23900f35b",
+      "csv_sha256": "6a277aee805a018a5fcc821d682ad80e432766fb965d664e815fe1cc2b16333b"
+    },
+    "negro_league.evt": {
+      "game_id": "KCM192609180",
+      "rows": 74,
+      "source_url": "https://www.retrosheet.org/downloads/1926/1926csvs.zip",
+      "source_sha256": "96e48ea5177e0e6c6500d0a11b6f34155088d6f621e144fd1cc1f3ff6ee1940a",
+      "csv_sha256": "1f75ff8b4cc4b0e41549c406d945b83e7a3e6a1b50f6f7c881ef853aa4e173c7"
+    },
+    "postseason.evt": {
+      "game_id": "NYA195610080",
+      "rows": 56,
+      "source_url": "https://www.retrosheet.org/downloads/1956/1956csvs.zip",
+      "source_sha256": "bc1600ad470ce3c3d936f4732aaef72e90f822feaa47594207176ecf74cfb510",
+      "csv_sha256": "1b274b3da9fafee3526c2c656775470f6b505af6d5fb02d5412d612ec5172119"
+    },
+    "presadj.evt": {
+      "game_id": "WS1190906170",
+      "rows": 52,
+      "source_url": "https://www.retrosheet.org/downloads/1909/1909csvs.zip",
+      "source_sha256": "6c48e8e931a25b6cb0846f35d5223b9ec4eb96ed53cec76f05f2e8476131c32e",
+      "csv_sha256": "70790c66f01c1a3fd83b8eaa5250ef0269056c05c0ad3e305d011efff0c415d2"
+    },
+    "regular_1950.evt": {
+      "game_id": "PHI195009100",
+      "rows": 41,
+      "source_url": "https://www.retrosheet.org/downloads/1950/1950csvs.zip",
+      "source_sha256": "4fc7aea67b2a89e5c87bb0b095dfcde8a7e77f593491d92817eb24c6fc8af48a",
+      "csv_sha256": "aef91e3ce8b343386bbefb431b92eeb2cf2bfb0ec78f7089f589ee45dd65050b"
+    },
+    "regular_2007.evt": {
+      "game_id": "TOR200705310",
+      "rows": 59,
+      "source_url": "https://www.retrosheet.org/downloads/2007/2007csvs.zip",
+      "source_sha256": "6fee0e6f37b6419a2dad3906a756326456df581d9c33e802113a032e3123d216",
+      "csv_sha256": "057b162ebb97f0d416809e6dc9b8046c5d4365554c86bcf51b762417033bfc68"
+    }
+  }
+}

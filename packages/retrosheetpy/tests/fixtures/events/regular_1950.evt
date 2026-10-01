@@ -1,0 +1,96 @@
+id,PHI195009100
+version,1
+info,inputprogvers,"version 7RS(19) of 07/07/92"
+info,visteam,BSN
+info,hometeam,PHI
+info,date,1950/09/10
+info,site,PHI11
+info,number,0
+info,starttime,0:00PM
+info,daynight,day
+info,usedh,false
+info,umphome,robbs901
+info,ump1b,pineb101
+info,ump2b,(none)
+info,ump3b,boggd901
+info,scorer,"150"
+info,translator,"Comly"
+info,inputter,"Comly"
+info,inputtime,2000/10/05 9:49PM
+info,howscored,park
+info,pitches,none
+info,temp,0
+info,winddir,unknown
+info,windspeed,-1
+info,fieldcond,unknown
+info,precip,unknown
+info,sky,unknown
+info,timeofgame,68
+info,attendance,14684
+info,wp,sainj101
+info,lp,churb101
+info,save,
+info,gwrbi,
+start,hartr101,"Roy Hartsfield",0,1,4
+start,jeths101,"Sam Jethroe",0,2,8
+start,torge101,"Earl Torgeson",0,3,3
+start,ellib103,"Bob Elliott",0,4,5
+start,coopw102,"Walker Cooper",0,5,2
+start,gords101,"Sid Gordon",0,6,7
+start,holmt101,"Tommy Holmes",0,7,9
+start,kerrb101,"Buddy Kerr",0,8,6
+start,sainj101,"Johnny Sain",0,9,1
+start,waite101,"Eddie Waitkus",1,1,3
+start,ashbr101,"Richie Ashburn",1,2,8
+start,jonew101,"Willie Jones",1,3,5
+start,ennid101,"Del Ennis",1,4,9
+start,mayoj101,"Jackie Mayo",1,5,7
+start,hamng102,"Granny Hamner",1,6,6
+start,semia101,"Andy Seminick",1,7,2
+start,golim101,"Mike Goliat",1,8,4
+start,churb101,"Bubba Church",1,9,1
+play,1,0,hartr101,??,,7
+play,1,0,jeths101,??,,6
+play,1,0,torge101,??,,8
+play,1,1,waite101,??,,W
+play,1,1,ashbr101,??,,3/FL
+play,1,1,jonew101,??,,7
+play,1,1,ennid101,??,,6
+play,2,0,ellib103,??,,8
+play,2,0,coopw102,??,,63
+play,2,0,gords101,??,,7
+play,2,1,mayoj101,??,,S
+play,2,1,hamng102,??,,63.1-2
+play,2,1,semia101,??,,K
+play,2,1,golim101,??,,53
+play,3,0,holmt101,??,,S
+play,3,0,kerrb101,??,,W.1-2
+play,3,0,sainj101,??,,14/SH.2-3;1-2
+play,3,0,hartr101,??,,7/F.3-H;2-H(E7)(NR)(UR)
+play,3,0,jeths101,??,,W
+play,3,0,torge101,??,,43
+play,3,1,churb101,??,,2/FL
+play,3,1,waite101,??,,9/L
+play,3,1,ashbr101,??,,13
+play,4,0,ellib103,??,,K
+play,4,0,coopw102,??,,63
+play,4,0,gords101,??,,7
+play,4,1,jonew101,??,,S
+play,4,1,ennid101,??,,S.1-2
+play,4,1,mayoj101,??,,K
+play,4,1,hamng102,??,,64(1)3/GDP
+play,5,0,holmt101,??,,5/L
+play,5,0,kerrb101,??,,T9/F
+play,5,0,sainj101,??,,8
+play,5,0,hartr101,??,,S.3-H
+play,5,0,jeths101,??,,5
+play,5,1,semia101,??,,K
+play,5,1,golim101,??,,53
+play,5,1,churb101,??,,HP
+play,5,1,waite101,??,,S.1-3
+play,5,1,ashbr101,??,,D.3-H;1-3
+play,5,1,jonew101,??,,6
+com,"$game called due to rain; Jackie Mayo lost a home run in the"
+com,"incomplete sixth inning"
+data,er,sainj101,1
+data,er,churb101,2

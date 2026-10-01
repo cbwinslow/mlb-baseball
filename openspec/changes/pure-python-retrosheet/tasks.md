@@ -19,16 +19,16 @@ then implement the smallest passing behavior.
 
 ## 2. Official resource client
 
-- [ ] 2.1 Add a typed Resource/Artifact model with source URL, product, season
+- [x] 2.1 Add a typed Resource/Artifact model with source URL, product, season
   or group, local path, SHA-256, size, and retrieved timestamp.
-- [ ] 2.2 Implement deterministic official URL resolution for the source
+- [x] 2.2 Implement deterministic official URL resolution for the source
   products already used by mlb-baseball: yearly parsed CSV bundles, event
   decade archives, postseason, All-Star, Negro League event archives, roster
   resources, and box-score archive families.
-- [ ] 2.3 Implement safe cached download and zip-member iteration. Reject path
+- [x] 2.3 Implement safe cached download and zip-member iteration. Reject path
   traversal and corrupt/non-zip responses; do not silently overwrite a cached
   artifact whose bytes differ without returning new metadata.
-- [ ] 2.4 Tests use captured tiny archives or mocked byte responses. Routine CI
+- [x] 2.4 Tests use captured tiny archives or mocked byte responses. Routine CI
   must not depend on live Retrosheet availability.
 
 ## 3. Lossless raw record framing

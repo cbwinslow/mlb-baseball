@@ -1,4 +1,4 @@
-# retrosheet-pure — DOX contract
+# retrosheetpy — DOX contract
 
 ## Purpose
 
@@ -12,7 +12,7 @@ change: `openspec/changes/pure-python-retrosheet/`.
 - Unknown record or play syntax must raise (strict) or surface as an explicit
   unsupported node. Never skip silently.
 - Tests must not hit the live Retrosheet site; use small captured fixtures.
-- Run: `uv run --package retrosheet-pure --with pytest pytest packages/retrosheet-pure/tests`
+- Run: `uv run --package retrosheetpy --with pytest pytest packages/retrosheetpy/tests`
 
 ## Child DOX Index
 

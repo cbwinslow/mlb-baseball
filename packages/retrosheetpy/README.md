@@ -1,4 +1,4 @@
-# retrosheet-pure
+# retrosheetpy
 
 Pure-Python Retrosheet file client and lossless record/play parser. It needs no
 compiler, no Chadwick programs, no PostgreSQL, and no pandas. Work in progress

@@ -10,7 +10,7 @@ resolution-markers = [
 members = [
     "mlb-baseball",
     "mlb-research",
-    "retrosheet-pure",
+    "retrosheetpy",
 ]
 
 [[package]]
@@ -2935,9 +2935,9 @@ wheels = [
 ]
 
 [[package]]
-name = "retrosheet-pure"
+name = "retrosheetpy"
 version = "0.0.1"
-source = { editable = "packages/retrosheet-pure" }
+source = { editable = "packages/retrosheetpy" }
 
 [[package]]
 name = "rich"

@@ -1,5 +1,5 @@
 [project]
-name = "retrosheet-pure"
+name = "retrosheetpy"
 version = "0.0.1"
 description = "Pure-Python Retrosheet file client and lossless record/play parser (no native tools required)."
 readme = "README.md"
@@ -12,4 +12,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/retrosheet_pure"]
+packages = ["src/retrosheetpy"]

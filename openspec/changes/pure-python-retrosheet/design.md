@@ -159,6 +159,14 @@ No Chadwick GPL source is copied into the implementation.
 Retrosheet attribution and data-use requirements are documented in the package
 README and source-client documentation.
 
+### D9 — Package name (decided 2026-10-01)
+
+Distribution `retrosheet-pure`, import `retrosheet_pure`, in
+`packages/retrosheet-pure/`. Checked on PyPI the same day: the name was free
+(`pyretrosheet` and `retropy` are taken; `retrosheet`, `retrosheet-py`,
+`retrosheet-parser` were also free but easily confused with existing GitHub
+projects).
+
 ## Validation strategy
 
 The package is tested at five levels:

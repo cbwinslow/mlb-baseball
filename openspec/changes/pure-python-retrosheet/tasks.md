@@ -7,14 +7,14 @@ then implement the smallest passing behavior.
 
 ## 1. Package and source contract
 
-- [ ] 1.1 Check PyPI and repository-name collisions and record the final
+- [x] 1.1 Check PyPI and repository-name collisions and record the final
   distribution name and import namespace. Do not reuse pyretrosheet.
-- [ ] 1.2 Scaffold the package under packages/ and add it to the existing uv
+- [x] 1.2 Scaffold the package under packages/ and add it to the existing uv
   workspace. The package must install/import with no compiler, CMake, autotools,
   Chadwick executable, PostgreSQL client, pandas, or mlb_baseball.
-- [ ] 1.3 Add README/source-rights text naming Retrosheet as the source and
+- [x] 1.3 Add README/source-rights text naming Retrosheet as the source and
   reproducing the required attribution guidance without implying endorsement.
-- [ ] 1.4 Add a small public API document. Keep the first stable surface limited
+- [x] 1.4 Add a small public API document. Keep the first stable surface limited
   to source acquisition, record iteration, play parsing, and structured errors.
 
 ## 2. Official resource client

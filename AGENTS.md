@@ -171,6 +171,7 @@ Start here for deeper shared context:
 | [`migrations/AGENTS.md`](migrations/AGENTS.md) | PostgreSQL DDL/schema evolution and migration safety. |
 | [`mlb_baseball/AGENTS.md`](mlb_baseball/AGENTS.md) | Python package architecture and package-level progressive context. |
 | [`docs/archive/plans/AGENTS.md`](docs/archive/plans/AGENTS.md) | Long-horizon/staged execution plans and status semantics (archived). |
+| [`packages/retrosheet-pure/AGENTS.md`](packages/retrosheet-pure/AGENTS.md) | Standalone Python-only Retrosheet client and parser package (no `mlb_baseball` dependency). |
 | [`scripts/AGENTS.md`](scripts/AGENTS.md) | Operational/maintenance scripts and destructive-operation safety. |
 | [`tests/AGENTS.md`](tests/AGENTS.md) | Pytest structure, real PostgreSQL integration, run-specific DB isolation. |
 | [`transforms/AGENTS.md`](transforms/AGENTS.md) | SQLMesh models, audits, incrementality, PIT transformation contracts. |

@@ -7,9 +7,9 @@
 
 ## 2. Game state and lineups
 
-- [ ] 2.1 Implement lineup and defense tracking from `start`, `sub` and adjustment records; verify against Chadwick fields for batter, pitcher, fielders and lineup positions on the fixtures.
-- [ ] 2.2 Implement outs, inning/half tracking, base occupancy and score before each play, plus new-game and end-game flags; verify those fields match Chadwick on the fixtures.
-- [ ] 2.3 Add strict/diagnostic handling for impossible state (runner from an empty base, fourth out); verify with unit tests for both modes.
+- [x] 2.1 Implement lineup and defense tracking from `start`, `sub` and adjustment records; verify against Chadwick fields for batter, pitcher, fielders and lineup positions on the fixtures.
+- [x] 2.2 Implement outs, inning/half tracking, base occupancy and score before each play, plus new-game and end-game flags; verify those fields match Chadwick on the fixtures.
+- [x] 2.3 Add strict/diagnostic handling for impossible state (runner from an empty base, fourth out); verify with unit tests for both modes.
 
 ## 3. Play effects
 

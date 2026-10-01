@@ -49,3 +49,25 @@ Chadwick's output; each lists a play that showed it. No Chadwick code was copied
   An error inside a fielding string (`2X3(5E4)`) gives assists to the fielders before it.
   After a runner-only event (`SB`, `WP`, `OA`) a bare `(E4)` is D; for pickoffs `E1`/`E2`
   are T and others D.
+- **Play text (`BAT_PLAY_TX`, `RUN*_PLAY_TX`)**: the fielders of each out, e.g. `63`, `64`
+  for `64(1)`; in a chain the fielder who made one out is carried into the next but not listed
+  twice (`3(1)3(B)` gives `3` and `3`; `4(1)3` gives `4` and `43`). A strikeout gives `2` (or the
+  fielders given), blank if the batter reaches. A batter who reaches on `5E3` gets `5E3`; plain
+  `E5` and `S6.B-2(E6/TH)` stay blank. Caught stealing, pickoffs and out advances keep the
+  parenthesised text, a fielding credit winning over an error (`BX3(E9)(95)` gives `95`) but
+  a lone error stays (`PO1(E1)` gives `E1`). (BAL201906250, MIN201908100, CLE201905040)
+- **Pinch hitter fields**: the removed batter is the player the pinch hitter replaced and its
+  position is the one that player came in at (a pinch runner who took the DH slot counts as DH,
+  a pinch hitter who replaced another pinch hitter as 11, and a pinch hitter who has batted
+  as the position he now holds). (ANA201904180, MIN201905120, BAL201904060)
+- **Pinch runner fields**: flagged only on the first play after the substitution, with the
+  runner he replaced. A substitution in a finished half-inning is not flagged.
+- **Responsible pitcher of a runner**: the pitcher charged when he reached. A runner retired
+  on a ground ball (a fielder's choice or a forced out written `n(m)`) passes his pitcher back
+  to the runners behind him: those still on base, lead first, take the pitchers of the
+  runners who were on base before the play (scored runners drop out), so a batter who
+  reaches ends up with the pitcher of the runner he replaced. A hit that retires a runner
+  and a fly-ball double play (`8/DP.2X2(84)`) do not shift. (ANA201904230, SLN201909280,
+  KCA201903310, CHA201905270, DET201908150)
+- **`presadj,pitcher,base`**: sets the responsible pitcher of the runner on that base
+  (fixture `presadj`, a 1919 game).

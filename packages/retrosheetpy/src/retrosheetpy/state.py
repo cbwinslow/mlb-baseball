@@ -27,6 +27,7 @@ from retrosheetpy.play import (
     PrimaryEvent,
     parse_play,
 )
+from retrosheetpy.playtext import play_text_fields
 from retrosheetpy.records import (
     AdjustmentRecord,
     IdRecord,
@@ -76,6 +77,7 @@ _FORCING = frozenset(
 @dataclass(frozen=True, slots=True)
 class Runner:
     player_id: str
+    resp_pit: str = ""  # the pitcher charged with this runner
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +85,8 @@ class Slot:
     player_id: str
     position: int
     fresh: bool = False  # entered as a pinch hitter and has not completed a plate appearance
+    replaced: tuple[str, int] | None = None  # (player, position) a pinch hitter took over from
+    entered: int = 0  # position the player came into the game at
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +130,11 @@ class GameState:
     pa_hand_player: str | None = (
         None  # batter hand set by badj for the plate appearance in progress
     )
+    pinch_runners: tuple[tuple[int, str] | None, ...] = (
+        None,
+        None,
+        None,
+    )  # (base, runner replaced)
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,7 +281,14 @@ def _set_player(team: Team, rec: StartRecord | SubRecord) -> Team:
     position = rec.position
     if position in (PH, PR) and old is not None and old.position == DH:
         position = DH  # a pinch hitter or runner for the DH takes over as the DH
-    order[rec.batting_order] = Slot(rec.player_id, position, fresh=rec.position == PH)
+    replaced = (old.player_id, old.entered) if old is not None and rec.position == PH else None
+    order[rec.batting_order] = Slot(
+        rec.player_id,
+        position,
+        fresh=rec.position == PH,
+        replaced=replaced,
+        entered=position if rec.position == PR else rec.position,
+    )
     if 1 <= rec.position <= 9:
         fielders[rec.position] = rec.player_id
     return replace(team, order=tuple(order), fielders=tuple(fielders))
@@ -280,8 +296,17 @@ def _set_player(team: Team, rec: StartRecord | SubRecord) -> Team:
 
 def _replace_runner(state: GameState, old: str, new: str) -> GameState:
     """A substitute takes over the base of the player he replaced (pinch runner)."""
-    bases = tuple(Runner(new) if b is not None and b.player_id == old else b for b in state.bases)
-    return replace(state, bases=(bases[0], bases[1], bases[2]))
+    bases = list(state.bases)
+    marks = list(state.pinch_runners)
+    for i, runner in enumerate(bases):
+        if runner is not None and runner.player_id == old:
+            bases[i] = Runner(new, runner.resp_pit)
+            marks[i] = (i + 1, old)
+    return replace(
+        state,
+        bases=(bases[0], bases[1], bases[2]),
+        pinch_runners=(marks[0], marks[1], marks[2]),
+    )
 
 
 def event_rows(records: Iterable[Record], *, strict: bool = True) -> Iterator[dict[str, str]]:
@@ -312,6 +337,13 @@ def event_rows(records: Iterable[Record], *, strict: bool = True) -> Iterator[di
             if state is not None and len(rec.fields) == 2:
                 if rec.kind == "badj":
                     state = replace(state, pa_hand=rec.fields[1], pa_hand_player=rec.fields[0])
+                elif rec.kind == "presadj" and rec.fields[1] in ("1", "2", "3"):
+                    base = int(rec.fields[1]) - 1
+                    runner = state.bases[base]
+                    if runner is not None:
+                        bases = list(state.bases)
+                        bases[base] = replace(runner, resp_pit=rec.fields[0])
+                        state = replace(state, bases=(bases[0], bases[1], bases[2]))
                 elif rec.kind == "padj":
                     state = replace(
                         state, pit_hands={**state.pit_hands, rec.fields[0]: rec.fields[1]}
@@ -345,7 +377,7 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
         # A pinch hitter who did not finish a plate appearance in his half-inning is no longer
         # flagged as one.
         gone = state.teams[state.side]
-        stale = tuple(Slot(x.player_id, x.position) if x and x.fresh else x for x in gone.order)
+        stale = tuple(replace(x, fresh=False) if x and x.fresh else x for x in gone.order)
         teams = list(state.teams)
         teams[state.side] = replace(gone, order=stale)
         state = replace(state, teams=(teams[0], teams[1]))
@@ -357,6 +389,7 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
             bases=(None, None, None),
             half_events=0,
             half_pa=0,
+            pinch_runners=(None, None, None),
         )
     batting, fielding = state.teams[state.side], state.teams[1 - state.side]
     slot = batting.slot_of(rec.player_id)
@@ -423,6 +456,18 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
     if play is not None and moves is not None:
         row.update(outcome_fields(play, moves.batter_event, moves.batter_dest, moves.run_dest))
         row.update(fielding_fields(play))
+        row.update(play_text_fields(play))
+    batter_slot = batting.order[slot]
+    assert batter_slot is not None
+    removed = batter_slot.replaced if batter_slot.fresh else None
+    row["REMOVED_FOR_PH_BAT_ID"] = removed[0] if removed else ""
+    row["REMOVED_FOR_PH_BAT_FLD_CD"] = str(removed[1]) if removed else "0"
+    for n in (1, 2, 3):
+        mark = state.pinch_runners[n - 1]
+        runner = state.bases[n - 1]
+        row[f"PR_RUN{n}_FL"] = "T" if mark else "F"
+        row[f"REMOVED_FOR_PR_RUN{n}_ID"] = mark[1] if mark else ""
+        row[f"RUN{n}_RESP_PIT_ID"] = runner.resp_pit if runner else ""
     for pos in range(2, 10):
         row[f"POS{pos}_FLD_ID"] = fielding.fielders[pos] or ""
     pa_hand = state.pa_hand or "?"
@@ -434,10 +479,35 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
         # The play was not understood, so nothing about the state after it is known.
         uncertain = replace(state, events=state.events + 1, uncertain=True)
         return uncertain, row
-    return _after_play(state, rec, moves, slot), row
+    choice = first_kind is EventKind.FIELDERS_CHOICE or (
+        play is not None and any(step.runner for step in play.events[0].chain)
+    )
+    return _after_play(state, rec, moves, slot, row["RESP_PIT_ID"], choice), row
 
 
-def _after_play(state: GameState, rec: PlayRecord, moves: Moves, slot: int) -> GameState:
+def _shift_pitchers(state: GameState, moves: Moves, new_bases: list[Runner | None]) -> None:
+    """A runner retired on a ball in play passes his pitcher back to those behind him.
+
+    Runners still on base, lead runner first, take the pitchers of the runners who were on
+    base before the play (those who scored leave theirs behind). A batter who reaches thus
+    ends up with the pitcher of the runner he replaced and his own pitcher drops out.
+    """
+    if not any(r is not None and d == 0 for r, d in zip(state.bases, moves.run_dest, strict=True)):
+        return
+    pool = [
+        runner.resp_pit
+        for runner, d in zip(reversed(state.bases), reversed(moves.run_dest), strict=True)
+        if runner is not None and d < SCORED
+    ]
+    for i, base in enumerate(b for b in (2, 1, 0) if new_bases[b] is not None):
+        runner = new_bases[base]
+        assert runner is not None
+        new_bases[base] = replace(runner, resp_pit=pool[i])
+
+
+def _after_play(
+    state: GameState, rec: PlayRecord, moves: Moves, slot: int, resp_pit: str, choice: bool
+) -> GameState:
     """The state once ``moves`` have happened."""
     new_bases: list[Runner | None] = [None, None, None]
     for base in (1, 2, 3):
@@ -446,13 +516,16 @@ def _after_play(state: GameState, rec: PlayRecord, moves: Moves, slot: int) -> G
         if runner is not None and 1 <= d <= 3:
             new_bases[d - 1] = runner
     if moves.batter_event and 1 <= moves.batter_dest <= 3:
-        new_bases[moves.batter_dest - 1] = Runner(rec.player_id)
+        new_bases[moves.batter_dest - 1] = Runner(rec.player_id, resp_pit)
+    if choice:
+        _shift_pitchers(state, moves, new_bases)
     batting = state.teams[state.side]
     if moves.batter_event:
         order = list(batting.order)
         done = order[slot]
         assert done is not None
-        order[slot] = Slot(done.player_id, 0 if done.position == PH else done.position)
+        position = 0 if done.position == PH else done.position
+        order[slot] = replace(done, position=position, fresh=False, entered=position)
         teams = list(state.teams)
         teams[state.side] = replace(batting, order=tuple(order))
         state = replace(state, teams=(teams[0], teams[1]))
@@ -471,6 +544,7 @@ def _after_play(state: GameState, rec: PlayRecord, moves: Moves, slot: int) -> G
         pa_decided=state.pa_decided and not ended,
         pa_hand=None if ended else state.pa_hand,
         half_pa=state.half_pa + (1 if ended else 0),
+        pinch_runners=(None, None, None),
     )
 
 

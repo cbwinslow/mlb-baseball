@@ -17,7 +17,7 @@
 - [x] 3.2 Compute outs on play, double/triple play flags and runs scored; verify fields 40-42 and score fields.
 - [x] 3.3 Compute RBI (field 43) from Retrosheet's published rules; verify on fixtures and record any rule learned from Chadwick output.
 - [x] 3.4 Add errors (fields 51-57), putouts and assists (88-95), fielded-by (46); verify against Chadwick.
-- [ ] 3.5 Add pinch hitter/runner and removed-player fields (80-87) and responsible pitcher (75-77); verify against Chadwick.
+- [x] 3.5 Add pinch hitter/runner and removed-player fields (80-87) and responsible pitcher (75-77); verify against Chadwick.
 - [ ] 3.6 Add the extended fields (`-x 0-66`) that remain in scope; verify against Chadwick.
 
 ## 4. Equality runs

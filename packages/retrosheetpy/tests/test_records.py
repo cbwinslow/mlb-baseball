@@ -148,3 +148,96 @@ def test_iter_event_zip_reads_event_members_only(tmp_path):
     p.write_bytes(buf.getvalue())
     recs = list(iter_event_zip(p))
     assert len(recs) == len(GAME) and {r.source for r in recs} == {"1950CIN.EVN"}
+
+
+# --- hardening found by independent review -------------------------------------
+
+
+@pytest.mark.parametrize(
+    "line,text",
+    [
+        ('com,"collision at third base with Byrne" ]', 'collision at third base with Byrne" ]'),
+        ('com,"sub,balln101,"Neal Ball",0,8,12"', 'sub,balln101,"Neal Ball",0,8,12'),
+        (
+            'com,"ej,karge101,P,kerij901,"Bench jockeying"',
+            'ej,karge101,P,kerij901,"Bench jockeying',
+        ),
+        ('com,"by foul tip in top of 4th" ', "by foul tip in top of 4th"),
+        ('com,"$Rain began"\t', "$Rain began"),
+    ],
+)
+def test_irregularly_quoted_comments_found_in_real_files_still_parse(line, text):
+    [rec] = list(iter_records([line.encode() + b"\r\n"], source="f"))
+    assert isinstance(rec, CommentRecord) and rec.text == text and rec.raw == line
+
+
+def test_irregularly_quoted_info_found_in_real_files_still_parses():
+    for line in [
+        'info,inputter,"John Booth + Nelson from NBC video""',
+        'info,inputter,"DWV/Smith"/RWood',
+    ]:
+        [rec] = list(iter_records([line + "\r\n"], source="f"))
+        assert isinstance(rec, InfoRecord) and rec.key == "inputter" and rec.raw == line
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'start,x,"A"B,0,1,2',  # text after closing quote in a structured record
+        'start,x,"unterminated,0,1,2',
+        "play,1,7,id,,,S8",  # team must be 0 or 1
+        "play,1_0,0,id,,,S8",  # underscore is not a plain integer
+        "play,+1,0,id,,,S8",
+        "play,1,0,id,,,S8,extra",
+        "start,x,N,0,\u0661,2",  # non-ASCII digit
+    ],
+)
+def test_structured_records_are_strict_about_quotes_and_integers(line):
+    with pytest.raises(ParseError):
+        list(iter_records([line], source="f"))
+    [rec] = list(iter_records([line], source="f", strict=False))
+    assert isinstance(rec, UnsupportedRecord)
+
+
+def test_malformed_id_does_not_leave_previous_game_id_in_force():
+    lines = ["id,G1", "version,1", "id,G2,extra", "version,2"]
+    recs = list(iter_records(lines, source="f", strict=False))
+    assert [r.game_id for r in recs] == ["G1", "G1", None, None]
+
+
+def test_only_one_line_terminator_is_removed_and_bom_is_explained():
+    [rec] = list(iter_records([b"version,1\r\r\n"], source="f"))
+    assert rec.raw == "version,1\r"
+    with pytest.raises(ParseError, match="byte-order mark"):
+        list(iter_records([b"\xef\xbb\xbfid,G1\r\n"], source="f"))
+
+
+def test_strict_failure_is_still_counted_in_stats():
+    stats = RecordStats()
+    with pytest.raises(ParseError):
+        list(iter_records(["id,G1", "zzz"], source="f", stats=stats))
+    assert stats.lines == 2
+
+
+def test_event_member_detection_uses_basename_and_skips_mac_resource_forks():
+    from retrosheetpy import is_event_filename
+
+    assert is_event_filename("dir/1950CIN.EVN") and is_event_filename("1915.EDF")
+    assert not is_event_filename("__MACOSX/._1950CIN.EVN")
+    assert not is_event_filename("1950CIN.ROS") and not is_event_filename("TEAM1950")
+
+
+def test_corrupt_deflate_stream_surfaces_as_invalid_archive_error(tmp_path):
+    import zipfile
+
+    from retrosheetpy import InvalidArchiveError
+
+    p = tmp_path / "c.zip"
+    with zipfile.ZipFile(p, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("a.EVN", b"version,1\r\n" * 50000)
+    data = bytearray(p.read_bytes())
+    for i in range(60, len(data) // 2):  # wreck the compressed bytes, keep the directory
+        data[i] = 0xFF
+    p.write_bytes(bytes(data))
+    with pytest.raises(InvalidArchiveError):
+        list(iter_event_zip(p))

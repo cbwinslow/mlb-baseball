@@ -112,16 +112,49 @@ class _Bad(Exception):
 
 def _split(line: str) -> list[str]:
     try:
-        return next(csv.reader([line]))
+        return next(csv.reader([line], strict=True))
     except (csv.Error, StopIteration) as exc:
         raise _Bad(f"unreadable CSV line: {exc}") from exc
 
 
+_DIGITS = re.compile(r"[0-9]+")
+
+
+_FREE_TEXT = frozenset({"com", "info"})
+
+
+def _unquote(text: str) -> str:
+    """Best-effort text of a free-text field whose quoting is irregular in the source."""
+    if text.startswith('"'):
+        text = text[1:]
+        stripped = text.rstrip()
+        if stripped.endswith('"'):
+            text = stripped[:-1]
+    return text
+
+
+def _split_free_text(rtype: str, raw: str) -> list[str]:
+    """Split a com/info line that is not valid CSV (stray quotes, trailing spaces).
+
+    Only free-text records get this fallback; structured records stay strict.
+    """
+    parts = raw.split(",", 2 if rtype == "info" else 1)
+    if len(parts) != (3 if rtype == "info" else 2):
+        raise _Bad("free-text record has too few fields")
+    return [*parts[:-1], _unquote(parts[-1])]
+
+
 def _int(value: str, what: str) -> int:
-    try:
-        return int(value)
-    except ValueError:
-        raise _Bad(f"{what} is not an integer") from None
+    if not _DIGITS.fullmatch(value):
+        raise _Bad(f"{what} is not a plain non-negative integer")
+    return int(value)
+
+
+def _side(value: str) -> int:
+    n = _int(value, "team")
+    if n not in (0, 1):
+        raise _Bad("team must be 0 (visitor) or 1 (home)")
+    return n
 
 
 def _need(f: list[str], n: int) -> None:
@@ -148,7 +181,7 @@ def _build(rtype: str, f: list[str], base: dict[str, object]) -> Record | None:
             **base,  # type: ignore[arg-type]
             player_id=f[1],
             name=f[2],
-            team=_int(f[3], "team"),
+            team=_side(f[3]),
             batting_order=_int(f[4], "batting order"),
             position=_int(f[5], "fielding position"),
         )
@@ -157,7 +190,7 @@ def _build(rtype: str, f: list[str], base: dict[str, object]) -> Record | None:
         return PlayRecord(
             **base,  # type: ignore[arg-type]
             inning=_int(f[1], "inning"),
-            team=_int(f[2], "team"),
+            team=_side(f[2]),
             player_id=f[3],
             count=f[4],
             pitches=f[5],
@@ -176,6 +209,14 @@ def _build(rtype: str, f: list[str], base: dict[str, object]) -> Record | None:
     return None
 
 
+def _strip_eol(line: str) -> str:
+    """Remove exactly one line terminator (CRLF, LF or CR); touch nothing else."""
+    for eol in ("\r\n", "\n", "\r"):
+        if line.endswith(eol):
+            return line[: -len(eol)]
+    return line
+
+
 def iter_records(
     lines: Iterable[bytes | str],
     *,
@@ -191,24 +232,34 @@ def iter_records(
     for line_no, line in enumerate(lines, start=1):
         if isinstance(line, bytes):
             line = line.decode("utf-8", errors="surrogateescape")
-        raw = line.rstrip("\r\n")
+        raw = _strip_eol(line)
         rtype = raw.split(",", 1)[0]
         base: dict[str, object] = {"raw": raw, "source": source, "line_no": line_no}
         record: Record | None
         fields: list[str] = []
         stage = "record-type"
         try:
-            fields = _split(raw) if raw else []
-            if raw and rtype == "id" and len(fields) == 2:
-                game_id = fields[1]
+            try:
+                fields = _split(raw) if raw else []
+            except _Bad:
+                if rtype not in _FREE_TEXT:
+                    raise
+                fields = _split_free_text(rtype, raw)
+            if rtype == "id":
+                # A malformed id line must not leave the previous game's id in force.
+                game_id = fields[1] if len(fields) == 2 else None
             base["game_id"] = game_id
             record = _build(rtype, fields, base) if raw else None
             reason = ""
             if record is None:
                 reason = "unknown record type" if raw else "blank line"
+                if rtype.startswith("\ufeff"):
+                    reason += " (file starts with a UTF-8 byte-order mark)"
         except _Bad as exc:
             base["game_id"] = game_id
             record, reason, stage = None, str(exc), "record-fields"
+        if stats is not None:
+            stats.lines += 1
         if record is None:
             if strict:
                 raise ParseError(
@@ -227,7 +278,6 @@ def iter_records(
                 reason=reason,
             )
         if stats is not None:
-            stats.lines += 1
             if isinstance(record, UnsupportedRecord):
                 stats.unsupported[rtype] += 1
             else:
@@ -248,7 +298,8 @@ _EVENT_NAME = re.compile(r"\.(ev|ed)[a-z]$", re.IGNORECASE)
 
 def is_event_filename(name: str) -> bool:
     """True for Retrosheet event files (.EVN/.EVA/.EVE/.EVF/.EVR, deduced .EDx)."""
-    return bool(_EVENT_NAME.search(name))
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
+    return not base.startswith("._") and bool(_EVENT_NAME.search(base))
 
 
 def iter_event_zip(

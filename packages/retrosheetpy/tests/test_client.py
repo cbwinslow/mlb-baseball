@@ -137,3 +137,44 @@ def test_cache_for_different_seasons_does_not_collide(tmp_path):
     a = client.download(resolve(Product.YEARLY_CSV, season=1950))
     b = client.download(resolve(Product.YEARLY_CSV, season=1951))
     assert a.local_path != b.local_path and len(fetch.calls) == 2
+
+
+def test_grouped_archive_cache_hit_reports_the_requested_season(tmp_path):
+    fetch = FakeFetch(make_zip({"x.EVN": b"1"}))
+    client = Client(tmp_path, fetch=fetch)
+    a = client.download(resolve(Product.EVENTS_DECADE, season=1995))
+    b = client.download(resolve(Product.EVENTS_DECADE, season=1991))
+    assert (a.season, b.season) == (1995, 1991)
+    assert a.local_path == b.local_path and len(fetch.calls) == 1
+
+
+def test_truncated_or_corrupt_zip_download_is_invalid_archive_error(tmp_path):
+    good = make_zip({"x.csv": b"1" * 5000})
+    for payload in (good[:40], good[:-30]):
+        client = Client(tmp_path, fetch=FakeFetch(payload))
+        with pytest.raises(InvalidArchiveError):
+            client.download(RES)
+
+
+def test_download_rejects_archive_with_traversal_member(tmp_path):
+    client = Client(tmp_path, fetch=FakeFetch(make_zip({"../evil.csv": b"x"})))
+    with pytest.raises(UnsafeArchiveMemberError):
+        client.download(RES)
+    assert not list(tmp_path.rglob("*.zip"))
+
+
+def test_unsafe_resource_filename_is_rejected(tmp_path):
+    from dataclasses import replace
+
+    client = Client(tmp_path, fetch=FakeFetch(make_zip({"x": b"1"})))
+    with pytest.raises(ValueError):
+        client.download(replace(RES, filename="../x.zip"))
+
+
+def test_refetch_updates_retrieved_at_and_leaves_no_temp_files(tmp_path):
+    fetch = FakeFetch(make_zip({"x.csv": b"1"}))
+    client = Client(tmp_path, fetch=fetch)
+    first = client.download(RES)
+    second = client.download(RES, force=True)
+    assert second.retrieved_at >= first.retrieved_at and len(fetch.calls) == 2
+    assert not list(tmp_path.rglob("*.tmp"))

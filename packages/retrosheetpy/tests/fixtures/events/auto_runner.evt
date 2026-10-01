@@ -1,0 +1,243 @@
+id,BAL202008010
+version,2
+info,visteam,TBA
+info,hometeam,BAL
+info,site,BAL12
+info,date,2020/08/01
+info,number,0
+info,starttime,7:35PM
+info,daynight,night
+info,innings,9
+info,tiebreaker,2
+info,usedh,true
+info,umphome,nauep901
+info,ump1b,fairc901
+info,ump2b,torrc901
+info,ump3b,addir901
+info,umplf,(none)
+info,umprf,(none)
+info,inputtime,2020/08/02 06:00:15
+info,howscored,unknown
+info,pitches,pitches
+info,oscorer,jacom701
+info,temp,85
+info,winddir,rtol
+info,windspeed,3
+info,fieldcond,unknown
+info,precip,none
+info,sky,cloudy
+info,timeofgame,230
+info,attendance,0
+info,wp,lakit001
+info,lp,drako001
+info,save,
+start,diazy001,"Yandy Diaz",0,1,5
+start,brosm001,"Mike Brosseau",0,2,3
+start,tsuty001,"Yoshi Tsutsugo",0,3,7
+start,martj008,"Jose Martinez",0,4,10
+start,adamw002,"Willy Adames",0,5,6
+start,renfh001,"Hunter Renfroe",0,6,9
+start,zunim001,"Mike Zunino",0,7,2
+start,margm001,"Manuel Margot",0,8,8
+start,wendj002,"Joey Wendle",0,9,4
+start,glast001,"Tyler Glasnow",0,0,1
+start,haysa001,"Austin Hays",1,1,8
+start,albeh001,"Hanser Alberto",1,2,4
+start,santa003,"Anthony Santander",1,3,9
+start,nuner001,"Renato Nunez",1,4,3
+start,smitd007,"Dwight Smith Jr",1,5,7
+start,sevep001,"Pedro Severino",1,6,10
+start,ruizr002,"Rio Ruiz",1,7,5
+start,siscc001,"Chance Sisco",1,8,2
+start,velaa001,"Andrew Velazquez",1,9,6
+start,leblw001,"Wade LeBlanc",1,0,1
+play,1,0,diazy001,00,X,S8/G6
+play,1,0,brosm001,02,CSFX,8/F8D
+play,1,0,tsuty001,32,CB*BC1*BX,8/L8XD
+play,1,0,martj008,22,CBBSX,S9/G4.1-2
+play,1,0,adamw002,12,CSBC,K
+play,1,1,haysa001,32,CBBFBFC,K
+play,1,1,albeh001,22,FBBFFT,K
+play,1,1,santa003,12,CSBX,43/G4
+play,2,0,renfh001,32,CBCBBX,7/L7D
+play,2,0,zunim001,20,BBX,63/G56
+play,2,0,margm001,02,CLFX,7/L78D
+play,2,1,nuner001,22,BSFBC,K
+play,2,1,smitd007,11,FBX,31/G34
+play,2,1,sevep001,31,CBBBB,W
+play,2,1,ruizr002,32,SBBC*B>B,W.1-2
+play,2,1,siscc001,20,BB,NP
+com,"Mound Visit."
+play,2,1,siscc001,30,BB.BB,W.2-3;1-2
+play,2,1,velaa001,32,BBCFFB>X,8/F89XD
+play,3,0,wendj002,11,BCX,7/F7D
+play,3,0,diazy001,00,X,63/G6D
+play,3,0,brosm001,01,CX,S65/G56+
+play,3,0,tsuty001,12,FSBX,43/G4D
+play,3,1,haysa001,00,X,13/BG2-
+play,3,1,albeh001,10,BX,43/G6M
+play,3,1,santa003,00,X,8/F8XD
+play,4,0,martj008,22,BCFBX,8/F89XD
+play,4,0,adamw002,22,CBSBS,K
+play,4,0,renfh001,32,SBBSBC,K
+play,4,1,nuner001,11,FBX,HR/L78XD+
+play,4,1,smitd007,11,CBX,S9/G34+
+play,4,1,sevep001,12,BCC>B,SB2
+play,4,1,sevep001,32,BCC>B.FBX,8/L89XD.2-3
+play,4,1,ruizr002,00,,NP
+com,"Mound Visit."
+play,4,1,ruizr002,21,.BFBX,S9/L89+.3-H
+play,4,1,siscc001,11,FB>B,SB2
+play,4,1,siscc001,32,FB>B.BST,K
+play,4,1,velaa001,00,B,WP.2-3
+play,4,1,velaa001,12,B.SFC,K
+play,5,0,zunim001,11,BCX,3/P34
+play,5,0,margm001,11,CBX,53/G5
+play,5,0,wendj002,32,CBBFBFB,W
+play,5,0,diazy001,32,BBC1BC>X,13/G1S
+play,5,1,haysa001,02,FSX,E6/G78S+.B-1
+play,5,1,albeh001,00,>C,CS2(24)
+play,5,1,albeh001,32,>C.BBFFBX,6/P5D
+play,5,1,santa003,00,,NP
+com,"Mound Visit."
+play,5,1,santa003,00,.,NP
+sub,richt001,"Trevor Richards",0,0,1
+play,5,1,santa003,11,..BSX,8/F8D
+play,6,0,brosm001,00,X,HR/F7D
+play,6,0,tsuty001,21,CBBX,7/F7D
+play,6,0,martj008,00,,NP
+com,"Mound Visit."
+play,6,0,martj008,00,.,NP
+sub,phile001,"Evan Phillips",1,0,1
+play,6,0,martj008,02,..CFS,K
+play,6,0,adamw002,00,X,63/G56
+play,6,1,nuner001,32,BBFCBB,W
+play,6,1,smitd007,22,CBBSX,S9/L9.1-3
+play,6,1,sevep001,00,,NP
+com,"Mound Visit."
+play,6,1,sevep001,11,.CBX,S8/G4.3-H;1-3
+play,6,1,ruizr002,01,FX,8/SF/F8XD.3-H
+play,6,1,siscc001,22,BSCBX,S8/L8D.1-2
+play,6,1,velaa001,01,SX,8/L8XD+
+play,6,1,haysa001,00,S,PB.2-3;1-2
+play,6,1,haysa001,12,S.FFBX,9/F9D
+play,7,0,renfh001,21,BCBX,1/G3S-
+play,7,0,zunim001,32,BBBCCFFC,K
+play,7,0,margm001,01,CX,63/G6D+
+play,7,1,albeh001,12,FBCFX,S8/G6
+play,7,1,santa003,12,FSF*BF1S,K
+play,7,1,nuner001,10,BX,6/P5D
+play,7,1,smitd007,22,11BS*BF1S,K
+play,8,0,wendj002,00,,NP
+sub,mullc002,"Cedric Mullins",1,5,7
+play,8,0,wendj002,01,.CX,S9/G34
+play,8,0,diazy001,00,,NP
+com,"Mound Visit."
+play,8,0,diazy001,00,.,NP
+sub,armss001,"Shawn Armstrong",1,0,1
+play,8,0,diazy001,02,..CSFX,FC1/G1.1-2(E1/TH);B-1
+play,8,0,brosm001,00,,NP
+sub,choij001,"Ji-Man Choi",0,2,11
+badj,choij001,R
+play,8,0,choij001,32,.CBBBFS,K
+play,8,0,tsuty001,32,CBSBBFB,W.2-3;1-2
+play,8,0,martj008,00,X,S8/F8S.3-H;2-3;1-2
+com,"Mound Visit."
+play,8,0,adamw002,00,.,NP
+sub,castm002,"Miguel Castro",1,0,1
+play,8,0,adamw002,00,..,NP
+sub,loweb001,"Brandon Lowe",0,5,11
+play,8,0,loweb001,12,...SCBX,46(1)/FO/G4.3-H(UR);2-3;B-1
+play,8,0,renfh001,00,,NP
+sub,kierk001,"Kevin Kiermaier",0,6,11
+play,8,0,kierk001,11,.FBX,S9/G34+.3-H(UR);1-2
+play,8,0,zunim001,01,CX,9/F9D
+play,8,1,sevep001,00,,NP
+sub,choij001,"Ji-Man Choi",0,2,3
+play,8,1,sevep001,00,.,NP
+sub,loweb001,"Brandon Lowe",0,5,4
+play,8,1,sevep001,00,..,NP
+sub,kierk001,"Kevin Kiermaier",0,6,8
+play,8,1,sevep001,00,...,NP
+sub,margm001,"Manuel Margot",0,8,9
+play,8,1,sevep001,00,....,NP
+sub,wendj002,"Joey Wendle",0,9,6
+play,8,1,sevep001,00,.....,NP
+sub,anden001,"Nick Anderson",0,0,1
+play,8,1,sevep001,02,......CSX,9/F9LS
+play,8,1,ruizr002,01,CX,8/F8XD
+play,8,1,siscc001,12,BSSS,K
+play,9,0,margm001,31,FBBBX,53/G5S
+play,9,0,wendj002,12,FSBFFT,K
+play,9,0,diazy001,22,CFBBX,S9/L9
+play,9,0,choij001,00,,NP
+com,"Mound Visit."
+play,9,0,choij001,00,.,NP
+sub,scott003,"Tanner Scott",1,0,1
+play,9,0,choij001,12,..FF*BS,K
+play,9,1,velaa001,00,,NP
+sub,castd002,"Diego Castillo",0,0,1
+play,9,1,velaa001,00,.,NP
+sub,stewd002,"DJ Stewart",1,9,11
+play,9,1,stewd002,12,..CSBS,K
+play,9,1,haysa001,22,CSBBC,K
+play,9,1,albeh001,00,X,7/F7
+play,10,0,tsuty001,00,,NP
+sub,valap001,"Pat Valaika",1,9,6
+radj,choij001,2
+com,"Ji-Man Choi starts inning at 2nd base."
+play,10,0,tsuty001,20,..B*BX,7/F7LD/DP.2X3(75)
+play,10,0,martj008,31,BBSBB,W
+play,10,0,loweb001,00,,NP
+com,"Mound Visit."
+play,10,0,loweb001,31,.*BBBCB,W.1-2
+play,10,0,kierk001,00,,NP
+com,"Mound Visit."
+play,10,0,kierk001,21,.*BFBB,WP.2-3;1-2
+play,10,0,kierk001,32,.*BFBB.FFS,K
+radj,albeh001,2
+com,"Hanser Alberto starts inning at 2nd base."
+play,10,1,santa003,00,.,NP
+sub,drako001,"Oliver Drake",0,0,1
+play,10,1,santa003,10,..BX,53/G56S.2-3
+play,10,1,nuner001,10,BX,FC/G6.3XH(62);B-1
+play,10,1,mullc002,00,,NP
+sub,iglej001,"Jose Iglesias",1,5,11
+play,10,1,iglej001,11,.CBX,6/P6
+play,11,0,zunim001,00,,NP
+sub,nuner001,"Renato Nunez",1,4,5
+play,11,0,zunim001,00,.,NP
+sub,holab001,"Bryan Holaday",1,5,3
+play,11,0,zunim001,00,..,NP
+sub,ruizr002,"Rio Ruiz",1,7,7
+play,11,0,zunim001,00,...,NP
+sub,lakit001,"Travis Lakins Sr.",1,0,1
+radj,kierk001,2
+com,"Kevin Kiermaier starts inning at 2nd base."
+play,11,0,zunim001,22,.....FCBF*BS,K
+play,11,0,margm001,11,CBX,3/L34/DP.2X2(34)
+radj,holab001,2
+com,"Bryan Holaday starts inning at 2nd base."
+play,11,1,sevep001,00,.X,13/SH/BG2.2-3
+play,11,1,ruizr002,30,VVVV,IW
+play,11,1,siscc001,00,,NP
+com,"Mound Visit."
+play,11,1,siscc001,32,.CBSBBS,K
+play,11,1,valap001,00,,NP
+com,"Mound Visit."
+play,11,1,valap001,00,.,NP
+sub,roe-c001,"Chaz Roe",0,0,1
+play,11,1,valap001,00,..>C,DI.1-2
+play,11,1,valap001,02,..>C.SX,S9/L89S.3-H(UR);2-3
+data,er,anden001,0
+data,er,glast001,2
+data,er,richt001,2
+data,er,roe-c001,0
+data,er,castd002,0
+data,er,drako001,0
+data,er,lakit001,0
+data,er,armss001,0
+data,er,scott003,0
+data,er,leblw001,1
+data,er,phile001,1
+data,er,castm002,0

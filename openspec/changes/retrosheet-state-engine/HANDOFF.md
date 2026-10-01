@@ -1,4 +1,4 @@
-# Handoff — `retrosheet-state-engine` (updated 2026-10-01, fourth session)
+# Handoff — `retrosheet-state-engine` (updated 2026-10-01, fifth session)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start."
 
@@ -17,20 +17,20 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   all Chadwick tools, byte-identical; owner wants short plain replies, options + recommendation, and a
   reminder to clear context around 200k.
 
-## Next: wider seasons (tasks 4.3, 4.4) and the auto runner
-Extended fields are done and match on 2019 (new module `extended.py`, rules in `results.md`).
-Not yet proven, only matching on 2019 where they never occur: `radj` (extra-inning automatic
-runner, 2020+: not applied to the state yet; needs `Runner.auto`, origin 0, responsible pitcher
-and cat, listed position), `BAT_LAST_ID` when the home team bats first (`htbf`), pitch chars
-`I Q R Y K` in the splits. Run 2020, then older decades, one batch at a time; fix by rule, never
-by tuning on a held-out season. Known open: `B`/`B1S` (48 plays, 1976, task 4.3).
+## Next: older decades (tasks 4.3, 4.4)
+**2020 full season = 0 mismatches over 68,599 plays** (auto runner `radj`, refined responsible-batter
+rule, pitcher-as-DH-runner rule; all in `results.md`; 2019 still 0, 258 tests pass, ruff/mypy clean).
+2 new fixtures `auto_runner`, `auto_runner_pr`. Next: 2021-2025 (2020seve.zip holds 2020s decade; run
+each year with `--out`), then older decades one batch at a time (2010s other years, 2000s, ...).
+Still unproven: `BAT_LAST_ID` when the home team bats first (`htbf`), pitch chars `I Q R Y K`.
+Known open: `B`/`B1S` (48 plays, 1976, task 4.3). Fix by rule, never by tuning on a held-out season.
 
 ## How to work (what worked)
 1. Add the new columns to the engine; run the season check; read the mismatches; find the rule; record it.
 2. Season check (needs `cwevent` 0.10.0 at `~/.local/bin`, dev-only):
    `uv run --package retrosheetpy python packages/retrosheetpy/tests/reference/season_report.py ZIP YEAR --out r.json [--fields A,B]`
-   ZIP for 2010s (scratchpad cache is session-specific): re-download with
-   `Client(cache).download(resolve(Product.EVENTS_DECADE, 2019))` (public Retrosheet, ~25 MB, `2010seve.zip`).
+   ZIP (scratchpad cache is session-specific): re-download with
+   `Client(cache).download(resolve(Product.EVENTS_DECADE, YEAR))` (public Retrosheet, `2010seve.zip`, `2020seve.zip`, ...).
    Default fields = `tests/implemented_fields.py::IMPLEMENTED`. Add new columns there only once they match.
 3. Handy helpers to recreate in the scratchpad: print the Chadwick rows for one game (call
    `ChadwickReference.events` on a game's lines), a summariser of `r.json` by field, a context printer for a

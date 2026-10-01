@@ -16,7 +16,7 @@ CHADWICK = HERE / "reference" / "chadwick"
 PLAYS_CSV = HERE / "reference" / "retrosheet_csv"
 # Known, understood disagreements between the event text and the CSV (the CSV
 # normalises some hit locations, e.g. 3L -> 3+, 56D -> 56+). Anything else is a failure.
-EXPECTED_CSV_DIFFS = {"postseason": {"loc": 2}}
+EXPECTED_CSV_DIFFS = {"postseason": {"loc": 2}, "auto_runner_pr": {"loc": 2}}
 NAMES = sorted(p.stem for p in FIXTURES.glob("*.evt"))
 
 
@@ -26,7 +26,7 @@ def read_rows(path: Path) -> list[dict[str, str]]:
 
 
 def test_fixture_set_is_not_empty():
-    assert len(NAMES) == 8
+    assert len(NAMES) == 10
 
 
 def test_captured_chadwick_matches_current_fixtures():

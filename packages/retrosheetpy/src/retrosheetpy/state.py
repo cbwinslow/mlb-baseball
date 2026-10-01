@@ -134,7 +134,7 @@ class GameState:
     pa_batter: str | None = (
         None  # batter announced by an NP line for the plate appearance in progress
     )
-    pa_decided: bool = False  # the announced count was 3 balls or 2 strikes
+    pa_count: str = ""  # the count announced by an NP line for the plate appearance in progress
     pa_pitcher: str | None = None  # pitcher on the field when the count was announced by NP
     uncertain: bool = False  # an earlier play in this game could not be interpreted
     half_pa: int = 0  # plate appearances completed in this half-inning
@@ -150,6 +150,9 @@ class GameState:
     starters: frozenset[str] = frozenset()  # players named in the game's starting lineup
     start_pitchers: frozenset[str] = frozenset()  # the pitchers who started the game
     htbf: bool = False  # the home team bats first
+    auto: tuple[int, Runner, str] | None = (
+        None  # (base, runner, player he replaced) for the next half
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,8 +296,11 @@ def _set_player(team: Team, rec: StartRecord | SubRecord) -> Team:
     order = list(team.order)
     fielders = list(team.fielders)
     old = order[rec.batting_order]
+    elsewhere = team.slot_of(rec.player_id)
+    if elsewhere is not None and elsewhere != rec.batting_order:
+        order[elsewhere] = None  # the pitcher who goes to bat in a DH slot leaves the pitcher slot
     position = rec.position
-    if position in (PH, PR) and old is not None and old.position == DH:
+    if position in (PH, PR) and old is not None and old.position == DH and elsewhere is None:
         position = DH  # a pinch hitter or runner for the DH takes over as the DH
     replaced = (old.player_id, old.entered) if old is not None and rec.position == PH else None
     order[rec.batting_order] = Slot(
@@ -309,12 +315,53 @@ def _set_player(team: Team, rec: StartRecord | SubRecord) -> Team:
     return replace(team, order=tuple(order), fielders=tuple(fielders))
 
 
-def _replace_runner(state: GameState, old: str, new: str) -> GameState:
+def _start_bases(
+    auto: tuple[int, Runner, str] | None,
+) -> tuple[Runner | None, Runner | None, Runner | None]:
+    bases: list[Runner | None] = [None, None, None]
+    if auto is not None:
+        bases[auto[0] - 1] = auto[1]
+    return (bases[0], bases[1], bases[2])
+
+
+def _start_marks(
+    auto: tuple[int, Runner, str] | None,
+) -> tuple[tuple[int, str] | None, ...]:
+    marks: list[tuple[int, str] | None] = [None, None, None]
+    if auto is not None and auto[2]:
+        marks[auto[0] - 1] = (auto[0], auto[2])
+    return tuple(marks)
+
+
+def _place_auto_runner(state: GameState, player_id: str, base: int) -> GameState:
+    """Record the automatic runner who starts the coming extra half-inning on ``base``."""
+    side = 0 if state.teams[0].slot_of(player_id) is not None else 1
+    team, fielding = state.teams[side], state.teams[1 - side]
+    seat = team.slot_of(player_id)
+    listed = team.order[seat] if seat is not None else None
+    runner = Runner(
+        player_id,
+        resp_pit=fielding.fielders[1] or "",
+        resp_cat=fielding.fielders[2] or "",
+        auto=True,
+        position=listed.position if listed else 0,
+    )
+    return replace(state, auto=(base, runner, ""))
+
+
+def _replace_runner(state: GameState, old: str, new: str, team: int) -> GameState:
     """A substitute takes over the base of the player he replaced (pinch runner)."""
     bases = list(state.bases)
     marks = list(state.pinch_runners)
+    if state.auto is not None and state.auto[1].player_id == old:
+        base, auto_runner, _ = state.auto
+        roster = state.teams[team]
+        seat = roster.slot_of(new)
+        listed = roster.order[seat] if seat is not None else None
+        pinch = replace(auto_runner, player_id=new, position=listed.position if listed else 0)
+        state = replace(state, auto=(base, pinch, old))
     for i, runner in enumerate(bases):
-        if runner is not None and runner.player_id == old:
+        if team == state.side and runner is not None and runner.player_id == old:
             seat = state.teams[state.side].slot_of(new)
             listed = state.teams[state.side].order[seat] if seat is not None else None
             bases[i] = replace(runner, player_id=new, position=listed.position if listed else 0)
@@ -358,8 +405,8 @@ def event_rows(records: Iterable[Record], *, strict: bool = True) -> Iterator[di
             replaced = teams[rec.team].order[rec.batting_order]
             teams[rec.team] = _set_player(teams[rec.team], rec)
             state = replace(state, teams=(teams[0], teams[1]))
-            if isinstance(rec, SubRecord) and replaced is not None and rec.team == state.side:
-                state = _replace_runner(state, replaced.player_id, rec.player_id)
+            if isinstance(rec, SubRecord) and replaced is not None:
+                state = _replace_runner(state, replaced.player_id, rec.player_id, rec.team)
         elif isinstance(rec, AdjustmentRecord):
             if state is not None and len(rec.fields) == 2:
                 if rec.kind == "badj":
@@ -371,6 +418,8 @@ def event_rows(records: Iterable[Record], *, strict: bool = True) -> Iterator[di
                         bases = list(state.bases)
                         bases[base] = replace(runner, resp_pit=rec.fields[0])
                         state = replace(state, bases=(bases[0], bases[1], bases[2]))
+                elif rec.kind == "radj" and rec.fields[1] in ("1", "2", "3"):
+                    state = _place_auto_runner(state, rec.fields[0], int(rec.fields[1]))
                 elif rec.kind == "padj":
                     state = replace(
                         state, pit_hands={**state.pit_hands, rec.fields[0]: rec.fields[1]}
@@ -382,9 +431,9 @@ def event_rows(records: Iterable[Record], *, strict: bool = True) -> Iterator[di
                 # A reliever is not charged with a walk on a count of 2-0, 2-1, 3-0, 3-1, 3-2.
                 charged_back = balls >= 2 and balls > strikes
                 pitcher = state.teams[1 - rec.team].fielders[1] if charged_back else None
-                state = replace(state, pa_batter=rec.player_id, pa_pitcher=pitcher)
-                if rec.count[0] == "3" or rec.count[1] == "2":
-                    state = replace(state, pa_decided=True)
+                state = replace(
+                    state, pa_batter=rec.player_id, pa_pitcher=pitcher, pa_count=rec.count
+                )
         elif isinstance(rec, PlayRecord):
             if state is None:
                 raise _fail("play before any lineup record", rec)
@@ -415,10 +464,11 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
             inning=rec.inning,
             side=rec.team,
             outs=0,
-            bases=(None, None, None),
+            bases=_start_bases(state.auto),
+            auto=None,
             half_events=0,
             half_pa=0,
-            pinch_runners=(None, None, None),
+            pinch_runners=_start_marks(state.auto),
         )
     batting, fielding = state.teams[state.side], state.teams[1 - state.side]
     slot = batting.slot_of(rec.player_id)
@@ -438,10 +488,12 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
             raise
         unsupported = f"{exc.stage}: {exc.message}"
     first_kind = play.events[0].kind if play else None
-    # A substitute batter finishing a count of 3 balls or 2 strikes by walk or strikeout
+    # A substitute batter finishing a count of 2 strikes by strikeout, or of 3 balls by walk,
     # is not charged with it: the batter who started the count is.
-    ends_count = first_kind in (EventKind.STRIKEOUT, EventKind.WALK)
-    resp_bat = state.pa_batter if state.pa_decided and ends_count else None
+    decided = (first_kind is EventKind.STRIKEOUT and state.pa_count[1:] == "2") or (
+        first_kind is EventKind.WALK and state.pa_count[:1] == "3"
+    )
+    resp_bat = state.pa_batter if decided else None
     resp_bat = resp_bat or rec.player_id
     resp_pit = state.pa_pitcher if first_kind is EventKind.WALK else None
     resp_pit = resp_pit or fielding.fielders[1] or ""
@@ -559,19 +611,20 @@ def _shift_pitchers(state: GameState, moves: Moves, new_bases: list[Runner | Non
 
     Runners still on base, lead runner first, take the pitchers of the runners who were on
     base before the play (those who scored leave theirs behind). A batter who reaches thus
-    ends up with the pitcher of the runner he replaced and his own pitcher drops out.
+    ends up with the pitcher of the runner he replaced and his own pitcher drops out. The
+    automatic-runner mark travels with them.
     """
     if not any(r is not None and d == 0 for r, d in zip(state.bases, moves.run_dest, strict=True)):
         return
     pool = [
-        (runner.resp_pit, runner.resp_cat)
+        (runner.resp_pit, runner.resp_cat, runner.auto)
         for runner, d in zip(reversed(state.bases), reversed(moves.run_dest), strict=True)
         if runner is not None and d < SCORED
     ]
     for i, base in enumerate(b for b in (2, 1, 0) if new_bases[b] is not None):
         runner = new_bases[base]
         assert runner is not None
-        new_bases[base] = replace(runner, resp_pit=pool[i][0], resp_cat=pool[i][1])
+        new_bases[base] = replace(runner, resp_pit=pool[i][0], resp_cat=pool[i][1], auto=pool[i][2])
 
 
 def _inferred_battedball(play: Play) -> str:
@@ -647,7 +700,7 @@ def _after_play(
         half_events=state.half_events + 1,
         pa_batter=None if ended else state.pa_batter,
         pa_pitcher=None if ended else state.pa_pitcher,
-        pa_decided=state.pa_decided and not ended,
+        pa_count="" if ended else state.pa_count,
         pa_hand=None if ended else state.pa_hand,
         half_pa=state.half_pa + (1 if ended else 0),
         pinch_runners=(None, None, None),

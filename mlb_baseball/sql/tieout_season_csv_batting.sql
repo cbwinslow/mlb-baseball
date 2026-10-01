@@ -13,13 +13,16 @@
 -- Found by the first full-history run (task 4.2, results-history.md): a bare
 -- ::integer cast crashes the query outright as soon as the season range
 -- reaches 1981.
+-- A total is NULL unless every row in the group has a value: the CSV leaves
+-- these columns blank for early seasons (b_k blank for most of 1898-1915).
+-- Blank is "not recorded", never zero, and a partial sum would under-count.
 SELECT
     _season AS season,
-    sum(b_pa::numeric::integer) AS pa,
-    sum(b_k::numeric::integer) AS k,
-    sum(b_w::numeric::integer) AS bb,
-    sum(b_hr::numeric::integer) AS hr,
-    sum(b_r::numeric::integer) AS r,
+    CASE WHEN count(*) = count(b_pa) THEN sum(b_pa::numeric::integer) END AS pa,
+    CASE WHEN count(*) = count(b_k) THEN sum(b_k::numeric::integer) END AS k,
+    CASE WHEN count(*) = count(b_w) THEN sum(b_w::numeric::integer) END AS bb,
+    CASE WHEN count(*) = count(b_hr) THEN sum(b_hr::numeric::integer) END AS hr,
+    CASE WHEN count(*) = count(b_r) THEN sum(b_r::numeric::integer) END AS r,
     count(DISTINCT gid) AS g
 FROM raw.retrosheet_batting
 WHERE stattype = 'value'

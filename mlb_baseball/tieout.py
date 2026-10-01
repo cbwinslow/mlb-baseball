@@ -41,7 +41,8 @@ import psycopg
 # Every key starts with the season so a series can be split or restricted by
 # season without knowing the level.
 Key = tuple[str, ...]
-Counts = Mapping[str, int]
+Counts = Mapping[str, int | None]
+"""A ``None`` fact means the source left it blank (not recorded); it is never zero."""
 
 LEVELS = ("season", "game", "player_game")
 # Number of key columns per level (season first, then game id, then player id).
@@ -152,6 +153,8 @@ class Comparison:
     # Differences found beyond ``max_differences`` that were counted but not kept.
     # Any overflow fails the comparison: it can never pass by being large.
     overflow: int = 0
+    # Fact cells skipped because a source left the value blank. Reported, never a pass.
+    unrecorded: int = 0
 
 
 def compare(
@@ -176,12 +179,16 @@ def compare(
     keys = {k for k in a.counts if k[0] in wanted} | {k for k in b.counts if k[0] in wanted}
     differences: list[Difference] = []
     overflow = 0
+    unrecorded = 0
     for key in sorted(keys):
         row_a = a.counts.get(key)
         row_b = b.counts.get(key)
         for fact in facts:
             value_a = None if row_a is None else row_a.get(fact, 0)
             value_b = None if row_b is None else row_b.get(fact, 0)
+            if (row_a is not None and value_a is None) or (row_b is not None and value_b is None):
+                unrecorded += 1
+                continue
             if (value_a or 0) != (value_b or 0):
                 if max_differences is not None and len(differences) >= max_differences:
                     overflow += 1
@@ -198,6 +205,7 @@ def compare(
         keys_compared=len(keys),
         differences=tuple(differences),
         overflow=overflow,
+        unrecorded=unrecorded,
     )
 
 
@@ -235,6 +243,7 @@ def merge_comparisons(
         keys_compared=sum(part.keys_compared for part in parts),
         differences=tuple(kept),
         overflow=overflow,
+        unrecorded=sum(part.unrecorded for part in parts),
     )
 
 
@@ -484,6 +493,11 @@ class Report:
                 f"{counts['unexplained']} unexplained, "
                 f"{counts['not_comparable']} not comparable"
             )
+            if c.unrecorded:
+                out.append(
+                    f"            {c.unrecorded} fact values left blank by a source "
+                    "(not recorded, not compared)"
+                )
             for diff, entry_id in a.explained[:sample]:
                 out.append(f"            explained by {entry_id}: {diff.describe()}")
             if len(a.explained) > sample:
@@ -663,7 +677,8 @@ def series_from_rows(
 
     The leading columns must be the level's key columns (``season``,
     ``game_id``, ``player_id`` as applicable, in that order); every column after
-    them must be a declared fact. A NULL fact is a broken query, not a zero.
+    them must be a declared fact. A NULL fact means the source did not record
+    it: it is kept as ``None`` and skipped by ``compare``, never read as zero.
     """
     key_columns = KEY_COLUMNS[level]
     fact_set = frozenset(facts)
@@ -675,16 +690,14 @@ def series_from_rows(
     unknown = set(fact_columns) - fact_set
     if unknown:
         raise TieOutError(f"{source} {level}: query returned undeclared facts {sorted(unknown)}")
-    counts: dict[Key, dict[str, int]] = {}
+    counts: dict[Key, dict[str, int | None]] = {}
     width = len(key_columns)
     for row in rows:
         key = tuple(str(part) for part in row[:width])
         if key in counts:
             raise TieOutError(f"{source} {level}: duplicate key {key!r}; the query must group")
-        values: dict[str, int] = {}
+        values: dict[str, int | None] = {}
         for name, value in zip(fact_columns, row[width:], strict=True):
-            if value is None:
-                raise TieOutError(f"{source} {level}: NULL {name} at {key!r}")
-            values[name] = int(value)
+            values[name] = None if value is None else int(value)
         counts[key] = values
     return Series(source=source, level=level, facts=fact_set, counts=counts)

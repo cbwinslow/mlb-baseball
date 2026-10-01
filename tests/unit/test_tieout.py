@@ -297,16 +297,23 @@ def test_series_from_rows_builds_counts_keyed_by_season_and_game():
     assert series.seasons() == {"2019"}
 
 
-def test_series_from_rows_rejects_duplicate_keys_null_facts_and_bad_columns():
+def test_series_from_rows_rejects_duplicate_keys_and_bad_columns():
     facts = ["k"]
     with pytest.raises(TieOutError, match="duplicate key"):
         series_from_rows("s", "season", facts, ["season", "k"], [("2019", 1), ("2019", 2)])
-    with pytest.raises(TieOutError, match="NULL k"):
-        series_from_rows("s", "season", facts, ["season", "k"], [("2019", None)])
     with pytest.raises(TieOutError, match="leading columns"):
         series_from_rows("s", "game", facts, ["game_id", "season", "k"], [])
     with pytest.raises(TieOutError, match="undeclared facts"):
         series_from_rows("s", "season", facts, ["season", "k", "hr"], [("2019", 1, 2)])
+
+
+def test_a_blank_fact_is_kept_as_none_and_skipped_not_read_as_zero():
+    blank = series_from_rows("a", "season", ["k"], ["season", "k"], [("1910", None)])
+    other = series_from_rows("b", "season", ["k"], ["season", "k"], [("1910", 7)])
+    assert blank.counts[("1910",)] == {"k": None}
+    result = tieout.compare(blank, other, seasons={"1910"})
+    assert result.differences == ()
+    assert result.unrecorded == 1
 
 
 # --- report -----------------------------------------------------------------

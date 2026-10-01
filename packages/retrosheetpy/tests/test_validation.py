@@ -15,6 +15,20 @@ def csvf(event):
     return csv_fields(parse_play(event))
 
 
+def full_row(derive, event, gid, gcol, ecol, **override):
+    """A reference row carrying every column ``derive`` yields (compare rejects missing ones)."""
+    row = {k: str(v) for k, v in derive(parse_play(event, strict=False)).items()}
+    return {**row, gcol: gid, ecol: event, **override}
+
+
+def cwrow(event, **o):
+    return full_row(chadwick_fields, event, "ABC202001010", "GAME_ID", "EVENT_TX", **o)
+
+
+def csvrow(event, gid="ABC202001010", **o):
+    return full_row(csv_fields, event, gid, "gid", "event", **o)
+
+
 def records(*events, game="ABC202001010"):
     lines = [f"id,{game}\r\n"] + [f"play,1,0,aaaaa001,22,CBFX,{e}\r\n" for e in events]
     return list(iter_records(lines, source="f.EVN"))
@@ -64,8 +78,8 @@ def test_csv_flags():
 def test_compare_counts_mismatches_with_examples():
     recs = records("S8/L8", "K")
     rows = [
-        {"GAME_ID": "ABC202001010", "EVENT_TX": "S8/L8", "H_CD": "1", "EVENT_CD": "20"},
-        {"GAME_ID": "ABC202001010", "EVENT_TX": "K", "H_CD": "0", "EVENT_CD": "2"},
+        cwrow("S8/L8"),
+        cwrow("K", EVENT_CD="2"),
     ]
     res = compare_chadwick(recs, rows, version="x")
     assert res.reference == "chadwick cwevent x" and res.plays_compared == 2
@@ -79,20 +93,22 @@ def test_compare_counts_mismatches_with_examples():
 def test_compare_flags_misaligned_and_one_sided_games_and_ignores_np():
     recs = records("NP", "K") + records("S8", game="DEF202001010")
     rows = [
-        {"gid": "ABC202001010", "event": "NP", "single": "0"},
-        {"gid": "ABC202001010", "event": "K", "single": "0"},
-        {"gid": "DEF202001010", "event": "S7", "single": "1"},  # text differs
-        {"gid": "ZZZ202001010", "event": "K", "single": "0"},  # no event file
+        csvrow("NP"),
+        csvrow("K"),
+        csvrow("S7", gid="DEF202001010"),  # text differs
+        csvrow("K", gid="ZZZ202001010"),  # no event file
     ]
     res = compare_plays_csv(recs, rows)
     assert (res.games, res.games_misaligned, res.games_only_reference) == (2, 1, 1)
-    assert res.misaligned_examples[0]["game_id"] == "DEF202001010"
+    ex = res.misaligned_examples[0]
+    assert ex["game_id"] == "DEF202001010"
+    assert (ex["first_difference"], ex["ours_event"], ex["reference_event"]) == (0, "S8", "S7")
     assert res.plays_compared == 1  # NP dropped on both sides; misaligned game skipped
 
 
 def test_csv_location_strength_marker_is_ignored_both_ways():
     recs = records("S9/L9S")
-    rows = [{"gid": "ABC202001010", "event": "S9/L9S", "loc": "9S+"}]
+    rows = [csvrow("S9/L9S", loc="9S+")]
     assert compare_plays_csv(recs, rows).mismatches == 0
 
 
@@ -100,11 +116,16 @@ def test_build_report_and_cli(tmp_path, capsys):
     evt = tmp_path / "x.EVN"
     evt.write_text("id,ABC202001010\r\nplay,1,0,a,22,CBFX,S8/L8\r\nplay,1,0,b,22,CBFX,8/ZZ\r\n")
     ref = tmp_path / "ref.csv"
-    ref.write_text("gid,event,single\nABC202001010,S8/L8,0\nABC202001010,8/ZZ,0\n")
+    cols = list(csv_fields(parse_play("S8/L8")))
+    zeros = ",".join("0" for _ in cols)
+    ref.write_text(
+        ",".join(["gid", "event", *cols]) + "\n"
+        f"ABC202001010,S8/L8,{zeros}\nABC202001010,8/ZZ,{zeros}\n"
+    )
     rep = build_report([evt], plays_csv=ref)
     assert rep["plays"]["plays_unsupported"] == 1
     assert "play-modifier:ZZ" in rep["plays"]["unsupported_families"]
-    assert rep["reference_mismatches"][0]["mismatches"] == 1  # single: ours 1, csv 0
+    assert rep["reference_mismatches"][0]["fields"]["single"]["mismatches"] == 1  # ours 1, csv 0
     assert main([str(evt)]) == 0
     assert json.loads(capsys.readouterr().out)["records"]["by_type"]["play"] == 2
 
@@ -114,3 +135,18 @@ def test_derivation_never_raises_on_unsupported_text(event):
     parse = parse_play(event, strict=False)
     assert chadwick_fields(parse)["EVENT_CD"] == 0
     assert csv_fields(parse)["single"] == 0
+
+
+def test_bare_trajectory_code_keeps_separate_location_modifier():
+    # Verified against cwevent 0.10.0: HR/7/L -> 7, S/G/56 -> 56, 8/F/78 -> 78.
+    assert cw("HR/7/L")["BATTEDBALL_LOC_TX"] == "7"
+    assert cw("S/G/56")["BATTEDBALL_LOC_TX"] == "56"
+    assert cw("8/F/78")["BATTEDBALL_LOC_TX"] == "78"
+    assert cw("HR/7/L")["BATTEDBALL_CD"] == "L"
+
+
+def test_compare_refuses_to_skip_a_missing_reference_column():
+    recs = records("K")
+    rows = [{"GAME_ID": "ABC202001010", "EVENT_TX": "K"}]
+    with pytest.raises(ValueError, match="no column"):
+        compare_chadwick(recs, rows, version="x")

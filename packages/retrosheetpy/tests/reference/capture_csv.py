@@ -8,6 +8,7 @@ and keeps only the rows of the games that exist in ``tests/fixtures/events``.
 """
 
 import csv
+import hashlib
 import io
 import json
 import re
@@ -42,6 +43,9 @@ def main(cache_dir: str) -> None:
                 w.writeheader()
                 w.writerows(rows)
             status.update(source_url=art.source_url, source_sha256=art.sha256)
+            status["csv_sha256"] = hashlib.sha256(
+                (OUT / f"{evt.stem}.csv").read_bytes()
+            ).hexdigest()
         manifest["files"][evt.name] = status  # type: ignore[index]
     (OUT / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest["files"], indent=1))

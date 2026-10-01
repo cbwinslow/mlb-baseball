@@ -71,3 +71,22 @@ uv run --package retrosheetpy python -m retrosheetpy.report FILES... \
 
 Captured fixtures: `tests/reference/chadwick/` (`capture.py`, with manifest and
 fixture hashes) and `tests/reference/retrosheet_csv/` (`capture_csv.py`).
+
+## Independent review follow-up (2026-10-01)
+
+A reviewer re-ran the comparison on all 1950 files (90,087 events, 0 Chadwick
+mismatches). Fixed: a location given as its own modifier after a trajectory code
+(`HR/7/L`, `S/G/56`, `8/F/78`) was dropped and so never compared (now read and
+checked: 106 compared in 1950, 0 mismatches); a reference row missing a column now
+raises instead of being skipped; captured CSVs carry a recorded hash that a test
+checks; misaligned-game examples now show the first differing play.
+
+Known CSV disagreements found on the 1950 sample, reported and not changed
+(Chadwick agrees with our reading of the text):
+
+- `3/G/SH.2-3`, `3/SH/G.1-2` (17 plays): the CSV calls it a bunt ground ball
+  (`hittype=BG`, `ground=0`); we report `G` with `ground=1`.
+- `/BOOT` with `/G` or `/BG`: the CSV zeroes bunt and hittype.
+- Locations such as `D9/F9DW`, `5DF`, `3L`: the CSV shows `9D+`, `5D+`, `3+`.
+- 65 of 1,131 games do not line up with the CSV because the CSV is a corrected
+  edition (for example `/FO` versus `/FO/AP`); those games get no field check.

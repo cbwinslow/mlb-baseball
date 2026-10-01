@@ -83,15 +83,17 @@ def _trajectory(play: Play) -> tuple[str, str]:
 
     A bare ``/P`` or ``/BG`` is parsed as a plain code; it is still a trajectory.
     """
+    code = ""
     for m in play.modifiers:
         if m.kind is ModifierKind.TRAJECTORY:
             return m.code, m.location or ""
-        if m.kind is ModifierKind.CODE and m.code in _TRAJECTORY_CODES:
-            return m.code, ""
+        if not code and m.kind is ModifierKind.CODE and m.code in _TRAJECTORY_CODES:
+            code = m.code
+    # A bare trajectory code may be followed by a separate location modifier (``HR/7/L``).
     for m in play.modifiers:
         if m.kind is ModifierKind.LOCATION:
-            return "", m.location or ""
-    return "", ""
+            return code, m.location or ""
+    return code, ""
 
 
 def _advance_flag(play: Play, kind: ParamKind) -> bool:

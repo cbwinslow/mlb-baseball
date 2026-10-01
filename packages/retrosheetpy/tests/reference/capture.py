@@ -39,6 +39,7 @@ def main() -> None:
             "year": year,
             "rows": len(rows),
             "fixture_sha256": hashlib.sha256(text).hexdigest(),
+            "csv_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
         }
     (OUT / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"captured {len(manifest['files'])} files with Chadwick {ref.version}")  # type: ignore[arg-type]

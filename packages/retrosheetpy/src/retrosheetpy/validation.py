@@ -108,15 +108,31 @@ def compare(
         if [r.event for r in mine] != [r[event_col] for r in ref]:
             out.games_misaligned += 1
             if len(out.misaligned_examples) < MAX_EXAMPLES:
+                ours_tx = [r.event for r in mine]
+                ref_tx = [r[event_col] for r in ref]
+                idx = next(
+                    (i for i, (a, b) in enumerate(zip(ours_tx, ref_tx, strict=False)) if a != b),
+                    min(len(ours_tx), len(ref_tx)),
+                )
                 out.misaligned_examples.append(
-                    {"game_id": game_id, "ours": len(mine), "reference": len(ref)}
+                    {
+                        "game_id": game_id,
+                        "ours": len(mine),
+                        "reference": len(ref),
+                        "first_difference": idx,
+                        "ours_event": ours_tx[idx] if idx < len(ours_tx) else None,
+                        "reference_event": ref_tx[idx] if idx < len(ref_tx) else None,
+                    }
                 )
             continue
         for rec, row in zip(mine, ref, strict=True):
             out.plays_compared += 1
             for name, value in derive(parse_play(rec.event, strict=False)).items():
                 if name not in row:
-                    continue
+                    raise ValueError(
+                        f"{reference}: reference rows have no column {name!r}; "
+                        "refusing to skip it silently"
+                    )
                 stat = out.fields.setdefault(name, FieldStat())
                 stat.compared += 1
                 expected = _normalise(name, row[name])

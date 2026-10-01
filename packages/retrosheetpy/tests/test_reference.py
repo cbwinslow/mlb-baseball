@@ -39,12 +39,26 @@ def test_captured_chadwick_matches_current_fixtures():
         )
 
 
+@pytest.mark.parametrize("directory", [CHADWICK, PLAYS_CSV])
+def test_captured_csvs_match_manifest_hashes(directory):
+    files = json.loads((directory / "MANIFEST.json").read_text())["files"]
+    for name, entry in files.items():
+        csv_path = directory / f"{Path(name).stem}.csv"
+        if "csv_sha256" not in entry:
+            assert not csv_path.exists(), f"{csv_path.name} has no recorded hash"
+            continue
+        digest = hashlib.sha256(csv_path.read_bytes()).hexdigest()
+        assert digest == entry["csv_sha256"], f"{csv_path.name} was edited by hand"
+
+
 @pytest.mark.parametrize("name", NAMES)
 def test_parser_agrees_with_captured_chadwick(name):
     records = read_event_file(FIXTURES / f"{name}.evt")
     result = compare_chadwick(records, read_rows(CHADWICK / f"{name}.csv"), version="0.10.0")
     assert result.games_misaligned == 0 and result.games == 1
     assert result.plays_compared > 30
+    assert {"EVENT_CD", "H_CD", "BUNT_FL"} <= result.fields.keys()
+    assert all(f.compared > 0 for f in result.fields.values())
     assert result.mismatches == 0, result.to_dict()["fields"]
 
 

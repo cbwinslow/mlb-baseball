@@ -56,7 +56,8 @@ def _credit_out(credit: Credit, sequence: list[int]) -> None:
 
 def _out_credit(credit: Credit, fielders: str) -> None:
     """A runner out with fielders ``54``: all but the last assist, the last has the putout."""
-    _credit_out(credit, [_digit(c) for c in fielders])
+    if fielders != UNKNOWN_PLAY:  # "(99)": fielding unknown, nobody is credited
+        _credit_out(credit, [_digit(c) for c in fielders])
 
 
 def _chain_credit(credit: Credit, event: PrimaryEvent) -> None:

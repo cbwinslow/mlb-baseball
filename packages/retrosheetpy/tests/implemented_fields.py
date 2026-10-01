@@ -44,4 +44,10 @@ IMPLEMENTED = (
     "RESP_BAT_HAND_CD",
     "PIT_HAND_CD",
     "RESP_PIT_HAND_CD",
+    "BAT_EVENT_FL",
+    "AB_FL",
+    "FOUL_FL",
+    "DP_FL",
+    "TP_FL",
+    "RBI_CT",
 )

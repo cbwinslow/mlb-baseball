@@ -73,6 +73,23 @@ Start with: "Read openspec/changes/pure-python-retrosheet/HANDOFF.md and start."
 Then: push branch, open PR (pre-authorized), run an independent review of
 section 5 code before the PR if budget allows (reviewers cannot run code).
 
+## Owner direction (end of session 5)
+Owner wants our tools to give the SAME results as Chadwick, and asked whether
+Chadwick can be ported to Python. Facts to start from:
+- We did NOT read Chadwick source on purpose: `packages/retrosheetpy/AGENTS.md` and
+  design.md forbid copying/transliterating it (Chadwick is GPL-2.0; our package is
+  AGPL-3.0-or-later; a port would be a derivative work and may be license-incompatible).
+- What we do instead (clean-room): learn behavior from Chadwick OUTPUT, then prove equality.
+  So far equality holds only for fields derivable from play text (0 mismatches, 7 seasons).
+- The big remaining gap is the game-state engine (outs, runners, runs, RBI, putouts,
+  assists, base state): that is Slice B. Differential target = cwevent `-f 0-96` and `-x 0-66`.
+- The ~40 plays/season that differ from Retrosheet's plays.csv are CSV-vs-text
+  differences where Chadwick AGREES with us; not our bugs.
+- Open: the `B` modifier (47 plays, 1976) is unsupported; learn its meaning from cwevent output.
+- DECISION NEEDED from owner (ask first thing, plain language): (a) stay clean-room and
+  build the state engine by matching Chadwick output (recommended), or (b) read Chadwick
+  source for understanding only (no copying), or (c) full port, which needs a license decision.
+
 ## Rules to keep
 - Never claim tests/lint/type checks passed unless they actually ran.
 - Package must never import `mlb_baseball`, pandas, psycopg, or native code.

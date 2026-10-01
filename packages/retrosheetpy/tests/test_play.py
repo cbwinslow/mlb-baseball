@@ -285,3 +285,54 @@ def test_rare_source_irregularities_stay_visible_as_unsupported(text, stage):
         parse_play(text)
     assert ei.value.stage == stage
     assert parse_play(text, strict=False).unsupported()
+
+
+@pytest.mark.parametrize(
+    "text,token,offset",
+    [
+        ("S9/S", "S", 3),  # same letters appear earlier as the event
+        ("SB2;SB2/Q", "Q", 8),
+        ("S8.1-2;1-9", "1-9", 7),
+        ("S8/L.2-H(UR)(WHAT)", "(WHAT)", 12),
+        ("K+ZZ.1-2", "ZZ", 2),
+    ],
+)
+def test_error_offset_is_the_tokens_real_position(text, token, offset):
+    with pytest.raises(ParseError) as ei:
+        parse_play(text)
+    assert (ei.value.token, ei.value.offset) == (token, offset)
+    assert text[offset : offset + len(token)] == token
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["S0", "E0", "0(1)0", "S9/G9999", "S9/7ZZZZZ", "SB2(90)", "SB2(E)", "S8.1-2(E)"],
+)
+def test_impossible_fielders_locations_and_params_are_not_accepted(text):
+    with pytest.raises(ParseError):
+        parse_play(text)
+
+
+def test_many_plus_signs_neither_recurse_nor_crash():
+    for text in ["K" + "+WP" * 5000, "+" * 5000]:
+        assert parse_play(text, strict=False).rebuild() == text
+        with pytest.raises(ParseError):
+            parse_play(text)
+
+
+def test_random_strings_never_crash_and_always_rebuild():
+    import random
+
+    rng = random.Random(20261001)
+    alphabet = "SDTKWHP0123456789BXUEF/.;()+-#!?  RLGC"
+    for _ in range(20000):
+        text = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 30)))
+        play = parse_play(text, strict=False)
+        assert play.rebuild() == text
+        try:
+            parse_play(text)
+        except ParseError as exc:
+            assert exc.token is not None and text.startswith(exc.token, exc.offset)
+            assert play.unsupported()
+        else:
+            assert not play.unsupported()

@@ -138,7 +138,7 @@ class Play:
 
     def unsupported(self) -> list[str]:
         """Raw text of every component the parser could not classify."""
-        return [token for _, token in _unsupported_with_stage(self)]
+        return [token for _, token, _ in _unsupported_with_stage(self)]
 
     def rebuild(self) -> str:
         """Re-join the component raw text; equals ``raw`` for every parsed play."""
@@ -175,11 +175,11 @@ def _clean(text: str) -> str:
 
 # --- parameters ---------------------------------------------------------------
 
-_P_FIELDING = re.compile(r"[0-9U]+")
-_P_FIELDING_THROW = re.compile(r"[0-9U]+/TH[123BH]?")
-_P_ERROR = re.compile(r"[0-9U]*E[0-9U]?(?:/TH[123BH]?)?")
+_P_FIELDING = re.compile(r"[1-9U]+")
+_P_FIELDING_THROW = re.compile(r"[1-9U]+/TH[123BH]?")
+_P_ERROR = re.compile(r"[1-9U]*E[1-9U](?:/TH[123BH]?)?")
 _P_THROW = re.compile(r"TH[123BH]?")
-_P_INTERFERENCE = re.compile(r"[0-9U]/B?INT")
+_P_INTERFERENCE = re.compile(r"[1-9U]/B?INT")
 
 
 def _parse_param(raw: str) -> Param:
@@ -218,7 +218,7 @@ def _parse_params(raw_params: str) -> tuple[Param, ...]:
 
 # --- primary events -----------------------------------------------------------
 
-_F = "[0-9U]"
+_F = "[1-9U]"  # fielders 1-9; U = unknown fielder
 _CHAIN = re.compile(rf"{_F}+(?:\([B123]\){_F}*)*")
 _CHAIN_STEP = re.compile(rf"({_F}+)(?:\(([B123])\))?")
 _PARAMS = r"((?:\([^()]*\))*)"
@@ -248,14 +248,17 @@ _ERROR_EVENT = re.compile(rf"({_F}*)E({_F})")
 _BASE_EVENT = re.compile(rf"(SB|CS|POCS|PO)([123H]){_PARAMS}")
 
 
-def _parse_event(raw: str) -> PrimaryEvent:
-    """Parse one ``;``-separated event, including a ``+`` follow-on event."""
+def _parse_event(raw: str, *, allow_follow_on: bool = True) -> PrimaryEvent:
+    """Parse one ``;``-separated event, including a single ``+`` follow-on event.
+
+    A second ``+`` is not valid syntax: the follow-on is parsed with
+    ``allow_follow_on=False`` so it is reported as unknown instead of recursing.
+    """
     clean = _clean(raw)
-    plus = _split_top(raw, "+")
+    plus = _split_top(raw, "+") if allow_follow_on else []
     if len(plus) > 1:
-        head_raw = plus[0][1]
-        head = _parse_event(head_raw)
-        tail = _parse_event(raw[len(head_raw) + 1 :])
+        head = _parse_event(plus[0][1], allow_follow_on=False)
+        tail = _parse_event(raw[len(plus[0][1]) + 1 :], allow_follow_on=False)
         return PrimaryEvent(
             raw=raw,
             kind=head.kind,
@@ -303,12 +306,13 @@ _KNOWN_CODES = frozenset(
 )
 # Not in the published list but frequent in source files (e.g. K/BF); meaning not interpreted.
 _OBSERVED_CODES = frozenset({"BF"})
-_M_ERROR = re.compile(r"E([0-9U])")
+_M_ERROR = re.compile(r"E([1-9U])")
 _M_THROW = re.compile(r"TH([123BH])")
 _M_RELAY = re.compile(rf"R({_F}+)")
 # BF is not in the published list but is common in source files.
-_M_TRAJ = re.compile(r"(BG|BP|BL|BF|G|L|F|P)([0-9]+[A-Z]*)")
-_M_LOCATION = re.compile(r"[0-9]+[A-Z]*")
+_LOC = "[1-9]{1,3}[DSMXLFRW]{0,4}"  # hit-location digits + depth/side letters seen in source
+_M_TRAJ = re.compile(rf"(BG|BP|BL|BF|G|L|F|P)({_LOC})")
+_M_LOCATION = re.compile(_LOC)
 
 
 def _parse_modifier(raw: str) -> Modifier:
@@ -383,39 +387,58 @@ def parse_play(event: str, *, strict: bool = True, where: Record | None = None) 
 
 
 def _raise_first_unsupported(play: Play, where: Record | None) -> None:
-    for stage, token in _unsupported_with_stage(play):
+    for stage, token, offset in _unsupported_with_stage(play):
         raise ParseError(
             "unsupported play syntax",
             stage=stage,
             record_type="play",
             raw=play.raw,
             token=token,
-            offset=play.raw.find(token),
+            offset=offset,
             **_where(where),  # type: ignore[arg-type]
         )
 
 
-def _unsupported_with_stage(play: Play) -> Iterator[tuple[str, str]]:
-    def event(e: PrimaryEvent) -> Iterator[tuple[str, str]]:
-        if e.kind is EventKind.UNKNOWN:
-            yield "play-event", e.raw
-        for p in e.params:
-            if p.kind is ParamKind.UNKNOWN:
-                yield "play-param", p.raw
-        if e.follow_on is not None:
-            yield from event(e.follow_on)
+def _param_offsets(params: tuple[Param, ...], raw: str, base: int) -> Iterator[tuple[Param, int]]:
+    """Yield each parameter with its offset inside ``raw`` (which starts at ``base``)."""
+    cursor = 0
+    for p in params:
+        at = raw.find(p.raw, cursor)
+        cursor = at + len(p.raw)
+        yield p, base + at
 
-    for e in play.events:
-        yield from event(e)
-    for m in play.modifiers:
-        if m.kind is ModifierKind.UNKNOWN:
-            yield "play-modifier", m.raw
-    for a in play.advances:
-        if a.kind is AdvanceKind.UNKNOWN:
-            yield "play-advance", a.raw
-        for p in a.params:
+
+def _unsupported_with_stage(play: Play) -> Iterator[tuple[str, str, int]]:
+    """Yield ``(stage, token, offset)`` for every unclassified component, in source order."""
+
+    def event(e: PrimaryEvent, base: int) -> Iterator[tuple[str, str, int]]:
+        if e.kind is EventKind.UNKNOWN:
+            yield "play-event", e.raw, base
+        for p, at in _param_offsets(e.params, e.raw, base):
             if p.kind is ParamKind.UNKNOWN:
-                yield "play-param", p.raw
+                yield "play-param", p.raw, at
+        if e.follow_on is not None:
+            yield from event(e.follow_on, base + len(e.raw) - len(e.follow_on.raw))
+
+    pos = 0
+    for i, e in enumerate(play.events):
+        if i:
+            pos += 1  # the ';' between events
+        yield from event(e, pos)
+        pos += len(e.raw)
+    for m in play.modifiers:
+        pos += 1  # '/'
+        if m.kind is ModifierKind.UNKNOWN:
+            yield "play-modifier", m.raw, pos
+        pos += len(m.raw)
+    for a in play.advances:
+        pos += 1  # '.' before the first advance, ';' between the rest
+        if a.kind is AdvanceKind.UNKNOWN:
+            yield "play-advance", a.raw, pos
+        for p, at in _param_offsets(a.params, a.raw, pos):
+            if p.kind is ParamKind.UNKNOWN:
+                yield "play-param", p.raw, at
+        pos += len(a.raw)
 
 
 def parse_play_record(record: PlayRecord, *, strict: bool = True) -> Play:

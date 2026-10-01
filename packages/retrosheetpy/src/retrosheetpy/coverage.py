@@ -34,7 +34,7 @@ class PlayCoverage:
         if not bad:
             return
         self.plays_unsupported += 1
-        for stage, token in bad:
+        for stage, token, _ in bad:
             stat = self.families.setdefault(family_of(stage, token), FamilyStat())
             if stat.count == 0:
                 stat.example = record.event

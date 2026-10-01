@@ -21,6 +21,6 @@
 ## 4. Real run and record
 
 - [x] 4.1 Run the gate read-only against production `mlb` for 2015–2025; record the command, elapsed time and full output in `results-2015-2025.md`; verify it exits 0 or that every difference is explained or has an issue.
-- [ ] 4.2 Run it for every remaining season where two sources overlap; record in `results-history.md`; verify every difference is in the register with evidence or has an issue.
-- [ ] 4.3 Update `scripts/AGENTS.md` index or the Retrosheet connector DOX sidecars if a contract was clarified; verify `scripts/check_dox.py` passes.
-- [ ] 4.4 Note the result in the `play-engine` change (task 2.3 gate) and in `openspec/project.md` NOW/NEXT; verify `openspec validate raw-source-tieout` passes and record the finish-line checklist result in this change.
+- [x] 4.2 Run it for every remaining season where two sources overlap; record in `results-history.md`; verify every difference is in the register with evidence or has an issue.
+- [x] 4.3 Update `scripts/AGENTS.md` index or the Retrosheet connector DOX sidecars if a contract was clarified; verify `scripts/check_dox.py` passes.
+- [x] 4.4 Note the result in the `play-engine` change (task 2.3 gate) and in `openspec/project.md` NOW/NEXT; verify `openspec validate raw-source-tieout` passes and record the finish-line checklist result in this change.

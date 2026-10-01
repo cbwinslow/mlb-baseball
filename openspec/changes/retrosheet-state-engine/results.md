@@ -135,3 +135,23 @@ Chadwick's output; each lists a play that showed it. No Chadwick code was copied
   like an ordinary walk (PHI202104040).
 - **Auto mark after a double play**: runners already on base inherit it, the batter does not
   (MIN202108160; SLN202107210 and TEX202108190 still hold).
+
+## 2022 (Ohtani and the pitcher-responsibility remap): 2019-2022 all 0 mismatches
+
+- **Two-way player (2022+ DH rule)**: a player may start in both the pitcher slot (0) and a DH
+  slot. A start record that lists him twice keeps both. His batting slot is the lowest one,
+  slot 0 last (`BAT_LINEUP_ID`, on-deck and in-hold follow). When the pitcher leaves, the DH stays.
+- **`badj` hand** shows in `RESP_BAT_HAND_CD` only when the named player is the batter or the responsible
+  batter (ARI202208100: the named pinch hitter was replaced before batting, so `?`; 2007 fixture: the named pinch hitter batted, the starter was responsible, shown).
+- **Pitcher/catcher/auto mark shown per base** (read in Chadwick `gameiter.c` for understanding,
+  then confirmed by output): when the runner on third is retired on a fielder's choice and the
+  runner from second scores, the runner on second shows third's pitcher and the runner on first
+  shows second's (NYN202207220, SEA202207100). `_charged_base` in `state.py`.
+- **Auto mark after a double play**: a runner put out by an advance (`3XH(...)`) rather than in
+  the fielding chain does not pass the mark on; one retired in the chain does (SLN202107210,
+  TEX202108190 no; MIN202108160, TOR202208290 yes). A fielder's choice with no chain marker
+  counts its out advances as chain.
+- **Assists**: every fielder but the last assists once; one fielder alone has none
+  (`POCS3(1655)`: assists 1, 6, 5; OAK202205030).
+- Walk charged to the earlier pitcher: Chadwick sets it when a pitching sub follows a play with
+  count 2-0, 2-1 or 3-x (`state.walk_pitcher`), and our NP-count rule matches that.

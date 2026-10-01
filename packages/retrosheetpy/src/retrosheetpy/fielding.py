@@ -47,11 +47,12 @@ def _digit(ch: str) -> int:
 
 
 def _credit_out(credit: Credit, sequence: list[int]) -> None:
-    """One out: each fielder who threw to a different fielder assists; the last has the putout."""
+    """One out: every fielder but the last assists, once each; one fielder alone has no assist."""
     thrown: list[int] = []
-    for here, there in zip(sequence, sequence[1:], strict=False):
-        if here != there and here not in thrown:
-            thrown.append(here)
+    if len(set(sequence)) > 1:
+        for here in sequence[:-1]:
+            if here not in thrown:
+                thrown.append(here)
     credit.assists.extend(thrown)
     credit.putouts.append(sequence[-1])
 

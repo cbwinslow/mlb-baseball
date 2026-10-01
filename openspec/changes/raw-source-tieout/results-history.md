@@ -82,3 +82,11 @@ exit 0; the 1871-2014 history is a clean exit 0.
 - [x] **Ingestion-test audit recorded, gaps closed or listed**: `audit.md` (tasks 1.1,
   3.1, 3.2).
 - `openspec validate raw-source-tieout`: valid. `scripts/check_dox.py`: passes.
+
+## Run 10 — after 2026-10-01 refresh of all Retrosheet raw tables
+
+Event, roster, reference, schedule, box, gamelog and CSV products reloaded from current
+files. Unexplained differences fell from about 5,400 (event new vs CSV stale) to 24 in
+1935 game `PRG193512012` plus 2 in 1934 game `NNS193410230` (event vs box). Both are
+Retrosheet products disagreeing with each other; filed as an issue, not excused. The gate
+stays red for these until they are registered or Retrosheet corrects them.

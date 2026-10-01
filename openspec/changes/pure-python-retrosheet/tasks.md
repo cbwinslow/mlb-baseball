@@ -45,14 +45,14 @@ then implement the smallest passing behavior.
 
 ## 4. Play syntax model
 
-- [ ] 4.1 Define enums/dataclasses for primary event, modifiers, runner
+- [x] 4.1 Define enums/dataclasses for primary event, modifiers, runner
   advances, fielding credits/errors, run-credit annotations, and raw/unknown
   components.
-- [ ] 4.2 Parse the Retrosheet play field into those components without mutating
+- [x] 4.2 Parse the Retrosheet play field into those components without mutating
   game state.
-- [ ] 4.3 Preserve raw tokens on every parsed component and provide a structured
+- [x] 4.3 Preserve raw tokens on every parsed component and provide a structured
   ParseError with parser stage and location.
-- [ ] 4.4 Port no implementation code from Chadwick. Tests are derived from
+- [x] 4.4 Port no implementation code from Chadwick. Tests are derived from
   Retrosheet documentation, captured source records, and observable reference
   outputs.
 - [ ] 4.5 Run parse-coverage measurement over at least one modern season, one

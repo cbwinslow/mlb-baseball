@@ -102,7 +102,13 @@ class Client:
         return art
 
 
-_ZIP_READ_ERRORS = (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError)
+_ZIP_READ_ERRORS = (
+    zipfile.BadZipFile,
+    zlib.error,
+    EOFError,
+    NotImplementedError,
+    RuntimeError,  # encrypted member
+)
 
 
 def _check_zip_payload(payload: bytes, url: str) -> None:
@@ -125,6 +131,7 @@ def _atomic_write(path: Path, payload: bytes) -> None:
             f.write(payload)
             f.flush()
             os.fsync(f.fileno())
+        os.chmod(tmp_name, 0o644)  # mkstemp creates 0600; cache files are ordinary data
         os.replace(tmp_name, path)
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)

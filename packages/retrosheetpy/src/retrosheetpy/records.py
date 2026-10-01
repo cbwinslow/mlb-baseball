@@ -238,6 +238,8 @@ def iter_records(
         record: Record | None
         fields: list[str] = []
         stage = "record-type"
+        if rtype == "id":
+            game_id = None  # an id line that fails to parse must not keep the old game's id
         try:
             try:
                 fields = _split(raw) if raw else []
@@ -245,9 +247,8 @@ def iter_records(
                 if rtype not in _FREE_TEXT:
                     raise
                 fields = _split_free_text(rtype, raw)
-            if rtype == "id":
-                # A malformed id line must not leave the previous game's id in force.
-                game_id = fields[1] if len(fields) == 2 else None
+            if rtype == "id" and len(fields) == 2:
+                game_id = fields[1]
             base["game_id"] = game_id
             record = _build(rtype, fields, base) if raw else None
             reason = ""

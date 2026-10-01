@@ -178,3 +178,19 @@ def test_refetch_updates_retrieved_at_and_leaves_no_temp_files(tmp_path):
     second = client.download(RES, force=True)
     assert second.retrieved_at >= first.retrieved_at and len(fetch.calls) == 2
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_cached_files_are_world_readable_not_0600(tmp_path):
+    art = Client(tmp_path, fetch=FakeFetch(make_zip({"x": b"1"}))).download(RES)
+    assert art.local_path.stat().st_mode & 0o777 == 0o644
+
+
+def test_encrypted_member_is_invalid_archive_error(tmp_path, monkeypatch):
+    import zipfile as zf_mod
+
+    def boom(self, *a, **k):
+        raise RuntimeError("File is encrypted, password required for extraction")
+
+    monkeypatch.setattr(zf_mod.ZipFile, "testzip", boom)
+    with pytest.raises(InvalidArchiveError):
+        Client(tmp_path, fetch=FakeFetch(make_zip({"x": b"1"}))).download(RES)

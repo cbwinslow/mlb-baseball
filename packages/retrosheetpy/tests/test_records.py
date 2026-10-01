@@ -205,6 +205,15 @@ def test_malformed_id_does_not_leave_previous_game_id_in_force():
     assert [r.game_id for r in recs] == ["G1", "G1", None, None]
 
 
+def test_unparseable_id_line_does_not_keep_previous_game_id():
+    for bad in ('id,"abc', "id,A,B", "id"):
+        recs = list(iter_records(["id,G1", bad, "version,2"], source="f", strict=False))
+        assert [r.game_id for r in recs] == ["G1", None, None], bad
+    with pytest.raises(ParseError) as ei:
+        list(iter_records(["id,G1", 'id,"abc'], source="f"))
+    assert ei.value.game_id is None
+
+
 def test_only_one_line_terminator_is_removed_and_bom_is_explained():
     [rec] = list(iter_records([b"version,1\r\r\n"], source="f"))
     assert rec.raw == "version,1\r"

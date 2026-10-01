@@ -4,7 +4,6 @@ import csv
 from pathlib import Path
 
 import pytest
-from retrosheetpy import read_event_file
 from retrosheetpy.cw.events import COLUMNS, event_rows
 from retrosheetpy.cw.parse import Ev, parse_event
 from retrosheetpy.validation import compare_rows
@@ -22,7 +21,7 @@ def read_rows(path):
 
 @pytest.mark.parametrize("name", NAMES)
 def test_port_rows_equal_captured_chadwick(name):
-    ours = list(event_rows(read_event_file(FIXTURES / f"{name}.evt")))
+    ours = list(event_rows((FIXTURES / f"{name}.evt").read_bytes()))
     result = compare_rows("chadwick 0.10.0", ours, read_rows(CHADWICK / f"{name}.csv"), COLUMNS)
     assert result.games >= 1 and result.games_misaligned == 0
     assert result.plays_compared == len(ours)

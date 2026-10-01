@@ -10,7 +10,7 @@ A C ``NULL`` string printed through ``%s`` is "(null)" (glibc); ``None`` renders
 that way here so unset players match.
 """
 
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 
 from retrosheetpy.cw import game as cwgame
 from retrosheetpy.cw.game import Game, read_games
@@ -23,7 +23,6 @@ from retrosheetpy.cw.parse import (
     rbi_on_play,
     runs_on_play,
 )
-from retrosheetpy.records import Record
 
 # A roster maps player id -> (bats, throws); None means "no roster" (all '?').
 Roster = Mapping[str, tuple[str, str]]
@@ -605,8 +604,8 @@ def game_rows(
 
 
 def event_rows(
-    records: Iterable[Record], visitors: Roster | None = None, home: Roster | None = None
+    data: bytes, visitors: Roster | None = None, home: Roster | None = None
 ) -> Iterator[dict[str, str]]:
-    """Rows for every game in a stream of records, as ``cwevent -q -f 0-96 -x 0-66`` prints them."""
-    for game in read_games(records):
+    """Rows for every game in an event file's bytes, as ``cwevent -q -f 0-96 -x 0-66`` does."""
+    for game in read_games(data):
         yield from game_rows(game, visitors, home)

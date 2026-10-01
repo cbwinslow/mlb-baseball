@@ -23,7 +23,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
 from chadwick_reference import ChadwickReference  # noqa: E402
-from retrosheetpy import iter_zip_members, read_event_file  # noqa: E402
+from retrosheetpy import iter_zip_members  # noqa: E402
 from retrosheetpy.cw.events import COLUMNS  # noqa: E402
 from retrosheetpy.cw.events import event_rows as rows_of  # noqa: E402
 from retrosheetpy.errors import ParseError  # noqa: E402
@@ -54,7 +54,7 @@ def main() -> int:
             path.write_bytes(member.read())
             entry: dict[str, object] = {}
             try:
-                ours = list(rows_of(read_event_file(path)))
+                ours = list(rows_of(path.read_bytes()))
                 theirs = ref.events(path, args.year)
                 result = compare_rows(f"chadwick {ref.version}", ours, theirs, fields)
                 entry = result.to_dict()

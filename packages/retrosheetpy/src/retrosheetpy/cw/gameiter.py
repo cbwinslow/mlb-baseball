@@ -99,6 +99,7 @@ class State:
     go_ahead_rbi: str | None = None
     batter_hand: str = " "
     pitcher_hand: str = " "
+    date: str = ""  # updates on game resumption after suspension
 
     def copy(self) -> "State":
         """``cw_gamestate_copy``"""
@@ -134,6 +135,7 @@ class State:
         c.go_ahead_rbi = self.go_ahead_rbi
         c.batter_hand = self.batter_hand
         c.pitcher_hand = self.pitcher_hand
+        c.date = self.date
         return c
 
     # -- runners ----------------------------------------------------------
@@ -454,6 +456,9 @@ class GameIter:
         """``cw_gameiter_reset``"""
         self.index = 0
         self.state = State()
+        date = self.game.info_lookup("date")
+        assert date is not None, "game has no date info record (Chadwick would crash)"
+        self.state.date = date[0:4] + date[5:7] + date[8:10]
         self._lineup_setup()
         self.state.batting_team = 1 if self.game.info_lookup("htbf") == "true" else 0
         ev = self.event
@@ -465,6 +470,13 @@ class GameIter:
             else:
                 # very rare: an NP as the first play
                 self.parse_ok = True
+
+    def _process_comments(self, ev: Event) -> None:
+        """``cw_gameiter_process_comments``: a ``suspended,`` comment changes the date"""
+        for comment in ev.comments:
+            if comment.text.startswith("suspended,"):
+                tokens = [t for t in comment.text.split(",") if t != ""]
+                self.state.date = tokens[1][:8] if len(tokens) > 1 else ""
 
     def _process_subs(self, ev: Event) -> None:
         for sub in ev.subs:
@@ -483,6 +495,7 @@ class GameIter:
             st.batter_hand = ev.batter_hand
             st.pitcher_hand = ev.pitcher_hand
 
+        self._process_comments(ev)
         self._process_subs(ev)
 
         self.index += 1
@@ -496,6 +509,7 @@ class GameIter:
         if ev.ladj_slot != 0:
             st.next_batter[st.batting_team] = ev.ladj_slot
         if ev.auto_base != 0:
+            assert ev.auto_runner_id is not None  # set together with auto_base by the reader
             st._place_runner(ev.auto_base, ev.auto_runner_id)
         for base in (1, 2, 3):
             pitcher = ev.presadj[base]

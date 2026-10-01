@@ -105,7 +105,11 @@ def exception_flags(play: Play) -> dict[str, str]:
     for event in play.events:
         node: PrimaryEvent | None = event
         while node is not None:
-            unknown = unknown or node.fielders == "99" or _unknown_param(node.params)
+            unknown = (
+                unknown
+                or (node.kind is EventKind.FIELDED_OUT and node.fielders == "99")
+                or _unknown_param(node.params)
+            )
             node = node.follow_on
     unknown = unknown or any(_unknown_param(adv.params) for adv in play.advances)
     return {

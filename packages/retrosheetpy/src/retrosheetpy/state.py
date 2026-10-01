@@ -11,6 +11,7 @@ Rules come from Retrosheet's event-file documentation
 interpreted raises ``ParseError`` (stage ``state``) in strict mode.
 """
 
+import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
 
@@ -167,6 +168,7 @@ class Moves:
     run_dest: tuple[int, int, int]
     outs: int
     runs: int
+    conflict: bool = False  # two runners were sent to one base
 
 
 class StateError(ParseError):
@@ -284,12 +286,13 @@ def resolve(
                 break
             dest[base] = base + 1
     claimed = [d for d in (*dest.values(), batter) if 1 <= d <= 3]
-    if not inning_over and len(claimed) != len(set(claimed)):
-        raise _fail("two runners on one base", rec, play.raw)
+    # Two runners sent to one base (a scoring mistake in the file): Chadwick lets the later one
+    # replace the earlier, so the play is applied the same way and flagged.
+    conflict = not inning_over and len(claimed) != len(set(claimed))
     run_dest = (dest.get(1, 0), dest.get(2, 0), dest.get(3, 0))
     outs = count_outs()
     runs = sum(1 for d in (*run_dest, batter) if d >= SCORED)
-    return Moves(batter_event, batter, run_dest, outs, runs)
+    return Moves(batter_event, batter, run_dest, outs, runs, conflict)
 
 
 # --- the engine -----------------------------------------------------------------
@@ -462,6 +465,21 @@ def _flush(pending: list[tuple[PlayRecord, dict[str, str]]]) -> Iterator[dict[st
     yield from rows
 
 
+_STOLEN_MARK = re.compile(r"SB[23H]")
+
+
+def _truncated(play: Play) -> Play:
+    """Drop what Chadwick never reads: after an advance marked ``(SB3)`` its parse stops.
+
+    ``BK.2-3(SB3);1-2`` moves only the runner from second.
+    """
+    for i, adv in enumerate(play.advances):
+        if any(p.kind is ParamKind.UNKNOWN and _STOLEN_MARK.fullmatch(p.text) for p in adv.params):
+            kept = tuple(p for p in adv.params if p.kind is not ParamKind.UNKNOWN)
+            return replace(play, advances=(*play.advances[:i], replace(adv, params=kept)))
+    return play
+
+
 def _charged_base(base: int, state: GameState, moves: Moves | None, fc: frozenset[int]) -> int:
     """The base whose runner's pitcher, catcher and automatic mark are shown for ``base``.
 
@@ -514,7 +532,13 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
     moves: Moves | None = None
     unsupported = ""
     try:
-        play = parse_play(rec.event, strict=strict, where=rec)
+        play = _truncated(parse_play(rec.event, strict=False, where=rec))
+        if play.events[0].kind is EventKind.CATCHER_INTERFERENCE and any(
+            m.strength for m in play.modifiers
+        ):
+            # Chadwick drops the runner advances after a hard- or soft-hit mark on interference
+            # (``C/E2/OBS/G2-.3-H(RBI);2-3;B-1`` moves only the batter): BOS202509030.
+            play = replace(play, advances=())
         if play.unsupported():
             raise _fail("unsupported play syntax", rec, play.unsupported()[0])
         moves = resolve(play, occupied, rec, state.outs)
@@ -574,6 +598,7 @@ def _play_row(state: GameState, rec: PlayRecord, strict: bool) -> tuple[GameStat
         "EVENT_RUNS_CT": str(moves.runs) if moves else "",
         "UNSUPPORTED": unsupported,
         "STATE_UNCERTAIN": "T" if state.uncertain else "F",
+        "STATE_CONFLICT": "T" if moves and moves.conflict else "F",
         "GAME_NEW_FL": "T" if state.events == 0 else "F",
         "EVENT_ID": str(state.events + 1),
     }

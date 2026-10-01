@@ -170,3 +170,14 @@ Chadwick's output; each lists a play that showed it. No Chadwick code was copied
 - **An NP line counts only in the half-inning it was seen in**: a plate appearance cut short by
   the third out (a caught stealing) must not make the next half's batter "charged" to it
   (COL202406160, five plays in 2024).
+
+## 2025: 2019-2025 all 0 mismatches (every season is now tuned, none held out)
+
+- **Interference with a hit-strength mark**: `C/E2/OBS/G2-.3-H(RBI);2-3;B-1` moves only the
+  batter; Chadwick drops the advances after a `+`/`-` flag on a `C` (BOS202509030).
+- **Advance marked `(SB3)`**: Chadwick's parse stops there, so `BK.2-3(SB3);1-2` moves only the
+  runner from second (KCA202506140). Other unknown parameters still raise.
+- **`S99`** (a hit with unknown fielders) is not an unknown out; `99` counts for outs only
+  (HOU202504110).
+- **Two runners sent to one base** (a scoring mistake): not an error; the later runner replaces
+  the earlier, as Chadwick does, and the row has `STATE_CONFLICT` = `T` (BOS202509030, `WP.3-H;1-2`).

@@ -12,6 +12,9 @@ change: `openspec/changes/pure-python-retrosheet/`.
 - Unknown record or play syntax must raise (strict) or surface as an explicit
   unsupported node. Never skip silently.
 - Tests must not hit the live Retrosheet site; use small captured fixtures.
+- `crosswalk.py` derives only text-readable fields; `validation.py` compares them with
+  Chadwick/`plays.csv` rows and never picks a winner on disagreement. Reference
+  captures live in `tests/reference/` (regenerate with `capture.py`/`capture_csv.py`).
 - Run: `uv run --package retrosheetpy --with pytest pytest packages/retrosheetpy/tests`
 
 ## Child DOX Index

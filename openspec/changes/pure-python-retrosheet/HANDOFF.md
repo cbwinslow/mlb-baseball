@@ -1,6 +1,6 @@
-# Handoff — `pure-python-retrosheet` (updated 2026-10-01, after section 4)
+# Handoff — `pure-python-retrosheet` (updated 2026-10-01, after section 5)
 
-17 of 29 tasks done (sections 1-4). Next: section 5.
+21 of 29 tasks done (sections 1-5). Next: section 6.
 Start with: "Read openspec/changes/pure-python-retrosheet/HANDOFF.md and start."
 
 ## Where to work
@@ -53,20 +53,15 @@ Start with: "Read openspec/changes/pure-python-retrosheet/HANDOFF.md and start."
   `Client(...).download(resolve(Product.X, season))`. Official docs copy:
   retrosheet.org/eventfile.htm. Chadwick 0.10.0 is at `~/.local/bin/cwevent`.
 
-## Next steps (tasks.md section 5-7)
-5.1 Dev/test-only `ChadwickReference` adapter: find `cwevent`/`cwgame` on PATH,
-    record exact version, skip cleanly if absent (not a runtime requirement).
-5.2 Capture Chadwick 0.10.0 reference output for a small fixture set so normal
-    CI needs no native tools. Reuse the fixture games in `tests/fixtures/events/`
-    (Chadwick needs a TEAMyyyy file + roster alongside; check how the existing
-    `mlb_baseball/connectors/retrosheet_event.py` and its `.dox.md` call it; read
-    only, do not edit).
-5.3 Add Retrosheet's official parsed-play crosswalk as test metadata and compare
-    fields derivable without a state engine (e.g. event type, hit location,
-    modifiers) against the yearly CSV `plays` file. Official crosswalk is on
-    retrosheet.org (find it; do not guess field mappings).
-5.4 Machine-readable coverage report (records parsed, plays parsed,
-    unsupported families, reference mismatches). Consider a small CLI/function.
+## Done in section 5 (this session)
+- `crosswalk.py` (stateless fields), `validation.py` (compare, never picks a winner),
+  `report.py` (`python -m retrosheetpy.report`), dev adapter `tests/chadwick_reference.py`,
+  captured refs in `tests/reference/{chadwick,retrosheet_csv}` (+ `capture*.py`).
+- Results and rules learned: `reference-validation.md` (0 Chadwick mismatches on 7 seasons,
+  3 of them held out; 40 known CSV disagreements in 2019). 206 tests, ruff/format/mypy clean.
+- New unsupported modifier family found: `B` (47 plays, 1976) and `B1S` (1, 1985); not fixed.
+
+## Next steps (tasks.md section 6-7)
 6.1-6.3 Boundary proof: no production dependency or connector switch; write a
     contract test or documented spike showing mlb_baseball could consume
     Artifact metadata + parsed record streams; confirm current connectors
@@ -74,10 +69,9 @@ Start with: "Read openspec/changes/pure-python-retrosheet/HANDOFF.md and start."
 7.1-7.5 Final verification: package tests/ruff/format/mypy, root tests, strict
     OpenSpec validate for the change and all specs, final diff review for native
     deps / copied Chadwick text / silent unsupported handling / mlb_baseball
-    coupling, and the Slice B go/no-go note (based on parse coverage and the
-    measured effort left for the state engine).
+    coupling, and the Slice B go/no-go note (use parse coverage + reference-validation.md).
 Then: push branch, open PR (pre-authorized), run an independent review of
-section 5 code before the PR if budget allows.
+section 5 code before the PR if budget allows (reviewers cannot run code).
 
 ## Rules to keep
 - Never claim tests/lint/type checks passed unless they actually ran.

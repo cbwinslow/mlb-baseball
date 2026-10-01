@@ -18,4 +18,11 @@ publish anything built on it, include this notice:
 This package is independent. Retrosheet does not endorse or sponsor it, and the
 package ships no Retrosheet data. The package code is AGPL-3.0-or-later.
 Chadwick (GPL-2.0) is used only as a test-time reference program; none of its
-code is copied here.
+code is copied here. Captured Chadwick output for the fixture games is stored
+under `tests/reference/`.
+
+## Coverage report
+
+`python -m retrosheetpy.report FILE_OR_ZIP... [--chadwick-csv F] [--plays-csv F]`
+prints JSON: record counts, plays parsed, every unsupported syntax family, and
+field-level disagreements with the references. No native tool is run.

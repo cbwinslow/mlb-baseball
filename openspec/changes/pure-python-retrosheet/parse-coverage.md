@@ -48,7 +48,7 @@ Found by this measurement and added because they are frequent and regular:
 
 ## Reproduce
 
-Not yet a CLI (the machine-readable report is task 5.4). The numbers come from
+The machine-readable report is `python -m retrosheetpy.report` (task 5.4). The numbers come from
 `PlayCoverage.add_records(...)` over `iter_event_zip`/`read_event_file`
 streams, grouped by file extension and archive. Re-run after any parser change.
 

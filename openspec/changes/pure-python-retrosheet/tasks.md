@@ -61,14 +61,15 @@ then implement the smallest passing behavior.
 
 ## 5. Differential validation harness
 
-- [ ] 5.1 Add a dev/test-only ChadwickReference adapter that discovers
+- [x] 5.1 Add a dev/test-only ChadwickReference adapter that discovers
   cwevent/cwgame on PATH and records the exact Chadwick version. Absence skips
-  reference tests cleanly; it is not a runtime package requirement.
-- [ ] 5.2 Capture Chadwick 0.10.0 reference output for a small legal fixture set
+  reference tests cleanly; it is not a runtime package requirement. (Only
+  `cwevent` is wrapped: `cwgame` has no stateless fields to check yet.)
+- [x] 5.2 Capture Chadwick 0.10.0 reference output for a small legal fixture set
   so normal CI can run deterministically without native tools.
-- [ ] 5.3 Add the official Retrosheet parsed-play crosswalk as test metadata and
+- [x] 5.3 Add the official Retrosheet parsed-play crosswalk as test metadata and
   compare fields that are already derivable without a state engine.
-- [ ] 5.4 Emit a machine-readable coverage report: records parsed, play strings
+- [x] 5.4 Emit a machine-readable coverage report: records parsed, play strings
   parsed, unsupported families, and reference mismatches.
 
 ## 6. mlb-baseball boundary proof

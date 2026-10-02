@@ -30,6 +30,16 @@ Untracked `.idea/` is IDE config, not ours. Read `openspec/project.md` after thi
   (only `allebr.zip`, `allevr.zip`). Count in task 1.1; not needed for the flag.
 - Owner's pure-Python Chadwick port is finishing tests; does not solve missing data (no play-by-play to build from).
 
+## Update 3 (2026-10-02, late)
+
+- Backlog added to `openspec/project.md` LATER and issues opened: Retrosheet completeness pass (cwsub, cwdaily,
+  cwcomment, ejections, file audit; build on the pure-Python port) = https://github.com/cbwinslow/mlb-baseball/issues/277; umpire features = https://github.com/cbwinslow/mlb-baseball/issues/278.
+  Comments added on #256 and #258 pointing at the `negro-league-scope` plan.
+- Checked: all seven per-year Retrosheet CSV masters are already loaded; `negroleagues.zip` adds nothing (8,214 of 8,215
+  games already in `core.game`). Chadwick tools run today: cwevent, cwgame, cwbox only.
+- Owner priorities in order: models (blocked only by #256), speed (stable-ids), then data completeness. Owner does not want
+  to limit to 2015+; per-experiment training windows instead.
+
 ## Done this session (all committed and pushed to PR #276)
 
 - **`job-retries-alerts` built, tasks 1.1–4.1 + 5.1 ticked** (commits `7f37700`, `2b882d5`, `c9b5715`):

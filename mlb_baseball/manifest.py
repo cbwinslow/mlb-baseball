@@ -90,7 +90,12 @@ def supersede(source: str) -> Path | None:
     present = [name for name in entries if (source_dir / name).is_file()]
     if not entries and not present:
         return None
-    target = source_dir / "_superseded" / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    target = source_dir / "_superseded" / stamp
+    suffix = 0
+    while target.exists():  # a second refresh within the same second must not collide
+        suffix += 1
+        target = source_dir / "_superseded" / f"{stamp}-{suffix}"
     target.mkdir(parents=True)
     for name in present:
         (target / name).parent.mkdir(parents=True, exist_ok=True)

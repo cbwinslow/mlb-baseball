@@ -48,7 +48,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--levels",
         default="season",
-        help="comma-separated: season, game, player_game (default: season)",
+        help="comma-separated: season, game, player_game, core, schema (default: season)",
     )
     parser.add_argument(
         "--dry-run",

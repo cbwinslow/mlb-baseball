@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 import pytest
@@ -234,3 +235,26 @@ def test_supersede_with_nothing_cached_does_nothing(tmp_path, monkeypatch):
 
     assert manifest.supersede("never_downloaded") is None
     assert not (tmp_path / "never_downloaded").exists()
+
+
+def test_supersede_twice_in_the_same_second_does_not_collide(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+    frozen = datetime(2026, 10, 2, 12, 0, 0, tzinfo=UTC)
+
+    class _Clock:
+        @staticmethod
+        def now(tz=None):
+            return frozen
+
+    monkeypatch.setattr(manifest, "datetime", _Clock)
+    for round_number in (1, 2):
+        source_dir = tmp_path / "src"
+        source_dir.mkdir(exist_ok=True)
+        (source_dir / "a.zip").write_bytes(b"x")
+        manifest.save_manifest("src", {"a.zip": {"status": "loaded"}})
+        moved = manifest.supersede("src")
+        assert moved is not None
+        assert (moved / "a.zip").exists(), round_number
+
+    kept = sorted(p.name for p in (tmp_path / "src" / "_superseded").iterdir())
+    assert kept == ["20261002T120000Z", "20261002T120000Z-1"]

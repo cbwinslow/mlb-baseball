@@ -19,6 +19,17 @@ Untracked `.idea/` is IDE config, not ours. Read `openspec/project.md` after thi
 - **Next session: "read the run"** = read `logs/mlb_daily_update.log`, `mlb runs`, `meta.query_stat_snapshot`, Postgres log
   `auto_explain` plans; fill `stable-ids-incremental-conform/results.md`; tick 1.1-1.3; propose the first fix (DBA protocol).
 
+## Update 2 (2026-10-02, late)
+
+- Models are blocked only by readiness blocker #256 (3,750 pre-1950 games, ~3,700 Negro League). Owner wants to keep
+  pre-2015 data: plan = do `openspec/changes/negro-league-scope/` (proposed, validated, committed `3700eb7`, NOT built),
+  keep `game-win-v1` at 1910-2025, pick training years per experiment. Quick alternative (narrow to 2015-2025) was
+  offered; owner prefers not to limit. Flag = column on `core.game` + view `core.game_mlb`; rule documented in
+  `conform.py.dox.md` + ADR. Raw untouched. Next: `/opsx:apply negro-league-scope` (task 1.1 measure first).
+- Retrosheet also publishes `negroleagues.zip` (7 CSVs, 8,215 games, stattype value/lower/upper); we never downloaded it
+  (only `allebr.zip`, `allevr.zip`). Count in task 1.1; not needed for the flag.
+- Owner's pure-Python Chadwick port is finishing tests; does not solve missing data (no play-by-play to build from).
+
 ## Done this session (all committed and pushed to PR #276)
 
 - **`job-retries-alerts` built, tasks 1.1–4.1 + 5.1 ticked** (commits `7f37700`, `2b882d5`, `c9b5715`):

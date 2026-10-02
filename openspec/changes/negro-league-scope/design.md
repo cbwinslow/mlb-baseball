@@ -15,6 +15,15 @@
 - Existing code already excludes them in places: the Lahman team-count and
   win-total reconciliations filter to `lgid IN ('AL','NL')` (`conform.py`
   ~1998–2090); the tie-out register treats them as an explained scope (`nogl`).
+- Retrosheet's Negro League downloads page (checked 2026-10-02) offers a
+  dedicated 7-file CSV set, `negroleagues.zip` (gameinfo, teamstats, batting,
+  pitching, fielding, plays, allplayers; 8,215 games, with `stattype`
+  value/lower/upper for uncertain lines), plus event files (`allevr.zip`, 2,192
+  play-by-play games as of the Summer 2026 release) and box files (`allebr.zip`,
+  4,653 games). `downloads/` holds `allebr.zip` and the general CSVs only; no
+  `negroleagues.zip` is on disk. Whether the general CSVs already carry all
+  8,215 games is unchecked; task 1.1 counts it. Not needed for the flag, since
+  Negro League games are being separated, not studied.
 - #258 raised it; `play-engine` fits 2015+ and is unaffected.
 
 ## Goals / Non-Goals

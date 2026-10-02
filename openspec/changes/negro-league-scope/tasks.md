@@ -1,6 +1,6 @@
 ## 1. Measure first (read-only)
 
-- [ ] 1.1 Count candidate Negro League games by season using three sources (registry club match, `_group = 'negro_league'` in event/box tables, Lahman `lgid`) and compare with the 3,750 readiness-gap games; record in `results.md` and verify every disagreement is listed
+- [ ] 1.1 Count candidate Negro League games by season using three sources (registry club match, `_group = 'negro_league'` in event/box tables, Lahman `lgid`) and compare with the 3,750 readiness-gap games; record in `results.md` and verify every disagreement is listed; also count how many of Retrosheet's 8,215 Negro League games are in `core.game` and note whether `negroleagues.zip` (not downloaded) holds games we lack
 - [ ] 1.2 List every reader of `core.game` with `game_type = 'regular'` (model, feature store, report, readiness, doctor) and note which should read `core.game_mlb`; record in `results.md` and verify the list covers `mlb_baseball/`, `mlb_research` and SQL files
 - [ ] 1.3 Record before-values: gold season totals (PA, HR, games) for 1935–1949, Lahman and Baseball-Reference reconciliation results, Retrosheet tie-out for the same seasons; verify numbers are in `results.md`
 

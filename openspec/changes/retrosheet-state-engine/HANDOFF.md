@@ -1,4 +1,4 @@
-# Handoff — `retrosheet-state-engine` (updated 2026-10-01, eighth session)
+# Handoff — `retrosheet-state-engine` (updated 2026-10-02, ninth session)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start."
 
@@ -37,7 +37,14 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 - New-season guard: `tests/reference/new_season_guard.py ZIP YEAR` (and `cw/guard.py`). It already flags two
   real 2025 plays that Chadwick also fails to parse: `BOS202509030` `C/E2/OBS/G2-.3-H(RBI);2-3;B-1` and
   `KCA202506140` `BK.2-3(SB3);1-2`.
-- Only `cwevent` is ported. NOT ported: `cwgame` (1786 lines), `cwbox` (+ `box.c`), `cwdaily`, `cwsub`,
+- **box.c ported (ninth session):** `cw/box.py` (all of box.c incl. boxscore-file path). Proof: all 116 seasons
+  1910-2025, every event file (incl. deduced/boxscore files) = identical to `cw_box_create` (every field of
+  CWBoxscore); fixtures + ~600 damaged/mutated files identical (inputs where C has UB skipped via ASAN/UBSAN).
+  Harness `tests/reference/box_dump.{c,py}`, season check `tests/reference/box_season.py ZIP YEAR`, tests
+  `tests/test_box_differential.py`. Found+fixed in gameiter: C `strtok`s the shared `suspended,` comment in place,
+  so only the first iterator (incl. `runner_fate` copies) sees the new date (`_process_comments`).
+  Deviations: C `exit(1)`/NULL deref -> `ValueError`; event lists are Python lists; linescore grows past 50.
+- Only `cwevent` and `box.c` (library) are ported. NOT ported: `cwgame` (1786 lines), `cwbox` (+ `box.c`), `cwdaily`, `cwsub`,
   `cwcomment`, `lint.c`, `book.c` write side, the CLI driver (arguments, `-f` field lists, output formats).
 
 ## Known deviations from the C (remaining)
@@ -52,8 +59,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 ## Next steps (in order)
 1. (Done 2026-10-02: full sweep with rosters = 0 differences; see results.md.)
 2. Port the remaining tools from the C. **Order corrected (found this session):** `cwgame`, `cwbox` and
-   `cwdaily` all use `CWBoxscore` from `cwlib/box.c` (1578 lines), so port `box.c` FIRST
-   (`cw_box_create`, `cw_box_iterate_game`, batter/pitcher/runner/fielder stats, boxscore-file handling), then
+   `cwdaily` all use `CWBoxscore` from `cwlib/box.c` (1578 lines), so `box.c` is DONE; next
    `cwgame` (1786 lines, ~230 field functions), `cwbox` (943), `cwdaily` (910). `cwsub` (502) and
    `cwcomment` (455) are independent of `box.c` and can go any time. Then `lint.c` and the CLI driver
    (`cwtools.c` argument parsing, `-f` field lists, ascii/fixed output). Prove each against the real binary on

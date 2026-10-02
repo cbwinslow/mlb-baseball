@@ -88,18 +88,43 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   behaviour is defined; only where it crashes or reads garbage does the port differ (ValueError / defined
   value), documented above. Not yet confirmed by the owner.
 
+## Owner requests added in the twelfth session (do these, in this order)
+1. **Full all-years run (the main proof still missing).** Run every tool (cwevent, cwgame, cwbox text/-X/-S,
+   cwdaily, cwsub, cwcomment) on EVERY Retrosheet season, 1910 to the latest (all event files, regular season
+   + postseason + all-star, with rosters), the real C tool vs the port, byte for byte. Per-tool season
+   scripts exist (`tests/reference/*_season.py ZIP YEAR`, see Commands); earlier sessions only ran sampled
+   years for most tools (cwevent all 164 columns was done 1910-2025). Write a driver that loops all years
+   and all six tools in parallel (`xargs -P4`), records a table (year, tool, files, diffs, skipped/crashed
+   inputs) in `results.md`, and fails loudly on any diff. Skipped files (where the C itself crashes) must
+   be counted and listed, never silently dropped.
+   - Truth source = the real Chadwick tools (that is what the port replaces). The Retrosheet-provided CSVs
+     (`tests/reference/retrosheet_csv`, already used by `capture_csv.py`) and our own database
+     (`raw`/`core` tables; database is READ-ONLY here, production `mlb` is real data) are a second,
+     independent cross-check of cwevent columns, not the primary proof. Say so in `results.md`.
+   - Decade zips: `Client(cache).download(resolve(Product.EVENTS_DECADE, YEAR))`.
+2. **Register retrosheetpy into the mlb project** (it lives in `packages/retrosheetpy`): make sure the mlb
+   package uses/depends on it as intended (`records.py` csv-based code is still used by validation/report/
+   play tools; decide with the owner whether to move them onto `cw/`), CI runs its tests, OpenSpec
+   close-out below.
+3. **Later, separate repo + documentation site** (owner wants it, NOT now; only after 1 and 2): its own
+   repository with a docs page that explains everything, how to use it, a proof of concept (the all-years
+   comparison table), and every function and argument documented (API reference for all modules in `cw/`,
+   all six CLI tools and their options, the umbrella `retrosheetpy` command, the write side). Keep the
+   Chadwick copyright/licence notices (GPL-2.0-or-later derivative, package AGPL-3.0-or-later).
+4. Owner is asked (not yet answered): keep the `-py` suffix on the command names, or drop it for
+   port-only installs? Recommendation: keep `-py`, plus the `retrosheetpy TOOL` umbrella.
+
 ## Next steps (in order)
-1. Full suite (802 passed), ruff, format, mypy --strict were clean at the last commit; re-run before the PR.
-2. (done) write side and mutators.
-3. Value check done earlier (nothing else is a pure-Python, Chadwick-identical, pip-installable
-   replacement; quick search, PyPI pages not opened directly).
-4. Close-out: rewrite `tasks.md`/`results.md`/`proposal.md`/`design.md` for the port approach
+1. Do owner requests 1 and 2 above.
+2. Close-out: rewrite `tasks.md`/`results.md`/`proposal.md`/`design.md` for the port approach
    (they still describe the old infer-from-output plan; results.md says "No Chadwick code was
    copied", which is obsolete), update `packages/retrosheetpy/AGENTS.md` (its owning-change path
    says `pure-python-retrosheet`; add the `cw/` map, console scripts, harness notes) and
    `README.md`/`API.md`; record the Chadwick version in `results.md`; an independent reviewer
    (general-purpose agent with Bash) checks notices, deviations and silent skips;
-   `openspec validate retrosheet-state-engine --strict`; delete this file before the PR; push, open PR.
+   `openspec validate retrosheet-state-engine --strict`; re-run full suite + ruff + format + mypy
+   (802 passed at commit 5451ce8); delete this file before the PR; push, open PR (merge needs owner's "merge").
+3. Value check done earlier (nothing else is a pure-Python, Chadwick-identical, pip-installable replacement).
 
 ## Commands
 - Tests: `uv run --package retrosheetpy --with pytest pytest packages/retrosheetpy/tests -q -p no:cacheprovider`

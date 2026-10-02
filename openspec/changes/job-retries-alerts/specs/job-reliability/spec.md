@@ -59,3 +59,12 @@ The system SHALL call the configured `alert_command` with a plain-text message w
 
 - **WHEN** no success exists for a job inside its threshold
 - **THEN** the job is listed as stale and `mlb runs --check` exits non-zero
+
+### Requirement: Query statistics are kept across nights
+
+`mlb nightly` SHALL, after its steps, copy `pg_stat_statements` into `meta.query_stat_snapshot` (cumulative counters, 180 days kept) so slow-statement history survives the extension's small window and restarts. A failure to snapshot SHALL be logged and SHALL NOT change the nightly exit code.
+
+#### Scenario: Extension unavailable
+
+- **WHEN** `pg_stat_statements` does not exist in the database
+- **THEN** the snapshot is skipped with a log line and the nightly result is unchanged

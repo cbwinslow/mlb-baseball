@@ -122,6 +122,42 @@ def last_errors(sources: Sequence[str], since: datetime) -> str:
         return ""
 
 
+QUERY_STAT_RETENTION_DAYS = 180
+
+_SNAPSHOT_SQL = """
+INSERT INTO meta.query_stat_snapshot
+    (snapshot_at, queryid, calls, total_exec_time_ms, rows, shared_blks_hit,
+     shared_blks_read, temp_blks_written, wal_bytes, query)
+SELECT %s, queryid, sum(calls), sum(total_exec_time), sum(rows), sum(shared_blks_hit),
+       sum(shared_blks_read), sum(temp_blks_written), sum(wal_bytes),
+       left(min(query), 1000)
+FROM pg_stat_statements
+WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+  AND queryid IS NOT NULL
+GROUP BY queryid
+"""
+
+
+def snapshot_query_stats() -> int | None:
+    """Copies pg_stat_statements into meta.query_stat_snapshot and prunes old
+    snapshots. Returns the rows written, or None when it could not (extension
+    missing, no permission): telemetry must never fail the pipeline."""
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            now = datetime.now(UTC)
+            cur.execute(_SNAPSHOT_SQL, (now,))
+            written = cur.rowcount
+            cur.execute(
+                "DELETE FROM meta.query_stat_snapshot "
+                "WHERE snapshot_at < %s - make_interval(days => %s)",
+                (now, QUERY_STAT_RETENTION_DAYS),
+            )
+            return written
+    except Exception as exc:
+        logger.error("could not snapshot pg_stat_statements (%s)", exc)
+        return None
+
+
 class Nightly:
     def __init__(
         self,
@@ -234,6 +270,8 @@ class Nightly:
             _log("conform failed; skipping report")
         self.step("predict", ["predict"])
         self.step("populated", ["doctor", "--populated"])
+        written = snapshot_query_stats()
+        _log(f"query stats snapshot: {'skipped' if written is None else f'{written} statements'}")
         return self._finish()
 
     def _finish(self) -> int:

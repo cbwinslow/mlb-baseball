@@ -17,3 +17,7 @@
 
 - [x] 4.1 Document `alert_command` with the ntfy and webhook examples in `docs/USER_MANUAL.md` and update `cli.py.dox.md`; verify `scripts/check_dox.py` and `openspec validate job-retries-alerts` pass
 - [ ] 4.2 Run `mlb runs` and `mlb runs --check` against production (read-only) and one real `mlb nightly` night; record outputs in `results.md` and verify a deliberately failing source triggers exactly one alert on a test configuration
+
+## 5. Query telemetry
+
+- [x] 5.1 Add `meta.query_stat_snapshot` (migration 0109) and a nightly snapshot of `pg_stat_statements` with 180-day pruning; verify an integration test for write + prune and for a missing extension being skipped

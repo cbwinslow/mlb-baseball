@@ -27,6 +27,7 @@ def harness(tmp_path, monkeypatch):
     records: list[tuple] = []
     monkeypatch.setattr(nightly, "record_step", lambda *a: records.append(a))
     monkeypatch.setattr(nightly, "sources_without_success", lambda expected, since: [])
+    monkeypatch.setattr(nightly, "snapshot_query_stats", lambda: 0)
     alerts: list[str] = []
 
     def make(fail: str = "") -> tuple[nightly.Nightly, "callable"]:

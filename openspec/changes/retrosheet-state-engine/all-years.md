@@ -121,3 +121,8 @@ Driver: packages/retrosheetpy/tests/reference/all_years.py. 1910-2025, every eve
 | 2024 | 30 files, 60 checks, 0 diffs | 30 files, 60 checks, 0 diffs | 30 files, 90 checks, 0 diffs | 30 files, 60 checks, 0 diffs | 30 files, 60 checks, 0 diffs | 30 files, 60 checks, 0 diffs |
 | 2025 | 30 files, 60 checks, 0 diffs | 30 files, 60 checks, 0 diffs | 30 files, 90 checks, 0 diffs | 30 files, 60 checks, 0 diffs | 30 files, 60 checks, 0 diffs | 30 files, 60 checks, 0 diffs |
 | **checks** | 5438 | 5438 | 8157 | 5438 | 5438 | 5438 |
+
+## End-to-end, installed commands (cli_all_years.py, 2026-10-02)
+
+Built wheel installed in a clean virtualenv; real Chadwick 0.10.0 program vs the port's console script, both started by bare name with only their own bin directory on PATH, in a directory holding the season's event, team and roster files. 116 seasons (1910-2025) x 16 option sets (cwevent x4, cwgame x3, cwdaily x2, cwsub x2, cwcomment x2, cwbox default/-q/-X): 1856 comparisons of stdout, stderr and exit status, 0 differences, 21.7 GB of real-tool output compared. One comparison has empty output on both sides (2020, `-s 0601 -e 0630`: the 2020 season started in July). `cwbox -X` compared without the `pb` attribute (uninitialised memory in the C); `cwbox -S` not run (the real program segfaults).
+Known deviation: the C prints argv[0] as typed in usage text; a Python console script always sees its full path, so the port prints the bare command name.

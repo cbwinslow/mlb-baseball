@@ -12,6 +12,8 @@ filled, which are never initialised (``cw_box_player_create`` uses ``malloc``): 
 attribute of a ``<fielding>`` element then depends on the allocator. So the XML is compared
 with the sanitised build run with a zero-filled allocator, which is what the port defines
 those entries to be; a second run with a different fill must differ only in ``pb`` attributes.
+SportsML (``-S``) is compared with the sanitised build patched for its crash (see
+``chadwick_tool.SPORTSML_PATCH``), ignoring the ``date-time`` attribute (the current time).
 Exit status 1 if any file differs.
 """
 
@@ -23,12 +25,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from chadwick_tool import build_sanitised, run_filled, run_tool  # noqa: E402
+from chadwick_tool import SPORTSML_PATCH, build_sanitised, run_filled, run_tool  # noqa: E402
 from retrosheetpy import iter_zip_members  # noqa: E402
 from retrosheetpy.cw.cwbox import box_text  # noqa: E402
 from retrosheetpy.cw.tools import read_rosters  # noqa: E402
 
 PB = re.compile(rb' pb="\d+"')
+DATE_TIME = re.compile(rb' date-time="[^"]*"')
 
 
 def main() -> int:
@@ -41,6 +44,12 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         exe = build_sanitised("cwbox", Path(tmp), ("cwboxxml", "cwboxsml", "xmlwrite"))
         assert exe is not None, "needs gcc and the Chadwick sources"
+        patched = Path(tmp) / "patched"
+        patched.mkdir()
+        sml_exe = build_sanitised(
+            "cwbox", patched, ("cwboxxml", "cwboxsml", "xmlwrite"), SPORTSML_PATCH
+        )
+        assert sml_exe is not None
         for base, data in sorted(members.items()):
             if not event_name.match(base):
                 continue
@@ -59,6 +68,12 @@ def main() -> int:
             uninitialised += zero != other
             bad += not ok
             print(f"{base} xml: {len(zero)} bytes {'ok' if ok else 'DIFFERENT'}")
+            ref = run_filled(sml_exe, path, ["-S"], 0, support)
+            assert ref is not None, "cwbox -S failed under the sanitisers"
+            out = "".join(box_text(data, league, use_sportsml=True)).encode("latin-1")
+            ok = DATE_TIME.sub(b"", ref) == DATE_TIME.sub(b"", out)
+            bad += not ok
+            print(f"{base} sportsml: {len(ref)} bytes {'ok' if ok else 'DIFFERENT'}")
     print(f"{uninitialised} xml files depend on uninitialised memory (pb attributes only)")
     return 1 if bad else 0
 

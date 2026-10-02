@@ -20,6 +20,7 @@ from retrosheetpy.cw.parse import (
     runner_put_out,
     runs_on_play,
 )
+from retrosheetpy.cw.roster import Roster, roster_batting_hand, roster_throwing_hand
 
 POS_P, POS_C, POS_MAX, POS_DH, POS_PH, POS_PR = 1, 2, 9, 10, 11, 12
 
@@ -389,6 +390,32 @@ class State:
         if d.event_type in (Ev.WALK, Ev.INTENTIONALWALK) and self.walk_pitcher:
             return self.walk_pitcher
         return self.fielders[1][1 - self.batting_team]
+
+    def charged_batter_hand(
+        self,
+        batter: str,
+        d: EventData,
+        off_roster: Roster | None,
+        def_roster: Roster | None,
+    ) -> str:
+        """``cw_gamestate_charged_batter_hand``"""
+        if (
+            d.event_type == Ev.STRIKEOUT
+            and self.strikeout_batter is not None
+            and self.strikeout_batter_hand != " "
+        ):
+            return self.strikeout_batter_hand
+        if self.batter_hand == " ":
+            hand = roster_batting_hand(off_roster, self.charged_batter(batter, d))
+        else:
+            hand = self.batter_hand
+        if hand == "B":
+            if self.pitcher_hand != " ":
+                p = self.pitcher_hand
+            else:
+                p = roster_throwing_hand(def_roster, self.charged_pitcher(d))
+            return "R" if p == "L" else "L" if p == "R" else "?"
+        return hand
 
     def _responsible_base(self, d: EventData, base: int) -> int:
         """Shift responsibility when a preceding runner is put out but a later one scores."""

@@ -10,7 +10,8 @@ A C ``NULL`` string printed through ``%s`` is "(null)" (glibc); ``None`` renders
 that way here so unset players match.
 """
 
-from collections.abc import Callable, Iterator
+import re
+from collections.abc import Callable, Collection, Iterator
 
 from retrosheetpy.cw import game as cwgame
 from retrosheetpy.cw.game import Game
@@ -120,26 +121,9 @@ def _batter_hand(c: _Ctx) -> str:
 
 
 def _res_batter_hand(c: _Ctx) -> str:
-    """``cw_gamestate_charged_batter_hand``"""
-    ev, st, d = c.gi.event, c.gi.state, c.gi.data
+    ev = c.gi.event
     assert ev is not None
-    if (
-        d.event_type == Ev.STRIKEOUT
-        and st.strikeout_batter is not None
-        and (st.strikeout_batter_hand != " ")
-    ):
-        return st.strikeout_batter_hand
-    if st.batter_hand == " ":
-        hand = roster_batting_hand(c.off_roster, st.charged_batter(ev.batter, d))
-    else:
-        hand = st.batter_hand
-    if hand == "B":
-        if st.pitcher_hand != " ":
-            p = st.pitcher_hand
-        else:
-            p = roster_throwing_hand(c.def_roster, st.charged_pitcher(d))
-        return "R" if p == "L" else "L" if p == "R" else "?"
-    return hand
+    return c.gi.state.charged_batter_hand(ev.batter, c.gi.data, c.off_roster, c.def_roster)
 
 
 def _pitcher_hand(c: _Ctx) -> str:
@@ -570,6 +554,24 @@ _EXTENDED: tuple[tuple[str, Field], ...] = (
 )
 
 COLUMNS = tuple(name for name, _ in _STANDARD + _EXTENDED)
+MAX_FIELD = len(_STANDARD) - 1
+MAX_EXT_FIELD = len(_EXTENDED) - 1
+
+# The fields ``cwevent`` prints by default (its ``fields[]``): 0-6, 8-9, 12-13, 16-17, 26-40,
+# 43-45, 51 and 58-61
+DEFAULT_FIELDS = (
+    *range(0, 7),
+    8,
+    9,
+    12,
+    13,
+    16,
+    17,
+    *range(26, 41),
+    *range(43, 46),
+    51,
+    *range(58, 62),
+)
 
 
 def game_rows(
@@ -600,3 +602,264 @@ def event_rows(
     """
     for game, visitors, home in iterate_games(data, league, game_id, first_date, last_date):
         yield from game_rows(game, visitors, home)
+
+
+# ``(ascii format, fixed format)`` of each field, the ``sprintf`` formats of the C field functions
+# (``(ascii) ? A : B``, or the one format when the C does not distinguish), in field order:
+# the 97 standard fields, then the 67 extended ones. ``None`` marks the four fields whose format
+# depends on the play (``_CUSTOM``). The ``%s``/``%c``/``%d`` conversions take the field's value.
+_FORMATS: tuple[tuple[str, str] | None, ...] = (
+    ('"%s"', "%-12s"),
+    ('"%s"', "%-3s"),
+    ("%d", "%4d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%s", "%s"),
+    ("%s", "%s"),
+    ('"%s"', "%-20s"),
+    ("%d", "%2d"),
+    ("%d", "%2d"),
+    ('"%s"', "%-8s"),
+    ('"%c"', "%c"),
+    ('"%s"', "%-8s"),
+    ('"%c"', "%c"),
+    ('"%s"', "%-8s"),
+    ('"%c"', "%c"),
+    ('"%s"', "%-8s"),
+    ('"%c"', "%c"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-20s"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ("%d", "%2d"),
+    ("%d", "%d"),
+    ("%d", "%2d"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ("%d", "%d"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ("%d", "%d"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ("%d", "%d"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ("%d", "%d"),
+    None,
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%s"', "%4s"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ('"%c"', "   %c"),
+    ("%d", "%d"),
+    ('"%c"', "   %c"),
+    ("%d", "%d"),
+    ('"%c"', "   %c"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ('"%s"', "%12s"),
+    ('"%s"', "%12s"),
+    ('"%s"', "%12s"),
+    ('"%s"', "%12s"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "       %c"),
+    ('"%c"', "       %c"),
+    ('"%c"', "       %c"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ("%d", "%2d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%3d"),
+    ('"%s"', "%-3s"),
+    ('"%s"', "%-3s"),
+    ('"%s"', "%-3s"),
+    ("%d", "%d"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ("%d", "%2d"),
+    ("%d", "%2d"),
+    ("%d", "%2d"),
+    ("%d", "%3d"),
+    ("%d", "%2d"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    None,
+    ("%d", "%d"),
+    ("%d", "%3d"),
+    None,
+    ("%d", "%d"),
+    ("%d", "%3d"),
+    None,
+    ("%d", "%d"),
+    ("%d", "%3d"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ('"%s"', "%-8s"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%02d"),
+    ("%d", "%d"),
+    ('"%s"', "%-8s"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%02d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ("%d", "%d"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%s"', "%-2s"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+    ('"%c"', "%c"),
+)
+
+
+def _c_format(fmt: str, value: str) -> str:
+    """One ``sprintf`` conversion (``%s``, ``%c`` or ``%d`` with ``-``/``0`` flag and width) of
+    ``fmt`` applied to ``value``, with the text around it kept"""
+    found = re.search(r"%(-?)(0?)(\d*)([scd])", fmt)
+    assert found is not None
+    left, zero, width, kind = found.groups()
+    text = str(int(value)) if kind == "d" else value
+    w = int(width) if width else 0
+    if left:
+        text = text.ljust(w)
+    elif zero and kind == "d":
+        text = f"{int(value):0{w}d}"
+    else:
+        text = text.rjust(w)
+    return fmt[: found.start()] + text + fmt[found.end() :]
+
+
+def _custom(index: int, ascii_: bool, c: _Ctx, value: str) -> str:
+    """The fields whose format depends on the play"""
+    if index == 47:  # cwevent_batted_ball_type
+        if c.gi.data.batted_ball_type != " ":
+            return f'"{value}"' if ascii_ else value
+        return '""' if ascii_ else " "
+    # cwevent_runner{1,2,3}_defensive_position
+    base = {118: 1, 121: 2, 124: 3}[index]
+    if not c.gi.state.base_occupied(base):
+        return "0"
+    return value if ascii_ else f"{int(value):2d}"
+
+
+def _render(index: int, ascii_: bool, c: _Ctx, value: str) -> str:
+    fmt = _FORMATS[index]
+    if fmt is None:
+        return _custom(index, ascii_, c, value)
+    return _c_format(fmt[0] if ascii_ else fmt[1], value)
+
+
+def header_line(fields: Collection[int], ext_fields: Collection[int]) -> str:
+    """``cwevent_initialize`` with ``-n``: the quoted column names (ascii format only)"""
+    names = [f'"{COLUMNS[i]}"' for i in range(MAX_FIELD + 1) if i in fields]
+    names += [
+        f'"{COLUMNS[MAX_FIELD + 1 + i]}"' for i in range(MAX_EXT_FIELD + 1) if i in ext_fields
+    ]
+    return ",".join(names)
+
+
+def game_lines(
+    game: Game,
+    visitors: Roster | None = None,
+    home: Roster | None = None,
+    ascii_: bool = True,
+    fields: Collection[int] = DEFAULT_FIELDS,
+    ext_fields: Collection[int] = (),
+) -> Iterator[str]:
+    """``cwevent_process_game``: one output line per non-NP event of the game"""
+    gi = GameIter(game)
+    table = _STANDARD + _EXTENDED
+    while gi.event is not None:
+        if gi.event.event_text == "NP":
+            gi.next()
+            continue
+        ctx = _Ctx(gi, visitors, home)
+        parts = [
+            _render(i, ascii_, ctx, table[i][1](ctx)) for i in range(MAX_FIELD + 1) if i in fields
+        ]
+        parts += [
+            _render(MAX_FIELD + 1 + i, ascii_, ctx, table[MAX_FIELD + 1 + i][1](ctx))
+            for i in range(MAX_EXT_FIELD + 1)
+            if i in ext_fields
+        ]
+        yield ("," if ascii_ else "").join(parts)
+        gi.next()
+
+
+def event_lines(
+    data: bytes,
+    league: League | None = None,
+    game_id: str = "",
+    first_date: str = "0101",
+    last_date: str = "1231",
+    ascii_: bool = True,
+    fields: Collection[int] = DEFAULT_FIELDS,
+    ext_fields: Collection[int] = (),
+) -> Iterator[str]:
+    """Lines for the selected games of an event file, as ``cwevent`` prints them."""
+    for game, visitors, home in iterate_games(data, league, game_id, first_date, last_date):
+        yield from game_lines(game, visitors, home, ascii_, fields, ext_fields)

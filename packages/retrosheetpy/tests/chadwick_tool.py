@@ -14,10 +14,39 @@ from pathlib import Path
 SRC = Path(os.environ.get("CHADWICK_SRC", Path.home() / "workspace/tmp/chadwick/src"))
 
 
-def build_sanitised(tool: str, out_dir: Path, extra: tuple[str, ...] = ()) -> Path | None:
+# Two defects of ``cwbox -S`` (``cwbox_action_baseball_play`` in ``cwboxsml.c``) that the reference
+# build for it works around, so that everything else can be compared:
+# 1. ``state->runners[1]`` and ``[2]`` (whole structs) are passed to a ``%s`` conversion, which
+#    segfaults on nearly every game; the fix uses the member the line means, ``.runner``, as the
+#    line for ``runners[3]`` already does.
+# 2. A play whose pitch string is shorter than the previous event's (real data has some, e.g.
+#    1915SLA) is read from past its terminating NUL, whose contents are undefined; the fix stops
+#    the skip at the end of the string, i.e. no pitch elements for that play.
+SPORTSML_PATCH = {
+    "cwboxsml.c": [
+        ("gameiter->state->runners[1]);", "gameiter->state->runners[1].runner);"),
+        ("gameiter->state->runners[2]);", "gameiter->state->runners[2].runner);"),
+        (
+            "pitches += strlen(gameiter->event->prev->pitches);",
+            "pitches += (strlen(gameiter->event->prev->pitches) < strlen(pitches)) ? "
+            "strlen(gameiter->event->prev->pitches) : strlen(pitches);",
+        ),
+    ]
+}
+
+
+def build_sanitised(
+    tool: str,
+    out_dir: Path,
+    extra: tuple[str, ...] = (),
+    patches: dict[str, list[tuple[str, str]]] | None = None,
+) -> Path | None:
     """Compile ``<tool>.c`` with the Chadwick library under ASAN/UBSAN, or ``None`` without gcc
     or the sources. Damaged inputs can trigger undefined behaviour in the C (reads out of bounds,
-    ``NULL`` dereferences); the sanitised build says when it did, so those inputs can be skipped."""
+    ``NULL`` dereferences); the sanitised build says when it did, so those inputs can be skipped.
+
+    ``patches`` maps a ``cwtools`` source file name to ``(old, new)`` text replacements applied to
+    a copy that is compiled instead (each ``old`` must occur)."""
     if shutil.which("gcc") is None or not (SRC / "cwtools" / f"{tool}.c").exists():
         return None
     exe = out_dir / f"{tool}_san"
@@ -30,9 +59,16 @@ def build_sanitised(tool: str, out_dir: Path, extra: tuple[str, ...] = ()) -> Pa
         "-DHAVE_STRUCT_TM_TM_GMTOFF",
         "-fsanitize=address,undefined",
     ]
-    cmd += ["-I", str(SRC), "-I", str(SRC / "cwlib")]
-    cmd += [str(SRC / "cwtools" / f"{tool}.c"), str(SRC / "cwtools" / "cwtools.c")]
-    cmd += [str(SRC / "cwtools" / f"{name}.c") for name in extra]  # sources the tool links in
+    cmd += ["-I", str(SRC), "-I", str(SRC / "cwlib"), "-I", str(SRC / "cwtools")]
+    sources = [f"{tool}.c", "cwtools.c", *(f"{name}.c" for name in extra)]
+    for name in sources:
+        path = SRC / "cwtools" / name
+        for old, new in (patches or {}).get(name, []):
+            text = path.read_text()
+            assert old in text, f"{old!r} not in {name}"
+            path = out_dir / name
+            path.write_text(text.replace(old, new))
+        cmd.append(str(path))
     cmd += [*map(str, sorted((SRC / "cwlib").glob("*.c"))), "-o", str(exe)]
     subprocess.run(cmd, check=True, capture_output=True)
     return exe

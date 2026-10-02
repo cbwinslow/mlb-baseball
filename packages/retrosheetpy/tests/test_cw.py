@@ -1,11 +1,13 @@
 """The Chadwick port (``retrosheetpy.cw``): all 164 columns equal captured ``cwevent`` output."""
 
 import csv
+import re
 from pathlib import Path
 
 import pytest
 from retrosheetpy.cw.events import COLUMNS, event_rows
 from retrosheetpy.cw.parse import Ev, parse_event
+from retrosheetpy.cw.tools import read_rosters, select_game
 from retrosheetpy.validation import compare_rows
 
 HERE = Path(__file__).parent
@@ -26,6 +28,36 @@ def test_port_rows_equal_captured_chadwick(name):
     assert result.games >= 1 and result.games_misaligned == 0
     assert result.plays_compared == len(ours)
     assert result.mismatches == 0, result.to_dict()["fields"]
+
+
+ROSTERS = HERE / "reference" / "rosters"
+CHADWICK_ROSTERS = HERE / "reference" / "chadwick_rosters"
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_port_rows_with_rosters_equal_captured_chadwick(name):
+    """Hands come from the ``.ROS`` files, as when ``cwevent`` is run in a season directory."""
+    support = {p.name: p.read_bytes() for p in (ROSTERS / name).iterdir()}
+    data = (FIXTURES / f"{name}.evt").read_bytes()
+    year = re.search(rb"^id,[A-Z0-9]{3}(\d{4})", data, re.M).group(1).decode()  # type: ignore[union-attr]
+    team = support.get(f"TEAM{year}", b"")
+    league = read_rosters(team, year, support.get)
+    ours = list(event_rows(data, league))
+    result = compare_rows(
+        "chadwick 0.10.0", ours, read_rows(CHADWICK_ROSTERS / f"{name}.csv"), COLUMNS
+    )
+    assert result.games >= 1 and result.games_misaligned == 0
+    assert result.plays_compared == len(ours)
+    assert result.mismatches == 0, result.to_dict()["fields"]
+
+
+def test_game_selection_follows_cwtools():
+    from retrosheetpy.cw.game import Game
+
+    game = Game("ANA202009040", info=[("date", "2020/09/04")])
+    assert select_game(game) and select_game(game, "ANA202009040", "0904", "0904")
+    assert not select_game(game, "OTHER") and not select_game(game, "", "0905", "1231")
+    assert not select_game(game, "", "0101", "0903")
 
 
 def test_parse_follows_the_c_rules():

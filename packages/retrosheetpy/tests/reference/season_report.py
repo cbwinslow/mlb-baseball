@@ -26,6 +26,7 @@ from chadwick_reference import ChadwickReference  # noqa: E402
 from retrosheetpy import iter_zip_members  # noqa: E402
 from retrosheetpy.cw.events import COLUMNS  # noqa: E402
 from retrosheetpy.cw.events import event_rows as rows_of  # noqa: E402
+from retrosheetpy.cw.tools import read_rosters  # noqa: E402
 from retrosheetpy.errors import ParseError  # noqa: E402
 from retrosheetpy.records import is_event_filename  # noqa: E402
 from retrosheetpy.validation import compare_rows  # noqa: E402
@@ -37,6 +38,11 @@ def main() -> int:
     ap.add_argument("year", type=int)
     ap.add_argument("--out")
     ap.add_argument("--fields")
+    ap.add_argument(
+        "--no-rosters",
+        action="store_true",
+        help="run with an empty team file (no roster hands), as the captured fixtures were",
+    )
     args = ap.parse_args()
     fields = args.fields.split(",") if args.fields else list(COLUMNS)
     ref = ChadwickReference.find()
@@ -46,6 +52,17 @@ def main() -> int:
     report: dict[str, object] = {"chadwick": ref.version, "year": args.year, "files": {}}
     bad = 0
     totals = {"plays": 0, "mismatches": 0, "misaligned": 0, "errors": 0}
+    support: dict[str, bytes] = {}
+    if not args.no_rosters:
+        for name, member in iter_zip_members(args.zip):
+            if not is_event_filename(name):
+                support[Path(name).name] = member.read()
+    league = None
+    if not args.no_rosters:
+        team = support.get(f"TEAM{args.year}")
+        if team is None:
+            sys.exit(f"no TEAM{args.year} in the zip; use --no-rosters")
+        league = read_rosters(team, str(args.year), support.get)
     with tempfile.TemporaryDirectory() as tmp:
         for name, member in iter_zip_members(args.zip):
             if not is_event_filename(name) or not pattern.search(name):
@@ -54,8 +71,8 @@ def main() -> int:
             path.write_bytes(member.read())
             entry: dict[str, object] = {}
             try:
-                ours = list(rows_of(path.read_bytes()))
-                theirs = ref.events(path, args.year)
+                ours = list(rows_of(path.read_bytes(), league))
+                theirs = ref.events(path, args.year, support)
                 result = compare_rows(f"chadwick {ref.version}", ours, theirs, fields)
                 entry = result.to_dict()
                 problems = result.mismatches + result.games_misaligned

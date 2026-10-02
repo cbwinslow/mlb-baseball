@@ -10,10 +10,10 @@ A C ``NULL`` string printed through ``%s`` is "(null)" (glibc); ``None`` renders
 that way here so unset players match.
 """
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator
 
 from retrosheetpy.cw import game as cwgame
-from retrosheetpy.cw.game import Game, read_games
+from retrosheetpy.cw.game import Game
 from retrosheetpy.cw.gameiter import GameIter
 from retrosheetpy.cw.parse import (
     Ev,
@@ -23,9 +23,8 @@ from retrosheetpy.cw.parse import (
     rbi_on_play,
     runs_on_play,
 )
-
-# A roster maps player id -> (bats, throws); None means "no roster" (all '?').
-Roster = Mapping[str, tuple[str, str]]
+from retrosheetpy.cw.roster import League, Roster, roster_batting_hand, roster_throwing_hand
+from retrosheetpy.cw.tools import iterate_games
 
 
 def _s(value: str | None) -> str:
@@ -40,22 +39,6 @@ def _cmod(a: int, b: int) -> int:
     """C ``%``: the result takes the sign of the dividend."""
     r = abs(a) % b
     return -r if a < 0 else r
-
-
-def _batting_hand(roster: Roster | None, player_id: str | None) -> str:
-    """``cw_roster_batting_hand``"""
-    if roster is None or player_id is None or player_id not in roster:
-        return "?"
-    bats = roster[player_id][0]
-    return bats if bats not in ("", " ") else "?"
-
-
-def _throwing_hand(roster: Roster | None, player_id: str | None) -> str:
-    """``cw_roster_throwing_hand``"""
-    if roster is None or player_id is None or player_id not in roster:
-        return "?"
-    throws = roster[player_id][1]
-    return throws if throws not in ("", " ") else "?"
 
 
 class _Ctx:
@@ -126,12 +109,12 @@ def _batter_hand(c: _Ctx) -> str:
     assert ev is not None
     hand = ev.batter_hand
     if hand == " ":
-        hand = _batting_hand(c.off_roster, ev.batter)
+        hand = roster_batting_hand(c.off_roster, ev.batter)
     if hand == "B":
         if st.pitcher_hand != " ":
             p = st.pitcher_hand
         else:
-            p = _throwing_hand(c.def_roster, st.fielders[1][1 - st.batting_team])
+            p = roster_throwing_hand(c.def_roster, st.fielders[1][1 - st.batting_team])
         hand = "R" if p == "L" else "L" if p == "R" else "?"
     return hand
 
@@ -147,14 +130,14 @@ def _res_batter_hand(c: _Ctx) -> str:
     ):
         return st.strikeout_batter_hand
     if st.batter_hand == " ":
-        hand = _batting_hand(c.off_roster, st.charged_batter(ev.batter, d))
+        hand = roster_batting_hand(c.off_roster, st.charged_batter(ev.batter, d))
     else:
         hand = st.batter_hand
     if hand == "B":
         if st.pitcher_hand != " ":
             p = st.pitcher_hand
         else:
-            p = _throwing_hand(c.def_roster, st.charged_pitcher(d))
+            p = roster_throwing_hand(c.def_roster, st.charged_pitcher(d))
         return "R" if p == "L" else "L" if p == "R" else "?"
     return hand
 
@@ -163,7 +146,7 @@ def _pitcher_hand(c: _Ctx) -> str:
     ev, st = c.gi.event, c.gi.state
     assert ev is not None
     if ev.pitcher_hand == " ":
-        return _throwing_hand(c.def_roster, st.fielders[1][1 - st.batting_team])
+        return roster_throwing_hand(c.def_roster, st.fielders[1][1 - st.batting_team])
     return ev.pitcher_hand
 
 
@@ -171,7 +154,7 @@ def _res_pitcher_hand(c: _Ctx) -> str:
     ev, st = c.gi.event, c.gi.state
     assert ev is not None
     if ev.pitcher_hand == " ":
-        return _throwing_hand(c.def_roster, st.charged_pitcher(c.gi.data))
+        return roster_throwing_hand(c.def_roster, st.charged_pitcher(c.gi.data))
     return ev.pitcher_hand
 
 
@@ -604,8 +587,16 @@ def game_rows(
 
 
 def event_rows(
-    data: bytes, visitors: Roster | None = None, home: Roster | None = None
+    data: bytes,
+    league: League | None = None,
+    game_id: str = "",
+    first_date: str = "0101",
+    last_date: str = "1231",
 ) -> Iterator[dict[str, str]]:
-    """Rows for every game in an event file's bytes, as ``cwevent -q -f 0-96 -x 0-66`` does."""
-    for game in read_games(data):
+    """Rows for the selected games of an event file, as ``cwevent -q -f 0-96 -x 0-66`` does.
+
+    ``league`` holds the rosters read from the team file; without it every hand not given by
+    a ``badj``/``padj`` record is ``?``.
+    """
+    for game, visitors, home in iterate_games(data, league, game_id, first_date, last_date):
         yield from game_rows(game, visitors, home)

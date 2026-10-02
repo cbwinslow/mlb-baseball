@@ -19,7 +19,7 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE / "reference"))
-from reader_dump import dump  # noqa: E402
+from reader_dump import MODES, dump  # noqa: E402
 
 FIXTURES = HERE / "fixtures" / "events"
 SRC = Path(os.environ.get("CHADWICK_SRC", Path.home() / "workspace/tmp/chadwick/src"))
@@ -50,10 +50,10 @@ def harness(tmp_path_factory):
     return out
 
 
-def c_dump(harness: Path, data: bytes, tmp: Path) -> str | None:
+def c_dump(harness: Path, data: bytes, tmp: Path, mode: str = "game") -> str | None:
     path = tmp / "f.evt"
     path.write_bytes(data)
-    run = subprocess.run([str(harness), str(path)], capture_output=True)
+    run = subprocess.run([str(harness), str(path), mode], capture_output=True)
     if run.returncode != 0:  # Chadwick crashed on this file (e.g. a sub before any play)
         return None
     return run.stdout.decode("latin-1").rstrip("\n")
@@ -72,25 +72,34 @@ def test_fixture_read_equals_chadwick(harness, tmp_path, path):
     assert "\n".join(dump(data)) == c_dump(harness, data, tmp_path)
 
 
+def damage(rnd: random.Random, d: bytearray) -> bytearray:
+    for _ in range(rnd.randint(1, 8)):
+        kind, pos = rnd.randrange(4), rnd.randrange(len(d) + 1)
+        if kind == 0:
+            d[pos:pos] = rnd.choice(PIECES)
+        elif kind == 1:
+            del d[pos : pos + rnd.randint(1, 30)]
+        elif kind == 2:
+            d[pos:pos] = b"A" * rnd.choice([500, 1023, 1024, 2000])
+        else:
+            d = d[:pos]
+    return d
+
+
+def event_sample(rnd: random.Random, files: list[bytes]) -> bytearray:
+    d = bytearray(rnd.choice(files))
+    if len(d) > 6000:
+        start = d.find(b"\nid,", rnd.randrange(len(d) - 6000)) + 1
+        d = d[start : start + 6000]
+    return d
+
+
 def test_damaged_files_read_like_chadwick(harness, tmp_path):
     rnd = random.Random(7)
     files = [p.read_bytes() for p in sorted(FIXTURES.glob("*.evt"))]
     compared = 0
     for _ in range(300):
-        d = bytearray(rnd.choice(files))
-        if len(d) > 6000:
-            start = d.find(b"\nid,", rnd.randrange(len(d) - 6000)) + 1
-            d = d[start : start + 6000]
-        for _ in range(rnd.randint(1, 8)):
-            kind, pos = rnd.randrange(4), rnd.randrange(len(d) + 1)
-            if kind == 0:
-                d[pos:pos] = rnd.choice(PIECES)
-            elif kind == 1:
-                del d[pos : pos + rnd.randint(1, 30)]
-            elif kind == 2:
-                d[pos:pos] = b"A" * rnd.choice([500, 1023, 1024, 2000])
-            else:
-                d = d[:pos]
+        d = damage(rnd, event_sample(rnd, files))
         if not d.startswith(b"id,"):
             d[0:0] = b"id,X\n"
         expected = c_dump(harness, bytes(d), tmp_path)
@@ -99,3 +108,47 @@ def test_damaged_files_read_like_chadwick(harness, tmp_path):
         assert "\n".join(dump(bytes(d))) == expected, bytes(d)
         compared += 1
     assert compared > 250
+
+
+def test_scorebook_read_equals_chadwick(harness, tmp_path):
+    """``cw_scorebook_read``: leading comments, junk before the first ``id``, empty files"""
+    rnd = random.Random(11)
+    files = [p.read_bytes() for p in sorted(FIXTURES.glob("*.evt"))]
+    heads = [
+        b"",
+        b'com,"a note"\n',
+        b"zzz\n",
+        b'com,"x"\ncom,"y"\nid,Q\n',
+        b"\n",
+        b"x" * 300 + b"\n",
+    ]
+    compared = 0
+    for _ in range(300):
+        d = bytearray(rnd.choice(heads) + bytes(event_sample(rnd, files)))
+        if rnd.random() < 0.8:
+            d = damage(rnd, d)
+        expected = c_dump(harness, bytes(d), tmp_path, "book")
+        if expected is None:
+            continue
+        assert "\n".join(MODES["book"](bytes(d))) == expected, bytes(d)
+        compared += 1
+    assert compared > 250
+
+
+ROSTERS = sorted((HERE / "reference" / "rosters").glob("*/*"))
+
+
+@pytest.mark.parametrize("path", ROSTERS, ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_roster_and_team_files_equal_chadwick(harness, tmp_path, path):
+    mode = "league" if path.name.startswith("TEAM") else "roster"
+    data = path.read_bytes()
+    assert "\n".join(MODES[mode](data)) == c_dump(harness, data, tmp_path, mode)
+
+
+@pytest.mark.parametrize("mode", ["roster", "league"])
+def test_damaged_roster_files_read_like_chadwick(harness, tmp_path, mode):
+    rnd = random.Random(3)
+    files = [p.read_bytes() for p in ROSTERS if p.name.startswith("TEAM") == (mode == "league")]
+    for _ in range(300):
+        d = bytes(damage(rnd, bytearray(rnd.choice(files))))
+        assert "\n".join(MODES[mode](d)) == c_dump(harness, d, tmp_path, mode), d

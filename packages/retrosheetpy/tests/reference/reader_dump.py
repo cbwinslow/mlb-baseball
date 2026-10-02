@@ -5,9 +5,12 @@ text from the real ``CWGame`` structures, and the two outputs must be identical.
 """
 
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
+from retrosheetpy.cw.book import scorebook_read
 from retrosheetpy.cw.game import Appearance, Comment, Game, read_games
+from retrosheetpy.cw.roster import League, Roster, roster_batting_hand, roster_throwing_hand
 
 
 def s(p: str | None) -> str:
@@ -48,8 +51,45 @@ def dat(kind: str, rows: list[tuple[str | None, ...]]) -> list[str]:
 
 
 def dump(data: bytes) -> list[str]:
+    """``cw_game_read`` called until it returns NULL"""
+    return _games(read_games(data))
+
+
+def dump_book(data: bytes) -> list[str]:
+    """``cw_scorebook_read``"""
+    games = scorebook_read(data)
+    if games is None:
+        return ["read=-1"]
+    return [f"read={len(games)}", *_games(games)]
+
+
+def dump_roster(data: bytes) -> list[str]:
+    roster = Roster("T", "L", "C", "N")
+    roster.read(data)
+    return [
+        "player "
+        + f("id", p.player_id)
+        + f("l", p.last_name)
+        + f("f", p.first_name)
+        + f"b={ord(p.bats)}|t={ord(p.throws)}|"
+        + f"bh={ord(roster_batting_hand(roster, p.player_id))}|"
+        + f"th={ord(roster_throwing_hand(roster, p.player_id))}"
+        for p in roster.players
+    ]
+
+
+def dump_league(data: bytes) -> list[str]:
+    league = League()
+    league.read(data)
+    return [
+        "team " + f("id", r.team_id) + f("lg", r.league) + f("c", r.city) + f("n", r.nickname)
+        for r in league.rosters
+    ]
+
+
+def _games(games: Iterable[Game]) -> list[str]:
     out: list[str] = []
-    for g in read_games(data):
+    for g in games:
         out.append("GAME " + f("id", g.game_id) + f("v", g.version))
         out += [f"info {f('l', k)}{f('d', v)}" for k, v in g.info]
         out += app("start", g.starters) + com(g.comments)
@@ -78,6 +118,9 @@ def _events(g: Game) -> list[str]:
     return out
 
 
+MODES = {"game": dump, "book": dump_book, "roster": dump_roster, "league": dump_league}
+
 if __name__ == "__main__":
-    for line in dump(Path(sys.argv[1]).read_bytes()):
+    mode = sys.argv[2] if len(sys.argv) > 2 else "game"
+    for line in MODES[mode](Path(sys.argv[1]).read_bytes()):
         print(line)

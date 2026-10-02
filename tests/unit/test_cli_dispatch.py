@@ -14,6 +14,14 @@ from mlb_baseball.model import experiment, feature_select, feature_select_stepwi
 from mlb_baseball.source_profiles import SourceProfileError, require_sources
 
 
+@pytest.fixture(autouse=True)
+def _no_table_counts(monkeypatch):
+    """`mlb ingest` counts table totals after a load; unit tests have no database."""
+    monkeypatch.setattr(
+        cli.ingest, "table_totals", lambda tables, **_: {table: None for table in tables}
+    )
+
+
 def _fake_connector():
     connector = MagicMock()
     connector.bootstrap.return_value = {"raw.fake": 1}
@@ -39,7 +47,7 @@ def test_ingest_defaults_to_bootstrap(monkeypatch, capsys):
 
     connector.bootstrap.assert_called_once()
     connector.update.assert_not_called()
-    assert "raw.fake: 1 rows" in capsys.readouterr().out
+    assert "raw.fake: 1 loaded, total not counted" in capsys.readouterr().out
 
 
 def test_ingest_mode_update_calls_update_not_bootstrap(monkeypatch, capsys):
@@ -50,7 +58,7 @@ def test_ingest_mode_update_calls_update_not_bootstrap(monkeypatch, capsys):
 
     connector.update.assert_called_once()
     connector.bootstrap.assert_not_called()
-    assert "raw.fake: 2 rows" in capsys.readouterr().out
+    assert "raw.fake: 2 loaded, total not counted" in capsys.readouterr().out
 
 
 def test_public_safe_profile_rejects_a_restricted_connector(monkeypatch):
@@ -121,7 +129,7 @@ def test_ingest_mode_backfill_calls_backfill_history(monkeypatch, capsys):
     connector.backfill_history.assert_called_once()
     connector.bootstrap.assert_not_called()
     connector.update.assert_not_called()
-    assert "raw.fake_price: 3 rows" in capsys.readouterr().out
+    assert "raw.fake_price: 3 loaded, total not counted" in capsys.readouterr().out
 
 
 def test_ingest_mode_backfill_on_a_connector_without_it_exits_cleanly(monkeypatch, capsys):
@@ -1688,3 +1696,107 @@ def test_ingest_refresh_is_refused_outside_bootstrap_mode(monkeypatch):
         cli.main(["ingest", "fake", "--mode", "update", "--refresh"])
 
     connector.update.assert_not_called()
+
+
+def _run_source_check(monkeypatch, argv, *, results=None, no_record=None, discovered=("fake",)):
+    seen = {}
+
+    def fake_check(sources, *, hash_check=False, **_):
+        seen["sources"] = list(sources)
+        seen["hash_check"] = hash_check
+        return results or [], no_record or []
+
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": object(), "other": object()})
+    monkeypatch.setattr(cli.source_check, "check", fake_check)
+    monkeypatch.setattr(cli.source_check, "discover_sources", lambda: list(discovered))
+    with pytest.raises(SystemExit) as exc:
+        cli.main(argv)
+    return exc.value.code, seen
+
+
+def _verdict(status):
+    from mlb_baseball import source_check
+
+    return [source_check.Result("fake", "a.zip", source_check.Verdict(status))]
+
+
+def test_source_check_exits_zero_when_nothing_changed(monkeypatch, capsys):
+    code, seen = _run_source_check(monkeypatch, ["source-check"], results=_verdict("unchanged"))
+
+    assert code == 0
+    assert seen == {"sources": ["fake"], "hash_check": False}
+    assert "No source changed." in capsys.readouterr().out
+
+
+def test_source_check_exits_one_and_prints_refresh_command_when_changed(monkeypatch, capsys):
+    code, _ = _run_source_check(monkeypatch, ["source-check"], results=_verdict("changed"))
+
+    assert code == 1
+    assert "mlb ingest fake --refresh" in capsys.readouterr().out
+
+
+def test_source_check_exits_two_when_it_could_not_check(monkeypatch):
+    code, _ = _run_source_check(monkeypatch, ["source-check"], results=_verdict("unknown"))
+
+    assert code == 2
+
+
+def test_source_check_source_filter_and_hash_flag(monkeypatch):
+    code, seen = _run_source_check(
+        monkeypatch,
+        ["source-check", "--source", "other", "--hash"],
+        results=_verdict("unchanged"),
+    )
+
+    assert code == 0
+    assert seen == {"sources": ["other"], "hash_check": True}
+
+
+def test_source_check_named_source_without_record_exits_two(monkeypatch, capsys):
+    code, _ = _run_source_check(
+        monkeypatch, ["source-check", "--source", "other"], no_record=["other"]
+    )
+
+    assert code == 2
+    assert "other: no download record" in capsys.readouterr().out
+
+
+def test_source_check_rejects_an_unknown_source(monkeypatch):
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": object()})
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["source-check", "--source", "nope"])
+    assert exc.value.code == 2
+
+
+def test_ingest_prints_rows_loaded_and_table_total(monkeypatch, capsys):
+    connector = _fake_connector()
+    connector.bootstrap.return_value = {"raw.fake_box": 17418, "raw.fake_other": 5}
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
+    monkeypatch.setattr(
+        cli.ingest,
+        "table_totals",
+        lambda tables, **_: {"raw.fake_box": 18467, "raw.fake_other": 5},
+    )
+
+    cli.main(["ingest", "fake"])
+
+    out = capsys.readouterr().out
+    assert "raw.fake_box: 17418 loaded, 18467 in table" in out
+    assert "raw.fake_other: 5 loaded, 5 in table" in out
+
+
+def test_ingest_prints_total_not_counted_when_a_count_times_out(monkeypatch, capsys):
+    connector = _fake_connector()
+    connector.bootstrap.return_value = {"raw.fake_box": 17418, "raw.fake_other": 5}
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
+    monkeypatch.setattr(
+        cli.ingest,
+        "table_totals",
+        lambda tables, **_: {"raw.fake_box": None, "raw.fake_other": 5},
+    )
+
+    cli.main(["ingest", "fake"])
+
+    out = capsys.readouterr().out
+    assert "raw.fake_box: 17418 loaded, total not counted" in out
+    assert "raw.fake_other: 5 loaded, 5 in table" in out

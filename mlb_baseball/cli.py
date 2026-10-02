@@ -73,6 +73,7 @@ from mlb_baseball import (
     readiness,
     report,
     schema_inventory,
+    source_check,
 )
 from mlb_baseball import (
     catalog as metric_catalog,
@@ -565,6 +566,25 @@ def main(argv: list[str] | None = None) -> None:
     metrics_parser = subparsers.add_parser("metrics")
     metrics_parser.add_argument("--source", default="mlb_api")
     metrics_parser.add_argument("--window-minutes", type=int, default=5)
+    source_check_parser = subparsers.add_parser(
+        "source-check",
+        help="ask each publisher whether files we already downloaded have changed "
+        "(HEAD requests only; no downloads, no database). Exit 0 nothing changed, "
+        "1 something changed, 2 could not check.",
+    )
+    source_check_parser.add_argument(
+        "--source",
+        action="append",
+        choices=sorted(CONNECTORS),
+        help="check only this source; repeatable (default: every source under downloads/)",
+    )
+    source_check_parser.add_argument(
+        "--hash",
+        action="store_true",
+        help="prove it: download each archive to a temporary file, compare SHA-256 with the "
+        "manifest, delete the file (slow)",
+    )
+
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument(
         "--all", action="store_true", help="show every table, not just populated ones"
@@ -1539,8 +1559,21 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"{args.source} has no backfill_history() to run")
                 sys.exit(1)
             fn = cast(Callable[[], dict[str, int]], backfill)
-        for table, count in fn().items():
-            print(f"{table}: {count} rows")
+        loaded = fn()
+        totals = ingest.table_totals(loaded)
+        for table, count in loaded.items():
+            total = totals[table]
+            in_table = f"{total} in table" if total is not None else "total not counted"
+            print(f"{table}: {count} loaded, {in_table}")
+    elif args.command == "source-check":
+        checked = args.source or [
+            name for name in source_check.discover_sources() if name in CONNECTORS
+        ]
+        try:
+            require_sources(profile, checked, purpose="source-check")
+        except SourceProfileError as exc:
+            parser.error(str(exc))
+        sys.exit(source_check.run(args.source, hash_check=args.hash))
     elif args.command == "bootstrap":
         _run_all("bootstrap", profile, skip=args.skip)
     elif args.command == "update":

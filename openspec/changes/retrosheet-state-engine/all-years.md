@@ -1,5 +1,7 @@
 # All-years proof: real Chadwick 0.10.0 vs port, byte for byte (run 2026-10-02)
 
+> **Reference version.** "Chadwick 0.10.0" in this change means the Chadwick *development* source at commit `c685ab5` (`v0.10.0-26-gc685ab5`, 2026-03-13), which still reports version "0.10.0"; the installed `cw*` binaries and the source the port was translated from are that build. The released v0.10.0 tag differs (checked 2026-10-02: `cwevent`, `cwgame`, `cwdaily`, `cwsub` output differs on 2025 files; `cwcomment` is identical), so the port does not match the released 0.10.0.
+
 Driver: packages/retrosheetpy/tests/reference/all_years.py. 1910-2025, every event file, with the season's real team/roster files. 2719 files, 0 diffs, 0 skipped files. 1964DET.EVA makes the C hit a documented intra-struct touches[-1] write (see chadwick_tool.TOUCHES_UNDERFLOW); it is compared, not skipped. 1964 cwbox was re-run alone after adding that tolerance; the other 695 runs are from the first full run.
 
 | year | cwevent | cwgame | cwbox | cwdaily | cwsub | cwcomment |

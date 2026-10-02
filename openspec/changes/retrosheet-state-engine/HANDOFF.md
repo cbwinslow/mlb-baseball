@@ -67,7 +67,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 ## Known deviations from the C (remaining)
 1. `ValueError` where the C crashes/exits/reads uninitialised data (all modules; see docstrings).
 2. `cw_game_read` warnings go to `logging` ("retrosheetpy.cw"); `cli.py` routes them to stderr.
-3. Proof is against Chadwick 0.10.0 only; record version/commit in `results.md`.
+3. Proof is against Chadwick dev commit c685ab5 (reports 0.10.0; NOT the released v0.10.0 tag, which differs). Noted in `results.md`/`all-years.md`.
 4. `records.py` (csv-based) is still used by the non-port tools (validation, report, play).
 5. `cli.py`: `-y` longer than 5 chars is cut at 5 (the C leaves it unterminated).
 

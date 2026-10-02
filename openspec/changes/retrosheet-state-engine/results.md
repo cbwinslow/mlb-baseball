@@ -1,5 +1,7 @@
 # Results and rules learned
 
+> **Reference version.** "Chadwick 0.10.0" in this change means the Chadwick *development* source at commit `c685ab5` (`v0.10.0-26-gc685ab5`, 2026-03-13), which still reports version "0.10.0"; the installed `cw*` binaries and the source the port was translated from are that build. The released v0.10.0 tag differs (checked 2026-10-02: `cwevent`, `cwgame`, `cwdaily`, `cwsub` output differs on 2025 files; `cwcomment` is identical), so the port does not match the released 0.10.0.
+
 Equality target: `cwevent` 0.10.0, `-f 0-96 -x 0-66`, run on event files with an empty
 team file (see `field-table.md`). Rules below were found by comparing our rows with
 Chadwick's output; each lists a play that showed it. No Chadwick code was copied.

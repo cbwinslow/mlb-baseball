@@ -25,7 +25,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from chadwick_tool import SPORTSML_PATCH, build_sanitised, run_filled, run_tool  # noqa: E402
+from chadwick_tool import (  # noqa: E402
+    SPORTSML_PATCH,
+    TOUCHES_UNDERFLOW,
+    build_sanitised,
+    run_filled,
+    run_tool,
+)  # noqa: E402
 from retrosheetpy import iter_zip_members  # noqa: E402
 from retrosheetpy.cw.cwbox import box_text  # noqa: E402
 from retrosheetpy.cw.tools import read_rosters  # noqa: E402
@@ -60,15 +66,15 @@ def main() -> int:
             ok = run[1] == "".join(box_text(data, league)).encode("latin-1")
             bad += not ok
             print(f"{base} text: {len(run[1])} bytes {'ok' if ok else 'DIFFERENT'}")
-            zero = run_filled(exe, path, ["-X"], 0, support)
-            other = run_filled(exe, path, ["-X"], 255, support)
+            zero = run_filled(exe, path, ["-X"], 0, support, TOUCHES_UNDERFLOW)
+            other = run_filled(exe, path, ["-X"], 255, support, TOUCHES_UNDERFLOW)
             assert zero is not None and other is not None, "cwbox -X failed under the sanitisers"
             out = "".join(box_text(data, league, use_xml=True)).encode("latin-1")
             ok = zero == out and PB.sub(b"", zero) == PB.sub(b"", other)
             uninitialised += zero != other
             bad += not ok
             print(f"{base} xml: {len(zero)} bytes {'ok' if ok else 'DIFFERENT'}")
-            ref = run_filled(sml_exe, path, ["-S"], 0, support)
+            ref = run_filled(sml_exe, path, ["-S"], 0, support, TOUCHES_UNDERFLOW)
             assert ref is not None, "cwbox -S failed under the sanitisers"
             out = "".join(box_text(data, league, use_sportsml=True)).encode("latin-1")
             ok = DATE_TIME.sub(b"", ref) == DATE_TIME.sub(b"", out)

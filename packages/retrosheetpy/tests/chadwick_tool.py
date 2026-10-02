@@ -95,12 +95,24 @@ def build_sanitised(
     return exe
 
 
+# ``K+PB.B-1`` and the like reach ``event->touches[--event->num_touches] = 0`` (parse.c) with no
+# fielder touch, so the C writes ``touches[-1]``. In ``struct cw_event_data`` that is the last
+# element of ``errors[10]`` (contiguous ``int`` arrays, so neither ASAN nor anything outside the
+# struct is involved) and it is written as 0, which it already is; ``num_touches`` becomes -1 and
+# every loop over it then runs zero times. The port reproduces ``num_touches``; Python's
+# ``touches[-1]`` hits the last element of its own (larger) list, which nothing reads.
+TOUCHES_UNDERFLOW = re.compile(
+    rb"parse\.c:\d+:\d+: runtime error: index -1 out of bounds for type 'int \[20\]'"
+)
+
+
 def run_filled(
     exe: Path,
     event_file: Path,
     args: list[str],
     fill: int,
     support: dict[str, bytes] | None = None,
+    tolerate: re.Pattern[bytes] | None = None,
 ) -> bytes | None:
     """stdout of a sanitised build whose allocator fills new heap memory with byte ``fill``, or
     ``None`` if it failed or hit undefined behaviour. ``support`` files go next to the event file
@@ -122,7 +134,10 @@ def run_filled(
             check=False,
             env=env,
         )
-    if run.returncode != 0 or b"runtime error" in run.stderr or b"AddressSanitizer" in run.stderr:
+    errors = [line for line in run.stderr.splitlines() if b"runtime error" in line]
+    if tolerate is not None:
+        errors = [line for line in errors if not tolerate.search(line)]
+    if run.returncode != 0 or errors or b"AddressSanitizer" in run.stderr:
         return None
     return run.stdout
 

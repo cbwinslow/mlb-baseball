@@ -15,6 +15,7 @@ cwdaily-py = "retrosheetpy.cw.cli:main_cwdaily"
 cwsub-py = "retrosheetpy.cw.cli:main_cwsub"
 cwcomment-py = "retrosheetpy.cw.cli:main_cwcomment"
 cwbox-py = "retrosheetpy.cw.cli:main_cwbox"
+retrosheetpy = "retrosheetpy.cw.cli:main_umbrella"
 
 [build-system]
 requires = ["hatchling"]

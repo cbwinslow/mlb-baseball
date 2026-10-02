@@ -2,10 +2,7 @@
 
 import sys
 
-from retrosheetpy.cw.cli import TOOLS, run
+from retrosheetpy.cw.cli import main_umbrella
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2 or sys.argv[1] not in TOOLS:
-        sys.exit(f"usage: python -m retrosheetpy.cw {{{','.join(TOOLS)}}} [options] eventfile...")
-    tool = sys.argv.pop(1)
-    sys.exit(run(tool))
+    sys.exit(main_umbrella())

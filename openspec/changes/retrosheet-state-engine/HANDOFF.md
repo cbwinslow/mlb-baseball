@@ -1,4 +1,4 @@
-# Handoff — `retrosheet-state-engine` (updated 2026-10-02, eleventh session)
+# Handoff — `retrosheet-state-engine` (updated 2026-10-02, twelfth session)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start."
 
@@ -71,19 +71,26 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 4. `records.py` (csv-based) is still used by the non-port tools (validation, report, play).
 5. `cli.py`: `-y` longer than 5 chars is cut at 5 (the C leaves it unterminated).
 
-## NOT ported yet (library API no tool uses)
-- Write side: `cw_game_write*` (header, starters, comments, events, data, stat, line),
-  `cw_scorebook_write`/`_write_comments`, `cw_roster_write`, `cw_league_write`.
-- Mutators: `cw_game_info_set`, `cw_game_replace_player`, `cw_scorebook_append/insert/remove_game`,
-  `cw_roster_player_insert`, `cw_roster_set_*`, `cw_player_*` setters. (The read-side equivalents
-  are ported as dataclasses/lists, so most of these are small.)
-- Method: translate the C, then compare with a small C harness (like `tests/reference/*_dump.c`)
-  that reads files, calls the function and writes the result; round-trip every fixture.
+## Write side and mutators (done, twelfth session)
+- `cw/write.py`: `game_write` (+ header/starters/comments/events/stat/line/data parts; like the C it never
+  writes `evdata`), `scorebook_write`, `roster_write`, `league_write`. `%s` of NULL prints `(null)`.
+- Mutators as methods: `Game.set_version/info_append/info_set/starter_append/event_append/truncate/
+  substitute_append/{data,stat,evdata,line}_append/data_set_er/comment_append/replace_player`,
+  `event_comment_append`; `Scorebook` (book.py: append/insert/remove/iterate/read, keeps leading comments);
+  `Roster.set_*/player_insert/player_append/player_count`, `Player.set_*_name`, `League.roster_append`.
+- Proof: `tests/reference/write_dump.c` (+ `write_dump.py`, `tests/test_write_differential.py`): reads with
+  Chadwick, applies a script of edits, writes; bytes identical to the port on fixtures, 400 random edit
+  scripts, damaged files, scorebook insert/remove (incl. equal date+number), rosters, team files.
+  Mutation-tested (two deliberate bugs were caught).
+- Command namespace: Chadwick has exactly six tools; all ported as `cwevent-py` ... `cwbox-py`, plus the
+  umbrella `retrosheetpy cwevent ...` (`cli.main_umbrella`, also `python -m retrosheetpy.cw`).
+- Owner question "should we fix Chadwick's bugs?": recommendation given = no. Match the C wherever its
+  behaviour is defined; only where it crashes or reads garbage does the port differ (ValueError / defined
+  value), documented above. Not yet confirmed by the owner.
 
 ## Next steps (in order)
-1. Re-run the full suite + `ruff check`, `ruff format --check`, `mypy --strict` (all clean at the last
-   commit before the CLI test run; never claim without running).
-2. Port the write side and mutators above (differential harness against the C).
+1. Full suite (802 passed), ruff, format, mypy --strict were clean at the last commit; re-run before the PR.
+2. (done) write side and mutators.
 3. Value check done earlier (nothing else is a pure-Python, Chadwick-identical, pip-installable
    replacement; quick search, PyPI pages not opened directly).
 4. Close-out: rewrite `tasks.md`/`results.md`/`proposal.md`/`design.md` for the port approach

@@ -73,6 +73,100 @@ class Game:
     evdata: list[tuple[str | None, ...]] = field(default_factory=list)
     line: list[tuple[str | None, ...]] = field(default_factory=list)
 
+    def set_version(self, version: str | None) -> None:
+        """``cw_game_set_version``"""
+        self.version = version
+
+    def info_append(self, label: str, data: str) -> None:
+        """``cw_game_info_append``"""
+        self.info.append((label, data))
+
+    def info_set(self, label: str, data: str) -> None:
+        """``cw_game_info_set``: replace the *first* record with this label, else append.
+
+        (``info_lookup`` reads the last one; the C is inconsistent and so is this.)
+        """
+        for i, (key, _value) in enumerate(self.info):
+            if key == label:
+                self.info[i] = (key, data)
+                return
+        self.info_append(label, data)
+
+    def starter_append(self, player_id: str, name: str, team: int, slot: int, pos: int) -> None:
+        """``cw_game_starter_append``"""
+        self.starters.append(Appearance(player_id, name, team, slot, pos))
+
+    def event_append(
+        self, inning: int, batting_team: int, batter: str, count: str, pitches: str, event_text: str
+    ) -> Event:
+        """``cw_game_event_append``"""
+        event = Event(inning, batting_team, batter, count, pitches, event_text)
+        self.events.append(event)
+        return event
+
+    def truncate(self, event: Event) -> None:
+        """``cw_game_truncate``: drop ``event`` and every event after it"""
+        for i, candidate in enumerate(self.events):
+            if candidate is event:
+                del self.events[i:]
+                return
+        raise ValueError("event is not in this game (Chadwick would corrupt its list)")
+
+    def substitute_append(self, player_id: str, name: str, team: int, slot: int, pos: int) -> None:
+        """``cw_game_substitute_append``: to the last event"""
+        if not self.events:
+            raise ValueError("no event to attach a substitute to (Chadwick would crash)")
+        self.events[-1].subs.append(Appearance(player_id, name, team, slot, pos))
+
+    def data_append(self, data: list[str | None]) -> None:
+        """``cw_game_data_append``"""
+        self.data.append(tuple(data))
+
+    def stat_append(self, data: list[str | None]) -> None:
+        """``cw_game_stat_append``"""
+        self.stat.append(tuple(data))
+
+    def evdata_append(self, data: list[str | None]) -> None:
+        """``cw_game_evdata_append``"""
+        self.evdata.append(tuple(data))
+
+    def line_append(self, data: list[str | None]) -> None:
+        """``cw_game_line_append``"""
+        self.line.append(tuple(data))
+
+    def data_set_er(self, player_id: str, er: int) -> None:
+        """``cw_game_data_set_er``: set the earned runs of a pitcher's ``data,er`` record"""
+        text = str(er)
+        if len(text) > 9:
+            raise ValueError("earned runs do not fit the C buffer (Chadwick would overflow)")
+        for i, item in enumerate(self.data):
+            if len(item) >= 3 and _strcmp_eq(item[0], "er") and _strcmp_eq(item[1], player_id):
+                self.data[i] = (item[0], item[1], text, *item[3:])
+                return
+        self.data_append(["er", player_id, text])
+
+    def comment_append(self, text: str) -> Comment:
+        """``cw_game_comment_append``: to the last event, or the game before any event"""
+        return _comment_append(self, text)
+
+    def replace_player(self, key_old: str, key_new: str) -> None:
+        """``cw_game_replace_player``: every use of the id, in the order the C visits them"""
+        for starter in self.starters:
+            if starter.player_id == key_old:
+                starter.player_id = key_new
+        for event in self.events:
+            if event.batter == key_old:
+                event.batter = key_new
+            for sub in event.subs:
+                if sub.player_id == key_old:
+                    sub.player_id = key_new
+        for i, item in enumerate(self.data):
+            if len(item) >= 3 and _strcmp_eq(item[0], "er") and _strcmp_eq(item[1], key_old):
+                self.data[i] = (item[0], key_new, *item[2:])
+        for label in ("wp", "lp", "save"):
+            if self.info_lookup(label) == key_old:
+                self.info_set(label, key_new)
+
     def info_lookup(self, label: str) -> str | None:
         """``cw_game_info_lookup``: the last info record with this label."""
         for key, value in reversed(self.info):
@@ -93,6 +187,20 @@ class Game:
             if s.team == team and s.pos == pos:
                 return s
         return None
+
+
+def _strcmp_eq(a: str | None, b: str) -> bool:
+    """``!strcmp(a, b)``, which crashes in C when ``a`` is NULL"""
+    if a is None:
+        raise ValueError("NULL string passed to strcmp (Chadwick would crash)")
+    return a == b
+
+
+def event_comment_append(event: Event, text: str) -> Comment:
+    """``cw_event_comment_append``: a comment on an event, with no ``ej,``/``umpchange,`` parsing"""
+    comment = Comment(text)
+    event.comments.append(comment)
+    return comment
 
 
 def _libc_strtok(text: str, start: int) -> list[str | None]:

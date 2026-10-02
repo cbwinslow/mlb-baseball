@@ -26,6 +26,14 @@ class Player:
     bats: str
     throws: str
 
+    def set_first_name(self, name: str) -> None:
+        """``cw_player_set_first_name``"""
+        self.first_name = name
+
+    def set_last_name(self, name: str) -> None:
+        """``cw_player_set_last_name``"""
+        self.last_name = name
+
 
 @dataclass
 class Roster:
@@ -37,6 +45,33 @@ class Roster:
     nickname: str
     year: int = 0
     players: list[Player] = field(default_factory=list)
+
+    def set_city(self, city: str) -> None:
+        """``cw_roster_set_city``"""
+        self.city = city
+
+    def set_nickname(self, nickname: str) -> None:
+        """``cw_roster_set_nickname``"""
+        self.nickname = nickname
+
+    def set_league(self, league: str) -> None:
+        """``cw_roster_set_league``"""
+        self.league = league
+
+    def player_append(self, player: Player) -> None:
+        """``cw_roster_player_append``"""
+        self.players.append(player)
+
+    def player_insert(self, player: Player) -> None:
+        """``cw_roster_player_insert``: before the first player whose id is not smaller (strcmp)"""
+        i = 0
+        while i < len(self.players) and self.players[i].player_id < player.player_id:
+            i += 1
+        self.players.insert(i, player)
+
+    def player_count(self) -> int:
+        """``cw_roster_player_count``"""
+        return len(self.players)
 
     def player_find(self, player_id: str | None) -> Player | None:
         """``cw_roster_player_find``"""
@@ -96,6 +131,10 @@ class League:
     """``CWLeague``: the rosters named in a team file"""
 
     rosters: list[Roster] = field(default_factory=list)
+
+    def roster_append(self, roster: Roster) -> None:
+        """``cw_league_roster_append``"""
+        self.rosters.append(roster)
 
     def roster_find(self, team: str | None) -> Roster | None:
         """``cw_league_roster_find``"""

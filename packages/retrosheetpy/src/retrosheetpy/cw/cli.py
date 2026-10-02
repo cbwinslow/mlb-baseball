@@ -604,3 +604,11 @@ def main_cwcomment() -> int:
 
 def main_cwbox() -> int:
     return run("cwbox")
+
+
+def main_umbrella() -> int:
+    """``retrosheetpy TOOL [options] eventfile...``: the Chadwick tool names under one command"""
+    if len(sys.argv) < 2 or sys.argv[1] not in TOOLS:
+        sys.exit(f"usage: retrosheetpy {{{','.join(TOOLS)}}} [options] eventfile...")
+    tool = sys.argv.pop(1)
+    return run(tool)

@@ -38,34 +38,43 @@ def build_sanitised(tool: str, out_dir: Path, extra: tuple[str, ...] = ()) -> Pa
     return exe
 
 
-def run_clean(exe: Path, event_file: Path, args: list[str]) -> bytes | None:
-    """stdout of a sanitised build, or ``None`` if it failed, hit undefined behaviour, or read
-    uninitialised heap memory (its output changes when the allocator's fill byte does)."""
+def run_filled(
+    exe: Path,
+    event_file: Path,
+    args: list[str],
+    fill: int,
+    support: dict[str, bytes] | None = None,
+) -> bytes | None:
+    """stdout of a sanitised build whose allocator fills new heap memory with byte ``fill``, or
+    ``None`` if it failed or hit undefined behaviour. ``support`` files go next to the event file
+    (an empty team file unless given)."""
     data = event_file.read_bytes()
     found = re.search(rb"^id,[A-Z0-9]{3}(\d{4})", data, re.M)
     year = found.group(1).decode() if found else "0000"
-    outputs = []
-    for fill in (0, 255):
-        with tempfile.TemporaryDirectory() as tmp:
-            work = Path(tmp)
-            (work / f"{year}XXX.EVN").write_bytes(data)
-            (work / f"TEAM{year}").write_text("")
-            env = {**os.environ, "ASAN_OPTIONS": f"detect_leaks=0:malloc_fill_byte={fill}"}
-            run = subprocess.run(
-                [str(exe), "-q", "-y", year, *args, f"{year}XXX.EVN"],
-                cwd=work,
-                capture_output=True,
-                check=False,
-                env=env,
-            )
-        if (
-            run.returncode != 0
-            or b"runtime error" in run.stderr
-            or b"AddressSanitizer" in run.stderr
-        ):
-            return None
-        outputs.append(run.stdout)
-    return outputs[0] if outputs[0] == outputs[1] else None
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        (work / f"{year}XXX.EVN").write_bytes(data)
+        (work / f"TEAM{year}").write_text("")
+        for name, content in (support or {}).items():
+            (work / name).write_bytes(content)
+        env = {**os.environ, "ASAN_OPTIONS": f"detect_leaks=0:malloc_fill_byte={fill}"}
+        run = subprocess.run(
+            [str(exe), "-q", "-y", year, *args, f"{year}XXX.EVN"],
+            cwd=work,
+            capture_output=True,
+            check=False,
+            env=env,
+        )
+    if run.returncode != 0 or b"runtime error" in run.stderr or b"AddressSanitizer" in run.stderr:
+        return None
+    return run.stdout
+
+
+def run_clean(exe: Path, event_file: Path, args: list[str]) -> bytes | None:
+    """stdout of a sanitised build, or ``None`` if it failed, hit undefined behaviour, or read
+    uninitialised heap memory (its output changes when the allocator's fill byte does)."""
+    outputs = [run_filled(exe, event_file, args, fill) for fill in (0, 255)]
+    return outputs[0] if outputs[0] is not None and outputs[0] == outputs[1] else None
 
 
 def run_tool(

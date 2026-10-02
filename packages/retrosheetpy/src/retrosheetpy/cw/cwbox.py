@@ -3,8 +3,8 @@
 Chadwick is Copyright (c) 2002-2023 Dr T L Turocy and the Chadwick Baseball
 Bureau, licensed GPL-2.0-or-later; this module is a derivative of it and keeps
 that notice. One function per ``cwbox_print_*`` function, each returning the text
-the C ``printf`` calls write. The XML (``-X``) and SportsML (``-S``) outputs are not
-in this module.
+the C ``printf`` calls write. The XML output (``-X``) is in ``cwboxxml``; SportsML (``-S``)
+is not ported.
 
 A C ``NULL`` string printed through ``%s`` is "(null)" (glibc). Where the C
 dereferences ``NULL`` or reads an uninitialised variable, this port raises
@@ -26,6 +26,7 @@ from retrosheetpy.cw.box import (
     get_starter,
     get_starting_pitcher,
 )
+from retrosheetpy.cw.cwboxxml import print_xml
 from retrosheetpy.cw.file import scan_int
 from retrosheetpy.cw.game import Game
 from retrosheetpy.cw.lint import game_lint
@@ -499,9 +500,11 @@ def print_text(game: Game, box: Boxscore, visitors: Roster | None, home: Roster 
     return out + "\f"
 
 
-def process_game(game: Game, visitors: Roster | None, home: Roster | None) -> str | None:
-    """``cwbox_process_game`` (text mode): the boxscore, or ``None`` when the game fails the
-    sanity check (``cw_game_lint``) and is skipped"""
+def process_game(
+    game: Game, visitors: Roster | None, home: Roster | None, use_xml: bool = False
+) -> str | None:
+    """``cwbox_process_game`` (text mode, or XML with ``use_xml`` as ``-X``): the boxscore, or
+    ``None`` when the game fails the sanity check (``cw_game_lint``) and is skipped"""
     if not game_lint(game):
         log.warning("WARNING: Sanity check fails for game %s, skipping...", game.game_id)
         return None
@@ -510,6 +513,8 @@ def process_game(game: Game, visitors: Roster | None, home: Roster | None) -> st
         log.warning("WARNING: In game %s, could not find roster for visiting team.", game.game_id)
     if home is None:
         log.warning("WARNING: In game %s, could not find roster for home team.", game.game_id)
+    if use_xml:
+        return print_xml(game, box, visitors, home)
     return print_text(game, box, visitors, home)
 
 
@@ -519,9 +524,11 @@ def box_text(
     game_id: str = "",
     first_date: str = "0101",
     last_date: str = "1231",
+    use_xml: bool = False,
 ) -> Iterator[str]:
-    """The boxscores of the selected games of an event file, as ``cwbox`` prints them."""
+    """The boxscores of the selected games of an event file, as ``cwbox`` (``cwbox -X`` with
+    ``use_xml``) prints them."""
     for game, visitors, home in iterate_games(data, league, game_id, first_date, last_date):
-        text = process_game(game, visitors, home)
+        text = process_game(game, visitors, home, use_xml)
         if text is not None:
             yield text

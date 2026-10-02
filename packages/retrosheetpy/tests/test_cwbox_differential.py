@@ -23,6 +23,7 @@ from test_reader_differential import damage  # noqa: E402
 
 pytestmark = pytest.mark.skipif(shutil.which("cwbox") is None, reason="needs cwbox on PATH")
 
+PB = re.compile(rb' pb="\d+"')
 FIXTURES = sorted((HERE / "fixtures" / "events").glob("*.evt"))
 
 
@@ -54,22 +55,29 @@ def synthetic_rosters(data: bytes) -> dict[str, bytes]:
     return support
 
 
-def port_output(data: bytes, support: dict[str, bytes] | None = None) -> bytes:
+def port_output(
+    data: bytes, support: dict[str, bytes] | None = None, use_xml: bool = False
+) -> bytes:
     league = None
     if support:
         league = read_rosters(support[f"TEAM{year_of(data)}"], year_of(data), support.get)
-    return "".join(box_text(data, league)).encode("latin-1")
+    return "".join(box_text(data, league, use_xml=use_xml)).encode("latin-1")
 
 
+@pytest.mark.parametrize("xml", [False, True], ids=["text", "xml"])
 @pytest.mark.parametrize("rosters", [False, True], ids=["no_rosters", "rosters"])
 @pytest.mark.parametrize("fixture", FIXTURES, ids=lambda p: p.stem)
-def test_fixture_matches_cwbox(fixture: Path, rosters: bool) -> None:
+def test_fixture_matches_cwbox(fixture: Path, rosters: bool, xml: bool) -> None:
     data = fixture.read_bytes()
     support = synthetic_rosters(data) if rosters else None
-    run = run_tool("cwbox", fixture, [], support)
+    run = run_tool("cwbox", fixture, ["-X"] if xml else [], support)
     assert run is not None
     assert run[0] == 0
-    assert run[1] == port_output(data, support)
+    expected, out = run[1], port_output(data, support, xml)
+    if xml:
+        # the C reads uninitialised memory for the ``pb`` attribute (see ``cwboxxml``)
+        expected, out = PB.sub(b"", expected), PB.sub(b"", out)
+    assert expected == out
 
 
 def test_damaged_files_match_cwbox(tmp_path: Path) -> None:
@@ -83,13 +91,14 @@ def test_damaged_files_match_cwbox(tmp_path: Path) -> None:
             data = bytes(damage(rng, bytearray(fixture.read_bytes())))
             path = tmp_path / f"{fixture.stem}_{i}.evt"
             path.write_bytes(data)
-            expected = run_clean(exe, path, [])
-            if expected is None:
-                continue  # Chadwick exits, crashes or has undefined behaviour here
-            try:
-                out = port_output(data)
-            except (ValueError, IndexError):
-                continue  # the port raises where Chadwick would misbehave silently
-            assert expected == out, path.name
-            checked += 1
+            for xml in (False, True):
+                expected = run_clean(exe, path, ["-X"] if xml else [])
+                if expected is None:
+                    continue  # Chadwick exits, crashes or has undefined behaviour here
+                try:
+                    out = port_output(data, use_xml=xml)
+                except (ValueError, IndexError):
+                    continue  # the port raises where Chadwick would misbehave silently
+                assert expected == out, (path.name, xml)
+                checked += 1
     assert checked > 30

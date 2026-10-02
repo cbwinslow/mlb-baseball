@@ -14,7 +14,6 @@ the ``daynight`` field with the literal ``"g_day"`` (the same typo is kept).
 """
 
 import logging
-import re
 from collections.abc import Iterator
 from typing import TypeVar
 
@@ -27,6 +26,7 @@ from retrosheetpy.cw.box import (
     get_starter,
     get_starting_pitcher,
 )
+from retrosheetpy.cw.file import scan_int
 from retrosheetpy.cw.game import Game
 from retrosheetpy.cw.lint import game_lint
 from retrosheetpy.cw.roster import League, Player, Roster
@@ -81,23 +81,15 @@ def _buffer_name(player: Player) -> str:
     return f"{player.last_name} {player.first_name[:1]}"
 
 
-_SCAN_INT = re.compile(r"[ \t\n\v\f\r]*([+-]?[0-9]+)")
-
-
-def _scan_int(text: str, pos: int) -> tuple[int, int] | None:
-    found = _SCAN_INT.match(text, pos)
-    return None if found is None else (int(found.group(1)), found.end())
-
-
 def _print_header(game: Game, visitors: Roster | None, home: Roster | None) -> str:
     """``cwbox_print_header``"""
     date = _deref(_info(game, "date"))
-    year = _scan_int(date, 0)
+    year = scan_int(date, 0)
     month = day = None
     if year is not None and date[year[1] : year[1] + 1] == "/":
-        month = _scan_int(date, year[1] + 1)
+        month = scan_int(date, year[1] + 1)
         if month is not None and date[month[1] : month[1] + 1] == "/":
-            day = _scan_int(date, month[1] + 1)
+            day = scan_int(date, month[1] + 1)
     if year is None or month is None or day is None:
         raise ValueError(f"unparsable date {date!r} (uninitialised values in Chadwick)")
     g_year, g_month, g_day = year[0], month[0], day[0]
@@ -397,7 +389,7 @@ def _print_timeofgame(game: Game) -> str:
     text = _info(game, "timeofgame")
     if text is None:
         return ""
-    found = _scan_int(text, 0)
+    found = scan_int(text, 0)
     if found is None:
         if text == "":
             raise ValueError("empty timeofgame (uninitialised value in Chadwick)")

@@ -13,6 +13,7 @@ byte is one character, as in C.
 """
 
 import logging
+import re
 
 log = logging.getLogger("retrosheetpy.cw")
 
@@ -143,3 +144,13 @@ def cw_atoi(text: str, msg: str | None = None) -> int:
             return value
     log.warning(msg % text if msg is not None else f"WARNING: Invalid integer value '{text}'")
     return -1
+
+
+_SCAN_INT = re.compile(r"[ \t\n\v\f\r]*([+-]?[0-9]+)")
+
+
+def scan_int(text: str, pos: int = 0) -> tuple[int, int] | None:
+    """One ``%d`` conversion of ``sscanf`` at ``pos``: (value, position after it), or ``None``
+    when no integer is there (``sscanf`` then stops and leaves its outputs unset)"""
+    found = _SCAN_INT.match(text, pos)
+    return None if found is None else (int(found.group(1)), found.end())

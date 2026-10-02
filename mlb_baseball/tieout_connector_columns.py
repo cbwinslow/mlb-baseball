@@ -47,6 +47,15 @@ change, not to make a failing run pass.
 
 from __future__ import annotations
 
+# Columns a newer Chadwick build adds that the 0.10.0 binary used for the pin below does not
+# produce. CI builds Chadwick from a pinned git commit (``.github/workflows/ci.yml``
+# ``CHADWICK_REF``), and its ``cwgame`` also emits ``official_scorer_id``; production's
+# ``raw.retrosheet_game`` has no such column. Which Chadwick build ran is environment, not a
+# connector change, so these may be present or absent. Anything else not pinned still fails.
+OPTIONAL_CONNECTOR_COLUMNS: dict[str, frozenset[str]] = {
+    "raw.retrosheet_game": frozenset({"official_scorer_id"}),
+}
+
 # fmt: off
 CONNECTOR_FIELD_CONTRACT: dict[str, frozenset[str]] = {
     "raw.retrosheet_event": frozenset({

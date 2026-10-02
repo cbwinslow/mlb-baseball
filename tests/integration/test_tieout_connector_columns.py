@@ -29,7 +29,10 @@ from mlb_baseball import chadwick_tools
 from mlb_baseball.connectors import retrosheet
 from mlb_baseball.connectors import retrosheet_event as event
 from mlb_baseball.tieout import check_columns
-from mlb_baseball.tieout_connector_columns import CONNECTOR_FIELD_CONTRACT
+from mlb_baseball.tieout_connector_columns import (
+    CONNECTOR_FIELD_CONTRACT,
+    OPTIONAL_CONNECTOR_COLUMNS,
+)
 from mlb_baseball.tieout_run import fetch_actual_columns
 from mlb_baseball.tieout_schema_contract import RAW_SCHEMA_CONTRACT
 
@@ -54,6 +57,14 @@ pytestmark = pytest.mark.skipif(
     bool(chadwick_tools.missing_tools()),
     reason=f"cwevent/cwgame not installed: {chadwick_tools.missing_tools()}",
 )
+
+
+def _without_optional(actual):
+    """Drop columns only some Chadwick builds emit (see OPTIONAL_CONNECTOR_COLUMNS)."""
+    return {
+        table: columns - OPTIONAL_CONNECTOR_COLUMNS.get(table, frozenset())
+        for table, columns in actual.items()
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -85,7 +96,9 @@ def test_a_real_event_and_game_load_matches_the_connectors_pinned_columns(db_con
         event._load_archive(db_conn, "decade.zip", "https://example.com/decade.zip", "pbp")
     db_conn.commit()
 
-    actual = fetch_actual_columns(db_conn, ["retrosheet_event", "retrosheet_game"])
+    actual = _without_optional(
+        fetch_actual_columns(db_conn, ["retrosheet_event", "retrosheet_game"])
+    )
     problems = check_columns(actual, CONNECTOR_FIELD_CONTRACT)
 
     assert problems == []
@@ -105,7 +118,9 @@ def test_a_column_renamed_by_cwevent_is_caught(db_conn):
         event._load_archive(db_conn, "decade.zip", "https://example.com/decade.zip", "pbp")
     db_conn.commit()
 
-    actual = fetch_actual_columns(db_conn, ["retrosheet_event", "retrosheet_game"])
+    actual = _without_optional(
+        fetch_actual_columns(db_conn, ["retrosheet_event", "retrosheet_game"])
+    )
     problems = check_columns(actual, CONNECTOR_FIELD_CONTRACT)
 
     assert any("raw.retrosheet_event is missing column(s)" in p and "bat_id" in p for p in problems)

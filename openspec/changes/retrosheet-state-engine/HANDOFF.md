@@ -50,8 +50,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 5. `records.py` (csv-based) is still used by the non-port tools (validation, report, play); the port no longer uses it.
 
 ## Next steps (in order)
-1. Run the full sweep again WITH rosters for all 116 seasons (use `season_report.py`, rosters are default now;
-   `--no-rosters` reproduces the old runs). Record Chadwick version in `results.md`.
+1. (Done 2026-10-02: full sweep with rosters = 0 differences; see results.md.)
 2. Port the remaining tools from the C, in this order: `cwgame` (smallest), `cwdaily`, `cwsub`,
    `cwcomment`, `cwbox` (+ `box.c`), then `lint.c` and the CLI driver. Prove each against the real binary on
    whole seasons (same method as `season_report.py`).

@@ -181,3 +181,17 @@ Chadwick's output; each lists a play that showed it. No Chadwick code was copied
   (HOU202504110).
 - **Two runners sent to one base** (a scoring mistake): not an error; the later runner replaces
   the earlier, as Chadwick does, and the row has `STATE_CONFLICT` = `T` (BOS202509030, `WP.3-H;1-2`).
+
+## Full sweep with rosters (2026-10-02)
+
+Reference: Chadwick `cwevent` 0.10.0, run in a directory holding the season's `TEAMyyyy` and
+`.ROS` files (so batting/throwing hands come from rosters). Port: `retrosheetpy.cw` with the same
+files. Method: `tests/reference/season_report.py ZIP YEAR`, every event file, all 164 columns.
+
+Result: **all 116 seasons 1910-2025: 16,191,075 plays, 0 mismatches, 0 misaligned games, 0 errors.**
+
+Also checked against the C itself (not only against `cwevent` output): the file reader, scorebook
+reader, roster and team-file readers (`tests/test_reader_differential.py`), and the play parser on
+192,000 real and mutated play strings (`tests/reference/parse_fuzz.py`; only garbled `POCS(` plays
+differ, where the C writes out of bounds). The new-season guard flags two 2025 plays that Chadwick
+also cannot parse: `BOS202509030` and `KCA202506140`.

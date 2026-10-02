@@ -1,4 +1,4 @@
-# Handoff — `retrosheet-state-engine` (updated 2026-10-01, seventh session)
+# Handoff — `retrosheet-state-engine` (updated 2026-10-01, eighth session)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start."
 
@@ -15,53 +15,53 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 
 ## State
 - Branch `feat/retrosheet-state-engine-impl`, worktree `/home/cbwinslow/workspace/mlb-pure-python`
-  (never touch `/home/cbwinslow/workspace/mlb`). **Nothing committed this session; not pushed; no PR.**
+  (never touch `/home/cbwinslow/workspace/mlb`). **Committed locally (5 commits); not pushed; no PR.**
   Committing, pushing the branch and opening a PR is pre-authorized; merging needs the owner's "merge".
-- Done and uncommitted: `packages/retrosheetpy/src/retrosheetpy/cw/{parse,game,gameiter,events}.py`
-  (ports of `parse.c`, `game.c` read side, `gameiter.c`, `cwevent.c` fields 0-96 + extended 0-66);
-  old hand-built `state.py/outcome.py/fielding.py` + `test_state.py` + `implemented_fields.py` DELETED
-  (owner approved); `tests/test_cw.py`; `season_report.py` now checks the port on all 164 columns;
-  docs updated (D3 reversed in design.md/proposal.md, `packages/retrosheetpy/AGENTS.md`);
-  `records.py::_int` now tolerates a trailing blank (Chadwick `atoi` does).
-- Proof: **all 116 seasons 1910-2025 = 0 mismatches, 0 misaligned, 0 errors on all 164 columns**
-  (~16.2M plays) against `cwevent` 0.10.0. 253 tests pass; ruff, ruff format, mypy --strict clean.
-- **Only `cwevent` is ported.** NOT ported: `cwgame`, `cwbox` (`box.c` 1578 lines), `cwdaily`, `cwsub`,
-  `cwcomment`, `roster.c`/`league.c`/`book.c`/`lint.c`, `cwtools.c` (CLI driver/filters).
+- Ported from Chadwick C, all in `packages/retrosheetpy/src/retrosheetpy/cw/`: `parse.py` (parse.c),
+  `game.py` (`cw_game_read`, comments), `file.py` (`fgets` framing, `cw_strtok`, `cw_atoi`),
+  `book.py` (`cw_scorebook_read`, `cw_file_find_first_game`), `roster.py` (roster.c, league.c),
+  `tools.py` (cwtools.c driver bits: rosters, date range, game select), `gameiter.py`, `events.py` (cwevent
+  fields 0-96 + extended 0-66), `guard.py` (new-season guard).
+- Proof this session (cwevent 0.10.0, WITH real TEAM/.ROS files): 1950, 2007, 2020, 2025 = 0 mismatches
+  on all 164 columns. (Earlier sessions: all 116 seasons 1910-2025 without rosters = 0.) 301 tests pass;
+  ruff, ruff format, mypy --strict clean.
+- Differential tests vs the real C (`tests/test_reader_differential.py`, harness `tests/reference/reader_dump.c`,
+  needs gcc + Chadwick sources, skips otherwise): reader, scorebook, roster, team file = identical on fixtures
+  and 300 damaged files each; reader also identical on 4 whole seasons and 3000 damaged files.
+- Parser differential (dev-only, NOT committed): a C harness printing every `CWEventData` field per play,
+  forked per line under ASAN/UBSAN (to skip inputs where the C has undefined behaviour), against `parse_event`
+  on ~185k real + mutated play strings. First run: 11 diffs, all mutated `POCS`/pickoff texts; cause was the
+  C's unterminated token buffer (fixed: `_Parser._tok`/`put`) and `po_flag[sym-'1']` out-of-bounds (C undefined
+  behaviour, port guards it). Re-run after the fix was in progress; **commit the harness + a fuzz script under
+  `tests/reference/` (parse_dump.c, parse_fuzz.py) and re-run before closing deviation 2.**
+- New-season guard: `tests/reference/new_season_guard.py ZIP YEAR` (and `cw/guard.py`). It already flags two
+  real 2025 plays that Chadwick also fails to parse: `BOS202509030` `C/E2/OBS/G2-.3-H(RBI);2-3;B-1` and
+  `KCA202506140` `BK.2-3(SB3);1-2`.
+- Only `cwevent` is ported. NOT ported: `cwgame` (1786 lines), `cwbox` (+ `box.c`), `cwdaily`, `cwsub`,
+  `cwcomment`, `lint.c`, `book.c` write side, the CLI driver (arguments, `-f` field lists, output formats).
 
-## Known deviations from the C (fix these FIRST — each is a future-correctness risk)
-1. **File reading is ours, not Chadwick's.** `records.py` (csv-based) replaces `cw_game_read`'s
-   `fgets`/`cw_strtok` reader. Differences: quoting, field counts, 1024-char line limit, unknown
-   record types (C warns and skips; ours raises), blank lines, `\r`. Port `cw_game_read` and
-   `cw_strtok` (see `cwlib/util.h`, `game.c:674`) exactly, then keep `records.py` only if it is
-   provably equivalent on every season (add a differential test against Chadwick for line framing).
-2. `cw/parse.py`: parser `token` is a Python str, not Chadwick's shared `char[20]` buffer (stale-token
-   behaviour on failed parses not reproduced); arrays enlarged to 32/64 (C overruns them: UB);
-   `_pickoff_caught_stealing` guards a C out-of-bounds index; `play[]` truncated to 19 chars like
-   `CW_STRLCPY`. Re-read every function against `parse.c` once more, line by line.
-3. `cw/game.py`: `sub` before the first play raises (C crashes); `data/stat/event/line/version`
-   records ignored; `com` text handling (`ej,`, `umpchange,`, `suspended,` date change in
-   `cw_gameiter_process_comments`) NOT ported. `cw_atoi`/`cw_strtok` re-implemented as `_atoi`.
-4. `cw/events.py`: rosters not ported (`roster.c`: `cw_roster_batting_hand/throwing_hand`); hands are
-   `?` unless `badj/padj` records say so. C `NULL` strings print `(null)` (assumed glibc; matched so far).
-5. Version: proof is against `cwevent` 0.10.0 only. Need a yearly check (below) and a recorded
-   Chadwick version/commit in the results note.
+## Known deviations from the C (remaining)
+1. `cw/game.py`: `sub`/`badj`/etc. needing a previous play raise `ValueError` where the C crashes (NULL).
+2. `parse.py`: arrays enlarged (C overruns them: UB); `_pickoff_caught_stealing` guards the C's
+   `po_flag[sym-'1']` out-of-bounds write; `play[]` truncated to 19 like `CW_STRLCPY`. Finish the parser
+   differential (above), then re-read any function it flags line by line.
+3. `cw_game_read` warnings go to `logging` ("retrosheetpy.cw"), not stderr. A NUL hand char is kept as `\0`.
+4. Version: proof is against `cwevent` 0.10.0 only; record Chadwick version/commit in `results.md`.
+5. `records.py` (csv-based) is still used by the non-port tools (validation, report, play); the port no longer uses it.
 
 ## Next steps (in order)
-1. Fix deviations 1-4 above by porting the C exactly; re-run the sweep (command below) — must stay 0.
-2. Add the **new-season guard**: a documented command that runs a new season through the port and
-   `cwevent`, plus a test/log that fails loudly on any unparsed play (`parse_ok` false) or unknown
-   record, so next year's data cannot be silently wrong. Record Chadwick version in `results.md`.
+1. Finish deviation 2 (commit parser differential, re-run, fix what it finds).
+2. Run the full sweep again WITH rosters for all 116 seasons (use `season_report.py`, rosters are default now;
+   `--no-rosters` reproduces the old runs). Record Chadwick version in `results.md`.
 3. Port the remaining tools from the C, in this order: `cwgame` (smallest), `cwdaily`, `cwsub`,
-   `cwcomment`, `cwbox` (+ `box.c`), then roster/league/book/lint and the `cwtools.c` driver/CLI.
-   Prove each against the real binary on whole seasons (same method as `season_report.py`).
+   `cwcomment`, `cwbox` (+ `box.c`), then `lint.c` and the CLI driver. Prove each against the real binary on
+   whole seasons (same method as `season_report.py`).
 4. Value check (owner asked "is this worth it / why hasn't anyone done it"): NOT yet researched.
-   Before claiming value, search for existing pure-Python Chadwick/Retrosheet parsers and wrappers
-   (e.g. whether Chadwick Python bindings need a C build) and report honestly. Pitch: `pip install`
-   with no C toolchain, byte-identical to Chadwick. A partial port has little value; completeness matters.
-5. Close-out (tasks 4.3/4.4 are effectively done; update `tasks.md`/`results.md`): update
-   `packages/retrosheetpy/AGENTS.md`, independent reviewer (general-purpose agent with Bash) checks
-   notices, deviations and silent skips; `openspec validate retrosheet-state-engine --strict`;
-   delete this file before the PR; commit, push branch, open PR.
+   Search for existing pure-Python Chadwick/Retrosheet parsers and wrappers and report honestly.
+   A partial port has little value; completeness matters.
+5. Close-out: update `tasks.md`/`results.md`, `packages/retrosheetpy/AGENTS.md`, independent reviewer
+   (general-purpose agent with Bash) checks notices, deviations and silent skips;
+   `openspec validate retrosheet-state-engine --strict`; delete this file before the PR; push, open PR.
 
 ## Commands
 - Season check (needs `cwevent` 0.10.0 at `~/.local/bin`, dev-only), all 164 columns:

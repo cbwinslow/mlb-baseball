@@ -420,6 +420,20 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   1920–1949, mostly Negro League): the game-level backbone is built from
   play-by-play only. Would be a `statistic-backbone` change; not needed for the
   2015+ plate-appearance engine.
+- Retrosheet completeness pass (owner wants every Retrosheet file that adds
+  value): audit Retrosheet's downloads against what is loaded; add the unused
+  Chadwick outputs `cwsub` (substitutions, incl. DH/defensive/pitching changes),
+  `cwdaily` (per-player-game stats; mainly a third independent tie-out against
+  `gold.batting_game` / `gold.pitching_game`) and `cwcomment` (comment records,
+  low value, kept for source-faithfulness); add the ejections file. Build on the
+  pure-Python port (`pure-python-retrosheet`) once it lands so the work is not
+  done twice. Landing tables are raw only; check each tool's output before
+  designing columns.
+- Umpire features (needs the ejections ingest above for ejection tendencies):
+  per-umpire called-strike rate and zone size from `raw.statcast_pitch` joined
+  to the home-plate umpire in Retrosheet game info, using only games before the
+  one predicted (point-in-time). Belongs to the feature-set work after the
+  readiness gate clears.
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).
   See the phased ladder.
 - A one-time full-codebase quality review ("vibe-code proof" pass), run

@@ -1,4 +1,4 @@
-# Handoff — `retrosheet-state-engine` (updated 2026-10-02, ninth session)
+# Handoff — `retrosheet-state-engine` (updated 2026-10-02, tenth session)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start."
 
@@ -15,7 +15,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 
 ## State
 - Branch `feat/retrosheet-state-engine-impl`, worktree `/home/cbwinslow/workspace/mlb-pure-python`
-  (never touch `/home/cbwinslow/workspace/mlb`). **Committed locally (5 commits); not pushed; no PR.**
+  (never touch `/home/cbwinslow/workspace/mlb`). **Committed locally; not pushed; no PR.**
   Committing, pushing the branch and opening a PR is pre-authorized; merging needs the owner's "merge".
 - Ported from Chadwick C, all in `packages/retrosheetpy/src/retrosheetpy/cw/`: `parse.py` (parse.c),
   `game.py` (`cw_game_read`, comments), `file.py` (`fgets` framing, `cw_strtok`, `cw_atoi`),
@@ -44,8 +44,19 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   `tests/test_box_differential.py`. Found+fixed in gameiter: C `strtok`s the shared `suspended,` comment in place,
   so only the first iterator (incl. `runner_fate` copies) sees the new date (`_process_comments`).
   Deviations: C `exit(1)`/NULL deref -> `ValueError`; event lists are Python lists; linescore grows past 50.
-- Only `cwevent` and `box.c` (library) are ported. NOT ported: `cwgame` (1786 lines), `cwbox` (+ `box.c`), `cwdaily`, `cwsub`,
-  `cwcomment`, `lint.c`, `book.c` write side, the CLI driver (arguments, `-f` field lists, output formats).
+- **Tenth session: `cwsub`, `cwcomment`, `cwdaily` ported** as `cw/sub.py`, `cw/comment.py`, `cw/daily.py`
+  (field functions + the process-game loop; both `-a` ascii and `-ft` fixed formats; `-n` header; field list
+  via a `fields` tuple). Proof: `cwsub` and `cwcomment` byte-identical to the real binaries on 1950, 1980, 2007,
+  2025 (every event file, both formats) and on all fixtures + damaged copies; `cwdaily` identical on the fixtures
+  and damaged copies, season runs: see results below. Tests `tests/test_{sub,comment,daily}_differential.py`; season
+  scripts `tests/reference/{sub,comment,daily}_season.py ZIP YEAR`; shared helper `tests/chadwick_tool.py`
+  (`run_tool` = installed binary; `build_sanitised` + `run_clean` = the tool built from the Chadwick sources under
+  ASAN/UBSAN and run twice with different malloc fill bytes, so inputs where the C has undefined behaviour or reads
+  uninitialised memory are skipped).
+- Only `cwevent`, `box.c`, `cwsub`, `cwcomment`, `cwdaily` are ported. NOT ported: `cwgame` (1786 lines),
+  `cwbox` (943) + `cwlib/lint.c` (157, only cwbox uses it) + `cwboxxml.c` (511) + `cwboxsml.c` (1652) +
+  `xmlwrite.c` (177), `book.c` write side, the CLI driver (arguments, `-f` field-list parsing,
+  `cwtools_parse_field_list`, progress messages, `-d/-h` text).
 
 ## Known deviations from the C (remaining)
 1. `cw/game.py`: `sub`/`badj`/etc. needing a previous play raise `ValueError` where the C crashes (NULL).
@@ -58,14 +69,12 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 
 ## Next steps (in order)
 1. (Done 2026-10-02: full sweep with rosters = 0 differences; see results.md.)
-2. Port the remaining tools from the C. **Order corrected (found this session):** `cwgame`, `cwbox` and
-   `cwdaily` all use `CWBoxscore` from `cwlib/box.c` (1578 lines), so `box.c` is DONE; next
-   `cwgame` (1786 lines, ~230 field functions), `cwbox` (943), `cwdaily` (910). `cwsub` (502) and
-   `cwcomment` (455) are independent of `box.c` and can go any time. Then `lint.c` and the CLI driver
-   (`cwtools.c` argument parsing, `-f` field lists, ascii/fixed output). Prove each against the real binary on
-   whole seasons (same method as `season_report.py`; text output compared byte for byte).
-   Method per file: read the C, translate function by function, keep the Chadwick notice, then build a C
-   harness (as `tests/reference/reader_dump.c`) to dump `CWBoxscore` structures and diff against the port.
+2. Port the remaining tools from the C. Order now: `lint.c` then `cwbox` text mode (`cwbox_print_*`, 943 lines;
+   `cwbox_process_game` calls `cw_game_lint`, skips the game with a stderr warning if it fails), then `cwgame`
+   (1786 lines, ~230 field functions; generate the field table from the C like `/tmp/.../gen_daily.py` did for cwdaily
+   -- parse the `field_data[]` array and map function names to factories), then `cwboxxml`/`cwboxsml`/`xmlwrite`
+   (`cwbox -X` / `-S`), then the CLI driver. Same method as the three finished tools: translate the C, keep the notice,
+   compare stdout byte for byte with the installed binary on fixtures, damaged copies (sanitised build) and whole seasons.
 3. Value check: done (2026-10-02). Existing options: `pychadwick` (wraps the C library, sdist only, no wheels,
    last release 2023-07, cwevent only), `pyretrosheet` ("not feature complete", own object model, no Chadwick
    parity claim), `calestini/retrosheet` (community parser, points to Chadwick). Nothing is a pure-Python,

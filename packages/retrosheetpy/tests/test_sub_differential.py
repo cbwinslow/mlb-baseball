@@ -13,7 +13,7 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
-from chadwick_tool import run_tool  # noqa: E402
+from chadwick_tool import build_sanitised, run_clean, run_tool  # noqa: E402
 from retrosheetpy.cw.sub import header_line, sub_lines  # noqa: E402
 from test_reader_differential import damage  # noqa: E402
 
@@ -39,6 +39,9 @@ def test_fixture_matches_cwsub(fixture: Path, ascii_: bool) -> None:
 
 
 def test_damaged_files_match_cwsub(tmp_path: Path) -> None:
+    exe = build_sanitised("cwsub", tmp_path)
+    if exe is None:
+        pytest.skip("needs gcc and the Chadwick sources (CHADWICK_SRC)")
     rng = random.Random(7)
     checked = 0
     for fixture in FIXTURES:
@@ -46,13 +49,13 @@ def test_damaged_files_match_cwsub(tmp_path: Path) -> None:
             data = bytes(damage(rng, bytearray(fixture.read_bytes())))
             path = tmp_path / f"{fixture.stem}_{i}.evt"
             path.write_bytes(data)
-            run = run_tool("cwsub", path, ["-n"])
-            assert run is not None
+            expected = run_clean(exe, path, ["-n"])
+            if expected is None:
+                continue  # Chadwick exits, crashes or has undefined behaviour here
             try:
                 out = port_output(data, True)
             except (ValueError, IndexError):
-                continue  # Chadwick exits or reads out of bounds here (undefined); the port raises
-            if run[0] == 0:  # Chadwick crashed otherwise: undefined, nothing to compare
-                assert run[1] == out, path.name
-                checked += 1
-    assert checked > 50
+                continue  # the port raises where Chadwick would misbehave silently
+            assert expected == out, path.name
+            checked += 1
+    assert checked > 30

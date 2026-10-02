@@ -14,16 +14,25 @@ from pathlib import Path
 SRC = Path(os.environ.get("CHADWICK_SRC", Path.home() / "workspace/tmp/chadwick/src"))
 
 
-def build_sanitised(tool: str, out_dir: Path) -> Path | None:
+def build_sanitised(tool: str, out_dir: Path, extra: tuple[str, ...] = ()) -> Path | None:
     """Compile ``<tool>.c`` with the Chadwick library under ASAN/UBSAN, or ``None`` without gcc
     or the sources. Damaged inputs can trigger undefined behaviour in the C (reads out of bounds,
     ``NULL`` dereferences); the sanitised build says when it did, so those inputs can be skipped."""
     if shutil.which("gcc") is None or not (SRC / "cwtools" / f"{tool}.c").exists():
         return None
     exe = out_dir / f"{tool}_san"
-    cmd = ["gcc", "-g", "-O0", "-w", '-DVERSION="0.10.0"', "-fsanitize=address,undefined"]
+    cmd = [
+        "gcc",
+        "-g",
+        "-O0",
+        "-w",
+        '-DVERSION="0.10.0"',
+        "-DHAVE_STRUCT_TM_TM_GMTOFF",
+        "-fsanitize=address,undefined",
+    ]
     cmd += ["-I", str(SRC), "-I", str(SRC / "cwlib")]
     cmd += [str(SRC / "cwtools" / f"{tool}.c"), str(SRC / "cwtools" / "cwtools.c")]
+    cmd += [str(SRC / "cwtools" / f"{name}.c") for name in extra]  # sources the tool links in
     cmd += [*map(str, sorted((SRC / "cwlib").glob("*.c"))), "-o", str(exe)]
     subprocess.run(cmd, check=True, capture_output=True)
     return exe

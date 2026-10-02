@@ -18,6 +18,7 @@ Exit status 1 if anything differs or failed, so the proof holds only when this e
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -53,8 +54,25 @@ def seasons(zip_dir: Path) -> dict[int, Path]:
 
 def run_one(job: tuple[int, str, Path, Path]) -> dict[str, object]:
     year, tool, zip_path, logs = job
+    # COVERAGE_DATA (a path prefix) runs each season script under coverage.py, branch mode,
+    # parallel data files, measuring the port's source; combine them afterwards.
+    data = os.environ.get("COVERAGE_DATA")
+    prefix = (
+        [
+            sys.executable,
+            "-m",
+            "coverage",
+            "run",
+            "--branch",
+            "-p",
+            f"--data-file={data}",
+            f"--source={HERE.parents[1] / 'src' / 'retrosheetpy'}",
+        ]
+        if data
+        else [sys.executable]
+    )
     run = subprocess.run(
-        [sys.executable, str(HERE / TOOLS[tool]), str(zip_path), str(year)],
+        [*prefix, str(HERE / TOOLS[tool]), str(zip_path), str(year)],
         capture_output=True,
         text=True,
         encoding="latin-1",

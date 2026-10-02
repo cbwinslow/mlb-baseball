@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 import pytest
@@ -191,3 +192,69 @@ def test_check_downloads_directory_warns_below_disk_threshold(tmp_path, monkeypa
 
     assert not ok
     assert "GB free" in detail
+
+
+def test_supersede_moves_cached_files_and_manifest_aside_without_deleting(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+    fake_response = Mock(status_code=200, content=b"old bytes")
+    with patch.object(manifest, "get_with_retry", return_value=fake_response):
+        manifest.download("retrosheet_event", "1910seve.zip", "https://example.com/1910seve.zip")
+
+    moved = manifest.supersede("retrosheet_event")
+
+    assert moved is not None and moved.parent == tmp_path / "retrosheet_event" / "_superseded"
+    assert (moved / "1910seve.zip").read_bytes() == b"old bytes"
+    assert (moved / "manifest.json").exists()
+    assert not (tmp_path / "retrosheet_event" / "1910seve.zip").exists()
+    assert manifest.load_manifest("retrosheet_event") == {}
+
+
+def test_after_supersede_download_fetches_the_new_file_and_load_status_resets(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+    with patch.object(
+        manifest, "get_with_retry", return_value=Mock(status_code=200, content=b"old")
+    ):
+        manifest.download("src", "a.zip", "https://example.com/a.zip")
+    manifest.mark_status("src", "a.zip", "loaded")
+    manifest.supersede("src")
+
+    with patch.object(
+        manifest, "get_with_retry", return_value=Mock(status_code=200, content=b"new")
+    ) as get:
+        dest = manifest.download("src", "a.zip", "https://example.com/a.zip")
+
+    get.assert_called_once()
+    assert dest is not None and dest.read_bytes() == b"new"
+    assert manifest.load_manifest("src")["a.zip"]["status"] == "downloaded"
+
+
+def test_supersede_with_nothing_cached_does_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+
+    assert manifest.supersede("never_downloaded") is None
+    assert not (tmp_path / "never_downloaded").exists()
+
+
+def test_supersede_twice_in_the_same_second_does_not_collide(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+    frozen = datetime(2026, 10, 2, 12, 0, 0, tzinfo=UTC)
+
+    class _Clock:
+        @staticmethod
+        def now(tz=None):
+            return frozen
+
+    monkeypatch.setattr(manifest, "datetime", _Clock)
+    for round_number in (1, 2):
+        source_dir = tmp_path / "src"
+        source_dir.mkdir(exist_ok=True)
+        (source_dir / "a.zip").write_bytes(b"x")
+        manifest.save_manifest("src", {"a.zip": {"status": "loaded"}})
+        moved = manifest.supersede("src")
+        assert moved is not None
+        assert (moved / "a.zip").exists(), round_number
+
+    kept = sorted(p.name for p in (tmp_path / "src" / "_superseded").iterdir())
+    assert kept == ["20261002T120000Z", "20261002T120000Z-1"]

@@ -1,7 +1,7 @@
 ## 1. Foundations and pre-registration
 
 - [x] 1.1 Verify the Retrosheet event-code mapping to outcome classes against Chadwick documentation and real `core.play` counts; write the mapping and the excluded codes into the design, and verify the counts are plausible (strikeout, walk and home-run shares per season).
-- [ ] 1.2 Confirm the readiness gate: run #246 tasks 4.2 and 4.3 read-only against production `mlb` and record the result; if blockers are reported, list them and clear every one that affects this engine's inputs before task 2.3, the first dataset build, so no result is built on an input that must later change.
+- [x] 1.2 Confirm the readiness gate: run #246 tasks 4.2 and 4.3 read-only against production `mlb` and record the result; if blockers are reported, list them and clear every one that affects this engine's inputs before task 2.3, the first dataset build, so no result is built on an input that must later change. **Result (2026-10-01):** `raw-source-tieout` gate passed read-only against production `mlb` for 2015–2025 (`results-2015-2025.md`) and 1871–2014 (`results-history.md`, code commit `1ed8ff7`); no unresolved blockers. Stale 2000s event archive reloaded first (105 rows). Other decade archives were not compared against the current Retrosheet files.
 - [ ] 1.3 Commit the calibration and simulation tolerances to this change before any test-season scoring; verify they appear in the change's git history before the first test-season result.
 - [ ] 1.4 Add `mlb_baseball/pa/AGENTS.md` and register it in the parent index; verify `scripts/check_dox.py` passes.
 

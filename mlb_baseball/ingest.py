@@ -2,13 +2,15 @@
 
 import math
 import os
-from collections.abc import Iterator
+import re
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from typing import Literal
 
 import psycopg
+from psycopg import sql
 
-from mlb_baseball.db import fetch_one
+from mlb_baseball.db import fetch_one, get_connection
 
 
 def record_items(conn: psycopg.Connection, items: list[dict]) -> None:
@@ -286,3 +288,45 @@ def reap_stale_runs(conn: psycopg.Connection) -> list[dict]:
             {"id": run_id, "source": source, "mode": mode, "pid": pid, "started_at": started_at}
         )
     return reaped
+
+
+_QUALIFIED_TABLE = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$")
+
+
+def table_totals(
+    tables: Iterable[str],
+    *,
+    timeout_seconds: float = 30.0,
+    connect: Callable[[], psycopg.Connection] = get_connection,
+) -> dict[str, int | None]:
+    """Exact ``count(*)`` per ``schema.table``, each under its own statement timeout.
+
+    An estimate such as ``pg_class.reltuples`` is stale right after a load, which is
+    exactly when this is read. A table that cannot be counted in time, does not exist,
+    or is not a plain ``schema.table`` name maps to None, never to a guess. Runs
+    read-only on its own connection, so the load that just finished is unaffected.
+    """
+    names = list(tables)
+    totals: dict[str, int | None] = {name: None for name in names}
+    countable = [name for name in names if _QUALIFIED_TABLE.match(name)]
+    if not countable:
+        return totals
+    timeout_ms = max(1, int(timeout_seconds * 1000))
+    try:
+        conn = connect()
+    except psycopg.Error:
+        return totals
+    with conn:
+        for name in countable:
+            schema, table = name.split(".")
+            try:
+                with conn.transaction(), conn.cursor() as cur:
+                    cur.execute("SET TRANSACTION READ ONLY")
+                    cur.execute(f"SET LOCAL statement_timeout = {timeout_ms}")
+                    cur.execute(
+                        sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(schema, table))
+                    )
+                    totals[name] = int(fetch_one(cur)[0])
+            except psycopg.Error:
+                totals[name] = None
+    return totals

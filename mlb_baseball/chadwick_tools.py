@@ -35,6 +35,15 @@ CWEVENT_FIELDS = "0-96"
 # field counts have changed across releases -- if this is ever run against
 # a different installed version, re-verify with `cwevent -d` rather than
 # trusting this value blindly.
+#
+# Re-verified 2026-09-27 (raw-source-tieout task 3.1): against this same
+# Chadwick 0.10.0 binary, `cwevent -d` lists extended fields 64-66
+# (run1/2/3_auto_fl) as real, and requesting `-x 0-66` against a modern
+# (2024) fixture exits 0 and produces them -- it does not reproduce the
+# "Invalid field spec" failure above. Not retested against the original
+# 1910s/deduced-era file that reportedly triggered it, so this is not
+# evidence the fix was wrong, only that it wasn't reproduced here. See
+# openspec/changes/raw-source-tieout/audit.md finding G10.
 CWEVENT_EXTENDED_FIELDS = "0-63"
 
 REQUIRED_TOOLS = ("cwevent", "cwgame", "cwbox")

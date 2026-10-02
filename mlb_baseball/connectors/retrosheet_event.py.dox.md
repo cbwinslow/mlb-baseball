@@ -69,6 +69,7 @@ Do not simplify scoped replacement to season-only without proving that overlappi
 - Current decade regular-season archive is re-downloaded with `force=True` because Retrosheet appends/corrects it in place.
 - Postseason and All-Star whole-history archives are also refreshed because they grow over time.
 - Historical closed decade archives are not needlessly re-parsed on routine update.
+- Retrosheet also corrects closed decades in place (the 2000s archive had 105 corrected event rows by 2026-10; found by the tie-out gate, `openspec/changes/raw-source-tieout/results-history.md`). A difference caused by a stale load is fixed by force-reloading that archive through `_load_archive(..., force=True)` against the intended database, never by editing raw rows.
 
 ## Chadwick Contract
 

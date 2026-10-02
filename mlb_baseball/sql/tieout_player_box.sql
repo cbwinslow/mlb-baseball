@@ -1,0 +1,25 @@
+-- Retrosheet tie-out: per player-game batting from the box scores (1871-1961 only).
+-- Read-only. Owner: mlb_baseball/tieout_run.py (openspec change raw-source-tieout).
+-- One copy per game_id, chosen as in tieout_season_box.sql. Box scores carry no
+-- plate-appearance count, so pa is not a fact for this source.
+-- '-1' is a real Retrosheet sentinel for "not recorded" in hr/so/bb, not a
+-- literal negative count (tieout_season_box.sql). At player grain, a player's
+-- own row is excluded entirely (not comparable) if any of their own three
+-- columns is '-1' -- other players in the same game are unaffected.
+WITH games AS (
+    SELECT DISTINCT ON (game_id) game_id, _season, _scope
+    FROM raw.retrosheet_box_game
+    WHERE _season BETWEEN %(lo)s::text AND %(hi)s::text
+    ORDER BY game_id, _scope
+)
+SELECT g._season AS season,
+    g.game_id,
+    b.id AS player_id,
+    sum(b.hr::integer) AS hr,
+    sum(b.so::integer) AS k,
+    sum(b.bb::integer) AS bb
+FROM games g
+JOIN raw.retrosheet_box_batting b ON b.game_id = g.game_id AND b._scope = g._scope
+WHERE b.hr <> '-1' AND b.so <> '-1' AND b.bb <> '-1'
+GROUP BY g._season, g.game_id, b.id
+ORDER BY g.game_id, b.id

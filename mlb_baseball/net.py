@@ -56,17 +56,18 @@ def _retry_message(
     )
 
 
-def get_with_retry(
+def _request_with_retry(
+    method: str,
     url: str,
     *,
-    timeout: int = 60,
-    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
-    backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
-    headers: dict[str, str] | None = None,
+    timeout: int,
+    max_attempts: int,
+    backoff_seconds: float,
+    headers: dict[str, str] | None,
 ) -> requests.Response:
     for attempt in range(1, max_attempts + 1):
         try:
-            response = requests.get(url, timeout=timeout, headers=headers)
+            response = getattr(requests, method)(url, timeout=timeout, headers=headers)
         except requests.exceptions.RequestException as exc:
             if attempt == max_attempts:
                 raise
@@ -81,6 +82,43 @@ def get_with_retry(
         _retry_message(url, None, wait, attempt, max_attempts)
         time.sleep(wait)
     raise AssertionError("unreachable")  # loop always returns or raises
+
+
+def get_with_retry(
+    url: str,
+    *,
+    timeout: int = 60,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+    headers: dict[str, str] | None = None,
+) -> requests.Response:
+    return _request_with_retry(
+        "get",
+        url,
+        timeout=timeout,
+        max_attempts=max_attempts,
+        backoff_seconds=backoff_seconds,
+        headers=headers,
+    )
+
+
+def head_with_retry(
+    url: str,
+    *,
+    timeout: int = 60,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+    headers: dict[str, str] | None = None,
+) -> requests.Response:
+    """get_with_retry for a HEAD request: response headers only, no body."""
+    return _request_with_retry(
+        "head",
+        url,
+        timeout=timeout,
+        max_attempts=max_attempts,
+        backoff_seconds=backoff_seconds,
+        headers=headers,
+    )
 
 
 def call_with_retry(

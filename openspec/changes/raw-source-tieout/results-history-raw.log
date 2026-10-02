@@ -1,0 +1,613 @@
+Retrosheet tie-out, started 2026-10-01 18:09:09 UTC
+target: database 'mlb' on localhost as 'cbwinslow' (read-only)
+seasons 1871-2014, levels season, game, player_game
+season totals, 1871-2014
+  loaded season event: 105 keys in 69.7s
+  loaded season csv_plays: 114 keys in 39.3s
+  loaded season csv_batting: 117 keys in 14.8s
+  loaded season gameinfo: 117 keys in 0.1s
+  loaded season gamelog: 112 keys in 1.3s
+  loaded season gamelog_post: 111 keys in 0.0s
+  loaded season box: 3 keys in 0.7s
+  loaded game gamelog_post: 1523 keys in 0.0s
+  loaded game gamemeta: 199234 keys in 876.3s
+game level: 117 seasons, 7 pairs
+  game 1898: box 547, gameinfo 920, gamelog 920
+  game 1899: box 593, gameinfo 921, gamelog 921
+  game 1900: box 440, gameinfo 569, gamelog 568
+  game 1901: box 855, gameinfo 1110
+  game 1902: box 872, gameinfo 1117
+  game 1903: box 856, gameinfo 1129, gamelog 1114
+  game 1904: box 903, gameinfo 1252
+  game 1905: box 880, gameinfo 1242, gamelog 1237
+  game 1906: box 875, gameinfo 1234
+  game 1907: box 955, gameinfo 1238, gamelog 1233
+  game 1908: box 1133, gameinfo 1249, gamelog 1244
+  game 1909: box 1049, gameinfo 1248, gamelog 1241
+  game 1910: box 0, csv_batting 1254, csv_plays 1254, event 1254, gameinfo 1254, gamelog 1249
+  game 1911: box 0, csv_batting 1243, csv_plays 1243, event 1243, gameinfo 1243, gamelog 1237
+  game 1912: box 0, csv_batting 1241, csv_plays 1240, event 1240, gameinfo 1241, gamelog 1232
+  game 1913: box 4, csv_batting 1254, csv_plays 1247, event 1247, gameinfo 1254, gamelog 1234
+  game 1914: box 0, csv_batting 1883, csv_plays 1883, event 1883, gameinfo 1884
+  game 1915: box 0, csv_batting 1870, csv_plays 1869, event 1869, gameinfo 1870, gamelog 1864
+  game 1916: box 2, csv_batting 1254, csv_plays 1254, event 1254, gameinfo 1254, gamelog 1247
+  game 1917: box 0, csv_batting 1253, csv_plays 1253, event 1253, gameinfo 1253, gamelog 1247
+  game 1918: box 0, csv_batting 1022, csv_plays 1022, event 1022, gameinfo 1022, gamelog 1016
+  game 1919: box 0, csv_batting 1126, csv_plays 1126, event 1126, gameinfo 1126, gamelog 1118
+  game 1920: box 2, csv_batting 1248, csv_plays 1243, event 1243, gameinfo 1248, gamelog 1234
+  game 1921: box 11, csv_batting 1272, csv_plays 1248, event 1248, gameinfo 1272, gamelog 1229
+  game 1922: box 2, csv_batting 1247, csv_plays 1245, event 1245, gameinfo 1247, gamelog 1238
+  game 1923: box 0, csv_batting 1240, csv_plays 1239, event 1239, gameinfo 1240, gamelog 1233
+  game 1924: box 13, csv_batting 1254, csv_plays 1251, event 1251, gameinfo 1254, gamelog 1231
+  game 1925: box 24, csv_batting 1277, csv_plays 1272, event 1272, gameinfo 1277, gamelog 1228
+  game 1926: box 17, csv_batting 1283, csv_plays 1261, event 1261, gameinfo 1283, gamelog 1234
+  game 1927: box 9, csv_batting 1275, csv_plays 1249, event 1249, gameinfo 1275, gamelog 1236
+  game 1928: box 1, csv_batting 1260, csv_plays 1235, event 1235, gameinfo 1260, gamelog 1231
+  game 1929: box 0, csv_batting 1262, csv_plays 1234, event 1234, gameinfo 1262, gamelog 1229
+  game 1930: box 7, csv_batting 1295, csv_plays 1246, event 1246, gameinfo 1295, gamelog 1234
+  game 1931: box 1, csv_batting 1261, csv_plays 1243, event 1243, gameinfo 1261, gamelog 1236
+  game 1932: box 0, csv_batting 1257, csv_plays 1237, event 1237, gameinfo 1257, gamelog 1233
+  game 1933: box 4, csv_batting 1258, csv_plays 1233, event 1233, gameinfo 1259, gamelog 1226
+  game 1934: box 9, csv_batting 1259, csv_plays 1239, event 1239, gameinfo 1259, gamelog 1223
+  game 1935: box 24, csv_batting 1555, csv_plays 1331, event 1331, gameinfo 1577, gamelog 1228
+  game 1936: box 30, csv_batting 1549, csv_plays 1379, event 1379, gameinfo 1572, gamelog 1238
+  game 1937: box 61, csv_batting 1736, csv_plays 1481, event 1481, gameinfo 1777
+  game 1938: box 79, csv_batting 1648, csv_plays 1443, event 1443, gameinfo 1670, gamelog 1223
+  game 1939: box 39, csv_batting 1630, csv_plays 1390, event 1390, gameinfo 1666, gamelog 1231
+  game 1940: box 9, csv_batting 1617, csv_plays 1252, event 1252, gameinfo 1643, gamelog 1236
+  game 1941: box 5, csv_batting 1607, csv_plays 1253, event 1253, gameinfo 1655, gamelog 1244
+  game 1942: box 25, csv_batting 1682, csv_plays 1241, event 1241, gameinfo 1711, gamelog 1224
+  game 1943: box 46, csv_batting 1755, csv_plays 1406, event 1406, gameinfo 1784, gamelog 1238
+  game 1944: box 87, csv_batting 1799, csv_plays 1426, event 1426, gameinfo 1843, gamelog 1242
+  game 1945: box 21, csv_batting 1762, csv_plays 1287, event 1287, gameinfo 1796, gamelog 1230
+  game 1946: box 39, csv_batting 1814, csv_plays 1369, event 1369, gameinfo 1846, gamelog 1242
+  game 1947: box 26, csv_batting 1807, csv_plays 1324, event 1324, gameinfo 1843, gamelog 1243
+  game 1948: box 30, csv_batting 1775, csv_plays 1393, event 1393, gameinfo 1793, gamelog 1237
+  game 1949: box 27, csv_batting 1665, csv_plays 1402, event 1402, gameinfo 1713, gamelog 1240
+  game 1950: box 0, csv_batting 1244, csv_plays 1244, event 1244, gameinfo 1244, gamelog 1238
+  game 1951: box 0, csv_batting 1247, csv_plays 1247, event 1247, gameinfo 1247, gamelog 1239
+  game 1952: box 0, csv_batting 1248, csv_plays 1248, event 1248, gameinfo 1248, gamelog 1239
+  game 1953: box 0, csv_batting 1248, csv_plays 1248, event 1248, gameinfo 1248, gamelog 1240
+  game 1954: box 0, csv_batting 1242, csv_plays 1242, event 1242, gameinfo 1243
+  game 1955: box 0, csv_batting 1243, csv_plays 1243, event 1243, gameinfo 1243, gamelog 1234
+  game 1956: box 0, csv_batting 1248, csv_plays 1247, event 1247, gameinfo 1248, gamelog 1239
+  game 1957: box 0, csv_batting 1244, csv_plays 1244, event 1244, gameinfo 1244, gamelog 1235
+  game 1958: box 0, csv_batting 1245, csv_plays 1244, event 1244, gameinfo 1245, gamelog 1235
+  game 1959: box 0, csv_batting 1247, csv_plays 1246, event 1246, gameinfo 1247, gamelog 1238
+  game 1960: box 0, csv_batting 1246, csv_plays 1245, event 1245, gameinfo 1246, gamelog 1236
+  game 1961: box 1, csv_batting 1438, csv_plays 1438, event 1438, gameinfo 1438, gamelog 1430
+  game 1962: box 0, csv_batting 1631, csv_plays 1630, event 1630, gameinfo 1631, gamelog 1621
+  game 1963: box 0, csv_batting 1624, csv_plays 1624, event 1624, gameinfo 1624, gamelog 1619
+  game 1964: box 0, csv_batting 1634, csv_plays 1634, event 1634, gameinfo 1634, gamelog 1626
+  game 1965: box 0, csv_batting 1631, csv_plays 1631, event 1631, gameinfo 1631, gamelog 1623
+  game 1966: box 0, csv_batting 1620, csv_plays 1620, event 1620, gameinfo 1620, gamelog 1615
+  game 1967: box 0, csv_batting 1628, csv_plays 1628, event 1628, gameinfo 1628, gamelog 1620
+  game 1968: box 0, csv_batting 1633, csv_plays 1633, event 1633, gameinfo 1633, gamelog 1625
+  game 1969: box 0, csv_batting 1958, csv_plays 1958, event 1958, gameinfo 1958, gamelog 1946
+  game 1970: box 0, csv_batting 1956, csv_plays 1956, event 1956, gameinfo 1956, gamelog 1944
+  game 1971: box 0, csv_batting 1953, csv_plays 1953, event 1953, gameinfo 1953, gamelog 1938
+  game 1972: box 0, csv_batting 1877, csv_plays 1877, event 1877, gameinfo 1877, gamelog 1859
+  game 1973: box 0, csv_batting 1961, csv_plays 1961, event 1961, gameinfo 1961, gamelog 1943
+  game 1974: box 0, csv_batting 1959, csv_plays 1959, event 1959, gameinfo 1959, gamelog 1945
+  game 1975: box 0, csv_batting 1948, csv_plays 1948, event 1948, gameinfo 1948, gamelog 1934
+  game 1976: box 0, csv_batting 1952, csv_plays 1952, event 1952, gameinfo 1952, gamelog 1939
+  game 1977: box 0, csv_batting 2119, csv_plays 2119, event 2119, gameinfo 2119, gamelog 2103
+  game 1978: box 0, csv_batting 2117, csv_plays 2117, event 2117, gameinfo 2117, gamelog 2102
+  game 1979: box 0, csv_batting 2113, csv_plays 2113, event 2113, gameinfo 2114
+  game 1980: box 0, csv_batting 2120, csv_plays 2120, event 2120, gameinfo 2120, gamelog 2105
+  game 1981: box 0, csv_batting 1427, csv_plays 1427, event 1427, gameinfo 1427, gamelog 1394
+  game 1982: box 0, csv_batting 2123, csv_plays 2123, event 2123, gameinfo 2123, gamelog 2107
+  game 1983: box 0, csv_batting 2123, csv_plays 2123, event 2123, gameinfo 2123, gamelog 2109
+  game 1984: box 0, csv_batting 2119, csv_plays 2119, event 2119, gameinfo 2119, gamelog 2105
+  game 1985: box 0, csv_batting 2124, csv_plays 2124, event 2124, gameinfo 2124, gamelog 2103
+  game 1986: box 0, csv_batting 2124, csv_plays 2124, event 2124, gameinfo 2124, gamelog 2103
+  game 1987: box 0, csv_batting 2125, csv_plays 2125, event 2125, gameinfo 2125, gamelog 2105
+  game 1988: box 0, csv_batting 2117, csv_plays 2117, event 2117, gameinfo 2117, gamelog 2100
+  game 1989: box 0, csv_batting 2121, csv_plays 2121, event 2121, gameinfo 2121, gamelog 2106
+  game 1990: box 0, csv_batting 2120, csv_plays 2120, event 2120, gameinfo 2120, gamelog 2105
+  game 1991: box 0, csv_batting 2124, csv_plays 2124, event 2124, gameinfo 2124, gamelog 2104
+  game 1992: box 0, csv_batting 2126, csv_plays 2126, event 2126, gameinfo 2126, gamelog 2106
+  game 1993: box 0, csv_batting 2288, csv_plays 2288, event 2288, gameinfo 2288, gamelog 2269
+  game 1994: box 0, csv_batting 1601, csv_plays 1601, event 1601, gameinfo 1601, gamelog 1600
+  game 1995: box 0, csv_batting 2049, csv_plays 2049, event 2049, gameinfo 2049, gamelog 2017
+  game 1996: box 0, csv_batting 2300, csv_plays 2300, event 2300, gameinfo 2300, gamelog 2267
+  game 1997: box 0, csv_batting 2301, csv_plays 2301, event 2301, gameinfo 2301, gamelog 2266
+  game 1998: box 0, csv_batting 2463, csv_plays 2463, event 2463, gameinfo 2463, gamelog 2432
+  game 1999: box 0, csv_batting 2460, csv_plays 2460, event 2460, gameinfo 2460, gamelog 2428
+  game 2000: box 0, csv_batting 2461, csv_plays 2461, event 2461, gameinfo 2461, gamelog 2429
+  game 2001: box 0, csv_batting 2465, csv_plays 2465, event 2465, gameinfo 2465, gamelog 2429
+  game 2002: box 0, csv_batting 2461, csv_plays 2461, event 2461, gameinfo 2461, gamelog 2426
+  game 2003: box 0, csv_batting 2469, csv_plays 2469, event 2469, gameinfo 2469, gamelog 2430
+  game 2004: box 0, csv_batting 2463, csv_plays 2463, event 2463, gameinfo 2463, gamelog 2428
+  game 2005: box 0, csv_batting 2462, csv_plays 2462, event 2462, gameinfo 2462, gamelog 2431
+  game 2006: box 0, csv_batting 2460, csv_plays 2460, event 2460, gameinfo 2460, gamelog 2429
+  game 2007: box 0, csv_batting 2460, csv_plays 2460, event 2460, gameinfo 2460, gamelog 2431
+  game 2008: box 0, csv_batting 2461, csv_plays 2461, event 2461, gameinfo 2461, gamelog 2428
+  game 2009: box 0, csv_batting 2461, csv_plays 2461, event 2461, gameinfo 2461, gamelog 2430
+  game 2010: box 0, csv_batting 2463, csv_plays 2463, event 2463, gameinfo 2463, gamelog 2430
+  game 2011: box 0, csv_batting 2468, csv_plays 2468, event 2468, gameinfo 2468, gamelog 2429
+  game 2012: box 0, csv_batting 2468, csv_plays 2468, event 2468, gameinfo 2468, gamelog 2430
+  game 2013: box 0, csv_batting 2470, csv_plays 2470, event 2470, gameinfo 2470, gamelog 2431
+  game 2014: box 0, csv_batting 2463, csv_plays 2463, event 2463, gameinfo 2463, gamelog 2430
+player_game level: 105 seasons, 3 pairs
+  player_game 1910: box 0, csv_batting 26047, csv_plays 25426, event 25037
+  player_game 1911: box 0, csv_batting 26286, csv_plays 25501, event 25059
+  player_game 1912: box 0, csv_batting 26321, csv_plays 25511, event 25036
+  player_game 1913: box 122, csv_batting 27563, csv_plays 26304, event 25756
+  player_game 1914: box 0, csv_batting 41063, csv_plays 39379, event 38665
+  player_game 1915: box 0, csv_batting 40436, csv_plays 38851, event 38180
+  player_game 1916: box 37, csv_batting 27949, csv_plays 26688, event 26141
+  player_game 1917: box 0, csv_batting 27283, csv_plays 26081, event 25644
+  player_game 1918: box 0, csv_batting 21331, csv_plays 20611, event 20397
+  player_game 1919: box 0, csv_batting 23920, csv_plays 22973, event 22640
+  player_game 1920: box 40, csv_batting 26762, csv_plays 25618, event 25201
+  player_game 1921: box 222, csv_batting 27791, csv_plays 26118, event 25596
+  player_game 1922: box 42, csv_batting 27492, csv_plays 26255, event 25659
+  player_game 1923: box 0, csv_batting 27719, csv_plays 26320, event 25704
+  player_game 1924: box 284, csv_batting 28149, csv_plays 26711, event 26054
+  player_game 1925: box 522, csv_batting 29016, csv_plays 27499, event 26821
+  player_game 1926: box 381, csv_batting 29229, csv_plays 27315, event 26638
+  player_game 1927: box 198, csv_batting 28765, csv_plays 26753, event 26078
+  player_game 1928: box 21, csv_batting 28464, csv_plays 26485, event 25866
+  player_game 1929: box 1, csv_batting 28519, csv_plays 26514, event 25900
+  player_game 1930: box 142, csv_batting 29295, csv_plays 26907, event 26235
+  player_game 1931: box 23, csv_batting 28302, csv_plays 26424, event 25822
+  player_game 1932: box 26, csv_batting 28241, csv_plays 26322, event 25724
+  player_game 1933: box 83, csv_batting 28203, csv_plays 26280, event 25634
+  player_game 1934: box 205, csv_batting 28359, csv_plays 26553, event 25816
+  player_game 1935: box 645, csv_batting 33395, csv_plays 28114, event 27410
+  player_game 1936: box 909, csv_batting 33270, csv_plays 29345, event 28665
+  player_game 1937: box 1608, csv_batting 35418, csv_plays 31173, event 30508
+  player_game 1938: box 1972, csv_batting 34112, csv_plays 30394, event 29731
+  player_game 1939: box 1033, csv_batting 34135, csv_plays 29799, event 29041
+  player_game 1940: box 380, csv_batting 34618, csv_plays 26949, event 26198
+  player_game 1941: box 368, csv_batting 34069, csv_plays 27015, event 26261
+  player_game 1942: box 832, csv_batting 34698, csv_plays 26485, event 25797
+  player_game 1943: box 1377, csv_batting 35308, csv_plays 29506, event 28845
+  player_game 1944: box 2139, csv_batting 35696, csv_plays 30437, event 29684
+  player_game 1945: box 619, csv_batting 35238, csv_plays 27708, event 26999
+  player_game 1946: box 1089, csv_batting 37835, csv_plays 30253, event 29192
+  player_game 1947: box 719, csv_batting 37233, csv_plays 29078, event 28057
+  player_game 1948: box 936, csv_batting 37015, csv_plays 30827, event 29723
+  player_game 1949: box 849, csv_batting 34715, csv_plays 30785, event 29748
+  player_game 1950: box 0, csv_batting 29563, csv_plays 27409, event 26478
+  player_game 1951: box 1, csv_batting 30130, csv_plays 27939, event 26843
+  player_game 1952: box 2, csv_batting 29891, csv_plays 27709, event 26687
+  player_game 1953: box 0, csv_batting 30657, csv_plays 28260, event 27094
+  player_game 1954: box 2, csv_batting 30651, csv_plays 28201, event 26984
+  player_game 1955: box 2, csv_batting 31375, csv_plays 28752, event 27349
+  player_game 1956: box 0, csv_batting 31756, csv_plays 28896, event 27439
+  player_game 1957: box 3, csv_batting 31892, csv_plays 28977, event 27557
+  player_game 1958: box 1, csv_batting 32118, csv_plays 29142, event 27569
+  player_game 1959: box 0, csv_batting 32053, csv_plays 28992, event 27597
+  player_game 1960: box 0, csv_batting 32524, csv_plays 29433, event 27979
+  player_game 1961: box 31, csv_batting 36576, csv_plays 33299, event 31639
+  player_game 1962: box 0, csv_batting 41901, csv_plays 37830, event 35825
+  player_game 1963: box 0, csv_batting 40926, csv_plays 37235, event 35296
+  player_game 1964: box 0, csv_batting 41649, csv_plays 37723, event 35678
+  player_game 1965: box 0, csv_batting 42612, csv_plays 38457, event 36193
+  player_game 1966: box 0, csv_batting 41937, csv_plays 37913, event 35763
+  player_game 1967: box 0, csv_batting 42133, csv_plays 38144, event 35970
+  player_game 1968: box 0, csv_batting 41210, csv_plays 37432, event 35499
+  player_game 1969: box 0, csv_batting 50539, csv_plays 45705, event 43156
+  player_game 1970: box 0, csv_batting 50968, csv_plays 45999, event 43420
+  player_game 1971: box 0, csv_batting 49357, csv_plays 44870, event 42603
+  player_game 1972: box 0, csv_batting 47601, csv_plays 43138, event 41024
+  player_game 1973: box 0, csv_batting 50681, csv_plays 43103, event 41708
+  player_game 1974: box 0, csv_batting 51597, csv_plays 43588, event 42089
+  player_game 1975: box 0, csv_batting 51085, csv_plays 43280, event 41731
+  player_game 1976: box 0, csv_batting 50791, csv_plays 43060, event 41535
+  player_game 1977: box 0, csv_batting 56234, csv_plays 47208, event 45544
+  player_game 1978: box 0, csv_batting 55467, csv_plays 46390, event 44996
+  player_game 1979: box 0, csv_batting 55579, csv_plays 46526, event 45001
+  player_game 1980: box 0, csv_batting 56797, csv_plays 47311, event 45701
+  player_game 1981: box 0, csv_batting 38652, csv_plays 32140, event 30920
+  player_game 1982: box 0, csv_batting 56531, csv_plays 47043, event 45501
+  player_game 1983: box 0, csv_batting 56802, csv_plays 47226, event 45689
+  player_game 1984: box 0, csv_batting 57559, csv_plays 47727, event 46190
+  player_game 1985: box 0, csv_batting 57660, csv_plays 47626, event 46018
+  player_game 1986: box 0, csv_batting 57632, csv_plays 47519, event 45946
+  player_game 1987: box 0, csv_batting 57865, csv_plays 47558, event 45874
+  player_game 1988: box 0, csv_batting 56566, csv_plays 46576, event 45109
+  player_game 1989: box 0, csv_batting 57587, csv_plays 47174, event 45604
+  player_game 1990: box 0, csv_batting 58652, csv_plays 47602, event 45951
+  player_game 1991: box 0, csv_batting 59650, csv_plays 47905, event 46272
+  player_game 1992: box 0, csv_batting 58928, csv_plays 47350, event 45688
+  player_game 1993: box 0, csv_batting 63371, csv_plays 50939, event 48924
+  player_game 1994: box 0, csv_batting 44125, csv_plays 35434, event 34008
+  player_game 1995: box 0, csv_batting 58028, csv_plays 46322, event 44395
+  player_game 1996: box 0, csv_batting 65085, csv_plays 51795, event 49654
+  player_game 1997: box 0, csv_batting 65119, csv_plays 51600, event 49529
+  player_game 1998: box 0, csv_batting 69094, csv_plays 55002, event 52813
+  player_game 1999: box 0, csv_batting 69594, csv_plays 55099, event 52756
+  player_game 2000: box 0, csv_batting 69819, csv_plays 55295, event 52952
+  player_game 2001: box 0, csv_batting 69540, csv_plays 54926, event 52484
+  player_game 2002: box 0, csv_batting 69426, csv_plays 54817, event 52344
+  player_game 2003: box 0, csv_batting 69680, csv_plays 55072, event 52557
+  player_game 2004: box 0, csv_batting 69992, csv_plays 54952, event 52353
+  player_game 2005: box 0, csv_batting 69367, csv_plays 54462, event 51975
+  player_game 2006: box 0, csv_batting 70234, csv_plays 54882, event 52208
+  player_game 2007: box 0, csv_batting 71026, csv_plays 55244, event 52392
+  player_game 2008: box 0, csv_batting 70562, csv_plays 55031, event 52244
+  player_game 2009: box 0, csv_batting 70009, csv_plays 54537, event 51801
+  player_game 2010: box 0, csv_batting 69896, csv_plays 54512, event 51888
+  player_game 2011: box 0, csv_batting 69946, csv_plays 54289, event 51717
+  player_game 2012: box 0, csv_batting 70702, csv_plays 54547, event 51916
+  player_game 2013: box 0, csv_batting 70461, csv_plays 54372, event 51900
+  player_game 2014: box 0, csv_batting 70607, csv_plays 54290, event 51844
+identity check, 1871-2014
+  identity check: 0 unresolved ids in 10.3s
+     season event vs csv_plays: 105 keys, facts bb,g,hr,k,pa,r
+            seasons: 104 match, 1 explained, 0 unexplained, 9 not comparable
+            explained by E8: season 1947 pa: event 101409 vs csv_plays 101408
+            not comparable: 1898 covered only by csv_plays
+            not comparable: 1899 covered only by csv_plays
+            not comparable: 1900 covered only by csv_plays
+            not comparable: 1903 covered only by csv_plays
+            not comparable: 1905 covered only by csv_plays
+            not comparable: 1906 covered only by csv_plays
+            not comparable: 1907 covered only by csv_plays
+            not comparable: 1908 covered only by csv_plays
+            not comparable: 1909 covered only by csv_plays
+     season event vs csv_batting: 105 keys, facts bb,g,hr,k,pa,r
+            seasons: 67 match, 38 explained, 0 unexplained, 12 not comparable
+            162 fact values left blank by a source (not recorded, not compared)
+            explained by E4: season 1912 bb: event 7725 vs csv_batting 7727
+            explained by E4: season 1912 g: event 1240 vs csv_batting 1241
+            explained by E4: season 1912 pa: event 93865 vs csv_batting 93937
+            explained by E4: season 1912 r: event 11210 vs csv_batting 11213
+            explained by E4: season 1913 g: event 1247 vs csv_batting 1254
+            explained by E4: season 1915 bb: event 11166 vs csv_batting 11171
+            explained by E4: season 1915 g: event 1869 vs csv_batting 1870
+            explained by E4: season 1915 hr: event 639 vs csv_batting 640
+            explained by E4: season 1915 pa: event 138706 vs csv_batting 138771
+            explained by E4: season 1915 r: event 14237 vs csv_batting 14242
+            explained by E4: season 1920 g: event 1243 vs csv_batting 1248
+            explained by E4: season 1921 g: event 1248 vs csv_batting 1272
+            explained by E4: season 1921 hr: event 950 vs csv_batting 965
+            explained by E4: season 1921 pa: event 97084 vs csv_batting 98837
+            explained by E4: season 1921 r: event 12107 vs csv_batting 12332
+            ... 57 more explained
+            not comparable: 1898 covered only by csv_batting
+            not comparable: 1899 covered only by csv_batting
+            not comparable: 1900 covered only by csv_batting
+            not comparable: 1901 covered only by csv_batting
+            not comparable: 1902 covered only by csv_batting
+            not comparable: 1903 covered only by csv_batting
+            not comparable: 1904 covered only by csv_batting
+            not comparable: 1905 covered only by csv_batting
+            not comparable: 1906 covered only by csv_batting
+            not comparable: 1907 covered only by csv_batting
+            not comparable: 1908 covered only by csv_batting
+            not comparable: 1909 covered only by csv_batting
+     season event vs gameinfo: 105 keys, facts g,r
+            seasons: 64 match, 41 explained, 0 unexplained, 12 not comparable
+            explained by E4: season 1912 g: event 1240 vs gameinfo 1241
+            explained by E4: season 1912 r: event 11210 vs gameinfo 11213
+            explained by E4: season 1913 g: event 1247 vs gameinfo 1254
+            explained by E4: season 1913 r: event 10067 vs gameinfo 10152
+            explained by E4: season 1914 g: event 1883 vs gameinfo 1884
+            explained by E4: season 1914 r: event 14554 vs gameinfo 14563
+            explained by E4: season 1915 g: event 1869 vs gameinfo 1870
+            explained by E4: season 1915 r: event 14237 vs gameinfo 14242
+            explained by E4: season 1920 g: event 1243 vs gameinfo 1248
+            explained by E4: season 1920 r: event 10804 vs gameinfo 10846
+            explained by E4: season 1921 g: event 1248 vs gameinfo 1272
+            explained by E4: season 1921 r: event 12107 vs gameinfo 12332
+            explained by E4: season 1922 g: event 1245 vs gameinfo 1247
+            explained by E4: season 1922 r: event 12098 vs gameinfo 12106
+            explained by E4: season 1923 g: event 1239 vs gameinfo 1240
+            ... 67 more explained
+            not comparable: 1898 covered only by gameinfo
+            not comparable: 1899 covered only by gameinfo
+            not comparable: 1900 covered only by gameinfo
+            not comparable: 1901 covered only by gameinfo
+            not comparable: 1902 covered only by gameinfo
+            not comparable: 1903 covered only by gameinfo
+            not comparable: 1904 covered only by gameinfo
+            not comparable: 1905 covered only by gameinfo
+            not comparable: 1906 covered only by gameinfo
+            not comparable: 1907 covered only by gameinfo
+            not comparable: 1908 covered only by gameinfo
+            not comparable: 1909 covered only by gameinfo
+     season event vs gamelog: 101 keys, facts bb,g,hr,k,r
+            seasons: 0 match, 101 explained, 0 unexplained, 15 not comparable
+            3 fact values left blank by a source (not recorded, not compared)
+            explained by E1: season 1910 bb: event 7587 vs gamelog 7552
+            explained by E1: season 1910 g: event 1254 vs gamelog 1249
+            explained by E1: season 1910 hr: event 362 vs gamelog 361
+            explained by E1: season 1910 r: event 9631 vs gamelog 9581
+            explained by E1: season 1911 bb: event 8008 vs gamelog 7990
+            explained by E1: season 1911 g: event 1243 vs gamelog 1237
+            explained by E1: season 1911 hr: event 517 vs gamelog 514
+            explained by E1: season 1911 r: event 11204 vs gamelog 11164
+            explained by E1: season 1912 bb: event 7725 vs gamelog 7684
+            explained by E1: season 1912 g: event 1240 vs gamelog 1232
+            explained by E1: season 1912 hr: event 444 vs gamelog 442
+            explained by E1: season 1912 k: event 9875 vs gamelog 9800
+            explained by E1: season 1912 r: event 11210 vs gamelog 11154
+            explained by E1+E5: season 1913 bb: event 7418 vs gamelog 7358
+            explained by E1+E5: season 1913 g: event 1247 vs gamelog 1234
+            ... 486 more explained
+            not comparable: 1914 covered only by event
+            not comparable: 1937 covered only by event
+            not comparable: 1954 covered only by event
+            not comparable: 1979 covered only by event
+            not comparable: 1871 covered only by gamelog
+            not comparable: 1872 covered only by gamelog
+            not comparable: 1874 covered only by gamelog
+            not comparable: 1898 covered only by gamelog
+            not comparable: 1899 covered only by gamelog
+            not comparable: 1900 covered only by gamelog
+            not comparable: 1903 covered only by gamelog
+            not comparable: 1905 covered only by gamelog
+            not comparable: 1907 covered only by gamelog
+            not comparable: 1908 covered only by gamelog
+            not comparable: 1909 covered only by gamelog
+     season gameinfo vs gamelog: 109 keys, facts g,r
+            seasons: 2 match, 107 explained, 0 unexplained, 11 not comparable
+            explained by E5: season 1900 g: gameinfo 569 vs gamelog 568
+            explained by E5: season 1900 r: gameinfo 5941 vs gamelog 5932
+            explained by E1+E5: season 1903 g: gameinfo 1129 vs gamelog 1114
+            explained by E1+E5: season 1903 r: gameinfo 10001 vs gamelog 9892
+            explained by E1: season 1905 g: gameinfo 1242 vs gamelog 1237
+            explained by E1: season 1905 r: gameinfo 9657 vs gamelog 9639
+            explained by E1: season 1907 g: gameinfo 1238 vs gamelog 1233
+            explained by E1: season 1907 r: gameinfo 8728 vs gamelog 8703
+            explained by E1: season 1908 g: gameinfo 1249 vs gamelog 1244
+            explained by E1: season 1908 r: gameinfo 8461 vs gamelog 8422
+            explained by E1: season 1909 g: gameinfo 1248 vs gamelog 1241
+            explained by E1: season 1909 r: gameinfo 8875 vs gamelog 8813
+            explained by E1: season 1910 g: gameinfo 1254 vs gamelog 1249
+            explained by E1: season 1910 r: gameinfo 9631 vs gamelog 9581
+            explained by E1: season 1911 g: gameinfo 1243 vs gamelog 1237
+            ... 199 more explained
+            not comparable: 1901 covered only by gameinfo
+            not comparable: 1902 covered only by gameinfo
+            not comparable: 1904 covered only by gameinfo
+            not comparable: 1906 covered only by gameinfo
+            not comparable: 1914 covered only by gameinfo
+            not comparable: 1937 covered only by gameinfo
+            not comparable: 1954 covered only by gameinfo
+            not comparable: 1979 covered only by gameinfo
+            not comparable: 1871 covered only by gamelog
+            not comparable: 1872 covered only by gamelog
+            not comparable: 1874 covered only by gamelog
+       game event vs csv_plays: 180202 keys, facts bb,g,hr,k,pa,r
+            seasons: 104 match, 1 explained, 0 unexplained, 9 not comparable
+            explained by E8: game 1947/BRO194707200 pa: event 69 vs csv_plays 68
+            not comparable: 1898 covered only by csv_plays
+            not comparable: 1899 covered only by csv_plays
+            not comparable: 1900 covered only by csv_plays
+            not comparable: 1903 covered only by csv_plays
+            not comparable: 1905 covered only by csv_plays
+            not comparable: 1906 covered only by csv_plays
+            not comparable: 1907 covered only by csv_plays
+            not comparable: 1908 covered only by csv_plays
+            not comparable: 1909 covered only by csv_plays
+       game event vs csv_batting: 185513 keys, facts bb,g,hr,k,pa,r
+            seasons: 67 match, 38 explained, 0 unexplained, 12 not comparable
+            18919 fact values left blank by a source (not recorded, not compared)
+            explained by E4: game 1912/NYL191208240 bb: event absent vs csv_batting 2
+            explained by E4: game 1912/NYL191208240 g: event absent vs csv_batting 1
+            explained by E4: game 1912/NYL191208240 pa: event absent vs csv_batting 72
+            explained by E4: game 1912/NYL191208240 r: event absent vs csv_batting 3
+            explained by E4: game 1913/CAG191308022 bb: event absent vs csv_batting 11
+            explained by E4: game 1913/CAG191308022 g: event absent vs csv_batting 1
+            explained by E4: game 1913/CAG191308022 pa: event absent vs csv_batting 87
+            explained by E4: game 1913/CAG191308022 r: event absent vs csv_batting 12
+            explained by E4: game 1913/CAG191308090 bb: event absent vs csv_batting 6
+            explained by E4: game 1913/CAG191308090 g: event absent vs csv_batting 1
+            explained by E4: game 1913/CAG191308090 hr: event absent vs csv_batting 1
+            explained by E4: game 1913/CAG191308090 pa: event absent vs csv_batting 86
+            explained by E4: game 1913/CAG191308090 r: event absent vs csv_batting 17
+            explained by E4: game 1913/CAG191308122 bb: event absent vs csv_batting 7
+            explained by E4: game 1913/CAG191308122 g: event absent vs csv_batting 1
+            ... 13467 more explained
+            not comparable: 1898 covered only by csv_batting
+            not comparable: 1899 covered only by csv_batting
+            not comparable: 1900 covered only by csv_batting
+            not comparable: 1901 covered only by csv_batting
+            not comparable: 1902 covered only by csv_batting
+            not comparable: 1903 covered only by csv_batting
+            not comparable: 1904 covered only by csv_batting
+            not comparable: 1905 covered only by csv_batting
+            not comparable: 1906 covered only by csv_batting
+            not comparable: 1907 covered only by csv_batting
+            not comparable: 1908 covered only by csv_batting
+            not comparable: 1909 covered only by csv_batting
+       game event vs gameinfo: 186005 keys, facts g,r
+            seasons: 64 match, 41 explained, 0 unexplained, 12 not comparable
+            explained by E4: game 1912/NYL191208240 g: event absent vs gameinfo 1
+            explained by E4: game 1912/NYL191208240 r: event absent vs gameinfo 3
+            explained by E4: game 1913/CAG191308022 g: event absent vs gameinfo 1
+            explained by E4: game 1913/CAG191308022 r: event absent vs gameinfo 12
+            explained by E4: game 1913/CAG191308090 g: event absent vs gameinfo 1
+            explained by E4: game 1913/CAG191308090 r: event absent vs gameinfo 17
+            explained by E4: game 1913/CAG191308122 g: event absent vs gameinfo 1
+            explained by E4: game 1913/CAG191308122 r: event absent vs gameinfo 3
+            explained by E4: game 1913/NYL191307180 g: event absent vs gameinfo 1
+            explained by E4: game 1913/NYL191307180 r: event absent vs gameinfo 11
+            explained by E4: game 1913/NYL191307190 g: event absent vs gameinfo 1
+            explained by E4: game 1913/NYL191307190 r: event absent vs gameinfo 22
+            explained by E4: game 1913/NYL191307201 g: event absent vs gameinfo 1
+            explained by E4: game 1913/NYL191307201 r: event absent vs gameinfo 9
+            explained by E4: game 1913/NYL191307202 g: event absent vs gameinfo 1
+            ... 11582 more explained
+            not comparable: 1898 covered only by gameinfo
+            not comparable: 1899 covered only by gameinfo
+            not comparable: 1900 covered only by gameinfo
+            not comparable: 1901 covered only by gameinfo
+            not comparable: 1902 covered only by gameinfo
+            not comparable: 1903 covered only by gameinfo
+            not comparable: 1904 covered only by gameinfo
+            not comparable: 1905 covered only by gameinfo
+            not comparable: 1906 covered only by gameinfo
+            not comparable: 1907 covered only by gameinfo
+            not comparable: 1908 covered only by gameinfo
+            not comparable: 1909 covered only by gameinfo
+       game event vs gamelog: 173483 keys, facts bb,g,hr,k,r
+            seasons: 0 match, 101 explained, 0 unexplained, 15 not comparable
+            36 fact values left blank by a source (not recorded, not compared)
+            explained by E1: game 1910/CHN191010200 bb: event 7 vs gamelog absent
+            explained by E1: game 1910/CHN191010200 g: event 1 vs gamelog absent
+            explained by E1: game 1910/CHN191010200 hr: event 1 vs gamelog absent
+            explained by E1: game 1910/CHN191010200 k: event 9 vs gamelog absent
+            explained by E1: game 1910/CHN191010200 r: event 17 vs gamelog absent
+            explained by E1: game 1910/CHN191010220 bb: event 5 vs gamelog absent
+            explained by E1: game 1910/CHN191010220 g: event 1 vs gamelog absent
+            explained by E1: game 1910/CHN191010220 k: event 12 vs gamelog absent
+            explained by E1: game 1910/CHN191010220 r: event 7 vs gamelog absent
+            explained by E1: game 1910/CHN191010230 bb: event 4 vs gamelog absent
+            explained by E1: game 1910/CHN191010230 g: event 1 vs gamelog absent
+            explained by E1: game 1910/CHN191010230 k: event 11 vs gamelog absent
+            explained by E1: game 1910/CHN191010230 r: event 9 vs gamelog absent
+            explained by E1: game 1910/PHA191010170 bb: event 6 vs gamelog absent
+            explained by E1: game 1910/PHA191010170 g: event 1 vs gamelog absent
+            ... 13147 more explained
+            not comparable: 1914 covered only by event
+            not comparable: 1937 covered only by event
+            not comparable: 1954 covered only by event
+            not comparable: 1979 covered only by event
+            not comparable: 1871 covered only by gamelog
+            not comparable: 1872 covered only by gamelog
+            not comparable: 1874 covered only by gamelog
+            not comparable: 1898 covered only by gamelog
+            not comparable: 1899 covered only by gamelog
+            not comparable: 1900 covered only by gamelog
+            not comparable: 1903 covered only by gamelog
+            not comparable: 1905 covered only by gamelog
+            not comparable: 1907 covered only by gamelog
+            not comparable: 1908 covered only by gamelog
+            not comparable: 1909 covered only by gamelog
+       game event vs box: 655 keys, facts bb,g,hr,k,r
+            seasons: 89 match, 16 explained, 0 unexplained, 1 not comparable
+            explained by E7: game 1926/PRG192601010 bb: event absent vs box 6
+            explained by E7: game 1926/PRG192601010 g: event absent vs box 1
+            explained by E7: game 1926/PRG192601010 hr: event absent vs box 2
+            explained by E7: game 1926/PRG192601010 k: event absent vs box 14
+            explained by E7: game 1926/PRG192601010 r: event absent vs box 12
+            explained by E7: game 1926/PRG192601170 bb: event absent vs box 11
+            explained by E7: game 1926/PRG192601170 g: event absent vs box 1
+            explained by E7: game 1926/PRG192601170 k: event absent vs box 12
+            explained by E7: game 1926/PRG192601170 r: event absent vs box 15
+            explained by E4: game 1928/BLS192810140 bb: event absent vs box 11
+            explained by E4: game 1928/BLS192810140 g: event absent vs box 1
+            explained by E4: game 1928/BLS192810140 hr: event absent vs box 1
+            explained by E4: game 1928/BLS192810140 k: event absent vs box 17
+            explained by E4: game 1928/BLS192810140 r: event absent vs box 12
+            explained by E4: game 1930/KCM193008020 bb: event absent vs box 6
+            ... 233 more explained
+            not comparable: 1871 covered only by box
+       game gameinfo vs gamelog: 187503 keys, facts g,r
+            seasons: 2 match, 107 explained, 0 unexplained, 11 not comparable
+            explained by E5: game 1900/BRO190009190 g: gameinfo 1 vs gamelog absent
+            explained by E5: game 1900/BRO190009190 r: gameinfo 9 vs gamelog absent
+            explained by E1: game 1903/BOS190310010 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 1903/BOS190310010 r: gameinfo 10 vs gamelog absent
+            explained by E1: game 1903/BOS190310020 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 1903/BOS190310020 r: gameinfo 3 vs gamelog absent
+            explained by E1: game 1903/BOS190310030 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 1903/BOS190310030 r: gameinfo 6 vs gamelog absent
+            explained by E1: game 1903/BOS190310130 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 1903/BOS190310130 r: gameinfo 3 vs gamelog absent
+            explained by E5: game 1903/CUX190309131 g: gameinfo 1 vs gamelog absent
+            explained by E5: game 1903/CUX190309131 r: gameinfo 9 vs gamelog absent
+            explained by E5: game 1903/CUX190309140 g: gameinfo 1 vs gamelog absent
+            explained by E5: game 1903/CUX190309140 r: gameinfo 4 vs gamelog absent
+            explained by E5: game 1903/CUX190309180 g: gameinfo 1 vs gamelog absent
+            ... 17242 more explained
+            not comparable: 1901 covered only by gameinfo
+            not comparable: 1902 covered only by gameinfo
+            not comparable: 1904 covered only by gameinfo
+            not comparable: 1906 covered only by gameinfo
+            not comparable: 1914 covered only by gameinfo
+            not comparable: 1937 covered only by gameinfo
+            not comparable: 1954 covered only by gameinfo
+            not comparable: 1979 covered only by gameinfo
+            not comparable: 1871 covered only by gamelog
+            not comparable: 1872 covered only by gamelog
+            not comparable: 1874 covered only by gamelog
+       game gameinfo vs box: 10613 keys, facts g,r
+            seasons: 113 match, 4 explained, 0 unexplained, 1 not comparable
+            explained by E7: game 1926/PRG192601010 g: gameinfo absent vs box 1
+            explained by E7: game 1926/PRG192601010 r: gameinfo absent vs box 12
+            explained by E7: game 1926/PRG192601170 g: gameinfo absent vs box 1
+            explained by E7: game 1926/PRG192601170 r: gameinfo absent vs box 15
+            explained by E6: game 1943/HSL194307111 g: gameinfo absent vs box 1
+            explained by E6: game 1943/HSL194307111 r: gameinfo absent vs box 5
+            explained by E6: game 1945/HOM194509200 g: gameinfo absent vs box 1
+            explained by E6: game 1945/HOM194509200 r: gameinfo absent vs box 5
+            explained by E6: game 1947/BIR194703270 g: gameinfo absent vs box 1
+            explained by E6: game 1947/BIR194703270 r: gameinfo absent vs box 14
+            explained by E6: game 1947/CAG194708040 g: gameinfo absent vs box 1
+            explained by E6: game 1947/CAG194708040 r: gameinfo absent vs box 20
+            explained by E6: game 1947/NW2194708140 g: gameinfo absent vs box 1
+            explained by E6: game 1947/NW2194708140 r: gameinfo absent vs box 12
+            not comparable: 1871 covered only by box
+player_game event vs csv_plays: 3986053 keys, facts bb,hr,k,pa
+            seasons: 104 match, 1 explained, 0 unexplained, 9 not comparable
+            explained by E8: player_game 1947/BRO194707200/kurow101 pa: event 4 vs csv_plays 3
+            not comparable: 1898 covered only by csv_plays
+            not comparable: 1899 covered only by csv_plays
+            not comparable: 1900 covered only by csv_plays
+            not comparable: 1903 covered only by csv_plays
+            not comparable: 1905 covered only by csv_plays
+            not comparable: 1906 covered only by csv_plays
+            not comparable: 1907 covered only by csv_plays
+            not comparable: 1908 covered only by csv_plays
+            not comparable: 1909 covered only by csv_plays
+player_game event vs csv_batting: 4697277 keys, facts bb,hr,k,pa
+            seasons: 67 match, 38 explained, 0 unexplained, 12 not comparable
+            155311 fact values left blank by a source (not recorded, not compared)
+            explained by E4: player_game 1912/NYL191208240/bookp101 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/chacp101 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/figar101 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/franb101 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/gansj101 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/garcr103 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/granl101 pa: event absent vs csv_batting 1
+            explained by E4: player_game 1912/NYL191208240/hidah101 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/lloyj101 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/magrj101 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/mendj101 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/moore104 pa: event absent vs csv_batting 3
+            explained by E4: player_game 1912/NYL191208240/morac104 bb: event absent vs csv_batting 1
+            explained by E4: player_game 1912/NYL191208240/morac104 pa: event absent vs csv_batting 4
+            explained by E4: player_game 1912/NYL191208240/pedre101 pa: event absent vs csv_batting 4
+            ... 64076 more explained
+            not comparable: 1898 covered only by csv_batting
+            not comparable: 1899 covered only by csv_batting
+            not comparable: 1900 covered only by csv_batting
+            not comparable: 1901 covered only by csv_batting
+            not comparable: 1902 covered only by csv_batting
+            not comparable: 1903 covered only by csv_batting
+            not comparable: 1904 covered only by csv_batting
+            not comparable: 1905 covered only by csv_batting
+            not comparable: 1906 covered only by csv_batting
+            not comparable: 1907 covered only by csv_batting
+            not comparable: 1908 covered only by csv_batting
+            not comparable: 1909 covered only by csv_batting
+player_game event vs box: 17866 keys, facts bb,hr,k
+            seasons: 82 match, 23 explained, 0 unexplained, 1 not comparable
+            explained by E4: player_game 1925/BLS192510111/beckj104 hr: event absent vs box 1
+            explained by E4: player_game 1925/BLS192510111/beckj104 k: event absent vs box 3
+            explained by E4: player_game 1925/BLS192510111/wilsj106 k: event absent vs box 3
+            explained by E4: player_game 1925/KCM192508110/duncf102 bb: event absent vs box 2
+            explained by E4: player_game 1925/KCM192508110/fores101 bb: event absent vs box 1
+            explained by E4: player_game 1925/KCM192508110/hawkl101 bb: event absent vs box 1
+            explained by E4: player_game 1925/KCM192508110/josen101 bb: event absent vs box 1
+            explained by E4: player_game 1925/KCM192508110/mcnah101 bb: event absent vs box 3
+            explained by E4: player_game 1925/KCM192508110/rogab101 bb: event absent vs box 1
+            explained by E4: player_game 1925/KCM192508110/sweag101 bb: event absent vs box 1
+            explained by E4: player_game 1925/NYL192510180/gee-r101 k: event absent vs box 1
+            explained by E4: player_game 1926/NYL192609192/finlt101 bb: event absent vs box 1
+            explained by E4: player_game 1926/NYL192609192/masoc102 hr: event absent vs box 1
+            explained by E4: player_game 1926/NYL192609192/scalg101 hr: event absent vs box 3
+            explained by E4: player_game 1926/NYL192609192/younb103 bb: event absent vs box 1
+            ... 1321 more explained
+            not comparable: 1871 covered only by box
+  note: every event batter and pitcher id 1871-2014 resolves to a roster or all-players row
+elapsed 1440.4s
+Retrosheet tie-out PASSED
+exit 0

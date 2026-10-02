@@ -321,6 +321,13 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
     display precision; the bulk cross-check runs 2008–2025 and passed against
     the re-ingested `raw.bref_*` (`separate-postseason-stats`, 2026-09-07).
     Adding more cited cases at other grains stays open, low priority.
+  - Retrosheet raw-source tie-out gate ✅ — `scripts/verify_retrosheet_tie_out.py`
+    (`raw-source-tieout`): the redundant Retrosheet sources agree with each other for
+    every season 2015–2025 and 1871–2014 at season, game and player-game level;
+    every difference is an evidenced register entry or a reloaded stale archive (the
+    2000s event archive was reloaded 2026-10-01, 105 rows corrected upstream). Results:
+    `openspec/changes/raw-source-tieout/results-2015-2025.md`, `results-history.md`.
+    Raw data was never edited to satisfy the gate.
   - `gold.player_season` two-writer question ✅ — **ADR-281** (option A):
     `gold.player_season` (BRef/Lahman, 2008+) and the event-derived
     `gold.batting_season` / `gold.pitching_season` (Retrosheet, 1910+) are

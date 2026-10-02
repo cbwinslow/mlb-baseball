@@ -472,11 +472,17 @@ class GameIter:
                 self.parse_ok = True
 
     def _process_comments(self, ev: Event) -> None:
-        """``cw_gameiter_process_comments``: a ``suspended,`` comment changes the date"""
+        """``cw_gameiter_process_comments``: a ``suspended,`` comment changes the date
+
+        The C calls ``strtok`` on the comment text itself, which cuts the shared game record at
+        the first comma. The comment is therefore only recognised the first time any iterator
+        over this game (a copy made by ``runner_fate``, say) processes it; it is kept.
+        """
         for comment in ev.comments:
             if comment.text.startswith("suspended,"):
                 tokens = [t for t in comment.text.split(",") if t != ""]
                 self.state.date = tokens[1][:8] if len(tokens) > 1 else ""
+                comment.text = "suspended"
 
     def _process_subs(self, ev: Event) -> None:
         for sub in ev.subs:

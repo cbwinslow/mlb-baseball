@@ -102,3 +102,21 @@ def test_guard_is_silent_on_clean_files_and_loud_on_new_notation():
     found = check_event_file(b"\n".join(lines), "x.EVN")
     assert any("unparsed play 'ZZ9'" in m for m in found)
     assert any("skipping invalid record" in m for m in found)
+
+
+def test_suspended_comment_is_consumed_by_the_first_iterator_like_strtok():
+    """The C cuts the shared comment at its first comma, so only one iterator sees the new date."""
+    from retrosheetpy.cw.game import read_games
+    from retrosheetpy.cw.gameiter import GameIter
+
+    lines = (FIXTURES / "regular_2007.evt").read_bytes().split(b"\n")
+    plays = [i for i, line in enumerate(lines) if line.startswith(b"play,")]
+    text = b"\n".join(
+        [*lines[: plays[0] + 1], b'com,"suspended,20070930"', *lines[plays[0] + 1 : plays[2]]]
+    )
+    game = next(iter(read_games(text)))
+    first, second = GameIter(game), GameIter(game)
+    first.next()
+    second.next()
+    assert first.state.date == "20070930"
+    assert second.state.date != "20070930"

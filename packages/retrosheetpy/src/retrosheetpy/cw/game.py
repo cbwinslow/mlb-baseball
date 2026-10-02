@@ -80,6 +80,13 @@ class Game:
                 return value
         return None
 
+    def starter_find(self, team: int, slot: int) -> Appearance | None:
+        """``cw_game_starter_find``"""
+        for s in self.starters:
+            if s.team == team and s.slot == slot:
+                return s
+        return None
+
     def starter_by_position(self, team: int, pos: int) -> Appearance | None:
         """``cw_game_starter_find_by_position``"""
         for s in self.starters:
@@ -331,3 +338,13 @@ PITCH_STRIKE_OTHER = frozenset("AK")
 def count_pitches(pitches: str, criterion: frozenset[str]) -> int:
     """``cw_pitch_count_pitches``"""
     return sum(c in criterion for c in pitches)
+
+
+def pitch_ball_thrown(c: str) -> bool:
+    """``cw_pitch_ball_thrown``"""
+    return c in ("B", "H", "I", "P")
+
+
+def pitch_strike_thrown(c: str) -> bool:
+    """``cw_pitch_strike_thrown``"""
+    return c in ("C", "F", "K", "L", "M", "O", "Q", "R", "S", "T", "X", "Y")

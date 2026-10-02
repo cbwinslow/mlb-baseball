@@ -51,11 +51,19 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 
 ## Next steps (in order)
 1. (Done 2026-10-02: full sweep with rosters = 0 differences; see results.md.)
-2. Port the remaining tools from the C, in this order: `cwgame` (smallest), `cwdaily`, `cwsub`,
-   `cwcomment`, `cwbox` (+ `box.c`), then `lint.c` and the CLI driver. Prove each against the real binary on
-   whole seasons (same method as `season_report.py`).
-3. Value check (owner asked "is this worth it / why hasn't anyone done it"): NOT yet researched.
-   Search for existing pure-Python Chadwick/Retrosheet parsers and wrappers and report honestly.
+2. Port the remaining tools from the C. **Order corrected (found this session):** `cwgame`, `cwbox` and
+   `cwdaily` all use `CWBoxscore` from `cwlib/box.c` (1578 lines), so port `box.c` FIRST
+   (`cw_box_create`, `cw_box_iterate_game`, batter/pitcher/runner/fielder stats, boxscore-file handling), then
+   `cwgame` (1786 lines, ~230 field functions), `cwbox` (943), `cwdaily` (910). `cwsub` (502) and
+   `cwcomment` (455) are independent of `box.c` and can go any time. Then `lint.c` and the CLI driver
+   (`cwtools.c` argument parsing, `-f` field lists, ascii/fixed output). Prove each against the real binary on
+   whole seasons (same method as `season_report.py`; text output compared byte for byte).
+   Method per file: read the C, translate function by function, keep the Chadwick notice, then build a C
+   harness (as `tests/reference/reader_dump.c`) to dump `CWBoxscore` structures and diff against the port.
+3. Value check: done (2026-10-02). Existing options: `pychadwick` (wraps the C library, sdist only, no wheels,
+   last release 2023-07, cwevent only), `pyretrosheet` ("not feature complete", own object model, no Chadwick
+   parity claim), `calestini/retrosheet` (community parser, points to Chadwick). Nothing is a pure-Python,
+   Chadwick-identical, `pip install`-able replacement. Caveat: quick search, PyPI pages not opened directly.
    A partial port has little value; completeness matters.
 4. Close-out: update `tasks.md`/`results.md`, `packages/retrosheetpy/AGENTS.md`, independent reviewer
    (general-purpose agent with Bash) checks notices, deviations and silent skips;

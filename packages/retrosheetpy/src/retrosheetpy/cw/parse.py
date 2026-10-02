@@ -155,7 +155,23 @@ class _Parser:
         self.s = s
         self.sym = s[0] if s else NUL
         self.pos = 1
-        self.token = ""
+        # ``char token[20]`` of the C parser state: a buffer, not a string, because the C
+        # leaves stale characters after a write that was never NUL-terminated (a failed parse)
+        self._tok = bytearray(64)
+
+    @property
+    def token(self) -> str:
+        end = self._tok.find(0)
+        return self._tok[: end if end >= 0 else len(self._tok)].decode("latin-1")
+
+    @token.setter
+    def token(self, value: str) -> None:
+        """Write ``value`` and a NUL at the start of the buffer, as ``*c = '\\0'`` does."""
+        self._tok[: len(value) + 1] = value.encode("latin-1") + b"\0"
+
+    def put(self, at: int, ch: str) -> None:
+        """``*(play++) = ch``"""
+        self._tok[at] = ord(ch)
 
     def nextsym(self) -> str:
         if self.pos > len(self.s):
@@ -205,7 +221,7 @@ def _fielding_credit(p: _Parser, e: EventData, prev: str) -> int:
     """``cw_parse_fielding_credit``: 0 = batter out (or invalid), 1 = safe on error."""
     last = p.sym
     assists: list[int] = []
-    play: list[str] = []
+    n = 0  # ``play`` pointer into the token buffer
 
     if p.sym == "E":
         p.nextsym()
@@ -216,14 +232,18 @@ def _fielding_credit(p: _Parser, e: EventData, prev: str) -> int:
             e.errors[e.num_errors] = ord(p.sym) - ord("0")
             e.error_types[e.num_errors] = "F"
             e.num_errors += 1
-        p.token = "E" + p.sym
+        p.put(0, "E")
+        p.put(1, p.sym)
+        p.put(2, "\0")
         p.nextsym()
         return 1
 
     if prev != " " and prev != p.sym:
         assists.append(ord(prev) - ord("0"))
-        play.append(prev)
-    play.append(p.sym)
+        p.put(n, prev)
+        n += 1
+    p.put(n, p.sym)
+    n += 1
 
     while True:
         p.nextsym()
@@ -232,21 +252,23 @@ def _fielding_credit(p: _Parser, e: EventData, prev: str) -> int:
                 assists.append(ord(last) - ord("0"))
                 _touch(e, ord(last) - ord("0"))
             if p.sym != "?":
-                play.append(p.sym)
+                p.put(n, p.sym)
+                n += 1
             last = p.sym
         elif p.sym == "E":
             if _isdigit(last):
                 assists.append(ord(last) - ord("0"))
-            play.append("E")
+            p.put(n, "E")
+            n += 1
             p.nextsym()
             if not _isdigit(p.sym):
-                p.token = "".join(play)
-                return 0
+                return 0  # the token is left without its NUL, as in C
             e.errors[e.num_errors] = ord(p.sym) - ord("0")
             e.error_types[e.num_errors] = "D"
             e.num_errors += 1
-            play.append(p.sym)
-            p.token = "".join(play)
+            p.put(n, p.sym)
+            n += 1
+            p.put(n, "\0")
             p.nextsym()
             _dedupe_assists(e, assists)
             return 1
@@ -255,7 +277,7 @@ def _fielding_credit(p: _Parser, e: EventData, prev: str) -> int:
                 e.putouts[e.num_putouts] = ord(last) - ord("0")
                 e.num_putouts += 1
                 _touch(e, ord(last) - ord("0"))
-            p.token = "".join(play)
+            p.put(n, "\0")
             _dedupe_assists(e, assists)
             return 0
 

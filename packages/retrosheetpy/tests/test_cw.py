@@ -84,3 +84,21 @@ def test_trailing_blank_in_a_number_is_accepted_like_atoi():
 
     (rec,) = iter_records(['sub,comoa101,"Adam Comorosky",1,8,12 \n'], source="t.EVN")
     assert rec.position == 12 and rec.raw.endswith("12 ")
+
+
+def test_guard_is_silent_on_clean_files_and_loud_on_new_notation():
+    from retrosheetpy.cw.guard import check_event_file
+
+    for name in NAMES:
+        assert check_event_file((FIXTURES / f"{name}.evt").read_bytes(), name) == []
+
+    data = (FIXTURES / "regular_2007.evt").read_bytes()
+    lines = data.split(b"\n")
+    i = next(k for k, ln in enumerate(lines) if ln.startswith(b"play,"))
+    parts = lines[i].split(b",")
+    parts[6] = b"ZZ9"
+    lines[i] = b",".join(parts)
+    lines.insert(i, b"newrecord,1")
+    found = check_event_file(b"\n".join(lines), "x.EVN")
+    assert any("unparsed play 'ZZ9'" in m for m in found)
+    assert any("skipping invalid record" in m for m in found)

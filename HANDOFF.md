@@ -1,76 +1,83 @@
-# Session handoff — 2026-10-02
+# Session handoff — 2026-10-02 (afternoon)
 
-Branch: `plan/stable-ids-and-job-retries` (PR #276, planning only, not merged). Untracked `.idea/` is IDE config, not ours.
+Branch `plan/stable-ids-and-job-retries` (PR #276, not merged; needs the owner's approval).
+Untracked `.idea/` is IDE config, not ours. Read `openspec/project.md` after this.
 
-## Done this session (all merged unless noted)
+## Done this session (all committed and pushed to PR #276)
 
-- PR #273 merged (`d4462b1`): Retrosheet tie-out gate, `mlb ingest --refresh`, `mlb source-check`
-  (HEAD requests only, exit 0/1/2), `mlb ingest` now prints `N loaded, M in table`, docs.
-- All Retrosheet raw tables refreshed from current files on 2026-10-01; `core`/`gold` rebuilt from
-  them (conform + report ran clean). Old downloads are in `downloads/<source>/_superseded/`.
-- Tie-out result: 1871–2014 has 26 unexplained differences, all in two Negro League games
-  (issue #272); 2015–2025 has the one known game `BOS202509030` (issue #267). Everything else matches.
-- Box-score decision (owner): leave out the 1933–1938 Negro League files the reader cannot parse;
-  pre-1980 data is low priority. Not yet written into a doc; old rows for those years remain in production.
-- `source-change-check` archived into the `source-refresh` spec.
-- Weekly cron added: `mlb source-check` Mondays 08:00 → `logs/source_check.log` (crontab backup in the
-  old session scratchpad, may be gone).
-- Deleted the stale 38 GB dump `backups/mlb_20260817T211259Z.sql` (owner-approved).
+- **`job-retries-alerts` built, tasks 1.1–4.1 + 5.1 ticked** (commits `7f37700`, `2b882d5`, `c9b5715`):
+  - `mlb nightly` (`mlb_baseball/nightly.py`): steps as child processes; only `update` retries (3 attempts,
+    pauses 60 s / 300 s, failed sources only); one `alert_command` call per failed step; one `meta.ingestion_run`
+    row per step attempt (`mode='nightly'`, `attempt`).
+  - `mlb runs [--check]` (`runs.py`), `alert_command` (`alert.py`, `config.py`, `mlb.toml.example`),
+    `scripts/mlb_daily_update.sh` is now flock + log + `exec mlb nightly` (cron line unchanged).
+  - Migrations: `0108` (attempt column, `nightly` mode), `0109` (`meta.query_stat_snapshot`).
+  - Nightly now copies `pg_stat_statements` into `meta.query_stat_snapshot` after the steps (180 days kept,
+    never fails the run).
+  - `conform.run()` now prints `conform step <name>: <N>s` for every step (stable-ids task 1.1 groundwork).
+  - Docs: USER_MANUAL "Failure alerts", ARCHITECTURE scheduling paragraph, `cli.py.dox.md`. `openspec validate`
+    and `scripts/check_dox.py` pass.
+  - Verified: all 1,013 unit tests, 85 conform tests, new integration tests (retry vs real PostgreSQL, runs
+    query, attempt column, query snapshot), ruff, mypy. **The full integration suite was never run.**
+- **Task 4.2 NOT done** (real `mlb nightly` night recorded in `results.md`; one deliberately failing source
+  must trigger exactly one alert on a test config). A real run was started and then stopped by the owner's
+  choice (see below).
 
-## Open work (planning done, no code yet)
+## Production state (read this before touching anything)
 
-PR #276 holds two validated OpenSpec changes. Start with `/opsx:apply job-retries-alerts` (smaller),
-then `stable-ids-incremental-conform`.
+- Migration `0108` is applied on production (the stopped run did `migrate`). `0109` is not; tonight's run applies it.
+- I started the nightly by hand at 14:23 UTC and killed it during `update` (conform had not started; core/gold
+  untouched). It left `statcast:update` marked `running`; the next nightly's `repair-runs` clears it.
+- Today's earlier normal daily run finished 08:07 UTC (conform 2,624 s, report, predict, populated 9/9 ok).
+- **Postgres 16 was restarted at 14:54 UTC by the owner** (about 50 s down; data intact, `core.game` = 237,457).
+  Now loaded: `pg_stat_statements, pg_cron, timescaledb, age, auto_explain`; `pg_stat_statements.max` 10000;
+  `auto_explain.log_min_duration=60s`, `log_analyze=on`, `log_timing=off`, `log_buffers=on`. Plans go to
+  `/var/log/postgresql/postgresql-16-main.log`.
+- **Gotcha that took the DB down:** `ALTER SYSTEM SET shared_preload_libraries = 'a, b, c'` writes ONE quoted
+  string and Postgres then refuses to start ("could not access file 'a, b, c'"). Fix was editing
+  `postgresql.auto.conf` with `sed` (comma list, no spaces). `auto_explain.*` settings can only be set after the
+  library is loaded (needs the restart first). Do this properly next time.
 
-- **`job-retries-alerts`** (issue #274): `mlb nightly` supervisor (steps as child processes, retry failed
-  sources only for `update`, no retry for conform/report/predict), one optional `alert_command` hook,
-  `mlb runs [--check]` quick status, `attempt` column on `meta.ingestion_run`.
-- **`stable-ids-incremental-conform`** (issue #275): permanent ids (upsert, not truncate), rebuild only
-  changed seasons (fingerprints in `meta`), match games to MLB `game_pk` once, `conform --full` as oracle.
-  Starts with measuring conform/report/predict per step. Known limit: Elo/predict state chained through
-  time is not recomputed forward (stated in the design).
+## Next steps, in order
+
+1. **After tomorrow's 06:00 UTC run** (first run of the new code), read: `logs/mlb_daily_update.log`
+   (`conform step ...` timings, `step update ... attempt`), `mlb runs`, `meta.query_stat_snapshot` (first rows),
+   and the Postgres log for `auto_explain` plans. Check it exited 0 and the cron shim worked.
+2. Then `stable-ids-incremental-conform` tasks 1.1–1.3 (measure conform/predict/report), recording results in its
+   `results.md`; only after that, tasks 2+. Owner's goal: make the 2 h 7 min nightly faster
+   (baseline: update 22 m, conform 44 m, report 14 m, predict 47 m). `job-retries-alerts` does NOT speed it up;
+   the owner was surprised by this, so say it plainly.
+3. Finish `job-retries-alerts` 4.2 (record the real night; test the alert hook once), then merge/archive after the
+   owner approves PR #276.
+4. DBA protocol agreed with the owner: measure → `EXPLAIN (ANALYZE, BUFFERS)` the top costs → change ONE thing →
+   re-measure → record. Tools available now: postgres-mcp (`analyze_db_health`, `get_top_queries`,
+   `explain_query`, `analyze_workload_indexes`), `hypopg` installed, `pg_stat_statements`, `auto_explain`.
+   Not installed (available): `pg_stat_kcache`, `pg_wait_sampling`, `pg_qualstats`, `pgstattuple`, `pg_repack`.
+   PostHog was rejected (product analytics, not DB monitoring); Prometheus + Grafana only if charts are wanted later.
 
 ## Findings worth keeping
 
-- Nightly job takes ~2 h 7 min: update 22 m, conform 44 m, report 14 m, predict 47 m (predict not yet
-  analyzed). `conform` truncates 23 tables and re-issues every team/player/venue/game id nightly.
-- `core.game`: 237,457 games; 75 since 2015 have no MLB `game_pk` (mostly regular-season, 29 in 2020,
-  one All-Star per year). Task 4.2 of the stable-ids change examines them.
-- Kalshi/Polymarket snapshot tables are append-only (52 daily snapshots since 2026-08-02) but captured
-  once a day at 06:00; the intraday candlestick backfill exists and was never run. `captured_at` is TEXT.
-- No DB functions/triggers in our schemas; pg_cron installed with 0 jobs; 717 indexes, 1,005 FKs,
-  8 unused indexes (~1 GB); 4,857 of 5,007 raw columns are text.
-- Playoff/All-Star games: keep one game table with `game_type` (not separate tables); keep season
-  totals separate (already done in gold postseason tables).
-- Backups: infra job `~/workspace/infra/scripts/validated_backup.sh` dumps every DB nightly
-  (mlb = 5.5 GB, verified) to `~/workspace/backups/postgres` on the RAID; mirror at `/srv/backups` on
-  the root disk **on purpose** (separate physical disk). Do not move the mirror onto the RAID.
-  The repo's own `scripts/mlb_backup.sh` is unscheduled; keep it for other installs.
-- Root disk now 82% (95 GB free). Large: `~/lib` 52 GB (owner keeps it; `baseballr-data` is 17 GB),
-  `~/.vscode-server` 11 GB, `~/.pybaseball` 9 GB.
-
-## Do first in the new session
-
-1. **Restart cleanup:** I deleted most of `~/.cache` (owner-approved) but also hit the `uv` cache that
-   the running MCP servers (browser-use, postgres-mcp) were using. After the restart `uvx` should rebuild
-   them; if a tool still errors, check `~/.cache/uv` and rerun. Nothing in project data was touched.
-2. Pull latest `main`; PR #276 needs the owner's approval/merge (branch rules require review; the
-   auto-mode classifier blocks `--admin` merges and crontab edits unless the owner approves via `/permissions`).
-3. `/opsx:apply job-retries-alerts`.
-
-## Not done / not run
-
-- The full test suite was never run; only the targeted tests named in PR #273.
-- Weekly `source-check` runs but nothing alerts on its exit code yet (that is the retries change).
-- Issue #272 (two 1930s Negro League games) is filed, not resolved; not checked whether Retrosheet documents them
-  (its decade discrepancy files cover AL/NL only).
+- DB health is fine: index cache hit 99.9 %, table 97.8 %, no bloat, no wraparound risk. The slowness is the
+  design (conform truncates 23 tables and re-issues every id nightly; the whole conform is one transaction).
+- Old `pg_stat_statements` (max 5000) had evicted conform's big statements, so it could not time them.
+- Something calls `SELECT pg_database_size(...)` about 670,000 times (~1 hour cumulative DB time). Find the caller.
+- Health check: 9 duplicate indexes (mostly `retrosheet_*__season_idx` vs `idx_retrosheet_*_season`) and ~1 GB of
+  never-scanned indexes (e.g. three on `raw.retrosheet_event`, two on `raw.statcast_pitch`). Candidates only;
+  verify before dropping.
+- My tie-out gate query "per-game flags from the CSV game info" averages ~10 min per call (7 calls). Fine for a
+  gate, but know it is the top total-time query.
+- `git gc` warns about loose objects (`git prune` would clear it); not done.
 
 ## Ground rules to remember
 
-- Production `mlb` is real data; gate/measurement runs are read-only. Make the target database explicit.
-- Keep replies to the owner short and plain (`CLAUDE.md`). Owner wants: clean, short names; fewer, consolidated
-  docs; code that is easy to hand to other people and install on another machine; an honest "take a hatchet to it"
-  review, not sunk-cost loyalty; industry-standard practice (DBA + software engineer + statistician hats).
-- Spec-driven development is OpenSpec (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`); always use it for
-  anything beyond a tiny fix.
-- Do not merge, force-push, delete branches or edit crontabs without explicit owner approval; if blocked, stop and ask.
+- The auto-mode safety filter blocks me from changing production (SQL writes, `ALTER SYSTEM`, restarts, crontab).
+  The owner runs those with the `!` prefix. Give the exact one-line command, and warn about copy-paste slips
+  (a trailing `!` broke one command this session).
+- Keep replies short and plain (`CLAUDE.md`). The owner wants fewer, consolidated docs, short names, code easy to
+  install elsewhere, and an honest "take a hatchet to it" review. The owner got frustrated when I guessed instead of
+  showing a method; lead with evidence and a protocol.
+- OpenSpec workflow for anything beyond a tiny fix. Do not merge, force-push, delete branches or edit crontabs without
+  explicit owner approval. Production `mlb` is real data; make the target database explicit.
+- Backups: infra job `~/workspace/infra/scripts/validated_backup.sh` dumps every DB nightly; mirror at `/srv/backups`
+  on a separate disk on purpose. The repo's `scripts/mlb_backup.sh` is unscheduled. Root disk 82 % (95 GB free);
+  the `mlb` database is 61 GB on `/mnt/storage/postgres-data`.

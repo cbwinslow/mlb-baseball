@@ -6,7 +6,6 @@ and compares everything. Runs only where the Chadwick tools (0.10) are installed
 """
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +14,7 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
+from chadwick_tool import real_tool  # noqa: E402
 from retrosheetpy.cw.cli import IO, TOOLS, main  # noqa: E402
 from test_cwbox_differential import synthetic_rosters, year_of  # noqa: E402
 
@@ -23,7 +23,7 @@ EVENT = (FIXTURES / "regular_2007.evt").read_bytes()
 SECOND = (FIXTURES / "negro_league.evt").read_bytes()
 
 pytestmark = pytest.mark.skipif(
-    any(shutil.which(t) is None for t in TOOLS), reason="needs the Chadwick tools on PATH"
+    any(real_tool(t) is None for t in TOOLS), reason="needs the Chadwick tools on PATH"
 )
 
 ALL_TOOLS = sorted(TOOLS)
@@ -69,14 +69,14 @@ def scratch(tmp: Path, name: str) -> Path:
 
 
 def run_real(tool: str, args: list[str], work: Path) -> tuple[int, bytes, bytes]:
-    exe = shutil.which(tool)
+    exe = real_tool(tool)
     assert exe is not None
     run = subprocess.run([exe, *args], cwd=work, capture_output=True, check=False)
     return run.returncode, run.stdout, run.stderr
 
 
 def run_port(tool: str, args: list[str], work: Path) -> tuple[int, bytes, bytes]:
-    exe = shutil.which(tool)
+    exe = real_tool(tool)
     out: list[str] = []
     err: list[str] = []
     here = Path.cwd()

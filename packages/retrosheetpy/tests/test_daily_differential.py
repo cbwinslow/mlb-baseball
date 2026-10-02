@@ -5,7 +5,6 @@ Runs only where ``cwdaily`` (Chadwick 0.10) is installed.
 """
 
 import random
-import shutil
 import sys
 from pathlib import Path
 
@@ -13,11 +12,11 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
-from chadwick_tool import build_sanitised, run_clean, run_tool  # noqa: E402
+from chadwick_tool import build_sanitised, real_tool, run_clean, run_tool  # noqa: E402
 from retrosheetpy.cw.daily import daily_lines, header_line  # noqa: E402
 from test_reader_differential import damage  # noqa: E402
 
-pytestmark = pytest.mark.skipif(shutil.which("cwdaily") is None, reason="needs cwdaily on PATH")
+pytestmark = pytest.mark.skipif(real_tool("cwdaily") is None, reason="needs cwdaily on PATH")
 
 FIXTURES = sorted((HERE / "fixtures" / "events").glob("*.evt"))
 

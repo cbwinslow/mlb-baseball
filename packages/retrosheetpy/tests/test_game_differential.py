@@ -6,7 +6,6 @@ damaged copies. Runs only where ``cwgame`` (Chadwick 0.10) is installed.
 """
 
 import random
-import shutil
 import sys
 from pathlib import Path
 
@@ -14,13 +13,13 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
-from chadwick_tool import build_sanitised, run_clean, run_tool  # noqa: E402
+from chadwick_tool import build_sanitised, real_tool, run_clean, run_tool  # noqa: E402
 from retrosheetpy.cw.cwgame import game_lines, header_line  # noqa: E402
 from retrosheetpy.cw.tools import read_rosters  # noqa: E402
 from test_cwbox_differential import synthetic_rosters, year_of  # noqa: E402
 from test_reader_differential import damage  # noqa: E402
 
-pytestmark = pytest.mark.skipif(shutil.which("cwgame") is None, reason="needs cwgame on PATH")
+pytestmark = pytest.mark.skipif(real_tool("cwgame") is None, reason="needs cwgame on PATH")
 
 FIXTURES = sorted((HERE / "fixtures" / "events").glob("*.evt"))
 ALL = tuple(range(85))

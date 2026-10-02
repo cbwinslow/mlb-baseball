@@ -18,6 +18,9 @@ FIELDS = "0-96"  # every standard cwevent field (see `cwevent -d`)
 EXTENDED = "0-66"  # every extended (-x) field
 
 
+from chadwick_tool import real_tool  # noqa: E402
+
+
 class ChadwickReference:
     def __init__(self, cwevent: str):
         self.cwevent = cwevent
@@ -29,7 +32,7 @@ class ChadwickReference:
 
     @classmethod
     def find(cls) -> "ChadwickReference | None":
-        path = shutil.which("cwevent")
+        path = real_tool("cwevent")
         return cls(path) if path else None
 
     def events(

@@ -8,10 +8,31 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 SRC = Path(os.environ.get("CHADWICK_SRC", Path.home() / "workspace/tmp/chadwick/src"))
+
+
+def real_tool(tool: str) -> str | None:
+    """Path of the real Chadwick C program ``tool``, or ``None``.
+
+    The port installs console scripts with the same names (``cwevent`` ...), so a plain
+    ``shutil.which`` inside the project's virtualenv would find the port and the differential
+    tests would compare the port with itself. Directories of the running interpreter are
+    skipped; ``CHADWICK_BIN`` (a directory) overrides the search."""
+    override = os.environ.get("CHADWICK_BIN")
+    if override:
+        found = shutil.which(tool, path=override)
+        return found
+    own = {Path(sys.prefix).resolve(), Path(sys.executable).resolve().parent}
+    path = os.pathsep.join(
+        d
+        for d in os.environ.get("PATH", "").split(os.pathsep)
+        if d and Path(d).resolve() not in own and Path(d).resolve().parent not in own
+    )
+    return shutil.which(tool, path=path)
 
 
 # Two defects of ``cwbox -S`` (``cwbox_action_baseball_play`` in ``cwboxsml.c``) that the reference
@@ -121,7 +142,7 @@ def run_tool(
 ) -> tuple[int, bytes] | None:
     """(exit status, stdout) of ``<tool> -q -y YEAR <args> <file>``, run in a scratch directory
     with an empty team file (plus ``support`` files); ``None`` if the binary is not installed."""
-    exe = shutil.which(tool)
+    exe = real_tool(tool)
     if exe is None:
         return None
     data = event_file.read_bytes()

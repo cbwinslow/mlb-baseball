@@ -8,13 +8,14 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
-# Named like Chadwick's tools with a "-py" suffix so that they do not shadow the C programs
-cwevent-py = "retrosheetpy.cw.cli:main_cwevent"
-cwgame-py = "retrosheetpy.cw.cli:main_cwgame"
-cwdaily-py = "retrosheetpy.cw.cli:main_cwdaily"
-cwsub-py = "retrosheetpy.cw.cli:main_cwsub"
-cwcomment-py = "retrosheetpy.cw.cli:main_cwcomment"
-cwbox-py = "retrosheetpy.cw.cli:main_cwbox"
+# Same names as Chadwick's tools: a drop-in replacement. Installing this package next to the C
+# programs puts whichever directory comes first on PATH in front (tests find the C ones with real_tool).
+cwevent = "retrosheetpy.cw.cli:main_cwevent"
+cwgame = "retrosheetpy.cw.cli:main_cwgame"
+cwdaily = "retrosheetpy.cw.cli:main_cwdaily"
+cwsub = "retrosheetpy.cw.cli:main_cwsub"
+cwcomment = "retrosheetpy.cw.cli:main_cwcomment"
+cwbox = "retrosheetpy.cw.cli:main_cwbox"
 retrosheetpy = "retrosheetpy.cw.cli:main_umbrella"
 
 [build-system]

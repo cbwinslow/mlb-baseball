@@ -27,9 +27,9 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   `cwgame.py`, `daily.py` (cwdaily), `sub.py` (cwsub), `comment.py` (cwcomment),
   `cwbox.py` (cwbox text), `cwboxxml.py` (cwbox -X), `cwboxsml.py` + `xmlwrite.py` (cwbox -S),
   `cli.py` (cwtools.c `main`, option parsing, help/`-d` texts, per tool), `__main__.py`, `guard.py`.
-  Console scripts (pyproject): `cwevent-py`, `cwgame-py`, `cwdaily-py`, `cwsub-py`, `cwcomment-py`,
-  `cwbox-py` (the `-py` suffix is deliberate: tests find the real C tools with `shutil.which`,
-  so the port must never shadow them). `python -m retrosheetpy.cw TOOL ...` also works.
+  Console scripts (pyproject): `cwevent`, `cwgame`, `cwdaily`, `cwsub`, `cwcomment`, `cwbox` (owner
+  chose to DROP the `-py` suffix, 2026-10-02; they shadow the C tools if first on PATH. Tests find the
+  real C tools with `chadwick_tool.real_tool`, which skips the venv; `CHADWICK_BIN` overrides). `python -m retrosheetpy.cw TOOL ...` also works.
 - Proof (every one against the real C, byte for byte, stdout):
   - cwevent: all 164 columns 1910-2025 (earlier sessions); this session exact line formatting,
     ascii + `-ft`, `-f 0-96 -x 0-66`, with real rosters: 1915, 1950, 2007, 2025 = 0 diffs;
@@ -82,7 +82,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   Chadwick, applies a script of edits, writes; bytes identical to the port on fixtures, 400 random edit
   scripts, damaged files, scorebook insert/remove (incl. equal date+number), rosters, team files.
   Mutation-tested (two deliberate bugs were caught).
-- Command namespace: Chadwick has exactly six tools; all ported as `cwevent-py` ... `cwbox-py`, plus the
+- Command namespace: Chadwick has exactly six tools; all ported as `cwevent` ... `cwbox`, plus the
   umbrella `retrosheetpy cwevent ...` (`cli.main_umbrella`, also `python -m retrosheetpy.cw`).
 - Owner question "should we fix Chadwick's bugs?": recommendation given = no. Match the C wherever its
   behaviour is defined; only where it crashes or reads garbage does the port differ (ValueError / defined
@@ -111,8 +111,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
    comparison table), and every function and argument documented (API reference for all modules in `cw/`,
    all six CLI tools and their options, the umbrella `retrosheetpy` command, the write side). Keep the
    Chadwick copyright/licence notices (GPL-2.0-or-later derivative, package AGPL-3.0-or-later).
-4. Owner is asked (not yet answered): keep the `-py` suffix on the command names, or drop it for
-   port-only installs? Recommendation: keep `-py`, plus the `retrosheetpy TOOL` umbrella.
+4. DONE: `-py` suffix dropped (owner decision). Never use `shutil.which("cwevent")` in tests; use `real_tool`.
 
 ## Next steps (in order)
 1. Do owner requests 1 and 2 above.

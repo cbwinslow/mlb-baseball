@@ -7,7 +7,6 @@ first-initial paths run), and on randomly damaged copies of them. Runs only wher
 
 import random
 import re
-import shutil
 import sys
 from pathlib import Path
 
@@ -18,6 +17,7 @@ sys.path.insert(0, str(HERE))
 from chadwick_tool import (  # noqa: E402
     SPORTSML_PATCH,
     build_sanitised,
+    real_tool,
     run_clean,
     run_filled,
     run_tool,
@@ -27,7 +27,7 @@ from retrosheetpy.cw.game import read_games  # noqa: E402
 from retrosheetpy.cw.tools import read_rosters  # noqa: E402
 from test_reader_differential import damage  # noqa: E402
 
-pytestmark = pytest.mark.skipif(shutil.which("cwbox") is None, reason="needs cwbox on PATH")
+pytestmark = pytest.mark.skipif(real_tool("cwbox") is None, reason="needs cwbox on PATH")
 
 PB = re.compile(rb' pb="\d+"')
 FIXTURES = sorted((HERE / "fixtures" / "events").glob("*.evt"))

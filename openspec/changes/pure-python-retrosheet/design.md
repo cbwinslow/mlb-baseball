@@ -72,7 +72,9 @@ derived-stat interpretation.
 ### D3 — Retrosheet specification is the contract; Chadwick is an oracle
 
 Implementation behavior comes from Retrosheet's published file and event
-documentation. Chadwick source code is not copied or transliterated.
+documentation. Chadwick source may be read to understand behavior (owner decision,
+2026-10-01), but it is never copied or transliterated; our code is written
+independently and checked by comparing output with Chadwick.
 
 Chadwick 0.10.0 is executed in differential tests to reveal disagreements.
 Retrosheet's official parsed CSVs and its Chadwick crosswalk provide a second
@@ -158,6 +160,14 @@ No Chadwick GPL source is copied into the implementation.
 
 Retrosheet attribution and data-use requirements are documented in the package
 README and source-client documentation.
+
+### D9 — Package name (decided 2026-10-01)
+
+Distribution and import name `retrosheetpy`, in
+`packages/retrosheetpy/`. Checked on PyPI the same day: the name was free
+(`pyretrosheet` and `retropy` are taken; `retrosheet`, `retrosheet-py`,
+`retrosheet-parser` were also free but easily confused with existing GitHub
+projects).
 
 ## Validation strategy
 

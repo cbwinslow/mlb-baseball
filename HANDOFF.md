@@ -3,6 +3,22 @@
 Branch `plan/stable-ids-and-job-retries` (PR #276, not merged; needs the owner's approval).
 Untracked `.idea/` is IDE config, not ours. Read `openspec/project.md` after this.
 
+## Update (2026-10-02, evening)
+
+- Pushed `af9162a`: `mlb_baseball/timing.py` + per-step `predict step <name>: Ns` and `report step <name>: Ns` log lines
+  (conform already had `conform step ...`). Log-only; tasks 1.1-1.3 are NOT ticked until the 2026-10-03 06:00 UTC log is read.
+- Pre-flight done: unit 1,013 + new timing tests pass; **full integration suite passed** (878 passed, 2 skipped, 8 xfail, 25 min).
+- Cron runs this unmerged branch checkout (`plan/stable-ids-and-job-retries`); do not switch branches before 06:00 UTC.
+- No `mlb.toml`, so no `alert_command`: failures are logged/recorded but nobody is notified. Task 4.2 still open.
+- `pg_database_size` caller: roles `metrics_ro` (db `postgres`) and a `cbwinslow` poller on db `promscale`; not mlb, ~4-10 ms/call,
+  does not slow the nightly. Program not identified (postgres_exporter target is down). Optional: lower its poll rate.
+- Prometheus (localhost:9091) has host CPU/disk history only (no pg stats). Today's predict/report window showed disk waits low
+  (1-3%) but writes 150-200 MB/s: theory = ~35 UPDATE passes over `gold.game_feature`. Test against step timings tomorrow.
+- Today's totals (no per-step data): core 2,620 s, report 835 s, predict 2,833 s.
+- No speed fix exists yet; all speed work is `stable-ids-incremental-conform` tasks 2-6.
+- **Next session: "read the run"** = read `logs/mlb_daily_update.log`, `mlb runs`, `meta.query_stat_snapshot`, Postgres log
+  `auto_explain` plans; fill `stable-ids-incremental-conform/results.md`; tick 1.1-1.3; propose the first fix (DBA protocol).
+
 ## Done this session (all committed and pushed to PR #276)
 
 - **`job-retries-alerts` built, tasks 1.1–4.1 + 5.1 ticked** (commits `7f37700`, `2b882d5`, `c9b5715`):

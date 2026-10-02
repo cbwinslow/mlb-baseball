@@ -32,8 +32,8 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   forked per line under ASAN/UBSAN (to skip inputs where the C has undefined behaviour), against `parse_event`
   on ~185k real + mutated play strings. First run: 11 diffs, all mutated `POCS`/pickoff texts; cause was the
   C's unterminated token buffer (fixed: `_Parser._tok`/`put`) and `po_flag[sym-'1']` out-of-bounds (C undefined
-  behaviour, port guards it). Re-run after the fix was in progress; **commit the harness + a fuzz script under
-  `tests/reference/` (parse_dump.c, parse_fuzz.py) and re-run before closing deviation 2.**
+  behaviour, port guards it). Re-run after the fix: 192k plays, only 8 diffs, all garbled `POCS(...` plays (C undefined behaviour). Harness
+  committed as `tests/reference/parse_dump.c` + `parse_fuzz.py`. Deviation 2 closed.
 - New-season guard: `tests/reference/new_season_guard.py ZIP YEAR` (and `cw/guard.py`). It already flags two
   real 2025 plays that Chadwick also fails to parse: `BOS202509030` `C/E2/OBS/G2-.3-H(RBI);2-3;B-1` and
   `KCA202506140` `BK.2-3(SB3);1-2`.
@@ -50,16 +50,15 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 5. `records.py` (csv-based) is still used by the non-port tools (validation, report, play); the port no longer uses it.
 
 ## Next steps (in order)
-1. Finish deviation 2 (commit parser differential, re-run, fix what it finds).
-2. Run the full sweep again WITH rosters for all 116 seasons (use `season_report.py`, rosters are default now;
+1. Run the full sweep again WITH rosters for all 116 seasons (use `season_report.py`, rosters are default now;
    `--no-rosters` reproduces the old runs). Record Chadwick version in `results.md`.
-3. Port the remaining tools from the C, in this order: `cwgame` (smallest), `cwdaily`, `cwsub`,
+2. Port the remaining tools from the C, in this order: `cwgame` (smallest), `cwdaily`, `cwsub`,
    `cwcomment`, `cwbox` (+ `box.c`), then `lint.c` and the CLI driver. Prove each against the real binary on
    whole seasons (same method as `season_report.py`).
-4. Value check (owner asked "is this worth it / why hasn't anyone done it"): NOT yet researched.
+3. Value check (owner asked "is this worth it / why hasn't anyone done it"): NOT yet researched.
    Search for existing pure-Python Chadwick/Retrosheet parsers and wrappers and report honestly.
    A partial port has little value; completeness matters.
-5. Close-out: update `tasks.md`/`results.md`, `packages/retrosheetpy/AGENTS.md`, independent reviewer
+4. Close-out: update `tasks.md`/`results.md`, `packages/retrosheetpy/AGENTS.md`, independent reviewer
    (general-purpose agent with Bash) checks notices, deviations and silent skips;
    `openspec validate retrosheet-state-engine --strict`; delete this file before the PR; push, open PR.
 

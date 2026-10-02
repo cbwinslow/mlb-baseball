@@ -57,6 +57,7 @@ class Settings:
     request_timeout_seconds: int
     batch_work_mem: str = DEFAULT_BATCH_WORK_MEM
     batch_maintenance_work_mem: str = DEFAULT_BATCH_MAINTENANCE_WORK_MEM
+    alert_command: str | None = None
 
 
 _TOML_KEYS = {
@@ -70,6 +71,7 @@ _TOML_KEYS = {
     "request_timeout_seconds",
     "batch_work_mem",
     "batch_maintenance_work_mem",
+    "alert_command",
 }
 
 
@@ -203,6 +205,7 @@ def load_settings(path: str | Path | None = None) -> Settings:
             _value(values, "batch_maintenance_work_mem", DEFAULT_BATCH_MAINTENANCE_WORK_MEM),
             "batch_maintenance_work_mem",
         ),
+        alert_command=str(_value(values, "alert_command", "") or "").strip() or None,
     )
 
 

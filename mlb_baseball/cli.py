@@ -68,10 +68,12 @@ from mlb_baseball import (
     manifest,
     migrate,
     model,
+    nightly,
     player,
     progress_table,
     readiness,
     report,
+    runs,
     schema_inventory,
     source_check,
 )
@@ -631,6 +633,27 @@ def main(argv: list[str] | None = None) -> None:
         "--with-conform", action="store_true", help="include the post-ingestion conform step"
     )
     subparsers.add_parser("repair-runs")
+    nightly_parser = subparsers.add_parser(
+        "nightly",
+        help="the daily pipeline: migrate, update (with retries), conform, report, predict",
+    )
+    nightly_parser.add_argument(
+        "--pause",
+        type=float,
+        nargs="+",
+        default=list(nightly.DEFAULT_RETRY_PAUSES),
+        metavar="SECONDS",
+        help="seconds to wait before each retry of `update`; one retry per value "
+        "(default: 60 300, i.e. three attempts)",
+    )
+    runs_parser = subparsers.add_parser(
+        "runs", help="last result, age and duration of each scheduled job"
+    )
+    runs_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="exit 1 (and call alert_command) if a job last failed or has no recent success",
+    )
     backfill_identity = subparsers.add_parser("backfill-game-identities")
     backfill_identity.add_argument("--batch-size", type=int, default=1000)
 
@@ -1781,6 +1804,12 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  {command}")
         if any(not preflight_check.ok for preflight_check in preflight_checks):
             sys.exit(1)
+    elif args.command == "nightly":
+        sys.exit(nightly.Nightly(retry_pauses=args.pause).run())
+    elif args.command == "runs":
+        from mlb_baseball.alert import alert as send_alert
+
+        sys.exit(runs.main(check_only=args.check, notify=send_alert))
     elif args.command == "repair-runs":
         from mlb_baseball.db import get_connection
 

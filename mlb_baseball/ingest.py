@@ -12,6 +12,8 @@ from psycopg import sql
 
 from mlb_baseball.db import fetch_one, get_connection
 
+ATTEMPT_ENV = "MLB_RUN_ATTEMPT"
+
 
 def record_items(conn: psycopg.Connection, items: list[dict]) -> None:
     """Atomically upsert completed source items after their raw rows land.
@@ -156,6 +158,15 @@ def _release_workflow_lock(
         cur.execute(f"SELECT {function}(hashtext(%s))", ("mlb-workflow:raw-core-model",))
 
 
+def _attempt_from_env() -> int:
+    """Retry number set by the `mlb nightly` supervisor for its child
+    processes (1 when run by hand or on a first try)."""
+    try:
+        return max(1, int(os.environ.get(ATTEMPT_ENV, "1")))
+    except ValueError:
+        return 1
+
+
 @contextmanager
 def track_run(
     conn: psycopg.Connection,
@@ -182,9 +193,9 @@ def track_run(
         _acquire_workflow_lock(conn, workflow)
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO meta.ingestion_run (source, mode, status, pid) "
-                "VALUES (%s, %s, 'running', %s) RETURNING id",
-                (source, mode, os.getpid()),
+                "INSERT INTO meta.ingestion_run (source, mode, status, pid, attempt) "
+                "VALUES (%s, %s, 'running', %s, %s) RETURNING id",
+                (source, mode, os.getpid(), _attempt_from_env()),
             )
             run_id = fetch_one(cur)[0]
         conn.commit()

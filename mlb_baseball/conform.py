@@ -66,6 +66,7 @@ _build_standings must run after _backfill_mlb_team_id, not before.
 """
 
 import re
+import time
 from ast import literal_eval
 from bisect import bisect_left
 from datetime import date, datetime
@@ -1767,6 +1768,16 @@ def _build_standings(conn: psycopg.Connection) -> int:
         return 0
 
 
+def _timed(conn: psycopg.Connection, label: str, step, *args):
+    """Runs one conform step and prints how long it took, so the nightly log
+    shows where the time goes (stable-ids-incremental-conform task 1.1)."""
+    started = time.monotonic()
+    try:
+        return step(conn, *args)
+    finally:
+        print(f"conform step {label}: {time.monotonic() - started:.0f}s", flush=True)
+
+
 def run() -> dict[str, int]:
     with (
         get_connection() as conn,
@@ -1839,18 +1850,20 @@ def run() -> dict[str, int]:
                 "core.player_war"
             )
         counts = {
-            "core.team": _build_teams(conn),
-            "core.player": _build_players(conn),
+            "core.team": _timed(conn, "build_teams", _build_teams),
+            "core.player": _timed(conn, "build_players", _build_players),
         }
         # Must run before _build_games — its LEFT JOIN needs core.venue
         # already populated to resolve venue_id.
-        counts["core.venue"] = _build_venues(conn)
+        counts["core.venue"] = _timed(conn, "build_venues", _build_venues)
         # Must run before _build_team_aliases — that function now resolves
         # each alias through core.team_franchise (see its docstring).
-        counts["core.team_franchise"] = _build_team_franchises(conn)
-        counts["core.team_alias"] = _build_team_aliases(conn)
-        counts["core.game"] = _build_games(conn)
-        _backfill_game_pk(conn)
+        counts["core.team_franchise"] = _timed(
+            conn, "build_team_franchises", _build_team_franchises
+        )
+        counts["core.team_alias"] = _timed(conn, "build_team_aliases", _build_team_aliases)
+        counts["core.game"] = _timed(conn, "build_games", _build_games)
+        _timed(conn, "backfill_game_pk", _backfill_game_pk)
         # Order matters: mlb_team_id is derived from already-resolved
         # game_pk + away/home_team_id (majority vote), then immediately
         # used to fix the away/home_team_id rows the original string match
@@ -1860,21 +1873,25 @@ def run() -> dict[str, int]:
         # intentionally two-pass: exact historical names first establish
         # the numeric MLB team crosswalk, then that crosswalk resolves
         # display-name drift and the remaining team IDs.
-        _backfill_mlb_team_id(conn)
-        _backfill_game_pk_via_mlb_team_id(conn)
-        _backfill_game_pk_via_exact_final_score(conn)
-        _backfill_team_ids_via_mlb_id(conn)
-        counts["core.game"] += _build_completed_spring_games(conn)
+        _timed(conn, "backfill_mlb_team_id", _backfill_mlb_team_id)
+        _timed(conn, "backfill_game_pk_via_mlb_team_id", _backfill_game_pk_via_mlb_team_id)
+        _timed(
+            conn, "backfill_game_pk_via_exact_final_score", _backfill_game_pk_via_exact_final_score
+        )
+        _timed(conn, "backfill_team_ids_via_mlb_id", _backfill_team_ids_via_mlb_id)
+        counts["core.game"] += _timed(
+            conn, "build_completed_spring_games", _build_completed_spring_games
+        )
         # core.standing resolves team_id via mlb_team_id, so it must run
         # after both backfills above, not before.
-        counts["core.standing"] = _build_standings(conn)
-        bulk_index_definitions = _drop_bulk_indexes(conn)
-        counts["core.play"] = _build_plays(conn)
-        _backfill_win_probability(conn)
-        counts["core.pitch"] = _build_pitches(conn)
-        _rebuild_bulk_indexes(conn, bulk_index_definitions)
-        counts["core.market"] = _build_market(conn)
-        counts["core.player_war"] = _build_player_war(conn)
+        counts["core.standing"] = _timed(conn, "build_standings", _build_standings)
+        bulk_index_definitions = _timed(conn, "drop_bulk_indexes", _drop_bulk_indexes)
+        counts["core.play"] = _timed(conn, "build_plays", _build_plays)
+        _timed(conn, "backfill_win_probability", _backfill_win_probability)
+        counts["core.pitch"] = _timed(conn, "build_pitches", _build_pitches)
+        _timed(conn, "rebuild_bulk_indexes", _rebuild_bulk_indexes, bulk_index_definitions)
+        counts["core.market"] = _timed(conn, "build_market", _build_market)
+        counts["core.player_war"] = _timed(conn, "build_player_war", _build_player_war)
         conn.commit()
         result["rows"] = sum(counts.values())
     return counts

@@ -65,6 +65,7 @@ from mlb_baseball.model import (
     war,
     win_expectancy,
 )
+from mlb_baseball.timing import timed
 
 SOURCE = "model"
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
@@ -199,7 +200,8 @@ def enrich_feature_stage(conn: psycopg.Connection) -> dict[str, int]:
     ]
     counts: dict[str, int] = {}
     for name, fn in steps:
-        counts[name] = fn(conn)
+        with timed("predict", name):
+            counts[name] = fn(conn)
         conn.commit()
     return counts
 
@@ -226,26 +228,35 @@ def run() -> dict[str, int]:
         track_run(conn, SOURCE, "bootstrap", workflow="exclusive") as result,
     ):
         apply_batch_session_settings(conn)
-        feature_counts = build_feature_stage(conn)
+        with timed("predict", "features"):
+            feature_counts = build_feature_stage(conn)
         enrich_counts = enrich_feature_stage(conn)
-        elo_rows = elo.compute_ratings(conn)
+        with timed("predict", "elo ratings"):
+            elo_rows = elo.compute_ratings(conn)
         # diff.compute() runs here, not inside enrich_feature_stage(): it
         # needs home_elo/away_elo, which only elo.compute_ratings() (just
         # above) actually populates -- calling it any earlier would read
         # NULL Elo values on every real run (see enrich_feature_stage()'s
         # own docstring for the full explanation, PR review finding).
-        diff_count = diff.compute(conn)
+        with timed("predict", "diff"):
+            diff_count = diff.compute(conn)
         # market.record() writes decided-game comparison lines and (ADR-267)
         # live upcoming moneyline snapshots. Decided rows must land before
         # backfill_outcomes() so a known result is not left NULL for an extra
         # cron cycle (ADR-053 production finding). Upcoming rows have no
         # outcome yet; backfill leaves them NULL on purpose.
-        market_count = market.record(conn)
-        backfilled = backfill_outcomes(conn)
-        log5_count = log5.predict(conn)
-        elo_count = elo.predict(conn)
-        gbm_count = gbm.predict(conn)
-        markov_count = sim_predict.predict(conn)
+        with timed("predict", "market"):
+            market_count = market.record(conn)
+        with timed("predict", "backfill outcomes"):
+            backfilled = backfill_outcomes(conn)
+        with timed("predict", "log5"):
+            log5_count = log5.predict(conn)
+        with timed("predict", "elo"):
+            elo_count = elo.predict(conn)
+        with timed("predict", "gbm"):
+            gbm_count = gbm.predict(conn)
+        with timed("predict", "markov"):
+            markov_count = sim_predict.predict(conn)
         conn.commit()
         # diff_count is excluded here, matching elo_rows' own established
         # exclusion just below: both diff.compute() (`UPDATE ... WHERE

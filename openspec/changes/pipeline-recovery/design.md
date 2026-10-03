@@ -46,6 +46,12 @@ See `proposal.md` for motivation. Measured facts (production `mlb`, 2026-10-02/0
 
 **D6: Pending downstream work survives failure.** If conform changes season S and report or predict fails, the dirty-season list persists in `meta` and the next run completes it.
 
+**D9: Root cause first, at the owning layer.** Each failure is traced to the layer that creates the wrong value (raw, core, gold, model, or the check) before any change. The results table records the source cause and the file that owns it. Evidence at the start of this change: 1 of 50 catalog metrics is `validated`, 33 are `published` (formula from the literature, not tied out) and 16 are `implemented-untested`. Several doctor failures (catcher framing, first-pitch strike%, away wOBA) come from features that were built and shipped without that validation. The common cause is a missing gate between "implemented" and "feeds model inputs", not a bad architecture. Raw ingestion, identity and the nightly flow ties out and is kept.
+
+**D10: Gate unvalidated features.** A metric marked `implemented-untested` is withheld from model inputs until validated. The mechanism (a catalog-driven exclusion list read by `mlb doctor` and the feature build, versus a column-level NULL) is decided in task 9.7 as an ADR before it is built. Alternative considered: leave features in place and only document them; rejected, because that is how the catcher-framing defect reached the gold table unnoticed.
+
+**D11: Check bounds belong to the metric.** A health-check bound is a property of the metric's definition and is recorded with its citation in the metric's catalog entry; a bound is widened only on cited evidence (D9), never to clear a failure.
+
 ## Risks / Trade-offs
 
 - [Incremental logic drifts from the full path] → equivalence test in CI on a fixture plus a one-off production comparison (read-only).

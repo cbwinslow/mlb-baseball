@@ -1,14 +1,14 @@
 ## 0. Rules for every production step
 
-- [ ] 0.1 Create `results.md` with an approval log table (step id, exact command, target database name, who ran it, time, output captured, backup id in force); verify every production write below adds a row before and after it runs
+- [x] 0.1 Create `results.md` with an approval log table (step id, exact command, target database name, who ran it, time, output captured, backup id in force); verify every production write below adds a row before and after it runs
 - [ ] 0.2 Decide where `mlb nightly` (migrations 0108/0109, `nightly.py`) lives: it is only on branch `plan/stable-ids-and-job-retries`; verify `results.md` records whether it is merged first or this change is built on that branch
 
 ## 1. Phase 1: confirm the real state (read-only)
 
-- [ ] 1.1 Re-run `mlb doctor` against production `mlb`, save full output to `results.md`, and record the database name and the free disk (`df`) at that moment; verify all failures are listed with exact text (27 at the start; the count may now differ)
-- [ ] 1.2 Confirm the 14:23 UTC 2026-10-02 run was an interrupted manual test: read `meta.ingestion_run` ids 17254-17264, `pg_stat_activity`, and `logs/mlb_daily_update.log` around 14:23-14:27; verify `results.md` states cause and evidence
-- [ ] 1.3 Check the four stuck sources (statcast, kalshi, polymarket, retrosheet_box) for partial raw writes: compare per-source max load timestamp and duplicate natural keys against the 06:00 run; verify the result is written down; if partial rows exist, record an issue and do not edit raw
-- [ ] 1.4 Re-check live lock and session state: advisory locks in `pg_locks` joined to `pg_stat_activity`, and sessions `idle in transaction`; verify the result (on 2026-10-03 no advisory lock was held and no idle-in-transaction session existed, so the "workflow lock" failure may already have cleared) is saved before any repair
+- [x] 1.1 Re-run `mlb doctor` against production `mlb`, save full output to `results.md`, and record the database name and the free disk (`df`) at that moment; verify all failures are listed with exact text (27 at the start; the count may now differ)
+- [x] 1.2 Confirm the 14:23 UTC 2026-10-02 run was an interrupted manual test: read `meta.ingestion_run` ids 17254-17264, `pg_stat_activity`, and `logs/mlb_daily_update.log` around 14:23-14:27; verify `results.md` states cause and evidence
+- [x] 1.3 Check the four stuck sources (statcast, kalshi, polymarket, retrosheet_box) for partial raw writes: compare per-source max load timestamp and duplicate natural keys against the 06:00 run; verify the result is written down; if partial rows exist, record an issue and do not edit raw
+- [x] 1.4 Re-check live lock and session state: advisory locks in `pg_locks` joined to `pg_stat_activity`, and sessions `idle in transaction`; verify the result (on 2026-10-03 no advisory lock was held and no idle-in-transaction session existed, so the "workflow lock" failure may already have cleared) is saved before any repair
 - [ ] 1.5 Classify every doctor failure as real defect / wrong check / accepted, using a sample of the offending rows as evidence (not the check's own logic); verify a table in `results.md` has one row per failure (N of N classified), each with a review date and, for "wrong check" or "accepted", the owner's sign-off
 
 ## 2. Phase 1: safety first (production `mlb`, owner-approved, one command at a time)

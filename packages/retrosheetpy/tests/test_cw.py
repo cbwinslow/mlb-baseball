@@ -37,7 +37,9 @@ CHADWICK_ROSTERS = HERE / "reference" / "chadwick_rosters"
 @pytest.mark.parametrize("name", NAMES)
 def test_port_rows_with_rosters_equal_captured_chadwick(name):
     """Hands come from the ``.ROS`` files, as when ``cwevent`` is run in a season directory."""
-    support = {p.name: p.read_bytes() for p in (ROSTERS / name).iterdir()}
+    # a fixture with no roster files has no directory in a fresh checkout (git keeps no empty ones)
+    folder = ROSTERS / name
+    support = {p.name: p.read_bytes() for p in folder.iterdir()} if folder.is_dir() else {}
     data = (FIXTURES / f"{name}.evt").read_bytes()
     year = re.search(rb"^id,[A-Z0-9]{3}(\d{4})", data, re.M).group(1).decode()  # type: ignore[union-attr]
     team = support.get(f"TEAM{year}", b"")

@@ -28,6 +28,8 @@ def _run(source="retrosheet", mode="update", status="success", ago_h=2.0, **kw):
 def fake(monkeypatch):
     sent: list[str] = []
     monkeypatch.setattr(alert, "alert", lambda message: sent.append(message) or True)
+    # The rows below are built relative to NOW; pin the clock so they never age.
+    monkeypatch.setattr(runs, "_now", lambda: NOW)
 
     def install(rows):
         monkeypatch.setattr(runs, "fetch_runs", lambda: rows)

@@ -84,8 +84,31 @@ Two cron jobs (see `README.md` "Scheduling"):
 ```cron
 */5 * * * * /path/to/mlb-baseball/scripts/mlb_api_update.sh    # live season state
 0 */2 * * * /path/to/mlb-baseball/scripts/mlb_odds_update.sh   # Kalshi/Polymarket snapshots
-0 6 * * *   /path/to/mlb-baseball/scripts/mlb_daily_update.sh  # mlb update, once daily
+0 6 * * *   /path/to/mlb-baseball/scripts/mlb_daily_update.sh  # mlb nightly, once daily
 ```
+
+The daily script runs `mlb nightly`: migrate, update, conform, report, predict,
+then a populated check. A failed `update` is retried (failed sources only, after
+1 and 5 minutes); the other steps are not retried. `mlb runs` shows what last
+ran, how long ago and how long it took; `mlb runs --check` exits 1 if a job last
+failed or has no recent success.
+
+### Failure alerts
+
+Set one optional command, `alert_command` in `mlb.toml` or `MLB_ALERT_COMMAND`
+in `.env`. It is run without a shell, with the message as the last argument and
+on stdin. Without it, failures are only logged.
+
+```toml
+# ntfy
+alert_command = "curl -s -d @- https://ntfy.sh/my-mlb-topic"
+# any webhook that takes the text as the request body
+alert_command = "curl -s -X POST --data-binary @- https://example.com/hook"
+```
+
+A failing hook is logged and never changes a job's result. To catch a job that
+stopped running entirely, add a cron line, for example
+`*/30 * * * * cd /path/to/mlb-baseball && .venv/bin/mlb runs --check >/dev/null`.
 
 `mlb update` runs every connector's cheap incremental refresh (current season
 or a small catalog check — never a full historical re-fetch). Follow a data

@@ -23,3 +23,8 @@ request_timeout_seconds = 5
 # relying on any default:
 # batch_work_mem = "1GB"
 # batch_maintenance_work_mem = "4GB"
+
+# Optional failure hook for `mlb nightly` and `mlb runs --check`. Run without a
+# shell with the plain-text message on stdin and as the last argument. Left out,
+# failures are only logged. Examples: docs/USER_MANUAL.md "Failure alerts".
+# alert_command = "curl -s -d @- https://ntfy.sh/my-mlb-topic"

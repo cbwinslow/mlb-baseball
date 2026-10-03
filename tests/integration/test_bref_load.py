@@ -223,17 +223,16 @@ def test_health_check_reports_last_run_not_freshness(db_conn, monkeypatch):
 
 @pytest.fixture
 def schedule(db_conn):
+    # DDL and inserts stay inside the test's transaction and are rolled back,
+    # so a raw.mlb_schedule left behind by another test file is restored.
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
         cur.execute(
             "CREATE TABLE raw.mlb_schedule "
             "(game_id text, _season text, game_date text, game_type text)"
         )
-    db_conn.commit()
     yield db_conn
-    with db_conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-    db_conn.commit()
+    db_conn.rollback()
 
 
 def _add_games(conn, rows):
@@ -243,7 +242,6 @@ def _add_games(conn, rows):
                 "INSERT INTO raw.mlb_schedule VALUES (%s, %s, %s, %s)",
                 (f"g{i}", str(season), game_date, game_type),
             )
-    conn.commit()
 
 
 def test_postseason_start_is_the_earliest_postseason_game_of_that_season(schedule):
@@ -268,10 +266,12 @@ def test_postseason_start_is_none_when_no_postseason_game_is_scheduled(schedule)
 
 
 def test_postseason_start_is_none_when_the_schedule_table_does_not_exist(db_conn):
-    with db_conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
-    db_conn.commit()
-    assert bref._postseason_start(db_conn, 2031) is None
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        assert bref._postseason_start(db_conn, 2031) is None
+    finally:
+        db_conn.rollback()
 
 
 def test_load_table_stops_an_unlisted_season_before_its_first_postseason_game(

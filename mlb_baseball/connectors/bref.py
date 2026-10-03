@@ -97,7 +97,7 @@ from datetime import date, timedelta
 import psycopg
 import pybaseball
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
     Check,
     check_last_run,
@@ -219,14 +219,16 @@ def _postseason_start(conn: psycopg.Connection | None, season: int) -> str | Non
         return None
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        if cur.fetchone()[0] is None:
+        (table,) = fetch_one(cur)
+        if table is None:
             return None
         cur.execute(
             "SELECT min(game_date) FROM raw.mlb_schedule "
             "WHERE _season = %s AND game_type = ANY(%s)",
             (str(season), list(_POSTSEASON_TYPES)),
         )
-        return cur.fetchone()[0]
+        (first_game,) = fetch_one(cur)
+        return first_game
 
 
 def _season_window(season: int, postseason_start: str | None = None) -> tuple[str, str]:

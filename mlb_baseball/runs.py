@@ -107,10 +107,15 @@ def check(runs: list[JobRun], now: datetime) -> list[str]:
     return [f"{run.job}: {problem}" for run in runs if (problem := run.problem(now))]
 
 
+def _now() -> datetime:
+    """The clock `main` reads; tests replace it so fixed-date fixtures do not age."""
+    return datetime.now(UTC)
+
+
 def main(*, check_only: bool, notify) -> int:
     """Prints the table; with ``check_only`` returns 1 (after calling ``notify``
     once with all problems) when any job needs attention."""
-    now = datetime.now(UTC)
+    now = _now()
     runs = fetch_runs()
     print(render(runs, now))
     if not check_only:

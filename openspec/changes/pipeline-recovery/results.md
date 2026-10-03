@@ -69,3 +69,26 @@ Classification is provisional until the owner signs off (task 1.5 stays open for
 | 23 | backup freshness: never run | action | No backup row in `meta.ingestion_run`; only an old schema-only file (2026-08-21) in `backups/`. Tasks 2.1-2.4. |
 
 The earlier "workflow lock held" failure has cleared (section 1.4), so it is not in this table. Count: 27 failing checks in 23 table rows (rows 6-8 group four sources' last-run and freshness failures; 9/11 and 15/16 group pairs).
+
+
+## Status log
+
+### 2026-10-03
+
+Merged to `main` (owner asked for each merge; all required checks green, review threads resolved):
+
+| PR | What | Commit |
+|----|------|--------|
+| #279 | bref: unlisted season's window ends the day before its first scheduled postseason game; 2026 end date added (fix for the 4-player 164-165 G leak, doctor failure 21) | e20be18 |
+| #280 | this change's planning artifacts | a51a778 |
+| #276 | stable-ids + job-retries plan, `mlb nightly` supervisor, per-step timing logs, `meta.query_stat_snapshot` (migration 0109). Review fixes added before merge: per-step timeout that kills a hung step, separate 300 s timeout and logging for `repair-runs`, CLI dispatch test, NULL query text allowed in 0109 | e7d42d1 |
+
+Task 0.2 is decided: #276 merged first. The shared checkout `~/workspace/mlb` (where cron runs) was switched back to `main`.
+
+**Risk accepted for tonight, recorded on purpose:** the 06:00 UTC cron entry now runs `mlb nightly` for the first time (previously a long shell script). `mlb nightly` starts with `mlb migrate`, so migration 0109 (creates one small new table, `meta.query_stat_snapshot`) will be applied by that run, before the backup gate in tasks 2.4-2.6 has been met. It adds a table and changes no existing data. Follow-up after the run: check `logs/mlb_daily_update.log`, `mlb runs --check`, `meta.ingestion_run` for the `nightly` rows, and `mlb doctor`.
+
+**Still open after tonight:**
+- 3.4 owner-run re-download of `raw.bref_*` 2026 and gold rebuild (the nightly's bref update may do the download itself; confirm, then confirm Albies 2026 = 162 G).
+- 1.5 owner sign-off on the doctor classification; investigate the "not yet examined" rows.
+- 2.x backup gate, repairs, vacuum; 4.x measurement; 5-7 incremental conform.
+- Stale rows 17256, 17258, 17261, 17264 are still `running`; `mlb nightly` runs `repair-runs`, which should clear them tonight.

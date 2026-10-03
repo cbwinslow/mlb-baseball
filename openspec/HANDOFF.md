@@ -1,3 +1,5 @@
+> **2026-10-03 update (read first):** active work is `openspec/changes/pipeline-recovery/` (status log in its `results.md`). PRs #276, #279, #280 are merged; cron now runs `mlb nightly` from `main`. First `mlb nightly` run is the 2026-10-03 06:00 UTC job; check it before anything else. The older notes below are from 2026-09-27.
+
 # Session handoff — 2026-09-27 (evening)
 
 Read this first in a fresh session, then `openspec/project.md`. Replaces the

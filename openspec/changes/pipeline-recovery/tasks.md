@@ -1,7 +1,7 @@
 ## 0. Rules for every production step
 
 - [x] 0.1 Create `results.md` with an approval log table (step id, exact command, target database name, who ran it, time, output captured, backup id in force); verify every production write below adds a row before and after it runs
-- [ ] 0.2 Decide where `mlb nightly` (migrations 0108/0109, `nightly.py`) lives: it is only on branch `plan/stable-ids-and-job-retries`; verify `results.md` records whether it is merged first or this change is built on that branch
+- [x] 0.2 Decide where `mlb nightly` (migrations 0108/0109, `nightly.py`) lives: it is only on branch `plan/stable-ids-and-job-retries`; verify `results.md` records whether it is merged first or this change is built on that branch (done 2026-10-03: merged first as PR #276, e7d42d1)
 
 ## 1. Phase 1: confirm the real state (read-only)
 

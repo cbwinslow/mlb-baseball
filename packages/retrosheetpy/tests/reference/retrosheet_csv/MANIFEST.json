@@ -7,6 +7,20 @@
       "source_sha256": "58fb1fb9c44eb01971397eb3c7c31f907baf8553295f94ee770f9b9207630c63",
       "csv_sha256": "2d17fad62cf30eec5796bc8f656a8734191516077703ba4b05d36c0aadacf82d"
     },
+    "auto_runner.evt": {
+      "game_id": "BAL202008010",
+      "rows": 97,
+      "source_url": "https://www.retrosheet.org/downloads/2020/2020csvs.zip",
+      "source_sha256": "1d556520ed30218c8dd9cbabdb4d93816f825be469bc3f0a401e778b456936b3",
+      "csv_sha256": "a38f97e3828ccf760dd7aaceca6c7aade5246f7a446b5a28582abfdc0403ec4e"
+    },
+    "auto_runner_pr.evt": {
+      "game_id": "ANA202009040",
+      "rows": 101,
+      "source_url": "https://www.retrosheet.org/downloads/2020/2020csvs.zip",
+      "source_sha256": "1d556520ed30218c8dd9cbabdb4d93816f825be469bc3f0a401e778b456936b3",
+      "csv_sha256": "4ad427b7e59e2313f2ffbff983f1eb644070bfee617359ddc8ee0787b1eafa60"
+    },
     "deduced.evt": {
       "game_id": "CHF191509122",
       "rows": 41,

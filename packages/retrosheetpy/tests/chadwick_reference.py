@@ -15,6 +15,10 @@ import tempfile
 from pathlib import Path
 
 FIELDS = "0-96"  # every standard cwevent field (see `cwevent -d`)
+EXTENDED = "0-66"  # every extended (-x) field
+
+
+from chadwick_tool import real_tool  # noqa: E402
 
 
 class ChadwickReference:
@@ -28,21 +32,38 @@ class ChadwickReference:
 
     @classmethod
     def find(cls) -> "ChadwickReference | None":
-        path = shutil.which("cwevent")
+        path = real_tool("cwevent")
         return cls(path) if path else None
 
-    def events(self, event_file: Path, year: int) -> list[dict[str, str]]:
+    def events(
+        self, event_file: Path, year: int, support: dict[str, bytes] | None = None
+    ) -> list[dict[str, str]]:
         """Run ``cwevent`` on one event file and return its rows by field name.
 
-        ``cwevent`` refuses to run without a team file, so an empty one is supplied;
-        the event records already carry the team ids this check needs.
+        ``support`` holds the files ``cwevent`` reads from its working directory
+        (``TEAMyyyy`` and the ``.ROS`` rosters, by file name). ``cwevent`` refuses to run
+        without a team file, so an empty one is supplied when none is given, which also means
+        no rosters: every hand not set by the file itself is then ``?``.
         """
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             shutil.copyfile(event_file, work / f"{year}XXX.EVN")
             (work / f"TEAM{year}").write_text("")
+            for name, data in (support or {}).items():
+                (work / name).write_bytes(data)
             run = subprocess.run(
-                [self.cwevent, "-q", "-y", str(year), "-n", "-f", FIELDS, f"{year}XXX.EVN"],
+                [
+                    self.cwevent,
+                    "-q",
+                    "-y",
+                    str(year),
+                    "-n",
+                    "-f",
+                    FIELDS,
+                    "-x",
+                    EXTENDED,
+                    f"{year}XXX.EVN",
+                ],
                 cwd=work,
                 capture_output=True,
                 text=True,

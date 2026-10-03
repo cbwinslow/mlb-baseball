@@ -1,23 +1,23 @@
 ## 1. Scope and harness
 
-- [ ] 1.1 Record Chadwick's `-f 0-96` and `-x 0-66` field lists (from `cwevent -d`) in a table in this change folder, each marked in-scope, state-dependent, or excluded; verify the table lists all 97 and 67 fields.
-- [ ] 1.2 Finalise the exclusion list (fields needing files outside the event file) with the reason for each; verify by running `cwevent` on a fixture and showing every excluded field is justified.
-- [ ] 1.3 Extend `validation.py` to compare whole rows over a field list, with an error when a column is missing on either side; verify with a unit test that a dropped column fails.
-- [ ] 1.4 Capture small Chadwick references for the existing 8 fixtures for all in-scope fields with recorded hashes; verify the integrity test passes and fails when a file is edited.
+- [x] 1.1 Record Chadwick's `-f 0-96` and `-x 0-66` field lists (from `cwevent -d`) in a table in this change folder, each marked in-scope, state-dependent, or excluded; verify the table lists all 97 and 67 fields.
+- [x] 1.2 Finalise the exclusion list (fields needing files outside the event file) with the reason for each; verify by running `cwevent` on a fixture and showing every excluded field is justified.
+- [x] 1.3 Extend `validation.py` to compare whole rows over a field list, with an error when a column is missing on either side; verify with a unit test that a dropped column fails.
+- [x] 1.4 Capture small Chadwick references for the existing 8 fixtures for all in-scope fields with recorded hashes; verify the integrity test passes and fails when a file is edited.
 
 ## 2. Game state and lineups
 
-- [ ] 2.1 Implement lineup and defense tracking from `start`, `sub` and adjustment records; verify against Chadwick fields for batter, pitcher, fielders and lineup positions on the fixtures.
-- [ ] 2.2 Implement outs, inning/half tracking, base occupancy and score before each play, plus new-game and end-game flags; verify those fields match Chadwick on the fixtures.
-- [ ] 2.3 Add strict/diagnostic handling for impossible state (runner from an empty base, fourth out); verify with unit tests for both modes.
+- [x] 2.1 Implement lineup and defense tracking from `start`, `sub` and adjustment records; verify against Chadwick fields for batter, pitcher, fielders and lineup positions on the fixtures.
+- [x] 2.2 Implement outs, inning/half tracking, base occupancy and score before each play, plus new-game and end-game flags; verify those fields match Chadwick on the fixtures.
+- [x] 2.3 Add strict/diagnostic handling for impossible state (runner from an empty base, fourth out); verify with unit tests for both modes.
 
 ## 3. Play effects
 
-- [ ] 3.1 Apply batter and runner destinations from play text and advances; verify destination fields (58-61) match Chadwick on the fixtures.
-- [ ] 3.2 Compute outs on play, double/triple play flags and runs scored; verify fields 40-42 and score fields.
-- [ ] 3.3 Compute RBI (field 43) from Retrosheet's published rules; verify on fixtures and record any rule learned from Chadwick output.
-- [ ] 3.4 Add errors (fields 51-57), putouts and assists (88-95), fielded-by (46); verify against Chadwick.
-- [ ] 3.5 Add pinch hitter/runner and removed-player fields (80-87) and responsible pitcher (75-77); verify against Chadwick.
+- [x] 3.1 Apply batter and runner destinations from play text and advances; verify destination fields (58-61) match Chadwick on the fixtures.
+- [x] 3.2 Compute outs on play, double/triple play flags and runs scored; verify fields 40-42 and score fields.
+- [x] 3.3 Compute RBI (field 43) from Retrosheet's published rules; verify on fixtures and record any rule learned from Chadwick output.
+- [x] 3.4 Add errors (fields 51-57), putouts and assists (88-95), fielded-by (46); verify against Chadwick.
+- [x] 3.5 Add pinch hitter/runner and removed-player fields (80-87) and responsible pitcher (75-77); verify against Chadwick.
 - [ ] 3.6 Add the extended fields (`-x 0-66`) that remain in scope; verify against Chadwick.
 
 ## 4. Equality runs

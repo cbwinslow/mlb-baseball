@@ -43,11 +43,16 @@ for any column absent on either side (the review found the old harness skipped
 them silently). *Alternative:* hand-written expected values per rule — kept only
 for small rule tests; they cannot prove equality at scale.
 
-**D3. Clean-room rule for Chadwick.** Understanding behaviour from Chadwick source
-or documentation is allowed. Code is written from our own parsed model and
-Retrosheet's rules, never pasted or translated line by line. Each rule that was
-learned from Chadwick behaviour is recorded in a results note with the plays that
-revealed it. Equality is shown by output only.
+**D3. Port Chadwick's rules; do not infer them (owner decision, 2026-10-01, replaces the
+earlier clean-room rule).** The rules for turning event files into events are finite and are
+written down in Chadwick's own C code (`cwlib/parse.c`, `gameiter.c`, `game.c`,
+`cwtools/cwevent.c`). `retrosheetpy.cw` is a function-by-function Python translation of that
+code, kept in the same order and with the same quirks, so each Python function can be read next
+to its C original. It is a derivative work of Chadwick (GPL-2.0-or-later, Copyright Dr T L
+Turocy and the Chadwick Baseball Bureau); every ported module carries that notice, and the
+package's AGPL-3.0-or-later licence is compatible through the "or later" clause. Equality is
+still proven by output, against `cwevent` on whole seasons. Rules are never reverse-engineered
+from output.
 
 **D4. Order of work: 2019 first, then widen.** Tune on a small set of fixtures
 and 2019, then run seasons never used for tuning (as in section 5 of the previous
@@ -77,8 +82,8 @@ written to a note in this folder.
 - [Equality with Chadwick may copy its bugs] → where Chadwick contradicts
   Retrosheet's published rules or its own CSV, report the three-way difference,
   never silently pick one (existing project rule).
-- [GPL contamination from reading source] → clean-room rule D3, written rules from
-  documentation, differential tests only; reviewer checks for copied structure.
+- [Derivative of GPL source] → D3: keep copyright/licence notices in every ported module;
+  reviewer checks the notices and that nothing was added from guesswork.
 - [Chadwick or data unavailable in CI] → fixture captures in CI, live comparison
   skipped visibly (not vacuously) with a recorded version check.
 - [Scope is large] → tasks are grouped by field group; each group is shippable and

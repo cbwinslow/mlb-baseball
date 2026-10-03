@@ -107,3 +107,19 @@ def test_no_alert_hook_means_log_only(harness, monkeypatch, tmp_path, caplog):
     runner, _ = harness("conform")
     runner.notify = nightly.alert
     assert runner.run() == 1
+
+
+def test_run_child_kills_a_hung_step_and_reports_the_timeout():
+    code, tail = nightly.run_child(
+        (sys.executable,), ["-c", "import time; time.sleep(60)"], timeout=0.5
+    )
+
+    assert code < 0
+    assert "step timeout" in tail[-1]
+
+
+def test_run_child_leaves_a_step_that_finishes_in_time_alone():
+    code, tail = nightly.run_child((sys.executable,), ["-c", "print('ok')"], timeout=30)
+
+    assert code == 0
+    assert tail == ["ok"]

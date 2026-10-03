@@ -15,6 +15,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 from collections import deque
 from collections.abc import Callable, Sequence
@@ -33,6 +34,10 @@ CHILD_COMMAND = (sys.executable, "-c", "from mlb_baseball.cli import main; main(
 EXCLUDED_SOURCES = ("mlb_api",)
 DEFAULT_RETRY_PAUSES = (60.0, 300.0)  # seconds before retry 2 and retry 3
 LOG_TAIL_LINES = 15
+# A step that runs longer is killed and reported as failed, so a hung child cannot
+# block the run (and hold the shell shim's flock) without any alert. The longest
+# step today (predict) takes under an hour.
+STEP_TIMEOUT_SECONDS = 4 * 3600
 
 
 @dataclass(frozen=True)
@@ -47,12 +52,17 @@ def _log(message: str) -> None:
 
 
 def run_child(
-    command: Sequence[str], args: Sequence[str], env: dict[str, str] | None = None
+    command: Sequence[str],
+    args: Sequence[str],
+    env: dict[str, str] | None = None,
+    timeout: float = STEP_TIMEOUT_SECONDS,
 ) -> tuple[int, list[str]]:
     """Runs ``mlb <args>`` as a child, echoing its output as it arrives. Returns
     (exit code, last few output lines). A negative code means it was killed by a
-    signal."""
+    signal, including by the ``timeout`` watchdog (the tail then ends with a
+    timeout line)."""
     tail: deque[str] = deque(maxlen=LOG_TAIL_LINES)
+    timed_out = threading.Event()
     with subprocess.Popen(
         [*command, *args],
         stdout=subprocess.PIPE,
@@ -60,10 +70,24 @@ def run_child(
         text=True,
         env={**os.environ, **(env or {})},
     ) as proc:
+
+        def _kill() -> None:
+            timed_out.set()
+            proc.kill()
+
+        watchdog = threading.Timer(timeout, _kill)
+        watchdog.start()
         assert proc.stdout is not None
-        for line in proc.stdout:
-            print(line, end="", flush=True)
-            tail.append(line.rstrip())
+        try:
+            for line in proc.stdout:
+                print(line, end="", flush=True)
+                tail.append(line.rstrip())
+        finally:
+            watchdog.cancel()
+    if timed_out.is_set():
+        message = f"killed after exceeding the {timeout:.0f}s step timeout"
+        _log(message)
+        tail.append(message)
     return proc.returncode, list(tail)
 
 

@@ -14,6 +14,6 @@ CREATE TABLE meta.query_stat_snapshot (
     shared_blks_read bigint NOT NULL,
     temp_blks_written bigint NOT NULL,
     wal_bytes numeric NOT NULL,
-    query text NOT NULL,
+    query text,  -- NULL when PostgreSQL has discarded the statement text
     PRIMARY KEY (snapshot_at, queryid)
 );

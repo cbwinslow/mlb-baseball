@@ -43,3 +43,14 @@ def test_missing_extension_is_skipped_not_fatal(db_conn):
         cur.execute("DROP EXTENSION IF EXISTS pg_stat_statements")
     db_conn.commit()
     assert nightly.snapshot_query_stats() is None
+
+
+def test_snapshot_table_accepts_a_null_query_text(db_conn):
+    # PostgreSQL can keep a queryid and its counters while discarding the text.
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO meta.query_stat_snapshot VALUES (now(), 99, 1, 1, 1, 1, 1, 1, 1, NULL)"
+        )
+        cur.execute("SELECT query FROM meta.query_stat_snapshot WHERE queryid = 99")
+        assert cur.fetchone()[0] is None
+    db_conn.rollback()

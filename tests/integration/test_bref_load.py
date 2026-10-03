@@ -219,3 +219,72 @@ def test_health_check_reports_last_run_not_freshness(db_conn, monkeypatch):
     assert any(c.name == "raw.bref_war_batting" for c in checks)
     assert any(c.name == "raw.bref_war_pitching" for c in checks)
     assert all(c.ok for c in checks)
+
+
+@pytest.fixture
+def schedule(db_conn):
+    # DDL and inserts stay inside the test's transaction and are rolled back,
+    # so a raw.mlb_schedule left behind by another test file is restored.
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, _season text, game_date text, game_type text)"
+        )
+    yield db_conn
+    db_conn.rollback()
+
+
+def _add_games(conn, rows):
+    with conn.cursor() as cur:
+        for i, (season, game_date, game_type) in enumerate(rows):
+            cur.execute(
+                "INSERT INTO raw.mlb_schedule VALUES (%s, %s, %s, %s)",
+                (f"g{i}", str(season), game_date, game_type),
+            )
+
+
+def test_postseason_start_is_the_earliest_postseason_game_of_that_season(schedule):
+    _add_games(
+        schedule,
+        [
+            (2031, "2031-09-27", "R"),
+            (2031, "2031-10-06", "D"),
+            (2031, "2031-09-29", "F"),
+            (2031, "2031-10-20", "W"),
+            (2030, "2030-09-01", "F"),  # another season
+            (2031, "2031-03-01", "S"),  # spring training is not postseason
+            (2031, "2031-07-14", "A"),  # all-star
+        ],
+    )
+    assert bref._postseason_start(schedule, 2031) == "2031-09-29"
+
+
+def test_postseason_start_is_none_when_no_postseason_game_is_scheduled(schedule):
+    _add_games(schedule, [(2031, "2031-09-27", "R")])
+    assert bref._postseason_start(schedule, 2031) is None
+
+
+def test_postseason_start_is_none_when_the_schedule_table_does_not_exist(db_conn):
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        assert bref._postseason_start(db_conn, 2031) is None
+    finally:
+        db_conn.rollback()
+
+
+def test_load_table_stops_an_unlisted_season_before_its_first_postseason_game(
+    schedule, monkeypatch
+):
+    _add_games(schedule, [(2031, "2031-09-30", "F")])
+    captured = {}
+
+    def fake_range(start_dt, end_dt):
+        captured["args"] = (start_dt, end_dt)
+        return pd.DataFrame()
+
+    monkeypatch.setattr(bref, "call_with_retry", lambda fn, *a: fn(*a))
+    bref._load_table(conn=schedule, table="raw.bref_batting", fn=fake_range, season=2031)
+
+    assert captured["args"] == ("2031-03-15", "2031-09-29")

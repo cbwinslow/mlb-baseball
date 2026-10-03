@@ -59,6 +59,10 @@ permissions:
 # and local installs are built from git. Bump the SHA deliberately.
 env:
   CHADWICK_REF: baa7c4b3e89cf2c9871a9f7f853f6980b4226af7
+  # retrosheetpy is a port of the Chadwick tools and is proven byte for byte against this
+  # exact development commit (it reports 0.10.0 but differs from the v0.10.0 release).
+  # Bump it only together with a new parity run (packages/retrosheetpy).
+  RETROSHEETPY_CHADWICK_REF: c685ab51abd769978bec3ceab38c4ae0c760d6de
 
 jobs:
   secrets:
@@ -299,6 +303,49 @@ jobs:
           name: integration-${{ matrix.shard }}
           fail_ci_if_error: false
 
+  retrosheetpy:
+    name: retrosheetpy (parity with Chadwick)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Cache Chadwick (sources and build)
+        id: chadwick-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/chadwick-parity
+            ~/chadwick-parity-install
+          key: chadwick-parity-${{ env.RETROSHEETPY_CHADWICK_REF }}
+
+      - name: Build Chadwick at the parity commit
+        if: steps.chadwick-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y -q autoconf automake libtool
+          git clone https://github.com/chadwickbureau/chadwick.git "$HOME/chadwick-parity"
+          cd "$HOME/chadwick-parity"
+          git checkout "$RETROSHEETPY_CHADWICK_REF"
+          autoreconf -i
+          ./configure --prefix="$HOME/chadwick-parity-install"
+          make -j2
+          make install
+
+      - name: Run the retrosheetpy tests (parity tests compare with the real tools)
+        run: |
+          export CHADWICK_BIN="$HOME/chadwick-parity-install/bin"
+          export CHADWICK_SRC="$HOME/chadwick-parity/src"
+          "$CHADWICK_BIN/cwevent" -h 2>&1 | head -1
+          uv run --package retrosheetpy --with pytest pytest packages/retrosheetpy/tests -q -p no:cacheprovider
+
   # Branch protection on main requires a check named "test". This workflow's
   # jobs are named unit / integration (N); without this aggregator, green PRs
   # stay BLOCKED (PR #90, 2026-08-28). `needs: [integration]` waits for the
@@ -307,13 +354,14 @@ jobs:
   # and fails the required check instead of skipping it.
   test:
     name: test
-    needs: [unit, integration]
+    needs: [unit, integration, retrosheetpy]
     if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Require unit and every integration shard to have succeeded
+      - name: Require unit, retrosheetpy and every integration shard to have succeeded
         run: |
           test "${{ needs.unit.result }}" = "success"
           test "${{ needs.integration.result }}" = "success"
+          test "${{ needs.retrosheetpy.result }}" = "success"

@@ -146,7 +146,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   `validation.py`, `report.py`, `records.py` are the old csv/infer tools. Candidates to delete or move onto `cw/` (owner decision).
 
 ## Next steps (in order)
-1. **Decision 1 done (owner chose A):** deleted `playtext.py`, `extended.py`, `test_extended.py`. `play.py`/`validation.py`/`report.py`/`records.py` stay for now. **Still open:** CI choice — (A) run only non-Chadwick tests, or (B) also build Chadwick c685ab5 in CI (recommended). The owner said "option A" without saying which decision; confirm. (Old text follows.) (a)
+1. **Decisions done:** (1) deleted `playtext.py`, `extended.py`, `test_extended.py`; (2) owner delegated the CI choice, I picked B: new `retrosheetpy` job in `.github/workflows/ci.yml` builds Chadwick c685ab5 (cached) and runs all package tests; it is part of the required `test` aggregator. NOT yet run on GitHub (needs a push): check the first run (about 15 min cold) and fix if needed.
    `play.py`/`validation.py`/`report.py`/`records.py` (move onto `cw/` or drop); (b) CI: add a job running `packages/retrosheetpy/tests`
    (non-differential tests run; differential ones skip without Chadwick) — or also build Chadwick c685ab5 in CI so the parity tests run
    (autotools build, more CI time). Root `pyproject` `testpaths` already lists `packages/retrosheetpy/tests`; the package is a uv

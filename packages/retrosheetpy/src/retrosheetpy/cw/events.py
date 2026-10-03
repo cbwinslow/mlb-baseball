@@ -12,6 +12,7 @@ that way here so unset players match.
 
 import re
 from collections.abc import Callable, Collection, Iterator
+from functools import cache
 
 from retrosheetpy.cw import game as cwgame
 from retrosheetpy.cw.game import Game
@@ -776,21 +777,35 @@ _FORMATS: tuple[tuple[str, str] | None, ...] = (
 )
 
 
-def _c_format(fmt: str, value: str) -> str:
-    """One ``sprintf`` conversion (``%s``, ``%c`` or ``%d`` with ``-``/``0`` flag and width) of
-    ``fmt`` applied to ``value``, with the text around it kept"""
+@cache
+def _parse_conversion(fmt: str) -> tuple[str, str, bool, bool, int, str]:
+    """The text before and after the one ``%[-][0][width]{s,c,d}`` conversion of ``fmt``, and the
+    conversion's flags, width and kind (parsed once per distinct format)"""
     found = re.search(r"%(-?)(0?)(\d*)([scd])", fmt)
     assert found is not None
     left, zero, width, kind = found.groups()
+    return (
+        fmt[: found.start()],
+        fmt[found.end() :],
+        bool(left),
+        bool(zero),
+        int(width) if width else 0,
+        kind,
+    )
+
+
+def _c_format(fmt: str, value: str) -> str:
+    """One ``sprintf`` conversion (``%s``, ``%c`` or ``%d`` with ``-``/``0`` flag and width) of
+    ``fmt`` applied to ``value``, with the text around it kept"""
+    before, after, left, zero, w, kind = _parse_conversion(fmt)
     text = str(int(value)) if kind == "d" else value
-    w = int(width) if width else 0
     if left:
         text = text.ljust(w)
     elif zero and kind == "d":
         text = f"{int(value):0{w}d}"
     else:
         text = text.rjust(w)
-    return fmt[: found.start()] + text + fmt[found.end() :]
+    return before + text + after
 
 
 def _custom(index: int, ascii_: bool, c: _Ctx, value: str) -> str:
@@ -833,19 +848,14 @@ def game_lines(
     """``cwevent_process_game``: one output line per non-NP event of the game"""
     gi = GameIter(game)
     table = _STANDARD + _EXTENDED
+    selected = [i for i in range(MAX_FIELD + 1) if i in fields]
+    selected += [MAX_FIELD + 1 + i for i in range(MAX_EXT_FIELD + 1) if i in ext_fields]
     while gi.event is not None:
         if gi.event.event_text == "NP":
             gi.next()
             continue
         ctx = _Ctx(gi, visitors, home)
-        parts = [
-            _render(i, ascii_, ctx, table[i][1](ctx)) for i in range(MAX_FIELD + 1) if i in fields
-        ]
-        parts += [
-            _render(MAX_FIELD + 1 + i, ascii_, ctx, table[MAX_FIELD + 1 + i][1](ctx))
-            for i in range(MAX_EXT_FIELD + 1)
-            if i in ext_fields
-        ]
+        parts = [_render(i, ascii_, ctx, table[i][1](ctx)) for i in selected]
         yield ("," if ascii_ else "").join(parts)
         gi.next()
 

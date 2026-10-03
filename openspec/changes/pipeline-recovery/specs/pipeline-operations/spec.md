@@ -90,3 +90,26 @@ No recovery, rebuild or check-fixing step SHALL insert, update or delete rows in
 
 - **WHEN** a check fails because of raw content
 - **THEN** the change records the difference and leaves raw unchanged
+
+### Requirement: Defects are fixed at their source
+
+Every fix to a defect found by a health check SHALL name the originating cause, the layer where it originates (raw, core, gold, model or the check itself), and the file that owns it. The fix SHALL be made there, with a test that fails because of the cause and passes after the fix. A health-check bound SHALL be changed only with a written, cited reason that the old bound was wrong; it SHALL NOT be changed merely to make a check pass.
+
+#### Scenario: A value is wrong because the computation is wrong
+
+- **WHEN** a check fails because a feature's computation counts the wrong thing
+- **THEN** the computation is corrected (or the feature is withheld) and the check bound is left as it was
+
+#### Scenario: A bound is wrong
+
+- **WHEN** a check fails on values that are valid for the metric's published definition
+- **THEN** the bound is changed with the citation recorded in the metric's catalog entry, and a test shows both a valid value passes and an invalid one fails
+
+### Requirement: Unvalidated features do not feed model inputs
+
+A metric whose catalog status is `implemented-untested` SHALL NOT be an input column of `gold.game_feature` or any model feature set until it is validated against its definition or an external source, or it SHALL be withheld (NULL or excluded) and listed.
+
+#### Scenario: An untested metric exists
+
+- **WHEN** a metric is marked `implemented-untested`
+- **THEN** it is excluded from model feature sets and `mlb doctor` lists it as withheld

@@ -57,6 +57,18 @@
 - [ ] 7.3 Take a fresh verified backup, add an off switch (a flag or setting that forces full mode) and an automatic fallback to full mode if dirty-season detection errors; verify the switch with a test. Then switch `scripts/mlb_daily_update.sh` to incremental mode
 - [ ] 7.4 Observe three nightly runs after the switch; verify no stale runs, `mlb doctor` shows only accepted failures from 1.5, and the measured total and conform+report time meet the numeric values set in 4.4
 
+## 9. Fix each real defect at its source
+
+- [ ] 9.1 Extend the table in `results.md` with columns `source cause`, `originating layer`, `owning file`, and `test that fails at the cause` for every row classed real defect; verify no real-defect row has an empty cell
+- [ ] 9.2 `away_woba` overwritten with NULL: fix `team_woba_live_update.sql` so each side is set only when it is NULL, test first (a first-covered-game-for-home case where the away value must survive), then rebuild and rerun wRC+; verify the doctor coverage check passes and the test fails on the old SQL
+- [ ] 9.3 First-pitch strike%: count first-pitch strikes only on batter-event rows in `team_pitch_discipline_retrosheet_update.sql`; assess whether the first pitch of each plate appearance can be isolated from the pitch-sequence field and use it if so; verify with a hand-calculated fixture (steal and wild-pitch rows must not change the result) and the doctor check passes without any bound change
+- [ ] 9.4 Catcher framing: owner decides between real called-strike counts (Statcast `called_strike` or the Retrosheet pitch sequence) and withholding the columns; implement the choice with a hand-calculated fixture and update `mlb_baseball/metrics/catcher_framing_csae.yaml` status honestly; verify the check bounds are unchanged and either pass or the columns are withheld and listed
+- [ ] 9.5 Empty ingestion ledger (`meta.ingestion_item`): first confirm whether the loader's ledger write path is wired (`mlb_api.py` ~1528, 1697-1788); fix the write path if it is not, then backfill the ledger from existing raw tables without re-downloading; verify a normal run writes ledger rows and the coverage check reports real gaps (1950s as `unavailable`)
+- [ ] 9.6 Stale `~/.mlb/mlb.duckdb`: rebuild with `mlb build` after the backup gate (owner-run); verify the feat health check runs and passes, and the check's failure message names a stale schema
+- [ ] 9.7 Write an ADR for the validation gate (D10): which mechanism, how doctor lists withheld metrics; verify it is recorded in `docs/DECISIONS.md` before any gate code
+- [ ] 9.8 For each bound change (baserunning `wsb`, SIERA/xFIP, pitch-movement separation, platoon diff), record the new bound and its citation or data basis in the metric's YAML and change the check to read it; verify a test passes a valid value and fails an invalid one for each, and no bound was changed without a written reason
+- [ ] 9.9 Prediction-count checks: count distinct games (latest run per game) instead of rows, then explain the remaining 584-versus-538 Polymarket gap; verify the explanation is written in `results.md`
+
 ## 8. Close-out
 
 - [ ] 8.1 Record the single-approach decision as an ADR in `docs/DECISIONS.md` (why A, why not B or C) and update `openspec/project.md` NOW/NEXT and `openspec/HANDOFF.md`; verify `scripts/check_dox.py` passes

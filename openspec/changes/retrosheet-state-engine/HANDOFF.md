@@ -1,4 +1,4 @@
-# Handoff — `retrosheet-state-engine` (updated 2026-10-03, thirteenth session)
+# Handoff — `retrosheet-state-engine` (updated 2026-10-03, fourteenth session)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start."
 
@@ -118,28 +118,48 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   patched sanitised build instead). book.c/game.c/roster.c/league.c unreached = write/mutator side (covered by write_dump.c).
 - Owner said: do NOT file the cwbox -S bug with Chadwick.
 
+## Fourteenth session: what was done (committed locally, nothing pushed)
+- **Parser fuzzing, grammar-based:** `tests/reference/parse_grammar.py` builds plays from every token `parse.c` compares against
+  (error/trajectory modifiers, running plays, SBH(UR), `;` chains, advances, malformed forms). `parse_fuzz.py` refactored
+  (`compare()`; `GRAMMAR=N`, `ONLY_GRAMMAR=1`, `DIFFS=file`). The C harness is now built with `-fsanitize=bounds-strict
+  -fno-sanitize-recover=all` so plays where Chadwick stores past `putouts[3]/assists[10]/errors[10]/touches[19]` into the next struct
+  field (undefined) are skipped, not compared. Result: 224,296 plays (real + mutated + 60,000 grammar), 0 diffs, 170 UB skipped.
+  C `parse.c` parser functions: every line reached except none left (the ~70 other unreached lines are `cw_event_*` helpers the C
+  tools never call: `cw_event_data_copy`, `is_official_ab`, ...). Port `parse.py` 99% (rest = those helpers, now unit-tested in
+  `test_event_helpers.py`, and a few C-unreached branches).
+- **Synthetic games (the other coverage gaps):** `tests/reference/synth_games.py` (+ `synth_check.py`): random well-formed games with a
+  runner simulator (so `cwbox` lint passes), `padj/badj/ladj/radj/presadj`, switch hitters, backward advances (`3-2`, `3-1`, `2-1`),
+  PH/PR, DH loss, pitcher re-entry, roster-less players, `htbf`, suspended-game comments, box-score-only (`stat bline/pline/dline...`)
+  games, "chaos" files with deliberately inconsistent plays. 6 tools x 11 option sets, stdout+stderr+status vs real: 0 differences over
+  ~4,800 runs (seeds 1-780). Runs where the C crashes or whose output changes with `MALLOC_PERTURB_` (uninitialised memory, e.g. `pos`
+  of a pinch hitter in `cwbox -X` on box files) are skipped. C coverage by gcov afterwards: gameiter.c all but 6 lines (319-320, 658,
+  725, 731, 737), box.c box-file path all but 9, cwevent/cwgame/cwdaily/cwsub/cwcomment/cwbox only CLI `main` paths missing (those are
+  covered by the option sweep, not by this run). Pytest: `test_parse_grammar_differential.py` (3 seeds x 3000 plays),
+  `test_synthetic_differential.py` (24 seeds x 11 runs, ~90 s), `test_event_helpers.py`.
+- **Speed:** profiled `cwevent` on 2010NYA (C 0.075 s, port 2.0 s). Hotspot was a regex per output field in `events._c_format`
+  (231,588 calls). Parsed once per format (`functools.cache`) + selected-field list built once per game: 2.0 s -> 1.37 s (-30%).
+  Re-profile: remaining cost is spread (field lambdas, `fgets`, `read_game`, `len`). No further cheap win seen; whole 2010 season
+  `event_season.py` still 0 diffs (4m52 for 30 teams x 2 formats). README should say ~25x slower than the C.
+- Full suite: 840 passed (15 min, with coverage on); ruff, ruff format, `mypy --strict src` clean. Python coverage of the suite alone 91%
+  (lines+branches, 6413 stmts); `extended.py` 47% and `playtext.py` 0% are legacy "inferred from output" modules (see below).
+- Found while looking: `playtext.py` is imported by nothing; `extended.py` only by `tests/test_extended.py`; `play.py`,
+  `validation.py`, `report.py`, `records.py` are the old csv/infer tools. Candidates to delete or move onto `cw/` (owner decision).
+
 ## Next steps (in order)
-1. **Close the coverage gaps** (owner: "test everything extensively, 100 percent coverage", but time-box ~one session):
-   extend `tests/reference/parse_fuzz.py` (existing parser fuzzer, C `parse_dump` harness) into a grammar-based play generator
-   covering every modifier/advance/error branch; run candidate event files through the gcov tools and the port (compare
-   stdout/stderr/status); iterate until gcov shows every REACHABLE line hit. Add `padj` and backward-advance synthetic games,
-   cwbox roster-less/ph/pr cases, cwdaily error paths. Keep a list of lines that are truly unreachable with the reason.
-   Also add tests for Python gaps: `cw/__main__.py` (python -m), `cli.py` uncovered branches, `lint.py`, `extended.py`/`playtext.py`
-   (decide: used by anything? else leave/justify). Add the new fixtures + differential tests to the pytest suite.
-2. **Speed:** port is ~33x slower than C (2025 season cwevent: C 2.5 s, port 84 s). Profile (cProfile) and take cheap wins only;
-   no rewrite without evidence. Document honestly in the README.
-3. **Owner request 2:** register retrosheetpy in the mlb project (records.py csv-based tools: validation/report/play still use
-   it; decide with owner whether to move them onto `cw/`), CI runs its tests, OpenSpec close-out below.
-4. **Owner request 3 (later, not now):** separate repo + documentation site (API reference of every `cw/` module, six tools and
-   options, umbrella command, write side, the all-years proof table). Keep Chadwick notices (GPL-2.0-or-later derivative,
-   package AGPL-3.0-or-later; owner asked about licensing: it IS a derivative of Chadwick source we translated; recommend a
-   human legal read before publishing; not legal advice).
-5. Close-out: rewrite `tasks.md`/`results.md`/`proposal.md`/`design.md` for the port approach (they still describe the old
+1. **Owner decisions needed:** (a) delete dead legacy modules `playtext.py`, `extended.py` (+ `test_extended.py`)? and what to do with
+   `play.py`/`validation.py`/`report.py`/`records.py` (move onto `cw/` or drop); (b) CI: add a job running `packages/retrosheetpy/tests`
+   (non-differential tests run; differential ones skip without Chadwick) — or also build Chadwick c685ab5 in CI so the parity tests run
+   (autotools build, more CI time). Root `pyproject` `testpaths` already lists `packages/retrosheetpy/tests`; the package is a uv
+   workspace member (`packages/*`).
+2. Optional remaining coverage: the 6 gameiter lines above (go-ahead-RBI clearing, strikeout-batter-hand, fc_flag responsibility on
+   3rd), `cw/__main__.py` (tested only through subprocess), lint.py branches, `box.py` box-file branches in-process.
+3. **Owner request 3 (later, not now):** separate repo + documentation site (see earlier list; licence note unchanged).
+4. Close-out: rewrite `tasks.md`/`results.md`/`proposal.md`/`design.md` for the port approach (they still describe the old
    infer-from-output plan; results.md says "No Chadwick code was copied", obsolete), update `packages/retrosheetpy/AGENTS.md`
-   (owning-change path says `pure-python-retrosheet`; add `cw/` map, console scripts, harness notes, the PATH-shadowing note),
-   README.md/API.md; independent reviewer (general-purpose agent with Bash) checks notices, deviations, silent skips;
-   `openspec validate retrosheet-state-engine --strict`; re-run full suite + ruff + format + mypy; delete this file before the
-   PR; push, open PR (merge needs the owner's "merge").
+   (owning-change path says `pure-python-retrosheet`; add `cw/` map, console scripts, harness notes incl. `synth_*`/`parse_grammar`,
+   the PATH-shadowing note), README.md/API.md (speed: ~25x slower than C); independent reviewer (general-purpose agent with Bash)
+   checks notices, deviations, silent skips; `openspec validate retrosheet-state-engine --strict`; re-run full suite + ruff +
+   format + mypy; delete this file before the PR; push, open PR (merge needs the owner's "merge").
 
 ## Commands
 - Tests: `uv run --package retrosheetpy --with pytest pytest packages/retrosheetpy/tests -q -p no:cacheprovider`
@@ -150,6 +170,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 - OpenSpec: `export PATH=$HOME/.nvm/versions/node/v24.16.0/bin:$PATH; openspec validate retrosheet-state-engine --strict`
 - Use `grep -n` / `find`, not `ls` (RTK hook). Commit hook runs ruff-format: if a commit "fails", re-run `ruff format` and commit again.
   Never claim checks passed unless run.
+- Synthetic games: `uv run --package retrosheetpy python tests/reference/synth_check.py FIRST LAST [--gcov-bin DIR] [--cov PREFIX] [--keep DIR]` (needs the real tools on PATH). Parser: `GRAMMAR=60000 ONLY_GRAMMAR=1 PD=./parse_dump python parse_fuzz.py SEED ZIP` (build `parse_dump` as in its docstring).
 - All-years / e2e / sweep / gcov drivers: `tests/reference/{all_years,cli_all_years,cli_sweep,gcov_run}.py`. Decade zips (all 12 incl. 2020s with 2025):
   `Client(cache).download(resolve(Product.EVENTS_DECADE, YEAR))`; copies existed under the old session scratchpads
   `.../ea625da7-ab50-41c2-93d1-c4fc963a3e48/scratchpad/cache/events_decade/` (may be gone). Wheel: `uv build --package retrosheetpy --wheel`.

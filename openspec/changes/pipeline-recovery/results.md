@@ -92,3 +92,11 @@ Task 0.2 is decided: #276 merged first. The shared checkout `~/workspace/mlb` (w
 - 1.5 owner sign-off on the doctor classification; investigate the "not yet examined" rows.
 - 2.x backup gate, repairs, vacuum; 4.x measurement; 5-7 incremental conform.
 - Stale rows 17256, 17258, 17261, 17264 are still `running`; `mlb nightly` runs `repair-runs`, which should clear them tonight.
+
+### 2026-10-03, after the first `mlb nightly` run (06:00-08:00 UTC)
+
+- Run finished `rc=0` in about 2 h 0 min: migrate 5 s, update 14 m 28 s (3 attempts allowed, 1 needed), conform 2573 s, report 854 s, predict 2915 s, populated 5 s. One `meta.ingestion_run` row per step (mode `nightly`). Migration 0109 applied by the run; `meta.query_stat_snapshot` wrote 1,642 statements.
+- Before the speed work: total about 2 h 7 min on 2026-10-02 against about 2 h 0 min now. The difference is the update step; conform, report and predict are unchanged, as expected.
+- The four stale `running` rows (17256, 17258, 17261, 17264) are gone; no `running` rows older than an hour.
+- Playoff leak fixed by the bref update in this run: Albies, Harper, Olson, Crow-Armstrong all 162 G in `gold.player_season` 2026 (was 164-165). Doctor envelope check passes. The owner-run re-ingest in task 3.4 was not needed; the nightly bref update does it.
+- `mlb doctor`: 353 of 370 pass (was 343 of 370). Cleared: migrations, stale runs, workflow lock, all source last-run and freshness checks, regular-season envelope. Remaining 17: metric catalog empty, never-vacuumed tables, mlb_api analytics ledger, polymarket price / kalshi candle (wrong check), gbm-v2 model file, away_woba coverage, bsr wsb, catcher framing, prediction counts (2), first-pitch strike%, pitcher estimators, pitch movement, platoon bound, feat stale file, backup never run. All are classified in section 1.5; fixes are tasks 2.x, 3.x and 9.x.

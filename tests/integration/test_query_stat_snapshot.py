@@ -13,9 +13,13 @@ def stats_db(db_conn):
         with db_conn.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements")
         db_conn.commit()
+        with db_conn.cursor() as cur:
+            # CREATE EXTENSION succeeds without the library preloaded; the view
+            # then errors on read, so check it is actually readable.
+            cur.execute("SELECT 1 FROM pg_stat_statements LIMIT 1")
     except psycopg.Error:
         db_conn.rollback()
-        pytest.skip("pg_stat_statements cannot be created in the test database")
+        pytest.skip("pg_stat_statements is not usable in the test database")
     return db_conn
 
 

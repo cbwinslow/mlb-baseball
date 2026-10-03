@@ -38,6 +38,8 @@ LOG_TAIL_LINES = 15
 # block the run (and hold the shell shim's flock) without any alert. The longest
 # step today (predict) takes under an hour.
 STEP_TIMEOUT_SECONDS = 4 * 3600
+# `repair-runs` is a few quick queries; a hung one must not hold up the retry loop.
+REPAIR_TIMEOUT_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -199,6 +201,13 @@ class Nightly:
         self.sleep = sleep
         self.results: list[StepResult] = []
 
+    def _repair_runs(self) -> None:
+        """Marks `running` rows of dead processes failed. Bounded by its own short
+        timeout; a failure is logged and never stops the pipeline."""
+        code, tail = run_child(self.command, ["repair-runs"], timeout=REPAIR_TIMEOUT_SECONDS)
+        if code != 0:
+            _log(f"repair-runs failed (rc={code}): {tail[-1] if tail else 'no output'}")
+
     @property
     def sources(self) -> list[str]:
         if self._sources is None:
@@ -248,7 +257,7 @@ class Nightly:
             _log(f"step update: attempt {attempt}/{attempts} for {', '.join(pending)}")
             code, tail = run_child(self.command, args, {ingest.ATTEMPT_ENV: str(attempt)})
             finished = datetime.now(UTC)
-            run_child(self.command, ["repair-runs"])  # reap rows of a killed child
+            self._repair_runs()  # reap rows of a killed child
             remaining = sources_without_success(expected, night_start)
             if remaining is None:
                 remaining = list(pending) if code != 0 else []
@@ -283,7 +292,7 @@ class Nightly:
         """The whole pipeline; returns the process exit code (0 only if every step passed)."""
         _log("starting nightly update")
         # Clear rows left 'running' by a process that was killed (issue #180).
-        run_child(self.command, ["repair-runs"])
+        self._repair_runs()
         if not self.step("migrate", ["migrate"]):
             _log("migrate failed; skipping update, conform, report, predict")
             return self._finish()

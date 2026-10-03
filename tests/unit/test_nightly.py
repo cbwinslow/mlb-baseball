@@ -123,3 +123,39 @@ def test_run_child_leaves_a_step_that_finishes_in_time_alone():
 
     assert code == 0
     assert tail == ["ok"]
+
+
+def test_repair_runs_uses_its_own_short_timeout_and_logs_a_failure(monkeypatch, capsys):
+    seen = {}
+
+    def fake_run_child(command, args, env=None, timeout=nightly.STEP_TIMEOUT_SECONDS):
+        seen["args"], seen["timeout"] = list(args), timeout
+        return 9, ["boom"]
+
+    monkeypatch.setattr(nightly, "run_child", fake_run_child)
+
+    nightly.Nightly(sources=[], retry_pauses=())._repair_runs()
+
+    assert seen == {"args": ["repair-runs"], "timeout": nightly.REPAIR_TIMEOUT_SECONDS}
+    assert "repair-runs failed (rc=9): boom" in capsys.readouterr().out
+
+
+def test_nightly_command_passes_the_pause_and_exits_with_the_result(monkeypatch):
+    from mlb_baseball import cli
+
+    built = {}
+
+    class FakeNightly:
+        def __init__(self, *, retry_pauses):
+            built["retry_pauses"] = retry_pauses
+
+        def run(self):
+            return 7
+
+    monkeypatch.setattr(nightly, "Nightly", FakeNightly)
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["nightly", "--pause", "0"])
+
+    assert built["retry_pauses"] == [0.0]
+    assert exit_info.value.code == 7

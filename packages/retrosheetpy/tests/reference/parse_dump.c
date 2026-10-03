@@ -3,6 +3,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include "chadwick.h"
+#ifdef GCOV_DUMP
+extern void __gcov_dump(void);
+#endif
 static char out[8192]; static int n;
 #define P(...) (n += snprintf(out + n, sizeof(out) - n, __VA_ARGS__))
 static void str(const char *p){ for(;*p;p++){unsigned char c=*p; if(c<32||c>126||c=='\\') P("\\x%02x",c); else P("%c",c);} }
@@ -25,7 +28,11 @@ int main(void){
       P("fby=%d|np=%d|na=%d|ne=%d|nt=%d|",e.fielded_by,e.num_putouts,e.num_assists,e.num_errors,e.num_touches);
       ints("put",e.putouts,3); ints("ast",e.assists,10); ints("err",e.errors,10); ints("tch",e.touches,19);
       P("et="); for(int i=0;i<10;i++) P("%c",e.error_types[i]); P("|bbt=%d|hl=",e.batted_ball_type); str(e.hit_location);
-      P("\n"); write(1,out,n); _exit(0);
+      P("\n"); write(1,out,n);
+#ifdef GCOV_DUMP
+      __gcov_dump();
+#endif
+      _exit(0);
     }
     int st; waitpid(pid,&st,0);
     if(!WIFEXITED(st)||WEXITSTATUS(st)!=0) printf("UB\n");

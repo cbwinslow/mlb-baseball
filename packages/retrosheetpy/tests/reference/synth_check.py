@@ -29,6 +29,15 @@ sys.path.insert(0, str(HERE.parent))
 from chadwick_tool import real_tool  # noqa: E402
 from synth_games import YEAR, make_file  # noqa: E402
 
+
+def _real(tool: str) -> str:
+    # Never fall back to a bare name: inside the venv that is the port, not the C tool.
+    found = real_tool(tool)
+    if found is None:
+        raise SystemExit(f"real Chadwick {tool} not found (set CHADWICK_BIN)")
+    return str(found)
+
+
 CASES: list[tuple[str, list[str]]] = [
     ("cwevent", ["-n"]),
     ("cwevent", ["-n", "-f", "0-96", "-x", "0-66"]),
@@ -74,7 +83,7 @@ def one(
             (work / name).write_bytes(content)
         for tool, args in CASES:
             argv = ["-q", "-y", str(YEAR), *args, f"{YEAR}XXX.EVN"]
-            real = run([real_tool(tool) or tool, *argv], work)
+            real = run([_real(tool), *argv], work)
             port_cmd = [sys.executable, "-m", "retrosheetpy.cw", tool, *argv]
             if cov:
                 port_cmd = [
@@ -86,7 +95,6 @@ def one(
             if gcov_bin is not None:
                 run([str(gcov_bin / tool), *argv], work)
             if real[0] < 0:
-                print(f"CRASH seed {seed} {tool} {args}") if False else None
                 crashed.append(
                     f"seed {seed}: {tool} {' '.join(args)} (C killed by signal {-real[0]})"
                 )
@@ -96,7 +104,7 @@ def one(
                 or real[2] != port[2]
                 or normalise(tool, args, real[1]) != normalise(tool, args, port[1])
             ):
-                again = run([real_tool(tool) or tool, *argv], work, perturb=85)
+                again = run([_real(tool), *argv], work, perturb=85)
                 if again[:2] != real[:2]:
                     uninit.append(f"seed {seed}: {tool} {' '.join(args)}")
                     continue

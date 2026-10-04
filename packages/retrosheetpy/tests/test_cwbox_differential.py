@@ -214,4 +214,4 @@ def test_malformed_pitch_records_match_cwbox_or_are_rejected(
         if expected is not None:
             assert normalise("sportsml", expected) == normalise("sportsml", out), path.name
             agreed += 1
-    assert agreed >= 0
+    assert agreed > 0

@@ -144,7 +144,8 @@ class _Parser:
     """``CWParserState`` plus the cursor primitives."""
 
     def __init__(self, text: str) -> None:
-        s = text.upper()
+        # C toupper is ASCII only; str.upper() would also change e.g. 'ß' to 'SS'.
+        s = "".join(c.upper() if c < "\x80" else c for c in text)
         # Preprocessing to turn SBH and CSH strings into SB4 and CS4
         i = s.find("SBH")
         if i >= 0:

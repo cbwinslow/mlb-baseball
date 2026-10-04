@@ -484,7 +484,8 @@ class GameIter:
         self.index = 0
         self.state = State()
         date = self.game.info_lookup("date")
-        assert date is not None, "game has no date info record (Chadwick would crash)"
+        if date is None:
+            raise ValueError("game has no date info record (Chadwick would crash)")
         self.state.date = date[0:4] + date[5:7] + date[8:10]
         self._lineup_setup()
         self.state.batting_team = 1 if self.game.info_lookup("htbf") == "true" else 0

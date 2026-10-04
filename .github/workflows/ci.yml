@@ -343,8 +343,11 @@ jobs:
         run: |
           export CHADWICK_BIN="$HOME/chadwick-parity-install/bin"
           export CHADWICK_SRC="$HOME/chadwick-parity/src"
+          test -x "$CHADWICK_BIN/cwevent" || { echo "Chadwick build missing"; exit 1; }
           "$CHADWICK_BIN/cwevent" -h 2>&1 | head -1
-          uv run --package retrosheetpy --with pytest pytest packages/retrosheetpy/tests -q -p no:cacheprovider
+          uv run --package retrosheetpy --with pytest pytest packages/retrosheetpy/tests -q -rs -p no:cacheprovider | tee pytest.out
+          # A skipped parity test compared nothing: with Chadwick built, nothing may be skipped.
+          if grep -q '^SKIPPED' pytest.out; then echo "tests were skipped"; exit 1; fi
 
   # Branch protection on main requires a check named "test". This workflow's
   # jobs are named unit / integration (N); without this aggregator, green PRs

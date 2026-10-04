@@ -8,8 +8,9 @@ occupancy, runs, RBI, putout/assist credit) are deliberately not derived here.
 ``csv_fields`` uses the column names of Retrosheet's ``plays.csv``
 (https://www.retrosheet.org/downloads/csvcontents.html). ``chadwick_fields``
 uses the ``cwevent -d`` field names. Both are used only to *check* the parser;
-no Chadwick source is copied, the rules come from the Retrosheet documentation
-and are corrected against observed reference output.
+this legacy module is NOT part of the Chadwick port (``retrosheetpy.cw``): its rules were
+written from the Retrosheet documentation and corrected against observed output, and its
+event-code table follows Chadwick's.
 """
 
 from retrosheetpy.play import EventKind, ModifierKind, ParamKind, Play, PrimaryEvent

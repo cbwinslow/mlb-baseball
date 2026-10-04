@@ -4,7 +4,7 @@ Pure-Python port of the Chadwick tools (`cwevent`, `cwgame`, `cwdaily`, `cwsub`,
 `cwcomment`, `cwbox`) plus a Retrosheet file client. Install it instead of building
 Chadwick's C library: no compiler, no Chadwick programs, no PostgreSQL, no pandas.
 The tools are translated from Chadwick's C source and their output is byte-identical to
-the real tools on every season 1910-2025 (proof in the `retrosheet-state-engine` OpenSpec
+the real tools on every season 1910-2025, apart from the defects listed below (proof in the `retrosheet-state-engine` OpenSpec
 change). Console scripts use Chadwick's names, so they replace the C tools if first on
 `PATH`; `retrosheetpy cwevent ...` also works.
 
@@ -34,3 +34,8 @@ games is stored under `tests/reference/`.
 `python -m retrosheetpy.report FILE_OR_ZIP... [--chadwick-csv F] [--plays-csv F]`
 prints JSON: record counts, plays parsed, every unsupported syntax family, and
 field-level disagreements with the references. No native tool is run.
+
+## Differences from Chadwick
+
+- Where the C crashes or reads uninitialised memory the port raises `ValueError` or uses a defined value; `cwbox -S` (which segfaults in Chadwick 0.10.0) and the `pb` attribute of `cwbox -X` are compared against a patched build.
+- The reference is Chadwick's development commit `c685ab5` (it reports 0.10.0), not the released v0.10.0 tag, whose output differs on 2025 files.

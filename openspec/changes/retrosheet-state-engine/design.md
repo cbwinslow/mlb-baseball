@@ -1,47 +1,32 @@
 ## Context
 
-Observed (2026-10-01): `retrosheetpy` has a lossless record reader, a play parser
-that yields typed events, modifiers and runner advances (`Play`), and a
-comparison harness (`validation.py`) that matches Chadwick on text-derived fields
-only. `cwevent -d` lists 97 base fields (0-96) and 67 extended fields (0-66);
-many are state-dependent (outs, runners, scores, RBI, putouts, assists, errors,
-pinch-runner and responsible-pitcher fields). Chadwick 0.10.0 binaries are at
-`~/.local/bin`; its source is public (GPL-2.0, this project is AGPL-3.0). See
-`proposal.md` for motivation. The 1950 sample has 98,731 events locally; 2019
-data must be downloaded.
+Chadwick's rules for turning event files into events, box scores and summaries are written in its C code
+(`cwlib/parse.c`, `gameiter.c`, `game.c`, `box.c`, `cwtools/*`). The first attempt rebuilt them from
+`cwevent` output; the owner replaced that with a straight port (D3). Reference: Chadwick development commit
+`c685ab5` (reports 0.10.0; see `results.md`). Source: `~/workspace/tmp/chadwick/src`.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- A state engine whose rows equal `cwevent` output for the in-scope fields.
-- A repeatable, whole-row comparison with Chadwick, per season, with a report.
-- Rules written from Retrosheet documentation and observed Chadwick behaviour.
+- Same output as the six Chadwick tools, byte for byte, on any valid Retrosheet file, including future seasons.
+- Same command-line behaviour (options, help text, errors, exit status).
+- Proof that does not depend only on the seasons we happen to have (fuzzing, synthetic games, coverage of the C).
 
 **Non-Goals:**
 
-- Performance tuning (about 70k lines/s is accepted unless measurement says the
-  full-history run is impractical).
-- The CLI, default cache folder, "get a season" command, the other Chadwick
-  tools (`cwgame`, `cwbox`, `cwdaily`, ...) and PyPI release: later steps in the
-  roadmap in `proposal.md`. The engine API is kept plain and reusable so they can
-  build on it.
-- Dataframes, PostgreSQL loads, switching any mlb_baseball connector to the engine.
-- Fields that need team/roster files, unless the exclusion list says otherwise.
+- Speed (about 25x slower than the C is accepted).
+- Dataframes, PostgreSQL loads, switching any mlb_baseball connector to the package.
+- Copying Chadwick's defects where the C crashes or reads uninitialised memory (documented in `results.md`).
 
 ## Decisions
 
-**D1. Build the engine as a fold over parsed plays.** A `GameState` value is
-advanced by applying each parsed `Play`; each step returns an event row. Pure
-functions over immutable state make single plays easy to test and compare.
-*Alternative:* one mutable game object copied from Chadwick's structure — rejected:
-harder to test per play and closer to a translation of the C code.
+**D1. Structure follows the C.** One Python module per C source file, functions in the C order with the C names
+(`cw/parse.py` = `parse.c`, `cw/gameiter.py` = `gameiter.c`, ...), so each can be read beside its original.
 
-**D2. Whole-row differential testing is the contract.** Extend `validation.py` to
-compare every in-scope column, with an explicit exclusion list and a hard error
-for any column absent on either side (the review found the old harness skipped
-them silently). *Alternative:* hand-written expected values per rule — kept only
-for small rule tests; they cannot prove equality at scale.
+**D2. Differential testing is the contract.** Tests run the real C tools (or small C dump programs built from the
+Chadwick sources, under ASAN/UBSAN) and the port on the same input and compare bytes. Inputs where the C has
+undefined behaviour are skipped visibly, never compared.
 
 **D3. Port Chadwick's rules; do not infer them (owner decision, 2026-10-01, replaces the
 earlier clean-room rule).** The rules for turning event files into events are finite and are
@@ -54,42 +39,24 @@ package's AGPL-3.0-or-later licence is compatible through the "or later" clause.
 still proven by output, against `cwevent` on whole seasons. Rules are never reverse-engineered
 from output.
 
-**D4. Order of work: 2019 first, then widen.** Tune on a small set of fixtures
-and 2019, then run seasons never used for tuning (as in section 5 of the previous
-change) before claiming equality. Era rules (old scoring, deduced games, runner
-placement oddities) are expected to appear late; stopping and reporting a season
-that cannot reach 0 is the agreed outcome, not a failure to hide.
+**D4. Reference data.** Fixture captures and small C dump programs run in CI (CI builds Chadwick). Whole-season
+and gcov runs are on-demand drivers in `tests/reference/` that need the Retrosheet decade zips; results are
+recorded in `results.md` and `all-years.md`.
 
-**D5. Field groups in dependency order.** (1) game and lineup state: batter,
-pitcher, fielders, runners, outs, score, inning, new/end game flags;
-(2) outs on play, destinations, RBI; (3) errors; (4) putouts and assists;
-(5) pinch hitter/runner fields and responsible pitcher; (6) extended fields.
-Each group gets its own passing season run before the next starts.
-
-**D6. Strict by default.** Same rule as the play parser: unsupported or
-impossible input raises in strict mode and is surfaced explicitly in diagnostic
-mode (see spec).
-
-**D7. Reference data is captured and checked in small, and large on demand.**
-Fixture-level captures (as in `tests/reference/`) run in CI; full-season runs are a
-documented command that needs Chadwick and downloaded files, and their results are
-written to a note in this folder.
+**D5. Where the C is undefined, define it and say so.** Crashes, `exit(1)`, NULL dereferences and uninitialised reads
+become `ValueError` or a defined value, listed in the module docstring and in `results.md`. Everywhere else the port
+matches the C exactly, including its quirks.
 
 ## Risks / Trade-offs
 
-- [Early-era and unusual plays make exact equality slow to reach] → widen season
-  by season, record each learned rule, report seasons that stop short.
-- [Equality with Chadwick may copy its bugs] → where Chadwick contradicts
-  Retrosheet's published rules or its own CSV, report the three-way difference,
-  never silently pick one (existing project rule).
-- [Derivative of GPL source] → D3: keep copyright/licence notices in every ported module;
-  reviewer checks the notices and that nothing was added from guesswork.
-- [Chadwick or data unavailable in CI] → fixture captures in CI, live comparison
-  skipped visibly (not vacuously) with a recorded version check.
-- [Scope is large] → tasks are grouped by field group; each group is shippable and
-  reported on its own.
+- [Derivative of GPL source] -> keep the copyright/licence notice in every ported module; reviewer checks notices
+  and that nothing was added from guesswork.
+- [Reference is a development commit, not the 0.10.0 tag] -> stated in `results.md`; owner decided to target the
+  dev commit. CI pins the commit.
+- [Future Retrosheet syntax the C cannot parse] -> `guard.py` flags such plays instead of guessing.
+- [Slow] -> accepted; stated in the README.
 
 ## Open Questions
 
-- Which extended fields (`-x`) are genuinely independent of roster files; the
-  exclusion list is finalised in task 1.2 and does not change the approach.
+- Fate of the older csv/inferred-output modules (`play.py`, `validation.py`, `report.py`, `records.py`).
+- Public release: separate repository, documentation site, human legal read of the licence note.

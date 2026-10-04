@@ -77,7 +77,7 @@ def test_enrich_feature_stage_populates_columns_from_multiple_real_modules(db_co
             "base2_run_id text, base3_run_id text, run1_dest_id text, "
             "run2_dest_id text, start_bat_score_ct text, start_fld_score_ct text, "
             "pos2_fld_id text, event_tx text, bat_hand_cd text, "
-            "resp_bat_hand_cd text, _season text)"
+            "resp_bat_hand_cd text, pa_new_fl text, _season text)"
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo "
@@ -206,7 +206,7 @@ def test_age_runs_after_starter_resolves_ids_through_the_real_dispatch(db_conn):
             "battedball_cd text, h_cd text, dp_fl text, base1_run_id text, "
             "base2_run_id text, base3_run_id text, run1_dest_id text, "
             "run2_dest_id text, start_bat_score_ct text, start_fld_score_ct text, "
-            "pos2_fld_id text, event_tx text, _season text)"
+            "pos2_fld_id text, event_tx text, pa_new_fl text, _season text)"
         )
         cur.execute(
             "CREATE TABLE raw.retrosheet_gameinfo "

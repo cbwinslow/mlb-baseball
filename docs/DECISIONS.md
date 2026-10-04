@@ -2,6 +2,46 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-293: Retrosheet pitch sequences repeat within a plate appearance — count each pitch once
+
+**Decision (2026-10-04).** `team_pitch_discipline_retrosheet_update.sql` drops an
+event row whose next row in the same game is a continuation of the same plate
+appearance (`pa_new_fl = 'F'`), and counts a first-pitch strike only on a
+completed plate appearance (`bat_event_fl = 'T'`).
+
+**Why.** Retrosheet's event file writes a plate appearance's pitches
+cumulatively: a runner event in the middle of the plate appearance (stolen
+base, wild pitch, pickoff) carries the pitches thrown so far, and the batter's
+final row repeats them and adds the rest (verified on 2019 data: `BCBFF>B` on
+the stolen-base row, then `BCBFF>B.>B` on the batter row; in 10,891 of 10,896
+continuation rows in 2014 and 2019 the earlier row is the start of the later
+one, the other 5 differ only in annotation characters). The pitch counters
+summed every row, so those pitches were counted twice (about 2.0% of all
+pitches, 218,120 of 7,165,617 rows), and one plate appearance could add two
+first-pitch strikes to a denominator that counts it once, pushing starter
+first-pitch strike percent above 1 (doctor failure, 3 rows) and biasing it
+about 1.5 points high everywhere (2014 and 2019 league rate 62.3% before,
+60.7% after, against about 60-61% in published league averages; the published
+figure was not re-fetched for this entry). CSW% and whiff% move far less
+(2019 league CSW% 0.2850 to 0.2848) because numerator and denominator are
+inflated together.
+
+**Source, not patch.** The cause was a misreading of the source field, so the
+fix is in the one place all five counters read from (`clean_events`); no check
+bound was changed. Cost: the extra row comparison adds about 20 s to a query
+that took 5 s (the predict step is about 49 min). A plate appearance cut short
+by an out on the bases has no continuation row and is kept, so its real pitches
+still count.
+
+**Other readers.** `pitch_seq_tx` has no other production reader. The
+unpromoted SQLMesh spike `transforms/models/pitch_discipline.sql` repeats the
+old logic; per ADR-271 it is frozen and must take this fix (and a parity test)
+before it is ever promoted.
+
+Change record: `openspec/changes/pipeline-recovery/` task 9.3. Test:
+`tests/integration/test_model_pitch_discipline.py::test_compute_counts_each_pitch_once_when_a_runner_event_splits_a_plate_appearance`
+(fails on the old SQL).
+
 ## ADR-292: `core.team_franchise` — franchise identity, by analogy to `mlb_team_id`/player identity
 
 **Decision:** `core.team` gains `franchise_id` (nullable FK), and a new

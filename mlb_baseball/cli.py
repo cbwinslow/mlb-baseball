@@ -65,13 +65,17 @@ from mlb_baseball import (
     field_census,
     ingest,
     inventory,
+    manifest,
     migrate,
     model,
+    nightly,
     player,
     progress_table,
     readiness,
     report,
+    runs,
     schema_inventory,
+    source_check,
 )
 from mlb_baseball import (
     catalog as metric_catalog,
@@ -327,6 +331,13 @@ def main(argv: list[str] | None = None) -> None:
         "--mode", choices=["bootstrap", "update", "backfill"], default="bootstrap"
     )
     ingest_parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="with --mode bootstrap: set this source's cached downloads aside "
+        "(downloads/<source>/_superseded/) and fetch + reload every archive, including ones "
+        "already loaded. Use when the publisher has republished files.",
+    )
+    ingest_parser.add_argument(
         "--stage",
         choices=["analytics", "analytics-replay"],
         help="run or replay one resumable MLB API historical stage instead of the full connector",
@@ -557,6 +568,25 @@ def main(argv: list[str] | None = None) -> None:
     metrics_parser = subparsers.add_parser("metrics")
     metrics_parser.add_argument("--source", default="mlb_api")
     metrics_parser.add_argument("--window-minutes", type=int, default=5)
+    source_check_parser = subparsers.add_parser(
+        "source-check",
+        help="ask each publisher whether files we already downloaded have changed "
+        "(HEAD requests only; no downloads, no database). Exit 0 nothing changed, "
+        "1 something changed, 2 could not check.",
+    )
+    source_check_parser.add_argument(
+        "--source",
+        action="append",
+        choices=sorted(CONNECTORS),
+        help="check only this source; repeatable (default: every source under downloads/)",
+    )
+    source_check_parser.add_argument(
+        "--hash",
+        action="store_true",
+        help="prove it: download each archive to a temporary file, compare SHA-256 with the "
+        "manifest, delete the file (slow)",
+    )
+
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument(
         "--all", action="store_true", help="show every table, not just populated ones"
@@ -603,6 +633,27 @@ def main(argv: list[str] | None = None) -> None:
         "--with-conform", action="store_true", help="include the post-ingestion conform step"
     )
     subparsers.add_parser("repair-runs")
+    nightly_parser = subparsers.add_parser(
+        "nightly",
+        help="the daily pipeline: migrate, update (with retries), conform, report, predict",
+    )
+    nightly_parser.add_argument(
+        "--pause",
+        type=float,
+        nargs="+",
+        default=list(nightly.DEFAULT_RETRY_PAUSES),
+        metavar="SECONDS",
+        help="seconds to wait before each retry of `update`; one retry per value "
+        "(default: 60 300, i.e. three attempts)",
+    )
+    runs_parser = subparsers.add_parser(
+        "runs", help="last result, age and duration of each scheduled job"
+    )
+    runs_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="exit 1 (and call alert_command) if a job last failed or has no recent success",
+    )
     backfill_identity = subparsers.add_parser("backfill-game-identities")
     backfill_identity.add_argument("--batch-size", type=int, default=1000)
 
@@ -1508,7 +1559,16 @@ def main(argv: list[str] | None = None) -> None:
                     )
         elif args.start_year or args.end_year or args.workers:
             parser.error("--start-year, --end-year, and --workers require --stage analytics")
+        elif args.refresh and args.mode != "bootstrap":
+            parser.error("--refresh applies to --mode bootstrap")
         elif args.mode == "bootstrap":
+            if args.refresh:
+                moved = manifest.supersede(args.source)
+                print(
+                    f"refresh: previous downloads set aside in {moved}"
+                    if moved
+                    else "refresh: nothing cached"
+                )
             fn = connector.bootstrap
         elif args.mode == "update":
             fn = connector.update
@@ -1522,8 +1582,21 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"{args.source} has no backfill_history() to run")
                 sys.exit(1)
             fn = cast(Callable[[], dict[str, int]], backfill)
-        for table, count in fn().items():
-            print(f"{table}: {count} rows")
+        loaded = fn()
+        totals = ingest.table_totals(loaded)
+        for table, count in loaded.items():
+            total = totals[table]
+            in_table = f"{total} in table" if total is not None else "total not counted"
+            print(f"{table}: {count} loaded, {in_table}")
+    elif args.command == "source-check":
+        checked = args.source or [
+            name for name in source_check.discover_sources() if name in CONNECTORS
+        ]
+        try:
+            require_sources(profile, checked, purpose="source-check")
+        except SourceProfileError as exc:
+            parser.error(str(exc))
+        sys.exit(source_check.run(args.source, hash_check=args.hash))
     elif args.command == "bootstrap":
         _run_all("bootstrap", profile, skip=args.skip)
     elif args.command == "update":
@@ -1731,6 +1804,12 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  {command}")
         if any(not preflight_check.ok for preflight_check in preflight_checks):
             sys.exit(1)
+    elif args.command == "nightly":
+        sys.exit(nightly.Nightly(retry_pauses=args.pause).run())
+    elif args.command == "runs":
+        from mlb_baseball.alert import alert as send_alert
+
+        sys.exit(runs.main(check_only=args.check, notify=send_alert))
     elif args.command == "repair-runs":
         from mlb_baseball.db import get_connection
 

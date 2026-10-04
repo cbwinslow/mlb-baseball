@@ -40,6 +40,7 @@ from mlb_baseball.ingest import track_run
 from mlb_baseball.model.offense import W_1B, W_2B, W_3B, W_HBP, W_HR, W_UBB, WOBA_SCALE
 from mlb_baseball.model.war import _BREF_TO_RETRO
 from mlb_baseball.sql import read_sql
+from mlb_baseball.timing import timed_step
 
 SOURCE = "report"
 
@@ -130,6 +131,7 @@ LEFT JOIN war_sum ws ON ws.player_id = p.id AND ws.season = b._season::integer
 """
 
 
+@timed_step("report")
 def _build_player_season(conn: psycopg.Connection) -> int:
     total = 0
     for table, build_sql in (
@@ -213,6 +215,7 @@ WHERE lt.teamidretro IS NOT NULL AND lt.teamidretro != ''
 """
 
 
+@timed_step("report")
 def _build_team_season_base(conn: psycopg.Connection) -> int:
     try:
         with conn.transaction(), conn.cursor() as cur:
@@ -268,6 +271,7 @@ WHERE ts.team_id = tt.team_id AND ts.season = tt.target_season
 """
 
 
+@timed_step("report")
 def _compute_park_factor(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute(_COMPUTE_PARK_FACTOR_SQL, {"trailing_seasons": PARK_FACTOR_TRAILING_SEASONS})
@@ -348,6 +352,7 @@ WHERE ts.team_id = tw.team_id AND ts.season = tw.season
 """
 
 
+@timed_step("report")
 def _compute_woba(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.retrosheet_event')")
@@ -396,6 +401,7 @@ WHERE ts.team_id = twr.team_id AND ts.season = twr.season
 """
 
 
+@timed_step("report")
 def _compute_war(conn: psycopg.Connection) -> int:
     values_clause = ", ".join(f"('{bref}', '{retro}')" for bref, retro in _BREF_TO_RETRO.items())
     with conn.cursor() as cur:
@@ -473,6 +479,7 @@ _GOLD_FANGRAPHS_PARK_FACTORS_SQL = read_sql("gold_fangraphs_park_factors.sql")
 _PS_ROUND_RE = r"^(WS|NWS|CS|NNC|NSC|[AN][EWL]?(C|CS|DS[0-9]|WC[0-9]?|DIV|P[0-9]))$"
 
 
+@timed_step("report", 1)
 def _build_backbone_relation(
     conn: psycopg.Connection,
     table: str,
@@ -515,6 +522,7 @@ def _build_backbone_relation(
     return count
 
 
+@timed_step("report", 1)
 def _build_backbone_relation_multi(
     conn: psycopg.Connection,
     table: str,
@@ -578,6 +586,7 @@ def _build_backbone_relation_multi(
     return count
 
 
+@timed_step("report")
 def _build_division_standing(conn: psycopg.Connection) -> int:
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(_BUILD_DIVISION_STANDING_SQL)

@@ -37,9 +37,17 @@ Registered connectors are expected to expose the standard connector behavior use
 - `update()`
 - `health_check()`
 
+`mlb ingest <source> --refresh` (bootstrap mode only) calls `manifest.supersede(source)` first: the source's cached downloads and manifest move to `downloads/<source>/_superseded/<UTC timestamp>/` (kept, so rollback is a reload from them) and the connector's bootstrap then fetches and loads every archive again. A normal bootstrap skips archives marked loaded and `download()` trusts a cached file whose hash matches, so neither notices a publisher that republished a "closed" archive (Retrosheet regenerated all files on 2026-08-09). Loads still replace by scope inside the connector's own transactions. Use it deliberately against the intended database; it is not part of `bootstrap`/`update` orchestration.
+
+After a connector run, `mlb ingest` prints per table `N loaded, M in table` (or `total not counted` when an exact `count(*)` exceeds 30 s or fails). `ingest.table_totals` owns the counting on its own read-only connection; "loaded" is rows written this run, not the table size, because scoped loads skip scopes (the 2026-10-01 box-score refresh loaded 17,418 rows into an 18,467-row table).
+
+`mlb source-check [--source S ...] [--hash]` asks each publisher, with one HEAD request per archive in `downloads/<source>/manifest.json`, whether a file we already downloaded changed (`source_check.py` owns the comparison; the CLI only parses and gates by source profile). It downloads nothing into `downloads/`, writes nothing there and opens no database; `--hash` fetches each archive to a temporary file outside `downloads/`, compares SHA-256 and deletes it. Exit codes: 0 nothing changed, 1 something changed (prints `mlb ingest <source> --refresh` per changed source), 2 could not check (unknown headers, a request failure, a 404 "gone" archive, or a `--source` with no download record). Default sources are the directories under `downloads/`.
+
 Some connectors may additionally expose an expensive/manual `backfill` mode. Backfill must remain opt-in and must not accidentally run as part of routine bootstrap/update.
 
 When adding a connector, update the explicit registry and applicable source/profile/docs/tests. Do not build a second plugin-discovery framework inside the CLI.
+
+`mlb nightly [--pause S ...]` is the daily pipeline (`nightly.py` owns the steps, gates and retry; the CLI only parses and exits with its code). `mlb runs [--check]` prints each scheduled job's last result from one `meta.ingestion_run` query (`runs.py`); `--check` exits 1 and calls `alert_command` when a job last failed or has no recent success. `alert_command` (`alert.py`, setting in `config.py`) is run without a shell and a failing hook never changes a job's exit code.
 
 ## Bootstrap / Update Concurrency Contract
 

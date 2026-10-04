@@ -92,12 +92,12 @@ reports the outcome of the last run rather than treating a valid load as stale.
 """
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 import psycopg
 import pybaseball
 
-from mlb_baseball.db import get_connection
+from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
     Check,
     check_last_run,
@@ -129,10 +129,12 @@ _SEASON_START = "{season}-03-15"
 #   SELECT season, max(game_date) FROM core.game
 #   WHERE game_type IN ('regular','playoff') AND season BETWEEN 2008 AND 2025
 #   GROUP BY season;
-# Seasons absent here (the in-progress season, and any future season until its
-# real end date is added) fall back to _DEFAULT_END; the `mlb doctor` envelope
-# check (gold.player_season.games <= 162) flags any postseason leak that gets
-# through and is the trigger to add that season's row.
+# Seasons absent here (the season being played, and any future season) take
+# their end from the live schedule: the day before that season's first
+# postseason game (`_postseason_start`), so a new season needs no manual entry.
+# With no postseason scheduled yet they fall back to _DEFAULT_END. The `mlb
+# doctor` envelope check (gold.player_season.games <= 162) still flags any
+# postseason leak that gets through.
 _REGULAR_SEASON_END = {
     2008: "2008-09-30",  # AL Central tiebreaker (CWS-MIN), Game 163
     2009: "2009-10-06",  # AL Central tiebreaker (MIN-DET), Game 163
@@ -152,6 +154,7 @@ _REGULAR_SEASON_END = {
     2023: "2023-10-01",
     2024: "2024-09-30",
     2025: "2025-09-28",
+    2026: "2026-09-27",  # wild-card series began 2026-09-29
 }
 _DEFAULT_END = "{season}-10-01"
 # Full-history-in-one-call tables — no season parameter exists, so these are
@@ -197,15 +200,56 @@ def _repair_name_mojibake(name: object) -> object:
         return name
 
 
-def _season_window(season: int) -> tuple[str, str]:
-    """(start_dt, end_dt) for the regular-season-only Baseball-Reference pull."""
+# MLB schedule game types for postseason series (wild card, division, league
+# championship, world series). Game 163 tiebreakers are regular-season games
+# and carry the regular type, so the first game of these types marks the end
+# of the regular season.
+_POSTSEASON_TYPES = ("F", "D", "L", "W")
+
+
+def _postseason_start(conn: psycopg.Connection | None, season: int) -> str | None:
+    """ISO date of the earliest postseason game on raw.mlb_schedule for `season`,
+    or None when none is scheduled or the schedule table does not exist yet.
+
+    The live schedule (refreshed every few minutes) lists postseason games as
+    soon as they are set, so this is current even when core.game has not been
+    rebuilt since the postseason began.
+    """
+    if conn is None:
+        return None
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        (table,) = fetch_one(cur)
+        if table is None:
+            return None
+        cur.execute(
+            "SELECT min(game_date) FROM raw.mlb_schedule "
+            "WHERE _season = %s AND game_type = ANY(%s)",
+            (str(season), list(_POSTSEASON_TYPES)),
+        )
+        (first_game,) = fetch_one(cur)
+        return first_game
+
+
+def _season_window(season: int, postseason_start: str | None = None) -> tuple[str, str]:
+    """(start_dt, end_dt) for the regular-season-only Baseball-Reference pull.
+
+    An explicit `_REGULAR_SEASON_END` entry always wins. Otherwise, when the
+    season's first postseason game date is known, the window ends the day
+    before it (never later than October 31); with none, `_DEFAULT_END`.
+    """
     start_dt = _SEASON_START.format(season=season)
-    end_dt = _REGULAR_SEASON_END.get(season, _DEFAULT_END.format(season=season))
-    return start_dt, end_dt
+    if season in _REGULAR_SEASON_END:
+        return start_dt, _REGULAR_SEASON_END[season]
+    if postseason_start:
+        day_before = date.fromisoformat(postseason_start) - timedelta(days=1)
+        return start_dt, min(day_before, date(season, 10, 31)).isoformat()
+    return start_dt, _DEFAULT_END.format(season=season)
 
 
 def _load_table(conn: psycopg.Connection, table: str, fn, season: int) -> int:
-    start_dt, end_dt = _season_window(season)
+    postseason_start = None if season in _REGULAR_SEASON_END else _postseason_start(conn, season)
+    start_dt, end_dt = _season_window(season, postseason_start)
     df = call_with_retry(fn, start_dt, end_dt)
     if df.empty:
         return 0

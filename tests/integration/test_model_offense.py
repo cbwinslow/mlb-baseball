@@ -442,7 +442,7 @@ def test_compute_live_rolling_woba_matches_hand_calculation(db_conn):
     updated = offense.compute_live(db_conn)
     db_conn.commit()
 
-    assert updated == 2
+    assert updated == 1  # only G2 gets a value; G1 has no history to fill from
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT g.retro_game_id, f.home_woba, f.away_woba "
@@ -492,6 +492,95 @@ def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
         cur.execute("SELECT home_woba FROM gold.game_feature WHERE mlb_game_pk = '910003'")
         (woba,) = cur.fetchone()
     assert woba == Decimal("0.333")
+
+
+def _seed_two_teams(cur):
+    cur.execute(
+        "INSERT INTO core.team "
+        "(retro_team_id, city, nickname, first_year, last_year, mlb_team_id) "
+        "VALUES ('ATL', 'Atlanta', 'Braves', 1966, 9999, 144), "
+        "('NYA', 'New York', 'Yankees', 1913, 9999, 147) "
+        "RETURNING id, retro_team_id"
+    )
+    teams = {retro_id: team_id for team_id, retro_id in cur.fetchall()}
+    return teams["ATL"], teams["NYA"]
+
+
+def test_compute_live_keeps_the_away_value_when_only_the_home_value_is_missing(db_conn):
+    # The home team's first covered game of a season legitimately has a NULL
+    # home_woba (no prior game), which is what gates compute_live. The away
+    # team's value, already filled from Retrosheet, must survive: compute_live
+    # may only fill a NULL, never overwrite a value (and never with NULL when
+    # it has no live data for the game).
+    _ensure_playbyplay_table(db_conn)
+    with db_conn.cursor() as cur:
+        atl, nya = _seed_two_teams(cur)
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('MLB910004', '910004', 2021, '2021-04-06', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE gold.game_feature SET away_woba = 0.321 WHERE mlb_game_pk = '910004'")
+    db_conn.commit()
+
+    offense.compute_live(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_woba, away_woba FROM gold.game_feature WHERE mlb_game_pk = '910004'"
+        )
+        home, away = cur.fetchone()
+    assert home is None
+    assert away == Decimal("0.321")
+
+
+def test_compute_live_fills_the_away_value_when_only_it_is_missing(db_conn):
+    # Mirror image: the home value is already present, the away value is NULL
+    # and the live play-by-play has history for the away team.
+    _ensure_playbyplay_table(db_conn)
+    with db_conn.cursor() as cur:
+        atl, nya = _seed_two_teams(cur)
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('MLB910005', '910005', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('MLB910006', '910006', 2026, '2026-04-08', %(atl)s, %(nya)s, 2, 1, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('910005', '0', '1', 'bottom', '1', 'single', '0', '2026'), "
+            "('910005', '1', '1', 'top', '2', 'field_out', '1', '2026'), "
+            "('910006', '0', '1', 'bottom', '1', 'field_out', '1', '2026'), "
+            "('910006', '1', '1', 'top', '2', 'field_out', '1', '2026')"
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE gold.game_feature SET home_woba = 0.333 WHERE mlb_game_pk = '910006'")
+    db_conn.commit()
+
+    offense.compute_live(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_woba, away_woba FROM gold.game_feature WHERE mlb_game_pk = '910006'"
+        )
+        home, away = cur.fetchone()
+    assert home == Decimal("0.333")  # not overwritten
+    assert away == Decimal("0")  # NYA's only prior PA was a field_out: a real zero
 
 
 def test_compute_live_returns_zero_without_playbyplay_table(db_conn):

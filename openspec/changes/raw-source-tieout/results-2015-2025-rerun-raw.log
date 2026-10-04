@@ -1,0 +1,145 @@
+Retrosheet tie-out, started 2026-10-01 18:34:56 UTC
+target: database 'mlb' on localhost as 'cbwinslow' (read-only)
+seasons 2015-2025, levels season, game, player_game
+season totals, 2015-2025
+  loaded season event: 11 keys in 12.5s
+  loaded season csv_plays: 11 keys in 11.3s
+  loaded season csv_batting: 11 keys in 2.2s
+  loaded season gameinfo: 11 keys in 0.0s
+  loaded season gamelog: 11 keys in 0.2s
+  loaded season gamelog_post: 11 keys in 0.0s
+  loaded season box: 0 keys in 0.0s
+  loaded game gamelog_post: 450 keys in 0.0s
+  loaded game gamemeta: 25643 keys in 130.5s
+game level: 11 seasons, 7 pairs
+  game 2015: box 0, csv_batting 2466, csv_plays 2466, event 2466, gameinfo 2466, gamelog 2429
+  game 2016: box 0, csv_batting 2464, csv_plays 2464, event 2464, gameinfo 2464, gamelog 2428
+  game 2017: box 0, csv_batting 2469, csv_plays 2469, event 2469, gameinfo 2469, gamelog 2430
+  game 2018: box 0, csv_batting 2465, csv_plays 2465, event 2465, gameinfo 2465, gamelog 2431
+  game 2019: box 0, csv_batting 2467, csv_plays 2467, event 2467, gameinfo 2467, gamelog 2429
+  game 2020: box 0, csv_batting 951, csv_plays 951, event 951, gameinfo 951, gamelog 898
+  game 2021: box 0, csv_batting 2467, csv_plays 2467, event 2467, gameinfo 2467, gamelog 2429
+  game 2022: box 0, csv_batting 2471, csv_plays 2471, event 2471, gameinfo 2471, gamelog 2430
+  game 2023: box 0, csv_batting 2472, csv_plays 2472, event 2472, gameinfo 2472, gamelog 2430
+  game 2024: box 0, csv_batting 2473, csv_plays 2473, event 2473, gameinfo 2473, gamelog 2429
+  game 2025: box 0, csv_batting 2478, csv_plays 2478, event 2478, gameinfo 2478, gamelog 2430
+player_game level: 11 seasons, 3 pairs
+  player_game 2015: box 0, csv_batting 71691, csv_plays 54872, event 52237
+  player_game 2016: box 0, csv_batting 71608, csv_plays 54780, event 52076
+  player_game 2017: box 0, csv_batting 71940, csv_plays 54973, event 52231
+  player_game 2018: box 0, csv_batting 72759, csv_plays 55187, event 52357
+  player_game 2019: box 0, csv_batting 72881, csv_plays 55328, event 52474
+  player_game 2020: box 0, csv_batting 28413, csv_plays 19104, event 19049
+  player_game 2021: box 0, csv_batting 72891, csv_plays 55499, event 52336
+  player_game 2022: box 0, csv_batting 72180, csv_plays 49258, event 49154
+  player_game 2023: box 0, csv_batting 72476, csv_plays 49745, event 49624
+  player_game 2024: box 0, csv_batting 72710, csv_plays 49801, event 49708
+  player_game 2025: box 0, csv_batting 73092, csv_plays 49958, event 49857
+identity check, 2015-2025
+  identity check: 0 unresolved ids in 1.9s
+     season event vs csv_plays: 11 keys, facts bb,g,hr,k,pa,r
+            seasons: 10 match, 0 explained, 1 unexplained, 0 not comparable
+  <-- FAIL  season 2025 r: event 22002 vs csv_plays 22003
+     season event vs csv_batting: 11 keys, facts bb,g,hr,k,pa,r
+            seasons: 10 match, 0 explained, 1 unexplained, 0 not comparable
+  <-- FAIL  season 2025 r: event 22002 vs csv_batting 22003
+     season event vs gameinfo: 11 keys, facts g,r
+            seasons: 10 match, 0 explained, 1 unexplained, 0 not comparable
+  <-- FAIL  season 2025 r: event 22002 vs gameinfo 22003
+     season event vs gamelog: 11 keys, facts bb,g,hr,k,r
+            seasons: 0 match, 10 explained, 1 unexplained, 0 not comparable
+            explained by E1: season 2015 bb: event 14280 vs gamelog 14073
+            explained by E1: season 2015 g: event 2466 vs gamelog 2429
+            explained by E1: season 2015 hr: event 5003 vs gamelog 4909
+            explained by E1: season 2015 k: event 38123 vs gamelog 37446
+            explained by E1: season 2015 r: event 20970 vs gamelog 20647
+            explained by E1: season 2016 bb: event 15292 vs gamelog 15088
+            explained by E1: season 2016 g: event 2464 vs gamelog 2428
+            explained by E1: season 2016 hr: event 5684 vs gamelog 5610
+            explained by E1: season 2016 k: event 39626 vs gamelog 38982
+            explained by E1: season 2016 r: event 22009 vs gamelog 21744
+            explained by E1: season 2017 bb: event 16099 vs gamelog 15829
+            explained by E1: season 2017 g: event 2469 vs gamelog 2430
+            explained by E1: season 2017 hr: event 6211 vs gamelog 6105
+            explained by E1: season 2017 k: event 40826 vs gamelog 40104
+            explained by E1: season 2017 r: event 22911 vs gamelog 22582
+            ... 39 more explained
+  <-- FAIL  season 2025 r: event 22002 vs gamelog 21614
+  <-- FAIL  stale register entry: E1 predicted a difference at season 2025 r, but it is not the size the rule gives: season 2025 r: event 22002 vs gamelog 21614
+     season gameinfo vs gamelog: 11 keys, facts g,r
+            seasons: 0 match, 11 explained, 0 unexplained, 0 not comparable
+            explained by E1: season 2015 g: gameinfo 2466 vs gamelog 2429
+            explained by E1: season 2015 r: gameinfo 20970 vs gamelog 20647
+            explained by E1: season 2016 g: gameinfo 2464 vs gamelog 2428
+            explained by E1: season 2016 r: gameinfo 22009 vs gamelog 21744
+            explained by E1: season 2017 g: gameinfo 2469 vs gamelog 2430
+            explained by E1: season 2017 r: gameinfo 22911 vs gamelog 22582
+            explained by E1: season 2018 g: gameinfo 2465 vs gamelog 2431
+            explained by E1: season 2018 r: gameinfo 21908 vs gamelog 21630
+            explained by E1: season 2019 g: gameinfo 2467 vs gamelog 2429
+            explained by E1: season 2019 r: gameinfo 23772 vs gamelog 23467
+            explained by E1: season 2020 g: gameinfo 951 vs gamelog 898
+            explained by E1: season 2020 r: gameinfo 8810 vs gamelog 8344
+            explained by E1: season 2021 g: gameinfo 2467 vs gamelog 2429
+            explained by E1: season 2021 r: gameinfo 22334 vs gamelog 22010
+            explained by E1: season 2022 g: gameinfo 2471 vs gamelog 2430
+            ... 7 more explained
+       game event vs csv_plays: 25643 keys, facts bb,g,hr,k,pa,r
+            seasons: 10 match, 0 explained, 1 unexplained, 0 not comparable
+  <-- FAIL  game 2025/BOS202509030 r: event 8 vs csv_plays 9
+       game event vs csv_batting: 25643 keys, facts bb,g,hr,k,pa,r
+            seasons: 10 match, 0 explained, 1 unexplained, 0 not comparable
+  <-- FAIL  game 2025/BOS202509030 r: event 8 vs csv_batting 9
+       game event vs gameinfo: 25643 keys, facts g,r
+            seasons: 10 match, 0 explained, 1 unexplained, 0 not comparable
+  <-- FAIL  game 2025/BOS202509030 r: event 8 vs gameinfo 9
+       game event vs gamelog: 25643 keys, facts bb,g,hr,k,r
+            seasons: 0 match, 10 explained, 1 unexplained, 0 not comparable
+            explained by E1: game 2015/CHN201510120 bb: event 7 vs gamelog absent
+            explained by E1: game 2015/CHN201510120 g: event 1 vs gamelog absent
+            explained by E1: game 2015/CHN201510120 hr: event 8 vs gamelog absent
+            explained by E1: game 2015/CHN201510120 k: event 23 vs gamelog absent
+            explained by E1: game 2015/CHN201510120 r: event 14 vs gamelog absent
+            explained by E1: game 2015/CHN201510130 bb: event 8 vs gamelog absent
+            explained by E1: game 2015/CHN201510130 g: event 1 vs gamelog absent
+            explained by E1: game 2015/CHN201510130 hr: event 4 vs gamelog absent
+            explained by E1: game 2015/CHN201510130 k: event 24 vs gamelog absent
+            explained by E1: game 2015/CHN201510130 r: event 10 vs gamelog absent
+            explained by E1: game 2015/CHN201510200 bb: event 4 vs gamelog absent
+            explained by E1: game 2015/CHN201510200 g: event 1 vs gamelog absent
+            explained by E1: game 2015/CHN201510200 hr: event 3 vs gamelog absent
+            explained by E1: game 2015/CHN201510200 k: event 18 vs gamelog absent
+            explained by E1: game 2015/CHN201510200 r: event 7 vs gamelog absent
+            ... 2193 more explained
+  <-- FAIL  game 2025/BOS202509030 r: event 8 vs gamelog 9
+       game event vs box: 0 keys, facts bb,g,hr,k,r
+            seasons: 11 match, 0 explained, 0 unexplained, 0 not comparable
+       game gameinfo vs gamelog: 25643 keys, facts g,r
+            seasons: 0 match, 11 explained, 0 unexplained, 0 not comparable
+            explained by E1: game 2015/CHN201510120 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 2015/CHN201510120 r: gameinfo 14 vs gamelog absent
+            explained by E1: game 2015/CHN201510130 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 2015/CHN201510130 r: gameinfo 10 vs gamelog absent
+            explained by E1: game 2015/CHN201510200 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 2015/CHN201510200 r: gameinfo 7 vs gamelog absent
+            explained by E1: game 2015/CHN201510210 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 2015/CHN201510210 r: gameinfo 11 vs gamelog absent
+            explained by E1: game 2015/HOU201510110 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 2015/HOU201510110 r: gameinfo 6 vs gamelog absent
+            explained by E1: game 2015/HOU201510120 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 2015/HOU201510120 r: gameinfo 15 vs gamelog absent
+            explained by E1: game 2015/KCA201510080 g: gameinfo 1 vs gamelog absent
+            explained by E1: game 2015/KCA201510080 r: gameinfo 7 vs gamelog absent
+            explained by E1: game 2015/KCA201510090 g: gameinfo 1 vs gamelog absent
+            ... 885 more explained
+       game gameinfo vs box: 0 keys, facts g,r
+            seasons: 11 match, 0 explained, 0 unexplained, 0 not comparable
+player_game event vs csv_plays: 548505 keys, facts bb,hr,k,pa
+            seasons: 11 match, 0 explained, 0 unexplained, 0 not comparable
+player_game event vs csv_batting: 752641 keys, facts bb,hr,k,pa
+            seasons: 11 match, 0 explained, 0 unexplained, 0 not comparable
+player_game event vs box: 0 keys, facts bb,hr,k
+            seasons: 11 match, 0 explained, 0 unexplained, 0 not comparable
+  note: every event batter and pitcher id 2015-2025 resolves to a roster or all-players row
+elapsed 215.3s
+Retrosheet tie-out FAILED -- see above

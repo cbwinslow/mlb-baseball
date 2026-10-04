@@ -39,7 +39,18 @@ WITH regular_games AS (
     FROM core.game g
     WHERE g.game_type = 'regular'
 ),
-clean_events AS (
+-- Retrosheet writes a plate appearance's pitches cumulatively: a runner event
+-- in the middle of the plate appearance (stolen base, wild pitch, pickoff)
+-- carries the pitches thrown so far, and the batter's final row repeats them
+-- and adds the rest (2019 data: `BCBFF>B` on the stolen-base row, then
+-- `BCBFF>B.>B` on the batter row). Counting every row counted those pitches
+-- twice, and counted one first-pitch strike twice for one plate appearance
+-- (first-pitch strike percent above 1). A row followed by a continuation row
+-- of the same plate appearance (next row has pa_new_fl = 'F') is therefore
+-- dropped; the row that ends the plate appearance holds the whole sequence.
+-- A plate appearance cut short by an out on the bases has no continuation row
+-- and is kept, so its real pitches still count.
+pitch_events AS (
     SELECT
         rg.game_id,
         rg.season,
@@ -47,23 +58,45 @@ clean_events AS (
         rg.game_number,
         rg.home_team_id,
         rg.away_team_id,
-        re.resp_pit_id AS pitcher_retro_id,
+        re.resp_pit_id,
         re.resp_pit_start_fl,
-        CASE WHEN re.bat_home_id = '0' THEN rg.home_team_id ELSE rg.away_team_id END AS pitching_team_id,
         re.bat_home_id,
-        LENGTH(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g')) AS pitch_count,
-        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^CMQST]', '', 'g')) AS csw_count,
-        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^MQS]', '', 'g')) AS whiff_count,
-        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^FLMOQRSTXY]', '', 'g')) AS swing_count,
-        CASE
-            WHEN SUBSTRING(REGEXP_REPLACE(re.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g') FROM 1 FOR 1) ~ '[CFKLMOQRSTXY]' THEN 1
-            ELSE 0
-        END AS is_fstrike,
-        CASE WHEN re.bat_event_fl = 'T' THEN 1 ELSE 0 END AS is_pa
+        re.bat_event_fl,
+        re.pitch_seq_tx,
+        LEAD(re.pa_new_fl) OVER (
+            PARTITION BY re.game_id ORDER BY re.event_id::int
+        ) AS next_pa_new_fl
     FROM regular_games rg
     JOIN raw.retrosheet_gameinfo gi ON gi.gid = rg.retro_game_id AND lower(gi.gametype) = 'regular'
     JOIN raw.retrosheet_event re ON re.game_id = rg.retro_game_id
-    WHERE re.pitch_seq_tx IS NOT NULL AND re.pitch_seq_tx != ''
+    WHERE re.pitch_seq_tx IS NOT NULL AND re.pitch_seq_tx <> ''
+),
+clean_events AS (
+    SELECT
+        pe.game_id,
+        pe.season,
+        pe.game_date,
+        pe.game_number,
+        pe.home_team_id,
+        pe.away_team_id,
+        pe.resp_pit_id AS pitcher_retro_id,
+        pe.resp_pit_start_fl,
+        CASE WHEN pe.bat_home_id = '0' THEN pe.home_team_id ELSE pe.away_team_id END AS pitching_team_id,
+        pe.bat_home_id,
+        LENGTH(REGEXP_REPLACE(pe.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g')) AS pitch_count,
+        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(pe.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^CMQST]', '', 'g')) AS csw_count,
+        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(pe.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^MQS]', '', 'g')) AS whiff_count,
+        LENGTH(REGEXP_REPLACE(REGEXP_REPLACE(pe.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g'), '[^FLMOQRSTXY]', '', 'g')) AS swing_count,
+        -- Counted only on a completed plate appearance, the same population as
+        -- is_pa below, so the rate cannot exceed 1.
+        CASE
+            WHEN pe.bat_event_fl = 'T'
+                AND SUBSTRING(REGEXP_REPLACE(pe.pitch_seq_tx, '[^BCFHIKLMOPQRSTUVXY]', '', 'g') FROM 1 FOR 1) ~ '[CFKLMOQRSTXY]' THEN 1
+            ELSE 0
+        END AS is_fstrike,
+        CASE WHEN pe.bat_event_fl = 'T' THEN 1 ELSE 0 END AS is_pa
+    FROM pitch_events pe
+    WHERE COALESCE(pe.next_pa_new_fl, 'T') <> 'F'
 ),
 pitcher_game_stats AS (
     SELECT

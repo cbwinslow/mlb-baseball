@@ -261,3 +261,38 @@ def test_reap_stale_runs_leaves_null_pid_rows_alone(db_conn):
     status, error = _fetch_status(db_conn, run_id)
     assert status == "running"
     assert error is None
+
+
+def test_attempt_defaults_to_one_and_follows_the_supervisor_env(db_conn, monkeypatch):
+    first, retry = (f"test_attempt_{uuid.uuid4().hex}" for _ in range(2))
+
+    monkeypatch.delenv(ingest_module.ATTEMPT_ENV, raising=False)
+    with track_run(db_conn, first, "update"):
+        pass
+    monkeypatch.setenv(ingest_module.ATTEMPT_ENV, "3")
+    with track_run(db_conn, retry, "update"):
+        pass
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT source, attempt FROM meta.ingestion_run WHERE source IN (%s, %s)",
+            (first, retry),
+        )
+        assert dict(cur.fetchall()) == {first: 1, retry: 3}
+
+
+def test_nightly_mode_is_admitted_and_attempt_must_be_positive(db_conn):
+    source = f"test_nightly_{uuid.uuid4().hex}"
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO meta.ingestion_run (source, mode, status, attempt) "
+            "VALUES (%s, 'nightly', 'success', 2)",
+            (source,),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            cur.execute(
+                "INSERT INTO meta.ingestion_run (source, mode, status, attempt) "
+                "VALUES (%s, 'nightly', 'success', 0)",
+                (source,),
+            )
+    db_conn.rollback()

@@ -87,30 +87,81 @@ os.environ["TEST_DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 
-def _speed_up_test_database(url: str) -> None:
-    """Test-only durability relaxations for the disposable database at
-    `url` -- never called against production (this only ever runs from the
-    postgresql_noproc load callable below, which always targets this run's
-    own database). See GitHub issue #2 and README "Testing" for the full
-    measurement.
+TEST_TABLESPACE = "mlb_test_tmpfs"
 
-    Two independent changes, both needed:
 
-    1. `synchronous_commit = off` -- every test's commit otherwise waits on
-       a WAL flush it doesn't need for disposable data.
+def _move_to_tmpfs_tablespace(
+    host: str, port: int, user: str, password: str | None, dbname: str
+) -> None:
+    """If the ``mlb_test_tmpfs`` tablespace exists (a tmpfs-backed tablespace
+    set up once, outside pytest -- see docs/PERFORMANCE.md), move this run's
+    still-empty database onto it before migrations create anything.
 
-    2. UNLOGGED on every core.play/core.pitch season partition (migration
-       0011; ~316 partitions combined). Confirmed directly (psql \\timing
-       + pg_stat_activity) that TRUNCATE on these is dominated by a
-       synchronous per-relation fsync (`DataFileImmediateSync` wait), and
-       that this is *independent* of synchronous_commit. Unlogged relations
-       skip that fsync (they're wiped on crash recovery anyway, which is
-       fine -- test data is always rebuilt).
+    Confirmed directly (2026-09-27): on this shared host, `DROP DATABASE` on
+    an *empty* disposable database took ~6 minutes because Postgres forces a
+    full checkpoint before completing the drop, and that checkpoint has to
+    compete with whatever else the shared server's spinning-disk RAID array
+    is doing at the time (a real concurrent production `mlb conform` run and
+    an unrelated bulk load, both measured live via `pg_stat_activity`). tmpfs
+    does not remove the forced-checkpoint wait itself, but it does make the
+    actual file create/unlink work for this database's ~300+ migration-built
+    relations RAM-speed instead of disk-speed.
+
+    This is a local speed optimization only, never a correctness requirement:
+    a machine without the tablespace set up (a fresh clone, CI, a reboot
+    before the tmpfs mount is recreated) just keeps using the default
+    tablespace, silently slower but correct. `ALTER DATABASE ... SET
+    TABLESPACE` requires zero other connections to `dbname`, which holds
+    here because `dbname` was created moments ago by postgresql_noproc and
+    this is the first connection of any kind made to it.
+    """
+    admin_dsn = psycopg.conninfo.make_conninfo(
+        host=host, port=port, user=user, password=password, dbname="postgres"
+    )
+    with psycopg.connect(admin_dsn, autocommit=True) as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM pg_tablespace WHERE spcname = %s", (TEST_TABLESPACE,)
+        ).fetchone()
+        if not exists:
+            return
+        conn.execute(
+            sql.SQL("ALTER DATABASE {} SET TABLESPACE {}").format(
+                sql.Identifier(dbname), sql.Identifier(TEST_TABLESPACE)
+            )
+        )
+
+
+def _set_synchronous_commit_off(url: str) -> None:
+    """Set `synchronous_commit = off` as this disposable database's own default,
+    before anything else connects to it -- never called against production
+    (this only ever runs from the postgresql_noproc load callable below, which
+    always targets this run's own database). See GitHub issue #2 and README
+    "Testing" for the full measurement.
+
+    `ALTER DATABASE ... SET` changes the default a *new* connection picks up,
+    not the current session, so calling this before `migrate.run()` opens its
+    own connection is what actually gets migrations to run without waiting on
+    a WAL flush per commit -- doing it after migrations (the original order)
+    left the ~100+ migration commits paying full synchronous-commit latency
+    and only sped up the tests that ran afterwards.
     """
     with psycopg.connect(url, autocommit=True) as conn:
         dbname = conn.info.dbname
         alter_db = sql.SQL("ALTER DATABASE {} SET synchronous_commit = off")
         conn.execute(alter_db.format(sql.Identifier(dbname)))
+
+
+def _unlog_core_partitions(url: str) -> None:
+    """UNLOGGED every core.play/core.pitch season partition (migration 0011;
+    ~316 partitions combined) -- run after migrations, since the partitions
+    don't exist before them. Confirmed directly (psql \\timing +
+    pg_stat_activity) that TRUNCATE on these is dominated by a synchronous
+    per-relation fsync (`DataFileImmediateSync` wait), and that this is
+    *independent* of synchronous_commit. Unlogged relations skip that fsync
+    (they're wiped on crash recovery anyway, which is fine -- test data is
+    always rebuilt).
+    """
+    with psycopg.connect(url, autocommit=True) as conn:
         conn.execute("SET synchronous_commit = off")
         partitions = conn.execute(
             """
@@ -152,10 +203,13 @@ def _build_test_database(
     os.environ["DATABASE_URL"] = dsn
     os.environ["MLB_TEST_SUITE"] = "1"
 
+    _move_to_tmpfs_tablespace(host, port, user, password, dbname)
+    _set_synchronous_commit_off(dsn)
+
     from mlb_baseball import migrate
 
     migrate.run()
-    _speed_up_test_database(dsn)
+    _unlog_core_partitions(dsn)
 
 
 postgresql_noproc = factories.postgresql_noproc(

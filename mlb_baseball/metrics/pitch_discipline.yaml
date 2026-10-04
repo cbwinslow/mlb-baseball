@@ -51,3 +51,18 @@ notes: >
   definition, not an independent tie-out against a second source's
   already-computed CSW%/Whiff%/FStrike% for a real pitcher-season), so
   status is "published" rather than "validated".
+
+  ADR-293 (2026-10-04) fixed a second real bug found by tracing a doctor
+  failure to its source: Retrosheet writes a plate appearance's pitches
+  cumulatively (a mid-plate-appearance runner event carries the pitches so
+  far; the batter's final row repeats them), so summing every row counted
+  about 2.0% of pitches twice and could count a first-pitch strike twice for
+  one plate appearance (first-pitch strike percent above 1, about 1.5 points
+  high everywhere). The SQL now drops a row that is followed by a continuation
+  row of the same plate appearance and counts first-pitch strikes only on a
+  completed plate appearance. CSW% and whiff% change very little; first-pitch
+  strike percent drops (2014 and 2019 league rate 62.3% to 60.7%).
+  tests/integration/test_model_pitch_discipline.py::test_compute_counts_each_pitch_once_when_a_runner_event_splits_a_plate_appearance
+  is the regression guard. The unpromoted SQLMesh spike copy in
+  transforms/models/pitch_discipline.sql still has the old logic (frozen,
+  ADR-271) and must be fixed before any promotion.

@@ -1,54 +1,67 @@
 {
   "chadwick_version": "0.10.0",
   "fields": "0-96",
+  "extended": "0-66",
   "files": {
     "allstar.evt": {
       "year": 1952,
       "rows": 42,
       "fixture_sha256": "5799f64a88052b3a0920af962add07c08f6fb7c6ef0bd8674e549435f1f9cb9a",
-      "csv_sha256": "0aebf58f3f1b982c54b9cca54745f6cb2b980a78613a5b4a6a44e11c254d5574"
+      "csv_sha256": "272044153c3c7e9eceb5fb6980155bd2501fb858d67f8f238b494dbd3c7f38af"
+    },
+    "auto_runner.evt": {
+      "year": 2020,
+      "rows": 96,
+      "fixture_sha256": "cffdb4b7373b1eabbec5725980dc2b656aff984b55e5a84b899acc0df96fa646",
+      "csv_sha256": "63c87f7d83476422197f992639cb2c4286573206f763724dd7decc31b43f76dd"
+    },
+    "auto_runner_pr.evt": {
+      "year": 2020,
+      "rows": 100,
+      "fixture_sha256": "5f7f4c234839a6dc24ebd6e4d5e3f03e5567a26df5cf4cc4b7aa5afc63768908",
+      "csv_sha256": "0f576ac5a864e2afc367db9a93ebae986bbc6d6129ce7b61de7b20f8c64fdd2d"
     },
     "deduced.evt": {
       "year": 1915,
       "rows": 40,
       "fixture_sha256": "1f2fd833a8e06a27149d346ac2637be04b7c5c5dc28ecda430b5aa41938cab67",
-      "csv_sha256": "1d42f1d5354018bd2309eae57510074c3939eece721d1692ce774350d3b4fdd5"
+      "csv_sha256": "c93d4cf865eb2784be52fc17f96842c0e4bedb6633a8df90283549e8180c1cfb"
     },
     "ladj.evt": {
       "year": 1910,
       "rows": 73,
       "fixture_sha256": "64f3a546861840e1efdea25aaa150ab029b3cdc71566bb462ab30f998b4812f9",
-      "csv_sha256": "0ec0211f01d286fc5042abac14dbf25b5ab71c7c7bb90a0b1cf618751aab1c97"
+      "csv_sha256": "32eda8a0d2a66aa09e100324d9ce18b530f2eea0390c01aca729c6c8beb03770"
     },
     "negro_league.evt": {
       "year": 1926,
       "rows": 74,
       "fixture_sha256": "f11670e96bbab174381ed9a0825a825df131cd3eaa1fab85becdfd3ccbf4228d",
-      "csv_sha256": "d56c2718acbb26ea32990b81abc6116a5d879d577dd6e4685b6e270f34aa619c"
+      "csv_sha256": "039280298eff65f8e4fcde110e33103e3818af04c97c545ed2fd7ac6f6d931a6"
     },
     "postseason.evt": {
       "year": 1956,
       "rows": 56,
       "fixture_sha256": "5fe06921bd3b626947061fc20f75b7824de44a078d07d5051f702979ec009f1b",
-      "csv_sha256": "81a9d5642134eb50c605fd7f93119c6aef02550de8857025dc92ad8a6a9efbd8"
+      "csv_sha256": "3e7225e6c7ab4326c5f0e8cab82d57c3e2ba0f2cb110efb7aba6de2f4ffcb235"
     },
     "presadj.evt": {
       "year": 1909,
       "rows": 52,
       "fixture_sha256": "f42d29515fbda7435ecb8d728d6c81eb56a3c8ee8733b7010994dd5fbb13a6a5",
-      "csv_sha256": "bfde48dfb1fae92541d1383bee21370608a850ab69d96d535811b417674f7156"
+      "csv_sha256": "4e1d9c5113e3f90ad9b912b35060d509d4dea301f795a79d53355c3f39a70345"
     },
     "regular_1950.evt": {
       "year": 1950,
       "rows": 41,
       "fixture_sha256": "c641981cc3b1c0ca42c363f9ec1115aec67ea75d97b00170afb449b90ee9a3e4",
-      "csv_sha256": "3755df7bf886cafb546409970cb927bb222940fa7164ad41d551b96360a5f3ad"
+      "csv_sha256": "277d7713c10f2fbcb10055102a8766c012704ba7c6ae61e2ed2e0c612863fb0a"
     },
     "regular_2007.evt": {
       "year": 2007,
       "rows": 59,
       "fixture_sha256": "63fb04f161092f02b31953b5c05c4d980cf8a3c3f527aab63d726dc923432d9f",
-      "csv_sha256": "590a983628c3009815cd4e346b41747e8444364edcc98a0694546dab09f6a50f"
+      "csv_sha256": "fe3a93fd8a5da44f81d3738af1547b1ef21b5bdd03de4f9ea5d8d58e4a341d43"
     }
   }
 }

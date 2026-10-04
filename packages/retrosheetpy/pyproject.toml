@@ -7,6 +7,17 @@ license = "AGPL-3.0-or-later"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.scripts]
+# Same names as Chadwick's tools: a drop-in replacement. Installing this package next to the C
+# programs puts whichever directory comes first on PATH in front (tests find the C ones with real_tool).
+cwevent = "retrosheetpy.cw.cli:main_cwevent"
+cwgame = "retrosheetpy.cw.cli:main_cwgame"
+cwdaily = "retrosheetpy.cw.cli:main_cwdaily"
+cwsub = "retrosheetpy.cw.cli:main_cwsub"
+cwcomment = "retrosheetpy.cw.cli:main_cwcomment"
+cwbox = "retrosheetpy.cw.cli:main_cwbox"
+retrosheetpy = "retrosheetpy.cw.cli:main_umbrella"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

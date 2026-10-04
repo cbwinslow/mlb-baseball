@@ -145,7 +145,8 @@ def _split_free_text(rtype: str, raw: str) -> list[str]:
 
 
 def _int(value: str, what: str) -> int:
-    if not _DIGITS.fullmatch(value):
+    # Chadwick reads these with atoi, which ignores trailing blanks; the raw line is kept
+    if not _DIGITS.fullmatch(value.strip()):
         raise _Bad(f"{what} is not a plain non-negative integer")
     return int(value)
 

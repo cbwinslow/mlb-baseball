@@ -16,7 +16,7 @@ CHADWICK = HERE / "reference" / "chadwick"
 PLAYS_CSV = HERE / "reference" / "retrosheet_csv"
 # Known, understood disagreements between the event text and the CSV (the CSV
 # normalises some hit locations, e.g. 3L -> 3+, 56D -> 56+). Anything else is a failure.
-EXPECTED_CSV_DIFFS = {"postseason": {"loc": 2}}
+EXPECTED_CSV_DIFFS = {"postseason": {"loc": 2}, "auto_runner_pr": {"loc": 2}}
 NAMES = sorted(p.stem for p in FIXTURES.glob("*.evt"))
 
 
@@ -26,7 +26,7 @@ def read_rows(path: Path) -> list[dict[str, str]]:
 
 
 def test_fixture_set_is_not_empty():
-    assert len(NAMES) == 8
+    assert len(NAMES) == 10
 
 
 def test_captured_chadwick_matches_current_fixtures():
@@ -37,6 +37,14 @@ def test_captured_chadwick_matches_current_fixtures():
         assert manifest["files"][f"{name}.evt"]["fixture_sha256"] == digest, (
             f"{name}: fixture changed; re-run tests/reference/capture.py"
         )
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_captured_chadwick_has_all_164_columns(name):
+    manifest = json.loads((CHADWICK / "MANIFEST.json").read_text())
+    assert (manifest["fields"], manifest["extended"]) == ("0-96", "0-66")
+    rows = read_rows(CHADWICK / f"{name}.csv")
+    assert len(rows[0]) == 97 + 67 and len(set(rows[0])) == 164
 
 
 @pytest.mark.parametrize("directory", [CHADWICK, PLAYS_CSV])

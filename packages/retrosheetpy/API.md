@@ -1,4 +1,7 @@
-# Public API (planned, first stable surface)
+# Public API
+
+The Chadwick port lives in `retrosheetpy.cw` (modules mirror the C files; the six tools are also console
+scripts). The four areas below are the older, non-port surface and are unchanged.
 
 Only four areas are public. Everything else is internal and may change.
 
@@ -13,5 +16,5 @@ Only four areas are public. Everything else is internal and may change.
 4. **Structured errors** — `ParseError` with parser stage, file, line, raw text.
    Strict mode raises; diagnostic mode returns visible unsupported nodes.
 
-Not in scope for this slice: game-state reduction, Chadwick-compatible output
-tables, dataframe adapters.
+Game-state iteration and Chadwick-compatible output are provided by `retrosheetpy.cw`. Dataframe
+adapters are not in scope.

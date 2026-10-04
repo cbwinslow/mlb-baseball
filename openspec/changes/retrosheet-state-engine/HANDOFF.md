@@ -1,4 +1,4 @@
-# Handoff — `retrosheet-state-engine` (updated 2026-10-03, fourteenth session)
+# Handoff — `retrosheet-state-engine` (updated 2026-10-04, end of fourteenth session)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start."
 
@@ -17,7 +17,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 
 ## State
 - Branch `feat/retrosheet-state-engine-impl`, worktree `/home/cbwinslow/workspace/mlb-pure-python`
-  (never touch `/home/cbwinslow/workspace/mlb`). **Committed locally; not pushed; no PR.**
+  (never touch `/home/cbwinslow/workspace/mlb`). **Pushed. Draft PR #282** (https://github.com/cbwinslow/mlb-baseball/pull/282), all CI checks green at HEAD 5209415 including the new `retrosheetpy (parity with Chadwick)` job (builds Chadwick c685ab5, runs all 835 tests). Do not merge without the owner's "merge".
   Committing, pushing the branch and opening a PR is pre-authorized; merging needs the owner's "merge".
 - **All six Chadwick tools are now ported, with their command-line drivers**, in
   `packages/retrosheetpy/src/retrosheetpy/cw/`:
@@ -146,20 +146,16 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
   `validation.py`, `report.py`, `records.py` are the old csv/infer tools. Candidates to delete or move onto `cw/` (owner decision).
 
 ## Next steps (in order)
-1. **Decisions done:** (1) deleted `playtext.py`, `extended.py`, `test_extended.py`; (2) owner delegated the CI choice, I picked B: new `retrosheetpy` job in `.github/workflows/ci.yml` builds Chadwick c685ab5 (cached) and runs all package tests; it is part of the required `test` aggregator. NOT yet run on GitHub (needs a push): check the first run (about 15 min cold) and fix if needed.
-   `play.py`/`validation.py`/`report.py`/`records.py` (move onto `cw/` or drop); (b) CI: add a job running `packages/retrosheetpy/tests`
-   (non-differential tests run; differential ones skip without Chadwick) — or also build Chadwick c685ab5 in CI so the parity tests run
-   (autotools build, more CI time). Root `pyproject` `testpaths` already lists `packages/retrosheetpy/tests`; the package is a uv
-   workspace member (`packages/*`).
-2. Optional remaining coverage: the 6 gameiter lines above (go-ahead-RBI clearing, strikeout-batter-hand, fc_flag responsibility on
-   3rd), `cw/__main__.py` (tested only through subprocess), lint.py branches, `box.py` box-file branches in-process.
-3. **Owner request 3 (later, not now):** separate repo + documentation site (see earlier list; licence note unchanged).
-4. Close-out: rewrite `tasks.md`/`results.md`/`proposal.md`/`design.md` for the port approach (they still describe the old
-   infer-from-output plan; results.md says "No Chadwick code was copied", obsolete), update `packages/retrosheetpy/AGENTS.md`
-   (owning-change path says `pure-python-retrosheet`; add `cw/` map, console scripts, harness notes incl. `synth_*`/`parse_grammar`,
-   the PATH-shadowing note), README.md/API.md (speed: ~25x slower than C); independent reviewer (general-purpose agent with Bash)
-   checks notices, deviations, silent skips; `openspec validate retrosheet-state-engine --strict`; re-run full suite + ruff +
-   format + mypy; delete this file before the PR; push, open PR (merge needs the owner's "merge").
+Owner decisions already made this session: delete dead `playtext.py`/`extended.py` (done); CI = build Chadwick and run parity tests (done, green). `play.py`/`validation.py`/`report.py`/`records.py` stay for now.
+1. **Close-out (do next):**
+   - Rewrite `tasks.md`, `results.md`, `proposal.md`, `design.md` for the port approach (they still describe the old infer-from-output plan; `results.md` says "No Chadwick code was copied", which is wrong now).
+   - Update `packages/retrosheetpy/AGENTS.md` (owning-change path says `pure-python-retrosheet`; add the `cw/` map, console scripts, test harness notes incl. `synth_*`/`parse_grammar`, the PATH-shadowing note, the CI job) and README.md/API.md (state honestly: ~25x slower than the C).
+   - Independent reviewer (general-purpose agent with Bash): licence notices on ported files, documented deviations, any silent skips in tests.
+   - `openspec validate retrosheet-state-engine --strict`; re-run full suite + ruff + format + `mypy --strict`.
+   - Delete this file before the PR leaves draft; mark ready; owner says "merge" before anything is merged.
+2. Optional extra coverage: 6 lines in gameiter.c (319-320, 658, 725, 731, 737), `cw/__main__.py` in-process, lint.py branches.
+3. Later (owner request, not now): separate repo + documentation site; licence note (derivative of GPL-2.0-or-later Chadwick, package AGPL-3.0-or-later; recommend a human legal read, not legal advice).
+4. Later: decide the fate of `play.py`/`validation.py`/`report.py`/`records.py` (move onto `cw/` or drop).
 
 ## Commands
 - Tests: `uv run --package retrosheetpy --with pytest pytest packages/retrosheetpy/tests -q -p no:cacheprovider`

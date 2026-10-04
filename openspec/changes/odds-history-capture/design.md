@@ -1,0 +1,28 @@
+## Context
+
+Observed in code: `kalshi._run` and `polymarket._run` each do a full catalog pull, replace the catalog tables with `load_dataframe` (TRUNCATE), then append a snapshot with `append_dataframe`. Snapshots already exist and are append-only (ADR-049) but only run inside `mlb nightly`. `backfill_history()` exists for both sources (scoped-replace per ticker / token) and was never run. An existing pattern for a light cron job is `scripts/mlb_api_update.sh` (every 5 min, `flock`). See proposal.md for motivation.
+
+## Goals / Non-Goals
+
+**Goals:** frequent append-only odds history; no silent loss of catalog rows; backfill run once; tests first.
+**Non-Goals:** new sources, trading/authenticated calls, canonical game matching (stays in `conform`), model use of odds, redesigning other connectors.
+
+## Decisions
+
+1. **Separate capture entry point per source (`mlb ingest <src> --mode snapshot`).** Fetches open markets only and appends snapshots. Alternative: shorten the nightly interval — rejected, it re-pulls the whole catalog and ties capture to a 2-hour run.
+2. **Own cron script modelled on `mlb_api_update.sh`** (own lock, own log, every 5 min, skip when no games are scheduled). Alternative: SQLMesh/other scheduler — rejected, ADR-016 already settles cron + flock.
+3. **Catalog tables keep rows (upsert, no delete) with `last_seen_at`.** Simple and keeps identity. Alternative: a full history table of every version — rejected as heavy (377k Kalshi markets daily); price history already lives in snapshots. Needs a check that an upsert helper exists in `mlb_baseball/load.py`; if not, a small one is added with its own test.
+4. **Backfill code unchanged unless a test fails;** it is only run once under owner approval. It stays out of routine updates.
+5. **Doctor:** replace "table does not exist" with "backfill not run" state; add a gap check from snapshot timestamps.
+
+## Risks / Trade-offs
+
+- Snapshot volume at 5-minute cadence → bounded by open markets only; measure rows/day after one week and decide on retention before adding any.
+- Rate limits on the public APIs → keep existing retry and politeness controls; capture is one small request set per tick.
+- `track_run` writes one `meta.ingestion_run` row per tick (~288/day per source) → measure; if noisy, capture logs to its own table instead.
+- Upsert with no delete leaves stale open-looking markets → consumers use snapshots and market status, not catalog presence.
+- Source quirks (Kalshi `max candlesticks: 5000`, Polymarket keyset pagination) are already handled; do not regress (see `.dox.md` files).
+
+## Migration Plan
+
+Merge tests+code first (no production writes). Then, each owner-approved and logged in `pipeline-recovery/results.md`: apply any migration, install the cron entry, run the two backfills. Rollback: remove the cron line; tables are additive.

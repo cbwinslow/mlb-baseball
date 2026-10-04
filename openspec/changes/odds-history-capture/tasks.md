@@ -5,11 +5,11 @@
 
 ## 2. Capture job (tests first)
 
-- [ ] 2.1 Write failing test: two snapshot runs with different prices keep both rows (real PostgreSQL fixture); verify it fails
-- [ ] 2.2 Write failing tests with fixed HTTP fixtures: snapshot mode fetches open markets only and makes no catalog calls (both sources)
-- [ ] 2.3 Implement `--mode snapshot` for Kalshi and Polymarket until 2.1-2.2 pass
-- [ ] 2.4 Write failing test then implement `scripts/mlb_odds_capture.sh` skip-when-locked behaviour (shell test or documented dry run)
-- [ ] 2.5 Zero-open-markets test: run succeeds, tables exist, zero rows
+- [x] 2.1 Write failing test: two snapshot runs with different prices keep both rows (real PostgreSQL fixture); verify it fails
+- [x] 2.2 Write failing tests with fixed HTTP fixtures: snapshot mode fetches open markets only and makes no catalog calls (both sources)
+- [x] 2.3 Implement `--mode snapshot` for Kalshi and Polymarket until 2.1-2.2 pass
+- [x] 2.4 Write failing test then implement `scripts/mlb_odds_capture.sh` skip-when-locked behaviour (shell test or documented dry run)
+- [x] 2.5 Zero-open-markets test: run succeeds, tables exist, zero rows
 
 ## 3. Catalog retention (tests first)
 

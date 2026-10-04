@@ -338,3 +338,53 @@ def test_event_absent_from_a_later_pull_is_kept(db_conn):
             assert cur.fetchone() == (2,), table
         cur.execute(f"SELECT count(*) FROM {polymarket.OUTCOME_TABLE}")
         assert cur.fetchone() == (4,)
+
+
+# --- Snapshot-only capture (odds-history-capture) --------------------------
+
+
+def _snapshot_patch(events, calls):
+    def fake_get(url, params=None, timeout=None):
+        calls.append(dict(params or {}))
+        if params.get("closed") == "false" or params.get("tag_slug"):
+            return FakeResponse(_page(events))
+        return _no_results_get(url, params, timeout)
+
+    return patch.object(polymarket.requests, "get", side_effect=fake_get)
+
+
+def test_snapshot_keeps_every_capture_with_its_own_time(db_conn):
+    event = _event("1")
+    with _snapshot_patch([event], []):
+        polymarket.snapshot()
+        event["markets"][0]["outcomePrices"] = '["0.7", "0.3"]'
+        polymarket.snapshot()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            f"SELECT price FROM {polymarket.SNAPSHOT_TABLE} "
+            "WHERE outcome = 'Yes' ORDER BY captured_at"
+        )
+        assert cur.fetchall() == [("0.5",), ("0.7",)]
+
+
+def test_snapshot_reads_only_open_markets_and_leaves_the_catalog_alone(db_conn):
+    calls = []
+    with _snapshot_patch([_event("1")], calls):
+        counts = polymarket.snapshot()
+
+    assert counts[polymarket.SNAPSHOT_TABLE] == 2  # Yes + No
+    assert not any(p.get("closed") == "true" for p in calls)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass(%s)", (polymarket.EVENT_TABLE,))
+        assert cur.fetchone() == (None,)
+
+
+def test_snapshot_with_no_open_markets_succeeds_and_creates_the_table(db_conn):
+    with _snapshot_patch([], []):
+        counts = polymarket.snapshot()
+
+    assert counts[polymarket.SNAPSHOT_TABLE] == 0
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT count(*) FROM {polymarket.SNAPSHOT_TABLE}")
+        assert cur.fetchone() == (0,)

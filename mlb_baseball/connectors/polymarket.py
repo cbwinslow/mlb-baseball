@@ -89,6 +89,7 @@ from mlb_baseball.load import append_dataframe, load_dataframe, upsert_dataframe
 from mlb_baseball.net import call_with_retry
 
 SOURCE = "polymarket"
+SNAPSHOT_SOURCE = "polymarket_snapshot"  # run-ledger/lock name for snapshot()
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 BASE_URL = "https://gamma-api.polymarket.com"
 CLOB_BASE_URL = "https://clob.polymarket.com"  # prices-history only, confirmed unauthenticated
@@ -198,6 +199,39 @@ def _snapshot_rows(events: list[dict], captured_at: str) -> list[dict]:
 SNAPSHOT_COLUMNS = ["market_id", "outcome", "price", "clob_token_id", "captured_at"]
 
 
+def _append_snapshot(conn: psycopg.Connection, events: list[dict]) -> int:
+    """Forward snapshot (ADR-049): append-only, never replaced — every run's
+    open-market prices stay meaningful as a point-in-time observation. Always
+    calls append_dataframe, even with 0 rows on a day with no open markets, so
+    raw.polymarket_snapshot's own existence doesn't depend on the coincidence of
+    an open market at run time — same fix mlb_api.capture_live() already needed
+    for raw.mlb_live_game."""
+    captured_at = datetime.now(UTC).isoformat()
+    snapshot_df = pd.DataFrame(_snapshot_rows(events, captured_at), columns=SNAPSHOT_COLUMNS)
+    return append_dataframe(
+        conn,
+        SNAPSHOT_TABLE,
+        snapshot_df,
+        identity_columns=("market_id", "outcome", "captured_at"),
+    )
+
+
+def snapshot() -> dict[str, int]:
+    """Price-only capture for the frequent odds-history job: reads open events
+    only and appends to raw.polymarket_snapshot, never touching the catalog
+    tables (the nightly update() owns those). Recorded under its own run-ledger
+    source so a capture tick never collides with the nightly polymarket run."""
+    with get_connection() as conn, track_run(conn, SNAPSHOT_SOURCE, "snapshot") as result:
+        all_events = fetch_events({"series_id": MLB_SERIES_ID, "closed": "false"}) + fetch_events(
+            {"tag_slug": MLB_TAG_SLUG, "closed": "false"}
+        )
+        events = list({event["id"]: event for event in all_events}.values())
+        counts = {SNAPSHOT_TABLE: _append_snapshot(conn, events)}
+        conn.commit()
+        result["rows"] = counts[SNAPSHOT_TABLE]
+    return counts
+
+
 def _run(mode: str) -> dict[str, int]:
     counts: dict[str, int] = dict.fromkeys(ALL_TABLES, 0)
     counts[SNAPSHOT_TABLE] = 0
@@ -217,21 +251,7 @@ def _run(mode: str) -> dict[str, int]:
                 continue
             counts[table] = upsert_dataframe(conn, table, df, key_column=_CATALOG_KEYS[table])
 
-        # Forward snapshot (ADR-049): append-only, never replaced — every
-        # run's open-market prices stay meaningful as a point-in-time
-        # observation, not just the latest one. Always calls
-        # append_dataframe, even with 0 rows on a day with no open markets,
-        # so raw.polymarket_snapshot's own existence doesn't depend on the
-        # coincidence of an open market at run time — same fix
-        # mlb_api.capture_live() already needed for raw.mlb_live_game.
-        captured_at = datetime.now(UTC).isoformat()
-        snapshot_df = pd.DataFrame(_snapshot_rows(events, captured_at), columns=SNAPSHOT_COLUMNS)
-        counts[SNAPSHOT_TABLE] = append_dataframe(
-            conn,
-            SNAPSHOT_TABLE,
-            snapshot_df,
-            identity_columns=("market_id", "outcome", "captured_at"),
-        )
+        counts[SNAPSHOT_TABLE] = _append_snapshot(conn, events)
 
         conn.commit()
         result["rows"] = sum(counts.values())

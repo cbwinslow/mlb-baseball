@@ -392,3 +392,55 @@ def test_changed_market_values_replace_the_row(db_conn, monkeypatch):
     with db_conn.cursor() as cur:
         cur.execute(f"SELECT last_price_dollars FROM {kalshi.MARKET_TABLE}")
         assert cur.fetchall() == [("0.61",)]
+
+
+# --- Snapshot-only capture (odds-history-capture) --------------------------
+
+
+def _snapshot_get(monkeypatch, markets, calls):
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url.rsplit("/", 1)[-1], dict(params or {})))
+        if url.endswith("/series"):
+            return FakeResponse({"series": [_series("KXMLBGAME")]})
+        if url.endswith("/markets"):
+            return FakeResponse({"markets": markets, "cursor": ""})
+        raise AssertionError(f"snapshot must not call {url}")
+
+    monkeypatch.setattr(kalshi.requests, "get", fake_get)
+
+
+def test_snapshot_keeps_every_capture_with_its_own_time(db_conn, monkeypatch):
+    markets = [_market("KXMLBGAME-1-A", "KXMLBGAME-1")]
+    _snapshot_get(monkeypatch, markets, [])
+    kalshi.snapshot()
+    markets[0] = {**markets[0], "last_price_dollars": "0.70"}
+    kalshi.snapshot()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT last_price_dollars FROM {kalshi.SNAPSHOT_TABLE} ORDER BY captured_at")
+        assert cur.fetchall() == [("0.52",), ("0.70",)]
+
+
+def test_snapshot_reads_only_open_markets_and_leaves_the_catalog_alone(db_conn, monkeypatch):
+    calls = []
+    _snapshot_get(monkeypatch, [_market("KXMLBGAME-1-A", "KXMLBGAME-1")], calls)
+
+    counts = kalshi.snapshot()
+
+    assert counts[kalshi.SNAPSHOT_TABLE] == 1
+    assert {name for name, _ in calls} == {"series", "markets"}  # no /events
+    assert all(p.get("status") == "open" for name, p in calls if name == "markets")
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass(%s)", (kalshi.MARKET_TABLE,))
+        assert cur.fetchone() == (None,)  # catalog tables untouched
+
+
+def test_snapshot_with_no_open_markets_succeeds_and_creates_the_table(db_conn, monkeypatch):
+    _snapshot_get(monkeypatch, [], [])
+
+    counts = kalshi.snapshot()
+
+    assert counts[kalshi.SNAPSHOT_TABLE] == 0
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT count(*) FROM {kalshi.SNAPSHOT_TABLE}")
+        assert cur.fetchone() == (0,)

@@ -90,6 +90,7 @@ from mlb_baseball.net import call_with_retry
 logger = logging.getLogger(__name__)
 
 SOURCE = "kalshi"
+SNAPSHOT_SOURCE = "kalshi_snapshot"  # run-ledger/lock name for snapshot(); see snapshot()
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 # /markets accepts up to 1000 (confirmed directly); /events rejects anything
@@ -215,10 +216,9 @@ def fetch_events(series_ticker: str) -> list[dict]:
     return _paginate("/events", series_ticker, "events", EVENTS_PAGE_SIZE, {})
 
 
-def fetch_markets(series_ticker: str) -> list[dict]:
-    return _paginate(
-        "/markets", series_ticker, "markets", MARKETS_PAGE_SIZE, {"mve_filter": "exclude"}
-    )
+def fetch_markets(series_ticker: str, *, open_only: bool = False) -> list[dict]:
+    params = {"mve_filter": "exclude", **({"status": "open"} if open_only else {})}
+    return _paginate("/markets", series_ticker, "markets", MARKETS_PAGE_SIZE, params)
 
 
 _SNAPSHOT_FIELDS = [
@@ -254,6 +254,45 @@ def _snapshot_rows(markets: list[dict], captured_at: str) -> list[dict]:
 SNAPSHOT_COLUMNS = [*_SNAPSHOT_FIELDS, "captured_at"]
 
 
+def _append_snapshot(conn: psycopg.Connection, markets: list[dict]) -> int:
+    """Forward snapshot (ADR-049): append-only, never replaced — every run's
+    active-market prices stay meaningful as a point-in-time observation, not
+    just the latest one. Always calls append_dataframe, even with 0 rows on a
+    run with no active markets, so raw.kalshi_snapshot's own existence doesn't
+    depend on the coincidence of an active market at run time — same fix
+    mlb_api.capture_live() already needed for raw.mlb_live_game."""
+    captured_at = datetime.now(UTC).isoformat()
+    snapshot_df = pd.DataFrame(_snapshot_rows(markets, captured_at), columns=SNAPSHOT_COLUMNS)
+    count = append_dataframe(
+        conn, SNAPSHOT_TABLE, snapshot_df, identity_columns=("ticker", "captured_at")
+    )
+    conn.commit()
+    return count
+
+
+def snapshot() -> dict[str, int]:
+    """Price-only capture for the frequent odds-history job: reads open markets
+    only and appends to raw.kalshi_snapshot. It never touches the catalog tables
+    (series/event/market), which the nightly update() owns. Recorded under its
+    own run-ledger source so a capture tick never collides with the nightly
+    kalshi run's source lock."""
+    with get_connection() as conn, track_run(conn, SNAPSHOT_SOURCE, "snapshot") as result:
+        markets: list[dict] = []
+        failed: list[str] = []
+        series = fetch_series()
+        for s in series:
+            try:
+                markets.extend(fetch_markets(s["ticker"], open_only=True))
+            except Exception as exc:
+                logger.error("kalshi: %s snapshot failed (%s); continuing", s["ticker"], exc)
+                failed.append(s["ticker"])
+        if series and len(failed) == len(series):
+            raise RuntimeError(f"kalshi snapshot: every series failed ({', '.join(failed)})")
+        counts = {SNAPSHOT_TABLE: _append_snapshot(conn, markets)}
+        result["rows"] = counts[SNAPSHOT_TABLE]
+    return counts
+
+
 def _run(mode: str) -> dict[str, int]:
     counts: dict[str, int] = dict.fromkeys(ALL_TABLES, 0)
     counts[SNAPSHOT_TABLE] = 0
@@ -286,24 +325,7 @@ def _run(mode: str) -> dict[str, int]:
             )
             conn.commit()
 
-        # Forward snapshot (ADR-049): append-only, never replaced — every
-        # run's active-market prices stay meaningful as a point-in-time
-        # observation, not just the latest one. Always calls
-        # append_dataframe, even with 0 rows on a run with no active
-        # markets, so raw.kalshi_snapshot's own existence doesn't depend on
-        # the coincidence of an active market at run time — same fix
-        # mlb_api.capture_live() already needed for raw.mlb_live_game.
-        captured_at = datetime.now(UTC).isoformat()
-        snapshot_df = pd.DataFrame(
-            _snapshot_rows(all_markets, captured_at), columns=SNAPSHOT_COLUMNS
-        )
-        counts[SNAPSHOT_TABLE] = append_dataframe(
-            conn,
-            SNAPSHOT_TABLE,
-            snapshot_df,
-            identity_columns=("ticker", "captured_at"),
-        )
-        conn.commit()
+        counts[SNAPSHOT_TABLE] = _append_snapshot(conn, all_markets)
 
         result["rows"] = sum(counts.values())
     return counts

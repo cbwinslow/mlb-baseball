@@ -36,7 +36,7 @@ def _ensure_retrosheet_tables(db_conn):
                 "CREATE TABLE raw.retrosheet_event ("
                 "game_id text, bat_home_id text, resp_pit_id text, "
                 "resp_pit_start_fl text, bat_event_fl text, pitch_seq_tx text, "
-                "_season text)"
+                "event_id text, pa_new_fl text, _season text)"
             )
         cur.execute("SELECT to_regclass('raw.retrosheet_gameinfo')")
         if not cur.fetchone()[0]:
@@ -132,6 +132,79 @@ def test_compute_calculates_pitch_discipline_with_zero_leakage(db_conn):
     assert res["G2"][0] == Decimal("0.5")  # 10 / 20
     assert abs(res["G2"][1] - Decimal("0.54545454545454545455")) < Decimal("0.001")  # 6 / 11
     assert abs(res["G2"][2] - Decimal("0.83333333333333333333")) < Decimal("0.001")  # 5 / 6
+
+
+def test_compute_counts_each_pitch_once_when_a_runner_event_splits_a_plate_appearance(db_conn):
+    """Retrosheet repeats a plate appearance's pitches: a mid-PA runner event
+    (steal, wild pitch) carries the pitches so far, and the batter's final row
+    carries the whole sequence again (verified on 2019 data: `BCBFF>B` on the
+    SB row, `BCBFF>B.>B` on the batter row). Counting both rows double-counts
+    pitches and counts a first-pitch strike twice for one plate appearance
+    (first-pitch strike % above 1)."""
+    _ensure_retrosheet_tables(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) VALUES "
+            "('G1', 2024, '2024-04-01', %(atl)s, %(nya)s, 5, 3, 'regular'), "
+            "('G2', 2024, '2024-04-05', %(atl)s, %(nya)s, 4, 2, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.retrosheet_gameinfo (gid, gametype) "
+            "VALUES ('G1', 'regular'), ('G2', 'regular')"
+        )
+        # (event_id, pa_new_fl, bat_event_fl, pitch_seq_tx) for degrj001 in G1:
+        events = [
+            ("1", "T", "T", "CBX"),  # PA1: first pitch strike
+            ("2", "T", "F", "CB"),  # PA2 interrupted by a runner event: pitches so far
+            ("3", "F", "T", "CB.FX"),  # PA2 ends: the same pitches again, plus the rest
+            ("4", "T", "T", "BBFX"),  # PA3: first pitch ball
+            ("5", "T", "T", "SBX"),  # PA4: first pitch strike
+            ("6", "T", "T", "BX"),  # PA5: first pitch ball
+            ("7", "T", "T", "BBBB"),  # PA6
+            ("8", "T", "T", "BBBB"),  # PA7
+            ("9", "T", "F", "CB"),  # PA8 ended by a caught stealing: never completed
+        ]
+        cur.executemany(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, bat_event_fl, "
+            "pitch_seq_tx, event_id, pa_new_fl) "
+            "VALUES ('G1', '0', 'degrj001', 'T', %s, %s, %s, %s)",
+            [(bat, seq, eid, new) for eid, new, bat, seq in events],
+        )
+        cur.executemany(
+            "INSERT INTO raw.retrosheet_event "
+            "(game_id, bat_home_id, resp_pit_id, resp_pit_start_fl, bat_event_fl, "
+            "pitch_seq_tx, event_id, pa_new_fl) VALUES (%s, %s, %s, 'T', 'T', 'BBB', '1', 'T')",
+            [("G2", "0", "degrj001"), ("G2", "1", "cole0001")],
+        )
+    db_conn.commit()
+
+    features.build(db_conn)
+    db_conn.commit()
+    pitch_discipline.compute(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.home_starter_csw_pct, f.home_starter_fstrike_pct "
+            "FROM gold.game_feature f JOIN core.game g ON g.id = f.game_id "
+            "WHERE g.retro_game_id = 'G2'"
+        )
+        csw, fstrike = cur.fetchone()
+
+    # Each pitch once: PA1 3 + PA2 4 (CB.FX, not CB + CB.FX) + 4 + 3 + 2 + 4 + 4
+    # + the interrupted PA's 2 = 26 pitches; called strikes / whiffs / tips:
+    # PA1 C, PA2 C, PA4 S, the interrupted PA's C = 4. 4/26.
+    assert abs(csw - Decimal(4) / Decimal(26)) < Decimal("0.0001")
+    # First-pitch strikes on the 7 completed PAs: PA1, PA2 (not twice), PA4 = 3/7.
+    # The interrupted PA is not a completed PA, so it is in neither side.
+    assert abs(fstrike - Decimal(3) / Decimal(7)) < Decimal("0.0001")
+    assert fstrike <= 1
 
 
 def test_compute_counts_foul_tips_and_hit_batters_per_verified_csw_formula(db_conn):

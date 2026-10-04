@@ -48,8 +48,8 @@ environment).
 Same 1910-2025 coverage gap as starter.py, now half-closed the same way
 (ADR-046): compute_live()/compute_wrc_plus_live() are the
 raw.mlb_playbyplay equivalents for the 2026+ season, gated on
-home_woba/home_wrc_plus IS NULL so they only ever fill the gap the
-Retrosheet-based versions leave -- see starter.py::compute_live's
+the value being NULL (each side independently, for wOBA) so they only ever
+fill the gap the Retrosheet-based versions leave -- see starter.py::compute_live's
 docstring for the full schema-difference writeup.
 """
 
@@ -166,9 +166,10 @@ _AB_EVENT_TYPES = (
 
 def compute_live(conn: psycopg.Connection) -> int:
     """raw.mlb_playbyplay equivalent of compute() (ADR-046 for
-    starter.py's sibling version) -- gated on home_woba IS NULL so it
-    only ever fills the gap compute() leaves; the two sources don't
-    overlap in practice."""
+    starter.py's sibling version). Fills a NULL home_woba or away_woba, each
+    side independently, and only where live play-by-play yields a value; it
+    never overwrites an existing value. Returns the number of rows it filled
+    something in."""
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('raw.mlb_playbyplay')")
         (exists,) = fetch_one(cur)

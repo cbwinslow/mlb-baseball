@@ -44,9 +44,16 @@ woba AS (
         END AS value
     FROM rolling
 )
+-- Fill only what is still NULL, and only where the live play-by-play produced a
+-- value. Each side is independent: the home team's first covered game of a
+-- season has no home value, but the away team's value (from Retrosheet) must
+-- survive. Never overwrite a value, never write NULL over one.
 UPDATE gold.game_feature f
-SET home_woba = hw.value, away_woba = aw.value
+SET home_woba = COALESCE(f.home_woba, hw.value),
+    away_woba = COALESCE(f.away_woba, aw.value)
 FROM regular_games rg
 LEFT JOIN woba hw ON hw.game_id = rg.game_id AND hw.team_id = rg.home_team_id
 LEFT JOIN woba aw ON aw.game_id = rg.game_id AND aw.team_id = rg.away_team_id
-WHERE f.game_id = rg.game_id AND f.home_woba IS NULL
+WHERE f.game_id = rg.game_id
+    AND ((f.home_woba IS NULL AND hw.value IS NOT NULL)
+        OR (f.away_woba IS NULL AND aw.value IS NOT NULL))

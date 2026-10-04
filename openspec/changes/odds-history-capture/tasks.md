@@ -1,7 +1,7 @@
 ## 1. Prerequisites
 
-- [ ] 1.1 Read `kalshi.py.dox.md`, `polymarket.py.dox.md`, `tests/AGENTS.md`; confirm what `mlb_baseball/load.py` offers for upsert-without-delete; record the answer in design.md
-- [ ] 1.2 Measure current snapshot row counts per day and per run (read-only SQL) and note them in design.md
+- [x] 1.1 Read `kalshi.py.dox.md`, `polymarket.py.dox.md`, `tests/AGENTS.md`; confirm what `mlb_baseball/load.py` offers for upsert-without-delete; record the answer in design.md
+- [x] 1.2 Measure current snapshot row counts per day and per run (read-only SQL) and note them in design.md
 
 ## 2. Capture job (tests first)
 
@@ -13,8 +13,8 @@
 
 ## 3. Catalog retention (tests first)
 
-- [ ] 3.1 Write failing test: a market absent from the second pull is still in the table with unchanged `last_seen_at`; changed values update the row
-- [ ] 3.2 Implement keep-and-stamp for the Kalshi and Polymarket catalog tables (migration if a column is added); verify 3.1 passes and `conform` tests still pass
+- [x] 3.1 Write failing test: a market absent from the second pull is still in the table with unchanged `last_seen_at`; changed values update the row
+- [x] 3.2 Implement keep-and-stamp for the Kalshi and Polymarket catalog tables (no migration: key-scoped replace via `replace_dataframe_scopes`, `_loaded_at` is last-seen); verify 3.1 passes and `conform` tests still pass
 - [ ] 3.3 Update `.dox.md` files (replace semantics are gone) and `docs/DECISIONS.md` with a new ADR
 
 ## 4. Backfill

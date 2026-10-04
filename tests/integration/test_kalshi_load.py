@@ -340,3 +340,55 @@ def test_backfill_history_skips_markets_without_open_or_close_time(db_conn, monk
     counts = kalshi.backfill_history()
 
     assert counts[kalshi.CANDLE_TABLE] == 0
+
+
+def test_market_absent_from_a_later_pull_is_kept(db_conn, monkeypatch):
+    """Catalog history: a market the source stops returning must not be deleted
+    (2026-10-03: raw.kalshi_market lost 14,594 rows to whole-table replace)."""
+    both = [_market("KXMLBGAME-1-A", "KXMLBGAME-1"), _market("KXMLBGAME-1-B", "KXMLBGAME-1")]
+    _fake_kalshi(
+        monkeypatch,
+        series=[_series("KXMLBGAME")],
+        events_by_series={"KXMLBGAME": [_event("KXMLBGAME-1", "KXMLBGAME")]},
+        markets_by_series={"KXMLBGAME": both},
+    )
+    kalshi.update()
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT _loaded_at FROM {kalshi.MARKET_TABLE} WHERE ticker = 'KXMLBGAME-1-B'")
+        (first_seen,) = cur.fetchone()
+    db_conn.rollback()  # release the read lock; the next run replaces rows on its own connection
+
+    _fake_kalshi(
+        monkeypatch,
+        series=[_series("KXMLBGAME")],
+        events_by_series={"KXMLBGAME": [_event("KXMLBGAME-1", "KXMLBGAME")]},
+        markets_by_series={"KXMLBGAME": both[:1]},
+    )
+    kalshi.update()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT ticker, _loaded_at FROM {kalshi.MARKET_TABLE} ORDER BY ticker")
+        rows = cur.fetchall()
+    assert [r[0] for r in rows] == ["KXMLBGAME-1-A", "KXMLBGAME-1-B"]
+    assert rows[1][1] == first_seen  # last-seen not advanced for the vanished market
+    assert rows[0][1] > first_seen  # still-returned market is refreshed
+
+
+def test_changed_market_values_replace_the_row(db_conn, monkeypatch):
+    def run(last_price):
+        market = _market("KXMLBGAME-1-A", "KXMLBGAME-1")
+        market["last_price_dollars"] = last_price
+        _fake_kalshi(
+            monkeypatch,
+            series=[_series("KXMLBGAME")],
+            events_by_series={"KXMLBGAME": [_event("KXMLBGAME-1", "KXMLBGAME")]},
+            markets_by_series={"KXMLBGAME": [market]},
+        )
+        kalshi.update()
+
+    run("0.52")
+    run("0.61")
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT last_price_dollars FROM {kalshi.MARKET_TABLE}")
+        assert cur.fetchall() == [("0.61",)]

@@ -84,7 +84,7 @@ from mlb_baseball.health import (
     check_table_has_rows,
 )
 from mlb_baseball.ingest import track_run
-from mlb_baseball.load import append_dataframe, load_dataframe
+from mlb_baseball.load import append_dataframe, load_dataframe, upsert_dataframe
 from mlb_baseball.net import call_with_retry
 
 logger = logging.getLogger(__name__)
@@ -260,7 +260,9 @@ def _run(mode: str) -> dict[str, int]:
     with get_connection() as conn, track_run(conn, SOURCE, mode) as result:
         series = fetch_series()
         if series:
-            counts[SERIES_TABLE] = load_dataframe(conn, SERIES_TABLE, pd.DataFrame(series))
+            counts[SERIES_TABLE] = upsert_dataframe(
+                conn, SERIES_TABLE, pd.DataFrame(series), key_column="ticker"
+            )
             conn.commit()
 
         all_events: list[dict] = []
@@ -274,10 +276,14 @@ def _run(mode: str) -> dict[str, int]:
                 logger.error("kalshi: %s failed (%s); skipping, continuing bootstrap", ticker, exc)
 
         if all_events:
-            counts[EVENT_TABLE] = load_dataframe(conn, EVENT_TABLE, pd.DataFrame(all_events))
+            counts[EVENT_TABLE] = upsert_dataframe(
+                conn, EVENT_TABLE, pd.DataFrame(all_events), key_column="event_ticker"
+            )
             conn.commit()
         if all_markets:
-            counts[MARKET_TABLE] = load_dataframe(conn, MARKET_TABLE, pd.DataFrame(all_markets))
+            counts[MARKET_TABLE] = upsert_dataframe(
+                conn, MARKET_TABLE, pd.DataFrame(all_markets), key_column="ticker"
+            )
             conn.commit()
 
         # Forward snapshot (ADR-049): append-only, never replaced — every

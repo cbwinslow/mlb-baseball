@@ -229,6 +229,31 @@ def replace_dataframe_scopes(
         return _copy_dataframe(cur, table_ident, df) if not df.empty else 0
 
 
+def upsert_dataframe(
+    conn: psycopg.Connection,
+    table: str,
+    df: pd.DataFrame,
+    *,
+    key_column: str,
+    schema_drift_policy: Literal["ignore", "warn", "error"] = "warn",
+) -> int:
+    """Replace only the rows whose ``key_column`` value appears in ``df``; rows the
+    source stopped returning are kept. For catalog tables that must not lose
+    history when a source drops an item (``_loaded_at`` then reads as "last seen").
+    An empty ``df`` changes nothing."""
+    if df.empty:
+        return 0
+    keys = sorted({str(value) for value in df[key_column].dropna()})
+    return replace_dataframe_scopes(
+        conn,
+        table,
+        df,
+        scope_column=key_column,
+        scope_values=keys,
+        schema_drift_policy=schema_drift_policy,
+    )
+
+
 def append_dataframe(
     conn: psycopg.Connection,
     table: str,

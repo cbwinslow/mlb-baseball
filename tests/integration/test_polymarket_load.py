@@ -312,3 +312,29 @@ def test_backfill_history_skips_tokens_with_no_history(db_conn):
         counts = polymarket.backfill_history()
 
     assert counts[polymarket.PRICE_TABLE] == 0
+
+
+def test_event_absent_from_a_later_pull_is_kept(db_conn):
+    """Catalog history: an event the source stops returning is not deleted."""
+
+    def pull(events):
+        def fake_get(url, params=None, timeout=None):
+            if (
+                params.get("series_id") == polymarket.MLB_SERIES_ID
+                and params.get("closed") == "false"
+            ):
+                return FakeResponse(_page(events))
+            return _no_results_get(url, params, timeout)
+
+        with patch.object(polymarket.requests, "get", side_effect=fake_get):
+            polymarket.update()
+
+    pull([_event("1"), _event("2")])
+    pull([_event("1")])
+
+    with db_conn.cursor() as cur:
+        for table in (polymarket.EVENT_TABLE, polymarket.MARKET_TABLE):
+            cur.execute(f"SELECT count(*) FROM {table}")
+            assert cur.fetchone() == (2,), table
+        cur.execute(f"SELECT count(*) FROM {polymarket.OUTCOME_TABLE}")
+        assert cur.fetchone() == (4,)

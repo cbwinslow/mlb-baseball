@@ -85,7 +85,7 @@ from mlb_baseball.health import (
     check_table_has_rows,
 )
 from mlb_baseball.ingest import track_run
-from mlb_baseball.load import append_dataframe, load_dataframe
+from mlb_baseball.load import append_dataframe, load_dataframe, upsert_dataframe
 from mlb_baseball.net import call_with_retry
 
 SOURCE = "polymarket"
@@ -104,6 +104,9 @@ EVENT_TABLE = "raw.polymarket_event"
 MARKET_TABLE = "raw.polymarket_market"
 OUTCOME_TABLE = "raw.polymarket_outcome"
 ALL_TABLES = [EVENT_TABLE, MARKET_TABLE, OUTCOME_TABLE]
+# Source key each catalog table is replaced by; rows for keys the source no
+# longer returns are kept (catalog history).
+_CATALOG_KEYS = {EVENT_TABLE: "id", MARKET_TABLE: "id", OUTCOME_TABLE: "market_id"}
 SNAPSHOT_TABLE = "raw.polymarket_snapshot"
 PRICE_TABLE = "raw.polymarket_price"
 
@@ -212,7 +215,7 @@ def _run(mode: str) -> dict[str, int]:
         for table, df in tables.items():
             if df.empty:
                 continue
-            counts[table] = load_dataframe(conn, table, df)
+            counts[table] = upsert_dataframe(conn, table, df, key_column=_CATALOG_KEYS[table])
 
         # Forward snapshot (ADR-049): append-only, never replaced — every
         # run's open-market prices stay meaningful as a point-in-time

@@ -68,6 +68,31 @@ For a deterministic relation moving to SQLMesh, use one finite lifecycle:
 A shadow/candidate model is not a second production owner. New code must not
 leave two active writers indefinitely.
 
+## Season-dependent context is data, not a magic number
+
+When a published statistic changes with league/run environment by season, the
+context/constant is a **versioned input with provenance**, not an implementation
+literal. Examples include wOBA weights/scale, FIP constants, league HR/FB and
+other run-environment terms.
+
+The canonical formula owner must therefore declare:
+
+- which context values it consumes;
+- season/league coverage;
+- whether the context is project-derived or provider-published;
+- rights/publication constraints on that context;
+- fallback/null behavior when a context row is unavailable.
+
+A local-research reference such as `gold.fangraphs_guts` may be an excellent
+cross-check without automatically becoming the input to a public-safe output.
+For public calculations, derive publishable context from public-safe canonical
+facts where necessary and validate it against the restricted reference.
+
+The first formula-consolidation program should inventory before rewriting and
+prioritize the known drift families: wOBA/wRC+, FIP/xFIP, then RE24/WPA. Do not
+create another broad batch of sabermetrics until those owners/context rules are
+settled.
+
 ## Canonical-formula risks
 
 - wOBA/wRC+ constants currently exist in Python and the SQLMesh spike.

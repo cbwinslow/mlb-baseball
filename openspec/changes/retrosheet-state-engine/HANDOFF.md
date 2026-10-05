@@ -1,7 +1,27 @@
-# Handoff — `retrosheetpy` build in progress (2026-10-05, end of sixteenth session; see RETROSHEETPY-DESIGN.md)
+# Handoff — `retrosheetpy` build in progress (2026-10-05, end of seventeenth session; see RETROSHEETPY-DESIGN.md)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start." Then read
 `RETROSHEETPY-PLAN.md` in this folder (owner APPROVED it on 2026-10-05, all five decisions as recommended: GPL-3.0-or-later, legacy parser/validation stay in mlb-baseball, cache `~/.retrosheetpy`, 0.1.0 = seasons 1910+, separate docs site per repo).
+
+## Seventeenth session in one screen (read this first)
+- **retrosheetpy is functionally built** (PR cbwinslow/retrosheetpy#6, stacked on #5; nothing merged). `Table`/`BoxScores`, shared options
+  (`home game start end fields extended jobs`), several years in one Table, csv/jsonl/json/sqlite/pandas output, `fields()`, new CLI,
+  README, `scripts/parity.py`, CI parity job. 187 tests pass; 288/288 outputs identical to the real C tools on 24 seasons 1910-2025;
+  24 seasons combined = 3,441,587 events rows equal to C. Agreed shape: `rs.season(2010).events(...)` and `rs.events(years, ...)`.
+- **chadwickpy 0.2.0 (the owner's speed-up) has real bugs**; fixes are open PRs cbwinslow/chadwickpy **#17, #18, #19** (not merged; 0.2.0 stays published):
+  #17 last line of a file lost (fgets EOF), tokenizer/atoi/play-line fast paths differ from the original on odd input (44 of the differential
+  tests failed on 0.2.0, 0.1.1 passed all; with the fixes 627 pass); #18 a dead worker made the parallel run print files twice with exit 0;
+  #19 automatic worker count ignored CPU limits on Python 3.11/3.12 (39 workers on a 2-core limit). Owner has not yet seen/approved merging them.
+- Measured speed (40 cores): 2010 `events` ~5-8 s default workers, ~90 s one core, C one core 8.7 s, C on 40 cores 0.47 s. chadwickpy is **not** faster than C per core.
+- Decisions this session: keep Chadwick's names (events games daily subs comments boxscores); `home=` only in 0.1 (`team=` for either side is issue
+  cbwinslow/retrosheetpy#7, 0.2); combined Table for several years (no year column; GAME_ID has it); values are plain strings (cwgame prints some
+  text columns unquoted, so quoting cannot give types); default output encoding UTF-8 (`encoding="latin-1"` for Chadwick's bytes).
+- Not comparable with C (documented in the README): `cwbox -S` crashes on real data; `cwbox -X` prints a `pb` attribute from uninitialised memory.
+- **Next:** (1) show the owner the three chadwickpy PRs, merge on their say-so, owner approves a 0.2.1 release (release PR needs their admin bypass;
+  `pypi` environment needs their click); (2) set retrosheetpy to `chadwickpy>=0.2.1`; (3) owner merges retrosheetpy #5 (blocked by a stale
+  CodeRabbit CHANGES_REQUESTED review, fix already confirmed by the bot) then re-base #6 onto main; (4) docs site (MkDocs, same theme) + Retrosheet
+  terms check (still unverified) + independent review pass; (5) 0.1.0 on PyPI (owner adds pending publisher + approves); (6) then in mlb-baseball
+  replace `packages/retrosheetpy`, update the CI job and `/opsx:archive` this change.
 
 ## Owner direction (keep following)
 - Plain, short replies. Lead with one plain sentence; options plus a recommendation; remind owner to clear context around ~200k.
@@ -56,3 +76,8 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 - The commit hook runs ruff-format: if a commit "fails", re-run `ruff format` and commit again.
 - Never claim checks passed unless they ran. Tests must not hit the live Retrosheet site (use captured fixtures or a fake `fetch`).
 - The browser-use MCP tool did not work in this session; Playwright via `uvx` did.
+- (17th session) The shell is **zsh**: an unquoted `$VAR` holding several words is NOT split (use a function or `${=VAR}`); this silently broke a comparison once.
+- Never switch git branches in a clone while a background test/sweep reads it (it invalidated two runs). Use `git worktree add` per branch.
+- Never `pkill -f` and never kill a pid you have not tied to your own process (a wrong guess killed an unrelated child of this session). Capture `$!`.
+- `gh pr edit` fails on the deprecated Projects-classic GraphQL field: use `gh api -X PATCH repos/OWNER/REPO/pulls/N -f title=... -F body=@file`.
+- A `kill -9` of one chadwickpy worker is the reliable way to test the pool fallback; compare the whole output with C afterwards.

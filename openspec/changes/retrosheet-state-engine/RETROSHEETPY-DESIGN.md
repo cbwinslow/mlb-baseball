@@ -108,3 +108,20 @@ vs pybaseball, vs chadwickpy, Retrosheet data use, FAQ), Changelog.
 5. `tables.py` + the five tool adapters + `events`/`games`/... (test: equals `chadwickpy` run directly).
 6. `export.py`, `schema`, CLI wiring, optional pandas extra.
 7. Docs site, README, Pages.  8. Independent review pass, then 0.1.0 (owner approves `pypi`).
+
+## Built shape (2026-10-05, seventeenth session) — supersedes the layer list above where they differ
+```
+cli.py      argparse only; years like 2010, 2000-2010, 2001,2005
+api.py      events games daily subs comments boxscores (years, cache=, fetch=, **Opts), season(), fields()
+cache.py    Season (files + the table methods), get/unpack, cache_dir/verify/clear   (was season.py; renamed so rs.season() does not hide the module)
+table.py    Table (streams; select/load/to_*), BoxScores (text/xml/sportsml)
+options.py  Opts (TypedDict) and Options.build: every option checked before any download
+runner.py   subprocess `python -m chadwickpy TOOL` in the season folder; default_jobs() (cores-1 above 4, max 16); files_for() for home=
+tools.py    the six Tool records (the only other module that imports chadwickpy)
+client.py catalog.py artifact.py errors.py _meta.py   unchanged
+```
+- Why a subprocess, not chadwickpy's Python API: Chadwick reads TEAMyyyy/.ROS from the current folder; the command line is the stable
+  C-compatible contract; chadwickpy's own pool then spreads files over cores. Cost: about a second of start-up per season.
+- `fields=`/`extended=`: choose either and the one you leave out is not printed; choose neither and everything is. `-f ""` works in C and chadwickpy.
+- File kinds in a decade zip: `.EVN .EVA .EVF .EVR .EDN .EDA .EDF` (Federal League, deduced games): match `E[VD][A-Z]`, not just EVN/EVA.
+- Retrosheet team files are named by the HOME team, so `home=` selects files; `team=` (either side) is cbwinslow/retrosheetpy#7.

@@ -19,7 +19,7 @@ Each ledger item SHALL record attempts, the duration of its last attempt, and th
 - **THEN** its attempt count is 2 and the first error is still recorded
 
 ### Requirement: Stuck and slow runs are detected
-`mlb doctor` SHALL fail a check when a run shows no progress for longer than its allowed gap, or its throughput is below a recorded floor for its source, and the message SHALL name the run and its last progress.
+`mlb doctor` SHALL fail a check when a run that reports progress shows none for longer than its allowed gap, and the message SHALL name the run and its last progress. A throughput floor per source is added once a measured baseline exists.
 
 #### Scenario: Silent run
 - **WHEN** a run has made no progress for the allowed gap

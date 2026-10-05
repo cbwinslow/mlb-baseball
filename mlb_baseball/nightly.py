@@ -184,6 +184,21 @@ def snapshot_query_stats() -> int | None:
         return None
 
 
+def prune_monitor() -> bool:
+    """Deletes old run-monitor rows (meta.prune_ops). Telemetry housekeeping must
+    never fail the pipeline, so a failure is logged and reported as False."""
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "CALL meta.prune_ops(make_interval(days => %s))", (QUERY_STAT_RETENTION_DAYS,)
+            )
+            conn.commit()
+        return True
+    except Exception as exc:
+        logger.error("could not prune the run monitor tables (%s)", exc)
+        return False
+
+
 class Nightly:
     def __init__(
         self,
@@ -305,6 +320,7 @@ class Nightly:
         self.step("populated", ["doctor", "--populated"])
         written = snapshot_query_stats()
         _log(f"query stats snapshot: {'skipped' if written is None else f'{written} statements'}")
+        _log(f"run monitor prune: {'done' if prune_monitor() else 'skipped'}")
         return self._finish()
 
     def _finish(self) -> int:

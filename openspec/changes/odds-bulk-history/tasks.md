@@ -6,9 +6,11 @@
 
 ## 2. Run tracking (needed first so everything after is measurable)
 
-- [ ] 2.1 Migration: `meta.ingestion_run` columns `items_planned`, `items_done`, `requests`, `last_progress_at`; `meta.ingestion_item.duration_ms`; verify migration test
-- [ ] 2.2 Progress helper in `ingest.py` (bounded to once a minute) with failing test first; verify with a real PostgreSQL test
-- [ ] 2.3 Doctor checks for no-progress and below-floor throughput; verify a seeded stuck run fails with run id and last progress in the message
+Built as database objects (migration 0111, ADR-295) plus `mlb_baseball/opsmon.py`.
+
+- [x] 2.1 Migration: `meta.ingestion_run` columns `items_planned`, `items_done`, `requests`, `last_progress_at`; `meta.ingestion_item.duration_ms`; verify migration test
+- [x] 2.2 Progress helper in `ingest.py` (bounded to once a minute) with failing test first; verify with a real PostgreSQL test
+- [x] 2.3 Doctor check for a reporting run that went quiet (done: `silent ingestion runs`); a throughput floor per source waits for a measured baseline (task 3.5 records it); verify a seeded stuck run fails with run id and last progress in the message
 - [ ] 2.4 Decide on `pg_profile` / `pg_wait_sampling` only after a measured question (record the question and numbers, or record "not needed")
 
 ## 3. Polymarket

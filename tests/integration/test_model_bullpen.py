@@ -726,7 +726,7 @@ def test_compute_live_rolling_fip_and_rates_match_hand_calculation(db_conn):
     updated = bullpen.compute_live(db_conn)
     db_conn.commit()
 
-    assert updated == 2
+    assert updated == 1  # only G2 gets values; G1 has no history to fill from
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT g.retro_game_id, f.home_bullpen_fip, f.home_bullpen_k_pct, "
@@ -811,6 +811,54 @@ def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
         after = cur.fetchone()
 
     assert before == after
+
+    _reset(db_conn)
+
+
+def test_compute_live_keeps_the_away_value_when_only_the_home_value_is_missing(db_conn):
+    # A team's first covered game has no rolling bullpen line, so the live path
+    # computes NULL for that side. The other side, already filled from
+    # Retrosheet, must survive: compute_live may only fill a NULL, never
+    # overwrite a value (and never with NULL).
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    teams = _seed_teams_2026(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('MLB900010', '900010', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('900010', '0', '1', 'top', '5001', 'field_out', '1', '2026'), "
+            "('900010', '1', '1', 'bottom', '5002', 'field_out', '1', '2026')"
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET away_bullpen_fip = 3.5 WHERE mlb_game_pk = '900010'"
+        )
+    db_conn.commit()
+
+    bullpen.compute_live(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_bullpen_fip, away_bullpen_fip "
+            "FROM gold.game_feature WHERE mlb_game_pk = '900010'"
+        )
+        home_fip, away_fip = cur.fetchone()
+    assert home_fip is None
+    assert away_fip == Decimal("3.5")
 
     _reset(db_conn)
 

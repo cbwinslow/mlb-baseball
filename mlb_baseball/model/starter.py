@@ -128,8 +128,8 @@ def compute(conn: psycopg.Connection) -> int:
 # team's side for the whole game.
 #
 # Fills the SAME home_starter_id/era/k_pct/bb_pct/hr_pct columns
-# compute() does, gated on home_starter_era IS NULL so it only ever
-# fills the gap compute() leaves (raw.mlb_playbyplay and
+# compute() does, filling each side only where its value is NULL (never
+# overwriting) so it only ever fills the gap compute() leaves (raw.mlb_playbyplay and
 # raw.retrosheet_event don't overlap in practice -- confirmed directly,
 # the former starts exactly where the latter stops). Only backfills
 # COMPLETED 2026 games (games that already have play-by-play rows) --

@@ -61,15 +61,16 @@ Public connector capabilities:
 - Snapshot identity is `(ticker, captured_at)` and is append-only because every observation time is meaningful.
 - Snapshot schema must exist even if no markets are active at a particular run.
 
-### Historical candlestick backfill
+### Historical catalog and candlestick backfill
 
-- `backfill_history()` is separate from normal bootstrap/update.
-- Current scope is `KXMLBGAME` daily MLB game moneylines, deliberately narrower than every MLB product.
-- The candlestick endpoint supports fine 1-minute data but rejects overly wide windows with a confirmed `max candlesticks: 5000` error.
-- `fetch_candlesticks()` therefore chunks time ranges rather than silently reducing granularity.
-- Empty/no-trade price subobjects are valid source observations; flatten them with missing values rather than fabricating prices.
-- Backfill should remain resumable/idempotent at the market/time-series scope and should not become a routine high-frequency update side effect.
-- `BACKFILL_SLEEP_SECONDS` exists because this public source has produced real rate-limit pressure. Do not remove politeness/retry controls without evidence.
+- Kalshi splits data at `GET /historical/cutoff` (checked live 2026-10-05: 2026-08-06): markets and candlesticks settled before it are only on the `/historical` endpoints; the live `/markets` listing no longer returns them. `update()` therefore also pages `/historical/markets` per series and merges (live wins on a ticker). Before this, `raw.kalshi_market` held only about 1,700 game markets from July 2026 while Kalshi had 7,868 from 2025-04-16 (`KXMLBGAME`).
+- `backfill_history()` is separate from normal bootstrap/update. Scope is every landed MLB market (all non-excluded baseball series), game-level series first (smaller series first), newest market first.
+- Each market's candles come from `/historical/markets/{ticker}/candlesticks` if it settled before the cutoff, else `/series/{series}/markets/{ticker}/candlesticks`; a 404 falls back to the other. 1-minute candles, windows of at most 4,000 minutes (the endpoint rejects more than 5,000 candles).
+- Speed: documented Basic tier 200 read tokens/s at 10 per request = 20 requests/s; paced at 16/s by a shared `net.RateLimiter` (halves on 429); 8 worker threads, each with its own HTTP session and database connection. Override with `MLB_KALSHI_WORKERS` / `MLB_KALSHI_MAX_RPS`; raise only with a new measurement.
+- One ledger item per market (`meta.ingestion_item`, dataset `candles`, key = ticker; `loaded`, `unavailable` for no candles, `failed`) is written in the same transaction as the rows. A rerun skips settled markets already done, retries failed ones, refetches markets closed less than a day ago, and raises at the end if any failed.
+- Tracked under its own source name `kalshi_backfill` with no workflow lock, so it never blocks the nightly or conform/predict.
+- Empty/no-trade price subobjects are valid source observations; flatten them with missing values rather than fabricating prices. Quote columns (`yes_bid`, `yes_ask`) are kept for minutes with no trade.
+- Not yet covered: per-market trades (`/historical/trades`, `/markets/trades`), tracked in `openspec/changes/odds-bulk-history` task 4.3.
 
 ## Point-in-Time Contract
 

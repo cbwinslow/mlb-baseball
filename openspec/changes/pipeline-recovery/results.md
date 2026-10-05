@@ -261,3 +261,14 @@ rows; `raw.mlb_linescore` 3,011,882 -> 3,036,442; `meta.ingestion_item`: win_pro
 `mlb ingest mlb_api --stage analytics --start-year 1999 --end-year 1999` (and 2011); terminal games are
 skipped, so it is a handful of requests. 2026 is outside this check and is refreshed by the normal update.
 PR #313 (seeding code) stays unmerged by owner decision: it was a one-time job.
+
+### 9.5 follow-up and one-time jobs (owner yes 2026-10-05, run ~08:30-09:30 UTC; backup in force: host nightly dump)
+
+| step | command | target | result |
+|---|---|---|---|
+| 3 | `mlb ingest mlb_api --stage analytics --start-year 1999 --end-year 1999` (then 2011) | `mlb` | 1999 closed (236 win-prob rows, 3 context rows loaded). 2011: 2 games still fail on retry (source gives no response); 2962/2964 remains |
+| 4 | `mlb catalog build` (task 2.7) | `mlb` | `meta.metric`: 50 rows |
+| 5 | `VACUUM (ANALYZE)` of `raw.mlb_win_prob`, `raw.fangraphs_fielding`, `raw.mlb_linescore`, `raw.mlb_game_context` (task 2.8) | `mlb` | all four now show `last_vacuum`/`last_analyze` |
+| 6 | `mlb build` (task 9.6, refresh stale DuckDB) | `~/.mlb/mlb.duckdb` | started in background, log `logs/mlb_build_oneoff.log` |
+
+Doctor after steps 3-5: 354/372, `mlb_api analytics durable coverage` down to 1 incomplete season (2011, 2 games).

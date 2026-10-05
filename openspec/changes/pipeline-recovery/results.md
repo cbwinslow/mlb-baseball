@@ -225,3 +225,21 @@ Backup in force: host job `validated_backup.sh` (nightly 02:00).
   rebuilds `meta.ingestion_item` rows from these artifacts (path + checksum from `manifest.json`, status
   `unavailable` for 404, row counts checked against production raw) so the existing completeness check
   and replay can use them. Production write; owner-approved before running; 442 + 2 games still to fetch.
+
+## 9.5 one-time analytics restore on production `mlb` (owner yes 2026-10-05, run 07:54-08:25 UTC)
+
+| step | command | target | run by | result |
+|---|---|---|---|---|
+| 1 | throwaway script calling `mlb_api.seed_ledger(restore=True)` (code on unmerged PR #313 branch; script outside the repo) | `mlb` | Claude, owner-approved | 330,440 `meta.ingestion_item` rows written (279 s); 701 restorable; 1 left alone (2026 linescore, raw is newer than the file) |
+| 2 | throwaway script calling `mlb_api.replay_analytics(1950, 2025)` (no network, checksum-verified files copied from `cbwlap1`) | `mlb` | Claude, owner-approved | win_prob 12,415,234 + linescore 2,991,928 + game_context 161,950 rows reloaded (781 s) |
+
+Backup in force: host nightly dump 02:00 (`validated_backup.sh`).
+
+Result (read-only check afterwards): `raw.mlb_win_prob` 164,362 -> 164,589 games, 12,583,147 -> 12,600,330
+rows; `raw.mlb_linescore` 3,011,882 -> 3,036,442; `meta.ingestion_item`: win_probability 164,213 loaded +
+969 unavailable, context_metrics the same, linescore_schedule 76 loaded. Doctor check
+`mlb_api analytics durable coverage` went from a large gap to 2 incomplete seasons: 1999 (2456/2459) and
+2011 (2962/2964), i.e. 5 final games with no saved response. Next: fetch only those games with
+`mlb ingest mlb_api --stage analytics --start-year 1999 --end-year 1999` (and 2011); terminal games are
+skipped, so it is a handful of requests. 2026 is outside this check and is refreshed by the normal update.
+PR #313 (seeding code) stays unmerged by owner decision: it was a one-time job.

@@ -12,6 +12,7 @@
     mlb predict
     mlb train
     mlb inventory
+    mlb coverage
     mlb status
     mlb metrics
     mlb doctor
@@ -60,6 +61,7 @@ from mlb_baseball import (
     backup,
     config,
     conform,
+    coverage,
     doctor,
     feat,
     field_census,
@@ -303,7 +305,7 @@ def main(argv: list[str] | None = None) -> None:
         epilog=(
             "Core commands:\n"
             "  migrate, preflight, ingest, bootstrap, update, conform,\n"
-            "  report, features, predict, train, evaluate, inventory,\n"
+            "  report, features, predict, train, evaluate, inventory, coverage,\n"
             "  doctor, dump, audit, status\n"
             "\n"
             "Read first: openspec/project.md, docs/ARCHITECTURE.md"
@@ -580,6 +582,20 @@ def main(argv: list[str] | None = None) -> None:
         metavar="PATH",
         help="write the raw layer (exact rows, seasons, columns) as markdown to PATH and exit",
     )
+    coverage_parser = subparsers.add_parser(
+        "coverage",
+        help="read-only: what each source should hold versus what the database holds, "
+        "what is missing, and the `mlb ingest` command that fixes it",
+    )
+    coverage_parser.add_argument(
+        "--source",
+        choices=sorted({d.source for d in coverage.DATASETS}),
+        help="report only this source",
+    )
+    coverage_parser.add_argument("--table", help="report only this table (raw.<name> or <name>)")
+    coverage_format = coverage_parser.add_mutually_exclusive_group()
+    coverage_format.add_argument("--json", action="store_true", help="machine-readable output")
+    coverage_format.add_argument("--markdown", action="store_true", help="markdown output")
     metrics_parser = subparsers.add_parser("metrics")
     metrics_parser.add_argument("--source", default="mlb_api")
     metrics_parser.add_argument("--window-minutes", type=int, default=5)
@@ -1799,6 +1815,10 @@ def main(argv: list[str] | None = None) -> None:
                 f"  {row['source']}: {row['status']} ({row['mode']}, "
                 f"{row['rows']} rows, started {row['started_at']})"
             )
+    elif args.command == "coverage":
+        coverage.run(
+            source=args.source, table=args.table, as_json=args.json, as_markdown=args.markdown
+        )
     elif args.command == "metrics":
         try:
             operational_metrics.print_report(args.source, args.window_minutes)

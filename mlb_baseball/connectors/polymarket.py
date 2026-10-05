@@ -68,6 +68,7 @@ pieces cover that:
 """
 
 import json
+import logging
 import time
 from datetime import UTC, datetime
 
@@ -99,10 +100,18 @@ CLOB_BASE_URL = "https://clob.polymarket.com"  # prices-history only, confirmed 
 MLB_SERIES_ID = 3  # confirmed via GET /series?recurrence=daily
 MLB_TAG_SLUG = "mlb"  # season-long futures, confirmed via GET /events?tag_slug=mlb
 PAGE_SIZE = 100
-# Be polite to a public, unauthenticated endpoint across a ~126K-token
-# backfill — no documented rate limit was found, but nothing says there
-# isn't one either.
+# Be polite to a public, unauthenticated endpoint across a large token
+# backfill (about 435K tokens as of 2026-10) — no documented rate limit was
+# found, but nothing says there isn't one either.
 BACKFILL_SLEEP_SECONDS = 0.25
+# `prices-history` with `interval=max` returns an empty list for a settled
+# market (checked live 2026-10-05 on 2025 markets), so history is asked for
+# by explicit time window. The API rejects a window of 30 days ("interval is
+# too long") and accepts 15; 14 days leaves a margin.
+HISTORY_WINDOW_SECONDS = 14 * 86400
+BACKFILL_LOG_EVERY = 1000
+
+logger = logging.getLogger(__name__)
 
 EVENT_TABLE = "raw.polymarket_event"
 MARKET_TABLE = "raw.polymarket_market"
@@ -278,19 +287,44 @@ def _clob_get(url: str, params: dict) -> dict:
     return response.json()
 
 
-def fetch_price_history(token_id: str) -> list[dict]:
-    """Calls the CLOB API's /prices-history endpoint for one outcome token.
-    Confirmed live (not from docs alone): `market=<clob_token_id>&
-    interval=max` returns `{"history": [{"t": <unix_seconds>, "p": <price>},
-    ...]}` — a real per-token timeseries (926 points confirmed on a real
-    settled MLB moneyline token). A token with no matching/tradeable market
-    (bad id, or one that genuinely never traded) returns `{"history": []}`
-    with a normal HTTP 200, not a 404 — confirmed directly — so an empty
-    result is a valid, expected outcome here, not an error to retry."""
-    payload = call_with_retry(
-        _clob_get, f"{CLOB_BASE_URL}/prices-history", {"market": token_id, "interval": "max"}
-    )
-    return payload.get("history", [])
+def fetch_price_history(
+    token_id: str, start_ts: int | None = None, end_ts: int | None = None
+) -> list[dict]:
+    """Calls the CLOB API's /prices-history endpoint for one outcome token and
+    returns `[{"t": <unix_seconds>, "p": <price>}, ...]`.
+
+    With no `start_ts` it asks for `interval=max`, which only works for a market
+    that is still trading: a settled market answers `{"history": []}` with a
+    normal 200 (confirmed live), as does a token that never traded; an empty
+    list is a valid result, not an error. With `start_ts` it asks for that time
+    window (`end_ts` defaults to now), split into windows the API accepts, and
+    joins the points in time order."""
+    if start_ts is None:
+        payload = call_with_retry(
+            _clob_get, f"{CLOB_BASE_URL}/prices-history", {"market": token_id, "interval": "max"}
+        )
+        return payload.get("history", [])
+    end_ts = int(time.time()) if end_ts is None else end_ts
+    points: list[dict] = []
+    window_start = start_ts
+    while window_start < max(end_ts, start_ts + 1):
+        window_end = min(window_start + HISTORY_WINDOW_SECONDS, max(end_ts, start_ts + 1))
+        payload = call_with_retry(
+            _clob_get,
+            f"{CLOB_BASE_URL}/prices-history",
+            {"market": token_id, "startTs": window_start, "endTs": window_end},
+        )
+        points.extend(payload.get("history", []))
+        window_start = window_end
+    return points
+
+
+def _epoch(value: str | None) -> int | None:
+    """Unix seconds from a source timestamp text (`2025-04-02T08:02:33Z` or
+    `2025-04-02 21:25:34+00`); None when the source gave none."""
+    if not value:
+        return None
+    return int(datetime.fromisoformat(value).timestamp())
 
 
 def _daily_game_tokens(conn: psycopg.Connection) -> list[dict]:
@@ -307,7 +341,8 @@ def _daily_game_tokens(conn: psycopg.Connection) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT o.clob_token_id, m.id AS market_id, e.id AS event_id
+            SELECT o.clob_token_id, m.id AS market_id, e.id AS event_id,
+                   m.startdate, m.closedtime
             FROM raw.polymarket_event e
             JOIN raw.polymarket_market m ON m.event_id = e.id
             JOIN raw.polymarket_outcome o ON o.market_id = m.id
@@ -317,8 +352,14 @@ def _daily_game_tokens(conn: psycopg.Connection) -> list[dict]:
             """
         )
         return [
-            {"clob_token_id": token, "_market": market_id, "_event": event_id}
-            for token, market_id, event_id in cur.fetchall()
+            {
+                "clob_token_id": token,
+                "_market": market_id,
+                "_event": event_id,
+                "start_ts": _epoch(start),
+                "end_ts": _epoch(closed),
+            }
+            for token, market_id, event_id, start, closed in cur.fetchall()
         ]
 
 
@@ -345,9 +386,18 @@ def backfill_history() -> dict[str, int]:
             by_market.setdefault(row["_market"], []).append(row)
 
         total = 0
+        seen = 0
         for _market_id, rows in by_market.items():
             for row in rows:
-                history = fetch_price_history(row["clob_token_id"])
+                seen += 1
+                if seen % BACKFILL_LOG_EVERY == 0:
+                    logger.info(
+                        "polymarket backfill: %d/%d tokens fetched, %d price rows loaded",
+                        seen,
+                        len(tokens),
+                        total,
+                    )
+                history = fetch_price_history(row["clob_token_id"], row["start_ts"], row["end_ts"])
                 if not history:
                     continue
                 df = pd.DataFrame(

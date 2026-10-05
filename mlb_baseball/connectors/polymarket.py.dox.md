@@ -62,7 +62,8 @@ Public connector capabilities:
 ### Historical price backfill
 
 - `backfill_history()` is deliberately separate from routine bootstrap/update.
-- It calls CLOB `/prices-history` per outcome token with `interval=max`.
+- It calls CLOB `/prices-history` per outcome token for the market's own window (`startdate` to `closedtime`, else now) in windows of at most 14 days. `interval=max` returns an empty list for a settled market and the API rejects a 30-day window (both checked live 2026-10-05: a 2025-04-02 market gave 789 points windowed, 0 with `interval=max`); `interval=max` is used only when a market has no start date.
+- Scale (2026-10-05): about 435,000 tokens over 217,000 markets, fetched one at a time (about 0.3 s each, so many hours). It logs progress every 1,000 tokens. A first run that used `interval=max` spent hours returning nothing; do not reintroduce it.
 - Current intentional scope is daily-game-event tokens, not every futures/draft/postseason tagged token.
 - A token returning an empty history with HTTP 200 is a valid no-trade/no-history result, not automatically a retryable error.
 - Historical loads are scoped by `clob_token_id`, making reruns idempotent rather than duplicative.

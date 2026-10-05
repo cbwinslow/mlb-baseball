@@ -8,6 +8,30 @@
 
 A running, source-cited knowledge base of sabermetric and ML techniques evaluated for Phase 2 (see ADR-032). Organized by technique, not chronologically — update an existing section rather than appending a new dated entry. Each entry: what it is, the concrete formula/method where one exists, source(s), and a note on how (or whether) it applies to `gold.game_feature`/the win-probability model.
 
+## Validation-oracle doctrine
+
+Independent calculation libraries and external datasets can be valuable
+**oracles**, but they do not become the project's canonical formula owner merely
+because they return the same metric. A useful validation stack is intentionally
+independent:
+
+```text
+project canonical SQL
+    ↕
+published/provider value
+    ↕
+independent third-party calculator or dataset
+```
+
+Before adding a third-party oracle, re-verify its current version, formula and
+constant semantics, license/terms, maintenance status, and whether it is truly
+independent of the same upstream calculation. Keep it dev/validation-only unless
+a separate dependency decision justifies runtime adoption. Two implementations
+that copied the same mistaken constant are not an independent tie-out.
+
+Outside-review candidates are indexed in `chatgpt/README.md`; their presence
+there is not an adoption decision.
+
 ## Head-to-head win probability (log5)
 
 **Formula:** `P(A beats B) = WPa(1-WPb) / [WPa(1-WPb) + WPb(1-WPa)]`, where `WPa`/`WPb` are the two teams' winning percentages. (An earlier version of this doc, and the code it justified, cited `WPa² / (WPa² + WPb²)` — that ratio-of-squares form was a misreading of the source; it fails the article's own required defining property below and was never actually validated. Corrected 2026-08-04 after an independent audit caught the mismatch — see `docs/archive/PROJECT_REVIEW.md`.)

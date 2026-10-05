@@ -366,6 +366,61 @@ def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
     _reset(db_conn)
 
 
+def test_compute_live_keeps_the_away_value_when_only_the_home_value_is_missing(db_conn):
+    # A starter's first start of the season has no rolling line, so the live
+    # path computes NULL for that side. The other side, already filled from
+    # Retrosheet, must survive: compute_live may only fill a NULL, never
+    # overwrite a value (and never with NULL).
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    teams, _players = _seed_teams_and_players(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.player (retro_id, mlbam_id, first_name, last_name) "
+            "VALUES ('livep001', '5001', 'Live', 'PitcherOne'), "
+            "('livep002', '5002', 'Live', 'PitcherTwo')"
+        )
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('MLB900010', '900010', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('900010', '0', '1', 'top', '5001', 'field_out', '1', '2026'), "
+            "('900010', '1', '1', 'bottom', '5002', 'field_out', '1', '2026')"
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET away_starter_era = 4.44, away_starter_k_pct = 0.2 "
+            "WHERE mlb_game_pk = '900010'"
+        )
+    db_conn.commit()
+
+    starter.compute_live(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_era, away_starter_era, away_starter_k_pct "
+            "FROM gold.game_feature WHERE mlb_game_pk = '900010'"
+        )
+        home_era, away_era, away_k = cur.fetchone()
+    assert home_era is None
+    assert away_era == Decimal("4.44")
+    assert away_k == Decimal("0.2")
+
+    _reset(db_conn)
+
+
 def _extend_team_range_to_2026(db_conn, *team_ids):
     # _seed_teams_and_players's teams run through 2025 (matching the
     # Retrosheet-scoped tests that share that helper) -- features.py's

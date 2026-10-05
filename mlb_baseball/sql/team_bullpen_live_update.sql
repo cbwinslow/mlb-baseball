@@ -102,15 +102,27 @@ fatigue AS (
     FROM team_relief_game trg
     JOIN team_day_fatigue tdf ON tdf.team_id = trg.team_id AND tdf.game_date = trg.game_date
 )
+-- Fill only what is still NULL, and only where the live play-by-play produced a
+-- value. Each side is independent: a team's first covered game has no rolling
+-- bullpen line (NULL), but the other side's values (from Retrosheet) must
+-- survive. Never overwrite a value, never write NULL over one.
 UPDATE gold.game_feature f
 SET
-    home_bullpen_fip = hq.fip, home_bullpen_k_pct = hq.k_pct, home_bullpen_bb_pct = hq.bb_pct,
-    home_bullpen_fatigue = hf.fatigue_outs,
-    away_bullpen_fip = aq.fip, away_bullpen_k_pct = aq.k_pct, away_bullpen_bb_pct = aq.bb_pct,
-    away_bullpen_fatigue = af.fatigue_outs
+    home_bullpen_fip = COALESCE(f.home_bullpen_fip, hq.fip),
+    home_bullpen_k_pct = COALESCE(f.home_bullpen_k_pct, hq.k_pct),
+    home_bullpen_bb_pct = COALESCE(f.home_bullpen_bb_pct, hq.bb_pct),
+    home_bullpen_fatigue = COALESCE(f.home_bullpen_fatigue, hf.fatigue_outs),
+    away_bullpen_fip = COALESCE(f.away_bullpen_fip, aq.fip),
+    away_bullpen_k_pct = COALESCE(f.away_bullpen_k_pct, aq.k_pct),
+    away_bullpen_bb_pct = COALESCE(f.away_bullpen_bb_pct, aq.bb_pct),
+    away_bullpen_fatigue = COALESCE(f.away_bullpen_fatigue, af.fatigue_outs)
 FROM regular_games rg
 LEFT JOIN quality hq ON hq.game_id = rg.game_id AND hq.team_id = rg.home_team_id
 LEFT JOIN quality aq ON aq.game_id = rg.game_id AND aq.team_id = rg.away_team_id
 LEFT JOIN fatigue hf ON hf.game_id = rg.game_id AND hf.team_id = rg.home_team_id
 LEFT JOIN fatigue af ON af.game_id = rg.game_id AND af.team_id = rg.away_team_id
-WHERE f.game_id = rg.game_id AND f.home_bullpen_fip IS NULL
+WHERE f.game_id = rg.game_id
+    AND ((f.home_bullpen_fip IS NULL AND hq.fip IS NOT NULL)
+        OR (f.home_bullpen_fatigue IS NULL AND hf.fatigue_outs IS NOT NULL)
+        OR (f.away_bullpen_fip IS NULL AND aq.fip IS NOT NULL)
+        OR (f.away_bullpen_fatigue IS NULL AND af.fatigue_outs IS NOT NULL))

@@ -104,7 +104,8 @@ def test_reads_named_live_bullpen_transformation():
     assert "%(fip_constant)s" in sql
     assert "%(fatigue_days)s" in sql
     assert "home_bullpen_fatigue" in sql
-    assert "WHERE f.game_id = rg.game_id AND f.home_bullpen_fip IS NULL" in sql
+    assert "COALESCE(f.away_bullpen_fip, aq.fip)" in sql
+    assert "f.home_bullpen_fip IS NULL AND hq.fip IS NOT NULL" in sql
 
 
 def test_reads_named_upcoming_bullpen_transformation():

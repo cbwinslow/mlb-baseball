@@ -8,6 +8,27 @@ Last set: 2026-09-02; two-product model + phased ladder 2026-09-07
 
 ---
 
+## North Star
+
+Build a trustworthy, reproducible MLB research and forecasting platform where
+every published statistic, feature, prediction, and market comparison can be
+traced from source evidence through canonical facts, validated transformations,
+point-in-time inputs, model artifacts, and timestamp-matched market
+observations. A researcher should be able to reproduce both the number and the
+reason it was considered trustworthy.
+
+The end-to-end direction is:
+
+```text
+source → raw evidence → canonical facts → validated statistics
+       → point-in-time features → declared target → model/simulation
+       → calibrated probability → timestamp-matched market observation
+       → reproducible research result
+```
+
+This is a direction and acceptance standard, not permission to pull Phase B/C
+work ahead of the current phase gates.
+
 ## What it is
 
 A free, **commercially-usable** (AGPL-3.0), **honest** MLB research
@@ -50,6 +71,64 @@ harness is a credibility signal, not a giveaway); trained artifacts,
 tuned configs, and backtest results for any model other than the
 reference baseline never ship; a metric ships once we choose to publish
 it (formula + citation), and is private until then.
+
+## Engineering invariants
+
+These are the project's concise cross-cutting laws. Detailed semantics belong
+to the nearest owning contract; do not duplicate them into another
+constitution.
+
+1. **Raw preserves evidence.** Source-faithful records and provenance are not
+   rewritten merely to make downstream checks pass. See
+   `docs/TABLE_CONTRACTS.md` and `docs/DATA_SOURCES.md`.
+2. **Core establishes canonical identity and facts.** Ambiguity stays explicit;
+   an honest NULL is preferred to a guessed identity. Stable entity identity is
+   the required convergence end state; the active implementation work is
+   `stable-ids-incremental-conform`.
+3. **Gold owns deterministic baseball knowledge, not the canonical PIT feature
+   store.** PostgreSQL gold may contain statistics and internal/legacy
+   compatibility/model outputs; researcher-facing model-ready PIT features are
+   DuckDB `feat.*`. See `docs/TABLE_CONTRACTS.md` and
+   `docs/FEATURE_STORE.md`.
+4. **Point-in-time truth means what was knowable then.** Event, observation,
+   availability, and prediction-cutoff time are distinct when the source
+   requires them.
+5. **Targets define prediction questions.** A model does not invent or quietly
+   reinterpret its label, eligible population, cutoff, censoring, or settlement
+   semantics.
+6. **Models estimate uncertainty; they do not redefine facts.** Deterministic
+   set-based derivations belong in versioned SQL/SQLMesh; fitting, sequential
+   state, simulation, and stochastic work belong in Python.
+7. **A number is not trusted because code produced it.** Formula/source
+   evidence, trust/admission state, PIT lineage, and validation govern use.
+8. **Every mutable derived relation has one canonical production writer.**
+   Candidate implementations must prove parity/audits before cutover, then the
+   legacy writer is removed.
+9. **Build, validate, then publish.** Prefer staged/atomic publication so a
+   failed rebuild cannot replace a last-known-good dataset with a partial one.
+10. **Failure must be actionable.** Important failures should identify what
+    failed, why it is wrong, where to inspect, and the next repair action;
+    `doctor`, `audit`, and `readiness` have separate contracts.
+
+## Governance and precedence
+
+For current direction and requirements, use this order:
+
+1. this constitution and current durable `openspec/specs/`;
+2. accepted ADRs and subsystem contracts;
+3. the active OpenSpec change design for its bounded scope;
+4. shared/local `AGENTS.md` operating instructions;
+5. implementation-facing prose and generated reference material;
+6. archived plans/reviews/history.
+
+Verified code or data does not get ignored merely because prose ranks above it.
+If evidence proves a current contract false, record the discrepancy, decide the
+intended behavior, and repair the owning contract and implementation together.
+
+A material review finding is captured only when it has one durable owner: an
+existing contract/spec, an active OpenSpec change, a named future change behind
+the existing phase gates, an executable gate, or an explicit rejected/archived
+rationale.
 
 ## The three differentiators
 
@@ -227,6 +306,15 @@ applied to model code, not a new rule.
   aspiration. A one-time full-codebase quality pass is a separate LATER
   item, run after Phase A.
 
+- **Definition of done includes contract impact.** For substantial work, ask
+  whether it changes grain/identity, source/provenance/rights, formula or
+  canonical writer, null semantics, PIT clocks/cutoff, replacement behavior,
+  public interface, failure semantics, target/settlement meaning, or artifact
+  reproducibility. If yes, update the nearest owning contract in the same
+  change and add the applicable test/audit/doctor/readiness/CI evidence.
+  Correctness-critical completion should have a human rule, a machine gate
+  where practical, and recorded evidence — not only a checked task box.
+
 ## Model roles
 
 Claude → architecture, specs, review, correctness-critical code, all
@@ -315,6 +403,14 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 **NEXT** — finish v1's remaining milestone work, then v1.1:
 
 > Latest session handoff (state, findings, ordered next steps, open issues): `openspec/HANDOFF.md`.
+
+- **Platform Convergence — architecture-readiness gate before broad new
+  Engine/model/product expansion.** Current acceptance criteria and the preserved
+  historical production-recovery evidence live in
+  `docs/PRODUCTION_CONVERGENCE.md`. The gate reuses the active
+  `pipeline-recovery`, `stable-ids-incremental-conform`,
+  `model-readiness-audit`, metric-catalog, feature-store, and SQL-ownership
+  work; it is not another implementation framework or release number.
 - v1 finishing work: `openspec/specs/statistic-backbone/spec.md`.
   - Baseball-Reference tie-out gate ✅ — `scripts/verify_baseball_reference_tie_out.py`:
     Judge 2022 + Cole 2023 cited cases match to Baseball-Reference's 3-decimal
@@ -403,17 +499,15 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   4.3). Publishing to PyPI / Hugging Face is tabled by the owner. **Paused
   2026-09-27 behind `pipeline-freshness`**: the readiness run found the backbone
   tables empty in production. Resume notes: `openspec/changes/play-engine/resume-notes.md`.
-- **Pipeline freshness (`openspec/changes/pipeline-freshness/`) — do first:**
-  the daily job empties the backbone tables (`conform`) and never refills them
-  (`report`), and `conform` has crashed daily since 2026-09-24 because migration
-  0107 is not applied. Fix the daily job, make the feature build refuse an empty
-  source, measure step timings, then decide incremental rebuilds on evidence.
-  Phase 1 code and the production catch-up landed 2026-09-27; next: three clean
-  scheduled runs, the step-timing profile, and the incremental go / no-go. The
-  readiness re-run is not ready on one bounded null-policy blocker (3,750
-  games, 3,707 of them 1935–1949 and nearly all Negro League, with no play-by-play; 1,586 of
-  them do have box scores our backbone does not use) — see
-  `model-readiness-audit/verification-2026-09-27.md`.
+- **Pipeline recovery (`openspec/changes/pipeline-recovery/`) — current
+  operational priority:** this supersedes the older `pipeline-freshness`
+  execution wording. Finish classifying and fixing doctor failures at their
+  source, make backup/catalog/feature-artifact and ingestion-item health
+  truthful, complete odds capture operations, measure the real pipeline, then
+  execute the strengthened stable-ID/incremental-conform change. The live
+  state and exact order remain in `openspec/HANDOFF.md`; the older
+  `pipeline-freshness` change remains useful history/evidence, not the current
+  queue owner.
 
 **LATER**
 - Backbone lines from Retrosheet box scores for box-only games (1,586 games,

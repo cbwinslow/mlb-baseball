@@ -10,6 +10,9 @@
 - [ ] 0.8 Create `docs/sources/` with one page per existing source (MLB Stats API, Retrosheet, Lahman, Statcast, FanGraphs, Baseball-Reference, Chadwick Register, Kalshi, Polymarket, news): offers vs stored vs reason for each gap, from `docs/SOURCE_COVERAGE_AUDIT.md` and `docs/RAW_INVENTORY.md`; verify every raw table appears on exactly one page and `scripts/check_dox.py` (or a new docs check) fails on an orphan table
 - [ ] 0.9 Record an ADR superseding the "skip because redundant" parts of ADR-017/018/019; verify it is in `docs/DECISIONS.md`
 
+- [ ] 0.10 Coverage finder `mlb coverage`: per source, ask the source what exists (MLB API: games per season from `raw.mlb_schedule` x each per-game dataset; Retrosheet: published file list; Statcast: dates; FanGraphs/BBRef: seasons) and compare with what each raw table holds; print what is missing and the exact `mlb ingest ...` command that fixes it. Reuse `mlb status --season-coverage`, `source-check`, `meta.ingestion_item` and the doctor coverage checks; start with the MLB API; verify a test with a seeded gap lists it and the fix command closes it
+- [ ] 0.11 Save-first rule: NEW datasets use the save-the-response pattern (D1). Existing working connectors (Statcast, FanGraphs, Baseball-Reference, register, Kalshi/Polymarket, news) are NOT changed unless a measured problem appears; record the reason per connector in its source page
+
 ## 1. MLB Stats API: cheap per-season endpoints (hundreds of calls)
 
 - [ ] 1.1 Probe and record first-valid year, request count and response shape for: schedule hydrates (weather, officials, decisions, broadcasts, seriesStatus, team, venue), stat groups fielding/catching/running, stat types sabermetrics and statSplits, `highLow`, `meta` enums, `draft/prospects`, postseason series, milestones, award recipients, transactions (all types incl. trades); verify the table is in the MLB source page

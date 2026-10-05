@@ -1,3 +1,61 @@
+# Session handoff - 2026-10-05 (late) - read this first in a fresh session
+
+Owner direction today: collect EVERY lawful free pro data source, all endpoints, all columns, kept
+separate per source in `raw`; no paid providers; minors/college last; do not disturb working connectors.
+Keep replies short, plain, one decision at a time (repo `CLAUDE.md`).
+
+## What happened this session
+
+- Merged: #308 (doctor shows crashed checks as ERROR), #309 (prediction-coverage checks count games).
+- Open PRs (all mine, unmerged): **#310** audit doc `docs/SOURCE_COVERAGE_AUDIT.md`; **#311** generated
+  `docs/RAW_INVENTORY.md` + `mlb inventory --markdown`; **#312** OpenSpec change
+  `full-source-ingestion` (planning only: proposal, spec, design, tasks incl. 0.10 `mlb coverage`);
+  **#313** one-time ledger seeding code - owner said one-time imports must NOT live in the repo:
+  **do not merge #313**; if the one-time load is approved, run it as a throwaway script outside the repo.
+- Production writes approved by the owner and done: Polymarket then Kalshi history backfill started
+  (one background chain, `~/workspace/mlb/logs/odds_backfill.log`; Polymarket was still retrying
+  `clob.polymarket.com` read timeouts at last look; check `rc=` lines); odds-capture cron installed
+  (`*/15`, runs, last rc=0). Not yet logged as finished in `pipeline-recovery/results.md`.
+- Finding: the win-probability responses were never saved on this server (loaded 2026-07-28/29, saving
+  code came 2026-08-09). The laptop `cbwlap1` (LAN 192.168.6.166, user cbwinslow) has them; copied to
+  `~/workspace/mlb/downloads/mlb_api/` (946 files, all sha256 verified). Its parsed copy is database
+  `mlb_api_scratch` on this server (leave it). Read-only comparison: files hold data production raw lacks
+  (293 games no rows, 47 partial, linescore short in 68 of 69 seasons; only 2026 linescore is newer in
+  prod). Details: `pipeline-recovery/results.md` ("9.5 ledger seeding"). `meta.ingestion_item` is empty.
+- Audit facts: `mlb_api` is MLB-only (`sportId=1`); pre-2026 play-by-play, box scores, per-pitch GUMBO feed,
+  weather/officials hydrates, extra stat groups, minors are not ingested (ADR-017/018/019 "skip, redundant"
+  - to be superseded). Only Retrosheet, Lahman and MLB analytics save downloads first; Statcast, FanGraphs,
+  BBRef, register, Kalshi/Polymarket, news load from memory (decision: leave them alone).
+
+## Waiting on the owner
+
+1. Run the one-time restore of the missing analytics rows from the copied files (production write; needs a
+   throwaway script; owner pastes with `!` if the safety filter blocks me). Then fetch only the ~444 games
+   not in the files.
+2. Catcher framing (9.4): owner said hold off.
+3. Owner-run, one-time: `mlb build` (stale DuckDB, 9.6), `mlb catalog build` (2.7), `VACUUM (ANALYZE)` of
+   four raw tables (2.8).
+
+## Next steps (in order)
+
+1. Merge #310, #311, #312 when green (squash; update branch first). Record the backfill result and the
+   cron install in `pipeline-recovery/results.md`; tick odds-history-capture 4.2/4.3/5.2.
+2. `full-source-ingestion` Phase 0: tasks 0.1 (project.md NOW/NEXT), 0.3/0.4 (MLB spec + terms), 0.6
+   (measure one feed season), 0.8 (one source page per source), 0.9 (ADR), 0.10 (`mlb coverage`).
+3. `pipeline-recovery` still open: 9.8 wrong-check bounds (`wsb`, SIERA, pitch movement, platoon, each with a
+   cited reason), the speed work (sections 4-7), `stable-ids-incremental-conform`.
+
+## Practical notes
+
+- Worktree for this work: `~/workspace/mlb-doctor-error` (own `.venv`, `uv sync --all-extras` done; branches
+  per change off `origin/main`). `~/workspace/mlb` must stay on `main`.
+- `openspec` CLI: `npx --no-install openspec ...`. A failed pre-commit hook (end-of-file) aborts the commit:
+  re-add and commit again. A trailing period or doubled `!` in an owner-pasted command breaks it.
+- Do not use planner row estimates (`pg_stat_user_tables`) for "is this table empty": use `count(*)`.
+- A claim of "paid/blocked" etc. from a subagent is evidence, not proof; re-verify.
+
+---
+
 # Session handoff — 2026-10-05 (read this first in a fresh session)
 
 Active work: `openspec/changes/pipeline-recovery/` (log in `results.md`) and

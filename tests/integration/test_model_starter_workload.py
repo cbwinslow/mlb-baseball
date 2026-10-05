@@ -575,7 +575,7 @@ def test_compute_live_starter_workload_matches_hand_calculation(db_conn):
     updated = starter_workload.compute_live(db_conn)
     db_conn.commit()
 
-    assert updated == 4
+    assert updated == 2  # games 900001 and 900002 have no prior start to fill from
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT g.retro_game_id, "
@@ -649,6 +649,56 @@ def test_compute_live_does_not_overwrite_retrosheet_derived_values(db_conn):
         rest_days, outs_7d = cur.fetchone()
     assert rest_days == 6
     assert outs_7d == Decimal("15")
+
+    _reset(db_conn)
+
+
+def test_compute_live_keeps_the_away_value_when_only_the_home_value_is_missing(db_conn):
+    # A starter's first start of the season has no prior start, so the live path
+    # computes NULL rest days for that side. The other side, already filled from
+    # Retrosheet, must survive: compute_live may only fill a NULL, never
+    # overwrite a value (and never with NULL).
+    _reset(db_conn)
+    _ensure_playbyplay_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.game "
+            "(retro_game_id, game_pk, season, game_date, home_team_id, away_team_id, "
+            "home_score, away_score, game_type) "
+            "VALUES ('MLB900010', '900010', 2026, '2026-04-01', %(atl)s, %(nya)s, 5, 3, 'regular')",
+            {"atl": atl, "nya": nya},
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_playbyplay "
+            "(game_pk, at_bat_index, inning, half_inning, pitcher_id, event_type, outs, _season) "
+            "VALUES "
+            "('900010', '0', '1', 'top', '5001', 'field_out', '1', '2026'), "
+            "('900010', '1', '1', 'bottom', '5002', 'field_out', '1', '2026')"
+        )
+    db_conn.commit()
+    features.build(db_conn)
+    db_conn.commit()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE gold.game_feature SET away_starter_rest_days = 7, away_starter_outs_7d = 9 "
+            "WHERE mlb_game_pk = '900010'"
+        )
+    db_conn.commit()
+
+    starter_workload.compute_live(db_conn)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT home_starter_rest_days, away_starter_rest_days, away_starter_outs_7d "
+            "FROM gold.game_feature WHERE mlb_game_pk = '900010'"
+        )
+        home_rest, away_rest, away_outs = cur.fetchone()
+    assert home_rest is None
+    assert away_rest == 7
+    assert away_outs == Decimal("9")
 
     _reset(db_conn)
 

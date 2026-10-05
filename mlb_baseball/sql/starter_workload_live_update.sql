@@ -73,15 +73,21 @@ starter_stats AS (
         ON pdw.pitcher_id = ss.pitcher_id
         AND pdw.game_date = ss.game_date
 )
+-- Fill only what is still NULL, and only where the live play-by-play produced a
+-- value. Each side is independent: a pitcher's first start of the season has no
+-- prior start (NULL), but the other side's value (from Retrosheet) must survive.
+-- Never overwrite a value, never write NULL over one.
 UPDATE gold.game_feature f
 SET
-    home_starter_rest_days = hs.rest_days,
-    home_starter_outs_7d = hs.workload_outs,
-    away_starter_rest_days = ws.rest_days,
-    away_starter_outs_7d = ws.workload_outs
+    home_starter_rest_days = COALESCE(f.home_starter_rest_days, hs.rest_days),
+    home_starter_outs_7d = COALESCE(f.home_starter_outs_7d, hs.workload_outs),
+    away_starter_rest_days = COALESCE(f.away_starter_rest_days, ws.rest_days),
+    away_starter_outs_7d = COALESCE(f.away_starter_outs_7d, ws.workload_outs)
 FROM starters s
 LEFT JOIN starter_stats hs
     ON hs.game_id = s.game_id AND hs.pitcher_id = s.home_starter_id
 LEFT JOIN starter_stats ws
     ON ws.game_id = s.game_id AND ws.pitcher_id = s.away_starter_id
-WHERE f.game_id = s.game_id AND f.home_starter_rest_days IS NULL
+WHERE f.game_id = s.game_id
+    AND ((f.home_starter_rest_days IS NULL AND hs.rest_days IS NOT NULL)
+        OR (f.away_starter_rest_days IS NULL AND ws.rest_days IS NOT NULL))

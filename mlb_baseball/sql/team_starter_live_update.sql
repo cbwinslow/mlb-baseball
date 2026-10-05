@@ -40,14 +40,28 @@ quality AS (
         CASE WHEN outs_sum > 0 THEN (13 * hr_sum + 3 * bb_sum - 2 * k_sum)::numeric / (outs_sum / 3.0) + %(fip_constant)s END AS fip
     FROM rolling
 )
+-- Fill only what is still NULL, and only where the live play-by-play produced a
+-- value. Each side is independent: a pitcher's first start of the season has no
+-- rolling line (NULL), but the other side's values (from Retrosheet) must
+-- survive. Never overwrite a value, never write NULL over one.
 UPDATE gold.game_feature f
-SET home_starter_id = hp.id, home_starter_era = hq.fip, home_starter_k_pct = hq.k_pct,
-    home_starter_bb_pct = hq.bb_pct, home_starter_hr_pct = hq.hr_pct,
-    away_starter_id = ap.id, away_starter_era = aq.fip, away_starter_k_pct = aq.k_pct,
-    away_starter_bb_pct = aq.bb_pct, away_starter_hr_pct = aq.hr_pct
+SET home_starter_id = COALESCE(f.home_starter_id, hp.id),
+    home_starter_era = COALESCE(f.home_starter_era, hq.fip),
+    home_starter_k_pct = COALESCE(f.home_starter_k_pct, hq.k_pct),
+    home_starter_bb_pct = COALESCE(f.home_starter_bb_pct, hq.bb_pct),
+    home_starter_hr_pct = COALESCE(f.home_starter_hr_pct, hq.hr_pct),
+    away_starter_id = COALESCE(f.away_starter_id, ap.id),
+    away_starter_era = COALESCE(f.away_starter_era, aq.fip),
+    away_starter_k_pct = COALESCE(f.away_starter_k_pct, aq.k_pct),
+    away_starter_bb_pct = COALESCE(f.away_starter_bb_pct, aq.bb_pct),
+    away_starter_hr_pct = COALESCE(f.away_starter_hr_pct, aq.hr_pct)
 FROM starters s
 LEFT JOIN quality hq ON hq.game_id = s.game_id AND hq.pitcher_id = s.home_starter_id
 LEFT JOIN quality aq ON aq.game_id = s.game_id AND aq.pitcher_id = s.away_starter_id
 LEFT JOIN core.player hp ON hp.mlbam_id = s.home_starter_id
 LEFT JOIN core.player ap ON ap.mlbam_id = s.away_starter_id
-WHERE f.game_id = s.game_id AND f.home_starter_era IS NULL
+WHERE f.game_id = s.game_id
+    AND ((f.home_starter_id IS NULL AND hp.id IS NOT NULL)
+        OR (f.home_starter_era IS NULL AND hq.fip IS NOT NULL)
+        OR (f.away_starter_id IS NULL AND ap.id IS NOT NULL)
+        OR (f.away_starter_era IS NULL AND aq.fip IS NOT NULL))

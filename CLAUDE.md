@@ -122,9 +122,9 @@ A delegated prompt must be self-contained and include:
 - exact verification expected;
 - a handoff listing changed files, tests run, findings, and limitations.
 
-Delegated agents must not merge PRs, force-push, delete branches/worktrees, alter
-production data, add paid services/sources, or expand into the next plan phase
-without explicit authorization.
+Delegated agents must not force-push, alter production data, add paid
+services/sources, or expand into the next plan phase without explicit
+authorization.
 
 After delegation, Claude must inspect the resulting diff and re-run the relevant
 checks before treating the work as complete. A subagent's self-report is not
@@ -189,8 +189,10 @@ celebrating it or declaring leakage from one metric alone.
 - Address substantive human and automated review findings on PRs Claude is
   working on. Verify findings rather than blindly accepting/rejecting them.
 - Explain why a finding is false/out of scope when declining it.
-- Do not merge, close, force-push, or delete branches without explicit owner
-  authorization.
+- Claude and Codex are pre-authorized to commit to PRs, push branches, and merge
+  PRs into `main` (using `gh pr merge --auto --squash` or `gh pr merge --squash`)
+  once CI checks (`test`, `secrets`) pass. Force-pushing or deleting remote
+  branches of other contributors still requires explicit owner authorization.
 
 ## Definition of done for Claude
 

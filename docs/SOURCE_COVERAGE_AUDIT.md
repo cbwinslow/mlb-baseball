@@ -40,6 +40,39 @@ The connector is **MLB-only (`sportId=1`) everywhere** and drops the rest on pur
 | Live snapshot stores ~20 scalar fields, not the feed | design | | Source-faithful raw JSON of the feed is not kept |
 | Raw JSON of the 1950+ analytics responses was never saved | n/a | | Why the ledger is empty (pipeline-recovery 9.5) |
 
+## Download and ingestion machinery today (from the code, 2026-10-05)
+
+All 18 connectors in `mlb_baseball/registry.py` have `bootstrap()`, `update()` and `health_check()`
+(Kalshi and Polymarket also `snapshot()`). The weak point is not the load, it is the step before it:
+
+| Connector | Raw tables | Saves the downloaded file before loading | Item-level ledger |
+|---|---:|---|---|
+| mlb_api | 43 | yes (analytics only, since 2026-08-09) | yes (analytics only) |
+| retrosheet (+ box, event, gamelog, reference, roster, schedule, transaction) | 31 | yes (zips under `downloads/retrosheet*`) | no |
+| lahman | 27 | zip kept (`downloads/lahman_*.zip`) | no |
+| statcast, statcast_leaderboard | 20 | **no** (fetched into memory) | no |
+| fangraphs | 10 | **no** | no |
+| bref (Baseball-Reference) | 5 | **no** | no |
+| chadwick_register | 4 | **no** | no |
+| kalshi, polymarket | 11 | **no** | no |
+| news | 1 | **no** | no |
+
+So "download, save, then ingest" holds for Retrosheet, Lahman and a small part of the MLB API. The rest load
+straight from memory: a failed or later-doubted load cannot be replayed or proven, which is exactly how the
+win-probability data was lost on this server. Four Retrosheet raw tables (`allplayers`, `batting`,
+`fielding`, `pitching`) are filled by the Chadwick/Retrosheet loader by name rather than by an explicit
+table reference.
+
+MLB Stats API functions and the table each fills (endpoint scope in `mlb_api.py`, all `sportId=1`):
+schedule -> `raw.mlb_schedule` (1901+), standings -> `mlb_standing` (1969+), roster -> `mlb_roster`,
+transactions -> `mlb_transaction` (2000+), venue -> `mlb_venue`, team history -> `mlb_team_history`,
+people -> `mlb_person`, draft -> `mlb_draft` (1965+), play-by-play -> `mlb_playbyplay` (2026+),
+box score -> `mlb_boxscore_batting/pitching/fielding` + `mlb_umpire` (2026+), win probability ->
+`mlb_win_prob` (1950+), linescore -> `mlb_linescore` (1950+), context metrics -> `mlb_game_context`
+(1950+), live game -> `mlb_live_game`, probables -> `mlb_probable`, plus 20 reference tables
+(sport, league, division, season, player pool, free agents, coaches, alumni, personnel, affiliates,
+attendance, game pace, player/team stats, leaders, awards, conference, scorers, umpire directory, datacasters).
+
 ## Other sources
 
 - **fungo** (MIT, 1 maintainer, 3 stars, v2.0.0 2026-07-11): wraps Savant, MLB Stats API, FanGraphs, Baseball-Reference,

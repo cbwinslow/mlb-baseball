@@ -155,6 +155,47 @@ Restored `daily/20261003_020001/pg16_mlb.dump` (checksum verified first) into `m
 - **Reading:** a location-only model does not reproduce Savant, so it cannot be called correct. The prior-season Savant value (`team_framing_update.sql`) ties to its source by construction.
 - **Recommendation to the owner:** withhold the in-season columns (`*_catcher_csae_pct`, `*_catcher_framing_runs`) and keep the prior-season Savant value; no bound widened. Owner decision pending.
 
+## 9.9 prediction-count checks count games (2026-10-05)
+
+- Cause: `market._polymarket_coverage_check` / `_kalshi_coverage_check` used `count(*)`
+  on `gold.prediction`, which keeps one row per run per game, so any game predicted
+  more than once read as "join fan-out".
+- Fix: both checks count `DISTINCT` games (`game_instance_key` / `core.game.id`).
+  Test `test_coverage_check_counts_games_not_prediction_rows` failed first (`2 > expected 1`).
+- The remaining gap (read-only query on `mlb`, 2026-10-05): Polymarket 585 predicted
+  games vs 529 with a conformed price. 56 predicted games have no conformed price: 55
+  are decided games whose prediction was written from live snapshots while upcoming
+  (ADR-267) but `core.market` has no Polymarket row for them (0 of 55), dates
+  2026-08-02..2026-09-27; 1 is an upcoming game. Likely cause: `core.market` Polymarket
+  rows come from price history, and the history backfill had not been run (odds-history-capture
+  4.2, started 2026-10-05). **Re-check after the backfill and the next conform; if the 55
+  remain, it is a conform defect and needs its own task.**
+
+## Production writes approved by the owner, 2026-10-05 (odds-history-capture 4.2, 4.3, 5.2)
+
+| step | command | target | run by | when | result |
+|---|---|---|---|---|---|
+| 4.2 / 4.3 | `mlb ingest polymarket --mode backfill`, then `mlb ingest kalshi --mode backfill` (one nohup chain, log `logs/odds_backfill.log`) | `mlb` | owner (`!`) | 2026-10-05 | started; result pending (check the log for `polymarket rc=` / `kalshi rc=`) |
+| 5.2 | cron `*/15 * * * * ~/workspace/mlb/scripts/mlb_odds_capture.sh` | host crontab | owner (`!`) | 2026-10-05 | installed (`crontab -l` shows it) |
+Backup in force: host job `validated_backup.sh` (nightly 02:00).
+
+## 9.5 ingestion ledger: finding, owner decision pending (2026-10-05)
+
+- Facts (read-only on `mlb`): `meta.ingestion_item` has 0 rows; raw analytics hold 164,362 games
+  (win_prob, game_context) and 77 seasons of linescores; no `downloads/mlb_api` artifacts exist.
+  1,192 finished games (seasons 1950-2012) have no analytics rows.
+- The ledger write path is wired and correct (`record_items` in `_load_linescores_for_season`,
+  `_load_analytics_batch`, `_record_failed_analytics_items`; reached only by
+  `mlb ingest mlb_api --stage analytics`). It is empty because that stage has not run since the
+  ledger shipped (migration 0038); the raw data came from an earlier load.
+- The existing contract (`_analytics_season_complete`, `_terminal_analytics_games`) requires each
+  ledger row to carry a valid saved artifact + checksum; a "legacy raw-only load is replayed once
+  into the durable ledger". Seeding artifact-less rows from raw would break that contract and
+  claim provenance that does not exist, so it is NOT done. The task text "backfill from raw without
+  re-downloading" is therefore not possible without weakening the contract.
+- Real fix = run the staged analytics backfill once (about 2 requests per game, ~325k requests,
+  resumable per season, 404s recorded as `unavailable`). Owner decision: run it, and over which years.
+
 ## 3.2 doctor reports crashed checks as ERROR (2026-10-05)
 
 - Cause: `doctor.run()` turned a raising check into an ordinary failed check
@@ -184,3 +225,39 @@ Restored `daily/20261003_020001/pg16_mlb.dump` (checksum verified first) into `m
 - Production steps for the owner to approve (each logged): 1) `--stage analytics-ledger-restore`,
   2) `--stage analytics-replay` (rewrites raw from verified files, no network), 3) fetch only the games
   not in the files, 4) confirm `mlb_api analytics durable coverage` passes.
+
+## 9.5 / full-source-ingestion 0.5: the original win-probability responses exist (2026-10-05)
+
+- Found on the owner's laptop `cbwlap1`: `~/mlb-baseball/downloads/mlb_api/` (264 MB, 946 files, 77 season
+  folders 1950-2026, plus `manifest.json` with sha256 per file; written by the artifact-staging code of
+  2026-08-09). The laptop's parsed copy is the scratch database `mlb_api_scratch` on this server
+  (port 5432, 2.1 GB, parsed rows only, loaded 2026-08-09/10; kept untouched).
+- Copied (additive `rsync --ignore-existing`, nothing overwritten) to `~/workspace/mlb/downloads/mlb_api/`
+  (git-ignored). Verified: 946 of 946 files match their manifest sha256, none missing.
+- Contents: win_probability 164,213 x HTTP 200 and 969 x 404; context_metrics 164,213 x 200 and 969 x 404;
+  165,179 distinct games. Versus production `mlb` (read-only): production raw has 164,362 games with
+  analytics; 1,192 final games (1950-2025) have none, and the artifacts cover 1,190 of them (so those
+  are source 404s, now provable); 2 final games are in neither; 442 production games are not in the
+  artifacts (loaded after the laptop run, e.g. later 2026 games).
+- Consequence: `pipeline-recovery` 9.5 needs NO 325k-request re-download. What is missing is a step that
+  rebuilds `meta.ingestion_item` rows from these artifacts (path + checksum from `manifest.json`, status
+  `unavailable` for 404, row counts checked against production raw) so the existing completeness check
+  and replay can use them. Production write; owner-approved before running; 442 + 2 games still to fetch.
+
+## 9.5 one-time analytics restore on production `mlb` (owner yes 2026-10-05, run 07:54-08:25 UTC)
+
+| step | command | target | run by | result |
+|---|---|---|---|---|
+| 1 | throwaway script calling `mlb_api.seed_ledger(restore=True)` (code on unmerged PR #313 branch; script outside the repo) | `mlb` | Claude, owner-approved | 330,440 `meta.ingestion_item` rows written (279 s); 701 restorable; 1 left alone (2026 linescore, raw is newer than the file) |
+| 2 | throwaway script calling `mlb_api.replay_analytics(1950, 2025)` (no network, checksum-verified files copied from `cbwlap1`) | `mlb` | Claude, owner-approved | win_prob 12,415,234 + linescore 2,991,928 + game_context 161,950 rows reloaded (781 s) |
+
+Backup in force: host nightly dump 02:00 (`validated_backup.sh`).
+
+Result (read-only check afterwards): `raw.mlb_win_prob` 164,362 -> 164,589 games, 12,583,147 -> 12,600,330
+rows; `raw.mlb_linescore` 3,011,882 -> 3,036,442; `meta.ingestion_item`: win_probability 164,213 loaded +
+969 unavailable, context_metrics the same, linescore_schedule 76 loaded. Doctor check
+`mlb_api analytics durable coverage` went from a large gap to 2 incomplete seasons: 1999 (2456/2459) and
+2011 (2962/2964), i.e. 5 final games with no saved response. Next: fetch only those games with
+`mlb ingest mlb_api --stage analytics --start-year 1999 --end-year 1999` (and 2011); terminal games are
+skipped, so it is a handful of requests. 2026 is outside this check and is refreshed by the normal update.
+PR #313 (seeding code) stays unmerged by owner decision: it was a one-time job.

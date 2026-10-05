@@ -1,3 +1,66 @@
+# Session handoff - 2026-10-05 (late) - read this first in a fresh session
+
+Owner direction today: collect EVERY lawful free pro data source, all endpoints, all columns, kept
+separate per source in `raw`; no paid providers; minors/college last; do not disturb working connectors.
+Keep replies short, plain, one decision at a time (repo `CLAUDE.md`).
+
+## What happened this session
+
+- Merged: #308 (doctor shows crashed checks as ERROR), #309 (prediction-coverage checks count games),
+  #310 (audit doc `docs/SOURCE_COVERAGE_AUDIT.md`), #311 (generated `docs/RAW_INVENTORY.md` +
+  `mlb inventory --markdown`), #312 (OpenSpec change `full-source-ingestion`, planning only, incl. task 0.10
+  `mlb coverage` finder). **#313** (one-time ledger seeding code) stays UNMERGED by owner decision: one-time
+  imports do not live in the repo; the owner may close it.
+- One-time analytics restore DONE on production `mlb` (owner yes): the win-probability responses were never
+  saved on this server (loaded 2026-07-28/29, saving code came 2026-08-09); the laptop `cbwlap1`
+  (LAN 192.168.6.166) had them. Copied to `~/workspace/mlb/downloads/mlb_api/` (946 files, sha256 verified),
+  ledger rebuilt (330,440 rows) and raw reloaded from the files (no network). Win-prob games 164,362 ->
+  164,589; linescore 3.01M -> 3.04M. Evidence: `pipeline-recovery/results.md` (PR **#314**, open, docs only).
+  `mlb_api_scratch` (the laptop's parsed copy, on this server) can stay or be dropped.
+- Left over from it: doctor `mlb_api analytics durable coverage` fails on 2 seasons, 5 final games with no
+  saved response: 1999 (3) and 2011 (2). Fix: `mlb ingest mlb_api --stage analytics --start-year 1999
+  --end-year 1999` (then 2011); fetches only those games. Needs the owner's yes (production write). Then tick
+  `pipeline-recovery` 9.5.
+- Odds: Polymarket then Kalshi history backfill is one background chain
+  (`~/workspace/mlb/logs/odds_backfill.log`, look for `polymarket rc=` / `kalshi rc=`; Polymarket was retrying
+  `clob.polymarket.com` read timeouts); cron `*/15 odds_capture.sh` is installed and runs (rc=0). When the
+  chain ends, log it in `results.md` and tick odds-history-capture 4.2/4.3/5.2 (then 5.3 after a week, 6.1).
+- Audit facts: `mlb_api` is MLB-only (`sportId=1`); pre-2026 play-by-play, box scores, per-pitch GUMBO feed,
+  weather/officials hydrates, extra stat groups and minors are not ingested (ADR-017/018/019 "skip,
+  redundant", to be superseded). Only Retrosheet, Lahman and MLB analytics save downloads first; Statcast,
+  FanGraphs, BBRef, register, Kalshi/Polymarket, news load from memory: owner decision is to leave working
+  connectors alone and use save-first only for NEW datasets (task 0.11).
+
+## Waiting on the owner
+
+1. Yes/no: fetch the 5 missing games (1999, 2011), see above.
+2. Catcher framing (9.4): owner said hold off.
+3. Owner-run, one-time: `mlb build` (stale DuckDB, 9.6), `mlb catalog build` (2.7), `VACUUM (ANALYZE)` of four
+   raw tables (2.8).
+
+## Next steps (in order)
+
+1. `full-source-ingestion` Phase 0 (`openspec/changes/full-source-ingestion/tasks.md`): 0.1 record the owner
+   direction in `openspec/project.md` NOW/NEXT; 0.3/0.4 verify the MLB OpenAPI spec origin
+   (`~/workspace/mlb-baseball-ml/agents/mcp/baseball-mcp/mlb-statsapi-spec.json`, 190 paths) and MLB terms;
+   0.6 measure one feed season; 0.8 one page per source in `docs/sources/`; 0.9 ADR superseding the
+   "skip if redundant" parts of ADR-017/018/019; 0.10 `mlb coverage`. Then Phase 1 (cheap MLB endpoints).
+2. `pipeline-recovery` still open: 9.8 wrong-check bounds (`wsb`, SIERA, pitch movement, platoon, each with a
+   cited reason), the speed work (sections 4-7), then `stable-ids-incremental-conform`.
+3. Re-check after the odds backfill and next conform: the 55 decided games with a live-snapshot prediction but
+   no `core.market` Polymarket row (`pipeline-recovery/results.md`, 9.9). If they remain, it is a conform bug.
+
+## Practical notes
+
+- Worktree for this work: `~/workspace/mlb-doctor-error` (own `.venv`, `uv sync --all-extras` done; branches
+  per change off `origin/main`). `~/workspace/mlb` must stay on `main`.
+- `openspec` CLI: `npx --no-install openspec ...`. A failed pre-commit hook (end-of-file) aborts the commit:
+  re-add and commit again. A trailing period or doubled `!` in an owner-pasted command breaks it.
+- Do not use planner row estimates (`pg_stat_user_tables`) for "is this table empty": use `count(*)`.
+- A claim of "paid/blocked" etc. from a subagent is evidence, not proof; re-verify.
+
+---
+
 # Session handoff — 2026-10-05 (read this first in a fresh session)
 
 Active work: `openspec/changes/pipeline-recovery/` (log in `results.md`) and

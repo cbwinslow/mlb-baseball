@@ -445,12 +445,17 @@ envelope check (no season row over 163 games).
 
 ## 4. Raw Data Landing Tables (`raw.*`)
 
-- **`raw.statcast_pitch`**: Every tracked pitch in Statcast era (pitch type, velocity, spin rate, release coordinates, `pfx_x`, `pfx_z`, plate coordinates, zone 1-14, exit velocity, launch angle, hit distance, xBA, xwOBA).
-- **`raw.statcast_pitcher_arsenal_stat`**: Pitcher pitch-type repertoire (usage%, run value/100, wOBA against, whiff%).
-- **`raw.statcast_batter_arsenal`**: Batter performance vs specific pitch types (pitches seen, run value/100, wOBA, whiff%).
-- **`raw.retrosheet_event`**: Play-by-play events from 1910-2025 (pre-outs, post-outs, runners on base, runner destination codes, event codes).
-- **`raw.retrosheet_gameinfo`**: Game metadata, official box scores, starting pitchers, attendance, game times, umpires.
-- **`raw.odds_historical`**: Time-stamped sportsbook market odds, moneylines, run lines, totals, and closing lines.
+The complete, current list of raw tables (exact row counts, season ranges, every column and its
+type) is the generated [`RAW_INVENTORY.md`](RAW_INVENTORY.md). Regenerate it with
+`mlb inventory --markdown docs/RAW_INVENTORY.md`; do not hand-maintain a table list here. What each
+source offers versus what is stored, and the recorded reasons for gaps, is in
+[`SOURCE_COVERAGE_AUDIT.md`](SOURCE_COVERAGE_AUDIT.md); source terms are in
+[`SOURCE_RIGHTS.md`](SOURCE_RIGHTS.md). Source-faithful semantics for a connector live in its
+`mlb_baseball/connectors/*.dox.md`.
+
+Raw tables are named `<source>_<dataset>` (for example `raw.statcast_pitch`,
+`raw.retrosheet_event`, `raw.mlb_win_prob`). A table named in older notes that is absent from the
+inventory (for example `raw.odds_historical`) does not exist in this database.
 
 ---
 

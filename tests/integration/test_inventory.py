@@ -60,3 +60,20 @@ def test_last_runs_empty_not_crashing_on_unmigrated_db(monkeypatch, unmigrated_d
 
     assert runs == []
     assert unmigrated_db_connection.rolled_back
+
+
+def test_raw_markdown_lists_columns_rows_and_season_range(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_inventory_gadget")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {table} (id int, name text, _season text)")
+        cur.execute(f"INSERT INTO {table} VALUES (1, 'a', '1999'), (2, 'b', '2004')")
+    db_conn.commit()
+
+    text = inventory.raw_markdown()
+
+    row = next(r for r in text.splitlines() if r.startswith("| `raw.test_inventory_gadget`"))
+    assert "| 2 |" in row
+    assert "1999-2004" in row
+    assert "| 3 |" in row  # column count
+    assert "- `name` text" in text
+    assert "- `id` integer" in text

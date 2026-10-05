@@ -154,3 +154,19 @@ Restored `daily/20261003_020001/pg16_mlb.dump` (checksum verified first) into `m
 - **Scale does not match either:** top catcher Patrick Bailey is +96 strikes in the shadow-zone model against Savant's roughly 5 extra strikes (rv_tot 3.5). Savant adjusts for more (umpire, park, pitcher) than the pitch columns we hold.
 - **Reading:** a location-only model does not reproduce Savant, so it cannot be called correct. The prior-season Savant value (`team_framing_update.sql`) ties to its source by construction.
 - **Recommendation to the owner:** withhold the in-season columns (`*_catcher_csae_pct`, `*_catcher_framing_runs`) and keep the prior-season Savant value; no bound widened. Owner decision pending.
+
+## 9.9 prediction-count checks count games (2026-10-05)
+
+- Cause: `market._polymarket_coverage_check` / `_kalshi_coverage_check` used `count(*)`
+  on `gold.prediction`, which keeps one row per run per game, so any game predicted
+  more than once read as "join fan-out".
+- Fix: both checks count `DISTINCT` games (`game_instance_key` / `core.game.id`).
+  Test `test_coverage_check_counts_games_not_prediction_rows` failed first (`2 > expected 1`).
+- The remaining gap (read-only query on `mlb`, 2026-10-05): Polymarket 585 predicted
+  games vs 529 with a conformed price. 56 predicted games have no conformed price: 55
+  are decided games whose prediction was written from live snapshots while upcoming
+  (ADR-267) but `core.market` has no Polymarket row for them (0 of 55), dates
+  2026-08-02..2026-09-27; 1 is an upcoming game. Likely cause: `core.market` Polymarket
+  rows come from price history, and the history backfill had not been run (odds-history-capture
+  4.2, started 2026-10-05). **Re-check after the backfill and the next conform; if the 55
+  remain, it is a conform defect and needs its own task.**

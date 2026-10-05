@@ -528,6 +528,17 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   to the home-plate umpire in Retrosheet game info, using only games before the
   one predicted (point-in-time). Belongs to the feature-set work after the
   readiness gate clears.
+- Sabermetric formula consolidation (after Platform Convergence): inventory
+  canonical owners and season-dependent context first; remove fixed-era
+  wOBA/wRC+/FIP/xFIP assumptions, settle RE24/WPA ownership, and use genuinely
+  independent validation oracles. Do **not** use this as permission for another
+  broad metric-generation batch. Candidate rationale:
+  `chatgpt/sabremetrics-review.md` / `chatgpt/README.md`.
+- Library/source evaluation (research-only until adopted): re-verify the
+  candidates in `chatgpt/source-review.md` for current maintenance,
+  license/terms, rights, overlap and unique value before adding dependencies or
+  source rows. `docs/DATA_SOURCES.md`, `docs/SOURCE_RIGHTS.md`, and
+  `pyproject.toml` remain authoritative.
 - Phase B — the Engine (SPECULATIVE; re-evaluate after Phase A ships).
   See the phased ladder.
 - A one-time full-codebase quality review ("vibe-code proof" pass), run

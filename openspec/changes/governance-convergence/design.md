@@ -130,6 +130,33 @@ The 2026-10-05 review maps as follows:
 No future change named here is automatically authorized to start. Existing
 phase gates and owner-approved focus still control scheduling.
 
+### D9: Imported outside reviews remain evidence, not authority
+
+The owner added four point-in-time review artifacts under `chatgpt/`. Keep the
+original files unchanged and route them through `chatgpt/README.md`.
+
+| Artifact | Additional disposition beyond D8 |
+|---|---|
+| `chatgpt-laws.md` | North Star/laws/completion structure already absorbed by this governance change; implementation details remain with their owning changes. |
+| `chatgpt-review.md` | Major architecture findings already mapped in D8; target, market, lineage, doctor-registry and AI-skill items remain phase-gated follow-ups. |
+| `sabremetrics-review.md` | Promote the durable rule that season-dependent constants are versioned/provenanced inputs and that SQL remains canonical. Future bounded formula-consolidation work inventories wOBA/wRC+, FIP/xFIP, RE24/WPA before adding metrics. An optional Python stats facade is later consumer ergonomics, not a warehouse owner. |
+| `source-review.md` | Treat named packages/sources as candidates requiring fresh verification. Fungo is already adopted; Polars/Pandera already have explicit triggers. Other calculators/reference datasets/MLB clients/weather/umpire candidates belong in a future library/source evaluation, not directly in dependencies or `DATA_SOURCES.md`. |
+
+### D10: Two bounded follow-ups capture the unabsorbed specialist work
+
+After current Platform Convergence blockers, consider only if still valuable:
+
+1. **`sabermetric-formula-consolidation`** — inventory formula owners,
+   components, season context, rights, PIT/null semantics and independent
+   validation evidence; correct the known fixed-era wOBA/FIP/xFIP context and
+   settle RE24/WPA ownership before expanding the metric surface.
+2. **`library-source-evaluation`** — re-check outside-review candidates against
+   current upstream state and record `adopt / optional / validation-oracle /
+   watch / reject` with maintenance, license/terms, source rights, overlap,
+   unique capability and integration cost.
+
+Neither change is authorized merely by being named here.
+
 ## Contract-impact checklist
 
 A substantial change must ask whether it changes any of:

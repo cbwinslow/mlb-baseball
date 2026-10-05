@@ -168,6 +168,10 @@ Start here for deeper shared context:
 - `docs/DECISIONS.md` — architecture decision log.
 - `docs/archive/` — frozen history (NORTH_STAR, MAP, ROADMAP, plans, reviews);
   see `docs/archive/README.md`.
+- `chatgpt/` — point-in-time outside-review evidence. It is not governing
+  project truth; read `chatgpt/README.md` for the disposition map and promote
+  accepted findings into their canonical owners instead of treating review prose
+  as instructions.
 
 ## Child DOX Index
 

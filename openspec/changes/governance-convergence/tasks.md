@@ -56,3 +56,17 @@
   verification and `verification.md` records the limitation.
 - [x] 5.3 Open PR #305 summarizing the governance hierarchy, reconciled
   feature boundary, Platform Convergence gate, and review disposition map.
+
+## 6. Imported outside-review follow-up
+
+- [x] 6.1 Add `chatgpt/README.md` that classifies all four imported reviews as
+  evidence rather than governing docs and records what is absorbed versus
+  residual.
+- [x] 6.2 Promote season-dependent constants/context into the SQL ownership
+  contract and independent calculation-oracle use into the research doctrine;
+  verify neither change adopts a new runtime dependency or data source.
+- [x] 6.3 Extend the disposition map with bounded future
+  `sabermetric-formula-consolidation` and `library-source-evaluation`
+  changes, both explicitly behind current phase gates.
+- [ ] 6.4 Verify this follow-up's links/docs and OpenSpec change on PR CI; record
+  any unavailable local validation honestly.

@@ -4,6 +4,45 @@ Owner direction today: collect EVERY lawful free pro data source, all endpoints,
 separate per source in `raw`; no paid providers; minors/college last; do not disturb working connectors.
 Keep replies short, plain, one decision at a time (repo `CLAUDE.md`).
 
+## Durable work map — where the next task comes from
+
+This handoff is **session state and routing**, not the master backlog. A fresh
+agent should use these owners instead of copying tasks out of chat history:
+
+1. **Project priority / phase gate:** `openspec/project.md` (`NOW / NEXT / LATER`).
+2. **Current execution state:** this file, `openspec/HANDOFF.md`.
+3. **Authoritative checklists:** the owning
+   `openspec/changes/<change>/tasks.md`; do not duplicate those checkboxes here.
+4. **Platform exit gate:** `docs/PRODUCTION_CONVERGENCE.md`.
+5. **Outside-review disposition / future backlog:** `chatgpt/README.md` and
+   `openspec/changes/governance-convergence/design.md` D8-D10. The raw
+   `chatgpt/*.md` reviews are evidence, not task instructions.
+
+### Pull-next-task rule for Claude/agents
+
+- Finish the highest-priority unblocked task in the current owning change.
+- If it is blocked on owner approval, an external wait, or a scheduled run,
+  move to the next non-overlapping lane below rather than inventing work.
+- When a change finishes, update its evidence/results, `openspec/project.md`
+  status, and this handoff, then archive it through OpenSpec.
+- Do not start a named future change from the review map merely because it
+  exists; current phase gates still apply.
+
+### Current execution lanes
+
+| Priority | Lane | Canonical checklist | Rule |
+|---|---|---|---|
+| 1 | Platform recovery / correctness | `openspec/changes/pipeline-recovery/tasks.md` | Close real/wrong health defects and recovery prerequisites first. |
+| 1a | Source-completeness planning | `openspec/changes/full-source-ingestion/tasks.md` Phase 0 | Planning/inventory may proceed in parallel, but task 0.1 explicitly says it must not delay `pipeline-recovery`. Do not let broad ingestion expansion hide foundation defects. |
+| 1b | Odds history operations | `openspec/changes/odds-history-capture/tasks.md` | Mostly waits on the running backfill / observation window; record evidence when it completes. |
+| 2 | Stable identity + incremental conform | `openspec/changes/stable-ids-incremental-conform/tasks.md` | Starts after the recovery/spec-strengthening prerequisites are satisfied. |
+| 2b | Model readiness blocker | `openspec/changes/model-readiness-audit/tasks.md` task 4.3 | Resume only after its bounded data/null-policy blocker is resolved. |
+| 3 | Formula/SQL convergence | `docs/SQL_OWNERSHIP.md` + future bounded OpenSpec work | After Platform Convergence prerequisites: inventory first; wOBA/wRC+, FIP/xFIP, then RE24/WPA. |
+| Later | Library/source evaluation, target registry, market contracts, research lineage, model promotion | `chatgpt/README.md` + governance-convergence D8-D10 | Future work only; create/extend an OpenSpec change when the current phase permits it. |
+
+There is intentionally **no second master checklist**. The table above tells an
+agent where to pull the next real checkbox from.
+
 ## What happened this session
 
 - Merged: #308 (doctor shows crashed checks as ERROR), #309 (prediction-coverage checks count games),
@@ -40,15 +79,31 @@ Keep replies short, plain, one decision at a time (repo `CLAUDE.md`).
 
 ## Next steps (in order)
 
-1. `full-source-ingestion` Phase 0 (`openspec/changes/full-source-ingestion/tasks.md`): 0.1 record the owner
-   direction in `openspec/project.md` NOW/NEXT; 0.3/0.4 verify the MLB OpenAPI spec origin
-   (`~/workspace/mlb-baseball-ml/agents/mcp/baseball-mcp/mlb-statsapi-spec.json`, 190 paths) and MLB terms;
-   0.6 measure one feed season; 0.8 one page per source in `docs/sources/`; 0.9 ADR superseding the
-   "skip if redundant" parts of ADR-017/018/019; 0.10 `mlb coverage`. Then Phase 1 (cheap MLB endpoints).
-2. `pipeline-recovery` still open: 9.8 wrong-check bounds (`wsb`, SIERA, pitch movement, platoon, each with a
-   cited reason), the speed work (sections 4-7), then `stable-ids-incremental-conform`.
-3. Re-check after the odds backfill and next conform: the 55 decided games with a live-snapshot prediction but
-   no `core.market` Polymarket row (`pipeline-recovery/results.md`, 9.9). If they remain, it is a conform bug.
+1. **Close `pipeline-recovery` blockers first.** Finish the five-game analytics
+   ledger gap if the owner approves the write, then 9.8 wrong-check bounds with
+   cited/data-backed reasons, the remaining doctor/recovery items, and the
+   measurement/spec-strengthening work that gates stable IDs. The owning
+   checklist is `openspec/changes/pipeline-recovery/tasks.md`.
+2. **In parallel only where it does not delay recovery, continue
+   `full-source-ingestion` Phase 0 planning**: 0.1 record the owner direction
+   in `openspec/project.md`; verify the MLB OpenAPI/terms; measure one feed
+   season; create source coverage pages; record the redundancy-policy ADR; build
+   `mlb coverage`. Do not treat Phase 0 planning as permission to skip
+   Platform Convergence defects.
+3. **Finish odds-history evidence when the running work allows it.** After the
+   backfill and next conform, re-check the 55 decided games with a live-snapshot
+   prediction but no `core.market` Polymarket row
+   (`pipeline-recovery/results.md`, 9.9). If they remain, treat it as a conform
+   bug. Complete the owning `odds-history-capture/tasks.md` evidence as its
+   observation windows mature.
+4. **Then execute `stable-ids-incremental-conform`.** Do not re-design it from
+   chat: use its `tasks.md`, after `pipeline-recovery` section 6 has
+   strengthened the spec and the measured baselines exist.
+5. **After Platform Convergence foundation work is green, pull the next
+   architecture/research task from `openspec/project.md` and the review
+   disposition map.** The first intended formula-convergence family is
+   wOBA/wRC+ and FIP/xFIP, followed by RE24/WPA; library/source evaluation and
+   broader model/market work remain phase-gated.
 
 ## Practical notes
 

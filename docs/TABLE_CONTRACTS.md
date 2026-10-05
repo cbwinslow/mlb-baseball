@@ -4,17 +4,37 @@ Plan 02E contract baseline, 2026-08-06. A table's contract is its grain,
 identity, event/cutoff time, lineage, and replacement behavior. Consumers may
 not infer any of these from a convenient current row count or a Python query.
 
+> **Database North Star:** every stored row has an unambiguous grain, identity,
+> provenance, lifecycle/replacement rule, time meaning, and honest null
+> interpretation. A consumer must not infer those semantics from incidental
+> shape or current row counts.
+
 ## Layer rules
 
 | Layer | Purpose | Mutation rule | Consumer rule |
 |---|---|---|---|
 | `raw` | Source-faithful landed records | Connector-owned; retain source fields and landing metadata | No public/site query and no business-rule cleanup |
 | `core` | Canonical resolved baseball entities/facts | Conformance-owned; deterministic reconciliation with documented exceptions | Stable analytical joins, but not model outputs |
-| `gold` | Derived statistics, point-in-time feature families, and predictions | SQLMesh models or explicitly documented procedural model code | Research and model inputs; only approved narrow outputs later feed `serve` |
+| `gold` | Deterministic derived baseball statistics plus explicitly documented internal/legacy compatibility, prediction, and evaluation outputs | One canonical writer per relation: promoted SQLMesh model or explicitly documented procedural model code | Research/statistical querying and internal compatibility only; the canonical researcher-facing PIT model feature layer is DuckDB `feat.*`, not PostgreSQL `gold.game_feature` |
 | `meta` | Operational lineage, runs, artifacts, evaluations | Application/migration-owned append/update records | Audit and reproducibility only |
 
 `serve` is intentionally absent. It is introduced only in Plan 05 with a
 read-only role, source-profile eligibility, and an explicit public contract.
+
+The canonical model-ready point-in-time feature boundary is governed by
+[FEATURE_STORE.md](FEATURE_STORE.md) and
+`openspec/specs/feature-store-boundary/spec.md`: `mlb build` reads
+PostgreSQL `core`/approved statistical inputs and writes DuckDB `feat.*`.
+Legacy/internal `gold.game_feature` may remain for compatibility while it is
+being converged, but its existence does not define the public/research feature
+store.
+
+Stable surrogate identity is a Platform Convergence requirement, not a claim
+about today's truncate/rebuild implementation. Current behavior is documented
+below; the transition is owned by
+`openspec/changes/stable-ids-incremental-conform/` and must prove repeat-run
+ID stability plus full/incremental equivalence before this contract is updated
+to describe it as current behavior.
 
 **Terminology note (2026-08-13, independent research review):** what this doc
 calls a "feature cutoff" is the same concept dedicated feature-store products

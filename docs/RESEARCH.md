@@ -1,5 +1,11 @@
 # Phase 2 Research — Models and Techniques
 
+> **Research North Star:** a predictive or market claim is trustworthy only
+> when its target, point-in-time inputs, chronological evaluation, calibration,
+> model/artifact identity, and comparison timestamp can be reconstructed.
+> Interesting techniques belong here as research; they become project results
+> only after the applicable readiness/evaluation evidence exists.
+
 A running, source-cited knowledge base of sabermetric and ML techniques evaluated for Phase 2 (see ADR-032). Organized by technique, not chronologically — update an existing section rather than appending a new dated entry. Each entry: what it is, the concrete formula/method where one exists, source(s), and a note on how (or whether) it applies to `gold.game_feature`/the win-probability model.
 
 ## Head-to-head win probability (log5)

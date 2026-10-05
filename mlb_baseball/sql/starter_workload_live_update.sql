@@ -90,4 +90,6 @@ LEFT JOIN starter_stats ws
     ON ws.game_id = s.game_id AND ws.pitcher_id = s.away_starter_id
 WHERE f.game_id = s.game_id
     AND ((f.home_starter_rest_days IS NULL AND hs.rest_days IS NOT NULL)
-        OR (f.away_starter_rest_days IS NULL AND ws.rest_days IS NOT NULL))
+        OR (f.home_starter_outs_7d IS NULL AND hs.workload_outs IS NOT NULL)
+        OR (f.away_starter_rest_days IS NULL AND ws.rest_days IS NOT NULL)
+        OR (f.away_starter_outs_7d IS NULL AND ws.workload_outs IS NOT NULL))

@@ -195,3 +195,15 @@ Backup in force: host job `validated_backup.sh` (nightly 02:00).
   re-downloading" is therefore not possible without weakening the contract.
 - Real fix = run the staged analytics backfill once (about 2 requests per game, ~325k requests,
   resumable per season, 404s recorded as `unavailable`). Owner decision: run it, and over which years.
+
+## 3.2 doctor reports crashed checks as ERROR (2026-10-05)
+
+- Cause: `doctor.run()` turned a raising check into an ordinary failed check
+  (`check raised: ...`), so a crash (e.g. the `feat` binder error on `home_pa_30d`)
+  looked the same as bad data and was counted as a plain failure.
+- Fix: `Check.error` (health.py), `doctor._errored()` for every raise path, `[ERROR]`
+  line and "N errored" in the totals (`doctor.summarize`, used by `mlb doctor`).
+- Test: `tests/unit/test_doctor.py::test_crashing_checks_are_errors_not_failures`
+  failed before the change (no `error` field), passes after. `ruff` clean; 210 unit
+  tests matching doctor/health/daily/cli pass.
+- Not done: the `feat` crash itself (9.6, stale DuckDB file, needs owner-run `mlb build`).

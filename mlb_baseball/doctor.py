@@ -257,6 +257,24 @@ _CORE_CHECKS = [
 ]
 
 
+def _errored(name: str, detail: str) -> Check:
+    """A check that crashed is an ERROR: the state is unknown, so never a pass."""
+    return Check(name, False, detail, error=True)
+
+
+def summarize(checks: list[Check]) -> str:
+    """One-line totals; crashed checks are counted apart from failed ones."""
+    errored = sum(1 for c in checks if c.error)
+    failed = sum(1 for c in checks if not c.ok and not c.error)
+    passed = len(checks) - failed - errored
+    line = f"{passed}/{len(checks)} checks passed"
+    if failed:
+        line += f", {failed} failed"
+    if errored:
+        line += f", {errored} errored"
+    return line
+
+
 def run() -> list[Check]:
     db_check = _database_reachable()
     if not db_check.ok:
@@ -267,7 +285,7 @@ def run() -> list[Check]:
         try:
             checks.append(check_fn())
         except Exception as exc:
-            checks.append(Check(name, False, f"check raised: {exc}"))
+            checks.append(_errored(name, f"check raised: {exc}"))
 
     for name, connector in CONNECTORS.items():
         health_check = getattr(connector, "health_check", None)
@@ -280,7 +298,7 @@ def run() -> list[Check]:
             # One connector's health_check() blowing up (e.g. querying a table
             # that's never been bootstrapped) shouldn't blind doctor to every
             # other connector's health — report it as a failed check instead.
-            checks.append(Check(f"{name} connector", False, f"health_check() raised: {exc}"))
+            checks.append(_errored(f"{name} connector", f"health_check() raised: {exc}"))
 
     # conform.py isn't in CONNECTORS — it has no bootstrap()/update() (it
     # transforms already-ingested raw data rather than fetching from a
@@ -289,14 +307,14 @@ def run() -> list[Check]:
     try:
         checks.extend(conform.health_check())
     except Exception as exc:
-        checks.append(Check("core connector", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("core connector", f"health_check() raised: {exc}"))
 
     # Same reasoning as conform.py above -- model has no bootstrap()/
     # update(), it's not in CONNECTORS.
     try:
         checks.extend(model.health_check())
     except Exception as exc:
-        checks.append(Check("model", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("model", f"health_check() raised: {exc}"))
 
     # Reporting is a separate derived stage, like conformance and model
     # building rather than a network connector.  It must be visible in the
@@ -304,7 +322,7 @@ def run() -> list[Check]:
     try:
         checks.extend(report.health_check())
     except Exception as exc:
-        checks.append(Check("report", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("report", f"health_check() raised: {exc}"))
 
     # The DuckDB feature store (feature-store-v1) is a derived build stage too
     # -- `mlb build` writes it, and it lives outside PostgreSQL.
@@ -313,17 +331,17 @@ def run() -> list[Check]:
 
         checks.extend(feat.health_check())
     except Exception as exc:
-        checks.append(Check("feat", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("feat", f"health_check() raised: {exc}"))
 
     try:
         checks.extend(experiment.health_check())
     except Exception as exc:
-        checks.append(Check("experiment", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("experiment", f"health_check() raised: {exc}"))
 
     try:
         checks.extend(feature_select_stepwise.health_check())
     except Exception as exc:
-        checks.append(Check("feature_select_stepwise", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("feature_select_stepwise", f"health_check() raised: {exc}"))
 
     from mlb_baseball import serve
     from mlb_baseball.model import (
@@ -353,121 +371,121 @@ def run() -> list[Check]:
     try:
         checks.extend(serve.health_check())
     except Exception as exc:
-        checks.append(Check("serve", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("serve", f"health_check() raised: {exc}"))
 
     try:
         checks.extend(simulate.health_check())
     except Exception as exc:
-        checks.append(Check("simulate", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("simulate", f"health_check() raised: {exc}"))
 
     try:
         checks.extend(props.health_check())
     except Exception as exc:
-        checks.append(Check("props", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("props", f"health_check() raised: {exc}"))
 
     try:
         checks.extend(season.health_check())
     except Exception as exc:
-        checks.append(Check("season", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("season", f"health_check() raised: {exc}"))
 
     try:
         checks.extend(portfolio.health_check())
     except Exception as exc:
-        checks.append(Check("portfolio", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("portfolio", f"health_check() raised: {exc}"))
     from mlb_baseball import export, research
 
     try:
         checks.extend(research.health_check())
     except Exception as exc:
-        checks.append(Check("research", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("research", f"health_check() raised: {exc}"))
     try:
         checks.extend(export.health_check())
     except Exception as exc:
-        checks.append(Check("export", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("export", f"health_check() raised: {exc}"))
     try:
         checks.extend(calibration.health_check())
     except Exception as exc:
-        checks.append(Check("calibration", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("calibration", f"health_check() raised: {exc}"))
     try:
         checks.extend(drift.health_check())
     except Exception as exc:
-        checks.append(Check("drift", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("drift", f"health_check() raised: {exc}"))
     try:
         checks.extend(backtest.health_check())
     except Exception as exc:
-        checks.append(Check("backtest", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("backtest", f"health_check() raised: {exc}"))
     try:
         checks.extend(ros.health_check())
     except Exception as exc:
-        checks.append(Check("ros", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("ros", f"health_check() raised: {exc}"))
     try:
         checks.extend(stack.health_check())
     except Exception as exc:
-        checks.append(Check("stack", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("stack", f"health_check() raised: {exc}"))
     try:
         checks.extend(parlay.health_check())
     except Exception as exc:
-        checks.append(Check("parlay", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("parlay", f"health_check() raised: {exc}"))
     try:
         checks.extend(stuff.health_check())
     except Exception as exc:
-        checks.append(Check("stuff", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("stuff", f"health_check() raised: {exc}"))
     try:
         checks.extend(heatmap.health_check())
     except Exception as exc:
-        checks.append(Check("heatmap", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("heatmap", f"health_check() raised: {exc}"))
     try:
         checks.extend(neural.health_check())
     except Exception as exc:
-        checks.append(Check("neural", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("neural", f"health_check() raised: {exc}"))
     try:
         checks.extend(pipeline.health_check())
     except Exception as exc:
-        checks.append(Check("pipeline", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("pipeline", f"health_check() raised: {exc}"))
     try:
         checks.extend(visual.health_check())
     except Exception as exc:
-        checks.append(Check("visual", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("visual", f"health_check() raised: {exc}"))
     try:
         checks.extend(hedge.health_check())
     except Exception as exc:
-        checks.append(Check("hedge", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("hedge", f"health_check() raised: {exc}"))
     try:
         checks.extend(bullpen.health_check())
     except Exception as exc:
-        checks.append(Check("bullpen", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("bullpen", f"health_check() raised: {exc}"))
     try:
         checks.extend(arm_slot.health_check())
     except Exception as exc:
-        checks.append(Check("arm_slot", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("arm_slot", f"health_check() raised: {exc}"))
     try:
         checks.extend(babip.health_check())
     except Exception as exc:
-        checks.append(Check("babip", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("babip", f"health_check() raised: {exc}"))
     try:
         checks.extend(vaa.health_check())
     except Exception as exc:
-        checks.append(Check("vaa", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("vaa", f"health_check() raised: {exc}"))
     try:
         checks.extend(nrfi.health_check())
     except Exception as exc:
-        checks.append(Check("nrfi", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("nrfi", f"health_check() raised: {exc}"))
     try:
         checks.extend(tunnel.health_check())
     except Exception as exc:
-        checks.append(Check("tunnel", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("tunnel", f"health_check() raised: {exc}"))
     try:
         checks.extend(api.health_check())
     except Exception as exc:
-        checks.append(Check("api", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("api", f"health_check() raised: {exc}"))
     try:
         checks.extend(shop.health_check())
     except Exception as exc:
-        checks.append(Check("shop", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("shop", f"health_check() raised: {exc}"))
     try:
         checks.extend(daemon.health_check())
     except Exception as exc:
-        checks.append(Check("daemon", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("daemon", f"health_check() raised: {exc}"))
 
     # backup.py has no bootstrap()/update() either -- it's an operational
     # tool, not a data source, but a missing pg_dump/psql should still show
@@ -476,6 +494,6 @@ def run() -> list[Check]:
     try:
         checks.extend(backup.health_check())
     except Exception as exc:
-        checks.append(Check("backup", False, f"health_check() raised: {exc}"))
+        checks.append(_errored("backup", f"health_check() raised: {exc}"))
 
     return checks

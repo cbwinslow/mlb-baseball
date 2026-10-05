@@ -47,10 +47,12 @@
 
 ## 5. Verification
 
-- [ ] 5.1 Review changed docs for contradictory current-state claims and broken
+- [x] 5.1 Review changed docs for contradictory current-state claims and broken
   relative links.
 - [ ] 5.2 Run `openspec validate governance-convergence` and the repository's
   documentation/DOX checks when available; record any environment limitation
-  rather than claiming an unrun check passed.
+  rather than claiming an unrun check passed. Current tool runtime does not
+  provide the `openspec` CLI; PR #305 CI/link checks are the available remote
+  verification and `verification.md` records the limitation.
 - [x] 5.3 Open PR #305 summarizing the governance hierarchy, reconciled
   feature boundary, Platform Convergence gate, and review disposition map.

@@ -53,21 +53,25 @@ run already fetched, no extra API calls.
 **ADR-049 added intraday price history for Kalshi too** (the owner wants
 full price-timeseries/line-movement depth for an oddstrader-style product):
 - `backfill_history()` — one-off historical backfill via Kalshi's
-  candlesticks endpoint (`GET /series/{series_ticker}/markets/{ticker}/
-  candlesticks`), confirmed working unauthenticated directly, same as every
-  other endpoint here. Scoped to `KXMLBGAME` (daily game moneylines) only,
-  per the owner's direction — Kalshi's own sports-contract history is
-  shallow (KXMLBGAME starts 2026-05-22), so this is a much smaller job than
-  Polymarket's. Confirmed the endpoint rejects a request spanning too many
+  candlesticks endpoints (`GET /series/{series_ticker}/markets/{ticker}/
+  candlesticks`, and `/historical/markets/{ticker}/candlesticks` for markets
+  settled before `GET /historical/cutoff`), confirmed working unauthenticated
+  directly, same as every other endpoint here. Covers every landed MLB market
+  (it was `KXMLBGAME` only, and the catalog held only post-cutoff markets: the
+  "2026-05-22" start in the note above was an artifact of that, Kalshi's game
+  markets go back to 2025-04-16). Confirmed the endpoint rejects a request spanning too many
   candles at a given granularity with a plain 400 ("max candlesticks:
-  5000") — `fetch_candlesticks()` chunks the requested time range so no
+  5000") — `fetch_market_candles()` chunks the requested time range so no
   single call can hit that ceiling, rather than picking a coarser
   granularity and losing detail.
 - Forward snapshots (above) keep the series current going forward.
 """
 
 import logging
+import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -85,9 +89,15 @@ from mlb_baseball.health import (
     check_table_exists,
     check_table_has_rows,
 )
-from mlb_baseball.ingest import track_run
-from mlb_baseball.load import append_dataframe, load_dataframe, upsert_dataframe
-from mlb_baseball.net import call_with_retry
+from mlb_baseball.ingest import record_items, track_run
+from mlb_baseball.load import (
+    append_dataframe,
+    ensure_table,
+    replace_dataframe_scopes,
+    upsert_dataframe,
+)
+from mlb_baseball.net import RateLimiter, call_with_retry
+from mlb_baseball.opsmon import Monitor
 
 logger = logging.getLogger(__name__)
 
@@ -110,19 +120,28 @@ ALL_TABLES = [SERIES_TABLE, EVENT_TABLE, MARKET_TABLE]
 SNAPSHOT_TABLE = "raw.kalshi_snapshot"
 CANDLE_TABLE = "raw.kalshi_candle"
 
-CANDLE_SERIES_TICKER = "KXMLBGAME"  # daily MLB game moneylines only, per ADR-049
-# Maximum available granularity (1-minute candles) — confirmed the
-# candlesticks endpoint's own ceiling is 5000 candles per request, so a
-# single-market request window is kept comfortably under that regardless of
-# how long a given market stayed open.
+BACKFILL_SOURCE = "kalshi_backfill"  # own run-ledger/lock name (see polymarket.BACKFILL_SOURCE)
+CANDLE_DATASET = "candles"
+# Maximum available granularity (1-minute candles). The endpoint rejects a request for more
+# than 5,000 candles with a 400 (confirmed directly), so a market's life is cut into windows.
 CANDLE_PERIOD_INTERVAL_MINUTES = 1
 CANDLE_CHUNK_MINUTES = 4000
-# Be polite to a public, unauthenticated endpoint across a multi-market
-# backfill — no documented rate limit was found, but the connector already
-# hit real 429s once during a production bootstrap (see module docstring
-# above / ADR-026's rationale for retry-with-backoff), so a small pause
-# between markets costs little and avoids provoking one here too.
-BACKFILL_SLEEP_SECONDS = 0.25
+# Backfill speed. Kalshi's Basic tier allows 200 read tokens/s and most requests cost 10
+# (docs.kalshi.com/getting_started/rate_limits), i.e. 20 requests/s; the pacer sits at 16/s
+# (it halves on a 429). Workers: a candle request takes a few tenths of a second, so 8
+# workers keep the pacer saturated. Override per run with MLB_KALSHI_WORKERS /
+# MLB_KALSHI_MAX_RPS; raise them only with a new measurement.
+BACKFILL_WORKERS = 8
+BACKFILL_MAX_RPS = 16
+BACKFILL_RETRY_BACKOFF_SECONDS = 2.0
+# A market that closed less than this long ago may still be settling: refetch it.
+SETTLE_SECONDS = 86400
+_CANDLE_BASE_COLUMNS = ["ticker", "ts", "open_interest", "volume"]
+_thread_state = threading.local()
+_open_connections: list[psycopg.Connection] = []
+_open_connections_lock = threading.Lock()
+_schema_lock = threading.Lock()
+_known_candle_columns: set[str] = set()
 
 # Confirmed by reading each series' actual title (see module docstring) —
 # not every "Baseball"-tagged Kalshi series is Major League Baseball.
@@ -224,6 +243,19 @@ def fetch_markets(series_ticker: str, *, open_only: bool = False) -> list[dict]:
     return _paginate("/markets", series_ticker, "markets", MARKETS_PAGE_SIZE, params)
 
 
+def fetch_cutoff() -> dict:
+    """``GET /historical/cutoff``: markets and candlesticks settled before
+    ``market_settled_ts`` are served only by the ``/historical`` endpoints; the live
+    ``/markets`` listing no longer returns them (docs.kalshi.com, checked live
+    2026-10-05: cutoff 2026-08-06)."""
+    return call_with_retry(_get, f"{BASE_URL}/historical/cutoff", {})
+
+
+def fetch_historical_markets(series_ticker: str) -> list[dict]:
+    """Settled markets older than the cutoff (same fields as the live listing)."""
+    return _paginate("/historical/markets", series_ticker, "markets", MARKETS_PAGE_SIZE, {})
+
+
 _SNAPSHOT_FIELDS = [
     "ticker",
     "event_ticker",
@@ -316,7 +348,13 @@ def _run(mode: str) -> dict[str, int]:
             ticker = s["ticker"]
             try:
                 all_events.extend(fetch_events(ticker))
-                all_markets.extend(fetch_markets(ticker))
+                live = fetch_markets(ticker)
+                all_markets.extend(live)
+                # Markets settled before Kalshi's cutoff are only in the historical listing.
+                seen = {m["ticker"] for m in live}
+                all_markets.extend(
+                    m for m in fetch_historical_markets(ticker) if m["ticker"] not in seen
+                )
             except Exception as exc:
                 logger.error("kalshi: %s failed (%s); skipping, continuing bootstrap", ticker, exc)
 
@@ -345,33 +383,73 @@ def update() -> dict[str, int]:
     return _run("update")
 
 
-def fetch_candlesticks(
-    series_ticker: str,
-    market_ticker: str,
+def _candle_get(url: str, params: dict) -> dict:
+    """GET on this thread's own pooled HTTP session."""
+    session = getattr(_thread_state, "session", None)
+    if session is None:
+        session = _thread_state.session = requests.Session()
+    response = session.get(url, params=params, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_market_candles(
+    ticker: str,
     start_ts: int,
     end_ts: int,
-    period_interval: int = CANDLE_PERIOD_INTERVAL_MINUTES,
+    *,
+    historical: bool,
+    limiter: RateLimiter | None = None,
 ) -> list[dict]:
-    """Calls GET /series/{series_ticker}/markets/{ticker}/candlesticks,
-    confirmed working unauthenticated directly against a real, settled
-    KXMLBGAME market. Chunks [start_ts, end_ts] into windows of at most
-    CANDLE_CHUNK_MINUTES so no single request can hit the endpoint's
-    confirmed real ceiling (a too-wide range 400s with "max candlesticks:
-    5000", found by calling it directly, not documented anywhere)."""
+    """1-minute candlesticks for one market over ``[start_ts, end_ts]``, cut into windows
+    of at most ``CANDLE_CHUNK_MINUTES``. A market settled before the cutoff is read from
+    ``/historical/markets/{ticker}/candlesticks``, any other from
+    ``/series/{series}/markets/{ticker}/candlesticks``; if the chosen endpoint answers 404
+    the other one is tried (the cutoff moves, and a market near it can be on either side).
+    A 429 slows the shared ``limiter`` before the retry."""
+    series = ticker.split("-")[0]
+    paths = [
+        f"/historical/markets/{ticker}/candlesticks",
+        f"/series/{series}/markets/{ticker}/candlesticks",
+    ]
+    if not historical:
+        paths.reverse()
+
+    def get(path: str, params: dict) -> dict:
+        if limiter is not None:
+            limiter.acquire()
+        try:
+            payload = _candle_get(f"{BASE_URL}{path}", params)
+        except requests.exceptions.HTTPError as exc:
+            reply = exc.response
+            if limiter is not None and reply is not None and reply.status_code == 429:
+                limiter.slow_down(float(reply.headers.get("Retry-After") or 1))
+            raise
+        if limiter is not None:
+            limiter.speed_up()
+        return payload
+
+    get.__name__ = "candlesticks"
     candles: list[dict] = []
     chunk_seconds = CANDLE_CHUNK_MINUTES * 60
     chunk_start = start_ts
     while chunk_start < end_ts:
         chunk_end = min(chunk_start + chunk_seconds, end_ts)
-        payload = call_with_retry(
-            _get,
-            f"{BASE_URL}/series/{series_ticker}/markets/{market_ticker}/candlesticks",
-            {
-                "start_ts": chunk_start,
-                "end_ts": chunk_end,
-                "period_interval": period_interval,
-            },
-        )
+        params = {
+            "start_ts": chunk_start,
+            "end_ts": chunk_end,
+            "period_interval": CANDLE_PERIOD_INTERVAL_MINUTES,
+        }
+        for index, path in enumerate(paths):
+            try:
+                payload = call_with_retry(
+                    get, path, params, backoff_seconds=BACKFILL_RETRY_BACKOFF_SECONDS
+                )
+                break
+            except requests.exceptions.HTTPError as exc:
+                if index == 0 and exc.response is not None and exc.response.status_code == 404:
+                    continue
+                raise
         candles.extend(payload.get("candlesticks", []))
         chunk_start = chunk_end
     return candles
@@ -397,59 +475,224 @@ def _flatten_candlestick(ticker: str, candle: dict) -> dict:
     return row
 
 
-def _kxmlbgame_markets(conn: psycopg.Connection) -> list[dict]:
-    """Every already-landed KXMLBGAME market with a real open_time/
-    close_time — the basis for scoping the candlestick backfill's time
-    window per market. Confirmed empirically that KXMLBGAME's own market
-    objects carry ISO8601 open_time/close_time fields directly (see module
-    docstring)."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT ticker, open_time, close_time FROM raw.kalshi_market "
-            "WHERE ticker LIKE 'KXMLBGAME-%' AND open_time IS NOT NULL "
-            "AND close_time IS NOT NULL"
-        )
-        return [{"ticker": t, "open_time": o, "close_time": c} for t, o, c in cur.fetchall()]
-
-
 def _parse_kalshi_ts(value: str) -> int:
     return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
 
 
-def backfill_history() -> dict[str, int]:
-    """One-off historical candlestick backfill for KXMLBGAME (MLB daily-game
-    moneyline) markets — see ADR-049. Not run by bootstrap()/update() — an
-    owner-triggered `mlb ingest kalshi --mode backfill`. Kalshi's own
-    sports-contract history is shallow (KXMLBGAME starts 2026-05-22), so
-    this is a much smaller job than Polymarket's price-history backfill.
+def _candle_markets(conn: psycopg.Connection) -> list[dict]:
+    """Every landed market that has a start and an end, game-level series before player-prop
+    series (smaller series first, so the lines most useful for game models land first),
+    newest market first within a series."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT m.ticker, m.open_time, m.close_time, m.settlement_ts
+            FROM raw.kalshi_market m
+            WHERE m.open_time IS NOT NULL AND m.close_time IS NOT NULL
+            """
+        )
+        rows = cur.fetchall()
+    markets = [
+        {"ticker": t, "open_time": o, "close_time": c, "settlement_ts": st} for t, o, c, st in rows
+    ]
+    size: dict[str, int] = {}
+    for market in markets:
+        series = market["ticker"].split("-")[0]
+        size[series] = size.get(series, 0) + 1
+    markets.sort(key=lambda m: m["close_time"], reverse=True)
+    markets.sort(key=lambda m: size[m["ticker"].split("-")[0]])
+    return markets
 
-    Commits once per market (same resumability reasoning as
-    polymarket.backfill_history) — scoped-replace by ticker, so a re-run
-    after an interruption replaces only the tickers it actually reprocesses,
-    never duplicates.
-    """
-    counts = {CANDLE_TABLE: 0}
-    with get_connection() as conn, track_run(conn, SOURCE, "backfill") as result:
-        markets = _kxmlbgame_markets(conn)
-        now_ts = int(time.time())
-        total = 0
-        for market in markets:
+
+def _candle_item(ticker: str, status: str, run_id: int, **extra: object) -> dict:
+    return {
+        "source": SOURCE,
+        "dataset": CANDLE_DATASET,
+        "item_key": ticker,
+        "status": status,
+        "run_id": run_id,
+        **extra,
+    }
+
+
+def _thread_connection() -> psycopg.Connection:
+    conn = getattr(_thread_state, "conn", None)
+    if conn is None or conn.closed:
+        conn = _thread_state.conn = get_connection()
+        # Rows and their ledger row commit together and a rerun redoes any market without
+        # a ledger row, so a crash can lose a few commits but never split a market from its
+        # ledger entry (same reasoning as polymarket.backfill_history).
+        with conn.cursor() as cur:
+            cur.execute("SET synchronous_commit = off")
+        conn.commit()
+        with _open_connections_lock:
+            _open_connections.append(conn)
+    return conn
+
+
+def _close_thread_connections() -> None:
+    with _open_connections_lock:
+        for conn in _open_connections:
+            if not conn.closed:
+                conn.close()
+        _open_connections.clear()
+
+
+def _backfill_market(
+    market: dict,
+    cutoff_ts: int | None,
+    now_ts: int,
+    run_id: int,
+    limiter: RateLimiter,
+    mon: Monitor,
+) -> tuple[int, int]:
+    """Fetch and land one market's candles together with its ledger row. Returns
+    ``(rows, failed)``; a failure is recorded and does not stop the run."""
+    conn = _thread_connection()
+    ticker = market["ticker"]
+    started = time.perf_counter()
+    try:
+        with mon.timed("kalshi.candles", ticker=ticker) as op:
             start_ts = _parse_kalshi_ts(market["open_time"])
             end_ts = min(_parse_kalshi_ts(market["close_time"]), now_ts)
-            if start_ts >= end_ts:
-                continue
-            candles = fetch_candlesticks(CANDLE_SERIES_TICKER, market["ticker"], start_ts, end_ts)
-            if not candles:
-                continue
-            df = pd.DataFrame([_flatten_candlestick(market["ticker"], c) for c in candles])
-            total += load_dataframe(
-                conn, CANDLE_TABLE, df, scope_column="ticker", scope_value=market["ticker"]
+            settled = (
+                _parse_kalshi_ts(market["settlement_ts"]) if market.get("settlement_ts") else None
+            )
+            historical = bool(cutoff_ts and settled and settled < cutoff_ts)
+            candles = (
+                fetch_market_candles(
+                    ticker, start_ts, end_ts, historical=historical, limiter=limiter
+                )
+                if start_ts < end_ts
+                else []
+            )
+            df = pd.DataFrame([_flatten_candlestick(ticker, c) for c in candles], columns=None)
+            if df.empty:
+                df = pd.DataFrame(columns=_CANDLE_BASE_COLUMNS)
+            if not df.empty:
+                new_columns = set(df.columns) - _known_candle_columns
+                if new_columns:
+                    with _schema_lock:
+                        ensure_table(conn, CANDLE_TABLE, list(df.columns), index_column="ticker")
+                        _known_candle_columns.update(df.columns)
+            rows = replace_dataframe_scopes(
+                conn,
+                CANDLE_TABLE,
+                df,
+                scope_column="ticker",
+                scope_values=[ticker],
+                schema_drift_policy="ignore",
+            )
+            record_items(
+                conn,
+                [
+                    _candle_item(
+                        ticker,
+                        "loaded" if rows else "unavailable",
+                        run_id,
+                        rows=rows,
+                        http_status=200,
+                        duration_ms=round((time.perf_counter() - started) * 1000),
+                    )
+                ],
             )
             conn.commit()
-            time.sleep(BACKFILL_SLEEP_SECONDS)
+            op.rows = rows
+            op.requests = max(1, len(candles) // 4000 + 1)
+            return rows, 0
+    except Exception as exc:
+        conn.rollback()
+        logger.error("kalshi candles for %s failed: %s", ticker, exc)
+        record_items(conn, [_candle_item(ticker, "failed", run_id, error=str(exc)[:500])])
+        conn.commit()
+        return 0, 1
 
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except ValueError:
+        return default
+
+
+def backfill_history() -> dict[str, int]:
+    """Candlestick history for every landed MLB market, as fast as Kalshi's limit allows.
+
+    Markets settled before ``GET /historical/cutoff`` are read from the ``/historical``
+    endpoints (run ``mlb ingest kalshi --mode update`` first so the catalog holds them).
+    Runs on ``BACKFILL_WORKERS`` threads behind one shared ``RateLimiter`` (documented
+    ceiling 20 requests/s on the Basic tier, paced at 16/s), each with its own HTTP
+    session and database connection. One ledger item per market is written in the same
+    transaction as its rows, so a rerun skips settled markets already done, retries
+    ``failed`` ones and refetches markets that closed less than a day ago. Progress and
+    per-market timing go to ``meta.run_progress`` / ``meta.op_span``. Tracked under its
+    own source name with no workflow lock so it never blocks the nightly. Raises at the
+    end if any market failed, after trying all of them."""
+    counts = {CANDLE_TABLE: 0}
+    workers = _env_int("MLB_KALSHI_WORKERS", BACKFILL_WORKERS)
+    limiter = RateLimiter(float(os.environ.get("MLB_KALSHI_MAX_RPS", BACKFILL_MAX_RPS)))
+    with (
+        get_connection() as conn,
+        track_run(conn, BACKFILL_SOURCE, "backfill", workflow=None) as result,
+    ):
+        run_id = result["run_id"]
+        cutoff = fetch_cutoff().get("market_settled_ts")
+        cutoff_ts = _parse_kalshi_ts(cutoff) if cutoff else None
+        now_ts = int(time.time())
+        ensure_table(conn, CANDLE_TABLE, _CANDLE_BASE_COLUMNS, index_column="ticker")
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'raw' AND table_name = 'kalshi_candle'"
+            )
+            _known_candle_columns.update(name for (name,) in cur.fetchall())
+            cur.execute(
+                "SELECT item_key FROM meta.ingestion_item "
+                "WHERE source = %s AND dataset = %s AND status IN ('loaded', 'unavailable')",
+                (SOURCE, CANDLE_DATASET),
+            )
+            done = {key for (key,) in cur.fetchall()}
+        todo = [
+            m
+            for m in _candle_markets(conn)
+            if not (
+                m["ticker"] in done and _parse_kalshi_ts(m["close_time"]) + SETTLE_SECONDS <= now_ts
+            )
+        ]
+        logger.info(
+            "kalshi backfill: %d markets to fetch, %d workers, up to %.0f requests/s",
+            len(todo),
+            workers,
+            limiter.rate,
+        )
+        monitor = Monitor(run_id=run_id)
+        total = failed = finished = 0
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [
+                    pool.submit(_backfill_market, m, cutoff_ts, now_ts, run_id, limiter, monitor)
+                    for m in todo
+                ]
+                try:
+                    for future in as_completed(futures):
+                        rows, bad = future.result()
+                        total, failed, finished = total + rows, failed + bad, finished + 1
+                        monitor.progress(done=finished, planned=len(todo), requests=finished)
+                except BaseException:
+                    for future in futures:
+                        future.cancel()
+                    raise
+        finally:
+            monitor.finish()
+            monitor.close()
+            _close_thread_connections()
         counts[CANDLE_TABLE] = total
         result["rows"] = total
+        if failed:
+            raise RuntimeError(
+                f"{failed} Kalshi markets failed (recorded as failed in meta.ingestion_item); "
+                "rerun the backfill to retry them"
+            )
     return counts
 
 

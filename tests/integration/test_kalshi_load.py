@@ -19,12 +19,14 @@ def _event(event_ticker, series_ticker):
     return {"event_ticker": event_ticker, "series_ticker": series_ticker, "title": "Some Event"}
 
 
-def _market(ticker, event_ticker, status="active", open_time=None, close_time=None):
+def _market(
+    ticker, event_ticker, status="active", open_time=None, close_time=None, settlement_ts=None
+):
     # open_time/close_time are always present keys (possibly None) rather
     # than omitted entirely — real Kalshi market objects always carry both
     # fields (confirmed directly), so a fixture that omits the key outright
     # would create a raw.kalshi_market with no such column at all, which
-    # doesn't match production and would break _kxmlbgame_markets' own
+    # doesn't match production and would break _candle_markets' own
     # SELECT.
     return {
         "ticker": ticker,
@@ -37,6 +39,7 @@ def _market(ticker, event_ticker, status="active", open_time=None, close_time=No
         "open_interest_fp": "5.00",
         "open_time": open_time,
         "close_time": close_time,
+        "settlement_ts": settlement_ts,
     }
 
 
@@ -62,13 +65,19 @@ class FakeResponse:
         return self._payload
 
 
-def _fake_kalshi(monkeypatch, series, events_by_series, markets_by_series):
+def _fake_kalshi(
+    monkeypatch, series, events_by_series, markets_by_series, historical_by_series=None
+):
+    historical_by_series = historical_by_series or {}
+
     def fake_get(url, params=None, timeout=None):
         if url.endswith("/series"):
             return FakeResponse({"series": series})
         ticker = params["series_ticker"]
         if url.endswith("/events"):
             return FakeResponse({"events": events_by_series.get(ticker, []), "cursor": ""})
+        if url.endswith("/historical/markets"):
+            return FakeResponse({"markets": historical_by_series.get(ticker, []), "cursor": ""})
         if url.endswith("/markets"):
             return FakeResponse({"markets": markets_by_series.get(ticker, []), "cursor": ""})
         raise AssertionError(f"unexpected url: {url}")
@@ -231,115 +240,9 @@ def test_snapshot_table_exists_even_with_no_active_markets(db_conn, monkeypatch)
         assert cur.fetchone() == (0,)
 
 
-# --- Candlestick backfill (ADR-047) --------------------------------------
-# fetch_candlesticks' chunking and _flatten_candlestick's parsing are pure
-# logic (fetch_candlesticks mocks HTTP, no DB) and are unit-tested in
-# tests/unit/test_kalshi_scope.py instead — these cover the parts that
-# actually touch Postgres.
-
-
-def test_backfill_history_loads_candles_scoped_by_ticker(db_conn, monkeypatch):
-    _fake_kalshi(
-        monkeypatch,
-        series=[_series("KXMLBGAME")],
-        events_by_series={"KXMLBGAME": [_event("KXMLBGAME-1", "KXMLBGAME")]},
-        markets_by_series={
-            "KXMLBGAME": [
-                _market(
-                    "KXMLBGAME-1-A",
-                    "KXMLBGAME-1",
-                    open_time="2026-07-01T00:00:00Z",
-                    close_time="2026-07-01T02:00:00Z",
-                )
-            ]
-        },
-    )
-    kalshi.bootstrap()
-
-    def fake_candle_get(url, params=None, timeout=None):
-        return FakeResponse(
-            {
-                "candlesticks": [
-                    {
-                        "end_period_ts": params["start_ts"] + 60,
-                        "open_interest_fp": "1.00",
-                        "price": {"close_dollars": "0.5"},
-                        "volume_fp": "2.00",
-                        "yes_bid": {"close_dollars": "0.48"},
-                        "yes_ask": {"close_dollars": "0.52"},
-                    }
-                ]
-            }
-        )
-
-    monkeypatch.setattr(kalshi.requests, "get", fake_candle_get)
-    counts = kalshi.backfill_history()
-
-    assert counts[kalshi.CANDLE_TABLE] == 1
-    with db_conn.cursor() as cur:
-        cur.execute(f"SELECT count(*) FROM {kalshi.CANDLE_TABLE}")
-        assert cur.fetchone() == (1,)
-
-
-def test_backfill_history_rerunning_replaces_instead_of_duplicating(db_conn, monkeypatch):
-    _fake_kalshi(
-        monkeypatch,
-        series=[_series("KXMLBGAME")],
-        events_by_series={"KXMLBGAME": [_event("KXMLBGAME-1", "KXMLBGAME")]},
-        markets_by_series={
-            "KXMLBGAME": [
-                _market(
-                    "KXMLBGAME-1-A",
-                    "KXMLBGAME-1",
-                    open_time="2026-07-01T00:00:00Z",
-                    close_time="2026-07-01T02:00:00Z",
-                )
-            ]
-        },
-    )
-    kalshi.bootstrap()
-
-    def fake_candle_get(url, params=None, timeout=None):
-        return FakeResponse(
-            {
-                "candlesticks": [
-                    {
-                        "end_period_ts": params["start_ts"] + 60,
-                        "open_interest_fp": "1.00",
-                        "price": {},
-                        "volume_fp": "2.00",
-                        "yes_bid": {},
-                        "yes_ask": {},
-                    }
-                ]
-            }
-        )
-
-    monkeypatch.setattr(kalshi.requests, "get", fake_candle_get)
-    kalshi.backfill_history()
-    kalshi.backfill_history()
-
-    with db_conn.cursor() as cur:
-        cur.execute(f"SELECT count(*) FROM {kalshi.CANDLE_TABLE}")
-        assert cur.fetchone() == (1,)  # not doubled
-
-
-def test_backfill_history_skips_markets_without_open_or_close_time(db_conn, monkeypatch):
-    _fake_kalshi(
-        monkeypatch,
-        series=[_series("KXMLBGAME")],
-        events_by_series={"KXMLBGAME": [_event("KXMLBGAME-1", "KXMLBGAME")]},
-        markets_by_series={"KXMLBGAME": [_market("KXMLBGAME-1-A", "KXMLBGAME-1")]},  # no times
-    )
-    kalshi.bootstrap()
-
-    def fail_get(url, params=None, timeout=None):
-        raise AssertionError("candlesticks should never be requested for this market")
-
-    monkeypatch.setattr(kalshi.requests, "get", fail_get)
-    counts = kalshi.backfill_history()
-
-    assert counts[kalshi.CANDLE_TABLE] == 0
+# --- Candlestick backfill (odds-bulk-history section 4) ------------------
+# fetch_market_candles' chunking and _flatten_candlestick's parsing are pure logic and are
+# unit-tested in tests/unit/test_kalshi_scope.py; these cover the parts that touch Postgres.
 
 
 def test_market_absent_from_a_later_pull_is_kept(db_conn, monkeypatch):
@@ -446,56 +349,266 @@ def test_snapshot_with_no_open_markets_succeeds_and_creates_the_table(db_conn, m
         assert cur.fetchone() == (0,)
 
 
-def test_backfill_history_resumes_after_an_interruption_without_duplicates(db_conn, monkeypatch):
-    times = {"open_time": "2026-07-01T00:00:00Z", "close_time": "2026-07-01T02:00:00Z"}
+def test_catalog_includes_markets_only_the_historical_listing_has(db_conn, monkeypatch):
     _fake_kalshi(
         monkeypatch,
         series=[_series("KXMLBGAME")],
-        events_by_series={"KXMLBGAME": [_event("KXMLBGAME-1", "KXMLBGAME")]},
-        markets_by_series={
+        events_by_series={},
+        markets_by_series={"KXMLBGAME": [_market("KXMLBGAME-NEW-A", "KXMLBGAME-NEW")]},
+        historical_by_series={
             "KXMLBGAME": [
-                _market("KXMLBGAME-1-A", "KXMLBGAME-1", **times),
-                _market("KXMLBGAME-1-B", "KXMLBGAME-1", **times),
+                _market("KXMLBGAME-OLD-A", "KXMLBGAME-OLD", status="finalized"),
+                _market("KXMLBGAME-NEW-A", "KXMLBGAME-NEW", status="finalized"),  # also live
             ]
         },
     )
+
     kalshi.bootstrap()
-    monkeypatch.setattr(kalshi, "BACKFILL_SLEEP_SECONDS", 0)
-
-    def candle_get(fail_on):
-        def fake_get(url, params=None, timeout=None):
-            if fail_on and fail_on in url:
-                raise RuntimeError("source went away")
-            return FakeResponse(
-                {
-                    "candlesticks": [
-                        {
-                            "end_period_ts": params["start_ts"] + 60,
-                            "open_interest_fp": "1.00",
-                            "price": {},  # no trade in this candle
-                            "volume_fp": "2.00",
-                            "yes_bid": {},
-                            "yes_ask": {},
-                        }
-                    ]
-                }
-            )
-
-        return fake_get
-
-    monkeypatch.setattr(kalshi.requests, "get", candle_get("KXMLBGAME-1-B"))
-    with pytest.raises(RuntimeError):
-        kalshi.backfill_history()
-    monkeypatch.setattr(kalshi.requests, "get", candle_get(None))
-    kalshi.backfill_history()
 
     with db_conn.cursor() as cur:
-        cur.execute(f"SELECT ticker, count(*) FROM {kalshi.CANDLE_TABLE} GROUP BY ticker")
-        assert sorted(cur.fetchall()) == [("KXMLBGAME-1-A", 1), ("KXMLBGAME-1-B", 1)]
-        # a no-trade candle carries no price columns at all: missing, never zero
+        cur.execute(f"SELECT ticker, status FROM {kalshi.MARKET_TABLE} ORDER BY ticker")
+        # live wins on a ticker present in both
+        assert cur.fetchall() == [("KXMLBGAME-NEW-A", "active"), ("KXMLBGAME-OLD-A", "finalized")]
+
+
+# -- fast candle backfill ----------------------------------------------------
+
+_CUTOFF = "2026-08-06T00:00:00Z"
+
+
+def _candle(ts, *, trade=False):
+    return {
+        "end_period_ts": ts,
+        "open_interest_fp": "1.00",
+        "price": {"close_dollars": "0.5"} if trade else {},
+        "volume_fp": "2.00",
+        "yes_bid": {"close_dollars": "0.48"} if trade else {},
+        "yes_ask": {"close_dollars": "0.52"} if trade else {},
+    }
+
+
+class FakeCandles:
+    """Mimics the endpoints that matter here: `/historical/markets/{t}/candlesticks` only knows
+    markets settled before the cutoff, the live path only knows later ones, and a window of more
+    than 5,000 candles is a 400."""
+
+    def __init__(self, fail_tickers=()):
+        self.calls = []
+        self.fail_tickers = set(fail_tickers)
+
+    def __call__(self, url, params):
+        import requests
+
+        self.calls.append((url, dict(params)))
+        ticker = url.split("/markets/")[1].split("/")[0]
+        if ticker in self.fail_tickers:
+            raise requests.exceptions.ConnectionError("source went away")
+        assert (params["end_ts"] - params["start_ts"]) / 60 <= 5000
+        historical = "/historical/" in url
+        settled_before_cutoff = ticker.startswith("OLD")
+        if historical != settled_before_cutoff:
+            reply = requests.Response()
+            reply.status_code = 404
+            raise requests.exceptions.HTTPError(response=reply)
+        return {"candlesticks": [_candle(params["start_ts"] + 60, trade=True)], "ticker": ticker}
+
+
+def _seed_markets(monkeypatch, markets):
+    _fake_kalshi(
+        monkeypatch,
+        series=[_series("KXMLBGAME")],
+        events_by_series={},
+        markets_by_series={"KXMLBGAME": markets},
+    )
+    kalshi.bootstrap()
+
+
+def _run_candles(monkeypatch, fake):
+    monkeypatch.setattr(kalshi, "_candle_get", fake)
+    monkeypatch.setattr(kalshi, "fetch_cutoff", lambda: {"market_settled_ts": _CUTOFF})
+    monkeypatch.setattr(kalshi, "BACKFILL_RETRY_BACKOFF_SECONDS", 0)
+    return kalshi.backfill_history()
+
+
+@pytest.fixture
+def _candle_ledger_clean(db_conn):
+    yield
+    db_conn.rollback()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM meta.ingestion_item WHERE source = %s AND dataset = %s",
+            (kalshi.SOURCE, kalshi.CANDLE_DATASET),
+        )
+        cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (kalshi.BACKFILL_SOURCE,))
+    db_conn.commit()
+
+
+def _times(close="2026-07-01T02:00:00Z", settled="2026-07-01T02:05:00Z"):
+    return {"open_time": "2026-07-01T00:00:00Z", "close_time": close, "settlement_ts": settled}
+
+
+def test_backfill_reads_markets_settled_before_the_cutoff_from_the_historical_endpoint(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(
+        monkeypatch,
+        [
+            _market("OLD-1-A", "OLD-1", **_times()),
+            _market("NEW-1-A", "NEW-1", **_times(settled="2026-09-01T02:05:00Z")),
+        ],
+    )
+    fake = FakeCandles()
+
+    counts = _run_candles(monkeypatch, fake)
+
+    assert counts[kalshi.CANDLE_TABLE] == 2
+    urls = {u for u, _ in fake.calls}
+    assert any("/historical/markets/OLD-1-A/candlesticks" in u for u in urls)
+    assert any("/series/NEW/markets/NEW-1-A/candlesticks" in u for u in urls)
+
+
+def test_backfill_falls_back_to_the_other_endpoint_on_a_404(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    # settled just after the cutoff by our reading, but the market is already archived
+    _seed_markets(
+        monkeypatch, [_market("OLD-1-A", "OLD-1", **_times(settled="2026-08-07T00:00:00Z"))]
+    )
+    fake = FakeCandles()
+    counts = _run_candles(monkeypatch, fake)
+    assert counts[kalshi.CANDLE_TABLE] == 1
+    assert [("/historical/" in u) for u, _ in fake.calls] == [False, True]
+
+
+def test_backfill_rerun_skips_settled_markets_and_does_not_duplicate(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    fake = FakeCandles()
+    _run_candles(monkeypatch, fake)
+    first_calls = len(fake.calls)
+    _run_candles(monkeypatch, fake)
+
+    assert len(fake.calls) == first_calls  # nothing fetched again
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT count(*) FROM {kalshi.CANDLE_TABLE}")
+        assert cur.fetchone() == (1,)
+
+
+def test_backfill_cuts_a_long_market_into_windows_under_the_candle_limit(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(
+        monkeypatch,
+        [_market("OLD-1-A", "OLD-1", **_times(close="2026-07-08T00:00:00Z"))],  # 7 days
+    )
+    fake = FakeCandles()
+    _run_candles(monkeypatch, fake)
+    assert len(fake.calls) == 3  # 10,080 minutes in windows of 4,000
+
+
+def test_backfill_remembers_a_market_with_no_candles(db_conn, monkeypatch, _candle_ledger_clean):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+
+    class Empty(FakeCandles):
+        def __call__(self, url, params):
+            super().__call__(url, params)
+            return {"candlesticks": []}
+
+    fake = Empty()
+    counts = _run_candles(monkeypatch, fake)
+    assert counts[kalshi.CANDLE_TABLE] == 0
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT status, rows FROM meta.ingestion_item WHERE source = %s AND dataset = %s",
+            (kalshi.SOURCE, kalshi.CANDLE_DATASET),
+        )
+        assert cur.fetchall() == [("unavailable", 0)]
+
+
+def test_backfill_records_a_failure_keeps_going_and_a_rerun_retries_only_it(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(
+        monkeypatch,
+        [_market("OLD-1-A", "OLD-1", **_times()), _market("OLD-2-A", "OLD-2", **_times())],
+    )
+    with pytest.raises(RuntimeError, match="failed"):
+        _run_candles(monkeypatch, FakeCandles(fail_tickers={"OLD-2-A"}))
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT item_key, status FROM meta.ingestion_item "
+            "WHERE source = %s AND dataset = %s ORDER BY 1",
+            (kalshi.SOURCE, kalshi.CANDLE_DATASET),
+        )
+        assert cur.fetchall() == [("OLD-1-A", "loaded"), ("OLD-2-A", "failed")]
+
+    retry = FakeCandles()
+    _run_candles(monkeypatch, retry)
+    assert {u.split("/markets/")[1].split("/")[0] for u, _ in retry.calls} == {"OLD-2-A"}
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT ticker, count(*) FROM {kalshi.CANDLE_TABLE} GROUP BY 1 ORDER BY 1")
+        assert cur.fetchall() == [("OLD-1-A", 1), ("OLD-2-A", 1)]
+
+
+def test_backfill_skips_markets_without_open_or_close_time(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1")])  # no times
+    fake = FakeCandles()
+    counts = _run_candles(monkeypatch, fake)
+    assert counts[kalshi.CANDLE_TABLE] == 0
+    assert fake.calls == []
+
+
+def test_a_candle_with_no_trade_stores_no_price_never_zero(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+
+    class NoTrade(FakeCandles):
+        def __call__(self, url, params):
+            super().__call__(url, params)
+            return {"candlesticks": [_candle(params["start_ts"] + 60, trade=False)]}
+
+    _run_candles(monkeypatch, NoTrade())
+    with db_conn.cursor() as cur:
         cur.execute(
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_schema = 'raw' AND table_name = 'kalshi_candle' "
             "AND column_name LIKE '%dollars'"
         )
         assert cur.fetchall() == []
+
+
+def test_backfill_holds_neither_the_workflow_lock_nor_the_update_source_lock(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    from mlb_baseball.ingest import track_run
+
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    seen = {}
+
+    class Probe(FakeCandles):
+        def __call__(self, url, params):
+            with track_run(db_conn, kalshi.SOURCE, "update", workflow="exclusive") as result:
+                result["rows"] = 0
+                seen["ok"] = True
+            return super().__call__(url, params)
+
+    _run_candles(monkeypatch, Probe())
+    assert seen == {"ok": True}
+
+
+def test_backfill_reports_progress_to_the_monitor(db_conn, monkeypatch, _candle_ledger_clean):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    _run_candles(monkeypatch, FakeCandles())
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT items_planned, items_done FROM meta.ingestion_run "
+            "WHERE source = %s ORDER BY id DESC LIMIT 1",
+            (kalshi.BACKFILL_SOURCE,),
+        )
+        assert cur.fetchone() == (1, 1)
+        cur.execute("DELETE FROM meta.op_span WHERE op = 'kalshi.candles'")
+    db_conn.commit()

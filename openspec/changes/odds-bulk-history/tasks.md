@@ -23,9 +23,10 @@ Built as database objects (migration 0111, ADR-295) plus `mlb_baseball/opsmon.py
 
 ## 4. Kalshi
 
-- [ ] 4.1 Cutoff-aware market catalog (live + historical, dedupe by ticker); failing test with a fake API that has a cutoff
-- [ ] 4.2 Series discovery for all baseball series; verify the list matches `GET /series`
-- [ ] 4.3 Candlesticks and trades per market from the right endpoint; ledger items per market; rate limit at 10 req/s
+- [x] 4.1 Cutoff-aware market catalog (live + historical, dedupe by ticker); failing test with a fake API that has a cutoff
+- [x] 4.2 Series discovery for all baseball series (already dynamic via `GET /series?category=Sports&tags=Baseball`; the connector's existing exclusion list keeps non-MLB leagues out)
+- [x] 4.3a Candlesticks per market from the right endpoint; ledger item per market; paced at 16 req/s (documented 20)
+- [ ] 4.3b Trades per market (`/historical/trades`, `/markets/trades`): probe volume first, then ledger per market
 - [ ] 4.4 Owner-approved production run, newest first; verify against three sample markets; log results
 
 ## 5. Bulk datasets

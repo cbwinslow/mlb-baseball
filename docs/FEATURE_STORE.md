@@ -5,6 +5,12 @@ honestly: **what did we know about a player, a pitcher, or a game *before* a
 given moment?** Everything here is a reproducible artifact — run `mlb build`
 and you get the same thing the project ships.
 
+> **Feature North Star:** a historical model receives exactly the information
+> that was available at its declared decision time — no later correction,
+> outcome, lineup, starter, statistic, or market observation may leak backward
+> into that row. Readiness is target/feature-set specific; a valid DuckDB file
+> is not by itself proof that a model dataset is admissible.
+
 Related: [ADR-287](DECISIONS.md) (why features live in DuckDB, not PostgreSQL),
 `openspec/changes/feature-store-v1/` (the design and its two reviews),
 [FEATURE_REGISTRY.md](FEATURE_REGISTRY.md) (a *different* thing — the internal

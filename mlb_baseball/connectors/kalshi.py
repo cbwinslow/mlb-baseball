@@ -67,16 +67,21 @@ full price-timeseries/line-movement depth for an oddstrader-style product):
 - Forward snapshots (above) keep the series current going forward.
 """
 
+import base64
+import functools
 import logging
 import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 import pandas as pd
 import psycopg
 import requests
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
@@ -127,12 +132,14 @@ CANDLE_DATASET = "candles"
 CANDLE_PERIOD_INTERVAL_MINUTES = 1
 CANDLE_CHUNK_MINUTES = 4000
 # Backfill speed. Kalshi's Basic tier allows 200 read tokens/s and most requests cost 10
-# (docs.kalshi.com/getting_started/rate_limits), i.e. 20 requests/s; the pacer sits at 16/s
-# (it halves on a 429). Workers: a candle request takes a few tenths of a second, so 8
-# workers keep the pacer saturated. Override per run with MLB_KALSHI_WORKERS /
-# MLB_KALSHI_MAX_RPS; raise them only with a new measurement.
+# (docs.kalshi.com/getting_started/rate_limits), i.e. 20 requests/s, for a signed account; the
+# pacer sits at 16/s (it halves on a 429). Unsigned requests were measured to hit 429s from
+# about 5 requests/s, so that is the unsigned ceiling. Workers: a candle request takes a few
+# tenths of a second, so 8 workers keep the pacer saturated. Override per run with
+# MLB_KALSHI_WORKERS / MLB_KALSHI_MAX_RPS; raise them only with a new measurement.
 BACKFILL_WORKERS = 8
-BACKFILL_MAX_RPS = 16
+BACKFILL_MAX_RPS = 16  # with signed requests (documented Basic tier)
+BACKFILL_MAX_RPS_UNSIGNED = 5  # measured 2026-10-05: 429s from about 5 requests/s without a key
 BACKFILL_RETRY_BACKOFF_SECONDS = 2.0
 # A market that closed less than this long ago may still be settling: refetch it.
 SETTLE_SECONDS = 86400
@@ -202,8 +209,43 @@ EXCLUDED_SERIES_TICKERS = {
 }
 
 
+@functools.lru_cache(maxsize=2)
+def _private_key(path: str):
+    with open(path, "rb") as handle:
+        return serialization.load_pem_private_key(handle.read(), password=None)
+
+
+def signed_headers(method: str, url: str) -> dict[str, str]:
+    """Kalshi request-signing headers when ``KALSHI_API_KEY`` (the key id) and
+    ``KALSHI_PRIVATE_KEY_PATH`` (the PEM file Kalshi gives when the key is created) are both
+    set, else ``{}`` (public market data works unsigned, but at a lower request rate: measured
+    about 5/s unsigned against the documented 20/s for a signed Basic-tier account). The
+    signature is RSA-PSS/SHA-256 over ``<timestamp ms><METHOD><path without query>``
+    (docs.kalshi.com, "making authenticated requests")."""
+    key_id = os.environ.get("KALSHI_API_KEY")
+    key_path = os.environ.get("KALSHI_PRIVATE_KEY_PATH")
+    if not key_id or not key_path:
+        return {}
+    timestamp = str(int(time.time() * 1000))
+    message = f"{timestamp}{method.upper()}{urlparse(url).path}".encode()
+    signature = _private_key(key_path).sign(
+        message,
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+        hashes.SHA256(),
+    )
+    return {
+        "KALSHI-ACCESS-KEY": key_id,
+        "KALSHI-ACCESS-TIMESTAMP": timestamp,
+        "KALSHI-ACCESS-SIGNATURE": base64.b64encode(signature).decode(),
+    }
+
+
 def _get(url: str, params: dict) -> dict:
-    response = requests.get(url, params=params, timeout=30)
+    headers = signed_headers("GET", url)
+    if headers:
+        response = requests.get(url, params=params, timeout=30, headers=headers)
+    else:
+        response = requests.get(url, params=params, timeout=30)
     response.raise_for_status()
     return response.json()
 
@@ -388,7 +430,7 @@ def _candle_get(url: str, params: dict) -> dict:
     session = getattr(_thread_state, "session", None)
     if session is None:
         session = _thread_state.session = requests.Session()
-    response = session.get(url, params=params, timeout=30)
+    response = session.get(url, params=params, timeout=30, headers=signed_headers("GET", url))
     response.raise_for_status()
     return response.json()
 
@@ -630,7 +672,9 @@ def backfill_history() -> dict[str, int]:
     end if any market failed, after trying all of them."""
     counts = {CANDLE_TABLE: 0}
     workers = _env_int("MLB_KALSHI_WORKERS", BACKFILL_WORKERS)
-    limiter = RateLimiter(float(os.environ.get("MLB_KALSHI_MAX_RPS", BACKFILL_MAX_RPS)))
+    signed = bool(signed_headers("GET", BASE_URL))
+    default_rps = BACKFILL_MAX_RPS if signed else BACKFILL_MAX_RPS_UNSIGNED
+    limiter = RateLimiter(float(os.environ.get("MLB_KALSHI_MAX_RPS", default_rps)))
     with (
         get_connection() as conn,
         track_run(conn, BACKFILL_SOURCE, "backfill", workflow=None) as result,

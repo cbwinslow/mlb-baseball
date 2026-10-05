@@ -1728,6 +1728,7 @@ name = "mlb-baseball"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "duckdb" },
     { name = "feedparser" },
     { name = "fungo" },
@@ -1771,6 +1772,7 @@ export = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=42" },
     { name = "duckdb", specifier = ">=1.0" },
     { name = "feedparser", specifier = ">=6.0.14" },
     { name = "fungo", specifier = ">=2.0,<3" },

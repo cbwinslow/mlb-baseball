@@ -272,3 +272,31 @@ PR #313 (seeding code) stays unmerged by owner decision: it was a one-time job.
 | 6 | `mlb build` (task 9.6, refresh stale DuckDB) | `~/.mlb/mlb.duckdb` | started in background, log `logs/mlb_build_oneoff.log` |
 
 Doctor after steps 3-5: 354/372, `mlb_api analytics durable coverage` down to 1 incomplete season (2011, 2 games).
+
+## 2026-10-05 afternoon: odds backfills, run monitor, incident (owner-approved production writes)
+
+**Incident (mine).** The first Polymarket backfill (started 05:57 UTC) held the shared workflow lock for its whole run, so the 06:00 nightly's `conform` and `predict` could not start (`RuntimeError: workflow: another ingestion or derived-data stage is active`, overall rc=1). Result: core, model and polymarket freshness doctor failures, `core.pitch` coverage 1,121 rows short, prediction-count mismatch (predictions made from fresh snapshots, `core.market` not rebuilt). Fixed at the source: both history backfills now run under their own source names (`polymarket_backfill`, `kalshi_backfill`) with no workflow lock, with a test that an exclusive-lock stage and the `update` source lock stay free mid-backfill. The nightly must be rerun once (see the next-steps list in `openspec/HANDOFF.md`).
+
+| step | what | target | result |
+|---|---|---|---|
+| 1 | mark 2011 games 305461 and 308207 `unavailable` (source returns HTTP 500 for win probability, context and live feed; re-checked 2026-10-05) | `meta.ingestion_item` | 4 rows updated; the doctor's analytics coverage check can pass |
+| 2 | `mlb migrate` (0111 run monitor, ADR-295) | `mlb` | applied; additive tables, functions, trigger, views |
+| 3 | `mlb ingest polymarket --mode backfill` (batch windows, ledger, 4 processes x 4 threads) | `raw.polymarket_price`, `meta.ingestion_item` | running at the time of writing; see `meta.run_health` |
+| 4 | `mlb ingest kalshi --mode update` (now includes `/historical/markets`) | `raw.kalshi_market` etc. | `raw.kalshi_market` 364,718 to 890,789 markets, back to 2022-01; `KXMLBGAME` 9,358 (was about 1,700); 14.6 min |
+| 5 | `mlb ingest kalshi --mode backfill` (candles, all landed markets, short-lived first) | `raw.kalshi_candle` | started; unsigned pace about 5 requests/s |
+
+**What was wrong with the first Polymarket backfill (measured, read-only).** `interval=max` returns an empty history for a settled market (a 2025 market: 0 points; the same market asked by window: 789). It walked 435,412 tokens one request at a time (about 3 tokens/s) and had data for 58 markets after 4 hours. Not the database (queries took milliseconds), not Polymarket's limit (documented 1,000 requests / 10 s; we used about 3% of it).
+
+**Speed measurements that set the design.** `POST /batch-prices-history`: 20 tokens x 14 days in about 0.3 s. Fetch-only sweep: 8 workers about 18 requests/s (365 tokens/s, 490k points/s), 16 workers the same throughput at higher latency, 32 workers timed out. First threaded version ran at 5-6 requests/s: the `mlb` process sat at 94% of one core (pandas `to_csv` 112 ms and DataFrame build 36 ms per 21.7k-point batch against 21 ms for direct CSV text, JSON decode 18 ms), so threads were limited by the interpreter lock. Fixes: direct CSV text (PR #326), `synchronous_commit=off` on worker connections (#327), four processes x four threads (#330); result 12-17 requests/s while the disk was calm.
+
+**Server finding.** The database disk is a spinning-disk RAID (`md0`, six disks at about 95% utilisation, write await up to 590 ms during checkpoints). Local pytest sessions run `ALTER DATABASE ... SET TABLESPACE`, which forces an immediate checkpoint (the Postgres log shows 3-7 minute `checkpoint starting: immediate force wait` entries); during one, the backfill dropped to under 1 request/s and 12 backends waited on `WALWrite`. Another project's `DROP DATABASE ... WITH FORCE` forces one too. Do not run local DB test suites while a long ingest is running; use CI.
+
+**Kalshi.** Live endpoints exclude markets settled before `GET /historical/cutoff` (2026-08-06). Unsigned requests returned 429 from about 5 requests/s (candle endpoint); the documented signed Basic tier is 20 requests/s. Signing (RSA-PSS) is built (PR #331): set `KALSHI_API_KEY` and `KALSHI_PRIVATE_KEY_PATH` to run about 3x faster. The first candle run ordered by series size and spent minutes on season-long futures (about 33 s per market); now ordered by market lifetime (PR #332).
+
+**Doctor items classified (355/373 before; owner standard: fix at the source, bound changed only with a cited reason).**
+
+- backup freshness: wrong check, now reads the host nightly dump (PR #328).
+- prediction-count mismatches (584 vs 542 Polymarket; 662 vs 647 Kalshi): 55 predicted games have no `core.market` row at all (they were priced from fresh snapshots after the last successful conform); cause is the failed nightly above, not a join fan-out. Re-verify after the next conform.
+- `core.pitch` coverage short by 1,121 rows, freshness failures, `feat` health check crash (`home_pa_30d` missing from the stale DuckDB): all expected to clear after one nightly and `mlb build`.
+- `bsr` wSB bound: the 40 out-of-bound rows are 1910-1912, 1924, 1962, 1975, 1985-86 team seasons (values -21.4 to +23.4); stolen-base-heavy teams are real (1962 Dodgers, 1985 Cardinals), so the +/-20 bound is too tight for history. A cited replacement bound is still to be written (task 9.8).
+- SIERA/pitch movement/platoon bounds, catcher framing (owner: hold), `gbm-v2` model file: still open.

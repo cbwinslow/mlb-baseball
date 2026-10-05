@@ -255,9 +255,12 @@ per-US-state legal homework before any of it ships.
   read only from there. A `feat.*` row is a reproducible artifact, not source
   data — deleting the file loses nothing. See **ADR-287**.
 - All build logic in **versioned `.sql` files** run by `mlb report` /
-  `mlb conform` / `mlb build`. **No triggers, no stored procedures** for
-  pipeline logic (DuckDB feature SQL follows the same rule — no macros
-  standing in for pipeline logic).
+  `mlb conform` / `mlb build`. Database functions, procedures, triggers and
+  views **are allowed** where they fit (audit, monitoring, retention, read
+  models), created only in numbered migrations and tested on real PostgreSQL
+  (**ADR-295**, owner direction 2026-10-05). `core`/`gold` transformation logic
+  stays in the versioned `.sql` files unless a recorded reason moves it (DuckDB
+  feature SQL: no macros standing in for pipeline logic).
 - **No SQL strings embedded in Python** — `scripts/lint_sql_ownership.py`
   + pre-commit hook enforce it.
 - Normalization by layer: `core` normalized, `gold` deliberately

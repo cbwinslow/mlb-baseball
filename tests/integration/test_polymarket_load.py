@@ -507,3 +507,27 @@ def test_backfill_history_splits_a_long_market_into_short_windows(db_conn):
     assert all(c["endTs"] - c["startTs"] <= 14 * 86400 for c in per_token)
     ordered = sorted(per_token, key=lambda c: c["startTs"])
     assert all(a["endTs"] == b["startTs"] for a, b in zip(ordered, ordered[1:], strict=False))
+
+
+def test_backfill_history_reports_progress_to_the_run_record(db_conn):
+    def fake_get(url, params=None, timeout=None):
+        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
+            return FakeResponse(_page([_event("1", sport="mlb")]))
+        return _no_results_get(url, params, timeout)
+
+    with patch.object(polymarket.requests, "get", side_effect=fake_get):
+        polymarket.bootstrap()
+
+    def fake_clob_get(url, params=None, timeout=None):
+        return FakeResponse({"history": [{"t": 100, "p": 0.4}]})
+
+    with patch.object(polymarket.requests, "get", side_effect=fake_clob_get):
+        polymarket.backfill_history()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT items_planned, items_done FROM meta.ingestion_run "
+            "WHERE source = %s AND mode = 'backfill' ORDER BY id DESC LIMIT 1",
+            (polymarket.SOURCE,),
+        )
+        assert cur.fetchone() == (2, 2)  # 2 tokens planned, 2 done

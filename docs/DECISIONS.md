@@ -2,6 +2,36 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-295: SQL functions, procedures and triggers are allowed; run monitoring lives in the database
+
+**Decision (2026-10-05, owner direction).** The earlier rule "no triggers, no stored
+procedures" is lifted. PostgreSQL functions, procedures, triggers and views may be
+used wherever they are the better tool: audit and history capture that must work
+for every writer (a trigger), small reusable operations (a function), retention
+and housekeeping (a procedure), and read models (a view). Rules that stay:
+each object is created in a numbered migration (never inline in Python),
+has a test against real PostgreSQL, and carries a comment saying what it is
+for. Transformation logic for `core` / `gold` keeps living in the versioned
+`.sql` files run by `mlb conform` / `mlb report`; moving one into a function
+needs its own recorded reason.
+
+First use, migration 0111 (`openspec/changes/odds-bulk-history`): the run monitor.
+`meta.op_span` (one row per timed operation, written by `mlb_baseball.opsmon`),
+`meta.run_progress()` (throttled progress), `meta.record_op()`, `meta.stuck_runs()`
+and `meta.run_health` (rate, ETA, silence), `meta.ingestion_item_history` filled
+by a trigger on every failure or status change, `meta.op_summary` (p50/p95 per
+operation) and `meta.prune_ops()` (retention, called by `mlb nightly`). `mlb doctor`
+has a "silent ingestion runs" check.
+
+**Why.** A 4-hour backfill had no progress record, and the only way to tell it had
+done almost nothing was counting rows by hand. A trigger and functions capture
+timing and failures the same way for every writer, and the data stays queryable
+next to the data it describes. Built from what PostgreSQL already ships
+(`pg_stat_statements` stays the query-level tool); no new framework.
+
+**Revisit if:** a measured question needs `pg_profile` or `pg_wait_sampling`
+(task 2.4 of the change), or op_span volume needs partitioning.
+
 ## ADR-294: Odds history — frequent append-only snapshots, catalog rows are never deleted
 
 **Decision (2026-10-04).** Kalshi and Polymarket odds are captured by a separate

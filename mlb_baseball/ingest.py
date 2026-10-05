@@ -43,6 +43,7 @@ def record_items(conn: psycopg.Connection, items: list[dict]) -> None:
         "schema_fingerprint",
         "error",
         "run_id",
+        "duration_ms",
     ]
     values = [tuple(item.get(column) for column in columns) for item in items]
     with conn.cursor() as cur:
@@ -51,8 +52,8 @@ def record_items(conn: psycopg.Connection, items: list[dict]) -> None:
             INSERT INTO meta.ingestion_item (
                 source, dataset, item_key, status, source_url, artifact_path,
                 artifact_sha256, bytes, http_status, rows, parser_version,
-                schema_fingerprint, error, run_id
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                schema_fingerprint, error, run_id, duration_ms
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (source, dataset, item_key) DO UPDATE SET
                 status = EXCLUDED.status,
                 attempts = meta.ingestion_item.attempts + 1,
@@ -66,6 +67,7 @@ def record_items(conn: psycopg.Connection, items: list[dict]) -> None:
                 schema_fingerprint = EXCLUDED.schema_fingerprint,
                 error = EXCLUDED.error,
                 run_id = EXCLUDED.run_id,
+                duration_ms = EXCLUDED.duration_ms,
                 retrieved_at = now(),
                 updated_at = now()
             """,

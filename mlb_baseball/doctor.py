@@ -240,6 +240,29 @@ def _workflow_lock_state() -> Check:
     )
 
 
+SILENT_RUN_GAP = "15 minutes"
+
+
+def _silent_runs() -> Check:
+    """Fails for a running job that reports progress (``items_planned`` set) but has
+    gone quiet; jobs that never report are not judged (see meta.stuck_runs)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT run_id, source, mode, last_progress_at, items_done, items_planned, "
+            "silent_seconds FROM meta.stuck_runs(%s::interval)",
+            (SILENT_RUN_GAP,),
+        )
+        rows = cur.fetchall()
+    if not rows:
+        return Check("silent ingestion runs", True, "no reporting run has gone quiet")
+    detail = "; ".join(
+        f"run {run_id} {source}/{mode}: {done or 0}/{planned} items, last progress "
+        f"{last or 'never'} ({round(float(silent) / 60)} min ago)"
+        for run_id, source, mode, last, done, planned, silent in rows
+    )
+    return Check("silent ingestion runs", False, detail)
+
+
 # (name, check_fn) — every entry runs independently and defensively: a bug or
 # an unexpected DB state in any one check must never prevent the rest from
 # reporting, since that's exactly the "doctor itself is broken" failure mode
@@ -251,6 +274,7 @@ _CORE_CHECKS = [
     ("pg_stat_statements", _pg_stat_statements_enabled),
     ("analytics extensions", _analytics_extensions_enabled),
     ("stale ingestion runs", _stale_ingestion_runs),
+    ("silent ingestion runs", _silent_runs),
     ("metric catalog", _metric_catalog_in_sync),
     ("workflow lock", _workflow_lock_state),
     ("never-vacuumed tables", check_never_vacuumed),

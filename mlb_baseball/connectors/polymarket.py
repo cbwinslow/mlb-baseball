@@ -90,6 +90,7 @@ from mlb_baseball.health import (
 from mlb_baseball.ingest import track_run
 from mlb_baseball.load import append_dataframe, load_dataframe, upsert_dataframe
 from mlb_baseball.net import call_with_retry
+from mlb_baseball.opsmon import Monitor
 
 SOURCE = "polymarket"
 SNAPSHOT_MAX_GAP_MINUTES = 30  # twice the 15-minute capture interval
@@ -109,7 +110,6 @@ BACKFILL_SLEEP_SECONDS = 0.25
 # by explicit time window. The API rejects a window of 30 days ("interval is
 # too long") and accepts 15; 14 days leaves a margin.
 HISTORY_WINDOW_SECONDS = 14 * 86400
-BACKFILL_LOG_EVERY = 1000
 
 logger = logging.getLogger(__name__)
 
@@ -387,40 +387,41 @@ def backfill_history() -> dict[str, int]:
 
         total = 0
         seen = 0
-        for _market_id, rows in by_market.items():
-            for row in rows:
-                seen += 1
-                if seen % BACKFILL_LOG_EVERY == 0:
-                    logger.info(
-                        "polymarket backfill: %d/%d tokens fetched, %d price rows loaded",
-                        seen,
-                        len(tokens),
-                        total,
+        monitor = Monitor(run_id=result["run_id"])
+        try:
+            for _market_id, rows in by_market.items():
+                for row in rows:
+                    seen += 1
+                    monitor.progress(done=seen, planned=len(tokens), requests=seen)
+                    history = fetch_price_history(
+                        row["clob_token_id"], row["start_ts"], row["end_ts"]
                     )
-                history = fetch_price_history(row["clob_token_id"], row["start_ts"], row["end_ts"])
-                if not history:
-                    continue
-                df = pd.DataFrame(
-                    [
-                        {
-                            "clob_token_id": row["clob_token_id"],
-                            "_market": row["_market"],
-                            "_event": row["_event"],
-                            "ts": point["t"],
-                            "price": point["p"],
-                        }
-                        for point in history
-                    ]
-                )
-                total += load_dataframe(
-                    conn,
-                    PRICE_TABLE,
-                    df,
-                    scope_column="clob_token_id",
-                    scope_value=row["clob_token_id"],
-                )
-                time.sleep(BACKFILL_SLEEP_SECONDS)
-            conn.commit()
+                    if not history:
+                        continue
+                    df = pd.DataFrame(
+                        [
+                            {
+                                "clob_token_id": row["clob_token_id"],
+                                "_market": row["_market"],
+                                "_event": row["_event"],
+                                "ts": point["t"],
+                                "price": point["p"],
+                            }
+                            for point in history
+                        ]
+                    )
+                    total += load_dataframe(
+                        conn,
+                        PRICE_TABLE,
+                        df,
+                        scope_column="clob_token_id",
+                        scope_value=row["clob_token_id"],
+                    )
+                    time.sleep(BACKFILL_SLEEP_SECONDS)
+                conn.commit()
+        finally:
+            monitor.finish()
+            monitor.close()
 
         counts[PRICE_TABLE] = total
         result["rows"] = total

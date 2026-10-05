@@ -17,7 +17,7 @@ Migrations do not own derived research formulas or data-source parsing logic.
 - PostgreSQL is the system of record. Treat migration correctness as production safety work.
 - Before executing any migration manually, make the target database explicit. Production `mlb` is real data; pytest uses run-specific disposable databases under `tests/conftest.py`.
 - Migrations are forward-moving. Do not rewrite already-applied migration history merely to make it prettier unless the repository has explicitly established a safe migration-history repair process.
-- DDL belongs here rather than embedded in application code.
+- DDL belongs here rather than embedded in application code. This includes functions, procedures, triggers and views (allowed, ADR-295): comment what each is for, and test it against real PostgreSQL.
 - Use schema-qualified names for project-owned database objects where ambiguity is possible.
 - Preserve source-faithful raw semantics and explicit grain/key contracts when changing raw/core/gold/meta structures.
 - Destructive changes require a migration path, impact analysis, and validation of downstream callers/data before removal.

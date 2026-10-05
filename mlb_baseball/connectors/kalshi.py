@@ -98,7 +98,7 @@ from mlb_baseball.ingest import record_items, track_run
 from mlb_baseball.load import (
     append_dataframe,
     ensure_table,
-    replace_dataframe_scopes,
+    replace_dataframe_range,
     upsert_dataframe,
 )
 from mlb_baseball.net import RateLimiter, call_with_retry
@@ -144,6 +144,23 @@ BACKFILL_RETRY_BACKOFF_SECONDS = 2.0
 # A market that closed less than this long ago may still be settling: refetch it.
 SETTLE_SECONDS = 86400
 _CANDLE_BASE_COLUMNS = ["ticker", "ts", "open_interest", "volume"]
+# Every candle column seen in production (2026-10-05). Created up front so no worker has to
+# ALTER the table while others write; a column not listed here is still added on demand.
+_CANDLE_FIELDS = ("close", "high", "low", "open")
+_CANDLE_KNOWN_COLUMNS = [
+    *_CANDLE_BASE_COLUMNS,
+    *(
+        f"{side}_{field}{suffix}"
+        for side in ("yes_bid", "yes_ask")
+        for field in _CANDLE_FIELDS
+        for suffix in ("_dollars", "")
+    ),
+    *(
+        f"price_{field}{suffix}"
+        for field in (*_CANDLE_FIELDS, "mean", "previous")
+        for suffix in ("_dollars", "")
+    ),
+]
 _thread_state = threading.local()
 _open_connections: list[psycopg.Connection] = []
 _open_connections_lock = threading.Lock()
@@ -619,13 +636,18 @@ def _backfill_market(
                     with _schema_lock:
                         ensure_table(conn, CANDLE_TABLE, list(df.columns), index_column="ticker")
                         _known_candle_columns.update(df.columns)
-            rows = replace_dataframe_scopes(
+            # Replace this market's candles. Not replace_dataframe_scopes: it runs CREATE INDEX IF
+            # NOT EXISTS on every call, which takes a table lock that deadlocked 8 concurrent
+            # writers (121 markets failed in the first signed run).
+            rows = replace_dataframe_range(
                 conn,
                 CANDLE_TABLE,
                 df,
-                scope_column="ticker",
-                scope_values=[ticker],
-                schema_drift_policy="ignore",
+                key_column="ticker",
+                keys=[ticker],
+                range_column="ts",
+                low=0,
+                high=2**62,
             )
             record_items(
                 conn,
@@ -685,7 +707,7 @@ def backfill_history() -> dict[str, int]:
         cutoff = fetch_cutoff().get("market_settled_ts")
         cutoff_ts = _parse_kalshi_ts(cutoff) if cutoff else None
         now_ts = int(time.time())
-        ensure_table(conn, CANDLE_TABLE, _CANDLE_BASE_COLUMNS, index_column="ticker")
+        ensure_table(conn, CANDLE_TABLE, _CANDLE_KNOWN_COLUMNS, index_column="ticker")
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT column_name FROM information_schema.columns "

@@ -628,3 +628,20 @@ def test_candle_backfill_takes_short_lived_markets_before_season_long_ones(
     )
     markets = kalshi._candle_markets(db_conn)
     assert [m["ticker"] for m in markets] == ["OLD-SHORT-A", "OLD-SHORT-B", "OLD-LONG-A"]
+
+
+def test_many_markets_written_concurrently_do_not_deadlock(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    """121 of the first 5,000 production markets failed with `deadlock detected` when eight
+    workers wrote at once (each write ran CREATE INDEX IF NOT EXISTS, a table-level lock)."""
+    _seed_markets(monkeypatch, [_market(f"OLD-{i}-A", f"OLD-{i}", **_times()) for i in range(60)])
+    counts = _run_candles(monkeypatch, FakeCandles())
+    assert counts[kalshi.CANDLE_TABLE] == 60
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM meta.ingestion_item "
+            "WHERE source = %s AND dataset = %s AND status = 'failed'",
+            (kalshi.SOURCE, kalshi.CANDLE_DATASET),
+        )
+        assert cur.fetchone() == (0,)

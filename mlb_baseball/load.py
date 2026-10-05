@@ -240,10 +240,13 @@ def upsert_dataframe(
     """Replace only the rows whose ``key_column`` value appears in ``df``; rows the
     source stopped returning are kept. For catalog tables that must not lose
     history when a source drops an item (``_loaded_at`` then reads as "last seen").
-    An empty ``df`` changes nothing."""
+    An empty ``df`` changes nothing. A null key is rejected: it cannot be
+    matched on a later run, so such rows would pile up instead of being replaced."""
     if df.empty:
         return 0
-    keys = sorted({str(value) for value in df[key_column].dropna()})
+    if df[key_column].isna().any():
+        raise ValueError(f"{table}: null values in key column {key_column!r}")
+    keys = sorted({str(value) for value in df[key_column]})
     return replace_dataframe_scopes(
         conn,
         table,

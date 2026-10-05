@@ -1,3 +1,46 @@
+# Session handoff - 2026-10-05 (evening) - read this first in a fresh session
+
+Owner direction: ingest the maximum Polymarket and Kalshi history as fast as the sites allow; keep main
+current (merge PRs without asking); build reusable monitoring in PostgreSQL (functions/triggers/procedures
+are allowed, ADR-295). Plain, short replies (repo `CLAUDE.md`).
+
+## State
+
+- **Plan:** `openspec/changes/odds-bulk-history/` (tasks ticked as done: 2.1-2.3 run monitor, 3.1-3.4
+  Polymarket, 4.1-4.3a Kalshi catalog + candles). Evidence log: `pipeline-recovery/results.md` ("2026-10-05
+  afternoon").
+- **Polymarket history: done.** 470,754 token-windows loaded, about 598M price points in `raw.polymarket_price`,
+  0 failed, 3,256 empty windows remembered in `meta.ingestion_item` (dataset `price_history`). Rerun
+  `mlb ingest polymarket --mode backfill` to refresh recent windows and retry failures; it skips settled work.
+- **Kalshi:** `raw.kalshi_market` now 890,789 markets back to 2022 (historical listing merged by
+  `mlb ingest kalshi --mode update`). Candle backfill `mlb ingest kalshi --mode backfill` is **running**
+  (log `logs/kalshi_backfill2.log`, `meta.run_health`), short-lived markets first, about 2 markets/s unsigned.
+  It is resumable; if it died, run `mlb repair-runs` then start it again. Owner can create a free Kalshi API
+  key and set `KALSHI_API_KEY` + `KALSHI_PRIVATE_KEY_PATH` (PEM file) for about 3x speed. Kalshi trades
+  (task 4.3b) not started.
+- **Incident:** the first Polymarket backfill held the workflow lock and made the 06:00 nightly fail. Both
+  backfills now run under their own source names with no workflow lock. A manual `mlb nightly` was started
+  at 13:40 UTC (`logs/nightly_manual_20261005.log`); after it finishes run `mlb build` (stale DuckDB, fixes the
+  `feat` health crash) and re-run `mlb doctor`.
+- **Do not run local pytest sessions while a long ingest runs.** They force immediate checkpoints on the
+  spinning-disk RAID (3-7 minutes each) and stall every writer. Use CI.
+- Run monitor: `select * from meta.run_health`, `meta.stuck_runs()`, `meta.op_summary`; doctor check
+  "silent ingestion runs".
+
+## Still open
+
+1. Doctor after the nightly: bounds with cited reasons (9.8: bsr wSB 1910-1986 team seasons are real, SIERA,
+   pitch movement, platoon), `gbm-v2` model file, catcher framing (owner: hold), prediction counts (re-verify
+   after conform).
+2. `odds-bulk-history`: 4.3b Kalshi trades, section 5 (Becker/SII datasets: recommended skip, they add
+   trade-level data we do not need for price lines), 3.3 Polymarket Gamma field audit and data-api trades,
+   3.5/4.4 record counts in results.md, 2.4 (pg_profile only if a measured question needs it).
+3. `full-source-ingestion` Phase 0 remaining: 0.3/0.4, 0.6, 0.8-0.10.
+4. Owner-run: stop unneeded Docker stacks (the safety filter blocked me); the opendiscourse job is the
+   owner's.
+
+---
+
 # Session handoff - 2026-10-05 (late) - read this first in a fresh session
 
 Owner direction today: collect EVERY lawful free pro data source, all endpoints, all columns, kept

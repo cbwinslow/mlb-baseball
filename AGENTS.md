@@ -147,10 +147,9 @@ copy the same rule into every ancestor.
 - Preserve user and parallel-agent work; never assume an unfamiliar dirty change
   is disposable.
 - Work on focused branches/PRs; do not push directly to protected `main`.
-- Creating a branch, committing, pushing that branch, and opening an issue/PR in
-  this repository is pre-authorized.
-- Force-pushing, deleting branches, closing issues, merging PRs, or editing
-  another contributor's content requires explicit owner authorization.
+- AI agents (Claude, Codex, etc.) are pre-authorized to create branches, commit
+  changes, push branches, open pull requests, and merge PRs into `main` once CI
+  checks (`test`, `secrets`) pass.
 - Address substantive human and automated review findings on PRs you are working
   on. Verify each finding; fix real problems and explain concrete false/out-of-
   scope findings rather than silently ignoring them.

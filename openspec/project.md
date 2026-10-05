@@ -320,10 +320,9 @@ applied to model code, not a new rule.
 
 ## Model roles
 
-Claude → architecture, specs, review, correctness-critical code, all
-merges. Codex → second-opinion implementation, deep debugging. Grok /
-Gemini / opencode / kilo → supervised grunt work (never merges; output is
-a reviewed diff).
+Claude & Codex → architecture, specs, review, correctness-critical code,
+committing to PRs, and merges. Grok / Gemini / opencode / kilo → supervised
+implementation work (output is a reviewed diff or branch).
 
 ## CI gates & review
 
@@ -336,14 +335,12 @@ a reviewed diff).
   bot-audit.md` (owner to uninstall Qodo, Macroscope, CodeAnt, Mergify,
   Guardrails via GitHub App settings).
 
-## Merge protocol (Claude)
+## Merge protocol (Claude & Codex)
 
-Once the owner grants `Bash(gh pr merge:*)`, Claude may merge a PR when
-**all** hold: `test` + `secrets` green; every human and Kilo comment
-addressed; not touching a Phase B/C (SPECULATIVE) area without the owner
-asking; it is Claude's own PR or one the owner asked Claude to land.
-Force-push, closing issues, deleting others' branches, or landing work in
-a Phase B/C area still need an explicit ask.
+Claude and Codex are pre-authorized to commit to PRs, push branches, and merge
+PRs into `main` (using `gh pr merge --auto --squash` or `gh pr merge --squash`)
+once CI checks (`test`, `secrets`) pass. Force-pushing or deleting others'
+branches still needs an explicit ask.
 
 ## Tooling
 

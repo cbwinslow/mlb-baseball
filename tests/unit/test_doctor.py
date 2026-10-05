@@ -196,3 +196,36 @@ def test_arm_slot_health_check():
     from mlb_baseball.model import arm_slot
 
     assert arm_slot.health_check()[0].ok is True
+
+
+def test_crashing_checks_are_errors_not_failures(monkeypatch, capsys):
+    """A check that raises is an ERROR: distinct from a failed check, never a pass."""
+    from mlb_baseball import doctor
+    from mlb_baseball.health import Check
+
+    monkeypatch.setattr(doctor, "_database_reachable", lambda: Check("database", True, "ok"))
+
+    def boom():
+        raise RuntimeError("Binder Error: column home_pa_30d not found")
+
+    monkeypatch.setattr(doctor, "_CORE_CHECKS", [("boom", boom)])
+    monkeypatch.setattr(doctor, "CONNECTORS", {})
+    for module in (
+        doctor.conform,
+        doctor.model,
+        doctor.report,
+        doctor.experiment,
+        doctor.feature_select_stepwise,
+        doctor.backup,
+    ):
+        monkeypatch.setattr(module, "health_check", boom)
+
+    checks = doctor.run()
+    errored = [c for c in checks if c.error]
+    assert errored, "a raising check must be reported as an error"
+    assert all(not c.ok for c in errored)
+    assert any("home_pa_30d" in c.detail for c in errored)
+    passed = sum(1 for c in checks if c.ok)
+    summary = doctor.summarize(checks)
+    assert summary.startswith(f"{passed}/{len(checks)} checks passed")
+    assert f"{len(errored)} errored" in summary

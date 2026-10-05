@@ -154,3 +154,15 @@ Restored `daily/20261003_020001/pg16_mlb.dump` (checksum verified first) into `m
 - **Scale does not match either:** top catcher Patrick Bailey is +96 strikes in the shadow-zone model against Savant's roughly 5 extra strikes (rv_tot 3.5). Savant adjusts for more (umpire, park, pitcher) than the pitch columns we hold.
 - **Reading:** a location-only model does not reproduce Savant, so it cannot be called correct. The prior-season Savant value (`team_framing_update.sql`) ties to its source by construction.
 - **Recommendation to the owner:** withhold the in-season columns (`*_catcher_csae_pct`, `*_catcher_framing_runs`) and keep the prior-season Savant value; no bound widened. Owner decision pending.
+
+## 3.2 doctor reports crashed checks as ERROR (2026-10-05)
+
+- Cause: `doctor.run()` turned a raising check into an ordinary failed check
+  (`check raised: ...`), so a crash (e.g. the `feat` binder error on `home_pa_30d`)
+  looked the same as bad data and was counted as a plain failure.
+- Fix: `Check.error` (health.py), `doctor._errored()` for every raise path, `[ERROR]`
+  line and "N errored" in the totals (`doctor.summarize`, used by `mlb doctor`).
+- Test: `tests/unit/test_doctor.py::test_crashing_checks_are_errors_not_failures`
+  failed before the change (no `error` field), passes after. `ruff` clean; 210 unit
+  tests matching doctor/health/daily/cli pass.
+- Not done: the `feat` crash itself (9.6, stale DuckDB file, needs owner-run `mlb build`).

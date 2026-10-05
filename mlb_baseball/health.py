@@ -21,6 +21,9 @@ class Check:
     name: str
     ok: bool
     detail: str
+    # True when the check itself crashed: the state is unknown, which is neither
+    # a pass nor a verdict that the data is bad. Always paired with ok=False.
+    error: bool = False
 
 
 def check_table_has_rows(table: str) -> Check:

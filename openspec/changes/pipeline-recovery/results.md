@@ -166,3 +166,21 @@ Restored `daily/20261003_020001/pg16_mlb.dump` (checksum verified first) into `m
   failed before the change (no `error` field), passes after. `ruff` clean; 210 unit
   tests matching doctor/health/daily/cli pass.
 - Not done: the `feat` crash itself (9.6, stale DuckDB file, needs owner-run `mlb build`).
+
+## 9.5 / full-source-ingestion 0.5: the original win-probability responses exist (2026-10-05)
+
+- Found on the owner's laptop `cbwlap1`: `~/mlb-baseball/downloads/mlb_api/` (264 MB, 946 files, 77 season
+  folders 1950-2026, plus `manifest.json` with sha256 per file; written by the artifact-staging code of
+  2026-08-09). The laptop's parsed copy is the scratch database `mlb_api_scratch` on this server
+  (port 5432, 2.1 GB, parsed rows only, loaded 2026-08-09/10; kept untouched).
+- Copied (additive `rsync --ignore-existing`, nothing overwritten) to `~/workspace/mlb/downloads/mlb_api/`
+  (git-ignored). Verified: 946 of 946 files match their manifest sha256, none missing.
+- Contents: win_probability 164,213 x HTTP 200 and 969 x 404; context_metrics 164,213 x 200 and 969 x 404;
+  165,179 distinct games. Versus production `mlb` (read-only): production raw has 164,362 games with
+  analytics; 1,192 final games (1950-2025) have none, and the artifacts cover 1,190 of them (so those
+  are source 404s, now provable); 2 final games are in neither; 442 production games are not in the
+  artifacts (loaded after the laptop run, e.g. later 2026 games).
+- Consequence: `pipeline-recovery` 9.5 needs NO 325k-request re-download. What is missing is a step that
+  rebuilds `meta.ingestion_item` rows from these artifacts (path + checksum from `manifest.json`, status
+  `unavailable` for 404, row counts checked against production raw) so the existing completeness check
+  and replay can use them. Production write; owner-approved before running; 442 + 2 games still to fetch.

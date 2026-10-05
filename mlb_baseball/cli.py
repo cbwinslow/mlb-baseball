@@ -569,6 +569,11 @@ def main(argv: list[str] | None = None) -> None:
     inventory_parser.add_argument(
         "--exact", action="store_true", help="count rows exactly instead of using catalog estimates"
     )
+    inventory_parser.add_argument(
+        "--markdown",
+        metavar="PATH",
+        help="write the raw layer (exact rows, seasons, columns) as markdown to PATH and exit",
+    )
     metrics_parser = subparsers.add_parser("metrics")
     metrics_parser.add_argument("--source", default="mlb_api")
     metrics_parser.add_argument("--window-minutes", type=int, default=5)
@@ -1763,6 +1768,9 @@ def main(argv: list[str] | None = None) -> None:
                 f"brier={metrics['brier']:.4f} [{brier_low:.4f}, {brier_high:.4f}] "
                 f"accuracy={metrics['accuracy']:.4f}"
             )
+    elif args.command == "inventory" and args.markdown:
+        Path(args.markdown).write_text(inventory.raw_markdown().rstrip() + "\n")
+        print(f"wrote {args.markdown}")
     elif args.command == "inventory":
         for row in inventory.tables(partitions=args.partitions, exact=args.exact):
             approximate = "" if row["exact"] else "≈"

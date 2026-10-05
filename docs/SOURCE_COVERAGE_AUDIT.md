@@ -88,6 +88,17 @@ attendance, game pace, player/team stats, leaders, awards, conference, scorers, 
   written authorization. Keep Stats API / GUMBO / Savant under `local_research` and read the full terms before any
   public-facing use. See `docs/SOURCE_RIGHTS.md`.
 
+## Owner rules recorded 2026-10-05
+
+- No paid providers. Only free, lawful sources.
+- The official MLB Stats API OpenAPI spec (190 paths, 490 schemas) exists in the older project at
+  `~/workspace/mlb-baseball-ml/agents/mcp/baseball-mcp/mlb-statsapi-spec.json`; its origin/terms are
+  unverified, so it is a checklist for planning, not yet a committed repo file.
+- The 1950+ win-probability responses were never saved to disk (searched: `mlb` and every other
+  database on the server, `downloads/`, `/mnt/storage`, the older project). The load (2026-07-28/29)
+  predates the artifact staging commit (2026-08-09). A possible copy on the `cbwlap1` database
+  (PostgreSQL 17, port 5433) is being checked.
+
 ## Owner decisions needed
 
 1. Reopen ADR-017/018/019: ingest the full GUMBO feed and pre-2026 play-by-play/box scores as separate raw copies?

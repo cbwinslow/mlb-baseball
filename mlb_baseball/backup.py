@@ -30,14 +30,17 @@ one-off freshness mechanism -- see `health_check()` below.
 a nightly cron doesn't fill the disk.
 """
 
+import os
 import re
 import shutil
 import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg
 
+from mlb_baseball.config import database_url
 from mlb_baseball.health import DAILY_FRESHNESS_THRESHOLD_MINUTES, Check, check_recent_run
 from mlb_baseball.ingest import track_run
 
@@ -213,6 +216,48 @@ def restore(database_url: str, input_path: Path, *, confirm: bool) -> None:
         raise RuntimeError(f"restore failed: {result.stderr.strip()}")
 
 
+HOST_BACKUP_MAX_AGE_HOURS = 26  # a nightly job plus slack for its own run time
+DEFAULT_HOST_BACKUP_ROOT = Path.home() / "workspace" / "backups" / "postgres"
+
+
+def host_backup_root() -> Path | None:
+    """Where the host's backup job writes (``MLB_HOST_BACKUP_ROOT``, else the
+    default location if it exists); None when no host backup is configured."""
+    configured = os.environ.get("MLB_HOST_BACKUP_ROOT")
+    root = Path(configured) if configured else DEFAULT_HOST_BACKUP_ROOT
+    return root if root.is_dir() else None
+
+
+def host_backup_check(root: Path, *, database: str) -> Check:
+    """Freshness of the host-level nightly dump (``<root>/daily/<stamp>/pg*_<db>.dump``
+    with a ``.complete`` marker once the whole set is written). This is the backup that
+    is verified and restore-tested; ``mlb backup`` is a separate, optional dump."""
+    name = "backup freshness (host nightly dump)"
+    sets = sorted(
+        (d for d in (root / "daily").glob("*") if (d / ".complete").exists()), reverse=True
+    )
+    if not sets:
+        return Check(name, False, f"no complete backup set under {root}/daily")
+    newest = sets[0]
+    age_hours = (time.time() - (newest / ".complete").stat().st_mtime) / 3600
+    dumps = list(newest.glob(f"pg*_{database}.dump"))
+    if not dumps:
+        return Check(
+            name, False, f"{newest.name} has no pg*_{database}.dump (pg16_{database}.dump expected)"
+        )
+    size_mb = dumps[0].stat().st_size / 1e6
+    if age_hours > HOST_BACKUP_MAX_AGE_HOURS:
+        return Check(
+            name,
+            False,
+            f"newest complete set {newest.name} is {age_hours:.0f} h old "
+            f"(limit {HOST_BACKUP_MAX_AGE_HOURS} h)",
+        )
+    return Check(
+        name, True, f"{newest.name}, {age_hours:.0f} h old, {dumps[0].name} {size_mb:,.0f} MB"
+    )
+
+
 def health_check() -> list[Check]:
     missing = missing_tools()
     if missing:
@@ -223,7 +268,10 @@ def health_check() -> list[Check]:
                 f"missing: {', '.join(missing)} -- {INSTALL_HINT}",
             )
         ]
-    return [
-        Check("backup tools (pg_dump/psql)", True, "pg_dump and psql found on PATH"),
-        check_recent_run(SOURCE, DAILY_FRESHNESS_THRESHOLD_MINUTES),
-    ]
+    root = host_backup_root()
+    freshness = (
+        host_backup_check(root, database=dbname(database_url()))
+        if root is not None
+        else check_recent_run(SOURCE, DAILY_FRESHNESS_THRESHOLD_MINUTES)
+    )
+    return [Check("backup tools (pg_dump/psql)", True, "pg_dump and psql found on PATH"), freshness]

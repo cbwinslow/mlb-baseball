@@ -1795,9 +1795,9 @@ def main(argv: list[str] | None = None) -> None:
         checks = report.populated_checks() if args.populated else doctor.run()
         failed = [c for c in checks if not c.ok]
         for check in checks:
-            status = "OK" if check.ok else "FAIL"
+            status = "ERROR" if check.error else "OK" if check.ok else "FAIL"
             print(f"[{status}] {check.name}: {check.detail}")
-        print(f"\n{len(checks) - len(failed)}/{len(checks)} checks passed")
+        print(f"\n{doctor.summarize(checks)}")
         if failed:
             sys.exit(1)
     elif args.command == "audit":

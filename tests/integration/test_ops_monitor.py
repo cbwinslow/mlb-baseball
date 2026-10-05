@@ -353,3 +353,40 @@ def test_replace_dataframe_range_clears_only_the_window_of_the_given_keys(db_con
         with db_conn.cursor() as cur:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
         db_conn.commit()
+
+
+def test_replace_csv_range_loads_prebuilt_text_and_empty_text_only_clears(db_conn):
+    from mlb_baseball.load import ensure_table, replace_csv_range
+
+    table = f"raw.ops_csv_{uuid.uuid4().hex[:8]}"
+    ensure_table(db_conn, table, ["k", "ts", "v"], index_column="k")
+    try:
+        replace_csv_range(
+            db_conn,
+            table,
+            ["k", "ts", "v"],
+            "a,10,1\na,20,2\n",
+            key_column="k",
+            keys=["a"],
+            range_column="ts",
+            low=0,
+            high=30,
+        )
+        replace_csv_range(
+            db_conn,
+            table,
+            ["k", "ts", "v"],
+            "",
+            key_column="k",
+            keys=["a"],
+            range_column="ts",
+            low=0,
+            high=15,
+        )
+        db_conn.commit()
+        assert _rows(db_conn, f"SELECT ts FROM {table}") == [("20",)]
+    finally:
+        db_conn.rollback()
+        with db_conn.cursor() as cur:
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
+        db_conn.commit()

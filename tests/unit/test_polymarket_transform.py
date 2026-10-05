@@ -230,3 +230,9 @@ def test_plan_batches_refetches_a_window_that_is_still_recent_even_if_ledgered()
     cell = (now - 60) // window * window
     batches, _ = polymarket._plan_batches([token], {f"b:{cell}"}, now)
     assert [c for c, _ in batches] == [cell]
+
+
+def test_csv_cell_quotes_only_when_needed():
+    assert polymarket._csv_cell("12345") == "12345"
+    assert polymarket._csv_cell("a,b") == '"a,b"'
+    assert polymarket._csv_cell('say "hi"') == '"say ""hi"""'

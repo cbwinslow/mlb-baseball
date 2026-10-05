@@ -94,7 +94,7 @@ from mlb_baseball.ingest import record_items, track_run
 from mlb_baseball.load import (
     append_dataframe,
     ensure_table,
-    replace_dataframe_range,
+    replace_csv_range,
     upsert_dataframe,
 )
 from mlb_baseball.net import RateLimiter, call_with_retry
@@ -125,6 +125,7 @@ HISTORY_WINDOW_SECONDS = 14 * 86400
 # A window that ended less than this long ago may still receive points: refetch it.
 SETTLE_SECONDS = 86400
 PRICE_DATASET = "price_history"
+PRICE_COLUMNS = ["clob_token_id", "_market", "_event", "ts", "price"]
 _thread_state = threading.local()
 _open_connections: list[psycopg.Connection] = []
 _open_connections_lock = threading.Lock()
@@ -435,24 +436,22 @@ def _backfill_batch(
     try:
         with monitor.timed("polymarket.batch", window=cell, tokens=len(group)) as op:
             history = fetch_batch_history(token_ids, cell, cell + HISTORY_WINDOW_SECONDS, limiter)
-            frames = [
-                pd.DataFrame(
-                    {
-                        "clob_token_id": token["clob_token_id"],
-                        "_market": token["_market"],
-                        "_event": token["_event"],
-                        "ts": [point["t"] for point in points],
-                        "price": [point["p"] for point in points],
-                    }
+            lines: list[str] = []
+            counts: dict[str, int] = {}
+            for token in group:
+                points = history.get(token["clob_token_id"])
+                if not points:
+                    continue
+                prefix = ",".join(
+                    _csv_cell(token[k]) for k in ("clob_token_id", "_market", "_event")
                 )
-                for token in group
-                if (points := history.get(token["clob_token_id"]))
-            ]
-            df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-            rows = replace_dataframe_range(
+                lines.extend(f"{prefix},{point['t']},{point['p']}\n" for point in points)
+                counts[token["clob_token_id"]] = len(points)
+            rows = replace_csv_range(
                 conn,
                 PRICE_TABLE,
-                df,
+                PRICE_COLUMNS,
+                "".join(lines),
                 key_column="clob_token_id",
                 keys=token_ids,
                 range_column="ts",
@@ -460,7 +459,6 @@ def _backfill_batch(
                 high=cell + HISTORY_WINDOW_SECONDS,
             )
             duration = round((time.perf_counter() - started) * 1000)
-            counts = df["clob_token_id"].value_counts().to_dict() if rows else {}
             record_items(
                 conn,
                 [
@@ -488,6 +486,14 @@ def _backfill_batch(
         )
         conn.commit()
         return 0, len(group)
+
+
+def _csv_cell(value: object) -> str:
+    """A CSV field, quoted only when it has to be (ids are plain digits in practice)."""
+    text = str(value)
+    if any(ch in text for ch in ',"\n\r'):
+        return '"' + text.replace('"', '""') + '"'
+    return text
 
 
 def _thread_connection() -> psycopg.Connection:
@@ -526,7 +532,7 @@ def backfill_history() -> dict[str, int]:
         ensure_table(
             conn,
             PRICE_TABLE,
-            ["clob_token_id", "_market", "_event", "ts", "price"],
+            PRICE_COLUMNS,
             index_column="clob_token_id",
         )
         with conn.cursor() as cur:

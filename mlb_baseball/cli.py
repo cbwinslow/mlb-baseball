@@ -340,7 +340,13 @@ def main(argv: list[str] | None = None) -> None:
     )
     ingest_parser.add_argument(
         "--stage",
-        choices=["analytics", "analytics-replay"],
+        choices=[
+            "analytics",
+            "analytics-replay",
+            "analytics-ledger",
+            "analytics-ledger-restore",
+            "analytics-ledger-preview",
+        ],
         help="run or replay one resumable MLB API historical stage instead of the full connector",
     )
     ingest_parser.add_argument(
@@ -1554,6 +1560,18 @@ def main(argv: list[str] | None = None) -> None:
 
             elif args.workers:
                 parser.error("--workers is only valid with --stage analytics")
+            elif args.stage in (
+                "analytics-ledger",
+                "analytics-ledger-restore",
+                "analytics-ledger-preview",
+            ):
+
+                def fn():
+                    return connector.seed_ledger(
+                        dry_run=args.stage.endswith("preview"),
+                        restore=args.stage != "analytics-ledger",
+                    )
+
             else:
 
                 def fn():

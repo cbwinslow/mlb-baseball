@@ -1393,3 +1393,117 @@ def test_analytics_replay_rebuilds_raw_tables_without_network(db_conn):
         "raw.mlb_linescore": 4,
         "raw.mlb_game_context": 2,
     }
+
+
+def _forget_ledger(db_conn) -> None:
+    """Leave raw rows and saved files, drop the ledger: the production situation."""
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM meta.ingestion_item WHERE source = %s", (mlb_api.SOURCE,))
+    db_conn.commit()
+
+
+def _ledger_rows(db_conn) -> list[tuple]:
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT dataset, item_key, status, rows, artifact_path, artifact_sha256 "
+            "FROM meta.ingestion_item WHERE source = %s ORDER BY dataset, item_key",
+            (mlb_api.SOURCE,),
+        )
+        return cur.fetchall()
+
+
+def test_seed_ledger_rebuilds_the_ledger_from_saved_files(db_conn):
+    with _mocked_statsapi():
+        mlb_api._load_schedule(db_conn, 2024)
+        mlb_api._load_analytics_for_season(db_conn, 2024)
+    db_conn.commit()
+    original = _ledger_rows(db_conn)
+    assert original
+    _forget_ledger(db_conn)
+
+    preview = mlb_api.seed_analytics_ledger(db_conn, dry_run=True)
+    assert _ledger_rows(db_conn) == []
+    assert preview["seeded"] == len(original)
+    assert preview["mismatched"] == []
+
+    mlb_api.seed_analytics_ledger(db_conn)
+    assert _ledger_rows(db_conn) == original
+
+    # The rebuilt ledger is enough for the network-free replay.
+    with patch.object(mlb_api.statsapi, "get", side_effect=AssertionError("network must not run")):
+        assert mlb_api.replay_analytics(start_year=2024, end_year=2024)["raw.mlb_win_prob"] == 2
+
+
+def test_seed_ledger_skips_games_whose_raw_rows_disagree_with_the_file(db_conn):
+    with _mocked_statsapi():
+        mlb_api._load_schedule(db_conn, 2024)
+        mlb_api._load_analytics_for_season(db_conn, 2024)
+    db_conn.commit()
+    _forget_ledger(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM raw.mlb_win_prob WHERE game_pk = '2001'")
+    db_conn.commit()
+
+    report = mlb_api.seed_analytics_ledger(db_conn)
+
+    assert [m["game_pk"] for m in report["mismatched"]] == [2001]
+    keys = {(dataset, key) for dataset, key, *_ in _ledger_rows(db_conn)}
+    assert ("win_probability", "2024:2001") not in keys
+    assert ("context_metrics", "2024:2001") in keys
+
+
+def test_seed_ledger_refuses_a_file_that_does_not_match_the_manifest(db_conn):
+    with _mocked_statsapi():
+        mlb_api._load_schedule(db_conn, 2024)
+        mlb_api._load_analytics_for_season(db_conn, 2024)
+    db_conn.commit()
+    _forget_ledger(db_conn)
+    batch = next((manifest.DOWNLOADS_ROOT / mlb_api.SOURCE / "analytics" / "2024").glob("batch-*"))
+    batch.write_bytes(batch.read_bytes() + b"x")
+
+    with pytest.raises(RuntimeError, match="checksum mismatch"):
+        mlb_api.seed_analytics_ledger(db_conn)
+    assert _ledger_rows(db_conn) == []
+
+
+def test_seed_ledger_restore_mode_lets_replay_refill_incomplete_raw(db_conn):
+    with _mocked_statsapi():
+        mlb_api._load_schedule(db_conn, 2024)
+        mlb_api._load_analytics_for_season(db_conn, 2024)
+    db_conn.commit()
+    _forget_ledger(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM raw.mlb_win_prob WHERE game_pk = '2001'")
+        cur.execute("DELETE FROM raw.mlb_linescore WHERE game_pk = '2002'")
+    db_conn.commit()
+
+    report = mlb_api.seed_analytics_ledger(db_conn, restore=True)
+
+    assert report["mismatched"] == []
+    assert report["restorable"] == 2  # the 2001 win-prob rows and the 2024 linescore season
+
+    with patch.object(mlb_api.statsapi, "get", side_effect=AssertionError("network must not run")):
+        counts = mlb_api.replay_analytics(start_year=2024, end_year=2024)
+    assert counts["raw.mlb_win_prob"] == 2
+    assert counts["raw.mlb_linescore"] == 4
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.mlb_win_prob WHERE game_pk = '2001'")
+        assert cur.fetchone()[0] > 0
+
+
+def test_seed_ledger_restore_mode_never_replaces_raw_that_has_more_rows(db_conn):
+    with _mocked_statsapi():
+        mlb_api._load_schedule(db_conn, 2024)
+        mlb_api._load_analytics_for_season(db_conn, 2024)
+    db_conn.commit()
+    _forget_ledger(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO raw.mlb_win_prob (game_pk, at_bat_index, _season) "
+            "VALUES ('2001', 99, '2024')"
+        )
+    db_conn.commit()
+
+    report = mlb_api.seed_analytics_ledger(db_conn, restore=True)
+
+    assert [m["game_pk"] for m in report["mismatched"]] == [2001]

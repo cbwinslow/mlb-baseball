@@ -167,3 +167,18 @@ For a new endpoint family, perform a bounded manual parity/coverage probe agains
 ## Child DOX Index
 
 No child files today because this is still a monolithic module. As it is decomposed into a durable `mlb_api/` subpackage, create a child `AGENTS.md` and move endpoint-family context down with the code rather than leaving this sidecar as an ever-growing encyclopedia.
+
+## Analytics ledger recovery (`--stage analytics-ledger*`)
+
+If raw analytics rows exist but `meta.ingestion_item` is empty (rows loaded before responses were
+saved, or loaded on another machine), copy the saved files (`downloads/mlb_api/analytics/**` and its
+`manifest.json`) into place, then:
+
+- `mlb ingest mlb_api --stage analytics-ledger-preview` reads only (counts what would be ledgered).
+- `--stage analytics-ledger` ledgers only games whose saved file produces exactly the raw rows already stored.
+- `--stage analytics-ledger-restore` also ledgers games/seasons where the file holds MORE rows than raw;
+  follow with `--stage analytics-replay` to rewrite raw from the verified files. Raw that holds more rows
+  than the file is never touched.
+
+Every file is checksum-verified against the manifest before anything is written. Implementation:
+`seed_analytics_ledger()`; tests: `tests/integration/test_mlb_api_load.py::test_seed_ledger_*`.

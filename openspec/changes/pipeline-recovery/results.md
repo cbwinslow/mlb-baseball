@@ -166,3 +166,21 @@ Restored `daily/20261003_020001/pg16_mlb.dump` (checksum verified first) into `m
   failed before the change (no `error` field), passes after. `ruff` clean; 210 unit
   tests matching doctor/health/daily/cli pass.
 - Not done: the `feat` crash itself (9.6, stale DuckDB file, needs owner-run `mlb build`).
+
+## 9.5 ledger seeding code + read-only preview on production (2026-10-05)
+
+- Code (branch `feat/analytics-ledger-seed`): `mlb_api.seed_analytics_ledger()`; stages
+  `analytics-ledger-preview`, `analytics-ledger`, `analytics-ledger-restore`. Tests (real PostgreSQL):
+  rebuild equals the original ledger and replay then works offline; raw/file disagreement is not
+  ledgered; a tampered file aborts before any write; restore mode lets replay refill incomplete raw;
+  restore never replaces raw that has more rows. 244 related tests pass.
+- Read-only preview of production `mlb` against the copied files (946 files, all checksums verified):
+  329,739 ledger rows can be rebuilt from files that match raw exactly. 702 disagree:
+  293 games have win-probability + context data in the files and NONE in production raw; 47 games have
+  fewer win-probability rows in raw than in the file (partial loads); linescore: the file has more rows
+  than raw in 68 of 69 seasons (1950: 22,732 vs 19,304); only 2026 linescore is larger in raw
+  (44,514 vs 41,108, newer than the file). So production raw is missing analytics data that the saved
+  files contain; no new download is needed to restore it.
+- Production steps for the owner to approve (each logged): 1) `--stage analytics-ledger-restore`,
+  2) `--stage analytics-replay` (rewrites raw from verified files, no network), 3) fetch only the games
+  not in the files, 4) confirm `mlb_api analytics durable coverage` passes.

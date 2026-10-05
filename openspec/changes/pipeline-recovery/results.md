@@ -142,3 +142,15 @@ Restored `daily/20261003_020001/pg16_mlb.dump` (checksum verified first) into `m
 - **Reading:** no sign in the data that the pattern has already damaged production rows (the gaps are symmetric and explained by missing history). The defect is latent: a home side with no live value would overwrite a filled away side with NULL, as it did for `away_woba`.
 - **Fix at the source:** all three files now fill each column with `COALESCE(existing, live)` and the WHERE requires something to fill on either side. Starter ids are filled the same way. The live passes now return only rows where something was filled.
 - **Tests:** three new integration tests (one per file; away value survives when only the home value is missing) fail on the old SQL and pass now. Two existing row-count assertions changed (workload 4 to 2, bullpen 2 to 1) because rows with nothing to fill are no longer rewritten. Related unit test updated.
+
+### 2026-10-05: catcher framing rebuild attempt did not tie out to Savant (task 9.4, no decision yet)
+
+- **Why the current columns are wrong:** `catcher_framing_csae_update.sql` counts "called strikes" from play text (`event_cd = '3'` is every strikeout, including swinging ones; `event_tx LIKE '%C%'` matches other letters) and uses a flat 0.33 baseline and 0.125 runs per strike that nothing cites. Doctor: 61,107 values outside bounds.
+- **What was tried (read-only, production `mlb`, 2024 regular season, Statcast `raw.statcast_pitch`, takes = called_strike/ball/blocked_ball):** expected called-strike rate from prior-season (2023) league rates by plate location bin. Compared each catcher's strikes-above-expected with Savant's published 2024 `raw.statcast_framing.rv_tot` (source-faithful; the live CSV matches the table).
+  - location only: correlation 0.32 (45 catchers, 800+ takes); centred 0.35 (39 catchers)
+  - plus batter/pitcher hand and count: 0.36 (36 catchers)
+  - shadow-zone pitches only, finer bins: 0.29 (40 catchers)
+  - plus a pitcher adjustment: 0.18 (worse)
+- **Scale does not match either:** top catcher Patrick Bailey is +96 strikes in the shadow-zone model against Savant's roughly 5 extra strikes (rv_tot 3.5). Savant adjusts for more (umpire, park, pitcher) than the pitch columns we hold.
+- **Reading:** a location-only model does not reproduce Savant, so it cannot be called correct. The prior-season Savant value (`team_framing_update.sql`) ties to its source by construction.
+- **Recommendation to the owner:** withhold the in-season columns (`*_catcher_csae_pct`, `*_catcher_framing_runs`) and keep the prior-season Savant value; no bound widened. Owner decision pending.

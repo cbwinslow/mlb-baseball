@@ -1,4 +1,70 @@
-# Production convergence audit and runbook
+# Platform and production convergence
+
+## Current Platform Convergence gate — 2026-10-05
+
+> **Platform North Star:** before broad new Engine/model/market/product
+> expansion, the repository should behave like one coherent research machine:
+> failures are explainable, canonical identities are durable, transformations
+> have one owner, model inputs are point-in-time admissible, and results can be
+> reproduced from recorded evidence.
+
+This is an **architecture-readiness gate**, not a release number and not a new
+workflow. It reuses the repository's existing OpenSpec changes, contracts, and
+machine checks.
+
+### Required completion criteria
+
+Platform Convergence is complete when all of the following are true:
+
+- **Operational health:** `pipeline-recovery` is complete and a normal
+  required installation reports zero unexplained required `mlb doctor`
+  errors. Optional/experimental/not-configured components are classified
+  honestly rather than making the installation look broken.
+- **Ingestion provenance:** durable item-level ingestion status can identify
+  what loaded, what the source genuinely does not provide, and what failed;
+  silent disappearance is not an accepted terminal state.
+- **Backup/restore evidence:** doctor evaluates the real backup contract and a
+  restore has been proven against a disposable target.
+- **Stable identity:** canonical team/player/venue/game IDs survive equivalent
+  conform runs; source disappearance does not silently recycle identity.
+- **Incremental/full equivalence:** the incremental conform path and the full
+  oracle produce zero unexplained semantic differences, with ID stability
+  tested separately.
+- **Safe publication:** large rebuilds stage/validate before short atomic
+  publication so readers retain the last-known-good state on failure.
+- **Transformation ownership:** mutable derived relations have one canonical
+  production writer. At least one representative deterministic gold model has
+  completed the full SQLMesh lifecycle: same-input parity, blocking audits,
+  recorded promotion, and legacy-writer removal.
+- **Metric admission:** a known invalid/disabled or merely
+  implemented-untested metric cannot silently enter an approved model feature
+  set. Catcher framing and other failed tie-outs are withheld until evidence
+  supports promotion.
+- **Feature/readiness health:** stale DuckDB artifacts fail with an actionable
+  schema/version message rather than an opaque binder error; declared model
+  inputs pass the applicable PIT, coverage, null-policy, backbone and integrity
+  checks.
+- **Review traceability:** every high-priority finding from the 2026-10-05
+  holistic review has an existing durable owner/change/gate or a specifically
+  named future OpenSpec change behind the current phase gates.
+
+### Current owners
+
+| Gate area | Owning work |
+|---|---|
+| doctor defects, backup/catalog/artifact truth, ingestion ledger, framing, prediction-count semantics | `openspec/changes/pipeline-recovery/` |
+| stable IDs, fingerprints, staged incremental conform, full equivalence | `openspec/changes/stable-ids-incremental-conform/` (with recovery tasks 6.x strengthening it first) |
+| PIT feature admission/readiness | `openspec/changes/model-readiness-audit/`, `openspec/specs/feature-store-boundary/`, `docs/FEATURE_STORE.md` |
+| raw/core/gold semantics | `docs/TABLE_CONTRACTS.md`, `docs/ARCHITECTURE.md` |
+| canonical transformation ownership | `docs/SQL_OWNERSHIP.md`; bounded follow-up after recovery/stable IDs |
+| review/governance disposition | `openspec/changes/governance-convergence/` |
+
+Broad speculative work remains governed by `openspec/project.md`; this gate
+does not automatically authorize any future change named by the review.
+
+---
+
+## Historical production convergence audit — 2026-08-06
 
 Audited: 2026-08-06. This record is based on read-only queries against the
 existing `mlb` database. No migration, ingestion, conformance, truncate, or

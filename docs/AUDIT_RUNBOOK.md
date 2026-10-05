@@ -1,8 +1,18 @@
 # Data audit runbook
 
-`mlb doctor` checks whether the system and connectors are operating. `mlb
-audit` is the separate, read-only check for whether the important game-level
-data contracts are safe for research and model work.
+The three diagnostic surfaces have deliberately different jobs:
+
+- `mlb doctor` asks whether the installation, required sources, jobs and
+  operational dependencies are healthy.
+- `mlb audit` is the read-only check for whether important database/data
+  contracts and integrity invariants hold.
+- `mlb readiness` asks whether a declared DuckDB feature set plus its
+  PostgreSQL backbone is admissible for a specific research/model workflow,
+  including PIT, coverage and null-policy evidence.
+
+Do not make an optional or experimental component an operational `doctor`
+failure merely because it is not configured; do not weaken `audit` or
+`readiness` to make an unhealthy dataset look ready.
 
 ## Commands
 

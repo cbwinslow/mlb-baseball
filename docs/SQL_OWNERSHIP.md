@@ -3,6 +3,11 @@
 Plan 02A inventory, 2026-08-06. This document is the ownership boundary for
 new SQL; it prevents a second embedded-SQL monolith from growing in Python.
 
+> **Transformation North Star:** every mutable derived relation and canonical
+> formula has exactly one production owner. A candidate implementation may
+> coexist only during an explicit parity/audit cutover and is removed or
+> demoted once the owner is chosen.
+
 ## SQLMesh models
 
 | Relation / family | Current Python owner | Grain | Initial disposition |
@@ -46,6 +51,22 @@ Schema/extension/role DDL and fixed raw indexes belong in numbered migrations.
 `load.py`'s dynamic raw text landing-table expansion remains justified while
 the source schemas are genuinely variable; any stabilized raw schema is moved
 to a migration when its contract is known.
+
+## Single-writer promotion contract
+
+For a deterministic relation moving to SQLMesh, use one finite lifecycle:
+
+1. identify the current canonical writer and exact business grain;
+2. run the candidate on the same declared inputs;
+3. compare key set, row count, every meaningful output column, NULL semantics,
+   coverage and applicable point-in-time cases;
+4. add model-local blocking audits and measure representative performance;
+5. record the parity decision;
+6. promote exactly one writer;
+7. delete/demote the old mutating writer in the same bounded cutover.
+
+A shadow/candidate model is not a second production owner. New code must not
+leave two active writers indefinitely.
 
 ## Canonical-formula risks
 

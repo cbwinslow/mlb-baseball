@@ -29,6 +29,10 @@ and web commits require sign-off.
   maintainer updates. Keep credentials and private data out of all categories.
 - Issues are for confirmed bugs and scoped work. Discussions are better for
   exploratory questions and research proposals.
+- For significant OpenSpec work, the GitHub issue is an index/status surface:
+  link the owning `openspec/changes/<name>/`, its completion gate and major
+  dependencies. Do **not** copy the full OpenSpec `tasks.md` into the issue;
+  OpenSpec remains the authoritative implementation specification/worklist.
 
 ## Security controls
 

@@ -262,66 +262,6 @@ def test_daily_game_tokens_scopes_to_events_with_sport_set(db_conn):
     assert {t["clob_token_id"] for t in tokens} == {"tok-1-0-a", "tok-1-0-b"}
 
 
-def test_backfill_history_loads_price_points_scoped_by_token(db_conn):
-    def fake_get(url, params=None, timeout=None):
-        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
-            return FakeResponse(_page([_event("1", sport="mlb")]))
-        return _no_results_get(url, params, timeout)
-
-    with patch.object(polymarket.requests, "get", side_effect=fake_get):
-        polymarket.bootstrap()
-
-    def fake_clob_get(url, params=None, timeout=None):
-        return FakeResponse({"history": [{"t": 100, "p": 0.4}, {"t": 200, "p": 0.45}]})
-
-    with patch.object(polymarket.requests, "get", side_effect=fake_clob_get):
-        counts = polymarket.backfill_history()
-
-    assert counts[polymarket.PRICE_TABLE] == 4  # 2 tokens x 2 points each
-    with db_conn.cursor() as cur:
-        cur.execute(f"SELECT count(*) FROM {polymarket.PRICE_TABLE}")
-        assert cur.fetchone() == (4,)
-
-
-def test_backfill_history_rerunning_replaces_instead_of_duplicating(db_conn):
-    def fake_get(url, params=None, timeout=None):
-        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
-            return FakeResponse(_page([_event("1", sport="mlb")]))
-        return _no_results_get(url, params, timeout)
-
-    with patch.object(polymarket.requests, "get", side_effect=fake_get):
-        polymarket.bootstrap()
-
-    def fake_clob_get(url, params=None, timeout=None):
-        return FakeResponse({"history": [{"t": 100, "p": 0.4}]})
-
-    with patch.object(polymarket.requests, "get", side_effect=fake_clob_get):
-        polymarket.backfill_history()
-        polymarket.backfill_history()
-
-    with db_conn.cursor() as cur:
-        cur.execute(f"SELECT count(*) FROM {polymarket.PRICE_TABLE}")
-        assert cur.fetchone() == (2,)  # 2 tokens x 1 point each, not doubled
-
-
-def test_backfill_history_skips_tokens_with_no_history(db_conn):
-    def fake_get(url, params=None, timeout=None):
-        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
-            return FakeResponse(_page([_event("1", sport="mlb")]))
-        return _no_results_get(url, params, timeout)
-
-    with patch.object(polymarket.requests, "get", side_effect=fake_get):
-        polymarket.bootstrap()
-
-    def fake_clob_get(url, params=None, timeout=None):
-        return FakeResponse({"history": []})
-
-    with patch.object(polymarket.requests, "get", side_effect=fake_clob_get):
-        counts = polymarket.backfill_history()
-
-    assert counts[polymarket.PRICE_TABLE] == 0
-
-
 def test_event_absent_from_a_later_pull_is_kept(db_conn):
     """Catalog history: an event the source stops returning is not deleted."""
 
@@ -398,136 +338,279 @@ def test_snapshot_with_no_open_markets_succeeds_and_creates_the_table(db_conn):
         assert cur.fetchone() == (0,)
 
 
-def test_backfill_history_resumes_after_an_interruption_without_duplicates(db_conn):
+# --- Fast batch backfill (odds-bulk-history section 3) --------------------
+
+
+def _bootstrap_with(events):
     def fake_get(url, params=None, timeout=None):
         if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
-            return FakeResponse(_page([_event("1", n_markets=2, sport="mlb")]))
+            return FakeResponse(_page(events))
         return _no_results_get(url, params, timeout)
 
     with patch.object(polymarket.requests, "get", side_effect=fake_get):
         polymarket.bootstrap()
 
-    def clob_get(fail_on):
-        def fake(url, params=None, timeout=None):
-            if fail_on and params["market"] == fail_on:
-                raise RuntimeError("source went away")
-            return FakeResponse({"history": [{"t": 100, "p": 0.4}]})
 
-        return fake
+class FakeClob:
+    """Behaves like the real batch endpoint: at most 20 tokens, windows over 15 days are
+    rejected, a token with no points in the window is absent from the answer."""
 
-    with patch.object(polymarket, "BACKFILL_SLEEP_SECONDS", 0):
-        with patch.object(polymarket.requests, "get", side_effect=clob_get("tok-1-1-a")):
-            with pytest.raises(RuntimeError):
-                polymarket.backfill_history()
-        with patch.object(polymarket.requests, "get", side_effect=clob_get(None)):
-            polymarket.backfill_history()
+    def __init__(self, points_by_token=None, fail_windows=()):
+        self.points = points_by_token or {}
+        self.fail_windows = set(fail_windows)
+        self.calls = []
 
+    def __call__(self, url, body):
+        import requests
+
+        self.calls.append(body)
+        assert len(body["markets"]) <= 20
+        assert body["end_ts"] - body["start_ts"] <= 15 * 86400
+        if body["start_ts"] in self.fail_windows:
+            raise requests.exceptions.ConnectionError("source went away")
+        history = {}
+        for token in body["markets"]:
+            pts = [
+                {"t": t, "p": p}
+                for t, p in self.points.get(token, [])
+                if body["start_ts"] <= t < body["end_ts"]
+            ]
+            if pts:
+                history[token] = pts
+        return {"history": history}
+
+
+def _run_backfill(clob):
+    with patch.object(polymarket, "_clob_post", side_effect=clob):
+        with patch.object(polymarket, "BACKFILL_RETRY_BACKOFF_SECONDS", 0):
+            return polymarket.backfill_history()
+
+
+def _price_rows(db_conn):
     with db_conn.cursor() as cur:
-        cur.execute(f"SELECT clob_token_id, count(*) FROM {polymarket.PRICE_TABLE} GROUP BY 1")
-        rows = cur.fetchall()
-    assert len(rows) == 4  # 2 markets x 2 outcomes
-    assert all(n == 1 for _, n in rows)
+        cur.execute(
+            f"SELECT clob_token_id, ts, price FROM {polymarket.PRICE_TABLE} ORDER BY 1, ts::bigint"
+        )
+        return cur.fetchall()
 
 
-def _clob_that_only_serves_windows(history_by_window=None):
-    """The real CLOB returns an empty history for a settled market asked with
-    `interval=max` (checked live 2026-10-05 on 2025 markets) and rejects a
-    window longer than a few weeks. This fake behaves the same way."""
-    calls = []
-
-    def fake(url, params=None, timeout=None):
-        calls.append(dict(params))
-        if "startTs" not in params:
-            return FakeResponse({"history": []})
-        if params["endTs"] - params["startTs"] > 15 * 86400:
-            return FakeResponse({"history": [], "error": "interval is too long"})
-        return FakeResponse({"history": [{"t": params["startTs"] + 1, "p": 0.4}]})
-
-    return fake, calls
+def _ledger(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT item_key, status, rows FROM meta.ingestion_item "
+            "WHERE source = %s AND dataset = %s ORDER BY item_key",
+            (polymarket.SOURCE, polymarket.PRICE_DATASET),
+        )
+        return cur.fetchall()
 
 
-def test_backfill_history_asks_for_the_market_s_own_dates_not_interval_max(db_conn):
-    def fake_get(url, params=None, timeout=None):
-        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
-            return FakeResponse(
-                _page(
-                    [
-                        _event(
-                            "1",
-                            closed=True,
-                            sport="mlb",
-                            startdate="2025-04-02T08:02:33Z",
-                            closedtime="2025-04-02 21:25:34+00",
-                        )
-                    ]
-                )
+@pytest.fixture
+def _ledger_clean(db_conn):
+    yield
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM meta.ingestion_item WHERE source = %s AND dataset = %s",
+            (polymarket.SOURCE, polymarket.PRICE_DATASET),
+        )
+    db_conn.commit()
+
+
+def test_backfill_loads_settled_market_history_by_window(db_conn, _ledger_clean):
+    _bootstrap_with(
+        [
+            _event(
+                "1",
+                closed=True,
+                sport="mlb",
+                startdate="2025-04-02T08:02:33Z",
+                closedtime="2025-04-02 21:25:34+00",
             )
-        return _no_results_get(url, params, timeout)
+        ]
+    )
+    t0 = polymarket._epoch("2025-04-02T09:00:00Z")
+    clob = FakeClob({"tok-1-0-a": [(t0, 0.4), (t0 + 60, 0.45)], "tok-1-0-b": [(t0, 0.6)]})
 
-    with patch.object(polymarket.requests, "get", side_effect=fake_get):
-        polymarket.bootstrap()
+    counts = _run_backfill(clob)
 
-    fake_clob, calls = _clob_that_only_serves_windows()
-    with patch.object(polymarket, "BACKFILL_SLEEP_SECONDS", 0):
-        with patch.object(polymarket.requests, "get", side_effect=fake_clob):
-            counts = polymarket.backfill_history()
-
-    assert counts[polymarket.PRICE_TABLE] == 2  # one point for each of the 2 outcomes
-    assert all("interval" not in c for c in calls)
+    assert counts[polymarket.PRICE_TABLE] == 3
+    assert [r[0] for r in _price_rows(db_conn)] == ["tok-1-0-a", "tok-1-0-a", "tok-1-0-b"]
+    assert len(clob.calls) == 1  # both tokens of the market share one request
+    assert {s for _, s, _ in _ledger(db_conn)} == {"loaded"}
 
 
-def test_backfill_history_splits_a_long_market_into_short_windows(db_conn):
-    def fake_get(url, params=None, timeout=None):
-        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
-            return FakeResponse(
-                _page(
-                    [
-                        _event(
-                            "1",
-                            closed=True,
-                            sport="mlb",
-                            startdate="2026-06-01T00:00:00Z",
-                            closedtime="2026-07-01 00:00:00+00",  # 30 days
-                        )
-                    ]
-                )
+def test_backfill_remembers_empty_windows_and_skips_them_on_rerun(db_conn, _ledger_clean):
+    _bootstrap_with(
+        [
+            _event(
+                "1",
+                closed=True,
+                sport="mlb",
+                startdate="2025-04-02T08:02:33Z",
+                closedtime="2025-04-02 21:25:34+00",
             )
-        return _no_results_get(url, params, timeout)
+        ]
+    )
+    clob = FakeClob({})
+    _run_backfill(clob)
+    first_calls = len(clob.calls)
+    _run_backfill(clob)
 
-    with patch.object(polymarket.requests, "get", side_effect=fake_get):
-        polymarket.bootstrap()
-
-    fake_clob, calls = _clob_that_only_serves_windows()
-    with patch.object(polymarket, "BACKFILL_SLEEP_SECONDS", 0):
-        with patch.object(polymarket.requests, "get", side_effect=fake_clob):
-            polymarket.backfill_history()
-
-    per_token = [c for c in calls if c["market"] == "tok-1-0-a"]
-    assert len(per_token) == 3  # 30 days in windows of at most 14
-    assert all(c["endTs"] - c["startTs"] <= 14 * 86400 for c in per_token)
-    ordered = sorted(per_token, key=lambda c: c["startTs"])
-    assert all(a["endTs"] == b["startTs"] for a, b in zip(ordered, ordered[1:], strict=False))
+    assert first_calls == 1
+    assert len(clob.calls) == first_calls  # nothing refetched
+    assert {(s, r) for _, s, r in _ledger(db_conn)} == {("unavailable", 0)}
 
 
-def test_backfill_history_reports_progress_to_the_run_record(db_conn):
-    def fake_get(url, params=None, timeout=None):
-        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
-            return FakeResponse(_page([_event("1", sport="mlb")]))
-        return _no_results_get(url, params, timeout)
+def test_backfill_rerun_replaces_a_window_instead_of_duplicating(db_conn, _ledger_clean):
+    _bootstrap_with(
+        [
+            _event(
+                "1",
+                closed=True,
+                sport="mlb",
+                startdate="2025-04-02T08:02:33Z",
+                closedtime="2025-04-02 21:25:34+00",
+            )
+        ]
+    )
+    t0 = polymarket._epoch("2025-04-02T09:00:00Z")
+    clob = FakeClob({"tok-1-0-a": [(t0, 0.4)]})
+    _run_backfill(clob)
+    with db_conn.cursor() as cur:  # forget the ledger so the window is fetched again
+        cur.execute(
+            "DELETE FROM meta.ingestion_item WHERE dataset = %s", (polymarket.PRICE_DATASET,)
+        )
+    db_conn.commit()
+    _run_backfill(clob)
 
-    with patch.object(polymarket.requests, "get", side_effect=fake_get):
-        polymarket.bootstrap()
+    assert len(_price_rows(db_conn)) == 1
 
-    def fake_clob_get(url, params=None, timeout=None):
-        return FakeResponse({"history": [{"t": 100, "p": 0.4}]})
 
-    with patch.object(polymarket.requests, "get", side_effect=fake_clob_get):
-        polymarket.backfill_history()
+def test_backfill_keeps_other_windows_when_one_window_is_replaced(db_conn, _ledger_clean):
+    window = polymarket.HISTORY_WINDOW_SECONDS
+    start = polymarket._epoch("2026-06-01T00:00:00Z")
+    _bootstrap_with(
+        [
+            _event(
+                "1",
+                closed=True,
+                sport="mlb",
+                startdate="2026-06-01T00:00:00Z",
+                closedtime="2026-07-01 00:00:00+00",  # 30 days: three windows
+            )
+        ]
+    )
+    cell0 = start // window * window
+    clob = FakeClob(
+        {
+            "tok-1-0-a": [
+                (cell0 + 10, 0.1),
+                (cell0 + window + 10, 0.2),
+                (cell0 + 2 * window + 10, 0.3),
+            ]
+        }
+    )
 
+    _run_backfill(clob)
+
+    assert [p for _, _, p in _price_rows(db_conn)] == ["0.1", "0.2", "0.3"]
+    assert len({c["start_ts"] for c in clob.calls}) == 3
+
+
+def test_backfill_processes_newest_window_first(db_conn, _ledger_clean):
+    _bootstrap_with(
+        [
+            _event(
+                "1",
+                closed=True,
+                sport="mlb",
+                startdate="2025-04-02T08:02:33Z",
+                closedtime="2025-04-02 21:25:34+00",
+            ),
+            _event(
+                "2",
+                closed=True,
+                sport="mlb",
+                startdate="2026-08-02T08:02:33Z",
+                closedtime="2026-08-02 21:25:34+00",
+            ),
+        ]
+    )
+    clob = FakeClob({})
+    with patch.object(polymarket, "BACKFILL_WORKERS", 1):
+        _run_backfill(clob)
+    starts = [c["start_ts"] for c in clob.calls]
+    assert starts == sorted(starts, reverse=True)
+
+
+def test_backfill_records_failures_keeps_going_and_a_rerun_retries_only_them(
+    db_conn, _ledger_clean
+):
+    window = polymarket.HISTORY_WINDOW_SECONDS
+    _bootstrap_with(
+        [
+            _event(
+                "1",
+                closed=True,
+                sport="mlb",
+                startdate="2025-04-02T08:02:33Z",
+                closedtime="2025-04-02 21:25:34+00",
+            ),
+            _event(
+                "2",
+                closed=True,
+                sport="mlb",
+                startdate="2026-08-02T08:02:33Z",
+                closedtime="2026-08-02 21:25:34+00",
+            ),
+        ]
+    )
+    bad = polymarket._epoch("2025-04-02T08:02:33Z") // window * window
+    t_good = polymarket._epoch("2026-08-02T09:00:00Z")
+    clob = FakeClob({"tok-2-0-a": [(t_good, 0.5)]}, fail_windows=[bad])
+
+    with pytest.raises(RuntimeError, match="failed"):
+        _run_backfill(clob)
+
+    statuses = {k.split(":")[0]: s for k, s, _ in _ledger(db_conn)}
+    assert statuses["tok-1-0-a"] == "failed"
+    assert statuses["tok-2-0-a"] == "loaded"  # the other window still landed
+
+    clob.fail_windows.clear()
+    clob.calls.clear()
+    _run_backfill(clob)
+    assert {c["start_ts"] for c in clob.calls} == {bad}  # only the failed window retried
+    assert {s for _, s, _ in _ledger(db_conn)} <= {"loaded", "unavailable"}
+
+
+def test_backfill_marks_a_market_with_no_start_date_unavailable(db_conn, _ledger_clean):
+    _bootstrap_with([_event("1", closed=True, sport="mlb", startdate=None, closedtime=None)])
+    clob = FakeClob({})
+    _run_backfill(clob)
+    assert clob.calls == []
+    assert {s for _, s, _ in _ledger(db_conn)} == {"unavailable"}
+
+
+def test_backfill_reports_progress_and_timing_to_the_monitor(db_conn, _ledger_clean):
+    _bootstrap_with(
+        [
+            _event(
+                "1",
+                closed=True,
+                sport="mlb",
+                startdate="2025-04-02T08:02:33Z",
+                closedtime="2025-04-02 21:25:34+00",
+            )
+        ]
+    )
+    _run_backfill(FakeClob({}))
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT items_planned, items_done FROM meta.ingestion_run "
             "WHERE source = %s AND mode = 'backfill' ORDER BY id DESC LIMIT 1",
             (polymarket.SOURCE,),
         )
-        assert cur.fetchone() == (2, 2)  # 2 tokens planned, 2 done
+        assert cur.fetchone() == (1, 1)
+        cur.execute("SELECT count(*) FROM meta.op_span WHERE op = 'polymarket.batch'")
+        assert cur.fetchone()[0] >= 1
+        cur.execute("DELETE FROM meta.op_span WHERE op = 'polymarket.batch'")
+    db_conn.commit()

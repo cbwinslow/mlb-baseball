@@ -62,13 +62,13 @@ Public connector capabilities:
 ### Historical price backfill
 
 - `backfill_history()` is deliberately separate from routine bootstrap/update.
-- It calls CLOB `/prices-history` per outcome token for the market's own window (`startdate` to `closedtime`, else now) in windows of at most 14 days. `interval=max` returns an empty list for a settled market and the API rejects a 30-day window (both checked live 2026-10-05: a 2025-04-02 market gave 789 points windowed, 0 with `interval=max`); `interval=max` is used only when a market has no start date.
-- Scale (2026-10-05): about 435,000 tokens over 217,000 markets, fetched one at a time (about 0.3 s each, so many hours). It logs progress every 1,000 tokens. A first run that used `interval=max` spent hours returning nothing; do not reintroduce it.
-- Current intentional scope is daily-game-event tokens, not every futures/draft/postseason tagged token.
-- A token returning an empty history with HTTP 200 is a valid no-trade/no-history result, not automatically a retryable error.
-- Historical loads are scoped by `clob_token_id`, making reruns idempotent rather than duplicative.
-- Commit/resume behavior is intentionally finer than the entire backfill so an interruption does not discard hours of already-landed work.
-- `BACKFILL_SLEEP_SECONDS` is deliberate public-endpoint politeness. Do not remove it or raise concurrency without measured rate-limit/reliability evidence.
+- It uses `POST clob.polymarket.com/batch-prices-history` (20 tokens per request) over fixed 14-day windows, newest window first. `interval=max` returns an empty list for a settled market and the API rejects a 30-day window (checked live 2026-10-05); do not reintroduce either.
+- Speed is measured, not guessed: a 20-token 14-day request takes about 0.3 s, throughput stops rising past roughly 8-16 concurrent requests (32 concurrent heavy requests timed out), the documented ceiling is 1,000 requests / 10 s with no key. Settings: `BACKFILL_WORKERS` (12), `BACKFILL_MAX_RPS` (90, shared `net.RateLimiter`, halves on a 429), env overrides `MLB_POLYMARKET_WORKERS` / `MLB_POLYMARKET_MAX_RPS`. Change them only with a new measurement.
+- Each worker owns an HTTP session and a database connection. One transaction per request writes the window's rows (`load.replace_dataframe_range`: replaces only that token-and-window) and the ledger rows (`meta.ingestion_item`, dataset `price_history`, key `<token>:<window start>`; `loaded`, or `unavailable` for an empty window; `failed` with the error).
+- A rerun skips settled windows already in the ledger, retries `failed` ones, and refetches windows that ended less than a day ago. The run raises at the end if any window failed.
+- Markets with no start date are recorded `unavailable` (no window can be requested).
+- Progress and per-request timing go to `meta.run_progress` / `meta.op_span` (`polymarket.batch`); check `meta.run_health` for rate and ETA.
+- Scale (2026-10-05): about 435,000 tokens over 217,000 markets.
 
 ## Point-in-Time Contract
 

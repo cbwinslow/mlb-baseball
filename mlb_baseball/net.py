@@ -9,6 +9,7 @@ one transient failure, not crash the whole run over it.
 """
 
 import logging
+import threading
 import time
 
 import requests
@@ -173,3 +174,44 @@ def call_with_retry(
             _retry_message(fn.__name__, exc, wait, attempt, max_attempts)
             time.sleep(wait)
     raise AssertionError("unreachable")  # loop always returns or raises
+
+
+class RateLimiter:
+    """Thread-safe request pacer shared by every worker of one connector.
+
+    Spaces calls ``1 / rate`` seconds apart across all threads. ``slow_down`` (a 429
+    or Retry-After was seen) halves the rate and pauses everyone; ``speed_up`` (called
+    after clean responses) climbs back 5% at a time toward the configured ``rate``.
+    The ceiling is the source's *documented* limit with a margin, never a guess made
+    to be safe: a lower number only costs time."""
+
+    def __init__(self, rate: float, *, min_rate: float = 1.0) -> None:
+        if rate <= 0:
+            raise ValueError("rate must be positive")
+        self.max_rate = rate
+        self.min_rate = min(min_rate, rate)
+        self._rate = rate
+        self._next = 0.0
+        self._lock = threading.Lock()
+
+    @property
+    def rate(self) -> float:
+        return self._rate
+
+    def acquire(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            start = max(now, self._next)
+            self._next = start + 1.0 / self._rate
+        wait = start - now
+        if wait > 0:
+            time.sleep(wait)
+
+    def slow_down(self, pause_seconds: float = 0.0) -> None:
+        with self._lock:
+            self._rate = max(self.min_rate, self._rate / 2)
+            self._next = max(self._next, time.monotonic() + pause_seconds)
+
+    def speed_up(self) -> None:
+        with self._lock:
+            self._rate = min(self.max_rate, self._rate * 1.05)

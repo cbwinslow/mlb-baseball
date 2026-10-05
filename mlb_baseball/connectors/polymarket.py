@@ -69,7 +69,10 @@ pieces cover that:
 
 import json
 import logging
+import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -87,9 +90,14 @@ from mlb_baseball.health import (
     check_table_exists,
     check_table_has_rows,
 )
-from mlb_baseball.ingest import track_run
-from mlb_baseball.load import append_dataframe, load_dataframe, upsert_dataframe
-from mlb_baseball.net import call_with_retry
+from mlb_baseball.ingest import record_items, track_run
+from mlb_baseball.load import (
+    append_dataframe,
+    ensure_table,
+    replace_dataframe_range,
+    upsert_dataframe,
+)
+from mlb_baseball.net import RateLimiter, call_with_retry
 from mlb_baseball.opsmon import Monitor
 
 SOURCE = "polymarket"
@@ -101,15 +109,25 @@ CLOB_BASE_URL = "https://clob.polymarket.com"  # prices-history only, confirmed 
 MLB_SERIES_ID = 3  # confirmed via GET /series?recurrence=daily
 MLB_TAG_SLUG = "mlb"  # season-long futures, confirmed via GET /events?tag_slug=mlb
 PAGE_SIZE = 100
-# Be polite to a public, unauthenticated endpoint across a large token
-# backfill (about 435K tokens as of 2026-10) — no documented rate limit was
-# found, but nothing says there isn't one either.
-BACKFILL_SLEEP_SECONDS = 0.25
-# `prices-history` with `interval=max` returns an empty list for a settled
-# market (checked live 2026-10-05 on 2025 markets), so history is asked for
-# by explicit time window. The API rejects a window of 30 days ("interval is
-# too long") and accepts 15; 14 days leaves a margin.
+# Backfill speed settings, measured live 2026-10-05 (see backfill_history). The documented
+# ceiling is 1,000 requests / 10 s = 100/s without a key; the pacer sits at 90/s. Throughput
+# stops rising past about 8-16 concurrent requests (the server queues beyond that, and 32
+# concurrent heavy requests timed out), so 12 workers. Override per run with
+# MLB_POLYMARKET_WORKERS / MLB_POLYMARKET_MAX_RPS.
+BACKFILL_WORKERS = 12
+BACKFILL_MAX_RPS = 90
+BACKFILL_TIMEOUT_SECONDS = 60
+BACKFILL_RETRY_BACKOFF_SECONDS = 2.0
+BATCH_SIZE = 20  # `POST /batch-prices-history` accepts at most 20 markets
+# The API rejects a window of 30 days ("interval is too long") and accepts 15 (docs: at
+# most 15); 14 days leaves a margin.
 HISTORY_WINDOW_SECONDS = 14 * 86400
+# A window that ended less than this long ago may still receive points: refetch it.
+SETTLE_SECONDS = 86400
+PRICE_DATASET = "price_history"
+_thread_state = threading.local()
+_open_connections: list[psycopg.Connection] = []
+_open_connections_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -281,42 +299,44 @@ def update() -> dict[str, int]:
     return _run("update")
 
 
-def _clob_get(url: str, params: dict) -> dict:
-    response = requests.get(url, params=params, timeout=30)
+def _clob_post(url: str, body: dict) -> dict:
+    """POST to the CLOB API on this thread's own pooled session."""
+    session = getattr(_thread_state, "session", None)
+    if session is None:
+        session = _thread_state.session = requests.Session()
+    response = session.post(url, json=body, timeout=BACKFILL_TIMEOUT_SECONDS)
     response.raise_for_status()
     return response.json()
 
 
-def fetch_price_history(
-    token_id: str, start_ts: int | None = None, end_ts: int | None = None
-) -> list[dict]:
-    """Calls the CLOB API's /prices-history endpoint for one outcome token and
-    returns `[{"t": <unix_seconds>, "p": <price>}, ...]`.
+def fetch_batch_history(
+    token_ids: list[str], start_ts: int, end_ts: int, limiter: RateLimiter | None = None
+) -> dict[str, list[dict]]:
+    """Price history for up to ``BATCH_SIZE`` outcome tokens over one window, in a
+    single `POST /batch-prices-history`. Returns ``{token: [{"t": seconds, "p":
+    price}, ...]}``; a token with no points in the window is absent or empty (a
+    valid answer for a settled or never-traded market, not an error). A 429 slows
+    the shared ``limiter`` down for every worker before the retry."""
+    if len(token_ids) > BATCH_SIZE:
+        raise ValueError(f"at most {BATCH_SIZE} tokens per request, got {len(token_ids)}")
+    body = {"markets": token_ids, "start_ts": start_ts, "end_ts": end_ts}
 
-    With no `start_ts` it asks for `interval=max`, which only works for a market
-    that is still trading: a settled market answers `{"history": []}` with a
-    normal 200 (confirmed live), as does a token that never traded; an empty
-    list is a valid result, not an error. With `start_ts` it asks for that time
-    window (`end_ts` defaults to now), split into windows the API accepts, and
-    joins the points in time order."""
-    if start_ts is None:
-        payload = call_with_retry(
-            _clob_get, f"{CLOB_BASE_URL}/prices-history", {"market": token_id, "interval": "max"}
-        )
-        return payload.get("history", [])
-    end_ts = int(time.time()) if end_ts is None else end_ts
-    points: list[dict] = []
-    window_start = start_ts
-    while window_start < max(end_ts, start_ts + 1):
-        window_end = min(window_start + HISTORY_WINDOW_SECONDS, max(end_ts, start_ts + 1))
-        payload = call_with_retry(
-            _clob_get,
-            f"{CLOB_BASE_URL}/prices-history",
-            {"market": token_id, "startTs": window_start, "endTs": window_end},
-        )
-        points.extend(payload.get("history", []))
-        window_start = window_end
-    return points
+    def post() -> dict:
+        if limiter is not None:
+            limiter.acquire()
+        try:
+            payload = _clob_post(f"{CLOB_BASE_URL}/batch-prices-history", body)
+        except requests.exceptions.HTTPError as exc:
+            reply = exc.response
+            if limiter is not None and reply is not None and reply.status_code == 429:
+                limiter.slow_down(float(reply.headers.get("Retry-After") or 1))
+            raise
+        if limiter is not None:
+            limiter.speed_up()
+        return payload
+
+    post.__name__ = "batch-prices-history"
+    return call_with_retry(post, backoff_seconds=BACKFILL_RETRY_BACKOFF_SECONDS).get("history", {})
 
 
 def _epoch(value: str | None) -> int | None:
@@ -363,69 +383,226 @@ def _daily_game_tokens(conn: psycopg.Connection) -> list[dict]:
         ]
 
 
+def _plan_batches(
+    tokens: list[dict], done: set[str], now: int
+) -> tuple[list[tuple[int, list[dict]]], list[dict]]:
+    """Group tokens into (window start, up-to-``BATCH_SIZE`` tokens) requests, newest
+    window first. A token's life is cut on a fixed grid of ``HISTORY_WINDOW_SECONDS``
+    windows so tokens from different markets can share one request. A window already
+    in the ledger is skipped unless it is still recent enough to receive new points.
+    Tokens with no start date cannot be windowed and are returned separately."""
+    by_cell: dict[int, list[dict]] = {}
+    undated: list[dict] = []
+    for token in tokens:
+        if token["start_ts"] is None:
+            undated.append(token)
+            continue
+        end = token["end_ts"] if token["end_ts"] is not None else now
+        cell = token["start_ts"] // HISTORY_WINDOW_SECONDS * HISTORY_WINDOW_SECONDS
+        while cell <= max(end, token["start_ts"]):
+            settled = cell + HISTORY_WINDOW_SECONDS + SETTLE_SECONDS <= now
+            if not (settled and f"{token['clob_token_id']}:{cell}" in done):
+                by_cell.setdefault(cell, []).append(token)
+            cell += HISTORY_WINDOW_SECONDS
+    batches = [
+        (cell, group[i : i + BATCH_SIZE])
+        for cell, group in sorted(by_cell.items(), reverse=True)
+        for i in range(0, len(group), BATCH_SIZE)
+    ]
+    return batches, undated
+
+
+def _item(token: dict, cell: int, status: str, run_id: int, **extra: object) -> dict:
+    return {
+        "source": SOURCE,
+        "dataset": PRICE_DATASET,
+        "item_key": f"{token['clob_token_id']}:{cell}",
+        "status": status,
+        "run_id": run_id,
+        **extra,
+    }
+
+
+def _backfill_batch(
+    cell: int, group: list[dict], run_id: int, limiter: RateLimiter, monitor: Monitor
+) -> tuple[int, int]:
+    """Fetch one window for one group of tokens and land it, together with its ledger
+    rows, in one transaction. Returns ``(rows, failed_tokens)``; a failed fetch is
+    recorded per token and does not stop the run (a rerun retries it)."""
+    conn = _thread_connection()
+    token_ids = [t["clob_token_id"] for t in group]
+    started = time.perf_counter()
+    try:
+        with monitor.timed("polymarket.batch", window=cell, tokens=len(group)) as op:
+            history = fetch_batch_history(token_ids, cell, cell + HISTORY_WINDOW_SECONDS, limiter)
+            frames = [
+                pd.DataFrame(
+                    {
+                        "clob_token_id": token["clob_token_id"],
+                        "_market": token["_market"],
+                        "_event": token["_event"],
+                        "ts": [point["t"] for point in points],
+                        "price": [point["p"] for point in points],
+                    }
+                )
+                for token in group
+                if (points := history.get(token["clob_token_id"]))
+            ]
+            df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+            rows = replace_dataframe_range(
+                conn,
+                PRICE_TABLE,
+                df,
+                key_column="clob_token_id",
+                keys=token_ids,
+                range_column="ts",
+                low=cell,
+                high=cell + HISTORY_WINDOW_SECONDS,
+            )
+            duration = round((time.perf_counter() - started) * 1000)
+            counts = df["clob_token_id"].value_counts().to_dict() if rows else {}
+            record_items(
+                conn,
+                [
+                    _item(
+                        token,
+                        cell,
+                        "loaded" if counts.get(token["clob_token_id"]) else "unavailable",
+                        run_id,
+                        rows=int(counts.get(token["clob_token_id"], 0)),
+                        http_status=200,
+                        duration_ms=duration,
+                    )
+                    for token in group
+                ],
+            )
+            conn.commit()
+            op.rows, op.requests = rows, 1
+            return rows, 0
+    except Exception as exc:
+        conn.rollback()
+        logger.error("polymarket window %s (%d tokens) failed: %s", cell, len(group), exc)
+        record_items(
+            conn,
+            [_item(token, cell, "failed", run_id, error=str(exc)[:500]) for token in group],
+        )
+        conn.commit()
+        return 0, len(group)
+
+
+def _thread_connection() -> psycopg.Connection:
+    conn = getattr(_thread_state, "conn", None)
+    if conn is None or conn.closed:
+        conn = _thread_state.conn = get_connection()
+        with _open_connections_lock:
+            _open_connections.append(conn)
+    return conn
+
+
 def backfill_history() -> dict[str, int]:
-    """One-off historical backfill of per-token price timeseries via the
-    CLOB API — see ADR-049, reversing ADR-026's original exclusion.
-    Deliberately separate from bootstrap()/update() (which only ever land
-    the *current* outcomePrices snapshot): this is an owner-triggered `mlb
-    ingest polymarket --mode backfill`, expected to take hours across
-    ~126K tokens, not something a 5-minute/daily cron should ever run.
+    """Historical per-token price series, as fast as the CLOB API allows.
 
-    Commits once per market, not once per token — an interrupted run loses
-    at most one market's worth of tokens (usually 2, sometimes more for a
-    multi-outcome prop), not the whole backfill. Each token's own load is
-    independently scoped-replace (scope_column=clob_token_id), so a re-run
-    after an interruption is safe: already-landed tokens are just replaced
-    with the same data, not duplicated.
-    """
+    Why it is built this way (measured 2026-10-05, openspec/changes/odds-bulk-history):
+    ``interval=max`` returns nothing for a settled market, so history is asked for by
+    explicit window; ``POST /batch-prices-history`` takes 20 tokens per request and the
+    documented limit is 1,000 requests per 10 s without a key. A 20-token 14-day
+    request takes about 0.3 s, and throughput stops improving past roughly 8-16
+    concurrent requests (the server queues beyond that), so the work runs on
+    ``BACKFILL_WORKERS`` threads, each with its own pooled HTTP session and database
+    connection, paced by one shared ``RateLimiter`` set below the documented ceiling.
+
+    Newest windows first. One ledger item per (token, window) is written in the same
+    transaction as its rows, so a stopped run resumes exactly where it left off and an
+    empty window is remembered rather than fetched again. Progress and per-request
+    timing go to ``meta.run_progress`` / ``meta.op_span``. Windows that could still
+    receive points (recent) are refetched every run. Raises at the end if any window
+    failed, after trying all of them."""
     counts = {PRICE_TABLE: 0}
+    workers = _env_int("MLB_POLYMARKET_WORKERS", BACKFILL_WORKERS)
+    limiter = RateLimiter(float(os.environ.get("MLB_POLYMARKET_MAX_RPS", BACKFILL_MAX_RPS)))
     with get_connection() as conn, track_run(conn, SOURCE, "backfill") as result:
+        run_id = result["run_id"]
         tokens = _daily_game_tokens(conn)
-        by_market: dict[str, list[dict]] = {}
-        for row in tokens:
-            by_market.setdefault(row["_market"], []).append(row)
-
-        total = 0
-        seen = 0
-        monitor = Monitor(run_id=result["run_id"])
+        ensure_table(
+            conn,
+            PRICE_TABLE,
+            ["clob_token_id", "_market", "_event", "ts", "price"],
+            index_column="clob_token_id",
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT item_key FROM meta.ingestion_item "
+                "WHERE source = %s AND dataset = %s AND status IN ('loaded', 'unavailable')",
+                (SOURCE, PRICE_DATASET),
+            )
+            done = {key for (key,) in cur.fetchall()}
+        batches, undated = _plan_batches(tokens, done, int(time.time()))
+        if undated:
+            record_items(
+                conn,
+                [
+                    _item(
+                        t,
+                        0,
+                        "unavailable",
+                        run_id,
+                        error="market has no start date, so no window can be requested",
+                    )
+                    for t in undated
+                ],
+            )
+            conn.commit()
+        logger.info(
+            "polymarket backfill: %d tokens, %d requests planned, %d workers, up to %.0f/s",
+            len(tokens),
+            len(batches),
+            workers,
+            limiter.rate,
+        )
+        monitor = Monitor(run_id=run_id)
+        total = failed = finished = 0
         try:
-            for _market_id, rows in by_market.items():
-                for row in rows:
-                    seen += 1
-                    monitor.progress(done=seen, planned=len(tokens), requests=seen)
-                    history = fetch_price_history(
-                        row["clob_token_id"], row["start_ts"], row["end_ts"]
-                    )
-                    if not history:
-                        continue
-                    df = pd.DataFrame(
-                        [
-                            {
-                                "clob_token_id": row["clob_token_id"],
-                                "_market": row["_market"],
-                                "_event": row["_event"],
-                                "ts": point["t"],
-                                "price": point["p"],
-                            }
-                            for point in history
-                        ]
-                    )
-                    total += load_dataframe(
-                        conn,
-                        PRICE_TABLE,
-                        df,
-                        scope_column="clob_token_id",
-                        scope_value=row["clob_token_id"],
-                    )
-                    time.sleep(BACKFILL_SLEEP_SECONDS)
-                conn.commit()
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [
+                    pool.submit(_backfill_batch, cell, group, run_id, limiter, monitor)
+                    for cell, group in batches
+                ]
+                try:
+                    for future in as_completed(futures):
+                        rows, bad = future.result()
+                        total, failed, finished = total + rows, failed + bad, finished + 1
+                        monitor.progress(done=finished, planned=len(batches), requests=finished)
+                except BaseException:
+                    for future in futures:
+                        future.cancel()
+                    raise
         finally:
             monitor.finish()
             monitor.close()
-
+            _close_thread_connections()
         counts[PRICE_TABLE] = total
         result["rows"] = total
+        if failed:
+            raise RuntimeError(
+                f"{failed} Polymarket token windows failed (recorded as failed in "
+                "meta.ingestion_item); rerun the backfill to retry them"
+            )
     return counts
+
+
+def _close_thread_connections() -> None:
+    with _open_connections_lock:
+        for conn in _open_connections:
+            if not conn.closed:
+                conn.close()
+        _open_connections.clear()
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except ValueError:
+        return default
 
 
 def health_check() -> list[Check]:

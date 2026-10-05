@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from mlb_baseball.connectors import polymarket
 
 
@@ -130,26 +132,101 @@ class FakeResponse:
         return self._payload
 
 
-def test_fetch_price_history_returns_points():
-    def fake_get(url, params=None, timeout=None):
-        assert url == f"{polymarket.CLOB_BASE_URL}/prices-history"
-        assert params == {"market": "tok-1", "interval": "max"}
-        return FakeResponse({"history": [{"t": 1, "p": 0.5}, {"t": 2, "p": 0.6}]})
+def test_fetch_batch_history_posts_one_request_and_returns_points_by_token():
+    sent = []
 
-    with patch.object(polymarket.requests, "get", side_effect=fake_get):
-        history = polymarket.fetch_price_history("tok-1")
+    def fake_post(url, body):
+        sent.append((url, body))
+        return {"history": {"tok-1": [{"t": 1, "p": 0.5}], "tok-2": []}}
 
-    assert history == [{"t": 1, "p": 0.5}, {"t": 2, "p": 0.6}]
+    with patch.object(polymarket, "_clob_post", side_effect=fake_post):
+        history = polymarket.fetch_batch_history(["tok-1", "tok-2"], 100, 200)
+
+    assert sent == [
+        (
+            f"{polymarket.CLOB_BASE_URL}/batch-prices-history",
+            {"markets": ["tok-1", "tok-2"], "start_ts": 100, "end_ts": 200},
+        )
+    ]
+    assert history == {"tok-1": [{"t": 1, "p": 0.5}], "tok-2": []}
 
 
-def test_fetch_price_history_handles_empty_history_without_erroring():
-    # Confirmed directly against the real CLOB API: a token with no
-    # matching/tradeable market returns {"history": []} with a normal 200,
-    # not a 404 — this must not be treated as an error.
-    def fake_get(url, params=None, timeout=None):
-        return FakeResponse({"history": []})
+def test_fetch_batch_history_refuses_more_tokens_than_the_api_accepts():
+    too_many = [f"t{i}" for i in range(polymarket.BATCH_SIZE + 1)]
+    with pytest.raises(ValueError, match="at most"):
+        polymarket.fetch_batch_history(too_many, 0, 1)
 
-    with patch.object(polymarket.requests, "get", side_effect=fake_get):
-        history = polymarket.fetch_price_history("tok-does-not-exist")
 
-    assert history == []
+def test_fetch_batch_history_slows_the_shared_limiter_on_429_then_retries():
+    import requests
+
+    from mlb_baseball.net import RateLimiter
+
+    limiter = RateLimiter(50.0)
+    calls = {"n": 0}
+
+    def fake_post(url, body):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            reply = requests.Response()
+            reply.status_code = 429
+            reply.headers["Retry-After"] = "0"
+            raise requests.exceptions.HTTPError(response=reply)
+        return {"history": {}}
+
+    with patch.object(polymarket, "_clob_post", side_effect=fake_post):
+        with patch.object(polymarket, "BACKFILL_RETRY_BACKOFF_SECONDS", 0):
+            assert polymarket.fetch_batch_history(["t"], 0, 1, limiter) == {}
+
+    assert calls["n"] == 2
+    assert limiter.rate < 50.0
+
+
+def test_plan_batches_groups_tokens_by_window_newest_first_and_skips_done():
+    window = polymarket.HISTORY_WINDOW_SECONDS
+    now = 100 * window
+    old, new = 10 * window + 5, 98 * window + 5
+    tokens = [
+        {
+            "clob_token_id": f"a{i}",
+            "_market": "m",
+            "_event": "e",
+            "start_ts": old,
+            "end_ts": old + 60,
+        }
+        for i in range(25)
+    ] + [
+        {"clob_token_id": "b", "_market": "m", "_event": "e", "start_ts": new, "end_ts": None},
+        {"clob_token_id": "x", "_market": "m", "_event": "e", "start_ts": None, "end_ts": None},
+    ]
+    done = {f"a0:{10 * window}"}
+
+    batches, undated = polymarket._plan_batches(tokens, done, now)
+
+    assert [t["clob_token_id"] for t in undated] == ["x"]
+    cells = [cell for cell, _ in batches]
+    assert cells == sorted(cells, reverse=True)  # newest window first
+    assert all(len(group) <= polymarket.BATCH_SIZE for _, group in batches)
+    old_ids = {t["clob_token_id"] for cell, g in batches if cell == 10 * window for t in g}
+    assert "a0" not in old_ids and len(old_ids) == 24  # the ledgered one is skipped
+    # an open market's windows from its start up to now: 98, 99 and 100
+    assert [c // window for c, g in batches if any(t["clob_token_id"] == "b" for t in g)] == [
+        100,
+        99,
+        98,
+    ]
+
+
+def test_plan_batches_refetches_a_window_that_is_still_recent_even_if_ledgered():
+    window = polymarket.HISTORY_WINDOW_SECONDS
+    now = 100 * window + 100
+    token = {
+        "clob_token_id": "b",
+        "_market": "m",
+        "_event": "e",
+        "start_ts": now - 60,
+        "end_ts": None,
+    }
+    cell = (now - 60) // window * window
+    batches, _ = polymarket._plan_batches([token], {f"b:{cell}"}, now)
+    assert [c for c, _ in batches] == [cell]

@@ -81,7 +81,7 @@ part ships.)
 - **WHEN** an analyst retrieves features from a feature set with no database server configured or running
 - **THEN** the retrieval succeeds and returns the point-in-time-correct rows
 
-### Requirement: The public distribution includes one reference baseline model
+### Requirement: The public distribution includes one reference baseline model and its model card
 
 The public distribution SHALL include exactly one reference baseline
 prediction model (Elo with a home-field and probable-starter adjustment),

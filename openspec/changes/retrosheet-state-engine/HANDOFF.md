@@ -1,4 +1,4 @@
-# Handoff — `chadwickpy` is published; next is `retrosheetpy` (2026-10-05, end of sixteenth session)
+# Handoff — `retrosheetpy` build in progress (2026-10-05, end of sixteenth session; see RETROSHEETPY-DESIGN.md)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start." Then read
 `RETROSHEETPY-PLAN.md` in this folder (owner APPROVED it on 2026-10-05, all five decisions as recommended: GPL-3.0-or-later, legacy parser/validation stay in mlb-baseball, cache `~/.retrosheetpy`, 0.1.0 = seasons 1910+, separate docs site per repo).
@@ -26,6 +26,11 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 - PR #282 merged earlier. `packages/retrosheetpy/` (the port + legacy client/parser) is **still there** and the CI job `retrosheetpy (parity with Chadwick)` still runs it.
 - OpenSpec change `retrosheet-state-engine` is merged but **not archived**. Do `/opsx:archive` after the packages have moved out; record the move.
 - A PR on branch `docs/retrosheetpy-plan` adds `RETROSHEETPY-PLAN.md` and this file (docs only). Merging in this repo needs the owner's explicit say-so (project rule).
+
+## retrosheetpy progress (repo `cbwinslow/retrosheetpy`, local clone `~/workspace/retrosheetpy-build`)
+- Done: scaffold + protections (same as chadwickpy; `pypi`/`testpypi` environments need owner approval), PR #1 downloader moved (merged), PR #5 hardening (zip caps, https-only, stricter ruff) opened.
+- Owner decisions this session: do NOT point users to pyretrosheet/pychadwick in docs (facts-only comparison at most); support rows/CSV/SQLite/pandas in 0.1, Parquet + generic DB loader in 0.2; keep scope "season in, verified tables out". See RETROSHEETPY-DESIGN.md "Review additions".
+- Next: cache.py + season.py + get/seasons/cache commands, then tables.py adapter (only module importing chadwickpy), export, CLI, docs site, review, 0.1.0. Still to verify before release: Retrosheet's automated-download terms.
 
 ## Next steps (in order)
 1. (Done) Owner approved the plan and the 5 decisions.

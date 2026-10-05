@@ -102,6 +102,9 @@ from mlb_baseball.opsmon import Monitor
 
 SOURCE = "polymarket"
 SNAPSHOT_MAX_GAP_MINUTES = 30  # twice the 15-minute capture interval
+BACKFILL_SOURCE = "polymarket_backfill"  # own run-ledger/lock name: a multi-hour history backfill
+# must not block the nightly `update` (same source lock) or conform/predict (workflow lock);
+# it only replaces windows of its own raw table, one transaction at a time.
 SNAPSHOT_SOURCE = "polymarket_snapshot"  # run-ledger/lock name for snapshot()
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 BASE_URL = "https://gamma-api.polymarket.com"
@@ -526,7 +529,10 @@ def backfill_history() -> dict[str, int]:
     counts = {PRICE_TABLE: 0}
     workers = _env_int("MLB_POLYMARKET_WORKERS", BACKFILL_WORKERS)
     limiter = RateLimiter(float(os.environ.get("MLB_POLYMARKET_MAX_RPS", BACKFILL_MAX_RPS)))
-    with get_connection() as conn, track_run(conn, SOURCE, "backfill") as result:
+    with (
+        get_connection() as conn,
+        track_run(conn, BACKFILL_SOURCE, "backfill", workflow=None) as result,
+    ):
         run_id = result["run_id"]
         tokens = _daily_game_tokens(conn)
         ensure_table(

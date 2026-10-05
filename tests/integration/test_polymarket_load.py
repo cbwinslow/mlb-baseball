@@ -607,10 +607,40 @@ def test_backfill_reports_progress_and_timing_to_the_monitor(db_conn, _ledger_cl
         cur.execute(
             "SELECT items_planned, items_done FROM meta.ingestion_run "
             "WHERE source = %s AND mode = 'backfill' ORDER BY id DESC LIMIT 1",
-            (polymarket.SOURCE,),
+            (polymarket.BACKFILL_SOURCE,),
         )
         assert cur.fetchone() == (1, 1)
         cur.execute("SELECT count(*) FROM meta.op_span WHERE op = 'polymarket.batch'")
         assert cur.fetchone()[0] >= 1
         cur.execute("DELETE FROM meta.op_span WHERE op = 'polymarket.batch'")
     db_conn.commit()
+
+
+def test_backfill_does_not_hold_the_workflow_lock_or_the_update_source_lock(db_conn, _ledger_clean):
+    """A multi-hour backfill blocked the 2026-10-05 06:00 nightly (conform needs the exclusive
+    workflow lock; update needs the source lock). It must hold neither."""
+    from mlb_baseball.ingest import track_run
+
+    _bootstrap_with(
+        [
+            _event(
+                "1",
+                closed=True,
+                sport="mlb",
+                startdate="2025-04-02T08:02:33Z",
+                closedtime="2025-04-02 21:25:34+00",
+            )
+        ]
+    )
+    seen = {}
+
+    class Probe(FakeClob):
+        def __call__(self, url, body):
+            # mid-backfill, an exclusive stage and the update's source lock must be free
+            with track_run(db_conn, polymarket.SOURCE, "update", workflow="exclusive") as result:
+                result["rows"] = 0
+                seen["ok"] = True
+            return super().__call__(url, body)
+
+    _run_backfill(Probe({}))
+    assert seen == {"ok": True}

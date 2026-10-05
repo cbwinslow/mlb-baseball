@@ -4,7 +4,7 @@ Defines how durable project direction, subsystem contracts, bounded work, and
 machine-verifiable completion relate so that architectural reviews become
 actionable repository state instead of parallel documentation.
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: The project has one constitutional North Star and invariant owner
 

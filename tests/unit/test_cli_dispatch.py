@@ -150,6 +150,34 @@ def test_ingest_mode_backfill_on_a_connector_without_it_exits_cleanly(monkeypatc
     assert "has no backfill_history()" in capsys.readouterr().out
 
 
+def test_ingest_mode_snapshot_calls_snapshot(monkeypatch, capsys):
+    connector = _fake_connector()
+    connector.snapshot.return_value = {"raw.fake_snapshot": 4}
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
+
+    cli.main(["ingest", "fake", "--mode", "snapshot"])
+
+    connector.snapshot.assert_called_once()
+    connector.bootstrap.assert_not_called()
+    connector.update.assert_not_called()
+    assert "raw.fake_snapshot: 4 loaded" in capsys.readouterr().out
+
+
+def test_ingest_mode_snapshot_on_a_connector_without_it_exits_cleanly(monkeypatch, capsys):
+    connector = _fake_connector()
+    del connector.snapshot  # MagicMock would otherwise auto-create one
+    monkeypatch.setattr(cli, "CONNECTORS", {"fake": connector})
+
+    try:
+        cli.main(["ingest", "fake", "--mode", "snapshot"])
+    except SystemExit as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("expected SystemExit(1) — no snapshot() to run")
+
+    assert "has no snapshot()" in capsys.readouterr().out
+
+
 def test_migrate_command_calls_migrate_main(monkeypatch):
     calls = []
     monkeypatch.setattr(cli.migrate, "main", lambda skip=None: calls.append(skip))
@@ -1800,3 +1828,11 @@ def test_ingest_prints_total_not_counted_when_a_count_times_out(monkeypatch, cap
     out = capsys.readouterr().out
     assert "raw.fake_box: 17418 loaded, total not counted" in out
     assert "raw.fake_other: 5 loaded, 5 in table" in out
+
+
+def test_odds_capture_command_runs_the_capture(monkeypatch, capsys):
+    monkeypatch.setattr(cli.odds_capture, "run", lambda: {"raw.fake_snapshot": 3})
+
+    cli.main(["odds-capture"])
+
+    assert "raw.fake_snapshot: 3 rows" in capsys.readouterr().out

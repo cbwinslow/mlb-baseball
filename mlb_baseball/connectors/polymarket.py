@@ -79,16 +79,20 @@ from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
     Check,
+    check_backfill_state,
     check_last_run,
     check_recent_run,
+    check_snapshot_gaps,
     check_table_exists,
     check_table_has_rows,
 )
 from mlb_baseball.ingest import track_run
-from mlb_baseball.load import append_dataframe, load_dataframe
+from mlb_baseball.load import append_dataframe, load_dataframe, upsert_dataframe
 from mlb_baseball.net import call_with_retry
 
 SOURCE = "polymarket"
+SNAPSHOT_MAX_GAP_MINUTES = 30  # twice the 15-minute capture interval
+SNAPSHOT_SOURCE = "polymarket_snapshot"  # run-ledger/lock name for snapshot()
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 BASE_URL = "https://gamma-api.polymarket.com"
 CLOB_BASE_URL = "https://clob.polymarket.com"  # prices-history only, confirmed unauthenticated
@@ -104,6 +108,9 @@ EVENT_TABLE = "raw.polymarket_event"
 MARKET_TABLE = "raw.polymarket_market"
 OUTCOME_TABLE = "raw.polymarket_outcome"
 ALL_TABLES = [EVENT_TABLE, MARKET_TABLE, OUTCOME_TABLE]
+# Source key each catalog table is replaced by; rows for keys the source no
+# longer returns are kept (catalog history).
+_CATALOG_KEYS = {EVENT_TABLE: "id", MARKET_TABLE: "id", OUTCOME_TABLE: "market_id"}
 SNAPSHOT_TABLE = "raw.polymarket_snapshot"
 PRICE_TABLE = "raw.polymarket_price"
 
@@ -195,6 +202,42 @@ def _snapshot_rows(events: list[dict], captured_at: str) -> list[dict]:
 SNAPSHOT_COLUMNS = ["market_id", "outcome", "price", "clob_token_id", "captured_at"]
 
 
+def _append_snapshot(conn: psycopg.Connection, events: list[dict]) -> int:
+    """Forward snapshot (ADR-049): append-only, never replaced — every run's
+    open-market prices stay meaningful as a point-in-time observation. Always
+    calls append_dataframe, even with 0 rows on a day with no open markets, so
+    raw.polymarket_snapshot's own existence doesn't depend on the coincidence of
+    an open market at run time — same fix mlb_api.capture_live() already needed
+    for raw.mlb_live_game."""
+    captured_at = datetime.now(UTC).isoformat()
+    snapshot_df = pd.DataFrame(_snapshot_rows(events, captured_at), columns=SNAPSHOT_COLUMNS)
+    return append_dataframe(
+        conn,
+        SNAPSHOT_TABLE,
+        snapshot_df,
+        identity_columns=("market_id", "outcome", "captured_at"),
+    )
+
+
+def snapshot() -> dict[str, int]:
+    """Price-only capture for the frequent odds-history job: reads open events
+    only and appends to raw.polymarket_snapshot, never touching the catalog
+    tables (the nightly update() owns those). Recorded under its own run-ledger
+    source so a capture tick never collides with the nightly polymarket run."""
+    with (
+        get_connection() as conn,
+        track_run(conn, SNAPSHOT_SOURCE, "snapshot", workflow=None) as result,
+    ):
+        all_events = fetch_events({"series_id": MLB_SERIES_ID, "closed": "false"}) + fetch_events(
+            {"tag_slug": MLB_TAG_SLUG, "closed": "false"}
+        )
+        events = list({event["id"]: event for event in all_events}.values())
+        counts = {SNAPSHOT_TABLE: _append_snapshot(conn, events)}
+        conn.commit()
+        result["rows"] = counts[SNAPSHOT_TABLE]
+    return counts
+
+
 def _run(mode: str) -> dict[str, int]:
     counts: dict[str, int] = dict.fromkeys(ALL_TABLES, 0)
     counts[SNAPSHOT_TABLE] = 0
@@ -212,23 +255,9 @@ def _run(mode: str) -> dict[str, int]:
         for table, df in tables.items():
             if df.empty:
                 continue
-            counts[table] = load_dataframe(conn, table, df)
+            counts[table] = upsert_dataframe(conn, table, df, key_column=_CATALOG_KEYS[table])
 
-        # Forward snapshot (ADR-049): append-only, never replaced — every
-        # run's open-market prices stay meaningful as a point-in-time
-        # observation, not just the latest one. Always calls
-        # append_dataframe, even with 0 rows on a day with no open markets,
-        # so raw.polymarket_snapshot's own existence doesn't depend on the
-        # coincidence of an open market at run time — same fix
-        # mlb_api.capture_live() already needed for raw.mlb_live_game.
-        captured_at = datetime.now(UTC).isoformat()
-        snapshot_df = pd.DataFrame(_snapshot_rows(events, captured_at), columns=SNAPSHOT_COLUMNS)
-        counts[SNAPSHOT_TABLE] = append_dataframe(
-            conn,
-            SNAPSHOT_TABLE,
-            snapshot_df,
-            identity_columns=("market_id", "outcome", "captured_at"),
-        )
+        counts[SNAPSHOT_TABLE] = _append_snapshot(conn, events)
 
         conn.commit()
         result["rows"] = sum(counts.values())
@@ -359,7 +388,10 @@ def health_check() -> list[Check]:
         # run at least once (an owner-triggered one-off, not bootstrap()/
         # update()) — 0 rows on a fresh DB isn't unhealthy for either.
         check_table_exists(SNAPSHOT_TABLE),
-        check_table_exists(PRICE_TABLE),
+        # Only exists after the owner-triggered backfill: "not run" is a state.
+        check_backfill_state(PRICE_TABLE),
+        # odds-history-capture: a price snapshot every 15 minutes on game days.
+        check_snapshot_gaps(SNAPSHOT_TABLE, max_gap_minutes=SNAPSHOT_MAX_GAP_MINUTES),
         check_last_run(SOURCE),
         # mode="update" -- the daily-cron-scheduled mode. Unscoped, a manual
         # backfill_history() run (mode="backfill") would mask a genuinely

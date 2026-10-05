@@ -69,6 +69,7 @@ from mlb_baseball import (
     migrate,
     model,
     nightly,
+    odds_capture,
     player,
     progress_table,
     readiness,
@@ -328,7 +329,7 @@ def main(argv: list[str] | None = None) -> None:
     ingest_parser = subparsers.add_parser("ingest")
     ingest_parser.add_argument("source", choices=sorted(CONNECTORS))
     ingest_parser.add_argument(
-        "--mode", choices=["bootstrap", "update", "backfill"], default="bootstrap"
+        "--mode", choices=["bootstrap", "update", "backfill", "snapshot"], default="bootstrap"
     )
     ingest_parser.add_argument(
         "--refresh",
@@ -367,6 +368,9 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     subparsers.add_parser("conform")
+    subparsers.add_parser(
+        "odds-capture", help="price-only Kalshi/Polymarket snapshot (cron, every 15 minutes)"
+    )
     subparsers.add_parser("report", help="rebuild documented gold research tables")
     subparsers.add_parser("features")
 
@@ -1572,6 +1576,14 @@ def main(argv: list[str] | None = None) -> None:
             fn = connector.bootstrap
         elif args.mode == "update":
             fn = connector.update
+        elif args.mode == "snapshot":
+            # Price-only odds capture for the frequent cron job; only the
+            # prediction-market connectors implement it (odds-history-capture).
+            snapshot = getattr(connector, "snapshot", None)
+            if snapshot is None:
+                print(f"{args.source} has no snapshot() to run")
+                sys.exit(1)
+            fn = cast(Callable[[], dict[str, int]], snapshot)
         else:
             # 'backfill' is an owner-triggered one-off historical load, not
             # part of the bootstrap()/update() contract every connector
@@ -1601,6 +1613,9 @@ def main(argv: list[str] | None = None) -> None:
         _run_all("bootstrap", profile, skip=args.skip)
     elif args.command == "update":
         _run_all("update", profile, skip=args.skip)
+    elif args.command == "odds-capture":
+        for table, count in odds_capture.run().items():
+            print(f"{table}: {count} rows")
     elif args.command == "conform":
         for table, count in conform.run().items():
             print(f"{table}: {count} rows")

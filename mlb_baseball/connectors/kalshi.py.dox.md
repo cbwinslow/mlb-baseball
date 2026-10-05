@@ -20,6 +20,7 @@ Public connector capabilities:
 
 - `bootstrap()`
 - `update()`
+- `snapshot()` — price-only capture of open markets (called by `mlb odds-capture` every 15 minutes; never touches the catalog; recorded as run mode `snapshot` under source `kalshi_snapshot`, without the workflow lock)
 - `backfill_history()`
 - `health_check()`
 
@@ -55,7 +56,7 @@ Public connector capabilities:
 ### Bootstrap/update
 
 - `bootstrap()` and `update()` currently perform the same full reload for catalog tables because one paginated pull can return open/closed/settled states and there is no useful per-season load boundary.
-- Series/event/market catalog tables use replace semantics.
+- Series/event/market catalog tables replace only the keys returned (`upsert_dataframe`); rows the source stops returning are kept and `_loaded_at` is their last-seen time (ADR-294). Never switch back to whole-table replace.
 - Each run appends current active-market observations to `raw.kalshi_snapshot` using the already-fetched market payload.
 - Snapshot identity is `(ticker, captured_at)` and is append-only because every observation time is meaningful.
 - Snapshot schema must exist even if no markets are active at a particular run.

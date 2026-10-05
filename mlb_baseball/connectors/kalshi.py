@@ -78,18 +78,22 @@ from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
     Check,
+    check_backfill_state,
     check_last_run,
     check_recent_run,
+    check_snapshot_gaps,
     check_table_exists,
     check_table_has_rows,
 )
 from mlb_baseball.ingest import track_run
-from mlb_baseball.load import append_dataframe, load_dataframe
+from mlb_baseball.load import append_dataframe, load_dataframe, upsert_dataframe
 from mlb_baseball.net import call_with_retry
 
 logger = logging.getLogger(__name__)
 
 SOURCE = "kalshi"
+SNAPSHOT_MAX_GAP_MINUTES = 30  # twice the 15-minute capture interval
+SNAPSHOT_SOURCE = "kalshi_snapshot"  # run-ledger/lock name for snapshot(); see snapshot()
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 # /markets accepts up to 1000 (confirmed directly); /events rejects anything
@@ -215,10 +219,9 @@ def fetch_events(series_ticker: str) -> list[dict]:
     return _paginate("/events", series_ticker, "events", EVENTS_PAGE_SIZE, {})
 
 
-def fetch_markets(series_ticker: str) -> list[dict]:
-    return _paginate(
-        "/markets", series_ticker, "markets", MARKETS_PAGE_SIZE, {"mve_filter": "exclude"}
-    )
+def fetch_markets(series_ticker: str, *, open_only: bool = False) -> list[dict]:
+    params = {"mve_filter": "exclude", **({"status": "open"} if open_only else {})}
+    return _paginate("/markets", series_ticker, "markets", MARKETS_PAGE_SIZE, params)
 
 
 _SNAPSHOT_FIELDS = [
@@ -254,13 +257,57 @@ def _snapshot_rows(markets: list[dict], captured_at: str) -> list[dict]:
 SNAPSHOT_COLUMNS = [*_SNAPSHOT_FIELDS, "captured_at"]
 
 
+def _append_snapshot(conn: psycopg.Connection, markets: list[dict]) -> int:
+    """Forward snapshot (ADR-049): append-only, never replaced — every run's
+    active-market prices stay meaningful as a point-in-time observation, not
+    just the latest one. Always calls append_dataframe, even with 0 rows on a
+    run with no active markets, so raw.kalshi_snapshot's own existence doesn't
+    depend on the coincidence of an active market at run time — same fix
+    mlb_api.capture_live() already needed for raw.mlb_live_game."""
+    captured_at = datetime.now(UTC).isoformat()
+    snapshot_df = pd.DataFrame(_snapshot_rows(markets, captured_at), columns=SNAPSHOT_COLUMNS)
+    count = append_dataframe(
+        conn, SNAPSHOT_TABLE, snapshot_df, identity_columns=("ticker", "captured_at")
+    )
+    conn.commit()
+    return count
+
+
+def snapshot() -> dict[str, int]:
+    """Price-only capture for the frequent odds-history job: reads open markets
+    only and appends to raw.kalshi_snapshot. It never touches the catalog tables
+    (series/event/market), which the nightly update() owns. Recorded under its
+    own run-ledger source so a capture tick never collides with the nightly
+    kalshi run's source lock."""
+    with (
+        get_connection() as conn,
+        track_run(conn, SNAPSHOT_SOURCE, "snapshot", workflow=None) as result,
+    ):
+        markets: list[dict] = []
+        failed: list[str] = []
+        series = fetch_series()
+        for s in series:
+            try:
+                markets.extend(fetch_markets(s["ticker"], open_only=True))
+            except Exception as exc:
+                logger.error("kalshi: %s snapshot failed (%s); continuing", s["ticker"], exc)
+                failed.append(s["ticker"])
+        if series and len(failed) == len(series):
+            raise RuntimeError(f"kalshi snapshot: every series failed ({', '.join(failed)})")
+        counts = {SNAPSHOT_TABLE: _append_snapshot(conn, markets)}
+        result["rows"] = counts[SNAPSHOT_TABLE]
+    return counts
+
+
 def _run(mode: str) -> dict[str, int]:
     counts: dict[str, int] = dict.fromkeys(ALL_TABLES, 0)
     counts[SNAPSHOT_TABLE] = 0
     with get_connection() as conn, track_run(conn, SOURCE, mode) as result:
         series = fetch_series()
         if series:
-            counts[SERIES_TABLE] = load_dataframe(conn, SERIES_TABLE, pd.DataFrame(series))
+            counts[SERIES_TABLE] = upsert_dataframe(
+                conn, SERIES_TABLE, pd.DataFrame(series), key_column="ticker"
+            )
             conn.commit()
 
         all_events: list[dict] = []
@@ -274,30 +321,17 @@ def _run(mode: str) -> dict[str, int]:
                 logger.error("kalshi: %s failed (%s); skipping, continuing bootstrap", ticker, exc)
 
         if all_events:
-            counts[EVENT_TABLE] = load_dataframe(conn, EVENT_TABLE, pd.DataFrame(all_events))
+            counts[EVENT_TABLE] = upsert_dataframe(
+                conn, EVENT_TABLE, pd.DataFrame(all_events), key_column="event_ticker"
+            )
             conn.commit()
         if all_markets:
-            counts[MARKET_TABLE] = load_dataframe(conn, MARKET_TABLE, pd.DataFrame(all_markets))
+            counts[MARKET_TABLE] = upsert_dataframe(
+                conn, MARKET_TABLE, pd.DataFrame(all_markets), key_column="ticker"
+            )
             conn.commit()
 
-        # Forward snapshot (ADR-049): append-only, never replaced — every
-        # run's active-market prices stay meaningful as a point-in-time
-        # observation, not just the latest one. Always calls
-        # append_dataframe, even with 0 rows on a run with no active
-        # markets, so raw.kalshi_snapshot's own existence doesn't depend on
-        # the coincidence of an active market at run time — same fix
-        # mlb_api.capture_live() already needed for raw.mlb_live_game.
-        captured_at = datetime.now(UTC).isoformat()
-        snapshot_df = pd.DataFrame(
-            _snapshot_rows(all_markets, captured_at), columns=SNAPSHOT_COLUMNS
-        )
-        counts[SNAPSHOT_TABLE] = append_dataframe(
-            conn,
-            SNAPSHOT_TABLE,
-            snapshot_df,
-            identity_columns=("ticker", "captured_at"),
-        )
-        conn.commit()
+        counts[SNAPSHOT_TABLE] = _append_snapshot(conn, all_markets)
 
         result["rows"] = sum(counts.values())
     return counts
@@ -430,7 +464,11 @@ def health_check() -> list[Check]:
         # at least once (an owner-triggered one-off) — 0 rows on a fresh DB
         # isn't unhealthy for either.
         check_table_exists(SNAPSHOT_TABLE),
-        check_table_exists(CANDLE_TABLE),
+        # Only exists after the owner-triggered backfill: "not run" is a state,
+        # not a missing-table defect.
+        check_backfill_state(CANDLE_TABLE),
+        # odds-history-capture: a price snapshot every 15 minutes on game days.
+        check_snapshot_gaps(SNAPSHOT_TABLE, max_gap_minutes=SNAPSHOT_MAX_GAP_MINUTES),
         check_last_run(SOURCE),
         # mode="update" -- the daily-cron-scheduled mode. Unscoped, a manual
         # backfill_history() run (mode="backfill") would mask a genuinely

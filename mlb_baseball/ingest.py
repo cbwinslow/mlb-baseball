@@ -173,7 +173,7 @@ def track_run(
     source: str,
     mode: str,
     *,
-    workflow: Literal["shared", "exclusive"] = "shared",
+    workflow: Literal["shared", "exclusive"] | None = "shared",
 ) -> Iterator[dict]:
     """Records a meta.ingestion_run row for the duration of a connector run.
 
@@ -187,10 +187,15 @@ def track_run(
     stay "running" forever. A real bug, found by hand (and cleaned up by hand)
     several times in this project's own development before this fix — see
     docs/DECISIONS.md ADR-022.
+
+    ``workflow=None`` skips the workflow lock entirely. Only for runs that append
+    to their own raw table and replace nothing (the odds-capture snapshots), so
+    they keep running while conform/predict hold the exclusive lock.
     """
     _acquire_source_lock(conn, source)
     try:
-        _acquire_workflow_lock(conn, workflow)
+        if workflow is not None:
+            _acquire_workflow_lock(conn, workflow)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO meta.ingestion_run (source, mode, status, pid, attempt) "
@@ -224,7 +229,8 @@ def track_run(
             conn.commit()
     finally:
         try:
-            _release_workflow_lock(conn, workflow)
+            if workflow is not None:
+                _release_workflow_lock(conn, workflow)
         finally:
             _release_source_lock(conn, source)
 

@@ -170,11 +170,10 @@ def test_health_check_reports_last_run(db_conn):
     # update() run (same fix as raw.mlb_live_game — see _run()'s own
     # comment), even though this run had no open markets to append.
     assert checks[polymarket.SNAPSHOT_TABLE].ok
-    # raw.polymarket_price only exists once backfill_history() has actually
-    # been run at least once (an owner-triggered one-off, not part of
-    # bootstrap()/update()) — correctly reported unhealthy here, not a
-    # false negative.
-    assert not checks[polymarket.PRICE_TABLE].ok
+    # The backfill table only exists after the owner-triggered backfill_history():
+    # not having run it is reported as a state, not a missing-table defect.
+    assert checks[polymarket.PRICE_TABLE].ok
+    assert "not run" in checks[polymarket.PRICE_TABLE].detail
 
 
 # --- Forward snapshots (ADR-047) ---------------------------------------
@@ -312,3 +311,110 @@ def test_backfill_history_skips_tokens_with_no_history(db_conn):
         counts = polymarket.backfill_history()
 
     assert counts[polymarket.PRICE_TABLE] == 0
+
+
+def test_event_absent_from_a_later_pull_is_kept(db_conn):
+    """Catalog history: an event the source stops returning is not deleted."""
+
+    def pull(events):
+        def fake_get(url, params=None, timeout=None):
+            if (
+                params.get("series_id") == polymarket.MLB_SERIES_ID
+                and params.get("closed") == "false"
+            ):
+                return FakeResponse(_page(events))
+            return _no_results_get(url, params, timeout)
+
+        with patch.object(polymarket.requests, "get", side_effect=fake_get):
+            polymarket.update()
+
+    pull([_event("1"), _event("2")])
+    pull([_event("1")])
+
+    with db_conn.cursor() as cur:
+        for table in (polymarket.EVENT_TABLE, polymarket.MARKET_TABLE):
+            cur.execute(f"SELECT count(*) FROM {table}")
+            assert cur.fetchone() == (2,), table
+        cur.execute(f"SELECT count(*) FROM {polymarket.OUTCOME_TABLE}")
+        assert cur.fetchone() == (4,)
+
+
+# --- Snapshot-only capture (odds-history-capture) --------------------------
+
+
+def _snapshot_patch(events, calls):
+    def fake_get(url, params=None, timeout=None):
+        calls.append(dict(params or {}))
+        if params.get("closed") == "false" or params.get("tag_slug"):
+            return FakeResponse(_page(events))
+        return _no_results_get(url, params, timeout)
+
+    return patch.object(polymarket.requests, "get", side_effect=fake_get)
+
+
+def test_snapshot_keeps_every_capture_with_its_own_time(db_conn):
+    event = _event("1")
+    with _snapshot_patch([event], []):
+        polymarket.snapshot()
+        event["markets"][0]["outcomePrices"] = '["0.7", "0.3"]'
+        polymarket.snapshot()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            f"SELECT price FROM {polymarket.SNAPSHOT_TABLE} "
+            "WHERE outcome = 'Yes' ORDER BY captured_at"
+        )
+        assert cur.fetchall() == [("0.5",), ("0.7",)]
+
+
+def test_snapshot_reads_only_open_markets_and_leaves_the_catalog_alone(db_conn):
+    calls = []
+    with _snapshot_patch([_event("1")], calls):
+        counts = polymarket.snapshot()
+
+    assert counts[polymarket.SNAPSHOT_TABLE] == 2  # Yes + No
+    assert not any(p.get("closed") == "true" for p in calls)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass(%s)", (polymarket.EVENT_TABLE,))
+        assert cur.fetchone() == (None,)
+
+
+def test_snapshot_with_no_open_markets_succeeds_and_creates_the_table(db_conn):
+    with _snapshot_patch([], []):
+        counts = polymarket.snapshot()
+
+    assert counts[polymarket.SNAPSHOT_TABLE] == 0
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT count(*) FROM {polymarket.SNAPSHOT_TABLE}")
+        assert cur.fetchone() == (0,)
+
+
+def test_backfill_history_resumes_after_an_interruption_without_duplicates(db_conn):
+    def fake_get(url, params=None, timeout=None):
+        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
+            return FakeResponse(_page([_event("1", n_markets=2, sport="mlb")]))
+        return _no_results_get(url, params, timeout)
+
+    with patch.object(polymarket.requests, "get", side_effect=fake_get):
+        polymarket.bootstrap()
+
+    def clob_get(fail_on):
+        def fake(url, params=None, timeout=None):
+            if fail_on and params["market"] == fail_on:
+                raise RuntimeError("source went away")
+            return FakeResponse({"history": [{"t": 100, "p": 0.4}]})
+
+        return fake
+
+    with patch.object(polymarket, "BACKFILL_SLEEP_SECONDS", 0):
+        with patch.object(polymarket.requests, "get", side_effect=clob_get("tok-1-1-a")):
+            with pytest.raises(RuntimeError):
+                polymarket.backfill_history()
+        with patch.object(polymarket.requests, "get", side_effect=clob_get(None)):
+            polymarket.backfill_history()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT clob_token_id, count(*) FROM {polymarket.PRICE_TABLE} GROUP BY 1")
+        rows = cur.fetchall()
+    assert len(rows) == 4  # 2 markets x 2 outcomes
+    assert all(n == 1 for _, n in rows)

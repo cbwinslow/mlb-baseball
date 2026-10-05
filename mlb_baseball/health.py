@@ -4,7 +4,7 @@ modules can import from here without creating an import cycle.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import psycopg
 
@@ -35,6 +35,78 @@ def check_table_has_rows(table: str) -> Check:
     if count == 0:
         return Check(table, False, "0 rows — never ingested?")
     return Check(table, True, f"{count} rows")
+
+
+def games_scheduled(conn: psycopg.Connection, today: date) -> bool:
+    """True when raw.mlb_schedule (refreshed every 5 minutes) lists a game from
+    yesterday to tomorrow. The one-day margin each side covers US evening games
+    that are already "tomorrow" in UTC and late games that end "yesterday".
+    Fails open (True) when the schedule table does not exist yet: not knowing is
+    a reason to capture, not to lose data."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        if fetch_one(cur)[0] is None:
+            return True
+        cur.execute(
+            "SELECT EXISTS (SELECT 1 FROM raw.mlb_schedule WHERE game_date BETWEEN %s AND %s)",
+            ((today - timedelta(days=1)).isoformat(), (today + timedelta(days=1)).isoformat()),
+        )
+        return bool(fetch_one(cur)[0])
+
+
+def check_backfill_state(table: str) -> Check:
+    """For a table that only exists after an owner-triggered one-off backfill: a
+    missing table means "not run yet", which is a state, not a defect. A table
+    that exists but is empty means the backfill ran and landed nothing."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(f"SELECT count(*) FROM {table}")  # noqa: S608
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(table, True, "backfill not run yet (owner-triggered)")
+            (count,) = fetch_one(cur)
+    if count == 0:
+        return Check(table, False, "backfill ran but the table is empty")
+    return Check(table, True, f"{count} rows")
+
+
+def check_snapshot_gaps(
+    table: str, *, max_gap_minutes: int, window_hours: int = 6, label: str | None = None
+) -> Check:
+    """Fails when, on a day with scheduled MLB games, the gap between consecutive
+    snapshots (counting the gap from the newest one to now) in the last
+    ``window_hours`` exceeds ``max_gap_minutes``, or no snapshot landed at all.
+    ``captured_at`` is stored as ISO text, so it is cast here."""
+    name = label or f"{table} capture gaps"
+    with get_connection() as conn:
+        if not games_scheduled(conn, datetime.now(UTC).date()):
+            return Check(name, True, "no games scheduled around today")
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    f"""
+                    WITH obs AS (
+                        SELECT DISTINCT captured_at::timestamptz AS t FROM {table}
+                        WHERE captured_at::timestamptz >= now() - make_interval(hours => %s)
+                    ), pts AS (SELECT t FROM obs UNION SELECT now()),
+                    gaps AS (SELECT t - lag(t) OVER (ORDER BY t) AS gap FROM pts)
+                    SELECT (SELECT count(*) FROM obs),
+                           max(EXTRACT(EPOCH FROM gap)) / 60 FROM gaps
+                    """,  # noqa: S608
+                    (window_hours,),
+                )
+            except psycopg.errors.UndefinedTable:
+                conn.rollback()
+                return Check(name, False, "table does not exist — capture never ran?")
+            count, worst = fetch_one(cur)
+    if count == 0:
+        return Check(name, False, f"no snapshots in the last {window_hours} h on a game day")
+    if worst is not None and worst > max_gap_minutes:
+        return Check(
+            name, False, f"largest gap {round(float(worst))} min exceeds {max_gap_minutes} min"
+        )
+    return Check(name, True, f"{count} snapshots, largest gap {round(float(worst or 0))} min")
 
 
 def check_table_populated(table: str) -> Check:

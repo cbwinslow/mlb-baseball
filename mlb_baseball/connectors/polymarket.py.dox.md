@@ -20,6 +20,7 @@ Public connector capabilities:
 
 - `bootstrap()`
 - `update()`
+- `snapshot()`
 - `backfill_history()`
 - `health_check()`
 
@@ -52,7 +53,8 @@ Public connector capabilities:
 ### Bootstrap/update
 
 - `bootstrap()` and `update()` currently perform the same full catalog reload because the API does not provide a reliable natural per-season event filter and total catalog volume is manageable.
-- Full catalog tables use replace semantics.
+- Catalog tables replace only the keys returned (`upsert_dataframe`; event `id`, market `id`, outcome `market_id`); rows the source stops returning are kept and `_loaded_at` is their last-seen time (ADR-294). Never switch back to whole-table replace.
+- `snapshot()` is the price-only capture (open events only, appends to `raw.polymarket_snapshot`) run by `mlb odds-capture` every 15 minutes; recorded as run mode `snapshot` under source `polymarket_snapshot`, without the workflow lock.
 - Every run also appends **current prices for open markets** into `raw.polymarket_snapshot` using the already-fetched event payload—no extra catalog request.
 - Snapshot identity is `(market_id, outcome, captured_at)` and observations are append-only because each timestamp remains meaningful.
 - The snapshot table should exist even on a run with zero open markets; do not make schema existence depend on current-market coincidence.

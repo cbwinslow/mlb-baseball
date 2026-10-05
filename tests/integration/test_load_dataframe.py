@@ -7,6 +7,7 @@ from mlb_baseball.load import (
     append_dataframe,
     load_dataframe,
     replace_dataframe_scopes,
+    upsert_dataframe,
 )
 
 
@@ -299,3 +300,25 @@ def test_append_dataframe_rejects_duplicate_or_undeclared_observation_identity(
             pd.DataFrame({"event_id": ["one"]}),
             identity_columns=("captured_at",),
         )
+
+
+def test_upsert_dataframe_keeps_absent_keys_and_replaces_returned_ones(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_upsert")
+    upsert_dataframe(
+        db_conn, table, pd.DataFrame({"k": ["a", "b"], "v": ["1", "1"]}), key_column="k"
+    )
+    upsert_dataframe(db_conn, table, pd.DataFrame({"k": ["a"], "v": ["2"]}), key_column="k")
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT k, v FROM {table} ORDER BY k")
+        assert cur.fetchall() == [("a", "2"), ("b", "1")]
+
+
+def test_upsert_dataframe_rejects_a_null_key_instead_of_piling_up_rows(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_upsert_null")
+    batch = pd.DataFrame({"k": ["a", None], "v": ["1", "1"]})
+
+    with pytest.raises(ValueError, match="null"):
+        upsert_dataframe(db_conn, table, batch, key_column="k")
+    db_conn.rollback()

@@ -1675,6 +1675,28 @@ def _artifact_for_analytics_batch(
     return str(path.relative_to(path.parents[2])), str(entry["sha256"])
 
 
+def _analytics_document_rows(
+    dataset: str, status: str, payload: Any, game_pk: int, season: int
+) -> list[dict]:
+    """Typed raw rows for one saved per-game response (win probability or context)."""
+    if dataset == "win_probability":
+        return [{**row, "_season": str(season)} for row in _win_prob_rows(payload or [], game_pk)]
+    if status != "loaded":
+        return []
+    data = payload or {}
+    return [
+        {
+            "game_pk": game_pk,
+            "away_win_probability": data.get("awayWinProbability"),
+            "home_win_probability": data.get("homeWinProbability"),
+            "left_field_sac_fly_probability": data.get("leftFieldSacFlyProbability"),
+            "center_field_sac_fly_probability": data.get("centerFieldSacFlyProbability"),
+            "right_field_sac_fly_probability": data.get("rightFieldSacFlyProbability"),
+            "_season": str(season),
+        }
+    ]
+
+
 def _load_analytics_batch(
     conn: psycopg.Connection,
     season: int,
@@ -1701,33 +1723,10 @@ def _load_analytics_batch(
         for dataset, document in dict(result["documents"]).items():
             payload = document["payload"]
             status = str(document["status"])
-            rows: list[dict]
+            rows = _analytics_document_rows(dataset, status, payload, game_pk, season)
             if dataset == "win_probability":
-                rows = _win_prob_rows(payload or [], game_pk)
-                win_rows.extend({**row, "_season": str(season)} for row in rows)
+                win_rows.extend(rows)
             else:
-                data = payload or {}
-                rows = (
-                    [
-                        {
-                            "game_pk": game_pk,
-                            "away_win_probability": data.get("awayWinProbability"),
-                            "home_win_probability": data.get("homeWinProbability"),
-                            "left_field_sac_fly_probability": data.get(
-                                "leftFieldSacFlyProbability"
-                            ),
-                            "center_field_sac_fly_probability": data.get(
-                                "centerFieldSacFlyProbability"
-                            ),
-                            "right_field_sac_fly_probability": data.get(
-                                "rightFieldSacFlyProbability"
-                            ),
-                            "_season": str(season),
-                        }
-                    ]
-                    if status == "loaded"
-                    else []
-                )
                 context_rows.extend(rows)
             if status == "loaded":
                 loaded_scopes[dataset].append(str(game_pk))
@@ -2048,6 +2047,203 @@ def replay_analytics(
             conn.commit()
         result["rows"] = sum(totals.values())
     return totals
+
+
+def _analytics_ledger_keys(conn: psycopg.Connection) -> set[tuple[str, str]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT dataset, item_key FROM meta.ingestion_item
+            WHERE source = %s
+              AND dataset IN ('win_probability', 'context_metrics', 'linescore_schedule')
+            """,
+            (SOURCE,),
+        )
+        return {(str(dataset), str(key)) for dataset, key in cur.fetchall()}
+
+
+def _raw_game_counts(conn: psycopg.Connection, table: str, season: int) -> dict[int, int]:
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT game_pk::integer, count(*) FROM {table} WHERE _season = %s GROUP BY game_pk",
+            (str(season),),
+        )
+        return {int(game_pk): int(count) for game_pk, count in cur.fetchall()}
+
+
+def seed_analytics_ledger(
+    conn: psycopg.Connection, *, dry_run: bool = False, restore: bool = False
+) -> dict[str, Any]:
+    """Rebuild missing ledger rows from saved analytics files, without HTTP.
+
+    For a database whose raw analytics rows were loaded before responses were
+    saved (or on another machine), the saved files plus ``manifest.json`` are
+    the evidence.  Every file is checked against its recorded checksum first
+    (a mismatch aborts before anything is written).  A game is ledgered only
+    when the rows its saved response produces equal what raw already holds, so
+    the ledger never claims a load that raw does not contain.  Disagreements
+    are returned in ``mismatched`` and left un-ledgered.  Existing ledger rows
+    are kept.
+
+    With ``restore=True`` a game or season whose saved file holds MORE rows than
+    raw (raw is incomplete) is ledgered too, counted in ``restorable``, so that
+    ``replay_analytics`` can rewrite raw from the verified file.  Raw that holds
+    more rows than the file is never touched and stays in ``mismatched``.
+    """
+    saved = manifest.load_manifest(SOURCE)
+    existing = _analytics_ledger_keys(conn)
+    chosen: dict[tuple[str, str], tuple[str, dict]] = {}
+    conflicts: dict[tuple[str, str], dict[str, Any]] = {}
+    raw_cache: dict[int, tuple[dict[int, int], dict[int, int], int]] = {}
+
+    def raw_counts(season: int) -> tuple[dict[int, int], dict[int, int], int]:
+        if season not in raw_cache:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT count(*) FROM raw.mlb_linescore WHERE _season = %s", (str(season),)
+                )
+                (line_count,) = fetch_one(cur)
+            raw_cache[season] = (
+                _raw_game_counts(conn, "raw.mlb_win_prob", season),
+                _raw_game_counts(conn, "raw.mlb_game_context", season),
+                int(line_count),
+            )
+        return raw_cache[season]
+
+    def offer(key: tuple[str, str], name: str, entry: dict, item: dict) -> None:
+        current = chosen.get(key)
+        if current is None or str(entry.get("downloaded_at")) > str(
+            current[1].get("downloaded_at")
+        ):
+            chosen[key] = (name, entry, item)
+
+    files = 0
+    for name, entry in sorted(saved.items()):
+        parts = name.split("/")
+        if len(parts) != 3 or parts[0] != "analytics" or not parts[1].isdigit():
+            continue
+        season = int(parts[1])
+        win_raw, context_raw, linescore_raw = raw_counts(season)
+        content = _read_analytics_artifact(name, str(entry["sha256"]))
+        files += 1
+        if parts[2].startswith("linescore-schedule-"):
+            count = len(_season_linescore_df(json.loads(gzip.decompress(content)), season))
+            key = ("linescore_schedule", str(season))
+            if count != linescore_raw and not (restore and count > linescore_raw):
+                conflicts[key] = {
+                    "season": season,
+                    "dataset": key[0],
+                    "file": count,
+                    "raw": linescore_raw,
+                }
+                continue
+            offer(
+                key,
+                name,
+                entry,
+                {
+                    "source": SOURCE,
+                    "dataset": key[0],
+                    "item_key": key[1],
+                    "status": "loaded",
+                    "source_url": entry.get("url"),
+                    "artifact_path": name,
+                    "artifact_sha256": entry["sha256"],
+                    "bytes": entry.get("bytes"),
+                    "http_status": 200,
+                    "rows": count,
+                    "parser_version": ANALYTICS_PARSER_VERSION,
+                    "schema_fingerprint": manifest.schema_fingerprint(_LINESCORE_COLUMNS),
+                    "_raw_rows": linescore_raw,
+                },
+            )
+        elif parts[2].startswith("batch-"):
+            for result in _analytics_results_from_ndjson(content):
+                game_pk = int(result["game_pk"])
+                for dataset, document in dict(result["documents"]).items():
+                    status = str(document["status"])
+                    rows = _analytics_document_rows(
+                        dataset, status, document["payload"], game_pk, season
+                    )
+                    raw = (win_raw if dataset == "win_probability" else context_raw).get(game_pk, 0)
+                    key = (dataset, _analytics_item_key(season, game_pk))
+                    if len(rows) != raw and not (restore and len(rows) > raw):
+                        conflicts[key] = {
+                            "game_pk": game_pk,
+                            "dataset": dataset,
+                            "file": len(rows),
+                            "raw": raw,
+                        }
+                        continue
+                    payload = document["payload"]
+                    encoded = (
+                        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+                        if payload is not None
+                        else b""
+                    )
+                    offer(
+                        key,
+                        name,
+                        entry,
+                        {
+                            "source": SOURCE,
+                            "dataset": dataset,
+                            "item_key": key[1],
+                            "status": status,
+                            "source_url": document["url"],
+                            "artifact_path": name,
+                            "artifact_sha256": entry["sha256"],
+                            "bytes": len(encoded),
+                            "http_status": document["http_status"],
+                            "rows": len(rows),
+                            "parser_version": ANALYTICS_PARSER_VERSION,
+                            "schema_fingerprint": manifest.schema_fingerprint(
+                                list(rows[0]) if rows else ["game_pk"]
+                            ),
+                            "_raw_rows": raw,
+                        },
+                    )
+
+    restorable = len(
+        [
+            key
+            for key, (_, _, item) in chosen.items()
+            if key not in existing and item["rows"] != item["_raw_rows"]
+        ]
+    )
+    items = [
+        {name: value for name, value in item.items() if name != "_raw_rows"}
+        for key, (_, _, item) in sorted(chosen.items())
+        if key not in existing
+    ]
+    mismatched = [value for key, value in sorted(conflicts.items()) if key not in chosen]
+    if not dry_run:
+        for start in range(0, len(items), 5000):
+            record_items(conn, items[start : start + 5000])
+        conn.commit()
+    return {
+        "files": files,
+        "seeded": len(items),
+        "restorable": restorable,
+        "already_ledgered": len([key for key in chosen if key in existing]),
+        "mismatched": mismatched,
+        "dry_run": dry_run,
+    }
+
+
+def seed_ledger(*, dry_run: bool = False, restore: bool = False) -> dict[str, int]:
+    """Operator entry point (``--stage analytics-ledger[-preview]``)."""
+    with get_connection() as conn, track_run(conn, SOURCE, "backfill") as result:
+        report = seed_analytics_ledger(conn, dry_run=dry_run, restore=restore)
+        for entry in report["mismatched"][:20]:
+            logger.warning("analytics ledger seed: file and raw disagree: %s", entry)
+        result["rows"] = 0 if dry_run else report["seeded"]
+    return {
+        "meta.ingestion_item": 0 if dry_run else report["seeded"],
+        "preview_seedable": report["seeded"] if dry_run else 0,
+        "restorable": report["restorable"],
+        "mismatched": len(report["mismatched"]),
+    }
 
 
 def _load_game_detail_for_today(conn: psycopg.Connection) -> dict[str, int]:

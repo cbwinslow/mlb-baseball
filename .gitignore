@@ -50,3 +50,7 @@ transforms/logs/
 # docs/site-src/; `mkdocs build` writes here and pages.yml uploads it. Not
 # tracked -- regenerated on every deploy.
 /docs/site/
+
+# Kalshi API private key (never commit)
+.kalshi.txt
+*.pem

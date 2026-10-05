@@ -503,6 +503,14 @@ def _thread_connection() -> psycopg.Connection:
     conn = getattr(_thread_state, "conn", None)
     if conn is None or conn.closed:
         conn = _thread_state.conn = get_connection()
+        # Each window commits its rows and its ledger rows together, and a rerun redoes
+        # any window whose ledger row is missing, so a crash can lose a few commits but
+        # never leave rows without their ledger entry (same reasoning as
+        # db.apply_batch_session_settings). Waiting for the disk flush on every commit
+        # was a large part of the time per window with 12 workers committing at once.
+        with conn.cursor() as cur:
+            cur.execute("SET synchronous_commit = off")
+        conn.commit()
         with _open_connections_lock:
             _open_connections.append(conn)
     return conn

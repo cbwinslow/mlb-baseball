@@ -68,7 +68,7 @@
 - [ ] 9.6 Stale `~/.mlb/mlb.duckdb`: rebuild with `mlb build` after the backup gate (owner-run); verify the feat health check runs and passes, and the check's failure message names a stale schema
 - [ ] 9.7 Write an ADR for the validation gate (D10): which mechanism, how doctor lists withheld metrics; verify it is recorded in `docs/DECISIONS.md` before any gate code
 - [ ] 9.8 For each bound change (baserunning `wsb`, SIERA/xFIP, pitch-movement separation, platoon diff), record the new bound and its citation or data basis in the metric's YAML and change the check to read it; verify a test passes a valid value and fails an invalid one for each, and no bound was changed without a written reason
-- [ ] 9.9 Prediction-count checks: count distinct games (latest run per game) instead of rows, then explain the remaining 584-versus-538 Polymarket gap; verify the explanation is written in `results.md`
+- [x] 9.9 (code done in PR `fix/prediction-count-distinct`; gap explained in `results.md`, re-verify after the odds backfill and next conform) Prediction-count checks: count distinct games (latest run per game) instead of rows, then explain the remaining 584-versus-538 Polymarket gap; verify the explanation is written in `results.md`
 
 ## 8. Close-out
 

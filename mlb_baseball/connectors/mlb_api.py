@@ -2092,7 +2092,7 @@ def seed_analytics_ledger(
     """
     saved = manifest.load_manifest(SOURCE)
     existing = _analytics_ledger_keys(conn)
-    chosen: dict[tuple[str, str], tuple[str, dict]] = {}
+    chosen: dict[tuple[str, str], tuple[str, dict, dict]] = {}
     conflicts: dict[tuple[str, str], dict[str, Any]] = {}
     raw_cache: dict[int, tuple[dict[int, int], dict[int, int], int]] = {}
 

@@ -1,6 +1,6 @@
 ## 0. Foundations (no production writes)
 
-- [ ] 0.1 Record the owner's 2026-10-05 direction in `openspec/project.md` NOW/NEXT (full-source ingestion, pro first, no paid providers) and state that it must not delay `pipeline-recovery` close-out; verify `scripts/check_dox.py` passes
+- [x] 0.1 Record the owner's 2026-10-05 direction in `openspec/project.md` NOW/NEXT (full-source ingestion, pro first, no paid providers) and state that it must not delay `pipeline-recovery` close-out; verify `scripts/check_dox.py` passes
 - [ ] 0.2 Merge PR #310 (audit) and #311 (generated inventory); verify `docs/RAW_INVENTORY.md` regenerates identically with `mlb inventory --markdown`
 - [ ] 0.3 Verify the origin and terms of `mlb-statsapi-spec.json` (where MLB publishes it, licence text); record in `docs/SOURCE_RIGHTS.md`; only then copy it under `docs/sources/mlb_api/`; verify the file's header and URL are cited
 - [ ] 0.4 Read the full MLB Terms of Use and record exact wording on automated collection, rate, and retention in `docs/SOURCE_RIGHTS.md`; verify the owner signs off the `local_research` risk statement for the new phases

@@ -411,6 +411,11 @@ TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
   `pipeline-recovery`, `stable-ids-incremental-conform`,
   `model-readiness-audit`, metric-catalog, feature-store, and SQL-ownership
   work; it is not another implementation framework or release number.
+- **Full-source ingestion** (`openspec/changes/full-source-ingestion/`, owner
+  direction 2026-10-05): collect every lawful free pro data source, all
+  endpoints and columns, kept separate per source in `raw`; no paid providers;
+  minors and college last; working connectors are not disturbed. It runs
+  alongside `pipeline-recovery` close-out and must not delay it.
 - v1 finishing work: `openspec/specs/statistic-backbone/spec.md`.
   - Baseball-Reference tie-out gate ✅ — `scripts/verify_baseball_reference_tie_out.py`:
     Judge 2022 + Cole 2023 cited cases match to Baseball-Reference's 3-decimal

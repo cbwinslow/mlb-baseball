@@ -78,8 +78,10 @@ from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
     Check,
+    check_backfill_state,
     check_last_run,
     check_recent_run,
+    check_snapshot_gaps,
     check_table_exists,
     check_table_has_rows,
 )
@@ -90,6 +92,7 @@ from mlb_baseball.net import call_with_retry
 logger = logging.getLogger(__name__)
 
 SOURCE = "kalshi"
+SNAPSHOT_MAX_GAP_MINUTES = 30  # twice the 15-minute capture interval
 SNAPSHOT_SOURCE = "kalshi_snapshot"  # run-ledger/lock name for snapshot(); see snapshot()
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
@@ -276,7 +279,10 @@ def snapshot() -> dict[str, int]:
     (series/event/market), which the nightly update() owns. Recorded under its
     own run-ledger source so a capture tick never collides with the nightly
     kalshi run's source lock."""
-    with get_connection() as conn, track_run(conn, SNAPSHOT_SOURCE, "snapshot") as result:
+    with (
+        get_connection() as conn,
+        track_run(conn, SNAPSHOT_SOURCE, "snapshot", workflow=None) as result,
+    ):
         markets: list[dict] = []
         failed: list[str] = []
         series = fetch_series()
@@ -458,7 +464,11 @@ def health_check() -> list[Check]:
         # at least once (an owner-triggered one-off) — 0 rows on a fresh DB
         # isn't unhealthy for either.
         check_table_exists(SNAPSHOT_TABLE),
-        check_table_exists(CANDLE_TABLE),
+        # Only exists after the owner-triggered backfill: "not run" is a state,
+        # not a missing-table defect.
+        check_backfill_state(CANDLE_TABLE),
+        # odds-history-capture: a price snapshot every 15 minutes on game days.
+        check_snapshot_gaps(SNAPSHOT_TABLE, max_gap_minutes=SNAPSHOT_MAX_GAP_MINUTES),
         check_last_run(SOURCE),
         # mode="update" -- the daily-cron-scheduled mode. Unscoped, a manual
         # backfill_history() run (mode="backfill") would mask a genuinely

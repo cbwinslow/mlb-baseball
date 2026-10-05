@@ -296,3 +296,14 @@ def test_nightly_mode_is_admitted_and_attempt_must_be_positive(db_conn):
                 (source,),
             )
     db_conn.rollback()
+
+
+def test_a_run_without_the_workflow_lock_is_not_blocked_by_a_derived_stage(db_conn, monkeypatch):
+    """Append-only odds capture must keep running while conform/predict hold the
+    exclusive workflow lock (up to ~2 hours nightly), or it would leave a daily gap."""
+    monkeypatch.setattr(ingest_module, "WORKFLOW_LOCK_TIMEOUT_SECONDS", 0.3)
+    source = f"test_nolock_{uuid.uuid4().hex}"
+    with psycopg.connect(os.environ["DATABASE_URL"]) as second_conn:
+        with track_run(db_conn, "model", "features", workflow="exclusive"):
+            with track_run(second_conn, source, "snapshot", workflow=None) as result:
+                result["rows"] = 1

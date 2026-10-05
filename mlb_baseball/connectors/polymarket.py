@@ -79,8 +79,10 @@ from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
     Check,
+    check_backfill_state,
     check_last_run,
     check_recent_run,
+    check_snapshot_gaps,
     check_table_exists,
     check_table_has_rows,
 )
@@ -89,6 +91,7 @@ from mlb_baseball.load import append_dataframe, load_dataframe, upsert_dataframe
 from mlb_baseball.net import call_with_retry
 
 SOURCE = "polymarket"
+SNAPSHOT_MAX_GAP_MINUTES = 30  # twice the 15-minute capture interval
 SNAPSHOT_SOURCE = "polymarket_snapshot"  # run-ledger/lock name for snapshot()
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 BASE_URL = "https://gamma-api.polymarket.com"
@@ -221,7 +224,10 @@ def snapshot() -> dict[str, int]:
     only and appends to raw.polymarket_snapshot, never touching the catalog
     tables (the nightly update() owns those). Recorded under its own run-ledger
     source so a capture tick never collides with the nightly polymarket run."""
-    with get_connection() as conn, track_run(conn, SNAPSHOT_SOURCE, "snapshot") as result:
+    with (
+        get_connection() as conn,
+        track_run(conn, SNAPSHOT_SOURCE, "snapshot", workflow=None) as result,
+    ):
         all_events = fetch_events({"series_id": MLB_SERIES_ID, "closed": "false"}) + fetch_events(
             {"tag_slug": MLB_TAG_SLUG, "closed": "false"}
         )
@@ -382,7 +388,10 @@ def health_check() -> list[Check]:
         # run at least once (an owner-triggered one-off, not bootstrap()/
         # update()) — 0 rows on a fresh DB isn't unhealthy for either.
         check_table_exists(SNAPSHOT_TABLE),
-        check_table_exists(PRICE_TABLE),
+        # Only exists after the owner-triggered backfill: "not run" is a state.
+        check_backfill_state(PRICE_TABLE),
+        # odds-history-capture: a price snapshot every 15 minutes on game days.
+        check_snapshot_gaps(SNAPSHOT_TABLE, max_gap_minutes=SNAPSHOT_MAX_GAP_MINUTES),
         check_last_run(SOURCE),
         # mode="update" -- the daily-cron-scheduled mode. Unscoped, a manual
         # backfill_history() run (mode="backfill") would mask a genuinely

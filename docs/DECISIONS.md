@@ -2,6 +2,27 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-294: Odds history — frequent append-only snapshots, catalog rows are never deleted
+
+**Decision (2026-10-04).** Kalshi and Polymarket odds are captured by a separate
+price-only job (`mlb odds-capture`, cron every 15 minutes via
+`scripts/mlb_odds_capture.sh`, only when `raw.mlb_schedule` lists a game from
+yesterday to tomorrow) that appends to `raw.kalshi_snapshot` /
+`raw.polymarket_snapshot`. The nightly `update()` no longer replaces the catalog
+tables (series, event, market, outcome) whole: `upsert_dataframe` replaces only
+the keys the source returned, so rows the source drops stay, and `_loaded_at`
+reads as "last seen". Snapshot runs are recorded as mode `snapshot` under their
+own run-ledger source and skip the shared workflow lock (they only append).
+
+**Why.** Snapshots ran once a day inside the 2-hour nightly job, too coarse to
+plot a price moving toward first pitch. Whole-table replace made
+`raw.kalshi_market` lose 14,594 rows on 2026-10-03. Measured 2026-10-04: one
+capture is about 3,000 Kalshi + 5,300 Polymarket rows, so 5-minute capture
+(about 2.4M rows/day) was rejected for 15 minutes on game days.
+
+**Revisit if:** weekly volume review shows the 15-minute rows are too heavy
+(next step: capture only changed prices) or too coarse.
+
 ## ADR-293: Retrosheet pitch sequences repeat within a plate appearance — count each pitch once
 
 **Decision (2026-10-04).** `team_pitch_discipline_retrosheet_update.sql` drops an

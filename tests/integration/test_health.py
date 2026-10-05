@@ -1,6 +1,7 @@
 import uuid
 
 from mlb_baseball.health import (
+    check_backfill_state,
     check_grouped_no_duplicates,
     check_join_coverage,
     check_last_run,
@@ -9,6 +10,7 @@ from mlb_baseball.health import (
     check_no_rows,
     check_partition_coverage,
     check_recent_run,
+    check_snapshot_gaps,
     check_table_exists,
     check_table_has_rows,
     check_table_populated,
@@ -671,3 +673,105 @@ def test_check_recent_run_false_when_last_run_failed_even_if_recent(db_conn):
 
     assert not result.ok
     assert "failed" in result.detail
+
+
+def test_check_backfill_state_reports_not_run_instead_of_a_missing_table():
+    result = check_backfill_state("raw.test_health_never_backfilled")
+
+    assert result.ok
+    assert "not run" in result.detail
+
+
+def test_check_backfill_state_ok_with_rows_and_fails_when_empty(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_health_backfilled")
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {table} (id int)")
+    db_conn.commit()
+    assert not check_backfill_state(table).ok  # ran, but landed nothing
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"INSERT INTO {table} VALUES (1)")
+    db_conn.commit()
+    result = check_backfill_state(table)
+    assert result.ok
+    assert "1 rows" in result.detail
+
+
+def _games_today(db_conn, present=True):
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        cur.execute("CREATE TABLE raw.mlb_schedule (game_id text, game_date text)")
+        if present:
+            cur.execute(
+                "INSERT INTO raw.mlb_schedule VALUES ('1', (now() AT TIME ZONE 'UTC')::date::text)"
+            )
+    db_conn.commit()
+
+
+def _snapshots(db_conn, table, minutes_ago):
+    with db_conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {table} (ticker text, captured_at text)")
+        for m in minutes_ago:
+            cur.execute(
+                f"INSERT INTO {table} VALUES ('t', (now() - make_interval(mins => %s))::text)", (m,)
+            )
+    db_conn.commit()
+
+
+def test_check_snapshot_gaps_ok_when_captures_are_regular(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_health_snap_ok")
+    drop_tables_after("raw.mlb_schedule")
+    _games_today(db_conn)
+    _snapshots(db_conn, table, [2, 17, 32, 47, 62])
+
+    assert check_snapshot_gaps(table, max_gap_minutes=30, window_hours=2).ok
+
+
+def test_check_snapshot_gaps_fails_on_a_gap_longer_than_allowed(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_health_snap_gap")
+    drop_tables_after("raw.mlb_schedule")
+    _games_today(db_conn)
+    _snapshots(db_conn, table, [2, 17, 95, 110])
+
+    result = check_snapshot_gaps(table, max_gap_minutes=30, window_hours=2)
+
+    assert not result.ok
+    assert "78" in result.detail  # the 17 -> 95 minute gap
+
+
+def test_check_snapshot_gaps_fails_when_the_latest_capture_is_stale(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_health_snap_stale")
+    drop_tables_after("raw.mlb_schedule")
+    _games_today(db_conn)
+    _snapshots(db_conn, table, [100, 115])
+
+    assert not check_snapshot_gaps(table, max_gap_minutes=30, window_hours=2).ok
+
+
+def test_check_snapshot_gaps_fails_with_no_captures_on_a_game_day(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_health_snap_none")
+    drop_tables_after("raw.mlb_schedule")
+    _games_today(db_conn)
+    _snapshots(db_conn, table, [])
+
+    assert not check_snapshot_gaps(table, max_gap_minutes=30, window_hours=2).ok
+
+
+def test_check_snapshot_gaps_ok_when_no_games_are_scheduled(db_conn, drop_tables_after):
+    table = drop_tables_after("raw.test_health_snap_off")
+    drop_tables_after("raw.mlb_schedule")
+    with db_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS raw.mlb_schedule")
+        cur.execute("CREATE TABLE raw.mlb_schedule (game_id text, game_date text)")
+        cur.execute("INSERT INTO raw.mlb_schedule VALUES ('1', '1999-01-01')")
+    db_conn.commit()
+    _snapshots(db_conn, table, [])
+
+    result = check_snapshot_gaps(table, max_gap_minutes=30, window_hours=2)
+
+    assert result.ok
+    assert "no games" in result.detail
+
+
+def test_check_snapshot_gaps_false_when_table_missing():
+    assert not check_snapshot_gaps("raw.test_health_snap_missing", max_gap_minutes=30).ok

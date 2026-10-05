@@ -170,11 +170,10 @@ def test_health_check_reports_last_run(db_conn):
     # update() run (same fix as raw.mlb_live_game — see _run()'s own
     # comment), even though this run had no open markets to append.
     assert checks[polymarket.SNAPSHOT_TABLE].ok
-    # raw.polymarket_price only exists once backfill_history() has actually
-    # been run at least once (an owner-triggered one-off, not part of
-    # bootstrap()/update()) — correctly reported unhealthy here, not a
-    # false negative.
-    assert not checks[polymarket.PRICE_TABLE].ok
+    # The backfill table only exists after the owner-triggered backfill_history():
+    # not having run it is reported as a state, not a missing-table defect.
+    assert checks[polymarket.PRICE_TABLE].ok
+    assert "not run" in checks[polymarket.PRICE_TABLE].detail
 
 
 # --- Forward snapshots (ADR-047) ---------------------------------------
@@ -388,3 +387,34 @@ def test_snapshot_with_no_open_markets_succeeds_and_creates_the_table(db_conn):
     with db_conn.cursor() as cur:
         cur.execute(f"SELECT count(*) FROM {polymarket.SNAPSHOT_TABLE}")
         assert cur.fetchone() == (0,)
+
+
+def test_backfill_history_resumes_after_an_interruption_without_duplicates(db_conn):
+    def fake_get(url, params=None, timeout=None):
+        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
+            return FakeResponse(_page([_event("1", n_markets=2, sport="mlb")]))
+        return _no_results_get(url, params, timeout)
+
+    with patch.object(polymarket.requests, "get", side_effect=fake_get):
+        polymarket.bootstrap()
+
+    def clob_get(fail_on):
+        def fake(url, params=None, timeout=None):
+            if fail_on and params["market"] == fail_on:
+                raise RuntimeError("source went away")
+            return FakeResponse({"history": [{"t": 100, "p": 0.4}]})
+
+        return fake
+
+    with patch.object(polymarket, "BACKFILL_SLEEP_SECONDS", 0):
+        with patch.object(polymarket.requests, "get", side_effect=clob_get("tok-1-1-a")):
+            with pytest.raises(RuntimeError):
+                polymarket.backfill_history()
+        with patch.object(polymarket.requests, "get", side_effect=clob_get(None)):
+            polymarket.backfill_history()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT clob_token_id, count(*) FROM {polymarket.PRICE_TABLE} GROUP BY 1")
+        rows = cur.fetchall()
+    assert len(rows) == 4  # 2 markets x 2 outcomes
+    assert all(n == 1 for _, n in rows)

@@ -15,17 +15,17 @@
 
 - [x] 3.1 Write failing test: a market absent from the second pull is still in the table with unchanged `last_seen_at`; changed values update the row
 - [x] 3.2 Implement keep-and-stamp for the Kalshi and Polymarket catalog tables (no migration: key-scoped replace via `replace_dataframe_scopes`, `_loaded_at` is last-seen); verify 3.1 passes and `conform` tests still pass
-- [ ] 3.3 Update `.dox.md` files (replace semantics are gone) and `docs/DECISIONS.md` with a new ADR
+- [x] 3.3 Update `.dox.md` files (replace semantics are gone) and `docs/DECISIONS.md` with a new ADR
 
 ## 4. Backfill
 
-- [ ] 4.1 Run existing backfill tests; add failing tests for interrupted-resume and no-trade-candle-as-NULL if missing
+- [x] 4.1 Run existing backfill tests; add failing tests for interrupted-resume and no-trade-candle-as-NULL if missing
 - [ ] 4.2 Owner approval (plain words): run Polymarket backfill on production; log result in `pipeline-recovery/results.md`
 - [ ] 4.3 Owner approval: run Kalshi backfill on production; log result; verify row counts against source for 3 sample markets
 
 ## 5. Health and schedule
 
-- [ ] 5.1 Write failing tests then fix doctor: "backfill not run" state replaces missing-table failure; add snapshot-gap check
+- [x] 5.1 Write failing tests then fix doctor: "backfill not run" state replaces missing-table failure; add snapshot-gap check
 - [ ] 5.2 Owner approval: install the cron entry; verify snapshots land every interval for one day and the gap check passes
 - [ ] 5.3 After one week, review row volume and `meta.ingestion_run` noise; decide retention in a follow-up
 

@@ -4,31 +4,13 @@ are scheduled around today, so the off-season does not pile up identical
 futures prices; the nightly update() still keeps the catalogs current."""
 
 import logging
-from datetime import UTC, date, datetime, timedelta
-
-import psycopg
+from datetime import UTC, datetime
 
 from mlb_baseball.connectors import kalshi, polymarket
 from mlb_baseball.db import get_connection
+from mlb_baseball.health import games_scheduled
 
 logger = logging.getLogger(__name__)
-
-
-def games_scheduled(conn: psycopg.Connection, today: date) -> bool:
-    """True when raw.mlb_schedule (refreshed every 5 minutes) lists a game from
-    yesterday to tomorrow. The one-day margin each side covers US evening games
-    that are already "tomorrow" in UTC and late games that end "yesterday".
-    Fails open (True) when the schedule table does not exist yet: not knowing is
-    a reason to capture, not to lose data."""
-    with conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
-        if cur.fetchone()[0] is None:
-            return True
-        cur.execute(
-            "SELECT EXISTS (SELECT 1 FROM raw.mlb_schedule WHERE game_date BETWEEN %s AND %s)",
-            ((today - timedelta(days=1)).isoformat(), (today + timedelta(days=1)).isoformat()),
-        )
-        return bool(cur.fetchone()[0])
 
 
 def _games_scheduled_now() -> bool:

@@ -43,6 +43,7 @@ def _market(ticker, event_ticker, status="active", open_time=None, close_time=No
 @pytest.fixture(autouse=True)
 def _clean_tables(db_conn):
     yield
+    db_conn.rollback()  # a failed assertion can leave the connection mid-transaction
     with db_conn.cursor() as cur:
         for table in _CLEANUP_TABLES:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
@@ -166,11 +167,10 @@ def test_health_check_reports_last_run(db_conn, monkeypatch):
     # update() run (same fix as raw.mlb_live_game — see _run()'s own
     # comment).
     assert checks[kalshi.SNAPSHOT_TABLE].ok
-    # raw.kalshi_candle only exists once backfill_history() has actually
-    # been run at least once (an owner-triggered one-off, not part of
-    # bootstrap()/update()) — correctly reported unhealthy here, not a
-    # false negative.
-    assert not checks[kalshi.CANDLE_TABLE].ok
+    # The backfill table only exists after the owner-triggered backfill_history():
+    # not having run it is reported as a state, not a missing-table defect.
+    assert checks[kalshi.CANDLE_TABLE].ok
+    assert "not run" in checks[kalshi.CANDLE_TABLE].detail
 
 
 def test_fetch_events_uses_a_smaller_page_size_than_markets():
@@ -444,3 +444,58 @@ def test_snapshot_with_no_open_markets_succeeds_and_creates_the_table(db_conn, m
     with db_conn.cursor() as cur:
         cur.execute(f"SELECT count(*) FROM {kalshi.SNAPSHOT_TABLE}")
         assert cur.fetchone() == (0,)
+
+
+def test_backfill_history_resumes_after_an_interruption_without_duplicates(db_conn, monkeypatch):
+    times = {"open_time": "2026-07-01T00:00:00Z", "close_time": "2026-07-01T02:00:00Z"}
+    _fake_kalshi(
+        monkeypatch,
+        series=[_series("KXMLBGAME")],
+        events_by_series={"KXMLBGAME": [_event("KXMLBGAME-1", "KXMLBGAME")]},
+        markets_by_series={
+            "KXMLBGAME": [
+                _market("KXMLBGAME-1-A", "KXMLBGAME-1", **times),
+                _market("KXMLBGAME-1-B", "KXMLBGAME-1", **times),
+            ]
+        },
+    )
+    kalshi.bootstrap()
+    monkeypatch.setattr(kalshi, "BACKFILL_SLEEP_SECONDS", 0)
+
+    def candle_get(fail_on):
+        def fake_get(url, params=None, timeout=None):
+            if fail_on and fail_on in url:
+                raise RuntimeError("source went away")
+            return FakeResponse(
+                {
+                    "candlesticks": [
+                        {
+                            "end_period_ts": params["start_ts"] + 60,
+                            "open_interest_fp": "1.00",
+                            "price": {},  # no trade in this candle
+                            "volume_fp": "2.00",
+                            "yes_bid": {},
+                            "yes_ask": {},
+                        }
+                    ]
+                }
+            )
+
+        return fake_get
+
+    monkeypatch.setattr(kalshi.requests, "get", candle_get("KXMLBGAME-1-B"))
+    with pytest.raises(RuntimeError):
+        kalshi.backfill_history()
+    monkeypatch.setattr(kalshi.requests, "get", candle_get(None))
+    kalshi.backfill_history()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT ticker, count(*) FROM {kalshi.CANDLE_TABLE} GROUP BY ticker")
+        assert sorted(cur.fetchall()) == [("KXMLBGAME-1-A", 1), ("KXMLBGAME-1-B", 1)]
+        # a no-trade candle carries no price columns at all: missing, never zero
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'raw' AND table_name = 'kalshi_candle' "
+            "AND column_name LIKE '%dollars'"
+        )
+        assert cur.fetchall() == []

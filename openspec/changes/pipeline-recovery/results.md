@@ -170,3 +170,11 @@ Restored `daily/20261003_020001/pg16_mlb.dump` (checksum verified first) into `m
   rows come from price history, and the history backfill had not been run (odds-history-capture
   4.2, started 2026-10-05). **Re-check after the backfill and the next conform; if the 55
   remain, it is a conform defect and needs its own task.**
+
+## Production writes approved by the owner, 2026-10-05 (odds-history-capture 4.2, 4.3, 5.2)
+
+| step | command | target | run by | when | result |
+|---|---|---|---|---|---|
+| 4.2 / 4.3 | `mlb ingest polymarket --mode backfill`, then `mlb ingest kalshi --mode backfill` (one nohup chain, log `logs/odds_backfill.log`) | `mlb` | owner (`!`) | 2026-10-05 | started; result pending (check the log for `polymarket rc=` / `kalshi rc=`) |
+| 5.2 | cron `*/15 * * * * ~/workspace/mlb/scripts/mlb_odds_capture.sh` | host crontab | owner (`!`) | 2026-10-05 | installed (`crontab -l` shows it) |
+Backup in force: host job `validated_backup.sh` (nightly 02:00).

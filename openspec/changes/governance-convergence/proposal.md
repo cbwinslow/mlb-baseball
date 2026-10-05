@@ -44,11 +44,10 @@ where practical. This is consolidation, not a new parallel governance system.
   invariants through subsystem contracts, OpenSpec work, machine gates, and
   recorded evidence.
 
-### Modified Capabilities
-
-- `feature-store-boundary`: clarify that model-ready PIT features are DuckDB
-  `feat.*`; legacy/internal `gold.game_feature` does not redefine that
-  boundary.
+No existing capability is semantically redefined by this change. The
+feature-store documentation is reconciled to the already-adopted
+`feature-store-boundary` contract rather than creating another delta for the
+same rule.
 
 ## Impact
 

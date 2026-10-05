@@ -522,9 +522,11 @@ def _parse_kalshi_ts(value: str) -> int:
 
 
 def _candle_markets(conn: psycopg.Connection) -> list[dict]:
-    """Every landed market that has a start and an end, game-level series before player-prop
-    series (smaller series first, so the lines most useful for game models land first),
-    newest market first within a series."""
+    """Every landed market that has a start and an end, short-lived markets first (a game
+    line or a player prop lives about a day: a few requests; a season-long future lives
+    months: dozens of requests per market for little game-level value), newest first within
+    the same lifetime. The first production run ordered by series size instead and spent
+    its first minutes on season-long markets, at about 33 s per market."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -537,12 +539,12 @@ def _candle_markets(conn: psycopg.Connection) -> list[dict]:
     markets = [
         {"ticker": t, "open_time": o, "close_time": c, "settlement_ts": st} for t, o, c, st in rows
     ]
-    size: dict[str, int] = {}
     for market in markets:
-        series = market["ticker"].split("-")[0]
-        size[series] = size.get(series, 0) + 1
+        market["_lifetime"] = _parse_kalshi_ts(market["close_time"]) - _parse_kalshi_ts(
+            market["open_time"]
+        )
     markets.sort(key=lambda m: m["close_time"], reverse=True)
-    markets.sort(key=lambda m: size[m["ticker"].split("-")[0]])
+    markets.sort(key=lambda m: m["_lifetime"] // 86400)  # whole days alive, shortest first
     return markets
 
 

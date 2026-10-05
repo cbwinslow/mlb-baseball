@@ -612,3 +612,19 @@ def test_backfill_reports_progress_to_the_monitor(db_conn, monkeypatch, _candle_
         assert cur.fetchone() == (1, 1)
         cur.execute("DELETE FROM meta.op_span WHERE op = 'kalshi.candles'")
     db_conn.commit()
+
+
+def test_candle_backfill_takes_short_lived_markets_before_season_long_ones(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    day = {"open_time": "2026-07-01T00:00:00Z", "settlement_ts": "2026-07-01T02:05:00Z"}
+    _seed_markets(
+        monkeypatch,
+        [
+            _market("OLD-LONG-A", "OLD-LONG", close_time="2026-07-31T00:00:00Z", **day),  # 30 days
+            _market("OLD-SHORT-A", "OLD-SHORT", close_time="2026-07-01T05:00:00Z", **day),
+            _market("OLD-SHORT-B", "OLD-SHORT2", close_time="2026-07-02T05:00:00Z", **day),
+        ],
+    )
+    markets = kalshi._candle_markets(db_conn)
+    assert [m["ticker"] for m in markets] == ["OLD-SHORT-A", "OLD-SHORT-B", "OLD-LONG-A"]

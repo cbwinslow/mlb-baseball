@@ -1,6 +1,6 @@
 # Plan — `retrosheetpy` (the second package), 2026-10-05
 
-Status: DRAFT for owner review. Nothing is built yet. Repo `cbwinslow/retrosheetpy` exists, empty, public.
+Status: APPROVED by the owner on 2026-10-05 (all five decisions below accepted as recommended). Nothing is built yet. Repo `cbwinslow/retrosheetpy` exists, empty, public.
 PyPI name `retrosheetpy` was free on 2026-10-05. Owner decision: keep the name (another unrelated
 `retrosheetpy` exists on Codeberg; it is not on PyPI). Keep it as long as the name is fine on GitHub.
 
@@ -71,7 +71,7 @@ New package = download + cache + run tools + export. Smaller, easier to trust.
 7. Review pass (independent agent that also runs the code), TestPyPI is optional, then 0.1.0 to PyPI
    (owner approves the `pypi` environment).
 
-## Decisions I need from the owner
+## Decisions (owner accepted all five recommendations, 2026-10-05)
 
 1. Licence GPL-3.0-or-later for retrosheetpy too? (Recommended: yes.)
 2. Leave the legacy parser/validation modules in `mlb-baseball`? (Recommended: yes.)

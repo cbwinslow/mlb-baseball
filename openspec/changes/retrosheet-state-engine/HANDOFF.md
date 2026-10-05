@@ -1,7 +1,7 @@
 # Handoff — `chadwickpy` is published; next is `retrosheetpy` (2026-10-05, end of sixteenth session)
 
 Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start." Then read
-`RETROSHEETPY-PLAN.md` in this folder (the draft plan the owner has not yet answered).
+`RETROSHEETPY-PLAN.md` in this folder (owner APPROVED it on 2026-10-05, all five decisions as recommended: GPL-3.0-or-later, legacy parser/validation stay in mlb-baseball, cache `~/.retrosheetpy`, 0.1.0 = seasons 1910+, separate docs site per repo).
 
 ## Owner direction (keep following)
 - Plain, short replies. Lead with one plain sentence; options plus a recommendation; remind owner to clear context around ~200k.
@@ -28,7 +28,7 @@ Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start.
 - A PR on branch `docs/retrosheetpy-plan` adds `RETROSHEETPY-PLAN.md` and this file (docs only). Merging in this repo needs the owner's explicit say-so (project rule).
 
 ## Next steps (in order)
-1. Get the owner's answers to the 5 decisions in `RETROSHEETPY-PLAN.md` (all have recommendations).
+1. (Done) Owner approved the plan and the 5 decisions.
 2. Build `retrosheetpy` in `cbwinslow/retrosheetpy` (empty, public): copy the chadwickpy repo setup (pyproject/hatch-vcs, rulesets, workflows, docs theme, templates), move `client.py`/`catalog.py`/`artifact.py`/`errors.py` + tests, then get/cache/run-tools/export, docs, review pass, PyPI 0.1.0 (owner adds the PyPI pending publisher: project `retrosheetpy`, owner `cbwinslow`, repo `retrosheetpy`, workflow `release.yml`, environment `pypi`).
 3. Then in `mlb-baseball`: replace `packages/retrosheetpy` with the published dependency(ies), update the CI job and `packages/retrosheetpy/AGENTS.md`, archive the OpenSpec change.
 4. Later: profile and optimise `chadwickpy` (cheap local fixes first, parity sweep as safety net; optional mypyc wheel), custom domain.

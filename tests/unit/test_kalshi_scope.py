@@ -144,3 +144,67 @@ def test_flatten_candlestick_flattens_nested_price_fields():
     assert row["yes_bid_close_dollars"] == "0.40"
     assert row["yes_ask_close_dollars"] == "0.45"
     assert "price_close_dollars" not in row
+
+
+def _write_key(tmp_path):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    path = tmp_path / "kalshi.pem"
+    path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    return key.public_key(), str(path)
+
+
+def test_signed_headers_are_empty_without_credentials(monkeypatch):
+    monkeypatch.delenv("KALSHI_API_KEY", raising=False)
+    monkeypatch.delenv("KALSHI_PRIVATE_KEY_PATH", raising=False)
+    assert kalshi.signed_headers("GET", f"{kalshi.BASE_URL}/markets") == {}
+
+
+def test_signed_headers_carry_a_signature_kalshi_can_verify(monkeypatch, tmp_path):
+    import base64
+
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+
+    public_key, path = _write_key(tmp_path)
+    monkeypatch.setenv("KALSHI_API_KEY", "key-id-123")
+    monkeypatch.setenv("KALSHI_PRIVATE_KEY_PATH", path)
+    url = f"{kalshi.BASE_URL}/historical/markets?series_ticker=X&limit=5"
+
+    headers = kalshi.signed_headers("GET", url)
+
+    assert headers["KALSHI-ACCESS-KEY"] == "key-id-123"
+    message = f"{headers['KALSHI-ACCESS-TIMESTAMP']}GET/trade-api/v2/historical/markets".encode()
+    public_key.verify(  # raises if the signature does not match timestamp + method + path
+        base64.b64decode(headers["KALSHI-ACCESS-SIGNATURE"]),
+        message,
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+        hashes.SHA256(),
+    )
+
+
+def test_get_sends_the_signed_headers_only_when_configured(monkeypatch, tmp_path):
+    sent = []
+
+    def fake_get(url, params=None, timeout=None, **kwargs):
+        sent.append(kwargs.get("headers"))
+        return FakeResponse({})
+
+    monkeypatch.setattr(kalshi.requests, "get", fake_get)
+    monkeypatch.delenv("KALSHI_API_KEY", raising=False)
+    kalshi._get(f"{kalshi.BASE_URL}/series", {})
+    _, path = _write_key(tmp_path)
+    monkeypatch.setenv("KALSHI_API_KEY", "k")
+    monkeypatch.setenv("KALSHI_PRIVATE_KEY_PATH", path)
+    kalshi._get(f"{kalshi.BASE_URL}/series", {})
+
+    assert sent[0] is None
+    assert sent[1]["KALSHI-ACCESS-KEY"] == "k"

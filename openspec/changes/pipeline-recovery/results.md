@@ -178,3 +178,20 @@ Restored `daily/20261003_020001/pg16_mlb.dump` (checksum verified first) into `m
 | 4.2 / 4.3 | `mlb ingest polymarket --mode backfill`, then `mlb ingest kalshi --mode backfill` (one nohup chain, log `logs/odds_backfill.log`) | `mlb` | owner (`!`) | 2026-10-05 | started; result pending (check the log for `polymarket rc=` / `kalshi rc=`) |
 | 5.2 | cron `*/15 * * * * ~/workspace/mlb/scripts/mlb_odds_capture.sh` | host crontab | owner (`!`) | 2026-10-05 | installed (`crontab -l` shows it) |
 Backup in force: host job `validated_backup.sh` (nightly 02:00).
+
+## 9.5 ingestion ledger: finding, owner decision pending (2026-10-05)
+
+- Facts (read-only on `mlb`): `meta.ingestion_item` has 0 rows; raw analytics hold 164,362 games
+  (win_prob, game_context) and 77 seasons of linescores; no `downloads/mlb_api` artifacts exist.
+  1,192 finished games (seasons 1950-2012) have no analytics rows.
+- The ledger write path is wired and correct (`record_items` in `_load_linescores_for_season`,
+  `_load_analytics_batch`, `_record_failed_analytics_items`; reached only by
+  `mlb ingest mlb_api --stage analytics`). It is empty because that stage has not run since the
+  ledger shipped (migration 0038); the raw data came from an earlier load.
+- The existing contract (`_analytics_season_complete`, `_terminal_analytics_games`) requires each
+  ledger row to carry a valid saved artifact + checksum; a "legacy raw-only load is replayed once
+  into the durable ledger". Seeding artifact-less rows from raw would break that contract and
+  claim provenance that does not exist, so it is NOT done. The task text "backfill from raw without
+  re-downloading" is therefore not possible without weakening the contract.
+- Real fix = run the staged analytics backfill once (about 2 requests per game, ~325k requests,
+  resumable per season, 404s recorded as `unavailable`). Owner decision: run it, and over which years.

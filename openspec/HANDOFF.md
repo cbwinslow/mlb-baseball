@@ -1,4 +1,48 @@
-> **2026-10-03 update (read first):** active work is `openspec/changes/pipeline-recovery/` (status log in its `results.md`). PRs #276, #279, #280 are merged; cron now runs `mlb nightly` from `main`. First `mlb nightly` run is the 2026-10-03 06:00 UTC job; check it before anything else. The older notes below are from 2026-09-27.
+# Session handoff — 2026-10-05 (read this first in a fresh session)
+
+Active work: `openspec/changes/pipeline-recovery/` (log in `results.md`) and
+`openspec/changes/odds-history-capture/` (tasks.md). The owner's standard still applies: fix every
+error at its source, no patches, a test that fails at the cause first. Keep replies short and plain.
+
+## State as of 2026-10-05
+
+- **Nightly run:** the 2026-10-04 06:00 run passed (rc=0, ~2 h). Doctor 355/370 (353 on a second pass).
+  `away_woba coverage` and `starter first-pitch strike%` now pass. Remaining failures: backup check
+  (wrong: host job does backups), prediction counts x2 (check or join fan-out, undiagnosed), `feat`
+  health check crashes on missing column `home_pa_30d`, gbm-v2 model file, empty metric catalog,
+  mlb_api analytics ledger (1950s source limit), bsr / catcher framing (61,107 bad values) /
+  pitcher estimator / pitch movement / platoon bounds, never-vacuumed tables. The two
+  `raw.kalshi_candle` / `raw.polymarket_price` failures are now "backfill not run" passes (ADR-294).
+- **Merged today:** #294 (archived raw-source-tieout, pure-python-retrosheet, team-franchise-crosswalk),
+  #295 (odds plan), #296 (odds capture: catalog rows kept via `upsert_dataframe`, `snapshot()` per
+  source, `mlb odds-capture`, `scripts/mlb_odds_capture.sh`, migration 0110, doctor `check_snapshot_gaps`
+  / `check_backfill_state`, ADR-294).
+- **odds-history-capture is NOT finished.** Waiting on the owner's yes: 4.2/4.3 run the Polymarket and
+  Kalshi history backfills on production (`mlb ingest polymarket --mode backfill`, then kalshi); 5.2
+  install the cron line `*/15 * * * * ~/workspace/mlb/scripts/mlb_odds_capture.sh`. Then 5.3 (review
+  row volume after a week; measured 3,008 Kalshi + 5,314 Polymarket rows per capture) and 6.1 (archive).
+  Log every production write in `pipeline-recovery/results.md`. Until the cron runs, the snapshot gap
+  check will fail on game days.
+- **Next after that:** catcher framing (9.4: rebuild from real pitch data or withhold columns; the
+  owner decides), the `feat` crash, prediction-count checks, sibling live-update SQL audit (9.2b),
+  empty ingestion ledger (9.5), wrong checks with cited reasons (9.8, 9.9), then the speed work.
+- **Open housekeeping:** `feature-store-v1` will not archive (its delta spec would drop four model-card
+  scenarios; merge them into the delta, then `openspec archive`). PRs #285/#286/#287 (CodeQL action
+  bumps; two have a failing check), #271 (uv deps), #261 (probably redundant after #294), #207 (owner's).
+- **Merging:** the owner added `Bash(gh pr merge:*)` to global permissions. Squash-merge when checks
+  are green and review threads resolved. `~/.claude/settings.json` edits are blocked for Claude.
+
+## Practical notes (new)
+
+- Worktree for this work: `~/workspace/mlb-odds-capture` (own `.venv`; `.env` copied in). The main
+  checkout `~/workspace/mlb` **must stay on `main`** (cron runs from it; `git pull --ff-only`).
+- The full pytest suite takes ~26 min. 25 `packages/retrosheetpy` tests fail locally (also on clean
+  main) but pass in CI; ignore them locally. Run targeted files while working.
+- Never wait with `read -t` on empty input (returns instantly); poll with `timeout 10 tail -f /dev/null`.
+- Never `pkill -f "pytest ..."` from a shell whose command line contains that text (kills itself).
+- A test that reads `raw.*` with `db_conn` must `rollback()` before the code under test truncates that
+  table, or it deadlocks.
+- Reference-only below: older notes from 2026-10-04 and 2026-09-27.
 
 # Session handoff — 2026-10-04 (read this first in a fresh session)
 

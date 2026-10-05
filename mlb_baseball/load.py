@@ -186,6 +186,60 @@ def load_dataframe(
         return _copy_dataframe(cur, table_ident, df)
 
 
+def ensure_table(
+    conn: psycopg.Connection, table: str, columns: list[str], *, index_column: str | None = None
+) -> None:
+    """Create ``table`` (all-text columns plus ``_loaded_at``) and an index on
+    ``index_column`` if they are missing, and commit. Call once before several
+    threads each call :func:`replace_dataframe_range`, so they do not race to
+    create the table."""
+    table_ident = _table_identifier(table)
+    with conn.cursor() as cur:
+        _ensure_table_and_columns(cur, table, table_ident, columns)
+        if index_column is not None:
+            cur.execute(
+                sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {table} ({col})").format(
+                    index=sql.Identifier(f"{table.split('.')[-1]}_{index_column}_idx"),
+                    table=table_ident,
+                    col=sql.Identifier(index_column),
+                )
+            )
+    conn.commit()
+
+
+def replace_dataframe_range(
+    conn: psycopg.Connection,
+    table: str,
+    df: pd.DataFrame,
+    *,
+    key_column: str,
+    keys: list[str],
+    range_column: str,
+    low: int,
+    high: int,
+) -> int:
+    """Replace the rows of ``keys`` whose numeric ``range_column`` lies in
+    ``[low, high)`` with ``df``, in the caller's transaction (the caller commits, so
+    a ledger write can ride in the same transaction). For time-series items fetched
+    one window at a time, where :func:`load_dataframe`'s whole-key replace would
+    delete the other windows. The table must already exist (:func:`ensure_table`).
+    A key with no rows in ``df`` still has its window cleared."""
+    table_ident = _table_identifier(table)
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL(
+                "DELETE FROM {table} WHERE {key} = ANY(%s) "
+                "AND {rng}::numeric >= %s AND {rng}::numeric < %s"
+            ).format(
+                table=table_ident,
+                key=sql.Identifier(key_column),
+                rng=sql.Identifier(range_column),
+            ),
+            (keys, low, high),
+        )
+        return _copy_dataframe(cur, table_ident, df) if not df.empty else 0
+
+
 def replace_dataframe_scopes(
     conn: psycopg.Connection,
     table: str,

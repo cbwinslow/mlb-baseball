@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -54,6 +55,7 @@ class Monitor:
         self._last_write = 0.0
         self._started = time.monotonic()
         self._pending: tuple[int, int | None, int | None] | None = None
+        self._lock = threading.RLock()
 
     # -- plumbing ---------------------------------------------------------
 
@@ -64,7 +66,7 @@ class Monitor:
         return self._conn
 
     def _execute(self, sql: str, params: tuple) -> None:
-        with self._connection().cursor() as cur:
+        with self._lock, self._connection().cursor() as cur:  # one connection, many threads
             cur.execute(sql, params)
 
     def _safely(self, sql: str, params: tuple) -> None:
@@ -117,16 +119,18 @@ class Monitor:
         estimated finish each time it writes."""
         if self.run_id is None:
             return
-        self._pending = (done, planned, requests)
-        now = time.monotonic()
-        if self._last_write and now - self._last_write < self.min_interval:
-            return
-        self._flush()
+        with self._lock:
+            self._pending = (done, planned, requests)
+            now = time.monotonic()
+            if self._last_write and now - self._last_write < self.min_interval:
+                return
+            self._flush()
 
     def finish(self) -> None:
         """Write the last reported state regardless of the throttle."""
-        if self._pending is not None:
-            self._flush(force=True)
+        with self._lock:
+            if self._pending is not None:
+                self._flush(force=True)
 
     def _flush(self, *, force: bool = False) -> None:
         if self._pending is None or self.run_id is None:

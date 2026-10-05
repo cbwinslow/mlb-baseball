@@ -16,11 +16,11 @@ The Polymarket backfill SHALL request price history by explicit start/end window
 - **THEN** it is fetched in consecutive windows with no gap and no overlap
 
 ### Requirement: Newest data first, resumable per item
-Backfills SHALL process newest markets first and SHALL record one ledger item per market and window (`loaded`, `empty`, `unavailable` or `failed`). A rerun SHALL skip items already `loaded` or `empty` and SHALL retry `failed` ones, so an interrupted run loses at most the in-flight batch.
+Backfills SHALL process newest markets first and SHALL record one ledger item per market and window (`loaded`, `unavailable` for a window with no points, or `failed`). A rerun SHALL skip items already `loaded` or `empty` and SHALL retry `failed` ones, so an interrupted run loses at most the in-flight batch.
 
 #### Scenario: Interrupted run
 - **WHEN** a backfill is stopped partway and started again
-- **THEN** finished items are not fetched again and no rows are duplicated
+- **THEN** settled finished items are not fetched again and no rows are duplicated
 
 ### Requirement: Kalshi history crosses the live/historical cutoff
 The Kalshi connector SHALL read `GET /historical/cutoff`, fetch markets, candlesticks and trades from the live endpoints for data after the cutoff and from the historical endpoints for data before it, and SHALL deduplicate by market ticker and trade id across the boundary.

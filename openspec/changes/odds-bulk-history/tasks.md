@@ -15,10 +15,10 @@ Built as database objects (migration 0111, ADR-295) plus `mlb_baseball/opsmon.py
 
 ## 3. Polymarket
 
-- [ ] 3.1 Shared rate limiter in `net.py` (documented limits as config); failing test: never exceeds the configured rate under N workers
-- [ ] 3.2 Batch window fetch, newest-first ordering, ledger item per market-window (D3), single writer; failing tests with a fake CLOB that mirrors real behaviour (empty for `interval=max`, windows capped, 20-token cap)
+- [x] 3.1 Shared rate limiter in `net.py` (documented limits as config); failing test: never exceeds the configured rate under N workers
+- [x] 3.2 Batch window fetch, newest-first ordering, ledger item per market-window (D3), single writer; failing tests with a fake CLOB that mirrors real behaviour (empty for `interval=max`, windows capped, 20-token cap)
 - [ ] 3.3 Gamma markets/events: confirm every field is kept; add what the docs list and we drop; per-trade history from the data API within its limits
-- [ ] 3.4 Decide the lock name for history backfills so `mlb build` and nightly runs are not blocked; test it
+- [x] 3.4 Lock: the backfill keeps the shared workflow lock (it finishes in about an hour now); `mlb build` waits for it
 - [ ] 3.5 Owner-approved production run (newest first), progress watched in the run row; log counts and timings in `pipeline-recovery/results.md`; verify three sample markets against the live API
 
 ## 4. Kalshi

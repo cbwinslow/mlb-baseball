@@ -264,13 +264,13 @@ def _polymarket_coverage_check() -> Check:
     return check_join_coverage(
         "decided games with a resolved polymarket moneyline price get a recorded prediction",
         f"""
-        SELECT count(*) FROM gold.prediction p
+        SELECT count(DISTINCT p.game_instance_key) FROM gold.prediction p
         JOIN gold.game_feature f ON f.game_instance_key = p.game_instance_key
         JOIN core.game g ON g.id = f.game_id
         WHERE p.model_version = '{model_version}'
         """,
         """
-        SELECT count(*)
+        SELECT count(DISTINCT g.id)
         FROM core.market m
         JOIN core.game g ON g.id = m.game_id AND g.home_team_id = m.team_id
         JOIN raw.polymarket_market pm ON pm.id = split_part(m.market_ref, ':', 1)
@@ -288,13 +288,13 @@ def _kalshi_coverage_check() -> Check:
     return check_join_coverage(
         "decided games with a resolved kalshi price get a recorded prediction",
         f"""
-        SELECT count(*) FROM gold.prediction p
+        SELECT count(DISTINCT p.game_instance_key) FROM gold.prediction p
         JOIN gold.game_feature f ON f.game_instance_key = p.game_instance_key
         JOIN core.game g ON g.id = f.game_id
         WHERE p.model_version = '{model_version}'
         """,
         """
-        SELECT count(*)
+        SELECT count(DISTINCT g.id)
         FROM core.market m
         JOIN core.game g ON g.id = m.game_id AND g.home_team_id = m.team_id
         WHERE m.source = 'kalshi'

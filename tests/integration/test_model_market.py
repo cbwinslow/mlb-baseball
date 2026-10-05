@@ -555,3 +555,36 @@ def test_decided_game_market_row_passes_the_evaluation_pre_game_filter(db_conn):
     assert selected[0].actual is True  # ATL won 5-3, ATL is home
 
     _reset(db_conn)
+
+
+def test_coverage_check_counts_games_not_prediction_rows(db_conn):
+    # gold.prediction keeps one row per run for a game (append-only snapshots,
+    # see test_record_upcoming_inserts_a_new_snapshot_on_rerun). A game that was
+    # predicted on several runs is still one game, not join fan-out.
+    _reset(db_conn)
+    _ensure_polymarket_market_table(db_conn)
+    teams = _seed_teams(db_conn)
+    atl, nya = teams["ATL"], teams["NYA"]
+    game_id = _seed_decided_game(db_conn, atl, nya)
+    _seed_polymarket_market_type(db_conn, "m1", "moneyline")
+    _seed_market_row(db_conn, game_id, "polymarket", atl, Decimal("0.62"), "m1:atl")
+    db_conn.commit()
+    market.record(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO gold.prediction "
+            "(mlb_game_pk, game_instance_key, model_version, home_win_prob, generated_at) "
+            "VALUES ('999001', 'test:market:G1', 'polymarket-v1', 0.60, "
+            "'2024-03-30 12:00:00+00')"
+        )
+    db_conn.commit()
+
+    check = next(
+        c
+        for c in market.health_check()
+        if c.name
+        == "decided games with a resolved polymarket moneyline price get a recorded prediction"
+    )
+    assert check.ok, check.detail
+
+    _reset(db_conn)

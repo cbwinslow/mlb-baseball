@@ -72,6 +72,7 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 
@@ -99,6 +100,7 @@ from mlb_baseball.load import (
 )
 from mlb_baseball.net import RateLimiter, call_with_retry
 from mlb_baseball.opsmon import Monitor
+from mlb_baseball.shard import run_sharded
 
 SOURCE = "polymarket"
 SNAPSHOT_MAX_GAP_MINUTES = 30  # twice the 15-minute capture interval
@@ -115,9 +117,10 @@ PAGE_SIZE = 100
 # Backfill speed settings, measured live 2026-10-05 (see backfill_history). The documented
 # ceiling is 1,000 requests / 10 s = 100/s without a key; the pacer sits at 90/s. Throughput
 # stops rising past about 8-16 concurrent requests (the server queues beyond that, and 32
-# concurrent heavy requests timed out), so 12 workers. Override per run with
-# MLB_POLYMARKET_WORKERS / MLB_POLYMARKET_MAX_RPS.
-BACKFILL_WORKERS = 12
+# concurrent heavy requests timed out), so 4 processes x 4 threads = 16 in flight. Override per
+# run with MLB_POLYMARKET_PROCESSES / MLB_POLYMARKET_WORKERS / MLB_POLYMARKET_MAX_RPS.
+BACKFILL_WORKERS = 4  # threads per process
+BACKFILL_PROCESSES = 4  # one interpreter lock per process: see mlb_baseball/shard.py
 BACKFILL_MAX_RPS = 90
 BACKFILL_TIMEOUT_SECONDS = 60
 BACKFILL_RETRY_BACKOFF_SECONDS = 2.0
@@ -516,6 +519,36 @@ def _thread_connection() -> psycopg.Connection:
     return conn
 
 
+def _backfill_shard(
+    batches: list[tuple[int, list[dict]]],
+    run_id: int,
+    rate: float,
+    workers: int,
+    *,
+    report: Callable[[tuple[int, int]], None],
+) -> None:
+    """One process's share of the backfill: ``workers`` threads, one pacer for this process
+    (the documented rate split evenly across processes), results reported to the parent."""
+    limiter = RateLimiter(rate)
+    monitor = Monitor(run_id=run_id)
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_backfill_batch, cell, group, run_id, limiter, monitor)
+                for cell, group in batches
+            ]
+            try:
+                for future in as_completed(futures):
+                    report(future.result())
+            except BaseException:
+                for future in futures:
+                    future.cancel()
+                raise
+    finally:
+        monitor.close()
+        _close_thread_connections()
+
+
 def backfill_history() -> dict[str, int]:
     """Historical per-token price series, as fast as the CLOB API allows.
 
@@ -536,6 +569,7 @@ def backfill_history() -> dict[str, int]:
     failed, after trying all of them."""
     counts = {PRICE_TABLE: 0}
     workers = _env_int("MLB_POLYMARKET_WORKERS", BACKFILL_WORKERS)
+    processes = _env_int("MLB_POLYMARKET_PROCESSES", BACKFILL_PROCESSES)
     limiter = RateLimiter(float(os.environ.get("MLB_POLYMARKET_MAX_RPS", BACKFILL_MAX_RPS)))
     with (
         get_connection() as conn,
@@ -573,33 +607,35 @@ def backfill_history() -> dict[str, int]:
             )
             conn.commit()
         logger.info(
-            "polymarket backfill: %d tokens, %d requests planned, %d workers, up to %.0f/s",
+            "polymarket backfill: %d tokens, %d requests planned, %d processes x %d threads, "
+            "up to %.0f/s",
             len(tokens),
             len(batches),
+            processes,
             workers,
             limiter.rate,
         )
         monitor = Monitor(run_id=run_id)
         total = failed = finished = 0
+
+        def collect(outcome: tuple[int, int]) -> None:
+            nonlocal total, failed, finished
+            rows, bad = outcome
+            total, failed, finished = total + rows, failed + bad, finished + 1
+            monitor.progress(done=finished, planned=len(batches), requests=finished)
+
         try:
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [
-                    pool.submit(_backfill_batch, cell, group, run_id, limiter, monitor)
-                    for cell, group in batches
-                ]
-                try:
-                    for future in as_completed(futures):
-                        rows, bad = future.result()
-                        total, failed, finished = total + rows, failed + bad, finished + 1
-                        monitor.progress(done=finished, planned=len(batches), requests=finished)
-                except BaseException:
-                    for future in futures:
-                        future.cancel()
-                    raise
+            run_sharded(
+                batches,
+                _backfill_shard,
+                processes=processes,
+                args=(run_id, limiter.max_rate / processes, workers),
+                on_result=collect,
+            )
         finally:
             monitor.finish()
             monitor.close()
-            _close_thread_connections()
+            _close_thread_connections()  # the inline (single-process) case runs its threads here
         counts[PRICE_TABLE] = total
         result["rows"] = total
         if failed:

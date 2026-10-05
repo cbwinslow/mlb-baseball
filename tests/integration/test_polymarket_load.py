@@ -381,9 +381,11 @@ class FakeClob:
 
 
 def _run_backfill(clob):
+    # one process: the fake CLOB is patched into this interpreter, a spawned child would not see it
     with patch.object(polymarket, "_clob_post", side_effect=clob):
         with patch.object(polymarket, "BACKFILL_RETRY_BACKOFF_SECONDS", 0):
-            return polymarket.backfill_history()
+            with patch.object(polymarket, "BACKFILL_PROCESSES", 1):
+                return polymarket.backfill_history()
 
 
 def _price_rows(db_conn):

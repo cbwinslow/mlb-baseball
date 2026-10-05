@@ -15,7 +15,14 @@ ALL_TABLES = [polymarket.EVENT_TABLE, polymarket.MARKET_TABLE, polymarket.OUTCOM
 _CLEANUP_TABLES = [*ALL_TABLES, polymarket.SNAPSHOT_TABLE, polymarket.PRICE_TABLE]
 
 
-def _event(event_id, n_markets=1, closed=False, sport=None):
+def _event(
+    event_id,
+    n_markets=1,
+    closed=False,
+    sport=None,
+    startdate="2026-09-01T00:00:00Z",
+    closedtime="2026-09-02 00:00:00+00",
+):
     return {
         "id": event_id,
         "title": f"Event {event_id}",
@@ -28,6 +35,8 @@ def _event(event_id, n_markets=1, closed=False, sport=None):
                 "outcomePrices": '["0.5", "0.5"]',
                 "clobTokenIds": f'["tok-{event_id}-{i}-a", "tok-{event_id}-{i}-b"]',
                 "closed": closed,
+                "startdate": startdate,
+                "closedtime": closedtime,
             }
             for i in range(n_markets)
         ],
@@ -418,3 +427,83 @@ def test_backfill_history_resumes_after_an_interruption_without_duplicates(db_co
         rows = cur.fetchall()
     assert len(rows) == 4  # 2 markets x 2 outcomes
     assert all(n == 1 for _, n in rows)
+
+
+def _clob_that_only_serves_windows(history_by_window=None):
+    """The real CLOB returns an empty history for a settled market asked with
+    `interval=max` (checked live 2026-10-05 on 2025 markets) and rejects a
+    window longer than a few weeks. This fake behaves the same way."""
+    calls = []
+
+    def fake(url, params=None, timeout=None):
+        calls.append(dict(params))
+        if "startTs" not in params:
+            return FakeResponse({"history": []})
+        if params["endTs"] - params["startTs"] > 15 * 86400:
+            return FakeResponse({"history": [], "error": "interval is too long"})
+        return FakeResponse({"history": [{"t": params["startTs"] + 1, "p": 0.4}]})
+
+    return fake, calls
+
+
+def test_backfill_history_asks_for_the_market_s_own_dates_not_interval_max(db_conn):
+    def fake_get(url, params=None, timeout=None):
+        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
+            return FakeResponse(
+                _page(
+                    [
+                        _event(
+                            "1",
+                            closed=True,
+                            sport="mlb",
+                            startdate="2025-04-02T08:02:33Z",
+                            closedtime="2025-04-02 21:25:34+00",
+                        )
+                    ]
+                )
+            )
+        return _no_results_get(url, params, timeout)
+
+    with patch.object(polymarket.requests, "get", side_effect=fake_get):
+        polymarket.bootstrap()
+
+    fake_clob, calls = _clob_that_only_serves_windows()
+    with patch.object(polymarket, "BACKFILL_SLEEP_SECONDS", 0):
+        with patch.object(polymarket.requests, "get", side_effect=fake_clob):
+            counts = polymarket.backfill_history()
+
+    assert counts[polymarket.PRICE_TABLE] == 2  # one point for each of the 2 outcomes
+    assert all("interval" not in c for c in calls)
+
+
+def test_backfill_history_splits_a_long_market_into_short_windows(db_conn):
+    def fake_get(url, params=None, timeout=None):
+        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
+            return FakeResponse(
+                _page(
+                    [
+                        _event(
+                            "1",
+                            closed=True,
+                            sport="mlb",
+                            startdate="2026-06-01T00:00:00Z",
+                            closedtime="2026-07-01 00:00:00+00",  # 30 days
+                        )
+                    ]
+                )
+            )
+        return _no_results_get(url, params, timeout)
+
+    with patch.object(polymarket.requests, "get", side_effect=fake_get):
+        polymarket.bootstrap()
+
+    fake_clob, calls = _clob_that_only_serves_windows()
+    with patch.object(polymarket, "BACKFILL_SLEEP_SECONDS", 0):
+        with patch.object(polymarket.requests, "get", side_effect=fake_clob):
+            polymarket.backfill_history()
+
+    per_token = [c for c in calls if c["market"] == "tok-1-0-a"]
+    assert len(per_token) == 3  # 30 days in windows of at most 14
+    assert all(c["endTs"] - c["startTs"] <= 14 * 86400 for c in per_token)
+    ordered = sorted(per_token, key=lambda c: c["startTs"])
+    assert all(a["endTs"] == b["startTs"] for a, b in zip(ordered, ordered[1:], strict=False))

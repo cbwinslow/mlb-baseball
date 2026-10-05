@@ -123,6 +123,13 @@ copy the same rule into every ancestor.
 
 ## Work and verification doctrine
 
+- Fix failures at their originating layer. Do not add a downstream patch or
+  widen a health/metric threshold merely to make a check green; a changed
+  threshold needs written source/formula/data evidence.
+- When a review finds a material gap, give it one durable owner: an existing
+  contract/spec, an active OpenSpec change, a named future change behind the
+  current phase gate, an executable check, or an explicit archived/rejected
+  rationale. Do not leave accepted correctness findings only in chat notes.
 - Read the implementation and nearest tests before editing.
 - Separate observed facts from recommendations; verify uncertain claims against
   code/data/library behavior rather than memory.

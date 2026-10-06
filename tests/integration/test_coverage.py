@@ -290,3 +290,25 @@ def test_cli_markdown_output(seeded, capsys):
 def test_cli_rejects_json_with_markdown():
     with pytest.raises(SystemExit):
         cli.main(["coverage", "--json", "--markdown"])
+
+
+def test_cli_missing_only_hides_clean_tables(seeded, capsys):
+    cli.main(["coverage", "--source", "mlb_api", "--missing-only", "--json"])
+    tables = json.loads(capsys.readouterr().out)["sources"][0]["tables"]
+    assert tables
+    assert all(t["status"] not in ("complete", "no_expectation") for t in tables)
+    assert "raw.mlb_win_prob" in {t["table"] for t in tables}
+
+
+def test_cli_fail_on_gap_exits_1_when_a_gap_exists(seeded):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["coverage", "--source", "mlb_api", "--table", "mlb_win_prob", "--fail-on-gap"])
+    assert exc.value.code == 1
+
+
+def test_only_reference_tables_is_not_a_gap():
+    row = coverage.TableReport("mlb_api", "raw.x", "season", "no_expectation", "reason", 5, [], "")
+    done = coverage.TableReport("mlb_api", "raw.y", "season", "complete", "all", 5, [], "")
+    report = coverage.Report([row, done])
+    assert not report.has_gap
+    assert report.only_gaps().tables == []

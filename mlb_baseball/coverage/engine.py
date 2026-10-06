@@ -17,6 +17,10 @@ from mlb_baseball.db import fetch_one, get_connection
 NOT_REGISTERED = "table is not registered in mlb_baseball/coverage/registry.py"
 
 
+# Statuses that are not a verdict on coverage: nothing was compared, nothing is missing.
+NOT_A_GAP = frozenset({"complete", "no_expectation"})
+
+
 @dataclass(frozen=True)
 class TableReport:
     source: str
@@ -47,10 +51,22 @@ class TableReport:
     def missing(self) -> int:
         return sum(g.missing for g in self.groups)
 
+    @property
+    def is_gap(self) -> bool:
+        """Missing, empty, or unmeasurable: anything that is not a clean result."""
+        return self.status not in NOT_A_GAP
+
 
 @dataclass(frozen=True)
 class Report:
     tables: list[TableReport] = field(default_factory=list)
+
+    @property
+    def has_gap(self) -> bool:
+        return any(t.is_gap for t in self.tables)
+
+    def only_gaps(self) -> "Report":
+        return Report([t for t in self.tables if t.is_gap])
 
     def sources(self) -> list[str]:
         return sorted({t.source for t in self.tables})

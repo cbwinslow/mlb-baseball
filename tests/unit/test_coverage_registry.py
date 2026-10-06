@@ -61,7 +61,18 @@ def test_cli_coverage_dispatches_options(monkeypatch):
         "table": "mlb_win_prob",
         "as_json": True,
         "as_markdown": False,
+        "missing_only": False,
     }
+
+
+def test_cli_coverage_fail_on_gap_sets_the_exit_code(monkeypatch):
+    monkeypatch.setattr(cli.coverage, "run", lambda **kwargs: True)
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["coverage", "--fail-on-gap", "--missing-only"])
+    assert exc.value.code == 1
+
+    monkeypatch.setattr(cli.coverage, "run", lambda **kwargs: False)
+    cli.main(["coverage", "--fail-on-gap"])
 
 
 def test_cli_coverage_rejects_unknown_source():

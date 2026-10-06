@@ -100,6 +100,15 @@ def last_runs() -> list[dict]:
             return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]
 
 
+def save_profile() -> int:
+    """Recompute ``meta.raw_profile`` (the only write here); returns tables profiled."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT meta.refresh_raw_profile()")
+        (written,) = fetch_one(cur)
+        conn.commit()
+    return int(written)
+
+
 def _source_of(table: str) -> str:
     """Source group = the table-name prefix before the first underscore."""
     return table.split("_", 1)[0]

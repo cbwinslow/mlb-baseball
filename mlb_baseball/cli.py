@@ -578,6 +578,12 @@ def main(argv: list[str] | None = None) -> None:
         "--exact", action="store_true", help="count rows exactly instead of using catalog estimates"
     )
     inventory_parser.add_argument(
+        "--save-profile",
+        action="store_true",
+        help="WRITES meta.raw_profile: exact rows, season range and load times per raw table "
+        "(reads every raw table; minutes on the large ones)",
+    )
+    inventory_parser.add_argument(
         "--markdown",
         metavar="PATH",
         help="write the raw layer (exact rows, seasons, columns) as markdown to PATH and exit",
@@ -1812,6 +1818,8 @@ def main(argv: list[str] | None = None) -> None:
                 f"brier={metrics['brier']:.4f} [{brier_low:.4f}, {brier_high:.4f}] "
                 f"accuracy={metrics['accuracy']:.4f}"
             )
+    elif args.command == "inventory" and args.save_profile:
+        print(f"profiled {inventory.save_profile()} raw tables into meta.raw_profile")
     elif args.command == "inventory" and args.markdown:
         Path(args.markdown).write_text(inventory.raw_markdown().rstrip() + "\n")
         print(f"wrote {args.markdown}")

@@ -7,7 +7,7 @@ import json
 import pytest
 
 from mlb_baseball import cli, coverage, manifest
-from mlb_baseball.coverage.model import Dataset, Games, NoExpectation, Seasons
+from mlb_baseball.coverage.model import Dataset, Games, NoExpectation, Referenced, Seasons
 
 SEASON = "1962"  # inside the 1950+ analytics range, absent from every other test
 
@@ -312,3 +312,97 @@ def test_only_reference_tables_is_not_a_gap():
     report = coverage.Report([row, done])
     assert not report.has_gap
     assert report.only_gaps().tables == []
+
+
+@pytest.fixture
+def entities(db_conn):
+    """A people table holding 1, 2, 3 and two tables that mention 1, 2, 4, 5 and blanks."""
+    created: list[str] = []
+    for name, cols in (
+        ("test_cov_person", "person_id text"),
+        ("test_cov_ref_a", "pid text"),
+        ("test_cov_ref_b", "pitcher text, yr text"),
+    ):
+        _ensure_table(db_conn, created, name, cols)
+    _exec(db_conn, "INSERT INTO raw.test_cov_person VALUES ('1'), ('2'), ('3')")
+    _exec(db_conn, "INSERT INTO raw.test_cov_ref_a VALUES ('1'), ('2'), ('2'), ('4'), (''), (NULL)")
+    _exec(db_conn, "INSERT INTO raw.test_cov_ref_b VALUES ('1', 'x'), ('5', 'x'), ('4', 'y')")
+    yield
+    for name in created:
+        _exec(db_conn, f"DROP TABLE raw.{name}")
+
+
+def _person_dataset():
+    return Dataset(
+        "mlb_api",
+        "raw.test_cov_person",
+        Referenced(
+            ("person_id",),
+            (("raw.test_cov_ref_a", ("pid",)), ("raw.test_cov_ref_b", ("pitcher",))),
+            "person",
+        ),
+        "mlb ingest mlb_api",
+    )
+
+
+def test_referenced_reports_one_line_per_referencing_column(entities):
+    row = coverage.collect(datasets=[_person_dataset()]).tables[0]
+    by_label = {g.label: (g.expected, g.held, g.missing) for g in row.groups}
+    # ref_a uses 1, 2, 4 (blank and NULL are not ids; the repeated 2 counts once);
+    # ref_b uses 1, 5, 4
+    assert by_label == {
+        "raw.test_cov_ref_a.pid": (3, 2, 1),
+        "raw.test_cov_ref_b.pitcher": (3, 1, 2),
+    }
+    assert row.status == "missing"
+    assert row.fix == "mlb ingest mlb_api"
+    text = coverage.render_text(coverage.Report([row]))
+    assert "raw.test_cov_ref_b.pitcher: 2 persons" in text
+
+
+def test_referenced_complete_when_every_used_id_exists(entities, db_conn):
+    _exec(db_conn, "INSERT INTO raw.test_cov_person VALUES ('4'), ('5')")
+    row = coverage.collect(datasets=[_person_dataset()]).tables[0]
+    assert row.status == "complete"
+
+
+def test_referenced_with_nothing_referencing_it_is_not_a_pass(entities, db_conn):
+    _exec(db_conn, "DELETE FROM raw.test_cov_ref_a")
+    _exec(db_conn, "DELETE FROM raw.test_cov_ref_b")
+    row = coverage.collect(datasets=[_person_dataset()]).tables[0]
+    assert row.status == "no_basis"
+
+
+def test_referenced_composite_key(db_conn):
+    created: list[str] = []
+    _ensure_table(db_conn, created, "test_cov_team", "yearid text, teamid text")
+    _ensure_table(db_conn, created, "test_cov_bat", "yearid text, teamid text")
+    try:
+        _exec(db_conn, "INSERT INTO raw.test_cov_team VALUES ('2000', 'BOS')")
+        _exec(
+            db_conn,
+            "INSERT INTO raw.test_cov_bat VALUES ('2000', 'BOS'), ('2000', 'NYA'), ('2001', 'BOS')",
+        )
+        dataset = Dataset(
+            "lahman",
+            "raw.test_cov_team",
+            Referenced(
+                ("yearid", "teamid"), (("raw.test_cov_bat", ("yearid", "teamid")),), "team-season"
+            ),
+            "mlb ingest lahman",
+        )
+        row = coverage.collect(datasets=[dataset]).tables[0]
+        assert (row.expected, row.held) == (3, 1)
+    finally:
+        for name in created:
+            _exec(db_conn, f"DROP TABLE raw.{name}")
+
+
+def test_referenced_reports_a_missing_referencing_table(entities, db_conn):
+    dataset = Dataset(
+        "mlb_api",
+        "raw.test_cov_person",
+        Referenced(("person_id",), (("raw.test_cov_never_created", ("pid",)),), "person"),
+        "mlb ingest mlb_api",
+    )
+    assert coverage.collect(datasets=[dataset]).tables[0].status == "inputs_absent"

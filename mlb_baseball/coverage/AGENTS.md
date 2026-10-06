@@ -9,7 +9,7 @@ Read root `AGENTS.md` and `mlb_baseball/AGENTS.md` first.
 ## Ownership
 
 - `registry.py`: the single list of datasets. One `Dataset(...)` entry per raw table: expectation, fix command, caveat. Year bounds come from the connectors' own constants (`FIRST_WIN_PROB_YEAR`, `FIRST_YEAR`, ...), not copies.
-- `model.py`: the expectation kinds (`Seasons`, `Games`, `GameDates`, `KalshiCandles`, `PolymarketWindows`, `Present`, `ManifestFiles`, `NoExpectation`) and `Group`. Each kind turns an expectation into `expected / held / accounted` counts per bucket with plain SELECTs.
+- `model.py`: the expectation kinds (`Seasons`, `Games`, `GameDates`, `KalshiCandles`, `PolymarketWindows`, `Present`, `Referenced` (entity tables: every id other tables use exists here, one line per referencing column), `ManifestFiles`, `NoExpectation`) and `Group`. Each kind turns an expectation into `expected / held / accounted` counts per bucket with plain SELECTs.
 - `engine.py`: runs the measurements in one `READ ONLY` transaction and builds the report; reports any raw table that is not registered.
 - `render.py`: text, markdown and JSON views. JSON has sorted keys and no timestamps.
 - `__init__.py`: the `run()` entry point that `cli.py` calls; `cli.py` only parses arguments.

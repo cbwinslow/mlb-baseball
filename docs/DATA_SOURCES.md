@@ -2,6 +2,8 @@
 
 All sources below are free or free-tier. No paid feeds without an explicit decision recorded here.
 
+Per-source detail pages (access, endpoints, limits, rights, coverage boundaries) live in [`sources/`](sources/); this file stays the catalog and the allowed-source list. Pages so far: [MLB Stats API](sources/mlb_api.md).
+
 ## Phase 1 — core ingestion (build first)
 
 | Source | Provides | Cost | Access | Notes |

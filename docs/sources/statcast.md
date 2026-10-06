@@ -19,7 +19,7 @@ Facts checked 2026-10-06 (live response headers, `pybaseball` documentation, con
 - **Host:** `baseballsavant.mlb.com`, the same MLB-owned family as the Stats API. The CSV search endpoint (`/statcast_search/csv`) answered 200 with `content-type: application/download` and `cache-control: public, max-age=1200, s-maxage=3600`.
 - **Auth:** none. **Documentation:** Savant's own search page and CSV column glossary; no API contract is published.
 - **Client:** `pybaseball` (`statcast()` for pitches, leaderboard functions for the season products), wrapped by project retry and timeout code.
-- **Row limit per request:** `pybaseball` documents "30000 rows" per Savant query and splits long ranges into chunks of about 5 days itself. Our connector asks in 7-day windows; if a window ever returns exactly the cap, that week is silently truncated, so a count near the cap deserves a look. (Open question: whether the connector checks for this. Verify before relying on a week's total.)
+- **Row limit per request:** `pybaseball` documents "30000 rows" per Savant query and itself splits any range longer than about 5 days into smaller requests, then joins them. Our 7-day weekly window is therefore several Savant requests inside one library call. A week holds more than 30,000 pitches, so correctness depends on that internal splitting; the per-day pitch counts that `mlb coverage` compares against game dates are the check that a day was not truncated.
 - **Rate limit:** none published. The connector pauses `CHUNK_PAUSE_SECONDS` (1.0 s) between weeks as politeness only. Savant leaderboards and pitches hit the same host, so do not run both aggressively at once.
 - **Format:** CSV, loaded source-faithfully as text.
 

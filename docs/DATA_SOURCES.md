@@ -2,7 +2,7 @@
 
 All sources below are free or free-tier. No paid feeds without an explicit decision recorded here.
 
-Per-source detail pages (access, endpoints, limits, rights, coverage boundaries) live in [`sources/`](sources/); this file stays the catalog and the allowed-source list. Pages so far: [MLB Stats API](sources/mlb_api.md), [Baseball Savant / Statcast](sources/statcast.md), [Retrosheet](sources/retrosheet.md), [FanGraphs](sources/fangraphs.md), [Baseball-Reference](sources/bref.md), [Lahman](sources/lahman.md), [Chadwick Register](sources/chadwick_register.md).
+Per-source detail pages (access, endpoints, limits, rights, coverage boundaries) live in [`sources/`](sources/); this file stays the catalog and the allowed-source list. Pages so far: [MLB Stats API](sources/mlb_api.md), [Baseball Savant / Statcast](sources/statcast.md), [Retrosheet](sources/retrosheet.md), [FanGraphs](sources/fangraphs.md), [Baseball-Reference](sources/bref.md), [Lahman](sources/lahman.md), [Chadwick Register](sources/chadwick_register.md), [Kalshi](sources/kalshi.md), [Polymarket](sources/polymarket.md), [News/RSS](sources/news.md). Every source in this catalog now has a page.
 
 ## pybaseball: what we use it for
 

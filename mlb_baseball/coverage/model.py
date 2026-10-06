@@ -265,6 +265,55 @@ class Present:
 
 
 @dataclass(frozen=True)
+class Referenced:
+    """An entity table (people, teams, venues): every id that other raw tables point at
+    should exist in it. ``key`` is the entity's key column(s); ``refs`` lists
+    ``(table, columns)`` that reference it. One group per referencing column, labelled
+    ``table.column``: expected = distinct ids it uses (NULL and blank are not ids), held =
+    those found in the entity table. The groups answer "where does an unknown id come
+    from", so a table total counts an id once per referencing column. Whether a gap is a
+    defect or a scope choice (for example minor-league teams the connector never loads) is
+    a reading of the groups, recorded in the dataset's caveat."""
+
+    key: tuple[str, ...]
+    refs: tuple[tuple[str, tuple[str, ...]], ...]
+    unit: str = "id"
+
+    @property
+    def expectation(self) -> str:
+        return (
+            f"every id used by the referencing tables exists here ({'/'.join(self.key)}); "
+            "one line per referencing column"
+        )
+
+    def inputs(self, table: str) -> tuple[str, ...]:
+        return (table, *dict.fromkeys(t for t, _ in self.refs))
+
+    def measure(self, cur: psycopg.Cursor, table: str) -> list[Group]:
+        width = len(self.key)
+        names = [f"k{i}" for i in range(width)]
+        key_select = ", ".join(f"{c}::text AS {n}" for c, n in zip(self.key, names, strict=True))
+        groups: list[Group] = []
+        for ref_table, cols in self.refs:
+            if len(cols) != width:
+                raise ValueError(f"{ref_table} references {len(cols)} columns, key has {width}")
+            select = ", ".join(f"{c}::text AS {n}" for c, n in zip(cols, names, strict=True))
+            present = " AND ".join(f"{c} IS NOT NULL AND {c}::text <> ''" for c in cols)
+            cur.execute(
+                f"""
+                WITH used AS (SELECT DISTINCT {select} FROM {ref_table} WHERE {present}),
+                     have AS (SELECT DISTINCT {key_select} FROM {table})
+                SELECT count(*), count(*) FILTER (WHERE have.k0 IS NOT NULL)
+                FROM used LEFT JOIN have USING ({", ".join(names)})
+                """
+            )
+            expected, held = cur.fetchone() or (0, 0)
+            if expected:
+                groups.append(Group(f"{ref_table}.{'/'.join(cols)}", int(expected), int(held)))
+        return groups
+
+
+@dataclass(frozen=True)
 class ManifestFiles:
     """Every archive recorded in ``downloads/<source>/manifest.json`` should be ``loaded``.
     Reads one local file; the "table" of this dataset is that file."""

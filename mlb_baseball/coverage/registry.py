@@ -27,6 +27,7 @@ from mlb_baseball.coverage.model import (
     NoExpectation,
     PolymarketWindows,
     Present,
+    Referenced,
     Seasons,
     manifest_label,
 )
@@ -110,6 +111,58 @@ DATASETS: list[Dataset] = [
         "mlb_team_leader",
         "mlb_attendance",
     ),
+    # MLB Stats API entity tables: complete when every id the other tables use is here.
+    Dataset(
+        "mlb_api",
+        "raw.mlb_person",
+        Referenced(
+            ("person_id",),
+            (
+                ("raw.mlb_roster", ("person_id",)),
+                ("raw.mlb_boxscore_batting", ("person_id",)),
+                ("raw.mlb_boxscore_pitching", ("person_id",)),
+                ("raw.mlb_boxscore_fielding", ("person_id",)),
+                ("raw.mlb_umpire", ("person_id",)),
+                ("raw.mlb_draft", ("person_id",)),
+                ("raw.mlb_transaction", ("person_id",)),
+                ("raw.mlb_probable", ("pitcher_id",)),
+            ),
+            "person",
+        ),
+        "mlb ingest mlb_api",
+        "the loader fetches people for ids found in raw.mlb_roster only, so an id seen only in "
+        "box scores, the draft or transactions is never fetched by this command; the draft and "
+        "transactions also name amateurs and minor leaguers, so read the roster line as the "
+        "defect and the others as scope until the owner decides to widen it",
+    ),
+    Dataset(
+        "mlb_api",
+        "raw.mlb_venue",
+        Referenced(
+            ("venue_id",),
+            (("raw.mlb_schedule", ("venue_id",)), ("raw.mlb_team_history", ("venue_id",))),
+            "venue",
+        ),
+        "mlb ingest mlb_api",
+    ),
+    Dataset(
+        "mlb_api",
+        "raw.mlb_team_history",
+        Referenced(
+            ("team_id",),
+            (
+                ("raw.mlb_schedule", ("home_id",)),
+                ("raw.mlb_schedule", ("away_id",)),
+                ("raw.mlb_roster", ("team_id",)),
+                ("raw.mlb_transaction", ("to_team_id",)),
+                ("raw.mlb_draft", ("team_id",)),
+            ),
+            "team",
+        ),
+        "mlb ingest mlb_api",
+        "the connector loads MLB (sportId 1) teams only; transaction destinations include "
+        "minor-league and other clubs, so that line is scope, not a defect",
+    ),
     *_no(
         "mlb_api",
         _CATALOG,
@@ -117,9 +170,6 @@ DATASETS: list[Dataset] = [
         "mlb_league",
         "mlb_division",
         "mlb_season",
-        "mlb_venue",
-        "mlb_team_history",
-        "mlb_person",
         "mlb_affiliate",
         "mlb_award",
         "mlb_conference",
@@ -210,7 +260,37 @@ DATASETS: list[Dataset] = [
         )
     ],
     # Lahman: one release, one file per table.
-    *[Dataset("lahman", table, Present(), "mlb ingest lahman") for table, _, _ in lahman.TABLES],
+    *[
+        Dataset("lahman", table, Present(), "mlb ingest lahman")
+        for table, _, _ in lahman.TABLES
+        if table not in ("raw.lahman_people", "raw.lahman_teams")
+    ],
+    Dataset(
+        "lahman",
+        "raw.lahman_people",
+        Referenced(
+            ("playerid",),
+            tuple(
+                (f"raw.lahman_{t}", ("playerid",))
+                for t in ("batting", "pitching", "fielding", "appearances")
+            ),
+            "player",
+        ),
+        "mlb ingest lahman",
+    ),
+    Dataset(
+        "lahman",
+        "raw.lahman_teams",
+        Referenced(
+            ("yearid", "teamid"),
+            tuple(
+                (f"raw.lahman_{t}", ("yearid", "teamid"))
+                for t in ("batting", "pitching", "fielding", "appearances")
+            ),
+            "team-season",
+        ),
+        "mlb ingest lahman",
+    ),
     # Statcast.
     Dataset(
         "statcast",

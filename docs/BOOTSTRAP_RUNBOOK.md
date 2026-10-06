@@ -55,6 +55,31 @@ source and table that need attention. For a long MLB API historical run, use
 `mlb metrics --source mlb_api --window-minutes 5` to distinguish upstream/API
 time from database work.
 
+### Find what is left to ingest
+
+`mlb coverage` is the "what should we hold versus what do we hold" report. It
+is read-only (it runs in a `READ ONLY` transaction and cannot write). For every
+source and raw table it prints the unit (season, game, date, market, file), the
+expected count and where that expectation comes from, the held count, anything
+accounted for as a recorded source gap (a `meta.ingestion_item` row with status
+`unavailable`), the missing units, and the exact `mlb ingest ...` command that
+closes the gap. A table with no derivable expectation prints
+`no expectation defined: <reason>`.
+
+```bash
+uv run mlb coverage                                  # every source
+uv run mlb coverage --source mlb_api --table mlb_win_prob
+uv run mlb coverage --json                           # stable, sorted keys, no timestamps
+uv run mlb coverage --markdown
+```
+
+The loop is: run `mlb coverage`, run the printed fix command (every fix is an
+idempotent `mlb ingest` that skips what is already loaded), run `mlb coverage`
+again. A fix entry that carries a `note:` line cannot fully repair the gap with
+the existing command; read the note first. The registry of expectations is
+`mlb_baseball/coverage/registry.py`; its contract is in
+`mlb_baseball/coverage/AGENTS.md`.
+
 If `mlb doctor` reports an active `workflow lock`, another raw ingestion,
 conformance, or model operation owns the database workflow. Wait for it to
 finish; do not start a competing command or kill a session unless its owner

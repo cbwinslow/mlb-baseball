@@ -345,6 +345,8 @@ jobs:
           export CHADWICK_SRC="$HOME/chadwick-parity/src"
           test -x "$CHADWICK_BIN/cwevent" || { echo "Chadwick build missing"; exit 1; }
           "$CHADWICK_BIN/cwevent" -h 2>&1 | head -1
+          # Without pipefail the pipe below reports tee's status, so failing tests would still pass.
+          set -o pipefail
           uv run --package retrosheetpy --with pytest pytest packages/retrosheetpy/tests -q -rs -p no:cacheprovider | tee pytest.out
           # A skipped parity test compared nothing: with Chadwick built, nothing may be skipped.
           if grep -q '^SKIPPED' pytest.out; then echo "tests were skipped"; exit 1; fi

@@ -62,6 +62,18 @@ building backbone lines for box-only games (#257); any change to 2015+ data.
   and Baseball-Reference omit them, so excluding probably improves agreement).
   Not assumed here.
 
+- **D5 Registry lives in raw (checked 2026-10-06).** `raw.retrosheet_team0`
+  (178 Negro League clubs, `first_g`/`last_g` dates) is the registry, so the
+  flag derives from the database and survives a bootstrap. It has no league
+  column; membership in this table is the signal.
+- **D6 API games.** Production holds Negro League games from the MLB Stats API
+  for some seasons (1930: 324 of 1,564 schedule rows; none for 1924-1929), with
+  team ids 14xx/15xx that are not Retrosheet codes; only 7 of the 324 reach
+  `core.game`. The flag must also cover them, by matching club name and season
+  to the registry. Unmatched clubs are reported (task 1.4).
+- **D7 Mixed games.** One registry club plus one other club is `mixed`, not MLB
+  and not Negro League.
+
 ## Risks / Trade-offs
 
 - Wrong registry match flags a real MLB game or misses a Negro League one.
@@ -69,4 +81,5 @@ building backbone lines for box-only games (#257); any change to 2015+ data.
   `mlb doctor` check for any flagged game involving an AL/NL club.
 - Both this change and `stable-ids-incremental-conform` edit `conform`; land
   one first.
-- Migration must be applied on production by the owner.
+- The migration is applied by the nightly `mlb migrate`; no manual owner step.
+- Name matching for API clubs may be ambiguous; mitigated by the era check and the unmatched-club report.

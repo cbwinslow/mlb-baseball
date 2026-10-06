@@ -20,7 +20,7 @@ Facts checked 2026-10-06 (live response headers, `pybaseball` documentation, con
 - **Auth:** none. **Documentation:** Savant's own search page and CSV column glossary; no API contract is published.
 - **Client:** `pybaseball` (`statcast()` for pitches, leaderboard functions for the season products), wrapped by project retry and timeout code.
 - **Row limit per request:** `pybaseball` documents "30000 rows" per Savant query and itself splits any range longer than about 5 days into smaller requests, then joins them. Our 7-day weekly window is therefore several Savant requests inside one library call. A week holds more than 30,000 pitches, so correctness depends on that internal splitting. `mlb coverage` checks that every game date has pitch rows; it does not check that a day's count is complete, so a day truncated by the cap would pass. Open question for a later probe: compare per-day pitch counts with games played.
-- **Rate limit:** none published. The connector pauses `CHUNK_PAUSE_SECONDS` (1.0 s) between weeks as politeness only. Savant leaderboards and pitches hit the same host, so do not run both aggressively at once.
+- **Rate limit:** none published by Savant. `pybaseball` (2.2.7) has no throttle and no retry for Savant; the only built-in throttle in the library is for Baseball-Reference. Politeness and retry are ours: shared retry/backoff around every call, plus a `CHUNK_PAUSE_SECONDS` (1.0 s) pause between weeks. Savant pitches and leaderboards hit the same host, so do not run both aggressively at once.
 - **Format:** CSV, loaded source-faithfully as text.
 
 ## Rights

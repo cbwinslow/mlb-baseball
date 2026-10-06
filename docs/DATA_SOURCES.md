@@ -4,6 +4,10 @@ All sources below are free or free-tier. No paid feeds without an explicit decis
 
 Per-source detail pages (access, endpoints, limits, rights, coverage boundaries) live in [`sources/`](sources/); this file stays the catalog and the allowed-source list. Pages so far: [MLB Stats API](sources/mlb_api.md), [Baseball Savant / Statcast](sources/statcast.md).
 
+## pybaseball: what we use it for
+
+`pybaseball` (>=2.2, pinned in `pyproject.toml`) is the fetch library for Statcast pitches, the Statcast leaderboards, Baseball-Reference season lines and bWAR, and the Lahman network fallback (`pybaseball.lahman`, used only when no local Lahman zip is present). It is **not** used for FanGraphs (permanently 403, replaced by `fungo`, ADR-288), the MLB Stats API (`statsapi` package instead), Retrosheet or the prediction markets. It handles URLs, parsing and, for Baseball-Reference only, a built-in request throttle; it has no retry and no Savant throttle, so retry, pauses and timeouts are project code in each connector (checked against pybaseball 2.2.7, 2026-10-06). It stays the fetch library, not a user-facing API (ADR-271).
+
 ## Phase 1 — core ingestion (build first)
 
 | Source | Provides | Cost | Access | Notes |

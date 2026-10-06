@@ -406,3 +406,79 @@ def test_referenced_reports_a_missing_referencing_table(entities, db_conn):
         "mlb ingest mlb_api",
     )
     assert coverage.collect(datasets=[dataset]).tables[0].status == "inputs_absent"
+
+
+def test_declared_date_column_reports_first_and_last_date(db_conn):
+    created: list[str] = []
+    _ensure_table(db_conn, created, "test_cov_dates", "d text, _season text")
+    try:
+        _exec(
+            db_conn,
+            "INSERT INTO raw.test_cov_dates VALUES "
+            "('19990412','1999'), ('20010930','2001'), ('junk','2001')",
+        )
+        dataset = Dataset(
+            "mlb_api",
+            "raw.test_cov_dates",
+            Seasons(first=1999, through="prior"),
+            "mlb ingest x",
+            date_column="d",
+        )
+        row = coverage.collect(datasets=[dataset]).tables[0]
+        assert (row.first_date, row.last_date, row.date_not_parsed) == (
+            "1999-04-12",
+            "2001-09-30",
+            1,
+        )
+        text = coverage.render_text(coverage.Report([row]))
+        assert "dates (d): 1999-04-12 to 2001-09-30; 1 values not a date" in text
+        assert "1999-04-12 to 2001-09-30" in coverage.render_markdown(coverage.Report([row]))
+        payload = json.loads(coverage.render_json(coverage.Report([row])))
+        assert payload["sources"][0]["tables"][0]["first_date"] == "1999-04-12"
+    finally:
+        for name in created:
+            _exec(db_conn, f"DROP TABLE raw.{name}")
+
+
+class _FakeLive:
+    """Stands in for a publisher: the source reports 10 games in 2001 and 7 in 2002."""
+
+    description = "fake publisher totals"
+
+    def measure(self, cur, table):
+        from mlb_baseball.coverage.live import LiveResult
+        from mlb_baseball.coverage.model import Group
+
+        return LiveResult([Group("2001", 10, 10), Group("2002", 7, 5)], ["2003: TimeoutError: x"])
+
+
+def test_probe_reports_where_the_source_and_the_table_differ(db_conn):
+    created: list[str] = []
+    _ensure_table(db_conn, created, "test_cov_live", "_season text")
+    try:
+        _exec(db_conn, "INSERT INTO raw.test_cov_live VALUES ('2001')")
+        dataset = Dataset(
+            "mlb_api",
+            "raw.test_cov_live",
+            Seasons(first=2001, through="prior"),
+            "mlb ingest x",
+            live=_FakeLive(),
+        )
+        quiet = coverage.collect(datasets=[dataset]).tables[0]
+        assert quiet.live == [] and not quiet.live_errors  # nothing asked without --probe
+        row = coverage.collect(datasets=[dataset], probe=True).tables[0]
+        assert [g.label for g in row.live_differs] == ["2002"]
+        assert row.is_gap
+        text = coverage.render_text(coverage.Report([row]))
+        assert "2 compared, 1 differ, 1 could not be asked" in text
+        assert "2002: held 5, source 7" in text
+        assert "2003: TimeoutError" in text
+        payload = json.loads(coverage.render_json(coverage.Report([row])))
+        assert payload["sources"][0]["tables"][0]["live"][1] == {
+            "group": "2002",
+            "source": 7,
+            "held": 5,
+        }
+    finally:
+        for name in created:
+            _exec(db_conn, f"DROP TABLE raw.{name}")

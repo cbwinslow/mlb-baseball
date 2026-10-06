@@ -34,6 +34,13 @@ class TableReport:
     groups: list[Group]
     fix: str
     caveat: str = ""
+    date_column: str = ""
+    first_date: str | None = None
+    last_date: str | None = None
+    date_not_parsed: int | None = None
+    live_note: str = ""
+    live: list[Group] = field(default_factory=list)
+    live_errors: list[str] = field(default_factory=list)
 
     @property
     def expected(self) -> int:
@@ -52,9 +59,14 @@ class TableReport:
         return sum(g.missing for g in self.groups)
 
     @property
+    def live_differs(self) -> list[Group]:
+        """Seasons where the source's own count and what we hold are not equal."""
+        return [g for g in self.live if g.expected != g.held]
+
+    @property
     def is_gap(self) -> bool:
-        """Missing, empty, or unmeasurable: anything that is not a clean result."""
-        return self.status not in NOT_A_GAP
+        """Missing, empty, unmeasurable, or the live source disagrees: not a clean result."""
+        return self.status not in NOT_A_GAP or bool(self.live_differs or self.live_errors)
 
 
 @dataclass(frozen=True)
@@ -97,12 +109,44 @@ def _status(groups: list[Group], rows: int | None) -> str:
     return "complete"
 
 
-def _measure(cur: psycopg.Cursor, dataset: Dataset) -> TableReport:
+def _data_dates(
+    cur: psycopg.Cursor, dataset: Dataset, rows: int | None
+) -> tuple[str | None, str | None, int | None]:
+    """First date, last date and count of non-date values in the declared date column,
+    from ``meta.data_date_range`` (migration 0113); all None when nothing is declared, the
+    table is empty, the table lacks the column, or the function is not installed yet."""
+    if not dataset.date_column or not rows:
+        return None, None, None
+    cur.execute("SELECT to_regprocedure('meta.data_date_range(regclass, text)') IS NOT NULL")
+    (installed,) = fetch_one(cur)
+    if not installed:
+        return None, None, None
+    cur.execute(
+        "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%s) "
+        "AND attname = %s AND attnum > 0 AND NOT attisdropped)",
+        (dataset.table, dataset.date_column),
+    )
+    (has_column,) = fetch_one(cur)
+    if not has_column:
+        return None, None, None
+    cur.execute(
+        "SELECT first_date::text, last_date::text, not_date "
+        "FROM meta.data_date_range(%s::regclass, %s)",
+        (dataset.table, dataset.date_column),
+    )
+    first, last, bad = fetch_one(cur)
+    return first, last, int(bad)
+
+
+def _measure(cur: psycopg.Cursor, dataset: Dataset, probe: bool = False) -> TableReport:
     spec = dataset.spec
     rows: int | None = None
     if not isinstance(spec, ManifestFiles) and _exists(cur, dataset.table):
         cur.execute(f"SELECT count(*) FROM {dataset.table}")
         (rows,) = fetch_one(cur)
+
+    dates = _data_dates(cur, dataset, rows)
+    live = dataset.live.measure(cur, dataset.table) if probe and dataset.live and rows else None
 
     def report(status: str, expectation: str, groups: list[Group]) -> TableReport:
         return TableReport(
@@ -115,6 +159,11 @@ def _measure(cur: psycopg.Cursor, dataset: Dataset) -> TableReport:
             groups,
             _fix(dataset.fix, groups) if status != "complete" else "",
             dataset.caveat,
+            dataset.date_column,
+            *dates,
+            dataset.live.description if live and dataset.live else "",
+            live.groups if live else [],
+            live.errors if live else [],
         )
 
     if isinstance(spec, NoExpectation):
@@ -163,6 +212,7 @@ def collect(
     source: str | None = None,
     table: str | None = None,
     datasets: Sequence[Dataset] | None = None,
+    probe: bool = False,
 ) -> Report:
     """Measure ``datasets`` (default: the registry plus any unregistered raw table)."""
     with get_connection() as conn, conn.cursor() as cur:
@@ -170,5 +220,5 @@ def collect(
         chosen = list(DATASETS if datasets is None else datasets)
         if datasets is None:
             chosen += _unregistered(cur, {d.table for d in chosen})
-        reports = [_measure(cur, d) for d in chosen if _matches(d, source, table)]
+        reports = [_measure(cur, d, probe) for d in chosen if _matches(d, source, table)]
     return Report(reports)

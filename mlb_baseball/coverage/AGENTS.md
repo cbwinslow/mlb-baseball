@@ -10,13 +10,15 @@ Read root `AGENTS.md` and `mlb_baseball/AGENTS.md` first.
 
 - `registry.py`: the single list of datasets. One `Dataset(...)` entry per raw table: expectation, fix command, caveat. Year bounds come from the connectors' own constants (`FIRST_WIN_PROB_YEAR`, `FIRST_YEAR`, ...), not copies.
 - `model.py`: the expectation kinds (`Seasons`, `Games`, `GameDates`, `KalshiCandles`, `PolymarketWindows`, `Present`, `Referenced` (entity tables: every id other tables use exists here, one line per referencing column), `ManifestFiles`, `NoExpectation`) and `Group`. Each kind turns an expectation into `expected / held / accounted` counts per bucket with plain SELECTs.
+- `live.py`: live checks (`--probe` only): ask the publisher, then compare with the table. Today `MlbScheduleTotals` (Stats API `totalGames` per season over plain HTTP, with the American/National League count alongside). Paced, finite timeout, shared retry; a request that fails is reported as an error, never counted as zero. A check lives in `registry.LIVE_CHECKS`.
 - `engine.py`: runs the measurements in one `READ ONLY` transaction and builds the report; reports any raw table that is not registered.
 - `render.py`: text, markdown and JSON views. JSON has sorted keys and no timestamps.
 - `__init__.py`: the `run()` entry point that `cli.py` calls; `cli.py` only parses arguments.
 
 ## Local Contracts
 
-- Flags: `--source`, `--table`, `--json|--markdown`, `--missing-only` (hide clean tables), `--fail-on-gap` (exit 1 on any gap; a gap is any status except `complete` and `no_expectation`, so an unmeasurable table fails closed). There is deliberately no flag that runs a fix.
+- Dates: `registry.DATE_COLUMNS` declares one text date column per table; `meta.data_date_range` (migration 0113) reports first/last date and how many values are not a date. A table not listed reports no range; a unit test checks every declared column exists in `docs/RAW_INVENTORY.md`.
+- Flags: `--probe` (live checks), `--source`, `--table`, `--json|--markdown`, `--missing-only` (hide clean tables), `--fail-on-gap` (exit 1 on any gap; a gap is any status except `complete` and `no_expectation`, so an unmeasurable table fails closed). There is deliberately no flag that runs a fix.
 - Read-only. The engine opens the transaction with `SET TRANSACTION READ ONLY`; a write is a database error, not a policy. Never add a write here, and never a repair step: the command reports, the existing idempotent ingest fixes.
 - Never pass silently. A table with no derivable expectation prints `no expectation defined: <reason>`; a table in the database that the registry lacks is reported as unregistered; an expectation with nothing to derive it from reports `no_basis`; a missing table or input reports `table_absent` / `inputs_absent`.
 - A game or market whose ledger item (`meta.ingestion_item`) is `unavailable` is a recorded source gap: it counts as accounted for, not missing. `loaded` and `unavailable` are the only accounted statuses; `failed` stays missing. The ledger dataset must match the table (a `context_metrics` gap does not excuse a win-probability row).

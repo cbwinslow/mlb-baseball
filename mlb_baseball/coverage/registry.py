@@ -7,6 +7,8 @@ use, so this file and the loaders cannot disagree about a first year. A table wi
 derivable expectation says why, in the output.
 """
 
+from dataclasses import replace
+
 from mlb_baseball.connectors import (
     bref,
     fangraphs,
@@ -18,11 +20,13 @@ from mlb_baseball.connectors import (
     statcast,
     statcast_leaderboard,
 )
+from mlb_baseball.coverage.live import MlbScheduleTotals
 from mlb_baseball.coverage.model import (
     Dataset,
     GameDates,
     Games,
     KalshiCandles,
+    LiveCheck,
     ManifestFiles,
     NoExpectation,
     PolymarketWindows,
@@ -379,4 +383,42 @@ DATASETS: list[Dataset] = [
         "continuous article feed; the publishers give no total to compare against",
         "news",
     ),
+]
+
+# Text date column per raw table whose rows carry a data date (formats differ per table;
+# ``meta.data_date`` parses them). Tables not listed here simply report no date range.
+DATE_COLUMNS: dict[str, str] = {
+    "raw.mlb_schedule": "game_date",
+    "raw.mlb_live_game": "game_date",
+    "raw.mlb_transaction": "date",
+    "raw.statcast_pitch": "game_date",
+    "raw.retrosheet_plays": "date",
+    "raw.retrosheet_gameinfo": "date",
+    "raw.retrosheet_teamstats": "date",
+    "raw.retrosheet_batting": "date",
+    "raw.retrosheet_pitching": "date",
+    "raw.retrosheet_fielding": "date",
+    "raw.retrosheet_box_game": "date",
+    "raw.retrosheet_game": "game_dt",
+    "raw.retrosheet_gamelog": "date",
+    "raw.retrosheet_gamelog_post": "date",
+    "raw.retrosheet_schedule": "date",
+    "raw.retrosheet_transaction": "primary_date",
+    "raw.kalshi_candle": "ts",
+    "raw.kalshi_market": "open_time",
+    "raw.polymarket_price": "ts",
+    "raw.polymarket_event": "startdate",
+    "raw.fangraphs_projection": "_captured_date",
+}
+
+# Live checks (``mlb coverage --probe``): the publisher is asked, not our own tables.
+LIVE_CHECKS: dict[str, LiveCheck] = {"raw.mlb_schedule": MlbScheduleTotals()}
+
+DATASETS = [
+    replace(
+        d,
+        date_column=DATE_COLUMNS.get(d.table, d.date_column),
+        live=LIVE_CHECKS.get(d.table, d.live),
+    )
+    for d in DATASETS
 ]

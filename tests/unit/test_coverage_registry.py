@@ -62,6 +62,7 @@ def test_cli_coverage_dispatches_options(monkeypatch):
         "as_json": True,
         "as_markdown": False,
         "missing_only": False,
+        "probe": False,
     }
 
 
@@ -78,3 +79,16 @@ def test_cli_coverage_fail_on_gap_sets_the_exit_code(monkeypatch):
 def test_cli_coverage_rejects_unknown_source():
     with pytest.raises(SystemExit):
         cli.main(["coverage", "--source", "nope"])
+
+
+def test_every_declared_date_column_is_a_real_column_of_its_table():
+    from pathlib import Path
+
+    from mlb_baseball.coverage.registry import DATE_COLUMNS
+
+    text = Path("docs/RAW_INVENTORY.md").read_text()
+    for table, column in DATE_COLUMNS.items():
+        marker = f"<summary><code>{table}</code> columns</summary>"
+        assert marker in text, f"{table} is not in docs/RAW_INVENTORY.md"
+        block = text.split(marker, 1)[1].split("</details>", 1)[0]
+        assert f"- `{column}` " in block, f"{table} has no column {column}"

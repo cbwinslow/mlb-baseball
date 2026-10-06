@@ -26,10 +26,11 @@ def run(
     as_json: bool,
     as_markdown: bool,
     missing_only: bool = False,
+    probe: bool = False,
 ) -> bool:
     """Print the report; return True when any table in it has a gap (checked before
     ``missing_only`` hides the clean tables)."""
-    report = collect(source=source, table=table)
+    report = collect(source=source, table=table, probe=probe)
     has_gap = report.has_gap
     if missing_only:
         report = report.only_gaps()

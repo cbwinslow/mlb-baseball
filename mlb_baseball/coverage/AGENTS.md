@@ -16,6 +16,7 @@ Read root `AGENTS.md` and `mlb_baseball/AGENTS.md` first.
 
 ## Local Contracts
 
+- Flags: `--source`, `--table`, `--json|--markdown`, `--missing-only` (hide clean tables), `--fail-on-gap` (exit 1 on any gap; a gap is any status except `complete` and `no_expectation`, so an unmeasurable table fails closed). There is deliberately no flag that runs a fix.
 - Read-only. The engine opens the transaction with `SET TRANSACTION READ ONLY`; a write is a database error, not a policy. Never add a write here, and never a repair step: the command reports, the existing idempotent ingest fixes.
 - Never pass silently. A table with no derivable expectation prints `no expectation defined: <reason>`; a table in the database that the registry lacks is reported as unregistered; an expectation with nothing to derive it from reports `no_basis`; a missing table or input reports `table_absent` / `inputs_absent`.
 - A game or market whose ledger item (`meta.ingestion_item`) is `unavailable` is a recorded source gap: it counts as accounted for, not missing. `loaded` and `unavailable` are the only accounted statuses; `failed` stays missing. The ledger dataset must match the table (a `context_metrics` gap does not excuse a win-probability row).

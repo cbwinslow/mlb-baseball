@@ -19,11 +19,24 @@ __all__ = [
 ]
 
 
-def run(*, source: str | None, table: str | None, as_json: bool, as_markdown: bool) -> None:
+def run(
+    *,
+    source: str | None,
+    table: str | None,
+    as_json: bool,
+    as_markdown: bool,
+    missing_only: bool = False,
+) -> bool:
+    """Print the report; return True when any table in it has a gap (checked before
+    ``missing_only`` hides the clean tables)."""
     report = collect(source=source, table=table)
+    has_gap = report.has_gap
+    if missing_only:
+        report = report.only_gaps()
     if as_json:
         print(render_json(report))
     elif as_markdown:
         print(render_markdown(report), end="")
     else:
         print(render_text(report), end="")
+    return has_gap

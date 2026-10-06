@@ -593,6 +593,16 @@ def main(argv: list[str] | None = None) -> None:
         help="report only this source",
     )
     coverage_parser.add_argument("--table", help="report only this table (raw.<name> or <name>)")
+    coverage_parser.add_argument(
+        "--missing-only",
+        action="store_true",
+        help="list only tables with a gap (missing, empty, or not measurable)",
+    )
+    coverage_parser.add_argument(
+        "--fail-on-gap",
+        action="store_true",
+        help="exit 1 when any reported table has a gap, so a nightly job or CI can gate on it",
+    )
     coverage_format = coverage_parser.add_mutually_exclusive_group()
     coverage_format.add_argument("--json", action="store_true", help="machine-readable output")
     coverage_format.add_argument("--markdown", action="store_true", help="markdown output")
@@ -1816,9 +1826,15 @@ def main(argv: list[str] | None = None) -> None:
                 f"{row['rows']} rows, started {row['started_at']})"
             )
     elif args.command == "coverage":
-        coverage.run(
-            source=args.source, table=args.table, as_json=args.json, as_markdown=args.markdown
+        has_gap = coverage.run(
+            source=args.source,
+            table=args.table,
+            as_json=args.json,
+            as_markdown=args.markdown,
+            missing_only=args.missing_only,
         )
+        if args.fail_on_gap and has_gap:
+            sys.exit(1)
     elif args.command == "metrics":
         try:
             operational_metrics.print_report(args.source, args.window_minutes)

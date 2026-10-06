@@ -43,7 +43,7 @@ After a connector run, `mlb ingest` prints per table `N loaded, M in table` (or 
 
 `mlb source-check [--source S ...] [--hash]` asks each publisher, with one HEAD request per archive in `downloads/<source>/manifest.json`, whether a file we already downloaded changed (`source_check.py` owns the comparison; the CLI only parses and gates by source profile). It downloads nothing into `downloads/`, writes nothing there and opens no database; `--hash` fetches each archive to a temporary file outside `downloads/`, compares SHA-256 and deletes it. Exit codes: 0 nothing changed, 1 something changed (prints `mlb ingest <source> --refresh` per changed source), 2 could not check (unknown headers, a request failure, a 404 "gone" archive, or a `--source` with no download record). Default sources are the directories under `downloads/`.
 
-`mlb coverage [--source S] [--table T] [--json|--markdown]` prints, per source and raw table, what should be held versus what is held and the `mlb ingest` command that fixes each gap. It is read-only (one `READ ONLY` transaction); `mlb_baseball/coverage/` owns the logic and its `AGENTS.md` the contract, the CLI only parses and dispatches.
+`mlb coverage [--source S] [--table T] [--json|--markdown] [--missing-only] [--fail-on-gap]` prints, per source and raw table, what should be held versus what is held and the `mlb ingest` command that fixes each gap. It is read-only (one `READ ONLY` transaction); `mlb_baseball/coverage/` owns the logic and its `AGENTS.md` the contract, the CLI only parses and dispatches.
 
 Some connectors may additionally expose an expensive/manual `backfill` mode. Backfill must remain opt-in and must not accidentally run as part of routine bootstrap/update.
 

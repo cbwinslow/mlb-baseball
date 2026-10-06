@@ -605,6 +605,12 @@ def main(argv: list[str] | None = None) -> None:
         help="list only tables with a gap (missing, empty, or not measurable)",
     )
     coverage_parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="also ask the publisher what exists (a few hundred small paced GET requests; "
+        "reads only) and compare with the table",
+    )
+    coverage_parser.add_argument(
         "--fail-on-gap",
         action="store_true",
         help="exit 1 when any reported table has a gap, so a nightly job or CI can gate on it",
@@ -1840,6 +1846,7 @@ def main(argv: list[str] | None = None) -> None:
             as_json=args.json,
             as_markdown=args.markdown,
             missing_only=args.missing_only,
+            probe=args.probe,
         )
         if args.fail_on_gap and has_gap:
             sys.exit(1)

@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import psycopg
 
@@ -349,6 +349,13 @@ class NoExpectation:
         return []
 
 
+class LiveCheck(Protocol):
+    @property
+    def description(self) -> str: ...
+
+    def measure(self, cur: psycopg.Cursor, table: str) -> Any: ...
+
+
 @dataclass(frozen=True)
 class Dataset:
     """One registry entry: a table, what it should hold, and the command that fixes a gap.
@@ -360,6 +367,8 @@ class Dataset:
     spec: Expectation
     fix: str = ""
     caveat: str = ""
+    date_column: str = ""  # text date column whose first/last value is reported
+    live: "LiveCheck | None" = None  # asks the publisher; only run with --probe
 
 
 def manifest_label(source: str) -> str:

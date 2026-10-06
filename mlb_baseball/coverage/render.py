@@ -53,6 +53,24 @@ def _plural(count: int, unit: str) -> str:
     return f"{count:,} {unit}{'s' if count != 1 else ''}"
 
 
+def _live_text(table: TableReport) -> list[str]:
+    if not table.live and not table.live_errors:
+        return []
+    differs = table.live_differs
+    lines = [
+        f"    live check: {table.live_note}; {len(table.live)} compared, {len(differs)} differ"
+        + (f", {len(table.live_errors)} could not be asked" if table.live_errors else "")
+    ]
+    if differs:
+        shown = [f"{g.label}: held {g.held:,}, source {g.expected:,}" for g in differs]
+        if len(shown) > MAX_MISSING_ITEMS:
+            shown = [*shown[:MAX_MISSING_ITEMS], f"... and {len(shown) - MAX_MISSING_ITEMS} more"]
+        lines.append("    live differs: " + "; ".join(shown))
+    if table.live_errors:
+        lines.append("    live errors: " + "; ".join(table.live_errors[:5]))
+    return lines
+
+
 def _table_text(table: TableReport) -> list[str]:
     if table.table.startswith("downloads/"):
         rows = "local file"
@@ -62,6 +80,11 @@ def _table_text(table: TableReport) -> list[str]:
         return [f"  {table.table}: no expectation defined: {table.expectation} ({rows})"]
     lines = [f"  {table.table} [{table.unit}]: {STATUS_LABEL[table.status]} ({rows})"]
     lines.append(f"    expectation: {table.expectation}")
+    if table.first_date:
+        unparsed = f"; {table.date_not_parsed:,} values not a date" if table.date_not_parsed else ""
+        lines.append(
+            f"    dates ({table.date_column}): {table.first_date} to {table.last_date}{unparsed}"
+        )
     if table.groups:
         lines.append(
             f"    expected {table.expected:,} | held {table.held:,} | "
@@ -69,6 +92,7 @@ def _table_text(table: TableReport) -> list[str]:
         )
     if table.missing:
         lines.append(f"    missing: {missing_text(table)}")
+    lines += _live_text(table)
     if table.fix:
         lines.append(f"    fix: {table.fix}")
     if table.caveat and table.status != "complete":
@@ -107,25 +131,26 @@ def render_markdown(report: Report) -> str:
             "",
             f"{len(tables)} tables, {_summary(tables)}.",
             "",
-            "| table | unit | status | expected | held | accounted | missing | fix |",
-            "|---|---|---|---:|---:|---:|---:|---|",
+            "| table | unit | status | expected | held | accounted | missing | dates | fix |",
+            "|---|---|---|---:|---:|---:|---:|---|---|",
         ]
         for t in tables:
             fix = f"`{t.fix}`" if t.fix else ""
+            dates = f"{t.first_date} to {t.last_date}" if t.first_date else ""
             counts = (
                 f"{t.expected} | {t.held} | {t.accounted} | {t.missing}"
                 if t.groups
                 else " |  |  | "
             )
-            lines.append(
-                f"| `{t.table}` | {t.unit} | {STATUS_LABEL[t.status]} | {counts} | {fix} |"
-            )
+            status = STATUS_LABEL[t.status]
+            lines.append(f"| `{t.table}` | {t.unit} | {status} | {counts} | {dates} | {fix} |")
         lines.append("")
         for t in tables:
             if t.status == "no_expectation":
                 lines.append(f"- `{t.table}`: no expectation defined: {t.expectation}")
             elif t.missing:
                 lines.append(f"- `{t.table}` missing: {missing_text(t)}")
+            lines += [f"- `{t.table}` {line.strip()}" for line in _live_text(t)]
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -164,6 +189,14 @@ def render_json(report: Report) -> str:
                         ],
                         "fix": t.fix,
                         "caveat": t.caveat,
+                        "date_column": t.date_column or None,
+                        "first_date": t.first_date,
+                        "last_date": t.last_date,
+                        "date_not_parsed": t.date_not_parsed,
+                        "live": [
+                            {"group": g.label, "source": g.expected, "held": g.held} for g in t.live
+                        ],
+                        "live_errors": t.live_errors,
                     }
                     for t in tables
                 ],

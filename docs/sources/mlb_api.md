@@ -94,3 +94,9 @@ The gap list, costs and recorded reasons live in `SOURCE_COVERAGE_AUDIT.md` ("ML
 - first valid year per season-scoped reference endpoint (`attendance`, `coach`, `alumni`, `free_agent`, `game_pace`, `player_pool`, `player_stat`);
 - which years populate pitch, hit and play-event fields in the GUMBO feed;
 - first valid year per minor-league level.
+
+## Live check result: schedule versus the API (2026-10-06)
+
+`mlb coverage --table mlb_schedule --probe` asked the API for each season's game count (regular season and postseason, `sportId=1`) and compared it with `raw.mlb_schedule`: **108 of 126 seasons match exactly**. The 18 that differ are all 1920 to 1947 and are Negro League games, which the API now lists under the MLB level (team ids 14xx and 15xx). Examples: 1924 holds 1,238 games against 1,760 at the source (the 1,238 is exactly the American and National League count); 1930 matches. So the table holds some Negro League games in some years and none in others. That is a scope question for `openspec/changes/negro-league-scope` and the owner, not a loader fault to fix blindly.
+
+Method note: the `statsapi` library returned one game more than the API for 1950, so the probe uses plain HTTP; the connector's own request path is not the reference for what the source offers.

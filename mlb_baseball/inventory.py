@@ -5,6 +5,8 @@ written inventory would go stale the moment ingestion runs again. This
 queries current state every time, so it's always right.
 """
 
+import json
+
 import psycopg
 
 from mlb_baseball.db import fetch_one, get_connection
@@ -102,8 +104,11 @@ def last_runs() -> list[dict]:
 
 def save_profile() -> int:
     """Recompute ``meta.raw_profile`` (the only write here); returns tables profiled."""
+    from mlb_baseball.coverage.registry import DATE_COLUMNS
+
+    declared = {table.removeprefix("raw."): column for table, column in DATE_COLUMNS.items()}
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT meta.refresh_raw_profile()")
+        cur.execute("SELECT meta.refresh_raw_profile(NULL, %s::jsonb)", (json.dumps(declared),))
         (written,) = fetch_one(cur)
         conn.commit()
     return int(written)

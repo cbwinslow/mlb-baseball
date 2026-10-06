@@ -125,7 +125,7 @@ duplicate or corrupt rows.
 | Command | Shows |
 |---|---|
 | `mlb doctor` | one-pass health: DB connectivity, schema, migrations, per-connector checks |
-| `mlb inventory` | live row-count estimates and last-run status per source (`--exact`, `--partitions`) |
+| `mlb inventory` | live row-count estimates and last-run status per source (`--exact`, `--partitions`; `--markdown PATH` writes the raw inventory; `--save-profile` WRITES `meta.raw_profile`, exact rows plus season and load-time ranges per raw table) |
 | `mlb coverage` | read-only expected-versus-held per source and table, what is missing, and the `mlb ingest` command that fixes it (`--source`, `--table`, `--json`, `--markdown`, `--missing-only`, `--fail-on-gap`) |
 | `mlb status` | table-by-table population as a progress-bar view (`--all`, `--watch N`, `--run-status`) |
 | `mlb schema` | schema object / constraint catalogue (`--partitions`) |

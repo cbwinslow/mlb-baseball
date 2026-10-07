@@ -87,6 +87,13 @@ Source of truth for the numbers is `mlb coverage --source mlb_api`; the table be
 
 Identity: `game_pk` is MLB's game id. It is not our canonical game key; reconcile in conform.
 
+## Verified 2026-10-07 (live probes and read-only queries)
+
+- **Season reference and stat endpoints** (player pool, coaches, alumni, game pace, player and team stats, leaders): data is served for 2006, 2016, 2019, 2024, 2025 and 2026. The coverage report expects them from 2000 (`FIRST_REFERENCE_YEAR`; free agents 2001). Older years are sparse and unprobed. We are missing 2006 and 2017-2025 (task 2.8 of `data-completeness`).
+- **Play-by-play and box scores before 2026** are deliberately not loaded: Retrosheet's event data covers 1900-2025 (208,693 games held) and 2026 is not in Retrosheet yet. Not byte-identical (MLB adds pitch-level fields; Statcast covers 2008 on), but the same plays. Retrosheet publishes box scores directly only to 1961; later ones derive from its events.
+- **Ids:** the loader stores some ids as `17.0` in one table and `17` in another; coverage compares them without the `.0`.
+- **Schedule team ids** with no row in `raw.mlb_team_history` are not clubs (All-Star sides, postseason seed placeholders, exhibition opponents, five Negro League clubs).
+
 ## Known gaps and open questions
 
 The gap list, costs and recorded reasons live in `SOURCE_COVERAGE_AUDIT.md` ("MLB Stats API: what we leave out"); do not restate them here. The first-valid-year questions this page cannot yet answer belong to `full-source-ingestion` task 1.1 and, once probed, go into the Coverage table above and into `mlb_baseball/coverage/registry.py` so `mlb coverage` can compare them:

@@ -222,10 +222,15 @@ at least one calibrated model beating the reference baseline on a
 chronological hold-out.
 - Live event log + pure state reducer + replay (`live.event`,
   `live.prediction`, market replay with latency/fill simulation).
-- The subscriber website. The paid betting-advice piece is additionally
-  gated on the Phase-4 legal homework — regulated per US state.
+- The subscriber website and paid research. Owner direction 2026-10-07
+  (ADR-296): we publish research and findings only and take no bets, so
+  gambling regulation and upstream data licences are not a build gate for
+  published research. Redistributing *data* in the public toolkit still
+  follows `docs/SOURCE_RIGHTS.md`.
 
-**SPECULATIVE** means: Phase A (a trustworthy research database) has a
+Owner confirmation 2026-10-07: Phases B and C are intended goals (predictive
+models, Polymarket/Kalshi market research, a paid research site), done in
+this order. **SPECULATIVE** means: Phase A (a trustworthy research database) has a
 proven audience — `pybaseball` / `baseballr`. Phases B and C rest on an
 unproven premise: that this operation can produce model / betting
 research people pay for. They stay on the ladder so the ambitions have a
@@ -240,8 +245,8 @@ Bug fixes to Phase B/C areas only when they block Phase A or break `main`.
 
 Everything once recorded here — a real-time prediction ladder,
 ensembles/DNNs, DuckDB as a build engine — is now sequenced into Phases
-B–C above. The one standing gate: Phase C paid betting-advice needs the
-per-US-state legal homework before any of it ships.
+B–C above. The stage order (database/ETL → metrics → models → website) is the
+standing gate.
 
 ---
 
@@ -287,8 +292,9 @@ applied to model code, not a new rule.
 
 - **Workflow: OpenSpec.** Every non-trivial change is an `openspec/
   changes/<name>/` (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`).
-  Superpowers `brainstorming` + `test-driven-development` are skills used
-  *inside* a change. The old `plans/` (now `docs/archive/plans/`) and conductor `/spec`
+  Superpowers and mattpocock skills are used *inside* a change; the skill
+  table, ADR, DOX and logging duties are in root `AGENTS.md` (Operating
+  protocol; ADR-296). The old `plans/` (now `docs/archive/plans/`) and conductor `/spec`
   workflows are retired.
 - **Queue:** open `openspec/changes/` folders + the `NOW / NEXT / LATER`
   block below.
@@ -345,13 +351,14 @@ branches still needs an explicit ask.
 ## Tooling
 
 **Adopted:** DuckDB, `postgres-mcp` (formalized), MkDocs Material, Marimo, the
-`add-gold-metric` project skill (to build).
+`add-gold-metric` project skill (to build), the Superpowers and
+mattpocock skill packs (ADR-296).
 **Audit done (ADR-279, 2026-09-02):** no library/extension adopted — prior
 reviews hold. One follow-up filed (issue #142: stdlib `logging` for
 ingestion errors). Gated for later: `requests.Session` reuse, `ftfy`,
 `pandera`, `pg_duckdb`, `pg_partman`, `pgvector`, Polars, sqlglot, pg_trgm
 — each has a documented trigger (see ADR-279).
-**Not adopting:** pg_cron, PL/pgSQL for pipeline logic, more skill packs,
+**Not adopting:** pg_cron, PL/pgSQL for pipeline logic,
 TimescaleDB, a baseball-stats MCP, GitHub/filesystem MCP.
 
 ---

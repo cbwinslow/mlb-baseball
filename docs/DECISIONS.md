@@ -2,6 +2,25 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-296: Skills, ADRs and DOX updates are mandatory working practice; legal gates relaxed for published research
+
+**Decision (2026-10-07, owner direction).** (1) Agents use OpenSpec, Superpowers
+and mattpocock skills by default, per the **Operating protocol** in root `AGENTS.md`;
+decisions made in OpenSpec changes are logged here, and DOX sidecars are updated
+in the same change. `openspec/config.yaml` carries the matching `rules` and
+archive guidance. This reverses "not adopting more skill packs" in
+`openspec/project.md`. (2) The project's two halves and stage order (database/ETL →
+metrics → models → website) are stated in `AGENTS.md`. (3) The per-state legal
+homework gate on paid betting-advice is dropped: we publish research, we do not
+take bets, and published findings do not redistribute source data. Redistributing
+data in the public toolkit still follows `docs/SOURCE_RIGHTS.md`.
+
+**Why.** An audit found ADRs missing for about half of recent OpenSpec changes,
+no rule telling agents when to use skills, and a legal gate that contradicted the
+owner's intent.
+
+**Revisit if:** we start taking money tied to specific wagers or a data provider objects.
+
 ## ADR-295: SQL functions, procedures and triggers are allowed; run monitoring lives in the database
 
 **Decision (2026-10-05, owner direction).** The earlier rule "no triggers, no stored

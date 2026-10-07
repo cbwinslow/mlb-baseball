@@ -14,6 +14,18 @@ context: |
   Definition of done: tests pass, linters clean, ingestion idempotent
   (as a test), upstream errors handled explicitly, docs updated same change.
 
+rules:
+  design:
+    - Record each hard-to-reverse, surprising, real-trade-off decision as an ADR in docs/DECISIONS.md and cite its number here.
+  tasks:
+    - Include a task to update the nearest .dox.md / owning contract when behavior changes.
+    - For ingestion work include a run-twice idempotency test and a bootstrap/doctor check.
+
+operations:
+  archive:
+    guidance:
+      - Before archiving confirm each decision made in this change has an ADR and each touched file's .dox.md is current.
+
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
 # Example:

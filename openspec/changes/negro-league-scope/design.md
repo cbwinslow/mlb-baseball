@@ -83,3 +83,7 @@ building backbone lines for box-only games (#257); any change to 2015+ data.
   one first.
 - The migration is applied by the nightly `mlb migrate`; no manual owner step.
 - Name matching for API clubs may be ambiguous; mitigated by the era check and the unmatched-club report.
+
+## Owner decision (2026-10-07)
+
+The owner left the choice to Claude, asking only for consistency. Decision: **keep every Negro League game in the database, from every source (Retrosheet and the MLB API), flagged by the same rule, and leave them out of the major-league pool by default** (`core.game_mlb`). This is what the proposal already does; nothing is deleted and any future Negro League study keeps its data. Consistency rule: whatever the flag says for a game applies to every table and every source; no source gets a different treatment.

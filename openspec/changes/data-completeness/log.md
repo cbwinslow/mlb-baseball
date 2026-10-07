@@ -154,3 +154,10 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Then: data-completeness 2.4, 3.3 (now done via source-inventory), 3.5 docs, 4.1 results-final, 4.2 validate and archive; source-inventory 3.4 (measure repair cost), 6.2, 6.3. Owner decides whether `repair` moves from `--dry-run` to `--apply` in nightly (recommended: after a few nightly plans look right; keep Polymarket out until named).
 - Later: roster person 116751; main checkout 3 commits behind (owner's uncommitted files, do not touch); January 1 season-switch test; installer plan (owner declined for now); Negro League scope; Seamheads rights; Chadwick ODC-By citation.
 - Next stage after the owner calls this part done: metrics/features (project phase 2).
+
+### 2026-10-07 — HANDOFF 4 (switch to next tasks)
+- Decision (owner delegated, "I don't care what we do... be consistent"): Negro League games stay in the database from every source, flagged by one rule, and are kept out of the major-league pool by default. Recorded in `negro-league-scope/design.md`. Next: start `negro-league-scope` with group 1 (read-only measuring, tasks 1.1-1.4), then group 2 (migration, flag in `conform`, doctor check). Migration must be applied by the nightly `mlb migrate`; production `mlb conform` run needs a named owner yes.
+- Running: Polymarket backfill (run 19357, `logs/polymarket_backfill1.log`), 3,954 requests, estimated ~18 hours from 22:33 UTC on 2026-10-07. Kalshi backfill finished. Do not start another heavy ingest until it ends (check with `kill -0` on its PID or the log; do not use a pgrep pattern inside a command that contains it).
+- Tomorrow (2026-10-08, after 08:00 UTC, owner says "check the nightly"): same checklist as HANDOFF 3, plus Kalshi final coverage and Polymarket progress.
+- Worktrees: all old ones removed; only the main checkout remains (3 commits behind origin; owner's uncommitted files, including `AGENTS.md`; do not touch). Use a new worktree per change.
+- After negro-league-scope: `full-source-ingestion` (4/40; write and test code now, run loads only after Polymarket ends), then `feature-store-v1` (32/33).

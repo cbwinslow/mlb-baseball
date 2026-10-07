@@ -45,3 +45,5 @@ This subtree owns repository maintenance and operational helper scripts. Scripts
 ## Child DOX Index
 
 No child DOX currently. Add a child only if scripts split into durable domains such as release, database administration, or data-repair operations with materially different safety rules.
+
+> Skills, ADR logging and DOX-update duties for every change: root `AGENTS.md`, "Operating protocol".

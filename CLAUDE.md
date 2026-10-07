@@ -107,16 +107,9 @@ more fashionable.
 
 ## Evidence before rewrites or optimization
 
-Do not propose a rewrite, vectorization, GPU/JIT path, concurrency change, or
-"this is slow" conclusion from appearance alone.
-
-- Measure representative runtime/query plans/memory/profile data first where the
-  claim is performance-based.
-- Prefer cheap local fixes before architectural replacement.
-- Preserve stable facades while decomposing large modules such as `cli.py` and
-  `conform.py`.
-- Historical warnings in a local DOX sidecar are scoped evidence. Do not turn one
-  connector's concurrency failure into a universal "never use threads" rule.
+Measure first (root `AGENTS.md`, "Measure before optimization"). Preserve stable
+facades while decomposing `cli.py` / `conform.py`. A DOX sidecar's concurrency
+warning is evidence for that connector only, not a universal "no threads" rule.
 
 ## Delegation and subagents
 
@@ -142,30 +135,16 @@ proof.
 
 ## Database and test safety
 
-Shared test mechanics live in `tests/AGENTS.md` / `tests/conftest.py`; read them
-when touching tests. In particular, do not resurrect the old assumption that
-pytest mutates one shared literal `mlb_test` database.
-
-For any destructive manual database operation:
-
-- make the target database explicit before execution;
-- never infer safety from a vague environment name;
-- production `mlb` is real data;
-- use the repository's run-specific disposable PostgreSQL fixtures for tests.
-
-Do not mock PostgreSQL transaction/lock/COPY semantics when the regression depends
-on those semantics.
+Test mechanics: `tests/AGENTS.md` / `tests/conftest.py` (run-specific disposable
+PostgreSQL, never one shared `mlb_test`). Name the target database before any
+destructive manual operation; production `mlb` is real data. Use real PostgreSQL
+where the regression depends on transaction/lock/COPY semantics.
 
 ## Source and connector work
 
-Detailed connector rules live under `mlb_baseball/connectors/`. For Claude:
-
-- verify source/coverage/schema facts rather than guessing them;
-- use bounded external/source checks only when needed to resolve a material fact;
-- preserve source-faithful raw quirks;
-- require parity evidence before replacing a mature connector/client;
-- do not add a new data source or paid dependency without owner approval and
-  source-rights documentation.
+Rules live under `mlb_baseball/connectors/`. Verify source/coverage/schema facts
+rather than guessing; require parity evidence before replacing a mature
+connector; add no new source or paid dependency without owner approval.
 
 ## Research/model work
 
@@ -194,15 +173,9 @@ celebrating it or declaring leakage from one metric alone.
 
 ## Review and GitHub behavior
 
-- Preserve parallel/user changes.
-- Work through focused branches and PRs.
-- Address substantive human and automated review findings on PRs Claude is
-  working on. Verify findings rather than blindly accepting/rejecting them.
-- Explain why a finding is false/out of scope when declining it.
-- Claude and Codex are pre-authorized to commit to PRs, push branches, and merge
-  PRs into `main` (using `gh pr merge --auto --squash` or `gh pr merge --squash`)
-  once CI checks (`test`, `secrets`) pass. Force-pushing or deleting remote
-  branches of other contributors still requires explicit owner authorization.
+Git/PR authority and merge rules: root `AGENTS.md` ("Git and collaboration
+safety"). On a PR you are working, verify each review finding; fix real ones and
+explain why a declined finding is false or out of scope.
 
 ## Definition of done for Claude
 

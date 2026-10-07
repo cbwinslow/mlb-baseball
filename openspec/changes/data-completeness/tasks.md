@@ -26,6 +26,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 - [ ] 2.5 Kalshi (744) and Polymarket (3,560) 2026 items
 - [ ] 2.6 Other gaps found in 1.6, one task each
 - [ ] 2.8 MLB reference and stat seasons missing: 2006, 2017-2025 for player pool, coaches, alumni, game pace, free agents, player/team stats and leaders (found 2026-10-07; source serves them; `mlb ingest mlb_api --mode bootstrap` fills them and the old linescores)
+- [x] 2.6 (venues: false gap fixed; team ids: accepted, see log) Other gaps found in 1.6, one task each
 - [ ] 2.7 After each repair: re-run coverage, record before/after in `log.md`
 
 ## 3. Make it permanent

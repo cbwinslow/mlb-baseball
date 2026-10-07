@@ -21,7 +21,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 
 - [ ] 2.1 81 old MLB linescores (2000-2024)
 - [ ] 2.2 147 roster players missing from `raw.mlb_person` (widening is `full-source-ingestion` 0.14)
-- [ ] 2.3 FanGraphs fielding 2019
+- [ ] 2.3 (code ready, awaiting owner approval to run) FanGraphs fielding 2019
 - [ ] 2.4 Statcast: 4 games of 2026-10-05/06 (heals with `mlb ingest statcast --mode update`; the 2008-10-29 "missing date" was a false alarm, see log)
 - [ ] 2.5 Kalshi (744) and Polymarket (3,560) 2026 items
 - [ ] 2.6 Other gaps found in 1.6, one task each

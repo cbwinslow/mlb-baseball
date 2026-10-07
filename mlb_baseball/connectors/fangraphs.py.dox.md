@@ -65,7 +65,12 @@ Public connector capabilities: `bootstrap()`, `update()`, `health_check()`.
 - `_season` is added and is the scoped-replace key.
 - `bootstrap()` loops `LEADERBOARD_FIRST_YEAR` → current, skipping past seasons
   already loaded (`season_already_loaded`); `update()` reloads the current
-  season only.
+  season only. Park factors (per board), prospects and curated splits (per
+  season and split, `_scope`) are skipped the same way, so a re-run of
+  `mlb ingest fangraphs` fetches only what is missing from past seasons; a
+  past unit that holds any rows is not repaired by it. The handedness park-factor
+  board is asked only from `PARK_FACTOR_HANDEDNESS_FIRST_YEAR` (2002; live probe
+  2026-10-07, earlier years raise "No Guts table found"); the basic board serves 1871 on.
 - Full available history. Advanced columns come back **null** for early
   seasons (before FanGraphs computes them) — preserved as genuine nulls,
   never zero-filled. The real observed earliest season per board is recorded

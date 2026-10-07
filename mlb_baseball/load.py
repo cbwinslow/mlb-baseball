@@ -381,14 +381,18 @@ def append_dataframe(
         return _copy_dataframe(cur, table_ident, df)
 
 
-def season_already_loaded(conn: psycopg.Connection, table: str, season: int) -> bool:
+def season_already_loaded(
+    conn: psycopg.Connection, table: str, season: int | str, scope_column: str = "_season"
+) -> bool:
     """For full-history bootstraps built from many independent per-season API
     calls (mlb_api.py, statcast.py) rather than Retrosheet's downloaded-file
     products (which already get disk-cached via manifest.py) — lets bootstrap()
     skip a past season that's already landed instead of re-fetching data that's
     published, complete, and will never change. Only meaningful for seasons
     before the current one; the caller is responsible for always re-fetching
-    the current season, which is still in progress by definition."""
+    the current season, which is still in progress by definition. ``scope_column`` names
+    another text column to test (``_scope`` for per-season-and-split boards); ``season``
+    is then the value to look for."""
     # information_schema never raises on a missing table (it just returns no
     # rows), so this doubles as the table-existence check — no separate
     # UndefinedTable handling needed for the second query below.
@@ -396,14 +400,14 @@ def season_already_loaded(conn: psycopg.Connection, table: str, season: int) -> 
     with conn.cursor() as cur:
         cur.execute(
             "SELECT 1 FROM information_schema.columns "
-            "WHERE table_schema = %s AND table_name = %s AND column_name = '_season'",
-            (schema, bare_table),
+            "WHERE table_schema = %s AND table_name = %s AND column_name = %s",
+            (schema, bare_table, scope_column),
         )
         if cur.fetchone() is None:
             return False
         cur.execute(
-            sql.SQL("SELECT 1 FROM {table} WHERE _season = %s LIMIT 1").format(
-                table=_table_identifier(table)
+            sql.SQL("SELECT 1 FROM {table} WHERE {column} = %s LIMIT 1").format(
+                table=_table_identifier(table), column=sql.Identifier(scope_column)
             ),
             (str(season),),
         )

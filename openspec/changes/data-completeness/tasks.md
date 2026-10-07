@@ -13,7 +13,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 - [ ] 1.1 Per source, record what it offers vs what the connector loads in `docs/sources/<source>.md`; verify each page names its evidence and date
 - [ ] 1.2 Give every one of the 46 raw tables without an expectation an expectation or a written reason; verify `mlb coverage` lists none silently and a test fails on an unregistered table
 - [x] 1.3 Schedule-aware expectations: count "Completed Early", track Postponed/Scheduled against MLB's published schedule, include the next season when published; verify with a fixture and live probe (PR for branch `feat/schedule-aware-coverage`)
-- [ ] 1.4 Chadwick-based player check: players seen in rosters, box scores and Statcast exist in the register; verify counts and list unmatched
+- [x] 1.4 Chadwick-based player check: players seen in rosters, box scores and Statcast exist in the register; verify counts and list unmatched (report line on `raw.register_people`; FanGraphs, Retrosheet, bref ids not checked there)
 - [ ] 1.5 Live checks for the other sources (`full-source-ingestion` 0.13): Retrosheet file list, FanGraphs/Baseball-Reference seasons, Lahman release year, Statcast per-day pitch counts
 - [ ] 1.6 Full report saved to this folder as `results-baseline.md` with every gap classified: repair, scope, unavailable, or open question
 
@@ -30,7 +30,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 ## 3. Make it permanent
 
 - [ ] 3.1 Bootstrap-from-empty test that every repair path is reproduced
-- [ ] 3.2 Nightly coverage step with alert on any new gap; verify with a failing and a passing fixture
+- [ ] 3.2 Nightly coverage step with alert on any new gap (needs a machine-readable list of accepted gaps so a known scope gap does not alert every night); verify with a failing and a passing fixture
 - [ ] 3.3 Bounded self-repair for safe gaps beyond MLB game detail (each with a test)
 - [ ] 3.4 Cron entry in `scripts/` (flock, log) and docs in `docs/ARCHITECTURE.md` "Scheduling"
 - [ ] 3.5 Update `docs/sources/`, `docs/RAW_INVENTORY.md`, `mlb_baseball/coverage/AGENTS.md`

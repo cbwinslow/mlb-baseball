@@ -359,8 +359,35 @@ DATASETS: list[Dataset] = [
     *_seasons("bref", Seasons(bref.FIRST_YEAR), "bref_batting", "bref_pitching"),
     *_present("bref", "bref_war_batting", "bref_war_pitching"),
     # Chadwick register: whole files.
-    *_present(
-        "register", "register_people", "register_names", "register_links", "register_countries"
+    *_present("register", "register_names", "register_links", "register_countries"),
+    # Every MLB player id the other sources use should be in the register (Chadwick adds new
+    # players shortly after a first appearance).
+    Dataset(
+        "register",
+        "raw.register_people",
+        Referenced(
+            ("key_mlbam",),
+            (
+                ("raw.mlb_roster", ("person_id",)),
+                ("raw.mlb_boxscore_batting", ("person_id",)),
+                ("raw.mlb_boxscore_pitching", ("person_id",)),
+                ("raw.mlb_boxscore_fielding", ("person_id",)),
+                ("raw.mlb_umpire", ("person_id",)),
+                ("raw.statcast_pitch", ("batter",)),
+                ("raw.statcast_pitch", ("pitcher",)),
+            ),
+            "person",
+        ),
+        "mlb ingest register",
+        "checked 2026-10-07: modern players are all present. The roster lines left over are "
+        "Negro League players (1922-1945) the register does not list (a scope question, "
+        "openspec negro-league-scope); 5 box-score players appear only in 2026 exhibition "
+        "games against national teams; the umpire line is 2 placeholder rows (NO UMPIRE, "
+        "1B Umpire) and 2 umpires, not players. A "
+        "2026 debut missing here means the register has not caught up: reload it with "
+        "`mlb ingest register`. The FanGraphs, Retrosheet and Baseball-Reference ids are not "
+        "checked here (key_fangraphs lags for new players: 256 2026 FanGraphs ids had none on "
+        "2026-10-07)",
     ),
     # Prediction markets.
     Dataset(

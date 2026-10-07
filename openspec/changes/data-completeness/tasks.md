@@ -10,7 +10,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 
 ## 1. Scan offerings and measure (read-only)
 
-- [ ] 1.1 Per source, record what it offers vs what the connector loads in `docs/sources/<source>.md`; verify each page names its evidence and date
+- [x] 1.1 (kalshi, polymarket and news pages keep their earlier checks) Per source, record what it offers vs what the connector loads in `docs/sources/<source>.md`; verify each page names its evidence and date
 - [x] 1.2 (the 10 mlb_api season tables now have expectations; attendance stays per-team, no expectation) Give every one of the 46 raw tables without an expectation an expectation or a written reason; verify `mlb coverage` lists none silently and a test fails on an unregistered table
 - [x] 1.3 Schedule-aware expectations: count "Completed Early", track Postponed/Scheduled against MLB's published schedule, include the next season when published; verify with a fixture and live probe (PR for branch `feat/schedule-aware-coverage`)
 - [x] 1.4 Chadwick-based player check: players seen in rosters, box scores and Statcast exist in the register; verify counts and list unmatched (report line on `raw.register_people`; FanGraphs, Retrosheet, bref ids not checked there)
@@ -22,12 +22,11 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 - [x] 2.1 84 linescores: the source holds none; recorded as unavailable (ledger), verified by coverage
 - [x] 2.2 (147 -> 1) 147 roster players missing from `raw.mlb_person` (widening is `full-source-ingestion` 0.14)
 - [x] 2.3 FanGraphs fielding 2019
-- [ ] 2.4 Statcast: 4 games of 2026-10-05/06 (heals with `mlb ingest statcast --mode update`; the 2008-10-29 "missing date" was a false alarm, see log)
-- [ ] 2.5 Kalshi (744) and Polymarket (3,560) 2026 items
-- [ ] 2.6 Other gaps found in 1.6, one task each
-- [x] 2.8 (2024 stats remain; heals after PR 364) MLB reference and stat seasons missing: 2006, 2017-2025 for player pool, coaches, alumni, game pace, free agents, player/team stats and leaders (found 2026-10-07; source serves them; `mlb ingest mlb_api --mode bootstrap` fills them and the old linescores)
+- [ ] 2.4 Statcast (check after tonight run): 4 games of 2026-10-05/06 (heals with `mlb ingest statcast --mode update`; the 2008-10-29 "missing date" was a false alarm, see log)
+- [ ] 2.5 (deferred by owner 2026-10-07; connector reviewed, nothing to build) Kalshi (744) and Polymarket (3,560) 2026 items
+- [x] 2.8 (done, 2024 stats included) MLB reference and stat seasons missing: 2006, 2017-2025 for player pool, coaches, alumni, game pace, free agents, player/team stats and leaders (found 2026-10-07; source serves them; `mlb ingest mlb_api --mode bootstrap` fills them and the old linescores)
 - [x] 2.6 (venues: false gap fixed; team ids: accepted, see log) Other gaps found in 1.6, one task each
-- [ ] 2.7 After each repair: re-run coverage, record before/after in `log.md`
+- [x] 2.7 (done per repair, see log) After each repair: re-run coverage, record before/after in `log.md`
 
 ## 3. Make it permanent
 

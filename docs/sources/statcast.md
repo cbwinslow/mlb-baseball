@@ -62,3 +62,8 @@ Known limit to keep in mind: a partly loaded past season is skipped on rerun (`s
 ## Not saved before loading
 
 Statcast and the leaderboards are fetched into memory and loaded directly; the response is not kept on disk, so a load cannot be replayed or independently proven (`SOURCE_COVERAGE_AUDIT.md`, "Download and ingestion machinery"). Task 0.11 of `full-source-ingestion` deliberately leaves this connector unchanged unless a measured problem appears.
+
+## Verified 2026-10-07 (database)
+
+- Pitches held: 2008-03-25 to 2026-10-05 across 46,819 games; 2026 alone is 2,576 games. Coverage is measured per played game (`mlb coverage`), not per date; the last two playoff games of 2026-10-05/06 arrive with the nightly `mlb ingest statcast --mode update`.
+- A game with only some of its pitches counts as held (54 games had under 120 pitches when last checked).

@@ -113,3 +113,21 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Stopped run leaves one `running` row in `meta.ingestion_run`; the nightly `repair-runs` step marks it failed.
 
 ### 2026-10-07 UTC: docs/sources/fangraphs.md and retrosheet.md updated with verified facts (task 1.1). Remaining pages: bref, chadwick_register, kalshi, lahman, news, polymarket, statcast.
+### 2026-10-07 UTC: Kalshi and Polymarket backfills deferred (owner: "skip kalshi for now ... its not important right now")
+- Review (read-only) of the Kalshi backfill: a real connector (`kalshi.backfill_history`), wired as `mlb ingest kalshi --mode backfill`, tested in `tests/integration/test_kalshi_load.py`. It is idempotent and resumable: one ledger item per market (`candles`: loaded / unavailable / failed) is written in the same transaction as its rows, a rerun skips settled markets, retries failed ones and refetches markets closed under a day; 8 worker threads behind one shared rate limiter; separate source name so it never blocks the nightly. Nothing to rebuild or duplicate.
+- Why it looks long: the gap is every market opened since the last backfill (744 earlier, 1,492 now) and it only grows because no schedule runs it. Not run now. Polymarket's backfill has the same shape (not reviewed in detail).
+- Open item for later (3.3): a bounded nightly backfill step (a fixed number of newest closed markets per night) so this stops accumulating. Until then the nightly coverage check will report both as unexplained gaps; consider a temporary accepted-gaps ceiling if the alerts become noise (needs owner decision).
+
+### 2026-10-07 UTC: docs/sources pages for statcast, bref, chadwick_register and lahman updated with verified facts (task 1.1). Left: kalshi, polymarket (paused with odds work) and news.
+
+### 2026-10-07 UTC: main checkout brought up to date
+- Approval: owner, "1" (stash the AGENTS.md edit, update, restore). Only `AGENTS.md` conflicted; I saved it as a patch and a stash entry, fast-forwarded `~/workspace/mlb` to 532809c, and restored the edit (still 1 added line, uncommitted). The owner's other uncommitted files were not touched. `uv sync --extra dev` ran.
+- Effect: tonight's `mlb nightly` runs the new code: migrations, the 2027 schedule load, the Statcast heal, and the new `coverage` step (it will alert on Kalshi and Polymarket, which are deferred).
+
+### 2026-10-07 UTC: HANDOFF (owner is compacting the context)
+- State: all data repairs done except the items below. Main checkout `~/workspace/mlb` is at the latest main (owner's uncommitted `AGENTS.md` edit restored). Nothing is running. Goal 2 was cleared by the owner (`/goal clear`).
+- Next step (tomorrow after the 06:00 UTC nightly, ~08:00): check `~/workspace/mlb/logs/mlb_daily_update.log` (all steps ok, new `coverage` step ran), then `mlb coverage --missing-only --unexplained` read-only; confirm the 2 Statcast games and the 2027 schedule loaded; tick task 2.4.
+- Then: update `docs/ARCHITECTURE.md` / `docs/RAW_INVENTORY.md` if needed (3.5), write `results-final.md` (4.1), `openspec validate data-completeness` (passes now) and archive (4.2).
+- Open approvals: none. Deferred by owner: Kalshi and Polymarket backfills (task 2.5; commands `mlb ingest kalshi --mode backfill`, `mlb ingest polymarket --mode backfill`; ask before running). Bounded nightly self-repair for them is task 3.3 (not built).
+- Known: nightly `coverage` step will alert on Kalshi and Polymarket until they run; 2011 games 305461/308207 accepted (HTTP 500); roster person 116751 pending the next person load.
+- Worktrees: `~/workspace/mlb-retro-report` (detached, `downloads` symlink may exist: remove before committing) and `~/workspace/mlb-ref-heal`. A one-shot session cron (08:23 UTC Oct 8) was set; it dies with the session.

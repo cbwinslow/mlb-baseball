@@ -2503,8 +2503,19 @@ def _load_coaches(conn: psycopg.Connection, season: int) -> int:
 
 
 def _fetch_reference_task(task: tuple[int, str, dict]) -> tuple[int, dict]:
+    """One per-team reference call. A 404 means the source has nothing for that team,
+    season and category (for example ``teams/114/leaders?leaderCategories=era&season=2023``
+    404s while ``homeRuns`` for the same team answers), so it is an empty answer: left to
+    raise it rolled back the whole season's reference block, which is why 2006 and
+    2017-2025 were never loaded. Any other error still raises."""
     team_id, endpoint, params = task
-    return team_id, call_with_retry(_get, endpoint, params)
+    try:
+        return team_id, call_with_retry(_get, endpoint, params)
+    except requests.exceptions.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            logger.info("mlb_api: %s %s has no data at the source (404)", endpoint, params)
+            return team_id, {}
+        raise
 
 
 def _load_alumni(conn: psycopg.Connection, season: int) -> int:

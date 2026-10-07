@@ -184,3 +184,7 @@ saved, or loaded on another machine), copy the saved files (`downloads/mlb_api/a
 
 Every file is checksum-verified against the manifest before anything is written. Implementation:
 `seed_analytics_ledger()`; tests: `tests/integration/test_mlb_api_load.py::test_seed_ledger_*`.
+
+## Reference-call 404s (2026-10-07)
+
+`_fetch_reference_task` treats a 404 for one team, season and category as an empty answer. Before this, one 404 (for example `teams/114/leaders?leaderCategories=era&season=2023`, while `homeRuns` for the same team answers) raised inside the per-season reference block and rolled back every table in it, so seasons 2006 and 2017-2025 were never loaded for player pool, coaches, alumni, game pace, stats and leaders. Other errors still raise. Test: `tests/unit/test_mlb_api_reference.py`.

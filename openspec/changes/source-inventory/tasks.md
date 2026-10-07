@@ -12,7 +12,7 @@
 
 - [x] 2.1 Write failing tests: a snapshot compare reports added, removed and changed fields, treats an unreachable source as unchecked, and writes nothing to `raw`; verify they fail for the right reason
 - [x] 2.2 Implement the snapshot store and compare for MLB API datasets; verify tests pass and a re-run on unchanged data reports nothing
-- [ ] 2.3 Extend to file-list sources (Retrosheet, Lahman, Chadwick) and board lists (FanGraphs, Savant); verify a seeded new file is reported
+- [x] 2.3 Extend to file-list sources (Retrosheet, Lahman, Chadwick) and board lists (FanGraphs, Savant); verify a seeded new file is reported
 - [ ] 2.4 Add `mlb schema-watch` with `--json` and the `meta` findings table (migration); verify migration test and idempotent re-run
 
 ## 3. Self-repair (tests first)

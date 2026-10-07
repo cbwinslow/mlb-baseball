@@ -29,7 +29,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 
 ## 3. Make it permanent
 
-- [ ] 3.1 Bootstrap-from-empty test that every repair path is reproduced. Audit 2026-10-07: every raw table maps to a registered connector, `mlb bootstrap` runs all 18, and every coverage fix command is a real ingest; but a direct `bootstrap()` test (fake source, empty database, tables created, second run adds nothing) was found for only 9 of 18 connectors by grep. Missing: chadwick_register, retrosheet_box, retrosheet_event, retrosheet_gamelog, retrosheet_reference, retrosheet_roster, retrosheet_schedule, retrosheet_transaction, statcast_leaderboard. Build them one connector at a time.
+- [ ] 3.1 Bootstrap-from-empty test that every repair path is reproduced. Audit 2026-10-07 (corrected): every raw table maps to a registered connector, `mlb bootstrap` runs all 18, every coverage fix command is a real ingest, and all 18 connectors have an integration load test against a real database (reload-replaces tests included). Not yet proven: one end-to-end run of `mlb bootstrap` on an empty database, which would take days (Statcast, MLB per-game); decide whether to do it in stages on a scratch database.
 - [x] 3.2 Nightly coverage step with alert on any new gap (needs a machine-readable list of accepted gaps so a known scope gap does not alert every night); verify with a failing and a passing fixture
 - [ ] 3.3 Bounded self-repair for safe gaps beyond MLB game detail (each with a test)
 - [x] 3.4 (the check is a nightly step, so the existing `mlb_daily_update.sh` cron runs it; no new cron) Cron entry in `scripts/` (flock, log) and docs in `docs/ARCHITECTURE.md` "Scheduling"

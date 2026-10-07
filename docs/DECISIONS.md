@@ -2,22 +2,22 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
-## ADR-299: Retrosheet event parsing is a function-by-function port of Chadwick, not a clean-room rewrite
+## ADR-299: Production uses the original Chadwick C tools; the Python port (`retrosheetpy.cw`) is not used until validated
 
-**Decision (2026-10-01, owner direction; backfilled 2026-10-07).** `retrosheetpy.cw`
-translates Chadwick's C rules (`cwlib/parse.c`, `gameiter.c`, `game.c`,
-`cwtools/cwevent.c`) one module per C file, in C order, quirks included. It is
-a derivative of Chadwick (GPL-2.0-or-later) and each ported module carries that
-notice; the package's AGPL-3.0-or-later licence is compatible through the
-"or later" clause. Correctness is proved by comparing output with `cwevent`
-on whole seasons, never by inferring rules from output. This **supersedes**
-decision D3 ("Chadwick is an oracle, never copied") of the archived
-`pure-python-retrosheet` change.
+**Decision (2026-10-07, owner direction).** Retrosheet event ingestion keeps using the
+original Chadwick `cwevent` / `cwgame` / `cwbox` binaries through
+`mlb_baseball/chadwick_tools.py`. `packages/retrosheetpy` and its `cw` port are work in
+progress: they may not replace or feed production tables until the owner records that
+they matched `cwevent` output on whole seasons. This supersedes the 2026-10-01 plan to
+move onto the port; the port's approach itself (function-by-function translation of
+Chadwick's C, a derivative of GPL-2.0-or-later code under our AGPL-3.0-or-later package,
+equality proved by output comparison) is unchanged, and it also overrides the archived
+`pure-python-retrosheet` D3 ("oracle only, never copied").
 
-**Why.** The rules are finite and already written down in C; reverse-engineering
-them from output risks silent disagreement. **Source:** `openspec/changes/retrosheet-state-engine/design.md` D1-D3.
+**Why.** The port is not finished and may be inaccurate; the C tools are the proven reference.
+**Source:** `openspec/changes/retrosheet-state-engine/design.md` D1-D3.
 
-**Revisit if:** the licence compatibility is challenged.
+**Revisit if:** the port passes whole-season byte comparison against `cwevent`.
 
 ## ADR-298: `mlb nightly` supervises the daily steps; only transient failures are retried
 

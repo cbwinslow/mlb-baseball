@@ -1683,6 +1683,8 @@ def test_the_current_season_is_always_refetched(db_conn, monkeypatch, reference_
     mlb_api._load_reference_season(db_conn, 2026, 2026, {a: 0})
 
     assert calls == [(a, 2026)]
+
+
 def _hydrated(*games):
     return {"dates": [{"games": list(games)}]}
 

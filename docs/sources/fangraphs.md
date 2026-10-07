@@ -36,6 +36,13 @@ The terms-of-use page could not be retrieved on 2026-10-06 (the URL tried return
 
 Seasons held were read from the database (min 1871, max 2026 on the batting and pitching boards).
 
+## Verified 2026-10-07 (live probe and database)
+
+- **Park factors:** the basic board serves every year from 1871 (9 rows in 1871, 30 from 2001); the handedness board serves only from 2002 (2001 and earlier raise "No Guts table found"). Held: basic 1871-2026, handedness 2002-2026.
+- **Fielding 2019:** served (2,269 rows) and now held; it had been missing, along with 1871-1900 park factors, until the 2026-10-07 repair (`data-completeness` task 2.3).
+- **Prospects:** held 2010-2026 (`PROSPECT_FIRST_YEAR`).
+- **Re-runs:** `mlb ingest fangraphs` now fetches only the past seasons, park-factor boards and split boards that hold no rows, plus the current season.
+
 ## Known gaps and open questions
 
 - Which seasons each board really offers (the sidecar says the observed earliest season per board is to be recorded after a bootstrap; the database shows 1871 for batting and pitching). Record the per-board first year here once probed, and register it in `mlb_baseball/coverage/registry.py`.

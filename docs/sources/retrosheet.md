@@ -43,3 +43,8 @@ Do not state one start year for Retrosheet; it varies by product. Event-level co
 
 - Box-score coverage looks small next to the game list (about 18k box games against 211k games). Whether Retrosheet publishes box scores for the rest is open (`full-source-ingestion` task 4.1); do not assume it is a source gap until the published file list is compared.
 - Raw tables versus the refreshed files: `source-check` cannot show this. Run the tie-out script and record the date and result here.
+
+## Verified 2026-10-07 (database)
+
+- Event (play-by-play) data: 208,693 games, 1900 to 2025. Box scores published directly: 1871 to 1961 (later box scores derive from the events). Game logs: 1871 to 2025.
+- Nothing for 2026 yet; this is why the MLB Stats API loads play-by-play and box scores only from 2026 (`mlb_api.md`).

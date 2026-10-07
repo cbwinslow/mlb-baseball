@@ -61,3 +61,7 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Before: fielding missing 2019; park factors missing 1871-1900 (30 seasons). Fielding rows 181,015.
 - After: `mlb coverage --source fangraphs --missing-only` says "nothing to report". Fielding 183,284 rows (+2,269, matching the live probe of 2,269 for 2019). Only the current season was otherwise reloaded.
 - Also done today: main checkout fast-forwarded to 52d55eb (owner approved in the same message).
+### 2026-10-07 UTC: bootstrap audit (owner request: every table fillable by an idempotent bootstrap)
+- Found (read-only): all 150 inventory tables belong to one of 18 registered connectors; `mlb bootstrap` runs every one; coverage fix commands are all real ingest commands. Static evidence only: raw tables are created by the first load, so only a run proves it.
+- Gap: 9 connectors have no direct `bootstrap()` test (listed in task 3.1). Deliberate scope gap to raise: mlb_api play-by-play/box score load from 2026 only (ADR-018/019), though the project aim is all history.
+- Next: tests per missing connector (branch/PR each); owner decision on the 2026-only play-by-play.

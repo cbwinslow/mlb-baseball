@@ -99,3 +99,8 @@ Append only, newest at the bottom. Format in `goal.md`.
 - What: the nine MLB reference tables load one at a time (own commit, per-table skip for a past season), replacing one all-or-nothing block keyed on `raw.mlb_player_pool`.
 - Why: that block hid the 404 failure for 2006 and 2017-2025 and could never heal a partly loaded season. Rejected: only widening the skip check (would still lose all nine on one error).
 - Tests: failing table does not discard others; rerun fetches only missing tables; current season always refetched. mlb_api load tests 50 passed.
+### 2026-10-07 UTC: task 2.1 linescores: source has none (branch fix/linescore-unavailable)
+- Command: `mlb ingest mlb_api --stage analytics --start-year 2000 --end-year 2024` on production. Approval: owner, "yes run the linescore catch-up". Result: 0 rows loaded. Linescores 3,045,298 before and after.
+- Finding (live probes): the 84 missing games answer `game/<pk>/linescore` with HTTP 200 and `innings: []`: 46 are exhibition games (2002-2012), 36 regular-season (2000-2024), 2 special. The source holds no linescore for them, so this is source-unavailable, not a defect to retry.
+- Fix: the loader writes a ledger `linescore`/`unavailable` item for each such game and coverage counts it as accounted for; one more analytics run re-hydrates each season once to write the marks (needs approval). Rejected: excluding exhibition games from the expectation (the 36 regular-season games would stay unexplained) and an accepted-gaps ceiling (hides growth).
+- Also: 2 games in 2011 (305461, 308207) answer HTTP 500 on win probability and context metrics every retry; to record as unavailable if it persists.

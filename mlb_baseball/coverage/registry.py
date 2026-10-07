@@ -88,7 +88,7 @@ DATASETS: list[Dataset] = [
         for table, ledger in (
             ("mlb_win_prob", "win_probability"),
             ("mlb_game_context", "context_metrics"),
-            ("mlb_linescore", None),
+            ("mlb_linescore", "linescore"),
         )
     ],
     *[

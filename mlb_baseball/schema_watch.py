@@ -1,0 +1,174 @@
+"""Source schema drift check (openspec/changes/source-inventory, source-schema-drift).
+
+A snapshot is `{name: type}`: field names and JSON types for an API response, or file
+names for a publisher's file list. `check` fetches one sample per dataset, compares it
+with the saved snapshot and reports added, removed and changed names. It never touches
+the database. A source that cannot be reached is `unchecked`, never `unchanged`. A drift
+stays reported on every run until it is accepted, so it cannot be missed once.
+"""
+
+import json
+import logging
+import re
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+SAMPLE_ROWS = 20  # rows merged from a list response so sparse fields are seen
+MAX_DEPTH = 3
+_SAFE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _type_name(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, str):
+        return "str"
+    if isinstance(value, list):
+        return "list"
+    return "object"
+
+
+def _walk(obj: dict, prefix: str, depth: int, out: dict[str, str]) -> None:
+    for key, value in obj.items():
+        name = f"{prefix}{key}"
+        kind = _type_name(value)
+        if out.get(name) in (None, "null"):
+            out[name] = kind
+        if isinstance(value, dict) and depth < MAX_DEPTH:
+            _walk(value, f"{name}.", depth + 1, out)
+
+
+def fields_of(sample: Any) -> dict[str, str]:
+    """Field name -> JSON type for a response (dict, or list of dicts merged)."""
+    out: dict[str, str] = {}
+    if isinstance(sample, dict):
+        _walk(sample, "", 1, out)
+    elif isinstance(sample, list):
+        for row in sample[:SAMPLE_ROWS]:
+            if isinstance(row, dict):
+                _walk(row, "", 1, out)
+    return out
+
+
+@dataclass(frozen=True)
+class Drift:
+    added: dict[str, str] = field(default_factory=dict)
+    removed: dict[str, str] = field(default_factory=dict)
+    changed: dict[str, tuple[str, str]] = field(default_factory=dict)
+
+    @property
+    def any(self) -> bool:
+        return bool(self.added or self.removed or self.changed)
+
+
+def compare(old: dict[str, str], new: dict[str, str]) -> Drift:
+    """A null in either sample says nothing about the type, so it is never a change."""
+    changed = {
+        k: (old[k], new[k])
+        for k in old.keys() & new.keys()
+        if old[k] != new[k] and "null" not in (old[k], new[k])
+    }
+    return Drift(
+        added={k: new[k] for k in new.keys() - old.keys()},
+        removed={k: old[k] for k in old.keys() - new.keys()},
+        changed=changed,
+    )
+
+
+class SnapshotStore:
+    """One small JSON file per dataset: `<root>/<source>/<dataset>.json`."""
+
+    def __init__(self, root: Path | str):
+        self.root = Path(root)
+
+    def _path(self, source: str, dataset: str) -> Path:
+        for part in (source, dataset):
+            if not _SAFE.match(part) or part.startswith("."):
+                raise ValueError(f"unsafe snapshot name: {part!r}")
+        return self.root / source / f"{dataset}.json"
+
+    def load(self, source: str, dataset: str) -> dict[str, str] | None:
+        path = self._path(source, dataset)
+        return json.loads(path.read_text()) if path.exists() else None
+
+    def save(self, source: str, dataset: str, snapshot: dict[str, str]) -> None:
+        path = self._path(source, dataset)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(snapshot, indent=1, sort_keys=True) + "\n")
+
+
+@dataclass(frozen=True)
+class Dataset:
+    """`fetch` returns a sample: a response (dict/list) or a `{file name: type}` map."""
+
+    source: str
+    name: str
+    fetch: Callable[[], Any]
+    kind: str = "fields"  # "fields": fields_of(sample); "names": sample is already a snapshot
+
+
+@dataclass(frozen=True)
+class Finding:
+    source: str
+    dataset: str
+    status: str  # new | unchanged | drift | unchecked
+    drift: Drift = field(default_factory=Drift)
+    error: str = ""
+
+
+def _fetch_with_retries(dataset: Dataset, attempts: int, pause: float) -> Any:
+    last: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return dataset.fetch()
+        except Exception as exc:  # any failure to read the source means unchecked
+            last = exc
+            logger.warning(
+                "schema-watch %s/%s attempt %d: %s", dataset.source, dataset.name, attempt, exc
+            )
+            if attempt < attempts:
+                time.sleep(pause)
+    assert last is not None
+    raise last
+
+
+def check(
+    datasets: list[Dataset],
+    store: SnapshotStore,
+    *,
+    accept: bool = False,
+    attempts: int = 3,
+    pause: float = 5.0,
+) -> list[Finding]:
+    findings = []
+    for ds in datasets:
+        try:
+            sample = _fetch_with_retries(ds, attempts, pause)
+        except Exception as exc:
+            findings.append(Finding(ds.source, ds.name, "unchecked", error=str(exc)))
+            continue
+        new = dict(sample) if ds.kind == "names" else fields_of(sample)
+        old = store.load(ds.source, ds.name)
+        if old is None:
+            store.save(ds.source, ds.name, new)
+            findings.append(Finding(ds.source, ds.name, "new"))
+            continue
+        drift = compare(old, new)
+        if not drift.any:
+            findings.append(Finding(ds.source, ds.name, "unchanged"))
+            continue
+        if accept:
+            store.save(ds.source, ds.name, new)
+        findings.append(Finding(ds.source, ds.name, "drift", drift))
+    return findings

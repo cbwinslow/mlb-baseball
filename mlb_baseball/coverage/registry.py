@@ -22,6 +22,7 @@ from mlb_baseball.connectors import (
 )
 from mlb_baseball.coverage.live import MlbScheduleTotals
 from mlb_baseball.coverage.model import (
+    SCHEDULE_SETTLED_LABEL,
     Dataset,
     GameDates,
     Games,
@@ -32,6 +33,7 @@ from mlb_baseball.coverage.model import (
     PolymarketWindows,
     Present,
     Referenced,
+    ScheduleSettled,
     Seasons,
     manifest_label,
 )
@@ -75,7 +77,7 @@ def _manifest(source: str) -> Dataset:
 _EVENT_FIRST = min(years.start for years in retrosheet_event.PBP_DECADE_ARCHIVES.values())
 
 DATASETS: list[Dataset] = [
-    # MLB Stats API: per-game datasets, one unit per final game in raw.mlb_schedule.
+    # MLB Stats API: per-game datasets, one unit per played game in raw.mlb_schedule.
     *[
         Dataset(
             "mlb_api", f"raw.{table}", Games(mlb_api.FIRST_WIN_PROB_YEAR, ledger), ANALYTICS_FIX
@@ -98,6 +100,14 @@ DATASETS: list[Dataset] = [
     ],
     # MLB Stats API: per-season datasets.
     *_seasons("mlb_api", Seasons(mlb_api.FIRST_SCHEDULE_YEAR), "mlb_schedule", "mlb_roster"),
+    Dataset(
+        "mlb_api",
+        SCHEDULE_SETTLED_LABEL,
+        ScheduleSettled(),
+        MLB_FIX,
+        "a past game left Scheduled means the schedule was not refreshed; the update reloads "
+        "the current season, and a bootstrap reloads older ones",
+    ),
     *_seasons("mlb_api", Seasons(mlb_api.FIRST_STANDINGS_YEAR), "mlb_standing"),
     *_seasons("mlb_api", Seasons(mlb_api.FIRST_TRANSACTION_YEAR), "mlb_transaction"),
     *_seasons("mlb_api", Seasons(mlb_api.FIRST_DRAFT_YEAR, column="draft_year"), "mlb_draft"),

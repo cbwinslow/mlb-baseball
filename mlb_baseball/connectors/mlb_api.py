@@ -405,6 +405,28 @@ def _load_schedule(conn: psycopg.Connection, season: int) -> int:
     )
 
 
+# MLB publishes next season's schedule months ahead (2027 was served in October 2026). The
+# update runs every few minutes, so the next season is refreshed at most this often.
+NEXT_SCHEDULE_REFRESH = timedelta(days=1)
+
+
+def _load_next_schedule(conn: psycopg.Connection, season: int) -> int:
+    """Load season ``season + 1`` once published, so future games are in the table before
+    they are played. Returns 0 without a request when it was refreshed recently."""
+    refreshed = None
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        if fetch_one(cur)[0] is not None:
+            cur.execute(
+                "SELECT max(_loaded_at) FROM raw.mlb_schedule WHERE _season = %s",
+                (str(season + 1),),
+            )
+            refreshed = fetch_one(cur)[0]
+    if refreshed is not None and datetime.now(UTC) - refreshed < NEXT_SCHEDULE_REFRESH:
+        return 0
+    return _load_schedule(conn, season + 1)
+
+
 def _load_standings(conn: psycopg.Connection, season: int) -> int:
     df = _standings_df(season)
     if df.empty:
@@ -2268,7 +2290,8 @@ REPAIR_BATCH_UPDATE = 20
 def _final_games_missing_detail(
     conn: psycopg.Connection, season: int, limit: int | None
 ) -> list[int]:
-    """Final games of ``season`` with no play-by-play or no box score, newest first.
+    """Played games (Final or Completed Early) of ``season`` with no play-by-play or no box
+    score, newest first.
 
     A detail table that does not exist yet (a fresh database) counts as holding nothing.
     """
@@ -2288,7 +2311,8 @@ def _final_games_missing_detail(
         cur.execute(
             f"""
             SELECT s.game_id FROM raw.mlb_schedule s
-            WHERE s._season = %s AND s.status = 'Final' AND ({" OR ".join(missing)})
+            WHERE s._season = %s AND s.status IN ('Final', 'Completed Early')
+              AND ({" OR ".join(missing)})
             ORDER BY s.game_date DESC, s.game_id
             LIMIT %s
             """,
@@ -3196,7 +3220,7 @@ def update() -> dict[str, int]:
     season = date.today().year
     with get_connection() as conn, track_run(conn, SOURCE, "update") as result:
         counts = {
-            "raw.mlb_schedule": _load_schedule(conn, season),
+            "raw.mlb_schedule": _load_schedule(conn, season) + _load_next_schedule(conn, season),
             "raw.mlb_standing": _load_standings(conn, season)
             if season >= FIRST_STANDINGS_YEAR
             else 0,

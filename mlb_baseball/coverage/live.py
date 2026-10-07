@@ -79,9 +79,14 @@ class MlbScheduleTotals:
         held = {season: int(n) for season, n in cur.fetchall()}
         groups: list[Group] = []
         errors: list[str] = []
-        for year in range(self.first, date.today().year + 1):
+        this_year = date.today().year
+        # The year after the current one is checked too: MLB publishes it months ahead, and
+        # it is only reported once the source actually lists games for it.
+        for year in range(self.first, this_year + 2):
             try:
                 everything = self._total(year, None)
+                if year > this_year and everything == 0:
+                    continue
                 time.sleep(REQUEST_PAUSE_SECONDS)
                 major = self._total(year, MAJOR_LEAGUE_IDS)
             except Exception as exc:  # report the season, keep checking the rest

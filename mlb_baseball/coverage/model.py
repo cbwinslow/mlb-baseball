@@ -24,6 +24,10 @@ Through = Literal["current", "prior"]
 # D division series, L league series, W World Series).
 STATCAST_GAME_TYPES = ("R", "F", "D", "L", "W")
 
+# Schedule statuses of a game that was played to a result. "Completed Early" is an
+# official game stopped by rain or similar; it has a box score like a "Final" one.
+PLAYED_STATUSES = ("Final", "Completed Early")
+
 
 @dataclass(frozen=True)
 class Group:
@@ -90,10 +94,10 @@ class Seasons:
 
 @dataclass(frozen=True)
 class Games:
-    """One unit per final game in ``raw.mlb_schedule`` from season ``first`` on; held = the
-    game's id appears in ``key`` of the table. A game whose ledger item (``ledger`` dataset,
-    source ``mlb_api``, key ``<season>:<game>``) is ``unavailable`` is a recorded source gap:
-    accounted for, not missing."""
+    """One unit per played game (Final or Completed Early) in ``raw.mlb_schedule`` from
+    season ``first`` on; held = the game's id appears in ``key`` of the table. A game whose
+    ledger item (``ledger`` dataset, source ``mlb_api``, key ``<season>:<game>``) is
+    ``unavailable`` is a recorded source gap: accounted for, not missing."""
 
     first: int
     ledger: str | None = None
@@ -103,7 +107,7 @@ class Games:
     @property
     def expectation(self) -> str:
         gaps = f"; ledger '{self.ledger}' unavailable = source gap" if self.ledger else ""
-        return f"final games in raw.mlb_schedule from {self.first}{gaps}"
+        return f"played games in raw.mlb_schedule from {self.first}{gaps}"
 
     def inputs(self, table: str) -> tuple[str, ...]:
         return ("raw.mlb_schedule", table)
@@ -114,7 +118,7 @@ class Games:
             WITH want AS (
                 SELECT DISTINCT _season AS label, game_id AS k
                 FROM raw.mlb_schedule
-                WHERE status = 'Final' AND _season ~ '^[0-9]+$' AND _season::int >= %s::int
+                WHERE status = ANY(%s) AND _season ~ '^[0-9]+$' AND _season::int >= %s::int
             ), have AS (SELECT DISTINCT {self.key} AS k FROM {table}),
             gap AS (
                 SELECT DISTINCT split_part(item_key, ':', 2) AS k
@@ -129,15 +133,16 @@ class Games:
             GROUP BY want.label
             ORDER BY want.label
             """,
-            (self.first, self.ledger),
+            (list(PLAYED_STATUSES), self.first, self.ledger),
         )
         return [Group(*row) for row in cur.fetchall()]
 
 
 @dataclass(frozen=True)
 class GameDates:
-    """One unit per calendar date with a final non-spring game in ``raw.mlb_schedule`` from
-    season ``first`` on; held = the date appears in ``game_date`` of the table."""
+    """One unit per calendar date with a played (Final or Completed Early) non-spring game
+    in ``raw.mlb_schedule`` from season ``first`` on; held = the date appears in
+    ``game_date`` of the table."""
 
     first: int
     unit: str = "date"
@@ -145,7 +150,7 @@ class GameDates:
     @property
     def expectation(self) -> str:
         types = "/".join(STATCAST_GAME_TYPES)
-        return f"dates of final games (types {types}) in raw.mlb_schedule from {self.first}"
+        return f"dates of played games (types {types}) in raw.mlb_schedule from {self.first}"
 
     def inputs(self, table: str) -> tuple[str, ...]:
         return ("raw.mlb_schedule", table)
@@ -156,7 +161,7 @@ class GameDates:
             WITH want AS (
                 SELECT DISTINCT _season AS label, game_date AS k
                 FROM raw.mlb_schedule
-                WHERE status = 'Final' AND game_type = ANY(%s)
+                WHERE status = ANY(%s) AND game_type = ANY(%s)
                   AND _season ~ '^[0-9]+$' AND _season::int >= %s::int
             ), have AS (SELECT DISTINCT game_date AS k FROM {table})
             SELECT want.label, count(*), count(have.k)
@@ -164,7 +169,7 @@ class GameDates:
             GROUP BY want.label
             ORDER BY want.label
             """,
-            (list(STATCAST_GAME_TYPES), self.first),
+            (list(PLAYED_STATUSES), list(STATCAST_GAME_TYPES), self.first),
         )
         return [Group(*row) for row in cur.fetchall()]
 
@@ -336,6 +341,43 @@ class ManifestFiles:
         return [Group("files", len(entries), loaded)]
 
 
+# Schedule statuses of a game that has not reached a result yet.
+UNSETTLED_STATUSES = ("Scheduled", "Pre-Game", "Warmup", "In Progress", "Live", "Delayed")
+
+SCHEDULE_SETTLED_LABEL = "raw.mlb_schedule (past games settled)"
+
+
+@dataclass(frozen=True)
+class ScheduleSettled:
+    """One unit per regular-season or postseason game dated before yesterday (UTC) in
+    ``raw.mlb_schedule``; held = the game has left the not-yet-played statuses (Final,
+    Completed Early, Postponed, Cancelled and so on). A past game still "Scheduled" means
+    the schedule was not refreshed. The dataset's "table" is a label, not a table name."""
+
+    unit: str = "game"
+    expectation: str = (
+        "regular-season and postseason games dated before yesterday are no longer "
+        "Scheduled, Pre-Game, Warmup, In Progress, Live or Delayed in raw.mlb_schedule"
+    )
+
+    def inputs(self, table: str) -> tuple[str, ...]:
+        return ("raw.mlb_schedule",)
+
+    def measure(self, cur: psycopg.Cursor, table: str) -> list[Group]:
+        cur.execute(
+            """
+            SELECT _season, count(*), count(*) FILTER (WHERE NOT status = ANY(%s))
+            FROM raw.mlb_schedule
+            WHERE game_type = ANY(%s) AND _season ~ '^[0-9]+$'
+              AND game_date < to_char((now() AT TIME ZONE 'UTC')::date - 1, 'YYYY-MM-DD')
+            GROUP BY _season
+            ORDER BY _season
+            """,
+            (list(UNSETTLED_STATUSES), list(STATCAST_GAME_TYPES)),
+        )
+        return [Group(*row) for row in cur.fetchall()]
+
+
 @dataclass(frozen=True)
 class NoExpectation:
     """No expectation can be derived; ``reason`` says why, in the output."""
@@ -374,6 +416,10 @@ class Dataset:
     caveat: str = ""
     date_column: str = ""  # text date column whose first/last value is reported
     live: "LiveCheck | None" = None  # asks the publisher; only run with --probe
+
+
+# Specs whose Dataset.table is a label, so the engine must not look it up as a table.
+LABEL_SPECS = (ManifestFiles, ScheduleSettled)
 
 
 def manifest_label(source: str) -> str:

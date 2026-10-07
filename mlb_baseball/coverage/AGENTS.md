@@ -22,7 +22,7 @@ Read root `AGENTS.md` and `mlb_baseball/AGENTS.md` first.
 - Read-only. The engine opens the transaction with `SET TRANSACTION READ ONLY`; a write is a database error, not a policy. Never add a write here, and never a repair step: the command reports, the existing idempotent ingest fixes.
 - Never pass silently. A table with no derivable expectation prints `no expectation defined: <reason>`; a table in the database that the registry lacks is reported as unregistered; an expectation with nothing to derive it from reports `no_basis`; a missing table or input reports `table_absent` / `inputs_absent`.
 - A game or market whose ledger item (`meta.ingestion_item`) is `unavailable` is a recorded source gap: it counts as accounted for, not missing. `loaded` and `unavailable` are the only accounted statuses; `failed` stays missing. The ledger dataset must match the table (a `context_metrics` gap does not excuse a win-probability row).
-- Game expectations use the same definition as the doctor coverage check (`mlb_api.py::_analytics_durable_coverage_check`): distinct final games in `raw.mlb_schedule`. Keep the two in step; if one changes, change the other.
+- Game expectations use the same definition as the doctor coverage check (`mlb_api.py::_analytics_durable_coverage_check`): distinct played games (`Final` and `Completed Early`, `model.PLAYED_STATUSES`) in `raw.mlb_schedule`. The doctor check still counts `Final` only and looks at past seasons only; the two differ by the Completed Early games; the report found no win-probability or context gap for them in past seasons. Change one only with evidence for the other.
 - A fix command must be a real `mlb ingest` invocation. If the idempotent command cannot repair a gap (for example Statcast's `season_already_loaded` skip of a partly loaded past season), say so in the entry's `caveat` instead of printing a command that will do nothing.
 - Expectations are derived from data we hold or constants the connectors already record. Do not hard-code a count taken from what the database holds today; that would make the comparison circular.
 - Adding a raw table: add its `Dataset` entry in the same change; `tests/unit/test_coverage_registry.py` fails if a table in `docs/RAW_INVENTORY.md` is not registered.
@@ -36,3 +36,6 @@ Read root `AGENTS.md` and `mlb_baseball/AGENTS.md` first.
 ## Child DOX Index
 
 No child DOX.
+
+- `ScheduleSettled` (dataset label `raw.mlb_schedule (past games settled)`) flags regular-season and postseason games dated before yesterday that are still Scheduled, Pre-Game, Warmup, In Progress, Live or Delayed: the schedule was not refreshed. Its "table" is a label (`LABEL_SPECS`), like a manifest file.
+- `--probe` also compares next season's schedule once MLB lists games for it.

@@ -4,6 +4,7 @@ sorted keys, so two runs against the same database are byte-identical."""
 import json
 
 from mlb_baseball.coverage.engine import Report, TableReport
+from mlb_baseball.coverage.model import SCHEDULE_SETTLED_LABEL
 
 MAX_MISSING_ITEMS = 25
 STATUS_LABEL = {
@@ -71,9 +72,14 @@ def _live_text(table: TableReport) -> list[str]:
     return lines
 
 
+def _is_label(name: str) -> bool:
+    """A dataset whose name is a label (a manifest file or a derived check), not a table."""
+    return name.startswith("downloads/") or name == SCHEDULE_SETTLED_LABEL
+
+
 def _table_text(table: TableReport) -> list[str]:
-    if table.table.startswith("downloads/"):
-        rows = "local file"
+    if _is_label(table.table):
+        rows = "local file" if table.table.startswith("downloads/") else "derived from other tables"
     else:
         rows = "table absent" if table.rows is None else f"{table.rows:,} rows"
     if table.status == "no_expectation":
@@ -109,7 +115,7 @@ def render_text(report: Report) -> str:
     lines: list[str] = []
     for source, tables in _by_source(report).items():
         lines.append(f"== {source}: {len(tables)} tables, {_summary(tables)} ==")
-        if all(not t.rows for t in tables if not t.table.startswith("downloads/")):
+        if all(not t.rows for t in tables if not _is_label(t.table)):
             lines.append("  source holds no rows in any table")
         for table in tables:
             lines += _table_text(table)

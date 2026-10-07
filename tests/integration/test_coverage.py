@@ -7,7 +7,14 @@ import json
 import pytest
 
 from mlb_baseball import cli, coverage, manifest
-from mlb_baseball.coverage.model import Dataset, Games, NoExpectation, Referenced, Seasons
+from mlb_baseball.coverage.model import (
+    SCHEDULE_SETTLED_LABEL,
+    Dataset,
+    Games,
+    NoExpectation,
+    Referenced,
+    Seasons,
+)
 
 SEASON = "1962"  # inside the 1950+ analytics range, absent from every other test
 
@@ -34,7 +41,12 @@ def seeded(db_conn):
     """Six final games and one not-yet-played game in 1962: two have win probability
     rows, one is a recorded source gap (ledger ``unavailable``), three have neither."""
     created: list[str] = []
-    _ensure_table(db_conn, created, "mlb_schedule", "game_id text, status text, _season text")
+    _ensure_table(
+        db_conn,
+        created,
+        "mlb_schedule",
+        "game_id text, status text, _season text, game_type text, game_date text",
+    )
     _ensure_table(db_conn, created, "mlb_win_prob", "game_pk text, _season text")
     games = [f"96200{n}" for n in range(1, 7)]
     _exec(db_conn, "DELETE FROM raw.mlb_schedule WHERE _season = %s", (SEASON,))
@@ -148,7 +160,12 @@ def test_absent_table_says_so():
 
 def test_game_expectation_with_no_games_in_the_schedule_is_reported_not_passed(db_conn):
     created: list[str] = []
-    _ensure_table(db_conn, created, "mlb_schedule", "game_id text, status text, _season text")
+    _ensure_table(
+        db_conn,
+        created,
+        "mlb_schedule",
+        "game_id text, status text, _season text, game_type text, game_date text",
+    )
     _ensure_table(db_conn, created, "test_cov_games", "game_pk text, _season text")
     try:
         dataset = Dataset(
@@ -255,6 +272,59 @@ def test_kalshi_candles_use_the_market_catalog_and_the_ledger(db_conn):
         _exec(db_conn, "DELETE FROM meta.ingestion_item WHERE item_key LIKE 'KXCOV-%'")
         for name in created:
             _exec(db_conn, f"DROP TABLE raw.{name}")
+
+
+@pytest.fixture
+def schedule_1963(db_conn):
+    """Schedule rows of 1963 with the columns the settled check reads."""
+    created: list[str] = []
+    _ensure_table(
+        db_conn,
+        created,
+        "mlb_schedule",
+        "game_id text, status text, _season text, game_type text, game_date text",
+    )
+    _exec(db_conn, "DELETE FROM raw.mlb_schedule WHERE _season = '1963'")
+    yield db_conn
+    _exec(db_conn, "DELETE FROM raw.mlb_schedule WHERE _season = '1963'")
+    for name in created:
+        _exec(db_conn, f"DROP TABLE raw.{name}")
+
+
+def _add_game(db_conn, game_id, status, game_date, game_type="R"):
+    _exec(
+        db_conn,
+        "INSERT INTO raw.mlb_schedule (game_id, status, _season, game_type, game_date) "
+        "VALUES (%s, %s, '1963', %s, %s)",
+        (game_id, status, game_type, game_date),
+    )
+
+
+def test_past_game_still_scheduled_is_a_gap_but_future_and_exhibition_are_not(schedule_1963):
+    _add_game(schedule_1963, "1", "Final", "1963-04-01")
+    _add_game(schedule_1963, "2", "Postponed", "1963-04-02")
+    _add_game(schedule_1963, "3", "Scheduled", "1963-04-03")  # long past, never refreshed
+    _add_game(schedule_1963, "4", "Scheduled", "1963-04-04", game_type="E")  # exhibition
+    _add_game(schedule_1963, "5", "Scheduled", "2999-04-05")  # future: expected to be pending
+    report = coverage.collect(table=SCHEDULE_SETTLED_LABEL)
+    group = next(g for g in report.tables[0].groups if g.label == "1963")
+    assert (group.expected, group.held, group.missing) == (3, 2, 1)
+    assert report.has_gap
+
+
+def test_completed_early_games_are_expected_like_final_ones(schedule_1963):
+    created: list[str] = []
+    _ensure_table(schedule_1963, created, "mlb_win_prob", "game_pk text, _season text")
+    try:
+        _add_game(schedule_1963, "11", "Final", "1963-04-01")
+        _add_game(schedule_1963, "12", "Completed Early", "1963-04-02")
+        _add_game(schedule_1963, "13", "Postponed", "1963-04-03")
+        report = coverage.collect(source="mlb_api", table="mlb_win_prob")
+        group = next(g for g in report.tables[0].groups if g.label == "1963")
+        assert group.expected == 2
+    finally:
+        for name in created:
+            _exec(schedule_1963, f"DROP TABLE raw.{name}")
 
 
 def test_manifest_files_not_loaded_are_missing(tmp_path, monkeypatch):

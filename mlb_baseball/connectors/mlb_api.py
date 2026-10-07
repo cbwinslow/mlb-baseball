@@ -369,6 +369,9 @@ PERSON_BATCH_SIZE = 200
 ANALYTICS_WORKERS = 8
 ANALYTICS_BATCH_SIZE = 200
 ANALYTICS_PARSER_VERSION = "mlb-api-analytics-v3"
+# The season linescore item also records the finished games the source answers with no
+# innings (``linescore`` / ``unavailable``); v2 marks a season hydrated with that rule.
+LINESCORE_PARSER_VERSION = "mlb-api-linescore-v2"
 _ANALYTICS_LOCAL = threading.local()
 REFERENCE_WORKERS = 8
 
@@ -1100,6 +1103,21 @@ def _season_linescore_df(data: dict, season: int) -> pd.DataFrame:
     )
 
 
+def _games_without_linescore(data: dict) -> list[int]:
+    """Finished games the schedule lists whose linescore has no innings: the source holds
+    nothing to load (an exhibition game, or an old regular-season game never scored in
+    its feed). They are recorded as unavailable rather than left looking like a gap."""
+    empty = []
+    for game_date in data.get("dates", []):
+        for game in game_date.get("games", []):
+            game_pk = game.get("gamePk")
+            finished = game.get("status", {}).get("abstractGameState") == "Final"
+            innings = (game.get("linescore") or {}).get("innings") or []
+            if finished and game_pk is not None and not innings:
+                empty.append(int(game_pk))
+    return empty
+
+
 def _load_linescores_for_season(
     conn: psycopg.Connection,
     season: int,
@@ -1166,10 +1184,29 @@ def _load_linescores_for_season(
                     "bytes": len(encoded),
                     "http_status": 200,
                     "rows": count,
-                    "parser_version": ANALYTICS_PARSER_VERSION,
+                    "parser_version": LINESCORE_PARSER_VERSION,
                     "schema_fingerprint": manifest.schema_fingerprint(_LINESCORE_COLUMNS),
                     "run_id": run_id,
                 }
+            ],
+        )
+        record_items(
+            conn,
+            [
+                {
+                    "source": SOURCE,
+                    "dataset": "linescore",
+                    "item_key": _analytics_item_key(season, game_pk),
+                    "status": "unavailable",
+                    "source_url": _linescore_schedule_url(season),
+                    "http_status": 200,
+                    "rows": 0,
+                    "parser_version": LINESCORE_PARSER_VERSION,
+                    "schema_fingerprint": manifest.schema_fingerprint(["game_pk"]),
+                    "error": "the source lists the game as final with a linescore of no innings",
+                    "run_id": run_id,
+                }
+                for game_pk in _games_without_linescore(data)
             ],
         )
     return count
@@ -1184,9 +1221,9 @@ def _linescores_already_landed(conn: psycopg.Connection, season: int) -> bool:
                 SELECT rows, artifact_path, artifact_sha256
                 FROM meta.ingestion_item
                 WHERE source = %s AND dataset = 'linescore_schedule'
-                  AND item_key = %s AND status = 'loaded'
+                  AND item_key = %s AND status = 'loaded' AND parser_version = %s
                 """,
-                (SOURCE, str(season)),
+                (SOURCE, str(season), LINESCORE_PARSER_VERSION),
             )
             item = cur.fetchone()
             if item is None:

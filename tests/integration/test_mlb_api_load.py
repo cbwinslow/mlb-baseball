@@ -1683,3 +1683,60 @@ def test_the_current_season_is_always_refetched(db_conn, monkeypatch, reference_
     mlb_api._load_reference_season(db_conn, 2026, 2026, {a: 0})
 
     assert calls == [(a, 2026)]
+def _hydrated(*games):
+    return {"dates": [{"games": list(games)}]}
+
+
+def _hydrated_game(pk, innings, state="Final"):
+    return {
+        "gamePk": pk,
+        "status": {"abstractGameState": state},
+        "linescore": {"innings": innings},
+    }
+
+
+def test_finished_games_with_no_innings_are_found():
+    data = _hydrated(
+        _hydrated_game(1, [{"num": 1}]),
+        _hydrated_game(2, []),
+        _hydrated_game(3, [], state="Preview"),
+        {"gamePk": 4, "status": {"abstractGameState": "Final"}},
+    )
+
+    assert mlb_api._games_without_linescore(data) == [2, 4]
+
+
+def test_linescore_load_records_games_the_source_has_no_innings_for(db_conn, monkeypatch, tmp_path):
+    monkeypatch.setattr(mlb_api.manifest, "DOWNLOADS_ROOT", tmp_path)
+    data = _hydrated(_hydrated_game(11, []), _hydrated_game(12, []))
+
+    mlb_api._load_linescores_for_season(db_conn, 2010, data=data)
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT item_key, status FROM meta.ingestion_item "
+            "WHERE source = 'mlb_api' AND dataset = 'linescore' ORDER BY 1"
+        )
+        assert cur.fetchall() == [("2010:11", "unavailable"), ("2010:12", "unavailable")]
+        cur.execute("DELETE FROM meta.ingestion_item WHERE source = 'mlb_api'")
+    db_conn.commit()
+
+
+def test_a_season_loaded_by_an_older_linescore_parser_is_reloaded(db_conn, monkeypatch, tmp_path):
+    monkeypatch.setattr(mlb_api.manifest, "DOWNLOADS_ROOT", tmp_path)
+    mlb_api._load_linescores_for_season(db_conn, 2011, data=_hydrated(_hydrated_game(21, [])))
+    db_conn.commit()
+    assert mlb_api._linescores_already_landed(db_conn, 2011)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meta.ingestion_item SET parser_version = 'mlb-api-analytics-v3' "
+            "WHERE source = 'mlb_api' AND dataset = 'linescore_schedule'"
+        )
+    db_conn.commit()
+
+    assert not mlb_api._linescores_already_landed(db_conn, 2011)
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM meta.ingestion_item WHERE source = 'mlb_api'")
+    db_conn.commit()

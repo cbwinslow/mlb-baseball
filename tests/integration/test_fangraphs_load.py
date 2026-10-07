@@ -444,3 +444,79 @@ def test_health_check_reports_tables_run_and_freshness(db_conn, monkeypatch, _ti
     assert f"{fangraphs.SOURCE} last run" in names
     assert f"{fangraphs.SOURCE} freshness" in names
     assert all(c.ok for c in checks), [(c.name, c.detail) for c in checks if not c.ok]
+
+
+def test_rerun_fetches_only_what_is_missing_from_past_seasons(db_conn, monkeypatch, _tiny_ranges):
+    calls: list[tuple] = []
+    _fake_leaders(monkeypatch)
+    _fake_guts(monkeypatch)
+    _fake_park_factors(monkeypatch)
+    _fake_prospects(monkeypatch)
+    _fake_splits(monkeypatch)
+    _fake_projections(monkeypatch)
+    fangraphs.bootstrap()
+
+    # lose one past season of two boards, then watch what a second bootstrap asks for
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM raw.fangraphs_park_factors WHERE _season = '2025'")
+        cur.execute("DELETE FROM raw.fangraphs_fielding WHERE _season = '2025'")
+    db_conn.commit()
+    real_leaders = fangraphs.fg.get_leaders
+    monkeypatch.setattr(
+        fangraphs.fg,
+        "get_leaders",
+        lambda group, start, end, **kw: (
+            calls.append(("leaders", group, start)) or real_leaders(group, start, end, **kw)
+        ),
+    )
+    monkeypatch.setattr(
+        fangraphs.fg,
+        "get_prospect_board",
+        lambda season, **kw: calls.append(("prospects", season)) or [],
+    )
+    monkeypatch.setattr(
+        fangraphs.fg,
+        "get_split_leaders",
+        lambda position, season, split: calls.append(("split", season)) or [],
+    )
+    boards = list(fangraphs._PARK_FACTOR_BOARDS)
+    monkeypatch.setattr(
+        fangraphs,
+        "_PARK_FACTOR_BOARDS",
+        [
+            (t, (lambda season, _f=f, _t=t: calls.append((_t, season)) or _f(season)))
+            for t, f in boards
+        ],
+    )
+
+    fangraphs.bootstrap()
+
+    assert ("leaders", "fld", 2025) in calls
+    assert ("raw.fangraphs_park_factors", 2025) in calls
+    assert not [c for c in calls if c[0] in ("prospects", "split") and c[1] == 2025]
+    assert ("raw.fangraphs_park_factors_handedness", 2025) not in calls
+    assert not [c for c in calls if c[0] == "leaders" and c[1] != "fld" and c[2] == 2025]
+
+
+def test_handedness_board_is_not_asked_before_its_first_year(db_conn, monkeypatch, _tiny_ranges):
+    asked: list[tuple[str, int]] = []
+    _fake_leaders(monkeypatch)
+    _fake_guts(monkeypatch)
+    _fake_prospects(monkeypatch)
+    _fake_splits(monkeypatch)
+    _fake_projections(monkeypatch)
+    monkeypatch.setattr(fangraphs, "PARK_FACTOR_FIRST_YEAR", 2000)
+    monkeypatch.setattr(
+        fangraphs,
+        "_PARK_FACTOR_BOARDS",
+        [
+            (t, (lambda season, _t=t: asked.append((_t, season)) or [{"Team": "T", "Basic": 1}]))
+            for t in ("raw.fangraphs_park_factors", "raw.fangraphs_park_factors_handedness")
+        ],
+    )
+
+    fangraphs.bootstrap()
+
+    assert ("raw.fangraphs_park_factors", 2000) in asked
+    assert ("raw.fangraphs_park_factors_handedness", 2001) not in asked
+    assert ("raw.fangraphs_park_factors_handedness", 2002) in asked

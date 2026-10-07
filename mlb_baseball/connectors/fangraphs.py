@@ -96,6 +96,10 @@ LEADERBOARD_FIRST_YEAR = 1871
 PARK_FACTOR_FIRST_YEAR = 1871
 PROSPECT_FIRST_YEAR = 2010
 SPLIT_FIRST_YEAR = 2002  # FanGraphs' split-stats era
+# The handedness park-factor board starts in 2002 (live probe 2026-10-07: 2002 serves 30
+# rows, 2001 and every earlier year raise "No Guts table found"). The basic board serves
+# every year from 1871.
+PARK_FACTOR_HANDEDNESS_FIRST_YEAR = 2002
 
 LEADERBOARDS: list[tuple[str, str]] = [
     ("raw.fangraphs_batting", "bat"),
@@ -212,6 +216,7 @@ _PARK_FACTOR_BOARDS: list[tuple[str, Callable]] = [
     ("raw.fangraphs_park_factors", fg.get_park_factors),
     ("raw.fangraphs_park_factors_handedness", fg.get_park_factors_by_handedness),
 ]
+_HANDEDNESS_TABLE = "raw.fangraphs_park_factors_handedness"
 
 
 def _load_park_factors(conn: psycopg.Connection, season: int) -> int:
@@ -222,6 +227,10 @@ def _load_park_factors(conn: psycopg.Connection, season: int) -> int:
     roll back the other's committed rows for the same season."""
     total = 0
     for table, fn in _PARK_FACTOR_BOARDS:
+        if table == _HANDEDNESS_TABLE and season < PARK_FACTOR_HANDEDNESS_FIRST_YEAR:
+            continue
+        if season < date.today().year and season_already_loaded(conn, table, season):
+            continue
         try:
             rows = _fg_call(fn, season)
             df = _frame(rows)
@@ -407,12 +416,18 @@ def bootstrap() -> dict[str, int]:
             )
 
         for season in _season_range(PROSPECT_FIRST_YEAR, current):
+            if season < current and season_already_loaded(conn, "raw.fangraphs_prospects", season):
+                continue
             prospects = _run_unit(conn, f"prospects {season}", _load_prospects, season)
             totals["raw.fangraphs_prospects"] = totals.get("raw.fangraphs_prospects", 0) + prospects
 
         for table, position in SPLIT_BOARDS:
             for season in _season_range(SPLIT_FIRST_YEAR, current):
                 for split in CURATED_SPLITS:
+                    if season < current and season_already_loaded(
+                        conn, table, f"{season}|{split}", scope_column="_scope"
+                    ):
+                        continue
                     totals[table] = totals.get(table, 0) + _run_unit(
                         conn,
                         f"{table} {season} {split}",

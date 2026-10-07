@@ -49,3 +49,9 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Why: a known scope gap must not alert every night, a new or growing gap must. Rejected: a per-table threshold flag (hides growth); a separate cron (the nightly already has flock, log, retries and alerts).
 - Note: until the real repairs run, the nightly coverage step will alert (FanGraphs, linescores, 147 people, Kalshi, Polymarket). That is the intended signal.
 - Tests: unit (ceilings, never-accept empty/absent), nightly order. Approval: none needed (code on a branch).
+
+### 2026-10-07 UTC: FanGraphs narrow repair built (branch feat/fangraphs-missing-seasons)
+- Live probe (read-only): basic park factors serve 1871 (9 rows) to today; handedness serves 2002 on only; leaders `fld` 2019 serves 2,269 rows. So both gaps are real and repairable.
+- What: `mlb ingest fangraphs` (bootstrap) now skips past seasons already held for park factors, prospects and splits (as leaderboards already did) and no longer asks the handedness board for years before 2002. A re-run fetches only the missing 2019 fielding and 1871-1900 park factors, plus the current season.
+- Why: the old bootstrap re-fetched every park-factor season and all splits (hundreds of calls) to fill two holes. Rejected: a new repair command (same code path twice).
+- Tests: rerun fetches only missing units; handedness not asked before 2002.

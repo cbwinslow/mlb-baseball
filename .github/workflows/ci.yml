@@ -81,6 +81,40 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  changes:
+    # Decide which heavy jobs a PR needs. Docs/process-only PRs skip unit,
+    # integration and retrosheetpy; retrosheetpy runs only when it, the
+    # lockfile or this workflow changed. Pushes to main always run everything.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      code: ${{ steps.f.outputs.code }}
+      retro: ${{ steps.f.outputs.retro }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify changed files
+        id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "retro=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+          echo "$files"
+          # Process-only paths never affect runtime code or tests.
+          other=$(echo "$files" | grep -v -E '^(openspec|changelog|chatgpt|docs/archive|docs/superpowers)/|(^|/)(AGENTS|CLAUDE)\.md$|\.dox\.md$' || true)
+          if [ -n "$other" ]; then code=true; else code=false; fi
+          if echo "$files" | grep -q -E '^(packages/retrosheetpy/|pyproject\.toml$|uv\.lock$|\.github/workflows/ci\.yml$)'; then retro=true; else retro=false; fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"; echo "retro=$retro" >> "$GITHUB_OUTPUT"
+
   lint:
     runs-on: ubuntu-latest
     permissions:
@@ -146,6 +180,8 @@ jobs:
         run: uv run pytest tests/unit/test_docs_site.py -q
 
   unit:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -180,6 +216,8 @@ jobs:
     # balances by measured per-test time from the committed `.test_durations`
     # (regenerate with `uv run pytest tests/integration --store-durations`).
     name: integration (${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -305,6 +343,8 @@ jobs:
 
   retrosheetpy:
     name: retrosheetpy (parity with Chadwick)
+    needs: changes
+    if: needs.changes.outputs.retro == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -359,14 +399,17 @@ jobs:
   # and fails the required check instead of skipping it.
   test:
     name: test
-    needs: [unit, integration, retrosheetpy]
+    needs: [changes, unit, integration, retrosheetpy]
     if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Require unit, retrosheetpy and every integration shard to have succeeded
+      - name: Require each job that ran to have succeeded (skipped is fine)
+        # A job is "skipped" only when `changes` decided it is irrelevant to
+        # the diff; failed or cancelled still fails this required check.
         run: |
-          test "${{ needs.unit.result }}" = "success"
-          test "${{ needs.integration.result }}" = "success"
-          test "${{ needs.retrosheetpy.result }}" = "success"
+          test "${{ needs.changes.result }}" = "success"
+          for r in "${{ needs.unit.result }}" "${{ needs.integration.result }}" "${{ needs.retrosheetpy.result }}"; do
+            case "$r" in success|skipped) ;; *) echo "job result: $r"; exit 1 ;; esac
+          done

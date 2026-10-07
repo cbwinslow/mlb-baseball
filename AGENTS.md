@@ -9,8 +9,8 @@
 > **Workflow is OpenSpec** (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`).
 > The `plans/` workflow (now `docs/archive/plans/`) and conductor `/spec` are
 > retired; `docs/archive/NORTH_STAR.md` is superseded by `openspec/project.md`.
-> Superpowers `brainstorming` + `test-driven-development` are skills used
-> *inside* a change.
+> Superpowers and mattpocock skills are used *inside* a change — see
+> **Operating protocol** below.
 
 This is the **small, always-relevant project contract and filesystem context map**.
 Do not treat it as an encyclopedia. Before editing a path, follow the applicable
@@ -26,6 +26,26 @@ replace or weaken it.
 Build a trustworthy, reproducible MLB research database and toolkit from multiple
 lawfully usable sources, with strong identity reconciliation, provenance,
 point-in-time semantics, reusable statistics, and portable research outputs.
+
+## The two halves of the project
+
+1. **The data platform.** Download, ingest, bootstrap and *maintain* every
+   available MLB source in organized PostgreSQL tables, through idempotent,
+   re-runnable Python/SQL operations. Anyone (academics, analysts,
+   programmers, fans) can download the project and rebuild the same database.
+2. **The research and forecasting product built on it.** A cited arsenal of
+   sabermetric statistics and point-in-time features, predictive models,
+   analysis of Polymarket/Kalshi markets, and published research and
+   betting-strategy findings, later a paid subscriber website. We publish
+   research; we do not take bets.
+
+**Stages run in this order; finish a stage's gate before pulling the next
+forward** (the gates live in `openspec/project.md`):
+
+```text
+1 database + ETL + bootstrap + upkeep  ->  2 metrics / features / sabermetrics
+  ->  3 predictive models + market research  ->  4 website + paid research
+```
 
 Current priority order:
 
@@ -120,6 +140,52 @@ Before changing a file:
 After a meaningful change, update the **nearest owning** DOX/context artifact when
 its durable contract, ownership, verification, or child index changed. Do not
 copy the same rule into every ancestor.
+
+## Operating protocol — skills, OpenSpec, ADRs, DOX, tools
+
+Do these by default; each names its owner so nothing is restated here.
+
+**Skills (invoke with the Skill tool before acting).**
+
+| Situation | Skill |
+| --- | --- |
+| Any non-trivial change | OpenSpec: `/opsx:explore` → `/opsx:propose` → `/opsx:apply` → `/opsx:archive` |
+| New feature or behavior | `superpowers:brainstorming`, then `superpowers:test-driven-development` |
+| Bug, failing test, slow run | `superpowers:systematic-debugging` or `mattpocock-skills:diagnosing-bugs` |
+| Stress-testing a plan or decision | `mattpocock-skills:grilling` |
+| Domain terms, recording an ADR | `mattpocock-skills:domain-modeling` (our log format is below, not its `docs/adr/`) |
+| Module/interface design | `mattpocock-skills:codebase-design` |
+| Source/library fact-finding | `mattpocock-skills:research` |
+| Editing `AGENTS.md`, `CLAUDE.md`, skills | `mattpocock-skills:writing-for-agents` |
+| Before saying "done" or opening a PR | `superpowers:verification-before-completion` |
+
+**ADRs.** A decision that is hard to reverse, surprising without context, and
+a real trade-off gets an entry in `docs/DECISIONS.md` (newest first, next
+number up) in the same change. The change's `design.md` links the ADR number;
+archiving a change that made such a decision without one is incomplete.
+
+**DOX mesh.** Editing a file that has a `<file>.dox.md` sidecar means reading
+it first and updating it in the same change when the file's contract,
+ownership or verification changed. New subsystem → new local `AGENTS.md` /
+sidecar, indexed in the Child DOX Index above.
+
+**Logs.** Operational/infrastructure work gets a dated entry in `changelog/`;
+long-running ingestion is observed through `meta.*` run tables and
+`mlb doctor`, not by counting rows by hand.
+
+**Tools.** Use the `postgres-mcp` tools for schema inspection and
+EXPLAIN/ANALYZE (target database explicit; production `mlb` is read-only
+unless the task says otherwise). Use codebase-graph tools for structural
+questions before grepping.
+
+**Ingestion standard.** Every source gets an idempotent, resumable Python
+operation behind an `mlb` command, with a test that runs it twice and proves
+the second run changes nothing, plus a bootstrap path and a `doctor`/health
+check for upkeep.
+
+**Documentation is a deliverable.** Keep docs current, accurate and
+consolidated: fix or archive a stale doc when you find it, one owner per
+fact, link rather than copy.
 
 ## Work and verification doctrine
 

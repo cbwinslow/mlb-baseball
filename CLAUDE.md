@@ -48,6 +48,16 @@ Hard rules:
 - After finishing work, mention a next step only when evidence shows it is useful;
   do not pad every response with generic suggestions.
 
+## Skills are the default path
+
+Follow the **Operating protocol** in `AGENTS.md` (skill table, ADRs, DOX,
+logs, tools). Claude-specific: invoke skills with the Skill tool *before*
+acting or asking clarifying questions; announce "Using <skill> to <purpose>".
+For substantive work, start from the OpenSpec change, not from ad-hoc edits.
+Before finishing, check the three misses seen most: an ADR for a real
+decision, the matching `.dox.md`/contract update, and a run-twice idempotency
+test for any ingestion change.
+
 ## Progressive context discipline
 
 Claude should minimize irrelevant persistent context, not project knowledge.

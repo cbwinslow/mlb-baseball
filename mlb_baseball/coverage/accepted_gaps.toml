@@ -59,3 +59,17 @@ table = "raw.register_people"
 max_missing = 50
 reason = "Negro League players (29), exhibition-game players and umpire placeholders are not in the Chadwick register"
 owner = "negro-league-scope"
+
+[[accepted]]
+table = "raw.mlb_team_history"
+group = "raw.mlb_schedule.home_id"
+max_missing = 90
+reason = "schedule team ids that are not clubs: All-Star league sides, postseason seed placeholders, spring-training and exhibition opponents, and 5 Negro League clubs (checked 2026-10-07: only 8 of 124 ids appear outside spring and exhibition games, none a club)"
+owner = "full-source-ingestion 0.14"
+
+[[accepted]]
+table = "raw.mlb_team_history"
+group = "raw.mlb_schedule.away_id"
+max_missing = 100
+reason = "same as home_id: not clubs (All-Star sides, seed placeholders, exhibition opponents, Negro League clubs)"
+owner = "full-source-ingestion 0.14"

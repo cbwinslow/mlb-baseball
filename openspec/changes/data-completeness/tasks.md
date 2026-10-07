@@ -15,7 +15,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 - [x] 1.3 Schedule-aware expectations: count "Completed Early", track Postponed/Scheduled against MLB's published schedule, include the next season when published; verify with a fixture and live probe (PR for branch `feat/schedule-aware-coverage`)
 - [x] 1.4 Chadwick-based player check: players seen in rosters, box scores and Statcast exist in the register; verify counts and list unmatched (report line on `raw.register_people`; FanGraphs, Retrosheet, bref ids not checked there)
 - [ ] 1.5 Live checks for the other sources (`full-source-ingestion` 0.13): Retrosheet file list, FanGraphs/Baseball-Reference seasons, Lahman release year, Statcast per-day pitch counts (done as a per-game check, PR `feat/statcast-per-game`)
-- [ ] 1.6 Full report saved to this folder as `results-baseline.md` with every gap classified: repair, scope, unavailable, or open question
+- [x] 1.6 Full report saved to this folder as `results-baseline.md` with every gap classified: repair, scope, unavailable, or open question
 
 ## 2. Repair (production writes need approval each time)
 

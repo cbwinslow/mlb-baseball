@@ -37,3 +37,9 @@ Append only, newest at the bottom. Format in `goal.md`.
 - **Decision:** add the MLB-id check as a permanent report line on `raw.register_people`; the fix is `mlb ingest register`. Other id systems wait until a use needs them. **Design note for 3.2:** the nightly alert needs a file of accepted gaps (table, count, reason) so these known scope gaps do not alert every night, while any new gap does.
 
 - **Decision (Statcast completeness):** measure `raw.statcast_pitch` per game instead of per date. **Evidence (read-only):** every played regular-season or postseason game from 2008 to 2025 has pitch rows (2008: 2,460 of 2,460 ... 2025: 2,477 of 2,477; 2020: 951 of 951); 2026 lacks 4 games, all from 2026-10-05 and 2026-10-06 (the update has not run since). The old per-date line flagged 2008-10-29: that is World Series game 5, suspended on 2008-10-27 and resumed on 2008-10-29, which Savant files under its start date, so it was a false alarm. **Limit:** a game with only some pitches still counts as held. **Follow-up:** 54 games since 2015 have under 120 pitches (could be shortened games); compare with play-by-play pitch counts for 2026 later. `statcast.update()` reloads the whole current season, so the 4 games heal on the next run (task 2.4, needs approval).
+
+### 2026-10-07 UTC: goal 2, baseline results
+- What: wrote `goal-2.md` (PR #351) and `results-baseline.md`; coverage re-run on the updated main checkout.
+- Finding: the main checkout had run old code until fast-forwarded today (owner approved: "ok yea"); the nightly now applies migrations 0112/0113.
+- Numbers: Kalshi missing 744 -> 1,492 and Polymarket 3,560 -> 5,750 (new 2026 items arrived; backfill not run); Statcast 4 -> 2 games; linescores 85.
+- Follow-up: ask owner per repair command, cheapest first.

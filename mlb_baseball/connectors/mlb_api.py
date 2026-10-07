@@ -2260,6 +2260,70 @@ def _load_game_detail_for_today(conn: psycopg.Connection) -> dict[str, int]:
     return totals
 
 
+# Past finished games of the current season whose detail is missing are re-fetched a few
+# at a time on each update, so a missed day heals itself without a manual run.
+REPAIR_BATCH_UPDATE = 20
+
+
+def _final_games_missing_detail(
+    conn: psycopg.Connection, season: int, limit: int | None
+) -> list[int]:
+    """Final games of ``season`` with no play-by-play or no box score, newest first.
+
+    A detail table that does not exist yet (a fresh database) counts as holding nothing.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.mlb_schedule')")
+        if fetch_one(cur)[0] is None:
+            return []
+        missing = []
+        for table, alias in (("raw.mlb_playbyplay", "p"), ("raw.mlb_boxscore_batting", "b")):
+            cur.execute("SELECT to_regclass(%s)", (table,))
+            if fetch_one(cur)[0] is None:
+                missing.append("TRUE")
+            else:
+                missing.append(
+                    f"NOT EXISTS (SELECT 1 FROM {table} {alias} WHERE {alias}.game_pk = s.game_id)"
+                )
+        cur.execute(
+            f"""
+            SELECT s.game_id FROM raw.mlb_schedule s
+            WHERE s._season = %s AND s.status = 'Final' AND ({" OR ".join(missing)})
+            ORDER BY s.game_date DESC, s.game_id
+            LIMIT %s
+            """,
+            (str(season), limit),
+        )
+        return [int(row[0]) for row in cur.fetchall()]
+
+
+def _repair_game_detail(conn: psycopg.Connection, season: int, limit: int | None) -> dict[str, int]:
+    """Re-fetch detail for finished games that lack it; one commit per game.
+
+    Each game's rows are replaced as a unit, so a repeat run cannot duplicate them.
+    """
+    totals: dict[str, int] = dict.fromkeys(_GAME_DETAIL_TABLES, 0)
+    for game_pk in _final_games_missing_detail(conn, season, limit):
+        try:
+            for table, count in _load_game_detail_for_game(conn, game_pk, season).items():
+                totals[table] = totals.get(table, 0) + count
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            logger.error("mlb_api: repair of game %s failed (%s); skipping", game_pk, exc)
+    return totals
+
+
+def backfill_history() -> dict[str, int]:
+    """``mlb ingest mlb_api --mode backfill``: repair every finished game of the current
+    season that lacks play-by-play or a box score (update repairs only a few per run)."""
+    season = date.today().year
+    with get_connection() as conn, track_run(conn, SOURCE, "backfill") as result:
+        counts = _repair_game_detail(conn, season, None)
+        result["rows"] = sum(counts.values())
+    return counts
+
+
 def _load_draft_years(conn: psycopg.Connection, current_year: int) -> int:
     total = 0
     for year in range(FIRST_DRAFT_YEAR, current_year + 1):
@@ -3141,6 +3205,8 @@ def update() -> dict[str, int]:
             "raw.mlb_draft": _load_draft(conn, season) if season >= FIRST_DRAFT_YEAR else 0,
         }
         counts.update(_load_game_detail_for_today(conn))
+        for table, count in _repair_game_detail(conn, season, REPAIR_BATCH_UPDATE).items():
+            counts[table] = counts.get(table, 0) + count
         counts["raw.mlb_live_game"] = capture_live(conn)
         counts["raw.mlb_probable"] = _load_probable(conn)
         conn.commit()

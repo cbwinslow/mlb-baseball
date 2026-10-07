@@ -53,7 +53,7 @@ Some connectors may additionally expose an expensive/manual `backfill` mode. Bac
 
 When adding a connector, update the explicit registry and applicable source/profile/docs/tests. Do not build a second plugin-discovery framework inside the CLI.
 
-`mlb nightly [--pause S ...]` is the daily pipeline (`nightly.py` owns the steps, gates and retry; the CLI only parses and exits with its code). `mlb runs [--check]` prints each scheduled job's last result from one `meta.ingestion_run` query (`runs.py`); `--check` exits 1 and calls `alert_command` when a job last failed or has no recent success. `alert_command` (`alert.py`, setting in `config.py`) is run without a shell and a failing hook never changes a job's exit code.
+`mlb nightly [--pause S ...]` is the daily pipeline (`nightly.py` owns the steps, gates and retry; it ends with `coverage`, `schema-watch` and `repair --dry-run`; the CLI only parses and exits with its code). `mlb runs [--check]` prints each scheduled job's last result from one `meta.ingestion_run` query (`runs.py`); `--check` exits 1 and calls `alert_command` when a job last failed or has no recent success. `alert_command` (`alert.py`, setting in `config.py`) is run without a shell and a failing hook never changes a job's exit code.
 
 ## Bootstrap / Update Concurrency Contract
 

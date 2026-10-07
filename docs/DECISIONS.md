@@ -2,6 +2,24 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-301: Drift is detected nightly and reported until accepted; repair runs only a fixed safe list
+
+**Decision (2026-10-07).** `mlb schema-watch` compares one small sample per dataset with a saved
+snapshot (field names and types, or file names) and keeps reporting a change on every run until
+`--accept`; an unreachable source is "unchecked", never "unchanged". `mlb repair` runs an
+`mlb ingest` command only if the table is on `SAFE_REPAIRS` and the coverage fix text is exactly
+that command (plus listed flags); one attempt per table per night, suspended after three
+failures in a row until `--reset`, everything else only reported. Both run in `mlb nightly`;
+repair stays `--dry-run` there until the owner approves `--apply` for production.
+
+**Why.** Silent upstream changes and gaps are what the owner cannot see; an alert that clears
+by itself hides them. Auto-repair that can run any command could hide a real fault or do harm, so
+the safe list is code with a reason per entry, not inferred from a command name.
+**Source:** `openspec/changes/source-inventory/design.md` decisions 2, 3 and 5.
+
+**Revisit if:** the nightly script becomes hard to manage (then evaluate an orchestrator with
+evidence), or a safe repair is shown to hide a real fault.
+
 ## ADR-300: Do not adopt `dlt` or a community baseball MCP server; keep our connectors, add a drift check
 
 **Decision (2026-10-07).** We do not add `dlt` (dlt-hub, Apache-2.0, 5,939 stars, active) or

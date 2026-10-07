@@ -9,6 +9,7 @@ from mlb_baseball import cli, coverage
 from mlb_baseball.connectors import statcast_leaderboard
 from mlb_baseball.coverage.engine import TableReport
 from mlb_baseball.coverage.model import Group
+from mlb_baseball.coverage.registry import DATASETS
 from mlb_baseball.coverage.render import missing_text
 from mlb_baseball.registry import CONNECTORS
 
@@ -64,6 +65,7 @@ def test_cli_coverage_dispatches_options(monkeypatch):
         "as_markdown": False,
         "missing_only": False,
         "probe": False,
+        "unexplained_only": False,
     }
 
 
@@ -128,3 +130,40 @@ def test_live_schedule_check_includes_next_season_only_when_published(monkeypatc
     published["value"] = 0
     without = check.measure(Cur(), "raw.mlb_schedule")
     assert [g.label.split()[0] for g in without.groups] == [str(next_year - 1)]
+
+
+def _report(status: str, groups: list[Group], table: str = "raw.x", **extra) -> TableReport:
+    return TableReport("s", table, "person", status, "e", 1, groups, "fix", **extra)
+
+
+def test_accepted_gap_file_names_registered_tables_and_has_reasons():
+    from mlb_baseball.coverage import load_accepted_gaps
+
+    tables = {d.table for d in DATASETS}
+    entries = load_accepted_gaps()
+    assert entries
+    for entry in entries:
+        assert entry.table in tables
+        assert entry.reason and entry.owner and entry.max_missing > 0
+
+
+def test_a_gap_within_its_accepted_ceiling_is_explained_and_above_it_is_not():
+    from mlb_baseball.coverage import AcceptedGap
+
+    accepted = [AcceptedGap("raw.x", "a", 5, "why", "owner")]
+    assert not _report("missing", [Group("a", 10, 5)]).unexplained(accepted)
+    assert _report("missing", [Group("a", 10, 4)]).unexplained(accepted)
+    # a different group in the same table is still unexplained
+    assert _report("missing", [Group("a", 10, 5), Group("b", 3, 2)]).unexplained(accepted)
+    # a whole-table entry caps the table total
+    whole = [AcceptedGap("raw.x", None, 6, "why", "owner")]
+    assert not _report("missing", [Group("a", 10, 5), Group("b", 3, 2)]).unexplained(whole)
+
+
+def test_an_empty_or_unmeasurable_table_is_never_accepted():
+    from mlb_baseball.coverage import AcceptedGap
+
+    whole = [AcceptedGap("raw.x", None, 10**9, "why", "owner")]
+    for status in ("empty", "table_absent", "inputs_absent", "no_basis"):
+        assert _report(status, []).unexplained(whole)
+    assert not _report("complete", [Group("a", 1, 1)]).unexplained(whole)

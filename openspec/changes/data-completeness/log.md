@@ -43,3 +43,9 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Finding: the main checkout had run old code until fast-forwarded today (owner approved: "ok yea"); the nightly now applies migrations 0112/0113.
 - Numbers: Kalshi missing 744 -> 1,492 and Polymarket 3,560 -> 5,750 (new 2026 items arrived; backfill not run); Statcast 4 -> 2 games; linescores 85.
 - Follow-up: ask owner per repair command, cheapest first.
+
+### 2026-10-07 UTC: tasks 3.2 and 3.4 built (branch feat/accepted-gaps)
+- What: `accepted_gaps.toml` (8 scope entries, each with ceiling, reason, owner); `mlb coverage --unexplained`; new nightly step `coverage` (alerts on any gap not accepted).
+- Why: a known scope gap must not alert every night, a new or growing gap must. Rejected: a per-table threshold flag (hides growth); a separate cron (the nightly already has flock, log, retries and alerts).
+- Note: until the real repairs run, the nightly coverage step will alert (FanGraphs, linescores, 147 people, Kalshi, Polymarket). That is the intended signal.
+- Tests: unit (ceilings, never-accept empty/absent), nightly order. Approval: none needed (code on a branch).

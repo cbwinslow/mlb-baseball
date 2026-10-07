@@ -13,7 +13,7 @@ STATUS_LABEL = {
     "no_basis": "NO BASIS: nothing to derive an expectation from",
     "no_expectation": "no expectation defined",
     "table_absent": "TABLE DOES NOT EXIST",
-    "inputs_absent": "CANNOT MEASURE: an input table does not exist",
+    "inputs_absent": "CANNOT MEASURE: an input table or file does not exist",
 }
 
 

@@ -61,3 +61,12 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Before: fielding missing 2019; park factors missing 1871-1900 (30 seasons). Fielding rows 181,015.
 - After: `mlb coverage --source fangraphs --missing-only` says "nothing to report". Fielding 183,284 rows (+2,269, matching the live probe of 2,269 for 2019). Only the current season was otherwise reloaded.
 - Also done today: main checkout fast-forwarded to 52d55eb (owner approved in the same message).
+### 2026-10-07 UTC: bootstrap audit (owner request: every table fillable by an idempotent bootstrap)
+- Found (read-only): all 150 inventory tables belong to one of 18 registered connectors; `mlb bootstrap` runs every one; coverage fix commands are all real ingest commands. Static evidence only: raw tables are created by the first load, so only a run proves it.
+- Gap: 9 connectors have no direct `bootstrap()` test (listed in task 3.1). Deliberate scope gap to raise: mlb_api play-by-play/box score load from 2026 only (ADR-018/019), though the project aim is all history.
+- Next: tests per missing connector (branch/PR each); owner decision on the 2026-only play-by-play.
+
+### 2026-10-07 UTC: correction to the bootstrap audit
+- The entry above said 9 connectors lacked a bootstrap test. That came from a grep for `<name>.bootstrap(` and was wrong: those connectors are tested through their load functions (`tests/integration/test_<name>_load.py`, 2 to 11 tests each, reload-replaces included). Retracted; task 3.1 text corrected.
+- Owner question on MLB play-by-play/box scores: checked read-only. Retrosheet event data holds 208,693 games from 1900 to 2025, so MLB's play-by-play before 2026 is the same plays; 2026 is not in Retrosheet yet, which is why MLB's feed starts there. Retrosheet publishes box scores directly only to 1961 (we hold 1871-1961); later box scores derive from the event data. Not literally identical (MLB adds pitch-level fields; Statcast covers 2008+). Decision stands: no change.
+- Open approval: the linescores run (`mlb ingest mlb_api --stage analytics --start-year 2000 --end-year 2024`) awaits an explicit yes naming it.

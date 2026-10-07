@@ -135,3 +135,53 @@ def test_render_lists_each_drifted_field_and_each_unchecked_dataset():
     assert "removed o: str" in text
     assert "changed c: int -> str" in text
     assert "UNCHECKED s/b: down" in text
+
+
+def test_fields_inside_lists_of_objects_are_seen():
+    sample = {"dates": [{"games": [{"gamePk": 1, "status": {"code": "F"}}]}], "total": 1}
+    fields = fields_of(sample)
+    assert fields["dates[].games"] == "list"
+    assert fields["dates[].games[].gamePk"] == "int"
+    assert fields["dates[].games[].status.code"] == "str"
+
+
+def test_a_renamed_nested_field_is_drift(tmp_path):
+    store = SnapshotStore(tmp_path)
+    check([_ds({"dates": [{"games": [{"gamePk": 1}]}]})], store)
+    (finding,) = check([_ds({"dates": [{"games": [{"game_pk": 1}]}]})], store)
+    assert finding.status == "drift"
+    assert "dates[].games[].gamePk" in finding.drift.removed
+
+
+def test_a_failing_dataset_is_retried_the_stated_number_of_times(tmp_path):
+    calls = []
+    check([_ds(ConnectionError("x"), calls)], SnapshotStore(tmp_path), attempts=3, pause=0)
+    assert len(calls) == 3
+
+
+def test_unknown_source_is_not_reported_as_success(capsys):
+    from mlb_baseball import schema_watch
+
+    assert schema_watch.run("nonexistent", datasets=[_ds({"a": 1})]) == 2
+    assert "no datasets" in capsys.readouterr().out
+
+
+def test_tolerate_unchecked_turns_exit_2_into_0_but_keeps_drift(tmp_path, monkeypatch):
+    import contextlib
+
+    from mlb_baseball import schema_watch
+
+    monkeypatch.setattr("mlb_baseball.db.get_connection", lambda: contextlib.nullcontext())
+    monkeypatch.setattr(schema_watch, "record", lambda conn, findings: None)
+    down = [_ds(ConnectionError("down"))]
+    kw = {"store_dir": tmp_path, "datasets": down}
+    monkeypatch.setattr(
+        schema_watch,
+        "check",
+        lambda *a, **k: [schema_watch.Finding("s", "d", "unchecked", error="down")],
+    )
+    assert schema_watch.run(**kw) == 2
+    assert schema_watch.run(tolerate_unchecked=True, **kw) == 0
+    drift = schema_watch.Finding("s", "d", "drift", compare({}, {"x": "int"}))
+    monkeypatch.setattr(schema_watch, "check", lambda *a, **k: [drift])
+    assert schema_watch.run(tolerate_unchecked=True, **kw) == 1

@@ -38,10 +38,26 @@ def test_record_is_idempotent_and_keeps_the_latest(db_conn):
 
 def test_record_writes_nothing_to_raw(db_conn):
     with db_conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM pg_stat_user_tables WHERE schemaname = 'raw'")
-        tables_before = cur.fetchone()[0]
-    record(db_conn, [Finding("zz_test", "c", "new")])
-    with db_conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM pg_stat_user_tables WHERE schemaname = 'raw'")
-        assert cur.fetchone()[0] == tables_before
+        cur.execute("CREATE TABLE raw.zz_watch_probe (x text)")
+        cur.execute("INSERT INTO raw.zz_watch_probe VALUES ('a')")
+    db_conn.commit()
+    try:
+        record(db_conn, [Finding("zz_test", "c", "new")])
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM raw.zz_watch_probe")
+            assert cur.fetchone()[0] == 1
+    finally:
+        with db_conn.cursor() as cur:
+            cur.execute("DROP TABLE raw.zz_watch_probe")
+        db_conn.commit()
+        _clean(db_conn)
+
+
+def test_an_unchecked_run_does_not_erase_a_standing_drift(db_conn):
+    _clean(db_conn)
+    record(db_conn, [Finding("zz_test", "a", "drift", Drift(added={"x": "int"}))])
+    record(db_conn, [Finding("zz_test", "a", "unchecked", error="down")])
+    assert _rows(db_conn)[0][2] == "drift"
+    record(db_conn, [Finding("zz_test", "a", "unchanged")])
+    assert _rows(db_conn)[0][2] == "unchanged"
     _clean(db_conn)

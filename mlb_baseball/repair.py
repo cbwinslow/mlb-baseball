@@ -10,6 +10,7 @@ are the idempotent connectors, so a second run after the gap closes changes noth
 
 import shlex
 import subprocess
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -29,6 +30,7 @@ class SafeRepair:
     argv: tuple[str, ...]
     timeout_seconds: int
     reason: str
+    flags: tuple[str, ...] = ()  # the only flags this entry's command may carry, once each
 
 
 def _mlb_api(table: str) -> SafeRepair:
@@ -37,6 +39,7 @@ def _mlb_api(table: str) -> SafeRepair:
         ("mlb", "ingest", "mlb_api"),
         2 * 3600,
         "per-game load; skips games the ledger holds, so a re-run adds only what is missing",
+        ("--stage", "--start-year", "--end-year"),
     )
 
 
@@ -105,10 +108,14 @@ def _matches(entry: SafeRepair, fix: str) -> tuple[str, ...] | None:
         return None
     rest = argv[len(entry.argv) :]
     i = 0
+    seen: set[str] = set()
     while i < len(rest):
         flag = rest[i]
         value = rest[i + 1] if i + 1 < len(rest) else None
-        if flag in YEAR_FLAGS and value is not None and value.isdigit():
+        if flag not in entry.flags or flag in seen:
+            return None
+        seen.add(flag)
+        if flag in YEAR_FLAGS and value is not None and value.isascii() and value.isdigit():
             i += 2
         elif value is not None and value in FLAG_VALUES.get(flag, ()):
             i += 2
@@ -180,10 +187,17 @@ def record_attempt(conn, table: str, outcome: str, detail: str = "") -> None:
     conn.commit()
 
 
+def _child_argv(argv: Sequence[str]) -> list[str]:
+    """`mlb ...` as this Python's own entry point, so a minimal cron PATH cannot break it."""
+    if argv and argv[0] == "mlb":
+        return [sys.executable, "-c", "from mlb_baseball.cli import main; main()", *argv[1:]]
+    return list(argv)
+
+
 def run_command(argv: Sequence[str], timeout: float) -> int:
     """Run an `mlb` child process; the exit code, or TimeoutError when it overruns."""
     try:
-        return subprocess.run(argv, timeout=timeout, check=False).returncode
+        return subprocess.run(_child_argv(argv), timeout=timeout, check=False).returncode
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError(f"{' '.join(argv)} exceeded {timeout:.0f}s") from exc
 
@@ -193,18 +207,22 @@ def apply(
     conn,
     runner: Callable[[Sequence[str], float], int] = run_command,
 ) -> list[Result]:
-    """Run the planned actions one after another and record each attempt."""
+    """Run the planned actions and record each attempt. Tables that share one command (the
+    MLB API per-game tables) run it once; every one of them gets the outcome."""
     results = []
+    outcomes: dict[tuple[str, ...], tuple[str, str]] = {}
     for action in actions:
         if action.status != "planned":
             continue
-        try:
-            code = runner(action.argv, action.timeout_seconds)
-            result = Result(action.table, "ok" if code == 0 else "failed", f"exit {code}")
-        except Exception as exc:  # a hung or crashed command is a failed attempt, not a crash
-            result = Result(action.table, "failed", str(exc))
-        record_attempt(conn, result.table, result.outcome, result.detail)
-        results.append(result)
+        if action.argv not in outcomes:
+            try:
+                code = runner(action.argv, action.timeout_seconds)
+                outcomes[action.argv] = ("ok" if code == 0 else "failed", f"exit {code}")
+            except Exception as exc:  # a hung or crashed command is a failed attempt
+                outcomes[action.argv] = ("failed", str(exc))
+        outcome, detail = outcomes[action.argv]
+        record_attempt(conn, action.table, outcome, detail)
+        results.append(Result(action.table, outcome, detail))
     return results
 
 
@@ -239,6 +257,9 @@ def run(
     from mlb_baseball.db import get_connection
 
     if reset:
+        if reset not in _BY_TABLE:
+            print(f"repair: {reset} is not on the safe list ({', '.join(sorted(_BY_TABLE))})")
+            return 2
         with get_connection() as conn:
             record_attempt(conn, reset, "reset", "owner reset")
         print(f"repair: suspension for {reset} cleared")

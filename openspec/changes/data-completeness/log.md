@@ -118,3 +118,7 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Open item for later (3.3): a bounded nightly backfill step (a fixed number of newest closed markets per night) so this stops accumulating. Until then the nightly coverage check will report both as unexplained gaps; consider a temporary accepted-gaps ceiling if the alerts become noise (needs owner decision).
 
 ### 2026-10-07 UTC: docs/sources pages for statcast, bref, chadwick_register and lahman updated with verified facts (task 1.1). Left: kalshi, polymarket (paused with odds work) and news.
+
+### 2026-10-07 UTC: main checkout brought up to date
+- Approval: owner, "1" (stash the AGENTS.md edit, update, restore). Only `AGENTS.md` conflicted; I saved it as a patch and a stash entry, fast-forwarded `~/workspace/mlb` to 532809c, and restored the edit (still 1 added line, uncommitted). The owner's other uncommitted files were not touched. `uv sync --extra dev` ran.
+- Effect: tonight's `mlb nightly` runs the new code: migrations, the 2027 schedule load, the Statcast heal, and the new `coverage` step (it will alert on Kalshi and Polymarket, which are deferred).

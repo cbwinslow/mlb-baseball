@@ -41,3 +41,8 @@ Postseason lines are not here: they come from Lahman (`raw.lahman_batting_post`,
 ## Open questions
 
 - Pre-2008 season lines exist on the site but not through `pybaseball`; whether a lawful path exists is unexamined.
+
+## Verified 2026-10-07 (database and code)
+
+- Batting and pitching season lines are held 2008-2026. 2008 is the first year because `pybaseball`'s Baseball-Reference path itself starts there (`bref.FIRST_YEAR`, a library limit, not a choice); earlier seasons come from Lahman and Retrosheet.
+- Tables: `raw.bref_batting`, `raw.bref_pitching`, `raw.bref_war_batting`, `raw.bref_war_pitching`.

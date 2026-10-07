@@ -73,3 +73,17 @@ group = "raw.mlb_schedule.away_id"
 max_missing = 100
 reason = "same as home_id: not clubs (All-Star sides, seed placeholders, exhibition opponents, Negro League clubs)"
 owner = "full-source-ingestion 0.14"
+
+[[accepted]]
+table = "raw.mlb_win_prob"
+group = "2011"
+max_missing = 2
+reason = "games 305461 and 308207 answer HTTP 500 on winProbability on every retry (checked 2026-10-07); recheck when the source changes"
+owner = "data-completeness 2.1"
+
+[[accepted]]
+table = "raw.mlb_game_context"
+group = "2011"
+max_missing = 2
+reason = "games 305461 and 308207 answer HTTP 500 on contextMetrics on every retry (checked 2026-10-07)"
+owner = "data-completeness 2.1"

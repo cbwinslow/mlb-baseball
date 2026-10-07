@@ -104,3 +104,10 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Finding (live probes): the 84 missing games answer `game/<pk>/linescore` with HTTP 200 and `innings: []`: 46 are exhibition games (2002-2012), 36 regular-season (2000-2024), 2 special. The source holds no linescore for them, so this is source-unavailable, not a defect to retry.
 - Fix: the loader writes a ledger `linescore`/`unavailable` item for each such game and coverage counts it as accounted for; one more analytics run re-hydrates each season once to write the marks (needs approval). Rejected: excluding exhibition games from the expectation (the 36 regular-season games would stay unexplained) and an accepted-gaps ceiling (hides growth).
 - Also: 2 games in 2011 (305461, 308207) answer HTTP 500 on win probability and context metrics every retry; to record as unavailable if it persists.
+
+### 2026-10-07 UTC: tasks 2.1 and 2.8 closed
+- Commands (production, owner "yes go ahead with both runs"): `mlb ingest mlb_api --mode bootstrap` (stopped by hand after the 2024 stats landed; owner agreed, "we can stop it if you think thats whats best") and `mlb ingest mlb_api --stage analytics --start-year 2000 --end-year 2024`.
+- Before: 2024 player/team stats, stat leaders and team leaders missing; 84 linescores missing.
+- After: 2024 stats present (1,597 / 60 / 116 / 2,364 rows); 1,353 linescore games recorded in the ledger as `unavailable` (the source returns no innings); `mlb coverage --source mlb_api --unexplained` no longer lists linescores or any reference table.
+- Left in mlb_api: 2 games of 2011 (305461, 308207) where winProbability and contextMetrics answer HTTP 500 every time (probed again today); accepted with a ceiling of 2 each. One roster person (116751) not yet in mlb_person; the next mlb_api person load should fetch it.
+- Stopped run leaves one `running` row in `meta.ingestion_run`; the nightly `repair-runs` step marks it failed.

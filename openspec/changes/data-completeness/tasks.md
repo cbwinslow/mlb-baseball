@@ -19,7 +19,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 
 ## 2. Repair (production writes need approval each time)
 
-- [ ] 2.1 (source has no linescore for the 84; ledger marks need one more run) 81 old MLB linescores (2000-2024)
+- [x] 2.1 84 linescores: the source holds none; recorded as unavailable (ledger), verified by coverage
 - [x] 2.2 (147 -> 1) 147 roster players missing from `raw.mlb_person` (widening is `full-source-ingestion` 0.14)
 - [x] 2.3 FanGraphs fielding 2019
 - [ ] 2.4 Statcast: 4 games of 2026-10-05/06 (heals with `mlb ingest statcast --mode update`; the 2008-10-29 "missing date" was a false alarm, see log)

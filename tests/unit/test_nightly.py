@@ -58,6 +58,8 @@ def test_full_run_order_and_skips_mlb_api(harness):
         "predict",
         "doctor --populated",
         "coverage --unexplained --missing-only --fail-on-gap",
+        "schema-watch",
+        "repair --dry-run",
     ]
     assert harness.alerts == []
     assert [r[0] for r in harness.records] == [
@@ -68,6 +70,8 @@ def test_full_run_order_and_skips_mlb_api(harness):
         "predict",
         "populated",
         "coverage",
+        "schema-watch",
+        "repair",
     ]
 
 
@@ -161,3 +165,10 @@ def test_nightly_command_passes_the_pause_and_exits_with_the_result(monkeypatch)
 
     assert built["retry_pauses"] == [0.0]
     assert exit_info.value.code == 7
+
+
+def test_drift_and_gap_steps_fail_the_run_but_do_not_stop_each_other(harness):
+    runner, calls = harness("schema-watch")
+    assert runner.run() == 1
+    assert "repair --dry-run" in calls()
+    assert len(harness.alerts) == 1 and "schema-watch" in harness.alerts[0]

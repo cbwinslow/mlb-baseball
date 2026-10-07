@@ -30,11 +30,11 @@
 
 ## 5. Agent skill
 
-- [ ] 5.1 Write the upkeep skill (read reports, dry run, show plan, ask before production writes, log); verify with a walkthrough on a seeded gap in a disposable database
-- [ ] 5.2 Add the skill to `.claude/skills/` and `.agents/skills/` as the repository convention requires; verify it loads
+- [x] 5.1 Write the upkeep skill (read reports, dry run, show plan, ask before production writes, log); verify with a walkthrough on a seeded gap in a disposable database
+- [x] 5.2 Add the skill to `.claude/skills/` and `.agents/skills/` as the repository convention requires; verify it loads
 
 ## 6. Wire in and close
 
-- [ ] 6.1 Add `schema-watch` and `repair` steps to `nightly.py` with tests; add the ADR; update `docs/ARCHITECTURE.md` and connector sidecars; verify `scripts/check_dox.py` passes
+- [x] 6.1 Add `schema-watch` and `repair` steps to `nightly.py` with tests; add the ADR; update `docs/ARCHITECTURE.md` and connector sidecars; verify `scripts/check_dox.py` passes
 - [ ] 6.2 Run once against production read-only (`schema-watch`, `repair --dry-run`) and record results; production `--apply` only with a named owner yes
 - [ ] 6.3 `openspec validate source-inventory` passes; mark `data-completeness` 3.3 done; archive after owner review

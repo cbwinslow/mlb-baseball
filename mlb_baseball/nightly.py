@@ -319,6 +319,11 @@ class Nightly:
         self.step("predict", ["predict"])
         self.step("populated", ["doctor", "--populated"])
         self.step("coverage", ["coverage", "--unexplained", "--missing-only", "--fail-on-gap"])
+        # Drift fails the step (a source changed shape; exit 1) and so does an unreachable
+        # source (exit 2), so neither is mistaken for "nothing changed". Repair is a dry run
+        # until the owner approves `--apply` for production (source-inventory task 6.2).
+        self.step("schema-watch", ["schema-watch"])
+        self.step("repair", ["repair", "--dry-run"])
         written = snapshot_query_stats()
         _log(f"query stats snapshot: {'skipped' if written is None else f'{written} statements'}")
         _log(f"run monitor prune: {'done' if prune_monitor() else 'skipped'}")

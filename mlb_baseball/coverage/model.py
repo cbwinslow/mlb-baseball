@@ -316,7 +316,8 @@ class Referenced:
 @dataclass(frozen=True)
 class ManifestFiles:
     """Every archive recorded in ``downloads/<source>/manifest.json`` should be ``loaded``.
-    Reads one local file; the "table" of this dataset is that file."""
+    Entries with status ``reference`` are lookup files the connector reads but never loads;
+    they are not counted. Reads one local file; the "table" of this dataset is that file."""
 
     source: str
     unit: str = "file"
@@ -326,8 +327,12 @@ class ManifestFiles:
         return ()
 
     def measure(self, cur: psycopg.Cursor, table: str) -> list[Group]:
-        entries = manifest.load_manifest(self.source)
-        loaded = sum(1 for entry in entries.values() if entry.get("status") == "loaded")
+        entries = [
+            entry
+            for entry in manifest.load_manifest(self.source).values()
+            if entry.get("status") != "reference"
+        ]
+        loaded = sum(1 for entry in entries if entry.get("status") == "loaded")
         return [Group("files", len(entries), loaded)]
 
 

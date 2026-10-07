@@ -41,6 +41,7 @@ Public connector capabilities:
 
 - Source: Baseball Savant, primarily through pybaseball leaderboard functions.
 - First supported year is 2015, based on direct endpoint/library testing and the league-wide Statcast era boundary.
+- Some boards start later (arsenal 2017; catch probability, jump, OAA and directional OAA 2016; spin direction 2020). Savant returns no rows for earlier seasons (live probe 2026-10-07). `FIRST_SERVED_YEAR` records this and `mlb coverage` reads it; add a board there when a probe shows it starts late.
 - Several products use tracking inputs **not present in raw pitch rows**, such as fielder positioning, hang time, throw timing, baserunning, or catcher framing context.
 - Other products are official Baseball Savant aggregates that can overlap statistics derivable from pitch-level source data; those are intentionally retained as independent cross-validation evidence rather than treated as wasteful duplication.
 - Repository source-rights/profile metadata remains authoritative for permitted use/redistribution.

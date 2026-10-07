@@ -264,6 +264,7 @@ def test_manifest_files_not_loaded_are_missing(tmp_path, monkeypatch):
         {
             "1871box.zip": {"status": "loaded"},
             "1890sbox.zip": {"status": "downloaded"},
+            "TEAMABR.TXT": {"status": "reference"},
         },
     )
     report = coverage.collect(

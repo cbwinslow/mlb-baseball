@@ -469,6 +469,18 @@ def test_referenced_complete_when_every_used_id_exists(entities, db_conn):
     assert row.status == "complete"
 
 
+def test_referenced_treats_a_float_suffixed_id_as_the_same_id(entities, db_conn):
+    _exec(db_conn, "DELETE FROM raw.test_cov_ref_a")
+    _exec(db_conn, "DELETE FROM raw.test_cov_ref_b")
+    _exec(db_conn, "INSERT INTO raw.test_cov_ref_a VALUES ('1.0'), ('2.0'), ('3')")
+    row = coverage.collect(datasets=[_person_dataset()]).tables[0]
+    assert row.status == "complete"
+    # a real fraction is not stripped
+    _exec(db_conn, "INSERT INTO raw.test_cov_ref_a VALUES ('4.5')")
+    row = coverage.collect(datasets=[_person_dataset()]).tables[0]
+    assert row.missing == 1
+
+
 def test_referenced_with_nothing_referencing_it_is_not_a_pass(entities, db_conn):
     _exec(db_conn, "DELETE FROM raw.test_cov_ref_a")
     _exec(db_conn, "DELETE FROM raw.test_cov_ref_b")

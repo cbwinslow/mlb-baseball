@@ -111,3 +111,5 @@ Append only, newest at the bottom. Format in `goal.md`.
 - After: 2024 stats present (1,597 / 60 / 116 / 2,364 rows); 1,353 linescore games recorded in the ledger as `unavailable` (the source returns no innings); `mlb coverage --source mlb_api --unexplained` no longer lists linescores or any reference table.
 - Left in mlb_api: 2 games of 2011 (305461, 308207) where winProbability and contextMetrics answer HTTP 500 every time (probed again today); accepted with a ceiling of 2 each. One roster person (116751) not yet in mlb_person; the next mlb_api person load should fetch it.
 - Stopped run leaves one `running` row in `meta.ingestion_run`; the nightly `repair-runs` step marks it failed.
+
+### 2026-10-07 UTC: docs/sources/fangraphs.md and retrosheet.md updated with verified facts (task 1.1). Remaining pages: bref, chadwick_register, kalshi, lahman, news, polymarket, statcast.

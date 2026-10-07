@@ -30,8 +30,8 @@
 
 ## 5. Agent skill
 
-- [ ] 5.1 Write the upkeep skill (read reports, dry run, show plan, ask before production writes, log); verify with a walkthrough on a seeded gap in a disposable database
-- [ ] 5.2 Add the skill to `.claude/skills/` and `.agents/skills/` as the repository convention requires; verify it loads
+- [x] 5.1 Write the upkeep skill (read reports, dry run, show plan, ask before production writes, log); verify with a walkthrough on a seeded gap in a disposable database
+- [x] 5.2 Add the skill to `.claude/skills/` and `.agents/skills/` as the repository convention requires; verify it loads
 
 ## 6. Wire in and close
 

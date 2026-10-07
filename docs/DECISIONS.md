@@ -2,6 +2,55 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-299: Production uses the original Chadwick C tools; the Python port (`retrosheetpy.cw`) is not used until validated
+
+**Decision (2026-10-07, owner direction).** Retrosheet event ingestion keeps using the
+original Chadwick `cwevent` / `cwgame` / `cwbox` binaries through
+`mlb_baseball/chadwick_tools.py`. `packages/retrosheetpy` and its `cw` port are work in
+progress: they may not replace or feed production tables until the owner records that
+they matched `cwevent` output on whole seasons. This supersedes the 2026-10-01 plan to
+move onto the port; the port's approach itself (function-by-function translation of
+Chadwick's C, a derivative of GPL-2.0-or-later code under our AGPL-3.0-or-later package,
+equality proved by output comparison) is unchanged, and it also overrides the archived
+`pure-python-retrosheet` D3 ("oracle only, never copied").
+
+**Why.** The port is not finished and may be inaccurate; the C tools are the proven reference.
+**Source:** `openspec/changes/retrosheet-state-engine/design.md` D1-D3.
+
+**Revisit if:** the port passes whole-season byte comparison against `cwevent`.
+
+## ADR-298: `mlb nightly` supervises the daily steps; only transient failures are retried
+
+**Decision (backfilled 2026-10-07).** A parent process (`mlb nightly`) runs each
+step as a child process so a non-zero exit, signal or out-of-memory kill look
+the same. Only the network-bound `update` step is retried per failed source (3
+attempts, 1 then 5 minutes); code-bound steps are not, because a deterministic
+failure repeats. Alerts go through one `alert_command` setting (no default; a
+failing hook is logged and ignored). `meta.ingestion_run` gains `attempt`.
+The shell script stays a thin `flock` shim. **Source:**
+`openspec/changes/job-retries-alerts/design.md` D1-D6.
+
+**Why.** Retry loops inside a step cannot see their own death, and retrying
+deterministic failures wastes the nightly window.
+
+**Revisit if:** a code-bound step proves transiently flaky.
+
+## ADR-297: Core ids become permanent; `conform` upserts on natural keys instead of truncating
+
+**Decision (backfilled 2026-10-07; implementation tracked in
+`openspec/changes/stable-ids-incremental-conform`).** The `core.*` tables are the
+key map (no separate map table); `conform` upserts on each table's natural key and
+leaves vanished source rows in place, counted in the run output. Seasons are
+replaced by a staging swap using existing partitions. A per-season input
+fingerprint in `meta.input_fingerprint` decides what to rebuild; `mlb conform --full`
+stays the safety net and test oracle. The first stable run is a full rebuild,
+after which ids are permanent.
+
+**Why.** Truncate-and-reissue made every id unstable, forcing full downstream
+rebuilds and stranding anything that stored an id.
+
+**Revisit if:** the fingerprint misses a real input change (then fall back to `--full`).
+
 ## ADR-296: Skills, ADRs and DOX updates are mandatory working practice; legal gates relaxed for published research
 
 **Decision (2026-10-07, owner direction).** (1) Agents use OpenSpec, Superpowers

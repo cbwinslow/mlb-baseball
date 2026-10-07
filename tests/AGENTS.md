@@ -68,3 +68,5 @@ When `tests/conftest.py` changes database lifecycle, fixture scoping, environmen
 ## Child DOX Index
 
 No child DOX yet. Add `unit/AGENTS.md` or `integration/AGENTS.md` only if those subtrees accumulate stable, distinct rules that cannot remain concise here.
+
+> Skills, ADR logging and DOX-update duties for every change: root `AGENTS.md`, "Operating protocol".

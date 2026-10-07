@@ -61,3 +61,5 @@ The goal is more total high-quality context with less irrelevant context loaded 
 No child DOX. Dated implementation/review plans were moved to `docs/archive/superpowers-plans/` (see `docs/archive/README.md`); `superpowers/specs/` remains point-in-time record and is not a managed DOX subtree.
 
 Create deeper documentation DOX only where a durable subcollection develops distinct authoring/maintenance rules.
+
+> Skills, ADR logging and DOX-update duties for every change: root `AGENTS.md`, "Operating protocol".

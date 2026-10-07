@@ -50,3 +50,5 @@ Do not claim production parity without an actual tie-out.
 ## Child DOX Index
 
 Add child DOX only when the transform tree develops durable domain boundaries (for example batting, pitching, market, or serving marts) with materially distinct local contracts. Avoid creating one instruction file per model.
+
+> Skills, ADR logging and DOX-update duties for every change: root `AGENTS.md`, "Operating protocol".

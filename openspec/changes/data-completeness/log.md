@@ -79,3 +79,4 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Command: `mlb ingest mlb_api --mode bootstrap` on production. Approval: owner, "yes" (named command), plus permission rule added by the owner.
 - Result so far: reference block FAILED again for 2018-2026 with a 404 from `teams/<id>/leaders?leaderCategories=era`. One 404 rolls back the whole season's reference data. That is the cause of the 9-10 missing seasons (not a one-off failure).
 - Fix: a 404 for one team/season/category is an empty answer (PR fix/reference-404, unit tests). Rerun needed after it merges; approval to be asked again.
+### 2026-10-07 UTC: docs/sources/mlb_api.md updated with today's verified facts (task 1.1, MLB part). Other sources' pages still to do.

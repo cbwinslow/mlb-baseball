@@ -161,3 +161,8 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Tomorrow (2026-10-08, after 08:00 UTC, owner says "check the nightly"): same checklist as HANDOFF 3, plus Kalshi final coverage and Polymarket progress.
 - Worktrees: all old ones removed; only the main checkout remains (3 commits behind origin; owner's uncommitted files, including `AGENTS.md`; do not touch). Use a new worktree per change.
 - After negro-league-scope: `full-source-ingestion` (4/40; write and test code now, run loads only after Polymarket ends), then `feature-store-v1` (32/33).
+
+### 2026-10-07 UTC: Kalshi and Polymarket reviewed and source pages re-probed (task 1.1)
+- Review (read-only): every Kalshi series and Polymarket event held is MLB (one WBC Polymarket event of 11,593; the 44 Kalshi baseball series not held are all non-MLB). Only game-winner markets reach `core.market`; props, futures and all price history (Kalshi candles 36 GB, Polymarket prices 100 GB) are read by nothing yet. **Owner decision: keep all of it.**
+- Re-probe: Kalshi history cutoff moved to 2026-08-08; Kalshi game markets held from 2025-04-16 (not 2026); source lists 230 baseball series, not 199. Polymarket 30-day price window still rejected. Both pages corrected; unverified items are listed on each page.
+- Not done: row-level price/result validation; the Kalshi/Polymarket backfills stay deferred (owner).

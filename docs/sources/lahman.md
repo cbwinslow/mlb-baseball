@@ -32,3 +32,7 @@ SABR's page names no license and gives the credit "created by SABR member Sean L
 
 - It is a release, not a feed: the current season is absent until SABR publishes the next one. Use other sources for in-season data.
 - The 2021-frozen fallback is silent unless the warning is read; a coverage check on the max season would catch it (`mlb coverage` expects the release year only if the registry records it).
+
+## Verified 2026-10-07 (database)
+
+- `raw.lahman_people` holds 24,270 rows and the people and teams tables were complete against the season tables on that date. Negro League rows are licensed from Seamheads: a rights review is still open (`negro-league-scope`).

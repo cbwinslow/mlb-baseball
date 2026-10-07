@@ -36,3 +36,8 @@ This is the crosswalk every cross-source join depends on; a missing ID is a miss
 ## Known gaps
 
 - Pre-event availability: a person new to the league may appear in the register later than in other sources. Joins must treat an unresolved ID as NULL.
+
+## Verified 2026-10-07 (database)
+
+- `raw.register_people` holds 526,894 rows (loaded 2026-10-06). Every MLB id used by our rosters, box scores, umpires and Statcast is present except 43: 29 Negro League players the register does not list (`negro-league-scope`), exhibition-game players and umpire placeholders. Those are accepted in `mlb_baseball/coverage/accepted_gaps.toml` up to a ceiling of 50.
+- FanGraphs ids lag for new players (256 2026 ids had none on 2026-10-07).

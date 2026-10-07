@@ -597,7 +597,8 @@ def test_update_reloads_current_season_only_and_replaces_not_duplicates(db_conn)
         assert cur.fetchall() == [("2024", 1), ("2025", 1), ("2026", 1)]
 
 
-def test_update_refreshes_playbyplay_for_todays_started_games_only(db_conn):
+def test_update_refreshes_playbyplay_for_todays_started_games_only(db_conn, monkeypatch):
+    monkeypatch.setattr(mlb_api, "REPAIR_BATCH_UPDATE", 0)
     schedule_today = [
         _game(5001, 2026, status="Final"),
         _game(5002, 2026, status="Scheduled"),  # hasn't started — no plays yet
@@ -619,6 +620,62 @@ def test_update_refreshes_playbyplay_for_todays_started_games_only(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("SELECT DISTINCT game_pk FROM raw.mlb_playbyplay ORDER BY 1")
         assert cur.fetchall() == [("5001",)]  # 5002 never started, correctly skipped
+
+
+def _schedule_only_2026(db_conn):
+    with (
+        patch.object(
+            mlb_api.statsapi,
+            "schedule",
+            side_effect=lambda **kwargs: FIXTURE_GAMES_BY_SEASON.get(kwargs.get("season"), []),
+        ),
+        patch.object(mlb_api.statsapi, "standings_data", side_effect=lambda **k: {}),
+    ):
+        with db_conn.cursor() as cur:
+            mlb_api._load_schedule(db_conn, 2026)
+            db_conn.commit()
+            cur.execute("SELECT count(*) FROM raw.mlb_schedule WHERE _season = '2026'")
+            return cur.fetchone()[0]
+
+
+def test_backfill_repairs_finished_games_with_no_detail_and_is_repeatable(db_conn):
+    assert _schedule_only_2026(db_conn) > 0
+    with patch.object(mlb_api.statsapi, "get", side_effect=_fake_get):
+        first = mlb_api.backfill_history()
+        second = mlb_api.backfill_history()
+
+    assert first["raw.mlb_playbyplay"] > 0
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.mlb_playbyplay")
+        after_second = cur.fetchone()[0]
+    assert after_second == first["raw.mlb_playbyplay"]
+    assert (
+        second["raw.mlb_playbyplay"] == first["raw.mlb_playbyplay"]
+        or second["raw.mlb_playbyplay"] == 0
+    )
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM raw.mlb_schedule s WHERE _season='2026' AND status='Final'"
+            " AND NOT EXISTS (SELECT 1 FROM raw.mlb_playbyplay p WHERE p.game_pk = s.game_id)"
+        )
+        assert cur.fetchone()[0] == 0
+
+
+def test_repair_on_an_empty_database_finds_nothing(db_conn):
+    assert mlb_api._final_games_missing_detail(db_conn, 2026, 20) == []
+
+
+def test_update_repairs_only_a_bounded_batch(db_conn, monkeypatch):
+    assert _schedule_only_2026(db_conn) >= 2
+    monkeypatch.setattr(mlb_api, "REPAIR_BATCH_UPDATE", 1)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.mlb_schedule WHERE _season='2026' AND status='Final'")
+        finals = cur.fetchone()[0]
+    with patch.object(mlb_api.statsapi, "get", side_effect=_fake_get):
+        mlb_api._repair_game_detail(db_conn, 2026, mlb_api.REPAIR_BATCH_UPDATE)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(DISTINCT game_pk) FROM raw.mlb_playbyplay")
+        assert cur.fetchone()[0] == 1 < finals
 
 
 LIVE_GAME_FEED = {
@@ -778,7 +835,8 @@ def test_load_probable_appends_a_new_snapshot_on_a_scratch(db_conn):
         assert cur.fetchall() == [("601",), ("999",)]  # both kept -- original, then the scratch
 
 
-def test_update_includes_all_counts(db_conn):
+def test_update_includes_all_counts(db_conn, monkeypatch):
+    monkeypatch.setattr(mlb_api, "REPAIR_BATCH_UPDATE", 0)  # counts here are today's games only
     with _mocked_statsapi():
         counts = mlb_api.update()
 

@@ -131,3 +131,10 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Open approvals: none. Deferred by owner: Kalshi and Polymarket backfills (task 2.5; commands `mlb ingest kalshi --mode backfill`, `mlb ingest polymarket --mode backfill`; ask before running). Bounded nightly self-repair for them is task 3.3 (not built).
 - Known: nightly `coverage` step will alert on Kalshi and Polymarket until they run; 2011 games 305461/308207 accepted (HTTP 500); roster person 116751 pending the next person load.
 - Worktrees: `~/workspace/mlb-retro-report` (detached, `downloads` symlink may exist: remove before committing) and `~/workspace/mlb-ref-heal`. A one-shot session cron (08:23 UTC Oct 8) was set; it dies with the session.
+
+### 2026-10-07 UTC: HANDOFF 2 (owner asked for a stopping point)
+- Done today: PR #369 conflict fixed and merged; coverage report run read-only; Kalshi backfill started (`mlb ingest kalshi --mode backfill`, owner said "yes run the kalshi change in the background", log `logs/kalshi_backfill5.log`, 3,931 markets planned, about 5/s); new OpenSpec change `source-inventory` written (PR #375, planning only).
+- Coverage now: Kalshi 1,492 markets (running), Polymarket 5,750 windows (deferred, ask before `mlb ingest polymarket --mode backfill`), Statcast 2 games from 2026-10-06 (probably timing; recheck after the 2026-10-08 nightly), roster person 116751, retrosheet_box 3 "missing" files are reference files marked `downloaded` before PR #347 (should clear on the next retrosheet_box run; if not, adjust `ManifestFiles`).
+- Playoffs: schedule and live snapshots update every 5 minutes (mlb_api cron); division series 10 of 20 final on 2026-10-07.
+- Baseball MCP servers reviewed (guillochon 59 stars MIT; etweisberg 34 stars, no licence; mpizza 7 stars). Nothing installed.
+- Next: after the 2026-10-08 06:00 UTC nightly, check log and `mlb coverage --missing-only --unexplained`; then tasks 2.4, 3.5, 4.1, 4.2 of data-completeness; then apply `source-inventory` (owner has not yet said to start).

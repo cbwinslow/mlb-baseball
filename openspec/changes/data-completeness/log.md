@@ -87,3 +87,10 @@ Append only, newest at the bottom. Format in `goal.md`.
 ### 2026-10-07 UTC: team id gap classified (task 2.6)
 - Found (read-only): 124 schedule team ids are absent from `raw.mlb_team_history`. 5 are Negro League clubs; 121 are 1949 or later, and all but 8 appear only in spring-training or exhibition games. The 8 are All-Star league sides (ids 159, 160) and 2026 postseason placeholders ("AL Higher Seed", "Lower Seed League Champion"). None is a real club.
 - Decision: accept with ceilings (home 90, away 100) in `accepted_gaps.toml`; real clubs missing would exceed or be listed. Rejected: loading minor-league/other teams (scope, `full-source-ingestion` 0.14).
+
+### 2026-10-07 UTC: tasks 2.8 and 2.2 repaired (MLB bootstrap, after the 404 fix)
+- Command: `mlb ingest mlb_api --mode bootstrap` run from a separate checkout at the fixed main (the main checkout has uncommitted owner edits that block a fast-forward). Approval: owner, "yes" (first run) and "yes" (rerun after the fix). About 3 h, no season failures; 46+ read timeouts retried by themselves.
+- Before: reference tables missing 2006, 2017-2025 (stats also 2024); mlb_person roster ids missing 147; game pace held 69 seasons.
+- After (`mlb coverage --missing-only --unexplained`): reference tables complete 2000-2026 except 2024 for player stat, team stat, stat leader, team leader (that run used the old per-pool skip; the per-table loader fix, PR 364, heals it); roster ids missing 1 (was 147); game pace now 104 seasons (older years the bug had also blocked).
+- Not repaired by this run: linescores 84 missing (was 85; the bootstrap treats those seasons as complete) and 2 win-prob/context games in 2011 (game ids 305461 and 308207 answer HTTP 500 at the source on every retry; to be recorded as unavailable if it persists). Next: `mlb ingest mlb_api --stage analytics --start-year 2000 --end-year 2024`, and a bootstrap rerun after PR 364 for 2024 stats.
+- Note: the same coverage run, from the worktree, shows retrosheet "CANNOT MEASURE" because a worktree has no downloads/ folder; not a data problem.

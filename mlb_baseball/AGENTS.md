@@ -13,6 +13,7 @@ Read the repository-root `AGENTS.md` first. This file specializes those project-
 - Source-specific acquisition under `connectors/`.
 - Operational SQL resources under `sql/` when present.
 - Modeling/research code under `model/` while that boundary exists.
+- `docs/COMMANDS.md` is the generated index of the upkeep commands (flags, effect, JSON, dry run); regenerate with `python -m mlb_baseball.command_index > docs/COMMANDS.md` when a command changes.
 - Large legacy gravity-well modules such as `cli.py` and `conform.py` remain supported facades during staged decomposition; do not rewrite them wholesale.
 
 ## Local Contracts

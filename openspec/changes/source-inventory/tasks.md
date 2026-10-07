@@ -24,9 +24,9 @@
 
 ## 4. Namespace and library review
 
-- [ ] 4.1 Inventory the upkeep-related `mlb` subcommands and functions: flags, read-only or write, JSON output, tests; record gaps in a table in this change
-- [ ] 4.2 Write failing tests for the consistent surface (`--source`, `--mode`, `--dry-run`, `--json` on upkeep commands); then fix the commands without changing existing behaviour; verify old invocations still work
-- [ ] 4.3 Generate the command index from the argparse tree and add a test that fails when it is stale; link it from `mlb_baseball/AGENTS.md`
+- [x] 4.1 Inventory the upkeep-related `mlb` subcommands and functions: flags, read-only or write, JSON output, tests; record gaps in a table in this change
+- [x] 4.2 Write failing tests for the consistent surface (`--source`, `--mode`, `--dry-run`, `--json` on upkeep commands); then fix the commands without changing existing behaviour; verify old invocations still work
+- [x] 4.3 Generate the command index from the argparse tree and add a test that fails when it is stale; link it from `mlb_baseball/AGENTS.md`
 
 ## 5. Agent skill
 

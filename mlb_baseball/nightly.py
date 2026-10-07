@@ -318,6 +318,7 @@ class Nightly:
             _log("conform failed; skipping report")
         self.step("predict", ["predict"])
         self.step("populated", ["doctor", "--populated"])
+        self.step("coverage", ["coverage", "--unexplained", "--missing-only", "--fail-on-gap"])
         written = snapshot_query_stats()
         _log(f"query stats snapshot: {'skipped' if written is None else f'{written} statements'}")
         _log(f"run monitor prune: {'done' if prune_monitor() else 'skipped'}")

@@ -5,8 +5,10 @@ mistake. Tables that exist in the database but are not registered are still repo
 as "no expectation defined", so nothing passes silently.
 """
 
+import tomllib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import psycopg
 
@@ -21,11 +23,31 @@ from mlb_baseball.coverage.model import (
 from mlb_baseball.coverage.registry import DATASETS
 from mlb_baseball.db import fetch_one, get_connection
 
+ACCEPTED_GAPS_FILE = Path(__file__).with_name("accepted_gaps.toml")
 NOT_REGISTERED = "table is not registered in mlb_baseball/coverage/registry.py"
 
 
 # Statuses that are not a verdict on coverage: nothing was compared, nothing is missing.
 NOT_A_GAP = frozenset({"complete", "no_expectation"})
+
+
+@dataclass(frozen=True)
+class AcceptedGap:
+    """A known gap the owner accepts: ``max_missing`` is a ceiling, not an exact count."""
+
+    table: str
+    group: str | None
+    max_missing: int
+    reason: str
+    owner: str
+
+
+def load_accepted_gaps(path: Path = ACCEPTED_GAPS_FILE) -> list[AcceptedGap]:
+    entries = tomllib.loads(path.read_text())["accepted"]
+    return [
+        AcceptedGap(e["table"], e.get("group"), e["max_missing"], e["reason"], e["owner"])
+        for e in entries
+    ]
 
 
 @dataclass(frozen=True)
@@ -70,6 +92,20 @@ class TableReport:
         """Seasons where the source's own count and what we hold are not equal."""
         return [g for g in self.live if g.expected != g.held]
 
+    def unexplained(self, accepted: Sequence[AcceptedGap]) -> bool:
+        """A gap not covered by an accepted entry. Only a measured shortfall can be
+        accepted; an empty, absent or unmeasurable table, or a live disagreement, never is."""
+        if not self.is_gap:
+            return False
+        if self.status != "missing" or self.live_differs or self.live_errors:
+            return True
+        mine = [a for a in accepted if a.table == self.table]
+        whole = [a for a in mine if a.group is None]
+        if whole:
+            return self.missing > min(a.max_missing for a in whole)
+        ceilings = {a.group: a.max_missing for a in mine}
+        return any(g.missing > ceilings.get(g.label, 0) for g in self.groups)
+
     @property
     def is_gap(self) -> bool:
         """Missing, empty, unmeasurable, or the live source disagrees: not a clean result."""
@@ -83,6 +119,9 @@ class Report:
     @property
     def has_gap(self) -> bool:
         return any(t.is_gap for t in self.tables)
+
+    def unexplained(self, accepted: Sequence[AcceptedGap]) -> "Report":
+        return Report([t for t in self.tables if t.unexplained(accepted)])
 
     def only_gaps(self) -> "Report":
         return Report([t for t in self.tables if t.is_gap])

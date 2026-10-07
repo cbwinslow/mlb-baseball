@@ -27,6 +27,8 @@ Read root `AGENTS.md` and `mlb_baseball/AGENTS.md` first.
 - Expectations are derived from data we hold or constants the connectors already record. Do not hard-code a count taken from what the database holds today; that would make the comparison circular.
 - Adding a raw table: add its `Dataset` entry in the same change; `tests/unit/test_coverage_registry.py` fails if a table in `docs/RAW_INVENTORY.md` is not registered.
 
+- `accepted_gaps.toml`: the machine-readable list of gaps the owner accepts (table, optional group label, `max_missing` ceiling, reason, owner change). `--unexplained` reports only gaps not covered by it; the nightly job runs `--unexplained --missing-only --fail-on-gap`, so a new gap, or a known one growing past its ceiling, alerts. Only a measured shortfall (`missing`) can be accepted: an empty, absent or unmeasurable table, or a live-probe disagreement, always alerts. A real defect is repaired, never accepted.
+
 ## Verification
 
 - `uv run pytest tests/unit/test_coverage_registry.py tests/integration/test_coverage.py` (real PostgreSQL; the integration file seeds a gap, a ledger source gap, an empty table, Kalshi markets and a download manifest).

@@ -57,6 +57,7 @@ def test_full_run_order_and_skips_mlb_api(harness):
         "report",
         "predict",
         "doctor --populated",
+        "coverage --unexplained --missing-only --fail-on-gap",
     ]
     assert harness.alerts == []
     assert [r[0] for r in harness.records] == [
@@ -66,6 +67,7 @@ def test_full_run_order_and_skips_mlb_api(harness):
         "report",
         "predict",
         "populated",
+        "coverage",
     ]
 
 

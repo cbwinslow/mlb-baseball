@@ -30,9 +30,9 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 ## 3. Make it permanent
 
 - [ ] 3.1 Bootstrap-from-empty test that every repair path is reproduced
-- [ ] 3.2 Nightly coverage step with alert on any new gap (needs a machine-readable list of accepted gaps so a known scope gap does not alert every night); verify with a failing and a passing fixture
+- [x] 3.2 Nightly coverage step with alert on any new gap (needs a machine-readable list of accepted gaps so a known scope gap does not alert every night); verify with a failing and a passing fixture
 - [ ] 3.3 Bounded self-repair for safe gaps beyond MLB game detail (each with a test)
-- [ ] 3.4 Cron entry in `scripts/` (flock, log) and docs in `docs/ARCHITECTURE.md` "Scheduling"
+- [x] 3.4 (the check is a nightly step, so the existing `mlb_daily_update.sh` cron runs it; no new cron) Cron entry in `scripts/` (flock, log) and docs in `docs/ARCHITECTURE.md` "Scheduling"
 - [ ] 3.5 Update `docs/sources/`, `docs/RAW_INVENTORY.md`, `mlb_baseball/coverage/AGENTS.md`
 
 ## 4. Close out

@@ -1,0 +1,61 @@
+# Gaps the owner knows about and accepts, so a nightly check does not alert on them.
+# One entry per accepted gap. `group` is the line label in `mlb coverage` (a season, a
+# referencing column, ...); leave it out to accept the whole table. `max_missing` is a
+# ceiling: more than that is a new gap and is reported. Every entry needs a reason and
+# the OpenSpec change that owns the decision. Do not add a gap here to make a check green;
+# a real defect is repaired, not accepted.
+
+[[accepted]]
+table = "raw.mlb_person"
+group = "raw.mlb_boxscore_batting.person_id"
+max_missing = 1500
+reason = "box-score players: the loader fetches roster ids only"
+owner = "full-source-ingestion 0.14"
+
+[[accepted]]
+table = "raw.mlb_person"
+group = "raw.mlb_boxscore_pitching.person_id"
+max_missing = 1000
+reason = "box-score players: the loader fetches roster ids only"
+owner = "full-source-ingestion 0.14"
+
+[[accepted]]
+table = "raw.mlb_person"
+group = "raw.mlb_boxscore_fielding.person_id"
+max_missing = 2400
+reason = "box-score players: the loader fetches roster ids only"
+owner = "full-source-ingestion 0.14"
+
+[[accepted]]
+table = "raw.mlb_person"
+group = "raw.mlb_umpire.person_id"
+max_missing = 150
+reason = "umpires are not rostered people"
+owner = "full-source-ingestion 0.14"
+
+[[accepted]]
+table = "raw.mlb_person"
+group = "raw.mlb_draft.person_id"
+max_missing = 60000
+reason = "draftees are amateurs and minor leaguers, outside the MLB roster loader"
+owner = "full-source-ingestion 0.14"
+
+[[accepted]]
+table = "raw.mlb_person"
+group = "raw.mlb_transaction.person_id"
+max_missing = 95000
+reason = "transactions name minor leaguers and amateurs"
+owner = "full-source-ingestion 0.14"
+
+[[accepted]]
+table = "raw.mlb_team_history"
+group = "raw.mlb_transaction.to_team_id"
+max_missing = 1800
+reason = "the connector loads MLB (sportId 1) teams; transactions name minor-league clubs"
+owner = "full-source-ingestion 0.14"
+
+[[accepted]]
+table = "raw.register_people"
+max_missing = 50
+reason = "Negro League players (29), exhibition-game players and umpire placeholders are not in the Chadwick register"
+owner = "negro-league-scope"

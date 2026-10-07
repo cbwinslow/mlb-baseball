@@ -615,6 +615,11 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="exit 1 when any reported table has a gap, so a nightly job or CI can gate on it",
     )
+    coverage_parser.add_argument(
+        "--unexplained",
+        action="store_true",
+        help="report only gaps not accepted in mlb_baseball/coverage/accepted_gaps.toml",
+    )
     coverage_format = coverage_parser.add_mutually_exclusive_group()
     coverage_format.add_argument("--json", action="store_true", help="machine-readable output")
     coverage_format.add_argument("--markdown", action="store_true", help="markdown output")
@@ -1847,6 +1852,7 @@ def main(argv: list[str] | None = None) -> None:
             as_markdown=args.markdown,
             missing_only=args.missing_only,
             probe=args.probe,
+            unexplained_only=args.unexplained,
         )
         if args.fail_on_gap and has_gap:
             sys.exit(1)

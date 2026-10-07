@@ -10,7 +10,8 @@ expectations are fixed, the rest are classified below.
 | MLB linescores | 85 games, 2000-2024 | repair | task 2.1 |
 | mlb_person, roster ids | 147 | repair | task 2.2 |
 | mlb_person, box score / draft / transactions ids | ~144k | scope | `full-source-ingestion` 0.14 |
-| mlb_team_history / mlb_venue ids | 1,798 teams / 351 venues | mostly scope (minor-league clubs); venues need a look | task 2.6 |
+| mlb_team_history ids | schedule home/away 70 / 80 teams (to be re-counted) | mostly scope (Negro League clubs 1933-1939), rest to check | task 2.6 |
+| mlb_venue ids | 351 reported | NOT a gap: id format mismatch (`17.0` vs `17`); coverage fixed, venues all held | PR fix/referenced-float-ids |
 | Kalshi candles | 1,492 markets (2026) | repair (backfill) | task 2.5 |
 | Polymarket price windows | 5,750 (2026) | repair (backfill) | task 2.5 |
 | Statcast | 2 games, 2026 | repair, heals with nightly | task 2.4 |

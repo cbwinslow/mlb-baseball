@@ -237,6 +237,12 @@ class Present:
         return [Group("table", 1, int(held))]
 
 
+def _id_text(column: str) -> str:
+    """An id as text with a float suffix removed: the Stats API loader stores some ids
+    as ``17.0`` in one table and ``17`` in another; they are the same id."""
+    return f"regexp_replace({column}::text, '\\.0+$', '')"
+
+
 @dataclass(frozen=True)
 class Referenced:
     """An entity table (people, teams, venues): every id that other raw tables point at
@@ -265,12 +271,14 @@ class Referenced:
     def measure(self, cur: psycopg.Cursor, table: str) -> list[Group]:
         width = len(self.key)
         names = [f"k{i}" for i in range(width)]
-        key_select = ", ".join(f"{c}::text AS {n}" for c, n in zip(self.key, names, strict=True))
+        key_select = ", ".join(
+            f"{_id_text(c)} AS {n}" for c, n in zip(self.key, names, strict=True)
+        )
         groups: list[Group] = []
         for ref_table, cols in self.refs:
             if len(cols) != width:
                 raise ValueError(f"{ref_table} references {len(cols)} columns, key has {width}")
-            select = ", ".join(f"{c}::text AS {n}" for c, n in zip(cols, names, strict=True))
+            select = ", ".join(f"{_id_text(c)} AS {n}" for c, n in zip(cols, names, strict=True))
             present = " AND ".join(f"{c} IS NOT NULL AND {c}::text <> ''" for c in cols)
             cur.execute(
                 f"""

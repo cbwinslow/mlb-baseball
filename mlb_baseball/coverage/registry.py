@@ -41,9 +41,12 @@ from mlb_baseball.coverage.model import (
 ANALYTICS_FIX = "mlb ingest mlb_api --stage analytics --start-year {first} --end-year {last}"
 MLB_FIX = "mlb ingest mlb_api"
 
-_NO_FIRST_YEAR = (
-    "season-scoped endpoint, but no first valid year is recorded in mlb_api.py (the loader "
-    "asks every season from 1901 and early seasons return nothing); task 1.1 probes it"
+_REFERENCE_CAVEAT = (
+    "expected from the first year the live probe of 2026-10-07 confirmed (mlb_api.py); the "
+    "source is sparse before it. A missing season is repaired by `mlb ingest mlb_api --mode "
+    "bootstrap`, which also fills older linescores; the bootstrap decides a past season is "
+    "loaded from raw.mlb_player_pool alone, so a season with a pool but missing other tables "
+    "is not repaired by it"
 )
 _CATALOG = "whole-catalog reference list reloaded each run; the source publishes no countable total"
 _RETROSHEET_FIRST_PUBLISHED = (
@@ -111,11 +114,10 @@ DATASETS: list[Dataset] = [
     *_seasons("mlb_api", Seasons(mlb_api.FIRST_STANDINGS_YEAR), "mlb_standing"),
     *_seasons("mlb_api", Seasons(mlb_api.FIRST_TRANSACTION_YEAR), "mlb_transaction"),
     *_seasons("mlb_api", Seasons(mlb_api.FIRST_DRAFT_YEAR, column="draft_year"), "mlb_draft"),
-    *_no(
+    *_seasons(
         "mlb_api",
-        _NO_FIRST_YEAR,
+        Seasons(mlb_api.FIRST_REFERENCE_YEAR),
         "mlb_player_pool",
-        "mlb_free_agent",
         "mlb_coach",
         "mlb_alumni",
         "mlb_game_pace",
@@ -123,8 +125,15 @@ DATASETS: list[Dataset] = [
         "mlb_team_stat",
         "mlb_stat_leader",
         "mlb_team_leader",
-        "mlb_attendance",
+        caveat=_REFERENCE_CAVEAT,
     ),
+    *_seasons(
+        "mlb_api",
+        Seasons(mlb_api.FIRST_FREE_AGENT_YEAR),
+        "mlb_free_agent",
+        caveat=_REFERENCE_CAVEAT,
+    ),
+    *_no("mlb_api", _CATALOG + " (per team, not per season)", "mlb_attendance"),
     # MLB Stats API entity tables: complete when every id the other tables use is here.
     Dataset(
         "mlb_api",

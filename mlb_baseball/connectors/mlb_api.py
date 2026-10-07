@@ -302,6 +302,13 @@ FIRST_SCHEDULE_YEAR = 1901
 FIRST_STANDINGS_YEAR = 1969
 FIRST_ROSTER_YEAR = FIRST_SCHEDULE_YEAR
 FIRST_TRANSACTION_YEAR = 2000
+# The season-scoped reference and stat endpoints (player pool, coaches, alumni, game pace,
+# player/team stats, leaders) are expected from here: live probe 2026-10-07 returned data
+# for 2006, 2016, 2019, 2024, 2025 and 2026. Older years are sparse at the source and
+# unprobed; the loader still asks every season from FIRST_SCHEDULE_YEAR. Free agents were
+# held only from 2001.
+FIRST_REFERENCE_YEAR = 2000
+FIRST_FREE_AGENT_YEAR = 2001
 # Retrosheet's most recently published season (verified: raw.retrosheet_gameinfo
 # tops out at 2025) — MLB API's play-by-play/box-score/umpire data starts
 # exactly where that stops, not earlier, to avoid a per-game-cost duplicate

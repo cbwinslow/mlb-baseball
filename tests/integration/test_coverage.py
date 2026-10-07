@@ -327,6 +327,27 @@ def test_completed_early_games_are_expected_like_final_ones(schedule_1963):
             _exec(schedule_1963, f"DROP TABLE raw.{name}")
 
 
+def test_games_limited_to_game_types_ignore_other_types(schedule_1963):
+    created: list[str] = []
+    _ensure_table(schedule_1963, created, "mlb_win_prob", "game_pk text, _season text")
+    try:
+        _add_game(schedule_1963, "21", "Final", "1963-04-01", game_type="R")
+        _add_game(schedule_1963, "22", "Final", "1963-04-02", game_type="E")  # exhibition
+        _exec(schedule_1963, "INSERT INTO raw.mlb_win_prob VALUES ('21', '1963')")
+        dataset = Dataset(
+            "mlb_api",
+            "raw.mlb_win_prob",
+            Games(1950, game_types=("R",)),
+        )
+        report = coverage.collect(datasets=[dataset])
+        group = next(g for g in report.tables[0].groups if g.label == "1963")
+        assert (group.expected, group.held, group.missing) == (1, 1, 0)
+        assert "types R" in report.tables[0].expectation
+    finally:
+        for name in created:
+            _exec(schedule_1963, f"DROP TABLE raw.{name}")
+
+
 def test_manifest_files_not_loaded_are_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
     manifest.save_manifest(

@@ -14,7 +14,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 - [ ] 1.2 Give every one of the 46 raw tables without an expectation an expectation or a written reason; verify `mlb coverage` lists none silently and a test fails on an unregistered table
 - [x] 1.3 Schedule-aware expectations: count "Completed Early", track Postponed/Scheduled against MLB's published schedule, include the next season when published; verify with a fixture and live probe (PR for branch `feat/schedule-aware-coverage`)
 - [x] 1.4 Chadwick-based player check: players seen in rosters, box scores and Statcast exist in the register; verify counts and list unmatched (report line on `raw.register_people`; FanGraphs, Retrosheet, bref ids not checked there)
-- [ ] 1.5 Live checks for the other sources (`full-source-ingestion` 0.13): Retrosheet file list, FanGraphs/Baseball-Reference seasons, Lahman release year, Statcast per-day pitch counts
+- [ ] 1.5 Live checks for the other sources (`full-source-ingestion` 0.13): Retrosheet file list, FanGraphs/Baseball-Reference seasons, Lahman release year, Statcast per-day pitch counts (done as a per-game check, PR `feat/statcast-per-game`)
 - [ ] 1.6 Full report saved to this folder as `results-baseline.md` with every gap classified: repair, scope, unavailable, or open question
 
 ## 2. Repair (production writes need approval each time)
@@ -22,7 +22,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 - [ ] 2.1 81 old MLB linescores (2000-2024)
 - [ ] 2.2 147 roster players missing from `raw.mlb_person` (widening is `full-source-ingestion` 0.14)
 - [ ] 2.3 FanGraphs fielding 2019
-- [ ] 2.4 Statcast: 2008 and 2026 missing dates; per-day completeness
+- [ ] 2.4 Statcast: 4 games of 2026-10-05/06 (heals with `mlb ingest statcast --mode update`; the 2008-10-29 "missing date" was a false alarm, see log)
 - [ ] 2.5 Kalshi (744) and Polymarket (3,560) 2026 items
 - [ ] 2.6 Other gaps found in 1.6, one task each
 - [ ] 2.7 After each repair: re-run coverage, record before/after in `log.md`

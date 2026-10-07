@@ -23,8 +23,8 @@ from mlb_baseball.connectors import (
 from mlb_baseball.coverage.live import MlbScheduleTotals
 from mlb_baseball.coverage.model import (
     SCHEDULE_SETTLED_LABEL,
+    STATCAST_GAME_TYPES,
     Dataset,
-    GameDates,
     Games,
     KalshiCandles,
     LiveCheck,
@@ -309,10 +309,11 @@ DATASETS: list[Dataset] = [
     Dataset(
         "statcast",
         "raw.statcast_pitch",
-        GameDates(statcast.FIRST_STATCAST_YEAR),
+        Games(statcast.FIRST_STATCAST_YEAR, game_types=STATCAST_GAME_TYPES),
         "mlb ingest statcast",
-        "bootstrap skips a past season that already has any rows (load.season_already_loaded), "
-        "so a partly loaded past season is not repaired by it; no per-date repair command exists",
+        "counts a game as held when it has any pitch row, so a game with only some of its "
+        "pitches is not detected; bootstrap skips a past season that already has any rows "
+        "(load.season_already_loaded), so a past season missing a game is not repaired by it",
     ),
     *[
         Dataset(

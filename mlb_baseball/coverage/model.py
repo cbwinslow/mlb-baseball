@@ -103,23 +103,27 @@ class Games:
     ledger: str | None = None
     key: str = "game_pk"
     unit: str = "game"
+    game_types: tuple[str, ...] | None = None  # None = every game type in the schedule
 
     @property
     def expectation(self) -> str:
         gaps = f"; ledger '{self.ledger}' unavailable = source gap" if self.ledger else ""
-        return f"played games in raw.mlb_schedule from {self.first}{gaps}"
+        types = f" (types {'/'.join(self.game_types)})" if self.game_types else ""
+        return f"played games{types} in raw.mlb_schedule from {self.first}{gaps}"
 
     def inputs(self, table: str) -> tuple[str, ...]:
         return ("raw.mlb_schedule", table)
 
     def measure(self, cur: psycopg.Cursor, table: str) -> list[Group]:
+        types = list(self.game_types) if self.game_types else None
         cur.execute(
             f"""
             WITH want AS (
                 SELECT DISTINCT _season AS label, game_id AS k
                 FROM raw.mlb_schedule
                 WHERE status = ANY(%s) AND _season ~ '^[0-9]+$' AND _season::int >= %s::int
-            ), have AS (SELECT DISTINCT {self.key} AS k FROM {table}),
+                  AND (%s::text[] IS NULL OR game_type = ANY(%s::text[]))
+            ), have AS (SELECT DISTINCT {self.key}::text AS k FROM {table}),
             gap AS (
                 SELECT DISTINCT split_part(item_key, ':', 2) AS k
                 FROM meta.ingestion_item
@@ -133,43 +137,7 @@ class Games:
             GROUP BY want.label
             ORDER BY want.label
             """,
-            (list(PLAYED_STATUSES), self.first, self.ledger),
-        )
-        return [Group(*row) for row in cur.fetchall()]
-
-
-@dataclass(frozen=True)
-class GameDates:
-    """One unit per calendar date with a played (Final or Completed Early) non-spring game
-    in ``raw.mlb_schedule`` from season ``first`` on; held = the date appears in
-    ``game_date`` of the table."""
-
-    first: int
-    unit: str = "date"
-
-    @property
-    def expectation(self) -> str:
-        types = "/".join(STATCAST_GAME_TYPES)
-        return f"dates of played games (types {types}) in raw.mlb_schedule from {self.first}"
-
-    def inputs(self, table: str) -> tuple[str, ...]:
-        return ("raw.mlb_schedule", table)
-
-    def measure(self, cur: psycopg.Cursor, table: str) -> list[Group]:
-        cur.execute(
-            f"""
-            WITH want AS (
-                SELECT DISTINCT _season AS label, game_date AS k
-                FROM raw.mlb_schedule
-                WHERE status = ANY(%s) AND game_type = ANY(%s)
-                  AND _season ~ '^[0-9]+$' AND _season::int >= %s::int
-            ), have AS (SELECT DISTINCT game_date AS k FROM {table})
-            SELECT want.label, count(*), count(have.k)
-            FROM want LEFT JOIN have USING (k)
-            GROUP BY want.label
-            ORDER BY want.label
-            """,
-            (list(PLAYED_STATUSES), list(STATCAST_GAME_TYPES), self.first),
+            (list(PLAYED_STATUSES), self.first, types, types, self.ledger),
         )
         return [Group(*row) for row in cur.fetchall()]
 

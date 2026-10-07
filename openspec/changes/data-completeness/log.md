@@ -55,3 +55,9 @@ Append only, newest at the bottom. Format in `goal.md`.
 - What: `mlb ingest fangraphs` (bootstrap) now skips past seasons already held for park factors, prospects and splits (as leaderboards already did) and no longer asks the handedness board for years before 2002. A re-run fetches only the missing 2019 fielding and 1871-1900 park factors, plus the current season.
 - Why: the old bootstrap re-fetched every park-factor season and all splits (hundreds of calls) to fill two holes. Rejected: a new repair command (same code path twice).
 - Tests: rerun fetches only missing units; handedness not asked before 2002.
+
+### 2026-10-07 UTC: task 2.3 repaired (FanGraphs)
+- Command: `mlb ingest fangraphs --mode bootstrap` on production. Approval: owner, "yes please go ahead" (named command: add the missing FanGraphs seasons).
+- Before: fielding missing 2019; park factors missing 1871-1900 (30 seasons). Fielding rows 181,015.
+- After: `mlb coverage --source fangraphs --missing-only` says "nothing to report". Fielding 183,284 rows (+2,269, matching the live probe of 2,269 for 2019). Only the current season was otherwise reloaded.
+- Also done today: main checkout fast-forwarded to 52d55eb (owner approved in the same message).

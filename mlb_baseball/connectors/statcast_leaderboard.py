@@ -86,6 +86,19 @@ logger = logging.getLogger(__name__)
 
 SOURCE = "statcast_leaderboard"
 FIRST_YEAR = 2015
+# Boards that start after FIRST_YEAR. Savant returns an empty frame for earlier
+# seasons (live probe 2026-10-07: the same call returned 0 rows the year before
+# and rows in the year below), so those seasons have nothing to load. Tables
+# absent here start at FIRST_YEAR. ``mlb coverage`` reads this.
+FIRST_SERVED_YEAR: dict[str, int] = {
+    "raw.statcast_batter_arsenal": 2017,
+    "raw.statcast_pitcher_arsenal_stat": 2017,
+    "raw.statcast_catch_prob": 2016,
+    "raw.statcast_jump": 2016,
+    "raw.statcast_oaa": 2016,
+    "raw.statcast_oaa_direction": 2016,
+    "raw.statcast_spin_dir": 2020,
+}
 OAA_POSITIONS = [3, 4, 5, 6, 7, 8, 9]
 # pybaseball's own statcast_catcher_framing() (installed version) still
 # calls baseballsavant.mlb.com/catcher_framing?...csv=true, which Savant has

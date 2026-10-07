@@ -123,17 +123,21 @@ NEEDS_TEAM_FILE_ARCHIVES = {
 TEAM_FIELDS = ["team_id", "league", "city", "nickname", "first_year", "last_year"]
 
 
+def _reference_file(filename: str, url: str) -> Path:
+    """Download a lookup file this connector reads but never loads as rows, and mark it
+    ``reference`` so ``mlb coverage`` does not expect it to reach ``loaded``."""
+    path = manifest.download_required(SOURCE, filename, url)
+    manifest.mark_status(SOURCE, filename, "reference")
+    return path
+
+
 def _mlb_team_registry() -> pd.DataFrame:
-    path = manifest.download_required(
-        SOURCE, "TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT"
-    )
+    path = _reference_file("TEAMABR.TXT", "https://www.retrosheet.org/TEAMABR.TXT")
     return pd.read_csv(path, header=None, names=TEAM_FIELDS)
 
 
 def _negro_league_team_registry() -> pd.DataFrame:
-    path = manifest.download_required(
-        SOURCE, "biodata.zip", "https://www.retrosheet.org/downloads/biodata.zip"
-    )
+    path = _reference_file("biodata.zip", "https://www.retrosheet.org/downloads/biodata.zip")
     with zipfile.ZipFile(path) as zf:
         with zf.open("teams0.csv") as f:
             df = pd.read_csv(f)
@@ -149,9 +153,7 @@ def _team_registry(group: str) -> pd.DataFrame:
 
 
 def _rosters_zip() -> Path:
-    return manifest.download_required(
-        SOURCE, "rosters.zip", "https://www.retrosheet.org/rosters.zip"
-    )
+    return _reference_file("rosters.zip", "https://www.retrosheet.org/rosters.zip")
 
 
 def _copy_matching_rosters(rosters_zip: Path, year: int, dest_dir: Path) -> None:

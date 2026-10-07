@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from mlb_baseball import cli, coverage
+from mlb_baseball.connectors import statcast_leaderboard
 from mlb_baseball.coverage.engine import TableReport
 from mlb_baseball.coverage.model import Group
 from mlb_baseball.coverage.render import missing_text
@@ -92,3 +93,10 @@ def test_every_declared_date_column_is_a_real_column_of_its_table():
         assert marker in text, f"{table} is not in docs/RAW_INVENTORY.md"
         block = text.split(marker, 1)[1].split("</details>", 1)[0]
         assert f"- `{column}` " in block, f"{table} has no column {column}"
+
+
+def test_late_starting_leaderboards_are_expected_from_their_own_first_year():
+    by_table = {d.table: d for d in coverage.DATASETS}
+    for table, first in statcast_leaderboard.FIRST_SERVED_YEAR.items():
+        assert by_table[table].spec.first == first, table
+    assert by_table["raw.statcast_sprint_speed"].spec.first == statcast_leaderboard.FIRST_YEAR

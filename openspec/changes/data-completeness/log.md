@@ -21,3 +21,11 @@ Append only, newest at the bottom. Format in `goal.md`.
 - **OpenSpec CLI:** `~/.nvm/versions/node/v24.16.0/bin/openspec` (put that folder on PATH).
 - **Reading the earlier detail:** transcript `~/.claude/projects/-home-cbwinslow-workspace-mlb/a6d0ca90-cb21-4107-8068-e73b621adf6b.jsonl`.
 - **Open owner decisions:** Negro League labelling goes through `negro-league-scope` (spec updated in #343; task 1.1 there is the measuring). Lahman Negro League data is licensed from Seamheads (rights review pending). Cite Chadwick ODC-By in `SOURCE_RIGHTS.md`. FanGraphs terms wording is second-hand.
+
+## 2026-10-07 (UTC), after compaction
+
+- **Action:** `mlb coverage --missing-only --json` (read-only, from a worktree). **Result:** 17 tables with a gap (list in `results-baseline.md` once written).
+- **Finding (wrong expectation, not a gap):** 7 Statcast leaderboards were expected from 2015 but Savant serves them later. **Evidence:** live probe 2026-10-07, same call returns 0 rows the year before and rows the first year (arsenal 2017; catch probability, jump, OAA, directional OAA 2016; spin direction 2020). **Decision:** record the first served year per board in `statcast_leaderboard.FIRST_SERVED_YEAR` and let the report read it. **Rejected:** loosening the report or hiding the tables.
+- **Finding (wrong expectation):** `downloads/retrosheet_box/manifest.json` counted 3 lookup files (TEAMABR.TXT, biodata.zip, rosters.zip) as unloaded archives. **Decision:** the connector marks them `reference` and the report skips that status. The existing manifest keeps "downloaded" until the next `retrosheet_box` run.
+- **Finding (real gap):** FanGraphs park factors exist at the source for every season 1871–1900 (live probe, 8–33 rows each) but we hold only 1901+. **Cause:** an earlier one-off backfill (`logs/fangraphs_pf_backfill.log`) started at 1901. **Follow-up:** task 2.3 (repair needs owner approval).
+- **PR:** branch `fix/coverage-board-first-years`.

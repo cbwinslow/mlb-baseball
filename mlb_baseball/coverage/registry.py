@@ -304,14 +304,20 @@ DATASETS: list[Dataset] = [
         "bootstrap skips a past season that already has any rows (load.season_already_loaded), "
         "so a partly loaded past season is not repaired by it; no per-date repair command exists",
     ),
-    *_seasons(
-        "statcast_leaderboard",
-        Seasons(statcast_leaderboard.FIRST_YEAR),
-        *[table.removeprefix("raw.") for table, _ in statcast_leaderboard.SIMPLE_LEADERBOARDS],
-        "statcast_oaa",
-        caveat="the connector's single first year; a leaderboard that starts later returns "
-        "no rows for earlier seasons and nothing records that, so they show as missing",
-    ),
+    *[
+        Dataset(
+            "statcast_leaderboard",
+            table,
+            Seasons(
+                statcast_leaderboard.FIRST_SERVED_YEAR.get(table, statcast_leaderboard.FIRST_YEAR)
+            ),
+            "mlb ingest statcast_leaderboard",
+        )
+        for table in (
+            *[table for table, _ in statcast_leaderboard.SIMPLE_LEADERBOARDS],
+            "raw.statcast_oaa",
+        )
+    ],
     # FanGraphs.
     *_seasons(
         "fangraphs",

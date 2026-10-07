@@ -58,7 +58,7 @@ def test_full_run_order_and_skips_mlb_api(harness):
         "predict",
         "doctor --populated",
         "coverage --unexplained --missing-only --fail-on-gap",
-        "schema-watch",
+        "schema-watch --tolerate-unchecked",
         "repair --dry-run",
     ]
     assert harness.alerts == []

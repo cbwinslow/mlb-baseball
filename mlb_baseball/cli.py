@@ -667,6 +667,11 @@ def main(argv: list[str] | None = None) -> None:
         help="after reviewing a drift, save the new shape as the snapshot",
     )
     schema_watch_parser.add_argument("--json", action="store_true", help="machine-readable output")
+    schema_watch_parser.add_argument(
+        "--tolerate-unchecked",
+        action="store_true",
+        help="exit 0 when a source could not be reached (drift still exits 1); used by nightly",
+    )
     metrics_parser = subparsers.add_parser("metrics")
     metrics_parser.add_argument("--source", default="mlb_api")
     metrics_parser.add_argument("--window-minutes", type=int, default=5)
@@ -1677,7 +1682,9 @@ def main(argv: list[str] | None = None) -> None:
         elif args.refresh and args.mode != "bootstrap":
             parser.error("--refresh applies to --mode bootstrap")
         elif args.mode == "bootstrap":
-            if args.refresh:
+            if args.refresh and args.dry_run:
+                print("refresh: would set aside the previous downloads")
+            elif args.refresh:
                 moved = manifest.supersede(args.source)
                 print(
                     f"refresh: previous downloads set aside in {moved}"
@@ -1706,7 +1713,21 @@ def main(argv: list[str] | None = None) -> None:
                 sys.exit(1)
             fn = cast(Callable[[], dict[str, int]], backfill)
         if args.dry_run:
-            print(f"would run: mlb ingest {args.source} --mode {args.mode}; nothing loaded")
+            planned = f"mlb ingest {args.source} --mode {args.mode}"
+            for flag, value in (
+                ("--stage", args.stage),
+                ("--start-year", args.start_year),
+                ("--end-year", args.end_year),
+                ("--workers", args.workers),
+            ):
+                if value:
+                    planned += f" {flag} {value}"
+            if args.refresh:
+                planned += " --refresh"
+            if args.json:
+                print(json_module.dumps({"dry_run": True, "command": planned}))
+            else:
+                print(f"would run: {planned}; nothing loaded")
             return
         loaded = fn()
         totals = ingest.table_totals(loaded)
@@ -1918,7 +1939,14 @@ def main(argv: list[str] | None = None) -> None:
             )
         )
     elif args.command == "schema-watch":
-        sys.exit(schema_watch.run(args.source, accept=args.accept, as_json=args.json))
+        sys.exit(
+            schema_watch.run(
+                args.source,
+                accept=args.accept,
+                as_json=args.json,
+                tolerate_unchecked=args.tolerate_unchecked,
+            )
+        )
     elif args.command == "metrics":
         try:
             operational_metrics.print_report(args.source, args.window_minutes)

@@ -16,10 +16,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from mlb_baseball.manifest import DOWNLOADS_ROOT
+
 logger = logging.getLogger(__name__)
 
 SAMPLE_ROWS = 20  # rows merged from a list response so sparse fields are seen
-MAX_DEPTH = 3
+MAX_DEPTH = 5
 _SAFE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
@@ -47,6 +49,10 @@ def _walk(obj: dict, prefix: str, depth: int, out: dict[str, str]) -> None:
             out[name] = kind
         if isinstance(value, dict) and depth < MAX_DEPTH:
             _walk(value, f"{name}.", depth + 1, out)
+        elif isinstance(value, list) and depth < MAX_DEPTH:
+            for item in value[:SAMPLE_ROWS]:
+                if isinstance(item, dict):
+                    _walk(item, f"{name}[].", depth + 1, out)
 
 
 def fields_of(sample: Any) -> dict[str, str]:
@@ -174,7 +180,7 @@ def check(
     return findings
 
 
-SNAPSHOT_DIR = Path("downloads/schema_snapshots")
+SNAPSHOT_DIR = DOWNLOADS_ROOT / "schema_snapshots"
 EXIT_OK = 0
 EXIT_DRIFT = 1
 EXIT_UNCHECKED = 2
@@ -193,6 +199,7 @@ def record(conn, findings: list[Finding]) -> None:
                     status = EXCLUDED.status, added = EXCLUDED.added,
                     removed = EXCLUDED.removed, changed = EXCLUDED.changed,
                     error = EXCLUDED.error, checked_at = EXCLUDED.checked_at
+                WHERE meta.schema_finding.status <> 'drift' OR EXCLUDED.status <> 'unchecked'
                 """,
                 (
                     f.source,
@@ -249,6 +256,7 @@ def run(
     *,
     accept: bool = False,
     as_json: bool = False,
+    tolerate_unchecked: bool = False,
     store_dir: Path | str = SNAPSHOT_DIR,
     datasets: list[Dataset] | None = None,
 ) -> int:
@@ -261,6 +269,9 @@ def run(
         datasets = all_datasets()
     if source:
         datasets = [d for d in datasets if d.source == source]
+        if not datasets:
+            print(f"schema-watch: no datasets for source {source!r}")
+            return EXIT_UNCHECKED
     findings = check(datasets, SnapshotStore(store_dir), accept=accept)
     with get_connection() as conn:
         record(conn, findings)
@@ -268,4 +279,5 @@ def run(
         print(json.dumps([to_dict(f) for f in findings], indent=1))
     else:
         print(render(findings))
-    return exit_code(findings)
+    code = exit_code(findings)
+    return EXIT_OK if tolerate_unchecked and code == EXIT_UNCHECKED else code

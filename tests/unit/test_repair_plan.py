@@ -90,3 +90,55 @@ def test_every_safe_repair_has_a_reason_a_timeout_and_a_mlb_ingest_command():
 @pytest.mark.parametrize("table", ["raw.kalshi_candle", "raw.polymarket_price"])
 def test_market_backfills_are_on_the_safe_list(table):
     assert table in {e.table for e in SAFE_REPAIRS}
+
+
+def test_allowed_flags_are_accepted_for_the_entries_that_list_them():
+    kalshi = _gap("raw.kalshi_candle", "mlb ingest kalshi --mode backfill", source="kalshi")
+    assert plan([kalshi], {}, NOW)[0].status == "planned"
+    analytics = _gap(
+        "raw.mlb_win_prob",
+        "mlb ingest mlb_api --stage analytics --start-year 1950 --end-year 2025",
+        source="mlb_api",
+    )
+    assert plan([analytics], {}, NOW)[0].status == "planned"
+
+
+@pytest.mark.parametrize(
+    "fix",
+    [
+        "mlb ingest statcast --stage analytics",
+        "mlb ingest kalshi --mode backfill --mode backfill",
+        "mlb ingest kalshi --mode backfill --start-year 1",
+        "mlb ingest mlb_api --start-year 19\u00b2",
+        "mlb ingest statcast; rm -rf x",
+        "mlb ingest kalshi --mode=backfill",
+        "",
+    ],
+)
+def test_flags_outside_the_entry_or_repeated_are_not_run(fix):
+    gap = _gap("raw.kalshi_candle" if "kalshi" in fix else "raw.statcast_pitch", fix)
+    if "mlb_api" in fix:
+        gap = _gap("raw.mlb_win_prob", fix, source="mlb_api")
+    assert plan([gap], {}, NOW)[0].status == "report_only"
+
+
+def test_a_safe_table_that_is_empty_is_never_planned():
+    empty = _gap("raw.statcast_pitch", "mlb ingest statcast", status="empty")
+    assert plan([empty], {}, NOW)[0].status == "report_only"
+
+
+def test_reset_of_an_unknown_table_is_refused(capsys):
+    from mlb_baseball import repair
+
+    assert repair.run(reset="raw.nonsense") == 2
+    assert "not on the safe list" in capsys.readouterr().out
+
+
+def test_children_run_as_this_pythons_entry_point_not_a_path_lookup():
+    import sys
+
+    from mlb_baseball.repair import _child_argv
+
+    argv = _child_argv(("mlb", "ingest", "statcast"))
+    assert argv[0] == sys.executable
+    assert argv[-2:] == ["ingest", "statcast"]

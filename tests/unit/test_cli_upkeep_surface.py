@@ -52,3 +52,23 @@ def test_doctor_json_lists_each_check(monkeypatch, capsys):
     data = json.loads(capsys.readouterr().out)
     assert [c["name"] for c in data["checks"]] == ["a", "b"]
     assert data["checks"][1]["ok"] is False
+
+
+def test_refresh_with_dry_run_leaves_the_download_cache_alone(monkeypatch, capsys):
+    def boom(source):
+        raise AssertionError("dry run must not move downloads")
+
+    monkeypatch.setattr(cli.manifest, "supersede", boom)
+    cli.main(["ingest", "retrosheet", "--mode", "bootstrap", "--refresh", "--dry-run"])
+    out = capsys.readouterr().out
+    assert "would set aside" in out
+    assert "--refresh" in out
+
+
+def test_dry_run_shows_stage_and_year_flags_and_honours_json(monkeypatch, capsys):
+    cli.main(
+        ["ingest", "mlb_api", "--stage", "analytics", "--start-year", "1950", "--dry-run", "--json"]
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["dry_run"] is True
+    assert "--stage analytics" in data["command"] and "--start-year 1950" in data["command"]

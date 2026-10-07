@@ -7,7 +7,7 @@ from mlb_baseball import command_index
 
 def test_command_index_is_current():
     expected = command_index.build()
-    actual = Path("docs/COMMANDS.md").read_text()
+    actual = (Path(__file__).resolve().parents[2] / "docs" / "COMMANDS.md").read_text()
     assert actual == expected, "run: python -m mlb_baseball.command_index > docs/COMMANDS.md"
 
 

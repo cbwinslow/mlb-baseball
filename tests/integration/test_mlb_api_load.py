@@ -1604,3 +1604,82 @@ def test_seed_ledger_restore_mode_never_replaces_raw_that_has_more_rows(db_conn)
     report = mlb_api.seed_analytics_ledger(db_conn, restore=True)
 
     assert [m["game_pk"] for m in report["mismatched"]] == [2001]
+
+
+@pytest.fixture
+def reference_tables(db_conn):
+    names = ["raw.test_ref_a", "raw.test_ref_b"]
+    with db_conn.cursor() as cur:
+        for name in names:
+            cur.execute(f"DROP TABLE IF EXISTS {name}")
+            cur.execute(f"CREATE TABLE {name} (_season text)")
+    db_conn.commit()
+    yield names
+    with db_conn.cursor() as cur:
+        for name in names:
+            cur.execute(f"DROP TABLE IF EXISTS {name}")
+    db_conn.commit()
+
+
+def _fake_loader(name, calls, *, fail=False):
+    def load(conn, season):
+        calls.append((name, season))
+        if fail:
+            raise RuntimeError("simulated source failure")
+        with conn.cursor() as cur:
+            cur.execute(f"INSERT INTO {name} VALUES (%s)", (str(season),))
+        return 1
+
+    return load
+
+
+def test_a_failing_reference_table_does_not_discard_the_others(
+    db_conn, monkeypatch, reference_tables
+):
+    calls: list[tuple[str, int]] = []
+    a, b = reference_tables
+    monkeypatch.setattr(
+        mlb_api,
+        "_reference_loaders",
+        lambda: ((a, _fake_loader(a, calls, fail=True)), (b, _fake_loader(b, calls))),
+    )
+    counts = {a: 0, b: 0}
+
+    mlb_api._load_reference_season(db_conn, 2010, 2026, counts)
+
+    assert counts == {a: 0, b: 1}
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.test_ref_b")
+        assert cur.fetchone() == (1,)
+
+
+def test_a_rerun_fetches_only_the_tables_a_past_season_is_missing(
+    db_conn, monkeypatch, reference_tables
+):
+    calls: list[tuple[str, int]] = []
+    a, b = reference_tables
+    with db_conn.cursor() as cur:
+        cur.execute(f"INSERT INTO {a} VALUES ('2010')")
+    db_conn.commit()
+    monkeypatch.setattr(
+        mlb_api,
+        "_reference_loaders",
+        lambda: ((a, _fake_loader(a, calls)), (b, _fake_loader(b, calls))),
+    )
+
+    mlb_api._load_reference_season(db_conn, 2010, 2026, {a: 0, b: 0})
+
+    assert calls == [(b, 2010)]
+
+
+def test_the_current_season_is_always_refetched(db_conn, monkeypatch, reference_tables):
+    calls: list[tuple[str, int]] = []
+    a, _ = reference_tables
+    with db_conn.cursor() as cur:
+        cur.execute(f"INSERT INTO {a} VALUES ('2026')")
+    db_conn.commit()
+    monkeypatch.setattr(mlb_api, "_reference_loaders", lambda: ((a, _fake_loader(a, calls)),))
+
+    mlb_api._load_reference_season(db_conn, 2026, 2026, {a: 0})
+
+    assert calls == [(a, 2026)]

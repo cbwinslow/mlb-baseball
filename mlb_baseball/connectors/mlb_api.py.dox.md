@@ -188,3 +188,7 @@ Every file is checksum-verified against the manifest before anything is written.
 ## Reference-call 404s (2026-10-07)
 
 `_fetch_reference_task` treats a 404 for one team, season and category as an empty answer. Before this, one 404 (for example `teams/114/leaders?leaderCategories=era&season=2023`, while `homeRuns` for the same team answers) raised inside the per-season reference block and rolled back every table in it, so seasons 2006 and 2017-2025 were never loaded for player pool, coaches, alumni, game pace, stats and leaders. Other errors still raise. Test: `tests/unit/test_mlb_api_reference.py`.
+
+## Reference tables are one unit each (2026-10-07)
+
+`_load_reference_season` loads the nine season-scoped reference and stat tables one at a time: each commits or rolls back alone, and from `FIRST_REFERENCE_YEAR` a past season that already holds rows in a table is skipped for that table. A re-run therefore fills exactly the tables a season is missing, and one failing table no longer discards the others. Seasons before `FIRST_REFERENCE_YEAR` keep a single `raw.mlb_player_pool` check (the source is sparse there). Tests: `tests/integration/test_mlb_api_load.py` (`test_a_failing_reference_table...`, `test_a_rerun_fetches_only...`, `test_the_current_season_is_always_refetched`).

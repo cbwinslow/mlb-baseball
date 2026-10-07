@@ -94,3 +94,8 @@ Append only, newest at the bottom. Format in `goal.md`.
 - After (`mlb coverage --missing-only --unexplained`): reference tables complete 2000-2026 except 2024 for player stat, team stat, stat leader, team leader (that run used the old per-pool skip; the per-table loader fix, PR 364, heals it); roster ids missing 1 (was 147); game pace now 104 seasons (older years the bug had also blocked).
 - Not repaired by this run: linescores 84 missing (was 85; the bootstrap treats those seasons as complete) and 2 win-prob/context games in 2011 (game ids 305461 and 308207 answer HTTP 500 at the source on every retry; to be recorded as unavailable if it persists). Next: `mlb ingest mlb_api --stage analytics --start-year 2000 --end-year 2024`, and a bootstrap rerun after PR 364 for 2024 stats.
 - Note: the same coverage run, from the worktree, shows retrosheet "CANNOT MEASURE" because a worktree has no downloads/ folder; not a data problem.
+
+### 2026-10-07 UTC: reference loader made self-healing (branch fix/reference-per-table)
+- What: the nine MLB reference tables load one at a time (own commit, per-table skip for a past season), replacing one all-or-nothing block keyed on `raw.mlb_player_pool`.
+- Why: that block hid the 404 failure for 2006 and 2017-2025 and could never heal a partly loaded season. Rejected: only widening the skip check (would still lose all nine on one error).
+- Tests: failing table does not discard others; rerun fetches only missing tables; current season always refetched. mlb_api load tests 50 passed.

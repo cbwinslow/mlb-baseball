@@ -175,6 +175,7 @@ import json
 import logging
 import re
 import threading
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -2869,6 +2870,50 @@ def _load_datacasters(conn: psycopg.Connection) -> int:
     return load_dataframe(conn, "raw.mlb_datacaster", df)
 
 
+def _reference_loaders() -> tuple[tuple[str, Callable[[psycopg.Connection, int], int]], ...]:
+    return (
+        ("raw.mlb_player_pool", _load_player_pool),
+        ("raw.mlb_free_agent", _load_free_agents),
+        ("raw.mlb_coach", _load_coaches),
+        ("raw.mlb_alumni", _load_alumni),
+        ("raw.mlb_game_pace", _load_game_pace),
+        ("raw.mlb_player_stat", _load_stats),
+        ("raw.mlb_team_stat", _load_team_stats),
+        ("raw.mlb_stat_leader", _load_stats_leaders),
+        ("raw.mlb_team_leader", _load_team_leaders),
+    )
+
+
+def _load_reference_season(
+    conn: psycopg.Connection, season: int, current_year: int, counts: dict[str, int]
+) -> None:
+    """The season-scoped reference and stat tables, one table at a time.
+
+    Each table is its own unit: it commits or rolls back alone and is skipped for a past
+    season that already holds rows, so a failure in one table no longer discards the
+    others, and a re-run fills exactly the tables a season is missing (before, one
+    ``raw.mlb_player_pool`` check stood for all nine and one error rolled back all nine,
+    which left 2006 and 2017-2025 empty). Seasons before ``FIRST_REFERENCE_YEAR`` keep the
+    old rule, one pool check for the whole block, because the source is sparse there and
+    an empty answer would otherwise be re-asked on every run."""
+    past = season < current_year
+    if past and season < FIRST_REFERENCE_YEAR:
+        if season_already_loaded(conn, "raw.mlb_player_pool", season):
+            print(f"mlb_api: {season} reference/personnel/stat data loaded, skipping")
+            return
+    for table, load in _reference_loaders():
+        if past and season >= FIRST_REFERENCE_YEAR and season_already_loaded(conn, table, season):
+            continue
+        try:
+            counts[table] += load(conn, season)
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            logger.error(
+                "mlb_api: %s %s failed (%s); skipping, continuing bootstrap", season, table, exc
+            )
+
+
 def bootstrap() -> dict[str, int]:
     counts: dict[str, int] = {
         "raw.mlb_schedule": 0,
@@ -2927,28 +2972,7 @@ def bootstrap() -> dict[str, int]:
             # failure here (e.g. one team's coaches call) doesn't roll back
             # the schedule/standings/roster/transaction data already
             # committed above for this same season.
-            if season < current_year and season_already_loaded(conn, "raw.mlb_player_pool", season):
-                print(f"mlb_api: {season} reference/personnel/stat data loaded, skipping")
-            else:
-                try:
-                    counts["raw.mlb_player_pool"] += _load_player_pool(conn, season)
-                    counts["raw.mlb_free_agent"] += _load_free_agents(conn, season)
-                    counts["raw.mlb_coach"] += _load_coaches(conn, season)
-                    counts["raw.mlb_alumni"] += _load_alumni(conn, season)
-                    counts["raw.mlb_game_pace"] += _load_game_pace(conn, season)
-                    counts["raw.mlb_player_stat"] += _load_stats(conn, season)
-                    counts["raw.mlb_team_stat"] += _load_team_stats(conn, season)
-                    counts["raw.mlb_stat_leader"] += _load_stats_leaders(conn, season)
-                    counts["raw.mlb_team_leader"] += _load_team_leaders(conn, season)
-                    conn.commit()
-                except Exception as exc:
-                    conn.rollback()
-                    logger.error(
-                        "mlb_api: %s reference/personnel/stat data failed (%s); "
-                        "skipping, continuing bootstrap",
-                        season,
-                        exc,
-                    )
+            _load_reference_season(conn, season, current_year, counts)
             if season >= FIRST_PLAYBYPLAY_YEAR:
                 if season < current_year and season_already_loaded(
                     conn, "raw.mlb_playbyplay", season

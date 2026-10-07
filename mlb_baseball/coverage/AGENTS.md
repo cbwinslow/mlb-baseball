@@ -9,7 +9,7 @@ Read root `AGENTS.md` and `mlb_baseball/AGENTS.md` first.
 ## Ownership
 
 - `registry.py`: the single list of datasets. One `Dataset(...)` entry per raw table: expectation, fix command, caveat. Year bounds come from the connectors' own constants (`FIRST_WIN_PROB_YEAR`, `FIRST_YEAR`, ...), not copies.
-- `model.py`: the expectation kinds (`Seasons`, `Games`, `GameDates`, `KalshiCandles`, `PolymarketWindows`, `Present`, `Referenced` (entity tables: every id other tables use exists here, one line per referencing column), `ManifestFiles`, `NoExpectation`) and `Group`. Each kind turns an expectation into `expected / held / accounted` counts per bucket with plain SELECTs.
+- `model.py`: the expectation kinds (`Seasons`, `Games` (optionally limited to game types), `KalshiCandles`, `PolymarketWindows`, `Present`, `Referenced` (entity tables: every id other tables use exists here, one line per referencing column), `ManifestFiles`, `NoExpectation`) and `Group`. Each kind turns an expectation into `expected / held / accounted` counts per bucket with plain SELECTs.
 - `live.py`: live checks (`--probe` only): ask the publisher, then compare with the table. Today `MlbScheduleTotals` (Stats API `totalGames` per season over plain HTTP, with the American/National League count alongside). Paced, finite timeout, shared retry; a request that fails is reported as an error, never counted as zero. A check lives in `registry.LIVE_CHECKS`.
 - `engine.py`: runs the measurements in one `READ ONLY` transaction and builds the report; reports any raw table that is not registered.
 - `render.py`: text, markdown and JSON views. JSON has sorted keys and no timestamps.

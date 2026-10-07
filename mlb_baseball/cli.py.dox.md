@@ -45,6 +45,10 @@ After a connector run, `mlb ingest` prints per table `N loaded, M in table` (or 
 
 `mlb coverage [--source S] [--table T] [--json|--markdown] [--missing-only] [--fail-on-gap] [--probe]` prints, per source and raw table, what should be held versus what is held and the `mlb ingest` command that fixes each gap. It is read-only (one `READ ONLY` transaction); `mlb_baseball/coverage/` owns the logic and its `AGENTS.md` the contract, the CLI only parses and dispatches.
 
+`mlb schema-watch [--source S] [--accept] [--json]` samples each source with one small request per dataset (`schema_sources.py`), compares field names/types or file names with the snapshot under `downloads/schema_snapshots/` (`schema_watch.py`) and records the latest result per dataset in `meta.schema_finding`. It never writes `raw`. Exit 0 unchanged, 1 drift (reported until `--accept`), 2 could not check.
+
+`mlb repair [--dry-run|--apply|--reset TABLE] [--source S] [--json]` plans repairs for unexplained coverage gaps (`repair.py`). Only tables on `SAFE_REPAIRS`, with exactly the listed `mlb ingest` command, are ever run; one attempt per table per night, three failures in a row suspend a table until `--reset`. Default is a dry run; `--apply` is a production write. `docs/COMMANDS.md` is the generated index of all upkeep commands (`command_index.py`, tested for staleness); `mlb ingest` also accepts `--dry-run` and `--json`, `mlb doctor` accepts `--json`.
+
 Some connectors may additionally expose an expensive/manual `backfill` mode. Backfill must remain opt-in and must not accidentally run as part of routine bootstrap/update.
 
 When adding a connector, update the explicit registry and applicable source/profile/docs/tests. Do not build a second plugin-discovery framework inside the CLI.

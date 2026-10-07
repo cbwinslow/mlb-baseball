@@ -48,7 +48,7 @@ Also listed: 21 (Minor League Baseball umbrella), 509/510/6005 (international am
 
 ### Endpoint families
 
-The community OpenAPI file (version 2.0.0, 190 paths, 490 schemas) groups them as below. We hold a copy outside this repo; its origin and licence are unverified (task 0.3), so it is a planning checklist, not a committed file.
+The community OpenAPI file (version 2.0.0, 190 paths, 490 schemas) groups them as below. We hold a copy outside this repo; its origin is the MIT-licensed `albertinopadin/baseball-mcp` repo and its upstream terms are unstated (see `docs/SOURCE_RIGHTS.md`), so it is a planning checklist, not a committed file.
 
 | Family | Paths (examples) | Used today? |
 |---|---|---|
@@ -60,6 +60,8 @@ The community OpenAPI file (version 2.0.0, 190 paths, 490 schemas) groups them a
 | Tracking | `/batTracking/game/{pk}/{playId}`, `/hitTrajectories`, `trackingVendors`/`Versions` | no |
 | Other | weather, broadcasts, uniforms, milestones, home run derby, all-star ballots, props, video/review | no |
 | Reference enums | `gameTypes`, `pitchTypes`, `pitchCodes`, `positions`, `statTypes`, `statGroups`, `leagueLeaderTypes`, `eventTypes`, `transactionTypes`, `rosterTypes`, ~40 more (`meta`) | no (task 1.1) |
+
+Per-path checklist with live probe results: [`mlb_api_endpoints.md`](mlb_api_endpoints.md).
 
 Do not read "no" as "worthless": each family needs a use case, rights check, coverage probe and request-cost estimate before ingest (see the connector sidecar's work guidance).
 

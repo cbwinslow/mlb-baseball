@@ -75,9 +75,11 @@ from mlb_baseball import (
     player,
     progress_table,
     readiness,
+    repair,
     report,
     runs,
     schema_inventory,
+    schema_watch,
     source_check,
 )
 from mlb_baseball import (
@@ -358,6 +360,14 @@ def main(argv: list[str] | None = None) -> None:
     ingest_parser.add_argument(
         "--workers", type=int, help="bounded parallel API workers for a staged MLB API run"
     )
+    ingest_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="check the arguments and the source profile, print the command, load nothing",
+    )
+    ingest_parser.add_argument(
+        "--json", action="store_true", help="print the loaded row counts as JSON"
+    )
 
     bootstrap_parser = subparsers.add_parser("bootstrap")
     update_parser = subparsers.add_parser("update")
@@ -623,6 +633,40 @@ def main(argv: list[str] | None = None) -> None:
     coverage_format = coverage_parser.add_mutually_exclusive_group()
     coverage_format.add_argument("--json", action="store_true", help="machine-readable output")
     coverage_format.add_argument("--markdown", action="store_true", help="markdown output")
+    repair_parser = subparsers.add_parser(
+        "repair",
+        help="close the coverage gaps that are safe to close unattended (a short fixed list "
+        "of idempotent `mlb ingest` commands; one try per table per night; suspended after "
+        "three failures). Default is a dry run that writes nothing.",
+    )
+    repair_mode = repair_parser.add_mutually_exclusive_group()
+    repair_mode.add_argument(
+        "--dry-run", action="store_true", help="show the plan only (this is the default)"
+    )
+    repair_mode.add_argument(
+        "--apply", action="store_true", help="run the planned commands (a production write)"
+    )
+    repair_mode.add_argument(
+        "--reset", metavar="TABLE", help="clear a suspension for raw.<table> after you fixed it"
+    )
+    repair_parser.add_argument("--source", help="only gaps of this source")
+    repair_parser.add_argument("--json", action="store_true", help="machine-readable output")
+    schema_watch_parser = subparsers.add_parser(
+        "schema-watch",
+        help="ask each source what it offers now (one small request per dataset), compare "
+        "with the saved snapshot and report added, removed or changed fields and files. "
+        "Writes only the snapshot files and meta.schema_finding, never raw. Exit 0 "
+        "nothing changed, 1 drift, 2 could not check.",
+    )
+    schema_watch_parser.add_argument(
+        "--source", help="check only this source (mlb_api, retrosheet, fangraphs, ...)"
+    )
+    schema_watch_parser.add_argument(
+        "--accept",
+        action="store_true",
+        help="after reviewing a drift, save the new shape as the snapshot",
+    )
+    schema_watch_parser.add_argument("--json", action="store_true", help="machine-readable output")
     metrics_parser = subparsers.add_parser("metrics")
     metrics_parser.add_argument("--source", default="mlb_api")
     metrics_parser.add_argument("--window-minutes", type=int, default=5)
@@ -669,6 +713,7 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="run only the fast check that every backbone relation has rows",
     )
+    doctor_parser.add_argument("--json", action="store_true", help="machine-readable output")
     audit_parser = subparsers.add_parser(
         "audit", help="run read-only game-identity and data-quality checks"
     )
@@ -1660,8 +1705,18 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"{args.source} has no backfill_history() to run")
                 sys.exit(1)
             fn = cast(Callable[[], dict[str, int]], backfill)
+        if args.dry_run:
+            print(f"would run: mlb ingest {args.source} --mode {args.mode}; nothing loaded")
+            return
         loaded = fn()
         totals = ingest.table_totals(loaded)
+        if args.json:
+            print(
+                json_module.dumps(
+                    {t: {"loaded": n, "in_table": totals[t]} for t, n in loaded.items()}, indent=1
+                )
+            )
+            return
         for table, count in loaded.items():
             total = totals[table]
             in_table = f"{total} in table" if total is not None else "total not counted"
@@ -1856,6 +1911,14 @@ def main(argv: list[str] | None = None) -> None:
         )
         if args.fail_on_gap and has_gap:
             sys.exit(1)
+    elif args.command == "repair":
+        sys.exit(
+            repair.run(
+                apply_changes=args.apply, source=args.source, reset=args.reset, as_json=args.json
+            )
+        )
+    elif args.command == "schema-watch":
+        sys.exit(schema_watch.run(args.source, accept=args.accept, as_json=args.json))
     elif args.command == "metrics":
         try:
             operational_metrics.print_report(args.source, args.window_minutes)
@@ -1877,6 +1940,22 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "doctor":
         checks = report.populated_checks() if args.populated else doctor.run()
         failed = [c for c in checks if not c.ok]
+        if args.json:
+            print(
+                json_module.dumps(
+                    {
+                        "summary": doctor.summarize(checks),
+                        "checks": [
+                            {"name": c.name, "ok": c.ok, "error": c.error, "detail": c.detail}
+                            for c in checks
+                        ],
+                    },
+                    indent=1,
+                )
+            )
+            if failed:
+                sys.exit(1)
+            return
         for check in checks:
             status = "ERROR" if check.error else "OK" if check.ok else "FAIL"
             print(f"[{status}] {check.name}: {check.detail}")

@@ -2,6 +2,24 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-300: Do not adopt `dlt` or a community baseball MCP server; keep our connectors, add a drift check
+
+**Decision (2026-10-07).** We do not add `dlt` (dlt-hub, Apache-2.0, 5,939 stars, active) or
+any community MLB MCP server (`guillochon/mlb-api-mcp` MIT, 59 stars; `etweisberg/mlb-mcp`
+no licence file, 34 stars; the rest 0 to 5 stars). Source-schema changes are found by a small
+read-only snapshot compare (`source-inventory`, `mlb schema-watch`), and repairs by a
+safe-listed `mlb repair`, both on the existing nightly script.
+
+**Why.** Our connectors already own idempotent loading, the `meta.ingestion_item` ledger and
+per-source rights profiles; `dlt` would be a second loader with its own state and schema rules,
+and what we lack is only detection of upstream change, which a snapshot compare covers.
+The MCP servers wrap the same MLB, Savant, FanGraphs and Baseball-Reference endpoints we already
+call (read in code review, nothing installed), so they add no new data and one has no licence.
+**Source:** `openspec/changes/source-inventory/design.md` decision 4.
+
+**Revisit if:** the snapshot compare proves too costly to maintain across sources, or a
+maintained server exposes data we cannot reach ourselves (then a licence and rights check first).
+
 ## ADR-299: Production uses the original Chadwick C tools; the Python port (`retrosheetpy.cw`) is not used until validated
 
 **Decision (2026-10-07, owner direction).** Retrosheet event ingestion keeps using the

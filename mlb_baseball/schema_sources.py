@@ -9,6 +9,7 @@ that start late (Savant arsenal 2017, spin 2020) still answer.
 
 import re
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 import requests
@@ -113,6 +114,11 @@ def file_list_datasets() -> list[Dataset]:
     ]
 
 
+def _columns_of(call: Callable[[], Any]) -> Callable[[], dict[str, str]]:
+    """A zero-argument fetch of one board's column names and dtypes."""
+    return lambda: frame_columns(call())
+
+
 def board_datasets() -> list[Dataset]:
     """FanGraphs and Savant boards: one season each, columns and dtypes as the sample."""
     import fungo.fangraphs as fg
@@ -125,11 +131,11 @@ def board_datasets() -> list[Dataset]:
             Dataset(
                 "statcast_leaderboard",
                 table.removeprefix("raw."),
-                lambda fn=fn: frame_columns(fn(SAMPLE_SEASON)),
+                _columns_of(partial(fn, SAMPLE_SEASON)),
                 kind="names",
             )
         )
-    fangraphs = {
+    fangraphs: dict[str, Callable[[], Any]] = {
         "leaders_bat": lambda: fg.get_leaders("bat", SAMPLE_SEASON, SAMPLE_SEASON, ind=1, qual=0),
         "leaders_pit": lambda: fg.get_leaders("pit", SAMPLE_SEASON, SAMPLE_SEASON, ind=1, qual=0),
         "leaders_fld": lambda: fg.get_leaders("fld", SAMPLE_SEASON, SAMPLE_SEASON, ind=1, qual=0),
@@ -140,7 +146,7 @@ def board_datasets() -> list[Dataset]:
         "split_pitching": lambda: fg.get_split_leaders("P", SAMPLE_SEASON, "vs_lhp"),
     }
     for name, call in fangraphs.items():
-        boards.append(Dataset("fangraphs", name, lambda c=call: frame_columns(c()), kind="names"))
+        boards.append(Dataset("fangraphs", name, _columns_of(call), kind="names"))
     return boards
 
 

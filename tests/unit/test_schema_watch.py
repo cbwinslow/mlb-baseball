@@ -114,3 +114,24 @@ def test_a_failing_dataset_does_not_stop_the_others(tmp_path):
 def test_snapshot_names_cannot_escape_the_store(tmp_path):
     with pytest.raises(ValueError):
         SnapshotStore(tmp_path).load("../x", "d")
+
+
+def test_exit_code_drift_beats_unchecked_beats_ok():
+    from mlb_baseball.schema_watch import Finding, exit_code
+
+    assert exit_code([Finding("s", "a", "unchanged"), Finding("s", "b", "new")]) == 0
+    assert exit_code([Finding("s", "a", "unchecked")]) == 2
+    drift = Finding("s", "a", "drift", compare({}, {"x": "int"}))
+    assert exit_code([Finding("s", "b", "unchecked"), drift]) == 1
+
+
+def test_render_lists_each_drifted_field_and_each_unchecked_dataset():
+    from mlb_baseball.schema_watch import Finding, render
+
+    drift = Finding("s", "a", "drift", compare({"o": "str", "c": "int"}, {"n": "int", "c": "str"}))
+    text = render([drift, Finding("s", "b", "unchecked", error="down")])
+    assert "DRIFT s/a" in text
+    assert "added n: int" in text
+    assert "removed o: str" in text
+    assert "changed c: int -> str" in text
+    assert "UNCHECKED s/b: down" in text

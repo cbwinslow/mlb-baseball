@@ -78,6 +78,7 @@ from mlb_baseball import (
     report,
     runs,
     schema_inventory,
+    schema_watch,
     source_check,
 )
 from mlb_baseball import (
@@ -623,6 +624,22 @@ def main(argv: list[str] | None = None) -> None:
     coverage_format = coverage_parser.add_mutually_exclusive_group()
     coverage_format.add_argument("--json", action="store_true", help="machine-readable output")
     coverage_format.add_argument("--markdown", action="store_true", help="markdown output")
+    schema_watch_parser = subparsers.add_parser(
+        "schema-watch",
+        help="ask each source what it offers now (one small request per dataset), compare "
+        "with the saved snapshot and report added, removed or changed fields and files. "
+        "Writes only the snapshot files and meta.schema_finding, never raw. Exit 0 "
+        "nothing changed, 1 drift, 2 could not check.",
+    )
+    schema_watch_parser.add_argument(
+        "--source", help="check only this source (mlb_api, retrosheet, fangraphs, ...)"
+    )
+    schema_watch_parser.add_argument(
+        "--accept",
+        action="store_true",
+        help="after reviewing a drift, save the new shape as the snapshot",
+    )
+    schema_watch_parser.add_argument("--json", action="store_true", help="machine-readable output")
     metrics_parser = subparsers.add_parser("metrics")
     metrics_parser.add_argument("--source", default="mlb_api")
     metrics_parser.add_argument("--window-minutes", type=int, default=5)
@@ -1856,6 +1873,8 @@ def main(argv: list[str] | None = None) -> None:
         )
         if args.fail_on_gap and has_gap:
             sys.exit(1)
+    elif args.command == "schema-watch":
+        sys.exit(schema_watch.run(args.source, accept=args.accept, as_json=args.json))
     elif args.command == "metrics":
         try:
             operational_metrics.print_report(args.source, args.window_minutes)

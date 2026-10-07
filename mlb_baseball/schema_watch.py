@@ -172,3 +172,100 @@ def check(
             store.save(ds.source, ds.name, new)
         findings.append(Finding(ds.source, ds.name, "drift", drift))
     return findings
+
+
+SNAPSHOT_DIR = Path("downloads/schema_snapshots")
+EXIT_OK = 0
+EXIT_DRIFT = 1
+EXIT_UNCHECKED = 2
+
+
+def record(conn, findings: list[Finding]) -> None:
+    """Replace the latest result per dataset in meta.schema_finding. Writes nothing to raw."""
+    with conn.cursor() as cur:
+        for f in findings:
+            cur.execute(
+                """
+                INSERT INTO meta.schema_finding
+                    (source, dataset, status, added, removed, changed, error, checked_at)
+                VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s, now())
+                ON CONFLICT (source, dataset) DO UPDATE SET
+                    status = EXCLUDED.status, added = EXCLUDED.added,
+                    removed = EXCLUDED.removed, changed = EXCLUDED.changed,
+                    error = EXCLUDED.error, checked_at = EXCLUDED.checked_at
+                """,
+                (
+                    f.source,
+                    f.dataset,
+                    f.status,
+                    json.dumps(f.drift.added),
+                    json.dumps(f.drift.removed),
+                    json.dumps({k: list(v) for k, v in f.drift.changed.items()}),
+                    f.error,
+                ),
+            )
+    conn.commit()
+
+
+def exit_code(findings: list[Finding]) -> int:
+    """1 when anything drifted, else 2 when anything could not be checked, else 0."""
+    if any(f.status == "drift" for f in findings):
+        return EXIT_DRIFT
+    if any(f.status == "unchecked" for f in findings):
+        return EXIT_UNCHECKED
+    return EXIT_OK
+
+
+def to_dict(f: Finding) -> dict:
+    return {
+        "source": f.source,
+        "dataset": f.dataset,
+        "status": f.status,
+        "added": f.drift.added,
+        "removed": f.drift.removed,
+        "changed": {k: list(v) for k, v in f.drift.changed.items()},
+        "error": f.error,
+    }
+
+
+def render(findings: list[Finding]) -> str:
+    counts: dict[str, int] = {}
+    for f in findings:
+        counts[f.status] = counts.get(f.status, 0) + 1
+    lines = ["schema-watch: " + ", ".join(f"{n} {s}" for s, n in sorted(counts.items()))]
+    for f in findings:
+        if f.status == "drift":
+            lines.append(f"DRIFT {f.source}/{f.dataset}")
+            lines += [f"  added {k}: {v}" for k, v in sorted(f.drift.added.items())]
+            lines += [f"  removed {k}: {v}" for k, v in sorted(f.drift.removed.items())]
+            lines += [f"  changed {k}: {a} -> {b}" for k, (a, b) in sorted(f.drift.changed.items())]
+        elif f.status == "unchecked":
+            lines.append(f"UNCHECKED {f.source}/{f.dataset}: {f.error}")
+    return "\n".join(lines)
+
+
+def run(
+    source: str | None = None,
+    *,
+    accept: bool = False,
+    as_json: bool = False,
+    store_dir: Path | str = SNAPSHOT_DIR,
+    datasets: list[Dataset] | None = None,
+) -> int:
+    """Sample every dataset (or one source), compare, record, print; return the exit code."""
+    from mlb_baseball.db import get_connection
+
+    if datasets is None:
+        from mlb_baseball.schema_sources import all_datasets
+
+        datasets = all_datasets()
+    if source:
+        datasets = [d for d in datasets if d.source == source]
+    findings = check(datasets, SnapshotStore(store_dir), accept=accept)
+    with get_connection() as conn:
+        record(conn, findings)
+    if as_json:
+        print(json.dumps([to_dict(f) for f in findings], indent=1))
+    else:
+        print(render(findings))
+    return exit_code(findings)

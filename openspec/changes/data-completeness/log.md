@@ -74,3 +74,8 @@ Append only, newest at the bottom. Format in `goal.md`.
 ### 2026-10-07 UTC: false venue gap found and fixed in coverage
 - Found (read-only): `mlb coverage` reported 351 venue ids missing. Joining on the numeric value shows 0 missing: schedule stores some ids as `17.0`, venue table as `17`. A wrong expectation, not missing data. Persons (147) and teams (70) stay missing after normalising, so those are real.
 - Fix: `Referenced` strips a trailing `.0` before comparing; test added (a real fraction such as `4.5` is kept). Task 2.6 venue part closed. Team ids remain: schedule teams 160 (1934-2027), 159, 6234 look like Negro League and future ids; to classify after the re-count.
+
+### 2026-10-07 UTC: task 2.8 run and root cause found
+- Command: `mlb ingest mlb_api --mode bootstrap` on production. Approval: owner, "yes" (named command), plus permission rule added by the owner.
+- Result so far: reference block FAILED again for 2018-2026 with a 404 from `teams/<id>/leaders?leaderCategories=era`. One 404 rolls back the whole season's reference data. That is the cause of the 9-10 missing seasons (not a one-off failure).
+- Fix: a 404 for one team/season/category is an empty answer (PR fix/reference-404, unit tests). Rerun needed after it merges; approval to be asked again.

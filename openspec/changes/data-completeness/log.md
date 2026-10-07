@@ -80,3 +80,7 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Result so far: reference block FAILED again for 2018-2026 with a 404 from `teams/<id>/leaders?leaderCategories=era`. One 404 rolls back the whole season's reference data. That is the cause of the 9-10 missing seasons (not a one-off failure).
 - Fix: a 404 for one team/season/category is an empty answer (PR fix/reference-404, unit tests). Rerun needed after it merges; approval to be asked again.
 ### 2026-10-07 UTC: docs/sources/mlb_api.md updated with today's verified facts (task 1.1, MLB part). Other sources' pages still to do.
+### 2026-10-07 UTC: task 1.2 probe found a real gap (MLB reference seasons)
+- Read-only probe: game pace, coaches, stats and leaders return data for 2006, 2016, 2019, 2024, 2025 and 2026 at the source. We hold 2000-2026 minus 2006, 2017-2023 and 2025 (stats also 2024): 9-10 seasons across 9 tables, all wholesale. Looks like seasons whose reference block failed or never ran (one try/except per season).
+- Change: these tables now have a season expectation (from 2000; free agents 2001) with constants `FIRST_REFERENCE_YEAR`/`FIRST_FREE_AGENT_YEAR` and the evidence. Older years are sparse at the source and unprobed.
+- Repair (needs approval): `mlb ingest mlb_api --mode bootstrap` fills those seasons, and also the 85 linescores through its analytics step. Cost not yet measured: it also reloads the venue, team, person and draft catalogs after the season loop. Narrower alternative for linescores only: `--stage analytics --start-year 2000 --end-year 2024`.

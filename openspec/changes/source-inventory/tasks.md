@@ -17,9 +17,9 @@
 
 ## 3. Self-repair (tests first)
 
-- [ ] 3.1 Write failing tests: only safe-listed repairs run, caps hold, a third failure suspends a repair, a second run changes nothing; verify against a real disposable PostgreSQL
-- [ ] 3.2 Define the safe list and caps in code, with a reason per entry (Statcast days, MLB per-game loads, Kalshi and Polymarket backfills with a per-night cap); verify unsafe gaps are only reported
-- [ ] 3.3 Implement `mlb repair --dry-run/--apply` using coverage gaps and the ledger; verify dry run writes nothing
+- [x] 3.1 Write failing tests: only safe-listed repairs run, caps hold, a third failure suspends a repair, a second run changes nothing; verify against a real disposable PostgreSQL
+- [x] 3.2 Define the safe list and caps in code, with a reason per entry (Statcast days, MLB per-game loads, Kalshi and Polymarket backfills with a per-night cap); verify unsafe gaps are only reported
+- [x] 3.3 Implement `mlb repair --dry-run/--apply` using coverage gaps and the ledger; verify dry run writes nothing
 - [ ] 3.4 Measure one night's real repair cost for Kalshi and Polymarket and set the caps from the measurement; record in the log
 
 ## 4. Namespace and library review

@@ -75,6 +75,7 @@ from mlb_baseball import (
     player,
     progress_table,
     readiness,
+    repair,
     report,
     runs,
     schema_inventory,
@@ -624,6 +625,24 @@ def main(argv: list[str] | None = None) -> None:
     coverage_format = coverage_parser.add_mutually_exclusive_group()
     coverage_format.add_argument("--json", action="store_true", help="machine-readable output")
     coverage_format.add_argument("--markdown", action="store_true", help="markdown output")
+    repair_parser = subparsers.add_parser(
+        "repair",
+        help="close the coverage gaps that are safe to close unattended (a short fixed list "
+        "of idempotent `mlb ingest` commands; one try per table per night; suspended after "
+        "three failures). Default is a dry run that writes nothing.",
+    )
+    repair_mode = repair_parser.add_mutually_exclusive_group()
+    repair_mode.add_argument(
+        "--dry-run", action="store_true", help="show the plan only (this is the default)"
+    )
+    repair_mode.add_argument(
+        "--apply", action="store_true", help="run the planned commands (a production write)"
+    )
+    repair_mode.add_argument(
+        "--reset", metavar="TABLE", help="clear a suspension for raw.<table> after you fixed it"
+    )
+    repair_parser.add_argument("--source", help="only gaps of this source")
+    repair_parser.add_argument("--json", action="store_true", help="machine-readable output")
     schema_watch_parser = subparsers.add_parser(
         "schema-watch",
         help="ask each source what it offers now (one small request per dataset), compare "
@@ -1873,6 +1892,12 @@ def main(argv: list[str] | None = None) -> None:
         )
         if args.fail_on_gap and has_gap:
             sys.exit(1)
+    elif args.command == "repair":
+        sys.exit(
+            repair.run(
+                apply_changes=args.apply, source=args.source, reset=args.reset, as_json=args.json
+            )
+        )
     elif args.command == "schema-watch":
         sys.exit(schema_watch.run(args.source, accept=args.accept, as_json=args.json))
     elif args.command == "metrics":

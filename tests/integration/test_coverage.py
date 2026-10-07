@@ -274,6 +274,17 @@ def test_manifest_files_not_loaded_are_missing(tmp_path, monkeypatch):
     assert row.fix == "mlb ingest retrosheet_box"
 
 
+def test_manifest_missing_file_is_reported_not_silent(tmp_path, monkeypatch):
+    monkeypatch.setattr(manifest, "DOWNLOADS_ROOT", tmp_path)
+    report = coverage.collect(
+        source="retrosheet_box", table="downloads/retrosheet_box/manifest.json"
+    )
+    row = report.tables[0]
+    assert row.status == "inputs_absent"
+    assert "does not exist" in row.expectation
+    assert report.has_gap
+
+
 def test_cli_coverage_runs_through_the_real_parser(seeded, capsys):
     cli.main(["coverage", "--source", "mlb_api", "--table", "mlb_win_prob", "--json"])
     payload = json.loads(capsys.readouterr().out)

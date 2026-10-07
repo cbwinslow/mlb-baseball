@@ -50,7 +50,7 @@ def check_downloads_directory() -> tuple[bool, str]:
     return True, f"{DOWNLOADS_ROOT} writable, {free_gb:.1f}GB free"
 
 
-def _manifest_path(source: str) -> Path:
+def manifest_path(source: str) -> Path:
     return DOWNLOADS_ROOT / source / "manifest.json"
 
 
@@ -59,14 +59,14 @@ def _sha256(data: bytes) -> str:
 
 
 def load_manifest(source: str) -> dict:
-    path = _manifest_path(source)
+    path = manifest_path(source)
     if not path.exists():
         return {}
     return json.loads(path.read_text())
 
 
 def save_manifest(source: str, manifest: dict) -> None:
-    path = _manifest_path(source)
+    path = manifest_path(source)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True))
@@ -100,7 +100,7 @@ def supersede(source: str) -> Path | None:
     for name in present:
         (target / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(source_dir / name), str(target / name))
-    manifest_file = _manifest_path(source)
+    manifest_file = manifest_path(source)
     if manifest_file.exists():
         shutil.move(str(manifest_file), str(target / "manifest.json"))
     return target

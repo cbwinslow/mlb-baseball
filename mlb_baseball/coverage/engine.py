@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 import psycopg
 
+from mlb_baseball import manifest
 from mlb_baseball.coverage.model import Dataset, Group, ManifestFiles, NoExpectation
 from mlb_baseball.coverage.registry import DATASETS
 from mlb_baseball.db import fetch_one, get_connection
@@ -168,6 +169,9 @@ def _measure(cur: psycopg.Cursor, dataset: Dataset, probe: bool = False) -> Tabl
 
     if isinstance(spec, NoExpectation):
         return report("no_expectation", spec.reason, [])
+    if isinstance(spec, ManifestFiles) and not manifest.manifest_path(spec.source).exists():
+        path = manifest.manifest_path(spec.source)
+        return report("inputs_absent", f"{spec.expectation}; {path} does not exist", [])
     absent = [t for t in spec.inputs(dataset.table) if not _exists(cur, t)]
     if dataset.table in absent:
         return report("table_absent", f"{spec.expectation}; the table does not exist", [])

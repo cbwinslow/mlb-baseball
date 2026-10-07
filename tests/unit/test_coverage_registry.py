@@ -100,3 +100,31 @@ def test_late_starting_leaderboards_are_expected_from_their_own_first_year():
     for table, first in statcast_leaderboard.FIRST_SERVED_YEAR.items():
         assert by_table[table].spec.first == first, table
     assert by_table["raw.statcast_sprint_speed"].spec.first == statcast_leaderboard.FIRST_YEAR
+
+
+def test_live_schedule_check_includes_next_season_only_when_published(monkeypatch):
+    from datetime import date
+
+    from mlb_baseball.coverage import live
+
+    next_year = date.today().year + 1
+    published = {"value": 100}
+
+    def fake_total(year, league_ids):
+        return published["value"] if year == next_year else 0 if year > next_year else 50
+
+    class Cur:
+        def execute(self, *args):
+            pass
+
+        def fetchall(self):
+            return []
+
+    monkeypatch.setattr(live.MlbScheduleTotals, "_total", staticmethod(fake_total))
+    monkeypatch.setattr(live, "REQUEST_PAUSE_SECONDS", 0)
+    check = live.MlbScheduleTotals(first=next_year - 1)
+    with_next = check.measure(Cur(), "raw.mlb_schedule")
+    assert [g.label.split()[0] for g in with_next.groups] == [str(next_year - 1), str(next_year)]
+    published["value"] = 0
+    without = check.measure(Cur(), "raw.mlb_schedule")
+    assert [g.label.split()[0] for g in without.groups] == [str(next_year - 1)]

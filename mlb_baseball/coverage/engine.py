@@ -11,7 +11,13 @@ from dataclasses import dataclass, field
 import psycopg
 
 from mlb_baseball import manifest
-from mlb_baseball.coverage.model import Dataset, Group, ManifestFiles, NoExpectation
+from mlb_baseball.coverage.model import (
+    LABEL_SPECS,
+    Dataset,
+    Group,
+    ManifestFiles,
+    NoExpectation,
+)
 from mlb_baseball.coverage.registry import DATASETS
 from mlb_baseball.db import fetch_one, get_connection
 
@@ -142,7 +148,7 @@ def _data_dates(
 def _measure(cur: psycopg.Cursor, dataset: Dataset, probe: bool = False) -> TableReport:
     spec = dataset.spec
     rows: int | None = None
-    if not isinstance(spec, ManifestFiles) and _exists(cur, dataset.table):
+    if not isinstance(spec, LABEL_SPECS) and _exists(cur, dataset.table):
         cur.execute(f"SELECT count(*) FROM {dataset.table}")
         (rows,) = fetch_one(cur)
 

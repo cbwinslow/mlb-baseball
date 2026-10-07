@@ -92,7 +92,8 @@ Do not expand endpoint coverage mechanically. Every new family needs a data/rese
 
 - Current-season schedule/standings/roster/transactions/draft are refreshed with scoped-replace/idempotent behavior.
 - Started/finished current games refresh game-scoped details so in-progress facts can grow safely across polls.
-- Each update also repairs up to `REPAIR_BATCH_UPDATE` (20) finished current-season games that lack play-by-play or a box score, newest first, so a missed day heals itself. `mlb ingest mlb_api --mode backfill` repairs all of them. A game the source never serves would be retried each update; `mlb coverage --source mlb_api` shows any that stay missing.
+- Each update also loads next season's schedule once MLB publishes it (it served 2027 in October 2026), at most once a day (`NEXT_SCHEDULE_REFRESH`), so future games are in `raw.mlb_schedule` before they are played.
+- Each update also repairs up to `REPAIR_BATCH_UPDATE` (20) finished (Final or Completed Early) current-season games that lack play-by-play or a box score, newest first, so a missed day heals itself. `mlb ingest mlb_api --mode backfill` repairs all of them. A game the source never serves would be retried each update; `mlb coverage --source mlb_api` shows any that stay missing.
 - Live game state is append-only snapshots.
 - Venue/team-history/person reference data is intentionally not refreshed every short-interval update; bootstrap owns the heavier refresh cadence.
 - Real-time freshness depends on actually scheduling `update()` repeatedly; connector code alone is not a daemon.

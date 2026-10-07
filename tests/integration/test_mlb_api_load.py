@@ -661,6 +661,45 @@ def test_backfill_repairs_finished_games_with_no_detail_and_is_repeatable(db_con
         assert cur.fetchone()[0] == 0
 
 
+def test_next_season_schedule_is_loaded_once_published_and_refreshed_at_most_daily(db_conn):
+    published = {2027: [_game(9001, 2027, "Scheduled"), _game(9002, 2027, "Scheduled")]}
+    with patch.object(
+        mlb_api.statsapi,
+        "schedule",
+        side_effect=lambda **kwargs: published.get(kwargs.get("season"), []),
+    ) as schedule:
+        assert mlb_api._load_next_schedule(db_conn, 2026) == 2
+        db_conn.commit()
+        assert mlb_api._load_next_schedule(db_conn, 2026) == 0  # refreshed just now
+        assert schedule.call_count == 1
+        with db_conn.cursor() as cur:
+            cur.execute("UPDATE raw.mlb_schedule SET _loaded_at = now() - interval '2 days'")
+        db_conn.commit()
+        assert mlb_api._load_next_schedule(db_conn, 2026) == 2
+        assert schedule.call_count == 2
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM raw.mlb_schedule WHERE _season = '2027'")
+        assert cur.fetchone()[0] == 2
+
+
+def test_next_season_not_yet_published_loads_nothing(db_conn):
+    with patch.object(mlb_api.statsapi, "schedule", return_value=[]):
+        assert mlb_api._load_next_schedule(db_conn, 2026) == 0
+
+
+def test_repair_includes_completed_early_games(db_conn):
+    with patch.object(
+        mlb_api.statsapi,
+        "schedule",
+        side_effect=lambda **kwargs: (
+            [_game(9101, 2026, "Completed Early")] if kwargs.get("season") == 2026 else []
+        ),
+    ):
+        mlb_api._load_schedule(db_conn, 2026)
+        db_conn.commit()
+    assert mlb_api._final_games_missing_detail(db_conn, 2026, 20) == [9101]
+
+
 def test_repair_on_an_empty_database_finds_nothing(db_conn):
     assert mlb_api._final_games_missing_detail(db_conn, 2026, 20) == []
 

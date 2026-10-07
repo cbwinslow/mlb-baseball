@@ -1,0 +1,623 @@
+# Raw table inventory
+
+Generated 2026-10-07 from the production `raw` schema (column names and types as stored; row counts are planner estimates, exact counts come from `mlb coverage`). One section per source; what each source offers and why a table is or is not held is in the source page. Regenerate with the query in `openspec/changes/source-inventory/` task 2.x once `mlb schema-watch` exists.
+
+## Baseball-Reference (`bref`)
+
+### `raw.bref_batting` (about 13,392 rows)
+
+name text, age text, _days text, lev text, tm text, g text, pa text, ab text, r text, h text, n2b text, n3b text, hr text, rbi text, bb text, ibb text, so text, hbp text, sh text, sf text, gdp text, sb text, cs text, ba text, obp text, slg text, ops text, mlbid text, _season text, _loaded_at timestamp with time zone
+
+### `raw.bref_pitching` (about 14,481 rows)
+
+name text, age text, _days text, lev text, tm text, g text, gs text, w text, l text, sv text, ip text, h text, r text, er text, bb text, so text, hr text, hbp text, era text, ab text, n2b text, n3b text, ibb text, gdp text, sf text, sb text, cs text, po text, bf text, pit text, str text, stl text, sts text, gb_fb text, ld text, pu text, whip text, babip text, so9 text, so_w text, mlbid text, _season text, _loaded_at timestamp with time zone
+
+### `raw.bref_war_batting` (about 126,547 rows)
+
+name_common text, mlb_id text, player_id text, year_id text, team_id text, stint_id text, lg_id text, pitcher text, g text, pa text, salary text, runs_above_avg text, runs_above_avg_off text, runs_above_avg_def text, war_rep text, waa text, war text, _loaded_at timestamp with time zone
+
+### `raw.bref_war_pitching` (about 57,884 rows)
+
+name_common text, mlb_id text, player_id text, year_id text, team_id text, stint_id text, lg_id text, g text, gs text, ra text, xra text, bip text, bip_perc text, salary text, era_plus text, war_rep text, waa text, waa_adj text, war text, _loaded_at timestamp with time zone
+
+## FanGraphs (`fangraphs`)
+
+### `raw.fangraphs_batting` (about 109,470 rows)
+
+bats text, xmlbamid text, name text, team text, season text, age text, ager text, seasonmin text, seasonmax text, g text, ab text, pa text, h text, n1b text, n2b text, n3b text, hr text, r text, rbi text, bb text, ibb text, so text, hbp text, sf text, sh text, gdp text, sb text, cs text, avg text, gb text, fb text, ld text, iffb text, pitches text, balls text, strikes text, ifh text, bu text, buh text, bb_ text, k_ text, bb_k text, obp text, slg text, ops text, iso text, babip text, gb_fb text, ld_ text, gb_ text, fb_ text, iffb_ text, hr_fb text, ifh_ text, buh_ text, tto_ text, woba text, wraa text, wrc text, batting text, fielding text, replacement text, positional text, wleague text, cframing text, defense text, offense text, rar text, war text, warold text, dollars text, baserunning text, spd text, wrc_ text, wbsr text, wpa text, wpa_neg text, wpa_pos text, re24 text, rew text, pli text, phli text, ph text, wpa_li text, clutch text, fb_1 text, fbv text, sl_ text, slv text, ct_ text, ctv text, cb_ text, cbv text, ch_ text, chv text, sf_ text, sfv text, kn_ text, knv text, xx_ text, po_ text, wfb text, wsl text, wct text, wcb text, wch text, wsf text, wkn text, wfb_c text, wsl_c text, wct_c text, wcb_c text, wch_c text, wsf_c text, wkn_c text, o_swing_ text, z_swing_ text, swing_ text, o_contact_ text, z_contact_ text, contact_ text, zone_ text, f_strike_ text, swstr_ text, cstr_ text, c_swstr_ text, pull text, cent text, oppo text, soft text, med text, hard text, bipcount text, pull_ text, cent_ text, oppo_ text, soft_ text, med_ text, hard_ text, ubr text, gdpruns text, avg_ text, bb__ text, k__ text, obp_ text, slg_ text, iso_ text, babip_ text, ld__ text, gb__ text, fb__ text, hrfb__ text, pull__ text, cent__ text, oppo__ text, soft__ text, med__ text, hard__ text, xwoba text, xavg text, xslg text, xbr text, pptv text, cptv text, bptv text, dsv text, dgv text, btv text, rpptv text, rcptv text, rbptv text, rdsv text, rdgv text, rbtv text, ebv text, esv text, rfteamv text, rbteamv text, rtv text, breview text, boverturned text, bcorrect_ text, wbreview text, preview text, poverturned text, pcorrect_ text, wpreview text, creview text, coverturned text, ccorrect_ text, wcreview text, ascreview text, ascoverturned text, asccorrect_ text, wascreview text, pfxfa_ text, pfxft_ text, pfxfc_ text, pfxfs_ text, pfxfo_ text, pfxsi_ text, pfxsl_ text, pfxcu_ text, pfxkc_ text, pfxep_ text, pfxch_ text, pfxsc_ text, pfxkn_ text, pfxun_ text, pfxslo_ text, pfxst_ text, pfxcuo_ text, pfxcv_ text, pfxvfa text, pfxvft text, pfxvfc text, pfxvfs text, pfxvfo text, pfxvsi text, pfxvsl text, pfxvcu text, pfxvkc text, pfxvep text, pfxvch text, pfxvsc text, pfxvkn text, pfxvslo text, pfxvst text, pfxvcuo text, pfxvcv text, pfxfa_x text, pfxft_x text, pfxfc_x text, pfxfs_x text, pfxfo_x text, pfxsi_x text, pfxsl_x text, pfxcu_x text, pfxkc_x text, pfxep_x text, pfxch_x text, pfxsc_x text, pfxkn_x text, pfxslo_x text, pfxst_x text, pfxcuo_x text, pfxcv_x text, pfxfa_z text, pfxft_z text, pfxfc_z text, pfxfs_z text, pfxfo_z text, pfxsi_z text, pfxsl_z text, pfxcu_z text, pfxkc_z text, pfxep_z text, pfxch_z text, pfxsc_z text, pfxkn_z text, pfxslo_z text, pfxst_z text, pfxcuo_z text, pfxcv_z text, pfxwfa text, pfxwft text, pfxwfc text, pfxwfs text, pfxwfo text, pfxwsi text, pfxwsl text, pfxwcu text, pfxwkc text, pfxwep text, pfxwch text, pfxwsc text, pfxwkn text, pfxwslo text, pfxwst text, pfxwcuo text, pfxwcv text, pfxwfa_c text, pfxwft_c text, pfxwfc_c text, pfxwfs_c text, pfxwfo_c text, pfxwsi_c text, pfxwsl_c text, pfxwcu_c text, pfxwkc_c text, pfxwep_c text, pfxwch_c text, pfxwsc_c text, pfxwkn_c text, pfxwslo_c text, pfxwst_c text, pfxwcuo_c text, pfxwcv_c text, pfxaafa text, pfxaaft text, pfxaafc text, pfxaafs text, pfxaafo text, pfxaasi text, pfxaasl text, pfxaacu text, pfxaakc text, pfxaaep text, pfxaach text, pfxaasc text, pfxaakn text, pfxaaslo text, pfxaast text, pfxaacuo text, pfxaacv text, pfxspfa text, pfxspft text, pfxspfc text, pfxspfs text, pfxspfo text, pfxspsi text, pfxspsl text, pfxspcu text, pfxspkc text, pfxspep text, pfxspch text, pfxspsc text, pfxspkn text, pfxspslo text, pfxspst text, pfxspcuo text, pfxspcv text, pfxo_swing_ text, pfxz_swing_ text, pfxswing_ text, pfxo_contact_ text, pfxz_contact_ text, pfxcontact_ text, pfxzone_ text, pfxpace text, avgbatspeed text, fastswing_ text, swinglength text, squaredupcontact_ text, squaredupswing_ text, blastcontact_ text, blastswing_ text, swords text, competitiveswings text, tilt text, attackangle text, attackdirection text, idealattackangle_ text, depthinbox text, distanceoffplate text, sch_swing_ text, sch_contact_ text, sch_zone_ text, scs_swing_ text, scs_contact_ text, scs_zone_ text, scc_swing_ text, scc_contact_ text, scc_zone_ text, scw_swing_ text, scw_contact_ text, scw_zone_ text, scsi_swing_ text, scsi_contact_ text, scsi_zone_ text, scso_swing_ text, scso_contact_ text, scso_zone_ text, sco_swing_ text, sco_contact_ text, sco_zone_ text, scz_swing_ text, scz_contact_ text, scz_zone_ text, pich_ text, pics_ text, picu_ text, pifa_ text, pifc_ text, pifs_ text, pikn_ text, pisb_ text, pisi_ text, pisl_ text, pixx_ text, pivch text, pivcs text, pivcu text, pivfa text, pivfc text, pivfs text, pivkn text, pivsb text, pivsi text, pivsl text, pivxx text, pich_x text, pics_x text, picu_x text, pifa_x text, pifc_x text, pifs_x text, pikn_x text, pisb_x text, pisi_x text, pisl_x text, pixx_x text, pich_z text, pics_z text, picu_z text, pifa_z text, pifc_z text, pifs_z text, pikn_z text, pisb_z text, pisi_z text, pisl_z text, pixx_z text, piwch text, piwcs text, piwcu text, piwfa text, piwfc text, piwfs text, piwkn text, piwsb text, piwsi text, piwsl text, piwxx text, piwch_c text, piwcs_c text, piwcu_c text, piwfa_c text, piwfc_c text, piwfs_c text, piwkn_c text, piwsb_c text, piwsi_c text, piwsl_c text, piwxx_c text, pio_swing_ text, piz_swing_ text, piswing_ text, pio_contact_ text, piz_contact_ text, picontact_ text, pizone_ text, pipace text, events text, ev text, la text, barrels text, barrel_ text, maxev text, hardhit text, hardhit_ text, q text, tg text, tpa text, playernameroute text, playername text, positiondb text, position text, playerid text, teamname text, teamnameabb text, teamid text, playerteamid text, pos text, ev90 text, _season text, _loaded_at timestamp with time zone
+
+### `raw.fangraphs_fielding` (about 181,015 rows)
+
+name text, team text, season text, seasonmin text, seasonmax text, pos text, position text, g text, gs text, inn text, po text, a text, e text, fe text, te text, dp text, dps text, dpt text, dpf text, scp text, sb text, cs text, pb text, wp text, fp text, tz text, rsb text, rgdp text, rarm text, rgfp text, rpm text, rsz text, rts text, rcera text, drs text, biz text, plays text, rzr text, ooz text, tzl text, fsr text, cpp text, rpp text, arm text, dpr text, rngr text, errr text, uzr text, uzr_150 text, defense text, made0 text, prob0 text, made10 text, prob10 text, made40 text, prob40 text, made60 text, prob60 text, made90 text, prob90 text, made100 text, prob100 text, cstrikes text, cframing text, oaa text, rfrp text, afrp text, dfrp text, cfrp text, bfrp text, tfrp text, ffrp text, frp text, q text, tinn text, playername text, playernameroute text, positiondb text, playerid text, xmlbamid text, teamid text, teamname text, teamnameabb text, playerteamid text, _season text, _loaded_at timestamp with time zone
+
+### `raw.fangraphs_guts` (about 156 rows)
+
+season text, woba text, wobascale text, wbb text, whbp text, w1b text, w2b text, w3b text, whr text, runsb text, runcs text, r_pa text, r_w text, cfip text, _loaded_at timestamp with time zone
+
+### `raw.fangraphs_park_factors` (about 2,957 rows)
+
+season text, team text, basic__5yr_ text, n3yr text, n1yr text, n1b text, n2b text, n3b text, hr text, so text, bb text, gb text, fb text, ld text, iffb text, fip text, _season text, _loaded_at timestamp with time zone
+
+### `raw.fangraphs_park_factors_handedness` (about 750 rows)
+
+season text, team text, n1b_as_l text, n1b_as_r text, n2b_as_l text, n2b_as_r text, n3b_as_l text, n3b_as_r text, hr_as_l text, hr_as_r text, _season text, _loaded_at timestamp with time zone
+
+### `raw.fangraphs_pitching` (about 53,002 rows)
+
+throws text, xmlbamid text, name text, team text, season text, age text, ager text, seasonmin text, seasonmax text, w text, l text, era text, g text, gs text, qs text, cg text, sho text, sv text, bs text, ip text, tbf text, h text, r text, er text, hr text, bb text, ibb text, hbp text, wp text, bk text, so text, gb text, fb text, ld text, iffb text, pitches text, balls text, strikes text, rs text, ifh text, bu text, buh text, k_9 text, bb_9 text, k_bb text, h_9 text, hr_9 text, avg text, whip text, babip text, lob_ text, fip text, gb_fb text, ld_ text, gb_ text, fb_ text, iffb_ text, hr_fb text, ifh_ text, buh_ text, tto_ text, cframing text, starting text, start_ip text, relieving text, relief_ip text, rar text, war text, dollars text, ra9_wins text, lob_wins text, bip_wins text, bs_wins text, tera text, xfip text, wpa text, wpa_neg text, wpa_pos text, re24 text, rew text, pli text, inli text, gmli text, exli text, pulls text, games text, wpa_li text, clutch text, fb_1 text, fbv text, sl_ text, slv text, ct_ text, ctv text, cb_ text, cbv text, ch_ text, chv text, sf_ text, sfv text, kn_ text, knv text, xx_ text, po_ text, wfb text, wsl text, wct text, wcb text, wch text, wsf text, wkn text, wfb_c text, wsl_c text, wct_c text, wcb_c text, wch_c text, wsf_c text, wkn_c text, o_swing_ text, z_swing_ text, swing_ text, o_contact_ text, z_contact_ text, contact_ text, zone_ text, f_strike_ text, swstr_ text, cstr_ text, c_swstr_ text, hld text, sd text, md text, era_ text, fip_ text, xfip_ text, k_ text, bb_ text, k_minus_bb_pct text, siera text, kwera text, rs_9 text, e_f text, pull text, cent text, oppo text, soft text, med text, hard text, bipcount text, pull_ text, cent_ text, oppo_ text, soft_ text, med_ text, hard_ text, k_9_ text, bb_9_ text, k_per_bb_plus text, h_9_ text, hr_9_ text, avg_ text, whip_ text, babip_ text, lob__ text, k__ text, bb__ text, ld__ text, gb__ text, fb__ text, hrfb__ text, pull__ text, cent__ text, oppo__ text, soft__ text, med__ text, hard__ text, xera text, pb_o_ch text, pb_s_ch text, pb_c_ch text, pb_o_cu text, pb_s_cu text, pb_c_cu text, pb_o_ff text, pb_s_ff text, pb_c_ff text, pb_o_si text, pb_s_si text, pb_c_si text, pb_o_sl text, pb_s_sl text, pb_c_sl text, pb_o_kc text, pb_s_kc text, pb_c_kc text, pb_o_fc text, pb_s_fc text, pb_c_fc text, pb_o_fs text, pb_s_fs text, pb_c_fs text, pb_overall text, pb_stuff text, pb_command text, pb_xrv100 text, pb_era text, sp_s_ch text, sp_l_ch text, sp_p_ch text, sp_s_cu text, sp_l_cu text, sp_p_cu text, sp_s_ff text, sp_l_ff text, sp_p_ff text, sp_s_si text, sp_l_si text, sp_p_si text, sp_s_sl text, sp_l_sl text, sp_p_sl text, sp_s_kc text, sp_l_kc text, sp_p_kc text, sp_s_fc text, sp_l_fc text, sp_p_fc text, sp_s_fs text, sp_l_fs text, sp_p_fs text, sp_s_fo text, sp_l_fo text, sp_p_fo text, sp_stuff text, sp_location text, sp_pitching text, pptv text, cptv text, bptv text, dsv text, dgv text, btv text, rpptv text, rcptv text, rbptv text, rdsv text, rdgv text, rbtv text, ebv text, esv text, rfteamv text, rbteamv text, rtv text, breview text, boverturned text, bcorrect_ text, wbreview text, preview text, poverturned text, pcorrect_ text, wpreview text, creview text, coverturned text, ccorrect_ text, wcreview text, pfxfa_ text, pfxft_ text, pfxfc_ text, pfxfs_ text, pfxfo_ text, pfxsi_ text, pfxsl_ text, pfxcu_ text, pfxkc_ text, pfxep_ text, pfxch_ text, pfxsc_ text, pfxkn_ text, pfxun_ text, pfxslo_ text, pfxst_ text, pfxcuo_ text, pfxcv_ text, pfxvfa text, pfxvft text, pfxvfc text, pfxvfs text, pfxvfo text, pfxvsi text, pfxvsl text, pfxvcu text, pfxvkc text, pfxvep text, pfxvch text, pfxvsc text, pfxvkn text, pfxvslo text, pfxvst text, pfxvcuo text, pfxvcv text, pfxfa_x text, pfxft_x text, pfxfc_x text, pfxfs_x text, pfxfo_x text, pfxsi_x text, pfxsl_x text, pfxcu_x text, pfxkc_x text, pfxep_x text, pfxch_x text, pfxsc_x text, pfxkn_x text, pfxslo_x text, pfxst_x text, pfxcuo_x text, pfxcv_x text, pfxfa_z text, pfxft_z text, pfxfc_z text, pfxfs_z text, pfxfo_z text, pfxsi_z text, pfxsl_z text, pfxcu_z text, pfxkc_z text, pfxep_z text, pfxch_z text, pfxsc_z text, pfxkn_z text, pfxslo_z text, pfxst_z text, pfxcuo_z text, pfxcv_z text, pfxwfa text, pfxwft text, pfxwfc text, pfxwfs text, pfxwfo text, pfxwsi text, pfxwsl text, pfxwcu text, pfxwkc text, pfxwep text, pfxwch text, pfxwsc text, pfxwkn text, pfxwslo text, pfxwst text, pfxwcuo text, pfxwcv text, pfxwfa_c text, pfxwft_c text, pfxwfc_c text, pfxwfs_c text, pfxwfo_c text, pfxwsi_c text, pfxwsl_c text, pfxwcu_c text, pfxwkc_c text, pfxwep_c text, pfxwch_c text, pfxwsc_c text, pfxwkn_c text, pfxwslo_c text, pfxwst_c text, pfxwcuo_c text, pfxwcv_c text, pfxaafa text, pfxaaft text, pfxaafc text, pfxaafs text, pfxaafo text, pfxaasi text, pfxaasl text, pfxaacu text, pfxaakc text, pfxaaep text, pfxaach text, pfxaasc text, pfxaakn text, pfxaaslo text, pfxaast text, pfxaacuo text, pfxaacv text, pfxspfa text, pfxspft text, pfxspfc text, pfxspfs text, pfxspfo text, pfxspsi text, pfxspsl text, pfxspcu text, pfxspkc text, pfxspep text, pfxspch text, pfxspsc text, pfxspkn text, pfxspslo text, pfxspst text, pfxspcuo text, pfxspcv text, pfxo_swing_ text, pfxz_swing_ text, pfxswing_ text, pfxo_contact_ text, pfxz_contact_ text, pfxcontact_ text, pfxzone_ text, pfxpace text, avgbatspeed text, fastswing_ text, swinglength text, squaredupcontact_ text, squaredupswing_ text, blastcontact_ text, blastswing_ text, swords text, competitiveswings text, tilt text, attackangle text, attackdirection text, idealattackangle_ text, depthinbox text, distanceoffplate text, sch_swing_ text, sch_contact_ text, sch_zone_ text, scs_swing_ text, scs_contact_ text, scs_zone_ text, scc_swing_ text, scc_contact_ text, scc_zone_ text, scw_swing_ text, scw_contact_ text, scw_zone_ text, scsi_swing_ text, scsi_contact_ text, scsi_zone_ text, scso_swing_ text, scso_contact_ text, scso_zone_ text, sco_swing_ text, sco_contact_ text, sco_zone_ text, scz_swing_ text, scz_contact_ text, scz_zone_ text, pich_ text, pics_ text, picu_ text, pifa_ text, pifc_ text, pifs_ text, pikn_ text, pisb_ text, pisi_ text, pisl_ text, pixx_ text, pivch text, pivcs text, pivcu text, pivfa text, pivfc text, pivfs text, pivkn text, pivsb text, pivsi text, pivsl text, pivxx text, pich_x text, pics_x text, picu_x text, pifa_x text, pifc_x text, pifs_x text, pikn_x text, pisb_x text, pisi_x text, pisl_x text, pixx_x text, pich_z text, pics_z text, picu_z text, pifa_z text, pifc_z text, pifs_z text, pikn_z text, pisb_z text, pisi_z text, pisl_z text, pixx_z text, piwch text, piwcs text, piwcu text, piwfa text, piwfc text, piwfs text, piwkn text, piwsb text, piwsi text, piwsl text, piwxx text, piwch_c text, piwcs_c text, piwcu_c text, piwfa_c text, piwfc_c text, piwfs_c text, piwkn_c text, piwsb_c text, piwsi_c text, piwsl_c text, piwxx_c text, pio_swing_ text, piz_swing_ text, piswing_ text, pio_contact_ text, piz_contact_ text, picontact_ text, pizone_ text, pipace text, events text, ev text, la text, barrels text, barrel_ text, maxev text, hardhit text, hardhit_ text, q text, tg text, tip text, playernameroute text, playername text, positiondb text, position text, teamname text, teamnameabb text, teamid text, playerteamid text, playerid text, ev90 text, _season text, _loaded_at timestamp with time zone
+
+### `raw.fangraphs_projection` (about 467,920 rows)
+
+team text, shortname text, g text, ab text, pa text, h text, n1b text, n2b text, n3b text, hr text, r text, rbi text, bb text, ibb text, so text, hbp text, sf text, sh text, gdp text, sb text, cs text, avg text, obp text, slg text, ops text, woba text, bb_ text, k_ text, bb_k text, iso text, spd text, babip text, ubr text, gdpruns text, wrc text, wraa text, uzr text, wbsr text, baserunning text, war text, off text, def text, wrc_ text, fpts text, fpts_g text, spts text, spts_g text, woba_sd text, truetalent_sd text, woba_sd_book text, woba_se text, total_se text, q10 text, q20 text, q30 text, q40 text, q50 text, q60 text, q70 text, q80 text, q90 text, tt_q10 text, tt_q20 text, tt_q30 text, tt_q40 text, tt_q50 text, tt_q60 text, tt_q70 text, tt_q80 text, tt_q90 text, adp text, pos text, minpos text, upurl text, positiondb text, teamid text, playerteamid text, league text, playername text, xmlbamid text, playerids text, playerid text, _projection_system text, _stat_group text, _horizon text, _captured_date text, _row_hash text, _loaded_at timestamp with time zone, w text, l text, gs text, sv text, hld text, bs text, ip text, tbf text, er text, era text, whip text, k_9 text, bb_9 text, k_bb text, hr_9 text, k_minus_bb_pct text, gb_ text, lob_ text, fip text, fpts_ip text, spts_ip text, ra9_war text, qs text, ra_talent_sd text, chance_ra_se text, total_ra_se text, intersd text, intersk text, intrasd text, vol text, skew text, dim text
+
+### `raw.fangraphs_prospects` (about 19,153 rows)
+
+llevel text, mlevel text, minormasterid text, playername text, playernameroute text, upurl text, upid text, positiondb text, playerteamid text, rpm text, crisk text, ceta text, cfv text, cweight text, cheight text, covr text, corg text, ctrend text, cdraftschool text, hit text, game text, raw text, spd text, fld text, fb text, sl text, cb text, ch text, spl text, ct text, cmd text, cseason text, playerpagesortorder text, ccollegecommit text, id text, firstname text, lastname text, position text, age text, team text, season text, type text, playerid text, ovr_rank text, org_rank text, fv_current text, eta_current text, height text, weight text, bats text, throws text, school text, summary text, youtube text, phit text, fhit text, pgame text, fgame text, praw text, fraw text, pspd text, fspd text, pfld text, ffld text, parm text, variance text, birthdate text, tldr text, athleticism text, frame text, performer text, ovr_summary text, dist_raw text, player_type text, signed_yr text, signed_mkt text, signed_org text, draft_rnd text, sign_bonus text, school_type text, hs_state text, college_commit text, country text, pitch_sel text, bat_ctrl text, fantasy_redraft text, fantasy_dynasty text, fypd_eligible text, levers text, options text, servicetime text, amateur_rk text, trend text, vel text, arm text, pfb text, ffb text, psl text, fsl text, pch text, fch text, pspl text, fspl text, pct text, fct text, pcmd text, fcmd text, range text, touch text, fbtype text, isvisible text, pcb text, fcb text, brpm text, frpm text, delivery text, agent text, tjdate text, bonus_class_rk text, pos_rk text, _season text, _loaded_at timestamp with time zone, crank text, rowid text, draftrank text, projteam text, risk_current text, draft text, collegecommit text, farm text, avg_ev text, max_ev text, birth_yr_rk text, class_rk text, hardhit_ text, versatility text, contact_style text
+
+### `raw.fangraphs_split_batting` (about 167,929 rows)
+
+season text, playername text, playerid text, teamnameabb text, pa text, avg text, bb_ text, k_ text, bb_k text, obp text, slg text, ops text, iso text, babip text, wrc text, wraa text, woba text, wrc_ text, _season text, _split text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.fangraphs_split_pitching` (about 135,000 rows)
+
+season text, playername text, playerid text, teamnameabb text, ip text, tbf text, avg text, k_9 text, bb_9 text, k_bb text, hr_9 text, k_ text, bb_ text, k_minus_bb_pct text, whip text, babip text, lob_ text, xfip text, fip text, _season text, _split text, _scope text, _loaded_at timestamp with time zone
+
+## Kalshi (`kalshi`)
+
+### `raw.kalshi_candle` (about 202,288,448 rows)
+
+ticker text, ts text, open_interest text, volume text, _loaded_at timestamp with time zone, yes_bid_close_dollars text, yes_bid_high_dollars text, yes_bid_low_dollars text, yes_bid_open_dollars text, yes_ask_close_dollars text, yes_ask_high_dollars text, yes_ask_low_dollars text, yes_ask_open_dollars text, price_close_dollars text, price_high_dollars text, price_low_dollars text, price_mean_dollars text, price_open_dollars text, price_previous_dollars text, price_close text, price_high text, price_low text, price_mean text, price_open text, price_previous text, yes_bid_close text, yes_bid_high text, yes_bid_low text, yes_bid_open text, yes_ask_close text, yes_ask_high text, yes_ask_low text, yes_ask_open text
+
+### `raw.kalshi_event` (about 54,459 rows)
+
+available_on_brokers text, category text, collateral_return_type text, event_ticker text, exchange_index text, last_updated_ts text, mutually_exclusive text, product_metadata text, series_ticker text, settlement_sources text, strike_period text, sub_title text, title text, _loaded_at timestamp with time zone, fee_multiplier_override text, fee_type_override text
+
+### `raw.kalshi_market` (about 891,190 rows)
+
+can_close_early text, close_time text, created_time text, custom_strike text, early_close_condition text, event_ticker text, exchange_index text, expected_expiration_time text, expiration_time text, expiration_value text, last_price_dollars text, latest_expiration_time text, liquidity_dollars text, market_type text, no_ask_dollars text, no_bid_dollars text, no_sub_title text, notional_value_dollars text, open_interest_fp text, open_time text, previous_price_dollars text, previous_yes_ask_dollars text, previous_yes_bid_dollars text, price_level_structure text, price_ranges text, result text, rules_primary text, rules_secondary text, settlement_timer_seconds text, status text, strike_type text, ticker text, title text, updated_time text, volume_24h_fp text, volume_fp text, yes_ask_dollars text, yes_ask_size_fp text, yes_bid_dollars text, yes_bid_size_fp text, yes_sub_title text, occurrence_datetime text, settlement_ts text, settlement_value_dollars text, floor_strike text, subtitle text, primary_participant_key text, _loaded_at timestamp with time zone, cap_strike text, settlement_bounds_type text
+
+### `raw.kalshi_series` (about 187 rows)
+
+additional_prohibitions text, category text, contract_terms_url text, contract_url text, fee_multiplier text, fee_type text, frequency text, last_updated_ts text, settlement_sources text, tags text, ticker text, title text, _loaded_at timestamp with time zone, exchange_index text, categories text
+
+### `raw.kalshi_snapshot` (about 1,051,653 rows)
+
+ticker text, event_ticker text, status text, yes_bid_dollars text, yes_ask_dollars text, last_price_dollars text, volume_fp text, open_interest_fp text, captured_at text, _loaded_at timestamp with time zone
+
+## Lahman (`lahman`)
+
+### `raw.lahman_allstar_full` (about 6,425 rows)
+
+playerid text, yearid text, gamenum text, gameid text, teamid text, lgid text, gp text, startingpos text, _loaded_at timestamp with time zone
+
+### `raw.lahman_appearances` (about 128,512 rows)
+
+yearid text, teamid text, lgid text, playerid text, g_all text, gs text, g_batting text, g_defense text, g_p text, g_c text, g_1b text, g_2b text, g_3b text, g_ss text, g_lf text, g_cf text, g_rf text, g_of text, g_dh text, g_ph text, g_pr text, _loaded_at timestamp with time zone
+
+### `raw.lahman_awards_managers` (about 232 rows)
+
+playerid text, awardid text, yearid text, lgid text, tie text, notes text, _loaded_at timestamp with time zone
+
+### `raw.lahman_awards_players` (about 12,667 rows)
+
+playerid text, awardid text, yearid text, lgid text, tie text, notes text, _loaded_at timestamp with time zone
+
+### `raw.lahman_awards_share_managers` (about 539 rows)
+
+awardid text, yearid text, lgid text, playerid text, pointswon text, pointsmax text, votesfirst text, _loaded_at timestamp with time zone
+
+### `raw.lahman_awards_share_players` (about 7,613 rows)
+
+awardid text, yearid text, lgid text, playerid text, pointswon text, pointsmax text, votesfirst text, _loaded_at timestamp with time zone
+
+### `raw.lahman_batting` (about 128,598 rows)
+
+playerid text, yearid text, stint text, teamid text, lgid text, g text, ab text, r text, h text, n2b text, n3b text, hr text, rbi text, sb text, cs text, bb text, so text, ibb text, hbp text, sh text, sf text, gidp text, _loaded_at timestamp with time zone
+
+### `raw.lahman_batting_post` (about 18,687 rows)
+
+yearid text, round text, playerid text, teamid text, lgid text, g text, ab text, r text, h text, n2b text, n3b text, hr text, rbi text, sb text, cs text, bb text, so text, ibb text, hbp text, sh text, sf text, gidp text, _loaded_at timestamp with time zone
+
+### `raw.lahman_college_playing` (about 17,687 rows)
+
+playerid text, schoolid text, yearid text, _loaded_at timestamp with time zone
+
+### `raw.lahman_fielding` (about 174,332 rows)
+
+playerid text, yearid text, stint text, teamid text, lgid text, pos text, g text, gs text, innouts text, po text, a text, e text, dp text, pb text, wp text, sb text, cs text, zr text, _loaded_at timestamp with time zone
+
+### `raw.lahman_fielding_of` (about 12,028 rows)
+
+playerid text, yearid text, stint text, glf text, gcf text, grf text, _loaded_at timestamp with time zone
+
+### `raw.lahman_fielding_of_split` (about 45,147 rows)
+
+playerid text, yearid text, stint text, teamid text, lgid text, pos text, g text, gs text, innouts text, po text, a text, e text, dp text, pb text, wp text, sb text, cs text, zr text, _loaded_at timestamp with time zone
+
+### `raw.lahman_fielding_post` (about 17,934 rows)
+
+playerid text, yearid text, teamid text, lgid text, round text, pos text, g text, gs text, innouts text, po text, a text, e text, dp text, tp text, pb text, sb text, cs text, _loaded_at timestamp with time zone
+
+### `raw.lahman_hall_of_fame` (about 6,426 rows)
+
+playerid text, yearid text, votedby text, ballots text, needed text, votes text, inducted text, category text, needed_note text, _loaded_at timestamp with time zone
+
+### `raw.lahman_home_games` (about 3,303 rows)
+
+yearkey text, leaguekey text, teamkey text, parkkey text, spanfirst text, spanlast text, games text, openings text, attendance text, _loaded_at timestamp with time zone
+
+### `raw.lahman_managers` (about 4,410 rows)
+
+playerid text, yearid text, teamid text, lgid text, inseason text, g text, w text, l text, rank text, plyrmgr text, _loaded_at timestamp with time zone
+
+### `raw.lahman_managers_half` (about 93 rows)
+
+playerid text, yearid text, teamid text, lgid text, inseason text, half text, g text, w text, l text, rank text, _loaded_at timestamp with time zone
+
+### `raw.lahman_parks` (about 345 rows)
+
+id text, parkalias text, parkkey text, parkname text, city text, state text, country text, _loaded_at timestamp with time zone
+
+### `raw.lahman_people` (about 24,270 rows)
+
+id text, playerid text, birthyear text, birthmonth text, birthday text, birthcity text, birthcountry text, birthstate text, deathyear text, deathmonth text, deathday text, deathcountry text, deathstate text, deathcity text, namefirst text, namelast text, namegiven text, weight text, height text, bats text, throws text, debut text, bbrefid text, finalgame text, retroid text, _loaded_at timestamp with time zone
+
+### `raw.lahman_pitching` (about 57,630 rows)
+
+playerid text, yearid text, stint text, teamid text, lgid text, w text, l text, g text, gs text, cg text, sho text, sv text, ipouts text, h text, er text, hr text, bb text, so text, baopp text, era text, ibb text, wp text, hbp text, bk text, bfp text, gf text, r text, sh text, sf text, gidp text, _loaded_at timestamp with time zone
+
+### `raw.lahman_pitching_post` (about 7,474 rows)
+
+playerid text, yearid text, round text, teamid text, lgid text, w text, l text, g text, gs text, cg text, sho text, sv text, ipouts text, h text, er text, hr text, bb text, so text, baopp text, era text, ibb text, wp text, hbp text, bk text, bfp text, gf text, r text, sh text, sf text, gidp text, _loaded_at timestamp with time zone
+
+### `raw.lahman_salaries` (about 26,428 rows)
+
+yearid text, teamid text, lgid text, playerid text, salary text, _loaded_at timestamp with time zone
+
+### `raw.lahman_schools` (about 1,287 rows)
+
+schoolid text, name_full text, city text, state text, country text, _loaded_at timestamp with time zone
+
+### `raw.lahman_series_post` (about 440 rows)
+
+yearid text, round text, teamidwinner text, lgidwinner text, teamidloser text, lgidloser text, wins text, losses text, ties text, _loaded_at timestamp with time zone
+
+### `raw.lahman_teams` (about 3,614 rows)
+
+yearid text, lgid text, teamid text, franchid text, divid text, rank text, g text, ghome text, w text, l text, divwin text, wcwin text, lgwin text, wswin text, r text, ab text, h text, n2b text, n3b text, hr text, bb text, so text, sb text, cs text, hbp text, sf text, ra text, er text, era text, cg text, sho text, sv text, ipouts text, ha text, hra text, bba text, soa text, e text, dp text, fp text, name text, park text, attendance text, bpf text, ppf text, teamidbr text, teamidlahman45 text, teamidretro text, _loaded_at timestamp with time zone
+
+### `raw.lahman_teams_franchises` (about 203 rows)
+
+franchid text, franchname text, active text, naassoc text, _loaded_at timestamp with time zone
+
+### `raw.lahman_teams_half` (about 142 rows)
+
+yearid text, lgid text, teamid text, half text, divid text, divwin text, rank text, g text, w text, l text, _loaded_at timestamp with time zone
+
+## MLB Stats API (`mlb_api`)
+
+### `raw.mlb_affiliate` (about 321 rows)
+
+affiliate_team_id text, affiliate_name text, parent_org_id text, parent_org_name text, league_name text, level text, _loaded_at timestamp with time zone
+
+### `raw.mlb_alumni` (about 61,659 rows)
+
+team_id text, alumni_group text, person_id text, person_name text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_attendance` (about 2,734 rows)
+
+team_id text, openingstotal text, openingstotalaway text, openingstotalhome text, openingstotallost text, gamestotal text, gamesawaytotal text, gameshometotal text, year text, attendanceaverageaway text, attendanceaveragehome text, attendanceaverageytd text, attendancehigh text, attendancehighdate text, attendancehighgame text, attendancelow text, attendancelowdate text, attendancelowgame text, attendanceopeningaverage text, attendancetotal text, attendancetotalaway text, attendancetotalhome text, gametype text, team text, _loaded_at timestamp with time zone
+
+### `raw.mlb_award` (about 682 rows)
+
+id text, name text, description text, sortorder text, sport text, active text, league text, notes text, _loaded_at timestamp with time zone
+
+### `raw.mlb_boxscore_batting` (about 69,177 rows)
+
+game_pk text, team_id text, person_id text, person_name text, position_code text, position_name text, status_code text, jersey_number text, batting_order text, summary text, games_played text, fly_outs text, ground_outs text, air_outs text, runs text, doubles text, triples text, home_runs text, strike_outs text, base_on_balls text, intentional_walks text, hits text, hit_by_pitch text, at_bats text, caught_stealing text, stolen_bases text, stolen_base_percentage text, ground_into_double_play text, ground_into_triple_play text, plate_appearances text, total_bases text, rbi text, left_on_base text, sac_bunts text, sac_flies text, catchers_interference text, pickoffs text, at_bats_per_home_run text, pop_outs text, line_outs text, _loaded_at timestamp with time zone, note text
+
+### `raw.mlb_boxscore_fielding` (about 96,185 rows)
+
+game_pk text, team_id text, person_id text, person_name text, position_code text, position_name text, status_code text, jersey_number text, batting_order text, caught_stealing text, stolen_bases text, stolen_base_percentage text, caught_stealing_percentage text, assists text, put_outs text, errors text, chances text, fielding text, passed_ball text, pickoffs text, games_started text, _loaded_at timestamp with time zone
+
+### `raw.mlb_boxscore_pitching` (about 27,243 rows)
+
+game_pk text, team_id text, person_id text, person_name text, position_code text, position_name text, status_code text, jersey_number text, batting_order text, note text, summary text, games_played text, games_started text, fly_outs text, ground_outs text, air_outs text, runs text, doubles text, triples text, home_runs text, strike_outs text, base_on_balls text, intentional_walks text, hits text, hit_by_pitch text, at_bats text, caught_stealing text, stolen_bases text, stolen_base_percentage text, number_of_pitches text, innings_pitched text, wins text, losses text, saves text, save_opportunities text, holds text, blown_saves text, earned_runs text, batters_faced text, outs text, games_pitched text, complete_games text, shutouts text, pitches_thrown text, balls text, strikes text, strike_percentage text, hit_batsmen text, balks text, wild_pitches text, pickoffs text, rbi text, games_finished text, runs_scored_per9 text, home_runs_per9 text, inherited_runners text, inherited_runners_scored text, catchers_interference text, sac_bunts text, sac_flies text, passed_ball text, pop_outs text, line_outs text, _loaded_at timestamp with time zone
+
+### `raw.mlb_coach` (about 8,299 rows)
+
+team_id text, person_id text, person_name text, jersey_number text, job text, job_id text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_conference` (about -1 rows)
+
+id text, name text, link text, abbreviation text, haswildcard text, league text, sport text, nameshort text, _loaded_at timestamp with time zone
+
+### `raw.mlb_datacaster` (about 215 rows)
+
+person_id text, person_name text, jersey_number text, job text, job_id text, _loaded_at timestamp with time zone
+
+### `raw.mlb_division` (about -1 rows)
+
+id text, name text, season text, nameshort text, link text, abbreviation text, haswildcard text, sortorder text, numplayoffteams text, active text, league_id text, _loaded_at timestamp with time zone
+
+### `raw.mlb_draft` (about 36,588 rows)
+
+draft_year text, pick_round text, pick_number text, round_pick_number text, pick_value text, signing_bonus text, person_id text, person_name text, team_id text, team_name text, home_city text, home_state text, home_country text, school_name text, school_class text, school_city text, school_state text, school_country text, scouting_report text, blurb text, _loaded_at timestamp with time zone
+
+### `raw.mlb_free_agent` (about 10,465 rows)
+
+person_id text, person_name text, original_team_id text, original_team_name text, new_team_id text, new_team_name text, notes text, date_declared text, date_signed text, rank text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_game_context` (about 164,882 rows)
+
+game_pk text, away_win_probability text, home_win_probability text, left_field_sac_fly_probability text, center_field_sac_fly_probability text, right_field_sac_fly_probability text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_game_pace` (about 126 rows)
+
+hitsper9inn text, runsper9inn text, pitchesper9inn text, plateappearancesper9inn text, hitspergame text, runspergame text, inningsplayedpergame text, pitchespergame text, pitcherspergame text, plateappearancespergame text, totalgametime text, totalinningsplayed text, totalhits text, totalruns text, totalplateappearances text, totalpitchers text, totalpitches text, totalgames text, total7inngames text, total9inngames text, totalextrainngames text, timepergame text, timeperpitch text, timeperhit text, timeperrun text, timeperplateappearance text, timeper9inn text, timeper77plateappearances text, totalextrainntime text, timeper7inngamewithoutextrainn text, total9inngamescompletedearly text, total9inngameswithoutextrainn text, total9inngamesscheduled text, hitsperrun text, pitchesperpitcher text, season text, sport text, prportalcalculatedfields text, _season text, _loaded_at timestamp with time zone, timeper7inngame text, total7inngamesscheduled text, total7inngameswithoutextrainn text
+
+### `raw.mlb_league` (about -1 rows)
+
+id text, name text, link text, abbreviation text, nameshort text, seasonstate text, haswildcard text, hassplitseason text, numgames text, hasplayoffpoints text, numteams text, numwildcardteams text, season text, orgcode text, conferencesinuse text, divisionsinuse text, sortorder text, active text, season_seasonid text, season_preseasonstartdate text, season_preseasonenddate text, season_seasonstartdate text, season_springstartdate text, season_springenddate text, season_regularseasonstartdate text, season_lastdate1sthalf text, season_allstardate text, season_firstdate2ndhalf text, season_regularseasonenddate text, season_postseasonstartdate text, season_postseasonenddate text, season_seasonenddate text, season_offseasonstartdate text, season_offseasonenddate text, season_seasonlevelgamedaytype text, season_gamelevelgamedaytype text, season_qualifierplateappearances text, season_qualifieroutspitched text, _loaded_at timestamp with time zone
+
+### `raw.mlb_linescore` (about 3,044,197 rows)
+
+game_pk text, inning text, side text, runs text, hits text, errors text, left_on_base text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_live_game` (about 13,721 rows)
+
+game_pk text, game_date text, away_name text, home_name text, detailed_state text, current_inning text, inning_state text, away_runs text, away_hits text, away_errors text, home_runs text, home_hits text, home_errors text, balls text, strikes text, outs text, batter_id text, batter_name text, pitcher_id text, pitcher_name text, _loaded_at timestamp with time zone, captured_at text
+
+### `raw.mlb_official_scorer` (about 235 rows)
+
+person_id text, person_name text, jersey_number text, job text, job_id text, _loaded_at timestamp with time zone
+
+### `raw.mlb_person` (about 20,208 rows)
+
+person_id text, full_name text, birth_date text, birth_city text, birth_country text, height text, weight text, active text, primary_position_code text, primary_position_name text, bat_side text, pitch_hand text, mlb_debut_date text, _loaded_at timestamp with time zone
+
+### `raw.mlb_personnel` (about 211 rows)
+
+team_id text, person_id text, person_name text, job text, job_id text, _loaded_at timestamp with time zone
+
+### `raw.mlb_playbyplay` (about 223,036 rows)
+
+game_pk text, at_bat_index text, inning text, half_inning text, batter_id text, batter_name text, bat_side text, pitcher_id text, pitcher_name text, pitch_hand text, event text, event_type text, description text, rbi text, away_score text, home_score text, balls text, strikes text, outs text, _season text, _loaded_at timestamp with time zone, captured_at text
+
+### `raw.mlb_player_pool` (about 105,296 rows)
+
+person_id text, full_name text, birth_date text, current_team_id text, current_team_name text, active text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_player_stat` (about 93,026 rows)
+
+person_id text, person_name text, team_id text, group text, age text, games_played text, runs text, doubles text, triples text, home_runs text, strike_outs text, base_on_balls text, hits text, hit_by_pitch text, avg text, at_bats text, obp text, slg text, ops text, caught_stealing text, stolen_bases text, stolen_base_percentage text, caught_stealing_percentage text, ground_into_double_play text, plate_appearances text, total_bases text, rbi text, sac_bunts text, babip text, at_bats_per_home_run text, number_of_pitches text, _season text, _loaded_at timestamp with time zone, games_started text, era text, innings_pitched text, wins text, losses text, saves text, earned_runs text, whip text, batters_faced text, outs text, games_pitched text, complete_games text, shutouts text, hit_batsmen text, balks text, wild_pitches text, win_percentage text, games_finished text, strikeout_walk_ratio text, strikeouts_per9_inn text, walks_per9_inn text, hits_per9_inn text, runs_scored_per9 text, home_runs_per9 text, sac_flies text, intentional_walks text, strikes text, strike_percentage text, pickoffs text, pitches_per_inning text, ground_outs text, air_outs text, left_on_base text, ground_outs_to_airouts text, catchers_interference text, save_opportunities text, blown_saves text, holds text, inherited_runners text, inherited_runners_scored text
+
+### `raw.mlb_probable` (about 1,289 rows)
+
+game_pk text, side text, pitcher_id text, pitcher_name text, _loaded_at timestamp with time zone, captured_at text
+
+### `raw.mlb_roster` (about 93,025 rows)
+
+team_id text, person_id text, person_name text, jersey_number text, position_code text, position_name text, position_type text, status_code text, status_description text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_schedule` (about 239,203 rows)
+
+game_id text, game_datetime text, game_date text, game_type text, status text, away_name text, home_name text, away_id text, home_id text, doubleheader text, game_num text, home_probable_pitcher text, away_probable_pitcher text, home_pitcher_note text, away_pitcher_note text, away_score text, home_score text, current_inning text, inning_state text, venue_id text, venue_name text, national_broadcasts text, series_status text, winning_team text, losing_team text, winning_pitcher text, losing_pitcher text, save_pitcher text, summary text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_season` (about 152 rows)
+
+seasonid text, haswildcard text, preseasonstartdate text, seasonstartdate text, regularseasonstartdate text, regularseasonenddate text, seasonenddate text, offseasonstartdate text, offseasonenddate text, seasonlevelgamedaytype text, gamelevelgamedaytype text, qualifierplateappearances text, qualifieroutspitched text, postseasonstartdate text, postseasonenddate text, lastdate1sthalf text, allstardate text, firstdate2ndhalf text, preseasonenddate text, springstartdate text, springenddate text, _loaded_at timestamp with time zone
+
+### `raw.mlb_sport` (about -1 rows)
+
+id text, code text, link text, name text, abbreviation text, sortorder text, activestatus text, _loaded_at timestamp with time zone
+
+### `raw.mlb_standing` (about 1,618 rows)
+
+division_id text, div_name text, name text, div_rank text, w text, l text, gb text, wc_rank text, wc_gb text, wc_elim_num text, elim_num text, team_id text, league_rank text, sport_rank text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_stat_leader` (about 11,629 rows)
+
+leader_category text, rank text, value text, person_id text, person_name text, team_id text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_team_history` (about 269 rows)
+
+team_id text, season text, name text, team_code text, abbreviation text, location_name text, franchise_name text, club_name text, first_year_of_play text, venue_id text, venue_name text, league_name text, active text, _loaded_at timestamp with time zone
+
+### `raw.mlb_team_leader` (about 110,963 rows)
+
+team_id text, leader_category text, rank text, value text, person_id text, person_name text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_team_stat` (about 4,452 rows)
+
+team_id text, team_name text, group text, games_played text, runs text, doubles text, triples text, home_runs text, strike_outs text, base_on_balls text, hits text, hit_by_pitch text, avg text, at_bats text, obp text, slg text, ops text, caught_stealing text, stolen_bases text, stolen_base_percentage text, caught_stealing_percentage text, ground_into_double_play text, plate_appearances text, total_bases text, rbi text, left_on_base text, sac_bunts text, babip text, at_bats_per_home_run text, number_of_pitches text, _season text, _loaded_at timestamp with time zone, games_started text, era text, innings_pitched text, wins text, losses text, saves text, earned_runs text, whip text, batters_faced text, outs text, games_pitched text, complete_games text, shutouts text, hit_batsmen text, balks text, wild_pitches text, win_percentage text, games_finished text, strikeout_walk_ratio text, strikeouts_per9_inn text, walks_per9_inn text, hits_per9_inn text, runs_scored_per9 text, home_runs_per9 text, sac_flies text, intentional_walks text, strikes text, strike_percentage text, pickoffs text, pitches_per_inning text, ground_outs text, air_outs text, ground_outs_to_airouts text, catchers_interference text, save_opportunities text, blown_saves text, holds text
+
+### `raw.mlb_transaction` (about 832,830 rows)
+
+transaction_id text, person_id text, person_name text, from_team_id text, from_team_name text, to_team_id text, to_team_name text, date text, effective_date text, resolution_date text, type_code text, type_desc text, description text, _season text, _loaded_at timestamp with time zone
+
+### `raw.mlb_umpire` (about 11,783 rows)
+
+game_pk text, person_id text, person_name text, official_type text, _loaded_at timestamp with time zone
+
+### `raw.mlb_umpire_directory` (about 98 rows)
+
+person_id text, person_name text, jersey_number text, job text, job_id text, _loaded_at timestamp with time zone
+
+### `raw.mlb_venue` (about 1,671 rows)
+
+venue_id text, name text, active text, address1 text, city text, state text, postal_code text, country text, latitude text, longitude text, timezone_id text, capacity text, turf_type text, roof_type text, left_line text, center text, right_line text, _loaded_at timestamp with time zone
+
+### `raw.mlb_win_prob` (about 12,643,287 rows)
+
+game_pk text, at_bat_index text, inning text, half_inning text, home_win_probability text, away_win_probability text, home_win_probability_added text, _loaded_at timestamp with time zone, _season text
+
+## News feeds (`news`)
+
+### `raw.news` (about 8,317 rows)
+
+id bigint, source text, team text, title text, link text, guid text, dedup_key text, published timestamp with time zone, summary text, fetched_at timestamp with time zone
+
+## Polymarket (`polymarket`)
+
+### `raw.polymarket_event` (about 11,593 rows)
+
+id text, ticker text, slug text, title text, description text, resolutionsource text, startdate text, creationdate text, enddate text, image text, icon text, active text, closed text, archived text, new text, featured text, restricted text, liquidity text, volume text, openinterest text, createdat text, updatedat text, competitive text, volume24hr text, volume1wk text, volume1mo text, volume1yr text, enableorderbook text, liquidityclob text, negrisk text, commentcount text, series text, tags text, cyom text, showalloutcomes text, showmarketimages text, enablenegrisk text, automaticallyactive text, eventdate text, starttime text, eventweek text, seriesslug text, gmpchartmode text, negriskaugmented text, estimatevalue text, cumulativemarkets text, pendingdeployment text, deploying text, gameid text, requirestranslation text, eventmetadata text, teams text, sport text, version text, score text, period text, live text, ended text, parenteventid text, negriskmarketid text, deployingtimestamp text, finishedtimestamp text, sortby text, category text, published_at text, liquidityamm text, closedtime text, updatedby text, automaticallyresolved text, elapsed text, featuredorder text, commentsenabled text, createdby text, _loaded_at timestamp with time zone
+
+### `raw.polymarket_market` (about 227,142 rows)
+
+id text, question text, conditionid text, slug text, resolutionsource text, enddate text, liquidity text, startdate text, image text, icon text, description text, volume text, active text, closed text, marketmakeraddress text, createdat text, updatedat text, new text, featured text, submitted_by text, archived text, resolvedby text, restricted text, groupitemthreshold text, questionid text, enableorderbook text, orderpriceminticksize text, orderminsize text, volumenum text, liquiditynum text, enddateiso text, startdateiso text, hasrevieweddates text, volume24hr text, volume1wk text, volume1mo text, volume1yr text, gamestarttime text, secondsdelay text, positionids text, combostatus text, umabond text, umareward text, volume24hrclob text, volume1wkclob text, volume1moclob text, volume1yrclob text, volumeclob text, liquidityclob text, makerbasefee text, takerbasefee text, customliveness text, acceptingorders text, negrisk text, negriskrequestid text, ready text, funded text, acceptingorderstimestamp text, cyom text, competitive text, pagerdutynotificationenabled text, approved text, clobrewards text, rewardsminsize text, rewardsmaxspread text, spread text, oneweekpricechange text, onemonthpricechange text, lasttradeprice text, bestbid text, bestask text, automaticallyactive text, clearbookonstart text, manualactivation text, negriskother text, sportsmarkettype text, umaresolutionstatuses text, pendingdeployment text, deploying text, deployingtimestamp text, rfqenabled text, holdingrewardsenabled text, feesenabled text, requirestranslation text, feetype text, feeschedule text, version text, event_id text, groupitemtitle text, onedaypricechange text, onehourpricechange text, line text, negriskmarketid text, marketmetadata text, category text, fee text, markettype text, updatedby text, closedtime text, wideformat text, sentdiscord text, mailchimptag text, umaenddate text, umaresolutionstatus text, umaenddateiso text, readyforcron text, fpmmlive text, volume1wkamm text, volume1moamm text, volume1yramm text, creator text, oneyearpricechange text, twittercardlocation text, twittercardlastrefreshed text, twittercardlastvalidated text, liquidityamm text, volumeamm text, twittercardimage text, marketgroup text, volume24hramm text, notificationsenabled text, automaticallyresolved text, seriescolor text, showgmpseries text, showgmpoutcome text, commentsenabled text, _loaded_at timestamp with time zone
+
+### `raw.polymarket_outcome` (about 454,284 rows)
+
+market_id text, outcome text, price text, clob_token_id text, _loaded_at timestamp with time zone
+
+### `raw.polymarket_price` (about 599,210,304 rows)
+
+clob_token_id text, _market text, _event text, ts text, price text, _loaded_at timestamp with time zone
+
+### `raw.polymarket_snapshot` (about 1,875,883 rows)
+
+market_id text, outcome text, price text, clob_token_id text, captured_at text, _loaded_at timestamp with time zone
+
+## Chadwick register (`chadwick_register`)
+
+### `raw.register_countries` (about 249 rows)
+
+key_iso_alpha2 text, key_iso_alpha3 text, key_ioc text, key_fifa text, name_full_en text, _loaded_at timestamp with time zone
+
+### `raw.register_links` (about 27,340 rows)
+
+key_person text, source text, value text, _loaded_at timestamp with time zone
+
+### `raw.register_names` (about 1,346 rows)
+
+key_person text, name_last text, name_first text, name_given text, birth_year text, birth_month text, birth_day text, altname_type text, altname_lang text, altname_last text, altname_first text, altname_given text, altname_matrilineal text, altname_nick text, altname_date_start text, altname_date_end text, _loaded_at timestamp with time zone
+
+### `raw.register_people` (about 526,894 rows)
+
+key_person text, key_uuid text, key_mlbam text, key_retro text, key_bbref text, key_bbref_minors text, key_fangraphs text, key_npb text, key_sr_nfl text, key_sr_nba text, key_sr_nhl text, key_wikidata text, name_last text, name_first text, name_given text, name_suffix text, name_matrilineal text, name_nick text, birth_year text, birth_month text, birth_day text, death_year text, death_month text, death_day text, pro_played_first text, pro_played_last text, mlb_played_first text, mlb_played_last text, col_played_first text, col_played_last text, pro_managed_first text, pro_managed_last text, mlb_managed_first text, mlb_managed_last text, col_managed_first text, col_managed_last text, pro_umpired_first text, pro_umpired_last text, mlb_umpired_first text, mlb_umpired_last text, _loaded_at timestamp with time zone
+
+## Retrosheet (`retrosheet`, `retrosheet_box`)
+
+### `raw.retrosheet_allplayers` (about 130,931 rows)
+
+id text, last text, first text, bat text, throw text, team text, g text, g_p text, g_sp text, g_rp text, g_c text, g_1b text, g_2b text, g_3b text, g_ss text, g_lf text, g_cf text, g_rf text, g_of text, g_dh text, g_ph text, g_pr text, first_g text, last_g text, _season text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_ballpark` (about 521 rows)
+
+site text, name text, city text, state text, first_g text, last_g text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_batting` (about 5,756,269 rows)
+
+gid text, id text, team text, b_lp text, b_seq text, stattype text, b_pa text, b_ab text, b_r text, b_h text, b_d text, b_t text, b_hr text, b_rbi text, b_sh text, b_sf text, b_hbp text, b_w text, b_iw text, b_k text, b_sb text, b_cs text, b_gdp text, b_xi text, b_roe text, dh text, ph text, pr text, date text, number text, site text, vishome text, opp text, win text, loss text, tie text, gametype text, box text, pbp text, _season text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_biofile` (about 27,049 rows)
+
+playerid text, last text, first text, nickname text, birthdate text, birth_city text, birth_state text, birth_country text, play_debut text, play_lastgame text, mgr_debut text, mgr_lastgame text, coach_debut text, coach_lastgame text, ump_debut text, ump_lastgame text, deathdate text, death_city text, death_state text, death_country text, bats text, throws text, height text, weight text, cemetery text, ceme_city text, ceme_state text, ceme_country text, ceme_note text, birth_name text, name_chg text, bat_chg text, hof text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_biofile0` (about 27,049 rows)
+
+id text, lastname text, usename text, fullname text, birthdate text, birthcity text, birthstate text, birthcountry text, deathdate text, deathcity text, deathstate text, deathcountry text, cemetery text, cem_city text, cem_state text, cem_ctry text, cem_note text, birthname text, altname text, debut_p text, last_p text, debut_c text, last_c text, debut_m text, last_m text, debut_u text, last_u text, bats text, throws text, height text, weight text, hof text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_box_batting` (about 362,794 rows)
+
+game_id text, team text, id text, lname text, fname text, slot text, seq text, start_pos text, ab text, r text, h text, d text, t text, hr text, bi text, bi2out text, bb text, ibb text, so text, gdp text, hp text, sh text, sf text, sb text, cs text, _season text, _group text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_box_double` (about 44,139 rows)
+
+game_id text, batter text, pitcher text, inning text, half text, _season text, _group text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_box_doubleplay` (about 23,448 rows)
+
+game_id text, inning text, half text, player1 text, player2 text, player3 text, player4 text, _season text, _group text, _scope text, _loaded_at timestamp with time zone, player5 text, player6 text, player7 text, player8 text, player9 text
+
+### `raw.retrosheet_box_fielding` (about 355,466 rows)
+
+game_id text, team text, id text, lname text, fname text, slot text, seq text, start_pos text, pos text, outs text, po text, a text, e text, dp text, tp text, bip text, bf text, pb text, _season text, _group text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_box_game` (about 18,467 rows)
+
+game_id text, date text, site text, visitor text, visitor_city text, visitor_name text, home text, home_city text, home_name text, start_time text, day_night text, temperature text, wind_direction text, wind_speed text, field_condition text, precip text, sky text, time_of_game text, attendance text, umpire_hp text, umpire_1b text, umpire_2b text, umpire_3b text, htbf text, linescore_away_runs text, linescore_away_hits text, linescore_away_errors text, linescore_home_runs text, linescore_home_hits text, linescore_home_errors text, _season text, _group text, _scope text, _loaded_at timestamp with time zone, umpire_lf text, umpire_rf text
+
+### `raw.retrosheet_box_homerun` (about 7,176 rows)
+
+game_id text, batter text, pitcher text, inning text, half text, runners text, outs text, location text, _season text, _group text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_box_pitching` (about 48,076 rows)
+
+game_id text, team text, id text, lname text, fname text, gs text, cg text, sho text, gf text, outs text, ab text, bf text, h text, r text, er text, hr text, bb text, ibb text, so text, wp text, bk text, hb text, gb text, fb text, dec text, _season text, _group text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_box_sacbunt` (about 29,894 rows)
+
+game_id text, batter text, pitcher text, inning text, half text, _season text, _group text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_box_stolenbase` (about 40,558 rows)
+
+game_id text, runner text, pitcher text, catcher text, inning text, half text, base text, pickoff text, _season text, _group text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_box_triple` (about 17,075 rows)
+
+game_id text, batter text, pitcher text, inning text, half text, _season text, _group text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_box_tripleplay` (about 85 rows)
+
+game_id text, inning text, half text, player1 text, player2 text, player3 text, _season text, _group text, _scope text, _loaded_at timestamp with time zone, player4 text, player5 text, player6 text, player7 text
+
+### `raw.retrosheet_coach` (about 12,501 rows)
+
+id text, year text, team text, role text, start text, end text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_coach0` (about 12,501 rows)
+
+id text, year text, team text, role text, first_g text, last_g text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_event` (about 16,763,433 rows)
+
+game_id text, away_team_id text, inn_ct text, bat_home_id text, outs_ct text, balls_ct text, strikes_ct text, pitch_seq_tx text, away_score_ct text, home_score_ct text, bat_id text, bat_hand_cd text, resp_bat_id text, resp_bat_hand_cd text, pit_id text, pit_hand_cd text, resp_pit_id text, resp_pit_hand_cd text, pos2_fld_id text, pos3_fld_id text, pos4_fld_id text, pos5_fld_id text, pos6_fld_id text, pos7_fld_id text, pos8_fld_id text, pos9_fld_id text, base1_run_id text, base2_run_id text, base3_run_id text, event_tx text, leadoff_fl text, ph_fl text, bat_fld_cd text, bat_lineup_id text, event_cd text, bat_event_fl text, ab_fl text, h_cd text, sh_fl text, sf_fl text, event_outs_ct text, dp_fl text, tp_fl text, rbi_ct text, wp_fl text, pb_fl text, fld_cd text, battedball_cd text, bunt_fl text, foul_fl text, battedball_loc_tx text, err_ct text, err1_fld_cd text, err1_cd text, err2_fld_cd text, err2_cd text, err3_fld_cd text, err3_cd text, bat_dest_id text, run1_dest_id text, run2_dest_id text, run3_dest_id text, bat_play_tx text, run1_play_tx text, run2_play_tx text, run3_play_tx text, run1_sb_fl text, run2_sb_fl text, run3_sb_fl text, run1_cs_fl text, run2_cs_fl text, run3_cs_fl text, run1_pk_fl text, run2_pk_fl text, run3_pk_fl text, run1_resp_pit_id text, run2_resp_pit_id text, run3_resp_pit_id text, game_new_fl text, game_end_fl text, pr_run1_fl text, pr_run2_fl text, pr_run3_fl text, removed_for_pr_run1_id text, removed_for_pr_run2_id text, removed_for_pr_run3_id text, removed_for_ph_bat_id text, removed_for_ph_bat_fld_cd text, po1_fld_cd text, po2_fld_cd text, po3_fld_cd text, ass1_fld_cd text, ass2_fld_cd text, ass3_fld_cd text, ass4_fld_cd text, ass5_fld_cd text, event_id text, home_team_id text, bat_team_id text, fld_team_id text, bat_last_id text, inn_new_fl text, inn_end_fl text, start_bat_score_ct text, start_fld_score_ct text, inn_runs_ct text, game_pa_ct text, inn_pa_ct text, pa_new_fl text, pa_trunc_fl text, start_bases_cd text, end_bases_cd text, bat_start_fl text, resp_bat_start_fl text, bat_on_deck_id text, bat_in_hold_id text, pit_start_fl text, resp_pit_start_fl text, run1_fld_cd text, run1_lineup_cd text, run1_origin_event_id text, run2_fld_cd text, run2_lineup_cd text, run2_origin_event_id text, run3_fld_cd text, run3_lineup_cd text, run3_origin_event_id text, run1_resp_cat_id text, run2_resp_cat_id text, run3_resp_cat_id text, pa_ball_ct text, pa_called_ball_ct text, pa_intent_ball_ct text, pa_pitchout_ball_ct text, pa_hitbatter_ball_ct text, pa_other_ball_ct text, pa_strike_ct text, pa_called_strike_ct text, pa_swingmiss_strike_ct text, pa_foul_strike_ct text, pa_inplay_strike_ct text, pa_other_strike_ct text, event_runs_ct text, fld_id text, base2_force_fl text, base3_force_fl text, base4_force_fl text, bat_safe_err_fl text, bat_fate_id text, run1_fate_id text, run2_fate_id text, run3_fate_id text, fate_runs_ct text, ass6_fld_cd text, ass7_fld_cd text, ass8_fld_cd text, ass9_fld_cd text, ass10_fld_cd text, unknown_out_exc_fl text, uncertain_play_exc_fl text, count_tx text, run1_auto_fl text, run2_auto_fl text, run3_auto_fl text, _season text, _group text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_fielding` (about 5,274,813 rows)
+
+gid text, id text, team text, d_seq text, d_pos text, stattype text, d_ifouts text, d_po text, d_a text, d_e text, d_dp text, d_tp text, d_pb text, d_wp text, d_sb text, d_cs text, d_gs text, date text, number text, site text, vishome text, opp text, win text, loss text, tie text, gametype text, box text, pbp text, _season text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_game` (about 210,889 rows)
+
+game_id text, game_dt text, game_ct text, game_dy text, start_game_tm text, dh_fl text, daynight_park_cd text, away_team_id text, home_team_id text, park_id text, away_start_pit_id text, home_start_pit_id text, base4_ump_id text, base1_ump_id text, base2_ump_id text, base3_ump_id text, lf_ump_id text, rf_ump_id text, attend_park_ct text, scorer_record_id text, translator_record_id text, inputter_record_id text, input_record_ts text, edit_record_ts text, method_record_cd text, pitches_record_cd text, temp_park_ct text, wind_direction_park_cd text, wind_speed_park_ct text, field_park_cd text, precip_park_cd text, sky_park_cd text, minutes_game_ct text, inn_ct text, away_score_ct text, home_score_ct text, away_hits_ct text, home_hits_ct text, away_err_ct text, home_err_ct text, away_lob_ct text, home_lob_ct text, win_pit_id text, lose_pit_id text, save_pit_id text, gwrbi_bat_id text, away_lineup1_bat_id text, away_lineup1_fld_cd text, away_lineup2_bat_id text, away_lineup2_fld_cd text, away_lineup3_bat_id text, away_lineup3_fld_cd text, away_lineup4_bat_id text, away_lineup4_fld_cd text, away_lineup5_bat_id text, away_lineup5_fld_cd text, away_lineup6_bat_id text, away_lineup6_fld_cd text, away_lineup7_bat_id text, away_lineup7_fld_cd text, away_lineup8_bat_id text, away_lineup8_fld_cd text, away_lineup9_bat_id text, away_lineup9_fld_cd text, home_lineup1_bat_id text, home_lineup1_fld_cd text, home_lineup2_bat_id text, home_lineup2_fld_cd text, home_lineup3_bat_id text, home_lineup3_fld_cd text, home_lineup4_bat_id text, home_lineup4_fld_cd text, home_lineup5_bat_id text, home_lineup5_fld_cd text, home_lineup6_bat_id text, home_lineup6_fld_cd text, home_lineup7_bat_id text, home_lineup7_fld_cd text, home_lineup8_bat_id text, home_lineup8_fld_cd text, home_lineup9_bat_id text, home_lineup9_fld_cd text, away_finish_pit_id text, home_finish_pit_id text, _season text, _group text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_gameinfo` (about 225,410 rows)
+
+gid text, visteam text, hometeam text, site text, date text, number text, starttime text, daynight text, innings text, tiebreaker text, usedh text, htbf text, timeofgame text, attendance text, fieldcond text, precip text, sky text, temp text, winddir text, windspeed text, oscorer text, forfeit text, suspend text, umphome text, ump1b text, ump2b text, ump3b text, umplf text, umprf text, wp text, lp text, save text, gametype text, vruns text, hruns text, wteam text, lteam text, line text, batteries text, lineups text, box text, pbp text, season text, _season text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_gamelog` (about 233,520 rows)
+
+date text, game_number text, day_of_week text, v_team text, v_league text, v_game_number text, h_team text, h_league text, h_game_number text, v_score text, h_score text, length_outs text, day_night text, completion text, forfeit text, protest text, park_id text, attendance text, time_of_game_minutes text, v_line_score text, h_line_score text, v_at_bats text, v_hits text, v_doubles text, v_triples text, v_homeruns text, v_rbi text, v_sac_hits text, v_sac_flies text, v_hbp text, v_walks text, v_intentional_walks text, v_strikeouts text, v_stolen_bases text, v_caught_stealing text, v_grounded_into_dp text, v_first_on_catcher_interference text, v_left_on_base text, v_pitchers_used text, v_individual_earned_runs text, v_team_earned_runs text, v_wild_pitches text, v_balks text, v_putouts text, v_assists text, v_errors text, v_passed_balls text, v_double_plays text, v_triple_plays text, h_at_bats text, h_hits text, h_doubles text, h_triples text, h_homeruns text, h_rbi text, h_sac_hits text, h_sac_flies text, h_hbp text, h_walks text, h_intentional_walks text, h_strikeouts text, h_stolen_bases text, h_caught_stealing text, h_grounded_into_dp text, h_first_on_catcher_interference text, h_left_on_base text, h_pitchers_used text, h_individual_earned_runs text, h_team_earned_runs text, h_wild_pitches text, h_balks text, h_putouts text, h_assists text, h_errors text, h_passed_balls text, h_double_plays text, h_triple_plays text, ump_home_id text, ump_home_name text, ump_1b_id text, ump_1b_name text, ump_2b_id text, ump_2b_name text, ump_3b_id text, ump_3b_name text, ump_lf_id text, ump_lf_name text, ump_rf_id text, ump_rf_name text, v_manager_id text, v_manager_name text, h_manager_id text, h_manager_name text, winning_pitcher_id text, winning_pitcher_name text, losing_pitcher_id text, losing_pitcher_name text, saving_pitcher_id text, saving_pitcher_name text, gwrbi_batter_id text, gwrbi_batter_name text, v_starting_pitcher_id text, v_starting_pitcher_name text, h_starting_pitcher_id text, h_starting_pitcher_name text, v_player1_id text, v_player1_name text, v_player1_pos text, v_player2_id text, v_player2_name text, v_player2_pos text, v_player3_id text, v_player3_name text, v_player3_pos text, v_player4_id text, v_player4_name text, v_player4_pos text, v_player5_id text, v_player5_name text, v_player5_pos text, v_player6_id text, v_player6_name text, v_player6_pos text, v_player7_id text, v_player7_name text, v_player7_pos text, v_player8_id text, v_player8_name text, v_player8_pos text, v_player9_id text, v_player9_name text, v_player9_pos text, h_player1_id text, h_player1_name text, h_player1_pos text, h_player2_id text, h_player2_name text, h_player2_pos text, h_player3_id text, h_player3_name text, h_player3_pos text, h_player4_id text, h_player4_name text, h_player4_pos text, h_player5_id text, h_player5_name text, h_player5_pos text, h_player6_id text, h_player6_name text, h_player6_pos text, h_player7_id text, h_player7_name text, h_player7_pos text, h_player8_id text, h_player8_name text, h_player8_pos text, h_player9_id text, h_player9_name text, h_player9_pos text, additional_info text, acquisition_info text, _season text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_gamelog_post` (about 1,973 rows)
+
+date text, game_number text, day_of_week text, v_team text, v_league text, v_game_number text, h_team text, h_league text, h_game_number text, v_score text, h_score text, length_outs text, day_night text, completion text, forfeit text, protest text, park_id text, attendance text, time_of_game_minutes text, v_line_score text, h_line_score text, v_at_bats text, v_hits text, v_doubles text, v_triples text, v_homeruns text, v_rbi text, v_sac_hits text, v_sac_flies text, v_hbp text, v_walks text, v_intentional_walks text, v_strikeouts text, v_stolen_bases text, v_caught_stealing text, v_grounded_into_dp text, v_first_on_catcher_interference text, v_left_on_base text, v_pitchers_used text, v_individual_earned_runs text, v_team_earned_runs text, v_wild_pitches text, v_balks text, v_putouts text, v_assists text, v_errors text, v_passed_balls text, v_double_plays text, v_triple_plays text, h_at_bats text, h_hits text, h_doubles text, h_triples text, h_homeruns text, h_rbi text, h_sac_hits text, h_sac_flies text, h_hbp text, h_walks text, h_intentional_walks text, h_strikeouts text, h_stolen_bases text, h_caught_stealing text, h_grounded_into_dp text, h_first_on_catcher_interference text, h_left_on_base text, h_pitchers_used text, h_individual_earned_runs text, h_team_earned_runs text, h_wild_pitches text, h_balks text, h_putouts text, h_assists text, h_errors text, h_passed_balls text, h_double_plays text, h_triple_plays text, ump_home_id text, ump_home_name text, ump_1b_id text, ump_1b_name text, ump_2b_id text, ump_2b_name text, ump_3b_id text, ump_3b_name text, ump_lf_id text, ump_lf_name text, ump_rf_id text, ump_rf_name text, v_manager_id text, v_manager_name text, h_manager_id text, h_manager_name text, winning_pitcher_id text, winning_pitcher_name text, losing_pitcher_id text, losing_pitcher_name text, saving_pitcher_id text, saving_pitcher_name text, gwrbi_batter_id text, gwrbi_batter_name text, v_starting_pitcher_id text, v_starting_pitcher_name text, h_starting_pitcher_id text, h_starting_pitcher_name text, v_player1_id text, v_player1_name text, v_player1_pos text, v_player2_id text, v_player2_name text, v_player2_pos text, v_player3_id text, v_player3_name text, v_player3_pos text, v_player4_id text, v_player4_name text, v_player4_pos text, v_player5_id text, v_player5_name text, v_player5_pos text, v_player6_id text, v_player6_name text, v_player6_pos text, v_player7_id text, v_player7_name text, v_player7_pos text, v_player8_id text, v_player8_name text, v_player8_pos text, v_player9_id text, v_player9_name text, v_player9_pos text, h_player1_id text, h_player1_name text, h_player1_pos text, h_player2_id text, h_player2_name text, h_player2_pos text, h_player3_id text, h_player3_name text, h_player3_pos text, h_player4_id text, h_player4_name text, h_player4_pos text, h_player5_id text, h_player5_name text, h_player5_pos text, h_player6_id text, h_player6_name text, h_player6_pos text, h_player7_id text, h_player7_name text, h_player7_pos text, h_player8_id text, h_player8_name text, h_player8_pos text, h_player9_id text, h_player9_name text, h_player9_pos text, additional_info text, acquisition_info text, _type text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_manager` (about 859 rows)
+
+id text, lastname text, firstname text, first_g text, last_g text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_park` (about 260 rows)
+
+parkid text, name text, aka text, city text, state text, start text, end text, league text, notes text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_pitching` (about 1,272,327 rows)
+
+gid text, id text, team text, p_seq text, stattype text, p_ipouts text, p_noout text, p_bfp text, p_h text, p_d text, p_t text, p_hr text, p_r text, p_er text, p_w text, p_iw text, p_k text, p_hbp text, p_wp text, p_bk text, p_sh text, p_sf text, p_sb text, p_cs text, p_pb text, wp text, lp text, save text, p_gs text, p_gf text, p_cg text, date text, number text, site text, vishome text, opp text, win text, loss text, tie text, gametype text, box text, pbp text, _season text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_plays` (about 16,955,244 rows)
+
+gid text, event text, inning text, top_bot text, vis_home text, site text, batteam text, pitteam text, score_v text, score_h text, batter text, pitcher text, lp text, bat_f text, bathand text, pithand text, balls text, strikes text, count text, pitches text, nump text, pa text, ab text, single text, double text, triple text, hr text, sh text, sf text, hbp text, walk text, k text, xi text, roe text, fc text, othout text, noout text, oth text, bip text, bunt text, ground text, fly text, line text, iw text, gdp text, othdp text, tp text, fle text, wp text, pb text, bk text, oa text, di text, sb2 text, sb3 text, sbh text, cs2 text, cs3 text, csh text, pko1 text, pko2 text, pko3 text, k_safe text, e1 text, e2 text, e3 text, e4 text, e5 text, e6 text, e7 text, e8 text, e9 text, outs_pre text, outs_post text, br1_pre text, br2_pre text, br3_pre text, br1_post text, br2_post text, br3_post text, lob_id1 text, lob_id2 text, lob_id3 text, pr1_pre text, pr2_pre text, pr3_pre text, pr1_post text, pr2_post text, pr3_post text, run_b text, run1 text, run2 text, run3 text, prun_b text, prun1 text, prun2 text, prun3 text, ur_b text, ur1 text, ur2 text, ur3 text, rbi_b text, rbi1 text, rbi2 text, rbi3 text, runs text, rbi text, er text, tur text, l1 text, l2 text, l3 text, l4 text, l5 text, l6 text, l7 text, l8 text, l9 text, lf1 text, lf2 text, lf3 text, lf4 text, lf5 text, lf6 text, lf7 text, lf8 text, lf9 text, f2 text, f3 text, f4 text, f5 text, f6 text, f7 text, f8 text, f9 text, po0 text, po1 text, po2 text, po3 text, po4 text, po5 text, po6 text, po7 text, po8 text, po9 text, a1 text, a2 text, a3 text, a4 text, a5 text, a6 text, a7 text, a8 text, a9 text, fseq text, batout1 text, batout2 text, batout3 text, brout_b text, brout1 text, brout2 text, brout3 text, firstf text, loc text, hittype text, dpopp text, pivot text, pn text, umphome text, ump1b text, ump2b text, ump3b text, umplf text, umprf text, date text, gametype text, pbp text, _season text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_relative` (about 1,329 rows)
+
+id1 text, relation text, id2 text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_roster` (about 138,160 rows)
+
+player_id text, last_name text, first_name text, bats text, throws text, team_id text, position text, _season text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_schedule` (about 236,383 rows)
+
+date text, num text, day text, visitor text, visitor_league text, visitor_game text, home text, home_league text, home_game text, day_night text, postponed text, makeup text, _season text, n19040414 text, n0 text, thu text, ny1 text, nl text, n1 text, bro text, nl_1 text, n1_1 text, d text, unnamed__10 text, unnamed__11 text, n19210413 text, wed text, bsn text, n19330412 text, rain text, n19330430 text, location text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_team` (about 152 rows)
+
+team_id text, league text, city text, nickname text, first_year text, last_year text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_team0` (about 178 rows)
+
+team text, city text, nickname text, first_g text, last_g text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_teamstats` (about 503,461 rows)
+
+gid text, team text, inn1 text, inn2 text, inn3 text, inn4 text, inn5 text, inn6 text, inn7 text, inn8 text, inn9 text, inn10 text, inn11 text, inn12 text, inn13 text, inn14 text, inn15 text, inn16 text, inn17 text, inn18 text, inn19 text, inn20 text, inn21 text, inn22 text, inn23 text, inn24 text, inn25 text, inn26 text, inn27 text, inn28 text, lob text, mgr text, stattype text, b_pa text, b_ab text, b_r text, b_h text, b_d text, b_t text, b_hr text, b_rbi text, b_sh text, b_sf text, b_hbp text, b_w text, b_iw text, b_k text, b_sb text, b_cs text, b_gdp text, b_xi text, b_roe text, p_ipouts text, p_noout text, p_bfp text, p_h text, p_d text, p_t text, p_hr text, p_r text, p_er text, p_w text, p_iw text, p_k text, p_hbp text, p_wp text, p_bk text, p_sh text, p_sf text, p_sb text, p_cs text, p_pb text, d_po text, d_a text, d_e text, d_dp text, d_tp text, d_pb text, d_wp text, d_sb text, d_cs text, start_l1 text, start_l2 text, start_l3 text, start_l4 text, start_l5 text, start_l6 text, start_l7 text, start_l8 text, start_l9 text, start_f1 text, start_f2 text, start_f3 text, start_f4 text, start_f5 text, start_f6 text, start_f7 text, start_f8 text, start_f9 text, start_f10 text, date text, number text, site text, vishome text, opp text, win text, loss text, tie text, gametype text, box text, pbp text, _season text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_transaction` (about 101,594 rows)
+
+primary_date text, time text, primary_date_approx text, secondary_date text, secondary_date_approx text, transaction_id text, player_id text, type text, from_team text, from_league text, to_team text, to_league text, draft_type text, draft_round text, pick_number text, info text, _loaded_at timestamp with time zone
+
+### `raw.retrosheet_umpire` (about 1,762 rows)
+
+id text, lastname text, firstname text, first_g text, last_g text, _loaded_at timestamp with time zone
+
+## Savant / Statcast (`statcast`)
+
+### `raw.statcast_batter_arsenal` (about 21,385 rows)
+
+last_name__first_name text, player_id text, team_name_alt text, pitch_type text, pitch_name text, run_value_per_100 text, run_value text, pitches text, pitch_usage text, pa text, ba text, slg text, woba text, whiff_percent text, k_percent text, put_away text, est_ba text, est_slg text, est_woba text, hard_hit_percent text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_batter_exitvelo` (about 2,994 rows)
+
+last_name__first_name text, player_id text, attempts text, avg_hit_angle text, anglesweetspotpercent text, max_hit_speed text, avg_hit_speed text, ev50 text, fbld text, gb text, max_distance text, avg_distance text, avg_hr_distance text, ev95plus text, ev95percent text, barrels text, brl_percent text, brl_pa text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_batter_expected` (about 2,994 rows)
+
+last_name__first_name text, player_id text, year text, pa text, bip text, ba text, est_ba text, est_ba_minus_ba_diff text, slg text, est_slg text, est_slg_minus_slg_diff text, woba text, est_woba text, est_woba_minus_woba_diff text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_batter_percentile` (about 7,689 rows)
+
+player_name text, player_id text, year text, xwoba text, xba text, xslg text, xiso text, xobp text, brl text, brl_percent text, exit_velocity text, max_ev text, hard_hit_percent text, k_percent text, bb_percent text, whiff_percent text, chase_percent text, arm_strength text, sprint_speed text, oaa text, bat_speed text, squared_up_rate text, swing_length text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_catch_prob` (about 998 rows)
+
+last_name__first_name text, player_id text, oaa text, n_fieldout_5stars text, n_opp_5stars text, n_5star_percent text, n_fieldout_4stars text, n_opp_4stars text, n_4star_percent text, n_fieldout_3stars text, n_opp_3stars text, n_3star_percent text, n_fieldout_2stars text, n_opp_2stars text, n_2star_percent text, n_fieldout_1stars text, n_opp_1stars text, n_1star_percent text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_framing` (about 727 rows)
+
+id text, name text, pitches text, rv_tot text, pct_tot text, rv_11 text, pct_11 text, rv_12 text, pct_12 text, rv_13 text, pct_13 text, rv_14 text, pct_14 text, rv_16 text, pct_16 text, rv_17 text, pct_17 text, rv_18 text, pct_18 text, rv_19 text, pct_19 text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_jump` (about 1,062 rows)
+
+last_name__first_name text, resp_fielder_id text, year text, outs_above_average text, outs_per_play text, rel_league_burst_distance text, rel_league_reaction_distance text, rel_league_routing_distance text, rel_league_bootup_distance text, f_bootup_distance text, n text, n_outs text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_oaa` (about 2,973 rows)
+
+last_name__first_name text, player_id text, display_team_name text, year text, primary_pos_formatted text, fielding_runs_prevented text, outs_above_average text, outs_above_average_infront text, outs_above_average_lateral_toward3bline text, outs_above_average_lateral_toward1bline text, outs_above_average_behind text, outs_above_average_rhh text, outs_above_average_lhh text, actual_success_rate_formatted text, adj_estimated_success_rate_formatted text, diff_success_rate_formatted text, _season text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.statcast_oaa_direction` (about 998 rows)
+
+last_name__first_name text, player_id text, attempts text, n_outs_above_average text, n_oaa_slice_back_left text, n_oaa_slice_back text, n_oaa_slice_back_right text, n_oaa_slice_back_all text, n_oaa_slice_in_left text, n_oaa_slice_in text, n_oaa_slice_in_right text, n_oaa_slice_in_all text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_pitch` (about 13,670,898 rows)
+
+pitch_type text, game_date text, release_speed text, release_pos_x text, release_pos_z text, player_name text, batter text, pitcher text, events text, description text, spin_dir text, spin_rate_deprecated text, break_angle_deprecated text, break_length_deprecated text, zone text, des text, game_type text, stand text, p_throws text, home_team text, away_team text, type text, hit_location text, bb_type text, balls text, strikes text, game_year text, pfx_x text, pfx_z text, plate_x text, plate_z text, on_3b text, on_2b text, on_1b text, outs_when_up text, inning text, inning_topbot text, hc_x text, hc_y text, tfs_deprecated text, tfs_zulu_deprecated text, umpire text, sv_id text, vx0 text, vy0 text, vz0 text, ax text, ay text, az text, sz_top text, sz_bot text, hit_distance_sc text, launch_speed text, launch_angle text, effective_speed text, release_spin_rate text, release_extension text, game_pk text, fielder_2 text, fielder_3 text, fielder_4 text, fielder_5 text, fielder_6 text, fielder_7 text, fielder_8 text, fielder_9 text, release_pos_y text, estimated_ba_using_speedangle text, estimated_woba_using_speedangle text, woba_value text, woba_denom text, babip_value text, iso_value text, launch_speed_angle text, at_bat_number text, pitch_number text, pitch_name text, home_score text, away_score text, bat_score text, fld_score text, post_away_score text, post_home_score text, post_bat_score text, post_fld_score text, if_fielding_alignment text, of_fielding_alignment text, spin_axis text, delta_home_win_exp text, delta_run_exp text, bat_speed text, swing_length text, miss_distance text, estimated_slg_using_speedangle text, delta_pitcher_run_exp text, hyper_speed text, home_score_diff text, bat_score_diff text, home_win_exp text, bat_win_exp text, age_pit_legacy text, age_bat_legacy text, age_pit text, age_bat text, n_thruorder_pitcher text, n_priorpa_thisgame_player_at_bat text, pitcher_days_since_prev_game text, batter_days_since_prev_game text, pitcher_days_until_next_game text, batter_days_until_next_game text, api_break_z_with_gravity text, api_break_x_arm text, api_break_x_batter_in text, arm_angle text, attack_angle text, attack_direction text, swing_path_tilt text, intercept_ball_minus_batter_pos_x_inches text, intercept_ball_minus_batter_pos_y_inches text, _season text, _scope text, _loaded_at timestamp with time zone
+
+### `raw.statcast_pitcher_arsenal` (about 6,896 rows)
+
+last_name__first_name text, pitcher text, ff_avg_speed text, si_avg_speed text, fc_avg_speed text, sl_avg_speed text, ch_avg_speed text, cu_avg_speed text, fs_avg_speed text, kn_avg_speed text, st_avg_speed text, sv_avg_speed text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_pitcher_arsenal_stat` (about 17,440 rows)
+
+last_name__first_name text, player_id text, team_name_alt text, pitch_type text, pitch_name text, run_value_per_100 text, run_value text, pitches text, pitch_usage text, pa text, ba text, slg text, woba text, whiff_percent text, k_percent text, put_away text, est_ba text, est_slg text, est_woba text, hard_hit_percent text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_pitcher_exitvelo` (about 4,277 rows)
+
+last_name__first_name text, player_id text, attempts text, avg_hit_angle text, anglesweetspotpercent text, max_hit_speed text, avg_hit_speed text, ev50 text, fbld text, gb text, max_distance text, avg_distance text, avg_hr_distance text, ev95plus text, ev95percent text, barrels text, brl_percent text, brl_pa text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_pitcher_expected` (about 4,277 rows)
+
+last_name__first_name text, player_id text, year text, pa text, bip text, ba text, est_ba text, est_ba_minus_ba_diff text, slg text, est_slg text, est_slg_minus_slg_diff text, woba text, est_woba text, est_woba_minus_woba_diff text, era text, xera text, era_minus_xera_diff text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_pitcher_percentile` (about 8,227 rows)
+
+player_name text, player_id text, year text, xwoba text, xba text, xslg text, xiso text, xobp text, brl text, brl_percent text, exit_velocity text, max_ev text, hard_hit_percent text, k_percent text, bb_percent text, whiff_percent text, chase_percent text, arm_strength text, xera text, fb_velocity text, fb_spin text, curve_spin text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_poptime` (about 952 rows)
+
+entity_name text, entity_id text, team_id text, age text, maxeff_arm_2b_3b_sba text, exchange_2b_3b_sba text, pop_2b_sba_count text, pop_2b_sba text, pop_2b_cs text, pop_2b_sb text, pop_3b_sba_count text, pop_3b_sba text, pop_3b_cs text, pop_3b_sb text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_running_split` (about 6,297 rows)
+
+last_name__first_name text, player_id text, name_abbrev text, team_id text, position_name text, age text, bat_side text, seconds_since_hit_000 text, seconds_since_hit_005 text, seconds_since_hit_010 text, seconds_since_hit_015 text, seconds_since_hit_020 text, seconds_since_hit_025 text, seconds_since_hit_030 text, seconds_since_hit_035 text, seconds_since_hit_040 text, seconds_since_hit_045 text, seconds_since_hit_050 text, seconds_since_hit_055 text, seconds_since_hit_060 text, seconds_since_hit_065 text, seconds_since_hit_070 text, seconds_since_hit_075 text, seconds_since_hit_080 text, seconds_since_hit_085 text, seconds_since_hit_090 text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_spin_dir` (about 2,318 rows)
+
+year text, last_name__first_name text, name_abbrev text, player_id text, pitch_hand text, pitch_comp text, pitch_a text, pitch_name_a text, pitch_b text, pitch_name_b text, n_pitches text, n_pitch_a text, pitch_a_active_spin_formatted text, pitch_a_hawkeye_measured_clock text, pitch_a_hawkeye_measured_clock_label text, pitch_a_movement_inferred_clock text, pitch_a_movement_inferred_clock_label text, pitch_a_diff_measured_inferred_minutes text, n_pitch_b text, pitch_b_active_spin_formatted text, pitch_b_hawkeye_measured_clock text, pitch_b_hawkeye_measured_clock_label text, pitch_b_movement_inferred_clock text, pitch_b_movement_inferred_clock_label text, pitch_b_diff_measured_inferred_minutes text, gap_diff_measured_inferred_minutes text, diff_clock_label text, diff_measured_hours text, diff_inferred_hours text, _season text, _loaded_at timestamp with time zone
+
+### `raw.statcast_sprint_speed` (about 6,671 rows)
+
+last_name__first_name text, player_id text, team_id text, team text, position text, age text, competitive_runs text, bolts text, hp_to_1b text, sprint_speed text, _season text, _loaded_at timestamp with time zone

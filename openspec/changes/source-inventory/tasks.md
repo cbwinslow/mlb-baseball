@@ -4,8 +4,8 @@
 
 - [x] 1.1 Verify the origin and licence of the community MLB OpenAPI file and record it in `docs/SOURCE_RIGHTS.md`; verify the entry exists (absorbs `full-source-ingestion` 0.3)
 - [x] 1.2 For the MLB Stats API, probe each endpoint family against live responses and record fields, first valid year and request cost in `docs/sources/mlb_api.md`; verify every endpoint is marked wanted, scope or unavailable with a reason (absorbs `full-source-ingestion` 1.1)
-- [ ] 1.3 Audit pybaseball: list every function, mark working, broken or already replaced by our connector, and record in `docs/sources/` ; verify no transactions, trades, umpire or park-factor source is unaccounted for
-- [ ] 1.4 Complete the inventory page for Savant, FanGraphs, Baseball-Reference, Retrosheet, Lahman, Chadwick, Kalshi and Polymarket (every board, file and table, with fields); verify the docs check passes
+- [x] 1.3 Audit pybaseball: list every function, mark working, broken or already replaced by our connector, and record in `docs/sources/` ; verify no transactions, trades, umpire or park-factor source is unaccounted for
+- [x] 1.4 Complete the inventory page for Savant, FanGraphs, Baseball-Reference, Retrosheet, Lahman, Chadwick, Kalshi and Polymarket (every board, file and table, with fields); verify the docs check passes
 - [ ] 1.5 Evaluate `dlt` and the community baseball MCP servers (stars, licence, activity, what they add over our code); record the decision and reasons in an ADR; verify nothing is installed without owner approval
 
 ## 2. Drift check (tests first)

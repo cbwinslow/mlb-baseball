@@ -166,3 +166,10 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Review (read-only): every Kalshi series and Polymarket event held is MLB (one WBC Polymarket event of 11,593; the 44 Kalshi baseball series not held are all non-MLB). Only game-winner markets reach `core.market`; props, futures and all price history (Kalshi candles 36 GB, Polymarket prices 100 GB) are read by nothing yet. **Owner decision: keep all of it.**
 - Re-probe: Kalshi history cutoff moved to 2026-08-08; Kalshi game markets held from 2025-04-16 (not 2026); source lists 230 baseball series, not 199. Polymarket 30-day price window still rejected. Both pages corrected; unverified items are listed on each page.
 - Not done: row-level price/result validation; the Kalshi/Polymarket backfills stay deferred (owner).
+
+### 2026-10-08 UTC: task 2.5 done (Kalshi and Polymarket backfills run)
+- Commands (production, owner "run the kalshi and polymarket ingestions in the background until they are done"): `mlb ingest kalshi --mode backfill` and `mlb ingest polymarket --mode backfill`, each run twice.
+- Before: Kalshi 1,492 and Polymarket 5,750 items missing (candles / price windows).
+- Result: Polymarket 3,954 then 4,064 requests, about 73.6M and 73.7M price rows, about 16 min each. Kalshi 3,568 markets (2 failed, retried) then 3,125 markets, about 7.8M candle rows in the second pass. `mlb coverage --unexplained` says "nothing to report" for both sources.
+- Why two runs each: the plan is fixed when a run starts, so markets opened or closed during the run were picked up by the second. Earlier "about 18 hours" Polymarket estimates came from the first item and were wrong.
+- Still open: a bounded nightly backfill (3.3) so the gap does not reopen; the nightly coverage step will alert again as new markets arrive.

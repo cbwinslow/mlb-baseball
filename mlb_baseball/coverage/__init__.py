@@ -36,11 +36,12 @@ def run(
     missing_only: bool = False,
     probe: bool = False,
     unexplained_only: bool = False,
+    light: bool = False,
 ) -> bool:
     """Print the report; return True when any table in it has a gap (checked before
     ``missing_only`` hides the clean tables). With ``unexplained_only`` only tables with a gap not
     listed in ``accepted_gaps.toml`` (up to its ceiling) are reported and counted."""
-    report = collect(source=source, table=table, probe=probe)
+    report = collect(source=source, table=table, probe=probe, light=light)
     has_gap = report.has_gap
     if unexplained_only:
         report = report.unexplained(load_accepted_gaps())

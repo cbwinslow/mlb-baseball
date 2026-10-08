@@ -182,3 +182,10 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Statcast (before/after): before, 4 games of 2026-10-05/06 missing; after, all four hold 261-300 pitches. Max `game_date` is now 2026-10-06; the 4 games of 2026-10-07 show as missing and should arrive with the next nightly. Unverified until then.
 - 2027 schedule (before/after): before, 0 games held; after, 2,500 games Feb-Sep 2027 in `raw.mlb_schedule`. Loaded by the nightly.
 - Docs: `docs/RAW_INVENTORY.md` was stale (Kalshi candles listed as 7.3M, actual 213M; Polymarket prices 598M, actual 608M); regenerated with `mlb inventory --exact --markdown`.
+
+### 2026-10-08 UTC: nightly made self-repairing (branch fix/nightly-repair-apply, ADR-303)
+- Cause (from `logs/mlb_daily_update.log`, last 8 nights): 7 passed; 10-05 failed because a manual Polymarket backfill held the ingest lock; 10-08 failed only at the coverage step, which was right (about 1,000 new Kalshi markets a day and nothing filling them) and took 2,304 s.
+- Owner: "yes" to a nightly that fills the safe gaps itself and checks coverage faster.
+- Change: nightly order is now schema-watch, `repair --apply`, then `coverage ... --light`. `--light` skips exact row counts and date scans. Measured against production (read-only): 189 s versus 2,304 s, same four gaps.
+- Tests: light mode keeps status and gaps; nightly order (repair before coverage); a failed repair fails the run and alerts.
+- Still to verify after merge: the first nightly that applies it (Kalshi and Polymarket gaps close; coverage passes). Task 3.3 is ticked only after that.

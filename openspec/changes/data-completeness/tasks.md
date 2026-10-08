@@ -23,7 +23,7 @@ Progress is tracked here; reasons and results are in `log.md`. Tick a box only w
 - [x] 2.2 (147 -> 1) 147 roster players missing from `raw.mlb_person` (widening is `full-source-ingestion` 0.14)
 - [x] 2.3 FanGraphs fielding 2019
 - [ ] 2.4 Statcast (check after tonight run): 4 games of 2026-10-05/06 (heals with `mlb ingest statcast --mode update`; the 2008-10-29 "missing date" was a false alarm, see log)
-- [ ] 2.5 (deferred by owner 2026-10-07; connector reviewed, nothing to build) Kalshi (744) and Polymarket (3,560) 2026 items
+- [x] 2.5 (done 2026-10-08; owner approved running both backfills) Kalshi and Polymarket 2026 items: `mlb coverage --unexplained` reports nothing for either source. A bounded nightly backfill (so the gap stops reopening) stays open under 3.3
 - [x] 2.8 (done, 2024 stats included) MLB reference and stat seasons missing: 2006, 2017-2025 for player pool, coaches, alumni, game pace, free agents, player/team stats and leaders (found 2026-10-07; source serves them; `mlb ingest mlb_api --mode bootstrap` fills them and the old linescores)
 - [x] 2.6 (venues: false gap fixed; team ids: accepted, see log) Other gaps found in 1.6, one task each
 - [x] 2.7 (done per repair, see log) After each repair: re-run coverage, record before/after in `log.md`

@@ -53,7 +53,6 @@ OPTIONAL_EXTENSIONS = (
     "hypopg",
     "pg_hint_plan",
     "orafce",
-    "pg_duckdb",
     "vectorscale",
     "pg_graphql",
     "pg_column_tetris",

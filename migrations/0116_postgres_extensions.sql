@@ -55,13 +55,19 @@ BEGIN
             RAISE NOTICE 'extension % not in shared_preload_libraries; skipped', ext.name;
             CONTINUE;
         END IF;
-        IF ext.schema_name IS NOT NULL THEN
-            EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I', ext.schema_name);
-            EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I SCHEMA %I CASCADE',
-                           ext.name, ext.schema_name);
-        ELSE
-            EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I CASCADE', ext.name);
-        END IF;
+        BEGIN
+            IF ext.schema_name IS NOT NULL THEN
+                EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I', ext.schema_name);
+                EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I SCHEMA %I CASCADE',
+                               ext.name, ext.schema_name);
+            ELSE
+                EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I CASCADE', ext.name);
+            END IF;
+        EXCEPTION WHEN duplicate_function OR duplicate_object THEN
+            -- e.g. pg_duckdb vs timescaledb_toolkit both define approx_count_distinct
+            RAISE NOTICE 'extension % conflicts with an installed object (%); skipped',
+                         ext.name, SQLERRM;
+        END;
     END LOOP;
 END
 $$;

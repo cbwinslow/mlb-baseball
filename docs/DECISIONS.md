@@ -15,6 +15,11 @@ deliberate exception to `migrations/AGENTS.md` "no speculative extensions":
 the owner chose breadth over minimalism. `scripts/pg_extensions_install.sh`
 is the bootstrap path; `mlb doctor` reports presence.
 
+**Not enabled in `mlb`:** `pg_duckdb` is installed and preloaded but conflicts with
+`timescaledb_toolkit` (both define `approx_count_distinct`; verified); the migration skips
+it with a NOTICE. Python `duckdb` already attaches to Postgres for the project's DuckDB SQL.
+Enable it in its own database if wanted.
+
 **Not included:** `mobilitydb` is installed on the server but conflicts with
 `btree_gist` (duplicate `<->` operator; verified), which migration 0099 already
 enables, so trajectories need their own database or a decision to drop `btree_gist`.

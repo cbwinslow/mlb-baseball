@@ -35,8 +35,11 @@ if [[ "${1:-}" == "--preload" ]]; then
     case ",${new}," in *",${lib},"*) ;; *) new="${new:+$new,}$lib" ;; esac
   done
   if [[ "$new" != "$current" ]]; then
+    # A list GUC must be given as separate items ('a','b'); one string 'a,b' is
+    # stored as a single library name and the server then fails to start.
+    items="$(printf '%s' "$new" | sed "s/,/','/g")"
     psql -p "$PGPORT" -d "$PGDATABASE" -v ON_ERROR_STOP=1 \
-      -c "ALTER SYSTEM SET shared_preload_libraries = '$new'"
+      -c "ALTER SYSTEM SET shared_preload_libraries = '$items'"
     echo "shared_preload_libraries -> $new (restart the cluster to activate)"
   else
     echo "shared_preload_libraries already complete"

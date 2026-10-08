@@ -18,6 +18,7 @@ what repair could not fix.
 
 **Revisit if:** a repair hides a real fault (see ADR-301), the nightly runs past its window,
 or a count or date range is needed in the nightly log (then add it back for one table).
+
 ## ADR-302: Owner-requested extension toolbox, optional per server
 
 **Decision (2026-10-08).** On the owner's explicit request, migration
@@ -44,6 +45,7 @@ enables, so trajectories need their own database or a decision to drop `btree_gi
 `multicorn2` have no PGDG package for PG16 (source builds); `pgaudit` needs preload
 and adds log volume. Each needs its own change with a named consumer.
 Installed but unused extensions only cost catalog size and `pg_upgrade` risk.
+
 
 ## ADR-301: Drift is detected nightly and reported until accepted; repair runs only a fixed safe list
 

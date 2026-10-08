@@ -19,6 +19,34 @@ what repair could not fix.
 **Revisit if:** a repair hides a real fault (see ADR-301), the nightly runs past its window,
 or a count or date range is needed in the nightly log (then add it back for one table).
 
+## ADR-302: Owner-requested extension toolbox, optional per server
+
+**Decision (2026-10-08).** On the owner's explicit request, migration
+`0116_postgres_extensions.sql` creates 16 extensions from the PGDG packages
+(pg_similarity, fuzzystrmatch, roaringbitmap, pg_uuidv7, pg_ivm,
+plpgsql_check, pgtap, pg_partman, pg_repack, pg_buffercache, timescaledb_toolkit,
+the two plpython transforms, hypopg, pg_hint_plan, orafce) plus pg_stat_kcache and
+pg_qualstats, pg_search (ParadeDB .deb) and pg_duckdb (built from source, tag v1.1.1, `make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config`; needs libcurl4-openssl-dev) when preloaded. Each is created only if the server ships it, so a
+stock `postgres:16` image (CI, a new contributor) still migrates. This is a
+deliberate exception to `migrations/AGENTS.md` "no speculative extensions":
+the owner chose breadth over minimalism. `scripts/pg_extensions_install.sh`
+is the bootstrap path; `mlb doctor` reports presence.
+
+**Coexistence (and caution):** `pg_duckdb` and `timescaledb_toolkit` both define `public.approx_count_distinct`,
+so the toolkit is installed in schema `toolkit` (call `toolkit.approx_percentile(...)`) and
+`pg_duckdb` stays in `public` (verified; nothing depended on the toolkit when it was moved). Leave
+`duckdb.force_execution` off: forcing a scan of `core.player` hung for minutes. It is created last in
+migration 0116 because its DDL hook rejects other extension scripts' GRANTs.
+
+**Not included:** `mobilitydb` is installed on the server but conflicts with
+`btree_gist` (duplicate `<->` operator; verified), which migration 0099 already
+enables, so trajectories need their own database or a decision to drop `btree_gist`.
+`pg_duckdb`, `pgvectorscale`, `pgai`, `pg_graphql`, `pgml`,
+`multicorn2` have no PGDG package for PG16 (source builds); `pgaudit` needs preload
+and adds log volume. Each needs its own change with a named consumer.
+Installed but unused extensions only cost catalog size and `pg_upgrade` risk.
+
+
 ## ADR-301: Drift is detected nightly and reported until accepted; repair runs only a fixed safe list
 
 **Decision (2026-10-07).** `mlb schema-watch` compares one small sample per dataset with a saved

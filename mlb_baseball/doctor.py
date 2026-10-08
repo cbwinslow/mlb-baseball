@@ -35,6 +35,34 @@ from mlb_baseball.health import Check, check_never_vacuumed
 from mlb_baseball.model import experiment, feature_select_stepwise
 from mlb_baseball.registry import CONNECTORS
 
+# Created by migrations/0116_postgres_extensions.sql when the server has them.
+OPTIONAL_EXTENSIONS = (
+    "fuzzystrmatch",
+    "pg_similarity",
+    "roaringbitmap",
+    "pg_uuidv7",
+    "pg_ivm",
+    "plpgsql_check",
+    "pgtap",
+    "pg_partman",
+    "pg_repack",
+    "pg_buffercache",
+    "timescaledb_toolkit",
+    "jsonb_plpython3u",
+    "hstore_plpython3u",
+    "pg_duckdb",
+    "hypopg",
+    "pg_hint_plan",
+    "orafce",
+    "vectorscale",
+    "pg_graphql",
+    "pg_column_tetris",
+    "multicorn",
+    "pg_stat_kcache",
+    "pg_qualstats",
+    "pg_search",
+)
+
 
 def _database_reachable() -> Check:
     try:
@@ -144,6 +172,36 @@ def _analytics_extensions_enabled() -> Check:
         )
     detail = ", ".join(f"{ext} {installed[ext]}" for ext in required)
     return Check("analytics extensions", True, f"installed ({detail})")
+
+
+def _optional_extensions() -> Check:
+    """Reports which of migration 0116's optional extensions are installed.
+    Informational: they are optional by design (ADR-302), so absence is never a
+    failure -- but a package that is installed on the server yet not created in
+    this database is, since that means 0116 ran before the install."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT a.name, e.extname IS NOT NULL FROM pg_available_extensions a "
+                "LEFT JOIN pg_extension e ON e.extname = a.name WHERE a.name = ANY(%s)",
+                (list(OPTIONAL_EXTENSIONS),),
+            )
+            state = dict(cur.fetchall())
+    pending = sorted(n for n, created in state.items() if not created)
+    present = sorted(n for n, created in state.items() if created)
+    absent = sorted(set(OPTIONAL_EXTENSIONS) - set(state))
+    detail = f"{len(present)} installed"
+    if absent:
+        detail += f"; not on server: {', '.join(absent)}"
+    if pending:
+        return Check(
+            "optional extensions",
+            False,
+            detail + f"; available but not created: {', '.join(pending)} -- "
+            "run `psql -f migrations/0116_postgres_extensions.sql` (a preload-only "
+            "one also needs shared_preload_libraries + restart)",
+        )
+    return Check("optional extensions", True, detail)
 
 
 def _stale_ingestion_runs() -> Check:
@@ -273,6 +331,7 @@ _CORE_CHECKS = [
     ("downloads directory", _downloads_directory_ok),
     ("pg_stat_statements", _pg_stat_statements_enabled),
     ("analytics extensions", _analytics_extensions_enabled),
+    ("optional extensions", _optional_extensions),
     ("stale ingestion runs", _stale_ingestion_runs),
     ("silent ingestion runs", _silent_runs),
     ("metric catalog", _metric_catalog_in_sync),

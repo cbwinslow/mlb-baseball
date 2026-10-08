@@ -2,6 +2,27 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-302: Owner-requested extension toolbox, optional per server
+
+**Decision (2026-10-08).** On the owner's explicit request, migration
+`0116_postgres_extensions.sql` creates 16 extensions from the PGDG packages
+(pg_similarity, fuzzystrmatch, roaringbitmap, pg_uuidv7, pg_ivm,
+plpgsql_check, pgtap, pg_partman, pg_repack, pg_buffercache, timescaledb_toolkit,
+the two plpython transforms, hypopg, pg_hint_plan, orafce) plus pg_stat_kcache and
+pg_qualstats, pg_search (ParadeDB .deb) and pg_duckdb (built from source, tag v1.1.1, `make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config`; needs libcurl4-openssl-dev) when preloaded. Each is created only if the server ships it, so a
+stock `postgres:16` image (CI, a new contributor) still migrates. This is a
+deliberate exception to `migrations/AGENTS.md` "no speculative extensions":
+the owner chose breadth over minimalism. `scripts/pg_extensions_install.sh`
+is the bootstrap path; `mlb doctor` reports presence.
+
+**Not included:** `mobilitydb` is installed on the server but conflicts with
+`btree_gist` (duplicate `<->` operator; verified), which migration 0099 already
+enables, so trajectories need their own database or a decision to drop `btree_gist`.
+`pg_duckdb`, `pgvectorscale`, `pgai`, `pg_graphql`, `pgml`,
+`multicorn2` have no PGDG package for PG16 (source builds); `pgaudit` needs preload
+and adds log volume. Each needs its own change with a named consumer.
+Installed but unused extensions only cost catalog size and `pg_upgrade` risk.
+
 ## ADR-301: Drift is detected nightly and reported until accepted; repair runs only a fixed safe list
 
 **Decision (2026-10-07).** `mlb schema-watch` compares one small sample per dataset with a saved

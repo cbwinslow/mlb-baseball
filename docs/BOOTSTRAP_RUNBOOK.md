@@ -135,3 +135,32 @@ The supported configuration contract is deliberately small. If an environment
 needs different capacity or retention choices, the operator supplies those
 values through PostgreSQL and the existing `.env`/`mlb.toml` overrides rather
 than selecting a project-defined machine profile.
+
+## Optional PostgreSQL extensions (ADR-302)
+
+The database works on a stock PostgreSQL 16 server; extra extensions are a bonus.
+To get the full toolbox on a Debian/Ubuntu PGDG server:
+
+```bash
+scripts/pg_extensions_install.sh --preload   # apt packages + preload list (no restart)
+sudo systemctl restart postgresql@16-main    # activates pg_stat_kcache / pg_qualstats
+psql -d mlb -f migrations/0116_postgres_extensions.sql   # idempotent; or `mlb migrate` on a new DB
+mlb doctor                                   # "optional extensions" shows what is present
+```
+
+Migration 0116 skips any extension whose package is missing, so a server without
+them still migrates. `pg_duckdb`, `pgvectorscale`, `pgai`, `pg_graphql`,
+`pgml` and `multicorn2` have no PGDG package and are not included (ADR-302).
+
+`pg_search` (ParadeDB `.deb` release) and `pg_duckdb` (source build) are not in apt.
+Install them by hand before running the preload step; `pg_duckdb`:
+`git clone --branch v1.1.1 --recurse-submodules https://github.com/duckdb/pg_duckdb.git`,
+then `make -j8 PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config && sudo make install PG_CONFIG=...`
+(needs `libcurl4-openssl-dev`, `postgresql-server-dev-16`).
+
+`scripts/pg_extensions_github.sh` installs everything else that has no apt package
+(pgvectorscale, pg_graphql, pg_column_tetris, multicorn2, tbls, pgEdge MCP server,
+postgres_dba, Atlas, the postgresai and azimutt CLIs, pgai). Not installed on the shared
+cluster: `pg_vectorize` (needs pgmq + a moved `cron.database_name`) and PostgresML
+`pgml` (no PG16/Ubuntu 24.04 package, Python ML stack in the server process); both
+belong on a separate throwaway cluster if wanted (ADR-302).

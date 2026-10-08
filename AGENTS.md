@@ -243,6 +243,7 @@ Start here for deeper shared context:
 | Child | Scope |
 | --- | --- |
 | [`.github/AGENTS.md`](.github/AGENTS.md) | GitHub Actions, CI/security automation, repository workflow metadata. |
+| [`changelog/AGENTS.md`](changelog/AGENTS.md) | Chronological operational changelogs, server administration logs, and milestone audit records. |
 | [`docs/AGENTS.md`](docs/AGENTS.md) | Living docs, ADRs, plans/runbooks, citations, documentation ownership. |
 | [`migrations/AGENTS.md`](migrations/AGENTS.md) | PostgreSQL DDL/schema evolution and migration safety. |
 | [`mlb_baseball/AGENTS.md`](mlb_baseball/AGENTS.md) | Python package architecture and package-level progressive context. |

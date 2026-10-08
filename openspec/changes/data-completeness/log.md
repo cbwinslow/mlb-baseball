@@ -173,3 +173,12 @@ Append only, newest at the bottom. Format in `goal.md`.
 - Result: Polymarket 3,954 then 4,064 requests, about 73.6M and 73.7M price rows, about 16 min each. Kalshi 3,568 markets (2 failed, retried) then 3,125 markets, about 7.8M candle rows in the second pass. `mlb coverage --unexplained` says "nothing to report" for both sources.
 - Why two runs each: the plan is fixed when a run starts, so markets opened or closed during the run were picked up by the second. Earlier "about 18 hours" Polymarket estimates came from the first item and were wrong.
 - Still open: a bounded nightly backfill (3.3) so the gap does not reopen; the nightly coverage step will alert again as new markets arrive.
+
+### 2026-10-08 UTC: nightly run checked (goal 2 follow-up, read-only)
+- Nightly 2026-10-08 (`logs/mlb_daily_update.log`): migrate ok (4 s), update ok (18 min, 1 attempt), conform ok (47 min), report ok (12 min), predict ok (46 min), populated 9/9, **coverage FAILED rc=1 after 2,304 s and the alert fired** (as designed).
+- Gaps the new coverage step reported: Kalshi 1,175 markets (926 finalized + 249 still open, all created 2026-10-07 06:45 to 2026-10-08 05:24, i.e. after the backfill I ran at 23:28-03:00); Polymarket 3,824 windows (2026); Statcast 4 games; mlb_person (the roster line, 1 person, plus out-of-scope ids).
+- Finding: **the Kalshi and Polymarket gap reopens every day** (about 1,000 new Kalshi markets a day, game-day props), so the nightly alert will fire every night until task 3.3 builds a bounded nightly backfill. Not built; it changes what the nightly writes to production, so it waits for the owner.
+- Finding: **the coverage step took 38 min** (while two extra coverage runs and a backfill-sized load were also hitting the database). It scans the date range of the 213M-row Kalshi and 608M-row Polymarket tables. To measure alone, then cheapen (follow-up under 3.3).
+- Statcast (before/after): before, 4 games of 2026-10-05/06 missing; after, all four hold 261-300 pitches. Max `game_date` is now 2026-10-06; the 4 games of 2026-10-07 show as missing and should arrive with the next nightly. Unverified until then.
+- 2027 schedule (before/after): before, 0 games held; after, 2,500 games Feb-Sep 2027 in `raw.mlb_schedule`. Loaded by the nightly.
+- Docs: `docs/RAW_INVENTORY.md` was stale (Kalshi candles listed as 7.3M, actual 213M; Polymarket prices 598M, actual 608M); regenerated with `mlb inventory --exact --markdown`.

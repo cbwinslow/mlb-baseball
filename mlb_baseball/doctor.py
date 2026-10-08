@@ -50,6 +50,7 @@ OPTIONAL_EXTENSIONS = (
     "timescaledb_toolkit",
     "jsonb_plpython3u",
     "hstore_plpython3u",
+    "pg_duckdb",
     "hypopg",
     "pg_hint_plan",
     "orafce",

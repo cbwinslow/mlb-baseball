@@ -36,7 +36,10 @@ def test_pg_similarity_jaro_winkler(db_conn):
 
 
 def test_timescaledb_toolkit_percentile(db_conn):
-    sql = "SELECT approx_percentile(0.5, percentile_agg(x)) > 0 FROM generate_series(1,100) x"
+    sql = (
+        "SELECT toolkit.approx_percentile(0.5, toolkit.percentile_agg(x)) > 0 "
+        "FROM generate_series(1,100) x"
+    )
     assert _scalar(db_conn, "timescaledb_toolkit", sql) is True
 
 
@@ -90,3 +93,12 @@ def test_multicorn_handler_function(db_conn):
 def test_pg_column_tetris_installed(db_conn):
     sql = "SELECT count(*) > 0 FROM pg_proc WHERE proname = 'compute_layout'"
     assert _scalar(db_conn, "pg_column_tetris", sql) is True
+
+
+def test_pg_duckdb_and_toolkit_coexist(db_conn):
+    # Both define approx_count_distinct, so the toolkit lives in schema `toolkit`
+    # and pg_duckdb in public. (duckdb.query() itself is rejected inside a test
+    # transaction wrapper, so assert the extension objects rather than run it.)
+    sql = "SELECT count(*) FROM pg_proc WHERE proname = 'approx_count_distinct'"
+    assert _scalar(db_conn, "pg_duckdb", sql) == 2
+    assert _scalar(db_conn, "timescaledb_toolkit", sql) == 2

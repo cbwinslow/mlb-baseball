@@ -9,6 +9,9 @@
 --   psql -d <db> -f migrations/0116_postgres_extensions.sql
 -- `mlb doctor` reports which are present.
 --
+-- timescaledb_toolkit lives in schema `toolkit` (call toolkit.approx_percentile(...)):
+-- both it and pg_duckdb define public.approx_count_distinct, so they cannot share `public`.
+--
 -- Extensions that need shared_preload_libraries (pg_stat_kcache, pg_qualstats)
 -- are created only when actually preloaded; creating them without the preload
 -- either errors or records nothing.
@@ -30,20 +33,21 @@ BEGIN
             ('pg_partman',          'partman', false),
             ('pg_repack',           NULL,      false),
             ('pg_buffercache',      NULL,      false),
-            ('timescaledb_toolkit', NULL,      false),
+            ('timescaledb_toolkit', 'toolkit', false),
             ('jsonb_plpython3u',    NULL,      false),
             ('hstore_plpython3u',   NULL,      false),
             ('hypopg',              NULL,      false),
             ('pg_hint_plan',        NULL,      false),
             ('orafce',              NULL,      false),
-            ('pg_duckdb',           NULL,      true),
-            ('pg_stat_kcache',      NULL,      true),
-            ('pg_qualstats',        NULL,      true),
+            ('pg_stat_kcache',      'public',  true),
+            ('pg_qualstats',        'public',  true),
             ('vectorscale',         NULL,      false),
             ('pg_graphql',          NULL,      false),
             ('pg_column_tetris',    NULL,      false),
             ('multicorn',           NULL,      false),
-            ('pg_search',           NULL,      true)
+            ('pg_search',           NULL,      true),
+            -- last: its DDL hooks reject the GRANTs other extension scripts run
+            ('pg_duckdb',           NULL,      true)
         ) AS t(name, schema_name, needs_preload)
     LOOP
         IF NOT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = ext.name) THEN
@@ -57,7 +61,9 @@ BEGIN
         END IF;
         BEGIN
             IF ext.schema_name IS NOT NULL THEN
-                EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I', ext.schema_name);
+                IF ext.schema_name <> 'public' THEN
+                    EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I', ext.schema_name);
+                END IF;
                 EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I SCHEMA %I CASCADE',
                                ext.name, ext.schema_name);
             ELSE

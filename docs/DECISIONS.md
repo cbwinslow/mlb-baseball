@@ -15,10 +15,11 @@ deliberate exception to `migrations/AGENTS.md` "no speculative extensions":
 the owner chose breadth over minimalism. `scripts/pg_extensions_install.sh`
 is the bootstrap path; `mlb doctor` reports presence.
 
-**Not enabled in `mlb`:** `pg_duckdb` is installed and preloaded but conflicts with
-`timescaledb_toolkit` (both define `approx_count_distinct`; verified); the migration skips
-it with a NOTICE. Python `duckdb` already attaches to Postgres for the project's DuckDB SQL.
-Enable it in its own database if wanted.
+**Coexistence (and caution):** `pg_duckdb` and `timescaledb_toolkit` both define `public.approx_count_distinct`,
+so the toolkit is installed in schema `toolkit` (call `toolkit.approx_percentile(...)`) and
+`pg_duckdb` stays in `public` (verified; nothing depended on the toolkit when it was moved). Leave
+`duckdb.force_execution` off: forcing a scan of `core.player` hung for minutes. It is created last in
+migration 0116 because its DDL hook rejects other extension scripts' GRANTs.
 
 **Not included:** `mobilitydb` is installed on the server but conflicts with
 `btree_gist` (duplicate `<->` operator; verified), which migration 0099 already

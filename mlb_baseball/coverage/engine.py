@@ -143,12 +143,12 @@ def _fix(template: str, groups: Sequence[Group]) -> str:
     return template
 
 
-def _status(groups: list[Group], rows: int | None) -> str:
+def _status(groups: list[Group], has_rows: bool) -> str:
     expected = sum(g.expected for g in groups)
     held = sum(g.held for g in groups)
     if expected == 0:
         return "no_basis"
-    if held == 0 and not rows:
+    if held == 0 and not has_rows:
         return "empty"
     if sum(g.missing for g in groups) > 0:
         return "missing"
@@ -184,15 +184,26 @@ def _data_dates(
     return first, last, int(bad)
 
 
-def _measure(cur: psycopg.Cursor, dataset: Dataset, probe: bool = False) -> TableReport:
+def _measure(
+    cur: psycopg.Cursor, dataset: Dataset, probe: bool = False, light: bool = False
+) -> TableReport:
+    """``light`` skips the exact row count and the date-range scan, which only decorate the
+    report but take minutes on the Kalshi and Polymarket price tables; whether the table is
+    empty (all the verdict needs) is one indexed-free ``EXISTS`` probe."""
     spec = dataset.spec
     rows: int | None = None
+    has_rows = False
     if not isinstance(spec, LABEL_SPECS) and _exists(cur, dataset.table):
-        cur.execute(f"SELECT count(*) FROM {dataset.table}")
-        (rows,) = fetch_one(cur)
+        if light:
+            cur.execute(f"SELECT EXISTS (SELECT 1 FROM {dataset.table})")
+            (has_rows,) = fetch_one(cur)
+        else:
+            cur.execute(f"SELECT count(*) FROM {dataset.table}")
+            (rows,) = fetch_one(cur)
+            has_rows = bool(rows)
 
-    dates = _data_dates(cur, dataset, rows)
-    live = dataset.live.measure(cur, dataset.table) if probe and dataset.live and rows else None
+    dates = (None, None, None) if light else _data_dates(cur, dataset, rows)
+    live = dataset.live.measure(cur, dataset.table) if probe and dataset.live and has_rows else None
 
     def report(status: str, expectation: str, groups: list[Group]) -> TableReport:
         return TableReport(
@@ -224,7 +235,7 @@ def _measure(cur: psycopg.Cursor, dataset: Dataset, probe: bool = False) -> Tabl
         needs = ", ".join(absent)
         return report("inputs_absent", f"{spec.expectation}; needs {needs}, which do not exist", [])
     groups = spec.measure(cur, dataset.table)
-    status = _status(groups, rows)
+    status = _status(groups, has_rows)
     expectation = spec.expectation
     if status == "no_basis":
         expectation += "; no final games, ledger items or manifest entries to derive it from"
@@ -262,12 +273,14 @@ def collect(
     table: str | None = None,
     datasets: Sequence[Dataset] | None = None,
     probe: bool = False,
+    light: bool = False,
 ) -> Report:
-    """Measure ``datasets`` (default: the registry plus any unregistered raw table)."""
+    """Measure ``datasets`` (default: the registry plus any unregistered raw table).
+    ``light`` leaves out row counts and date ranges (the verdict and the gaps are the same)."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("SET TRANSACTION READ ONLY")
         chosen = list(DATASETS if datasets is None else datasets)
         if datasets is None:
             chosen += _unregistered(cur, {d.table for d in chosen})
-        reports = [_measure(cur, d, probe) for d in chosen if _matches(d, source, table)]
+        reports = [_measure(cur, d, probe, light) for d in chosen if _matches(d, source, table)]
     return Report(reports)

@@ -77,11 +77,22 @@ def _is_label(name: str) -> bool:
     return name.startswith("downloads/") or name == SCHEDULE_SETTLED_LABEL
 
 
+def _holds_no_rows(table: TableReport) -> bool:
+    """Known empty or absent; a `--light` report that skipped the count says nothing."""
+    return table.rows == 0 or table.status in ("table_absent", "empty")
+
+
 def _table_text(table: TableReport) -> list[str]:
     if _is_label(table.table):
         rows = "local file" if table.table.startswith("downloads/") else "derived from other tables"
     else:
-        rows = "table absent" if table.rows is None else f"{table.rows:,} rows"
+        rows = (
+            "table absent"
+            if table.status == "table_absent"
+            else "row count skipped"
+            if table.rows is None
+            else f"{table.rows:,} rows"
+        )
     if table.status == "no_expectation":
         return [f"  {table.table}: no expectation defined: {table.expectation} ({rows})"]
     lines = [f"  {table.table} [{table.unit}]: {STATUS_LABEL[table.status]} ({rows})"]
@@ -115,7 +126,7 @@ def render_text(report: Report) -> str:
     lines: list[str] = []
     for source, tables in _by_source(report).items():
         lines.append(f"== {source}: {len(tables)} tables, {_summary(tables)} ==")
-        if all(not t.rows for t in tables if not _is_label(t.table)):
+        if all(_holds_no_rows(t) for t in tables if not _is_label(t.table)):
             lines.append("  source holds no rows in any table")
         for table in tables:
             lines += _table_text(table)

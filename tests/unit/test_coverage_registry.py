@@ -66,7 +66,15 @@ def test_cli_coverage_dispatches_options(monkeypatch):
         "missing_only": False,
         "probe": False,
         "unexplained_only": False,
+        "light": False,
     }
+
+
+def test_cli_coverage_passes_the_light_flag(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli.coverage, "run", lambda **kwargs: seen.update(kwargs))
+    cli.main(["coverage", "--light"])
+    assert seen["light"] is True
 
 
 def test_cli_coverage_fail_on_gap_sets_the_exit_code(monkeypatch):

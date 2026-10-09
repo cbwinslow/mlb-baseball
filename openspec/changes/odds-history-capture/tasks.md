@@ -21,6 +21,7 @@
 
 - [x] 4.1 Run existing backfill tests; add failing tests for interrupted-resume and no-trade-candle-as-NULL if missing
 - [ ] 4.2 Owner approval (plain words): run Polymarket backfill on production; log result in `pipeline-recovery/results.md`
+  - Superseded 2026-10-09: done under `odds-bulk-history` (470,754 token-windows loaded, 0 failed); see `openspec/HANDOFF.md`. Left unticked until the loaded row counts are confirmed.
 - [ ] 4.3 Owner approval: run Kalshi backfill on production; log result; verify row counts against source for 3 sample markets
 
 ## 5. Health and schedule

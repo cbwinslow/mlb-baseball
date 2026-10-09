@@ -186,7 +186,7 @@ def _optional_extensions() -> Check:
                 "LEFT JOIN pg_extension e ON e.extname = a.name WHERE a.name = ANY(%s)",
                 (list(OPTIONAL_EXTENSIONS),),
             )
-            state = dict(cur.fetchall())
+            state: dict[str, bool] = dict(cur.fetchall())
     pending = sorted(n for n, created in state.items() if not created)
     present = sorted(n for n, created in state.items() if created)
     absent = sorted(set(OPTIONAL_EXTENSIONS) - set(state))

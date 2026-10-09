@@ -49,7 +49,7 @@
 
 - [x] 5.1 Review changed docs for contradictory current-state claims and broken
   relative links.
-- [ ] 5.2 Run `openspec validate governance-convergence` and the repository's
+- [x] 5.2 Run `openspec validate governance-convergence` and the repository's
   documentation/DOX checks when available; record any environment limitation
   rather than claiming an unrun check passed. Current tool runtime does not
   provide the `openspec` CLI; PR #305 CI/link checks are the available remote
@@ -68,5 +68,5 @@
 - [x] 6.3 Extend the disposition map with bounded future
   `sabermetric-formula-consolidation` and `library-source-evaluation`
   changes, both explicitly behind current phase gates.
-- [ ] 6.4 Verify this follow-up's links/docs and OpenSpec change on PR CI; record
+- [x] 6.4 Verify this follow-up's links/docs and OpenSpec change on PR CI; record
   any unavailable local validation honestly.

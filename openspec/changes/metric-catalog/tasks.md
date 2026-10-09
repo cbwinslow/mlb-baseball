@@ -161,7 +161,7 @@
   by task 4), sized as multiple future changes, not one. Verify: the queue
   entry states a batch size and says "batched, not big-bang" per the
   project's own existing incremental-porting convention.
-- [ ] 6.3 `openspec/project.md` NOW/NEXT — add a separate, small tracked item:
+- [x] 6.3 `openspec/project.md` NOW/NEXT — add a separate, small tracked item:
   pilot SQLMesh (already adopted in principle, not yet used in practice) on
   ~5 of task 4's `should_migrate_to_sql` candidates in a throwaway branch,
   before deciding whether to migrate further. Not part of this change's

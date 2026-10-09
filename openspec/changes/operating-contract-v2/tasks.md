@@ -18,7 +18,7 @@
 
 ## 4. Verify and ship
 
-- [ ] 4.1 Run `openspec validate operating-contract-v2` and the repo docs/link checks that exist
-- [ ] 4.2 Inspect the final diff; open PR; merge after `test` and `secrets` pass
+- [x] 4.1 Run `openspec validate operating-contract-v2` and the repo docs/link checks that exist
+- [x] 4.2 Inspect the final diff; open PR; merge after `test` and `secrets` pass
 
 Note: 3.2 (fixing content drift) is deferred; the structural DOX check passes and a per-sidecar content audit needs its own pass. Finding for owner: archived `pure-python-retrosheet` D3 (oracle only) conflicts with `retrosheet-state-engine` D3 (port the C); ADR-299 records the latter as current.

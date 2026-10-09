@@ -148,37 +148,6 @@ def test_empty_table_says_so(db_conn):
             _exec(db_conn, f"DROP TABLE raw.{name}")
 
 
-def test_light_mode_keeps_status_and_gaps_but_skips_counts_and_dates(seeded):
-    """The nightly asks `light=True`: same verdict and missing games, but no exact row
-    count or date scan (both are minutes on the 600M-row price tables)."""
-    full = coverage.collect(source="mlb_api", table="mlb_win_prob").tables[0]
-    light = coverage.collect(source="mlb_api", table="mlb_win_prob", light=True).tables[0]
-    assert light.status == full.status == "missing"
-    assert (light.expected, light.held, light.missing) == (full.expected, full.held, full.missing)
-    assert light.fix == full.fix
-    assert full.rows is not None and light.rows is None
-    assert light.first_date is None and light.last_date is None
-    text = coverage.render_text(coverage.Report([light]))
-    assert "row count skipped" in text
-    assert "table absent" not in text and "source holds no rows" not in text
-
-
-def test_light_mode_still_reports_an_empty_table_as_empty(db_conn):
-    created: list[str] = []
-    _ensure_table(db_conn, created, "test_cov_empty_light", "_season text")
-    try:
-        dataset = Dataset(
-            "mlb_api",
-            "raw.test_cov_empty_light",
-            Seasons(first=2000, through="prior"),
-            "mlb ingest x",
-        )
-        assert coverage.collect(datasets=[dataset], light=True).tables[0].status == "empty"
-    finally:
-        for name in created:
-            _exec(db_conn, f"DROP TABLE raw.{name}")
-
-
 def test_absent_table_says_so():
     dataset = Dataset(
         "mlb_api", "raw.test_cov_never_created", Seasons(first=2000, through="prior"), "mlb x"

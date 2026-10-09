@@ -264,7 +264,7 @@ def run(
             record_attempt(conn, reset, "reset", "owner reset")
         print(f"repair: suspension for {reset} cleared")
         return 0
-    report = collect(source=source, light=True).unexplained(load_accepted_gaps())
+    report = collect(source=source).unexplained(load_accepted_gaps())
     with get_connection() as conn:
         actions = plan(report.tables, load_attempts(conn), datetime.now(UTC))
         results = apply(actions, conn) if apply_changes else []

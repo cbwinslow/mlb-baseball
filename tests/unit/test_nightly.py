@@ -57,9 +57,9 @@ def test_full_run_order_and_skips_mlb_api(harness):
         "report",
         "predict",
         "doctor --populated",
+        "coverage --unexplained --missing-only --fail-on-gap",
         "schema-watch --tolerate-unchecked",
-        "repair --apply",
-        "coverage --unexplained --missing-only --fail-on-gap --light",
+        "repair --dry-run",
     ]
     assert harness.alerts == []
     assert [r[0] for r in harness.records] == [
@@ -69,9 +69,9 @@ def test_full_run_order_and_skips_mlb_api(harness):
         "report",
         "predict",
         "populated",
+        "coverage",
         "schema-watch",
         "repair",
-        "coverage",
     ]
 
 
@@ -170,20 +170,5 @@ def test_nightly_command_passes_the_pause_and_exits_with_the_result(monkeypatch)
 def test_drift_and_gap_steps_fail_the_run_but_do_not_stop_each_other(harness):
     runner, calls = harness("schema-watch")
     assert runner.run() == 1
-    assert "repair --apply" in calls()
+    assert "repair --dry-run" in calls()
     assert len(harness.alerts) == 1 and "schema-watch" in harness.alerts[0]
-
-
-def test_repair_runs_before_the_coverage_check_so_the_check_sees_the_repaired_state(harness):
-    runner, calls = harness()
-    runner.run()
-    order = calls()
-    assert order.index("repair --apply") < order.index(
-        "coverage --unexplained --missing-only --fail-on-gap --light"
-    )
-
-
-def test_a_failed_repair_fails_the_run_and_alerts(harness):
-    runner, calls = harness("repair")
-    assert runner.run() == 1
-    assert any("repair" in a for a in harness.alerts)

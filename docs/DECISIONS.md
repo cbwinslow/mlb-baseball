@@ -2,23 +2,6 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
-## ADR-303: The nightly applies the safe repairs, then checks coverage in light form
-
-**Decision (2026-10-08).** `mlb nightly` runs `mlb repair --apply` (was `--dry-run`) before
-`mlb coverage --unexplained --missing-only --fail-on-gap --light`. The safe list (ADR-301) is
-unchanged. `mlb coverage --light` and `mlb repair` skip the exact row count and the date-range
-scan. Owner approved on 2026-10-08 ("yes").
-
-**Why.** New game-day markets arrive on Kalshi and Polymarket every day (about 1,000 Kalshi
-markets a day), so the coverage check alerted every night with nothing to fill them; the
-repair step already named the exact commands but never ran them. The coverage step took
-2,304 s on 2026-10-08, almost all of it row counts and date scans that do not change the
-verdict. Fixing the gap at its origin (fill it) keeps the alert meaningful: it now fires for
-what repair could not fix.
-
-**Revisit if:** a repair hides a real fault (see ADR-301), the nightly runs past its window,
-or a count or date range is needed in the nightly log (then add it back for one table).
-
 ## ADR-302: Owner-requested extension toolbox, optional per server
 
 **Decision (2026-10-08).** On the owner's explicit request, migration
@@ -45,7 +28,6 @@ enables, so trajectories need their own database or a decision to drop `btree_gi
 `multicorn2` have no PGDG package for PG16 (source builds); `pgaudit` needs preload
 and adds log volume. Each needs its own change with a named consumer.
 Installed but unused extensions only cost catalog size and `pg_upgrade` risk.
-
 
 ## ADR-301: Drift is detected nightly and reported until accepted; repair runs only a fixed safe list
 

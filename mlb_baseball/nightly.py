@@ -318,18 +318,13 @@ class Nightly:
             _log("conform failed; skipping report")
         self.step("predict", ["predict"])
         self.step("populated", ["doctor", "--populated"])
+        self.step("coverage", ["coverage", "--unexplained", "--missing-only", "--fail-on-gap"])
         # Drift fails the step (a source changed shape; exit 1). An unreachable source is
         # shown as UNCHECKED in the log and in meta.schema_finding but does not alert every
-        # night (design: "unchecked instead of failing").
+        # night (design: "unchecked instead of failing"). Repair is a dry run
+        # until the owner approves `--apply` for production (source-inventory task 6.2).
         self.step("schema-watch", ["schema-watch", "--tolerate-unchecked"])
-        # Repair closes the gaps on its short safe list (Statcast days, MLB per-game tables,
-        # new Kalshi and Polymarket markets), then the check measures what is left, so a gap
-        # that the repair fixed does not alert and one that it cannot fix does. Both read the
-        # report in `--light` form: the row counts and date ranges took over half an hour.
-        self.step("repair", ["repair", "--apply"])
-        self.step(
-            "coverage", ["coverage", "--unexplained", "--missing-only", "--fail-on-gap", "--light"]
-        )
+        self.step("repair", ["repair", "--dry-run"])
         written = snapshot_query_stats()
         _log(f"query stats snapshot: {'skipped' if written is None else f'{written} statements'}")
         _log(f"run monitor prune: {'done' if prune_monitor() else 'skipped'}")

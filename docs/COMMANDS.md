@@ -18,7 +18,7 @@ commands are in `mlb --help`.
 | `mlb repair-runs` | writes: closes stale run records | none | no | no |
 | `mlb backfill-game-identities` | writes: core game identities | `--batch-size` | no | no |
 | `mlb schema-watch` | writes: snapshot files and meta.schema_finding, never raw | `--accept` `--json` `--source` `--tolerate-unchecked` | yes | no |
-| `mlb coverage` | read-only | `--fail-on-gap` `--json` `--light` `--markdown` `--missing-only` `--probe` `--source` `--table` `--unexplained` | yes | no |
+| `mlb coverage` | read-only | `--fail-on-gap` `--json` `--markdown` `--missing-only` `--probe` `--source` `--table` `--unexplained` | yes | no |
 | `mlb source-check` | read-only (HEAD requests; --hash downloads to a temp file) | `--hash` `--source` | no | no |
 | `mlb field-census` | read-only | `--exact` `--output-json` `--output-markdown` | no | no |
 | `mlb inventory` | read-only (--save-profile writes meta.raw_profile) | `--exact` `--markdown` `--partitions` `--save-profile` | no | no |

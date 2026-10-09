@@ -630,12 +630,6 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="report only gaps not accepted in mlb_baseball/coverage/accepted_gaps.toml",
     )
-    coverage_parser.add_argument(
-        "--light",
-        action="store_true",
-        help="skip exact row counts and date ranges (same gaps, minutes faster on the price "
-        "tables); used by the nightly",
-    )
     coverage_format = coverage_parser.add_mutually_exclusive_group()
     coverage_format.add_argument("--json", action="store_true", help="machine-readable output")
     coverage_format.add_argument("--markdown", action="store_true", help="markdown output")
@@ -1935,7 +1929,6 @@ def main(argv: list[str] | None = None) -> None:
             missing_only=args.missing_only,
             probe=args.probe,
             unexplained_only=args.unexplained,
-            light=args.light,
         )
         if args.fail_on_gap and has_gap:
             sys.exit(1)

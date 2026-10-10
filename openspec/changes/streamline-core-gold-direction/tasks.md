@@ -4,7 +4,7 @@
 - [ ] 0.2 Inventory every existing metric/stat/feature (`docs/FEATURE_REGISTRY.md`, `metric-catalog`, gold tables, `feat.*`, `mlb_baseball/model/`) with keep / merge / retire / rework. Verify: one row each, with reason; owner signs off on the retire list.
 - [ ] 0.3 Draw the gold-versus-`feat.*` line and list overlaps (`gold.game_feature*` vs `feat.game`). Verify: each overlap has a retirement or ownership decision.
 - [ ] 0.4 Extend the target-metric list from research (papers, books, FanGraphs/Tango/Statcast, baseball.computer parity). Verify: each new metric has citation, grain, inputs, PIT rule, null policy.
-- [ ] 0.5 For each kept/new metric, trace inputs to raw/core fields and mark missing ones. Verify: the list of core additions comes only from this trace.
+- [ ] 0.5 For each kept/new metric, trace inputs to raw/core fields (`metrics-trace.md`). Verify: every traced field is in `core-coverage.md`. This no longer limits what `core` carries (decision 10).
 
 ## 1. Audit what we have (read-only)
 
@@ -45,3 +45,16 @@
 - [ ] 5.3 Tighten `scripts/lint_sql_ownership.py` (cover f-strings/variables; remove the `conform.py` exemption as tables move). Verify: lint passes and flags a planted violation.
 - [ ] 5.4 Design the process audit log: per-step `meta` run records, `track=all`, `track_functions=pl`; review `conform._timed`. Verify: one `conform` run yields per-step time, rows and outcome, with pg_stat_statements cross-checked.
 - [ ] 5.5 Write the validation ladder doc and source-by-grain tie-out matrix (roll-up play/pitch to game/season vs Lahman, Baseball-Reference). Verify: every core build lists its tie-out source; missing ones become tasks.
+
+## 6. Core coverage (decision 10, ADR-305)
+
+- [ ] 6.1 Confirm `core-coverage.md` with the owner (group priorities, grain per group). Verify: owner sign-off recorded in the file.
+- [ ] 6.2 Widen `core.pitch` to all 122 `statcast_pitch` columns and `core.play` to the full Retrosheet/MLB play fields, one table at a time. Verify: run-twice test; row and value parity with `raw`; no column dropped without a written reason.
+- [ ] 6.3 Add the new core tables in priority order from `core-coverage.md` (game context, box scores/lineups, umpires, transactions, parks, season stats, tracking, forecasts, awards). Verify: each has grain, key, PIT stamp, tie-out source and a `doctor` check.
+- [ ] 6.4 Add `core` team-season league/division history (league, division, conference per season) from `mlb_team_history`, `lahman_teams`, `retrosheet_team`, cross-checked against `mlb_sport/league/division/conference` (these hold 20/15/6/2 rows; the earlier "empty" reading was a stale row estimate). Verify: every team-season has one league and division.
+- [ ] 6.5 Add point-in-time market prices in `core` using `polymarket_price` and `kalshi_candle` (own change; strict-before-start rule; PIT tests).
+- [ ] 6.6 Build `gold` normalizers: league-by-year averages, replacement levels, park/era adjustments. Verify: each cites its formula.
+- [ ] 6.7 Assign the unassigned raw tables in `core-coverage.md` (review additions) to a grain and priority. Verify: all 150 raw tables appear in the file or have a written exclusion.
+- [ ] 6.8 Add an era/rule-change reference table and a measurement-system field on pitch rows. Verify: each rule change has a dated source citation.
+- [ ] 6.9 Researcher surface: generated data dictionary, versioned release snapshots, read-only role, rights-filtered export. Verify: a researcher can reproduce one published number from a snapshot.
+- [ ] 6.10 Owner decisions on new sources (weather, sportsbook closing lines). Verify: decision recorded; no ingestion before approval.

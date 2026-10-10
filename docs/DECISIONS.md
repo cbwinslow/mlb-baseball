@@ -2,6 +2,23 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-305: `core` carries every measured field; metrics-first is retired
+
+**Decision (2026-10-10, owner).** `core` is a general-purpose research base for models
+and published research we cannot list in advance (pitch, play, game, season and
+multi-era models; Markov run-expectancy; logit; neural/ensemble; feature discovery;
+market-edge work against Polymarket/Kalshi). Every measured field in `raw` is carried
+into `core` at its finest grain; only exact cross-source duplicates stay in `raw`, as
+tie-out checks recorded in `meta`. `core` holds cleaned detail; aggregates and
+normalizers (league averages, replacement levels, WAR) live in `gold`.
+Missing stays NULL. Point-in-time stamps and stable IDs on every table.
+
+**Why.** Adding a column only when a chosen metric needs it blocks unknown uses and
+feature-discovery models. **Supersedes** the "metrics-first order" rule in
+`streamline-core-gold-direction/design.md` decision 10. **Rights:** internal use is
+unrestricted (ADR-304); publication still checks source rights. Table list:
+`openspec/changes/streamline-core-gold-direction/core-coverage.md`.
+
 ## ADR-302: Owner-requested extension toolbox, optional per server
 
 **Decision (2026-10-08).** On the owner's explicit request, migration

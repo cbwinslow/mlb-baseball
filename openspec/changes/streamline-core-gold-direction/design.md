@@ -80,14 +80,17 @@ decided from evidence gathered in tasks).
    lineage for tables filled by `INSERT ... SELECT`, and Python-moved data has no
    SQL to parse. Alternatives rejected: extending the typed list (goes stale);
    installing a new extension (none provides column lineage).
-10. **PROPOSED - Metrics-first order.** Choose target metrics first, then trace the
-   inputs each needs, then change core/gold only where a metric needs a field.
-   The field census reports what exists; it does not decide what to add. Core
-   stores one canonical value per fact; cross-source redundancy stays in `raw`
-   and comparison results go to a `meta` validation table, not duplicate core
-   columns. Redundancy exists to be compared, so every core build needs a
-   roll-up tie-out (atomic events summed to game/season vs Lahman, Baseball-
-   Reference, etc.). Validation-ladder doc + source-by-grain matrix are owed.
+10. **OWNER-DECIDED 2026-10-10 (ADR-305) - Carry everything forward.** `core` is a general-purpose
+   research base, not a list of today's metrics. Every measured field in `raw` is carried
+   into `core` at the finest grain of its subject (pitch, play, game, player-game,
+   player-season, team-season, market price at a point in time). Only exact duplicates
+   across sources are left in `raw`; they exist to be compared, with results in a `meta`
+   validation table, and every core build has a roll-up tie-out (atomic events summed to
+   game/season vs Lahman, Baseball-Reference, etc.). Missing is NULL, never a guess; every
+   table carries stable IDs and a point-in-time stamp. `core` holds cleaned detail;
+   aggregates, normalizers (league averages, replacement levels) and WAR live in `gold`.
+   Supersedes the earlier "metrics-first" rule. Table-by-table list: `core-coverage.md`.
+   Rights: fields kept for internal use stay out of public exports (ADR-304).
 11. **PROPOSED - Vocabulary.** Metric = the named recipe (formula, inputs,
    constants, citation), e.g. wOBA. Stat = the number a metric produces for a
    player/team/period, hindsight allowed, e.g. 2023 wOBA. Feature = a stat

@@ -20,7 +20,7 @@ Primary outputs currently include:
 - `core.game`
 - `core.standing`
 - `core.play`
-- `core.pitch`
+- `core.pitch` (every measured `raw.statcast_pitch` column, typed; insert in `sql/conform_pitch_insert.sql`; six always-blank deprecated columns are not carried, see openspec change `widen-core-pitch-play`)
 - `core.market`
 - `core.player_war`
 - selected backfilled/enriched columns in these canonical relations.

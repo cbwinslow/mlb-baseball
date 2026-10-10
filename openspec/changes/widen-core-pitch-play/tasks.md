@@ -7,9 +7,9 @@
 
 ## 2. Pitch
 
-- [ ] 2.1 Migration: add typed nullable columns to `core.pitch`. Verify: applies on a disposable database; existing columns unchanged.
-- [ ] 2.2 Move `_build_pitches` to a named SQL file inserting all columns; keep the LEFT JOIN on `core.game`. Verify: row count equals `raw.statcast_pitch`.
-- [ ] 2.3 Tests: run-twice, value parity for sampled seasons, blank-to-NULL, column-inventory test. Verify: pass on a disposable PostgreSQL.
+- [x] 2.1 Migration: add typed nullable columns to `core.pitch`. Verify: applies on a disposable database; existing columns unchanged.
+- [x] 2.2 Move `_build_pitches` to a named SQL file inserting all columns; keep the LEFT JOIN on `core.game`. Verify: row count equals `raw.statcast_pitch`.
+- [ ] 2.3 Tests: run-twice, blank-to-NULL, column-inventory (done, passing on the disposable PostgreSQL); still open: value parity against real raw rows on a copy of production (do with 4.1). Verify: pass on a disposable PostgreSQL.
 
 ## 3. Play
 

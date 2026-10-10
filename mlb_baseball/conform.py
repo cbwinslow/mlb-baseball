@@ -1184,38 +1184,7 @@ def _build_pitches(conn: psycopg.Connection) -> int:
     # with core.game.game_pk's own "leave it NULL, don't guess" precedent.
     try:
         with conn.transaction(), conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO core.pitch (
-                    game_id, source_game_pk, season, at_bat_number, pitch_number, inning,
-                    batter_id, pitcher_id, pitch_type, pitch_name,
-                    release_speed, release_spin_rate, launch_speed,
-                    launch_angle, hit_distance, description, event
-                )
-                SELECT
-                    g.id,
-                    NULLIF(sp.game_pk, ''),
-                    sp.game_year::integer,
-                    NULLIF(sp.at_bat_number, '')::integer,
-                    NULLIF(sp.pitch_number, '')::integer,
-                    NULLIF(sp.inning, '')::integer,
-                    bat.id,
-                    pit.id,
-                    sp.pitch_type,
-                    sp.pitch_name,
-                    NULLIF(sp.release_speed, '')::numeric,
-                    NULLIF(sp.release_spin_rate, '')::numeric,
-                    NULLIF(sp.launch_speed, '')::numeric,
-                    NULLIF(sp.launch_angle, '')::numeric,
-                    NULLIF(sp.hit_distance_sc, '')::numeric,
-                    sp.description,
-                    sp.events
-                FROM raw.statcast_pitch sp
-                LEFT JOIN core.game g ON g.game_pk = sp.game_pk
-                LEFT JOIN core.player bat ON bat.mlbam_id = sp.batter
-                LEFT JOIN core.player pit ON pit.mlbam_id = sp.pitcher
-                """
-            )
+            cur.execute(read_sql("conform_pitch_insert.sql"))
             return cur.rowcount
     except psycopg.errors.UndefinedTable:
         print("conform: raw.statcast_pitch not present yet — core.pitch left empty")

@@ -27,6 +27,12 @@ Observed 2026-10-10 on production `mlb`: `core.pitch` and `core.play` are range-
 - **`raw.retrosheet_plays` is not a duplicate of `raw.retrosheet_event`.** It is a different layout (16.9M rows, 179 columns) with fields the event table lacks (umpires by base, per-batter lineup and fielder slots, date, game type, pre/post base state). It is a separate source of Retrosheet play detail; its overlap with the event table is a validator. Handled as a follow-up change, not in this one.
 - **Exports:** `mlb_baseball/export.py` exports whole tables by an allow-list with a rights profile. `core.pitch` and `core.play` are already `local_research`, so widening them cannot reach a `public_safe` export. A new `core.play_retro` is not exported until someone registers it.
 
+## Implementation notes (2026-10-10)
+
+- Types come from the full production table: 51 integer, 43 numeric, 18 text columns checked by regex over all 13.6M rows (no value failed its type). `on_*`/`fielder_*` ids are `bigint`, `game_date` is `date`. Renames: `type` -> `result_type`, `des` -> `play_desc`, `batter`/`pitcher` -> `batter_mlbam_id`/`pitcher_mlbam_id` (kept because `core.player` may not resolve them). `umpire` is blank today but carried, since the source may fill it.
+- `conform_pitch_insert.sql` reads every carried raw column, so a raw table missing one fails loudly (`UndefinedColumn`) instead of silently dropping data; only a missing table is skipped, as before.
+- Test fixtures create `raw.statcast_pitch` at full width through one helper.
+
 ## Risks / Trade-offs
 
 - [Run time and size grow] -> measure `conform` and table size before/after on a disposable copy; accept if within owner's limit, otherwise this feeds parent task 7.4.

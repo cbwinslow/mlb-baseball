@@ -157,6 +157,151 @@ def test_reset_dynamic_tables_survives_an_aborted_transaction(db_conn):
         assert cur.fetchone() == (1,)
 
 
+# Every data column of the production raw.statcast_pitch (blank = missing). conform's pitch
+# insert reads them all (openspec change widen-core-pitch-play), so a fixture table must have
+# the full width, not just the few columns a test cares about.
+_STATCAST_PITCH_COLUMNS = (
+    "pitch_type",
+    "game_date",
+    "release_speed",
+    "release_pos_x",
+    "release_pos_z",
+    "player_name",
+    "batter",
+    "pitcher",
+    "events",
+    "description",
+    "spin_dir",
+    "spin_rate_deprecated",
+    "break_angle_deprecated",
+    "break_length_deprecated",
+    "zone",
+    "des",
+    "game_type",
+    "stand",
+    "p_throws",
+    "home_team",
+    "away_team",
+    "type",
+    "hit_location",
+    "bb_type",
+    "balls",
+    "strikes",
+    "game_year",
+    "pfx_x",
+    "pfx_z",
+    "plate_x",
+    "plate_z",
+    "on_3b",
+    "on_2b",
+    "on_1b",
+    "outs_when_up",
+    "inning",
+    "inning_topbot",
+    "hc_x",
+    "hc_y",
+    "tfs_deprecated",
+    "tfs_zulu_deprecated",
+    "umpire",
+    "sv_id",
+    "vx0",
+    "vy0",
+    "vz0",
+    "ax",
+    "ay",
+    "az",
+    "sz_top",
+    "sz_bot",
+    "hit_distance_sc",
+    "launch_speed",
+    "launch_angle",
+    "effective_speed",
+    "release_spin_rate",
+    "release_extension",
+    "game_pk",
+    "fielder_2",
+    "fielder_3",
+    "fielder_4",
+    "fielder_5",
+    "fielder_6",
+    "fielder_7",
+    "fielder_8",
+    "fielder_9",
+    "release_pos_y",
+    "estimated_ba_using_speedangle",
+    "estimated_woba_using_speedangle",
+    "woba_value",
+    "woba_denom",
+    "babip_value",
+    "iso_value",
+    "launch_speed_angle",
+    "at_bat_number",
+    "pitch_number",
+    "pitch_name",
+    "home_score",
+    "away_score",
+    "bat_score",
+    "fld_score",
+    "post_away_score",
+    "post_home_score",
+    "post_bat_score",
+    "post_fld_score",
+    "if_fielding_alignment",
+    "of_fielding_alignment",
+    "spin_axis",
+    "delta_home_win_exp",
+    "delta_run_exp",
+    "bat_speed",
+    "swing_length",
+    "miss_distance",
+    "estimated_slg_using_speedangle",
+    "delta_pitcher_run_exp",
+    "hyper_speed",
+    "home_score_diff",
+    "bat_score_diff",
+    "home_win_exp",
+    "bat_win_exp",
+    "age_pit_legacy",
+    "age_bat_legacy",
+    "age_pit",
+    "age_bat",
+    "n_thruorder_pitcher",
+    "n_priorpa_thisgame_player_at_bat",
+    "pitcher_days_since_prev_game",
+    "batter_days_since_prev_game",
+    "pitcher_days_until_next_game",
+    "batter_days_until_next_game",
+    "api_break_z_with_gravity",
+    "api_break_x_arm",
+    "api_break_x_batter_in",
+    "arm_angle",
+    "attack_angle",
+    "attack_direction",
+    "swing_path_tilt",
+    "intercept_ball_minus_batter_pos_x_inches",
+    "intercept_ball_minus_batter_pos_y_inches",
+)
+
+
+def _create_statcast_pitch(cur, rows):
+    """Drop and recreate raw.statcast_pitch at full width; ``rows`` are dicts of the columns
+    a test sets (all others blank)."""
+    # issue #78: drop unconditionally, don't rely on collection order.
+    cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
+    cur.execute(
+        "CREATE TABLE raw.statcast_pitch ("
+        + ", ".join(f"{c} text" for c in _STATCAST_PITCH_COLUMNS)
+        + ")"
+    )
+    for row in rows:
+        cur.execute(
+            "INSERT INTO raw.statcast_pitch VALUES ("
+            + ", ".join(["%s"] * len(_STATCAST_PITCH_COLUMNS))
+            + ")",
+            [row.get(c, "") for c in _STATCAST_PITCH_COLUMNS],
+        )
+
+
 def _seed_raw_tables(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.retrosheet_team, raw.retrosheet_gameinfo")
@@ -572,6 +717,95 @@ def test_team_franchise_disambiguates_reused_code_across_league_change_eras(db_c
         assert cur.fetchall() == [(1962, 2012, "HOU"), (2013, 9999, "HOU")]
 
 
+# raw.statcast_pitch columns whose core.pitch name differs, and the columns deliberately
+# not carried (blank in 100% of 13.6M production rows on 2026-10-10).
+_STATCAST_RENAMED = {
+    "game_year": "season",
+    "game_pk": "source_game_pk",
+    "hit_distance_sc": "hit_distance",
+    "events": "event",
+    "batter": "batter_mlbam_id",
+    "pitcher": "pitcher_mlbam_id",
+    "type": "result_type",
+    "des": "play_desc",
+}
+_STATCAST_NOT_CARRIED = {
+    "spin_dir",
+    "spin_rate_deprecated",
+    "break_angle_deprecated",
+    "break_length_deprecated",
+    "tfs_deprecated",
+    "tfs_zulu_deprecated",
+}
+
+
+def test_every_raw_statcast_column_is_carried_or_documented(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'core' AND table_name = 'pitch'"
+        )
+        core_cols = {r[0] for r in cur.fetchall()}
+    for col in _STATCAST_PITCH_COLUMNS:
+        if col in _STATCAST_NOT_CARRIED:
+            continue
+        assert _STATCAST_RENAMED.get(col, col) in core_cols, (
+            f"{col} is neither carried nor excluded"
+        )
+
+
+def test_core_pitch_carries_typed_statcast_fields_and_is_repeatable(db_conn):
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        _create_statcast_pitch(
+            cur,
+            [
+                dict(
+                    game_pk="999999999",
+                    game_year="2025",
+                    game_date="2025-04-02",
+                    at_bat_number="1",
+                    pitch_number="2",
+                    inning="1",
+                    batter="123456",
+                    pitcher="234567",
+                    pitch_type="SL",
+                    plate_x="-0.42",
+                    plate_z="2.81",
+                    spin_axis="215",
+                    on_1b="543210",
+                    zone="5",
+                    type="S",
+                    des="Strike swinging",
+                    age_pit_legacy="27",
+                    umpire="",
+                    release_speed="",
+                ),
+            ],
+        )
+    db_conn.commit()
+
+    counts = conform.run()
+    first = counts["core.pitch"]
+    conform.run()
+
+    cols = (
+        "game_date, plate_x, plate_z, spin_axis, on_1b, zone, result_type, play_desc, "
+        "age_pit_legacy, umpire, release_speed, batter_mlbam_id, pitcher_mlbam_id, game_id"
+    )
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.pitch")
+        assert cur.fetchone() == (first,) == (1,)
+        cur.execute(f"SELECT {cols} FROM core.pitch")
+        row = cur.fetchone()
+    assert str(row[0]) == "2025-04-02"
+    assert row[1:5] == (Decimal("-0.42"), Decimal("2.81"), 215, 543210)
+    assert row[5:9] == (5, "S", "Strike swinging", 27)
+    assert row[9] is None and row[10] is None  # blank stays NULL, never 0 or ''
+    assert row[11:13] == (123456, 234567)  # MLBAM ids kept even if unresolved
+    assert row[13] is None  # game unresolved: row kept with NULL game_id
+
+
 def test_conform_adds_only_completed_spring_games_and_links_statcast_pitches(db_conn):
     _reset_dynamic_tables(db_conn)
     _seed_raw_tables(db_conn)
@@ -603,21 +837,20 @@ def test_conform_adds_only_completed_spring_games_and_links_statcast_pitches(db_
             "('910003', '2024-03-04', 'New York Yankees', 'Atlanta Braves', '147', '144', "
             "'2024', 'In Progress', 'S', '1', 'Park', '', '1', '0')"
         )
-        # issue #78: another test file may have left raw.statcast_pitch with a
-        # different column set; drop unconditionally rather than relying on a
-        # guard + collection order.
-        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
-        cur.execute(
-            "CREATE TABLE raw.statcast_pitch "
-            "(game_pk text, game_year text, at_bat_number text, pitch_number text, inning text, "
-            "batter text, pitcher text, pitch_type text, pitch_name text, release_speed text, "
-            "release_spin_rate text, launch_speed text, launch_angle text, hit_distance_sc text, "
-            "description text, events text)"
-        )
-        cur.execute(
-            "INSERT INTO raw.statcast_pitch VALUES "
-            "('910001', '2024', '1', '1', '1', '', '', 'FF', '4-Seam Fastball', "
-            "'', '', '', '', '', 'ball', '')"
+        _create_statcast_pitch(
+            cur,
+            [
+                {
+                    "game_pk": "910001",
+                    "game_year": "2024",
+                    "at_bat_number": "1",
+                    "pitch_number": "1",
+                    "inning": "1",
+                    "pitch_type": "FF",
+                    "pitch_name": "4-Seam Fastball",
+                    "description": "ball",
+                }
+            ],
         )
     db_conn.commit()
 
@@ -835,21 +1068,24 @@ def test_build_plays_and_pitches_unify_both_sources(db_conn):
             "'field_out', 'Groundout', '0', '0', '0', '0', '1')"
         )
 
-        # issue #78: drop unconditionally, don't rely on collection order.
-        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
-        cur.execute(
-            "CREATE TABLE raw.statcast_pitch "
-            "(game_pk text, game_year text, at_bat_number text, "
-            "pitch_number text, inning text, batter text, pitcher text, "
-            "pitch_type text, pitch_name text, release_speed text, "
-            "release_spin_rate text, launch_speed text, launch_angle text, "
-            "hit_distance_sc text, description text, events text)"
-        )
-        cur.execute(
-            "INSERT INTO raw.statcast_pitch VALUES "
-            "('999001', '2025', '0', '1', '1', '234567', '123456', "
-            "'FF', 'Four-Seam Fastball', '95.2', '2200', '', '', '', "
-            "'called_strike', '')"
+        _create_statcast_pitch(
+            cur,
+            [
+                {
+                    "game_pk": "999001",
+                    "game_year": "2025",
+                    "at_bat_number": "0",
+                    "pitch_number": "1",
+                    "inning": "1",
+                    "batter": "234567",
+                    "pitcher": "123456",
+                    "pitch_type": "FF",
+                    "pitch_name": "Four-Seam Fastball",
+                    "release_speed": "95.2",
+                    "release_spin_rate": "2200",
+                    "description": "called_strike",
+                }
+            ],
         )
     db_conn.commit()
 
@@ -2894,21 +3130,24 @@ def test_build_pitches_leaves_unmatched_statcast_row_as_null_instead_of_dropping
     # precedent — same fix already applied to core.player_war above.
     _seed_raw_tables(db_conn)
     with db_conn.cursor() as cur:
-        # issue #78: drop unconditionally, don't rely on collection order.
-        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
-        cur.execute(
-            "CREATE TABLE raw.statcast_pitch "
-            "(game_pk text, game_year text, at_bat_number text, "
-            "pitch_number text, inning text, batter text, pitcher text, "
-            "pitch_type text, pitch_name text, release_speed text, "
-            "release_spin_rate text, launch_speed text, launch_angle text, "
-            "hit_distance_sc text, description text, events text)"
-        )
-        cur.execute(
-            "INSERT INTO raw.statcast_pitch VALUES "
-            "('999999999', '2025', '0', '1', '1', '123456', '234567', "
-            "'FF', 'Four-Seam Fastball', '95.2', '2200', '', '', '', "
-            "'called_strike', '')"
+        _create_statcast_pitch(
+            cur,
+            [
+                {
+                    "game_pk": "999999999",
+                    "game_year": "2025",
+                    "at_bat_number": "0",
+                    "pitch_number": "1",
+                    "inning": "1",
+                    "batter": "123456",
+                    "pitcher": "234567",
+                    "pitch_type": "FF",
+                    "pitch_name": "Four-Seam Fastball",
+                    "release_speed": "95.2",
+                    "release_spin_rate": "2200",
+                    "description": "called_strike",
+                }
+            ],
         )
     db_conn.commit()
 
@@ -3423,21 +3662,38 @@ def _seed_conformance_rehearsal(db_conn):
             "('800001', '2026', '0', '1', 'top', '234567', '123456', "
             "'field_out', 'Groundout', '0', '0', '0', '0', '1')"
         )
-        # issue #78: drop unconditionally, don't rely on collection order.
-        cur.execute("DROP TABLE IF EXISTS raw.statcast_pitch")
-        cur.execute(
-            "CREATE TABLE raw.statcast_pitch "
-            "(game_pk text, game_year text, at_bat_number text, pitch_number text, inning text, "
-            "batter text, pitcher text, pitch_type text, pitch_name text, release_speed text, "
-            "release_spin_rate text, launch_speed text, launch_angle text, hit_distance_sc text, "
-            "description text, events text)"
-        )
-        cur.execute(
-            "INSERT INTO raw.statcast_pitch VALUES "
-            "('700001', '2025', '1', '1', '1', '234567', '123456', 'FF', "
-            "'Four-Seam Fastball', '95.2', '2200', '', '', '', 'called_strike', ''), "
-            "('999999999', '2025', '1', '1', '1', '234567', '123456', 'FF', "
-            "'Four-Seam Fastball', '95.2', '2200', '', '', '', 'called_strike', '')"
+        _create_statcast_pitch(
+            cur,
+            [
+                {
+                    "game_pk": "700001",
+                    "game_year": "2025",
+                    "at_bat_number": "1",
+                    "pitch_number": "1",
+                    "inning": "1",
+                    "batter": "234567",
+                    "pitcher": "123456",
+                    "pitch_type": "FF",
+                    "pitch_name": "Four-Seam Fastball",
+                    "release_speed": "95.2",
+                    "release_spin_rate": "2200",
+                    "description": "called_strike",
+                },
+                {
+                    "game_pk": "999999999",
+                    "game_year": "2025",
+                    "at_bat_number": "1",
+                    "pitch_number": "1",
+                    "inning": "1",
+                    "batter": "234567",
+                    "pitcher": "123456",
+                    "pitch_type": "FF",
+                    "pitch_name": "Four-Seam Fastball",
+                    "release_speed": "95.2",
+                    "release_spin_rate": "2200",
+                    "description": "called_strike",
+                },
+            ],
         )
     db_conn.commit()
 

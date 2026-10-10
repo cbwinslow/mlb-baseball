@@ -53,9 +53,13 @@ Rebuilding the widened tables SHALL be idempotent and SHALL preserve the count o
 - **WHEN** the build finishes
 - **THEN** `core.pitch` has one row per `raw.statcast_pitch` row, including rows whose game does not resolve (game key `NULL`)
 
-### Requirement: Public export does not widen by accident
-Public export presets SHALL list their columns explicitly, so new Statcast-derived columns in `core` are not published unless a preset adds them after a rights check.
+### Requirement: Widening does not change what is publicly exported
+Widened tables SHALL keep their existing export rights profile, and new `core` relations SHALL NOT be exported until registered with a rights profile.
 
-#### Scenario: Export unchanged
-- **WHEN** the export preset runs after the widening
-- **THEN** its output columns are identical to before
+#### Scenario: Existing profile kept
+- **WHEN** the export allow-list is read after the widening
+- **THEN** `core.pitch` and `core.play` are still `local_research`
+
+#### Scenario: New relation not exported
+- **WHEN** `core.play_retro` exists but is not registered in the allow-list
+- **THEN** no export preset includes it

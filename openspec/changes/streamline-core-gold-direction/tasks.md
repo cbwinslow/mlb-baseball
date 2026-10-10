@@ -57,4 +57,4 @@
 - [ ] 6.7 Assign the unassigned raw tables in `core-coverage.md` (review additions) to a grain and priority. Verify: all 150 raw tables appear in the file or have a written exclusion.
 - [ ] 6.8 Add an era/rule-change reference table and a measurement-system field on pitch rows. Verify: each rule change has a dated source citation.
 - [ ] 6.9 Researcher surface: generated data dictionary, versioned release snapshots, read-only role, rights-filtered export. Verify: a researcher can reproduce one published number from a snapshot.
-- [ ] 6.10 Owner decisions on new sources (weather, sportsbook closing lines). Verify: decision recorded; no ingestion before approval.
+- [ ] 6.10 Owner approved 2026-10-10, conditional on reliability: add a weather source and sportsbook closing lines. Research candidates (coverage, history depth, uptime, terms of use, cost), pick on evidence, then build each as a normal idempotent ingestion (run-twice test, bootstrap, `doctor` check). Verify: a written reliability comparison per source and a tie-out against Retrosheet weather / Kalshi-Polymarket results; no paid source without a further owner OK.

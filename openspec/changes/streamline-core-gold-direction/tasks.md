@@ -58,3 +58,11 @@
 - [ ] 6.8 Add an era/rule-change reference table and a measurement-system field on pitch rows. Verify: each rule change has a dated source citation.
 - [ ] 6.9 Researcher surface: generated data dictionary, versioned release snapshots, read-only role, rights-filtered export. Verify: a researcher can reproduce one published number from a snapshot.
 - [ ] 6.10 Owner approved 2026-10-10, conditional on reliability: add a weather source and sportsbook closing lines. Research candidates (coverage, history depth, uptime, terms of use, cost), pick on evidence, then build each as a normal idempotent ingestion (run-twice test, bootstrap, `doctor` check). Verify: a written reliability comparison per source and a tie-out against Retrosheet weather / Kalshi-Polymarket results; no paid source without a further owner OK.
+
+## 7. Nightly cost and incremental builds (from the 2026-10-10 external audit; claims unverified until measured)
+
+- [ ] 7.1 Measure first: time every nightly step (conform, report, features/enrich, predict) with rows written and WAL bytes per step, plus the cause of each past failed run (`meta.ingestion_run`, logs). Verify: a table of step, seconds, rows, WAL; the 2026-10-09 failure is attributed to a cause with evidence (the handoff says network drop).
+- [ ] 7.2 Incremental feature build: stop `features.build()` truncating all 219,925 `gold.game_feature` rows nightly; rebuild only unfinished or current-season games. Verify: second run changes nothing; values for closed seasons identical to the full rebuild; a PIT/leakage check passes.
+- [ ] 7.3 Replace the ~41 sequential `UPDATE gold.game_feature` passes (`enrich_feature_stage`) with one insert or per-family tables joined by key (SQLMesh candidate, see task 3.2). Verify: row and value parity with the old path; WAL per run measured before and after.
+- [ ] 7.4 Incremental `conform` for current-season rows, aligned with `openspec/changes/stable-ids-incremental-conform`. Verify: no duplicate work with that change; run-twice test.
+- [ ] 7.5 Test Timescale compression on a copy of `raw.kalshi_candle` (neither big raw table is a hypertable today). Verify: measured size and query-time change on the copy; production only with owner approval.

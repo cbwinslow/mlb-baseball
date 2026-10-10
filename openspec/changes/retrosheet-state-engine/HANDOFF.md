@@ -1,83 +1,148 @@
-# Handoff — `retrosheetpy` build in progress (2026-10-05, end of seventeenth session; see RETROSHEETPY-DESIGN.md)
+# Handoff — `retrosheetpy` / `chadwickpy` (2026-10-10, end of eighteenth session)
 
-Start with: "Read openspec/changes/retrosheet-state-engine/HANDOFF.md and start." Then read
-`RETROSHEETPY-PLAN.md` in this folder (owner APPROVED it on 2026-10-05, all five decisions as recommended: GPL-3.0-or-later, legacy parser/validation stay in mlb-baseball, cache `~/.retrosheetpy`, 0.1.0 = seasons 1910+, separate docs site per repo).
+Written for another AI agent (Gemini/agy) taking over. Nothing is running in the background; the only
+open work is listed under "What is open right now". The previous handoff (2026-10-05) is replaced by this
+file; its still-useful rules are kept under "Rules".
 
-## Seventeenth session in one screen (read this first)
-- **retrosheetpy is functionally built** (PR cbwinslow/retrosheetpy#6, stacked on #5; nothing merged). `Table`/`BoxScores`, shared options
-  (`home game start end fields extended jobs`), several years in one Table, csv/jsonl/json/sqlite/pandas output, `fields()`, new CLI,
-  README, `scripts/parity.py`, CI parity job. 187 tests pass; 288/288 outputs identical to the real C tools on 24 seasons 1910-2025;
-  24 seasons combined = 3,441,587 events rows equal to C. Agreed shape: `rs.season(2010).events(...)` and `rs.events(years, ...)`.
-- **chadwickpy 0.2.0 (the owner's speed-up) has real bugs**; fixes are open PRs cbwinslow/chadwickpy **#17, #18, #19** (not merged; 0.2.0 stays published):
-  #17 last line of a file lost (fgets EOF), tokenizer/atoi/play-line fast paths differ from the original on odd input (44 of the differential
-  tests failed on 0.2.0, 0.1.1 passed all; with the fixes 627 pass); #18 a dead worker made the parallel run print files twice with exit 0;
-  #19 automatic worker count ignored CPU limits on Python 3.11/3.12 (39 workers on a 2-core limit). Owner has not yet seen/approved merging them.
-- Measured speed (40 cores): 2010 `events` ~5-8 s default workers, ~90 s one core, C one core 8.7 s, C on 40 cores 0.47 s. chadwickpy is **not** faster than C per core.
-- Decisions this session: keep Chadwick's names (events games daily subs comments boxscores); `home=` only in 0.1 (`team=` for either side is issue
-  cbwinslow/retrosheetpy#7, 0.2); combined Table for several years (no year column; GAME_ID has it); values are plain strings (cwgame prints some
-  text columns unquoted, so quoting cannot give types); default output encoding UTF-8 (`encoding="latin-1"` for Chadwick's bytes).
-- Not comparable with C (documented in the README): `cwbox -S` crashes on real data; `cwbox -X` prints a `pb` attribute from uninitialised memory.
-- **Next:** (1) show the owner the three chadwickpy PRs, merge on their say-so, owner approves a 0.2.1 release (release PR needs their admin bypass;
-  `pypi` environment needs their click); (2) set retrosheetpy to `chadwickpy>=0.2.1`; (3) owner merges retrosheetpy #5 (blocked by a stale
-  CodeRabbit CHANGES_REQUESTED review, fix already confirmed by the bot) then re-base #6 onto main; (4) docs site (MkDocs, same theme) + Retrosheet
-  terms check (still unverified) + independent review pass; (5) 0.1.0 on PyPI (owner adds pending publisher + approves); (6) then in mlb-baseball
-  replace `packages/retrosheetpy`, update the CI job and `/opsx:archive` this change.
+## Where everything lives (do not confuse these)
 
-## Owner direction (keep following)
-- Plain, short replies. Lead with one plain sentence; options plus a recommendation; remind owner to clear context around ~200k.
-- The Chadwick port stays a **function-by-function translation of the C**; never infer rules from output.
-- Owner wants things automated and proper/professional: first publication, public, others may contribute, code must be safe from hostile PRs.
-- Owner wants **Claude to merge PRs** (not GitHub auto-merge; that was tried and removed). Owner added `Bash(gh pr merge:*)` and `Bash(gh *)` allow rules via `/permissions`.
-- Never publish to PyPI, or use admin bypass, without the owner's say-so. The `pypi` environment needs the owner's click; keep it that way.
-- Both package names are kept: `chadwickpy` and `retrosheetpy` (a different, unrelated `retrosheetpy` exists on Codeberg; not on PyPI).
+| What | Where |
+| --- | --- |
+| **chadwickpy** (pure-Python port of the Chadwick C tools) | GitHub `cbwinslow/chadwickpy`. Local: `~/workspace/chadwickpy-openspec` (on `main`; use this one), `~/workspace/chadwickpy-build` (stale branch, ignore) |
+| **retrosheetpy** (downloads Retrosheet seasons, runs chadwickpy, gives tables/CSV/SQLite/pandas) | GitHub `cbwinslow/retrosheetpy`. Local clones are git worktrees of `~/workspace/retrosheetpy-build`: `-accept` (branch `test/acceptance`, PR #12), `-readme` (branch `chore/chadwickpy-0-4`, PR #13), `-openspec` (branch `chore/openspec`, holds the OpenSpec change), `-rebase` (leftover, safe to remove), `-build` (branch `feat/kinds`, leftover) |
+| **Old in-repo copy** | `~/workspace/mlb/packages/retrosheetpy/` inside the `mlb-baseball` repo. It is the version to be *replaced* by the published packages. Do not develop here. |
+| OpenSpec change for the new repo | `~/workspace/retrosheetpy-openspec/openspec/changes/acceptance-and-release/` (`proposal.md`, `design.md`, `tasks.md`) |
+| OpenSpec change in mlb-baseball | `~/workspace/mlb/openspec/changes/retrosheet-state-engine/` (this folder; merged, **not archived**) |
+| Design/plan docs | `RETROSHEETPY-PLAN.md`, `RETROSHEETPY-DESIGN.md` in this folder |
 
-## State: `chadwickpy` (DONE, live)
-- Repo `cbwinslow/chadwickpy` (public). Local build clone: `~/workspace/chadwickpy-build` (branch main tracks origin).
-- PyPI: https://pypi.org/project/chadwickpy/ , **0.1.1** published 2026-10-05 (0.1.0 the day before). Licence **GPL-3.0-or-later** (derivative of Chadwick GPL-2.0-or-later; `NOTICE`, `COPYING-chadwick`).
-- Layout mirrors Chadwick: `src/chadwickpy/` = cwlib parts (parse, game, gameiter, roster, box, book, file, write, lint, guard, xmlwrite); `src/chadwickpy/tools/` = cwtools (events, cwgame, daily, sub, comment, cwbox, cwboxsml, cwboxxml, tools, cli). Commands `cwevent cwgame cwdaily cwsub cwcomment cwbox chadwickpy`; `python -m chadwickpy TOOL`.
-- Tests: 600 passed vs the real Chadwick (c685ab5), none skipped. CI: lint+types, parity on Python 3.11/3.12/3.13, clean-install check, aggregator check named `test`.
-- Releases: release-please (Conventional Commit PR titles) opens a release PR; merging it tags `vX.Y.Z`; workflow builds, attaches files, then **publish waits for the owner's approval** on the `pypi` environment (PyPI trusted publishing, no token; pending publisher already registered). Versions come from tags (hatch-vcs). The release PR is bot-made and has no CI, so merging it needs the owner's admin bypass (or the owner merges it).
-- Docs: https://cbwinslow.github.io/chadwickpy/ (MkDocs Material, navy/red/cream baseball theme, light+dark, logo/favicon/social card, generated tool reference from each tool's `-h`/`-d`, `llms.txt`, `llms-full.txt`, sitemap, robots.txt, last-updated dates, changelog pulled from `CHANGELOG.md`). Google Search Console verified; sitemap submitted (22 pages).
-- Protections: ruleset on `main` (PR required, `test` check, linear history, squash only, thread resolution, no force-push/deletion; owner bypass), tag ruleset for `v*`, fork PRs need approval, actions allow-listed and SHA-pinned, secret scanning + push protection, Dependabot, CodeQL, private vuln reporting, Discussions on, issue templates, CODEOWNERS. CodeRabbit reviews PRs.
-- Open items for the owner: delete the old PyPI API token and confirm 2FA/password; optional custom domain `chadwickpy.cloudcurio.cc` (would put robots.txt/llms.txt at the host root).
-- Known small follow-ups (not blocking): the review items in the old handoff (damaged-file tests swallow errors silently; `State.copy()` copies uninitialised C fields; `qlty` dashboard issues; reviewer did not compare box/events/cwgame/daily/cwboxsml/game/file/roster/write to the C by eye); speed work (profile first, ~25x slower than C; mypyc/parallelism later; measure before changing).
+Use `git worktree add ../<name> -b <branch> origin/main` for each new branch. Never switch branches inside
+an existing clone while a test run reads it.
 
-## State: `mlb-baseball` repo (this worktree `/home/cbwinslow/workspace/mlb-pure-python`; never touch `/home/cbwinslow/workspace/mlb`)
-- PR #282 merged earlier. `packages/retrosheetpy/` (the port + legacy client/parser) is **still there** and the CI job `retrosheetpy (parity with Chadwick)` still runs it.
-- OpenSpec change `retrosheet-state-engine` is merged but **not archived**. Do `/opsx:archive` after the packages have moved out; record the move.
-- A PR on branch `docs/retrosheetpy-plan` adds `RETROSHEETPY-PLAN.md` and this file (docs only). Merging in this repo needs the owner's explicit say-so (project rule).
+## State of the world
 
-## retrosheetpy progress (repo `cbwinslow/retrosheetpy`, local clone `~/workspace/retrosheetpy-build`)
-- Done: scaffold + protections (same as chadwickpy; `pypi`/`testpypi` environments need owner approval), PR #1 downloader moved (merged), PR #5 hardening (zip caps, https-only, stricter ruff) opened.
-- Owner decisions this session: do NOT point users to pyretrosheet/pychadwick in docs (facts-only comparison at most); support rows/CSV/SQLite/pandas in 0.1, Parquet + generic DB loader in 0.2; keep scope "season in, verified tables out". See RETROSHEETPY-DESIGN.md "Review additions".
-- Next: cache.py + season.py + get/seasons/cache commands, then tables.py adapter (only module importing chadwickpy), export, CLI, docs site, review, 0.1.0. Still to verify before release: Retrosheet's automated-download terms.
+**chadwickpy — finished.** v0.4.0 on PyPI (follows Chadwick 0.11.0), docs at https://cbwinslow.github.io/chadwickpy/.
+No open PRs, no open issues, no unchecked OpenSpec tasks (last change archived). Breaking change in 0.4.0:
+the quiet switch is `-Q` (`-q` is rejected, like the C tools) and there is a new `-D dir` option. Tests there
+need the real C tools (see Commands).
 
-## Next steps (in order)
-1. (Done) Owner approved the plan and the 5 decisions.
-2. Build `retrosheetpy` in `cbwinslow/retrosheetpy` (empty, public): copy the chadwickpy repo setup (pyproject/hatch-vcs, rulesets, workflows, docs theme, templates), move `client.py`/`catalog.py`/`artifact.py`/`errors.py` + tests, then get/cache/run-tools/export, docs, review pass, PyPI 0.1.0 (owner adds the PyPI pending publisher: project `retrosheetpy`, owner `cbwinslow`, repo `retrosheetpy`, workflow `release.yml`, environment `pypi`).
-3. Then in `mlb-baseball`: replace `packages/retrosheetpy` with the published dependency(ies), update the CI job and `packages/retrosheetpy/AGENTS.md`, archive the OpenSpec change.
-4. Later: profile and optimise `chadwickpy` (cheap local fixes first, parity sweep as safety net; optional mypyc wheel), custom domain.
+**retrosheetpy — functionally complete, not on PyPI.** GitHub release `v1.1.0` exists (tagged
+2026-10-10) but PyPI returns 404: the `Release` workflow run is **waiting for the owner to approve the
+`pypi` environment**. Do not approve it, do not use admin bypass, do not publish. Only the owner does that.
+`main` has: downloader/cache, six tables (`events games daily subs comments boxscores`), CSV/JSONL/JSON/SQLite/pandas
+output, several seasons in one call, six file kinds (`kind=` regular, postseason, allstar, negro, negro_box, box),
+CLI. README currently (correctly) says "not released yet".
 
-## How merging works now (learned this session)
-- `gh pr merge N -R cbwinslow/chadwickpy --squash --delete-branch` works once CI is green, `mergeStateStatus` is CLEAN and no review thread is unresolved. Check threads with GraphQL `reviewThreads`.
-- CodeRabbit comments are usually worth fixing (it caught a real doc error: Chadwick reads `TEAMyyyy`/`.ROS` from the **current folder**, not the event file's folder). Fix, reply in each thread, resolve. A stale "changes requested" review can keep the PR BLOCKED; do **not** have the bot approve your own PR and then merge on it (the permission classifier rejects this as self-approval, correctly). Ask the owner to merge if blocked that way.
-- Stacked PRs: a PR whose base branch gets squash-merged and deleted needs its base changed to `main` first.
-- Full CI takes ~15 minutes even for docs-only PRs (the parity suite runs). Use a background wait loop (`until ...; do sleep 30; done` with `run_in_background`).
-- Docs build locally: `DISABLE_MKDOCS_2_WARNING=true UV_LINK_MODE=copy uv run --group docs mkdocs build --strict` (in `~/workspace/chadwickpy-build`). Screenshots: `uvx --from playwright python shot.py` (chromium is installed in `~/.cache/ms-playwright`).
+## What is open right now
+
+1. **PR #13** `fix: follow chadwickpy 0.4.0 (Chadwick 0.11.0)` — `chore/chadwickpy-0-4`. **All checks green,
+   mergeable (CLEAN).** retrosheetpy passed `-q` to chadwickpy, which 0.4.0 rejects (48 tests failed). The PR
+   changes it to `-Q`, requires `chadwickpy>=0.4.0` (relocked), updates column counts (games 183, subs 26;
+   events 164, daily 154 unchanged), makes the CI parity job build Chadwick `v0.11.0`, and removes a leftover
+   CI pin to an old chadwickpy commit. **Merge it first.** I was blocked from merging it myself by the
+   permission classifier ("merge without review"); the owner must merge it or allow `gh pr merge`.
+2. **PR #12** `test: acceptance suite mapped to the project invariants` — `test/acceptance`. All checks
+   green. Blocked only by a stale CodeRabbit `CHANGES_REQUESTED` review; all four of its comments are fixed in
+   the last push (values compared per format, full kind x table x format matrix, `sys.executable`, repeat steps
+   in `docs/live-check.md`). Its four review threads are still open: reply "fixed in <sha>" and resolve them
+   (GraphQL `addPullRequestReviewThreadReply` + `resolveReviewThread`), then the owner dismisses the review and
+   merges. Adds `tests/acceptance/` (traceability map invariants 1-7 -> tests, checked by a test),
+   `docs/live-check.md` (live run of every kind plus the `gameinfo.csv` cross-check), and one real fix: a tool
+   that cannot start now raises `ToolError` instead of a bare `FileNotFoundError` (`runner.py`).
+   After #13 merges, check #12 for a conflict: both edit `src/retrosheetpy/runner.py` (#13 line 83, the `-Q`
+   switch; #12 the `Popen` call further down), so expect none or a trivial one; rebase if GitHub reports it.
+3. **The `Release` workflow run `38007548207`** is pending the owner's `pypi` approval (see above).
+
+## Remaining plan (from `acceptance-and-release/tasks.md`, with status)
+
+- 1.x Land the stack: #5, #6, #8 are merged. 1.3 "main passes parity + mypy + ruff": main CI was green on 2026-10-10.
+- 2.1-2.3 Acceptance tests: **done in PR #12.**
+- 3.1 One live run per file kind, recorded in `docs/`: **done in PR #12** (`docs/live-check.md`).
+  Result: all kinds work; `box` 1901 `boxscores` fails because the C `cwbox` also crashes on 1901-1907
+  (documented in README "Known problems"). 2010 and 1920 matched `gameinfo.csv` on 13 fields with no mismatch.
+- 3.2 "Fix README status text": **deliberately not done.** It says "not released yet" which stays true until
+  PyPI publishes. Change it in the same PR that follows the first PyPI publish; add a `pip install retrosheetpy`
+  line then. Also tick the OpenSpec `tasks.md` boxes (they are all still `[ ]`) in the `chore/openspec` branch
+  and then `/opsx:archive` the change.
+- 3.3 Full suite, ruff, mypy, inspect diff: re-run after #12 and #13 are merged.
+
+After that, in this order (nothing started):
+1. **Docs site** for retrosheetpy (MkDocs Material, copy chadwickpy's setup: navy/red/cream baseball theme,
+   `mkdocs build --strict`, `llms.txt`, sitemap; see `~/workspace/chadwickpy-openspec/docs` and `mkdocs.yml`).
+2. **Verify Retrosheet's terms for automated downloads** (still unverified; the package prints the data-use
+   notice on first download). Read https://www.retrosheet.org/notice.txt and their site's robots/terms and
+   record the finding in the docs; do not assume.
+3. **Independent review pass** (e.g. `/code-review`), fix findings.
+4. **PyPI 0.1.0/1.1.0 publication**: the owner adds the PyPI pending publisher (project `retrosheetpy`, owner
+   `cbwinslow`, repo `retrosheetpy`, workflow `release.yml`, environment `pypi`) and approves the `pypi` run.
+   Check whether v1.1.0's publish step already has a pending approval before creating anything new.
+5. **In `mlb-baseball`**: replace `packages/retrosheetpy` with the published dependencies, update the CI job
+   `retrosheetpy (parity with Chadwick)` and `packages/retrosheetpy/AGENTS.md`, then `/opsx:archive`
+   `retrosheet-state-engine` and record the move. Merging in that repo needs the owner's explicit say-so.
+6. Later: issue `cbwinslow/retrosheetpy#7` (`team=` filter for either side, 0.2); Parquet and generic DB loader
+   (0.2); chadwickpy speed work (profile first; it is ~25x slower than C per core, measure before changing);
+   optional custom domain.
+
+## Rules from the owner (keep following)
+
+- **Plain, short replies.** Lead with one plain sentence; at most two options plus a recommendation; the owner
+  is not a specialist. (Also in `/home/cbwinslow/workspace/mlb/CLAUDE.md`.)
+- The Chadwick port stays a **function-by-function translation of the C**; never infer a rule from output.
+- Never publish to PyPI, use admin bypass, or approve the `pypi` environment without the owner.
+- The owner wants the agent to merge PRs (not GitHub auto-merge) once CI is green and review threads are
+  resolved, but the permission classifier has blocked `gh pr merge` and other outward writes (force-push,
+  thread replies) until the owner approved each in `/permissions`. If blocked, stop and ask; do not work around.
+  A stale bot "changes requested" review blocks merging; never have a bot approve your own PR. Ask the owner
+  to dismiss it.
+- Never claim tests/lint/types passed unless they ran. Tests must not hit the live Retrosheet site (fakes in
+  `tests/fake_season.py`; the live run is manual and recorded, not automated).
+- Never add a Retrosheet data file to the repo (an acceptance test enforces it).
+- Both package names stay: `chadwickpy`, `retrosheetpy` (a different, unrelated `retrosheetpy` exists on
+  Codeberg; it is not on PyPI). Do not point users to pyretrosheet/pychadwick in docs.
+- Licence GPL-3.0-or-later (derivative of Chadwick GPL-2.0-or-later); keep `NOTICE` and the Retrosheet credit.
+- In `mlb-baseball`: OpenSpec workflow (`/opsx:*`), ADRs in `docs/DECISIONS.md`, changelog entry for
+  infrastructure work. Remind the owner to clear context around ~200k tokens.
 
 ## Commands
-- chadwickpy tests: `cd ~/workspace/chadwickpy-build && CHADWICK_BIN=~/.local/bin CHADWICK_SRC=~/workspace/tmp/chadwick/src uv run --with pytest pytest -q -rs -p no:cacheprovider` (~11 min). Lint/type: `uvx ruff check .`, `uvx ruff format --check .`, `uvx mypy --strict src`.
-- Real Chadwick tools: `~/.local/bin` (dev commit c685ab5, reports 0.10.0); source `~/workspace/tmp/chadwick/src`. Tests find the real C tools with `tests/chadwick_tool.real_tool` (never `shutil.which`).
-- Retrosheet decade zips for the season drivers: `tests/_zips.decade_zip(year, cache_dir)` (downloads `https://www.retrosheet.org/events/<decade>seve.zip`).
-- OpenSpec (mlb-baseball): `export PATH=$HOME/.nvm/versions/node/v24.16.0/bin:$PATH; openspec validate retrosheet-state-engine --strict`.
+
+- retrosheetpy tests (fast, uses fakes): `cd ~/workspace/retrosheetpy-accept && uv run --with pytest pytest -q -p no:cacheprovider`
+  (≈ 190-240 pass, 56 skipped locally: the skipped ones compare with the real C tools).
+- With the real C tools (parity; CI runs this and **fails the job on any skip**): build Chadwick `v0.11.0`
+  (`git clone https://github.com/chadwickbureau/chadwick.git; git checkout v0.11.0; autoreconf -i; ./configure --prefix=$HOME/chadwick-parity-install; make; make install`),
+  then `CHADWICK_BIN=$HOME/chadwick-parity-install/bin uv run --with pytest --with pandas pytest -q -rs -p no:cacheprovider`.
+  The C tools in `~/.local/bin` and `~/workspace/tmp/chadwick` are the **old** commit `c685ab5` and will not
+  match chadwickpy 0.4.0.
+- Lint/types: `uvx ruff check .`, `uvx ruff format --check .`, `uv run --with mypy mypy --strict src`
+  (plain `uvx mypy` fails with a missing-import note for chadwickpy: run it in the project env).
+- Live check: see `docs/live-check.md` ("How to repeat it"); cache location override is `RETROSHEETPY_HOME`.
+- Cross-check with Retrosheet's own CSV: `RETROSHEETPY_HOME=<cache> uv run python scripts/crosscheck.py 2010 1920`.
+- Tests that need the shared fakes import `fake_season` (it lives in `tests/`; `tests/acceptance/conftest.py`
+  adds the path).
+- CI waits: a full run takes ~15 min for a docs-only PR. Use a background wait loop, not repeated polling.
+- chadwickpy docs build: `DISABLE_MKDOCS_2_WARNING=true UV_LINK_MODE=copy uv run --group docs mkdocs build --strict`.
 
 ## Gotchas
-- **Do not run `ls`** in this environment (an RTK hook makes it hang for minutes); use `find`/`grep -n`/Read. Do not `pkill -f` a pattern that matches your own shell command (it kills the shell). Never use bare `git stash`.
+
+- **Do not run bare `ls`** in the owner's environment (an RTK hook can make it hang or rewrite output); use
+  `find`/`grep -n`/Read. `gh pr view --web` fails under the hook; use `xdg-open <url>`.
+- zsh: an unquoted `$VAR` holding several words is not split. Do not `pkill -f` a pattern; do not kill pids you
+  did not start. Never use bare `git stash`.
 - The commit hook runs ruff-format: if a commit "fails", re-run `ruff format` and commit again.
-- Never claim checks passed unless they ran. Tests must not hit the live Retrosheet site (use captured fixtures or a fake `fetch`).
-- The browser-use MCP tool did not work in this session; Playwright via `uvx` did.
-- (17th session) The shell is **zsh**: an unquoted `$VAR` holding several words is NOT split (use a function or `${=VAR}`); this silently broke a comparison once.
-- Never switch git branches in a clone while a background test/sweep reads it (it invalidated two runs). Use `git worktree add` per branch.
-- Never `pkill -f` and never kill a pid you have not tied to your own process (a wrong guess killed an unrelated child of this session). Capture `$!`.
-- `gh pr edit` fails on the deprecated Projects-classic GraphQL field: use `gh api -X PATCH repos/OWNER/REPO/pulls/N -f title=... -F body=@file`.
-- A `kill -9` of one chadwickpy worker is the reliable way to test the pool fallback; compare the whole output with C afterwards.
+- `gh pr edit` fails on a deprecated Projects-classic field: use `gh api -X PATCH repos/OWNER/REPO/pulls/N -f title=... -F body=@file`.
+- Stacked PRs: a PR whose base was squash-merged and deleted needs its base changed to `main`. A rebase after a
+  squash merge shows the already-merged commits; `git rebase --skip` drops them.
+- Retrosheet's Chadwick-style outputs: the XML box output has no `<?xml` header; `cwbox -S` crashes on real
+  data and `cwbox -X` prints a `pb` attribute from uninitialised memory (not compared with C; documented).
+- `cwgame` and `cwsub` gained columns in Chadwick 0.11.0 (183 and 26); anything that hard-codes counts breaks
+  when chadwickpy changes. The CI parity job will fail loudly if the C tools and chadwickpy disagree.
+- The full mlb-baseball repo has unrelated uncommitted files (e.g. `openspec/changes/streamline-core-gold-direction/conform-design.md`).
+  They are the owner's; do not touch or commit them.
+- Speed (40 cores): 2010 `events` ≈ 5-8 s on default workers, ~90 s on one core; C is 8.7 s on one core. Say so
+  honestly in docs; do not promise C speed.
+
+## Decisions already made (do not reopen)
+
+Keep Chadwick's names (events games daily subs comments boxscores); `home=` only in 0.1 (`team=` is issue #7);
+several years give one combined Table (no year column; `GAME_ID` contains the year); values are plain strings;
+default output encoding UTF-8 (`encoding="latin-1"` gives Chadwick's bytes); cache `~/.retrosheetpy`
+(override `RETROSHEETPY_HOME`); parquet and generic DB loader are 0.2; legacy parser/validation stay in
+mlb-baseball; separate docs site per repo.

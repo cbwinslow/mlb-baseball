@@ -3,7 +3,7 @@
 - [x] 1.1 Generate the raw-vs-core column inventory for `raw.statcast_pitch`, `raw.retrosheet_event`, `raw.mlb_playbyplay`; list proposed exclusions with reasons. Verify: every raw column is carried or listed with a reason.
 - [x] 1.2 Check key uniqueness on production (read-only): (`game_pk`, `at_bat_number`, `pitch_number`) in `raw.statcast_pitch`; (`game_id`, `event_id`) in `raw.retrosheet_event`. Verify: duplicate counts recorded in `design.md`.
 - [x] 1.3 Compare `raw.retrosheet_plays` with `raw.retrosheet_event` (row counts, shared keys). Verify: result recorded; decide include/exclude as a follow-up.
-- [x] 1.4 Confirm export rights profiles (`mlb_baseball/export.py` allow-list). Verify: `core.pitch`/`core.play` are `local_research`; a test pins that and that `core.play_retro` is unregistered.
+- [ ] 1.4 Confirm export rights profiles (`mlb_baseball/export.py` allow-list). Verify: `core.pitch`/`core.play` are `local_research`; a test pins that and that `core.play_retro` is unregistered.
 
 ## 2. Pitch
 

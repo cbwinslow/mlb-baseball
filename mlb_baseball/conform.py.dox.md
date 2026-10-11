@@ -19,7 +19,8 @@ Primary outputs currently include:
 - `core.team_alias`
 - `core.game`
 - `core.standing`
-- `core.play`
+- `core.play` (MLB-API fields carried in nullable columns: description, names, bat side, pitch hand, RBI, MLBAM ids)
+- `core.play_retro` (every `raw.retrosheet_event` field, typed, one row per Retrosheet `core.play` row; insert in `sql/conform_play_retro_insert.sql`; not registered for export; no FK to `core.play`, checked by `mlb doctor` instead; see openspec change `widen-core-pitch-play`)
 - `core.pitch` (every measured `raw.statcast_pitch` column, typed; insert in `sql/conform_pitch_insert.sql`; six always-blank deprecated columns are not carried, see openspec change `widen-core-pitch-play`)
 - `core.market`
 - `core.player_war`

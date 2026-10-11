@@ -302,6 +302,239 @@ def _create_statcast_pitch(cur, rows):
         )
 
 
+_RETROSHEET_EVENT_COLUMNS = (
+    "game_id",
+    "away_team_id",
+    "inn_ct",
+    "bat_home_id",
+    "outs_ct",
+    "balls_ct",
+    "strikes_ct",
+    "pitch_seq_tx",
+    "away_score_ct",
+    "home_score_ct",
+    "bat_id",
+    "bat_hand_cd",
+    "resp_bat_id",
+    "resp_bat_hand_cd",
+    "pit_id",
+    "pit_hand_cd",
+    "resp_pit_id",
+    "resp_pit_hand_cd",
+    "pos2_fld_id",
+    "pos3_fld_id",
+    "pos4_fld_id",
+    "pos5_fld_id",
+    "pos6_fld_id",
+    "pos7_fld_id",
+    "pos8_fld_id",
+    "pos9_fld_id",
+    "base1_run_id",
+    "base2_run_id",
+    "base3_run_id",
+    "event_tx",
+    "leadoff_fl",
+    "ph_fl",
+    "bat_fld_cd",
+    "bat_lineup_id",
+    "event_cd",
+    "bat_event_fl",
+    "ab_fl",
+    "h_cd",
+    "sh_fl",
+    "sf_fl",
+    "event_outs_ct",
+    "dp_fl",
+    "tp_fl",
+    "rbi_ct",
+    "wp_fl",
+    "pb_fl",
+    "fld_cd",
+    "battedball_cd",
+    "bunt_fl",
+    "foul_fl",
+    "battedball_loc_tx",
+    "err_ct",
+    "err1_fld_cd",
+    "err1_cd",
+    "err2_fld_cd",
+    "err2_cd",
+    "err3_fld_cd",
+    "err3_cd",
+    "bat_dest_id",
+    "run1_dest_id",
+    "run2_dest_id",
+    "run3_dest_id",
+    "bat_play_tx",
+    "run1_play_tx",
+    "run2_play_tx",
+    "run3_play_tx",
+    "run1_sb_fl",
+    "run2_sb_fl",
+    "run3_sb_fl",
+    "run1_cs_fl",
+    "run2_cs_fl",
+    "run3_cs_fl",
+    "run1_pk_fl",
+    "run2_pk_fl",
+    "run3_pk_fl",
+    "run1_resp_pit_id",
+    "run2_resp_pit_id",
+    "run3_resp_pit_id",
+    "game_new_fl",
+    "game_end_fl",
+    "pr_run1_fl",
+    "pr_run2_fl",
+    "pr_run3_fl",
+    "removed_for_pr_run1_id",
+    "removed_for_pr_run2_id",
+    "removed_for_pr_run3_id",
+    "removed_for_ph_bat_id",
+    "removed_for_ph_bat_fld_cd",
+    "po1_fld_cd",
+    "po2_fld_cd",
+    "po3_fld_cd",
+    "ass1_fld_cd",
+    "ass2_fld_cd",
+    "ass3_fld_cd",
+    "ass4_fld_cd",
+    "ass5_fld_cd",
+    "event_id",
+    "home_team_id",
+    "bat_team_id",
+    "fld_team_id",
+    "bat_last_id",
+    "inn_new_fl",
+    "inn_end_fl",
+    "start_bat_score_ct",
+    "start_fld_score_ct",
+    "inn_runs_ct",
+    "game_pa_ct",
+    "inn_pa_ct",
+    "pa_new_fl",
+    "pa_trunc_fl",
+    "start_bases_cd",
+    "end_bases_cd",
+    "bat_start_fl",
+    "resp_bat_start_fl",
+    "bat_on_deck_id",
+    "bat_in_hold_id",
+    "pit_start_fl",
+    "resp_pit_start_fl",
+    "run1_fld_cd",
+    "run1_lineup_cd",
+    "run1_origin_event_id",
+    "run2_fld_cd",
+    "run2_lineup_cd",
+    "run2_origin_event_id",
+    "run3_fld_cd",
+    "run3_lineup_cd",
+    "run3_origin_event_id",
+    "run1_resp_cat_id",
+    "run2_resp_cat_id",
+    "run3_resp_cat_id",
+    "pa_ball_ct",
+    "pa_called_ball_ct",
+    "pa_intent_ball_ct",
+    "pa_pitchout_ball_ct",
+    "pa_hitbatter_ball_ct",
+    "pa_other_ball_ct",
+    "pa_strike_ct",
+    "pa_called_strike_ct",
+    "pa_swingmiss_strike_ct",
+    "pa_foul_strike_ct",
+    "pa_inplay_strike_ct",
+    "pa_other_strike_ct",
+    "event_runs_ct",
+    "fld_id",
+    "base2_force_fl",
+    "base3_force_fl",
+    "base4_force_fl",
+    "bat_safe_err_fl",
+    "bat_fate_id",
+    "run1_fate_id",
+    "run2_fate_id",
+    "run3_fate_id",
+    "fate_runs_ct",
+    "ass6_fld_cd",
+    "ass7_fld_cd",
+    "ass8_fld_cd",
+    "ass9_fld_cd",
+    "ass10_fld_cd",
+    "unknown_out_exc_fl",
+    "uncertain_play_exc_fl",
+    "count_tx",
+    "run1_auto_fl",
+    "run2_auto_fl",
+    "run3_auto_fl",
+    "_season",
+    "_group",
+    "_scope",
+    "_loaded_at",
+)
+_MLB_PBP_COLUMNS = (
+    "game_pk",
+    "at_bat_index",
+    "inning",
+    "half_inning",
+    "batter_id",
+    "batter_name",
+    "bat_side",
+    "pitcher_id",
+    "pitcher_name",
+    "pitch_hand",
+    "event",
+    "event_type",
+    "description",
+    "rbi",
+    "away_score",
+    "home_score",
+    "balls",
+    "strikes",
+    "outs",
+    "_season",
+    "_loaded_at",
+    "captured_at",
+)
+
+
+def _create_text_table(cur, table, columns, rows):
+    """Drop and recreate a raw text table at production width; rows are dicts of the
+    columns a test sets (all others blank)."""
+    cur.execute(f"DROP TABLE IF EXISTS {table}")
+    cur.execute(f"CREATE TABLE {table} (" + ", ".join(f"{c} text" for c in columns) + ")")
+    for row in rows:
+        cur.execute(
+            f"INSERT INTO {table} VALUES (" + ", ".join(["%s"] * len(columns)) + ")",
+            [row.get(c, "") for c in columns],
+        )
+
+
+def _retro_row(game_id, scope):
+    return dict(
+        game_id=game_id,
+        _season="2025",
+        event_id="1",
+        inn_ct="1",
+        bat_home_id="0",
+        bat_id="smitj001",
+        pit_id="jonet001",
+        event_cd="2",
+        event_tx="43/G34",
+        away_score_ct="0",
+        home_score_ct="0",
+        _scope=scope,
+    )
+
+
+def _create_retro_event(cur, rows):
+    _create_text_table(cur, "raw.retrosheet_event", _RETROSHEET_EVENT_COLUMNS, rows)
+
+
+def _create_mlb_pbp(cur, rows):
+    _create_text_table(cur, "raw.mlb_playbyplay", _MLB_PBP_COLUMNS, rows)
+
+
 def _seed_raw_tables(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS raw.retrosheet_team, raw.retrosheet_gameinfo")
@@ -433,13 +666,7 @@ def _create_mlb_game_tables(cur):
     cur.execute(
         "CREATE TABLE raw.mlb_boxscore_pitching (game_pk text, person_id text, _season text)"
     )
-    cur.execute(
-        "CREATE TABLE raw.mlb_playbyplay "
-        "(game_pk text, _season text, at_bat_index text, inning text, "
-        "half_inning text, batter_id text, pitcher_id text, "
-        "event_type text, event text, away_score text, home_score text, "
-        "balls text, strikes text, outs text)"
-    )
+    _create_mlb_pbp(cur, [])
 
 
 def test_conform_admits_current_season_players_with_no_retrosheet_id(db_conn):
@@ -456,7 +683,9 @@ def test_conform_admits_current_season_players_with_no_retrosheet_id(db_conn):
         _create_mlb_game_tables(cur)
         cur.execute("INSERT INTO raw.mlb_boxscore_batting VALUES ('777001', '700001', '2026')")
         cur.execute(
-            "INSERT INTO raw.mlb_playbyplay VALUES "
+            "INSERT INTO raw.mlb_playbyplay (game_pk, _season, at_bat_index, inning, half_inning, "
+            "batter_id, pitcher_id, event_type, event, away_score, home_score, balls, strikes, "
+            "outs) VALUES "
             "('777001', '2026', '0', '1', 'top', '700001', '700003', "
             "'strikeout', 'Strikeout', '0', '0', '0', '2', '1')"
         )
@@ -1010,17 +1239,7 @@ def test_build_plays_and_pitches_unify_both_sources(db_conn):
         )
 
         # raw.retrosheet_event: one play for the already-seeded, resolved game.
-        cur.execute(
-            "CREATE TABLE raw.retrosheet_event "
-            "(game_id text, _season text, event_id text, inn_ct text, "
-            "bat_home_id text, bat_id text, pit_id text, event_cd text, "
-            "event_tx text, away_score_ct text, home_score_ct text, _scope text)"
-        )
-        cur.execute(
-            "INSERT INTO raw.retrosheet_event VALUES "
-            "('ATL202504010', '2025', '1', '1', '0', 'smitj001', 'jonet001', "
-            "'2', '43/G34', '0', '0', '2025_pbp')"
-        )
+        _create_retro_event(cur, [_retro_row("ATL202504010", "2025_pbp")])
         # Real production bug found via a genuine data collision: 1,872
         # historical games are published byte-identical in both Retrosheet's
         # general play-by-play archive and its dedicated Negro League
@@ -1029,7 +1248,8 @@ def test_build_plays_and_pitches_unify_both_sources(db_conn):
         # UNIQUE(game_id, source, play_index). This second row simulates
         # that exact collision for the same game/event_id as above.
         cur.execute(
-            "INSERT INTO raw.retrosheet_event VALUES "
+            "INSERT INTO raw.retrosheet_event (game_id, _season, event_id, inn_ct, bat_home_id, "
+            "bat_id, pit_id, event_cd, event_tx, away_score_ct, home_score_ct, _scope) VALUES "
             "('ATL202504010', '2025', '1', '1', '0', 'smitj001', 'jonet001', "
             "'2', '43/G34', '0', '0', '2025_negro_league')"
         )
@@ -1055,17 +1275,26 @@ def test_build_plays_and_pitches_unify_both_sources(db_conn):
         # core.game's ATL202504020 row is home=ATL/away=NYM on 2025-04-02 —
         # matches raw.mlb_schedule's away_name/home_name via city||nickname.
 
-        cur.execute(
-            "CREATE TABLE raw.mlb_playbyplay "
-            "(game_pk text, _season text, at_bat_index text, inning text, "
-            "half_inning text, batter_id text, pitcher_id text, "
-            "event_type text, event text, away_score text, home_score text, "
-            "balls text, strikes text, outs text)"
-        )
-        cur.execute(
-            "INSERT INTO raw.mlb_playbyplay VALUES "
-            "('999001', '2025', '0', '1', 'top', '234567', '123456', "
-            "'field_out', 'Groundout', '0', '0', '0', '0', '1')"
+        _create_mlb_pbp(
+            cur,
+            [
+                dict(
+                    game_pk="999001",
+                    _season="2025",
+                    at_bat_index="0",
+                    inning="1",
+                    half_inning="top",
+                    batter_id="234567",
+                    pitcher_id="123456",
+                    event_type="field_out",
+                    event="Groundout",
+                    away_score="0",
+                    home_score="0",
+                    balls="0",
+                    strikes="0",
+                    outs="1",
+                )
+            ],
         )
 
         _create_statcast_pitch(
@@ -1355,17 +1584,26 @@ def test_build_plays_includes_win_probability_for_mlb_api_rows(db_conn):
             "('999001', '2025-04-02', 'New York Mets', 'Atlanta Braves', "
             "'2025', 'Final', 'R', '0', 'Truist Park', '', '1', '2')"
         )
-        cur.execute(
-            "CREATE TABLE raw.mlb_playbyplay "
-            "(game_pk text, _season text, at_bat_index text, inning text, "
-            "half_inning text, batter_id text, pitcher_id text, "
-            "event_type text, event text, away_score text, home_score text, "
-            "balls text, strikes text, outs text)"
-        )
-        cur.execute(
-            "INSERT INTO raw.mlb_playbyplay VALUES "
-            "('999001', '2025', '0', '1', 'top', '234567', '123456', "
-            "'field_out', 'Groundout', '0', '0', '0', '0', '1')"
+        _create_mlb_pbp(
+            cur,
+            [
+                dict(
+                    game_pk="999001",
+                    _season="2025",
+                    at_bat_index="0",
+                    inning="1",
+                    half_inning="top",
+                    batter_id="234567",
+                    pitcher_id="123456",
+                    event_type="field_out",
+                    event="Groundout",
+                    away_score="0",
+                    home_score="0",
+                    balls="0",
+                    strikes="0",
+                    outs="1",
+                )
+            ],
         )
         cur.execute(
             "CREATE TABLE raw.mlb_win_prob "
@@ -3638,29 +3876,30 @@ def _seed_conformance_rehearsal(db_conn):
             "('800003', '2026-04-14', 'New York Yankees', 'Atlanta Braves', '2026', "
             "'In Progress', 'R', '1', 'Truist Park', '', '1', '0')"
         )
-        cur.execute(
-            "CREATE TABLE raw.retrosheet_event "
-            "(game_id text, _season text, event_id text, inn_ct text, bat_home_id text, "
-            "bat_id text, pit_id text, event_cd text, event_tx text, away_score_ct text, "
-            "home_score_ct text, _scope text)"
+        _create_retro_event(
+            cur,
+            [_retro_row("ATL202504011", "2025_pbp"), _retro_row("ATL202504012", "2025_pbp")],
         )
-        cur.execute(
-            "INSERT INTO raw.retrosheet_event VALUES "
-            "('ATL202504011', '2025', '1', '1', '0', 'smitj001', 'jonet001', "
-            "'2', '43/G34', '0', '0', '2025_pbp'), "
-            "('ATL202504012', '2025', '1', '1', '0', 'smitj001', 'jonet001', "
-            "'2', '43/G34', '0', '0', '2025_pbp')"
-        )
-        cur.execute(
-            "CREATE TABLE raw.mlb_playbyplay "
-            "(game_pk text, _season text, at_bat_index text, inning text, half_inning text, "
-            "batter_id text, pitcher_id text, event_type text, event text, away_score text, "
-            "home_score text, balls text, strikes text, outs text)"
-        )
-        cur.execute(
-            "INSERT INTO raw.mlb_playbyplay VALUES "
-            "('800001', '2026', '0', '1', 'top', '234567', '123456', "
-            "'field_out', 'Groundout', '0', '0', '0', '0', '1')"
+        _create_mlb_pbp(
+            cur,
+            [
+                dict(
+                    game_pk="800001",
+                    _season="2026",
+                    at_bat_index="0",
+                    inning="1",
+                    half_inning="top",
+                    batter_id="234567",
+                    pitcher_id="123456",
+                    event_type="field_out",
+                    event="Groundout",
+                    away_score="0",
+                    home_score="0",
+                    balls="0",
+                    strikes="0",
+                    outs="1",
+                )
+            ],
         )
         _create_statcast_pitch(
             cur,
@@ -3824,3 +4063,161 @@ def test_conform_rebuilds_play_and_pitch_indexes(db_conn):
     play_indexes_after, pitch_indexes_after = indexes_after
     assert {"play_pkey", "play_game_id_source_play_index_key"}.issubset(play_indexes_after)
     assert "pitch_pkey" in pitch_indexes_after
+
+
+# raw.retrosheet_event columns not carried in core.play_retro: load metadata, plus three
+# columns NULL in 100% of 16.7M production rows on 2026-10-10. game_id is renamed.
+_RETRO_NOT_CARRIED = {
+    "_season",
+    "_group",
+    "_scope",
+    "_loaded_at",
+    "run1_auto_fl",
+    "run2_auto_fl",
+    "run3_auto_fl",
+}
+# Carried under another name, or deliberately held only in core.play / the key.
+_RETRO_RENAMED = {"game_id": "retro_game_id"}
+# raw.mlb_playbyplay -> core.play; load metadata is not carried.
+_MLB_PBP_NOT_CARRIED = {"_season", "_loaded_at", "captured_at"}
+_MLB_PBP_CORE = {
+    "game_pk": "game_id",
+    "at_bat_index": "play_index",
+    "inning": "inning",
+    "half_inning": "half_inning",
+    "batter_id": "batter_mlbam_id",
+    "batter_name": "batter_name",
+    "bat_side": "bat_side",
+    "pitcher_id": "pitcher_mlbam_id",
+    "pitcher_name": "pitcher_name",
+    "pitch_hand": "pitch_hand",
+    "event": "event_desc",
+    "event_type": "event_code",
+    "description": "description",
+    "rbi": "rbi",
+    "away_score": "away_score",
+    "home_score": "home_score",
+    "balls": "balls",
+    "strikes": "strikes",
+    "outs": "outs",
+}
+
+
+def _columns(db_conn, table):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'core' AND table_name = %s",
+            (table,),
+        )
+        return {r[0] for r in cur.fetchall()}
+
+
+def test_every_raw_play_column_is_carried_or_documented(db_conn):
+    retro = _columns(db_conn, "play_retro")
+    for col in _RETROSHEET_EVENT_COLUMNS:
+        if col in _RETRO_NOT_CARRIED:
+            continue
+        assert _RETRO_RENAMED.get(col, col) in retro, f"{col} is neither carried nor excluded"
+    play = _columns(db_conn, "play")
+    for col in _MLB_PBP_COLUMNS:
+        if col in _MLB_PBP_NOT_CARRIED:
+            continue
+        assert _MLB_PBP_CORE[col] in play, f"{col} is neither carried nor excluded"
+
+
+def test_export_rights_pin_play_and_pitch_local_and_play_retro_unregistered():
+    from mlb_baseball import export
+
+    assert export.ALLOWLIST["core.play"].profile == "local_research"
+    assert export.ALLOWLIST["core.pitch"].profile == "local_research"
+    assert "core.play_retro" not in export.ALLOWLIST
+
+
+def test_core_play_retro_is_typed_one_per_retrosheet_play_and_repeatable(db_conn):
+    _seed_raw_tables(db_conn)
+    with db_conn.cursor() as cur:
+        row = _retro_row("ATL202504010", "2025_pbp")
+        row.update(
+            leadoff_fl="T",
+            ph_fl="F",
+            rbi_ct="1",
+            event_runs_ct="1",
+            pitch_seq_tx="CBX",
+            battedball_cd="",
+            err1_cd="",
+            bat_fld_cd="6",
+        )
+        dup = dict(row, _scope="2025_negro_league")  # the known double-published game
+        _create_retro_event(cur, [row, dup])
+        # An MLB-API-only game (2026 has no Retrosheet coverage), so it becomes a core.game.
+        cur.execute(
+            "CREATE TABLE raw.mlb_schedule "
+            "(game_id text, game_date text, away_name text, home_name text, "
+            "_season text, status text, game_type text, game_num text, "
+            "venue_name text, venue_id text, away_score text, home_score text)"
+        )
+        cur.execute(
+            "INSERT INTO raw.mlb_schedule VALUES "
+            "('800001', '2026-04-12', 'New York Yankees', 'Atlanta Braves', "
+            "'2026', 'Final', 'R', '1', 'Truist Park', '', '2', '4')"
+        )
+        _create_mlb_pbp(
+            cur,
+            [
+                dict(
+                    game_pk="800001",
+                    _season="2026",
+                    at_bat_index="0",
+                    inning="1",
+                    half_inning="top",
+                    batter_id="234567",
+                    batter_name="A Batter",
+                    bat_side="R",
+                    pitcher_id="123456",
+                    pitcher_name="A Pitcher",
+                    pitch_hand="L",
+                    event_type="field_out",
+                    event="Groundout",
+                    description="A Batter grounds out.",
+                    rbi="",
+                    away_score="0",
+                    home_score="0",
+                    balls="0",
+                    strikes="0",
+                    outs="1",
+                )
+            ],
+        )
+    db_conn.commit()
+
+    conform.run()
+    conform.run()
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.play WHERE source = 'retrosheet'")
+        plays = cur.fetchone()[0]
+        cur.execute("SELECT count(*) FROM core.play_retro")
+        assert cur.fetchone() == (plays,) == (1,)
+        cur.execute(
+            "SELECT r.retro_game_id, r.leadoff_fl, r.ph_fl, r.rbi_ct, r.event_runs_ct, "
+            "r.pitch_seq_tx, r.battedball_cd, r.err1_cd, r.bat_fld_cd, r.run1_resp_pit_id, "
+            "r.season = p.season "
+            "FROM core.play_retro r JOIN core.play p ON p.id = r.play_id AND p.season = r.season"
+        )
+        assert cur.fetchone() == (
+            "ATL202504010", True, False, 1, 1, "CBX", None, None, 6, None, True,
+        )  # fmt: skip
+        cur.execute(
+            "SELECT description, batter_name, bat_side, pitcher_name, pitch_hand, rbi, "
+            "batter_mlbam_id, pitcher_mlbam_id FROM core.play WHERE source = 'mlb_api'"
+        )
+        assert cur.fetchone() == (
+            "A Batter grounds out.", "A Batter", "R", "A Pitcher", "L", None, 234567, 123456,
+        )  # fmt: skip
+        cur.execute(
+            "SELECT count(*) FROM core.play p LEFT JOIN core.play_retro r "
+            "ON r.play_id = p.id AND r.season = p.season "
+            "WHERE p.source = 'mlb_api' AND r.play_id IS NOT NULL"
+        )
+        assert cur.fetchone() == (0,)  # no detail row for MLB-sourced plays

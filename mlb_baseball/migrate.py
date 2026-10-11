@@ -96,7 +96,8 @@ def run(skip: set[str] | None = None) -> list[str]:
             f"-- a typo here silently no-ops the skip"
         )
     applied = []
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         _acquire_migration_lock(conn)
         try:
             _ensure_tracking_table(conn)
@@ -127,6 +128,15 @@ def run(skip: set[str] | None = None) -> list[str]:
                         )
                     conn.commit()
                 applied.append(version)
+                if "CREATE EXTENSION" in sql:
+                    # pg_duckdb's utility hook rejects a later CREATE TABLE in the session that
+                    # created the extension ("Writing to DuckDB and Postgres tables in the same
+                    # transaction block", observed 2026-10-10 on a fresh database). A new session
+                    # is unaffected, so reconnect and retake the lock.
+                    _release_migration_lock(conn)
+                    conn.close()
+                    conn = get_connection()
+                    _acquire_migration_lock(conn)
         except Exception:
             # A failed migration leaves psycopg's transaction aborted. Roll
             # back before releasing the session advisory lock so a useful
@@ -135,6 +145,8 @@ def run(skip: set[str] | None = None) -> list[str]:
             raise
         finally:
             _release_migration_lock(conn)
+    finally:
+        conn.close()
     return applied
 
 

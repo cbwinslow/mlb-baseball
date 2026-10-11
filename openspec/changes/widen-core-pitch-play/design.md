@@ -33,6 +33,9 @@ Observed 2026-10-10 on production `mlb`: `core.pitch` and `core.play` are range-
 - `conform_pitch_insert.sql` reads every carried raw column, so a raw table missing one fails loudly (`UndefinedColumn`) instead of silently dropping data; only a missing table is skipped, as before.
 - Test fixtures create `raw.statcast_pitch` at full width through one helper.
 
+- **`core.play_retro` (2026-10-10):** keys are `play_id` + `season`, partitioned by season (1871-2027 + default). Typed from a full scan of the 16.7M production rows: `*_fl` are `T`/`F` -> boolean; all-numeric columns -> integer; ids/codes/text -> text. `run{1,2,3}_auto_fl` are NULL in every row and are not carried. **No foreign key to `core.play`:** a FK from the partitioned table pins `core.play`'s partitions as logged (a partitioned parent cannot be made unlogged), which breaks the test harness's unlogged speed-up and adds TRUNCATE ordering burden; instead `mlb doctor` checks one detail row per Retrosheet play and no orphans. MLB-only fields went to nullable columns on `core.play` (description, names, bat side, pitch hand, RBI, MLBAM ids).
+- **Migration runner (2026-10-10):** on a fresh database, the first `CREATE TABLE` after `0116` created `pg_duckdb` in the same session failed ("Writing to DuckDB and Postgres tables in the same transaction block"). `migrate.run` now reconnects after any migration containing `CREATE EXTENSION`.
+
 ## Risks / Trade-offs
 
 - [Run time and size grow] -> measure `conform` and table size before/after on a disposable copy; accept if within owner's limit, otherwise this feeds parent task 7.4.

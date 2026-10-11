@@ -3,7 +3,7 @@
 - [x] 1.1 Generate the raw-vs-core column inventory for `raw.statcast_pitch`, `raw.retrosheet_event`, `raw.mlb_playbyplay`; list proposed exclusions with reasons. Verify: every raw column is carried or listed with a reason.
 - [x] 1.2 Check key uniqueness on production (read-only): (`game_pk`, `at_bat_number`, `pitch_number`) in `raw.statcast_pitch`; (`game_id`, `event_id`) in `raw.retrosheet_event`. Verify: duplicate counts recorded in `design.md`.
 - [x] 1.3 Compare `raw.retrosheet_plays` with `raw.retrosheet_event` (row counts, shared keys). Verify: result recorded; decide include/exclude as a follow-up.
-- [ ] 1.4 Confirm export rights profiles (`mlb_baseball/export.py` allow-list). Verify: `core.pitch`/`core.play` are `local_research`; a test pins that and that `core.play_retro` is unregistered.
+- [x] 1.4 Confirm export rights profiles (`mlb_baseball/export.py` allow-list). Verify: `core.pitch`/`core.play` are `local_research`; a test pins that and that `core.play_retro` is unregistered.
 
 ## 2. Pitch
 
@@ -13,9 +13,9 @@
 
 ## 3. Play
 
-- [ ] 3.1 Migration: add `core.play_retro` (partitioned like `core.play`) and the MLB-only nullable columns on `core.play`. Verify: applies; original 19 columns unchanged.
-- [ ] 3.2 Named SQL for Retrosheet detail insert and MLB extra fields; keep the Negro League de-duplication. Verify: one detail row per Retrosheet play, none for MLB plays.
-- [ ] 3.3 Tests: run-twice, parity vs `raw.retrosheet_event`, roll-up tie-out to game scores, column-inventory test.
+- [x] 3.1 Migration: add `core.play_retro` (partitioned like `core.play`) and the MLB-only nullable columns on `core.play`. Verify: applies; original 19 columns unchanged.
+- [x] 3.2 Named SQL for Retrosheet detail insert and MLB extra fields; keep the Negro League de-duplication. Verify: one detail row per Retrosheet play, none for MLB plays.
+- [ ] 3.3 Tests: run-twice, parity vs `raw.retrosheet_event`, roll-up tie-out to game scores, column-inventory test. Done and passing: run-twice, one detail row per Retrosheet play (fixture, incl. the duplicate Negro League row), typed values/blank-to-NULL, column inventory (Retrosheet and MLB), export-rights pin. Still open: value parity on a production copy and the score tie-out (do with 4.1).
 
 ## 4. Close out
 

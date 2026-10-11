@@ -1100,6 +1100,10 @@ def _build_plays(conn: psycopg.Connection) -> int:
             total += cur.rowcount
     except psycopg.errors.UndefinedTable:
         print("conform: raw.retrosheet_event not present yet — skipping its core.play rows")
+    else:
+        # After the core.play insert, so play_retro can key to the ids just assigned.
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(read_sql("conform_play_retro_insert.sql"))
 
     try:
         with conn.transaction(), conn.cursor() as cur:
@@ -1108,7 +1112,9 @@ def _build_plays(conn: psycopg.Connection) -> int:
                 INSERT INTO core.play (
                     game_id, season, source, play_index, inning, half_inning,
                     batter_id, pitcher_id, event_code, event_desc,
-                    away_score, home_score, balls, strikes, outs
+                    away_score, home_score, balls, strikes, outs,
+                    description, batter_name, pitcher_name, bat_side, pitch_hand, rbi,
+                    batter_mlbam_id, pitcher_mlbam_id
                 )
                 SELECT
                     g.id,
@@ -1125,7 +1131,15 @@ def _build_plays(conn: psycopg.Connection) -> int:
                     NULLIF(pbp.home_score, '')::integer,
                     NULLIF(pbp.balls, '')::integer,
                     NULLIF(pbp.strikes, '')::integer,
-                    NULLIF(pbp.outs, '')::integer
+                    NULLIF(pbp.outs, '')::integer,
+                    NULLIF(pbp.description, ''),
+                    NULLIF(pbp.batter_name, ''),
+                    NULLIF(pbp.pitcher_name, ''),
+                    NULLIF(pbp.bat_side, ''),
+                    NULLIF(pbp.pitch_hand, ''),
+                    NULLIF(pbp.rbi, '')::integer,
+                    NULLIF(pbp.batter_id, '')::bigint,
+                    NULLIF(pbp.pitcher_id, '')::bigint
                 FROM raw.mlb_playbyplay pbp
                 JOIN core.game g ON g.game_pk = pbp.game_pk
                 LEFT JOIN core.player bat ON bat.mlbam_id = pbp.batter_id
@@ -1806,7 +1820,7 @@ def run() -> dict[str, int]:
         # `mlb features` rebuilds gold.game_feature.
         with conn.cursor() as cur:
             cur.execute(
-                "TRUNCATE core.play, core.pitch, core.market, "
+                "TRUNCATE core.play_retro, core.play, core.pitch, core.market, "
                 "gold.game_feature, gold.batting_game, gold.pitching_game, "
                 "gold.batting_season, gold.batting_team, "
                 "gold.pitching_season, gold.pitching_team, "
@@ -1933,6 +1947,17 @@ def health_check() -> list[Check]:
             "(SELECT DISTINCT ON (re.game_id, re.event_id) 1 FROM raw.retrosheet_event re "
             "JOIN core.game g ON g.retro_game_id = re.game_id "
             "ORDER BY re.game_id, re.event_id, re._scope) x",
+        ),
+        check_join_coverage(
+            "core.play_retro coverage (one detail row per Retrosheet play)",
+            "SELECT count(*) FROM core.play_retro",
+            "SELECT count(*) FROM core.play WHERE source = 'retrosheet'",
+        ),
+        check_no_rows(
+            "core.play_retro rows with no matching Retrosheet core.play",
+            "SELECT count(*) FROM core.play_retro r LEFT JOIN core.play p "
+            "ON p.id = r.play_id AND p.season = r.season AND p.source = 'retrosheet' "
+            "WHERE p.id IS NULL",
         ),
         check_join_coverage(
             "core.play mlb_api coverage",

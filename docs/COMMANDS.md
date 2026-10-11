@@ -7,8 +7,8 @@ commands are in `mlb --help`.
 | Command | Effect | Flags | JSON | Dry run |
 |---|---|---|---|---|
 | `mlb migrate` | writes: database schema | `--skip` | no | no |
-| `mlb ingest` | writes: raw tables (use --dry-run to preview) | `--dry-run` `--end-year` `--json` `--mode` `--profile` `--refresh` `--stage` `--start-year` `--workers` | yes | yes |
-| `mlb bootstrap` | writes: raw tables for every source | `--profile` `--skip` | no | no |
+| `mlb ingest` | writes: raw tables (use --dry-run to preview) | `--dry-run` `--end-year` `--json` `--mode` `--profile` `--refresh` `--since-year` `--stage` `--start-year` `--workers` | yes | yes |
+| `mlb bootstrap` | writes: raw tables for every source | `--profile` `--since-year` `--skip` | no | no |
 | `mlb update` | writes: raw tables for every source | `--profile` `--skip` | no | no |
 | `mlb conform` | writes: core tables | none | no | no |
 | `mlb report` | writes: gold tables | none | no | no |

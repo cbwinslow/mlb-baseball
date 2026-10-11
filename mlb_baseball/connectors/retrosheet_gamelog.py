@@ -43,6 +43,7 @@ import pandas as pd
 import psycopg
 
 from mlb_baseball import manifest
+from mlb_baseball.config import bootstrap_floor
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
@@ -229,7 +230,7 @@ def _load_post_archive(conn: psycopg.Connection, filename: str, gtype: str) -> d
 def bootstrap() -> dict[str, int]:
     totals: dict[str, int] = {}
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        for year in range(FIRST_YEAR, date.today().year + 1):
+        for year in range(bootstrap_floor(FIRST_YEAR), date.today().year + 1):
             for table, count in _load_year(conn, year).items():
                 totals[table] = totals.get(table, 0) + count
             conn.commit()

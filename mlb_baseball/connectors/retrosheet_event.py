@@ -52,6 +52,7 @@ from pathlib import Path
 import psycopg
 
 from mlb_baseball import archive, chadwick_tools, manifest
+from mlb_baseball.config import bootstrap_floor
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
@@ -95,6 +96,7 @@ SPECIAL_ARCHIVES = {
     "allevr.zip": "negro_league",
 }
 CURRENT_DECADE_ARCHIVE = "2020seve.zip"
+NEGRO_LEAGUE_LAST_YEAR = 1962  # Retrosheet's Negro League coverage ends before this
 
 
 def _split_by_year(extract_dir: Path) -> dict[int, Path]:
@@ -219,7 +221,9 @@ def bootstrap() -> dict[str, int]:
     # losing the whole bootstrap over one is exactly what a real run hit.
     totals: dict[str, int] = {}
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        for filename in PBP_DECADE_ARCHIVES:
+        for filename, years in PBP_DECADE_ARCHIVES.items():
+            if years[-1] < bootstrap_floor(years[0]):
+                continue  # the whole decade is before --since-year
             try:
                 for table, count in _load_archive(
                     conn, filename, f"{BASE_URL}/{filename}", "pbp"
@@ -232,6 +236,8 @@ def bootstrap() -> dict[str, int]:
                     "retrosheet_event: %s failed (%s); skipping this archive", filename, exc
                 )
         for filename, group in SPECIAL_ARCHIVES.items():
+            if filename == "allevr.zip" and bootstrap_floor(1871) > NEGRO_LEAGUE_LAST_YEAR:
+                continue  # Negro League event files all predate --since-year
             try:
                 for table, count in _load_archive(
                     conn, filename, f"{BASE_URL}/{filename}", group

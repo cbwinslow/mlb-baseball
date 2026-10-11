@@ -98,3 +98,29 @@ def test_invalid_batch_memory_setting_is_rejected(tmp_path, monkeypatch):
 
     with pytest.raises(config.ConfigError, match="batch_work_mem"):
         config.load_settings(path)
+
+
+def test_bootstrap_floor_is_the_sources_first_year_unless_since_year_is_later(monkeypatch):
+    monkeypatch.setattr(config, "_bootstrap_since_year", None)
+    assert config.bootstrap_floor(1950) == 1950
+    monkeypatch.setattr(config, "_bootstrap_since_year", 2024)
+    assert config.bootstrap_floor(1950) == 2024
+    assert config.bootstrap_floor(2026) == 2026  # a source that starts later keeps its own start
+
+
+def test_bootstrap_since_year_comes_from_toml_or_environment(tmp_path, monkeypatch):
+    monkeypatch.delenv("MLB_BOOTSTRAP_SINCE_YEAR", raising=False)
+    path = tmp_path / "mlb.toml"
+    path.write_text("[mlb]\nbootstrap_since_year = 2023\n")
+    assert config.load_settings(path).bootstrap_since_year == 2023
+    monkeypatch.setenv("MLB_BOOTSTRAP_SINCE_YEAR", "2025")
+    assert config.load_settings(path).bootstrap_since_year == 2025
+    path.write_text("[mlb]\n")
+    monkeypatch.delenv("MLB_BOOTSTRAP_SINCE_YEAR")
+    assert config.load_settings(path).bootstrap_since_year is None
+
+
+def test_bootstrap_since_year_outside_baseball_history_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.setenv("MLB_BOOTSTRAP_SINCE_YEAR", "1800")
+    with pytest.raises(config.ConfigError):
+        config.load_settings(tmp_path / "missing.toml")

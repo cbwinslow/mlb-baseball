@@ -46,11 +46,13 @@ connections to the *same* server, retrosheet.org).
 
 import argparse
 import concurrent.futures
+import dataclasses
 import json as json_module
 import logging
 import os
 import sys
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 from typing import Any, cast
 
@@ -373,6 +375,14 @@ def main(argv: list[str] | None = None) -> None:
     update_parser = subparsers.add_parser("update")
     for profile_parser in (ingest_parser, bootstrap_parser, update_parser):
         profile_parser.add_argument("--profile", choices=sorted(PROFILES))
+    for since_parser in (ingest_parser, bootstrap_parser):
+        since_parser.add_argument(
+            "--since-year",
+            type=int,
+            metavar="YEAR",
+            help="bootstrap only seasons from YEAR on (a quick sample build); sources with no "
+            "season grain still load whole. Default: full history. Also MLB_BOOTSTRAP_SINCE_YEAR.",
+        )
     for all_parser in (bootstrap_parser, update_parser):
         all_parser.add_argument(
             "--skip",
@@ -1627,6 +1637,11 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         settings = config.load_settings(args.config)
+        since_year = getattr(args, "since_year", None)
+        if since_year is not None:
+            if not 1871 <= since_year <= date.today().year:
+                raise config.ConfigError(f"--since-year must be 1871-{date.today().year}")
+            settings = dataclasses.replace(settings, bootstrap_since_year=since_year)
         config.apply_settings(settings)
     except config.ConfigError as exc:
         parser.error(str(exc))

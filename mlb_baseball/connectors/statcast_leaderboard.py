@@ -72,6 +72,7 @@ import psycopg
 import pybaseball
 import requests
 
+from mlb_baseball.config import bootstrap_floor
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     Check,
@@ -205,7 +206,7 @@ def bootstrap() -> dict[str, int]:
     current_year = date.today().year
     totals: dict[str, int] = {}
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        for season in range(FIRST_YEAR, current_year + 1):
+        for season in range(bootstrap_floor(FIRST_YEAR), current_year + 1):
             # Past seasons are published and complete — skip re-fetching on
             # a bootstrap re-run, same reasoning as statcast.py/mlb_api.py.
             # See _season_fully_loaded's docstring for why this checks every

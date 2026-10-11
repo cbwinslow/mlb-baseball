@@ -71,6 +71,7 @@ import pandas as pd
 import psycopg
 from fungo.exceptions import FangraphsError, RequestError
 
+from mlb_baseball.config import bootstrap_floor
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
@@ -393,7 +394,7 @@ def _load_projections(conn: psycopg.Connection) -> dict[str, int]:
 
 
 def _season_range(first_year: int, current_year: int) -> range:
-    return range(first_year, current_year + 1)
+    return range(bootstrap_floor(first_year), current_year + 1)
 
 
 def bootstrap() -> dict[str, int]:

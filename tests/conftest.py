@@ -17,6 +17,21 @@ from pytest_postgresql import factories
 load_dotenv()
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_host_config(monkeypatch, tmp_path_factory):
+    """Keep the developer's host out of the tests. A host backup folder makes backup.health_check
+    use the host-dump check instead of the run-record check (point it at a path that does not
+    exist). A developer's .env may hold real Kalshi signing credentials; load_dotenv() above
+    puts them in os.environ, which silently switches the connector to signed requests and
+    breaks every test whose HTTP fake assumes unsigned calls. Tests that exercise
+    signing set the variables themselves."""
+    monkeypatch.delenv("KALSHI_API_KEY", raising=False)
+    monkeypatch.delenv("KALSHI_PRIVATE_KEY_PATH", raising=False)
+    monkeypatch.setenv(
+        "MLB_HOST_BACKUP_ROOT", str(tmp_path_factory.getbasetemp() / "no-host-backup")
+    )
+
+
 def _assert_test_database_url(url: str) -> None:
     """Refuse the suite before it can mutate a non-disposable database."""
     dbname = str(psycopg.conninfo.conninfo_to_dict(url).get("dbname") or "")

@@ -44,7 +44,8 @@ def test_snapshot_writes_rows_and_prunes_old_ones(stats_db):
 
 def test_missing_extension_is_skipped_not_fatal(db_conn):
     with db_conn.cursor() as cur:
-        cur.execute("DROP EXTENSION IF EXISTS pg_stat_statements")
+        # CASCADE: migration 0116 may also install pg_stat_kcache, which depends on it.
+        cur.execute("DROP EXTENSION IF EXISTS pg_stat_statements CASCADE")
     db_conn.commit()
     assert nightly.snapshot_query_stats() is None
 

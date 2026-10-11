@@ -54,6 +54,7 @@ import pandas as pd
 import psycopg
 
 from mlb_baseball import archive, chadwick_tools, manifest
+from mlb_baseball.config import bootstrap_floor
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
@@ -112,6 +113,16 @@ NEEDS_TEAM_FILE_ARCHIVES = {
     "1890sbox.zip": "era",  # 1898-1899, despite the "1890s" filename
     "1900sbox.zip": "era",  # 1900-1909
     "allebr.zip": "negro_league",
+}
+
+# Last season each archive covers, so a bootstrap with --since-year can skip it whole.
+ARCHIVE_LAST_YEAR = {
+    "1871box.zip": 1871,
+    "1872box.zip": 1872,
+    "1874box.zip": 1874,
+    "1890sbox.zip": 1899,
+    "1900sbox.zip": 1909,
+    "allebr.zip": 1961,
 }
 
 # Some current official Negro League box files make cwbox emit malformed
@@ -269,6 +280,8 @@ def bootstrap() -> dict[str, int]:
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
         all_archives = {**SELF_CONTAINED_ARCHIVES, **NEEDS_TEAM_FILE_ARCHIVES}
         for filename, group in all_archives.items():
+            if ARCHIVE_LAST_YEAR[filename] < bootstrap_floor(1871):
+                continue  # the whole archive is before --since-year
             for table, count in _load_archive(
                 conn, filename, f"{EVENTS_BASE_URL}/{filename}", group
             ).items():

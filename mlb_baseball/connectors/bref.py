@@ -97,6 +97,7 @@ from datetime import date, timedelta
 import psycopg
 import pybaseball
 
+from mlb_baseball.config import bootstrap_floor
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
     Check,
@@ -290,7 +291,7 @@ def bootstrap() -> dict[str, int]:
     current_year = date.today().year
     totals: dict[str, int] = {}
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        for season in range(FIRST_YEAR, current_year + 1):
+        for season in range(bootstrap_floor(FIRST_YEAR), current_year + 1):
             if season < current_year and season_already_loaded(conn, "raw.bref_batting", season):
                 print(f"bref: {season} already loaded, skipping")
                 continue

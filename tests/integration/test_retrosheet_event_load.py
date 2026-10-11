@@ -215,7 +215,11 @@ def test_bootstrap_continues_past_a_failing_archive(monkeypatch, db_conn):
     # failing outright (as above) aborted every remaining archive too --
     # confirmed the hard way: a real bootstrap produced zero rows for this
     # entire source. Mirrors retrosheet.py's per-year fix (ADR-059).
-    monkeypatch.setattr(event, "PBP_DECADE_ARCHIVES", {"bad-decade.zip": None, "decade.zip": None})
+    monkeypatch.setattr(
+        event,
+        "PBP_DECADE_ARCHIVES",
+        {"bad-decade.zip": range(2024, 2026), "decade.zip": range(2024, 2026)},
+    )
     monkeypatch.setattr(event, "SPECIAL_ARCHIVES", {})
     real_load_archive = event._load_archive
 
@@ -232,3 +236,25 @@ def test_bootstrap_continues_past_a_failing_archive(monkeypatch, db_conn):
 
     assert totals[event.EVENT_TABLE] > 0
     assert totals[event.GAME_TABLE] > 0
+
+
+def test_bootstrap_since_year_skips_whole_decades_and_the_negro_league_archive(monkeypatch):
+    from mlb_baseball import config
+
+    monkeypatch.setattr(config, "_bootstrap_since_year", 2020)
+    monkeypatch.setattr(
+        event,
+        "PBP_DECADE_ARCHIVES",
+        {"old.zip": range(1910, 1920), "new.zip": range(2020, 2030)},
+    )
+    monkeypatch.setattr(event, "SPECIAL_ARCHIVES", {"allpost.zip": "postseason", "allevr.zip": "x"})
+    asked = []
+
+    def fake_load(conn, filename, url, group):
+        asked.append(filename)
+        return {}
+
+    monkeypatch.setattr(event, "_load_archive", fake_load)
+    event.bootstrap()
+
+    assert asked == ["new.zip", "allpost.zip"]

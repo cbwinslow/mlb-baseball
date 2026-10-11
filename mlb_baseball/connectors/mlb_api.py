@@ -185,6 +185,7 @@ import requests
 import statsapi
 
 from mlb_baseball import manifest
+from mlb_baseball.config import bootstrap_floor
 from mlb_baseball.db import fetch_one, get_connection
 from mlb_baseball.health import (
     Check,
@@ -2395,7 +2396,7 @@ def backfill_history() -> dict[str, int]:
 
 def _load_draft_years(conn: psycopg.Connection, current_year: int) -> int:
     total = 0
-    for year in range(FIRST_DRAFT_YEAR, current_year + 1):
+    for year in range(bootstrap_floor(FIRST_DRAFT_YEAR), current_year + 1):
         if year < current_year and season_already_loaded(conn, "raw.mlb_draft", year):
             print(f"mlb_api: {year} draft already loaded, skipping")
             continue
@@ -2977,7 +2978,7 @@ def bootstrap() -> dict[str, int]:
     }
     current_year = date.today().year
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
-        for season in range(FIRST_SCHEDULE_YEAR, current_year + 1):
+        for season in range(bootstrap_floor(FIRST_SCHEDULE_YEAR), current_year + 1):
             # A past season's schedule/standings/roster/transactions are
             # published and complete — they never change, so re-fetching on
             # every bootstrap re-run is pure waste (each season costs real

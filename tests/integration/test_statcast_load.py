@@ -204,3 +204,16 @@ def test_health_check_reports_last_run_not_freshness(db_conn):
     assert any(c.name == f"{statcast.SOURCE} last run" for c in checks)
     assert not any(c.name == f"{statcast.SOURCE} freshness" for c in checks)
     assert all(c.ok for c in checks)
+
+
+def test_bootstrap_since_year_skips_earlier_seasons(db_conn, monkeypatch):
+    from mlb_baseball import config
+
+    monkeypatch.setattr(statcast, "FIRST_STATCAST_YEAR", 2025)
+    monkeypatch.setattr(config, "_bootstrap_since_year", 2026)
+    with patch.object(statcast.pybaseball, "statcast", return_value=_pitch_df(1)):
+        statcast.bootstrap()
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT DISTINCT _season FROM {TABLE} ORDER BY 1")
+        assert cur.fetchall() == [("2026",)]

@@ -75,6 +75,7 @@ import pandas as pd
 import psycopg
 import pybaseball
 
+from mlb_baseball.config import bootstrap_floor
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     Check,
@@ -158,7 +159,7 @@ def bootstrap() -> dict[str, int]:
     current_year = date.today().year
     with get_connection() as conn, track_run(conn, SOURCE, "bootstrap") as result:
         total = 0
-        for season in range(FIRST_STATCAST_YEAR, current_year + 1):
+        for season in range(bootstrap_floor(FIRST_STATCAST_YEAR), current_year + 1):
             # A past season's data is published and complete — it never
             # changes, so re-fetching it on every bootstrap re-run (each
             # season costs several minutes across dozens of weekly API

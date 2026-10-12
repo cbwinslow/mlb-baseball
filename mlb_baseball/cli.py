@@ -760,6 +760,12 @@ def main(argv: list[str] | None = None) -> None:
         help="seconds to wait before each retry of `update`; one retry per value "
         "(default: 60 300, i.e. three attempts)",
     )
+    nightly_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="do not run the pipeline: alert (exit 1) if the last nightly run never "
+        "finished or tonight's did not start; meant for a cron job outside the run",
+    )
     runs_parser = subparsers.add_parser(
         "runs", help="last result, age and duration of each scheduled job"
     )
@@ -2017,6 +2023,17 @@ def main(argv: list[str] | None = None) -> None:
         if any(not preflight_check.ok for preflight_check in preflight_checks):
             sys.exit(1)
     elif args.command == "nightly":
+        if args.check:
+            from datetime import UTC, datetime
+
+            from mlb_baseball.alert import alert as send_alert
+
+            problem = nightly.check_marker(nightly.default_marker_path(), datetime.now(UTC))
+            if problem:
+                send_alert(problem)
+                sys.exit(1)
+            print("nightly run record ok")
+            sys.exit(0)
         sys.exit(nightly.Nightly(retry_pauses=args.pause).run())
     elif args.command == "runs":
         from mlb_baseball.alert import alert as send_alert

@@ -13,7 +13,7 @@ commands are in `mlb --help`.
 | `mlb conform` | writes: core tables | none | no | no |
 | `mlb report` | writes: gold tables | none | no | no |
 | `mlb odds-capture` | writes: raw price snapshots | none | no | no |
-| `mlb nightly` | writes: the whole daily pipeline | `--pause` | no | no |
+| `mlb nightly` | writes: the whole daily pipeline | `--check` `--pause` | no | no |
 | `mlb repair` | dry run by default; --apply writes (safe-listed ingests only) | `--apply` `--dry-run` `--json` `--reset` `--source` | yes | yes |
 | `mlb repair-runs` | writes: closes stale run records | none | no | no |
 | `mlb backfill-game-identities` | writes: core game identities | `--batch-size` | no | no |

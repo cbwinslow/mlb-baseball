@@ -8,8 +8,10 @@ Production `mlb` writes (anything except read-only queries) need owner approval 
 - [ ] 1.2 Add an external "finished" signal and a missing-signal alert; verify by killing a test run partway and receiving the alert.
 - [x] 1.3 Split exit code from data-health: nightly rc reflects steps only; add a daily health digest; verify with a test where coverage reports a gap but rc=0.
 - [ ] 1.4 Move coverage and repair to a weekly job reading statistics or the ledger; verify the weekly run does no `count(*)` on the market tables (check `pg_stat_statements`).
+  - Code done 2026-10-12 (Monday-only gate, estimate for the two market tables). Still open: the `pg_stat_statements` check after a real weekly run.
 - [x] 1.5 Add content-hash / Last-Modified skip to the Retrosheet loader; run-twice test proves the second run writes nothing.
 - [ ] 1.6 Limit the 5-minute `mlb_api` tick to live games and today's schedule; move transactions/roster/draft to hourly with a skip-if-unchanged hash; run-twice test; confirm WAL rate drop with `pg_stat_wal` over 3 days.
+  - Code done 2026-10-12 for roster/transactions/draft (hourly + hash skip). Still open: narrowing schedule/game-detail work on the tick, and the 3-day WAL measurement after deploy.
 - [ ] 1.7 Update `.dox.md` sidecars for touched connectors and `nightly.py`; add a `changelog/` entry.
 - [ ] 1.8 Exit check: 7 nights with rc=0 or a real alert, nightly under 2 h, WAL/day down at least 40%.
 

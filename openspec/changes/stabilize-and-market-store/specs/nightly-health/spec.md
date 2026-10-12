@@ -30,11 +30,11 @@ The nightly exit code SHALL reflect only pipeline step failures. Data-health fin
 - **WHEN** every step completes and the coverage check reports a data gap
 - **THEN** the nightly exit code is success and the gap appears in the digest
 
-### Requirement: Expensive health checks do not run nightly
+### Requirement: Health checks do not scan the big tables
 Full-count coverage and repair checks SHALL run weekly and SHALL read table statistics or the ingestion ledger instead of counting every row.
 
-#### Scenario: Weekly coverage run
-- **WHEN** the weekly health job runs
+#### Scenario: Nightly coverage run
+- **WHEN** the nightly coverage check runs
 - **THEN** it completes without a full-table count on any market table
 
 ### Requirement: Loaders skip unchanged content

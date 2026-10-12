@@ -491,13 +491,67 @@ def _roster_df(season: int) -> pd.DataFrame:
     return df
 
 
-def _load_roster(conn: psycopg.Connection, season: int) -> int:
+SLOW_REFRESH_SECONDS = 3600  # roster/transactions/draft move on hours, not on the 5-minute tick
+
+
+def _slow_state_path():
+    return manifest.DOWNLOADS_ROOT / SOURCE / "slow_refresh.json"
+
+
+def _slow_state() -> dict[str, dict[str, Any]]:
+    try:
+        return json.loads(_slow_state_path().read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _slow_due(key: str, now: datetime | None = None) -> bool:
+    """True when `key` was last checked over an hour ago (or never)."""
+    checked = _slow_state().get(key, {}).get("checked_at")
+    if not checked:
+        return True
+    age = (now or datetime.now(UTC)) - datetime.fromisoformat(checked)
+    return age.total_seconds() >= SLOW_REFRESH_SECONDS
+
+
+def _record_slow_check(key: str, digest: str, now: datetime | None = None) -> None:
+    state = _slow_state()
+    state[key] = {"sha256": digest, "checked_at": (now or datetime.now(UTC)).isoformat()}
+    path = _slow_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(state, indent=2, sort_keys=True))
+    temporary.replace(path)
+
+
+def _load_slow(
+    conn: psycopg.Connection,
+    key: str,
+    df: pd.DataFrame,
+    table: str,
+    scope_column: str,
+    scope_value: str,
+    skip_unchanged: bool,
+) -> int:
+    """load_dataframe, except that with skip_unchanged an identical fetch writes
+    nothing. The hash is recorded only after the load succeeds, so a failed load
+    is retried on the next check rather than skipped."""
+    digest = hashlib.sha256(df.to_csv(index=False).encode()).hexdigest()
+    if skip_unchanged and _slow_state().get(key, {}).get("sha256") == digest:
+        _record_slow_check(key, digest)
+        return 0
+    rows = load_dataframe(conn, table, df, scope_column=scope_column, scope_value=scope_value)
+    if skip_unchanged:
+        conn.commit()
+        _record_slow_check(key, digest)
+    return rows
+
+
+def _load_roster(conn: psycopg.Connection, season: int, *, skip_unchanged: bool = False) -> int:
     df = _roster_df(season)
     if df.empty:
         return 0
-    return load_dataframe(
-        conn, "raw.mlb_roster", df, scope_column="_season", scope_value=str(season)
-    )
+    return _load_slow(conn, "roster", df, "raw.mlb_roster", "_season", str(season), skip_unchanged)
 
 
 TRANSACTION_COLUMNS = [
@@ -551,12 +605,14 @@ def _transactions_df(season: int) -> pd.DataFrame:
     return df
 
 
-def _load_transactions(conn: psycopg.Connection, season: int) -> int:
+def _load_transactions(
+    conn: psycopg.Connection, season: int, *, skip_unchanged: bool = False
+) -> int:
     df = _transactions_df(season)
     if df.empty:
         return 0
-    return load_dataframe(
-        conn, "raw.mlb_transaction", df, scope_column="_season", scope_value=str(season)
+    return _load_slow(
+        conn, "transaction", df, "raw.mlb_transaction", "_season", str(season), skip_unchanged
     )
 
 
@@ -837,13 +893,11 @@ def _draft_df(year: int) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=DRAFT_COLUMNS)
 
 
-def _load_draft(conn: psycopg.Connection, year: int) -> int:
+def _load_draft(conn: psycopg.Connection, year: int, *, skip_unchanged: bool = False) -> int:
     df = _draft_df(year)
     if df.empty:
         return 0
-    return load_dataframe(
-        conn, "raw.mlb_draft", df, scope_column="draft_year", scope_value=str(year)
-    )
+    return _load_slow(conn, "draft", df, "raw.mlb_draft", "draft_year", str(year), skip_unchanged)
 
 
 PLAYBYPLAY_COLUMNS = [
@@ -3285,6 +3339,22 @@ def _load_probable(conn: psycopg.Connection) -> int:
     )
 
 
+def _load_slow_tables(conn: psycopg.Connection, season: int) -> dict[str, int]:
+    """Roster, transactions and draft: checked hourly, written only when the
+    fetched rows differ from the last load (they used to be rewritten, ~60k
+    transaction rows, on every 5-minute tick)."""
+    loaders: dict[str, tuple[str, Callable[[], int]]] = {
+        "raw.mlb_roster": ("roster", lambda: _load_roster(conn, season, skip_unchanged=True)),
+        "raw.mlb_transaction": (
+            "transaction",
+            lambda: _load_transactions(conn, season, skip_unchanged=True),
+        ),
+    }
+    if season >= FIRST_DRAFT_YEAR:
+        loaders["raw.mlb_draft"] = ("draft", lambda: _load_draft(conn, season, skip_unchanged=True))
+    return {table: load() if _slow_due(key) else 0 for table, (key, load) in loaders.items()}
+
+
 def update() -> dict[str, int]:
     # Deliberately does NOT touch the reference/personnel/official-stats
     # data added in ADR-020 (sports/leagues/divisions/seasons/player-pool/
@@ -3303,10 +3373,8 @@ def update() -> dict[str, int]:
             "raw.mlb_standing": _load_standings(conn, season)
             if season >= FIRST_STANDINGS_YEAR
             else 0,
-            "raw.mlb_roster": _load_roster(conn, season),
-            "raw.mlb_transaction": _load_transactions(conn, season),
-            "raw.mlb_draft": _load_draft(conn, season) if season >= FIRST_DRAFT_YEAR else 0,
         }
+        counts.update(_load_slow_tables(conn, season))
         counts.update(_load_game_detail_for_today(conn))
         for table, count in _repair_game_detail(conn, season, REPAIR_BATCH_UPDATE).items():
             counts[table] = counts.get(table, 0) + count

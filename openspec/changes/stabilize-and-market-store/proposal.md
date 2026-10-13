@@ -6,7 +6,7 @@ The nightly pipeline now takes about 3 h 43 min (2026-10-11: update 18, conform 
 
 ## What Changes
 
-- **Stabilize the nightly run (Phase 0):** working failure alerts and a "did it finish?" watchdog; pipeline failure separated from data-health warnings; coverage and repair moved from nightly to weekly and made cheap; loaders skip a load when the source content is unchanged (content hash or Last-Modified); the 5-minute tick limited to live games and today's schedule.
+- **Stabilize the nightly run (Phase 0):** working failure alerts and a "did it finish?" watchdog; pipeline failure separated from data-health warnings; coverage made cheap (`--light`, already on `main` via ADR-303); loaders skip a load when the source content is unchanged (content hash or Last-Modified); the 5-minute tick limited to live games and today's schedule.
 - **Market price store (Phase 1):** retype and compress `raw.polymarket_price` and `raw.kalshi_candle` (and the snapshot tables) inside PostgreSQL using TimescaleDB, keeping table names and column names, with a 30-minute scratch-database test first. Polymarket and Kalshi data stay together in one store.
 - **Loader pilot:** the rewritten market loaders are the pilot for `dlt`, keeping `meta.ingestion_item` and the source-rights profiles as the owners of ledger and rights.
 - **ADR changes (drafts for owner review, in `design.md`):** relax ADR-300 (no `dlt`) to a per-source pilot; record the TimescaleDB decision.

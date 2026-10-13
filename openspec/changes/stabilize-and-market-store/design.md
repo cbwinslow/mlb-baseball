@@ -10,7 +10,12 @@ Evidence, tagged V (checked in this session) or A (assumed). Source: an independ
 - `/mnt/storage` (Postgres data volume) has 690 GB free [V]. Disks are spinning (RAID5) [Opus V].
 - TimescaleDB 2.28 and `pg_duckdb` are installed in `mlb` [V]. Local ClickHouse is 25.8 LTS [V].
 - Sample of 924k Polymarket rows compressed to 0.93 bytes/row in ClickHouse-local [Opus V]. Timescale columnar compression is estimated at 2-8 bytes/row, i.e. 1.5-5 GB for Polymarket [A, to be measured in task 2.2].
+- Order with the odds backfills (`odds-bulk-history`, `odds-history-capture`): retype first; the backfills wait and then write into the typed tables [owner decision 2026-10-13].
 - Nothing downstream reads the two market tables except the connectors, coverage and repair; no views or feature SQL [Opus V].
+
+## Design principle: separable parts
+
+Each stage (download, parse, load, check, alert) is its own part with a narrow, testable interface, so one can be replaced (a loader library, the alert channel, the store engine) without edits elsewhere. In this change: the alert channel sits behind one `alert_command` hook; health checks do not know how loaders work; loaders reach the database only through the shared load helpers and the ledger; readers of the market tables see names and meaning unchanged (spec: market-price-store), so the storage engine can change underneath them. New code follows this; it does not add cross-module reach-ins.
 
 ## Goals / Non-Goals
 
@@ -43,7 +48,7 @@ COPY into a TEMP text table, then `INSERT ... SELECT` with casts and `ON CONFLIC
 `dlt` provides the paging, retries and schema checks. `meta.ingestion_item` stays the ledger of record and the per-source rights profile still gates exports, so `dlt`'s own state is a cache and not a second source of truth. Parity check: the same token range loaded by the old and the `dlt` path must produce identical rows. Alternative: keep the hand-written loader (rejected for this one loader because it is being rewritten anyway).
 
 **D6. Failure and health are separate signals.**
-Nightly exit code = pipeline steps only. Data-health findings go to a daily digest. Coverage and repair run weekly and read statistics or the ledger, not row counts.
+Nightly exit code = pipeline steps only. Data-health findings go to a daily digest. Coverage runs nightly in `--light` mode (ledger and statistics, not row counts; ADR-303); repair keeps its `--apply` nightly step.
 
 **D7. Skip unchanged loads by content hash / Last-Modified.**
 Applies to the Retrosheet force-reload (`retrosheet_event.py:256-273`) and the `mlb_api` transaction/roster/draft loads (hourly, skipped when unchanged). The 5-minute tick keeps only live games and today's schedule.
@@ -58,7 +63,6 @@ Applies to the Retrosheet force-reload (`retrosheet_event.py:256-273`) and the `
 - [Swap during an active backfill] -> pause the backfill first; catch-up step for rows loaded after copy start.
 - [Copy generates about 50-60 GB of WAL (assumed)] -> throttle per chunk; 690 GB free; run off-hours; measure on the first month before continuing.
 - [Compression ratio lower than estimated] -> measured in the scratch test before any production work; exit criteria stop the change if missed.
-- [Weekly-only coverage hides a gap for a week] -> the daily digest still reports ledger-based freshness.
 - [Spinning RAID shared with other services (langfuse, datahub)] -> schedule the copy away from the 06:00 nightly.
 - [Alert channel not yet chosen] -> task 1.1 asks the owner; until set, `mlb doctor` reports "no alert channel".
 

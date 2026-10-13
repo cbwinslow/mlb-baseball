@@ -31,15 +31,26 @@ The nightly exit code SHALL reflect only pipeline step failures. Data-health fin
 - **THEN** the nightly exit code is success and the gap appears in the digest
 
 ### Requirement: Health checks do not scan the big tables
-Full-count coverage and repair checks SHALL run weekly and SHALL read table statistics or the ingestion ledger instead of counting every row.
+The nightly coverage check SHALL read the ingestion ledger and table statistics instead of counting every row (the `--light` mode).
 
 #### Scenario: Nightly coverage run
 - **WHEN** the nightly coverage check runs
 - **THEN** it completes without a full-table count on any market table
 
 ### Requirement: Loaders skip unchanged content
-A loader SHALL skip a load, and write nothing, when the source content hash or Last-Modified value matches the last successful load.
+A loader SHALL skip a load, and write nothing, only when the fetched source content is identical (same content hash) to the last successful load. Any difference SHALL load in full. A load that failed SHALL NOT count as a successful load.
 
 #### Scenario: Second run with unchanged source
 - **WHEN** a loader runs twice in a row against unchanged source content
-- **THEN** the second run writes no rows and records the skip in `meta.ingestion_item`
+- **THEN** the second run writes no rows and the loader's own state file shows the check time
+
+#### Scenario: Source changed by one row
+- **WHEN** the source differs from the last successful load in any row
+- **THEN** the whole scope loads and the new content hash is recorded only after the load commits
+
+### Requirement: The frequent tick touches only fast-changing data
+The 5-minute `mlb_api` update SHALL load only live games and today's schedule. Roster, transactions and draft SHALL be checked at most hourly.
+
+#### Scenario: Tick between hourly checks
+- **WHEN** the tick runs less than an hour after the last roster/transaction/draft check
+- **THEN** it makes no request for those tables and writes nothing to them

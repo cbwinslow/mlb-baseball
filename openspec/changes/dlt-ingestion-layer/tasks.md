@@ -4,7 +4,7 @@ Tags: **[auto]** the agent can finish and test it alone; **[owner]** needs an ow
 
 ## 1. Spike and gate (no production change)
 
-- [ ] 1.1 [auto] Add `dlt` (range `>=1.21,<2`, no database extras) to `pyproject.toml` and `uv.lock`; verify `uv run python -c "import dlt"` works and the unit suite still passes.
+- [x] 1.1 [auto] Add `dlt` (range `>=1.21,<2`, no database extras) to `pyproject.toml` and `uv.lock`; verify `uv run python -c "import dlt"` works and the unit suite still passes.
 - [ ] 1.2 [auto] Spike the custom destination: a `dlt` resource feeding a project-owned destination that writes one ledger item's rows and its `meta.ingestion_item` row in one transaction (`max_parallel_load_jobs=1` or `batch_size=0` file jobs); verify with a real-PostgreSQL test that a mid-item failure leaves neither rows nor ledger row, and a second run writes nothing.
 - [ ] 1.3 [auto] If 1.2 fails, build the fallback (`pipeline.extract()` and `normalize()` only, our loader reads the load-package files, one transaction per item) and verify the same two tests.
 - [ ] 1.4 [auto] Benchmark `dlt` overhead per batch against the current Polymarket price loader on recorded payloads (no network); record rows/s for both in `results.md`.

@@ -6,12 +6,11 @@ import dataclasses
 import random
 import time
 
-import dlt
 import polars as pl
 import psycopg
 
 from mlb_baseball import market_store
-from mlb_baseball.ingest_layer.destination import item_destination
+from mlb_baseball.ingest_layer.land import ITEM, Item, Policy, land
 
 BATCHES, TOKENS, POINTS = 10, 20, 500  # 100k rows over 10 batches of 10k
 TABLE = dataclasses.replace(
@@ -29,6 +28,21 @@ def _payload(batch: int) -> dict[str, list[dict]]:
     }
 
 
+def _frame(b: int) -> pl.DataFrame:
+    payload = _payload(b)
+    n = TOKENS * POINTS
+    return pl.DataFrame(
+        {
+            ITEM: [str(b)] * n,
+            "clob_token_id": [tok for tok, pts in payload.items() for _ in pts],
+            "_market": ["1"] * n,
+            "_event": ["1"] * n,
+            "ts": [str(p["t"]) for pts in payload.values() for p in pts],
+            "price": [str(p["p"]) for pts in payload.values() for p in pts],
+        }
+    )
+
+
 def _count(conn) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM raw.polymarket_price_b")
@@ -37,7 +51,7 @@ def _count(conn) -> int:
     return n
 
 
-def test_dlt_path_vs_current_loader(db_conn, tmp_path):
+def test_dlt_path_vs_current_loader(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("SELECT meta.create_market_tables('_b')")
     db_conn.commit()
@@ -60,29 +74,36 @@ def test_dlt_path_vs_current_loader(db_conn, tmp_path):
     info = db_conn.info
     start = time.perf_counter()
     for b in range(BATCHES):
-        payload = _payload(b)
-        rows = pl.DataFrame(
-            {
-                "clob_token_id": [tok for tok, pts in payload.items() for _ in pts],
-                "_market": pl.Series([1] * (TOKENS * POINTS), dtype=pl.Int32),
-                "_event": pl.Series([1] * (TOKENS * POINTS), dtype=pl.Int32),
-                "ts": [p["t"] for pts in payload.values() for p in pts],
-                "price": [p["p"] for pts in payload.values() for p in pts],
-            }
-        ).to_arrow()  # typed columnar batch: dlt skips its slow per-dict normalization
-        dest = item_destination(
+        frame = _frame(b)
+        land(
             lambda: psycopg.connect(info.dsn, password=info.password),
-            target=TABLE.name,
-            key=TABLE.key,
+            TABLE,
+            Policy.APPEND,
+            frame,
             source="bench",
             dataset="polymarket_price",
-            item_key=str(b),
+            items=[Item(str(b))],
         )
-        pipe = dlt.pipeline("bench", destination=dest, pipelines_dir=str(tmp_path / str(b)))
-        pipe.run(rows, table_name="polymarket_price", loader_file_format="parquet")
     new = time.perf_counter() - start
     assert _count(db_conn) == total
 
+    with db_conn.cursor() as cur:
+        cur.execute("TRUNCATE raw.polymarket_price_b")
+    db_conn.commit()
+    frames = [_frame(b) for b in range(BATCHES)]
+    start = time.perf_counter()
+    land(
+        lambda: psycopg.connect(info.dsn, password=info.password),
+        TABLE,
+        Policy.APPEND,
+        pl.concat(frames),
+        source="bench",
+        dataset="polymarket_price",
+        items=[Item(str(b)) for b in range(BATCHES)],
+    )
+    one_call = time.perf_counter() - start
+    assert _count(db_conn) == total
+    print(f"\nBENCH one call, {BATCHES} items: {total / one_call:,.0f} rows/s ({one_call:.2f}s)")
     print(
         f"\nBENCH rows={total} current={total / old:,.0f} rows/s ({old:.2f}s) "
         f"dlt={total / new:,.0f} rows/s ({new:.2f}s)"

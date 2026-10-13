@@ -39,3 +39,18 @@ in the dlt path; they are task 3.1.
 
 ## Gate outcome
 Owner accepted the gate on 2026-10-13. Rule D6 (within 10%) is not met by 1.4x, so bulk backfills stay on the fast path for now; Opus review changes are D9, D10 and the reordered D7. The benchmark must be repeated with reject checks in both paths and a reused state folder (task 2.0).
+
+## Repeat after the Opus review (tasks 2.0 / 2.0b)
+New `ingest_layer/land.py` + `types.py`: type cast and reject handling now run in the dlt path too, `dlt` only
+normalizes to files and the database is written once, in one transaction, after `dlt` finishes. Same 100,000
+polymarket-shaped rows, source values as text in both paths, reject checks in both:
+
+| Path | rows/s |
+| --- | --- |
+| current loader (`market_store.append_rows`) | ~30,000 |
+| dlt layer, one call per 10,000-row item | ~16,000 |
+| dlt layer, ONE call carrying 10 items (100,000 rows) | ~36,000 |
+
+The gap was the fixed cost per call, not the data work. With many items per call the layer is faster than the
+current loader, so rule D6 (within 10%) is met for batched work; single small items still pay ~0.15 s each, so
+callers batch items (D10b). Bulk backfills can be re-measured at full scale before they are moved.

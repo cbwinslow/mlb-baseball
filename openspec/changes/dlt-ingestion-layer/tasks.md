@@ -12,8 +12,8 @@ Tags: **[auto]** the agent can finish and test it alone; **[owner]** needs an ow
 
 ## 2. Layer scaffolding
 
-- [ ] 2.0 [auto] Destination rules D10: pipeline per item or abort-before-run, many items per transaction with a ledger row each, landing policies incl. zero-row item, rows inserted counted, provenance fields filled; verify a test per rule plus a run-twice test per policy and a leftover-package test with a shared state folder.
-- [ ] 2.0b [auto] Type contract D9: `ingest_layer/types.py` pyarrow schemas from `market_store`, schema-vs-`information_schema` test, polars cast with empty-to-NULL and reject rows, empty-versus-NULL CSV quoting test.
+- [x] 2.0 [auto] Destination rules D10: pipeline per item or abort-before-run, many items per transaction with a ledger row each, landing policies incl. zero-row item, rows inserted counted, provenance fields filled; verify a test per rule plus a run-twice test per policy and a leftover-package test with a shared state folder.
+- [x] 2.0b [auto] Type contract D9: `ingest_layer/types.py` pyarrow schemas from `market_store`, schema-vs-`information_schema` test, polars cast with empty-to-NULL and reject rows, empty-versus-NULL CSV quoting test.
 
 - [ ] 2.1 [auto] Create `mlb_baseball/ingest_layer/` with the `Downloader`, `Loader` and `Check` Protocols, the custom destination and the per-table landing policy list (scoped replace, append-only typed, upsert, truncate-and-reload) reusing `load.py`, `market_store.py`, `manifest.py`, `ingest.py`; verify unit tests per policy and that nothing outside `ingest_layer/` imports its internals.
 - [ ] 2.2 [auto] Configure `dlt` for `direct` naming, no nesting, no `_dlt_*` objects in `raw`/`core`/`gold`, state under `~/.mlb/dlt`; verify a test that lists schemas after a run and finds no `_dlt_*` table, and a test that deletes the state directory and resumes without duplicates (spec: tool state is lost).

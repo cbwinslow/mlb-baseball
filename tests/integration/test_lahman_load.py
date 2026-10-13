@@ -1,7 +1,6 @@
 import time
 import zipfile
 
-import pandas as pd
 import pytest
 
 from mlb_baseball.connectors import lahman
@@ -34,13 +33,7 @@ def fake_tables(monkeypatch, drop_tables_after):
     table_a = drop_tables_after("raw.test_lahman_a")
     table_b = drop_tables_after("raw.test_lahman_b")
 
-    def _network_fallback(*_args, **_kwargs):
-        raise AssertionError("network fallback should not be called when a local zip exists")
-
-    fake = [
-        (table_a, "A.csv", _network_fallback),
-        (table_b, "B.csv", _network_fallback),
-    ]
+    fake = [(table_a, "A.csv"), (table_b, "B.csv")]
     monkeypatch.setattr(lahman, "TABLES", fake)
     return table_a, table_b
 
@@ -62,21 +55,27 @@ def test_bootstrap_loads_from_local_zip(tmp_path, monkeypatch, fake_tables, db_c
         assert cur.fetchone() == ("1", "foo")
 
 
-def test_falls_back_to_network_when_no_local_zip(tmp_path, monkeypatch, drop_tables_after, db_conn):
-    monkeypatch.setattr(lahman, "DOWNLOADS_DIR", tmp_path)
-    table = drop_tables_after("raw.test_lahman_network")
-    fetch_called = {"count": 0}
+def test_downloads_the_mirror_when_no_local_zip(tmp_path, monkeypatch, fake_tables, db_conn):
+    table_a, table_b = fake_tables
+    monkeypatch.setattr(lahman, "DOWNLOADS_DIR", tmp_path / "empty")
+    mirror = tmp_path / "mirror.zip"
+    _write_zip(
+        mirror,
+        "lahman-database-csv-main/data",
+        {"A.csv": "id,name\n1,mirror\n", "B.csv": "id\n5\n"},
+    )
+    called = {"n": 0}
 
-    def _fake_fetch():
-        fetch_called["count"] += 1
-        return pd.DataFrame({"id": [1], "name": ["from-network"]})
+    def _download():
+        called["n"] += 1
+        return mirror
 
-    monkeypatch.setattr(lahman, "TABLES", [(table, "A.csv", _fake_fetch)])
+    monkeypatch.setattr(lahman, "download_release", _download)
 
     counts = lahman.update()
 
-    assert fetch_called["count"] == 1
-    assert counts == {table: 1}
+    assert called["n"] == 1
+    assert counts == {table_a: 1, table_b: 1}
     with db_conn.cursor() as cur:
-        cur.execute(f"SELECT name FROM {table}")
-        assert cur.fetchone() == ("from-network",)
+        cur.execute(f"SELECT name FROM {table_a}")
+        assert cur.fetchone() == ("mirror",)

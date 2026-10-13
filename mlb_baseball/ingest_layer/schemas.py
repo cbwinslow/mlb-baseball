@@ -13,13 +13,16 @@ from mlb_baseball.market_store import Column, MarketTable
 _DIR = Path(__file__).parent / "schemas"
 
 
-def load(source: str, *, prefix: tuple[str, str] | None = None) -> dict[str, MarketTable]:
+def load(
+    source: str, *, prefix: tuple[str, str] | None = None, suffix: str = ""
+) -> dict[str, MarketTable]:
     """``{table name: spec}`` for ``source``. ``prefix=("raw.lahman_", "raw.x_lahman_")``
-    renames tables (parity and rehearsal runs use scratch names)."""
+    and ``suffix="__new"`` rename tables (parity runs and the retype swap load beside the old
+    table)."""
     raw = json.loads((_DIR / f"{source}.json").read_text())
     specs = {}
     for table, body in raw.items():
-        name = table.replace(*prefix) if prefix else table
+        name = (table.replace(*prefix) if prefix else table) + suffix
         specs[table] = MarketTable(
             name=name,
             reject=name + "_reject",

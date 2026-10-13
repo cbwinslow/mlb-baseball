@@ -49,14 +49,14 @@ PEOPLE_CSV = (
 def _lahman_zip(tmp_path):
     path = tmp_path / "lahman_test.zip"
     with zipfile.ZipFile(path, "w") as zf:
-        for _table, filename, _fetch in lahman_old.TABLES:
+        for _table, filename in lahman_old.TABLES:
             zf.writestr(f"baseballdatabank/{filename}", PEOPLE_CSV)
     return path
 
 
 def test_lahman_is_typed_and_fixes_what_pandas_corrupted(db_conn, connect, tmp_path):
     zip_path = _lahman_zip(tmp_path)
-    new_tables = [t.replace("raw.lahman_", "raw.pnew_lahman_") for t, _f, _g in lahman_old.TABLES]
+    new_tables = [t.replace("raw.lahman_", "raw.pnew_lahman_") for t, _f in lahman_old.TABLES]
     try:
         with zipfile.ZipFile(zip_path) as zf:
             frame = lahman_old._read_from_zip(zf, "People.csv")
@@ -93,9 +93,9 @@ def test_lahman_a_value_that_breaks_its_declared_type_stops_the_load(db_conn, co
     bad = PEOPLE_CSV.replace("1934", "nineteen")
     path = tmp_path / "bad.zip"
     with zipfile.ZipFile(path, "w") as zf:
-        for _t, filename, _f in lahman_old.TABLES:
+        for _t, filename in lahman_old.TABLES:
             zf.writestr(filename, bad)
-    tables = [t.replace("raw.lahman_", "raw.pnew_lahman_") for t, _f, _g in lahman_old.TABLES]
+    tables = [t.replace("raw.lahman_", "raw.pnew_lahman_") for t, _f in lahman_old.TABLES]
     try:
         with pytest.raises(ValueError, match="birthyear is not a valid integer"):
             land_zip(connect, path, table_prefix="raw.pnew_lahman_")
@@ -109,7 +109,7 @@ def test_lahman_a_value_that_breaks_its_declared_type_stops_the_load(db_conn, co
 
 def test_lahman_second_run_changes_nothing_and_ledger_has_provenance(db_conn, connect, tmp_path):
     zip_path = _lahman_zip(tmp_path)
-    tables = [t.replace("raw.lahman_", "raw.pnew_lahman_") for t, _f, _g in lahman_old.TABLES]
+    tables = [t.replace("raw.lahman_", "raw.pnew_lahman_") for t, _f in lahman_old.TABLES]
     try:
         land_zip(connect, zip_path, table_prefix="raw.pnew_lahman_")
         land_zip(connect, zip_path, table_prefix="raw.pnew_lahman_")

@@ -68,6 +68,7 @@ Do not simplify scoped replacement to season-only without proving that overlappi
 
 - Current decade regular-season archive is re-downloaded with `force=True` because Retrosheet appends/corrects it in place.
 - Postseason and All-Star whole-history archives are also refreshed because they grow over time.
+- A forced refresh whose downloaded bytes (sha256) and `PARSER_VERSION` match the last `loaded` manifest entry restores that entry and skips parse/load, so an unchanged nightly writes nothing (`tests/unit/test_retrosheet_event_skip.py`). A changed archive or a parser bump reloads as before.
 - Historical closed decade archives are not needlessly re-parsed on routine update.
 - Retrosheet also corrects closed decades in place (the 2000s archive had 105 corrected event rows by 2026-10; found by the tie-out gate, `openspec/changes/raw-source-tieout/results-history.md`). A difference caused by a stale load is fixed by force-reloading that archive through `_load_archive(..., force=True)` against the intended database, never by editing raw rows.
 

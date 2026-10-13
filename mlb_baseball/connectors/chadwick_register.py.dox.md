@@ -101,6 +101,10 @@ For changes, verify:
 - `raw.register_people` remains usable by canonical player conformance;
 - health detects empty/missing identity data and records connector run status.
 
+## Staged-layer path (live)
+
+`bootstrap()`/`update()` land through `ingest_layer/sources/register.py` (`land_register`): the same four tables in one shared transaction (a failure part-way publishes nothing, tested), values cast to the declared types in `ingest_layer/schemas/register.json` (migration `0118_typed_register.sql` retypes existing tables in place), one `meta.ingestion_item` row per table with the source URL. The download stage is this module's `fetch_csv`, unchanged. `load_csv`/`extract_columns` are the legacy COPY helpers, kept for tests that show old-versus-new parity.
+
 ## Child DOX Index
 
 No child DOX files. This is a leaf connector contract.

@@ -285,7 +285,7 @@ DATASETS: list[Dataset] = [
     # Lahman: one release, one file per table.
     *[
         Dataset("lahman", table, Present(), "mlb ingest lahman")
-        for table, _, _ in lahman.TABLES
+        for table, _ in lahman.TABLES
         if table not in ("raw.lahman_people", "raw.lahman_teams")
     ],
     Dataset(

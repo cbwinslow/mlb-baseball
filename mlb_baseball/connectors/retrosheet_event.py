@@ -178,8 +178,27 @@ def _load_archive(
     # run. force=True (used by update()) always bypasses this.
     if not force and manifest.load_manifest(SOURCE).get(filename, {}).get("status") == "loaded":
         return {}
+    previous = manifest.load_manifest(SOURCE).get(filename, {})
     archive_path = manifest.download(SOURCE, filename, url, force=force)
     if archive_path is None:
+        return {}
+    # A forced re-download of an archive whose bytes and parser are unchanged
+    # would rewrite identical rows (and their WAL); download() reset the status,
+    # so restore it and skip the parse/load.
+    current = manifest.load_manifest(SOURCE).get(filename, {})
+    if (
+        force
+        and previous.get("status") == "loaded"
+        and previous.get("parser_version") == PARSER_VERSION
+        and previous.get("sha256") == current.get("sha256")
+    ):
+        manifest.mark_status(
+            SOURCE,
+            filename,
+            "loaded",
+            parser_version=PARSER_VERSION,
+        )
+        logger.info("retrosheet_event: %s unchanged since last load; skipping", filename)
         return {}
     counts: dict[str, int] = {EVENT_TABLE: 0, GAME_TABLE: 0}
     parsed_archives = _parse_archive(archive_path, group)

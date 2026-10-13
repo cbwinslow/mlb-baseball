@@ -11,6 +11,7 @@ incident fixes the shell script carried (migrate first, report only after a good
 conform).
 """
 
+import json
 import logging
 import os
 import subprocess
@@ -20,7 +21,8 @@ import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from mlb_baseball import ingest
 from mlb_baseball.alert import alert
@@ -42,15 +44,75 @@ STEP_TIMEOUT_SECONDS = 4 * 3600
 REPAIR_TIMEOUT_SECONDS = 300
 
 
+# A run that started but has not finished after this long is reported as dead
+# (the slowest recorded night is under four hours); a night with no start in this
+# long is reported as never run. Both are checked by `mlb nightly --check`, which
+# runs from cron, outside the process it watches.
+RUN_WINDOW = timedelta(hours=5)
+MAX_RUN_GAP = timedelta(hours=26)
+
+
+def default_marker_path() -> Path:
+    return Path(os.environ.get("MLB_HOME", Path.home() / ".mlb")) / "nightly_run.json"
+
+
 @dataclass(frozen=True)
 class StepResult:
     name: str
     ok: bool
     attempts: int = 1
+    health: bool = False
 
 
 def _log(message: str) -> None:
     print(f"{datetime.now(UTC):%Y-%m-%dT%H:%M:%SZ} {message}", flush=True)
+
+
+def write_marker(
+    path: Path, started_at: datetime, finished_at: datetime | None, rc: int | None
+) -> None:
+    """The run's own record, independent of the database. Bookkeeping must never
+    fail the pipeline, so a write error is logged."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(
+                {
+                    "started_at": started_at.isoformat(),
+                    "finished_at": finished_at.isoformat() if finished_at else None,
+                    "rc": rc,
+                }
+            )
+        )
+        tmp.replace(path)
+    except OSError as exc:
+        logger.error("could not write the run marker %s (%s)", path, exc)
+
+
+def check_marker(path: Path, now: datetime) -> str | None:
+    """Why the last nightly run needs attention, or None. A finished run is fine
+    even with rc=1: its failing step already sent its own alert."""
+    try:
+        data = json.loads(path.read_text())
+        started = datetime.fromisoformat(data["started_at"])
+        finished = data["finished_at"]
+    except FileNotFoundError:
+        return f"mlb nightly: no nightly run record at {path}; it may never have started"
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return f"mlb nightly: run record {path} is unreadable ({exc})"
+    if finished is None:
+        if now - started > RUN_WINDOW:
+            return (
+                f"mlb nightly: the run started {started:%Y-%m-%d %H:%M}Z did not finish "
+                f"within {RUN_WINDOW}; the process may have died"
+            )
+        return None
+    if now - started > MAX_RUN_GAP:
+        return (
+            f"mlb nightly: last run started {started:%Y-%m-%d %H:%M}Z; tonight's run did not start"
+        )
+    return None
 
 
 def run_child(
@@ -208,13 +270,17 @@ class Nightly:
         retry_pauses: Sequence[float] = DEFAULT_RETRY_PAUSES,
         notify: Callable[[str], object] = alert,
         sleep: Callable[[float], None] = time.sleep,
+        marker_path: Path | None = None,
     ) -> None:
         self.command = command
         self._sources = sources
         self.retry_pauses = tuple(retry_pauses)
         self.notify = notify
         self.sleep = sleep
+        self.marker_path = marker_path or default_marker_path()
         self.results: list[StepResult] = []
+        self._started = datetime.now(UTC)
+        self.health_findings: list[str] = []
 
     def _repair_runs(self) -> None:
         """Marks `running` rows of dead processes failed. Bounded by its own short
@@ -231,8 +297,10 @@ class Nightly:
             return [n for n in CONNECTORS if n not in EXCLUDED_SOURCES]
         return list(self._sources)
 
-    def step(self, name: str, args: Sequence[str]) -> bool:
-        """Runs one code-bound step once; alerts on failure."""
+    def step(self, name: str, args: Sequence[str], *, health: bool = False) -> bool:
+        """Runs one code-bound step once. A pipeline step alerts at once on failure.
+        A health step (a check of the data, not a stage of the pipeline) does not
+        alert or change the exit code; its finding goes into the end-of-run digest."""
         started = datetime.now(UTC)
         _log(f"step {name}: starting")
         code, tail = run_child(self.command, args)
@@ -243,9 +311,14 @@ class Nightly:
             _log(f"step {name}: ok (took {took}s)")
         else:
             _log(f"step {name}: FAILED rc={code} (took {took}s)")
-            self.notify(
-                f"mlb nightly: step {name} failed (rc={code}). Last output:\n" + "\n".join(tail)
-            )
+            if health:
+                self.health_findings.append(
+                    f"{name} (rc={code}): {tail[-1] if tail else 'no output'}"
+                )
+            else:
+                self.notify(
+                    f"mlb nightly: step {name} failed (rc={code}). Last output:\n" + "\n".join(tail)
+                )
         record_step(
             name,
             1,
@@ -254,7 +327,7 @@ class Nightly:
             finished,
             None if ok else f"rc={code}: " + " | ".join(tail[-3:]),
         )
-        self.results.append(StepResult(name, ok))
+        self.results.append(StepResult(name, ok, health=health))
         return ok
 
     def update(self) -> bool:
@@ -306,6 +379,8 @@ class Nightly:
     def run(self) -> int:
         """The whole pipeline; returns the process exit code (0 only if every step passed)."""
         _log("starting nightly update")
+        self._started = datetime.now(UTC)
+        write_marker(self.marker_path, self._started, None, None)
         # Clear rows left 'running' by a process that was killed (issue #180).
         self._repair_runs()
         if not self.step("migrate", ["migrate"]):
@@ -317,18 +392,23 @@ class Nightly:
         else:
             _log("conform failed; skipping report")
         self.step("predict", ["predict"])
-        self.step("populated", ["doctor", "--populated"])
+        # Checks of the data rather than builds of it: a finding is reported in one digest
+        # and does not fail the night.
+        self.step("populated", ["doctor", "--populated"], health=True)
         # Drift fails the step (a source changed shape; exit 1). An unreachable source is
         # shown as UNCHECKED in the log and in meta.schema_finding but does not alert every
         # night (design: "unchecked instead of failing").
-        self.step("schema-watch", ["schema-watch", "--tolerate-unchecked"])
+        self.step("schema-watch", ["schema-watch", "--tolerate-unchecked"], health=True)
         # Repair closes the gaps on its short safe list (Statcast days, MLB per-game tables,
         # new Kalshi and Polymarket markets), then the check measures what is left, so a gap
         # that the repair fixed does not alert and one that it cannot fix does. Both read the
         # report in `--light` form: the row counts and date ranges took over half an hour.
+        # Repair writes data, so a failed repair is a pipeline failure, not a health finding.
         self.step("repair", ["repair", "--apply"])
         self.step(
-            "coverage", ["coverage", "--unexplained", "--missing-only", "--fail-on-gap", "--light"]
+            "coverage",
+            ["coverage", "--unexplained", "--missing-only", "--fail-on-gap", "--light"],
+            health=True,
         )
         written = snapshot_query_stats()
         _log(f"query stats snapshot: {'skipped' if written is None else f'{written} statements'}")
@@ -336,6 +416,15 @@ class Nightly:
         return self._finish()
 
     def _finish(self) -> int:
-        failed = [r.name for r in self.results if not r.ok]
-        _log(f"finished nightly update (overall rc={1 if failed else 0})")
-        return 1 if failed else 0
+        failed = [r.name for r in self.results if not r.ok and not r.health]
+        rc = 1 if failed else 0
+        if self.health_findings:
+            self.notify(
+                "mlb nightly health digest (the pipeline itself "
+                + ("FAILED" if failed else "ran")
+                + "): "
+                + "; ".join(self.health_findings)
+            )
+        _log(f"finished nightly update (overall rc={rc})")
+        write_marker(self.marker_path, self._started, datetime.now(UTC), rc)
+        return rc

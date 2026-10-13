@@ -21,6 +21,7 @@ EFFECTS: dict[str, str] = {
     "repair": "dry run by default; --apply writes (safe-listed ingests only)",
     "repair-runs": "writes: closes stale run records",
     "backfill-game-identities": "writes: core game identities",
+    "retype": "writes: <table>__new copies; --apply also renames tables (keeps <table>__old)",
     "schema-watch": "writes: snapshot files and meta.schema_finding, never raw",
     "coverage": "read-only",
     "source-check": "read-only (HEAD requests; --hash downloads to a temp file)",

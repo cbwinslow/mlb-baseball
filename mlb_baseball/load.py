@@ -39,6 +39,10 @@ def _pg_column_name(name: str) -> str:
     return f"n{cleaned}" if cleaned[0].isdigit() else cleaned
 
 
+# Public name for the ingestion layer, which must sanitize headers exactly as this module does.
+pg_column_name = _pg_column_name
+
+
 def _pg_column_names(df: pd.DataFrame) -> list[str]:
     columns = [_pg_column_name(name) for name in df.columns]
     duplicates = sorted({column for column in columns if columns.count(column) > 1})

@@ -78,6 +78,7 @@ Initial high-value profiles:
 | --- | --- |
 | [`connectors/AGENTS.md`](connectors/AGENTS.md) | External source acquisition, source rights/provenance, replay, idempotency, health, and connector-level file DOX. |
 | [`coverage/AGENTS.md`](coverage/AGENTS.md) | `mlb coverage`: read-only expected-versus-held inventory per source and table, with the ingest command that fixes each gap. |
+| [`ingest_layer/AGENTS.md`](ingest_layer/AGENTS.md) | Staged `dlt` + pyarrow + polars ingestion layer: typed batches, landing policies, one-transaction ledger. |
 | [`sql/AGENTS.md`](sql/AGENTS.md) | Operational package SQL ownership and verification. |
 | [`model/AGENTS.md`](model/AGENTS.md) | Modeling/PIT/evaluation contracts while this package remains a durable boundary. |
 

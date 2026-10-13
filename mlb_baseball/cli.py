@@ -678,6 +678,16 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="exit 0 when a source could not be reached (drift still exits 1); used by nightly",
     )
+    retype_parser = subparsers.add_parser(
+        "retype",
+        help="replace an all-text source's tables with typed ones (ADR-304): load typed copies "
+        "beside the live tables, compare every cell, then with --apply swap them in one "
+        "transaction and keep the old tables as <table>__old. Without --apply only the "
+        "<table>__new copies are written. Exit 0 identical, 1 differences.",
+    )
+    retype_parser.add_argument("source", choices=["lahman"])
+    retype_parser.add_argument("--zip", help="release zip (default: newest downloads/lahman*.zip)")
+    retype_parser.add_argument("--apply", action="store_true", help="swap when nothing differs")
     metrics_parser = subparsers.add_parser("metrics")
     metrics_parser.add_argument("--source", default="mlb_api")
     metrics_parser.add_argument("--window-minutes", type=int, default=5)
@@ -759,6 +769,12 @@ def main(argv: list[str] | None = None) -> None:
         metavar="SECONDS",
         help="seconds to wait before each retry of `update`; one retry per value "
         "(default: 60 300, i.e. three attempts)",
+    )
+    nightly_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="do not run the pipeline: alert (exit 1) if the last nightly run never "
+        "finished or tonight's did not start; meant for a cron job outside the run",
     )
     runs_parser = subparsers.add_parser(
         "runs", help="last result, age and duration of each scheduled job"
@@ -1954,6 +1970,27 @@ def main(argv: list[str] | None = None) -> None:
                 tolerate_unchecked=args.tolerate_unchecked,
             )
         )
+    elif args.command == "retype":
+        from mlb_baseball.connectors import lahman as lahman_connector
+        from mlb_baseball.db import get_connection
+        from mlb_baseball.ingest_layer.sources.lahman import retype as retype_lahman
+
+        zip_path = Path(args.zip) if args.zip else lahman_connector.find_local_zip()
+        if zip_path is None:
+            zip_path = lahman_connector.download_release()
+        diffs = retype_lahman(get_connection, zip_path, apply=args.apply)
+        for d in diffs:
+            mark = "same" if d.same else f"DIFFERS only_old={d.only_old} only_new={d.only_new}"
+            print(f"{d.table:36} old={d.old_rows:>8} new={d.new_rows:>8} {mark}")
+        clean = all(d.same for d in diffs)
+        print(
+            "swapped"
+            if args.apply and clean
+            else "not swapped (dry run)"
+            if clean
+            else "NOT swapped"
+        )
+        sys.exit(0 if clean else 1)
     elif args.command == "metrics":
         try:
             operational_metrics.print_report(args.source, args.window_minutes)
@@ -2017,6 +2054,17 @@ def main(argv: list[str] | None = None) -> None:
         if any(not preflight_check.ok for preflight_check in preflight_checks):
             sys.exit(1)
     elif args.command == "nightly":
+        if args.check:
+            import datetime as dt
+
+            from mlb_baseball.alert import alert as send_alert
+
+            problem = nightly.check_marker(nightly.default_marker_path(), dt.datetime.now(dt.UTC))
+            if problem:
+                send_alert(problem)
+                sys.exit(1)
+            print("nightly run record ok")
+            sys.exit(0)
         sys.exit(nightly.Nightly(retry_pauses=args.pause).run())
     elif args.command == "runs":
         from mlb_baseball.alert import alert as send_alert

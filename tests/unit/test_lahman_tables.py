@@ -4,7 +4,7 @@ from mlb_baseball.connectors.lahman import TABLES, _read_from_zip
 
 
 def test_every_table_has_a_unique_name():
-    names = [table for table, _filename, _fetch in TABLES]
+    names = [table for table, _filename in TABLES]
     assert len(names) == len(set(names))
 
 

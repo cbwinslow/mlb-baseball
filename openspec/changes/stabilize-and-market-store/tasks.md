@@ -17,12 +17,12 @@ Each task is tagged: **[auto]** the agent can finish and test it alone; **[owner
 - [x] 1.5 Retrosheet unchanged-archive skip with run-twice test.
 - [x] 1.6 [auto] The 5-minute `mlb_api` tick loads only yesterday's and today's schedule, live games and game detail; season schedule, standings, roster, transactions and draft run hourly with a hash skip. Unit tests plus the 53 `test_mlb_api_load.py` integration tests pass on a disposable database.
 - [ ] 1.6m [measure] After deploy, `pg_stat_wal` over 3 days shows the write rate down.
-- [ ] 1.7 [auto] Final doc pass: sidecars for `nightly.py`, `retrosheet_event.py`, `mlb_api.py` match the code; changelog entry current.
+- [x] 1.7 [auto] Doc pass done: sidecars (`mlb_api`, `retrosheet_event`, `cli`), ARCHITECTURE nightly paragraph and changelog match the code.
 - [ ] 1.8 [measure] Exit check: 7 nights with rc=0 or a real alert, nightly under 2 h, WAL/day down at least 40%.
 
 ## 2. Market price store
 
-- [ ] 2.1 [auto] Inventory every reader of `raw.polymarket_price`, `raw.kalshi_candle` (views, SQL files, Python; read-only `pg_depend` and repo search), recorded in `results.md`.
+- [x] 2.1 [auto] Reader inventory done; recorded in `results.md` (no database object depends on either table; only the two connectors, coverage, repair and their tests name them).
 - [x] 2.2 Scratch-database Timescale test (see `results.md`).
 - [x] 2.3 Decision gate: passed provisionally; re-check after the first production month.
 - [ ] 2.4 [owner] Bad-value discovery per month chunk on production (read-only queries; approval because of load on spinning disks); counts into `results.md`.

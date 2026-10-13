@@ -36,3 +36,6 @@ fixed cost about 0.15 s per pipeline run. Conclusion: pass typed Arrow/polars ba
 never Python dicts; the remaining gap to the current loader (about 1.4x slower) is the fixed
 per-run cost plus the staging copy. The current loader's value checks (reject table) are not yet
 in the dlt path; they are task 3.1.
+
+## Gate outcome
+Owner accepted the gate on 2026-10-13. Rule D6 (within 10%) is not met by 1.4x, so bulk backfills stay on the fast path for now; Opus review changes are D9, D10 and the reordered D7. The benchmark must be repeated with reject checks in both paths and a reused state folder (task 2.0).

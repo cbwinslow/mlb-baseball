@@ -8,9 +8,12 @@ Tags: **[auto]** the agent can finish and test it alone; **[owner]** needs an ow
 - [x] 1.2 [auto] Spike the custom destination: a `dlt` resource feeding a project-owned destination that writes one ledger item's rows and its `meta.ingestion_item` row in one transaction (`max_parallel_load_jobs=1` or `batch_size=0` file jobs); verify with a real-PostgreSQL test that a mid-item failure leaves neither rows nor ledger row, and a second run writes nothing.
 - [x] 1.3 [auto] (not needed, 1.2 passed) If 1.2 fails, build the fallback (`pipeline.extract()` and `normalize()` only, our loader reads the load-package files, one transaction per item) and verify the same two tests.
 - [x] 1.4 [auto] Benchmark `dlt` overhead per batch against the current Polymarket price loader on recorded payloads (no network); record rows/s for both in `results.md`.
-- [ ] 1.5 [owner] Decision gate on `results.md`: accept the hand-off (1.2 or 1.3), the overhead from 1.4, and the migration order in design D7. Approves writing the ADR that supersedes ADR-300.
+- [x] 1.5 [owner] (accepted 2026-10-13 with the Opus review changes D6, D9, D10 below) Decision gate on `results.md`: accept the hand-off (1.2 or 1.3), the overhead from 1.4, and the migration order in design D7. Approves writing the ADR that supersedes ADR-300.
 
 ## 2. Layer scaffolding
+
+- [ ] 2.0 [auto] Destination rules D10: pipeline per item or abort-before-run, many items per transaction with a ledger row each, landing policies incl. zero-row item, rows inserted counted, provenance fields filled; verify a test per rule plus a run-twice test per policy and a leftover-package test with a shared state folder.
+- [ ] 2.0b [auto] Type contract D9: `ingest_layer/types.py` pyarrow schemas from `market_store`, schema-vs-`information_schema` test, polars cast with empty-to-NULL and reject rows, empty-versus-NULL CSV quoting test.
 
 - [ ] 2.1 [auto] Create `mlb_baseball/ingest_layer/` with the `Downloader`, `Loader` and `Check` Protocols, the custom destination and the per-table landing policy list (scoped replace, append-only typed, upsert, truncate-and-reload) reusing `load.py`, `market_store.py`, `manifest.py`, `ingest.py`; verify unit tests per policy and that nothing outside `ingest_layer/` imports its internals.
 - [ ] 2.2 [auto] Configure `dlt` for `direct` naming, no nesting, no `_dlt_*` objects in `raw`/`core`/`gold`, state under `~/.mlb/dlt`; verify a test that lists schemas after a run and finds no `_dlt_*` table, and a test that deletes the state directory and resumes without duplicates (spec: tool state is lost).

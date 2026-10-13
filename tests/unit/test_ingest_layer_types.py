@@ -49,3 +49,21 @@ def test_already_typed_input_is_accepted():
         pl.DataFrame({"clob_token_id": ["a"], "ts": [5], "price": [0.25]}), ms.POLYMARKET_PRICE
     )
     assert good.height == 1 and rejected.height == 0
+
+
+def test_state_dir_follows_mlb_home_and_lists_leftover_runs(tmp_path, monkeypatch):
+    from mlb_baseball.ingest_layer.state import leftover_runs, state_dir
+
+    monkeypatch.setenv("MLB_HOME", str(tmp_path))
+    assert state_dir() == tmp_path / "dlt" and leftover_runs() == []
+    (tmp_path / "dlt" / "tmpabc").mkdir(parents=True)
+    assert [p.name for p in leftover_runs()] == ["tmpabc"]
+
+
+def test_doctor_line_for_dlt_state_never_fails(tmp_path, monkeypatch):
+    from mlb_baseball import doctor
+
+    monkeypatch.setenv("MLB_HOME", str(tmp_path))
+    (tmp_path / "dlt" / "tmpabc").mkdir(parents=True)
+    check = doctor._dlt_state_directory()
+    assert check.ok and "1 leftover" in check.detail

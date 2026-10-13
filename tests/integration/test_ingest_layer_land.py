@@ -2,6 +2,7 @@
 Real PostgreSQL, no network."""
 
 import dataclasses
+import shutil
 
 import polars as pl
 import psycopg
@@ -216,3 +217,27 @@ def test_declared_arrow_schema_matches_the_real_market_tables(db_conn):
                 assert field.name in db, (rel, field.name)
         cur.execute("DROP TABLE raw.polymarket_price_t, raw.kalshi_candle_t")
     db_conn.commit()
+
+
+def test_no_dlt_objects_in_our_schemas_and_lost_state_loses_nothing(
+    db_conn, conn_factory, tmp_path
+):
+    _go(
+        conn_factory, Policy.APPEND, _frame("a", [("x", "1", "1")]), [Item("a")], state_dir=tmp_path
+    )
+    assert list(tmp_path.iterdir()) == []  # the working folder is gone after the run
+    assert (
+        _q(
+            db_conn,
+            "SELECT table_schema, table_name FROM information_schema.tables "
+            "WHERE table_name LIKE '\\_dlt\\_%%' OR table_schema LIKE '%%dlt%%'",
+        )
+        == []
+    )
+    # state directory deleted between runs: the next run resumes from the ledger, no duplicates
+    shutil.rmtree(tmp_path)
+    result = _go(
+        conn_factory, Policy.APPEND, _frame("a", [("x", "1", "1")]), [Item("a")], state_dir=tmp_path
+    )
+    assert result.inserted == {"a": 0}
+    assert _q(db_conn, "SELECT count(*) FROM raw._land_t") == [(1,)]

@@ -53,6 +53,10 @@ Connectors are independent of each other; the Chadwick ID crosswalk is what ties
 - `mlb doctor` — DB connectivity, schema/migration state, and every connector's `health_check()` in one pass
 - `mlb audit --scope game|database|statcast` — read-only integrity/coverage gate. `game` is the bounded default; `database` adds planner-statistics context; `statcast` intentionally scans pitch rows to distinguish an upstream schedule-key gap from a later conformance gap.
 
+## Staged ingestion layer (in progress)
+
+New and migrated sources use `mlb_baseball/ingest_layer/` (contract: its `AGENTS.md`; plan: `openspec/changes/dlt-ingestion-layer/`): a **downloader** yields source values (file sources keep `manifest.download` for hash, URL, retrieval time and replay), a polars step casts them to the table's declared types (empty is NULL, bad rows go to the table's reject table as source text), `dlt` extracts and normalizes to parquet, and `land()` writes everything in one PostgreSQL transaction under a landing policy (append, upsert, replace scope, truncate) together with one `meta.ingestion_item` row per item. A connector that has moved still exposes `bootstrap()`, `update()` and `health_check()` as above. The old loaders stay until each source passes a parity test and the owner retires them.
+
 ## Conform contract
 
 `mlb_baseball/conform.py` builds `core` from `raw` — a transform, not a connector: it never touches the network, has no `bootstrap()`/`update()` split, and isn't in `mlb_baseball/registry.py`'s `CONNECTORS` (so it doesn't show up under `mlb ingest <source>`; it's its own `mlb conform` subcommand). One `run()` entry point does a full truncate-and-rebuild every time — simplest-correct at `core`'s current row count (~225K games), matching CLAUDE.md's "prefer explicit, boring code" guidance over a more complex incremental-diff approach.

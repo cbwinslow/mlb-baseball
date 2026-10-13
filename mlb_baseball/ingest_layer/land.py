@@ -10,6 +10,7 @@ with no rows still gets its policy applied (a scoped replace deletes) and its le
 
 import io
 import json
+import logging
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -26,8 +27,11 @@ import pyarrow.csv as pacsv
 import pyarrow.parquet as pq
 from psycopg import sql
 
+from mlb_baseball.ingest_layer.state import state_dir as default_state_dir
 from mlb_baseball.ingest_layer.types import cast
 from mlb_baseball.market_store import MarketTable, missing_columns
+
+log = logging.getLogger(__name__)
 
 ITEM = "_item"  # frame column naming the ledger item each row belongs to
 
@@ -110,7 +114,9 @@ def land(
     if policy is Policy.REPLACE_SCOPE and any(not i.scope for i in items):
         raise ValueError("REPLACE_SCOPE needs a scope on every item")
     good, rejected = cast(frame, table)
-    with tempfile.TemporaryDirectory(dir=state_dir) as folder:
+    root = state_dir or default_state_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=root) as folder:
         data = _normalize(good, Path(folder))
     cols = [c for c in data.column_names if not c.startswith("_dlt_") and c != ITEM]
     schema, _, rel = table.name.partition(".")
@@ -118,6 +124,8 @@ def land(
     inserted = dict.fromkeys(declared, 0)
     with connect() as conn, conn.cursor() as cur:
         new = missing_columns(conn, table, cols)
+        if new:
+            log.warning("%s: new source field(s) landed as text: %s", table.name, ", ".join(new))
         for name in new:
             cur.execute(
                 sql.SQL("ALTER TABLE {} ADD COLUMN {} text").format(target, sql.Identifier(name))

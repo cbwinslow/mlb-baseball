@@ -26,7 +26,7 @@ def read_csv_text(source: bytes | str) -> pl.DataFrame:
 
 def land_snapshot(
     connect: Callable[[], psycopg.Connection],
-    table: str,
+    table: str | MarketTable,
     frame: pl.DataFrame,
     *,
     source: str,
@@ -38,7 +38,11 @@ def land_snapshot(
     conn: psycopg.Connection | None = None,
 ) -> Landed:
     """Replace ``table`` with ``frame`` (a full snapshot) and record one ledger item."""
-    spec = MarketTable(name=table, reject=table, columns=(), key=())
+    spec = (
+        table
+        if isinstance(table, MarketTable)
+        else MarketTable(name=table, reject=table, columns=(), key=())
+    )
     item = Item(
         item_key,
         source_url=source_url,
@@ -52,7 +56,8 @@ def land_snapshot(
         Policy.TRUNCATE,
         frame.with_columns(pl.lit(item_key).alias(ITEM)),
         source=source,
-        dataset=table,
+        dataset=spec.name,
         items=[item],
         conn=conn,
+        strict=True,
     )

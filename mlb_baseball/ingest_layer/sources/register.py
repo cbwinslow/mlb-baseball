@@ -7,7 +7,27 @@ import polars as pl
 import psycopg
 
 from mlb_baseball.connectors import chadwick_register as old
+from mlb_baseball.ingest_layer import schemas
 from mlb_baseball.ingest_layer.sources.csv_tables import land_snapshot, read_csv_text
+
+
+def _frames(fetch: Callable[[str], str]) -> list[tuple[str, str, pl.DataFrame]]:
+    """``(table, ledger key, frame)``; people arrive in 16 shards joined into one batch."""
+    people = pl.concat(
+        [read_csv_text(fetch(f"people-{shard}.csv")) for shard in old.PEOPLE_SHARDS],
+        how="diagonal_relaxed",
+    )
+    return [("raw.register_people", "people", people)] + [
+        (table, filename, read_csv_text(fetch(filename)))
+        for table, filename in old.SIMPLE_TABLES.items()
+    ]
+
+
+def propose_schema(fetch: Callable[[str], str] = old.fetch_csv) -> None:
+    """Write ``schemas/register.json`` from the real files (review the diff)."""
+    from mlb_baseball.ingest_layer import infer
+
+    infer.propose("register", {table: frame for table, _key, frame in _frames(fetch)})
 
 
 def land_register(
@@ -16,31 +36,21 @@ def land_register(
     *,
     table_prefix: str | None = None,
 ) -> dict[str, int]:
-    """Replace the four register tables. People arrive in 16 shards that are joined into
-    one batch and landed as one ledger item. Returns ``{table: rows inserted}``."""
-
-    def named(table: str) -> str:
-        return table if table_prefix is None else table.replace("raw.register_", table_prefix)
-
-    counts: dict[str, int] = {}
-    people = pl.concat(
-        [read_csv_text(fetch(f"people-{shard}.csv")) for shard in old.PEOPLE_SHARDS],
-        how="diagonal_relaxed",
+    """Replace the four register tables in one transaction. Returns ``{table: rows}``."""
+    specs = schemas.load(
+        "register", prefix=("raw.register_", table_prefix) if table_prefix else None
     )
-    jobs = [("raw.register_people", "people", people)] + [
-        (table, filename, read_csv_text(fetch(filename)))
-        for table, filename in old.SIMPLE_TABLES.items()
-    ]
+    counts: dict[str, int] = {}
     with connect() as conn:  # one transaction for all four tables, like the old loader
-        for table, key, frame in jobs:
+        for table, key, frame in _frames(fetch):
             landed = land_snapshot(
                 connect,
-                named(table),
+                specs[table],
                 frame,
                 source=old.SOURCE,
                 item_key=key,
                 source_url=f"{old.BASE_URL}/{key}",
                 conn=conn,
             )
-            counts[named(table)] = sum(landed.inserted.values())
+            counts[specs[table].name] = sum(landed.inserted.values())
     return counts

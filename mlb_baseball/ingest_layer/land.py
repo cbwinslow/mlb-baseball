@@ -108,6 +108,7 @@ def land(
     items: Sequence[Item],
     state_dir: Path | None = None,
     conn: psycopg.Connection | None = None,
+    strict: bool = False,
 ) -> Landed:
     """Cast ``frame`` (source values; an ``_item`` column names each row's item), push it
     through dlt, and land it in one transaction. Raises before any write if dlt fails.
@@ -119,6 +120,12 @@ def land(
     if policy is Policy.REPLACE_SCOPE and any(not i.scope for i in items):
         raise ValueError("REPLACE_SCOPE needs a scope on every item")
     good, rejected = cast(frame, table)
+    if strict and rejected.height:  # a snapshot must never lose rows quietly
+        first = rejected.row(0, named=True)
+        raise ValueError(
+            f"{table.name}: {rejected.height} row(s) failed their declared type, first: "
+            f"{first['reason']} ({ {k: v for k, v in first.items() if k != 'reason'} })"
+        )
     root = state_dir or default_state_dir()
     root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=root) as folder:
@@ -128,14 +135,21 @@ def land(
     target = sql.Identifier(schema, rel)
     inserted = dict.fromkeys(declared, 0)
     with nullcontext(conn) if conn is not None else connect() as db, db.cursor() as cur:
-        if not table.columns:  # source-shaped table with no declared types: all text
-            defs = sql.SQL(", ").join(sql.SQL("{} text").format(sql.Identifier(c)) for c in cols)
-            cur.execute(
-                sql.SQL(
-                    "CREATE TABLE IF NOT EXISTS {t} "
-                    "({d}, _loaded_at timestamptz NOT NULL DEFAULT now())"
-                ).format(t=target, d=defs)
+        typed = table.typed()
+        defs = sql.SQL(", ").join(
+            sql.SQL("{} {}").format(
+                sql.Identifier(c),
+                sql.SQL(typed[c].kind if c in typed else "text")
+                + (sql.SQL(" NOT NULL") if c in typed and not typed[c].nullable else sql.SQL("")),
             )
+            for c in cols
+        )
+        cur.execute(  # a no-op when the table exists; otherwise typed as declared, rest text
+            sql.SQL(
+                "CREATE TABLE IF NOT EXISTS {t} "
+                "({d}, _loaded_at timestamptz NOT NULL DEFAULT now())"
+            ).format(t=target, d=defs)
+        )
         new = missing_columns(db, table, cols)
         if new:
             log.warning("%s: new source field(s) landed as text: %s", table.name, ", ".join(new))

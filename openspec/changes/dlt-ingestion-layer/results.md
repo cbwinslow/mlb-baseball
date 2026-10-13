@@ -61,3 +61,10 @@ callers batch items (D10b). Bulk backfills can be re-measured at full scale befo
 - Register: all four tables replaced in one transaction; a failure part-way publishes nothing (tested), same as before.
 - Ledger: both now write one `meta.ingestion_item` row per table with URL and file hash (Lahman); the old path wrote none.
 Not yet run: the full real Lahman and register files (no Lahman zip is held locally; the register is fetched from GitHub). Do that on scratch tables before the switch.
+
+## Real-data check, 2026-10-13 (Lahman 2025 release from github.com/cbwinslow/lahman-database-csv, Chadwick register from GitHub)
+Landed typed into scratch tables in `mlb_test` and compared value by value with production (read-only).
+- Lahman: 706,466 rows, 27 tables, 31 s, no row failed its declared type. Production already holds the 2025 release (same row counts in every table), so it is not frozen at 2021.
+- The only differences from production are the old loader's: 3,336 cells where the source says `NA` (league code of the National Association, "not active" flags) are `NULL` in production, and integers with blanks are text like `1934.0`. After mapping `NA` to NULL there are zero differing rows in all 27 tables.
+- Register: 526,894 people + 1,346 names + 27,340 links + 249 countries, 33 s; zero differing rows against production.
+- Types: Lahman 237 integer, 6 double precision, 4 date, 130 text columns; register people 24 integer columns. Schemas are in `ingest_layer/schemas/`.

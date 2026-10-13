@@ -16,10 +16,10 @@ Primary public helpers:
 
 ## Data-Type / Raw-Layer Contract
 
-- Dynamically created raw columns are currently stored as PostgreSQL `text` plus `_loaded_at timestamptz`.
-- That is intentional source-landing behavior, not the canonical typed research schema. Strong typing/normalization belongs in migrations/core/gold where the project owns semantics.
-- Do not change generic raw values to inferred numeric/date types globally without a source-by-source migration/parity plan; pandas inference and historical source sparsity can be inconsistent.
-- Column-name transformation is syntactic only: lowercase/sanitize for PostgreSQL compatibility, not semantic renaming.
+- ADR-304 (2026-10-13) retired the old "raw columns are all `text`" rule. Raw tables carry declared types, declared once per table in `mlb_baseball/ingest_layer/schemas/<source>.json` and enforced by `ingest_layer`.
+- `load.py` is the legacy all-text path (columns created dynamically as PostgreSQL `text` plus `_loaded_at timestamptz`) for sources not yet migrated to `ingest_layer`. Do not extend it with type inference; migrate the source instead (`openspec/changes/typed-raw-layer`, `dlt-ingestion-layer`).
+- Pandas inference corrupts source values on this path (`NA` becomes NULL, integers with blanks become `5.0`, `007` becomes `7.0`). Never route a new source through `load_dataframe`.
+- Column-name transformation is syntactic only: lowercase/sanitize for PostgreSQL compatibility, not semantic renaming (`load.pg_column_name`, also used by `ingest_layer`).
 - Sanitized column collisions are fatal. Do not silently pick one source column.
 
 ## Table/Schema Evolution Contract

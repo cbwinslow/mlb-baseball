@@ -1,0 +1,482 @@
+{
+ "raw.lahman_people": {
+  "columns": {
+   "id": "integer",
+   "playerid": "text",
+   "birthyear": "integer",
+   "birthmonth": "integer",
+   "birthday": "integer",
+   "birthcity": "text",
+   "birthcountry": "text",
+   "birthstate": "text",
+   "deathyear": "integer",
+   "deathmonth": "integer",
+   "deathday": "integer",
+   "deathcountry": "text",
+   "deathstate": "text",
+   "deathcity": "text",
+   "namefirst": "text",
+   "namelast": "text",
+   "namegiven": "text",
+   "weight": "integer",
+   "height": "integer",
+   "bats": "text",
+   "throws": "text",
+   "debut": "date",
+   "bbrefid": "text",
+   "finalgame": "date",
+   "retroid": "text"
+  }
+ },
+ "raw.lahman_batting": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "stint": "integer",
+   "teamid": "text",
+   "lgid": "text",
+   "g": "integer",
+   "ab": "integer",
+   "r": "integer",
+   "h": "integer",
+   "n2b": "integer",
+   "n3b": "integer",
+   "hr": "integer",
+   "rbi": "integer",
+   "sb": "integer",
+   "cs": "integer",
+   "bb": "integer",
+   "so": "integer",
+   "ibb": "integer",
+   "hbp": "integer",
+   "sh": "integer",
+   "sf": "integer",
+   "gidp": "integer"
+  }
+ },
+ "raw.lahman_batting_post": {
+  "columns": {
+   "yearid": "integer",
+   "round": "text",
+   "playerid": "text",
+   "teamid": "text",
+   "lgid": "text",
+   "g": "integer",
+   "ab": "integer",
+   "r": "integer",
+   "h": "integer",
+   "n2b": "integer",
+   "n3b": "integer",
+   "hr": "integer",
+   "rbi": "integer",
+   "sb": "integer",
+   "cs": "integer",
+   "bb": "integer",
+   "so": "integer",
+   "ibb": "integer",
+   "hbp": "integer",
+   "sh": "integer",
+   "sf": "integer",
+   "gidp": "integer"
+  }
+ },
+ "raw.lahman_pitching": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "stint": "integer",
+   "teamid": "text",
+   "lgid": "text",
+   "w": "integer",
+   "l": "integer",
+   "g": "integer",
+   "gs": "integer",
+   "cg": "integer",
+   "sho": "integer",
+   "sv": "integer",
+   "ipouts": "integer",
+   "h": "integer",
+   "er": "integer",
+   "hr": "integer",
+   "bb": "integer",
+   "so": "integer",
+   "baopp": "double precision",
+   "era": "double precision",
+   "ibb": "integer",
+   "wp": "integer",
+   "hbp": "integer",
+   "bk": "integer",
+   "bfp": "integer",
+   "gf": "integer",
+   "r": "integer",
+   "sh": "integer",
+   "sf": "integer",
+   "gidp": "integer"
+  }
+ },
+ "raw.lahman_pitching_post": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "round": "text",
+   "teamid": "text",
+   "lgid": "text",
+   "w": "integer",
+   "l": "integer",
+   "g": "integer",
+   "gs": "integer",
+   "cg": "integer",
+   "sho": "integer",
+   "sv": "integer",
+   "ipouts": "integer",
+   "h": "integer",
+   "er": "integer",
+   "hr": "integer",
+   "bb": "integer",
+   "so": "integer",
+   "baopp": "double precision",
+   "era": "double precision",
+   "ibb": "integer",
+   "wp": "integer",
+   "hbp": "integer",
+   "bk": "integer",
+   "bfp": "integer",
+   "gf": "integer",
+   "r": "integer",
+   "sh": "integer",
+   "sf": "integer",
+   "gidp": "integer"
+  }
+ },
+ "raw.lahman_fielding": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "stint": "integer",
+   "teamid": "text",
+   "lgid": "text",
+   "pos": "text",
+   "g": "integer",
+   "gs": "integer",
+   "innouts": "integer",
+   "po": "integer",
+   "a": "integer",
+   "e": "integer",
+   "dp": "integer",
+   "pb": "integer",
+   "wp": "integer",
+   "sb": "integer",
+   "cs": "integer",
+   "zr": "integer"
+  }
+ },
+ "raw.lahman_fielding_of": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "stint": "integer",
+   "glf": "integer",
+   "gcf": "integer",
+   "grf": "integer"
+  }
+ },
+ "raw.lahman_fielding_of_split": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "stint": "integer",
+   "teamid": "text",
+   "lgid": "text",
+   "pos": "text",
+   "g": "integer",
+   "gs": "integer",
+   "innouts": "integer",
+   "po": "integer",
+   "a": "integer",
+   "e": "integer",
+   "dp": "integer",
+   "pb": "integer",
+   "wp": "text",
+   "sb": "integer",
+   "cs": "integer",
+   "zr": "text"
+  }
+ },
+ "raw.lahman_fielding_post": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "teamid": "text",
+   "lgid": "text",
+   "round": "text",
+   "pos": "text",
+   "g": "integer",
+   "gs": "integer",
+   "innouts": "integer",
+   "po": "integer",
+   "a": "integer",
+   "e": "integer",
+   "dp": "integer",
+   "tp": "integer",
+   "pb": "integer",
+   "sb": "integer",
+   "cs": "integer"
+  }
+ },
+ "raw.lahman_appearances": {
+  "columns": {
+   "yearid": "integer",
+   "teamid": "text",
+   "lgid": "text",
+   "playerid": "text",
+   "g_all": "integer",
+   "gs": "integer",
+   "g_batting": "integer",
+   "g_defense": "integer",
+   "g_p": "integer",
+   "g_c": "integer",
+   "g_1b": "integer",
+   "g_2b": "integer",
+   "g_3b": "integer",
+   "g_ss": "integer",
+   "g_lf": "integer",
+   "g_cf": "integer",
+   "g_rf": "integer",
+   "g_of": "integer",
+   "g_dh": "integer",
+   "g_ph": "integer",
+   "g_pr": "integer"
+  }
+ },
+ "raw.lahman_allstar_full": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "gamenum": "integer",
+   "gameid": "text",
+   "teamid": "text",
+   "lgid": "text",
+   "gp": "integer",
+   "startingpos": "text"
+  }
+ },
+ "raw.lahman_awards_managers": {
+  "columns": {
+   "playerid": "text",
+   "awardid": "text",
+   "yearid": "integer",
+   "lgid": "text",
+   "tie": "text",
+   "notes": "text"
+  }
+ },
+ "raw.lahman_awards_players": {
+  "columns": {
+   "playerid": "text",
+   "awardid": "text",
+   "yearid": "integer",
+   "lgid": "text",
+   "tie": "text",
+   "notes": "text"
+  }
+ },
+ "raw.lahman_awards_share_managers": {
+  "columns": {
+   "awardid": "text",
+   "yearid": "integer",
+   "lgid": "text",
+   "playerid": "text",
+   "pointswon": "integer",
+   "pointsmax": "integer",
+   "votesfirst": "integer"
+  }
+ },
+ "raw.lahman_awards_share_players": {
+  "columns": {
+   "awardid": "text",
+   "yearid": "integer",
+   "lgid": "text",
+   "playerid": "text",
+   "pointswon": "integer",
+   "pointsmax": "integer",
+   "votesfirst": "integer"
+  }
+ },
+ "raw.lahman_college_playing": {
+  "columns": {
+   "playerid": "text",
+   "schoolid": "text",
+   "yearid": "integer"
+  }
+ },
+ "raw.lahman_hall_of_fame": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "votedby": "text",
+   "ballots": "integer",
+   "needed": "integer",
+   "votes": "integer",
+   "inducted": "text",
+   "category": "text",
+   "needed_note": "text"
+  }
+ },
+ "raw.lahman_home_games": {
+  "columns": {
+   "yearkey": "integer",
+   "leaguekey": "text",
+   "teamkey": "text",
+   "parkkey": "text",
+   "spanfirst": "date",
+   "spanlast": "date",
+   "games": "integer",
+   "openings": "integer",
+   "attendance": "integer"
+  }
+ },
+ "raw.lahman_managers": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "teamid": "text",
+   "lgid": "text",
+   "inseason": "integer",
+   "g": "integer",
+   "w": "integer",
+   "l": "integer",
+   "rank": "integer",
+   "plyrmgr": "text"
+  }
+ },
+ "raw.lahman_managers_half": {
+  "columns": {
+   "playerid": "text",
+   "yearid": "integer",
+   "teamid": "text",
+   "lgid": "text",
+   "inseason": "integer",
+   "half": "integer",
+   "g": "integer",
+   "w": "integer",
+   "l": "integer",
+   "rank": "integer"
+  }
+ },
+ "raw.lahman_parks": {
+  "columns": {
+   "id": "integer",
+   "parkalias": "text",
+   "parkkey": "text",
+   "parkname": "text",
+   "city": "text",
+   "state": "text",
+   "country": "text"
+  }
+ },
+ "raw.lahman_salaries": {
+  "columns": {
+   "yearid": "integer",
+   "teamid": "text",
+   "lgid": "text",
+   "playerid": "text",
+   "salary": "integer"
+  }
+ },
+ "raw.lahman_schools": {
+  "columns": {
+   "schoolid": "text",
+   "name_full": "text",
+   "city": "text",
+   "state": "text",
+   "country": "text"
+  }
+ },
+ "raw.lahman_series_post": {
+  "columns": {
+   "yearid": "integer",
+   "round": "text",
+   "teamidwinner": "text",
+   "lgidwinner": "text",
+   "teamidloser": "text",
+   "lgidloser": "text",
+   "wins": "integer",
+   "losses": "integer",
+   "ties": "integer"
+  }
+ },
+ "raw.lahman_teams": {
+  "columns": {
+   "yearid": "integer",
+   "lgid": "text",
+   "teamid": "text",
+   "franchid": "text",
+   "divid": "text",
+   "rank": "integer",
+   "g": "integer",
+   "ghome": "integer",
+   "w": "integer",
+   "l": "integer",
+   "divwin": "text",
+   "wcwin": "text",
+   "lgwin": "text",
+   "wswin": "text",
+   "r": "integer",
+   "ab": "integer",
+   "h": "integer",
+   "n2b": "integer",
+   "n3b": "integer",
+   "hr": "integer",
+   "bb": "integer",
+   "so": "integer",
+   "sb": "integer",
+   "cs": "integer",
+   "hbp": "integer",
+   "sf": "integer",
+   "ra": "integer",
+   "er": "integer",
+   "era": "double precision",
+   "cg": "integer",
+   "sho": "integer",
+   "sv": "integer",
+   "ipouts": "integer",
+   "ha": "integer",
+   "hra": "integer",
+   "bba": "integer",
+   "soa": "integer",
+   "e": "integer",
+   "dp": "integer",
+   "fp": "double precision",
+   "name": "text",
+   "park": "text",
+   "attendance": "integer",
+   "bpf": "integer",
+   "ppf": "integer",
+   "teamidbr": "text",
+   "teamidlahman45": "text",
+   "teamidretro": "text"
+  }
+ },
+ "raw.lahman_teams_franchises": {
+  "columns": {
+   "franchid": "text",
+   "franchname": "text",
+   "active": "text",
+   "naassoc": "text"
+  }
+ },
+ "raw.lahman_teams_half": {
+  "columns": {
+   "yearid": "integer",
+   "lgid": "text",
+   "teamid": "text",
+   "half": "integer",
+   "divid": "text",
+   "divwin": "text",
+   "rank": "integer",
+   "g": "integer",
+   "w": "integer",
+   "l": "integer"
+  }
+ }
+}

@@ -7,6 +7,7 @@ that pass and rows kept as source text with the reason they failed.
 """
 
 import re
+from typing import Any
 
 import polars as pl
 import pyarrow as pa
@@ -15,11 +16,14 @@ from mlb_baseball.market_store import Column, MarketTable
 
 REASON = "reason"
 _NUMERIC = re.compile(r"^numeric\((\d+),\s*(\d+)\)$")
-_FIXED = {
+_FIXED: dict[str, tuple[Any, Any]] = {
     "integer": (pl.Int32, pa.int32()),
     "bigint": (pl.Int64, pa.int64()),
     "double precision": (pl.Float64, pa.float64()),
     "text": (pl.String, pa.string()),
+    "date": (pl.Date, pa.date32()),
+    "timestamptz": (pl.Datetime("us", "UTC"), pa.timestamp("us", tz="UTC")),
+    "boolean": (pl.Boolean, pa.bool_()),
 }
 
 

@@ -10,6 +10,7 @@ from pathlib import Path
 import psycopg
 
 from mlb_baseball.connectors import lahman as old
+from mlb_baseball.ingest_layer import schemas
 from mlb_baseball.ingest_layer.sources.csv_tables import land_snapshot, read_csv_text
 
 
@@ -24,13 +25,15 @@ def land_zip(
     (parity tests)."""
     sha = hashlib.sha256(zip_path.read_bytes()).hexdigest()
     counts: dict[str, int] = {}
+    specs = schemas.load("lahman", prefix=("raw.lahman_", table_prefix) if table_prefix else None)
     with zipfile.ZipFile(zip_path) as zf:
         for table, filename, _fetch in old.TABLES:
             (member,) = (n for n in zf.namelist() if n.endswith(f"/{filename}") or n == filename)
-            target = table if table_prefix is None else table.replace("raw.lahman_", table_prefix)
+            spec = specs[table]
+            target = spec.name
             landed = land_snapshot(
                 connect,
-                target,
+                spec,
                 read_csv_text(zf.read(member)),
                 source=old.SOURCE,
                 item_key=filename,
@@ -39,3 +42,16 @@ def land_zip(
             )
             counts[target] = sum(landed.inserted.values())
     return counts
+
+
+def propose_schema(csv_dir: Path) -> None:
+    """Write ``schemas/lahman.json`` from a folder of the real Lahman CSVs (review the diff)."""
+    from mlb_baseball.ingest_layer import infer
+
+    infer.propose(
+        "lahman",
+        {
+            table: read_csv_text((csv_dir / filename).read_bytes())
+            for table, filename, _f in old.TABLES
+        },
+    )

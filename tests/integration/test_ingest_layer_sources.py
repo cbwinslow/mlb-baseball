@@ -38,11 +38,11 @@ def _drop(db_conn, tables):
 
 
 PEOPLE_CSV = (
-    "playerID,birthYear,nameFirst,nameLast,bats\n"
-    "aaronha01,1934,Hank,Aaron,R\n"
-    "abbotji01,,Jim,Abbott,L\n"
-    'ruthba01,1895,"George ""Babe""","Ruth, Jr",L\n'
-    "zeropad,007,Zed,Pad,\n"
+    "playerID,birthYear,nameFirst,nameLast,bats,lgID\n"
+    "aaronha01,1934,Hank,Aaron,R,NL\n"
+    "abbotji01,,Jim,Abbott,L,\n"
+    'ruthba01,1895,"George ""Babe""","Ruth, Jr",L,AL\n'
+    "napl01,1871,007,Pad,,NA\n"
 )
 
 
@@ -54,7 +54,7 @@ def _lahman_zip(tmp_path):
     return path
 
 
-def test_lahman_matches_old_loader_except_pandas_rewrites(db_conn, connect, tmp_path):
+def test_lahman_is_typed_and_fixes_what_pandas_corrupted(db_conn, connect, tmp_path):
     zip_path = _lahman_zip(tmp_path)
     new_tables = [t.replace("raw.lahman_", "raw.pnew_lahman_") for t, _f, _g in lahman_old.TABLES]
     try:
@@ -66,23 +66,45 @@ def test_lahman_matches_old_loader_except_pandas_rewrites(db_conn, connect, tmp_
         assert set(counts) == set(new_tables)
         assert all(n == 4 for n in counts.values())
 
-        cols = ["playerid", "birthyear", "namefirst", "namelast", "bats"]
-        old = _rows(db_conn, "raw.pold_lahman_people", cols)
-        new = _rows(db_conn, "raw.pnew_lahman_people", cols)
+        cols = ["playerid", "birthyear", "namefirst", "namelast", "bats", "lgid"]
+        old = {r[0]: r for r in _rows(db_conn, "raw.pold_lahman_people", cols)}
+        new = {r[0]: r for r in _rows(db_conn, "raw.pnew_lahman_people", cols)}
         assert len(old) == len(new) == 4
-        by_old = {r[0]: r for r in old}
-        by_new = {r[0]: r for r in new}
-        # identical except what pandas rewrote: blank-year integer column became "1934.0",
-        # and "007" lost its leading zeros
-        assert by_new["aaronha01"] == ("aaronha01", "1934", "Hank", "Aaron", "R")
-        assert by_old["aaronha01"][1] == "1934.0"
-        assert by_new["zeropad"][1] == "007" and by_old["zeropad"][1] == "7.0"
-        assert by_new["abbotji01"][1] is None and by_old["abbotji01"][1] is None
-        for key in ("aaronha01", "ruthba01"):
-            assert by_new[key][2:] == by_old[key][2:]  # names, quotes and commas the same
-        assert by_new["ruthba01"][2] == 'George "Babe"' and by_new["ruthba01"][3] == "Ruth, Jr"
+        # typed: the new column is an integer, not text
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "SELECT data_type FROM information_schema.columns WHERE table_schema = 'raw' "
+                "AND table_name = 'pnew_lahman_people' AND column_name = 'birthyear'"
+            )
+            assert cur.fetchone() == ("integer",)
+        db_conn.rollback()
+        assert new["aaronha01"] == ("aaronha01", 1934, "Hank", "Aaron", "R", "NL")
+        assert old["aaronha01"][1] == "1934.0"  # pandas rewrote the integer as text
+        # the old path turned the source text "NA" (National Association) into NULL; ours keeps it
+        assert new["napl01"][5] == "NA" and old["napl01"][5] is None
+        assert new["napl01"][2] == "007"  # leading zeros in a text column survive
+        assert new["abbotji01"][1] is None and new["abbotji01"][5] is None  # blank stays NULL
+        assert new["ruthba01"][2] == 'George "Babe"' and new["ruthba01"][3] == "Ruth, Jr"
     finally:
         _drop(db_conn, ["raw.pold_lahman_people", *new_tables])
+
+
+def test_lahman_a_value_that_breaks_its_declared_type_stops_the_load(db_conn, connect, tmp_path):
+    bad = PEOPLE_CSV.replace("1934", "nineteen")
+    path = tmp_path / "bad.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        for _t, filename, _f in lahman_old.TABLES:
+            zf.writestr(filename, bad)
+    tables = [t.replace("raw.lahman_", "raw.pnew_lahman_") for t, _f, _g in lahman_old.TABLES]
+    try:
+        with pytest.raises(ValueError, match="birthyear is not a valid integer"):
+            land_zip(connect, path, table_prefix="raw.pnew_lahman_")
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('raw.pnew_lahman_people')")
+            assert cur.fetchone() == (None,)  # nothing created, nothing half-loaded
+        db_conn.rollback()
+    finally:
+        _drop(db_conn, tables)
 
 
 def test_lahman_second_run_changes_nothing_and_ledger_has_provenance(db_conn, connect, tmp_path):

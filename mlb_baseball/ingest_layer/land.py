@@ -12,7 +12,9 @@ import io
 import json
 import logging
 import tempfile
+from collections import Counter
 from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -105,9 +107,12 @@ def land(
     dataset: str,
     items: Sequence[Item],
     state_dir: Path | None = None,
+    conn: psycopg.Connection | None = None,
 ) -> Landed:
     """Cast ``frame`` (source values; an ``_item`` column names each row's item), push it
-    through dlt, and land it in one transaction. Raises before any write if dlt fails."""
+    through dlt, and land it in one transaction. Raises before any write if dlt fails.
+    Pass ``conn`` to join the caller's transaction (several tables, all or nothing): then
+    nothing is committed here and the caller commits or rolls back."""
     declared = {i.key for i in items}
     if ITEM in frame.columns and not set(frame[ITEM].unique().to_list()) <= declared:
         raise ValueError("frame names an item that was not declared")
@@ -122,8 +127,16 @@ def land(
     schema, _, rel = table.name.partition(".")
     target = sql.Identifier(schema, rel)
     inserted = dict.fromkeys(declared, 0)
-    with connect() as conn, conn.cursor() as cur:
-        new = missing_columns(conn, table, cols)
+    with nullcontext(conn) if conn is not None else connect() as db, db.cursor() as cur:
+        if not table.columns:  # source-shaped table with no declared types: all text
+            defs = sql.SQL(", ").join(sql.SQL("{} text").format(sql.Identifier(c)) for c in cols)
+            cur.execute(
+                sql.SQL(
+                    "CREATE TABLE IF NOT EXISTS {t} "
+                    "({d}, _loaded_at timestamptz NOT NULL DEFAULT now())"
+                ).format(t=target, d=defs)
+            )
+        new = missing_columns(db, table, cols)
         if new:
             log.warning("%s: new source field(s) landed as text: %s", table.name, ", ".join(new))
         for name in new:
@@ -169,7 +182,7 @@ def _insert(cur, data, cols, table, policy, target, inserted) -> None:
     stage_cols = cols + ([ITEM] if have_item else [])
     quoted = sql.SQL(", ").join(map(sql.Identifier, cols))
     defs = sql.SQL(", ").join(sql.SQL("{} text").format(sql.Identifier(c)) for c in stage_cols)
-    cur.execute(sql.SQL("CREATE TEMP TABLE _stage ({}) ON COMMIT DROP").format(defs))
+    cur.execute(sql.SQL("CREATE TEMP TABLE _stage ({})").format(defs))  # dropped below
     buf = io.BytesIO()
     pacsv.write_csv(
         data.select(stage_cols),
@@ -189,6 +202,18 @@ def _insert(cur, data, cols, table, policy, target, inserted) -> None:
         else sql.SQL("NULLIF({c}, '') AS {c}").format(c=sql.Identifier(c))
         for c in cols
     )
+    if not table.key:  # no identity: plain insert, every row is new
+        cur.execute(
+            sql.SQL("INSERT INTO {t} ({c}) SELECT {casts} FROM _stage").format(
+                t=target, c=quoted, casts=casts
+            )
+        )
+        cur.execute("DROP TABLE _stage")
+        if have_item:
+            for item_key, count in Counter(data[ITEM].to_pylist()).items():
+                if item_key in inserted:
+                    inserted[item_key] = count
+        return
     key = sql.SQL(", ").join(map(sql.Identifier, table.key))
     first = sql.SQL(
         "SELECT DISTINCT ON ({k}) {casts}, {item} AS _item FROM _stage ORDER BY {k}"
@@ -213,7 +238,9 @@ def _insert(cur, data, cols, table, policy, target, inserted) -> None:
             "SELECT d._item, count(*) FROM d JOIN ins USING ({k}) GROUP BY d._item"
         ).format(first=first, t=target, c=quoted, k=key, action=action)
     )
-    for item_key, count in cur.fetchall():
+    counted = cur.fetchall()
+    cur.execute("DROP TABLE _stage")
+    for item_key, count in counted:
         if item_key in inserted:
             inserted[item_key] = count
 

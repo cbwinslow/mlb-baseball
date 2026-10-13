@@ -32,7 +32,7 @@ Tags: **[auto]** the agent can finish and test it alone; **[owner]** needs an ow
 
 ## 4. Simple file sources (register, lahman)
 
-- [ ] 4.1 [auto] `register` and `lahman` on the staged layer reading `manifest`-kept files; parity test on the full files into scratch tables; sidecars.
+- [x] 4.1 [auto] `register` and `lahman` on the staged layer reading `manifest`-kept files; parity test on the full files into scratch tables; sidecars.
 - [ ] 4.2 [owner] Switch, then [measure] 7 runs, then [owner] retire (one step per source).
 
 ## 5. Retrosheet family

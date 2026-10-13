@@ -54,3 +54,10 @@ polymarket-shaped rows, source values as text in both paths, reject checks in bo
 The gap was the fixed cost per call, not the data work. With many items per call the layer is faster than the
 current loader, so rule D6 (within 10%) is met for batched work; single small items still pay ~0.15 s each, so
 callers batch items (D10b). Bulk backfills can be re-measured at full scale before they are moved.
+
+## Task 4.1: register and lahman parity (scratch tables, synthetic files)
+`tests/integration/test_ingest_layer_sources.py`. Same rows as the old loaders. Differences, all intended:
+- Lahman: the old path lets pandas infer types, so an integer column with a blank becomes `1934.0` and `007` becomes `7.0`; the new path keeps the source text (`1934`, `007`). Any later conform step that depended on the `.0` text should be checked when Lahman is switched (task 4.2 owner step).
+- Register: all four tables replaced in one transaction; a failure part-way publishes nothing (tested), same as before.
+- Ledger: both now write one `meta.ingestion_item` row per table with URL and file hash (Lahman); the old path wrote none.
+Not yet run: the full real Lahman and register files (no Lahman zip is held locally; the register is fetched from GitHub). Do that on scratch tables before the switch.

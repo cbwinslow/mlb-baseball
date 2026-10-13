@@ -101,6 +101,10 @@ For changes, verify:
 - `raw.register_people` remains usable by canonical player conformance;
 - health detects empty/missing identity data and records connector run status.
 
+## Staged-layer path (not switched on)
+
+`mlb_baseball/ingest_layer/sources/register.py` lands the same four tables through `land()` in one shared transaction (a failure part-way publishes nothing, tested), reading the CSVs as source text. The download stage is this module's `fetch_csv`, unchanged. `chadwick_register.py` remains the live path until the owner switches (`openspec/changes/dlt-ingestion-layer` 4.2).
+
 ## Child DOX Index
 
 No child DOX files. This is a leaf connector contract.

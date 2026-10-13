@@ -5,8 +5,8 @@ Tags: **[auto]** agent can finish and test alone; **[owner]** needs owner approv
 ## 1. Lahman and register (done in scratch)
 
 - [x] 1.1 [auto] Schemas proposed from the real files and committed; real Lahman 2025 and register landed typed in `mlb_test`; value-by-value comparison against production (results in `dlt-ingestion-layer/results.md`).
-- [ ] 1.2 [auto] Reader inventory for the 31 Lahman/register tables (conform SQL, reports, export, health, mlb_api, field census, coverage, migrations 0002 and later): list each query touching a retyped column and fix it; verify the existing integration tests (`test_conform`, `test_report*`, `test_health`, lahman/register load tests) pass on typed tables.
-- [ ] 1.3 [auto] `ingest_layer` swap tool: load `<t>__new`, compare, rename in one transaction, keep `<t>__old`; tested twice (second run changes nothing).
+- [x] 1.2 [auto] Reader inventory for the 31 Lahman/register tables (conform SQL, reports, export, health, mlb_api, field census, coverage, migrations 0002 and later): list each query touching a retyped column and fix it; verify the existing integration tests (`test_conform`, `test_report*`, `test_health`, lahman/register load tests) pass on typed tables.
+- [x] 1.3 [auto] `ingest_layer` swap tool: load `<t>__new`, compare, rename in one transaction, keep `<t>__old`; tested twice (second run changes nothing).
 - [ ] 1.4 [owner] Backup the 31 tables, then swap on production (approval at the step); changelog entry; `<t>__old` kept.
 - [ ] 1.5 [owner] Approve dropping the `__old` tables after a clean week.
 

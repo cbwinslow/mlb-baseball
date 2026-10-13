@@ -26,7 +26,7 @@ Each task is tagged: **[auto]** the agent can finish and test it alone; **[owner
 - [x] 2.2 Scratch-database Timescale test (see `results.md`).
 - [x] 2.3 Decision gate: passed provisionally; re-check after the first production month.
 - [ ] 2.4 [owner] Bad-value discovery per month chunk on production (read-only queries; approval because of load on spinning disks); counts into `results.md`.
-- [ ] 2.5 [auto] Migration for the typed hypertables `_new`, reject tables and unique keys; tested on a disposable database.
+- [x] 2.5 [auto] Migration 0117 (`meta.create_market_tables`, reject tables) with 8 disposable-database tests incl. compression and duplicate-after-compress; 0116 now creates `timescaledb` before `pg_duckdb`. Production `_new` tables are created in 2.6.
 - [ ] 2.6 [owner] Chunked, throttled copy with immediate compression on production; verify per-token per-month counts and price sums. Re-check size target on the first month.
 - [ ] 2.7 [auto] Rewrite the Polymarket and Kalshi loaders (staging, cast, `ON CONFLICT DO NOTHING`; Polymarket via `dlt`, parity-checked against the old loader on one token range); run-twice test, bootstrap path, `doctor` check. Loader stays separate from storage: it talks to the store only through the table names and the ledger.
 - [ ] 2.8 [owner] Pause backfills (`odds-bulk-history`, `odds-history-capture` stay paused), catch up late rows, swap with two renames in one transaction, resume.

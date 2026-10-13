@@ -47,3 +47,19 @@ No SQLMesh model, feature SQL, gold table or notebook reads either table. Conclu
 - `raw.kalshi_candle` has 33 columns: `ticker`, `ts`, `open_interest`, `volume`, 17 `*_dollars` price columns, and 12 older cent-valued `price_*`/`yes_bid_*`/`yes_ask_*` columns. D2 types only the `*_dollars` columns; `open_interest`, `volume` and the cent columns need a type decision (likely `bigint`/`integer`), settled by the bad-value scan in 2.4.
 - `raw.polymarket_price` has 6 columns: `clob_token_id`, `_market`, `_event`, `ts`, `price`, `_loaded_at`.
 - The shared load helper adds missing columns as `text` and COPYs straight in, so the new loaders must go through a text staging table (D4) rather than the shared helper.
+
+## Column-type sample (2026-10-13, read-only, 0.05% block sample)
+
+Not the full bad-value scan of task 2.4; this only fixes the column types. Production `mlb`, `TABLESAMPLE SYSTEM (0.05)`, inside a read-only session.
+
+- `raw.polymarket_price` (312,992 rows sampled): `ts` always 9-10 digits; `price` always numeric, at most 4 decimals; `_market`/`_event` always integers (largest 5,480,115 and 1,162,787); token ids 74-78 characters; no duplicate (`clob_token_id`, `ts`). No bad value seen.
+- `raw.kalshi_candle` (104,162 rows sampled): the `*_dollars` columns are decimals with at most 4 places or empty; `open_interest` and `volume` are decimal strings such as `0.00` (not integers); the twelve older `price_*`/`yes_bid_*`/`yes_ask_*` columns hold dollar decimals like `0.2100` (not cents), so they take the same type as the `*_dollars` columns.
+- 6 of 104,162 Kalshi rows share a (`ticker`, `ts`) pair with another row; in the 3 pairs inspected the two rows were identical, including `_loaded_at` (the same window loaded twice in one run). A unique key on (`ticker`, `ts`) therefore needs exact duplicates removed during the copy; task 2.4 must confirm that no pair has differing values before the key is relied on.
+
+Types chosen: Polymarket `clob_token_id text`, `_market`/`_event integer`, `ts bigint`, `price double precision`; Kalshi `ticker text`, `ts bigint`, `open_interest`/`volume numeric(14,2)`, every price column `numeric(10,4)`.
+
+## 2.5 Migration check (2026-10-13, disposable pytest database, TimescaleDB 2.28)
+
+`migrations/0117_market_price_tables.sql` adds `meta.create_market_tables(suffix)` and the two reject tables; it creates no large table and touches neither production table. `tests/integration/test_market_tables.py` (8 tests, all pass) checks: column names and types, empty value stored as NULL, second call changes nothing, an existing table is never touched, reject tables take source text, the migration file runs twice, and (with TimescaleDB) both tables are hypertables, a chunk compresses, and `INSERT ... ON CONFLICT DO NOTHING` of an already-loaded row into the compressed chunk is ignored while a new row lands. That answers the open risk that the unique key might not hold on compressed data.
+
+Side finding: on a fresh database `CREATE EXTENSION timescaledb` failed because `pg_duckdb` (created by migration 0116) already defines `time_bucket`. Production has the opposite order. `0116` now lists `timescaledb` first (idempotent, no effect on production), so a rebuilt database gets hypertables.

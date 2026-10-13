@@ -44,7 +44,7 @@ Per-chunk regex checks find values that will not cast; they are written as text 
 **D4. Loader writes append-only through a text staging table.**
 COPY into a TEMP text table, then `INSERT ... SELECT` with casts and `ON CONFLICT DO NOTHING`. This replaces the `DELETE ... "ts"::numeric >= $2` path.
 
-**D5. `dlt` pilot on the Polymarket price loader, ledger stays ours.**
+**D5. `dlt` for ingestion (superseded 2026-10-13 by the `dlt-ingestion-layer` change, which applies it to all sources, not one pilot).** Original text:
 `dlt` provides the paging, retries and schema checks. `meta.ingestion_item` stays the ledger of record and the per-source rights profile still gates exports, so `dlt`'s own state is a cache and not a second source of truth. Parity check: the same token range loaded by the old and the `dlt` path must produce identical rows. Alternative: keep the hand-written loader (rejected for this one loader because it is being rewritten anyway).
 
 **D6. Failure and health are separate signals.**

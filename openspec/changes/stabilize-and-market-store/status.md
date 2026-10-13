@@ -13,7 +13,7 @@ Coverage cost (old 1.4) is already solved on `main` by ADR-303 (`coverage --ligh
 ## Next: needs the owner
 1. **Push and open the PR** from `stabilize-market-clean` (CI must pass `test`, `secrets`).
 2. **1.1 / 1.2** alert channel: create `~/.mlb/alert.env` (`MLB_DISCORD_WEBHOOK=...`, chmod 600); test message and forced failure; `mlb nightly --check` cron line only after merge to `main`.
-3. **2.7d** `dlt` pilot decision (see tasks).
+3. **`dlt`** is now its own change, `dlt-ingestion-layer` (27 tasks, planning complete, nothing built). Its gate is tasks 1.1-1.5; the rule change (supersede ADR-300) needs owner approval at 1.5/2.5.
 4. **2.4** approve the full bad-value scan on production (read-only, heavy on the spinning disks).
 5. **2.6 / 2.8** approve the production copy and the swap (pause backfills first; `odds-bulk-history` and `odds-history-capture` stay paused until after the swap).
 6. **3.1** approve the ADR drafts in `design.md` (ADR-300 relax if `dlt` is piloted; Timescale for market data).

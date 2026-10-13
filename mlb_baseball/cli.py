@@ -2024,11 +2024,11 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
     elif args.command == "nightly":
         if args.check:
-            from datetime import UTC, datetime
+            import datetime as dt
 
             from mlb_baseball.alert import alert as send_alert
 
-            problem = nightly.check_marker(nightly.default_marker_path(), datetime.now(UTC))
+            problem = nightly.check_marker(nightly.default_marker_path(), dt.datetime.now(dt.UTC))
             if problem:
                 send_alert(problem)
                 sys.exit(1)

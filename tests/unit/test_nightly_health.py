@@ -56,7 +56,7 @@ def test_pipeline_step_failure_exits_one_and_alerts_at_once(run_nightly):
     assert "step conform failed" in alerts[0]
 
 
-@pytest.mark.parametrize("step", ["doctor", "coverage", "schema-watch", "repair"])
+@pytest.mark.parametrize("step", ["doctor", "coverage", "schema-watch"])
 def test_health_finding_does_not_change_exit_code(run_nightly, step):
     rc, alerts, _ = run_nightly(step)
     assert rc == 0

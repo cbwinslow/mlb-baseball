@@ -6,7 +6,7 @@ Each task is tagged: **[auto]** the agent can finish and test it alone; **[owner
 
 ## 0. Setup
 
-- [ ] 0.1 [auto] Move the committed work onto a branch cut from `origin/main` (cherry-pick, resolve `nightly.py`/`cli.py` conflicts), run the unit suite there. Pushing and the PR are **[owner]**.
+- [x] 0.1 [auto] Work moved to branch `stabilize-market-clean` (worktree `../mlb-stabilize`, cut from `origin/main`); conflicts with ADR-303 resolved by keeping main's `repair --apply` + `coverage --light`. Pushing and the PR are **[owner]**.
 
 ## 1. Stabilize the nightly run
 

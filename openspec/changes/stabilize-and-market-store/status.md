@@ -1,31 +1,27 @@
-# Status (2026-10-12) — resume here
+# Status (2026-10-13) — resume here
 
-Change: `stabilize-and-market-store`. Read `proposal.md`, `design.md`, `tasks.md`, `results.md`; `review-opus.md` is the evidence behind the plan.
+Change: `stabilize-and-market-store`. Read `proposal.md`, `design.md`, `tasks.md` (tags: `[auto]` agent alone, `[owner]` needs a decision/approval, `[measure]` needs elapsed time), `results.md`. `review-opus.md` is the evidence behind the plan.
 
-## Done
-- 1.3 nightly exit code now reflects pipeline steps only; health steps (`doctor --populated`, `coverage`, `schema-watch`, `repair`) go into one end-of-run digest. Unit tests: `tests/unit/test_nightly_health.py`, `tests/unit/test_nightly.py`.
-- 1.2 (code): run record `~/.mlb/nightly_run.json` and `mlb nightly --check`. The cron line is the remaining part (see below).
-- 2.2, 2.3 Timescale scratch test passed (`results.md`): about 3.5 B/row Polymarket, 6.2 B/row Kalshi sample; projected total about 5-6 GB vs 150 GB.
-- Alert plumbing: `scripts/mlb_alert.sh`, `scripts/mlb_alert_banner.sh`, gitignored `mlb.toml` (`alert_command`), one line in `~/.zshrc`.
+## Where the work is
+- Branch `stabilize-market-clean`, worktree `~/workspace/mlb-stabilize`, cut from `origin/main` (b7f83a2 and later). **Not pushed, no PR.** The older local branch `stabilize-and-market-store` (in `~/workspace/mlb`, on top of `wip/uncommitted-2026-10-08`) is superseded; leave it alone, cron runs from that checkout.
+- Unit suite 1153 passed; affected integration suites passed on disposable databases (mlb_api load 53, connectors 52, market store/tables 17, conform/migrations/doctor/health/repair 160). Full integration suite not run locally; CI runs it.
 
-## Waiting on the owner
-- Discord webhook: owner creates `~/.mlb/alert.env` (`MLB_DISCORD_WEBHOOK=...`, chmod 600). Then send one test message and force a failing step to close task 1.1.
-- Task 1.2 also needs a forced dead-run test to prove the watchdog alerts.
-- Open question for a later change: do market ticks ever get published (rights doc says no today).
+## Done (code, tested, not deployed)
+0.1 clean branch · 1.3 health digest split · 1.5 Retrosheet unchanged-archive skip · 1.6 5-minute tick narrowing (yesterday/today per tick; season schedule, standings, roster, transactions, draft hourly with hash skip) · 1.7 docs · 2.1 reader inventory · 2.2/2.3 Timescale scratch test · 2.5 migration 0117 + `meta.create_market_tables` (and `timescaledb` first in 0116) · 2.7 `market_store` append-only typed loaders + reject tables + doctor check.
+Coverage cost (old 1.4) is already solved on `main` by ADR-303 (`coverage --light`); only the `pg_stat_statements` confirmation remains.
 
-## Not done / next
-- 1.4 weekly coverage/repair, 1.5 Retrosheet content-hash skip, 1.6 `mlb_api` tick narrowing, 1.7 DOX/changelog, 1.8 exit check (7 nights).
-- Phase 1 (2.1, 2.4-2.11): reader inventory, bad-value discovery, typed hypertables, loaders with a `dlt` pilot, swap.
-- 3.x ADRs: drafts are in `design.md`; write them into `docs/DECISIONS.md` only after owner approval.
+## Next: needs the owner
+1. **Push and open the PR** from `stabilize-market-clean` (CI must pass `test`, `secrets`).
+2. **1.1 / 1.2** alert channel: create `~/.mlb/alert.env` (`MLB_DISCORD_WEBHOOK=...`, chmod 600); test message and forced failure; `mlb nightly --check` cron line only after merge to `main`.
+3. **2.7d** `dlt` pilot decision (see tasks).
+4. **2.4** approve the full bad-value scan on production (read-only, heavy on the spinning disks).
+5. **2.6 / 2.8** approve the production copy and the swap (pause backfills first; `odds-bulk-history` and `odds-history-capture` stay paused until after the swap).
+6. **3.1** approve the ADR drafts in `design.md` (ADR-300 relax if `dlt` is piloted; Timescale for market data).
 
-## Things outside the repo to know about
-- Scratch database `scratch_ts_test` exists on the production Postgres server (small). Drop it later; dropping forces a checkpoint, so not during a backfill.
-- `HANDOFF_QUANT_ARCHITECTURE.md` was deleted from the repo root (identical copy in `~/workspace/mlb-quant/HANDOFF_TO_CLAUDE.md`). The prototype there has a wrong BaseRuns (`C = 3*outs`) and a broken docker-compose; do not import its code.
-- OpenSpec CLI was installed globally with npm (`@fission-ai/openspec`, v1.14.1; needs `source ~/.nvm/nvm.sh`).
-- Untracked `..env.swp` in the repo root is a stray editor swap file; left alone.
-- Local DB-backed pytest was not run for these changes; CI runs the integration tests.
+## Measure after deploy
+1.4 (`pg_stat_statements`: no `count(*)` on market tables), 1.6m (`pg_stat_wal` 3 days), 1.8 (7 nights), 2.9 (size 10 GB or less).
 
-## Git state (decide before pushing)
-- Work is committed locally on branch `stabilize-and-market-store` (one commit on top of `wip/uncommitted-2026-10-08`), not pushed, no PR.
-- That wip branch is 22 commits ahead of and 3 behind `origin/main`, and differs in `nightly.py`/`cli.py`. A PR from this branch would carry those 22 unmerged commits. Either merge/clean the wip branch first, or cherry-pick the single commit on `stabilize-and-market-store` onto a branch from `origin/main` (expect small conflicts in `nightly.py` and `cli.py`).
-- The cron jobs run from this checkout; its own crontab note says to keep it on `main`. Do not add the `mlb nightly --check` cron line until this change is merged and the checkout is on `main`.
+## Outside the repo
+- Scratch database `scratch_ts_test` is still on the production Postgres server (small); drop it later, not during a backfill (forces a checkpoint).
+- OpenSpec CLI: `source ~/.nvm/nvm.sh` (v1.14.1).
+- Untracked `..env.swp` in `~/workspace/mlb` is a stray editor swap file.

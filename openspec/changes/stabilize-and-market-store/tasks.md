@@ -15,7 +15,7 @@ Each task is tagged: **[auto]** the agent can finish and test it alone; **[owner
 - [x] 1.3 Split exit code from data-health; daily digest.
 - [ ] 1.4 [measure] Coverage/repair weekly (Monday gate) and row estimate for market tables are coded; confirm with `pg_stat_statements` after a real Monday run that no `count(*)` hit the market tables.
 - [x] 1.5 Retrosheet unchanged-archive skip with run-twice test.
-- [ ] 1.6 [auto] Make the 5-minute `mlb_api` tick load only live games and today's schedule (spec: frequent tick); test that a tick between hourly checks touches no roster/transaction/draft table; run-twice test.
+- [x] 1.6 [auto] The 5-minute `mlb_api` tick loads only yesterday's and today's schedule, live games and game detail; season schedule, standings, roster, transactions and draft run hourly with a hash skip. Unit tests plus the 53 `test_mlb_api_load.py` integration tests pass on a disposable database.
 - [ ] 1.6m [measure] After deploy, `pg_stat_wal` over 3 days shows the write rate down.
 - [ ] 1.7 [auto] Final doc pass: sidecars for `nightly.py`, `retrosheet_event.py`, `mlb_api.py` match the code; changelog entry current.
 - [ ] 1.8 [measure] Exit check: 7 nights with rc=0 or a real alert, nightly under 2 h, WAL/day down at least 40%.

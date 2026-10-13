@@ -378,6 +378,12 @@ REFERENCE_WORKERS = 8
 
 def _schedule_df(season: int) -> pd.DataFrame:
     games = call_with_retry(_timed_schedule, season=season, sportId=1)
+    df = _schedule_frame(games)
+    df["_season"] = str(season)
+    return df
+
+
+def _schedule_frame(games: list[dict[str, Any]]) -> pd.DataFrame:
     for game in games:
         # statsapi's own schedule() emits "losing_Team" (capital T) instead of
         # "losing_team" specifically for tied Spring Training/Exhibition games
@@ -391,9 +397,7 @@ def _schedule_df(season: int) -> pd.DataFrame:
         # national_broadcasts is a list — raw columns are text, so serialize
         # rather than let pandas fall back to Python's str() repr of the list.
         game["national_broadcasts"] = json.dumps(game.get("national_broadcasts") or [])
-    df = pd.DataFrame(games)
-    df["_season"] = str(season)
-    return df
+    return pd.DataFrame(games)
 
 
 def _standings_df(season: int) -> pd.DataFrame:
@@ -407,12 +411,35 @@ def _standings_df(season: int) -> pd.DataFrame:
     return df
 
 
-def _load_schedule(conn: psycopg.Connection, season: int) -> int:
+def _load_schedule(conn: psycopg.Connection, season: int, *, skip_unchanged: bool = False) -> int:
     df = _schedule_df(season)
     if df.empty:
         return 0
-    return load_dataframe(
-        conn, "raw.mlb_schedule", df, scope_column="_season", scope_value=str(season)
+    return _load_slow(
+        conn, "schedule", df, "raw.mlb_schedule", "_season", str(season), skip_unchanged
+    )
+
+
+def _load_schedule_days(conn: psycopg.Connection, days: list[date]) -> int:
+    """Replace the schedule rows for just these dates (the frequent tick's share of
+    ``raw.mlb_schedule``); the rest of the season is refreshed hourly by ``_load_schedule``.
+    A date the source returns no games for is left alone rather than emptied."""
+    games = call_with_retry(
+        _timed_schedule,
+        start_date=min(days).strftime("%m/%d/%Y"),
+        end_date=max(days).strftime("%m/%d/%Y"),
+        sportId=1,
+    )
+    df = _schedule_frame(games)
+    if df.empty:
+        return 0
+    df["_season"] = df["game_date"].astype(str).str[:4]
+    return replace_dataframe_scopes(
+        conn,
+        "raw.mlb_schedule",
+        df,
+        scope_column="game_date",
+        scope_values=sorted(df["game_date"].astype(str).unique()),
     )
 
 
@@ -438,12 +465,12 @@ def _load_next_schedule(conn: psycopg.Connection, season: int) -> int:
     return _load_schedule(conn, season + 1)
 
 
-def _load_standings(conn: psycopg.Connection, season: int) -> int:
+def _load_standings(conn: psycopg.Connection, season: int, *, skip_unchanged: bool = False) -> int:
     df = _standings_df(season)
     if df.empty:
         return 0
-    return load_dataframe(
-        conn, "raw.mlb_standing", df, scope_column="_season", scope_value=str(season)
+    return _load_slow(
+        conn, "standing", df, "raw.mlb_standing", "_season", str(season), skip_unchanged
     )
 
 
@@ -522,6 +549,10 @@ def _record_slow_check(key: str, digest: str, now: datetime | None = None) -> No
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(state, indent=2, sort_keys=True))
     temporary.replace(path)
+
+
+def _touch_slow_check(key: str) -> None:
+    _record_slow_check(key, _slow_state().get(key, {}).get("sha256", ""))
 
 
 def _load_slow(
@@ -3339,20 +3370,40 @@ def _load_probable(conn: psycopg.Connection) -> int:
     )
 
 
-def _load_slow_tables(conn: psycopg.Connection, season: int) -> dict[str, int]:
-    """Roster, transactions and draft: checked hourly, written only when the
-    fetched rows differ from the last load (they used to be rewritten, ~60k
-    transaction rows, on every 5-minute tick)."""
+def _load_hourly_tables(conn: psycopg.Connection, season: int) -> dict[str, int]:
+    """Season schedule, standings, roster, transactions and draft: checked at most hourly
+    and written only when the fetched rows differ from the last load. They used to be
+    rewritten on every 5-minute tick (about 60k transaction rows and the whole season's
+    schedule each time); the tick now refreshes only yesterday's and today's games."""
     loaders: dict[str, tuple[str, Callable[[], int]]] = {
+        "raw.mlb_schedule": (
+            "schedule",
+            lambda: (
+                _load_schedule(conn, season, skip_unchanged=True)
+                + _load_next_schedule(conn, season)
+            ),
+        ),
         "raw.mlb_roster": ("roster", lambda: _load_roster(conn, season, skip_unchanged=True)),
         "raw.mlb_transaction": (
             "transaction",
             lambda: _load_transactions(conn, season, skip_unchanged=True),
         ),
     }
+    if season >= FIRST_STANDINGS_YEAR:
+        loaders["raw.mlb_standing"] = (
+            "standing",
+            lambda: _load_standings(conn, season, skip_unchanged=True),
+        )
     if season >= FIRST_DRAFT_YEAR:
         loaders["raw.mlb_draft"] = ("draft", lambda: _load_draft(conn, season, skip_unchanged=True))
-    return {table: load() if _slow_due(key) else 0 for table, (key, load) in loaders.items()}
+    counts: dict[str, int] = {}
+    for table, (key, load) in loaders.items():
+        if _slow_due(key):
+            counts[table] = load()
+            _touch_slow_check(key)  # an empty fetch must not be retried on every tick
+        else:
+            counts[table] = 0
+    return counts
 
 
 def update() -> dict[str, int]:
@@ -3368,13 +3419,10 @@ def update() -> dict[str, int]:
     # re-runs it periodically to pick up real-world changes.
     season = date.today().year
     with get_connection() as conn, track_run(conn, SOURCE, "update") as result:
-        counts = {
-            "raw.mlb_schedule": _load_schedule(conn, season) + _load_next_schedule(conn, season),
-            "raw.mlb_standing": _load_standings(conn, season)
-            if season >= FIRST_STANDINGS_YEAR
-            else 0,
-        }
-        counts.update(_load_slow_tables(conn, season))
+        today = date.today()
+        counts = {"raw.mlb_schedule": _load_schedule_days(conn, [today - timedelta(days=1), today])}
+        for table, count in _load_hourly_tables(conn, season).items():
+            counts[table] = counts.get(table, 0) + count
         counts.update(_load_game_detail_for_today(conn))
         for table, count in _repair_game_detail(conn, season, REPAIR_BATCH_UPDATE).items():
             counts[table] = counts.get(table, 0) + count

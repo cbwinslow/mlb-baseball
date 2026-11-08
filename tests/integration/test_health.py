@@ -694,7 +694,7 @@ def test_check_backfill_state_ok_with_rows_and_fails_when_empty(db_conn, drop_ta
     db_conn.commit()
     result = check_backfill_state(table)
     assert result.ok
-    assert "1 rows" in result.detail
+    assert result.detail == "has rows"
 
 
 def _games_today(db_conn, present=True):

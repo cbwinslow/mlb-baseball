@@ -60,18 +60,25 @@ def games_scheduled(conn: psycopg.Connection, today: date) -> bool:
 def check_backfill_state(table: str) -> Check:
     """For a table that only exists after an owner-triggered one-off backfill: a
     missing table means "not run yet", which is a state, not a defect. A table
-    that exists but is empty means the backfill ran and landed nothing."""
+    that exists but is empty means the backfill ran and landed nothing.
+
+    Deliberately asks ``EXISTS`` rather than ``count(*)``: these backfills land
+    in the largest relations in the database (``raw.polymarket_price`` ~600M
+    rows, ``raw.kalshi_candle`` ~217M), where an exact count takes minutes of
+    disk scan and dominated a full ``mlb doctor`` run. 14ms versus >2min on
+    the production database (2026-11-08).
+    """
     with get_connection() as conn:
         with conn.cursor() as cur:
             try:
-                cur.execute(f"SELECT count(*) FROM {table}")  # noqa: S608
+                cur.execute(f"SELECT EXISTS (SELECT 1 FROM {table})")  # noqa: S608
             except psycopg.errors.UndefinedTable:
                 conn.rollback()
                 return Check(table, True, "backfill not run yet (owner-triggered)")
-            (count,) = fetch_one(cur)
-    if count == 0:
+            (populated,) = fetch_one(cur)
+    if not populated:
         return Check(table, False, "backfill ran but the table is empty")
-    return Check(table, True, f"{count} rows")
+    return Check(table, True, "has rows")
 
 
 def check_snapshot_gaps(

@@ -15,8 +15,9 @@ for the original vision.
 
 **The research database is the current focus** (see
 [docs/superpowers/specs/2026-09-01-research-database-v1-design.md](docs/superpowers/specs/2026-09-01-research-database-v1-design.md)).
-The warehouse and the daily ingestion path are in production. Work now is on
-finishing the export / interop layer and outside-user docs.
+The warehouse, the daily ingestion path, and the export layer are in production.
+Work now is the release/verification pass: proving the clean-clone rebuild end to
+end, shipping the `mlb-research` loader, and keeping the public docs honest.
 
 Two related efforts are **paused until that ships**, and live in this repo but
 are not being worked on:
@@ -176,11 +177,19 @@ SQL client straight at it. `gold.player_season`, `gold.team_season`,
 analysis-ready relations; `docs/RESEARCH_QUERY_RUNBOOK.md` has copy-paste
 `psql \copy ... WITH CSV HEADER` recipes for each.
 
-An `mlb export` command — any allow-listed relation to CSV / Excel / Parquet,
-plus a rights-filtered `public_safe` bundle for redistribution — is landing
-in a separate change (see the
-[v1 spec](docs/superpowers/specs/2026-09-01-research-database-v1-design.md)).
-Until it merges, use the `psql \copy` recipes above.
+An `mlb export` command writes any allow-listed relation to CSV, Excel, or
+Parquet (optionally filtered by season), and can build the rights-filtered
+`public_safe` bundle or publish the `backbone` preset to Hugging Face:
+
+```bash
+mlb export gold.batting_season --format parquet --out batting_season.parquet
+mlb export gold.batting_season --season 2025 --format csv
+mlb export --preset backbone --publish hf
+```
+
+The relation allow-list and per-table rights rules live in
+`mlb_baseball/export.py`; `docs/PUBLIC_API.md` covers the publish flow. The
+`psql \copy` recipes above remain the fastest path for a one-off query.
 
 ## Scheduling
 

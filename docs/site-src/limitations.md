@@ -11,16 +11,15 @@ it does **not** give you.
 - **1910 onward, two pipelines.** Game-grain rows for **1910–2025** are built
   from Retrosheet play-by-play events. **2026 onward** is built from MLB's own
   official per-game box score (`raw.mlb_boxscore_batting` /
-  `raw.mlb_boxscore_pitching`) — Retrosheet publishes no event file for the
-  in-progress season. Each game row carries a `source` marker
+  `raw.mlb_boxscore_pitching`) because Retrosheet has not yet published 2026
+  event files. Each game row carries a `source` marker
   (`retrosheet_event` / `mlb_boxscore`); the season / team / career roll-ups
   aggregate both and are source-agnostic. The 2026 rows are MLB's
   scorer-assigned line, not event-derived — so a season-to-season comparison
   across the 2025/2026 boundary is comparing two different pipelines.
-- **~200 recent 2026 games have no box score yet.** The MLB box-score feed
-  lags a few days behind the schedule; `mlb report` re-run as ingest catches
-  up fills them, and an `mlb doctor` join-coverage check makes the gap
-  visible. Not a builder defect.
+- **The 2026 season is complete in the database.** Every played 2026 regular
+  season and postseason game has a box score; the feed has caught up with the
+  schedule, and `mlb doctor`'s join-coverage check would flag any that did not.
 - **The 2020 season is real but short.** It is present in the data (60-game
   COVID season) but is excluded from the Baseball-Reference cross-check because
   it is not a useful reference point.

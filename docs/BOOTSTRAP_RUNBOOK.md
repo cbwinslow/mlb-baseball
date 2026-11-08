@@ -42,6 +42,18 @@ writable directories, required Chadwick tools, and prints the planned commands.
 all registered sources; it records every source run and continues with other
 sources if one fails, then exits nonzero so the failure is visible.
 
+To build a recent sample slice instead of full history, add `--since-year`
+(the same setting can be exported as `MLB_BOOTSTRAP_SINCE_YEAR`):
+
+```bash
+uv run mlb bootstrap --profile local_research --since-year 2025
+```
+
+Sources with a season grain load from that season on; sources with no season
+grain (register, Lahman, reference tables, market catalogs) still load whole.
+Leave it unset for a complete historical build — a slice is a sample, not a
+substitute for the full database.
+
 To retry only a failed source, use its exact command, for example:
 
 ```bash

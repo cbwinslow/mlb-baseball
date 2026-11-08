@@ -1,6 +1,7 @@
 ## 1. Rehearse on an empty database
 
-- [ ] 1.1 Create a disposable database `mlb_fresh_rehearsal` (name it in the log; never `mlb`). Run `mlb preflight --with-conform`, `mlb migrate`, and record the result. Verify: every migration applies from empty; failures listed with their step.
+- [x] 1.1 Create a disposable database `mlb_fresh_rehearsal` (name it in the log; never `mlb`). Run `mlb preflight --with-conform`, `mlb migrate`, and record the result. Verify: every migration applies from empty; failures listed with their step.
+  - 2026-11-08: `mlb_fresh_rehearsal_20261108` (dated, because the older `mlb_fresh_rehearsal` holds a partial copy). `preflight --with-conform` OK; `migrate` applied every migration file in `migrations/` from empty (0001–0116) in 84s with no failures.
 - [ ] 1.2 Run `mlb bootstrap` for a two-season slice (or the closest the commands allow; record how a slice is selected). Verify: per-source outcome, rows, request count and time recorded in `design.md`.
 - [ ] 1.3 Run `mlb coverage`, `mlb conform`, `mlb audit`, `mlb doctor`. Verify: every FAIL and every gap listed with the command that closes it.
 

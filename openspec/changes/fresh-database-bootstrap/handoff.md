@@ -1,16 +1,42 @@
-# Handoff — 2026-10-11 (fresh-database-bootstrap + widen-core-pitch-play)
+# Handoff — 2026-11-08 (fresh-database-bootstrap)
 
-## Pushed on `wip/uncommitted-2026-10-08` (no PR yet)
-- `5ba69cb` core.play_retro + MLB play fields + doctor checks + migrate.run reconnect after CREATE EXTENSION.
-- `1547b77` tests hermetic against host config (Kalshi key in .env, host backup folder, pg_stat_kcache).
-- `6cd1090` proposed this change. `1e54618` `--since-year` (config, CLI, 9 connectors, tests).
+## Where this change stands
 
-## Running in the background (check before starting anything)
-- Production catch-up: `logs/catchup_2026-10-11.log` (Kalshi candles backfill, then Polymarket price backfill). Afterwards run `mlb coverage` to confirm gaps closed.
-- Rehearsal: `logs/rehearsal_slice.log` — empty DB `mlb_fresh_rehearsal`, downloads in `~/rehearsal_downloads`, `mlb bootstrap --since-year 2024 --skip kalshi --skip polymarket`. Production `mlb` is not touched. Do NOT use `pkill -f` / `pgrep -f` with a pattern that appears in your own command (it kills your shell).
+- **1.0 done.** `bootstrap` can take a slice: `--since-year` /
+  `MLB_BOOTSTRAP_SINCE_YEAR` / `bootstrap_since_year`, applied to the season loops
+  of statcast, statcast_leaderboard, bref, fangraphs, retrosheet,
+  retrosheet_gamelog, mlb_api and the era archives of retrosheet_event /
+  retrosheet_box. Sources without a season grain load whole. Ported to `main` on
+  2026-11-08 (it had been stranded on the unmerged `stabilize-and-market-store`).
+- **1.1 done (2026-11-08).** On a brand-new `mlb_fresh_rehearsal_20261108`:
+  `preflight --with-conform` OK, `migrate` applied every migration from empty in
+  84s.
+- **1.2 / 1.3 not done.** The slice bootstrap has not run against that database
+  yet; record per-source outcome, rows, requests and time in `design.md`, then
+  `coverage` → `conform` → `audit` → `doctor`.
+
+## Traps found so far
+
+- The nightly conform rebuilds `core.play` / `core.pitch` in one transaction
+  (~75 min: `build_plays` 2741s + `build_pitches` 1751s) and holds exclusive
+  locks on `core.*` the whole time, so any `doctor`/`coverage` run during that
+  window blocks rather than fails. Schedule the rehearsal outside 06:00–08:30
+  UTC or accept the wait.
+- `mlb doctor` must not be judged on wall time alone: it also waits on those
+  locks. The table-scan problem (whole-table `count(*)` over the 151 GB market
+  tables) is fixed separately in #404.
+- Use a dated database name for the rehearsal (`..._20261108`); the older
+  `mlb_fresh_rehearsal` holds a partial 3 GB copy and is left untouched.
+- Do not run two pytest invocations at once: `tests/conftest.py` builds a shared
+  template database and they collide.
 
 ## Next
-1. When the slice finishes: `mlb coverage`, `mlb conform`, `mlb audit`, `mlb doctor` against `DATABASE_URL=postgresql:///mlb_fresh_rehearsal`; record every failure in this change (tasks 1.2-1.3, then 2.x).
-2. Rehearse kalshi/polymarket catalog bootstrap once the production catch-up is done.
-3. widen-core-pitch-play: value parity + timing on a production copy (2.3, 3.3 tie-out, 4.1), docs 4.2, production `conform` only with owner approval (4.3); then open the PR.
-4. Known open: `raw.mlb_person` roster gap (10 ids); mypy error `doctor.py:189` (not ours); `test_mlb_research_integration.py` import error (`_cleanup_backbone_data`), not checked against base.
+
+1. 1.2: `mlb bootstrap --since-year 2025 --skip statcast statcast_leaderboard mlb_api`
+   on `mlb_fresh_rehearsal_20261108` (the skipped three are the multi-day full
+   history loops). Record results in `design.md`.
+2. 1.3: `coverage`, `conform`, `audit`, `doctor`; every FAIL gets a task line.
+3. 2.x: fix each break at its own layer with a test that starts from an empty
+   schema; decide how the price backfills and `raw.mlb_person` join the
+   new-user path (2.2).
+4. 3.x: one chaining command + fixture-slice proof. 4.x: runbook/changelog.

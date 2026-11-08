@@ -34,7 +34,9 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -190,6 +192,35 @@ def rotate_backups(database_url: str, output_dir: Path, *, keep: int) -> list[Pa
     return to_delete
 
 
+# pg_dump writes the session settings of the client build that produced the
+# dump. A dump made by a *newer* pg_dump than the server being restored into
+# can therefore carry a GUC that server does not recognize -- `SET
+# transaction_timeout = 0` is emitted by pg_dump 17+ but only exists on a
+# PostgreSQL 17+ server, and with ON_ERROR_STOP the whole restore aborts.
+# These SET lines configure only the restore session, never the schema or the
+# data, so dropping the ones the target may not know is safe and is what
+# makes restore work across client/server major-version mismatches.
+_UNSUPPORTED_RESTORE_SETTINGS = ("transaction_timeout",)
+
+_UNSUPPORTED_SET_RE = re.compile(
+    r"^\s*SET\s+(?:"
+    + "|".join(re.escape(name) for name in _UNSUPPORTED_RESTORE_SETTINGS)
+    + r")\s*=",
+    re.IGNORECASE,
+)
+
+
+def _restorable_lines(input_path: Path) -> Iterator[str]:
+    """Yield `input_path` line by line, omitting SET statements for session
+    settings a target server may not have (see above). Streaming keeps
+    memory flat for multi-GB dumps."""
+    with input_path.open(encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if _UNSUPPORTED_SET_RE.match(line):
+                continue
+            yield line
+
+
 def restore(database_url: str, input_path: Path, *, confirm: bool) -> None:
     """Restore `input_path`'s plain-SQL dump into whatever database
     `database_url` points to. DESTRUCTIVE: recreates/overwrites the
@@ -207,13 +238,32 @@ def restore(database_url: str, input_path: Path, *, confirm: bool) -> None:
     if not input_path.exists():
         raise RuntimeError(f"backup file not found: {input_path}")
 
-    result = subprocess.run(
-        ["psql", "--set", "ON_ERROR_STOP=1", "-f", str(input_path), database_url],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"restore failed: {result.stderr.strip()}")
+    # Stream the dump through a filter rather than handing psql the file
+    # directly: a full dump can be tens of GB, so it must not be read into
+    # memory. stderr goes to an anonymous temp file so a chatty failure can
+    # never fill a pipe and deadlock the writer.
+    with tempfile.TemporaryFile(mode="w+") as errors:
+        process = subprocess.Popen(
+            ["psql", "--quiet", "--set", "ON_ERROR_STOP=1", database_url],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=errors,
+            text=True,
+        )
+        assert process.stdin is not None  # PIPE was requested above
+        try:
+            for line in _restorable_lines(input_path):
+                process.stdin.write(line)
+            process.stdin.close()
+        except BrokenPipeError:
+            # psql exited early; wait() below reports why.
+            pass
+        returncode = process.wait()
+        errors.seek(0)
+        stderr = errors.read()
+
+    if returncode != 0:
+        raise RuntimeError(f"restore failed: {stderr.strip()}")
 
 
 HOST_BACKUP_MAX_AGE_HOURS = 26  # a nightly job plus slack for its own run time

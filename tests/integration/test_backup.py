@@ -91,12 +91,20 @@ def test_restore_refuses_without_explicit_confirmation(tmp_path, database_url):
         backup.restore(database_url, fake_dump, confirm=False)
 
 
-def test_backup_full_dump_is_recorded_for_the_freshness_check(db_conn, tmp_path, database_url):
+def test_backup_full_dump_is_recorded_for_the_freshness_check(
+    db_conn, tmp_path, database_url, monkeypatch
+):
     # Deliberately no `schemas=` here -- this must be a real, unscoped full
     # dump. An earlier version of this test passed schemas=[SCRATCH_SCHEMA],
     # which is a *scoped* dump, not a full one; it happened to still pass
     # because of the exact tracking bug this file's other tests below now
     # cover (a scoped dump was wrongly tracked as if it were full).
+    #
+    # Point the host-backup root at a path that does not exist: health_check()
+    # then reports this database's own meta.ingestion_run freshness (what this
+    # test is about) instead of the machine's separate host-level dump, whose
+    # presence differs between CI and a developer workstation.
+    monkeypatch.setenv("MLB_HOST_BACKUP_ROOT", str(tmp_path / "no-host-backup"))
     _reset(db_conn)
     _create_scratch_table_with_rows(db_conn)
 
@@ -162,6 +170,29 @@ def test_backup_scoped_dump_gets_a_distinct_filename_from_a_full_dump(tmp_path, 
     output_path = backup.backup(database_url, tmp_path, schemas=["meta"])
 
     assert "_scoped_" in output_path.name
+
+
+def test_restore_tolerates_session_settings_a_newer_pg_dump_writes(db_conn, tmp_path, database_url):
+    # pg_dump 17+ writes `SET transaction_timeout = 0`, a GUC that does not
+    # exist on a PostgreSQL 16 server; ON_ERROR_STOP used to abort the whole
+    # restore on that line. The statement is written by hand so this test
+    # reproduces the mismatch without requiring a 17+ client on the runner.
+    _reset(db_conn)
+    dump_path = tmp_path / "newer_client.sql"
+    dump_path.write_text(
+        "SET transaction_timeout = 0;\n"
+        f"CREATE SCHEMA {SCRATCH_SCHEMA};\n"
+        f"CREATE TABLE {SCRATCH_SCHEMA}.widget (id integer PRIMARY KEY, name text);\n"
+        f"INSERT INTO {SCRATCH_SCHEMA}.widget (id, name) VALUES (1, 'restored');\n"
+    )
+
+    backup.restore(database_url, dump_path, confirm=True)
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT id, name FROM {SCRATCH_SCHEMA}.widget")
+        assert cur.fetchall() == [(1, "restored")]
+
+    _reset(db_conn)
 
 
 def test_restore_full_round_trip_recreates_dropped_data(db_conn, tmp_path, database_url):

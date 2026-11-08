@@ -6,6 +6,12 @@
 #include <string.h>
 #include "chadwick.h"
 
+/* Chadwick defines cw_game_line_append in src/cwlib/game.c but never declares
+ * it in game.h (still true at the pinned parity commit and on master), so a
+ * compiler that treats implicit function declarations as errors rejects the
+ * "line" op below. Declare the exact upstream signature locally. */
+void cw_game_line_append(CWGame *game, int num_data, char **data);
+
 static int split(char *line, char **f) {
   int n = 0; char *p = line;
   f[n++] = p;

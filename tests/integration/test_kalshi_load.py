@@ -495,6 +495,27 @@ def test_backfill_rerun_skips_settled_markets_and_does_not_duplicate(
         assert cur.fetchone() == (1,)
 
 
+def test_backfill_second_load_of_a_market_inserts_nothing_and_stays_loaded(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    fake = FakeCandles()
+    first = _run_candles(monkeypatch, fake)
+    with db_conn.cursor() as cur:  # forget the ledger so the market is fetched again
+        cur.execute("DELETE FROM meta.ingestion_item WHERE dataset = %s", (kalshi.CANDLE_DATASET,))
+    db_conn.commit()
+    second = _run_candles(monkeypatch, fake)
+
+    assert first[kalshi.CANDLE_TABLE] == 1
+    assert second[kalshi.CANDLE_TABLE] == 0
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM meta.ingestion_item WHERE source = %s AND dataset = %s",
+            (kalshi.SOURCE, kalshi.CANDLE_DATASET),
+        )
+        assert cur.fetchall() == [("loaded",)]  # inserted 0 is not "unavailable"
+
+
 def test_backfill_cuts_a_long_market_into_windows_under_the_candle_limit(
     db_conn, monkeypatch, _candle_ledger_clean
 ):

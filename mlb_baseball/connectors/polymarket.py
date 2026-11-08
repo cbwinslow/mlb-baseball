@@ -80,6 +80,7 @@ import pandas as pd
 import psycopg
 import requests
 
+from mlb_baseball import market_store
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
@@ -87,6 +88,7 @@ from mlb_baseball.health import (
     check_backfill_state,
     check_last_run,
     check_recent_run,
+    check_reject_table,
     check_snapshot_gaps,
     check_table_exists,
     check_table_has_rows,
@@ -94,8 +96,6 @@ from mlb_baseball.health import (
 from mlb_baseball.ingest import record_items, track_run
 from mlb_baseball.load import (
     append_dataframe,
-    ensure_table,
-    replace_csv_range,
     upsert_dataframe,
 )
 from mlb_baseball.net import RateLimiter, call_with_retry
@@ -453,17 +453,13 @@ def _backfill_batch(
                 )
                 lines.extend(f"{prefix},{point['t']},{point['p']}\n" for point in points)
                 counts[token["clob_token_id"]] = len(points)
-            rows = replace_csv_range(
-                conn,
-                PRICE_TABLE,
-                PRICE_COLUMNS,
-                "".join(lines),
-                key_column="clob_token_id",
-                keys=token_ids,
-                range_column="ts",
-                low=cell,
-                high=cell + HISTORY_WINDOW_SECONDS,
+            # Append-only: rows already loaded (an overlapping or repeated window) are
+            # ignored, values that fail their type check land in the reject table.
+            rows, rejected = market_store.append_rows(
+                conn, market_store.POLYMARKET_PRICE, PRICE_COLUMNS, "".join(lines)
             )
+            if rejected:
+                logger.warning("polymarket: %d price rows rejected in window %s", rejected, cell)
             duration = round((time.perf_counter() - started) * 1000)
             record_items(
                 conn,
@@ -577,12 +573,7 @@ def backfill_history() -> dict[str, int]:
     ):
         run_id = result["run_id"]
         tokens = _daily_game_tokens(conn)
-        ensure_table(
-            conn,
-            PRICE_TABLE,
-            PRICE_COLUMNS,
-            index_column="clob_token_id",
-        )
+        market_store.ensure_store(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT item_key FROM meta.ingestion_item "
@@ -674,6 +665,7 @@ def health_check() -> list[Check]:
         check_table_exists(SNAPSHOT_TABLE),
         # Only exists after the owner-triggered backfill: "not run" is a state.
         check_backfill_state(PRICE_TABLE),
+        check_reject_table("raw.polymarket_price_reject"),
         # odds-history-capture: a price snapshot every 15 minutes on game days.
         check_snapshot_gaps(SNAPSHOT_TABLE, max_gap_minutes=SNAPSHOT_MAX_GAP_MINUTES),
         check_last_run(SOURCE),

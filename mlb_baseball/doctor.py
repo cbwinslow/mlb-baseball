@@ -124,6 +124,20 @@ def _downloads_directory_ok() -> Check:
     return Check("downloads directory", ok, detail)
 
 
+def _dlt_state_directory() -> Check:
+    """Informational, never failing: the ingestion layer keeps no state it cannot lose."""
+    from mlb_baseball.ingest_layer.state import leftover_runs, state_dir
+
+    left = leftover_runs()
+    if left:
+        return Check(
+            "dlt state directory",
+            True,
+            f"{len(left)} leftover run folder(s) in {state_dir()}, safe to delete",
+        )
+    return Check("dlt state directory", True, f"{state_dir()} has no leftover runs")
+
+
 def _pg_stat_statements_enabled() -> Check:
     """Confirms pg_stat_statements is actually installed and tracking, not
     just present in pg_available_extensions — it requires being loaded via
@@ -329,6 +343,7 @@ _CORE_CHECKS = [
     ("required schemas", _required_schemas_exist),
     ("migrations", _migrations_up_to_date),
     ("downloads directory", _downloads_directory_ok),
+    ("dlt state directory", _dlt_state_directory),
     ("pg_stat_statements", _pg_stat_statements_enabled),
     ("analytics extensions", _analytics_extensions_enabled),
     ("optional extensions", _optional_extensions),

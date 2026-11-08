@@ -39,6 +39,12 @@ dependencies = [
     # dependency -- promoting it to a base dependency here adds no new
     # package to uv.lock, unlike jsonschema (not present at all today).
     "pydantic>=2.0",
+    # dlt-ingestion-layer: dlt extracts/normalizes source payloads; pyarrow and
+    # polars give typed, columnar batches before they reach PostgreSQL.
+    "dlt>=1.21,<2",
+    "pyarrow>=16",
+    # polars-lts-cpu: this server lacks AVX2, the standard wheel crashes (SIGILL)
+    "polars-lts-cpu>=1.0",
 ]
 
 [project.optional-dependencies]

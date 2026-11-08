@@ -65,27 +65,12 @@ def load_csv(conn: psycopg.Connection, table: str, csv_text: str) -> int:
 
 
 def _run(mode: str) -> dict[str, int]:
-    counts: dict[str, int] = {}
+    """Replace all four tables in one transaction through the staged layer (typed, ledgered).
+    A failure part-way publishes nothing."""
+    from mlb_baseball.ingest_layer.sources.register import land_register
+
     with get_connection() as conn, track_run(conn, SOURCE, mode) as result:
-        with conn.cursor() as cur:
-            cur.execute(
-                "TRUNCATE raw.register_people, "
-                "raw.register_names, "
-                "raw.register_links, "
-                "raw.register_countries"
-            )
-
-        people_total = 0
-        for shard in PEOPLE_SHARDS:
-            csv_text = fetch_csv(f"people-{shard}.csv")
-            people_total += load_csv(conn, "raw.register_people", csv_text)
-        counts["raw.register_people"] = people_total
-
-        for table, filename in SIMPLE_TABLES.items():
-            csv_text = fetch_csv(filename)
-            counts[table] = load_csv(conn, table, csv_text)
-
-        conn.commit()
+        counts = land_register(get_connection, fetch_csv)
         result["rows"] = sum(counts.values())
     return counts
 

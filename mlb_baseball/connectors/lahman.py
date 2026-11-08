@@ -1,27 +1,22 @@
-"""Lands the Lahman Baseball Database into raw.lahman_*.
+"""Lands the Lahman Baseball Database into raw.lahman_*, typed (ADR-304).
 
-SABR's current release (https://sabr.org/lahman-database/) is distributed only
-via a Box.com folder with no stable, scriptable direct-download URL — confirmed
-by testing (Box's API requires an app-registered OAuth token; anonymous folder
-downloads only work through the interactive web UI). That makes it a manual
-download: see docs/DATA_SOURCES.md for the exact steps. This connector prefers
-a local copy over `downloads/`, and only falls back to a network fetch (pinned
-to a preserved fork, frozen at the 2021 season — see docs/DECISIONS.md) if no
-local copy is present, printing a clear warning when it does.
+SABR publishes the current release only through a Box.com folder with no scriptable URL, so
+this connector prefers a local copy in ``downloads/`` (drop SABR's zip there) and otherwise
+downloads the owner's unedited mirror of the same release,
+https://github.com/cbwinslow/lahman-database-csv (main branch). Loading goes through the staged
+ingestion layer (``ingest_layer/sources/lahman.py``): every table has a declared schema, values
+are the source text cast to those types (``NA`` stays ``NA``), one ledger item per table.
 
-Table names and CSV filenames below match Lahman's own naming (snake_cased,
-not abbreviated) rather than our usual "one or two words" convention — see the
-naming-convention exemption for established source vocabularies in CLAUDE.md.
-
-Like the register, this is a frozen/point-in-time source as far as we're
-concerned, so bootstrap() and update() are the same full reload.
+Table names and CSV filenames match Lahman's own naming (snake_cased, not abbreviated) rather
+than our usual "one or two words" convention (the established-source-vocabulary exemption).
+A frozen source: bootstrap() and update() are the same full reload.
 """
 
 import zipfile
 from pathlib import Path
 
 import pandas as pd
-import pybaseball.lahman as network_lahman
+import requests
 
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
@@ -32,53 +27,41 @@ from mlb_baseball.health import (
     check_table_has_rows,
 )
 from mlb_baseball.ingest import track_run
-from mlb_baseball.load import load_dataframe
-
-# Fallback only — see module docstring. base_string ("baseballdatabank-master")
-# already matches our fork's default branch, so only the zip URL needs to change.
-network_lahman.url = "https://github.com/cbwinslow/baseballdatabank/archive/refs/heads/master.zip"
 
 SOURCE = "lahman"
 FRESHNESS_THRESHOLD_MINUTES = DAILY_FRESHNESS_THRESHOLD_MINUTES
 DOWNLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "downloads"
+RELEASE_URL = "https://github.com/cbwinslow/lahman-database-csv/archive/refs/heads/main.zip"
 
-# (raw table name, Lahman's own CSV filename, network fallback function)
+# (raw table name, Lahman's own CSV filename)
 TABLES = [
-    ("raw.lahman_people", "People.csv", network_lahman.people),
-    ("raw.lahman_batting", "Batting.csv", network_lahman.batting),
-    ("raw.lahman_batting_post", "BattingPost.csv", network_lahman.batting_post),
-    ("raw.lahman_pitching", "Pitching.csv", network_lahman.pitching),
-    ("raw.lahman_pitching_post", "PitchingPost.csv", network_lahman.pitching_post),
-    ("raw.lahman_fielding", "Fielding.csv", network_lahman.fielding),
-    ("raw.lahman_fielding_of", "FieldingOF.csv", network_lahman.fielding_of),
-    ("raw.lahman_fielding_of_split", "FieldingOFsplit.csv", network_lahman.fielding_of_split),
-    ("raw.lahman_fielding_post", "FieldingPost.csv", network_lahman.fielding_post),
-    ("raw.lahman_appearances", "Appearances.csv", network_lahman.appearances),
-    ("raw.lahman_allstar_full", "AllstarFull.csv", network_lahman.all_star_full),
-    ("raw.lahman_awards_managers", "AwardsManagers.csv", network_lahman.awards_managers),
-    ("raw.lahman_awards_players", "AwardsPlayers.csv", network_lahman.awards_players),
-    (
-        "raw.lahman_awards_share_managers",
-        "AwardsShareManagers.csv",
-        network_lahman.awards_share_managers,
-    ),
-    (
-        "raw.lahman_awards_share_players",
-        "AwardsSharePlayers.csv",
-        network_lahman.awards_share_players,
-    ),
-    ("raw.lahman_college_playing", "CollegePlaying.csv", network_lahman.college_playing),
-    ("raw.lahman_hall_of_fame", "HallOfFame.csv", network_lahman.hall_of_fame),
-    ("raw.lahman_home_games", "HomeGames.csv", network_lahman.home_games),
-    ("raw.lahman_managers", "Managers.csv", network_lahman.managers),
-    ("raw.lahman_managers_half", "ManagersHalf.csv", network_lahman.managers_half),
-    ("raw.lahman_parks", "Parks.csv", network_lahman.parks),
-    ("raw.lahman_salaries", "Salaries.csv", network_lahman.salaries),
-    ("raw.lahman_schools", "Schools.csv", network_lahman.schools),
-    ("raw.lahman_series_post", "SeriesPost.csv", network_lahman.series_post),
-    ("raw.lahman_teams", "Teams.csv", network_lahman.teams_core),
-    ("raw.lahman_teams_franchises", "TeamsFranchises.csv", network_lahman.teams_franchises),
-    ("raw.lahman_teams_half", "TeamsHalf.csv", network_lahman.teams_half),
+    ("raw.lahman_people", "People.csv"),
+    ("raw.lahman_batting", "Batting.csv"),
+    ("raw.lahman_batting_post", "BattingPost.csv"),
+    ("raw.lahman_pitching", "Pitching.csv"),
+    ("raw.lahman_pitching_post", "PitchingPost.csv"),
+    ("raw.lahman_fielding", "Fielding.csv"),
+    ("raw.lahman_fielding_of", "FieldingOF.csv"),
+    ("raw.lahman_fielding_of_split", "FieldingOFsplit.csv"),
+    ("raw.lahman_fielding_post", "FieldingPost.csv"),
+    ("raw.lahman_appearances", "Appearances.csv"),
+    ("raw.lahman_allstar_full", "AllstarFull.csv"),
+    ("raw.lahman_awards_managers", "AwardsManagers.csv"),
+    ("raw.lahman_awards_players", "AwardsPlayers.csv"),
+    ("raw.lahman_awards_share_managers", "AwardsShareManagers.csv"),
+    ("raw.lahman_awards_share_players", "AwardsSharePlayers.csv"),
+    ("raw.lahman_college_playing", "CollegePlaying.csv"),
+    ("raw.lahman_hall_of_fame", "HallOfFame.csv"),
+    ("raw.lahman_home_games", "HomeGames.csv"),
+    ("raw.lahman_managers", "Managers.csv"),
+    ("raw.lahman_managers_half", "ManagersHalf.csv"),
+    ("raw.lahman_parks", "Parks.csv"),
+    ("raw.lahman_salaries", "Salaries.csv"),
+    ("raw.lahman_schools", "Schools.csv"),
+    ("raw.lahman_series_post", "SeriesPost.csv"),
+    ("raw.lahman_teams", "Teams.csv"),
+    ("raw.lahman_teams_franchises", "TeamsFranchises.csv"),
+    ("raw.lahman_teams_half", "TeamsHalf.csv"),
 ]
 
 
@@ -88,31 +71,38 @@ def find_local_zip() -> Path | None:
 
 
 def _read_from_zip(zf: zipfile.ZipFile, filename: str) -> pd.DataFrame:
+    """The legacy pandas read. Kept only so tests can show what it corrupted (``NA`` -> NULL,
+    ``4`` -> ``4.0``); loading uses ``ingest_layer`` and never this."""
     (member,) = (n for n in zf.namelist() if n.endswith(f"/{filename}") or n == filename)
     with zf.open(member) as f:
         return pd.read_csv(f)
 
 
+def download_release() -> Path:
+    """Fetch the mirror's main branch into ``downloads/`` (name carries the content hash, so
+    an unchanged release is the same file) and return its path."""
+    import hashlib
+
+    response = requests.get(RELEASE_URL, timeout=120)
+    response.raise_for_status()
+    DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    path = DOWNLOADS_DIR / f"lahman_mirror_{hashlib.sha256(response.content).hexdigest()[:12]}.zip"
+    if not path.exists():
+        path.write_bytes(response.content)
+    return path
+
+
 def _run(mode: str) -> dict[str, int]:
-    counts: dict[str, int] = {}
+    from mlb_baseball.ingest_layer.sources.lahman import land_zip
+
     zip_path = find_local_zip()
+    if zip_path:
+        print(f"lahman: loading from local {zip_path}")
+    else:
+        print(f"lahman: no local zip in downloads/, downloading {RELEASE_URL}")
+        zip_path = download_release()
     with get_connection() as conn, track_run(conn, SOURCE, mode) as result:
-        if zip_path:
-            print(f"lahman: loading current data from local {zip_path}")
-            with zipfile.ZipFile(zip_path) as zf:
-                for table, filename, _fetch in TABLES:
-                    df = _read_from_zip(zf, filename)
-                    counts[table] = load_dataframe(conn, table, df)
-        else:
-            print(
-                "lahman: WARNING — no local zip found in downloads/, falling back to a "
-                "network source frozen at the 2021 season. For current data, see the "
-                "manual download steps in docs/DATA_SOURCES.md."
-            )
-            for table, _filename, fetch in TABLES:
-                df = fetch()
-                counts[table] = load_dataframe(conn, table, df)
-        conn.commit()
+        counts = land_zip(get_connection, zip_path)
         result["rows"] = sum(counts.values())
     return counts
 
@@ -138,8 +128,9 @@ def health_check() -> list[Check]:
         checks.append(
             Check(
                 "lahman data currency",
-                False,
-                "no local zip in downloads/ — data may be frozen at the 2021 network fallback",
+                True,
+                "no local zip in downloads/: the next run downloads the owner's mirror "
+                "(github.com/cbwinslow/lahman-database-csv)",
             )
         )
     return checks

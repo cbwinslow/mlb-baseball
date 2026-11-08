@@ -83,6 +83,7 @@ import requests
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
+from mlb_baseball import market_store
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
@@ -90,6 +91,7 @@ from mlb_baseball.health import (
     check_backfill_state,
     check_last_run,
     check_recent_run,
+    check_reject_table,
     check_snapshot_gaps,
     check_table_exists,
     check_table_has_rows,
@@ -97,8 +99,6 @@ from mlb_baseball.health import (
 from mlb_baseball.ingest import record_items, track_run
 from mlb_baseball.load import (
     append_dataframe,
-    ensure_table,
-    replace_dataframe_range,
     upsert_dataframe,
 )
 from mlb_baseball.net import RateLimiter, call_with_retry
@@ -634,27 +634,36 @@ def _backfill_market(
                 new_columns = set(df.columns) - _known_candle_columns
                 if new_columns:
                     with _schema_lock:
-                        ensure_table(conn, CANDLE_TABLE, list(df.columns), index_column="ticker")
+                        market_store.add_text_columns(
+                            conn,
+                            market_store.KALSHI_CANDLE,
+                            market_store.missing_columns(
+                                conn, market_store.KALSHI_CANDLE, list(df.columns)
+                            ),
+                        )
                         _known_candle_columns.update(df.columns)
-            # Replace this market's candles. Not replace_dataframe_scopes: it runs CREATE INDEX IF
-            # NOT EXISTS on every call, which takes a table lock that deadlocked 8 concurrent
-            # writers (121 markets failed in the first signed run).
-            rows = replace_dataframe_range(
-                conn,
-                CANDLE_TABLE,
-                df,
-                key_column="ticker",
-                keys=[ticker],
-                range_column="ts",
-                low=0,
-                high=2**62,
+            # Append-only: candles already loaded are ignored, a value that fails its type
+            # check goes to the reject table (spec market-price-store). The ledger records
+            # what the source returned, so a rerun that inserts nothing stays "loaded".
+            fetched = len(df)
+            rows, rejected = (
+                market_store.append_rows(
+                    conn,
+                    market_store.KALSHI_CANDLE,
+                    list(df.columns),
+                    df.to_csv(index=False, header=False),
+                )
+                if fetched
+                else (0, 0)
             )
+            if rejected:
+                logger.warning("kalshi: %d candles for %s rejected", rejected, ticker)
             record_items(
                 conn,
                 [
                     _candle_item(
                         ticker,
-                        "loaded" if rows else "unavailable",
+                        "loaded" if fetched else "unavailable",
                         run_id,
                         rows=rows,
                         http_status=200,
@@ -707,7 +716,7 @@ def backfill_history() -> dict[str, int]:
         cutoff = fetch_cutoff().get("market_settled_ts")
         cutoff_ts = _parse_kalshi_ts(cutoff) if cutoff else None
         now_ts = int(time.time())
-        ensure_table(conn, CANDLE_TABLE, _CANDLE_KNOWN_COLUMNS, index_column="ticker")
+        market_store.ensure_store(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT column_name FROM information_schema.columns "
@@ -778,6 +787,7 @@ def health_check() -> list[Check]:
         # Only exists after the owner-triggered backfill: "not run" is a state,
         # not a missing-table defect.
         check_backfill_state(CANDLE_TABLE),
+        check_reject_table("raw.kalshi_candle_reject"),
         # odds-history-capture: a price snapshot every 15 minutes on game days.
         check_snapshot_gaps(SNAPSHOT_TABLE, max_gap_minutes=SNAPSHOT_MAX_GAP_MINUTES),
         check_last_run(SOURCE),

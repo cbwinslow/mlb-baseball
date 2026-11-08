@@ -24,6 +24,7 @@ def harness(tmp_path, monkeypatch):
     script.write_text(FAKE)
     calls = tmp_path / "calls.log"
     monkeypatch.setenv("CALLS", str(calls))
+    monkeypatch.setenv("MLB_HOME", str(tmp_path))  # the run marker, never the real ~/.mlb
     records: list[tuple] = []
     monkeypatch.setattr(nightly, "record_step", lambda *a: records.append(a))
     monkeypatch.setattr(nightly, "sources_without_success", lambda expected, since: [])
@@ -167,11 +168,12 @@ def test_nightly_command_passes_the_pause_and_exits_with_the_result(monkeypatch)
     assert exit_info.value.code == 7
 
 
-def test_drift_and_gap_steps_fail_the_run_but_do_not_stop_each_other(harness):
+def test_drift_finding_is_a_digest_not_a_failure_and_later_steps_still_run(harness):
     runner, calls = harness("schema-watch")
-    assert runner.run() == 1
+    assert runner.run() == 0  # a health finding does not fail the night
     assert "repair --apply" in calls()
-    assert len(harness.alerts) == 1 and "schema-watch" in harness.alerts[0]
+    assert len(harness.alerts) == 1
+    assert "health digest" in harness.alerts[0] and "schema-watch" in harness.alerts[0]
 
 
 def test_repair_runs_before_the_coverage_check_so_the_check_sees_the_repaired_state(harness):

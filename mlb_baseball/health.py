@@ -74,6 +74,27 @@ def check_backfill_state(table: str) -> Check:
     return Check(table, True, f"{count} rows")
 
 
+def check_reject_table(table: str, *, days: int = 7) -> Check:
+    """Fails when a loader put a value that failed its type check into ``table`` in the
+    last ``days`` days. The value is kept as source text; someone should look at it (the
+    source may have changed shape). A missing table is fine: it appears with the typed
+    market tables (migration 0117)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        try:
+            cur.execute(
+                f"SELECT count(*), max(reason) FROM {table} "  # noqa: S608
+                "WHERE rejected_at > now() - make_interval(days => %s)",
+                (days,),
+            )
+        except psycopg.errors.UndefinedTable:
+            conn.rollback()
+            return Check(table, True, "no reject table yet")
+        count, reason = fetch_one(cur)
+    if count:
+        return Check(table, False, f"{count} rows rejected in {days} days, e.g. {reason}")
+    return Check(table, True, f"no rows rejected in {days} days")
+
+
 def check_snapshot_gaps(
     table: str, *, max_gap_minutes: int, window_hours: int = 6, label: str | None = None
 ) -> Check:

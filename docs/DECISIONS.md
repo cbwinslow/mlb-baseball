@@ -2,6 +2,29 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-304: Raw tables carry declared types, ingestion goes through `dlt` + pyarrow + polars (supersedes ADR-300 and the all-text raw rule)
+
+**Decision (2026-10-13, owner direction).** Source tables in `raw` are typed: integers, decimals,
+dates and timestamps are stored as such, with the types declared once per table in
+`mlb_baseball/ingest_layer/schemas/<source>.json` and enforced at ingest. The old rule that raw
+columns stay `text` (`load.py.dox.md`, written in the 2026-09-02 DOX rollout) is retired. New and
+migrated sources load through the staged layer (`mlb_baseball/ingest_layer/`): download -> typed
+pyarrow/polars batch -> `dlt` -> one PostgreSQL transaction. `dlt` is adopted as the standard tool,
+which supersedes ADR-300. A value that breaks its declared type stops a snapshot load (strict) or goes
+to the table's reject table as source text (market tables); it is never silently NULLed.
+
+**Why.** The all-text rule cost storage and speed and pushed every cast into every reader. Worse,
+the pandas path it protected silently corrupted values: the text `NA` (National Association league
+code, "not active" flags) became `NULL` in 3,336 production Lahman cells, and integers with blanks
+became `5.0` (measured 2026-10-13, `openspec/changes/dlt-ingestion-layer/results.md`). A declared
+schema read as text keeps source values exactly and makes the failure visible.
+
+**Consequences.** Existing text tables are retyped table by table: load the typed table beside the
+old one from the kept source files, compare value by value, swap names in one transaction, keep the old
+table until the owner approves dropping it. Every reader of a retyped table is inventoried and
+fixed first (openspec change `typed-raw-layer`). `dlt` is held to the speed rule in `design.md` D6.
+Supersedes ADR-300.
+
 ## ADR-303: The nightly applies the safe repairs, then checks coverage in light form
 
 **Decision (2026-10-08).** `mlb nightly` runs `mlb repair --apply` (was `--dry-run`) before
@@ -66,6 +89,8 @@ the safe list is code with a reason per entry, not inferred from a command name.
 evidence), or a safe repair is shown to hide a real fault.
 
 ## ADR-300: Do not adopt `dlt` or a community baseball MCP server; keep our connectors, add a drift check
+
+*Superseded by ADR-304 for `dlt` (2026-10-13). The drift check part stands.*
 
 **Decision (2026-10-07).** We do not add `dlt` (dlt-hub, Apache-2.0, 5,939 stars, active) or
 any community MLB MCP server (`guillochon/mlb-api-mcp` MIT, 59 stars; `etweisberg/mlb-mcp`

@@ -124,11 +124,19 @@ def _move_to_tmpfs_tablespace(
         ).fetchone()
         if not exists:
             return
-        conn.execute(
-            sql.SQL("ALTER DATABASE {} SET TABLESPACE {}").format(
-                sql.Identifier(dbname), sql.Identifier(TEST_TABLESPACE)
+        try:
+            conn.execute(
+                sql.SQL("ALTER DATABASE {} SET TABLESPACE {}").format(
+                    sql.Identifier(dbname), sql.Identifier(TEST_TABLESPACE)
+                )
             )
-        )
+        except psycopg.errors.UndefinedFile:
+            # The tablespace is registered but its directory is gone -- the
+            # usual cause is a reboot that cleared /dev/shm while the
+            # pg_tablespace row survived. This is a speed optimization only,
+            # so fall back to the default tablespace (correct, just slower)
+            # instead of failing every integration test in the run.
+            return
 
 
 def _set_synchronous_commit_off(url: str) -> None:

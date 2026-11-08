@@ -1836,3 +1836,24 @@ def test_odds_capture_command_runs_the_capture(monkeypatch, capsys):
     cli.main(["odds-capture"])
 
     assert "raw.fake_snapshot: 3 rows" in capsys.readouterr().out
+
+
+def test_bootstrap_since_year_flag_reaches_the_connectors_floor(monkeypatch):
+    from mlb_baseball import config
+
+    monkeypatch.setattr(config, "_bootstrap_since_year", None)  # restored after the test
+    seen = []
+    one = _fake_connector()
+    one.bootstrap.side_effect = lambda: seen.append(config.bootstrap_floor(1900)) or {}
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": one})
+
+    cli.main(["bootstrap", "--since-year", "2024"])
+
+    assert seen == [2024]
+
+
+def test_bootstrap_rejects_a_since_year_before_baseball(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "CONNECTORS", {"one": _fake_connector()})
+    with pytest.raises(SystemExit):
+        cli.main(["bootstrap", "--since-year", "1800"])
+    assert "--since-year must be" in capsys.readouterr().err

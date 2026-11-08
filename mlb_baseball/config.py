@@ -58,6 +58,7 @@ class Settings:
     batch_work_mem: str = DEFAULT_BATCH_WORK_MEM
     batch_maintenance_work_mem: str = DEFAULT_BATCH_MAINTENANCE_WORK_MEM
     alert_command: str | None = None
+    bootstrap_since_year: int | None = None
 
 
 _TOML_KEYS = {
@@ -72,6 +73,7 @@ _TOML_KEYS = {
     "batch_work_mem",
     "batch_maintenance_work_mem",
     "alert_command",
+    "bootstrap_since_year",
 }
 
 
@@ -171,6 +173,12 @@ def load_settings(path: str | Path | None = None) -> Settings:
         raise ConfigError(
             "analytics_end_year must be greater than or equal to analytics_start_year"
         )
+    since_value = _value(values, "bootstrap_since_year", "")
+    since_year = (
+        None
+        if since_value in (None, "")
+        else _integer(since_value, "bootstrap_since_year", 1871, date.today().year)
+    )
     return Settings(
         database_url=os.environ.get("DATABASE_URL") or None,
         test_database_url=os.environ.get("TEST_DATABASE_URL") or None,
@@ -206,6 +214,7 @@ def load_settings(path: str | Path | None = None) -> Settings:
             "batch_maintenance_work_mem",
         ),
         alert_command=str(_value(values, "alert_command", "") or "").strip() or None,
+        bootstrap_since_year=since_year,
     )
 
 
@@ -219,6 +228,20 @@ def apply_settings(settings: Settings) -> None:
     mlb_api.ANALYTICS_REQUEST_TIMEOUT_SECONDS = settings.request_timeout_seconds
     mlb_api.ANALYTICS_RETRY_ATTEMPTS = settings.retry_attempts
     mlb_api.ANALYTICS_BACKOFF_SECONDS = settings.backoff_seconds
+    global _bootstrap_since_year
+    _bootstrap_since_year = settings.bootstrap_since_year
+
+
+_bootstrap_since_year: int | None = None
+
+
+def bootstrap_floor(first_year: int) -> int:
+    """First season a bootstrap loads: the source's own first year, or the configured
+    ``bootstrap_since_year`` (``mlb bootstrap --since-year``, ``MLB_BOOTSTRAP_SINCE_YEAR``)
+    if later. Lets a new user build a recent slice instead of all history; unset means all of it."""
+    if _bootstrap_since_year is None:
+        return first_year
+    return max(first_year, _bootstrap_since_year)
 
 
 def database_url() -> str:

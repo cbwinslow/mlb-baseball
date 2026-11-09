@@ -2,6 +2,35 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-304: Internal use of every collected source is allowed; rights are checked at publish time
+
+**Decision (2026-10-10, owner).** Collected data, including MLB Stats API, Statcast,
+Baseball-Reference, FanGraphs and the odds sources, may be used internally for analysis,
+features and model training. Rights are checked when something is **published**: raw source
+rows are never republished; derived charts, heatmaps, results and models are published with
+attribution after a per-source review. If a source fails that review, the published result is
+rebuilt from a source that passes (for example Retrosheet), not withheld from internal work.
+
+**What changes.** The "never a reference-baseline-model input" limit on
+`gold.fangraphs_guts` and `gold.fangraphs_park_factors` is removed from `SOURCE_RIGHTS.md`,
+`TABLE_CONTRACTS.md` and `DATA_DICTIONARY.md`. No code enforced it. ADR-290 is left as the
+historical record.
+
+**What stays.** The publish guards are unchanged: `public_safe` still admits only Retrosheet
+families, no `gold.fangraphs_*` relation may be `public_safe`
+(`tests/unit/test_fangraphs_conform_rights.py`), and the export registry still blocks
+restricted sources. "Never a pregame feature" on the FanGraphs tables is kept: it needs a
+point-in-time reason check (season-level values can leak future information), not a rights
+one.
+
+**Why.** The rights table was written to gate publishing, but its wording also read as a bar
+on internal use. Facts and analysis are not owned by the source; the exposure is the source's
+terms of use on collection and on republishing raw data, which only arises at publish time.
+
+**Risk accepted.** MLB's terms of use prohibit automated collection; internal use carries
+that owner-accepted risk (already recorded as "owner-risk research only"). Before any paid or
+public product, the source terms need a legal read. This ADR is not legal advice.
+
 ## ADR-303: The nightly applies the safe repairs, then checks coverage in light form
 
 **Decision (2026-10-08).** `mlb nightly` runs `mlb repair --apply` (was `--dry-run`) before

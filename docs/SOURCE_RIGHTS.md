@@ -27,12 +27,22 @@ review date in the same pull request.
 Derived relations inherit their most-restrictive source. `gold.fangraphs_guts`
 and `gold.fangraphs_park_factors` (fangraphs-conform Beat 1, ADR-290) are
 conformed from `raw.fangraphs_*` and carry FanGraphs' `local_research` posture:
-never `public_safe`, never in the published `mlb-research` dataset, never a
-reference-baseline-model input. `gold.fangraphs_guts` is a cross-check /
+never `public_safe`, never in the published `mlb-research` dataset. (Internal model use
+is allowed, ADR-304.) `gold.fangraphs_guts` is a cross-check /
 reference only — a wOBA / FIP / park-factor figure the project publishes is
 computed from `core.play`, not from these. A standing test
 (`tests/unit/test_fangraphs_conform_rights.py`) blocks a `public_safe` entry for
 any `gold.fangraphs_*` relation in the export registry.
+
+## Internal use versus publishing (ADR-304)
+
+Owner policy, 2026-10-10: every collected source may be used internally for analysis and
+model training. The rights check applies at the moment something is published: raw source
+rows are never republished, and charts, results and models are published with attribution
+after the publish-time review below. If a source cannot be published, the published result
+is rebuilt from a source that can. The table above gates **publishing**, not internal use.
+This is an engineering control, not legal advice; get a legal read of the source terms
+before anything is sold.
 
 ## Enforced profiles
 

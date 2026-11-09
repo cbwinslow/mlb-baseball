@@ -406,8 +406,8 @@ envelope check (no season row over 163 games).
 ### 3.11 `gold.fangraphs_guts` / `gold.fangraphs_park_factors` — FanGraphs reference lookups
 
 > **`local_research` only (FanGraphs, ADR-288 / ADR-290).** Never `public_safe`,
-> never in the published `mlb-research` dataset, never a reference-baseline-model
-> input. `gold.fangraphs_guts` is a **cross-check / reference**: a publishable
+> never in the published `mlb-research` dataset. Internal model use is allowed
+> (ADR-304). `gold.fangraphs_guts` is a **cross-check / reference**: a publishable
 > wOBA / FIP / park-factor is computed from `core.play`, not from these. A
 > standing test guards the export registry.
 

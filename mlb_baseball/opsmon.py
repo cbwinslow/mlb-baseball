@@ -63,6 +63,10 @@ class Monitor:
         if self._conn is None or self._conn.closed:
             self._conn = get_connection()
             self._conn.autocommit = True
+            # Every worker thread writes through this connection under one lock, so a commit
+            # that waits for a busy disk stalls them all. A crash can lose the last timing
+            # rows; the data and its ledger rows are committed on other connections.
+            self._conn.execute("SET synchronous_commit = off")
         return self._conn
 
     def _execute(self, sql: str, params: tuple) -> None:

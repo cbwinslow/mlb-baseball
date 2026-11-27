@@ -39,7 +39,7 @@ SELECT
     END
 FROM raw.register_people
 WHERE key_retro IS NULL
-  AND key_mlbam IN (
+  AND key_mlbam::text IN (
         SELECT person_id FROM raw.mlb_boxscore_batting
         UNION
         SELECT person_id FROM raw.mlb_boxscore_pitching

@@ -15,7 +15,8 @@ Facts checked 2026-10-06 (SABR's Lahman page, database).
 ## Access
 
 - **Distribution:** SABR publishes the current release only through a Box.com folder with no scriptable download URL, so the zip is a **manual download** into `downloads/` (gitignored). The connector picks the newest `downloads/lahman*.zip`.
-- **Fallback:** with no local zip, it loads `pybaseball.lahman`'s network copy, repointed to our preserved fork of `baseballdatabank` and **frozen at the 2021 season**, and prints a warning. A fresh clone therefore works but holds old data.
+- **Fallback (changed 2026-10-13):** with no local zip, the connector downloads the owner's unedited mirror of SABR's CSV release, <https://github.com/cbwinslow/lahman-database-csv> (main branch, the 2025 release), into `downloads/lahman_mirror_<hash>.zip`. The old `pybaseball` copy frozen at 2021 is gone. The mirror is a convenience copy; the rights rows below still apply to its content.
+- **Typed (ADR-304):** tables are loaded through `ingest_layer` with the declared types in `mlb_baseball/ingest_layer/schemas/lahman.json`; the text `NA` is kept (the old pandas path turned it into NULL).
 - **Current release:** SABR lists the **2025** release (published 2026-01-02). The database holds seasons up to 2025, so it is current.
 - **Update shape:** frozen annual release, so `bootstrap()` and `update()` are the same full reload.
 - **Rate limit:** not applicable (single zip).

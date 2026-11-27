@@ -90,7 +90,7 @@ Do not expand endpoint coverage mechanically. Every new family needs a data/rese
 
 ### Update behavior
 
-- Current-season schedule/standings/roster/transactions/draft are refreshed with scoped-replace/idempotent behavior.
+- Each 5-minute update refreshes only yesterday's and today's schedule rows (`_load_schedule_days`, scoped by `game_date`; a date the source returns nothing for is left alone), today's live games and game detail. The season schedule, next season's schedule, standings, roster, transactions and draft are checked at most hourly (`_load_hourly_tables`, `_slow_due`) and written only when the fetched rows hash differently from the last successful load (`_load_slow`, state in `downloads/mlb_api/slow_refresh.json`; the hash is recorded after the load commits, so a failed load is retried). Before 2026-10-13 the whole season schedule and ~60k transaction rows were rewritten on every tick. Bootstrap and backfill still call the loaders without `skip_unchanged`. Tests: `tests/unit/test_mlb_api_slow_refresh.py`.
 - Started/finished current games refresh game-scoped details so in-progress facts can grow safely across polls.
 - Each update also loads next season's schedule once MLB publishes it (it served 2027 in October 2026), at most once a day (`NEXT_SCHEDULE_REFRESH`), so future games are in `raw.mlb_schedule` before they are played.
 - Each update also repairs up to `REPAIR_BATCH_UPDATE` (20) finished (Final or Completed Early) current-season games that lack play-by-play or a box score, newest first, so a missed day heals itself. `mlb ingest mlb_api --mode backfill` repairs all of them. A game the source never serves would be retried each update; `mlb coverage --source mlb_api` shows any that stay missing.

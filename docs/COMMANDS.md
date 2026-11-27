@@ -13,10 +13,11 @@ research and chart commands are in `mlb --help`.
 | `mlb conform` | writes: core tables | none | no | no |
 | `mlb report` | writes: gold tables | none | no | no |
 | `mlb odds-capture` | writes: raw price snapshots | none | no | no |
-| `mlb nightly` | writes: the whole daily pipeline | `--pause` | no | no |
+| `mlb nightly` | writes: the whole daily pipeline | `--check` `--pause` | no | no |
 | `mlb repair` | dry run by default; --apply writes (safe-listed ingests only) | `--apply` `--dry-run` `--json` `--reset` `--source` | yes | yes |
 | `mlb repair-runs` | writes: closes stale run records | none | no | no |
 | `mlb backfill-game-identities` | writes: core game identities | `--batch-size` | no | no |
+| `mlb retype` | writes: <table>__new copies; --apply also renames tables (keeps <table>__old) | `--apply` `--zip` | no | no |
 | `mlb schema-watch` | writes: snapshot files and meta.schema_finding, never raw | `--accept` `--json` `--source` `--tolerate-unchecked` | yes | no |
 | `mlb coverage` | read-only | `--fail-on-gap` `--json` `--light` `--markdown` `--missing-only` `--probe` `--source` `--table` `--unexplained` | yes | no |
 | `mlb source-check` | read-only (HEAD requests; --hash downloads to a temp file) | `--hash` `--source` | no | no |
@@ -33,4 +34,4 @@ research and chart commands are in `mlb --help`.
 | `mlb restore` | DESTRUCTIVE: overwrites the database | `--yes` | no | no |
 | `mlb export` | reads the database, writes CSV/Excel/Parquet (--publish uploads) | `--format` `--out` `--preset` `--profile` `--publish` `--repo-id` `--season` `--tag` `--zip` | no | no |
 
-Help text for each command: `mlb <command> --help` (74 commands in all).
+Help text for each command: `mlb <command> --help` (75 commands in all).

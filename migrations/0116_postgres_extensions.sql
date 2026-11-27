@@ -23,6 +23,9 @@ BEGIN
     FOR ext IN
         SELECT * FROM (VALUES
             -- name,                schema,    needs_preload
+            -- first: pg_duckdb defines time_bucket too, so timescaledb cannot be created after it
+            -- (market tables, migration 0117, use it for compression)
+            ('timescaledb',         NULL,      true),
             ('fuzzystrmatch',       NULL,      false),
             ('pg_similarity',       NULL,      false),
             ('roaringbitmap',       NULL,      false),

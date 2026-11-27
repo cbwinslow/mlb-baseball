@@ -171,15 +171,16 @@ INSERT INTO gold.team_season (
     wins, losses, win_pct, runs, runs_allowed, hr, era
 )
 SELECT
-    t.id, lt.yearid::integer, t.city, t.nickname, NULLIF(lt.lgid, ''),
-    NULLIF(lt.w, '')::numeric::integer, NULLIF(lt.l, '')::numeric::integer,
-    CASE WHEN NULLIF(lt.w, '')::numeric + NULLIF(lt.l, '')::numeric > 0
+    t.id, lt.yearid::integer, t.city, t.nickname, NULLIF(lt.lgid::text, ''),
+    NULLIF(lt.w::text, '')::numeric::integer, NULLIF(lt.l::text, '')::numeric::integer,
+    CASE WHEN NULLIF(lt.w::text, '')::numeric + NULLIF(lt.l::text, '')::numeric > 0
         THEN round(
-            NULLIF(lt.w, '')::numeric / (NULLIF(lt.w, '')::numeric + NULLIF(lt.l, '')::numeric), 3
+            NULLIF(lt.w::text, '')::numeric
+            / (NULLIF(lt.w::text, '')::numeric + NULLIF(lt.l::text, '')::numeric), 3
         )
     END,
-    NULLIF(lt.r, '')::numeric::integer, NULLIF(lt.ra, '')::numeric::integer,
-    NULLIF(lt.hr, '')::numeric::integer, NULLIF(lt.era, '')::numeric
+    NULLIF(lt.r::text, '')::numeric::integer, NULLIF(lt.ra::text, '')::numeric::integer,
+    NULLIF(lt.hr::text, '')::numeric::integer, NULLIF(lt.era::text, '')::numeric
 FROM raw.lahman_teams lt
 JOIN LATERAL (
     SELECT t.id, t.city, t.nickname

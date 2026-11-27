@@ -29,7 +29,7 @@ def _event(
         "sport": sport,
         "markets": [
             {
-                "id": f"{event_id}-{i}",
+                "id": str(int(event_id) * 100 + i),  # real market ids are integers
                 "question": f"Market {event_id}-{i}",
                 "outcomes": '["Yes", "No"]',
                 "outcomePrices": '["0.5", "0.5"]',
@@ -482,12 +482,35 @@ def test_backfill_rerun_replaces_a_window_instead_of_duplicating(db_conn, _ledge
             "DELETE FROM meta.ingestion_item WHERE dataset = %s", (polymarket.PRICE_DATASET,)
         )
     db_conn.commit()
-    _run_backfill(clob)
+    second = _run_backfill(clob)
 
     assert len(_price_rows(db_conn)) == 1
+    assert second[polymarket.PRICE_TABLE] == 0  # the second run inserted nothing
 
 
-def test_backfill_keeps_other_windows_when_one_window_is_replaced(db_conn, _ledger_clean):
+def test_backfill_keeps_an_unreadable_price_in_the_reject_table(db_conn, _ledger_clean):
+    _bootstrap_with(
+        [
+            _event(
+                "1",
+                closed=True,
+                sport="mlb",
+                startdate="2025-04-02T08:02:33Z",
+                closedtime="2025-04-02 21:25:34+00",
+            )
+        ]
+    )
+    t0 = polymarket._epoch("2025-04-02T09:00:00Z")
+    clob = FakeClob({"tok-1-0-a": [(t0, 0.4), (t0 + 60, "n/a")]})
+    counts = _run_backfill(clob)
+
+    assert counts[polymarket.PRICE_TABLE] == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT clob_token_id, price FROM raw.polymarket_price_reject")
+        assert cur.fetchall() == [("tok-1-0-a", "n/a")]
+
+
+def test_backfill_loads_every_window_of_a_long_market(db_conn, _ledger_clean):
     window = polymarket.HISTORY_WINDOW_SECONDS
     start = polymarket._epoch("2026-06-01T00:00:00Z")
     _bootstrap_with(
@@ -514,7 +537,7 @@ def test_backfill_keeps_other_windows_when_one_window_is_replaced(db_conn, _ledg
 
     _run_backfill(clob)
 
-    assert [p for _, _, p in _price_rows(db_conn)] == ["0.1", "0.2", "0.3"]
+    assert [p for _, _, p in _price_rows(db_conn)] == [0.1, 0.2, 0.3]
     assert len({c["start_ts"] for c in clob.calls}) == 3
 
 

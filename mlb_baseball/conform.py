@@ -1430,7 +1430,8 @@ def _polymarket_market_rows(
             FROM raw.polymarket_event e
             JOIN raw.polymarket_market m ON m.event_id = e.id
             JOIN raw.polymarket_outcome o ON o.market_id = m.id
-            WHERE e.sport IS NOT NULL
+            -- MLB only: other leagues are collected too and share team nicknames.
+            WHERE e.sport IS NOT NULL AND e.slug LIKE 'mlb-%'
             """
         )
         for slug, teams_text, closed, market_id, volume, outcome in cur.fetchall():

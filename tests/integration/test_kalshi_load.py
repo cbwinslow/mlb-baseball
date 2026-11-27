@@ -652,3 +652,242 @@ def test_many_markets_written_concurrently_do_not_deadlock(
             (kalshi.SOURCE, kalshi.CANDLE_DATASET),
         )
         assert cur.fetchone() == (0,)
+
+
+# -- history completeness (market-data-complete) -----------------------------
+
+
+def _candle_rows(db_conn, columns="ticker, ts, volume, open_interest"):
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT {columns} FROM {kalshi.CANDLE_TABLE} ORDER BY ticker, ts::bigint")
+        return cur.fetchall()
+
+
+def _set_fetched_at(db_conn, dataset, when):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meta.ingestion_item SET updated_at = %s WHERE source = %s AND dataset = %s",
+            (when, kalshi.SOURCE, dataset),
+        )
+    db_conn.commit()
+
+
+def test_backfill_refetches_a_market_last_fetched_before_it_closed(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    _run_candles(monkeypatch, FakeCandles())
+    _set_fetched_at(db_conn, kalshi.CANDLE_DATASET, "2026-07-01T01:00:00Z")  # one hour early
+
+    again = FakeCandles()
+    _run_candles(monkeypatch, again)
+
+    assert again.calls
+    assert len(_candle_rows(db_conn)) == 1  # replaced, not duplicated
+
+
+def test_backfill_keeps_volume_from_the_historical_endpoint(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+
+    class Historical(FakeCandles):
+        def __call__(self, url, params):
+            super().__call__(url, params)
+            ts = params["start_ts"] + 60
+            return {
+                "candlesticks": [{"end_period_ts": ts, "volume": "49.18", "open_interest": "7.00"}]
+            }
+
+    _run_candles(monkeypatch, Historical())
+
+    assert [r[2:] for r in _candle_rows(db_conn)] == [("49.18", "7.00")]
+
+
+def test_backfill_keeps_stored_bars_when_a_refetch_returns_nothing(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    _run_candles(monkeypatch, FakeCandles())
+    _set_fetched_at(db_conn, kalshi.CANDLE_DATASET, "2026-07-01T01:00:00Z")
+
+    class Empty(FakeCandles):
+        def __call__(self, url, params):
+            super().__call__(url, params)
+            return {"candlesticks": []}
+
+    _run_candles(monkeypatch, Empty())
+
+    assert len(_candle_rows(db_conn)) == 1
+
+
+def test_requeue_picks_up_bars_saved_without_volume_only_once(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    _run_candles(monkeypatch, FakeCandles())
+    with db_conn.cursor() as cur:  # the state the earlier collector left behind
+        cur.execute(f"UPDATE {kalshi.CANDLE_TABLE} SET volume = NULL")
+        cur.execute("UPDATE meta.ingestion_item SET parser_version = NULL")
+    db_conn.commit()
+
+    assert kalshi.requeue_candles_without_volume() == 1
+    _run_candles(monkeypatch, FakeCandles())
+
+    assert [r[2] for r in _candle_rows(db_conn)] == ["2.00"]
+    assert kalshi.requeue_candles_without_volume() == 0
+
+
+# -- trades ------------------------------------------------------------------
+
+
+class FakeTrades:
+    """Two trade endpoints split at the cutoff, each paged with a cursor."""
+
+    def __init__(self, pages_by_path, fail_tickers=()):
+        self.pages = pages_by_path
+        self.fail_tickers = set(fail_tickers)
+        self.calls = []
+
+    def __call__(self, url, params):
+        import requests
+
+        path = url.removeprefix(kalshi.BASE_URL)
+        self.calls.append((path, dict(params)))
+        if params["ticker"] in self.fail_tickers:
+            raise requests.exceptions.ConnectionError("source went away")
+        pages = self.pages.get((path, params["ticker"]), [[]])
+        index = int(params.get("cursor") or 0)
+        more = str(index + 1) if index + 1 < len(pages) else ""
+        return {"trades": pages[index], "cursor": more}
+
+
+def _trade(trade_id, ticker, count="1.00"):
+    return {
+        "trade_id": trade_id,
+        "ticker": ticker,
+        "created_time": "2026-07-01T01:00:00Z",
+        "count_fp": count,
+        "yes_price_dollars": "0.4000",
+        "no_price_dollars": "0.6000",
+        "taker_side": "yes",
+        "is_block_trade": False,
+    }
+
+
+def _run_trades(monkeypatch, fake, cutoff="2026-08-06T00:00:00Z"):
+    monkeypatch.setattr(kalshi, "_candle_get", fake)
+    monkeypatch.setattr(kalshi, "fetch_cutoff", lambda: {"trades_created_ts": cutoff})
+    monkeypatch.setattr(kalshi, "BACKFILL_RETRY_BACKOFF_SECONDS", 0)
+    return kalshi.backfill_trades()
+
+
+@pytest.fixture
+def _trade_clean(db_conn):
+    yield
+    db_conn.rollback()
+    with db_conn.cursor() as cur:
+        cur.execute(f"DROP TABLE IF EXISTS {kalshi.TRADE_TABLE}")
+        cur.execute(
+            "DELETE FROM meta.ingestion_item WHERE source = %s AND dataset = %s",
+            (kalshi.SOURCE, kalshi.TRADE_DATASET),
+        )
+        cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (kalshi.TRADE_SOURCE,))
+    db_conn.commit()
+
+
+def _trade_ids(db_conn):
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT trade_id FROM {kalshi.TRADE_TABLE} ORDER BY trade_id")
+        return [r[0] for r in cur.fetchall()]
+
+
+def test_trades_follow_every_page_on_both_sides_of_the_cutoff(db_conn, monkeypatch, _trade_clean):
+    # the market opens before the cutoff and closes after it
+    _seed_markets(
+        monkeypatch,
+        [_market("SPAN-1-A", "SPAN-1", **_times(close="2026-09-01T00:00:00Z"))],
+    )
+    fake = FakeTrades(
+        {
+            ("/historical/trades", "SPAN-1-A"): [
+                [_trade("a", "SPAN-1-A")],
+                [_trade("b", "SPAN-1-A")],
+            ],
+            # "b" comes back from both endpoints: stored once
+            ("/markets/trades", "SPAN-1-A"): [[_trade("b", "SPAN-1-A"), _trade("c", "SPAN-1-A")]],
+        }
+    )
+
+    counts = _run_trades(monkeypatch, fake)
+
+    assert counts[kalshi.TRADE_TABLE] == 3
+    assert _trade_ids(db_conn) == ["a", "b", "c"]
+
+
+def test_trades_ask_only_the_endpoint_that_covers_the_market(db_conn, monkeypatch, _trade_clean):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    fake = FakeTrades({("/historical/trades", "OLD-1-A"): [[_trade("a", "OLD-1-A")]]})
+
+    _run_trades(monkeypatch, fake)
+
+    assert [path for path, _ in fake.calls] == ["/historical/trades"]
+
+
+def test_trades_rerun_skips_complete_markets_and_refetches_early_ones(
+    db_conn, monkeypatch, _trade_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    pages = {("/historical/trades", "OLD-1-A"): [[_trade("a", "OLD-1-A")]]}
+    _run_trades(monkeypatch, FakeTrades(pages))
+
+    skipped = FakeTrades(pages)
+    _run_trades(monkeypatch, skipped)
+    assert skipped.calls == []
+
+    _set_fetched_at(db_conn, kalshi.TRADE_DATASET, "2026-07-01T01:00:00Z")
+    early = FakeTrades(pages)
+    _run_trades(monkeypatch, early)
+    assert early.calls
+    assert _trade_ids(db_conn) == ["a"]
+
+
+def test_trades_skip_untraded_markets_and_retry_failures(db_conn, monkeypatch, _trade_clean):
+    quiet = {**_market("OLD-3-A", "OLD-3", **_times()), "volume_fp": "0.00"}
+    _seed_markets(
+        monkeypatch,
+        [
+            _market("OLD-1-A", "OLD-1", **_times()),
+            _market("OLD-2-A", "OLD-2", **_times()),
+            quiet,
+        ],
+    )
+    pages = {("/historical/trades", t): [[_trade(t, t)]] for t in ("OLD-1-A", "OLD-2-A", "OLD-3-A")}
+
+    with pytest.raises(RuntimeError, match="failed"):
+        _run_trades(monkeypatch, FakeTrades(pages, fail_tickers={"OLD-2-A"}))
+    assert _trade_ids(db_conn) == ["OLD-1-A"]
+
+    retry = FakeTrades(pages)
+    _run_trades(monkeypatch, retry)
+    assert {p["ticker"] for _, p in retry.calls} == {"OLD-2-A"}
+    assert _trade_ids(db_conn) == ["OLD-1-A", "OLD-2-A"]
+
+
+def test_backfill_keeps_stored_bars_outside_a_shorter_refetch(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    _run_candles(monkeypatch, FakeCandles())
+    _set_fetched_at(db_conn, kalshi.CANDLE_DATASET, "2026-07-01T01:00:00Z")
+    first = _candle_rows(db_conn)[0][1]
+
+    class Later(FakeCandles):
+        def __call__(self, url, params):
+            super().__call__(url, params)  # same routing, but the source now starts later
+            return {"candlesticks": [_candle(params["start_ts"] + 600, trade=True)]}
+
+    _run_candles(monkeypatch, Later())
+
+    stamps = [row[1] for row in _candle_rows(db_conn)]
+    assert stamps == [first, str(int(first) + 540)]

@@ -2,6 +2,31 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
+## ADR-304: Collect every baseball market and its trades; history is complete only if fetched after it ended
+
+**Decision (2026-11-27).** The Kalshi and Polymarket connectors collect every baseball market
+each site lists (all leagues and categories), price history for every Polymarket outcome token
+(not only daily games), and trade-by-trade history into `raw.kalshi_trade` and
+`raw.polymarket_trade`. A stored history (candles, a price window, a market's trades) counts as
+complete only if it was fetched after the thing it describes ended; an empty reply never deletes
+stored rows. Only `mlb-` event slugs reach `core.market` and model market input. Owner request,
+2026-11-27 ("fix all of the collectors ... collect all possible data"). This widens ADR-049
+(daily games only for price history) and the earlier MLB-only series list.
+
+**Why.** Measured 2026-11-27: 1,449 closed Kalshi markets held candles cut off at the time of an
+earlier fetch (the rerun skipped them); 116,830,753 of 217,481,207 candle rows had no volume or
+open interest because the historical endpoint uses different field names; 17 baseball series
+(3,647 markets) were never discovered because the series request filtered on category and tag;
+1,489 baseball-tag Polymarket events were not held; season and prop markets had no price history;
+no trades were collected.
+
+**Limits.** Polymarket's trade API returned no trades for any 2021-2023 market checked. Trader
+names, pseudonyms, biographies and pictures are not stored; the public wallet address is. Rights
+are unchanged: owner-risk local research only (`SOURCE_RIGHTS.md`). Sum Polymarket volume over
+`is_taker = 'true'` rows only, because both sides of each fill are stored.
+
+**Revisit if:** disk or nightly duration forces a smaller scope.
+
 ## ADR-303: The nightly applies the safe repairs, then checks coverage in light form
 
 **Decision (2026-10-08).** `mlb nightly` runs `mlb repair --apply` (was `--dry-run`) before

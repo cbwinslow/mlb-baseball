@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from mlb_baseball.coverage.engine import TableReport
 
 SUSPEND_AFTER_FAILURES = 3
-FLAG_VALUES = {"--mode": {"backfill"}, "--stage": {"analytics"}}
+FLAG_VALUES = {"--mode": {"backfill", "trades"}, "--stage": {"analytics"}}
 YEAR_FLAGS = {"--start-year", "--end-year"}
 
 
@@ -74,6 +74,15 @@ SAFE_REPAIRS: tuple[SafeRepair, ...] = (
         ("mlb", "ingest", "polymarket", "--mode", "backfill"),
         4 * 3600,
         "resumable per window via the ledger; time-capped per night",
+    ),
+    *(
+        SafeRepair(
+            f"raw.{source}_trade",
+            ("mlb", "ingest", source, "--mode", "trades"),
+            4 * 3600,
+            "resumable per market via the ledger; time-capped per night",
+        )
+        for source in ("kalshi", "polymarket")
     ),
 )
 _BY_TABLE = {entry.table: entry for entry in SAFE_REPAIRS}

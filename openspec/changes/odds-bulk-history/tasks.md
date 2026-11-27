@@ -17,7 +17,8 @@ Built as database objects (migration 0111, ADR-295) plus `mlb_baseball/opsmon.py
 
 - [x] 3.1 Shared rate limiter in `net.py` (documented limits as config); failing test: never exceeds the configured rate under N workers
 - [x] 3.2 Batch window fetch, newest-first ordering, ledger item per market-window (D3), single writer; failing tests with a fake CLOB that mirrors real behaviour (empty for `interval=max`, windows capped, 20-token cap)
-- [ ] 3.3 Gamma markets/events: confirm every field is kept; add what the docs list and we drop; per-trade history from the data API within its limits
+- [ ] 3.3 Gamma markets/events: confirm every field is kept; add what the docs list and we drop
+- [x] 3.6 Per-trade history from the data API within its limits (`--mode trades`, ADR-304)
 - [x] 3.4 Lock: the backfill keeps the shared workflow lock (it finishes in about an hour now); `mlb build` waits for it
 - [ ] 3.5 Owner-approved production run (newest first), progress watched in the run row; log counts and timings in `pipeline-recovery/results.md`; verify three sample markets against the live API
 
@@ -26,7 +27,7 @@ Built as database objects (migration 0111, ADR-295) plus `mlb_baseball/opsmon.py
 - [x] 4.1 Cutoff-aware market catalog (live + historical, dedupe by ticker); failing test with a fake API that has a cutoff
 - [x] 4.2 Series discovery for all baseball series (already dynamic via `GET /series?category=Sports&tags=Baseball`; the connector's existing exclusion list keeps non-MLB leagues out)
 - [x] 4.3a Candlesticks per market from the right endpoint; ledger item per market; paced at 16 req/s (documented 20)
-- [ ] 4.3b Trades per market (`/historical/trades`, `/markets/trades`): probe volume first, then ledger per market
+- [x] 4.3b Trades per market (`/historical/trades`, `/markets/trades`), ledger per market
 - [ ] 4.4 Owner-approved production run, newest first; verify against three sample markets; log results
 
 ## 5. Bulk datasets
@@ -39,3 +40,12 @@ Built as database objects (migration 0111, ADR-295) plus `mlb_baseball/opsmon.py
 
 - [ ] 6.1 Update `polymarket.py.dox.md`, `kalshi.py.dox.md`, `docs/DATA_SOURCES.md`, `docs/RAW_INVENTORY.md`; supersede `odds-history-capture` tasks 4.2/4.3
 - [ ] 6.2 `openspec validate odds-bulk-history` passes; archive after owner review
+
+## 7. Completeness fixes (owner request 2026-11-27, ADR-304)
+
+- [x] 7.1 Complete only if fetched after it ended; empty replies keep stored rows
+- [x] 7.2 Historical candle volume and open interest; requeue helper for rows already saved
+- [x] 7.3 Every baseball series (Kalshi) and the `baseball` tag (Polymarket); price history for every token
+- [x] 7.4 MLB-only filter for `core.market` and model market input
+- [x] 7.5 Coverage and `mlb repair` entries for both trade tables
+- [ ] 7.6 Production runs; counts, disk and failures logged in `changelog/2026-11-27-market-collectors.md`

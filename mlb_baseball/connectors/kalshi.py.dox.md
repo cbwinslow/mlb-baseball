@@ -15,6 +15,7 @@ Primary raw outputs:
 - `raw.kalshi_market`
 - `raw.kalshi_snapshot`
 - `raw.kalshi_candle`
+- `raw.kalshi_trade`
 
 Public connector capabilities:
 
@@ -22,15 +23,15 @@ Public connector capabilities:
 - `update()`
 - `snapshot()` — price-only capture of open markets (called by `mlb odds-capture` every 15 minutes; never touches the catalog; recorded as run mode `snapshot` under source `kalshi_snapshot`, without the workflow lock)
 - `backfill_history()`
+- `backfill_trades()` (`mlb ingest kalshi --mode trades`; run source `kalshi_trades`)
+- `requeue_candles_without_volume()` — one-off repair of rows saved before parser version 2
 - `health_check()`
 
 ## Source Contract
 
 - Public read-only API: `api.elections.kalshi.com/trade-api/v2`.
 - Current connector uses unauthenticated market-data reads; authenticated trading/portfolio requests are a different capability and are not part of this implementation.
-- Baseball series are discovered from Sports/Baseball and explicitly filtered to true MLB scope.
-- `EXCLUDED_SERIES_TICKERS` is evidence-driven: KBO, NPB, Mexican league, MiLB, NCAA, WBC, charity/deprecated/non-MLB products are excluded after checking their actual series titles.
-- Everything else in MLB scope remains eligible, including game lines, spreads/totals, season totals, player props, awards, futures, draft, All-Star/Home Run Derby, and other MLB products.
+- Scope (ADR-304): every baseball series in any category or league. The full series list is fetched and `is_baseball_series` decides by tag, ticker (`MLB`, not `MLBB`) and title, plus a short reviewed list; esports and a series titled "DO NOT USE" are excluded.
 - Daily game moneyline series `KXMLBGAME` currently has genuinely shallow history beginning in 2026; do not invent deeper Kalshi sports-market history.
 - Repository rights/profile metadata remains authoritative for permitted use/redistribution; unauthenticated readability is not a redistribution license.
 
@@ -48,10 +49,11 @@ Public connector capabilities:
 - Market pulls use `mve_filter=exclude` according to current source behavior.
 - Paginated series failures are isolated/logged so one problematic series does not discard all other MLB series data.
 
-### MLB filtering
+### Baseball filtering
 
-- Do not replace the explicit exclusions with ticker-name guessing alone. The Baseball tag contains materially non-MLB products.
-- When Kalshi adds/renames a series, inspect its actual title/product before changing inclusion/exclusion policy.
+- Kalshi's tags are incomplete; do not filter the series request by category or tag (that hid 17 series).
+- When a series is added or renamed, check its title before changing `is_baseball_series`.
+- Only `KXMLBGAME` reaches `core.market`.
 
 ### Bootstrap/update
 
@@ -68,10 +70,10 @@ Public connector capabilities:
 - Each market's candles come from `/historical/markets/{ticker}/candlesticks` if it settled before the cutoff, else `/series/{series}/markets/{ticker}/candlesticks`; a 404 falls back to the other. 1-minute candles, windows of at most 4,000 minutes (the endpoint rejects more than 5,000 candles).
 - Signing: with `KALSHI_API_KEY` (key id) and `KALSHI_PRIVATE_KEY_PATH` (the PEM Kalshi gives when a free key is created) every request is RSA-PSS signed (`signed_headers`). Unsigned public requests work but returned 429s from about 5 requests/s (measured 2026-10-05).
 - Speed: signed Basic tier 200 read tokens/s at 10 per request = 20 requests/s, paced at 16/s (5/s unsigned) by a shared `net.RateLimiter` (halves on 429); 8 worker threads, each with its own HTTP session and database connection. Override with `MLB_KALSHI_WORKERS` / `MLB_KALSHI_MAX_RPS`; raise only with a new measurement.
-- One ledger item per market (`meta.ingestion_item`, dataset `candles`, key = ticker; `loaded`, `unavailable` for no candles, `failed`) is written in the same transaction as the rows. A rerun skips settled markets already done, retries failed ones, refetches markets closed less than a day ago, and raises at the end if any failed.
+- One ledger item per market (`meta.ingestion_item`, dataset `candles`, key = ticker; `loaded`, `unavailable` for no candles, `failed`) is written in the same transaction as the rows. A market is skipped only if it was fetched after it closed and closed at least a day ago (`history.is_complete`); otherwise it is fetched again. Only the time span that came back is replaced, so an empty or shorter reply keeps the other stored bars. The run raises at the end if any failed.
 - Tracked under its own source name `kalshi_backfill` with no workflow lock, so it never blocks the nightly or conform/predict.
 - Empty/no-trade price subobjects are valid source observations; flatten them with missing values rather than fabricating prices. Quote columns (`yes_bid`, `yes_ask`) are kept for minutes with no trade.
-- Not yet covered: per-market trades (`/historical/trades`, `/markets/trades`), tracked in `openspec/changes/odds-bulk-history` task 4.3.
+- Trades: one ledger item per market (dataset `trades`); both endpoints are read when a market spans the cutoff and de-duplicated by `trade_id`; priority series first, then newest.
 
 ## Point-in-Time Contract
 
@@ -98,7 +100,7 @@ Public connector capabilities:
 
 ## Known Quirks / Decisions
 
-- Baseball-tagged series include many non-MLB products; explicit exclusions are required.
+- Baseball scope includes other leagues; downstream MLB use must filter by series.
 - Read-only public endpoints do not require the heavy authenticated-request signing flow used for trading.
 - Kalshi's MLB game market history is new/shallow relative to Polymarket.
 - One-minute candlestick requests must be chunked to remain below endpoint response limits.
@@ -109,7 +111,7 @@ Public connector capabilities:
 - Verify new endpoint/page-limit/series claims with bounded real-source checks before encoding them as durable rules.
 - Do not add trading/authenticated account behavior to this connector without separate security/product design.
 - Preserve source bid/ask/last distinctions and timestamps.
-- New included market families must still be demonstrably MLB-related and permitted under the active source profile.
+- New included market families must be baseball-related and permitted under the active source profile.
 - Avoid string-only MLB game identity when event/market source IDs plus downstream canonical reconciliation can do better.
 
 ## Verification

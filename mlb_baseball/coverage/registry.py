@@ -29,6 +29,7 @@ from mlb_baseball.coverage.model import (
     KalshiCandles,
     LiveCheck,
     ManifestFiles,
+    MarketTrades,
     NoExpectation,
     PolymarketWindows,
     Present,
@@ -406,6 +407,12 @@ DATASETS: list[Dataset] = [
         KalshiCandles(),
         "mlb ingest kalshi --mode backfill",
     ),
+    Dataset(
+        "kalshi",
+        "raw.kalshi_trade",
+        MarketTrades("kalshi"),
+        "mlb ingest kalshi --mode trades",
+    ),
     *_no("kalshi", _MARKETS, "kalshi_event", "kalshi_market", "kalshi_series"),
     *_no(
         "kalshi",
@@ -417,6 +424,12 @@ DATASETS: list[Dataset] = [
         "raw.polymarket_price",
         PolymarketWindows(),
         "mlb ingest polymarket --mode backfill",
+    ),
+    Dataset(
+        "polymarket",
+        "raw.polymarket_trade",
+        MarketTrades("polymarket"),
+        "mlb ingest polymarket --mode trades",
     ),
     *_no(
         "polymarket",

@@ -72,6 +72,7 @@ import logging
 import os
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -80,6 +81,7 @@ import pandas as pd
 import psycopg
 import requests
 
+from mlb_baseball import history as market_history
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
@@ -91,6 +93,7 @@ from mlb_baseball.health import (
     check_table_exists,
     check_table_has_rows,
 )
+from mlb_baseball.history import TradeDataset, TradeMarket, fetched_times, is_complete
 from mlb_baseball.ingest import record_items, track_run
 from mlb_baseball.load import (
     append_dataframe,
@@ -113,6 +116,29 @@ BASE_URL = "https://gamma-api.polymarket.com"
 CLOB_BASE_URL = "https://clob.polymarket.com"  # prices-history only, confirmed unauthenticated
 MLB_SERIES_ID = 3  # confirmed via GET /series?recurrence=daily
 MLB_TAG_SLUG = "mlb"  # season-long futures, confirmed via GET /events?tag_slug=mlb
+BASEBALL_TAG_SLUG = "baseball"  # every other league and baseball prop (ADR-304)
+DATA_API_URL = "https://data-api.polymarket.com"
+TRADE_TABLE = "raw.polymarket_trade"
+TRADE_SOURCE = "polymarket_trades"  # own run-ledger/lock name
+TRADE_DATASET = "trades"
+TRADES_PAGE_SIZE = 1000
+# Published limit: 300 requests / 10 s (docs.polymarket.com/api-reference/rate-limits).
+TRADE_MAX_RPS = 25
+TRADE_WORKERS = 8
+# What describes the fill. The reply also carries the trader's display name, pseudonym,
+# biography and picture; those are personal profile details and are not stored.
+_TRADE_COLUMNS = (
+    "condition_id",
+    "token_id",
+    "timestamp",
+    "side",
+    "size",
+    "price",
+    "outcome",
+    "outcome_index",
+    "proxy_wallet",
+    "transaction_hash",
+)
 PAGE_SIZE = 100
 # Backfill speed settings, measured live 2026-10-05 (see backfill_history). The documented
 # ceiling is 1,000 requests / 10 s = 100/s without a key; the pacer sits at 90/s. Throughput
@@ -128,8 +154,6 @@ BATCH_SIZE = 20  # `POST /batch-prices-history` accepts at most 20 markets
 # The API rejects a window of 30 days ("interval is too long") and accepts 15 (docs: at
 # most 15); 14 days leaves a margin.
 HISTORY_WINDOW_SECONDS = 14 * 86400
-# A window that ended less than this long ago may still receive points: refetch it.
-SETTLE_SECONDS = 86400
 PRICE_DATASET = "price_history"
 PRICE_COLUMNS = ["clob_token_id", "_market", "_event", "ts", "price"]
 _thread_state = threading.local()
@@ -262,8 +286,10 @@ def snapshot() -> dict[str, int]:
         get_connection() as conn,
         track_run(conn, SNAPSHOT_SOURCE, "snapshot", workflow=None) as result,
     ):
-        all_events = fetch_events({"series_id": MLB_SERIES_ID, "closed": "false"}) + fetch_events(
-            {"tag_slug": MLB_TAG_SLUG, "closed": "false"}
+        all_events = (
+            fetch_events({"series_id": MLB_SERIES_ID, "closed": "false"})
+            + fetch_events({"tag_slug": MLB_TAG_SLUG, "closed": "false"})
+            + fetch_events({"tag_slug": BASEBALL_TAG_SLUG, "closed": "false"})
         )
         events = list({event["id"]: event for event in all_events}.values())
         counts = {SNAPSHOT_TABLE: _append_snapshot(conn, events)}
@@ -280,6 +306,8 @@ def _run(mode: str) -> dict[str, int]:
             fetch_events({"series_id": MLB_SERIES_ID, "closed": "false"})
             + fetch_events({"series_id": MLB_SERIES_ID, "closed": "true"})
             + fetch_events({"tag_slug": MLB_TAG_SLUG})
+            + fetch_events({"tag_slug": BASEBALL_TAG_SLUG, "closed": "false"})
+            + fetch_events({"tag_slug": BASEBALL_TAG_SLUG, "closed": "true"})
         )
         # The series_id and tag_slug queries overlap heavily (confirmed: most
         # daily games also carry the "mlb" tag) — de-dupe by event id so an
@@ -354,17 +382,10 @@ def _epoch(value: str | None) -> int | None:
     return int(datetime.fromisoformat(value).timestamp())
 
 
-def _daily_game_tokens(conn: psycopg.Connection) -> list[dict]:
-    """Enumerates every clob_token_id tied to a real MLB daily-game event —
-    `e.sport IS NOT NULL` is the same signal conform.py's own
-    `_polymarket_market_rows` uses to recognize a real per-game event (team
-    data present, not a season-futures/postseason-prop/draft-prop entry).
-    Confirmed directly against production: 5,828 daily-recurrence events,
-    63,019 markets under them (moneyline plus in-game spread/total/
-    player-prop markets, not just the game-winner line), 126,032 distinct
-    outcome tokens — broader than just the ~8,700 moneyline-only tokens on
-    purpose, since the owner's own direction (ADR-049) is maximum
-    granularity for an oddstrader-style line-movement product."""
+def _price_tokens(conn: psycopg.Connection) -> list[dict]:
+    """Every outcome token we hold a market for: daily games, season-long futures, props
+    and other leagues. (ADR-049 first limited this to events with ``sport`` set; ADR-304
+    widened it to everything.)"""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -373,8 +394,7 @@ def _daily_game_tokens(conn: psycopg.Connection) -> list[dict]:
             FROM raw.polymarket_event e
             JOIN raw.polymarket_market m ON m.event_id = e.id
             JOIN raw.polymarket_outcome o ON o.market_id = m.id
-            WHERE e.sport IS NOT NULL
-              AND o.clob_token_id IS NOT NULL AND o.clob_token_id <> ''
+            WHERE o.clob_token_id IS NOT NULL AND o.clob_token_id <> ''
             ORDER BY m.id
             """
         )
@@ -391,12 +411,13 @@ def _daily_game_tokens(conn: psycopg.Connection) -> list[dict]:
 
 
 def _plan_batches(
-    tokens: list[dict], done: set[str], now: int
+    tokens: list[dict], done: dict[str, float], now: int
 ) -> tuple[list[tuple[int, list[dict]]], list[dict]]:
     """Group tokens into (window start, up-to-``BATCH_SIZE`` tokens) requests, newest
     window first. A token's life is cut on a fixed grid of ``HISTORY_WINDOW_SECONDS``
-    windows so tokens from different markets can share one request. A window already
-    in the ledger is skipped unless it is still recent enough to receive new points.
+    windows so tokens from different markets can share one request. ``done`` maps a ledger
+    key to when it was fetched; a window is skipped only if that was after the window
+    ended (or the market closed, if sooner).
     Tokens with no start date cannot be windowed and are returned separately."""
     by_cell: dict[int, list[dict]] = {}
     undated: list[dict] = []
@@ -407,8 +428,10 @@ def _plan_batches(
         end = token["end_ts"] if token["end_ts"] is not None else now
         cell = token["start_ts"] // HISTORY_WINDOW_SECONDS * HISTORY_WINDOW_SECONDS
         while cell <= max(end, token["start_ts"]):
-            settled = cell + HISTORY_WINDOW_SECONDS + SETTLE_SECONDS <= now
-            if not (settled and f"{token['clob_token_id']}:{cell}" in done):
+            window_end = cell + HISTORY_WINDOW_SECONDS
+            closed = token["end_ts"]
+            ended = window_end if closed is None else min(window_end, closed)
+            if not is_complete(ended, done.get(f"{token['clob_token_id']}:{cell}"), now):
                 by_cell.setdefault(cell, []).append(token)
             cell += HISTORY_WINDOW_SECONDS
     batches = [
@@ -459,7 +482,8 @@ def _backfill_batch(
                 PRICE_COLUMNS,
                 "".join(lines),
                 key_column="clob_token_id",
-                keys=token_ids,
+                # Only tokens that came back: an empty answer must not erase stored points.
+                keys=list(counts),
                 range_column="ts",
                 low=cell,
                 high=cell + HISTORY_WINDOW_SECONDS,
@@ -576,20 +600,14 @@ def backfill_history() -> dict[str, int]:
         track_run(conn, BACKFILL_SOURCE, "backfill", workflow=None) as result,
     ):
         run_id = result["run_id"]
-        tokens = _daily_game_tokens(conn)
+        tokens = _price_tokens(conn)
         ensure_table(
             conn,
             PRICE_TABLE,
             PRICE_COLUMNS,
             index_column="clob_token_id",
         )
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT item_key FROM meta.ingestion_item "
-                "WHERE source = %s AND dataset = %s AND status IN ('loaded', 'unavailable')",
-                (SOURCE, PRICE_DATASET),
-            )
-            done = {key for (key,) in cur.fetchall()}
+        done = fetched_times(conn, SOURCE, PRICE_DATASET)
         batches, undated = _plan_batches(tokens, done, int(time.time()))
         if undated:
             record_items(
@@ -661,6 +679,107 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _data_get(url: str, params: dict) -> dict:
+    """GET from the public Data API on this thread's own pooled session."""
+    session = getattr(_thread_state, "data_session", None)
+    if session is None:
+        session = _thread_state.data_session = requests.Session()
+    response = session.get(url, params=params, timeout=BACKFILL_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    return response.json()
+
+
+def _trade_markets(conn: psycopg.Connection) -> list[TradeMarket]:
+    """Every market that has traded, newest first."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT conditionid, max(closedtime) FROM {MARKET_TABLE} "
+            "WHERE coalesce(conditionid, '') <> '' "
+            "AND coalesce(nullif(volume, ''), '0')::numeric > 0 "
+            "GROUP BY conditionid"
+        )
+        markets = [TradeMarket(condition, _epoch(closed)) for condition, closed in cur.fetchall()]
+    markets.sort(key=lambda m: m.ended_ts or float("inf"), reverse=True)
+    return markets
+
+
+def _fetch_market_trades(market: TradeMarket, limiter: RateLimiter) -> list[dict]:
+    """Every fill of one market, both sides, each marked ``is_taker``.
+
+    ``taker_only=false`` lists the taker's and the makers' fills; ``taker_only=true``
+    lists the taker's alone (a subset, checked live 2026-11-27) and the reply has no
+    field saying which is which. Sum volume over taker rows only."""
+
+    def get(params: dict) -> dict:
+        limiter.acquire()
+        try:
+            payload = _data_get(f"{DATA_API_URL}/v2/trades", params)
+        except requests.exceptions.HTTPError as exc:
+            reply = exc.response
+            if reply is not None and reply.status_code == 429:
+                limiter.slow_down(float(reply.headers.get("Retry-After") or 1))
+            raise
+        limiter.speed_up()
+        return payload
+
+    get.__name__ = "trades"
+
+    def listing(taker_only: str) -> list[dict]:
+        # The filter and page size must be repeated beside the cursor, or later pages
+        # come back empty (checked live 2026-11-27).
+        query = {"condition": market.key, "limit": TRADES_PAGE_SIZE, "taker_only": taker_only}
+        params = query
+        rows: list[dict] = []
+        seen: set[str] = set()
+        while True:
+            page = call_with_retry(get, params, backoff_seconds=BACKFILL_RETRY_BACKOFF_SECONDS)
+            rows.extend(
+                {c: trade.get(c) for c in _TRADE_COLUMNS} for trade in page.get("data") or []
+            )
+            pagination = page.get("pagination") or {}
+            cursor = pagination.get("next_cursor")
+            if not pagination.get("has_more") or not cursor:
+                return rows
+            if cursor in seen:
+                raise RuntimeError(f"trade cursor repeated for {market.key}")
+            seen.add(cursor)
+            params = {**query, "cursor": cursor}
+
+    fills = listing("false")
+    takers = Counter(tuple(row.values()) for row in listing("true")) if fills else Counter()
+    for row in fills:
+        identity = tuple(row.values())
+        row["is_taker"] = takers[identity] > 0
+        takers[identity] -= row["is_taker"]
+    missing = sum((+takers).values())
+    if missing:
+        raise RuntimeError(f"{missing} taker fills of {market.key} are not in the full listing")
+    return fills
+
+
+def backfill_trades() -> dict[str, int]:
+    """Every fill of every traded market into ``raw.polymarket_trade``. Resumable per
+    market; a market is complete once fetched after it closed (``mlb_baseball.history``).
+    The source returned no trades for any 2021-2023 market checked (2026-11-27)."""
+    limiter = RateLimiter(float(os.environ.get("MLB_POLYMARKET_TRADE_MAX_RPS", TRADE_MAX_RPS)))
+    spec = TradeDataset(
+        SOURCE,
+        TRADE_SOURCE,
+        TRADE_DATASET,
+        TRADE_TABLE,
+        "condition_id",
+        (*_TRADE_COLUMNS, "is_taker"),
+    )
+    total = market_history.backfill_trades(
+        spec,
+        _trade_markets,
+        lambda market: _fetch_market_trades(market, limiter),
+        workers=_env_int("MLB_POLYMARKET_TRADE_WORKERS", TRADE_WORKERS),
+        now=time.time(),
+    )
+    return {TRADE_TABLE: total}
+
+
 def health_check() -> list[Check]:
     return [
         check_table_has_rows(EVENT_TABLE),
@@ -674,6 +793,7 @@ def health_check() -> list[Check]:
         check_table_exists(SNAPSHOT_TABLE),
         # Only exists after the owner-triggered backfill: "not run" is a state.
         check_backfill_state(PRICE_TABLE),
+        check_backfill_state(TRADE_TABLE),
         # odds-history-capture: a price snapshot every 15 minutes on game days.
         check_snapshot_gaps(SNAPSHOT_TABLE, max_gap_minutes=SNAPSHOT_MAX_GAP_MINUTES),
         check_last_run(SOURCE),

@@ -241,25 +241,17 @@ def test_snapshot_table_exists_even_with_no_open_markets(db_conn):
 # that actually touch Postgres.
 
 
-def test_daily_game_tokens_scopes_to_events_with_sport_set(db_conn):
-    def fake_get(url, params=None, timeout=None):
-        if params.get("series_id") == polymarket.MLB_SERIES_ID and params.get("closed") == "false":
-            return FakeResponse(
-                _page(
-                    [
-                        _event("1", sport="mlb"),  # a real per-game event
-                        _event("2", sport=None),  # not a game (e.g. a stray non-sport entry)
-                    ]
-                )
-            )
-        return _no_results_get(url, params, timeout)
+def test_price_tokens_cover_game_and_season_long_markets(db_conn):
+    _bootstrap_with([_event("1", sport="mlb"), _event("2", sport=None)])
 
-    with patch.object(polymarket.requests, "get", side_effect=fake_get):
-        polymarket.bootstrap()
+    tokens = polymarket._price_tokens(db_conn)
 
-    tokens = polymarket._daily_game_tokens(db_conn)
-
-    assert {t["clob_token_id"] for t in tokens} == {"tok-1-0-a", "tok-1-0-b"}
+    assert {t["clob_token_id"] for t in tokens} == {
+        "tok-1-0-a",
+        "tok-1-0-b",
+        "tok-2-0-a",
+        "tok-2-0-b",
+    }
 
 
 def test_event_absent_from_a_later_pull_is_kept(db_conn):
@@ -646,3 +638,233 @@ def test_backfill_does_not_hold_the_workflow_lock_or_the_update_source_lock(db_c
 
     _run_backfill(Probe({}))
     assert seen == {"ok": True}
+
+
+# --- history completeness (market-data-complete) --------------------------
+
+
+def _set_fetched_at(db_conn, dataset, when):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meta.ingestion_item SET updated_at = %s WHERE source = %s AND dataset = %s",
+            (when, polymarket.SOURCE, dataset),
+        )
+    db_conn.commit()
+
+
+def _settled_event():
+    return _event(
+        "1",
+        closed=True,
+        sport="mlb",
+        startdate="2025-04-02T08:02:33Z",
+        closedtime="2025-04-02 21:25:34+00",
+    )
+
+
+def test_backfill_refetches_a_window_fetched_before_the_market_closed(db_conn, _ledger_clean):
+    _bootstrap_with([_settled_event()])
+    t0 = polymarket._epoch("2025-04-02T09:00:00Z")
+    _run_backfill(FakeClob({"tok-1-0-a": [(t0, 0.4)]}))
+    _set_fetched_at(db_conn, polymarket.PRICE_DATASET, "2025-04-02T10:00:00Z")
+
+    again = FakeClob({"tok-1-0-a": [(t0, 0.4), (t0 + 60, 0.5)]})
+    _run_backfill(again)
+
+    assert again.calls
+    assert len(_price_rows(db_conn)) == 2
+
+
+def test_backfill_keeps_stored_prices_when_a_refetch_returns_nothing(db_conn, _ledger_clean):
+    _bootstrap_with([_settled_event()])
+    t0 = polymarket._epoch("2025-04-02T09:00:00Z")
+    _run_backfill(FakeClob({"tok-1-0-a": [(t0, 0.4)]}))
+    _set_fetched_at(db_conn, polymarket.PRICE_DATASET, "2025-04-02T10:00:00Z")
+
+    _run_backfill(FakeClob({}))
+
+    assert len(_price_rows(db_conn)) == 1
+
+
+def test_update_also_collects_every_baseball_tagged_event(db_conn):
+    def fake_get(url, params=None, timeout=None):
+        if params.get("tag_slug") == "baseball" and params.get("closed") == "false":
+            return FakeResponse(_page([_event("77")]))
+        return _no_results_get(url, params, timeout)
+
+    with patch.object(polymarket.requests, "get", side_effect=fake_get):
+        counts = polymarket.update()
+
+    assert counts[polymarket.EVENT_TABLE] == 1
+
+
+def test_other_leagues_are_never_matched_to_mlb_games(db_conn):
+    from mlb_baseball import conform
+
+    teams = [{"name": "Giants", "ordering": "away"}, {"name": "Tigers", "ordering": "home"}]
+    events = []
+    for event_id, slug in (("1", "mlb-sf-det-2026-09-01"), ("2", "kbo-lot-kia-2026-09-01")):
+        event = _event(event_id, sport="x")
+        event.update(slug=slug, teams=teams, closed=False)
+        event["markets"][0].update(outcomes='["Giants", "Tigers"]', volume="1")
+        events.append(event)
+    _bootstrap_with(events)
+
+    rows = conform._polymarket_market_rows(db_conn, {"Giants": 1, "Tigers": 2}, {}, {}, {})
+
+    assert {r[2].split("-")[0] for r in rows} == {"1"}
+
+
+# --- trades ---------------------------------------------------------------
+
+
+class FakeTradeApi:
+    """Answers like Data API v2: ``taker_only`` picks the listing, and a cursor request
+    must repeat the market filter and page size (checked live 2026-11-27: without them
+    the second page is lost)."""
+
+    def __init__(self, pages_by_condition, fail=(), taker_pages=None):
+        self.pages = pages_by_condition
+        self.taker_pages = pages_by_condition if taker_pages is None else taker_pages
+        self.fail = set(fail)
+        self.calls = []
+
+    def __call__(self, url, params):
+        import requests
+
+        self.calls.append(dict(params))
+        condition, index = params.get("condition"), 0
+        if "cursor" in params:
+            cursor_condition, index = params["cursor"].split(":")
+            index = int(index)
+            if condition != cursor_condition or "limit" not in params:
+                return {"data": [], "pagination": {"has_more": False}}
+        if condition in self.fail:
+            raise requests.exceptions.ConnectionError("source went away")
+        listing = self.taker_pages if params["taker_only"] == "true" else self.pages
+        pages = listing.get(condition, [[]])
+        more = index + 1 < len(pages)
+        return {
+            "data": pages[index],
+            "pagination": {
+                "has_more": more,
+                "next_cursor": f"{condition}:{index + 1}" if more else None,
+            },
+        }
+
+
+def _fill(condition, tx, size=2.5):
+    return {
+        "condition_id": condition,
+        "token_id": "tok",
+        "timestamp": 1743584400,
+        "side": "BUY",
+        "size": size,
+        "price": 0.4,
+        "outcome": "Yes",
+        "outcome_index": 0,
+        "proxy_wallet": "0xabc",
+        "transaction_hash": tx,
+        "name": "Some Person",
+        "pseudonym": "Some-Pseudonym",
+        "bio": "about me",
+        "profile_image": "https://example.invalid/p.png",
+    }
+
+
+def _trade_event():
+    event = _settled_event()
+    event["markets"][0].update(conditionid="0xc1", volume="100")
+    return event
+
+
+def _run_trades(api):
+    with patch.object(polymarket, "_data_get", side_effect=api):
+        with patch.object(polymarket, "BACKFILL_RETRY_BACKOFF_SECONDS", 0):
+            return polymarket.backfill_trades()
+
+
+@pytest.fixture
+def _trade_clean(db_conn):
+    yield
+    db_conn.rollback()
+    with db_conn.cursor() as cur:
+        cur.execute(f"DROP TABLE IF EXISTS {polymarket.TRADE_TABLE}")
+        cur.execute(
+            "DELETE FROM meta.ingestion_item WHERE source = %s AND dataset = %s",
+            (polymarket.SOURCE, polymarket.TRADE_DATASET),
+        )
+        cur.execute("DELETE FROM meta.ingestion_run WHERE source = %s", (polymarket.TRADE_SOURCE,))
+    db_conn.commit()
+
+
+def test_trades_follow_the_cursor_and_leave_out_profile_details(db_conn, _trade_clean):
+    _bootstrap_with([_trade_event()])
+    api = FakeTradeApi({"0xc1": [[_fill("0xc1", "t1")], [_fill("0xc1", "t2")]]})
+
+    counts = _run_trades(api)
+
+    assert counts[polymarket.TRADE_TABLE] == 2
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT * FROM {polymarket.TRADE_TABLE} ORDER BY transaction_hash")
+        columns = {d.name for d in cur.description}
+        assert len(cur.fetchall()) == 2
+    assert {"condition_id", "size", "price", "proxy_wallet"} <= columns
+    assert not {"name", "pseudonym", "bio", "profile_image"} & columns
+    assert api.calls[0]["condition"] == "0xc1"
+
+
+def test_trades_rerun_skips_complete_markets_and_never_duplicates(db_conn, _trade_clean):
+    _bootstrap_with([_trade_event()])
+    pages = {"0xc1": [[_fill("0xc1", "t1")]]}
+    _run_trades(FakeTradeApi(pages))
+
+    skipped = FakeTradeApi(pages)
+    _run_trades(skipped)
+    assert skipped.calls == []
+
+    _set_fetched_at(db_conn, polymarket.TRADE_DATASET, "2025-04-02T10:00:00Z")
+    _run_trades(FakeTradeApi(pages))
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT count(*) FROM {polymarket.TRADE_TABLE}")
+        assert cur.fetchone() == (1,)
+
+
+def test_trades_record_failures_for_a_later_run(db_conn, _trade_clean):
+    _bootstrap_with([_trade_event()])
+
+    with pytest.raises(RuntimeError, match="failed"):
+        _run_trades(FakeTradeApi({}, fail={"0xc1"}))
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM meta.ingestion_item WHERE source = %s AND dataset = %s",
+            (polymarket.SOURCE, polymarket.TRADE_DATASET),
+        )
+        assert cur.fetchall() == [("failed",)]
+
+
+def test_trades_keep_both_sides_of_every_fill_and_mark_the_taker(db_conn, _trade_clean):
+    _bootstrap_with([_trade_event()])
+    taker, maker = _fill("0xc1", "t1", size=5), _fill("0xc1", "t1", size=3)
+    # Two identical taker fills in one transaction are two real fills.
+    twin = _fill("0xc1", "t2")
+    api = FakeTradeApi(
+        {"0xc1": [[taker, maker], [twin, twin]]},
+        taker_pages={"0xc1": [[taker], [twin, twin]]},
+    )
+
+    counts = _run_trades(api)
+
+    assert counts[polymarket.TRADE_TABLE] == 4
+    with db_conn.cursor() as cur:
+        cur.execute(
+            f"SELECT transaction_hash, size, is_taker FROM {polymarket.TRADE_TABLE} "
+            "ORDER BY 1, 2, 3"
+        )
+        assert cur.fetchall() == [
+            ("t1", "3", "false"),
+            ("t1", "5", "true"),
+            ("t2", "2.5", "true"),
+            ("t2", "2.5", "true"),
+        ]

@@ -16,7 +16,11 @@ The Polymarket backfill SHALL request price history by explicit start/end window
 - **THEN** it is fetched in consecutive windows with no gap and no overlap
 
 ### Requirement: Newest data first, resumable per item
-Backfills SHALL process newest markets first and SHALL record one ledger item per market and window (`loaded`, `unavailable` for a window with no points, or `failed`). A rerun SHALL skip items already `loaded` or `empty` and SHALL retry `failed` ones, so an interrupted run loses at most the in-flight batch.
+Backfills SHALL process newest markets first and SHALL record one ledger item per market and window (`loaded`, `unavailable` for a window with no points, or `failed`). A rerun SHALL skip a `loaded` or `unavailable` item only if it was fetched after the period it describes ended, and SHALL retry `failed` ones, so an interrupted run loses at most the in-flight batch. A new reply SHALL replace only the rows it carries again; an empty, shorter or gappy reply SHALL NOT delete stored rows.
+
+#### Scenario: A source later serves less
+- **WHEN** a refetch returns fewer bars, points or trades than are stored
+- **THEN** the returned rows replace their stored copies and the other stored rows remain
 
 #### Scenario: Interrupted run
 - **WHEN** a backfill is stopped partway and started again
@@ -49,3 +53,7 @@ Long backfills SHALL log progress (items done, total, items/s, estimated finish)
 #### Scenario: A run takes hours
 - **WHEN** an operator asks how far a running backfill is
 - **THEN** the run record answers without counting rows by hand
+
+#### Scenario: Fetched while the market was open
+- **WHEN** an item was fetched before its market closed and the market has since closed
+- **THEN** the next run fetches it again

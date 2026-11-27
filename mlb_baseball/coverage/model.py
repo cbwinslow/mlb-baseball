@@ -145,12 +145,14 @@ class Games:
 @dataclass(frozen=True)
 class KalshiCandles:
     """One unit per Kalshi market with an open and a close time; held = ledger item
-    ``candles`` is ``loaded``, accounted = ``unavailable`` (the market has no candles)."""
+    ``candles`` is ``loaded``, accounted = ``unavailable`` (the market has no candles).
+    An item fetched before a now-settled market closed counts as neither: its history is
+    cut off."""
 
     unit: str = "market"
     expectation: str = (
         "markets in raw.kalshi_market with open and close times; ledger 'candles' "
-        "loaded = held, unavailable = no candles at the source"
+        "loaded after close = held, unavailable = no candles at the source"
     )
 
     def inputs(self, table: str) -> tuple[str, ...]:
@@ -160,20 +162,27 @@ class KalshiCandles:
         cur.execute(
             """
             WITH want AS (
-                SELECT ticker AS k, min(substr(close_time, 1, 4)) AS label
+                SELECT ticker AS k, min(substr(close_time, 1, 4)) AS label,
+                       max(nullif(close_time, ''))::timestamptz AS closed
                 FROM raw.kalshi_market
                 WHERE open_time IS NOT NULL AND close_time IS NOT NULL
                 GROUP BY ticker
             ), item AS (
-                SELECT item_key AS k, status FROM meta.ingestion_item
+                SELECT item_key AS k, status, retrieved_at FROM meta.ingestion_item
                 WHERE source = 'kalshi' AND dataset = 'candles'
+            ), judged AS (
+                SELECT want.label,
+                       CASE WHEN want.closed < now() - interval '1 day'
+                                 AND item.retrieved_at < want.closed THEN NULL
+                            ELSE item.status END AS status
+                FROM want LEFT JOIN item USING (k)
             )
-            SELECT want.label, count(*),
-                   count(*) FILTER (WHERE item.status = 'loaded'),
-                   count(*) FILTER (WHERE item.status = 'unavailable')
-            FROM want LEFT JOIN item USING (k)
-            GROUP BY want.label
-            ORDER BY want.label
+            SELECT label, count(*),
+                   count(*) FILTER (WHERE status = 'loaded'),
+                   count(*) FILTER (WHERE status = 'unavailable')
+            FROM judged
+            GROUP BY label
+            ORDER BY label
             """
         )
         return [Group(*row) for row in cur.fetchall()]
@@ -181,14 +190,16 @@ class KalshiCandles:
 
 @dataclass(frozen=True)
 class PolymarketWindows:
-    """One unit per (token, 14-day window) the price-history backfill plans for every token
-    of an MLB daily-game event; held = ledger item ``price_history`` is ``loaded``,
-    accounted = ``unavailable``. The window grid is the connector's own."""
+    """One unit per (token, 14-day window) the price-history backfill plans for every
+    token; held = ledger item ``price_history`` is ``loaded``, accounted =
+    ``unavailable``. A window fetched before it was over counts as neither. The window
+    grid and the completeness rule are the connector's own."""
 
     unit: str = "window"
     expectation: str = (
-        "14-day windows of every MLB daily-game token (the backfill's own plan); ledger "
-        "'price_history' loaded = held, unavailable = empty at the source"
+        "14-day windows of every outcome token (the backfill's own plan); ledger "
+        "'price_history' loaded after the window ended = held, unavailable = empty at "
+        "the source"
     )
 
     def inputs(self, table: str) -> tuple[str, ...]:
@@ -197,9 +208,24 @@ class PolymarketWindows:
     def measure(self, cur: psycopg.Cursor, table: str) -> list[Group]:
         # Imported here: the connector pulls in network libraries other kinds do not need.
         from mlb_baseball.connectors import polymarket
+        from mlb_baseball.history import SETTLE_SECONDS
 
-        tokens = polymarket._daily_game_tokens(cur.connection)
-        batches, undated = polymarket._plan_batches(tokens, set(), int(time.time()))
+        now = int(time.time())
+        tokens = polymarket._price_tokens(cur.connection)
+        # Every window, and separately those still to be fetched.
+        batches, undated = polymarket._plan_batches(tokens, {}, now)
+        fetched = polymarket.fetched_times(cur.connection, "polymarket", "price_history")
+        pending_batches, _ = polymarket._plan_batches(tokens, fetched, now)
+        # A window still running (or ended under a day ago) keeps its ledger status;
+        # it ends early when its market closes.
+        pending = set()
+        for cell, group in pending_batches:
+            window_end = cell + polymarket.HISTORY_WINDOW_SECONDS
+            for token in group:
+                closed = token["end_ts"]
+                ended = window_end if closed is None else min(window_end, closed)
+                if ended + SETTLE_SECONDS <= now:
+                    pending.add(f"{token['clob_token_id']}:{cell}")
         planned: dict[str, str] = {}
         for cell, group in batches:
             label = str(datetime.fromtimestamp(cell, UTC).year)
@@ -215,10 +241,58 @@ class PolymarketWindows:
         counts: dict[str, list[int]] = {}
         for key, label in planned.items():
             row = counts.setdefault(label, [0, 0, 0])
+            held = None if key in pending else status.get(key)
             row[0] += 1
-            row[1] += status.get(key) == "loaded"
-            row[2] += status.get(key) == "unavailable"
+            row[1] += held == "loaded"
+            row[2] += held == "unavailable"
         return [Group(label, *row) for label, row in sorted(counts.items())]
+
+
+@dataclass(frozen=True)
+class MarketTrades:
+    """One unit per traded market; held = ledger item ``trades`` is ``loaded`` and was
+    fetched after the market ended, accounted = the same for ``unavailable``."""
+
+    source: str
+    unit: str = "market"
+    expectation: str = (
+        "traded markets in the source's market table; ledger 'trades' fetched after the "
+        "market ended"
+    )
+
+    def inputs(self, table: str) -> tuple[str, ...]:
+        return (f"raw.{self.source}_market",)
+
+    def measure(self, cur: psycopg.Cursor, table: str) -> list[Group]:
+        key, ended, volume = (
+            ("ticker", "close_time", "volume_fp")
+            if self.source == "kalshi"
+            else ("conditionid", "closedtime", "volume")
+        )
+        cur.execute(
+            f"""
+            WITH want AS (
+                SELECT {key} AS k, max(nullif({ended}, ''))::timestamptz AS ended
+                FROM raw.{self.source}_market
+                WHERE coalesce({key}, '') <> ''
+                  AND coalesce(nullif({volume}, ''), '0')::numeric > 0
+                GROUP BY 1
+            ), judged AS (
+                SELECT coalesce(to_char(want.ended, 'YYYY'), 'open') AS label,
+                       CASE WHEN want.ended < now() - interval '1 day'
+                                 AND item.retrieved_at < want.ended THEN NULL
+                            ELSE item.status END AS status
+                FROM want LEFT JOIN meta.ingestion_item item
+                  ON item.source = %s AND item.dataset = 'trades' AND item.item_key = want.k
+            )
+            SELECT label, count(*),
+                   count(*) FILTER (WHERE status = 'loaded'),
+                   count(*) FILTER (WHERE status = 'unavailable')
+            FROM judged GROUP BY label ORDER BY label
+            """,
+            (self.source,),
+        )
+        return [Group(*row) for row in cur.fetchall()]
 
 
 @dataclass(frozen=True)

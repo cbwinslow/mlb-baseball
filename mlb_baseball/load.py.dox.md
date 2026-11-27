@@ -10,6 +10,8 @@ Primary public helpers:
 
 - `load_dataframe()` — full-table replace or one-scope replace.
 - `replace_dataframe_scopes()` — bulk replace of multiple independent scopes.
+- `merge_dataframe_range()` / `merge_csv_range()` — land time-series points; replace only the (key, point) pairs that came back.
+- `delete_resent_rows()` — the shared "replace only what the reply carries again" delete.
 - `append_dataframe()` — append-only event/observation history with declared identity columns.
 - `season_already_loaded()` — immutable-past bootstrap optimization for season-scoped APIs.
 - schema-drift warning/error types and column-name sanitization helpers.
@@ -45,6 +47,11 @@ The scope index exists because repeated scoped deletes on large raw tables were 
 - Replaces several successfully fetched independent scopes in one delete/copy operation.
 - The caller must include successful empty scopes too so stale rows can be removed when the source legitimately returns no rows.
 - Empty bulk replacements still need a known source column shape; do not create schema-less tables.
+
+### `merge_dataframe_range()` / `merge_csv_range()` / `delete_resent_rows()`
+
+- For histories a source may later serve only in part (price bars, trades). A stored row is deleted only when the incoming reply carries it again; an empty, shorter or gappy reply erases nothing.
+- Do not change these to delete a whole key or time window: a source that stops serving old data would erase it.
 
 ## Append Semantics
 

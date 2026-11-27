@@ -11,25 +11,8 @@ at all and getting real 200 responses back. KALSHI_API_KEY (added to
 .env for this connector) isn't actually used here as a result — kept for
 a possible future authenticated feature, not required for what's built.
 
-Every baseball-tagged series discovered via `GET /series?category=Sports&
-tags=Baseball` (199 total, confirmed directly), then filtered down to true
-MLB series by title — this project's scope is MLB specifically, not every
-baseball league Kalshi lists markets for. EXCLUDED_SERIES_TICKERS below is
-every series checked and excluded, each confirmed by reading its actual
-title, not guessed from its ticker: KBO (Korea Baseball Organization), the
-Mexican Baseball League, MiLB (explicitly sub-MLB), NCAA college baseball
-and softball, NPB (Nippon Professional Baseball, Japan), the World
-Baseball Classic (international tournament, not MLB), a congressional
-charity game, and one series whose own title is literally "DO NOT USE"
-(Kalshi's own deprecation marker). Everything else stays in — game
-moneylines, spreads, totals, first-N-innings variants, per-team season win
-totals, player props (HRs/hits/RBIs/strikeouts/stolen bases/total bases),
-season stat leaders, every major award (MVP/Cy Young/Rookie of the Year/
-Manager of the Year/Gold Glove/Silver Slugger/Comeback Player/Reliever of
-the Year, AL and NL separately), division/league/World Series champions,
-the draft, coaching changes, Home Run Derby, All-Star Game props, and a
-couple of one-off player-specific markets — matching this session's
-"ingest everything available" direction (ADR-020), not a curated subset.
+Scope is every baseball market Kalshi lists, MLB or not and in any category
+(ADR-305, which widened the earlier MLB-only scope); see ``is_baseball_series``.
 
 Each Kalshi "market" (e.g. KXMLBGAME-26JUL311420NYYCHC-NYY) is already the
 atomic yes/no contract with its own live price fields (yes_bid_dollars,
@@ -71,6 +54,7 @@ import base64
 import functools
 import logging
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -83,6 +67,7 @@ import requests
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
+from mlb_baseball import history as market_history
 from mlb_baseball.db import get_connection
 from mlb_baseball.health import (
     DAILY_FRESHNESS_THRESHOLD_MINUTES,
@@ -94,11 +79,12 @@ from mlb_baseball.health import (
     check_table_exists,
     check_table_has_rows,
 )
+from mlb_baseball.history import TradeDataset, TradeMarket, fetched_times, is_complete
 from mlb_baseball.ingest import record_items, track_run
 from mlb_baseball.load import (
     append_dataframe,
     ensure_table,
-    replace_dataframe_range,
+    merge_dataframe_range,
     upsert_dataframe,
 )
 from mlb_baseball.net import RateLimiter, call_with_retry
@@ -127,6 +113,25 @@ CANDLE_TABLE = "raw.kalshi_candle"
 
 BACKFILL_SOURCE = "kalshi_backfill"  # own run-ledger/lock name (see polymarket.BACKFILL_SOURCE)
 CANDLE_DATASET = "candles"
+CANDLE_PARSER_VERSION = "2"  # 2: reads volume and open interest from both endpoints
+TRADE_TABLE = "raw.kalshi_trade"
+TRADE_SOURCE = "kalshi_trades"  # own run-ledger/lock name
+TRADE_DATASET = "trades"
+TRADES_PAGE_SIZE = 1000
+_TRADE_COLUMNS = (
+    "trade_id",
+    "ticker",
+    "created_time",
+    "count_fp",
+    "yes_price_dollars",
+    "no_price_dollars",
+    "taker_side",
+    "taker_outcome_side",
+    "taker_book_side",
+    "is_block_trade",
+)
+# Collected first, so the series the models use arrive before the long tail.
+TRADE_PRIORITY_SERIES = ("KXMLBGAME", "KXMLBKS", "KXMLBTOTAL", "KXMLBSPREAD")
 # Maximum available granularity (1-minute candles). The endpoint rejects a request for more
 # than 5,000 candles with a 400 (confirmed directly), so a market's life is cut into windows.
 CANDLE_PERIOD_INTERVAL_MINUTES = 1
@@ -141,8 +146,6 @@ BACKFILL_WORKERS = 8
 BACKFILL_MAX_RPS = 16  # with signed requests (documented Basic tier)
 BACKFILL_MAX_RPS_UNSIGNED = 5  # measured 2026-10-05: 429s from about 5 requests/s without a key
 BACKFILL_RETRY_BACKOFF_SECONDS = 2.0
-# A market that closed less than this long ago may still be settling: refetch it.
-SETTLE_SECONDS = 86400
 _CANDLE_BASE_COLUMNS = ["ticker", "ts", "open_interest", "volume"]
 # Every candle column seen in production (2026-10-05). Created up front so no worker has to
 # ALTER the table while others write; a column not listed here is still added on demand.
@@ -167,63 +170,34 @@ _open_connections_lock = threading.Lock()
 _schema_lock = threading.Lock()
 _known_candle_columns: set[str] = set()
 
-# Confirmed by reading each series' actual title (see module docstring) —
-# not every "Baseball"-tagged Kalshi series is Major League Baseball.
-EXCLUDED_SERIES_TICKERS = {
-    # Korea Baseball Organization
-    "KXKBOGAME",
-    "KXKBO",
-    "KXKBORFI",
-    "KXKBOSPREAD",
-    "KXKBOTOTAL",
-    # Mexican Baseball League
-    "KXLMBGAME",
-    # Minor League Baseball — explicitly sub-MLB
-    "KXMILBGAME",
-    # NCAA college baseball
-    "KXNCAABASEBALL",
-    "KXNCAABBCONF",
-    "KXNCAABBFINAL",
-    "KXNCAABBGAME",
-    "KXNCAABBGS",
-    "KXNCAABBHR",
-    "KXNCAABBPLAYOFFS",
-    "KXNCAABBREG",
-    "KXNCAABBSPREAD",
-    "KXNCAABBTOTAL",
-    "KXNCAAMBACHAMP",
-    "KXTEAMSINNCAABBWS",
-    # NCAA college softball — a different sport
-    "KXNCAASBGAME",
-    "KXNCAASOFTBALL",
-    # Nippon Professional Baseball (Japan)
-    "KXNPBGAME",
-    "KXNPB",
-    "KXNPBRFI",
-    "KXNPBSPREAD",
-    "KXNPBTOTAL",
-    # World Baseball Classic — international tournament, not MLB
-    "KXWBCF5",
-    "KXWBCF5SPREAD",
-    "KXWBCF5TOTAL",
-    "KXWBCGAME",
-    "KXWBCGROUPQUAL",
-    "KXWBCGROUP",
-    "KXWBCHIT",
-    "KXWBCHR",
-    "KXWBCKS",
-    "KXWBCMVP",
-    "KXWBCPREPACK",
-    "KXWBCRFI",
-    "KXWBCROUND",
-    "KXWBCSPREAD",
-    "KXWBCTOTAL",
-    "KXMLBWORLD",
-    # Congressional charity game, not real MLB
-    "KXCONGRESSBASEBALL",
-    # Kalshi's own title for this series is literally "DO NOT USE"
-    "KXNLMOTY",
+# Scope: every baseball market Kalshi lists, in any category and league (ADR-305). Kalshi's
+# tags are incomplete (several MLB series carry none), so titles and tickers are read too.
+# "MLBB" is the video game Mobile Legends: Bang Bang, not baseball.
+_BASEBALL_TITLE = re.compile(r"\bMLB\b|baseball", re.IGNORECASE)
+_BASEBALL_TICKER = re.compile(r"^(KX)?MLB(?!B)")
+# Baseball by subject, but neither tagged nor named as such (read one by one, 2026-11-27).
+EXTRA_SERIES_TICKERS = {
+    "KXACQUIRELADSKENES",
+    "KXARRESTSHOHEI",
+    "KXPOPEATTEND",
+    "KXRENAMEGUARDIANS",
+    "KXWINSTREAKHOUMLB10",
 }
+# Kalshi's own title for this series is literally "DO NOT USE"
+EXCLUDED_SERIES_TICKERS = {"KXNLMOTY"}
+
+
+def is_baseball_series(series: dict) -> bool:
+    ticker = series.get("ticker") or ""
+    tags = series.get("tags") or []
+    if ticker in EXCLUDED_SERIES_TICKERS or "Esports" in tags:
+        return False
+    return bool(
+        ticker in EXTRA_SERIES_TICKERS
+        or "Baseball" in tags
+        or _BASEBALL_TICKER.match(ticker)
+        or _BASEBALL_TITLE.search(series.get("title") or "")
+    )
 
 
 @functools.lru_cache(maxsize=2)
@@ -268,12 +242,10 @@ def _get(url: str, params: dict) -> dict:
 
 
 def fetch_series() -> list[dict]:
-    payload = call_with_retry(
-        _get,
-        f"{BASE_URL}/series",
-        {"category": "Sports", "tags": "Baseball", "limit": MARKETS_PAGE_SIZE},
-    )
-    return [s for s in payload["series"] if s["ticker"] not in EXCLUDED_SERIES_TICKERS]
+    """Every baseball series. The endpoint returns all series in one reply (17,148 on
+    2026-11-27), so the scope is decided here rather than by its tag filter."""
+    payload = call_with_retry(_get, f"{BASE_URL}/series", {})
+    return [s for s in payload["series"] if is_baseball_series(s)]
 
 
 def _paginate(
@@ -525,8 +497,10 @@ def _flatten_candlestick(ticker: str, candle: dict) -> dict:
     row: dict = {
         "ticker": ticker,
         "ts": candle.get("end_period_ts"),
-        "open_interest": candle.get("open_interest_fp"),
-        "volume": candle.get("volume_fp"),
+        # The live endpoint says open_interest_fp / volume_fp, the historical one
+        # open_interest / volume (confirmed 2026-11-27).
+        "open_interest": candle.get("open_interest_fp", candle.get("open_interest")),
+        "volume": candle.get("volume_fp", candle.get("volume")),
     }
     for prefix in ("price", "yes_bid", "yes_ask"):
         for field, value in (candle.get(prefix) or {}).items():
@@ -602,7 +576,6 @@ def _close_thread_connections() -> None:
 def _backfill_market(
     market: dict,
     cutoff_ts: int | None,
-    now_ts: int,
     run_id: int,
     limiter: RateLimiter,
     mon: Monitor,
@@ -614,8 +587,10 @@ def _backfill_market(
     started = time.perf_counter()
     try:
         with mon.timed("kalshi.candles", ticker=ticker) as op:
+            # This market's own clock, not the run's: a long run outlives many closes.
+            requested = datetime.now(UTC)
             start_ts = _parse_kalshi_ts(market["open_time"])
-            end_ts = min(_parse_kalshi_ts(market["close_time"]), now_ts)
+            end_ts = min(_parse_kalshi_ts(market["close_time"]), int(requested.timestamp()))
             settled = (
                 _parse_kalshi_ts(market["settlement_ts"]) if market.get("settlement_ts") else None
             )
@@ -636,18 +611,12 @@ def _backfill_market(
                     with _schema_lock:
                         ensure_table(conn, CANDLE_TABLE, list(df.columns), index_column="ticker")
                         _known_candle_columns.update(df.columns)
-            # Replace this market's candles. Not replace_dataframe_scopes: it runs CREATE INDEX IF
+            # Land this market's candles. Not replace_dataframe_scopes: it runs CREATE INDEX IF
             # NOT EXISTS on every call, which takes a table lock that deadlocked 8 concurrent
-            # writers (121 markets failed in the first signed run).
-            rows = replace_dataframe_range(
-                conn,
-                CANDLE_TABLE,
-                df,
-                key_column="ticker",
-                keys=[ticker],
-                range_column="ts",
-                low=0,
-                high=2**62,
+            # writers (121 markets failed in the first signed run). Only the bars that came
+            # back are replaced: a source that stops serving old bars must not erase them.
+            rows = merge_dataframe_range(
+                conn, CANDLE_TABLE, df, key_column="ticker", range_column="ts"
             )
             record_items(
                 conn,
@@ -658,6 +627,8 @@ def _backfill_market(
                         run_id,
                         rows=rows,
                         http_status=200,
+                        parser_version=CANDLE_PARSER_VERSION,
+                        retrieved_at=requested,
                         duration_ms=round((time.perf_counter() - started) * 1000),
                     )
                 ],
@@ -689,11 +660,11 @@ def backfill_history() -> dict[str, int]:
     Runs on ``BACKFILL_WORKERS`` threads behind one shared ``RateLimiter`` (documented
     ceiling 20 requests/s on the Basic tier, paced at 16/s), each with its own HTTP
     session and database connection. One ledger item per market is written in the same
-    transaction as its rows, so a rerun skips settled markets already done, retries
-    ``failed`` ones and refetches markets that closed less than a day ago. Progress and
-    per-market timing go to ``meta.run_progress`` / ``meta.op_span``. Tracked under its
-    own source name with no workflow lock so it never blocks the nightly. Raises at the
-    end if any market failed, after trying all of them."""
+    transaction as its rows, so a rerun skips markets fetched after they closed, retries
+    ``failed`` ones and refetches those last fetched while open (or closed under a day).
+    Progress and per-market timing go to ``meta.run_progress`` / ``meta.op_span``. Tracked
+    under its own source name with no workflow lock so it never blocks the nightly.
+    Raises at the end if any market failed, after trying all of them."""
     counts = {CANDLE_TABLE: 0}
     workers = _env_int("MLB_KALSHI_WORKERS", BACKFILL_WORKERS)
     signed = bool(signed_headers("GET", BASE_URL))
@@ -714,18 +685,11 @@ def backfill_history() -> dict[str, int]:
                 "WHERE table_schema = 'raw' AND table_name = 'kalshi_candle'"
             )
             _known_candle_columns.update(name for (name,) in cur.fetchall())
-            cur.execute(
-                "SELECT item_key FROM meta.ingestion_item "
-                "WHERE source = %s AND dataset = %s AND status IN ('loaded', 'unavailable')",
-                (SOURCE, CANDLE_DATASET),
-            )
-            done = {key for (key,) in cur.fetchall()}
+        done = fetched_times(conn, SOURCE, CANDLE_DATASET)
         todo = [
             m
             for m in _candle_markets(conn)
-            if not (
-                m["ticker"] in done and _parse_kalshi_ts(m["close_time"]) + SETTLE_SECONDS <= now_ts
-            )
+            if not is_complete(_parse_kalshi_ts(m["close_time"]), done.get(m["ticker"]), now_ts)
         ]
         logger.info(
             "kalshi backfill: %d markets to fetch, %d workers, up to %.0f requests/s",
@@ -738,7 +702,7 @@ def backfill_history() -> dict[str, int]:
         try:
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futures = [
-                    pool.submit(_backfill_market, m, cutoff_ts, now_ts, run_id, limiter, monitor)
+                    pool.submit(_backfill_market, m, cutoff_ts, run_id, limiter, monitor)
                     for m in todo
                 ]
                 try:
@@ -764,6 +728,122 @@ def backfill_history() -> dict[str, int]:
     return counts
 
 
+def requeue_candles_without_volume() -> int:
+    """One-off repair: mark markets whose stored bars lack volume (saved by parser 1)
+    so the next candle backfill fetches them again. Scans the whole candle table."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE meta.ingestion_item SET status = 'failed', "
+                "error = 'requeued: bars saved without volume', updated_at = now() "
+                "WHERE source = %s AND dataset = %s AND status = 'loaded' "
+                "AND parser_version IS DISTINCT FROM %s AND item_key IN "
+                f"(SELECT DISTINCT ticker FROM {CANDLE_TABLE} WHERE coalesce(volume, '') = '')",
+                (SOURCE, CANDLE_DATASET, CANDLE_PARSER_VERSION),
+            )
+            requeued = cur.rowcount
+        conn.commit()
+    return requeued
+
+
+def _trade_markets(conn: psycopg.Connection) -> list[TradeMarket]:
+    """Every market that has traded: priority series first, then newest first."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT ticker, open_time, close_time FROM {MARKET_TABLE} "
+            "WHERE coalesce(nullif(volume_fp, ''), '0')::numeric > 0 "
+            "AND coalesce(open_time, '') <> '' AND coalesce(close_time, '') <> ''"
+        )
+        rows = cur.fetchall()
+    markets = [
+        TradeMarket(
+            ticker,
+            _parse_kalshi_ts(closed),
+            {"open_ts": _parse_kalshi_ts(opened), "close_ts": _parse_kalshi_ts(closed)},
+        )
+        for ticker, opened, closed in rows
+    ]
+    rank = {series: i for i, series in enumerate(TRADE_PRIORITY_SERIES)}
+    markets.sort(key=lambda m: m.ended_ts or 0, reverse=True)
+    markets.sort(key=lambda m: rank.get(m.key.split("-")[0], len(rank)))
+    return markets
+
+
+def _fetch_market_trades(
+    market: TradeMarket, cutoff_ts: int | None, now_ts: int, limiter: RateLimiter
+) -> list[dict]:
+    """Every trade of one market. Trades made before the cutoff are served by
+    ``/historical/trades`` and later ones by ``/markets/trades``; a market that spans the
+    cutoff is read from both and de-duplicated by trade id."""
+    paths = []
+    if cutoff_ts is None or market.context["open_ts"] < cutoff_ts:
+        paths.append("/historical/trades")
+    if cutoff_ts is None or market.context["close_ts"] >= min(cutoff_ts, now_ts):
+        paths.append("/markets/trades")
+
+    def get(path: str, params: dict) -> dict:
+        limiter.acquire()
+        try:
+            payload = _candle_get(f"{BASE_URL}{path}", params)
+        except requests.exceptions.HTTPError as exc:
+            reply = exc.response
+            if reply is not None and reply.status_code == 429:
+                limiter.slow_down(float(reply.headers.get("Retry-After") or 1))
+            raise
+        limiter.speed_up()
+        return payload
+
+    get.__name__ = "trades"
+    trades: dict[str, dict] = {}
+    for path in paths:
+        cursor = ""
+        while True:
+            params = {"ticker": market.key, "limit": TRADES_PAGE_SIZE}
+            if cursor:
+                params["cursor"] = cursor
+            page = call_with_retry(
+                get, path, params, backoff_seconds=BACKFILL_RETRY_BACKOFF_SECONDS
+            )
+            for trade in page.get("trades") or []:
+                trades[trade["trade_id"]] = trade
+            cursor = page.get("cursor") or ""
+            if not cursor:
+                break
+    return list(trades.values())
+
+
+def backfill_trades() -> dict[str, int]:
+    """Every trade of every traded market into ``raw.kalshi_trade``. Resumable per market;
+    a market is complete once fetched after it closed (see ``mlb_baseball.history``)."""
+    workers = _env_int("MLB_KALSHI_WORKERS", BACKFILL_WORKERS)
+    signed = bool(signed_headers("GET", BASE_URL))
+    default_rps = BACKFILL_MAX_RPS if signed else BACKFILL_MAX_RPS_UNSIGNED
+    limiter = RateLimiter(float(os.environ.get("MLB_KALSHI_MAX_RPS", default_rps)))
+    cutoff = fetch_cutoff().get("trades_created_ts")
+    cutoff_ts = _parse_kalshi_ts(cutoff) if cutoff else None
+    now_ts = int(time.time())
+    spec = TradeDataset(
+        SOURCE,
+        TRADE_SOURCE,
+        TRADE_DATASET,
+        TRADE_TABLE,
+        "ticker",
+        _TRADE_COLUMNS,
+        identity=("trade_id",),
+    )
+    try:
+        total = market_history.backfill_trades(
+            spec,
+            _trade_markets,
+            lambda market: _fetch_market_trades(market, cutoff_ts, now_ts, limiter),
+            workers=workers,
+            now=now_ts,
+        )
+    finally:
+        _close_thread_connections()
+    return {TRADE_TABLE: total}
+
+
 def health_check() -> list[Check]:
     return [
         check_table_has_rows(SERIES_TABLE),
@@ -778,6 +858,7 @@ def health_check() -> list[Check]:
         # Only exists after the owner-triggered backfill: "not run" is a state,
         # not a missing-table defect.
         check_backfill_state(CANDLE_TABLE),
+        check_backfill_state(TRADE_TABLE),
         # odds-history-capture: a price snapshot every 15 minutes on game days.
         check_snapshot_gaps(SNAPSHOT_TABLE, max_gap_minutes=SNAPSHOT_MAX_GAP_MINUTES),
         check_last_run(SOURCE),

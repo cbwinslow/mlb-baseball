@@ -36,8 +36,9 @@ Scope is every true MLB market: game lines, spreads and totals, season totals, p
 
 - The daily game-moneyline series `KXMLBGAME` is held from 2025-04-16 (4,679 events, probed in the database 2026-10-07). The connector docstring's "2026-05-22" is out of date; the earlier games arrive through the `/historical` endpoints.
 - Source series list (`GET /series?category=Sports&tags=Baseball`, 2026-10-07): 230 series; we hold 187. The 44 not held are all non-MLB (WBC, KBO, NPB, MiLB, college baseball and softball, Mexican league, a congressional game) except `KXNLMOTY`, which Kalshi itself titles "DO NOT USE" (a duplicate of the held `KXMLBNLMOTY`). We also hold `KXMLBCBA`, which the baseball tag does not list. The connector docstring's "199 total" is out of date.
-- Trades: `GET /markets/trades` answers HTTP 200 without a key today; it is still not loaded.
-- Not covered: per-market trades (`/historical/trades`, `/markets/trades`).
+- Trades (ADR-305): `mlb ingest kalshi --mode trades` loads `/historical/trades` (before `trades_created_ts` of the cutoff) and `/markets/trades` (after it) into `raw.kalshi_trade`, 1,000 per page, ledger dataset `trades`.
+- Scope (ADR-305): every baseball series, any league or category (268 series on 2026-11-27); see `is_baseball_series`.
+- Field names differ by endpoint: candles carry `volume_fp`/`open_interest_fp` live and `volume`/`open_interest` historically. Rows saved before the fix are re-fetched by `kalshi.requeue_candles_without_volume()` followed by a candle backfill.
 - Point-in-time: a settled or current price is not a pregame probability. Use a timestamped snapshot or candle before the cutoff; with none, keep NULL.
 
 ## Known gaps and open questions

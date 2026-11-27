@@ -199,7 +199,7 @@ def test_plan_batches_groups_tokens_by_window_newest_first_and_skips_done():
         {"clob_token_id": "b", "_market": "m", "_event": "e", "start_ts": new, "end_ts": None},
         {"clob_token_id": "x", "_market": "m", "_event": "e", "start_ts": None, "end_ts": None},
     ]
-    done = {f"a0:{10 * window}"}
+    done = {f"a0:{10 * window}": 12 * window}  # fetched after the market closed
 
     batches, undated = polymarket._plan_batches(tokens, done, now)
 
@@ -228,7 +228,7 @@ def test_plan_batches_refetches_a_window_that_is_still_recent_even_if_ledgered()
         "end_ts": None,
     }
     cell = (now - 60) // window * window
-    batches, _ = polymarket._plan_batches([token], {f"b:{cell}"}, now)
+    batches, _ = polymarket._plan_batches([token], {f"b:{cell}": now}, now)
     assert [c for c, _ in batches] == [cell]
 
 

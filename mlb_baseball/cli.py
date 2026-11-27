@@ -5,6 +5,8 @@
     mlb ingest register --mode update
     mlb ingest polymarket --mode backfill
     mlb ingest kalshi --mode backfill
+    mlb ingest kalshi --mode trades
+    mlb ingest polymarket --mode trades
     mlb bootstrap
     mlb update
     mlb conform
@@ -335,7 +337,9 @@ def main(argv: list[str] | None = None) -> None:
     ingest_parser = subparsers.add_parser("ingest")
     ingest_parser.add_argument("source", choices=sorted(CONNECTORS))
     ingest_parser.add_argument(
-        "--mode", choices=["bootstrap", "update", "backfill", "snapshot"], default="bootstrap"
+        "--mode",
+        choices=["bootstrap", "update", "backfill", "snapshot", "trades"],
+        default="bootstrap",
     )
     ingest_parser.add_argument(
         "--refresh",
@@ -1723,6 +1727,13 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"{args.source} has no snapshot() to run")
                 sys.exit(1)
             fn = cast(Callable[[], dict[str, int]], snapshot)
+        elif args.mode == "trades":
+            # Trade-by-trade history; only the prediction-market connectors have it.
+            trades = getattr(connector, "backfill_trades", None)
+            if trades is None:
+                print(f"{args.source} has no backfill_trades() to run")
+                sys.exit(1)
+            fn = cast(Callable[[], dict[str, int]], trades)
         else:
             # 'backfill' is an owner-triggered one-off historical load, not
             # part of the bootstrap()/update() contract every connector

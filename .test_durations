@@ -574,7 +574,6 @@
 "tests/integration/test_polymarket_load.py::test_backfill_history_loads_price_points_scoped_by_token": 3.5,
 "tests/integration/test_polymarket_load.py::test_backfill_history_rerunning_replaces_instead_of_duplicating": 3.5,
 "tests/integration/test_polymarket_load.py::test_backfill_history_skips_tokens_with_no_history": 3.5,
-"tests/integration/test_polymarket_load.py::test_daily_game_tokens_scopes_to_events_with_sport_set": 3.5,
 "tests/integration/test_polymarket_load.py::test_fetch_events_follows_next_cursor_until_omitted": 3.5,
 "tests/integration/test_polymarket_load.py::test_health_check_reports_last_run": 3.5,
 "tests/integration/test_polymarket_load.py::test_rerunning_replaces_instead_of_duplicating": 3.5,

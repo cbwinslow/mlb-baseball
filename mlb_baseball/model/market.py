@@ -165,6 +165,7 @@ def _upcoming_polymarket_rows(
                     JOIN raw.polymarket_market m ON m.event_id = e.id
                     JOIN raw.polymarket_outcome o ON o.market_id = m.id
                     WHERE e.sport IS NOT NULL
+                        AND e.slug LIKE 'mlb-%'
                         AND m.sportsmarkettype = 'moneyline'
                     """
                 )

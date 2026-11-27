@@ -55,6 +55,8 @@ If no local zip is present, the connector automatically falls back to a network 
 
 ## Phase 1b / stretch — prediction markets (once core pipeline pattern is proven)
 
+Scope widened by ADR-305 (2026-11-27): every baseball market of every league on both sites, Polymarket price history for every outcome token, and trade history in `raw.kalshi_trade` and `raw.polymarket_trade`. Counts in the two rows above predate this.
+
 Both Polymarket and Kalshi (above, in the main Phase 1 table) are built — see ADR-026/ADR-027. Nothing left in this section.
 
 This pairing is a deliberate differentiator: it gives the project a free proxy for "the market's opinion" without a paid odds feed — comparable in spirit to what oddstrader shows, without oddstrader's licensing costs.

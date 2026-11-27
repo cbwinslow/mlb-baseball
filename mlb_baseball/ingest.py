@@ -21,7 +21,8 @@ def record_items(conn: psycopg.Connection, items: list[dict]) -> None:
     The caller supplies one immutable source item (for example,
     ``analytics_win_probability`` / ``1967:153395``) per dict. ``loaded``
     may be retried safely; ``unavailable`` records a permanent source 404 so
-    a resume does not waste another request on it.
+    a resume does not waste another request on it. ``retrieved_at`` (default: now) is
+    when the source was asked; set it when that decides whether the item is complete.
     """
     if not items:
         return
@@ -44,6 +45,7 @@ def record_items(conn: psycopg.Connection, items: list[dict]) -> None:
         "error",
         "run_id",
         "duration_ms",
+        "retrieved_at",
     ]
     values = [tuple(item.get(column) for column in columns) for item in items]
     with conn.cursor() as cur:
@@ -52,8 +54,9 @@ def record_items(conn: psycopg.Connection, items: list[dict]) -> None:
             INSERT INTO meta.ingestion_item (
                 source, dataset, item_key, status, source_url, artifact_path,
                 artifact_sha256, bytes, http_status, rows, parser_version,
-                schema_fingerprint, error, run_id, duration_ms
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                schema_fingerprint, error, run_id, duration_ms, retrieved_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      coalesce(%s::timestamptz, now()))
             ON CONFLICT (source, dataset, item_key) DO UPDATE SET
                 status = EXCLUDED.status,
                 attempts = meta.ingestion_item.attempts + 1,
@@ -68,7 +71,7 @@ def record_items(conn: psycopg.Connection, items: list[dict]) -> None:
                 error = EXCLUDED.error,
                 run_id = EXCLUDED.run_id,
                 duration_ms = EXCLUDED.duration_ms,
-                retrieved_at = now(),
+                retrieved_at = EXCLUDED.retrieved_at,
                 updated_at = now()
             """,
             values,

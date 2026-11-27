@@ -14,35 +14,46 @@ class FakeResponse:
         return self._payload
 
 
-def test_excluded_series_tickers_are_all_non_mlb_baseball_leagues():
-    # Regression: EXCLUDED_SERIES_TICKERS exists specifically to keep
-    # non-MLB baseball (KBO, NPB, WBC, college, MiLB, etc.) out of a
-    # "Baseball"-tagged Kalshi series pull — every ticker in it must start
-    # with one of these non-MLB prefixes/exact matches, not accidentally
-    # exclude a real MLB series.
-    non_mlb_markers = (
-        "KXKBO",
-        "KXLMBGAME",
-        "KXMILBGAME",
-        "KXNCAA",
-        "KXNPB",
-        "KXWBC",
-        "KXMLBWORLD",
-        "KXCONGRESSBASEBALL",
-        "KXTEAMSINNCAABBWS",
-        "KXNLMOTY",
-    )
-    for ticker in kalshi.EXCLUDED_SERIES_TICKERS:
-        assert ticker.startswith(non_mlb_markers) or ticker in non_mlb_markers, ticker
+def _series(ticker, title, tags=(), category="Sports"):
+    return {"ticker": ticker, "title": title, "tags": list(tags) or None, "category": category}
 
 
-def test_fetch_series_filters_out_excluded_tickers(monkeypatch):
+def test_every_baseball_series_is_in_scope_whatever_its_category_or_league():
+    wanted = [
+        _series("KXMLBGAME", "Professional Baseball Game", ["Baseball"]),
+        _series("KXKBOGAME", "KBO Game", ["Baseball"]),
+        _series("KXNCAABBGAME", "College Baseball Game", ["Baseball"]),
+        _series("KXMLBMENTION", "MLB Announcers", ["Sports"], "Mentions"),
+        _series("KXMLBDIVWINNER", "MLB divisions"),
+        _series("KXATTENDMLB", "WHO WILL ATTEND THE BASEBALL GAME", category="Entertainment"),
+        _series("MLBCBA", "MLB CBA", category="Entertainment"),
+        _series("KXARRESTSHOHEI", "SHOHEI ohtani ARRESTED", category="Entertainment"),
+    ]
+
+    assert [s for s in wanted if not kalshi.is_baseball_series(s)] == []
+
+
+def test_other_sports_and_deprecated_series_stay_out():
+    unwanted = [
+        _series("KXMLBBGAME", "Mobile Legends Bang Bang Game", ["Esports"]),
+        _series("KXEWCMLBB", "Mobile Legends: Bang Bang Mid Season Cup", ["Esports"]),
+        _series("KXNLGAME", "National League Game", ["Hockey"]),
+        _series("KXATPGRANDSLAM", "ATP Grand Slam", ["Tennis"]),
+        _series("KXNLMOTY", "DO NOT USE", ["Baseball"]),
+    ]
+
+    assert [s["ticker"] for s in unwanted if kalshi.is_baseball_series(s)] == []
+
+
+def test_fetch_series_asks_for_every_series_and_filters_locally(monkeypatch):
+    seen = []
+
     def fake_get(url, params):
+        seen.append(params)
         return {
             "series": [
-                {"ticker": "KXMLBGAME", "title": "Professional Baseball Game"},
-                {"ticker": "KXNCAABBGAME", "title": "College Baseball Game"},
-                {"ticker": "KXWBCGAME", "title": "World Baseball Classic Game"},
+                _series("KXMLBGAME", "Professional Baseball Game", ["Baseball"]),
+                _series("KXNBAGAME", "Pro Basketball Game", ["Basketball"]),
             ]
         }
 
@@ -51,6 +62,7 @@ def test_fetch_series_filters_out_excluded_tickers(monkeypatch):
     series = kalshi.fetch_series()
 
     assert [s["ticker"] for s in series] == ["KXMLBGAME"]
+    assert "tags" not in seen[0] and "category" not in seen[0]
 
 
 def test_snapshot_rows_skips_non_active_markets_and_stamps_captured_at():

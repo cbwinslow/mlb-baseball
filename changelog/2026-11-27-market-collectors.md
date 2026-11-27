@@ -15,6 +15,10 @@ Also: the 5-minute `mlb_api` update now raises one alert after three failures in
 `scripts/mlb_alert.sh` (taken unchanged from branch `stabilize-market-clean`, because the
 configured alert command did not exist on `main`).
 
+Follow-up: runs refused because conform/predict hold the database (nightly, about 50 minutes)
+would have raised that alert every night. They are now counted apart and alert only after 24
+in a row (two hours); they neither count as failures nor clear them.
+
 Review (PR 407) found two defects, fixed before merge: a shorter reply could erase stored
 trades, bars or points inside the returned range; and coverage counted an early fetch as held
 until the 14-day window ended even when the market had closed sooner; and a history was

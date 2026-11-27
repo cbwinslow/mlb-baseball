@@ -17,6 +17,11 @@ LOCK_FILE="${MLB_API_LOCK_FILE:-/tmp/mlb_api_update.lock}"
 LOG_FILE="$REPO_DIR/logs/mlb_api_update.log"
 FAIL_FILE="$REPO_DIR/logs/mlb_api_update.failures" # failures in a row
 ALERT_AFTER=3
+# Runs stopped because conform/predict hold the database are expected nightly (under an
+# hour), so they are counted apart and alert only if the block lasts two hours.
+BLOCKED_FILE="$REPO_DIR/logs/mlb_api_update.blocked"
+ALERT_BLOCKED_AFTER=24
+BUSY="workflow: another ingestion or derived-data stage is active"
 
 mkdir -p "$REPO_DIR/logs"
 
@@ -26,23 +31,32 @@ if ! flock -n 200; then
     exit 0
 fi
 
+# count_run FILE THRESHOLD WHAT: add one to the count; alert when it reaches the threshold
+# (equality, so once per outage).
+count_run() {
+    local count
+    count=$(($(cat "$1" 2>/dev/null || echo 0) + 1))
+    echo "$count" > "$1"
+    if [[ $count -eq $2 ]]; then
+        "$REPO_DIR/scripts/mlb_alert.sh" \
+            "mlb_api update has $3 $count times in a row; see $LOG_FILE" ||
+            echo "alert could not be sent"
+    fi
+}
+
 cd "$REPO_DIR"
 {
+    start=$(stat -c %s "$LOG_FILE") # where this run's output begins
     echo "$(date -u +%FT%TZ) starting mlb_api update"
     rc=0
     "$REPO_DIR/.venv/bin/mlb" ingest mlb_api --mode update || rc=$?
     echo "$(date -u +%FT%TZ) finished mlb_api update (rc=$rc)"
     if [[ $rc -eq 0 ]]; then
-        rm -f "$FAIL_FILE"
+        rm -f "$FAIL_FILE" "$BLOCKED_FILE"
+    elif grep -qF "$BUSY" <(tail -c "+$((start + 1))" "$LOG_FILE"); then
+        count_run "$BLOCKED_FILE" "$ALERT_BLOCKED_AFTER" "been blocked"
     else
-        failures=$(($(cat "$FAIL_FILE" 2>/dev/null || echo 0) + 1))
-        echo "$failures" > "$FAIL_FILE"
-        # Once per outage: the count only equals the threshold one time.
-        if [[ $failures -eq $ALERT_AFTER ]]; then
-            "$REPO_DIR/scripts/mlb_alert.sh" \
-                "mlb_api update has failed $failures times in a row; see $LOG_FILE" ||
-                echo "alert could not be sent"
-        fi
+        count_run "$FAIL_FILE" "$ALERT_AFTER" "failed"
     fi
 } >> "$LOG_FILE" 2>&1
 exit "$rc"

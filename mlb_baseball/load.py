@@ -7,8 +7,10 @@ Lahman tables individually, and pandas is already the source of truth for their
 shape. See docs/ARCHITECTURE.md "Loading patterns".
 """
 
+import math
 import re
 import warnings
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 import pandas as pd
@@ -191,7 +193,7 @@ def ensure_table(
 ) -> None:
     """Create ``table`` (all-text columns plus ``_loaded_at``) and an index on
     ``index_column`` if they are missing, and commit. Call once before several
-    threads each call :func:`replace_dataframe_range`, so they do not race to
+    threads each call :func:`merge_dataframe_range`, so they do not race to
     create the table."""
     table_ident = _table_identifier(table)
     with conn.cursor() as cur:
@@ -207,70 +209,108 @@ def ensure_table(
     conn.commit()
 
 
-def replace_dataframe_range(
+def delete_resent_rows(
+    cur: psycopg.Cursor,
+    table: str,
+    *,
+    key_column: str,
+    keys: list[str],
+    identity: Sequence[str],
+    resent: Mapping[tuple, float],
+    range_column: str | None = None,
+    low: int = 0,
+    high: int = 0,
+) -> None:
+    """Delete the stored rows of ``keys`` that a new reply carries again, and only
+    those, so that inserting the reply neither duplicates nor erases anything: a stored
+    row the reply does not contain stays. ``resent`` maps the text values of the
+    ``identity`` columns to how many stored copies the reply replaces (``math.inf``:
+    all of them). ``range_column`` limits the search to ``[low, high)``."""
+    query = sql.SQL("SELECT ctid, {columns} FROM {table} WHERE {key} = ANY(%s)").format(
+        columns=sql.SQL(", ").join(map(sql.Identifier, identity)),
+        table=_table_identifier(table),
+        key=sql.Identifier(key_column),
+    )
+    params: list[object] = [keys]
+    if range_column is not None:
+        query += sql.SQL(" AND {rng}::numeric >= %s AND {rng}::numeric < %s").format(
+            rng=sql.Identifier(range_column)
+        )
+        params += [low, high]
+    cur.execute(query, params)
+    left = dict(resent)
+    replaced = []
+    for ctid, *values in cur.fetchall():
+        row = tuple(values)
+        if left.get(row, 0) > 0:
+            left[row] -= 1
+            replaced.append(ctid)
+    if replaced:
+        cur.execute(
+            sql.SQL("DELETE FROM {} WHERE ctid = ANY(%s::tid[])").format(_table_identifier(table)),
+            (replaced,),
+        )
+
+
+def merge_dataframe_range(
     conn: psycopg.Connection,
     table: str,
     df: pd.DataFrame,
     *,
     key_column: str,
-    keys: list[str],
     range_column: str,
-    low: int,
-    high: int,
 ) -> int:
-    """Replace the rows of ``keys`` whose numeric ``range_column`` lies in
-    ``[low, high)`` with ``df``, in the caller's transaction (the caller commits, so
-    a ledger write can ride in the same transaction). For time-series items fetched
-    one window at a time, where :func:`load_dataframe`'s whole-key replace would
-    delete the other windows. The table must already exist (:func:`ensure_table`).
-    A key with no rows in ``df`` still has its window cleared."""
-    return replace_csv_range(
+    """Land the time-series points in ``df``, in the caller's transaction (the caller
+    commits, so a ledger write can ride in the same transaction). A stored point with
+    the same key and ``range_column`` value is replaced; every other stored point
+    stays, because a source that stops serving old points must not erase them. The
+    table must already exist (:func:`ensure_table`)."""
+    if df.empty:
+        return 0
+    return merge_csv_range(
         conn,
         table,
         _pg_column_names(df),
-        df.to_csv(index=False, header=False) if not df.empty else "",
+        df.to_csv(index=False, header=False),
         key_column=key_column,
-        keys=keys,
         range_column=range_column,
-        low=low,
-        high=high,
+        points=set(zip(df[key_column].astype(str), df[range_column].astype(str), strict=True)),
     )
 
 
-def replace_csv_range(
+def merge_csv_range(
     conn: psycopg.Connection,
     table: str,
     columns: list[str],
     csv_text: str,
     *,
     key_column: str,
-    keys: list[str],
     range_column: str,
-    low: int,
-    high: int,
+    points: set[tuple[str, str]],
 ) -> int:
-    """Like :func:`replace_dataframe_range` for rows the caller already rendered as
-    CSV text (no header) in ``columns`` order. Building the text directly is several
-    times cheaper than ``DataFrame.to_csv`` and matters when many threads share one
-    Python process (measured: 21 ms against 112 ms for 21,700 rows). Empty text only
-    clears the window."""
-    table_ident = _table_identifier(table)
+    """Like :func:`merge_dataframe_range` for rows the caller already rendered as CSV
+    text (no header) in ``columns`` order, with ``points`` naming the (key, point)
+    pairs in that text. Building the text directly is several times cheaper than
+    ``DataFrame.to_csv`` and matters when many threads share one Python process
+    (measured: 21 ms against 112 ms for 21,700 rows)."""
+    if not points:
+        return 0
+    numbers = [int(point) for _, point in points]
     with conn.cursor() as cur:
-        cur.execute(
-            sql.SQL(
-                "DELETE FROM {table} WHERE {key} = ANY(%s) "
-                "AND {rng}::numeric >= %s AND {rng}::numeric < %s"
-            ).format(
-                table=table_ident,
-                key=sql.Identifier(key_column),
-                rng=sql.Identifier(range_column),
-            ),
-            (keys, low, high),
+        delete_resent_rows(
+            cur,
+            table,
+            key_column=key_column,
+            keys=sorted({key for key, _ in points}),
+            identity=(key_column, range_column),
+            resent=dict.fromkeys(points, math.inf),
+            range_column=range_column,
+            low=min(numbers),
+            high=max(numbers) + 1,
         )
-        if not csv_text:
-            return 0
         copy_sql = sql.SQL("COPY {table} ({columns}) FROM STDIN WITH (FORMAT csv)").format(
-            table=table_ident, columns=sql.SQL(", ").join(sql.Identifier(c) for c in columns)
+            table=_table_identifier(table),
+            columns=sql.SQL(", ").join(sql.Identifier(c) for c in columns),
         )
         with cur.copy(copy_sql) as copy:
             copy.write(csv_text)

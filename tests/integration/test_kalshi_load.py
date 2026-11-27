@@ -1,5 +1,7 @@
 """Real DB, real DataFrame/COPY loading — only requests.get is mocked."""
 
+import time
+
 import pytest
 
 from mlb_baseball.connectors import kalshi
@@ -666,7 +668,7 @@ def _candle_rows(db_conn, columns="ticker, ts, volume, open_interest"):
 def _set_fetched_at(db_conn, dataset, when):
     with db_conn.cursor() as cur:
         cur.execute(
-            "UPDATE meta.ingestion_item SET updated_at = %s WHERE source = %s AND dataset = %s",
+            "UPDATE meta.ingestion_item SET retrieved_at = %s WHERE source = %s AND dataset = %s",
             (when, kalshi.SOURCE, dataset),
         )
     db_conn.commit()
@@ -728,7 +730,11 @@ def test_requeue_picks_up_bars_saved_without_volume_only_once(
     _run_candles(monkeypatch, FakeCandles())
     with db_conn.cursor() as cur:  # the state the earlier collector left behind
         cur.execute(f"UPDATE {kalshi.CANDLE_TABLE} SET volume = NULL")
-        cur.execute("UPDATE meta.ingestion_item SET parser_version = NULL")
+        cur.execute(
+            "UPDATE meta.ingestion_item SET parser_version = NULL "
+            "WHERE source = %s AND dataset = %s",
+            (kalshi.SOURCE, kalshi.CANDLE_DATASET),
+        )
     db_conn.commit()
 
     assert kalshi.requeue_candles_without_volume() == 1
@@ -891,3 +897,88 @@ def test_backfill_keeps_stored_bars_outside_a_shorter_refetch(
 
     stamps = [row[1] for row in _candle_rows(db_conn)]
     assert stamps == [first, str(int(first) + 540)]
+
+
+def test_trades_a_shorter_refetch_never_erases_saved_trades(db_conn, monkeypatch, _trade_clean):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    path = ("/historical/trades", "OLD-1-A")
+    both = [_trade("a", "OLD-1-A"), _trade("b", "OLD-1-A")]
+    _run_trades(monkeypatch, FakeTrades({path: [both]}))
+    _set_fetched_at(db_conn, kalshi.TRADE_DATASET, "2026-07-01T01:00:00Z")
+
+    later = [_trade("b", "OLD-1-A", count="2.00"), _trade("c", "OLD-1-A")]
+    _run_trades(monkeypatch, FakeTrades({path: [later]}))
+
+    with db_conn.cursor() as cur:
+        cur.execute(f"SELECT trade_id, count_fp FROM {kalshi.TRADE_TABLE} ORDER BY trade_id")
+        assert cur.fetchall() == [("a", "1.00"), ("b", "2.00"), ("c", "1.00")]
+
+
+def test_backfill_keeps_stored_bars_a_refetch_leaves_out(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+
+    class Bars(FakeCandles):
+        def __init__(self, offsets):
+            super().__init__()
+            self.offsets = offsets
+
+        def __call__(self, url, params):
+            super().__call__(url, params)
+            start = params["start_ts"]
+            return {"candlesticks": [_candle(start + o, trade=True) for o in self.offsets]}
+
+    _run_candles(monkeypatch, Bars([60, 120, 180]))
+    _set_fetched_at(db_conn, kalshi.CANDLE_DATASET, "2026-07-01T01:00:00Z")
+    before = [row[1] for row in _candle_rows(db_conn)]
+
+    _run_candles(monkeypatch, Bars([60, 180]))  # the middle bar is no longer served
+
+    assert [row[1] for row in _candle_rows(db_conn)] == before
+
+
+# A history is dated when it was asked for: a market that closes while its reply is on the
+# way must be fetched again, so the date it was saved cannot stand in for that.
+
+
+def _retrieved_at(db_conn, dataset):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT extract(epoch FROM retrieved_at)::float8 FROM meta.ingestion_item "
+            "WHERE source = %s AND dataset = %s",
+            (kalshi.SOURCE, dataset),
+        )
+        return [r[0] for r in cur.fetchall()]
+
+
+def test_candles_are_dated_when_they_were_requested(db_conn, monkeypatch, _candle_ledger_clean):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    asked = []
+
+    class Slow(FakeCandles):
+        def __call__(self, url, params):
+            asked.append(time.time())
+            time.sleep(0.2)
+            return super().__call__(url, params)
+
+    _run_candles(monkeypatch, Slow())
+
+    (retrieved,) = _retrieved_at(db_conn, kalshi.CANDLE_DATASET)
+    assert retrieved <= asked[0]
+
+
+def test_trades_are_dated_when_they_were_requested(db_conn, monkeypatch, _trade_clean):
+    _seed_markets(monkeypatch, [_market("OLD-1-A", "OLD-1", **_times())])
+    asked = []
+
+    class Slow(FakeTrades):
+        def __call__(self, url, params):
+            asked.append(time.time())
+            time.sleep(0.2)
+            return super().__call__(url, params)
+
+    _run_trades(monkeypatch, Slow({("/historical/trades", "OLD-1-A"): [[_trade("a", "OLD-1-A")]]}))
+
+    (retrieved,) = _retrieved_at(db_conn, kalshi.TRADE_DATASET)
+    assert retrieved <= asked[0]

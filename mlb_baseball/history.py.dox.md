@@ -11,9 +11,11 @@ Implementation: `history.py`. Callers: `connectors/kalshi.py`, `connectors/polym
 
 ## Contracts
 
-- `is_complete`: the item ended at least a day ago **and** was fetched after it ended.
-- `backfill_trades`: one market per transaction (delete that market's rows, copy the new ones,
-  write the ledger item). No rows returned keeps what is stored. Failures are ledgered and the
+- `is_complete`: the item ended at least a day ago **and** was fetched after it ended. The
+  fetch time is `meta.ingestion_item.retrieved_at`, set to when the source was asked.
+- `backfill_trades`: one market per transaction (replace the stored trades the reply carries
+  again, matched on the dataset's `identity` columns copy for copy; copy the reply; write the
+  ledger item). Stored trades the reply does not contain stay. Failures are ledgered and the
   run raises after trying every market. It takes no workflow lock.
 - Values are stored as text, as in other `raw` tables.
 

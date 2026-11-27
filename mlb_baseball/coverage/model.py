@@ -168,12 +168,12 @@ class KalshiCandles:
                 WHERE open_time IS NOT NULL AND close_time IS NOT NULL
                 GROUP BY ticker
             ), item AS (
-                SELECT item_key AS k, status, updated_at FROM meta.ingestion_item
+                SELECT item_key AS k, status, retrieved_at FROM meta.ingestion_item
                 WHERE source = 'kalshi' AND dataset = 'candles'
             ), judged AS (
                 SELECT want.label,
                        CASE WHEN want.closed < now() - interval '1 day'
-                                 AND item.updated_at < want.closed THEN NULL
+                                 AND item.retrieved_at < want.closed THEN NULL
                             ELSE item.status END AS status
                 FROM want LEFT JOIN item USING (k)
             )
@@ -208,6 +208,7 @@ class PolymarketWindows:
     def measure(self, cur: psycopg.Cursor, table: str) -> list[Group]:
         # Imported here: the connector pulls in network libraries other kinds do not need.
         from mlb_baseball.connectors import polymarket
+        from mlb_baseball.history import SETTLE_SECONDS
 
         now = int(time.time())
         tokens = polymarket._price_tokens(cur.connection)
@@ -215,12 +216,16 @@ class PolymarketWindows:
         batches, undated = polymarket._plan_batches(tokens, {}, now)
         fetched = polymarket.fetched_times(cur.connection, "polymarket", "price_history")
         pending_batches, _ = polymarket._plan_batches(tokens, fetched, now)
-        pending = {
-            f"{t['clob_token_id']}:{cell}"
-            for cell, group in pending_batches
-            if cell + polymarket.HISTORY_WINDOW_SECONDS < now - 86400
-            for t in group
-        }
+        # A window still running (or ended under a day ago) keeps its ledger status;
+        # it ends early when its market closes.
+        pending = set()
+        for cell, group in pending_batches:
+            window_end = cell + polymarket.HISTORY_WINDOW_SECONDS
+            for token in group:
+                closed = token["end_ts"]
+                ended = window_end if closed is None else min(window_end, closed)
+                if ended + SETTLE_SECONDS <= now:
+                    pending.add(f"{token['clob_token_id']}:{cell}")
         planned: dict[str, str] = {}
         for cell, group in batches:
             label = str(datetime.fromtimestamp(cell, UTC).year)
@@ -275,7 +280,7 @@ class MarketTrades:
             ), judged AS (
                 SELECT coalesce(to_char(want.ended, 'YYYY'), 'open') AS label,
                        CASE WHEN want.ended < now() - interval '1 day'
-                                 AND item.updated_at < want.ended THEN NULL
+                                 AND item.retrieved_at < want.ended THEN NULL
                             ELSE item.status END AS status
                 FROM want LEFT JOIN meta.ingestion_item item
                   ON item.source = %s AND item.dataset = 'trades' AND item.item_key = want.k

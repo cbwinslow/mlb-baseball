@@ -67,9 +67,9 @@ Public connector capabilities:
 - `backfill_history()` is deliberately separate from routine bootstrap/update.
 - It uses `POST clob.polymarket.com/batch-prices-history` (20 tokens per request) over fixed 14-day windows, newest window first. `interval=max` returns an empty list for a settled market and the API rejects a 30-day window (checked live 2026-10-05); do not reintroduce either.
 - Speed is measured, not guessed: a 20-token 14-day request takes about 0.3 s, throughput stops rising past roughly 8-16 concurrent requests (32 concurrent heavy requests timed out), the documented ceiling is 1,000 requests / 10 s with no key. The work runs in `BACKFILL_PROCESSES` (4) spawned processes (`mlb_baseball/shard.py`) of `BACKFILL_WORKERS` (4) threads each, because one process pinned a single core on JSON decoding and CSV building (measured: `mlb` at 94% CPU while the database and network idled) and threads share one interpreter lock. `BACKFILL_MAX_RPS` (90) is split across processes, each paced by `net.RateLimiter` (halves on a 429). Env overrides `MLB_POLYMARKET_PROCESSES` / `_WORKERS` / `_MAX_RPS`. Change them only with a new measurement.
-- Each worker owns an HTTP session and a database connection. One transaction per request writes the window's rows (`load.replace_dataframe_range`: replaces only that token-and-window) and the ledger rows (`meta.ingestion_item`, dataset `price_history`, key `<token>:<window start>`; `loaded`, or `unavailable` for an empty window; `failed` with the error).
-- A window is skipped only if it was fetched after it ended (or after the market closed, if sooner) and that was at least a day ago (`history.is_complete`). An empty reply keeps the stored points. Every outcome token is planned (ADR-305). The run raises at the end if any window failed.
-- The run is tracked under its own source name `polymarket_backfill` and takes no workflow lock, so a long backfill never blocks the nightly `update` or conform/predict (it blocked the 2026-10-05 nightly when it shared them). It only replaces windows of its own raw table, each in one transaction.
+- Each worker owns an HTTP session and a database connection. One transaction per request writes the window's rows (`load.merge_csv_range`: replaces only the points that came back) and the ledger rows (`meta.ingestion_item`, dataset `price_history`, key `<token>:<window start>`; `loaded`, or `unavailable` for an empty window; `failed` with the error).
+- A window is skipped only if it was fetched after it ended (or after the market closed, if sooner) and that was at least a day ago (`history.is_complete`). An empty, shorter or gappy reply keeps every other stored point. Every outcome token is planned (ADR-305). The run raises at the end if any window failed.
+- The run is tracked under its own source name `polymarket_backfill` and takes no workflow lock, so a long backfill never blocks the nightly `update` or conform/predict (it blocked the 2026-10-05 nightly when it shared them). It only writes windows of its own raw table, each in one transaction.
 - Markets with no start date are recorded `unavailable` (no window can be requested).
 - Progress and per-request timing go to `meta.run_progress` / `meta.op_span` (`polymarket.batch`); check `meta.run_health` for rate and ETA.
 - Scale (2026-10-05): about 435,000 tokens over 217,000 markets.
@@ -81,6 +81,7 @@ Public connector capabilities:
 - Trader name, pseudonym, biography and picture are not stored; the public wallet address is.
 - No trades were returned for any 2021-2023 market checked; those are ledgered `unavailable`.
 - Paced at 25 requests/s (published limit 300 per 10 s); one ledger item per market.
+- No trade id exists, so a refetch matches fills on every stored source field, copy for copy; fills the reply no longer carries are kept.
 
 ## Point-in-Time Contract
 

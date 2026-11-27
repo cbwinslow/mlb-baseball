@@ -98,7 +98,7 @@ from mlb_baseball.ingest import record_items, track_run
 from mlb_baseball.load import (
     append_dataframe,
     ensure_table,
-    replace_csv_range,
+    merge_csv_range,
     upsert_dataframe,
 )
 from mlb_baseball.net import RateLimiter, call_with_retry
@@ -464,9 +464,11 @@ def _backfill_batch(
     started = time.perf_counter()
     try:
         with monitor.timed("polymarket.batch", window=cell, tokens=len(group)) as op:
+            requested = datetime.now(UTC)
             history = fetch_batch_history(token_ids, cell, cell + HISTORY_WINDOW_SECONDS, limiter)
             lines: list[str] = []
             counts: dict[str, int] = {}
+            stamps: set[tuple[str, str]] = set()
             for token in group:
                 points = history.get(token["clob_token_id"])
                 if not points:
@@ -476,17 +478,16 @@ def _backfill_batch(
                 )
                 lines.extend(f"{prefix},{point['t']},{point['p']}\n" for point in points)
                 counts[token["clob_token_id"]] = len(points)
-            rows = replace_csv_range(
+                stamps.update((token["clob_token_id"], str(point["t"])) for point in points)
+            rows = merge_csv_range(
                 conn,
                 PRICE_TABLE,
                 PRICE_COLUMNS,
                 "".join(lines),
                 key_column="clob_token_id",
-                # Only tokens that came back: an empty answer must not erase stored points.
-                keys=list(counts),
                 range_column="ts",
-                low=cell,
-                high=cell + HISTORY_WINDOW_SECONDS,
+                # Only the points that came back are replaced; stored ones stay.
+                points=stamps,
             )
             duration = round((time.perf_counter() - started) * 1000)
             record_items(
@@ -500,6 +501,7 @@ def _backfill_batch(
                         rows=int(counts.get(token["clob_token_id"], 0)),
                         http_status=200,
                         duration_ms=duration,
+                        retrieved_at=requested,
                     )
                     for token in group
                 ],
@@ -769,6 +771,8 @@ def backfill_trades() -> dict[str, int]:
         TRADE_TABLE,
         "condition_id",
         (*_TRADE_COLUMNS, "is_taker"),
+        # No trade id exists: a fill is every field the source sends for it.
+        identity=_TRADE_COLUMNS,
     )
     total = market_history.backfill_trades(
         spec,

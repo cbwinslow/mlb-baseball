@@ -84,7 +84,7 @@ from mlb_baseball.ingest import record_items, track_run
 from mlb_baseball.load import (
     append_dataframe,
     ensure_table,
-    replace_dataframe_range,
+    merge_dataframe_range,
     upsert_dataframe,
 )
 from mlb_baseball.net import RateLimiter, call_with_retry
@@ -576,7 +576,6 @@ def _close_thread_connections() -> None:
 def _backfill_market(
     market: dict,
     cutoff_ts: int | None,
-    now_ts: int,
     run_id: int,
     limiter: RateLimiter,
     mon: Monitor,
@@ -588,8 +587,10 @@ def _backfill_market(
     started = time.perf_counter()
     try:
         with mon.timed("kalshi.candles", ticker=ticker) as op:
+            # This market's own clock, not the run's: a long run outlives many closes.
+            requested = datetime.now(UTC)
             start_ts = _parse_kalshi_ts(market["open_time"])
-            end_ts = min(_parse_kalshi_ts(market["close_time"]), now_ts)
+            end_ts = min(_parse_kalshi_ts(market["close_time"]), int(requested.timestamp()))
             settled = (
                 _parse_kalshi_ts(market["settlement_ts"]) if market.get("settlement_ts") else None
             )
@@ -610,25 +611,12 @@ def _backfill_market(
                     with _schema_lock:
                         ensure_table(conn, CANDLE_TABLE, list(df.columns), index_column="ticker")
                         _known_candle_columns.update(df.columns)
-            # Replace this market's candles. Not replace_dataframe_scopes: it runs CREATE INDEX IF
+            # Land this market's candles. Not replace_dataframe_scopes: it runs CREATE INDEX IF
             # NOT EXISTS on every call, which takes a table lock that deadlocked 8 concurrent
-            # writers (121 markets failed in the first signed run). An empty answer replaces
-            # nothing: a source that stops serving old bars must not erase them.
-            rows = (
-                0
-                if df.empty
-                else replace_dataframe_range(
-                    conn,
-                    CANDLE_TABLE,
-                    df,
-                    key_column="ticker",
-                    keys=[ticker],
-                    range_column="ts",
-                    # Only the span that came back: older bars the source no longer
-                    # serves stay.
-                    low=int(df["ts"].astype("int64").min()),
-                    high=int(df["ts"].astype("int64").max()) + 1,
-                )
+            # writers (121 markets failed in the first signed run). Only the bars that came
+            # back are replaced: a source that stops serving old bars must not erase them.
+            rows = merge_dataframe_range(
+                conn, CANDLE_TABLE, df, key_column="ticker", range_column="ts"
             )
             record_items(
                 conn,
@@ -640,6 +628,7 @@ def _backfill_market(
                         rows=rows,
                         http_status=200,
                         parser_version=CANDLE_PARSER_VERSION,
+                        retrieved_at=requested,
                         duration_ms=round((time.perf_counter() - started) * 1000),
                     )
                 ],
@@ -713,7 +702,7 @@ def backfill_history() -> dict[str, int]:
         try:
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futures = [
-                    pool.submit(_backfill_market, m, cutoff_ts, now_ts, run_id, limiter, monitor)
+                    pool.submit(_backfill_market, m, cutoff_ts, run_id, limiter, monitor)
                     for m in todo
                 ]
                 try:
@@ -833,7 +822,15 @@ def backfill_trades() -> dict[str, int]:
     cutoff = fetch_cutoff().get("trades_created_ts")
     cutoff_ts = _parse_kalshi_ts(cutoff) if cutoff else None
     now_ts = int(time.time())
-    spec = TradeDataset(SOURCE, TRADE_SOURCE, TRADE_DATASET, TRADE_TABLE, "ticker", _TRADE_COLUMNS)
+    spec = TradeDataset(
+        SOURCE,
+        TRADE_SOURCE,
+        TRADE_DATASET,
+        TRADE_TABLE,
+        "ticker",
+        _TRADE_COLUMNS,
+        identity=("trade_id",),
+    )
     try:
         total = market_history.backfill_trades(
             spec,

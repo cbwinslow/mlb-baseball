@@ -7,15 +7,17 @@ complete silently kept cut-off histories (openspec/changes/odds-bulk-history, AD
 
 import logging
 import threading
+from collections import Counter
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 import psycopg
 
 from mlb_baseball.db import get_connection
 from mlb_baseball.ingest import record_items, track_run
-from mlb_baseball.load import ensure_table
+from mlb_baseball.load import delete_resent_rows, ensure_table
 from mlb_baseball.opsmon import Monitor
 
 logger = logging.getLogger(__name__)
@@ -35,10 +37,10 @@ def is_complete(ended_ts: float | None, fetched_ts: float | None, now: float) ->
 
 
 def fetched_times(conn: psycopg.Connection, source: str, dataset: str) -> dict[str, float]:
-    """``item_key`` -> when it was last fetched successfully (Unix seconds)."""
+    """``item_key`` -> when it was last asked for successfully (Unix seconds)."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT item_key, extract(epoch FROM updated_at)::float8 FROM meta.ingestion_item "
+            "SELECT item_key, extract(epoch FROM retrieved_at)::float8 FROM meta.ingestion_item "
             "WHERE source = %s AND dataset = %s AND status IN ('loaded', 'unavailable')",
             (source, dataset),
         )
@@ -62,10 +64,11 @@ class TradeDataset:
     table: str
     key_column: str
     columns: tuple[str, ...]
+    identity: tuple[str, ...]  # the columns that make two rows the same trade
 
 
 class _Writer:
-    """One database connection per worker thread; replaces one market per transaction."""
+    """One database connection per worker thread; lands one market per transaction."""
 
     def __init__(self, spec: TradeDataset) -> None:
         self.spec = spec
@@ -87,9 +90,10 @@ class _Writer:
             if not conn.closed:
                 conn.close()
 
-    def replace(self, conn: psycopg.Connection, key: str, rows: Sequence[dict]) -> None:
-        """Replace one market's rows in the caller's transaction. No rows: keep what is
-        stored (a source that stops serving old trades must not erase them)."""
+    def merge(self, conn: psycopg.Connection, key: str, rows: Sequence[dict]) -> None:
+        """Land one market's rows in the caller's transaction. Stored trades the reply
+        carries again are replaced; the others stay, because a source that stops
+        serving old trades must not erase them."""
         if not rows:
             return
         columns = list(dict.fromkeys([*self.spec.columns, *(c for row in rows for c in row)]))
@@ -101,11 +105,15 @@ class _Writer:
         schema, name = self.spec.table.split(".")
         table = psycopg.sql.Identifier(schema, name)
         with conn.cursor() as cur:
-            cur.execute(
-                psycopg.sql.SQL("DELETE FROM {} WHERE {} = %s").format(
-                    table, psycopg.sql.Identifier(self.spec.key_column)
+            delete_resent_rows(
+                cur,
+                self.spec.table,
+                key_column=self.spec.key_column,
+                keys=[key],
+                identity=self.spec.identity,
+                resent=Counter(
+                    tuple(_text(row.get(c)) for c in self.spec.identity) for row in rows
                 ),
-                (key,),
             )
             copy_sql = psycopg.sql.SQL("COPY {} ({}) FROM STDIN").format(
                 table, psycopg.sql.SQL(", ").join(map(psycopg.sql.Identifier, columns))
@@ -163,10 +171,14 @@ def backfill_trades(
                 "run_id": run_id,
             }
             try:
+                requested = datetime.now(UTC)
                 rows = fetch(market)
-                writer.replace(worker, market.key, rows)
+                writer.merge(worker, market.key, rows)
                 status = "loaded" if rows else "unavailable"
-                record_items(worker, [{**item, "status": status, "rows": len(rows)}])
+                record_items(
+                    worker,
+                    [{**item, "status": status, "rows": len(rows), "retrieved_at": requested}],
+                )
                 worker.commit()
                 return len(rows), 0
             except Exception as exc:

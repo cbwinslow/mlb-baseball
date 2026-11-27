@@ -15,6 +15,12 @@ Also: the 5-minute `mlb_api` update now raises one alert after three failures in
 `scripts/mlb_alert.sh` (taken unchanged from branch `stabilize-market-clean`, because the
 configured alert command did not exist on `main`).
 
+Review (PR 407) found two defects, fixed before merge: a shorter reply could erase stored
+trades, bars or points inside the returned range; and coverage counted an early fetch as held
+until the 14-day window ended even when the market had closed sooner; and a history was
+dated when it was saved, so a market closing mid-request (or after a long run started) could
+be marked complete without its last minutes. It is now dated when the source was asked.
+
 ## Overlap with unmerged work
 Branch `stabilize-market-clean` rewrites the same loaders as append-only (duplicates ignored).
 Before it merges it must keep this change's behaviour: re-fetched candle rows have to update

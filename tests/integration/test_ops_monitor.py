@@ -322,32 +322,21 @@ def test_nightly_prunes_the_monitor_tables(db_conn):
     assert _one(db_conn, "SELECT count(*) FROM meta.op_span WHERE op = 'test.stale'") == (0,)
 
 
-def test_replace_dataframe_range_clears_only_the_window_of_the_given_keys(db_conn):
+def test_merge_dataframe_range_replaces_only_the_points_that_came_back(db_conn):
     import pandas as pd
 
-    from mlb_baseball.load import ensure_table, replace_dataframe_range
+    from mlb_baseball.load import ensure_table, merge_dataframe_range
 
     table = f"raw.ops_range_{uuid.uuid4().hex[:8]}"
     ensure_table(db_conn, table, ["k", "ts", "v"], index_column="k")
     try:
         first = pd.DataFrame({"k": ["a", "a", "b"], "ts": [10, 20, 10], "v": ["1", "2", "3"]})
-        replace_dataframe_range(
-            db_conn,
-            table,
-            first,
-            key_column="k",
-            keys=["a", "b"],
-            range_column="ts",
-            low=0,
-            high=30,
-        )
-        again = pd.DataFrame({"k": ["a"], "ts": [10], "v": ["9"]})  # window [0, 15) for a only
-        replace_dataframe_range(
-            db_conn, table, again, key_column="k", keys=["a"], range_column="ts", low=0, high=15
-        )
+        merge_dataframe_range(db_conn, table, first, key_column="k", range_column="ts")
+        again = pd.DataFrame({"k": ["a", "a"], "ts": [10, 30], "v": ["9", "4"]})
+        assert merge_dataframe_range(db_conn, table, again, key_column="k", range_column="ts") == 2
         db_conn.commit()
         rows = _rows(db_conn, f"SELECT k, ts, v FROM {table} ORDER BY k, ts::int")
-        assert rows == [("a", "10", "9"), ("a", "20", "2"), ("b", "10", "3")]
+        assert rows == [("a", "10", "9"), ("a", "20", "2"), ("a", "30", "4"), ("b", "10", "3")]
     finally:
         db_conn.rollback()
         with db_conn.cursor() as cur:
@@ -355,36 +344,27 @@ def test_replace_dataframe_range_clears_only_the_window_of_the_given_keys(db_con
         db_conn.commit()
 
 
-def test_replace_csv_range_loads_prebuilt_text_and_empty_text_only_clears(db_conn):
-    from mlb_baseball.load import ensure_table, replace_csv_range
+def test_merge_csv_range_loads_prebuilt_text_and_nothing_erases_nothing(db_conn):
+    from mlb_baseball.load import ensure_table, merge_csv_range
 
     table = f"raw.ops_csv_{uuid.uuid4().hex[:8]}"
     ensure_table(db_conn, table, ["k", "ts", "v"], index_column="k")
+    columns = ["k", "ts", "v"]
     try:
-        replace_csv_range(
+        merge_csv_range(
             db_conn,
             table,
-            ["k", "ts", "v"],
+            columns,
             "a,10,1\na,20,2\n",
             key_column="k",
-            keys=["a"],
             range_column="ts",
-            low=0,
-            high=30,
+            points={("a", "10"), ("a", "20")},
         )
-        replace_csv_range(
-            db_conn,
-            table,
-            ["k", "ts", "v"],
-            "",
-            key_column="k",
-            keys=["a"],
-            range_column="ts",
-            low=0,
-            high=15,
+        merge_csv_range(
+            db_conn, table, columns, "", key_column="k", range_column="ts", points=set()
         )
         db_conn.commit()
-        assert _rows(db_conn, f"SELECT ts FROM {table}") == [("20",)]
+        assert _rows(db_conn, f"SELECT ts FROM {table} ORDER BY ts") == [("10",), ("20",)]
     finally:
         db_conn.rollback()
         with db_conn.cursor() as cur:

@@ -2,6 +2,7 @@
 fake matching polymarket.fetch_events' keyset-pagination + filter-param
 contract rather than patching the Gamma API responses verbatim."""
 
+import time
 from unittest.mock import patch
 
 import pytest
@@ -646,7 +647,7 @@ def test_backfill_does_not_hold_the_workflow_lock_or_the_update_source_lock(db_c
 def _set_fetched_at(db_conn, dataset, when):
     with db_conn.cursor() as cur:
         cur.execute(
-            "UPDATE meta.ingestion_item SET updated_at = %s WHERE source = %s AND dataset = %s",
+            "UPDATE meta.ingestion_item SET retrieved_at = %s WHERE source = %s AND dataset = %s",
             (when, polymarket.SOURCE, dataset),
         )
     db_conn.commit()
@@ -868,3 +869,67 @@ def test_trades_keep_both_sides_of_every_fill_and_mark_the_taker(db_conn, _trade
             ("t2", "2.5", "true"),
             ("t2", "2.5", "true"),
         ]
+
+
+def test_backfill_keeps_stored_points_a_refetch_leaves_out(db_conn, _ledger_clean):
+    _bootstrap_with([_settled_event()])
+    t0 = polymarket._epoch("2025-04-02T09:00:00Z")
+    _run_backfill(FakeClob({"tok-1-0-a": [(t0, 0.4), (t0 + 60, 0.5), (t0 + 120, 0.6)]}))
+    _set_fetched_at(db_conn, polymarket.PRICE_DATASET, "2025-04-02T10:00:00Z")
+
+    _run_backfill(FakeClob({"tok-1-0-a": [(t0, 0.41), (t0 + 120, 0.6)]}))
+
+    assert [p for _, _, p in _price_rows(db_conn)] == ["0.41", "0.5", "0.6"]
+
+
+def test_trades_a_shorter_refetch_never_erases_saved_fills(db_conn, _trade_clean):
+    _bootstrap_with([_trade_event()])
+    twin, other = _fill("0xc1", "t1"), _fill("0xc1", "t2")
+    _run_trades(FakeTradeApi({"0xc1": [[twin, twin, other]]}))
+    _set_fetched_at(db_conn, polymarket.TRADE_DATASET, "2025-04-02T10:00:00Z")
+
+    _run_trades(FakeTradeApi({"0xc1": [[twin, _fill("0xc1", "t3")]]}))
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            f"SELECT transaction_hash, count(*) FROM {polymarket.TRADE_TABLE} GROUP BY 1 ORDER BY 1"
+        )
+        assert cur.fetchall() == [("t1", 2), ("t2", 1), ("t3", 1)]
+
+
+@pytest.mark.parametrize("dataset", ["price_history", "trades"])
+def test_history_is_dated_when_it_was_requested(db_conn, _ledger_clean, _trade_clean, dataset):
+    _bootstrap_with([_trade_event()])
+    asked = []
+
+    def slow(api):
+        def call(*args, **kwargs):
+            asked.append(time.time())
+            time.sleep(0.2)
+            return api(*args, **kwargs)
+
+        return call
+
+    if dataset == "trades":
+        _run_trades(slow(FakeTradeApi({"0xc1": [[_fill("0xc1", "t1")]]})))
+    else:
+        t0 = polymarket._epoch("2025-04-02T09:00:00Z")
+        clob = FakeClob({"tok-1-0-a": [(t0, 0.4)]})
+        original = polymarket.fetch_batch_history
+
+        def slow_history(*args, **kwargs):
+            asked.append(time.time())
+            time.sleep(0.2)
+            return original(*args, **kwargs)
+
+        with patch.object(polymarket, "fetch_batch_history", side_effect=slow_history):
+            _run_backfill(clob)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT max(extract(epoch FROM retrieved_at))::float8 FROM meta.ingestion_item "
+            "WHERE source = %s AND dataset = %s",
+            (polymarket.SOURCE, dataset),
+        )
+        (retrieved,) = cur.fetchone()
+    assert retrieved <= asked[-1]

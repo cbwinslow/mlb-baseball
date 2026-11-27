@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prints unseen mlb alerts at shell login. Source or run it from ~/.zshrc:
+# Prints unseen mlb alerts at shell login. Run it (do not source it) from ~/.zshrc:
 #   [[ -o interactive ]] && ~/workspace/mlb/scripts/mlb_alert_banner.sh
 # `mlb_alert_banner.sh --clear` marks everything seen. Prints nothing when there
 # is nothing new, so it never adds noise.

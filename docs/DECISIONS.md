@@ -8,8 +8,8 @@ Short log of choices made and why, so we don't re-litigate them later. Newest fi
 each site lists (all leagues and categories), price history for every Polymarket outcome token
 (not only daily games), and trade-by-trade history into `raw.kalshi_trade` and
 `raw.polymarket_trade`. A stored history (candles, a price window, a market's trades) counts as
-complete only if it was fetched after the thing it describes ended; an empty reply never deletes
-stored rows. Only `mlb-` event slugs reach `core.market` and model market input. Owner request,
+complete only if it was fetched after the thing it describes ended; a new reply replaces only the
+bars, points or trades it carries again and never deletes the others. Only `mlb-` event slugs reach `core.market` and model market input. Owner request,
 2026-11-27 ("fix all of the collectors ... collect all possible data"). This widens ADR-049
 (daily games only for price history) and the earlier MLB-only series list.
 

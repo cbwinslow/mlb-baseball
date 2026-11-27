@@ -5,6 +5,7 @@ import time
 import pytest
 
 from mlb_baseball.connectors import kalshi
+from mlb_baseball.db import get_connection
 
 ALL_TABLES = [kalshi.SERIES_TABLE, kalshi.EVENT_TABLE, kalshi.MARKET_TABLE]
 # Tables this test file's fixtures might create, beyond ALL_TABLES above —
@@ -637,6 +638,30 @@ def test_candle_backfill_takes_short_lived_markets_before_season_long_ones(
     )
     markets = kalshi._candle_markets(db_conn)
     assert [m["ticker"] for m in markets] == ["OLD-SHORT-A", "OLD-SHORT-B", "OLD-LONG-A"]
+
+
+def test_candle_backfill_holds_no_transaction_open_while_it_downloads(
+    db_conn, monkeypatch, _candle_ledger_clean
+):
+    """The connection that plans the run stayed `idle in transaction` for the whole run (days),
+    so vacuum could not remove any dead row written after it began."""
+    _seed_markets(monkeypatch, [_market("OLD-PLAN-A", "OLD-PLAN", **_times())])
+    left_open = []
+
+    class Watching(FakeCandles):
+        def __call__(self, url, params):
+            with get_connection() as watcher, watcher.cursor() as cur:
+                cur.execute(
+                    "SELECT query FROM pg_stat_activity WHERE datname = current_database() "
+                    "AND state = 'idle in transaction' AND query LIKE '%raw.kalshi_market m%'"
+                )
+                left_open.extend(cur.fetchall())
+            return super().__call__(url, params)
+
+    fake = Watching()
+    _run_candles(monkeypatch, fake)
+    assert fake.calls
+    assert left_open == []
 
 
 def test_many_markets_written_concurrently_do_not_deadlock(

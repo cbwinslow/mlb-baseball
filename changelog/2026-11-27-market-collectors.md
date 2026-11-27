@@ -36,4 +36,14 @@ volume for two markets; Polymarket taker totals equalled listed volume for two o
 (the third was 97%, cause not established).
 
 ## Production runs
-Not yet run.
+Candle re-download on 2026-11-27 was far too slow: about one market every 6 seconds across
+8 workers, while the Polymarket price backfill kept the disk saturated.
+
+## Run monitor stalled every worker
+All workers record timing through one connection under one lock, and each insert waited for
+the disk. Measured under that load: a waiting commit took a median 1.2 s (mean 1.8 s, max
+12 s); a non-waiting one a median 0.2 ms (mean 0.24 s). The monitor connection now sets
+`synchronous_commit = off`: a crash can lose the last timing rows, never data or ledger rows.
+The candle backfill also committed nothing after planning, so its connection stayed
+`idle in transaction` for the whole run and blocked vacuum; it now commits there, as the trade
+backfill already did.

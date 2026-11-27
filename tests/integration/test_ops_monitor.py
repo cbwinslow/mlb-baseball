@@ -44,6 +44,33 @@ def _clean(db_conn):
     db_conn.commit()
 
 
+# --- the monitor's connection ----------------------------------------------
+
+
+def test_monitor_commits_do_not_wait_for_the_disk(db_conn, monkeypatch):
+    """Every worker thread records its timing through one connection under one lock. A commit
+    that waited for a busy disk (median 1.2 s, max 12 s on 2026-11-27) stalled them all."""
+    real_connection = opsmon.get_connection
+
+    def server_default_connection():
+        # Production waits for the disk by default; the test database does not.
+        conn = real_connection()
+        conn.execute("SET synchronous_commit = on")
+        conn.commit()
+        return conn
+
+    monkeypatch.setattr(opsmon, "get_connection", server_default_connection)
+    monitor = opsmon.Monitor()
+    try:
+        with monitor.timed("test.commit_mode"):
+            pass
+        with monitor._connection().cursor() as cur:
+            cur.execute("SHOW synchronous_commit")
+            assert cur.fetchone() == ("off",)
+    finally:
+        monitor.close()
+
+
 # --- meta.run_progress -----------------------------------------------------
 
 

@@ -691,6 +691,8 @@ def backfill_history() -> dict[str, int]:
             for m in _candle_markets(conn)
             if not is_complete(_parse_kalshi_ts(m["close_time"]), done.get(m["ticker"]), now_ts)
         ]
+        # The run lasts hours or days; an open read here would stop vacuum for all of it.
+        conn.commit()
         logger.info(
             "kalshi backfill: %d markets to fetch, %d workers, up to %.0f requests/s",
             len(todo),

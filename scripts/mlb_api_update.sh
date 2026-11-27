@@ -56,6 +56,7 @@ cd "$REPO_DIR"
     elif grep -qF "$BUSY" <(tail -c "+$((start + 1))" "$LOG_FILE"); then
         count_run "$BLOCKED_FILE" "$ALERT_BLOCKED_AFTER" "been blocked"
     else
+        rm -f "$BLOCKED_FILE" # no longer blocked "in a row"
         count_run "$FAIL_FILE" "$ALERT_AFTER" "failed"
     fi
 } >> "$LOG_FILE" 2>&1

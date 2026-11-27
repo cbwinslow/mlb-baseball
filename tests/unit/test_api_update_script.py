@@ -120,3 +120,13 @@ def test_the_blocked_message_is_the_one_ingest_raises():
     source = (SCRIPTS.parent / "mlb_baseball" / "ingest.py").read_text()
 
     assert BUSY.removeprefix("RuntimeError: ") in source
+
+
+def test_an_ordinary_failure_ends_the_blocked_streak(tmp_path):
+    cron = Cron(tmp_path)
+
+    for _ in range(23):
+        cron.run(1, BUSY)
+    cron.run(1)
+    cron.run(1, BUSY)
+    assert cron.alerts() == []

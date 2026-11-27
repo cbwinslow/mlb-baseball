@@ -116,7 +116,7 @@ BASE_URL = "https://gamma-api.polymarket.com"
 CLOB_BASE_URL = "https://clob.polymarket.com"  # prices-history only, confirmed unauthenticated
 MLB_SERIES_ID = 3  # confirmed via GET /series?recurrence=daily
 MLB_TAG_SLUG = "mlb"  # season-long futures, confirmed via GET /events?tag_slug=mlb
-BASEBALL_TAG_SLUG = "baseball"  # every other league and baseball prop (ADR-304)
+BASEBALL_TAG_SLUG = "baseball"  # every other league and baseball prop (ADR-305)
 DATA_API_URL = "https://data-api.polymarket.com"
 TRADE_TABLE = "raw.polymarket_trade"
 TRADE_SOURCE = "polymarket_trades"  # own run-ledger/lock name
@@ -384,7 +384,7 @@ def _epoch(value: str | None) -> int | None:
 
 def _price_tokens(conn: psycopg.Connection) -> list[dict]:
     """Every outcome token we hold a market for: daily games, season-long futures, props
-    and other leagues. (ADR-049 first limited this to events with ``sport`` set; ADR-304
+    and other leagues. (ADR-049 first limited this to events with ``sport`` set; ADR-305
     widened it to everything.)"""
     with conn.cursor() as cur:
         cur.execute(

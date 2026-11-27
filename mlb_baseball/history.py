@@ -2,7 +2,7 @@
 
 A history item (price bars, a price window, a market's trades) is complete only if it
 was fetched **after** the thing it describes had ended. Treating "fetched once" as
-complete silently kept cut-off histories (openspec/changes/odds-bulk-history, ADR-304).
+complete silently kept cut-off histories (openspec/changes/odds-bulk-history, ADR-305).
 """
 
 import logging

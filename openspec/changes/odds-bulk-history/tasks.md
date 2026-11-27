@@ -18,7 +18,7 @@ Built as database objects (migration 0111, ADR-295) plus `mlb_baseball/opsmon.py
 - [x] 3.1 Shared rate limiter in `net.py` (documented limits as config); failing test: never exceeds the configured rate under N workers
 - [x] 3.2 Batch window fetch, newest-first ordering, ledger item per market-window (D3), single writer; failing tests with a fake CLOB that mirrors real behaviour (empty for `interval=max`, windows capped, 20-token cap)
 - [ ] 3.3 Gamma markets/events: confirm every field is kept; add what the docs list and we drop
-- [x] 3.6 Per-trade history from the data API within its limits (`--mode trades`, ADR-304)
+- [x] 3.6 Per-trade history from the data API within its limits (`--mode trades`, ADR-305)
 - [x] 3.4 Lock: the backfill keeps the shared workflow lock (it finishes in about an hour now); `mlb build` waits for it
 - [ ] 3.5 Owner-approved production run (newest first), progress watched in the run row; log counts and timings in `pipeline-recovery/results.md`; verify three sample markets against the live API
 
@@ -41,7 +41,7 @@ Built as database objects (migration 0111, ADR-295) plus `mlb_baseball/opsmon.py
 - [ ] 6.1 Update `polymarket.py.dox.md`, `kalshi.py.dox.md`, `docs/DATA_SOURCES.md`, `docs/RAW_INVENTORY.md`; supersede `odds-history-capture` tasks 4.2/4.3
 - [ ] 6.2 `openspec validate odds-bulk-history` passes; archive after owner review
 
-## 7. Completeness fixes (owner request 2026-11-27, ADR-304)
+## 7. Completeness fixes (owner request 2026-11-27, ADR-305)
 
 - [x] 7.1 Complete only if fetched after it ended; empty replies keep stored rows
 - [x] 7.2 Historical candle volume and open interest; requeue helper for rows already saved

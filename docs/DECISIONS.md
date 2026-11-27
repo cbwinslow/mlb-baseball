@@ -2,7 +2,7 @@
 
 Short log of choices made and why, so we don't re-litigate them later. Newest first.
 
-## ADR-304: Collect every baseball market and its trades; history is complete only if fetched after it ended
+## ADR-305: Collect every baseball market and its trades; history is complete only if fetched after it ended
 
 **Decision (2026-11-27).** The Kalshi and Polymarket connectors collect every baseball market
 each site lists (all leagues and categories), price history for every Polymarket outcome token

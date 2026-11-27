@@ -31,7 +31,7 @@ Public connector capabilities:
 
 - Public read-only API: `api.elections.kalshi.com/trade-api/v2`.
 - Current connector uses unauthenticated market-data reads; authenticated trading/portfolio requests are a different capability and are not part of this implementation.
-- Scope (ADR-304): every baseball series in any category or league. The full series list is fetched and `is_baseball_series` decides by tag, ticker (`MLB`, not `MLBB`) and title, plus a short reviewed list; esports and a series titled "DO NOT USE" are excluded.
+- Scope (ADR-305): every baseball series in any category or league. The full series list is fetched and `is_baseball_series` decides by tag, ticker (`MLB`, not `MLBB`) and title, plus a short reviewed list; esports and a series titled "DO NOT USE" are excluded.
 - Daily game moneyline series `KXMLBGAME` currently has genuinely shallow history beginning in 2026; do not invent deeper Kalshi sports-market history.
 - Repository rights/profile metadata remains authoritative for permitted use/redistribution; unauthenticated readability is not a redistribution license.
 

@@ -3,7 +3,7 @@
 ## Purpose
 
 Own the shared rule for when a prediction-market history is complete, and the threaded
-per-market trade backfill used by the Kalshi and Polymarket connectors (ADR-304).
+per-market trade backfill used by the Kalshi and Polymarket connectors (ADR-305).
 
 ## Ownership
 

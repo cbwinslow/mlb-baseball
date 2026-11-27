@@ -12,7 +12,7 @@ at all and getting real 200 responses back. KALSHI_API_KEY (added to
 a possible future authenticated feature, not required for what's built.
 
 Scope is every baseball market Kalshi lists, MLB or not and in any category
-(ADR-304, which widened the earlier MLB-only scope); see ``is_baseball_series``.
+(ADR-305, which widened the earlier MLB-only scope); see ``is_baseball_series``.
 
 Each Kalshi "market" (e.g. KXMLBGAME-26JUL311420NYYCHC-NYY) is already the
 atomic yes/no contract with its own live price fields (yes_bid_dollars,
@@ -170,7 +170,7 @@ _open_connections_lock = threading.Lock()
 _schema_lock = threading.Lock()
 _known_candle_columns: set[str] = set()
 
-# Scope: every baseball market Kalshi lists, in any category and league (ADR-304). Kalshi's
+# Scope: every baseball market Kalshi lists, in any category and league (ADR-305). Kalshi's
 # tags are incomplete (several MLB series carry none), so titles and tickers are read too.
 # "MLBB" is the video game Mobile Legends: Bang Bang, not baseball.
 _BASEBALL_TITLE = re.compile(r"\bMLB\b|baseball", re.IGNORECASE)

@@ -51,7 +51,7 @@ dev = [
     "pre-commit>=4.6",
     "sqlmesh[postgres]>=0.236.1",
     "sqlfluff>=3.0",
-    "pytest-postgresql>=8.1,<10",
+    "pytest-postgresql>=8.1,<11",
     "pytest-split>=0.9",
     # notebooks/*.py (delivery-surface change) -- example recipes against the
     # published mlb-research dataset, not the ingestion pipeline.
